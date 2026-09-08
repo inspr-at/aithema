@@ -1,0 +1,76 @@
+{
+  "package": {
+    "name": "@inspr/aithema-core",
+    "version": "0.0.0",
+    "license": "AGPL-3.0-only",
+    "private": true
+  },
+  "dependencies": [
+    {
+      "name": "@fontsource/noto-sans",
+      "version": "5.2.5",
+      "license": "SIL-OFL-1.1",
+      "use": "Embedded Latin, Latin-Extended, Greek, and Cyrillic WOFF subsets for printable PDF export."
+    },
+    {
+      "name": "fontkit",
+      "version": "2.0.4",
+      "license": "MIT",
+      "use": "Opens pinned Noto Sans WOFF subsets to verify glyph coverage before PDF export."
+    },
+    {
+      "name": "pdfkit",
+      "version": "0.17.2",
+      "license": "MIT",
+      "use": "Printable PDF generation for reviewed handover export."
+    },
+    {
+      "name": "unpdf",
+      "version": "1.8.0",
+      "license": "MIT",
+      "use": "PDF text extraction for document intake (pdf.js family)."
+    }
+  ],
+  "extraction_provenance": [
+    {
+      "aithema_module": "lib/csv.js",
+      "start_source": "start-agm-com src/lib/understanding-csv.ts",
+      "notes": "neutraliseSpreadsheetFormula, semicolon CSV + BOM encoding pattern"
+    },
+    {
+      "aithema_module": "domain model naming",
+      "start_source": "start-agm-com delivery-stream.schema.json",
+      "notes": "requirement_ref, baseline_ref, content_digest, constraint_ref, party roles"
+    },
+    {
+      "aithema_module": "runtime/transcript.js",
+      "start_source": "start-agm-com src/lib/transcript-limits.ts, dedupe in src/lib/v2-transcript.ts",
+      "notes": "Transcript bounds and duplicate-turn suppression"
+    },
+    {
+      "aithema_module": "runtime/understanding.js",
+      "start_source": "start-agm-com src/lib/guided-pass.ts (algorithm only)",
+      "notes": "Focused next question; no agency slots or offer copy"
+    },
+    {
+      "aithema_module": "runtime/provider.js",
+      "start_source": "start-agm-com src/lib/providers/types.ts (LLM request/stream shape)",
+      "notes": "Generic streamChat contract; mock is a labelled test double"
+    },
+    {
+      "aithema_module": "lib/extract-limits.js, runtime/extract.js, runtime/pdf-extract-child.js",
+      "start_source": "start-agm-com src/lib/extract.ts, src/pages/api/upload.ts",
+      "notes": "unpdf text-bearing PDF extract with bounded child-process parsing"
+    }
+  ],
+  "not_copied": [
+    "agency prompts",
+    "branding/i18n",
+    "mail/handoff",
+    "credits",
+    "voice SDK",
+    "customer records",
+    "env/secret files",
+    "START UI chrome"
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "description": "Closed inventory for @inspr/aithema-core release artifacts. Only tracked Git blobs at the build commit are exported; never the operator working tree.",
+  "paths": [
+    "LICENSE",
+    "NOTICES.json",
+    "README.md",
+    "RUNBOOK.md",
+    "package.json",
+    "package-lock.json",
+    "examples/",
+    "lib/",
+    "runtime/",
+    "workspace/"
+  ],
+  "forbidden_patterns": [
+    "^\\.env",
+    "^\\.data/",
+    "^node_modules/",
+    "^test/",
+    "^release/",
+    "^AGENTS\\.md$",
+    "^worker-result\\.txt$",
+    "\\.sqlite$",
+    "\\.db$",
+    "/uploads/",
+    "\\.age$"
+  ]
+}

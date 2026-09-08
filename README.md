@@ -1,0 +1,103 @@
+# Aithema Core
+
+Reusable requirements assistant package extracted for AIT-4, with an AIT-6 conversation workspace above that core. Product, iteration, and integration streams can overlap; humans choose autonomy and delivery approval; incoming ideas stay proposals until an explicit baseline is confirmed.
+
+This is a small standalone Node ESM package with built-in `node:test` — not a rewrite of the START agency application.
+
+## Provenance
+
+Selectively adapted from read-only inspection of START (`start-agm-com`) primitives:
+
+| Aithema module | START source | Notes |
+| --- | --- | --- |
+| `lib/csv.js` | `src/lib/understanding-csv.ts` | `neutraliseSpreadsheetFormula`, semicolon CSV + BOM encoding pattern |
+| Domain model naming | `delivery-stream.schema.json` | `requirement_ref`, `baseline_ref`, `content_digest`, `constraint_ref`, party roles |
+| `runtime/transcript.js` | `src/lib/transcript-limits.ts`, dedupe in `src/lib/v2-transcript.ts` | Bounds `8000` / `80` / `96000`; incomplete streams are not durable; identical last role+content is not a new turn |
+| `runtime/understanding.js` | `src/lib/guided-pass.ts` (algorithm only) | One focused next question; question merge/overlap; no agency slots or offer copy |
+| `runtime/provider.js` | `src/lib/providers/types.ts` (LLM request/stream shape) | Generic `streamChat` contract; OpenAI-compatible HTTP adapter is original; mock is a labelled test double |
+| `lib/extract-limits.js`, `runtime/extract.js`, `runtime/pdf-extract-child.js` | `src/lib/extract.ts`, `src/pages/api/upload.ts` | `unpdf` text-bearing PDF extract; page/output/deadline caps; honest empty/scanned/encrypted/unsupported results; extracted text only (no raw upload persistence). PDF parse runs in a child process that is killed on cancel. |
+
+**Not copied:** agency prompts, branding/i18n, mail/handoff, credits, voice SDK, customer records, env/secret files, or START UI chrome.
+
+START remains unchanged on its PMA business track. Public release, START cutover, and live provider/OIDC proof remain later work.
+
+## Design
+
+- **Pure domain APIs** — caller supplies `VerifiedAuthority` (`party_ref` + `roles`); no fake auth.
+- **Stable requirement IDs** — `requirement_ref` and `constraint_ref` are opaque refs aligned with the delivery contract.
+- **Immutable approved baselines** — `content_digest` hashes canonical requirement/constraint payload in UTF-16 code-unit order (locale-independent). `revision_seal` binds `baseline_ref` + `revision` + `content_digest`. `approved_by` is a recorded claim; digests do not authenticate actors.
+- **Proposal boundary** — contribution and `requirements_approver` approval are separate; import creates proposals only. Source handover identity is retained as claims, never as imported approval. Duplicate or stale add proposals are rejected rather than silently overwriting.
+- **Update proposals** — `update_requirement` and handover-reachable `update_constraint` bind to the baseline snapshot they were authored against (`against_baseline_ref`, `against_revision`, `against_content_digest`). A second pending update for the same ref is rejected. Approval rejects conflicting or stale updates instead of last-write-wins, and never records `approved` for overwritten content. Non-conflicting edits and imports stay human-approved proposals.
+- **Explicit rejection** — `rejectProposals` records `outcome: 'rejected'` with the same approver gate and leaves baseline history unchanged.
+- **Rehydration trust boundary** — streams reloaded from storage are untrusted. `approveBaselineFromProposals` calls `assertRehydratedBaseline` on inherited content and verifies digest/seal *before* returning any new snapshot or decision. `assertApprovedBaselineImmutable` is the freeze-and-seal check; it is not a substitute for rehydration validation.
+- **Handover export** — `exportHandoverJson` and `exportHandoverCsv` identify the same revision, digest, and seal for the current stream (including pending proposals). Reviewed portable exports (`exportReviewedHandover`, CSV/HTML/PDF) bind one explicit approved `baseline_ref`/`revision` and omit unapproved notes, provider config, and identity maps.
+- **Document intake** — own-format `aithema.handover/0.1` JSON validates the canonical `content_digest` and becomes unapproved add/update proposals. `approved_by` / `revision_seal` stay claims. Generic text/CSV/JSON/XML/PDF keep filename, media type, and extraction/uncertainty; Interpret uses only the server-configured provider/model.
+- **Conversation runtime** — authenticated input → configured provider → evolving understanding → unapproved proposals. A provider stream is complete only after an explicit successful terminator (`[DONE]` or `finish_reason: stop`). Premature EOF, length/content-filter finishes, cancellation, timeout, and oversized responses are incomplete: they do not persist assistant turns or mint proposals.
+- **Provider registry** — named operator-owned providers and allowed models. OpenAI-compatible endpoints (including self-hosted) are server-configured, with bounded duration and response size. The browser cannot supply endpoints, credentials, limits, or an unapproved model. The mock provider exists only in explicit labelled demo/test mode and never claims live AI.
+- **Identity** — production uses JWT/JWKS (issuer, audience, algorithm, time) plus a trusted membership/actor-kind map. A signed subject is not automatically human. Unconfigured production identity fails closed. Demo auth is loopback-only, HMAC-bound, and visibly labelled. Demo signing keys are ephemeral per process unless the operator sets a private secret.
+- **Durable store** — SQLite with atomic revision updates, idempotent turn ids, and membership isolation. Current verified subject membership is authoritative on each request; `members` stores creator grants keyed by subject, not shared `party_ref`. Mapped project access is re-checked from the operator map and is not cached as a permanent grant.
+
+Names align with `inspr.delivery-stream/0.1-draft` baseline shapes without implementing the full delivery protocol.
+
+Voice SDK extraction and element-specific preview feedback remain later work.
+
+## Dependencies and fonts
+
+Pinned in `package-lock.json` (this package remains private `0.0.0`):
+
+| Package | License | Use |
+| --- | --- | --- |
+| `unpdf` 1.8.0 | MIT | PDF text extraction (pdf.js). Same family START uses. |
+| `pdfkit` 0.17.2 | MIT | Printable PDF generation. Transitive `crypto-js` / `jpeg-exif` are unused by our text-only export path. |
+| `fontkit` 2.0.4 | MIT | Opens pinned Noto Sans WOFF subsets to verify glyph coverage before PDF export. |
+| `@fontsource/noto-sans` 5.2.5 | SIL OFL 1.1 | Embedded Latin, Latin-Extended, Greek, and Cyrillic WOFF subsets in PDF. Standalone HTML uses the viewing device’s system font stack for broader Unicode. PDF export is not universal Unicode: characters those subset files cannot paint (for example CJK and some Latin Extended Additional codepoints such as U+1EBF and U+1EC7) are refused with an error that points at lossless HTML/JSON, never dropped as missing glyphs. CJK is not embedded (those files are large). |
+
+No raw uploads or customer records are written. Tests use the labelled mock provider only.
+
+## Usage
+
+```bash
+npm test
+npm run test:packaging
+npm run test:source-export
+npm run verify:license
+npm run release:build
+npm run source:export
+npm run example
+npm run workspace -- examples/demo-config.json
+```
+
+`npm run release:build` publishes one immutable runtime release coordinate as a single directory, `dist/inspr-aithema-core-0.0.0/`, holding `inspr-aithema-core-0.0.0.tgz` and its sidecar manifest built from the closed allowlist in `release/allowlist.json`. The directory is staged and committed with one rename, so the pair is never half-written and an existing coordinate is never replaced: a byte-identical rebuild is accepted, different bytes are refused.
+
+`npm run source:export` publishes one immutable public upstream source candidate as `dist/inspr-aithema-core-source-0.0.0/`, holding `inspr-aithema-core-source-0.0.0.tgz` and its sidecar manifest built from the closed allowlist in `release/source-allowlist.json`. The export includes tests, release tooling, and CI workflows needed to reproduce runtime packaging, while excluding private worker files such as `AGENTS.md`, private Git history, and operator residue. The source manifest records `private_source_commit` as original lineage and `current_source_commit` as the Git commit actually exported; those are not interchangeable after a later public `git init`. Runtime artifact manifests keep frozen schema `aithema-release-manifest/0.1` and bind `source.commit` to that current exported commit so a public Git checkout and its extracted non-Git tree agree. Canonical published bytes are the CI GNU tar toolchain with Git committer-epoch timestamps; BSD tar may differ. Machine-readable publication inventory and coordinator handoff gates live in `release/publication-inventory.json`.
+
+The package remains private `0.0.0` until a coordinator separately reserves the first public release coordinate. No public repository, tag, or registry publish happens in this increment.
+
+Package subpaths: `@inspr/aithema-core` (domain), `@inspr/aithema-core/runtime`, `@inspr/aithema-core/workspace`.
+
+```js
+import {
+  createStream,
+  proposeRequirement,
+  approveBaselineFromProposals,
+  rejectProposals,
+  exportHandoverJson,
+} from '@inspr/aithema-core';
+
+const approver = { party_ref: 'party:owner', roles: ['requirements_approver'] };
+let stream = createStream('stream:my-product', ['new_product']);
+stream = proposeRequirement(stream, approver, {
+  requirement_ref: 'req.login',
+  statement: 'Users sign in with email',
+  acceptance_criteria: ['Magic links expire'],
+  constraint_refs: [],
+});
+stream = approveBaselineFromProposals(stream, approver, [stream.proposals[0].proposal_ref], 'baseline:v1');
+console.log(exportHandoverJson(stream));
+```
+
+Operator setup for the workspace is in `RUNBOOK.md`. Local tests use a deterministic HTTP fixture and labelled demo identity; they are not live provider or OIDC proof.
+
+## License
+
+AGPL-3.0-only (intended for future publication; not published in this increment).

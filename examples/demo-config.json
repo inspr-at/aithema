@@ -1,0 +1,40 @@
+{
+  "mode": "demo",
+  "listenHost": "127.0.0.1",
+  "listenPort": 8787,
+  "dataDir": "./.data",
+  "defaultProvider": "mock",
+  "identity": {
+    "kind": "demo",
+    "defaultSubject": "demo-reviewer",
+    "memberships": [
+      {
+        "subject": "demo-reviewer",
+        "party_ref": "party:demo-reviewer",
+        "actor_kind": "human",
+        "roles": ["requirements_approver", "delivery_party"],
+        "projects": []
+      },
+      {
+        "subject": "demo-agent",
+        "party_ref": "party:demo-agent",
+        "actor_kind": "agent",
+        "roles": ["delivery_party"],
+        "projects": []
+      },
+      {
+        "subject": "demo-outsider",
+        "party_ref": "party:demo-outsider",
+        "actor_kind": "human",
+        "roles": ["delivery_party"],
+        "projects": []
+      }
+    ]
+  },
+  "providers": {
+    "mock": {
+      "kind": "mock",
+      "chunkDelayMs": 0
+    }
+  }
+}

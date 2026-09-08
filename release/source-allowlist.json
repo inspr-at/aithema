@@ -1,0 +1,32 @@
+{
+  "description": "Closed inventory for the public upstream source candidate. Only tracked Git blobs at the build commit are exported; never the operator working tree, private history, or worker-only files.",
+  "paths": [
+    ".gitignore",
+    "LICENSE",
+    "NOTICES.json",
+    "README.md",
+    "RUNBOOK.md",
+    "package.json",
+    "package-lock.json",
+    ".github/",
+    "examples/",
+    "lib/",
+    "release/",
+    "runtime/",
+    "test/",
+    "workspace/"
+  ],
+  "forbidden_patterns": [
+    "^\\.env",
+    "^\\.data/",
+    "^node_modules/",
+    "^dist/",
+    "^AGENTS\\.md$",
+    "^worker-result\\.txt$",
+    "\\.sqlite$",
+    "\\.db$",
+    "/uploads/",
+    "\\.age$",
+    "^\\.git/"
+  ]
+}

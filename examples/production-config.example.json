@@ -1,0 +1,42 @@
+{
+  "mode": "production",
+  "listenHost": "127.0.0.1",
+  "listenPort": 8787,
+  "dataDir": "./.data",
+  "publicOrigin": "https://workspace.example.invalid",
+  "defaultProvider": "local-openai",
+  "defaultModel": "operator-approved-model",
+  "limits": {
+    "maxDurationMs": 60000,
+    "maxResponseBytes": 1048576,
+    "maxStreamBufferBytes": 65536,
+    "maxAssembledChars": 16000,
+    "maxUnderstandingBytes": 262144
+  },
+  "identity": {
+    "kind": "jwt-jwks",
+    "issuer": "https://auth.example.invalid",
+    "audience": "aithema",
+    "jwks_uri": "https://auth.example.invalid/jwks",
+    "algorithms": ["RS256"],
+    "subject_claim": "sub",
+    "memberships": [
+      {
+        "subject": "replace-with-oidc-subject",
+        "party_ref": "party:reviewer",
+        "actor_kind": "human",
+        "roles": ["requirements_approver", "delivery_party"],
+        "projects": []
+      }
+    ]
+  },
+  "providers": {
+    "local-openai": {
+      "kind": "openai-compatible",
+      "baseUrl": "http://127.0.0.1:8080/v1",
+      "apiKey": "",
+      "modelId": "operator-approved-model",
+      "allowedModels": ["operator-approved-model"]
+    }
+  }
+}

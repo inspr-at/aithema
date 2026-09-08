@@ -1,0 +1,9 @@
+{
+  "schema": "aithema-source-provenance/0.1",
+  "private_source_commit": "2ba95dad95fc4fee315faeb43c07a09d0d911e33",
+  "current_source_commit": "2ba95dad95fc4fee315faeb43c07a09d0d911e33",
+  "export_mtime_epoch": 1788824992,
+  "runtime_tree_digest": "sha256:606f69b397970408d3f1a4240a977cbada551b772237722a6830462eed294013",
+  "lock_digest": "sha256:1814493873ec077caf582bd79b6674084f45a43ab5c088013217a86ac6be9a47",
+  "normalization_note": "private_source_commit is lineage from the original private export. current_source_commit is the Git commit actually exported. runtime_tree_digest uses the AIT-10 path+blob-sha inventory; it is not a Git tree object id."
+}

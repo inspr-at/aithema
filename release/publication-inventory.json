@@ -1,0 +1,100 @@
+{
+  "schema": "aithema-publication-inventory/0.1",
+  "package": "@inspr/aithema-core",
+  "version_scheme": "legacy-semver-private",
+  "version": "0.0.0",
+  "release_channels": {
+    "runtime_package": "private-source",
+    "public_source_candidate": "public-source-candidate"
+  },
+  "exports": {
+    "runtime_package": {
+      "allowlist": "release/allowlist.json",
+      "builder": "release/build-release.mjs",
+      "script": "release:build",
+      "output_dir_pattern": "dist/inspr-aithema-core-{version}/",
+      "artifact_pattern": "inspr-aithema-core-{version}.tgz",
+      "manifest_pattern": "inspr-aithema-core-{version}.manifest.json"
+    },
+    "public_source_candidate": {
+      "allowlist": "release/source-allowlist.json",
+      "builder": "release/build-source.mjs",
+      "script": "source:export",
+      "output_dir_pattern": "dist/inspr-aithema-core-source-{version}/",
+      "artifact_pattern": "inspr-aithema-core-source-{version}.tgz",
+      "manifest_pattern": "inspr-aithema-core-source-{version}.manifest.json"
+    }
+  },
+  "excluded_from_public_source": [
+    "AGENTS.md",
+    "worker-result.txt",
+    ".env",
+    ".data/",
+    "node_modules/",
+    "dist/",
+    "private Git history and remotes"
+  ],
+  "included_in_public_source": [
+    "LICENSE",
+    "NOTICES.json",
+    "README.md",
+    "RUNBOOK.md",
+    "package.json",
+    "package-lock.json",
+    ".gitignore",
+    ".github/workflows/",
+    "examples/",
+    "lib/",
+    "release/",
+    "runtime/",
+    "test/",
+    "workspace/"
+  ],
+  "test_prerequisites": {
+    "node": ">=20",
+    "npm": ">=10",
+    "system": [
+      "trash CLI (packaging cleanup and negative-fixture tests)",
+      "tar",
+      "git (private export builder only; exported source must not require it)"
+    ],
+    "offline_install": "Prime npm cache once with an ordinary npm ci before npm run test:packaging -- --test-name-pattern offline",
+    "fixtures": {
+      "mock_provider": "Labelled demo/test double only; never live AI",
+      "demo_identity": "Loopback-only HMAC demo; not OIDC proof",
+      "http_provider": "Local deterministic fixture server in test/provider-http.test.js"
+    }
+  },
+  "ci": {
+    "continuous": ".github/workflows/ci.yml",
+    "release_admission": ".github/workflows/release.yml",
+    "release_trigger": "workflow_dispatch with explicit version coordinate only",
+    "auto_publish_on_push": false,
+    "ephemeral_transfer": "actions/upload-artifact is CI transfer only, not publication evidence",
+    "retained_forge_assets": "GitHub Release assets on refs/tags/{version} or refs/tags/v{version} via release/retain-forge-assets.mjs; mismatched tags are refused before forge I/O; identical re-runs are idempotent and changed bytes are refused",
+    "canonical_toolchain_enforcement": "AITHEMA_CANONICAL_RELEASE=1 on the release workflow; local BSD tar builds remain valid and are not byte-identical to GNU tar"
+  },
+  "reproducibility": {
+    "canonical_toolchain": {
+      "ci_runner": "ubuntu-latest",
+      "node": "22",
+      "tar_family": "gnu",
+      "tar_format": "gnu",
+      "timestamp_policy": "git-committer-epoch-seconds"
+    },
+    "boundary": "Published bytes are reproducible under the canonical GNU tar toolchain used by CI. BSD tar may emit different archive bytes for the same tree; local macOS builds are valid for development but are not the publication basis.",
+    "timestamp_policy_note": "Git-mode uses the committer epoch of the exported commit. Tree-mode reuses provenance.export_mtime_epoch recorded for that current_source_commit. Runtime source.commit is that current commit under frozen aithema-release-manifest/0.1; private_source_commit remains independent lineage in source provenance.",
+    "runtime_manifest_schema": "aithema-release-manifest/0.1"
+  },
+  "outstanding_coordinator_gates": [
+    "Reserve first public release coordinate (currently private 0.0.0)",
+    "Create public GitHub repository and namespace authority for @inspr/aithema-core",
+    "Initialize public Git history from accepted source candidate (do not push private history)",
+    "Pin START consumer to immutable public release after AIT-5 acceptance"
+  ],
+  "handoff": {
+    "review_extract": "npm run source:export && mkdir -p /tmp/aithema-source-review && tar -xzf dist/inspr-aithema-core-source-0.0.0/inspr-aithema-core-source-0.0.0.tgz -C /tmp/aithema-source-review",
+    "review_verify": "cd /tmp/aithema-source-review && npm ci && npm test && npm run release:build",
+    "provenance_note": "private_source_commit is original private lineage. current_source_commit is the Git commit actually exported. Runtime artifact manifests bind source.commit to current_source_commit under frozen schema 0.1. runtime_tree_digest uses the AIT-10 path+blob-sha inventory and is not a Git tree object id."
+  }
+}

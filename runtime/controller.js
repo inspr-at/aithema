@@ -1,0 +1,828 @@
+/**
+ * Headless conversation controller: authenticated input → configured provider
+ * → evolving understanding → unapproved proposals. Approval stays a separate
+ * human review call. Incomplete streams never persist assistant turns or proposals.
+ */
+
+import { randomUUID } from 'node:crypto';
+
+import {
+  approveBaselineFromProposals,
+  currentBaseline,
+  rejectProposals,
+} from '../lib/stream.js';
+import { exportHandoverCsv, exportHandoverJson, handoverRevisionIdentity } from '../lib/export.js';
+import { exportReviewedCsv, exportReviewedHandover } from '../lib/portable.js';
+import { exportReviewedHtml } from '../lib/export-html.js';
+import { exportReviewedPdf } from '../lib/export-pdf.js';
+import { importReviewedOwnFormat } from '../lib/intake.js';
+import {
+  EXTRACTION_REQUEST_BUDGET_MS,
+  normalizeUploadLimits,
+  PROVIDER_DOCUMENT_CHARS,
+} from '../lib/extract-limits.js';
+import { assertCanApproveBaseline } from '../lib/authority.js';
+import { contentDispositionAttachment, reviewedExportFilename } from '../lib/text.js';
+
+import {
+  appendTurn,
+  assistantTurnForPersistence,
+  boundMessage,
+  messagesForProvider,
+} from './transcript.js';
+import {
+  assertApprovedModel,
+  composeAbortSignals,
+  CONVERSATION_SYSTEM_PROMPT,
+  DOCUMENT_INTERPRET_SYSTEM_PROMPT,
+  isIncompleteProviderStream,
+  normalizeProviderLimits,
+  rejectBrowserProviderOverride,
+  UNDERSTANDING_SYSTEM_PROMPT,
+} from './provider.js';
+import { mergeUnderstanding, proposeFromUnderstanding, validateUnderstanding } from './understanding.js';
+import { assertHumanApprover, authorityFromActor } from './identity.js';
+import { createDocumentRecord, extractDocument } from './extract.js';
+
+export class ConversationController {
+  /**
+   * @param {{
+   *   store: import('./store.js').SqliteProjectStore,
+   *   provider: import('./provider.js').LlmProvider,
+   *   mode: string,
+   *   limits?: unknown,
+   * }} deps
+   */
+  constructor(deps) {
+    this.store = deps.store;
+    this.provider = deps.provider;
+    this.mode = deps.mode;
+    this.limits = normalizeProviderLimits(deps.limits);
+    this.uploadLimits = normalizeUploadLimits(deps.uploadLimits);
+    /** @type {Map<string, AbortController>} */
+    this.inFlight = new Map();
+    /** @type {Map<string, Promise<unknown>>} */
+    this.turnLocks = new Map();
+  }
+
+  /**
+   * @param {import('./identity.js').VerifiedActor} actor
+   * @param {{ title: string, projectKinds: readonly string[] }} input
+   */
+  createProject(actor, input) {
+    return this.store.createProject({
+      title: input.title,
+      projectKinds: input.projectKinds,
+      actor,
+    });
+  }
+
+  /**
+   * @param {import('./identity.js').VerifiedActor} actor
+   * @param {string} projectRef
+   */
+  loadProject(actor, projectRef) {
+    return this.store.getProject(projectRef, actor);
+  }
+
+  /**
+   * @param {{
+   *   actor: import('./identity.js').VerifiedActor,
+   *   projectRef: string,
+   *   message: string,
+   *   turnId?: string,
+   *   expectedRevision?: number,
+   *   model?: unknown,
+   *   browserBody?: unknown,
+   *   signal?: AbortSignal,
+   *   onChunk?: (chunk: string) => void,
+   * }} input
+   */
+  async submitTurn(input) {
+    rejectBrowserProviderOverride(input.browserBody);
+    const modelId = assertApprovedModel(this.provider, input.model);
+    const actor = input.actor;
+    const projectRef = input.projectRef;
+    this.store.getProject(projectRef, actor);
+    const turnId = input.turnId || `turn:${randomUUID()}`;
+    const cached = this.store.getTurnResult(projectRef, turnId);
+    if (cached?.status === 'complete') {
+      return this.#replayTurn(projectRef, actor, cached);
+    }
+
+    const lockKey = flightKey(projectRef, turnId);
+    const inflightTurn = this.turnLocks.get(lockKey);
+    if (inflightTurn) return inflightTurn;
+
+    const work = this.#executeTurn({ ...input, turnId, modelId }).finally(() => {
+      this.turnLocks.delete(lockKey);
+    });
+    this.turnLocks.set(lockKey, work);
+    return work;
+  }
+
+  /**
+   * @param {object} cached
+   */
+  #replayTurn(projectRef, actor, cached) {
+    return {
+      ...cached,
+      project: this.store.getProject(projectRef, actor),
+      idempotent: true,
+      stream_completed: cached.stream_completed ?? true,
+    };
+  }
+
+  /**
+   * @param {{
+   *   actor: import('./identity.js').VerifiedActor,
+   *   projectRef: string,
+   *   message: string,
+   *   turnId: string,
+   *   expectedRevision?: number,
+   *   modelId: string,
+   *   browserBody?: unknown,
+   *   signal?: AbortSignal,
+   *   onChunk?: (chunk: string) => void,
+   * }} input
+   */
+  async #executeTurn(input) {
+    const { actor, projectRef, turnId, modelId } = input;
+    const project = this.store.getProject(projectRef, actor);
+    const cached = this.store.getTurnResult(projectRef, turnId);
+    if (cached?.status === 'complete') {
+      return this.#replayTurn(projectRef, actor, cached);
+    }
+
+    const expectedRevision = input.expectedRevision ?? project.revision;
+    if (expectedRevision !== project.revision) {
+      throw Object.assign(new Error('project revision conflict'), { code: 'revision_conflict' });
+    }
+
+    const userText = boundMessage(input.message);
+    if (!userText) {
+      throw Object.assign(new Error('message is empty'), { code: 'empty' });
+    }
+
+    const userAppend = appendTurn(project.transcript, 'user', userText, undefined, {
+      source: 'human',
+      party_ref: actor.party_ref,
+      actor_kind: actor.actor_kind,
+      subject: actor.subject,
+    });
+    if (!userAppend.ok) {
+      throw Object.assign(new Error(`cannot append turn: ${userAppend.reason}`), { code: userAppend.reason });
+    }
+
+    const afterUser = this.store.apply({
+      projectRef,
+      actor,
+      expectedRevision: project.revision,
+      mutate: () => ({
+        stream: project.stream,
+        transcript: userAppend.transcript,
+        understanding: project.understanding,
+      }),
+    });
+
+    const abort = new AbortController();
+    const timeout = AbortSignal.timeout(this.limits.maxDurationMs);
+    const onParentAbort = () => abort.abort(input.signal?.reason);
+    if (input.signal) {
+      if (input.signal.aborted) abort.abort(input.signal.reason);
+      else input.signal.addEventListener('abort', onParentAbort, { once: true });
+    }
+    const signal = composeAbortSignals([abort.signal, timeout, input.signal]);
+    this.inFlight.set(flightKey(projectRef, turnId), abort);
+
+    let assembled = '';
+    let streamCompleted = false;
+    let incompleteReason = null;
+    try {
+      const chatRequest = {
+        system: CONVERSATION_SYSTEM_PROMPT,
+        messages: messagesForProvider(userAppend.transcript),
+        signal,
+        model: modelId,
+      };
+      for await (const chunk of this.provider.streamChat(chatRequest)) {
+        assembled += chunk;
+        if (assembled.length > this.limits.maxAssembledChars) {
+          abort.abort();
+          throw Object.assign(
+            new Error('provider stream exceeded the configured text limit'),
+            { code: 'incomplete_stream', reason: 'response_too_large', name: 'IncompleteProviderStreamError' },
+          );
+        }
+        input.onChunk?.(chunk);
+      }
+      streamCompleted = true;
+
+      const persistable = assistantTurnForPersistence(assembled, streamCompleted);
+      if (!persistable) {
+        return {
+          status: 'incomplete',
+          turn_id: turnId,
+          project: afterUser.project,
+          assistant: assembled,
+          stream_completed: false,
+          incomplete_reason: incompleteReason || 'truncated',
+          proposals_created: [],
+        };
+      }
+
+      const assistantAppend = appendTurn(userAppend.transcript, 'assistant', persistable, undefined, {
+        source: 'provider',
+        provider_id: this.provider.id,
+        model_id: modelId,
+        live: this.provider.live,
+        labelled_demo: this.provider.labelledDemo,
+        stream_completed: true,
+      });
+      if (!assistantAppend.ok) {
+        throw Object.assign(new Error(`cannot append turn: ${assistantAppend.reason}`), {
+          code: assistantAppend.reason,
+        });
+      }
+
+      let understanding = afterUser.project.understanding;
+      let stream = afterUser.project.stream;
+      let proposalRefs = [];
+      try {
+        const raw = await this.provider.understand({
+          system: UNDERSTANDING_SYSTEM_PROMPT,
+          messages: messagesForProvider(assistantAppend.transcript),
+          signal,
+          model: modelId,
+        });
+        const validated = validateUnderstanding(raw);
+        understanding = mergeUnderstanding(understanding, validated);
+        const proposed = proposeFromUnderstanding(stream, authorityFromActor(actor), understanding);
+        stream = proposed.stream;
+        proposalRefs = [...proposed.proposal_refs];
+      } catch {
+        // Complete chat remains durable. Cancel, timeout, invalid, or partial
+        // understanding must not mint proposals or replace a good snapshot.
+      }
+
+      const completed = this.store.apply({
+        projectRef,
+        actor,
+        expectedRevision: afterUser.project.revision,
+        turnId,
+        mutate: () => ({
+          stream,
+          transcript: assistantAppend.transcript,
+          understanding,
+          turnResult: {
+            status: 'complete',
+            turn_id: turnId,
+            assistant: persistable,
+            proposals_created: proposalRefs,
+            stream_completed: true,
+          },
+        }),
+      });
+
+      if (completed.deduped && completed.turnResult) {
+        return {
+          ...completed.turnResult,
+          project: completed.project,
+          stream_completed: true,
+          idempotent: true,
+          live: this.provider.live,
+          labelled_demo: this.provider.labelledDemo,
+        };
+      }
+
+      return {
+        status: 'complete',
+        turn_id: turnId,
+        project: completed.project,
+        assistant: persistable,
+        stream_completed: true,
+        proposals_created: proposalRefs,
+        idempotent: completed.deduped,
+        live: this.provider.live,
+        labelled_demo: this.provider.labelledDemo,
+      };
+    } catch (error) {
+      streamCompleted = false;
+      incompleteReason = incompleteReasonFrom(error, {
+        timeout,
+        parent: input.signal,
+        local: abort.signal,
+        assembled,
+      });
+      if (!incompleteReason) throw error;
+
+      const persistable = assistantTurnForPersistence(assembled, streamCompleted);
+      if (!persistable) {
+        return {
+          status: 'incomplete',
+          turn_id: turnId,
+          project: afterUser.project,
+          assistant: assembled,
+          stream_completed: false,
+          incomplete_reason: incompleteReason || 'truncated',
+          proposals_created: [],
+        };
+      }
+      throw error;
+    } finally {
+      this.inFlight.delete(flightKey(projectRef, turnId));
+      input.signal?.removeEventListener('abort', onParentAbort);
+    }
+  }
+
+  /**
+   * @param {string} projectRef
+   * @param {string} [turnId]
+   */
+  cancel(projectRef, turnId) {
+    if (turnId) {
+      const abort = this.inFlight.get(flightKey(projectRef, turnId));
+      if (abort) abort.abort();
+      return Boolean(abort);
+    }
+    let cancelled = false;
+    const prefix = `${projectRef}\0`;
+    for (const [key, abort] of this.inFlight) {
+      if (key === projectRef || key.startsWith(prefix)) {
+        abort.abort();
+        cancelled = true;
+      }
+    }
+    return cancelled;
+  }
+
+  /**
+   * @param {{
+   *   actor: import('./identity.js').VerifiedActor,
+   *   projectRef: string,
+   *   proposalRefs: readonly string[],
+   *   baselineRef?: string,
+   *   expectedRevision?: number,
+   * }} input
+   */
+  approveSelected(input) {
+    assertHumanApprover(input.actor);
+    const project = this.store.getProject(input.projectRef, input.actor);
+    assertCanApproveBaseline(authorityFromActor(input.actor));
+    const baselineRef = input.baselineRef || `baseline:${project.revision + 1}`;
+    const stream = approveBaselineFromProposals(
+      project.stream,
+      authorityFromActor(input.actor),
+      input.proposalRefs,
+      baselineRef,
+    );
+    return this.store.apply({
+      projectRef: input.projectRef,
+      actor: input.actor,
+      expectedRevision: input.expectedRevision ?? project.revision,
+      mutate: () => ({
+        stream,
+        transcript: project.transcript,
+        understanding: project.understanding,
+      }),
+    }).project;
+  }
+
+  /**
+   * @param {{
+   *   actor: import('./identity.js').VerifiedActor,
+   *   projectRef: string,
+   *   proposalRefs: readonly string[],
+   *   note?: string,
+   *   expectedRevision?: number,
+   * }} input
+   */
+  rejectSelected(input) {
+    assertHumanApprover(input.actor);
+    const project = this.store.getProject(input.projectRef, input.actor);
+    const stream = rejectProposals(
+      project.stream,
+      authorityFromActor(input.actor),
+      input.proposalRefs,
+      input.note,
+    );
+    return this.store.apply({
+      projectRef: input.projectRef,
+      actor: input.actor,
+      expectedRevision: input.expectedRevision ?? project.revision,
+      mutate: () => ({
+        stream,
+        transcript: project.transcript,
+        understanding: project.understanding,
+      }),
+    }).project;
+  }
+
+  /**
+   * @param {import('./identity.js').VerifiedActor} actor
+   * @param {string} projectRef
+   */
+  handover(actor, projectRef) {
+    const project = this.store.getProject(projectRef, actor);
+    const json = exportHandoverJson(project.stream);
+    const csv = exportHandoverCsv(project.stream);
+    return {
+      json,
+      csv,
+      identity: handoverRevisionIdentity(json),
+      baseline: currentBaseline(project.stream),
+    };
+  }
+
+  /**
+   * Portable reviewed export at one explicit approved snapshot.
+   * @param {import('./identity.js').VerifiedActor} actor
+   * @param {string} projectRef
+   * @param {{ format?: unknown, baseline_ref?: unknown, revision?: unknown, exportedAt?: string }} query
+   */
+  async exportReviewed(actor, projectRef, query) {
+    const project = this.store.getProject(projectRef, actor);
+    const format = String(query.format || '').toLowerCase();
+    if (!['json', 'csv', 'html', 'pdf'].includes(format)) {
+      throw Object.assign(new Error('export format must be json, csv, html, or pdf'), { code: 'export_format' });
+    }
+    const exportedAt = query.exportedAt || new Date().toISOString();
+    const handover = exportReviewedHandover(
+      project.stream,
+      { baseline_ref: query.baseline_ref, revision: query.revision },
+      exportedAt,
+    );
+    const identity = handoverRevisionIdentity(handover);
+    const filename = reviewedExportFilename(identity.baseline_ref, identity.revision, format === 'html' ? 'html' : format);
+    if (format === 'json') {
+      return {
+        filename,
+        contentType: 'application/json; charset=utf-8',
+        body: Buffer.from(`${JSON.stringify(handover, null, 2)}\n`, 'utf8'),
+        identity,
+        disposition: contentDispositionAttachment(filename),
+      };
+    }
+    if (format === 'csv') {
+      return {
+        filename,
+        contentType: 'text/csv; charset=utf-8',
+        body: Buffer.from(exportReviewedCsv(project.stream, {
+          baseline_ref: query.baseline_ref,
+          revision: query.revision,
+        }, undefined, exportedAt), 'utf8'),
+        identity,
+        disposition: contentDispositionAttachment(filename),
+      };
+    }
+    if (format === 'html') {
+      return {
+        filename,
+        contentType: 'text/html; charset=utf-8',
+        body: Buffer.from(exportReviewedHtml(handover), 'utf8'),
+        identity,
+        disposition: contentDispositionAttachment(filename),
+      };
+    }
+    const pdf = await exportReviewedPdf(handover);
+    return {
+      filename,
+      contentType: 'application/pdf',
+      body: pdf,
+      identity,
+      disposition: contentDispositionAttachment(filename),
+    };
+  }
+
+  /**
+   * @param {{
+   *   actor: import('./identity.js').VerifiedActor,
+   *   projectRef: string,
+   *   files: readonly { filename: string, mimeType: string, bytes: Uint8Array, byteSize: number }[],
+   *   expectedRevision?: number,
+   *   browserBody?: unknown,
+   *   signal?: AbortSignal,
+   * }} input
+   */
+  async intakeDocuments(input) {
+    rejectBrowserProviderOverride(input.browserBody);
+    const actor = input.actor;
+    const projectRef = input.projectRef;
+    const project = this.store.getProject(projectRef, actor);
+    const limits = this.uploadLimits;
+    if (!input.files.length) {
+      throw Object.assign(new Error('no files'), { code: 'no_files' });
+    }
+    if (input.files.length > limits.maxFilesPerRequest) {
+      throw Object.assign(new Error(`too many files (limit ${limits.maxFilesPerRequest})`), { code: 'too_many' });
+    }
+    const rejected = [];
+    const accepted = [];
+    const deadlineAt = Date.now() + EXTRACTION_REQUEST_BUDGET_MS;
+    const parseAbort = new AbortController();
+    this.inFlight.set(flightKey(projectRef, `parse:${randomUUID()}`), parseAbort);
+    const onParentAbort = () => parseAbort.abort(input.signal?.reason);
+    if (input.signal) {
+      if (input.signal.aborted) parseAbort.abort(input.signal.reason);
+      else input.signal.addEventListener('abort', onParentAbort, { once: true });
+    }
+    const signal = composeAbortSignals([parseAbort.signal, input.signal]);
+
+    try {
+      for (const file of input.files) {
+        if (signal?.aborted) {
+          throw Object.assign(new Error('extraction cancelled'), { code: 'cancelled', name: 'AbortError' });
+        }
+        if (file.byteSize > limits.maxFileBytes) {
+          rejected.push({ filename: file.filename, reason: 'too_large' });
+          continue;
+        }
+        let extraction;
+        try {
+          extraction = await extractDocument(file.bytes, file.mimeType, {
+            filename: file.filename,
+            deadlineAt,
+            maxPdfPages: limits.maxPdfPages,
+            signal,
+          });
+        } catch (error) {
+          if (error?.name === 'AbortError' || error?.code === 'cancelled') throw error;
+          rejected.push({ filename: file.filename, reason: 'failed' });
+          continue;
+        }
+        const record = createDocumentRecord(extraction, {
+          filename: file.filename,
+          mimeType: file.mimeType,
+          byteSize: file.byteSize,
+        });
+        accepted.push({ record, extraction });
+      }
+
+      if (signal?.aborted) {
+        throw Object.assign(new Error('extraction cancelled'), { code: 'cancelled', name: 'AbortError' });
+      }
+
+      const live = this.store.getProject(projectRef, actor);
+      let stream = live.stream;
+      let ownFormatApplied = 0;
+      const documentsToAdd = [];
+      const notices = [];
+
+      for (const item of accepted) {
+        const { record, extraction } = item;
+        if (extraction.own_format && extraction.parsed) {
+          try {
+            const imported = importReviewedOwnFormat(
+              stream,
+              authorityFromActor(actor),
+              extraction.parsed,
+            );
+            stream = imported.stream;
+            ownFormatApplied += 1;
+            notices.push(
+              `${record.filename}: ${imported.added} add(s) and ${imported.updated} update(s) as unapproved proposals. Source approval is a claim only.`,
+            );
+          } catch (error) {
+            rejected.push({
+              filename: record.filename,
+              reason: error instanceof Error ? error.message : 'own-format rejected',
+            });
+            continue;
+          }
+        } else if (extraction.truncated) {
+          notices.push(`${record.filename}: extracted text was truncated at the configured limit.`);
+        } else if (extraction.reason !== 'ok') {
+          notices.push(`${record.filename}: extraction ${extraction.reason}.`);
+        }
+        documentsToAdd.push(record);
+      }
+
+      if (!documentsToAdd.length && !ownFormatApplied) {
+        return { project: live, rejected, notices, accepted: [] };
+      }
+
+      const streamChanged = stream !== live.stream;
+      if (streamChanged) {
+        const expectedRevision = input.expectedRevision ?? live.revision;
+        const applied = this.store.apply({
+          projectRef,
+          actor,
+          expectedRevision,
+          mutate: () => ({
+            stream,
+            transcript: live.transcript,
+            understanding: live.understanding,
+            documentsToAdd,
+            maxDocuments: limits.maxDocumentsPerProject,
+          }),
+        });
+        const committed = applied.committedDocumentRefs ?? [];
+        const overflow = documentsToAdd.slice(committed.length);
+        for (const extra of overflow) {
+          rejected.push({ filename: extra.filename, reason: 'too_many' });
+        }
+        return {
+          project: applied.project,
+          rejected,
+          notices,
+          accepted: committed,
+        };
+      }
+
+      const inserted = this.store.insertDocuments({
+        projectRef,
+        actor,
+        records: documentsToAdd,
+        maxDocuments: limits.maxDocumentsPerProject,
+      });
+      const overflow = documentsToAdd.slice(inserted.committed.length);
+      for (const extra of overflow) {
+        rejected.push({ filename: extra.filename, reason: 'too_many' });
+      }
+      return {
+        project: this.store.getProject(projectRef, actor),
+        rejected,
+        notices,
+        accepted: inserted.committed,
+      };
+    } finally {
+      input.signal?.removeEventListener('abort', onParentAbort);
+      for (const [key, abort] of this.inFlight) {
+        if (abort === parseAbort) this.inFlight.delete(key);
+      }
+    }
+  }
+
+  /**
+   * Explicit interpret of a retained generic document. Uses only the
+   * server-configured provider/model. Disconnect cannot mint a late proposal.
+   * @param {{
+   *   actor: import('./identity.js').VerifiedActor,
+   *   projectRef: string,
+   *   documentRef: string,
+   *   expectedRevision?: number,
+   *   model?: unknown,
+   *   browserBody?: unknown,
+   *   signal?: AbortSignal,
+   * }} input
+   */
+  async interpretDocument(input) {
+    rejectBrowserProviderOverride(input.browserBody);
+    const modelId = assertApprovedModel(this.provider, input.model);
+    const actor = input.actor;
+    const projectRef = input.projectRef;
+    const document = this.store.getDocument(projectRef, actor, input.documentRef);
+    if (document.source_kind === 'own_format') {
+      throw Object.assign(new Error('own-format JSON is proposed on upload; Interpret is for generic documents'), {
+        code: 'interpret_own_format',
+      });
+    }
+    if (document.extraction_reason !== 'ok' || !document.extracted_text) {
+      throw Object.assign(
+        new Error(`document is not readable (${document.extraction_reason || 'empty'})`),
+        { code: 'interpret_unreadable' },
+      );
+    }
+
+    const project = this.store.getProject(projectRef, actor);
+    const expectedRevision = input.expectedRevision ?? project.revision;
+    if (expectedRevision !== project.revision) {
+      throw Object.assign(new Error('project revision conflict'), { code: 'revision_conflict' });
+    }
+
+    const abort = new AbortController();
+    const timeout = AbortSignal.timeout(this.limits.maxDurationMs);
+    const onParentAbort = () => abort.abort(input.signal?.reason);
+    if (input.signal) {
+      if (input.signal.aborted) abort.abort(input.signal.reason);
+      else input.signal.addEventListener('abort', onParentAbort, { once: true });
+    }
+    const signal = composeAbortSignals([abort.signal, timeout, input.signal]);
+    const turnId = `interpret:${document.document_ref}`;
+    this.inFlight.set(flightKey(projectRef, turnId), abort);
+
+    try {
+      if (signal?.aborted) {
+        return { status: 'incomplete', incomplete_reason: 'cancelled', project, proposals_created: [] };
+      }
+      const bounded = document.extracted_text.slice(0, PROVIDER_DOCUMENT_CHARS);
+      const truncatedForProvider = document.extracted_text.length > PROVIDER_DOCUMENT_CHARS || document.truncated;
+      const envelope = [
+        `[Untrusted document filename=${document.filename} media_type=${document.media_type} source_ref=${document.document_ref} extraction=${document.extraction_reason} truncated=${truncatedForProvider}]`,
+        truncatedForProvider
+          ? 'Extracted text was truncated at the configured limit. Do not invent the omitted remainder.'
+          : '',
+        bounded,
+      ].filter(Boolean).join('\n');
+
+      const raw = await this.provider.understand({
+        system: DOCUMENT_INTERPRET_SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: envelope }],
+        signal,
+        model: modelId,
+      });
+      if (signal?.aborted) {
+        return { status: 'incomplete', incomplete_reason: 'cancelled', project, proposals_created: [] };
+      }
+      const validated = validateUnderstanding(raw);
+      const understanding = mergeUnderstanding(project.understanding, validated);
+      const proposed = proposeFromUnderstanding(project.stream, authorityFromActor(actor), understanding);
+
+      const note = `Interpreted document ${document.filename} (${document.document_ref}).`;
+      const userAppend = appendTurn(project.transcript, 'user', note, undefined, {
+        source: 'document',
+        document_ref: document.document_ref,
+        party_ref: actor.party_ref,
+        actor_kind: actor.actor_kind,
+        subject: actor.subject,
+      });
+      const transcript = userAppend.ok ? userAppend.transcript : project.transcript;
+
+      const completed = this.store.apply({
+        projectRef,
+        actor,
+        expectedRevision: project.revision,
+        mutate: () => ({
+          stream: proposed.stream,
+          transcript,
+          understanding,
+        }),
+      });
+      return {
+        status: 'complete',
+        project: completed.project,
+        proposals_created: [...proposed.proposal_refs],
+        live: this.provider.live,
+        labelled_demo: this.provider.labelledDemo,
+      };
+    } catch (error) {
+      const reason = incompleteReasonFrom(error, {
+        timeout,
+        parent: input.signal,
+        local: abort.signal,
+      });
+      if (reason) {
+        return {
+          status: 'incomplete',
+          incomplete_reason: reason,
+          project: this.store.getProject(projectRef, actor),
+          proposals_created: [],
+        };
+      }
+      throw error;
+    } finally {
+      this.inFlight.delete(flightKey(projectRef, turnId));
+      input.signal?.removeEventListener('abort', onParentAbort);
+    }
+  }
+}
+
+/**
+ * Pending proposals are those without any decision.
+ * @param {import('../lib/types.js').RequirementsStream} stream
+ */
+export function pendingProposalList(stream) {
+  return stream.proposals.filter(
+    (proposal) => !stream.decisions.some((decision) => decision.proposal_ref === proposal.proposal_ref),
+  );
+}
+
+/**
+ * @param {string} projectRef
+ * @param {string} turnId
+ */
+function flightKey(projectRef, turnId) {
+  return `${projectRef}\0${turnId}`;
+}
+
+/**
+ * @param {unknown} error
+ * @param {{ timeout?: AbortSignal, parent?: AbortSignal, local?: AbortSignal, assembled?: string }} signals
+ */
+function incompleteReasonFrom(error, signals) {
+  if (isIncompleteProviderStream(error)) return error.reason || 'truncated';
+  if (error?.name === 'TimeoutError') return 'timeout';
+  if (signals.timeout?.aborted && !signals.parent?.aborted) return 'timeout';
+  if (error?.name === 'AbortError') return 'cancelled';
+  if (signals.parent?.aborted || signals.local?.aborted) return 'cancelled';
+  if (signals.assembled && isTransportTermination(error)) return 'truncated';
+  return null;
+}
+
+/**
+ * @param {unknown} error
+ */
+function isTransportTermination(error) {
+  if (!error) return false;
+  const candidates = [error];
+  if (error instanceof Error && error.cause) candidates.push(error.cause);
+  for (const item of candidates) {
+    const code = typeof item === 'object' && item && 'code' in item ? item.code : undefined;
+    if (code === 'ECONNRESET' || code === 'UND_ERR_SOCKET' || code === 'UND_ERR_ABORTED') return true;
+    const name = item instanceof Error ? item.name : '';
+    const message = item instanceof Error ? item.message : String(item);
+    if (name === 'TypeError' && /terminated|closed|socket|fetch failed/i.test(message)) return true;
+    if (/ECONNRESET|socket hang up|other side closed/i.test(message)) return true;
+  }
+  return false;
+}

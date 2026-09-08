@@ -1,0 +1,51 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Explicit legacy SemVer coordinate to admit (for example 0.0.0)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  admit:
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      RELEASE_REF: ${{ github.ref }}
+      AITHEMA_CANONICAL_RELEASE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install trash CLI
+        run: sudo apt-get update && sudo apt-get install -y trash-cli
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build immutable runtime release
+        run: npm run release:build
+      - name: Build immutable public source export
+        run: npm run source:export
+      - name: Admit immutable coordinate
+        run: node release/admit-release.mjs
+      - name: Upload ephemeral CI transfer artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: inspr-aithema-core-${{ env.RELEASE_VERSION }}
+          path: |
+            dist/inspr-aithema-core-${{ env.RELEASE_VERSION }}/
+            dist/inspr-aithema-core-source-${{ env.RELEASE_VERSION }}/
+      - name: Retain immutable GitHub Release assets
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node release/retain-forge-assets.mjs
