@@ -1,7 +1,8 @@
 /**
  * Verified identity adapters. Production uses configured JWT/JWKS (OIDC-gateway
- * compatible). Actor kind and roles come from operator membership mapping, never
- * from a self-declared browser role or from "any signed subject is human".
+ * compatible) and optional Authorization Code browser login. Actor kind and
+ * roles come from operator membership mapping, never from ID-token claims,
+ * a self-declared browser role, or "any signed subject is human".
  */
 
 import { createHmac, createPublicKey, createVerify, timingSafeEqual } from 'node:crypto';
@@ -248,6 +249,7 @@ export function createIdentityVerifier(identityConfig, mode = 'production') {
     kind: 'jwt-jwks',
     mode: 'production',
     labelledDemo: false,
+    memberships,
     /**
      * @param {string | null | undefined} authorization
      */

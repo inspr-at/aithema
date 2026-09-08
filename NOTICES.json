@@ -31,6 +31,12 @@
       "use": "PDF text extraction for document intake (pdf.js family)."
     },
     {
+      "name": "openid-client",
+      "version": "6.8.8",
+      "license": "MIT",
+      "use": "Certified OpenID Connect Authorization Code + PKCE client for optional production browser login. Transitive jose and oauth4webapi stay at the versions locked by this package."
+    },
+    {
       "name": "@inspr/flow-shell",
       "version": "0.1.2",
       "license": "AGPL-3.0-only",

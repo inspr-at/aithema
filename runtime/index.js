@@ -70,6 +70,18 @@ export {
   JWKS_UNKNOWN_KID_COOLDOWN_MS,
 } from './identity.js';
 
+export {
+  SESSION_COOKIE_NAME,
+  LOGIN_COOKIE_NAME,
+  OIDC_LOGIN_PATH,
+  OIDC_CALLBACK_PATH,
+  OIDC_LOGOUT_PATH,
+  normalizeBrowserLoginConfig,
+  allowlistedReturnPath,
+  createOidcBrowserLogin,
+  publicOidcError,
+} from './oidc-login.js';
+
 export { rehydrateStoredStream, SqliteProjectStore } from './store.js';
 
 export { ConversationController, pendingProposalList } from './controller.js';

@@ -20,6 +20,11 @@
     "jwks_uri": "https://auth.example.invalid/jwks",
     "algorithms": ["RS256"],
     "subject_claim": "sub",
+    "browser_login": {
+      "client_id": "replace-with-zitadel-client-id",
+      "client_secret": "replace-with-zitadel-client-secret",
+      "session_ttl_seconds": 28800
+    },
     "memberships": [
       {
         "subject": "replace-with-oidc-subject",

@@ -9,6 +9,7 @@ Prerequisites:
 - Node.js 24 and npm 10+ (workspace Flow host consumes `@inspr/flow-shell` 0.1.2, which requires Node 24)
 - `trash` CLI on PATH (packaging and source-export cleanup tests; on macOS this is typically preinstalled)
 - Pinned font/PDF dependencies arrive through ordinary `npm ci` (`pdfkit`, `fontkit`, `@fontsource/noto-sans`, `unpdf`)
+- Optional production browser login uses pinned `openid-client` 6.8.8 (Authorization Code + S256 PKCE). Do not enable it with incomplete client/issuer values.
 - Offline tarball consumer proof uses a named online packument prime, not a warm operator cache: `AITHEMA_NPM_CACHE` + `AITHEMA_PRIME_OUT` (never `dist/`) then `node release/prime-consumer-cache.mjs --build`. `npm ci` alone is not enough. The packaging test also proves `--offline` fails on an empty cache before that prime. npm `--offline` cannot replay GitHub Release HTTP tarball fetches; the test replays the primed Flow 0.1.2 integrity blob as a file: override after checking SHA256 `116e7477…`.
 
 ```bash
@@ -19,7 +20,7 @@ npm run test:source-export
 npm run example
 ```
 
-`npm test` includes the approved AIT-4 core suite plus runtime, JWT/JWKS, SQLite persistence, configured OpenAI-compatible HTTP against a local fixture, workspace HTML behaviour, reviewed JSON/CSV/HTML/PDF export, document intake, parser-process cancellation, AIT-10 runtime packaging, and AIT-11 public source export. Source tests are not a substitute for later live provider/OIDC evidence. Fixtures use a labelled mock provider and deterministic local HTTP only.
+`npm test` includes the approved AIT-4 core suite plus runtime, JWT/JWKS, optional OIDC browser login against a local synthetic issuer, SQLite persistence, configured OpenAI-compatible HTTP against a local fixture, workspace HTML behaviour, reviewed JSON/CSV/HTML/PDF export, document intake, parser-process cancellation, AIT-10 runtime packaging, and AIT-11 public source export. Source tests are not a substitute for later live provider/OIDC evidence. Fixtures use a labelled mock provider and deterministic local HTTP only.
 
 Generated printable fixtures for coordinator QA (outside the repo): write reviewed JSON/CSV/HTML/PDF exports to an operator-owned temporary directory.
 
@@ -84,6 +85,7 @@ When the workspace sits behind a TLS reverse proxy, set `publicOrigin` in operat
 Copy `examples/production-config.example.json` to an operator-owned file **outside git**. Fill:
 
 - `identity.jwks_uri`, `issuer`, `audience`, and memberships (`actor_kind` and roles). Do not map `requirements_approver` onto `agent`.
+- Optional `identity.browser_login` (`client_id`, and `client_secret` when the Zitadel application is confidential). Incomplete browser-login config refuses to start. Sessions are opaque, HttpOnly, SameSite=Lax, Secure when `publicOrigin` is https, and expire without refresh. Sign out clears the workspace session; it does not put tokens in the redirect.
 - `providers.<name>.baseUrl` / `allowedModels` for an OpenAI-compatible endpoint (self-hosted included). Credentials stay in that server-owned file.
 
 ```bash

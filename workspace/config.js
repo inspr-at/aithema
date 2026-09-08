@@ -1,4 +1,5 @@
 import { isLoopbackHost } from '../runtime/identity.js';
+import { normalizeBrowserLoginConfig } from '../runtime/oidc-login.js';
 import { normalizeProviderLimits } from '../runtime/provider.js';
 import { normalizeOrgPolicy } from '../runtime/policy.js';
 import { normalizeUploadLimits } from '../lib/extract-limits.js';
@@ -19,6 +20,9 @@ export function normalizeWorkspaceConfig(config) {
   if (mode === 'production' && config.identity?.kind !== 'jwt-jwks') {
     throw new Error('production identity is unconfigured; refusing to start');
   }
+  if ((mode === 'demo' || mode === 'test') && config.identity?.browser_login) {
+    throw new Error('browser login is production-only');
+  }
   if ((mode === 'demo' || mode === 'test') && config.provider?.kind === undefined) {
     if (!config.providers) throw new Error('provider registry is required');
   }
@@ -36,22 +40,36 @@ export function normalizeWorkspaceConfig(config) {
     providers: config.providers,
     defaultProvider: config.defaultProvider,
   });
+  const publicOrigin = normalizePublicOrigin(config.publicOrigin);
+  const identity = normalizeIdentityConfig(config.identity, { mode, publicOrigin, listenHost });
   return Object.freeze({
     mode,
     listenHost,
     listenPort: Number.isInteger(config.listenPort) ? config.listenPort : 0,
     dataDir: dataDir ?? ':memory:',
     databaseFile: config.databaseFile,
-    identity: config.identity,
+    identity,
     providers: config.providers,
     defaultProvider: config.defaultProvider,
     defaultModel: config.defaultModel,
     labelledDemo: mode === 'demo' || mode === 'test',
     limits: normalizeProviderLimits(config.limits),
     uploadLimits: normalizeUploadLimits(config.uploadLimits),
-    publicOrigin: normalizePublicOrigin(config.publicOrigin),
+    publicOrigin,
     policy,
   });
+}
+
+/**
+ * @param {unknown} identity
+ * @param {{ mode: string, publicOrigin?: string, listenHost: string }} context
+ */
+function normalizeIdentityConfig(identity, context) {
+  if (!identity || typeof identity !== 'object' || Array.isArray(identity)) return identity;
+  if (context.mode !== 'production') return identity;
+  const browserLogin = normalizeBrowserLoginConfig(identity, context);
+  if (!browserLogin) return identity;
+  return { ...identity, browser_login: browserLogin };
 }
 
 /**

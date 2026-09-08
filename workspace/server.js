@@ -5,6 +5,16 @@ import { join } from 'node:path';
 import { validateProjectKinds } from '../lib/validate.js';
 import { ConversationController } from '../runtime/controller.js';
 import { createIdentityVerifier, isLoopbackHost } from '../runtime/identity.js';
+import {
+  LOGIN_COOKIE_NAME,
+  OIDC_CALLBACK_PATH,
+  OIDC_LOGIN_PATH,
+  OIDC_LOGOUT_PATH,
+  SESSION_COOKIE_NAME,
+  allowlistedReturnPath,
+  createOidcBrowserLogin,
+  publicOidcError,
+} from '../runtime/oidc-login.js';
 import { createProviderRegistry } from '../runtime/provider.js';
 import { SqliteProjectStore } from '../runtime/store.js';
 import { normalizeWorkspaceConfig } from './config.js';
@@ -44,6 +54,15 @@ export function createWorkspaceServer(rawConfig, options = {}) {
     identityConfig.demoHmacSecret = randomBytes(32).toString('hex');
   }
   const identity = createIdentityVerifier(identityConfig, config.mode);
+  const oidc = config.mode === 'production' && identity.kind === 'jwt-jwks' && config.identity?.browser_login
+    ? createOidcBrowserLogin({
+      browserLogin: config.identity.browser_login,
+      memberships: identity.memberships,
+      publicOrigin: config.publicOrigin,
+      now: options.now,
+      fetchImpl: options.fetchImpl ?? identityConfig.fetchImpl ?? fetch,
+    })
+    : null;
   const registry = createProviderRegistry(config, {
     mode: config.mode,
     fetchImpl: options.fetchImpl ?? rawConfig.fetchImpl,
@@ -92,10 +111,19 @@ export function createWorkspaceServer(rawConfig, options = {}) {
       }
     }
     let actor = null;
+    let sessionAuthenticated = false;
+    const bearerPresent = /^Bearer\s+\S+/i.test(req.headers.authorization ?? '');
     try {
       actor = await identity.verify(req.headers.authorization, readCookie(req, COOKIE));
     } catch {
       actor = null;
+    }
+    if (!actor && !bearerPresent && oidc) {
+      const sessionActor = oidc.actorFromSession(readCookie(req, SESSION_COOKIE_NAME));
+      if (sessionActor) {
+        actor = sessionActor;
+        sessionAuthenticated = true;
+      }
     }
 
     if (url.pathname === '/health') {
@@ -135,13 +163,54 @@ export function createWorkspaceServer(rawConfig, options = {}) {
       return;
     }
 
+    if (oidc && (req.method === 'GET' || req.method === 'HEAD') && url.pathname === OIDC_LOGIN_PATH) {
+      if (actor) {
+        redirect(res, allowlistedReturnPathFromQuery(url));
+        return;
+      }
+      try {
+        const started = await oidc.startLogin({
+          returnPath: url.searchParams.get('return'),
+          requestUrl: url,
+        });
+        redirect(res, started.location, { 'set-cookie': started.cookies });
+      } catch (error) {
+        const status = error?.code === 'capacity' ? 503 : 502;
+        html(res, status, pageModel({ error: publicOidcError(error) }));
+      }
+      return;
+    }
+
+    if (oidc && (req.method === 'GET' || req.method === 'HEAD') && url.pathname === OIDC_CALLBACK_PATH) {
+      try {
+        const finished = await oidc.finishLogin({
+          requestUrl: url,
+          loginId: readCookie(req, LOGIN_COOKIE_NAME),
+        });
+        redirect(res, finished.returnPath, { 'set-cookie': finished.cookies });
+      } catch (error) {
+        const status = error?.code === 'unauthorized_membership' ? 403 : 401;
+        html(res, status, pageModel({ error: publicOidcError(error) }), oidc.expiredLoginCookies());
+      }
+      return;
+    }
+
+    if (oidc && req.method === 'POST' && url.pathname === OIDC_LOGOUT_PATH) {
+      const result = await oidc.logout(readCookie(req, SESSION_COOKIE_NAME));
+      html(res, 200, pageModel({
+        notice: 'Signed out.',
+        idpLogoutUrl: result.endSessionUrl,
+      }), { 'set-cookie': result.cookies });
+      return;
+    }
+
     if (url.pathname === '/' && req.method === 'GET') {
       if (!actor && !config.labelledDemo) {
         html(res, 401, pageModel({ error: 'Verified identity required.' }));
         return;
       }
       const projects = actor ? store.listProjects(actor) : [];
-      html(res, 200, pageModel({ actor, projects, demoSubjects: demoSubjects() }));
+      html(res, 200, pageModel({ actor, sessionAuthenticated, projects, demoSubjects: demoSubjects() }));
       return;
     }
 
@@ -182,14 +251,14 @@ export function createWorkspaceServer(rawConfig, options = {}) {
         });
         redirect(res, `/projects/${encodeURIComponent(project.project_ref)}`);
       } catch (error) {
-        html(res, 400, pageModel({ actor, projects: store.listProjects(actor), error: messageOf(error) }));
+        html(res, 400, pageModel({ actor, sessionAuthenticated, projects: store.listProjects(actor), error: messageOf(error) }));
       }
       return;
     }
 
     const projectMatch = url.pathname.match(/^\/projects\/([^/]+)(?:\/(.*))?$/);
     if (!projectMatch) {
-      html(res, 404, pageModel({ actor, projects: store.listProjects(actor), error: 'Not found' }));
+      html(res, 404, pageModel({ actor, sessionAuthenticated, projects: store.listProjects(actor), error: 'Not found' }));
       return;
     }
     const projectRef = decodeURIComponent(projectMatch[1]);
@@ -201,6 +270,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
     } catch (error) {
       html(res, error?.code === 'forbidden' ? 403 : 404, pageModel({
         actor,
+        sessionAuthenticated,
         projects: store.listProjects(actor),
         error: messageOf(error),
       }));
@@ -209,7 +279,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
 
     if (req.method === 'GET' && rest === '') {
       const notice = pageNotice(url.searchParams);
-      html(res, 200, pageModel({ actor, projects: store.listProjects(actor), project, notice }));
+      html(res, 200, pageModel({ actor, sessionAuthenticated, projects: store.listProjects(actor), project, notice }));
       return;
     }
 
@@ -251,7 +321,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
       } catch (error) {
         const status = exportStatus(error);
         if (wantsJson(req)) json(res, status, { error: messageOf(error) });
-        else html(res, status, pageModel({ actor, projects: store.listProjects(actor), project, error: messageOf(error) }));
+        else html(res, status, pageModel({ actor, sessionAuthenticated, projects: store.listProjects(actor), project, error: messageOf(error) }));
       }
       return;
     }
@@ -300,6 +370,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
         else html(res, status, mutationErrorPage(actor, projectRef, project, {
           error: messageOf(error),
           draftMessage: String(body.message ?? ''),
+          sessionAuthenticated,
         }));
       } finally {
         req.off('close', onClose);
@@ -352,7 +423,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
       } catch (error) {
         const status = intakeStatus(error);
         if (wantsJson(req)) json(res, status, { error: messageOf(error) });
-        else html(res, status, pageModel({ actor, projects: store.listProjects(actor), project, error: messageOf(error) }));
+        else html(res, status, pageModel({ actor, sessionAuthenticated, projects: store.listProjects(actor), project, error: messageOf(error) }));
       } finally {
         res.off('close', onClose);
       }
@@ -398,7 +469,10 @@ export function createWorkspaceServer(rawConfig, options = {}) {
       } catch (error) {
         const status = mutationStatus(error);
         if (wantsJson(req)) json(res, status, mutationErrorBody(actor, projectRef, project, error));
-        else html(res, status, mutationErrorPage(actor, projectRef, project, { error: messageOf(error) }));
+        else html(res, status, mutationErrorPage(actor, projectRef, project, {
+          error: messageOf(error),
+          sessionAuthenticated,
+        }));
       } finally {
         res.off('close', onClose);
       }
@@ -427,12 +501,12 @@ export function createWorkspaceServer(rawConfig, options = {}) {
       } catch (error) {
         const status = /human actor may approve|requirements_approver/.test(messageOf(error)) ? 403 : 400;
         if (wantsJson(req)) json(res, status, { error: messageOf(error) });
-        else html(res, status, pageModel({ actor, projects: store.listProjects(actor), project, error: messageOf(error) }));
+        else html(res, status, pageModel({ actor, sessionAuthenticated, projects: store.listProjects(actor), project, error: messageOf(error) }));
       }
       return;
     }
 
-    html(res, 404, pageModel({ actor, projects: store.listProjects(actor), project, error: 'Not found' }));
+    html(res, 404, pageModel({ actor, sessionAuthenticated, projects: store.listProjects(actor), project, error: 'Not found' }));
   }
 
   function demoSubjects() {
@@ -453,6 +527,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
     const keepDraft = extra.draftMessage != null && current?.revision === staleProject?.revision;
     return pageModel({
       actor,
+      sessionAuthenticated: extra.sessionAuthenticated,
       projects: store.listProjects(actor),
       project: current,
       error: extra.error,
@@ -501,6 +576,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
     return renderWorkspacePage({
       mode: config.mode,
       labelledDemo: config.labelledDemo,
+      browserLogin: Boolean(oidc),
       providerLive: provider.live,
       providerId: provider.id,
       demoSubjects: demoSubjects(),
@@ -538,6 +614,10 @@ export function createWorkspaceServer(rawConfig, options = {}) {
   };
 }
 
+function allowlistedReturnPathFromQuery(url) {
+  return allowlistedReturnPath(url.searchParams.get('return'));
+}
+
 function wantsJson(req) {
   return (req.headers.accept ?? '').includes('application/json')
     || (req.headers['content-type'] ?? '').includes('application/json');
@@ -548,8 +628,14 @@ function json(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
-function html(res, status, body) {
-  res.writeHead(status, { ...SECURITY_HEADERS, 'content-type': 'text/html; charset=utf-8' });
+function html(res, status, body, extra = {}) {
+  const headers = { ...SECURITY_HEADERS, 'content-type': 'text/html; charset=utf-8' };
+  if (Array.isArray(extra)) {
+    headers['set-cookie'] = extra;
+  } else {
+    Object.assign(headers, extra);
+  }
+  res.writeHead(status, headers);
   res.end(body);
 }
 
@@ -591,7 +677,7 @@ function assertSameOriginMutation(req, url, publicOrigin) {
     return;
   }
   const hasBearer = /^Bearer\s+\S+/i.test(req.headers.authorization ?? '');
-  const hasCookie = Boolean(readCookie(req, COOKIE));
+  const hasCookie = Boolean(readCookie(req, COOKIE) || readCookie(req, SESSION_COOKIE_NAME) || readCookie(req, LOGIN_COOKIE_NAME));
   if (hasCookie && !hasBearer) {
     throw Object.assign(new Error('request origin is not allowed'), { code: 'forbidden' });
   }
@@ -983,4 +1069,4 @@ async function readMultipart(req, maxBytes) {
   return { files, fields };
 }
 
-export { COOKIE as DEMO_COOKIE_NAME };
+export { COOKIE as DEMO_COOKIE_NAME, SESSION_COOKIE_NAME, LOGIN_COOKIE_NAME };

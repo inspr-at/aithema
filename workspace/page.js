@@ -133,7 +133,19 @@ function renderProjectPage(model, demoBanner) {
   ${renderSecondaryControls(model)}`);
 }
 
+function renderTrustedHttpLink(url, label) {
+  if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return '';
+  return `<p><a class="button" href="${escapeHtml(url)}">${escapeHtml(label)}</a></p>`;
+}
+
 function renderSignIn(model) {
+  if (!model.labelledDemo && model.browserLogin) {
+    const idpLogout = renderTrustedHttpLink(model.idpLogoutUrl, 'Sign out of identity provider');
+    return `<p>Sign in with the operator-configured identity provider. Actor kind, roles, and project membership come from the operator map, not from the sign-in token.</p>
+  <p><a class="button" href="/login">Sign in</a></p>
+  ${idpLogout}
+  <p class="meta">API clients can still send an <code>Authorization: Bearer</code> token from a configured OIDC gateway.</p>`;
+  }
   if (!model.labelledDemo) {
     return '<p>Production identity uses a configured JWT/JWKS gateway. Send an <code>Authorization: Bearer</code> token from the operator-issued OIDC session. There is no permissive production login form.</p>';
   }
@@ -183,11 +195,15 @@ function renderProjectNav(model, collapsed) {
 
 function renderIdentityDetails(model) {
   if (!model.actor) return '';
+  const logout = model.sessionAuthenticated
+    ? '<form method="post" action="/logout"><button type="submit">Sign out</button></form>'
+    : '';
   return `
   <details class="secondary" id="identity-access">
     <summary>Identity and access</summary>
     <p class="meta wrap">Subject ${escapeHtml(model.actor.subject)} · party ${escapeHtml(model.actor.party_ref)} · actor kind <strong>${escapeHtml(model.actor.actor_kind)}</strong> · roles ${escapeHtml(model.actor.roles.join(', '))}</p>
     <p>Access is the current verified membership for this subject. Sharing a party name does not share project access. Only a mapped human reviewer can approve a baseline.</p>
+    ${logout}
   </details>`;
 }
 
