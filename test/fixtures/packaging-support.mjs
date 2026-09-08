@@ -52,13 +52,14 @@ export function createTempRepo(prefix = 'aithema-pack-fixture-') {
  * @param {object} [allowlist]
  */
 export function seedMinimalPackageTree(repoRoot, allowlist) {
-  for (const dir of ['lib', 'runtime', 'workspace', 'examples', 'release/lib']) {
+  for (const dir of ['bin', 'lib', 'runtime', 'workspace', 'examples', 'release/lib']) {
     mkdirSync(join(repoRoot, dir), { recursive: true });
   }
   cpSync(join(sourceRoot, 'lib'), join(repoRoot, 'lib'), { recursive: true });
   cpSync(join(sourceRoot, 'runtime'), join(repoRoot, 'runtime'), { recursive: true });
   cpSync(join(sourceRoot, 'workspace'), join(repoRoot, 'workspace'), { recursive: true });
   cpSync(join(sourceRoot, 'examples'), join(repoRoot, 'examples'), { recursive: true });
+  cpSync(join(sourceRoot, 'bin'), join(repoRoot, 'bin'), { recursive: true });
   for (const rel of [
     'package.json',
     'package-lock.json',

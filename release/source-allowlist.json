@@ -9,6 +9,7 @@
     "package.json",
     "package-lock.json",
     ".github/",
+    "bin/",
     "examples/",
     "lib/",
     "release/",

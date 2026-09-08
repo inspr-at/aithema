@@ -14,7 +14,13 @@ export {
   opaqueHostRef,
 } from './flow-context.js';
 export { renderWorkspacePage } from './page.js';
-export { createWorkspaceServer, DEMO_COOKIE_NAME, SESSION_COOKIE_NAME, LOGIN_COOKIE_NAME } from './server.js';
+export {
+  createWorkspaceServer,
+  DEFAULT_SHUTDOWN_GRACE_MS,
+  DEMO_COOKIE_NAME,
+  SESSION_COOKIE_NAME,
+  LOGIN_COOKIE_NAME,
+} from './server.js';
 export {
   detectSpeechCaptureSupport,
   pickRecordingMimeType,

@@ -26,6 +26,7 @@ import { renderWorkspacePage } from './page.js';
 
 const COOKIE = 'aithema_demo';
 const MAX_BODY = 32_000;
+export const DEFAULT_SHUTDOWN_GRACE_MS = 10_000;
 const SECURITY_HEADERS = Object.freeze({
   'x-content-type-options': 'nosniff',
   'x-frame-options': 'SAMEORIGIN',
@@ -103,6 +104,19 @@ export function createWorkspaceServer(rawConfig, options = {}) {
       }
     });
   });
+  let closePromise;
+  let closeTimer;
+  let storeClosed = false;
+
+  function closeStoreOnce() {
+    if (storeClosed) return;
+    storeClosed = true;
+    store.close();
+  }
+
+  function forceClose() {
+    server.closeAllConnections();
+  }
 
   async function handle(req, res) {
     const host = req.headers.host ?? '';
@@ -688,21 +702,62 @@ export function createWorkspaceServer(rawConfig, options = {}) {
     provider,
     identity,
     listen() {
-      return new Promise((resolve) => {
+      return new Promise((resolve, reject) => {
+        const onError = (error) => { reject(error); };
+        server.once('error', onError);
         server.listen(config.listenPort, config.listenHost, () => {
+          server.off('error', onError);
           const address = server.address();
           resolve({
-            url: `http://${config.listenHost}:${address.port}`,
+            url: listenUrl(address),
             port: address.port,
           });
         });
       });
     },
-    async close() {
-      await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-      store.close();
+    close({ gracePeriodMs = DEFAULT_SHUTDOWN_GRACE_MS } = {}) {
+      if (!Number.isInteger(gracePeriodMs) || gracePeriodMs < 0) {
+        return Promise.reject(new Error('gracePeriodMs must be a non-negative integer'));
+      }
+      if (closePromise) return closePromise;
+      closePromise = new Promise((resolve, reject) => {
+        const finish = (serverError) => {
+          if (closeTimer) clearTimeout(closeTimer);
+          let closeError = serverError;
+          try {
+            closeStoreOnce();
+          } catch (error) {
+            closeError ??= error;
+          }
+          if (closeError) reject(closeError);
+          else resolve();
+        };
+
+        if (!server.listening) {
+          finish();
+          return;
+        }
+
+        closeTimer = setTimeout(forceClose, gracePeriodMs);
+        closeTimer.unref();
+        try {
+          server.close(finish);
+        } catch (error) {
+          finish(error);
+        }
+      });
+      return closePromise;
     },
+    forceClose,
   };
+}
+
+function listenUrl(address) {
+  if (!address || typeof address === 'string') {
+    throw new Error('workspace did not bind a TCP address');
+  }
+  const host = address.family === 'IPv6' ? `[${address.address}]` : address.address;
+  return `http://${host}:${address.port}`;
 }
 
 function allowlistedReturnPathFromQuery(url, publicBasePath = '') {

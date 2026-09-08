@@ -1,6 +1,7 @@
 /**
- * Loopback workspace process. Pass a server-owned config file; do not put
- * endpoints or credentials in the browser. Demo config uses the labelled mock.
+ * Example convenience, not the supported service executable. It defaults to a
+ * labelled loopback demo config; production operators use aithema-workspace
+ * with an explicit server-owned --config file.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';

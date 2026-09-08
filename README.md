@@ -70,7 +70,12 @@ npm run release:build
 npm run source:export
 npm run example
 npm run workspace -- examples/demo-config.json
+aithema-workspace --config /path/to/operator-config.json
 ```
+
+`aithema-workspace` is the supported service executable installed from the immutable GitHub runtime tgz. It never selects the committed demo config implicitly: `--config FILE` is required, and the file must be readable, valid JSON, and valid workspace configuration before a socket is opened. `npm run workspace` remains a labelled loopback demo convenience and defaults to `examples/demo-config.json` only on that example path.
+
+The executable handles `SIGTERM` and `SIGINT` with a bounded drain: it stops accepting connections, waits up to 10 seconds by default, force-closes lingering HTTP connections at the deadline, and closes SQLite once. Operators may set a shorter or longer bound (maximum 300 seconds) with `--shutdown-grace-ms MILLISECONDS`. Readiness at `/health`, or `{publicBasePath}/health` when mounted, is the existing safe `{ "ok": true, "ready": true }` response. It attests only that the local process has validated configuration, opened its SQLite store, and started listening; it does not probe provider or identity-provider reachability. When `publicBasePath` is set, the unprefixed health path is not served.
 
 `npm run release:build` publishes one immutable runtime release coordinate as a single directory, `dist/inspr-aithema-core-0.4.0/`, holding `inspr-aithema-core-0.4.0.tgz` and its sidecar manifest built from the closed allowlist in `release/allowlist.json`. The directory is staged and committed with one rename, so the pair is never half-written and an existing coordinate is never replaced: a byte-identical rebuild is accepted, different bytes are refused.
 
@@ -78,9 +83,9 @@ npm run workspace -- examples/demo-config.json
 
 First public coordinate `0.1.0` is published at [inspr-at/aithema](https://github.com/inspr-at/aithema) (`v0.1.0`, commit `1028b450`). Provider-policy coordinate `0.2.0` is also published (`v0.2.0`, commit `cff9eae`). Shared Flow host coordinate `0.3.0` is published (`v0.3.0`, commit `28c5576`). This tree prepares legacy SemVer `0.4.0` as a GitHub-source and runtime-tgz coordinate. Preparation alone does not publish it: the matching tag and [GitHub Release assets](https://github.com/inspr-at/aithema/releases) are the authority for availability. This repository does not claim the `@inspr` npm namespace. `package.json` `private: true` remains the npm publish guard.
 
-This candidate adds optional configured OIDC browser login and server-side sessions, while preserving operator-controlled identity and project membership. The existing shared Flow header and delivery footer consume immutable Flow Shell 0.1.4 for bounded mobile layouts. They use current host identity and real baseline records; disconnected delivery stages remain gated. Node 24 or newer is required for consumers; canonical releases use Node 24 with GNU tar.
+This combined candidate adds optional configured OIDC browser login, workspace speech input, and the supported workspace executable while preserving operator-controlled identity and project membership. The existing shared Flow header and delivery footer consume immutable Flow Shell 0.1.4 for bounded mobile layouts. They use current host identity and real baseline records; disconnected delivery stages remain gated. Node 24 or newer is required for consumers; canonical releases use Node 24 with GNU tar.
 
-Package subpaths: `@inspr/aithema-core` (domain), `@inspr/aithema-core/runtime`, `@inspr/aithema-core/workspace`.
+Package subpaths: `@inspr/aithema-core` (domain), `@inspr/aithema-core/runtime`, `@inspr/aithema-core/workspace`. Installed executable: `aithema-workspace`.
 
 ```js
 import {

@@ -189,6 +189,7 @@ describe('AIT-11 public source export', () => {
     assert.equal(paths.includes('test/packaging.test.js'), true);
     assert.equal(paths.includes('release/build-source.mjs'), true);
     assert.equal(paths.includes('release/publication-inventory.json'), true);
+    assert.equal(paths.includes('bin/aithema-workspace.js'), true);
     assert.equal(paths.includes('.github/workflows/ci.yml'), true);
   });
 
@@ -490,6 +491,8 @@ describe('AIT-11 public source export', () => {
     assert.match(inventory.test_prerequisites.offline_install, /AITHEMA_NPM_CACHE/);
     assert.equal(inventory.ci.auto_publish_on_push, false);
     assert.equal(inventory.exports.public_source_candidate.script, 'source:export');
+    assert.equal(inventory.exports.runtime_package.installed_bin, 'aithema-workspace');
+    assert.equal(inventory.service_executable.package_path, 'bin/aithema-workspace.js');
     assert.match(inventory.handoff.review_extract, /mkdir -p/);
     assert.match(inventory.ci.retained_forge_assets, /retain-forge-assets/);
     assert.match(inventory.ci.retained_forge_assets, /refs\/tags\//);

@@ -63,6 +63,8 @@ Expected local browser QA (coordinator, after this commit):
 
 Stop the process when finished. Demo identity is rejected off loopback. Demo cookies do not survive restart unless `identity.demoHmacSecret` is set in a **private** operator config (not the committed demo file). Restart durability of project data still uses the SQLite directory; sign in again after an ephemeral-key restart.
 
+This `npm run workspace` route is an example convenience, not the supported service command. It intentionally defaults to the committed labelled demo configuration; the installed service executable never does.
+
 ## Membership and SQLite schema
 
 Access is decided on every request from:
@@ -92,10 +94,14 @@ Copy `examples/production-config.example.json` to an operator-owned file **outsi
 - Optional `publicBasePath` (`""` standalone, or `/aithema` when sharing one customer origin). Leave empty unless the edge will preserve that prefix.
 
 ```bash
-node examples/workspace.js /path/to/operator-config.json
+aithema-workspace --config /path/to/operator-config.json
 ```
 
-Unconfigured production identity refuses to start. Browser requests cannot change the endpoint, API key, limits, policy, data class, epoch, or enable a model that is not in `allowedModels`. Additive `providerId` may name a registry id already allowed by operator policy. `/health` (or `{publicBasePath}/health`) returns only `{ ok: true, ready: true }`. Operator `limits` in config are capped; they cannot be raised from the browser.
+The executable requires the explicit `--config FILE`; missing, unreadable, malformed, or invalid configuration exits nonzero before listening, and startup diagnostics never print the config body or underlying credential-bearing errors. Production continues to require `identity.kind: "jwt-jwks"` and a durable `dataDir`; demo/test configurations remain loopback-only. Browser requests cannot change the endpoint, API key, limits, policy, data class, epoch, or enable a model that is not in `allowedModels`. Additive `providerId` may name a registry id already allowed by operator policy.
+
+`/health` (or `{publicBasePath}/health`) returns only `{ ok: true, ready: true }`; when mounted, the unprefixed route remains unavailable. This readiness signal covers local process startup, configuration validation, the opened SQLite store, and the listening socket only. It does not prove provider or IdP reachability. Operator `limits` in config are capped; they cannot be raised from the browser.
+
+On the first `SIGTERM` or `SIGINT`, the executable stops accepting new connections and drains in-flight HTTP work for at most 10 seconds. At the deadline it force-closes lingering HTTP connections, closes SQLite exactly once, and exits. A repeated termination signal force-closes immediately. Override the bound when an operator needs a different drain window with `--shutdown-grace-ms MILLISECONDS` (0–300000); this changes shutdown timing only, never workspace or provider configuration.
 
 ## Provider policy and request ceilings
 
