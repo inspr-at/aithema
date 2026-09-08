@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@fontsource/noto-sans": "5.2.5",
+    "@inspr/flow-shell": "https://github.com/inspr-at/flow-shell/releases/download/v0.1.2/inspr-flow-shell-0.1.2.tgz",
     "fontkit": "2.0.4",
     "pdfkit": "0.17.2",
     "unpdf": "1.8.0"

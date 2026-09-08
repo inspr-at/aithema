@@ -6,7 +6,7 @@ This package prepares public GitHub-source candidate `0.2.0` (explicit `legacy-s
 
 Prerequisites:
 
-- Node.js 20+ and npm 10+
+- Node.js 24 and npm 10+ (workspace Flow host consumes `@inspr/flow-shell` 0.1.2, which requires Node 24)
 - `trash` CLI on PATH (packaging and source-export cleanup tests; on macOS this is typically preinstalled)
 - Pinned font/PDF dependencies arrive through ordinary `npm ci` (`pdfkit`, `fontkit`, `@fontsource/noto-sans`, `unpdf`)
 - Offline tarball consumer proof uses a named online packument prime, not a warm operator cache: `AITHEMA_NPM_CACHE` + `AITHEMA_PRIME_OUT` (never `dist/`) then `node release/prime-consumer-cache.mjs --build`. `npm ci` alone is not enough. The packaging test also proves `--offline` fails on an empty cache before that prime.
@@ -48,13 +48,13 @@ Open the printed `http://127.0.0.1:<port>/` URL.
 Expected local browser QA (coordinator, after this commit):
 
 1. Start a **new** loopback process on a free port (do not reuse an existing native QA server). `npm run workspace -- examples/demo-config.json`
-2. The page shows a short **Demo / mock** notice and states that the mock is not live AI.
-3. Continue with labelled demo identity `demo-reviewer` (human). Roles cannot be typed in the browser.
+2. The page shows a short **Demo / mock** notice and states that the mock is not live AI. Compact Flow header/footer wrap the existing workspace content and use the package SVG/style. Demo identity is labelled as labelled loopback demo, not live identity.
+3. Continue with labelled demo identity `demo-reviewer` (human). Roles cannot be typed in the browser. The Flow header shows the current project/actor labels without raw subject, email, or roles.
 4. Create a project with more than one project kind checked (product and iteration may overlap).
 5. On the project screen, the focused next question and message input appear first. Conversation history, understanding detail, project list, identity, and revision identifiers are under secondary details.
 6. Send a requirements message. The reply asks one focused next question, updates understanding, and creates **unapproved** proposals with explicit Approve/Reject. The mock reply is visibly labelled.
 7. At a 390px-wide viewport, the next question and message input are visible on the first screen before conversation history. Long digest and project id strings wrap without horizontal clipping.
-8. Confirm there is no control that starts delivery, and that pending proposals are not an approved baseline.
+8. Confirm there is no control that starts delivery, that pending proposals are not an approved baseline, and that Flow stage/start review does not claim Paimos, Pharos, or Janus succeeded. Explicit Flow start reports the missing downstream integration; review routes back to the existing approve/handover controls.
 9. Approve selected proposals as the human reviewer. In **Reviewed baseline**, download JSON, CSV, HTML, and PDF for that explicit `baseline_ref` and `revision`. All four must show the same digest and seal. Unapproved proposals must not appear in those files. HTML has no script tags or external fetches; PDF is a real `%PDF` file whose footer stays on the same content page with an accurate page count, wrapped long IDs, and readable Latin/Latin-Ext/Greek/Cyrillic (for example Straße). Unsupported scripts (including CJK) must refuse PDF and offer HTML/JSON rather than omit glyphs.
 10. Open **Document intake** (folded). Upload the JSON export as own-format: it becomes unapproved add/update proposals and still needs Approve. Upload a `.txt` or `.xml` file: it is listed with extraction status and does **not** mint proposals until **Interpret into proposals**. Interpret cannot be used to send a provider endpoint, system prompt, or roles from the browser.
 11. Repeat with `demo-agent`: the agent may create its own project and propose, but cannot approve. `demo-outsider` cannot open another actor's project or download its exports (including older revisions).

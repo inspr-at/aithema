@@ -8,6 +8,8 @@ import { createIdentityVerifier, isLoopbackHost } from '../runtime/identity.js';
 import { createProviderRegistry } from '../runtime/provider.js';
 import { SqliteProjectStore } from '../runtime/store.js';
 import { normalizeWorkspaceConfig } from './config.js';
+import { readAllowedStatic, resolveWorkspaceStatic } from './flow-assets.js';
+import { buildWorkspaceFlowState, handleHostFlowIntent } from './flow-context.js';
 import { renderWorkspacePage } from './page.js';
 
 const COOKIE = 'aithema_demo';
@@ -21,8 +23,9 @@ const SECURITY_HEADERS = Object.freeze({
   'cache-control': 'no-store',
   'content-security-policy': [
     "default-src 'none'",
-    "style-src 'unsafe-inline'",
-    "img-src 'none'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self'",
     "form-action 'self'",
     "base-uri 'self'",
     "frame-ancestors 'self'",
@@ -99,6 +102,18 @@ export function createWorkspaceServer(rawConfig, options = {}) {
       return;
     }
 
+    if (req.method === 'GET' || req.method === 'HEAD') {
+      const asset = resolveWorkspaceStatic(url.pathname);
+      if (asset) {
+        serveAllowedStatic(res, asset, req.method === 'HEAD');
+        return;
+      }
+      if (url.pathname.startsWith('/flow-shell/') || url.pathname === '/workspace-flow-host.js') {
+        json(res, 404, { error: 'static asset is not on the closed allowlist' });
+        return;
+      }
+    }
+
     if (req.method === 'POST' && url.pathname === '/session/demo') {
       if (!config.labelledDemo) {
         html(res, 403, pageModel({ error: 'demo identity is disabled in production' }));
@@ -126,6 +141,24 @@ export function createWorkspaceServer(rawConfig, options = {}) {
       }
       const projects = actor ? store.listProjects(actor) : [];
       html(res, 200, pageModel({ actor, projects, demoSubjects: demoSubjects() }));
+      return;
+    }
+
+    if (url.pathname === '/flow-state' && (req.method === 'GET' || req.method === 'HEAD')) {
+      if (!actor) {
+        json(res, 401, { error: config.labelledDemo ? 'Sign in with labelled demo identity first.' : 'Verified identity required.' });
+        return;
+      }
+      json(res, 200, flowStateFor(actor, null));
+      return;
+    }
+
+    if (req.method === 'POST' && url.pathname === '/flow-intents') {
+      if (!actor) {
+        json(res, 401, { error: config.labelledDemo ? 'Sign in with labelled demo identity first.' : 'Verified identity required.' });
+        return;
+      }
+      await respondFlowIntent(req, res, actor, null);
       return;
     }
 
@@ -176,6 +209,16 @@ export function createWorkspaceServer(rawConfig, options = {}) {
     if (req.method === 'GET' && rest === '') {
       const notice = pageNotice(url.searchParams);
       html(res, 200, pageModel({ actor, projects: store.listProjects(actor), project, notice }));
+      return;
+    }
+
+    if ((req.method === 'GET' || req.method === 'HEAD') && rest === 'flow-state') {
+      json(res, 200, flowStateFor(actor, project));
+      return;
+    }
+
+    if (req.method === 'POST' && rest === 'flow-intents') {
+      await respondFlowIntent(req, res, actor, project);
       return;
     }
 
@@ -424,8 +467,36 @@ export function createWorkspaceServer(rawConfig, options = {}) {
     return { error: messageOf(error), code: error?.code, revision };
   }
 
+  function flowStateFor(currentActor, currentProject) {
+    return buildWorkspaceFlowState({
+      actor: currentActor,
+      project: currentProject,
+      labelledDemo: config.labelledDemo,
+      identityConfig: config.identity,
+    });
+  }
+
+  async function respondFlowIntent(req, res, currentActor, currentProject) {
+    try {
+      const body = await readForm(req);
+      const result = handleHostFlowIntent({
+        actor: currentActor,
+        project: currentProject,
+        labelledDemo: config.labelledDemo,
+        identityConfig: config.identity,
+        intent: body,
+      });
+      json(res, 200, result);
+    } catch (error) {
+      const status = error?.status
+        || (error?.code === 'unauthorized' ? 401 : error?.code === 'forbidden' ? 403 : error?.code === 'stale_context' ? 409 : 400);
+      json(res, status, { error: messageOf(error), executed: false, issues: error?.issues });
+    }
+  }
+
   function pageModel(extra) {
     const project = extra.project;
+    const actor = extra.actor ?? null;
     return renderWorkspacePage({
       mode: config.mode,
       labelledDemo: config.labelledDemo,
@@ -434,6 +505,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
       demoSubjects: demoSubjects(),
       policyActive: Boolean(config.policy),
       ...extra,
+      flowState: extra.flowState ?? flowStateFor(actor, project ?? null),
       allowedSelections: project
         ? controller.selectionsFor(project.project_ref)
         : extra.allowedSelections,
@@ -478,6 +550,16 @@ function json(res, status, body) {
 function html(res, status, body) {
   res.writeHead(status, { ...SECURITY_HEADERS, 'content-type': 'text/html; charset=utf-8' });
   res.end(body);
+}
+
+function serveAllowedStatic(res, asset, headOnly = false) {
+  const body = readAllowedStatic(asset.path);
+  res.writeHead(200, {
+    ...SECURITY_HEADERS,
+    'content-type': asset.contentType,
+    'content-length': body.length,
+  });
+  res.end(headOnly ? undefined : body);
 }
 
 function redirect(res, location, extra = {}) {

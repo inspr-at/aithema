@@ -663,6 +663,7 @@ describe('AIT-10 reproducible packaging', () => {
         '@inspr/aithema-core',
         '@inspr/aithema-core/runtime',
         '@inspr/aithema-core/workspace',
+        '@inspr/flow-shell',
         'unpdf',
       ]) {
         assert.ok(

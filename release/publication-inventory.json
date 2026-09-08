@@ -58,7 +58,7 @@
     "workspace/"
   ],
   "test_prerequisites": {
-    "node": ">=20",
+    "node": ">=24",
     "npm": ">=10",
     "system": [
       "trash CLI (packaging cleanup and negative-fixture tests)",
@@ -107,7 +107,7 @@
     "prepared_candidate": {
       "version": "0.2.0",
       "status": "metadata-prepared",
-      "feature_note": "Additive operator provider policy and durable outbound request ceilings (not currency; billing usage unavailable in this slice)."
+      "feature_note": "Additive operator provider policy, durable outbound request ceilings (not currency; billing usage unavailable in this slice), and first product-host consumption of pinned public Flow Shell 0.1.2 in the existing workspace."
     }
   },
   "outstanding_coordinator_gates": [
@@ -115,6 +115,7 @@
     "Root-owned matching 0.2.0 version tag, dispatched forge publication, and downloaded consumer proof",
     "Package registry publication remains unauthorized; this coordinate does not claim the @inspr npm namespace",
     "Configured production identity, live provider, and OIDC proof remain unproven",
+    "Native 390 browser verification of the Flow workspace host remains a coordinator gate; this increment ships HTTP/component/packaging evidence only",
     "Pin START consumer to an immutable public release after 0.2.0 acceptance"
   ],
   "handoff": {

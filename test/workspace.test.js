@@ -725,7 +725,10 @@ describe('workspace UI and HTTP boundaries', () => {
       assert.match(boundedPage, /No documents were retained\./);
       assert.match(boundedPage, /not retained \(file too large\)/);
       assert.doesNotMatch(boundedPage, /document retained|Document intake recorded/i);
-      assert.equal(boundedPage.includes('<script'), false);
+      const withoutHostScripts = boundedPage
+        .replace(/<script type="application\/json" id="aithema-flow-state">[^<]*<\/script>/g, '')
+        .replace(/<script type="module" src="\/workspace-flow-host\.js"><\/script>/g, '');
+      assert.equal(withoutHostScripts.includes('<script'), false);
     } finally {
       await workspace.close();
     }
