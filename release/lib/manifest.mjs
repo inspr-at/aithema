@@ -14,6 +14,60 @@ import { sha256File, sha256Prefixed } from './digest.mjs';
 /** Rename failures that mean "another publisher already owns this coordinate". */
 const OCCUPIED_TARGET_CODES = new Set(['ENOTEMPTY', 'EEXIST', 'ENOTDIR', 'EISDIR']);
 
+/** Explicit legacy SemVer discriminators. Privacy is never inferred from version punctuation. */
+export const LEGACY_SEMVER_PRIVATE = 'legacy-semver-private';
+export const LEGACY_SEMVER_PUBLIC = 'legacy-semver-public';
+
+/**
+ * @param {unknown} scheme
+ * @returns {string}
+ */
+export function assertVersionScheme(scheme) {
+  if (scheme !== LEGACY_SEMVER_PRIVATE && scheme !== LEGACY_SEMVER_PUBLIC) {
+    throw new Error(
+      `unknown version_scheme ${JSON.stringify(scheme)}; `
+      + 'use an explicit legacy-semver discriminator, not version punctuation',
+    );
+  }
+  return scheme;
+}
+
+/**
+ * package.json is the authoritative version. Inventory must agree and must
+ * name scheme/channel explicitly.
+ * @param {object} pkg
+ * @param {object} inventory
+ */
+export function resolveDeclaredReleaseMetadata(pkg, inventory) {
+  if (!pkg || typeof pkg.version !== 'string' || !pkg.version) {
+    throw new Error('package.json is the authoritative version source');
+  }
+  if (!inventory || inventory.schema !== 'aithema-publication-inventory/0.1') {
+    throw new Error('publication inventory schema must be aithema-publication-inventory/0.1');
+  }
+  if (inventory.version !== pkg.version) {
+    throw new Error(
+      `publication inventory version ${inventory.version} does not match package.json version ${pkg.version}`,
+    );
+  }
+  const versionScheme = assertVersionScheme(inventory.version_scheme);
+  const runtimeChannel = inventory.release_channels?.runtime_package;
+  const sourceChannel = inventory.release_channels?.public_source_candidate;
+  if (typeof runtimeChannel !== 'string' || !runtimeChannel) {
+    throw new Error('publication inventory must declare release_channels.runtime_package');
+  }
+  if (typeof sourceChannel !== 'string' || !sourceChannel) {
+    throw new Error('publication inventory must declare release_channels.public_source_candidate');
+  }
+  return {
+    version: pkg.version,
+    versionScheme,
+    runtimeChannel,
+    sourceChannel,
+    npmPrivate: pkg.private === true,
+  };
+}
+
 /**
  * @param {string} version
  * @returns {string}
@@ -55,15 +109,16 @@ export function buildManifest({
   artifactCoordinate,
   artifactPath,
   artifactSha256,
+  npmPrivate = true,
 }) {
   if (typeof commit !== 'string' || !/^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(commit)) {
     throw new Error(`manifest source commit must be a full commit object id, got ${commit}`);
   }
   return {
     schema: 'aithema-release-manifest/0.1',
-    version_scheme: versionScheme,
+    version_scheme: assertVersionScheme(versionScheme),
     version,
-    private: true,
+    private: npmPrivate === true,
     release_channel: releaseChannel,
     source: {
       commit,

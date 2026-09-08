@@ -26,7 +26,10 @@ import {
 } from '../release/lib/git.mjs';
 import {
   assertManifestBinding,
+  assertVersionScheme,
   canonicalManifestText,
+  LEGACY_SEMVER_PRIVATE,
+  LEGACY_SEMVER_PUBLIC,
   publishImmutableReleasePair,
   stableManifestFilename,
   stableReleaseDirname,
@@ -57,8 +60,11 @@ import {
 } from './fixtures/packaging-support.mjs';
 
 const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const VERSION = '0.0.0';
+const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
+const VERSION = pkg.version;
+const PRIVATE_FIXTURE_VERSION = '0.0.0';
 const SOURCE_MANIFEST = stableSourceManifestFilename(VERSION);
+const PRIVATE_LINEAGE_COMMIT = '2ba95dad95fc4fee315faeb43c07a09d0d911e33';
 
 /**
  * @param {string} path
@@ -262,8 +268,16 @@ describe('AIT-11 public source export', () => {
       const source = resolveSourceExport(repo);
       try {
         const built = buildSourceExport({ repoRoot: repo, commit: source.commit, allowlist: source.allowlist, outDir });
-        assert.equal(built.manifest.source.private_source_commit, source.commit);
+        const provenancePath = join(repo, 'release/source-provenance.json');
+        const expectedPrivate = existsSync(provenancePath)
+          ? parseSourceProvenance(readFileSync(provenancePath, 'utf8')).private_source_commit
+          : source.commit;
+        assert.equal(built.manifest.source.private_source_commit, expectedPrivate);
         assert.equal(built.manifest.source.current_source_commit, source.commit);
+        if (hasGitMetadata(repoRoot) && repo === repoRoot) {
+          assert.equal(built.manifest.source.private_source_commit, PRIVATE_LINEAGE_COMMIT);
+          assert.notEqual(built.manifest.source.current_source_commit, PRIVATE_LINEAGE_COMMIT);
+        }
         assert.notEqual(built.manifest.source.tree_digest, `sha256:${source.commit}`);
         assert.match(built.manifest.source.tree_digest, /^sha256:[0-9a-f]{64}$/);
         assert.match(built.manifest.source.normalization_note, /not identical/i);
@@ -351,6 +365,19 @@ describe('AIT-11 public source export', () => {
         assert.equal(treeRelease.manifest.source.lock_digest, gitRelease.manifest.source.lock_digest);
         assert.equal(treeRelease.artifactSha256, gitRelease.artifactSha256);
         assert.equal(treeRelease.manifestText, gitRelease.manifestText);
+        assert.equal(exported.manifest.version, VERSION);
+        assert.equal(exported.manifest.version_scheme, LEGACY_SEMVER_PUBLIC);
+        assert.equal(exported.manifest.release_channel, 'github-source');
+        assert.equal(exported.manifest.private, true);
+        assert.equal(gitRelease.manifest.version, VERSION);
+        assert.equal(gitRelease.manifest.version_scheme, LEGACY_SEMVER_PUBLIC);
+        assert.equal(gitRelease.manifest.release_channel, 'github-runtime-tgz');
+        assert.equal(gitRelease.manifest.private, true);
+        if (hasGitMetadata(repoRoot) && repo === repoRoot) {
+          assert.equal(exported.manifest.source.private_source_commit, PRIVATE_LINEAGE_COMMIT);
+          assert.equal(exported.manifest.source.current_source_commit, source.commit);
+          assert.equal(gitRelease.manifest.source.commit, source.commit);
+        }
 
         const repeat = buildRelease({ repoRoot: extractDir, outDir: gitOut });
         assert.equal(repeat.publication.status, 'identical');
@@ -432,8 +459,23 @@ describe('AIT-11 public source export', () => {
 
   it('publication inventory documents prerequisites and outstanding coordinator gates', () => {
     const inventory = JSON.parse(readFileSync(join(repoRoot, 'release/publication-inventory.json'), 'utf8'));
+    const lock = JSON.parse(readFileSync(join(repoRoot, 'package-lock.json'), 'utf8'));
+    const notices = JSON.parse(readFileSync(join(repoRoot, 'NOTICES.json'), 'utf8'));
     assert.equal(inventory.schema, 'aithema-publication-inventory/0.1');
     assert.equal(inventory.version, VERSION);
+    assert.equal(pkg.version, VERSION);
+    assert.equal(pkg.private, true);
+    assert.equal(lock.version, VERSION);
+    assert.equal(lock.packages[''].version, VERSION);
+    assert.equal(notices.package.version, VERSION);
+    assert.equal(notices.package.private, true);
+    assert.equal(inventory.version_scheme, LEGACY_SEMVER_PUBLIC);
+    assert.equal(inventory.release_channels.runtime_package, 'github-runtime-tgz');
+    assert.equal(inventory.release_channels.public_source_candidate, 'github-source');
+    assert.equal(inventory.package_registry.publish, false);
+    assert.equal(inventory.package_registry.npm_private_flag, true);
+    assert.equal(inventory.package_registry.namespace_claim, false);
+    assert.equal(inventory.public_repository_target, 'inspr-at/aithema');
     assert.ok(Array.isArray(inventory.outstanding_coordinator_gates));
     assert.ok(inventory.outstanding_coordinator_gates.length >= 3);
     assert.match(inventory.test_prerequisites.system.join(' '), /trash/i);
@@ -525,11 +567,17 @@ describe('AIT-11 public source export', () => {
       /requires Node 22/,
     );
     assert.equal(assertStrictSemVer('0.0.0'), '0.0.0');
+    assert.equal(assertStrictSemVer(VERSION), VERSION);
     assert.throws(() => assertStrictSemVer('0.0.0" || true'), /invalid strict SemVer/);
     assert.equal(assertAdmissibleReleaseRef('refs/heads/main'), 'refs/heads/main');
     assert.throws(() => assertAdmissibleReleaseRef('refs/heads/feat/x'), /limited to main/);
-    assert.equal(assertReleaseRefMatchesVersion('refs/tags/v0.0.0', VERSION), 'v0.0.0');
+    assert.equal(assertReleaseRefMatchesVersion('refs/tags/v0.0.0', PRIVATE_FIXTURE_VERSION), 'v0.0.0');
+    assert.equal(assertReleaseRefMatchesVersion(`refs/tags/v${VERSION}`, VERSION), `v${VERSION}`);
     assert.equal(assertReleaseRefMatchesVersion('refs/heads/main', VERSION), null);
+    assert.throws(
+      () => assertReleaseRefMatchesVersion('refs/tags/v0.0.0', VERSION),
+      /does not match coordinate/,
+    );
     assert.throws(
       () => assertReleaseRefMatchesVersion('refs/tags/v9.9.9', VERSION),
       /does not match coordinate/,
@@ -541,6 +589,12 @@ describe('AIT-11 public source export', () => {
     assert.throws(
       () => admitRelease({ repoRoot, version: '9.9.9' }),
       /does not match coordinate/,
+    );
+    assert.equal(assertVersionScheme(LEGACY_SEMVER_PRIVATE), LEGACY_SEMVER_PRIVATE);
+    assert.equal(assertVersionScheme(LEGACY_SEMVER_PUBLIC), LEGACY_SEMVER_PUBLIC);
+    assert.throws(
+      () => assertVersionScheme('legacy-semver'),
+      /explicit legacy-semver discriminator/,
     );
   });
 
@@ -647,10 +701,10 @@ describe('AIT-11 public source export', () => {
   });
 
   it('frozen runtime schema 0.1 stays compatible and fails closed on extra source keys', () => {
-    const valid = {
+    const privateFixture = {
       schema: 'aithema-release-manifest/0.1',
-      version_scheme: 'legacy-semver-private',
-      version: VERSION,
+      version_scheme: LEGACY_SEMVER_PRIVATE,
+      version: PRIVATE_FIXTURE_VERSION,
       private: true,
       release_channel: 'private-source',
       source: {
@@ -659,21 +713,33 @@ describe('AIT-11 public source export', () => {
         lock_digest: `sha256:${'c'.repeat(64)}`,
       },
       artifacts: [{
+        coordinate: `npm:@inspr/aithema-core@${PRIVATE_FIXTURE_VERSION}.tgz`,
+        path: `inspr-aithema-core-${PRIVATE_FIXTURE_VERSION}.tgz`,
+        sha256: `sha256:${'d'.repeat(64)}`,
+      }],
+    };
+    assertManifestBinding(privateFixture);
+    const publicDeclared = {
+      ...privateFixture,
+      version_scheme: LEGACY_SEMVER_PUBLIC,
+      version: VERSION,
+      release_channel: 'github-runtime-tgz',
+      artifacts: [{
         coordinate: `npm:@inspr/aithema-core@${VERSION}.tgz`,
         path: `inspr-aithema-core-${VERSION}.tgz`,
         sha256: `sha256:${'d'.repeat(64)}`,
       }],
     };
-    assertManifestBinding(valid);
+    assertManifestBinding(publicDeclared);
     assert.throws(
       () => assertManifestBinding({
-        ...valid,
-        source: { ...valid.source, current_source_commit: 'e'.repeat(40) },
+        ...privateFixture,
+        source: { ...privateFixture.source, current_source_commit: 'e'.repeat(40) },
       }),
       /frozen schema 0.1/,
     );
     assert.throws(
-      () => assertManifestBinding({ ...valid, schema: 'aithema-release-manifest/0.2' }),
+      () => assertManifestBinding({ ...privateFixture, schema: 'aithema-release-manifest/0.2' }),
       /aithema-release-manifest\/0.1/,
     );
   });
@@ -690,29 +756,33 @@ describe('AIT-11 public source export', () => {
       { name: 'inspr-aithema-core-source-0.0.0.manifest.json', sha256: digestD },
     ];
     assert.equal(
-      planForgeAssetRetention({ ref: 'refs/heads/main', version: VERSION, localAssets }).action,
+      planForgeAssetRetention({ ref: 'refs/heads/main', version: PRIVATE_FIXTURE_VERSION, localAssets }).action,
       'skip',
     );
     assert.equal(
-      planForgeAssetRetention({ ref: 'refs/tags/0.0.0', version: VERSION, localAssets }).action,
+      planForgeAssetRetention({ ref: 'refs/tags/0.0.0', version: PRIVATE_FIXTURE_VERSION, localAssets }).action,
       'create',
     );
     assert.equal(
-      planForgeAssetRetention({ ref: 'refs/tags/v0.0.0', version: VERSION, localAssets }).action,
+      planForgeAssetRetention({ ref: 'refs/tags/v0.0.0', version: PRIVATE_FIXTURE_VERSION, localAssets }).action,
       'create',
     );
     assert.throws(
-      () => planForgeAssetRetention({ ref: 'refs/tags/v9.9.9', version: VERSION, localAssets: [] }),
+      () => planForgeAssetRetention({ ref: 'refs/tags/v9.9.9', version: PRIVATE_FIXTURE_VERSION, localAssets: [] }),
       /does not match coordinate/,
     );
     assert.throws(
-      () => planForgeAssetRetention({ ref: 'refs/tags/9.9.9', version: VERSION, localAssets }),
+      () => planForgeAssetRetention({ ref: 'refs/tags/9.9.9', version: PRIVATE_FIXTURE_VERSION, localAssets }),
+      /does not match coordinate/,
+    );
+    assert.throws(
+      () => planForgeAssetRetention({ ref: 'refs/tags/0.0.0', version: VERSION, localAssets }),
       /does not match coordinate/,
     );
     assert.equal(
       planForgeAssetRetention({
         ref: 'refs/tags/0.0.0',
-        version: VERSION,
+        version: PRIVATE_FIXTURE_VERSION,
         localAssets,
         existingAssetDigests: Object.fromEntries(localAssets.map((asset) => [asset.name, asset.sha256])),
       }).action,
@@ -720,7 +790,7 @@ describe('AIT-11 public source export', () => {
     );
     const missingPlan = planForgeAssetRetention({
       ref: 'refs/tags/0.0.0',
-      version: VERSION,
+      version: PRIVATE_FIXTURE_VERSION,
       localAssets,
       existingAssetDigests: Object.fromEntries(
         localAssets.slice(1).map((asset) => [asset.name, asset.sha256]),
@@ -730,7 +800,7 @@ describe('AIT-11 public source export', () => {
     assert.deepEqual(missingPlan.missing, ['inspr-aithema-core-0.0.0.tgz']);
     const conflict = planForgeAssetRetention({
       ref: 'refs/tags/0.0.0',
-      version: VERSION,
+      version: PRIVATE_FIXTURE_VERSION,
       localAssets,
       existingAssetDigests: {
         ...Object.fromEntries(localAssets.map((asset) => [asset.name, asset.sha256])),
@@ -822,7 +892,7 @@ describe('AIT-11 public source export', () => {
         repoRoot: repo,
         distRoot,
         version: VERSION,
-        ref: 'refs/tags/0.0.0',
+        ref: `refs/tags/${VERSION}`,
         forge,
       });
       assert.equal(first.action, 'create');
@@ -831,7 +901,7 @@ describe('AIT-11 public source export', () => {
         repoRoot: repo,
         distRoot,
         version: VERSION,
-        ref: 'refs/tags/0.0.0',
+        ref: `refs/tags/${VERSION}`,
         forge,
       });
       assert.equal(repeat.action, 'identical');
@@ -841,7 +911,7 @@ describe('AIT-11 public source export', () => {
         repoRoot: repo,
         distRoot,
         version: VERSION,
-        ref: 'refs/tags/v0.0.0',
+        ref: `refs/tags/v${VERSION}`,
         forge,
       });
       assert.equal(withStray.action, 'identical');
@@ -851,7 +921,7 @@ describe('AIT-11 public source export', () => {
         repoRoot: repo,
         distRoot,
         version: VERSION,
-        ref: 'refs/tags/0.0.0',
+        ref: `refs/tags/${VERSION}`,
         forge,
       });
       assert.equal(recovered.action, 'upload-missing');
@@ -873,7 +943,7 @@ describe('AIT-11 public source export', () => {
           repoRoot: repo,
           distRoot,
           version: VERSION,
-          ref: 'refs/tags/0.0.0',
+          ref: `refs/tags/${VERSION}`,
           forge,
         }),
         /refusing to replace non-identical GitHub Release assets/,

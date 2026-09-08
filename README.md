@@ -19,7 +19,7 @@ Selectively adapted from read-only inspection of START (`start-agm-com`) primiti
 
 **Not copied:** agency prompts, branding/i18n, mail/handoff, credits, voice SDK, customer records, env/secret files, or START UI chrome.
 
-START remains unchanged on its PMA business track. Public release, START cutover, and live provider/OIDC proof remain later work.
+START remains unchanged on its PMA business track. Public forge publication, START cutover, and live provider/OIDC proof remain later work.
 
 ## Design
 
@@ -43,7 +43,7 @@ Voice SDK extraction and element-specific preview feedback remain later work.
 
 ## Dependencies and fonts
 
-Pinned in `package-lock.json` (this package remains private `0.0.0`):
+Pinned in `package-lock.json` (package.json remains `private: true` as the npm publish guard; this is not an npm registry publication):
 
 | Package | License | Use |
 | --- | --- | --- |
@@ -67,11 +67,11 @@ npm run example
 npm run workspace -- examples/demo-config.json
 ```
 
-`npm run release:build` publishes one immutable runtime release coordinate as a single directory, `dist/inspr-aithema-core-0.0.0/`, holding `inspr-aithema-core-0.0.0.tgz` and its sidecar manifest built from the closed allowlist in `release/allowlist.json`. The directory is staged and committed with one rename, so the pair is never half-written and an existing coordinate is never replaced: a byte-identical rebuild is accepted, different bytes are refused.
+`npm run release:build` publishes one immutable runtime release coordinate as a single directory, `dist/inspr-aithema-core-0.1.0/`, holding `inspr-aithema-core-0.1.0.tgz` and its sidecar manifest built from the closed allowlist in `release/allowlist.json`. The directory is staged and committed with one rename, so the pair is never half-written and an existing coordinate is never replaced: a byte-identical rebuild is accepted, different bytes are refused.
 
-`npm run source:export` publishes one immutable public upstream source candidate as `dist/inspr-aithema-core-source-0.0.0/`, holding `inspr-aithema-core-source-0.0.0.tgz` and its sidecar manifest built from the closed allowlist in `release/source-allowlist.json`. The export includes tests, release tooling, and CI workflows needed to reproduce runtime packaging, while excluding private worker files such as `AGENTS.md`, private Git history, and operator residue. The source manifest records `private_source_commit` as original lineage and `current_source_commit` as the Git commit actually exported; those are not interchangeable after a later public `git init`. Runtime artifact manifests keep frozen schema `aithema-release-manifest/0.1` and bind `source.commit` to that current exported commit so a public Git checkout and its extracted non-Git tree agree. Canonical published bytes are the CI GNU tar toolchain with Git committer-epoch timestamps; BSD tar may differ. Machine-readable publication inventory and coordinator handoff gates live in `release/publication-inventory.json`.
+`npm run source:export` publishes one immutable public GitHub-source candidate as `dist/inspr-aithema-core-source-0.1.0/`, holding `inspr-aithema-core-source-0.1.0.tgz` and its sidecar manifest built from the closed allowlist in `release/source-allowlist.json`. The export includes tests, release tooling, and CI workflows needed to reproduce runtime packaging, while excluding private worker files such as `AGENTS.md`, private Git history, and operator residue. The source manifest records `private_source_commit` as original lineage and `current_source_commit` as the Git commit actually exported; those are not interchangeable. Runtime artifact manifests keep frozen schema `aithema-release-manifest/0.1` and bind `source.commit` to that current exported commit so a public Git checkout and its extracted non-Git tree agree. Canonical published bytes are the CI GNU tar toolchain with Git committer-epoch timestamps; BSD tar may differ. Machine-readable publication inventory and coordinator handoff gates live in `release/publication-inventory.json`. Version scheme is an explicit `legacy-semver-public` discriminator and is not inferred from the `0.1.0` string.
 
-The package remains private `0.0.0` until a coordinator separately reserves the first public release coordinate. No public repository, tag, or registry publish happens in this increment.
+Reserved first public coordinate is legacy SemVer `0.1.0`. This tree is a GitHub-source and runtime-tgz candidate only: no public remote, tag, GitHub Release, or npm registry publish has happened in this increment, and this repository does not claim the `@inspr` npm namespace. `package.json` `private: true` remains the npm publish guard.
 
 Package subpaths: `@inspr/aithema-core` (domain), `@inspr/aithema-core/runtime`, `@inspr/aithema-core/workspace`.
 
@@ -100,4 +100,4 @@ Operator setup for the workspace is in `RUNBOOK.md`. Local tests use a determini
 
 ## License
 
-AGPL-3.0-only (intended for future publication; not published in this increment).
+AGPL-3.0-only. First public GitHub source/runtime-tgz coordinate is reserved `0.1.0`; npm registry publication is not authorized in this increment.

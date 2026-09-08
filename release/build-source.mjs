@@ -16,6 +16,7 @@ import {
   resolveCommit,
   treeDigest,
 } from './lib/git.mjs';
+import { resolveDeclaredReleaseMetadata } from './lib/manifest.mjs';
 import {
   SOURCE_PROVENANCE_PATH,
   buildSourceProvenanceText,
@@ -104,7 +105,9 @@ export function buildSourceExport({
     );
   }
   const pkg = readPackageJsonAtCommit(repoRoot, resolvedCommit);
-  const version = pkg.version;
+  const inventory = JSON.parse(readBlob(repoRoot, resolvedCommit, 'release/publication-inventory.json').toString('utf8'));
+  const declared = resolveDeclaredReleaseMetadata(pkg, inventory);
+  const version = declared.version;
   const artifactName = stableSourceArtifactFilename(version);
   const manifestName = stableSourceManifestFilename(version);
   const releaseDir = join(outDir, stableSourceReleaseDirname(version));
@@ -159,12 +162,13 @@ export function buildSourceExport({
     treeDigest: sourceTreeDigest,
     lockDigest,
     version,
-    versionScheme: 'legacy-semver-private',
-    releaseChannel: 'public-source-candidate',
+    versionScheme: declared.versionScheme,
+    releaseChannel: declared.sourceChannel,
     artifactCoordinate,
     artifactPath: artifactName,
     artifactSha256,
     pathCount: exportPaths.length,
+    npmPrivate: declared.npmPrivate,
   });
   assertSourceManifestBinding(manifest);
   const manifestText = canonicalSourceManifestText(manifest);

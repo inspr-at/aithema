@@ -11,6 +11,7 @@ import {
 import { dirname, join } from 'node:path';
 
 import { sha256File, sha256Prefixed } from './digest.mjs';
+import { assertVersionScheme } from './manifest.mjs';
 
 /** Rename failures that mean "another publisher already owns this coordinate". */
 const OCCUPIED_TARGET_CODES = new Set(['ENOTEMPTY', 'EEXIST', 'ENOTDIR', 'EISDIR']);
@@ -55,6 +56,7 @@ export function buildSourceManifest({
   artifactPath,
   artifactSha256,
   pathCount,
+  npmPrivate = true,
 }) {
   if (typeof privateSourceCommit !== 'string' || !/^[0-9a-f]{40}$/.test(privateSourceCommit)) {
     throw new Error(
@@ -68,9 +70,9 @@ export function buildSourceManifest({
   }
   return {
     schema: 'aithema-source-manifest/0.1',
-    version_scheme: versionScheme,
+    version_scheme: assertVersionScheme(versionScheme),
     version,
-    private: true,
+    private: npmPrivate === true,
     release_channel: releaseChannel,
     source: {
       private_source_commit: privateSourceCommit,

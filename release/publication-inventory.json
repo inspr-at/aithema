@@ -1,11 +1,18 @@
 {
   "schema": "aithema-publication-inventory/0.1",
   "package": "@inspr/aithema-core",
-  "version_scheme": "legacy-semver-private",
-  "version": "0.0.0",
+  "version_scheme": "legacy-semver-public",
+  "version": "0.1.0",
+  "public_repository_target": "inspr-at/aithema",
+  "package_registry": {
+    "publish": false,
+    "npm_private_flag": true,
+    "namespace_claim": false,
+    "note": "package.json private remains the npm publish guard. GitHub source and runtime tgz availability is independent and does not claim the @inspr npm namespace."
+  },
   "release_channels": {
-    "runtime_package": "private-source",
-    "public_source_candidate": "public-source-candidate"
+    "runtime_package": "github-runtime-tgz",
+    "public_source_candidate": "github-source"
   },
   "exports": {
     "runtime_package": {
@@ -87,13 +94,14 @@
     "runtime_manifest_schema": "aithema-release-manifest/0.1"
   },
   "outstanding_coordinator_gates": [
-    "Reserve first public release coordinate (currently private 0.0.0)",
-    "Create public GitHub repository and namespace authority for @inspr/aithema-core",
-    "Initialize public Git history from accepted source candidate (do not push private history)",
-    "Pin START consumer to immutable public release after AIT-5 acceptance"
+    "Create the public GitHub repository inspr-at/aithema (root-owned remote; do not push private history)",
+    "Root-owned matching version tag, dispatched forge publication, and downloaded consumer proof",
+    "Package registry publication remains unauthorized; this coordinate does not claim the @inspr npm namespace",
+    "Configured production identity, live provider, and OIDC proof remain unproven",
+    "Pin START consumer to an immutable public release after acceptance"
   ],
   "handoff": {
-    "review_extract": "npm run source:export && mkdir -p /tmp/aithema-source-review && tar -xzf dist/inspr-aithema-core-source-0.0.0/inspr-aithema-core-source-0.0.0.tgz -C /tmp/aithema-source-review",
+    "review_extract": "npm run source:export && mkdir -p /tmp/aithema-source-review && tar -xzf dist/inspr-aithema-core-source-0.1.0/inspr-aithema-core-source-0.1.0.tgz -C /tmp/aithema-source-review",
     "review_verify": "cd /tmp/aithema-source-review && npm ci && npm test && npm run release:build",
     "provenance_note": "private_source_commit is original private lineage. current_source_commit is the Git commit actually exported. Runtime artifact manifests bind source.commit to current_source_commit under frozen schema 0.1. runtime_tree_digest uses the AIT-10 path+blob-sha inventory and is not a Git tree object id."
   }

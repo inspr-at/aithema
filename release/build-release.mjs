@@ -20,6 +20,7 @@ import {
   buildManifest,
   canonicalManifestText,
   publishImmutableReleasePair,
+  resolveDeclaredReleaseMetadata,
   stableArtifactFilename,
   stableManifestFilename,
   stableReleaseDirname,
@@ -81,7 +82,9 @@ function buildReleaseFromTree({
   provenance,
 }) {
   const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
-  const version = pkg.version;
+  const inventory = JSON.parse(readFileSync(join(repoRoot, 'release/publication-inventory.json'), 'utf8'));
+  const declared = resolveDeclaredReleaseMetadata(pkg, inventory);
+  const version = declared.version;
   const artifactName = stableArtifactFilename(version);
   const manifestName = stableManifestFilename(version);
   const releaseDir = join(outDir, stableReleaseDirname(version));
@@ -121,11 +124,12 @@ function buildReleaseFromTree({
     treeDigest: sourceTreeDigest,
     lockDigest,
     version,
-    versionScheme: 'legacy-semver-private',
-    releaseChannel: 'private-source',
+    versionScheme: declared.versionScheme,
+    releaseChannel: declared.runtimeChannel,
     artifactCoordinate,
     artifactPath: artifactName,
     artifactSha256,
+    npmPrivate: declared.npmPrivate,
   });
   assertManifestBinding(manifest);
   const manifestText = canonicalManifestText(manifest);
@@ -203,7 +207,9 @@ export function buildRelease({
     );
   }
   const pkg = readPackageJsonAtCommit(repoRoot, resolvedCommit);
-  const version = pkg.version;
+  const inventory = JSON.parse(readBlob(repoRoot, resolvedCommit, 'release/publication-inventory.json').toString('utf8'));
+  const declared = resolveDeclaredReleaseMetadata(pkg, inventory);
+  const version = declared.version;
   const artifactName = stableArtifactFilename(version);
   const manifestName = stableManifestFilename(version);
   const releaseDir = join(outDir, stableReleaseDirname(version));
@@ -240,11 +246,12 @@ export function buildRelease({
     treeDigest: sourceTreeDigest,
     lockDigest,
     version,
-    versionScheme: 'legacy-semver-private',
-    releaseChannel: 'private-source',
+    versionScheme: declared.versionScheme,
+    releaseChannel: declared.runtimeChannel,
     artifactCoordinate,
     artifactPath: artifactName,
     artifactSha256,
+    npmPrivate: declared.npmPrivate,
   });
   assertManifestBinding(manifest);
   const manifestText = canonicalManifestText(manifest);

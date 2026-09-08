@@ -32,6 +32,7 @@ import {
   hasGitMetadata,
 } from '../release/lib/tree.mjs';
 import {
+  LEGACY_SEMVER_PUBLIC,
   canonicalManifestText,
   publishImmutableReleasePair,
   stableArtifactFilename,
@@ -52,10 +53,15 @@ import {
 } from './fixtures/packaging-support.mjs';
 
 const repoRoot = resolve(fileURLToPath(new URL('..', import.meta.url)));
-const VERSION = '0.0.0';
+const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
+const VERSION = pkg.version;
+const PRIVATE_FIXTURE_VERSION = '0.0.0';
 const ARTIFACT_NAME = stableArtifactFilename(VERSION);
 const MANIFEST_NAME = stableManifestFilename(VERSION);
 const RELEASE_DIRNAME = stableReleaseDirname(VERSION);
+const PRIVATE_ARTIFACT_NAME = stableArtifactFilename(PRIVATE_FIXTURE_VERSION);
+const PRIVATE_MANIFEST_NAME = stableManifestFilename(PRIVATE_FIXTURE_VERSION);
+const PRIVATE_RELEASE_DIRNAME = stableReleaseDirname(PRIVATE_FIXTURE_VERSION);
 const COORDINATE = `npm:@inspr/aithema-core@${VERSION}.tgz`;
 
 /**
@@ -198,6 +204,25 @@ describe('AIT-10 reproducible packaging', () => {
     }
   });
 
+  it('refuses a publication inventory whose version does not match package.json', () => {
+    const { repo } = seededFixtureRepo('aithema-pack-inventory-mismatch-');
+    const outDir = mkdtempSync(join(tmpdir(), 'aithema-pack-inventory-mismatch-out-'));
+    try {
+      const inventoryPath = join(repo, 'release/publication-inventory.json');
+      const inventory = JSON.parse(readFileSync(inventoryPath, 'utf8'));
+      inventory.version = '9.9.9';
+      writeFileSync(inventoryPath, `${JSON.stringify(inventory, null, 2)}\n`, 'utf8');
+      commitAll(repo, 'mismatched inventory version');
+      assert.throws(
+        () => buildRelease({ repoRoot: repo, outDir }),
+        /does not match package.json version/,
+      );
+    } finally {
+      removeTemp(repo);
+      removeTemp(outDir);
+    }
+  });
+
   it('builds only from the pinned commit, ignoring a dirty worktree, and leaves the index alone', () => {
     const { repo, commit } = seededFixtureRepo('aithema-pack-pin-');
     const outA = mkdtempSync(join(tmpdir(), 'aithema-pack-pin-a-'));
@@ -214,7 +239,8 @@ describe('AIT-10 reproducible packaging', () => {
       assert.equal(first.manifestText, second.manifestText);
       assert.equal(second.manifest.version, VERSION);
       assert.equal(second.manifest.private, true);
-      assert.equal(second.manifest.version_scheme, 'legacy-semver-private');
+      assert.equal(second.manifest.version_scheme, LEGACY_SEMVER_PUBLIC);
+      assert.equal(second.manifest.release_channel, 'github-runtime-tgz');
       assertIndexUnchanged(repo, indexBefore);
       assert.equal(readFileSync(join(repo, 'package.json'), 'utf8'), dirtyPackage);
       assert.equal(
@@ -497,7 +523,7 @@ describe('AIT-10 reproducible packaging', () => {
     const outDir = mkdtempSync(join(tmpdir(), 'aithema-pack-race-different-'));
     try {
       const payloads = { alpha: 'alpha-release-bytes\n', beta: 'beta-release-bytes\n' };
-      const results = await runPublishRace({ outDir, version: VERSION, payloads });
+      const results = await runPublishRace({ outDir, version: PRIVATE_FIXTURE_VERSION, payloads });
       const codes = Object.values(results).map((entry) => entry.code);
       assert.equal(codes.filter((code) => code === 0).length, 1, JSON.stringify(results));
       assert.equal(codes.filter((code) => code === 1).length, 1, JSON.stringify(results));
@@ -505,12 +531,12 @@ describe('AIT-10 reproducible packaging', () => {
       const loser = Object.values(results).find((entry) => entry.code === 1);
       assert.match(loser.stderr, /refusing to overwrite non-identical (artifact|manifest)/);
 
-      const releaseDir = join(outDir, RELEASE_DIRNAME);
-      const verified = verifyReleasePair(releaseDir, MANIFEST_NAME);
-      const published = readFileSync(join(releaseDir, ARTIFACT_NAME), 'utf8');
+      const releaseDir = join(outDir, PRIVATE_RELEASE_DIRNAME);
+      const verified = verifyReleasePair(releaseDir, PRIVATE_MANIFEST_NAME);
+      const published = readFileSync(join(releaseDir, PRIVATE_ARTIFACT_NAME), 'utf8');
       assert.ok(Object.values(payloads).includes(published));
       assert.equal(verified.sha256, `sha256:${sha256(published)}`);
-      assert.deepEqual(readdirSync(releaseDir).sort(), [ARTIFACT_NAME, MANIFEST_NAME].sort());
+      assert.deepEqual(readdirSync(releaseDir).sort(), [PRIVATE_ARTIFACT_NAME, PRIVATE_MANIFEST_NAME].sort());
       assert.deepEqual(stagingResidue(outDir), []);
     } finally {
       removeTemp(outDir);
@@ -521,7 +547,7 @@ describe('AIT-10 reproducible packaging', () => {
     const outDir = mkdtempSync(join(tmpdir(), 'aithema-pack-race-identical-'));
     try {
       const payloads = { one: 'same-release-bytes\n', two: 'same-release-bytes\n' };
-      const results = await runPublishRace({ outDir, version: VERSION, payloads });
+      const results = await runPublishRace({ outDir, version: PRIVATE_FIXTURE_VERSION, payloads });
       for (const entry of Object.values(results)) {
         assert.equal(entry.code, 0, entry.stderr);
       }
@@ -529,7 +555,7 @@ describe('AIT-10 reproducible packaging', () => {
         .map((entry) => JSON.parse(entry.stdout.trim()).status)
         .sort();
       assert.deepEqual(statuses, ['identical', 'published']);
-      verifyReleasePair(join(outDir, RELEASE_DIRNAME), MANIFEST_NAME);
+      verifyReleasePair(join(outDir, PRIVATE_RELEASE_DIRNAME), PRIVATE_MANIFEST_NAME);
       assert.deepEqual(stagingResidue(outDir), []);
     } finally {
       removeTemp(outDir);
