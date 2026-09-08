@@ -1,6 +1,6 @@
 # Aithema workspace runbook
 
-This package is a reserved first public GitHub-source candidate (`0.1.0`, explicit `legacy-semver-public`). The commands below are for local operator/developer use. They do not publish to npm, create a remote or tag, deploy, or prove a live provider or OIDC integration.
+This package prepares public GitHub-source candidate `0.2.0` (explicit `legacy-semver-public`). First release `0.1.0` is already published at [inspr-at/aithema](https://github.com/inspr-at/aithema) (`v0.1.0`). The commands below are for local operator/developer use. They do not publish to npm, create a tag, deploy, or prove a live provider or OIDC integration.
 
 ## Tests (deterministic, no live credentials)
 
@@ -28,14 +28,14 @@ Generated printable fixtures for coordinator QA (outside the repo): write review
 ```bash
 npm run source:export
 mkdir -p /tmp/aithema-source-review
-tar -xzf dist/inspr-aithema-core-source-0.1.0/inspr-aithema-core-source-0.1.0.tgz -C /tmp/aithema-source-review
+tar -xzf dist/inspr-aithema-core-source-0.2.0/inspr-aithema-core-source-0.2.0.tgz -C /tmp/aithema-source-review
 cd /tmp/aithema-source-review
 npm ci
 npm test
 npm run release:build
 ```
 
-The extracted tree has no private Git metadata. Runtime release builds inside the extracted tree bind `release/source-provenance.json` to the runtime tree and lock digests, then stamp frozen `source.commit` with `current_source_commit` (the Git commit actually exported). They do not require private history and do not put private lineage into the runtime manifest. `private_source_commit` stays the original lineage (`2ba95dad…`) and `current_source_commit` is the public commit; git-mode and tree-mode runtime manifests then agree. Canonical publication toolchain is CI `ubuntu-latest` + Node 22 + GNU tar; timestamp input is the committer epoch recorded as `export_mtime_epoch`. Tag-gated `release/retain-forge-assets.mjs` retains admitted GitHub Release assets only when the ref is `refs/tags/{version}` or `refs/tags/v{version}`; a syntactically valid tag for another coordinate is refused before any forge I/O. `upload-artifact` is ephemeral transfer only. The release workflow sets `AITHEMA_CANONICAL_RELEASE=1` so admission and builders require the declared Node 22 + GNU tar toolchain; local BSD tar builds stay valid and are not claimed to match CI bytes. Coordinator-only gates after this candidate: create the `inspr-at/aithema` GitHub repository, run the release workflow on a matching tag, download consumer proof, and pin START separately. npm registry publication is not authorized and this tree does not claim the `@inspr` npm namespace. Configured production identity, live provider, and OIDC remain unproven.
+The extracted tree has no private Git metadata. Runtime release builds inside the extracted tree bind `release/source-provenance.json` to the runtime tree and lock digests, then stamp frozen `source.commit` with `current_source_commit` (the Git commit actually exported). They do not require private history and do not put private lineage into the runtime manifest. `private_source_commit` stays the original lineage (`2ba95dad…`) and `current_source_commit` is the public commit; git-mode and tree-mode runtime manifests then agree. Canonical publication toolchain is CI `ubuntu-latest` + Node 22 + GNU tar; timestamp input is the committer epoch recorded as `export_mtime_epoch`. Tag-gated `release/retain-forge-assets.mjs` retains admitted GitHub Release assets only when the ref is `refs/tags/{version}` or `refs/tags/v{version}`; a syntactically valid tag for another coordinate is refused before any forge I/O. `upload-artifact` is ephemeral transfer only. The release workflow sets `AITHEMA_CANONICAL_RELEASE=1` so admission and builders require the declared Node 22 + GNU tar toolchain; local BSD tar builds stay valid and are not claimed to match CI bytes. Coordinator-only gates after this candidate: published `0.1.0` at `inspr-at/aithema` remains immutable; run the release workflow on a matching `0.2.0` tag, download consumer proof, and pin START separately. npm registry publication is not authorized and this tree does not claim the `@inspr` npm namespace. Configured production identity, live provider, and OIDC remain unproven.
 
 ## Labelled demo workspace (loopback only)
 
