@@ -38,9 +38,9 @@
     },
     {
       "name": "@inspr/flow-shell",
-      "version": "0.1.2",
+      "version": "0.1.4",
       "license": "AGPL-3.0-only",
-      "use": "Pinned public Flow Shell runtime tarball (GitHub Release v0.1.2). Compact header/footer Web Component consumed by the Aithema workspace host. Not a source fork and not an npm namespace claim."
+      "use": "Pinned public Flow Shell runtime tarball (GitHub Release v0.1.4). Compact header/footer Web Component consumed by the Aithema workspace host. Not a source fork and not an npm namespace claim."
     }
   ],
   "extraction_provenance": [

@@ -8,10 +8,10 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const FLOW_SHELL_TARBALL_URL =
-  'https://github.com/inspr-at/flow-shell/releases/download/v0.1.2/inspr-flow-shell-0.1.2.tgz';
+  'https://github.com/inspr-at/flow-shell/releases/download/v0.1.4/inspr-flow-shell-0.1.4.tgz';
 export const FLOW_SHELL_TARBALL_SHA256 =
-  '116e7477c670facd044d453c18d465bf9d741cd76169b7f23384a42212e87d7a';
-export const FLOW_SHELL_VERSION = '0.1.2';
+  'b5e773eeca6eff42432efe4c776e9079132ccaa58f65a48a64bbc5b6a18d55b0';
+export const FLOW_SHELL_VERSION = '0.1.4';
 
 const FLOW_PREFIX = '/flow-shell/';
 const HOST_SCRIPT_PATH = '/workspace-flow-host.js';
@@ -21,6 +21,7 @@ const FLOW_STATIC = Object.freeze({
   'adapter.js': 'text/javascript; charset=utf-8',
   'forecast.js': 'text/javascript; charset=utf-8',
   'gates.js': 'text/javascript; charset=utf-8',
+  'host-layout.js': 'text/javascript; charset=utf-8',
   'identity.js': 'text/javascript; charset=utf-8',
   'intents.js': 'text/javascript; charset=utf-8',
   'sanitize.js': 'text/javascript; charset=utf-8',

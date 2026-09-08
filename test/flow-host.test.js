@@ -161,7 +161,7 @@ function signedJwt() {
 }
 
 describe('Flow workspace host', () => {
-  it('pins the independently verified Flow 0.1.2 GitHub runtime tarball', () => {
+  it('pins the independently verified Flow 0.1.4 GitHub runtime tarball', () => {
     const repoRoot = fileURLToPath(new URL('..', import.meta.url));
     const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
     const lock = JSON.parse(readFileSync(join(repoRoot, 'package-lock.json'), 'utf8'));
@@ -185,6 +185,11 @@ describe('Flow workspace host', () => {
       assert.equal(js.status, 200);
       assert.match(js.headers.get('content-type'), /javascript/);
       assert.match(await js.text(), /inspr-flow-shell/);
+
+      const layout = await fetch(`${url}/flow-shell/host-layout.js`);
+      assert.equal(layout.status, 200);
+      assert.match(layout.headers.get('content-type'), /javascript/);
+      assert.match(await layout.text(), /LAYOUT_MODES/);
 
       const css = await fetch(`${url}/flow-shell/flow-shell.css`);
       assert.equal(css.status, 200);
@@ -227,6 +232,7 @@ describe('Flow workspace host', () => {
       const homeHtml = await home.text();
       assert.match(homeHtml, /Demo \/ mock/i);
       assert.match(homeHtml, /<inspr-flow-shell /);
+      assert.match(homeHtml, /layout-mode="bounded"/);
       assert.match(homeHtml, /logo-src="\/flow-shell\/assets\/inspr-logo.svg"/);
       assert.match(homeHtml, /workspace-flow-host\.js/);
       assert.match(home.headers.get('content-security-policy'), /script-src 'self'/);
