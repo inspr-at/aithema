@@ -357,7 +357,9 @@ describe('AIT-11 public source export', () => {
           const output = `${tests.stdout}\n${tests.stderr}`;
           assert.equal(tests.status, 0, output);
           assert.match(output, /fail 0/);
-          assert.match(output, /tests 1\d\d/);
+          const testCount = output.match(/^ℹ tests (\d+)\r?$/m);
+          assert.ok(testCount, `missing extracted-suite test count\n${output}`);
+          assert.ok(Number(testCount[1]) >= 100, `expected at least 100 extracted-suite tests, got ${testCount[1]}`);
         }
 
         const gitRelease = buildRelease({ repoRoot: repo, commit: source.commit, outDir: gitOut });
