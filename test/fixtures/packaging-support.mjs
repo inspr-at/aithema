@@ -72,6 +72,7 @@ export function seedMinimalPackageTree(repoRoot, allowlist) {
     'release/build-release.mjs',
     'release/build-source.mjs',
     'release/consumer-proof.mjs',
+    'release/prime-consumer-cache.mjs',
     'release/verify-license.mjs',
     'release/lib/digest.mjs',
     'release/lib/git.mjs',

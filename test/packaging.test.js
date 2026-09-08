@@ -19,6 +19,12 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { buildRelease, resolveReleaseSource } from '../release/build-release.mjs';
+import {
+  npmEnvForCache,
+  primeConsumerCache,
+  resolveExplicitNpmCache,
+  resolvePrimeOutDir,
+} from '../release/prime-consumer-cache.mjs';
 import { sha256 } from '../release/lib/digest.mjs';
 import {
   commitEpochSeconds,
@@ -575,10 +581,42 @@ describe('AIT-10 reproducible packaging', () => {
 
   it('clean consumer installs the tarball offline and resolves every import from its own node_modules', () => {
     const buildDir = mkdtempSync(join(tmpdir(), 'aithema-pack-consumer-build-'));
+    const unprimedDir = mkdtempSync(join(tmpdir(), 'aithema-pack-consumer-unprimed-'));
     const consumerDir = mkdtempSync(join(tmpdir(), 'aithema-pack-consumer-'));
+    const cacheDir = mkdtempSync(join(tmpdir(), 'aithema-pack-npm-cache-'));
     const source = resolveReleaseSource(repoRoot);
     try {
+      assert.throws(() => resolveExplicitNpmCache(''), /implicit global npm cache/);
+      assert.throws(() => resolvePrimeOutDir(join(repoRoot, 'dist')), /into dist/);
+
       const built = buildRelease({ repoRoot, ...source, outDir: buildDir });
+      const vendorUnprimed = join(unprimedDir, 'vendor');
+      mkdirSync(vendorUnprimed, { recursive: true });
+      copyFileSync(built.artifactPath, join(vendorUnprimed, ARTIFACT_NAME));
+      writeFileSync(join(unprimedDir, 'package.json'), `${JSON.stringify({
+        name: 'aithema-clean-consumer-unprimed',
+        private: true,
+        type: 'module',
+        dependencies: {
+          '@inspr/aithema-core': `file:./vendor/${ARTIFACT_NAME}`,
+        },
+      }, null, 2)}\n`, 'utf8');
+
+      const unprimed = spawnSync(
+        'npm',
+        ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--offline'],
+        {
+          cwd: unprimedDir,
+          encoding: 'utf8',
+          timeout: 300_000,
+          env: { ...npmEnvForCache(cacheDir), npm_config_offline: 'true' },
+        },
+      );
+      assert.notEqual(unprimed.status, 0);
+      assert.match(`${unprimed.stderr}\n${unprimed.stdout}`, /ENOTCACHED/);
+
+      primeConsumerCache({ artifactPath: built.artifactPath, cacheDir });
+
       const vendorDir = join(consumerDir, 'vendor');
       mkdirSync(vendorDir, { recursive: true });
       copyFileSync(built.artifactPath, join(vendorDir, ARTIFACT_NAME));
@@ -594,12 +632,17 @@ describe('AIT-10 reproducible packaging', () => {
       const install = spawnSync(
         'npm',
         ['install', '--ignore-scripts', '--no-audit', '--no-fund', '--offline'],
-        { cwd: consumerDir, encoding: 'utf8', timeout: 300_000 },
+        {
+          cwd: consumerDir,
+          encoding: 'utf8',
+          timeout: 300_000,
+          env: { ...npmEnvForCache(cacheDir), npm_config_offline: 'true' },
+        },
       );
       assert.equal(
         install.status,
         0,
-        `offline install failed; prime the npm cache once with a normal install, then re-run.\n${install.stderr || install.stdout}`,
+        `offline install failed after named packument prime.\n${install.stderr || install.stdout}`,
       );
 
       // The proof only counts when it runs from inside the consumer installation.
@@ -632,7 +675,9 @@ describe('AIT-10 reproducible packaging', () => {
       assert.equal(lstatSync(join(consumerDir, 'node_modules', '@inspr', 'aithema-core')).isDirectory(), true);
     } finally {
       removeTemp(buildDir);
+      removeTemp(unprimedDir);
       removeTemp(consumerDir);
+      removeTemp(cacheDir);
     }
   });
 
