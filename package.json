@@ -5,6 +5,9 @@
   "type": "module",
   "description": "Reusable requirements assistant: stable IDs, revision digests, baseline approval, and proposal boundaries",
   "license": "AGPL-3.0-only",
+  "engines": {
+    "node": ">=24"
+  },
   "exports": {
     ".": "./lib/index.js",
     "./runtime": "./runtime/index.js",

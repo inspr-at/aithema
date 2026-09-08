@@ -84,7 +84,7 @@
   "reproducibility": {
     "canonical_toolchain": {
       "ci_runner": "ubuntu-latest",
-      "node": "22",
+      "node": "24",
       "tar_family": "gnu",
       "tar_format": "gnu",
       "timestamp_policy": "git-committer-epoch-seconds"
@@ -107,7 +107,7 @@
     "prepared_candidate": {
       "version": "0.2.0",
       "status": "metadata-prepared",
-      "feature_note": "Additive operator provider policy, durable outbound request ceilings (not currency; billing usage unavailable in this slice), and first product-host consumption of pinned public Flow Shell 0.1.2 in the existing workspace."
+      "feature_note": "Additive operator provider policy and durable outbound request ceilings (not currency; billing usage unavailable in this slice). Flow Shell 0.1.2 workspace hosting is source-tree work for a later root-reserved coordinate; it is not a published 0.2.0 artifact."
     }
   },
   "outstanding_coordinator_gates": [

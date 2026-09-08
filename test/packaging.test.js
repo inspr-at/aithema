@@ -585,6 +585,23 @@ describe('AIT-10 reproducible packaging', () => {
     }
   });
 
+  it('declares Node 24 engines matching the canonical release toolchain and root lock', () => {
+    const lock = JSON.parse(readFileSync(join(repoRoot, 'package-lock.json'), 'utf8'));
+    const inventory = JSON.parse(readFileSync(join(repoRoot, 'release/publication-inventory.json'), 'utf8'));
+    const ciWorkflow = readFileSync(join(repoRoot, '.github/workflows/ci.yml'), 'utf8');
+    const releaseWorkflow = readFileSync(join(repoRoot, '.github/workflows/release.yml'), 'utf8');
+    const runbook = readFileSync(join(repoRoot, 'RUNBOOK.md'), 'utf8');
+    assert.equal(pkg.engines.node, '>=24');
+    assert.equal(lock.packages[''].engines.node, '>=24');
+    assert.equal(inventory.test_prerequisites.node, '>=24');
+    assert.equal(inventory.reproducibility.canonical_toolchain.node, '24');
+    assert.match(ciWorkflow, /node-version: '24'/);
+    assert.match(releaseWorkflow, /node-version: '24'/);
+    assert.doesNotMatch(releaseWorkflow, /node-version: '22'/);
+    assert.match(runbook, /Node 24 \+ GNU tar/);
+    assert.doesNotMatch(runbook, /Node 22 \+ GNU tar/);
+  });
+
   it('verifies canonical AGPL license surface and dependency notices', () => {
     const license = spawnSync(process.execPath, ['release/verify-license.mjs'], {
       cwd: repoRoot,
