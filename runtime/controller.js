@@ -40,6 +40,16 @@ import {
   rejectBrowserProviderOverride,
   UNDERSTANDING_SYSTEM_PROMPT,
 } from './provider.js';
+import {
+  allowedSelections,
+  assertCallAllowed,
+  BILLING_USAGE_UNAVAILABLE,
+  boundProviderId,
+  effectiveProjectPolicy,
+  policyDeniedError,
+  spendCallId,
+  spendError,
+} from './policy.js';
 import { mergeUnderstanding, proposeFromUnderstanding, validateUnderstanding } from './understanding.js';
 import { assertHumanApprover, authorityFromActor } from './identity.js';
 import { createDocumentRecord, extractDocument } from './extract.js';
@@ -49,13 +59,20 @@ export class ConversationController {
    * @param {{
    *   store: import('./store.js').SqliteProjectStore,
    *   provider: import('./provider.js').LlmProvider,
+   *   providers?: Record<string, import('./provider.js').LlmProvider>,
+   *   defaultProviderId?: string,
+   *   policy?: object | null,
    *   mode: string,
    *   limits?: unknown,
+   *   uploadLimits?: unknown,
    * }} deps
    */
   constructor(deps) {
     this.store = deps.store;
     this.provider = deps.provider;
+    this.providers = Object.freeze({ ...(deps.providers ?? { [deps.provider.id]: deps.provider }) });
+    this.defaultProviderId = deps.defaultProviderId ?? deps.provider.id;
+    this.policy = deps.policy ?? null;
     this.mode = deps.mode;
     this.limits = normalizeProviderLimits(deps.limits);
     this.uploadLimits = normalizeUploadLimits(deps.uploadLimits);
@@ -63,6 +80,13 @@ export class ConversationController {
     this.inFlight = new Map();
     /** @type {Map<string, Promise<unknown>>} */
     this.turnLocks = new Map();
+  }
+
+  /**
+   * @param {string} projectRef
+   */
+  selectionsFor(projectRef) {
+    return allowedSelections(this.policy, projectRef, this.providers, this.defaultProviderId);
   }
 
   /**
@@ -100,7 +124,6 @@ export class ConversationController {
    */
   async submitTurn(input) {
     rejectBrowserProviderOverride(input.browserBody);
-    const modelId = assertApprovedModel(this.provider, input.model);
     const actor = input.actor;
     const projectRef = input.projectRef;
     this.store.getProject(projectRef, actor);
@@ -114,7 +137,7 @@ export class ConversationController {
     const inflightTurn = this.turnLocks.get(lockKey);
     if (inflightTurn) return inflightTurn;
 
-    const work = this.#executeTurn({ ...input, turnId, modelId }).finally(() => {
+    const work = this.#executeTurn({ ...input, turnId }).finally(() => {
       this.turnLocks.delete(lockKey);
     });
     this.turnLocks.set(lockKey, work);
@@ -140,14 +163,15 @@ export class ConversationController {
    *   message: string,
    *   turnId: string,
    *   expectedRevision?: number,
-   *   modelId: string,
+   *   model?: unknown,
+   *   providerId?: unknown,
    *   browserBody?: unknown,
    *   signal?: AbortSignal,
    *   onChunk?: (chunk: string) => void,
    * }} input
    */
   async #executeTurn(input) {
-    const { actor, projectRef, turnId, modelId } = input;
+    const { actor, projectRef, turnId } = input;
     const project = this.store.getProject(projectRef, actor);
     const cached = this.store.getTurnResult(projectRef, turnId);
     if (cached?.status === 'complete') {
@@ -163,6 +187,9 @@ export class ConversationController {
     if (!userText) {
       throw Object.assign(new Error('message is empty'), { code: 'empty' });
     }
+
+    const selection = this.#pinSelection(projectRef, input);
+    const { provider, modelId } = selection;
 
     const userAppend = appendTurn(project.transcript, 'user', userText, undefined, {
       source: 'human',
@@ -205,17 +232,19 @@ export class ConversationController {
         signal,
         model: modelId,
       };
-      for await (const chunk of this.provider.streamChat(chatRequest)) {
-        assembled += chunk;
-        if (assembled.length > this.limits.maxAssembledChars) {
-          abort.abort();
-          throw Object.assign(
-            new Error('provider stream exceeded the configured text limit'),
-            { code: 'incomplete_stream', reason: 'response_too_large', name: 'IncompleteProviderStreamError' },
-          );
+      await this.#withOutboundCall(projectRef, turnId, 'chat', async () => {
+        for await (const chunk of provider.streamChat(chatRequest)) {
+          assembled += chunk;
+          if (assembled.length > this.limits.maxAssembledChars) {
+            abort.abort();
+            throw Object.assign(
+              new Error('provider stream exceeded the configured text limit'),
+              { code: 'incomplete_stream', reason: 'response_too_large', name: 'IncompleteProviderStreamError' },
+            );
+          }
+          input.onChunk?.(chunk);
         }
-        input.onChunk?.(chunk);
-      }
+      });
       streamCompleted = true;
 
       const persistable = assistantTurnForPersistence(assembled, streamCompleted);
@@ -228,15 +257,16 @@ export class ConversationController {
           stream_completed: false,
           incomplete_reason: incompleteReason || 'truncated',
           proposals_created: [],
+          ...this.#billingNote(),
         };
       }
 
       const assistantAppend = appendTurn(userAppend.transcript, 'assistant', persistable, undefined, {
         source: 'provider',
-        provider_id: this.provider.id,
+        provider_id: provider.id,
         model_id: modelId,
-        live: this.provider.live,
-        labelled_demo: this.provider.labelledDemo,
+        live: provider.live,
+        labelled_demo: provider.labelledDemo,
         stream_completed: true,
       });
       if (!assistantAppend.ok) {
@@ -249,18 +279,19 @@ export class ConversationController {
       let stream = afterUser.project.stream;
       let proposalRefs = [];
       try {
-        const raw = await this.provider.understand({
+        const raw = await this.#withOutboundCall(projectRef, turnId, 'understand', () => provider.understand({
           system: UNDERSTANDING_SYSTEM_PROMPT,
           messages: messagesForProvider(assistantAppend.transcript),
           signal,
           model: modelId,
-        });
+        }));
         const validated = validateUnderstanding(raw);
         understanding = mergeUnderstanding(understanding, validated);
         const proposed = proposeFromUnderstanding(stream, authorityFromActor(actor), understanding);
         stream = proposed.stream;
         proposalRefs = [...proposed.proposal_refs];
-      } catch {
+      } catch (error) {
+        if (isSpendOrPolicyError(error)) throw error;
         // Complete chat remains durable. Cancel, timeout, invalid, or partial
         // understanding must not mint proposals or replace a good snapshot.
       }
@@ -290,8 +321,9 @@ export class ConversationController {
           project: completed.project,
           stream_completed: true,
           idempotent: true,
-          live: this.provider.live,
-          labelled_demo: this.provider.labelledDemo,
+          live: provider.live,
+          labelled_demo: provider.labelledDemo,
+          ...this.#billingNote(),
         };
       }
 
@@ -303,8 +335,9 @@ export class ConversationController {
         stream_completed: true,
         proposals_created: proposalRefs,
         idempotent: completed.deduped,
-        live: this.provider.live,
-        labelled_demo: this.provider.labelledDemo,
+        live: provider.live,
+        labelled_demo: provider.labelledDemo,
+        ...this.#billingNote(),
       };
     } catch (error) {
       streamCompleted = false;
@@ -326,6 +359,7 @@ export class ConversationController {
           stream_completed: false,
           incomplete_reason: incompleteReason || 'truncated',
           proposals_created: [],
+          ...this.#billingNote(),
         };
       }
       throw error;
@@ -333,6 +367,85 @@ export class ConversationController {
       this.inFlight.delete(flightKey(projectRef, turnId));
       input.signal?.removeEventListener('abort', onParentAbort);
     }
+  }
+
+  /**
+   * Pin one registry id + model for chat and understanding. Never substitute.
+   * @param {string} projectRef
+   * @param {{ providerId?: unknown, model?: unknown }} input
+   */
+  #pinSelection(projectRef, input) {
+    const requestedId = input.providerId == null || input.providerId === ''
+      ? null
+      : boundProviderId(input.providerId);
+    if (!this.policy) {
+      if (requestedId && requestedId !== this.defaultProviderId && requestedId !== this.provider.id) {
+        throw policyDeniedError('requested provider is not the configured default', 'provider');
+      }
+      const modelId = assertApprovedModel(this.provider, input.model);
+      return { provider: this.provider, modelId, providerId: this.provider.id };
+    }
+    const providerId = requestedId || this.defaultProviderId;
+    const adapter = this.providers[providerId];
+    if (!adapter) {
+      throw policyDeniedError('requested provider is not in the operator registry', 'provider');
+    }
+    const effective = effectiveProjectPolicy(this.policy, projectRef);
+    assertCallAllowed(effective, {
+      providerId,
+      model: input.model,
+      executionLocation: adapter.executionLocation,
+      allowedModels: adapter.allowedModels ?? [adapter.modelId],
+      providerDataClasses: adapter.allowedDataClasses,
+    });
+    const modelId = assertApprovedModel(adapter, input.model);
+    return { provider: adapter, modelId, providerId };
+  }
+
+  /**
+   * Reserve, invoke, then mark committed. Crash between reserve and invoke
+   * leaves a reserved row: the same id must not be resent.
+   * @param {string} projectRef
+   * @param {string} turnId
+   * @param {'chat' | 'understand' | 'interpret'} phase
+   * @param {() => Promise<unknown>} invoke
+   */
+  async #withOutboundCall(projectRef, turnId, phase, invoke) {
+    const effective = effectiveProjectPolicy(this.policy, projectRef);
+    const ceiling = effective?.maxOutboundCallsPerProject;
+    if (ceiling == null) {
+      return invoke();
+    }
+    const callId = spendCallId(turnId, phase);
+    const reservation = this.store.reserveOutboundCall({
+      projectRef,
+      epoch: effective.epoch,
+      callId,
+      ceiling,
+    });
+    if (reservation.uncertain || reservation.alreadyCommitted) {
+      throw spendError(
+        'previous outbound call with this id did not finish cleanly; not retrying',
+        'spend_uncertain',
+      );
+    }
+    if (reservation.denied) {
+      throw spendError('project outbound request ceiling reached', 'spend_denied');
+    }
+    try {
+      return await invoke();
+    } finally {
+      this.store.commitOutboundCall({
+        projectRef,
+        epoch: effective.epoch,
+        callId,
+      });
+    }
+  }
+
+  #billingNote() {
+    if (!this.policy) return {};
+    return { billing: { usage: BILLING_USAGE_UNAVAILABLE } };
   }
 
   /**
@@ -668,7 +781,6 @@ export class ConversationController {
    */
   async interpretDocument(input) {
     rejectBrowserProviderOverride(input.browserBody);
-    const modelId = assertApprovedModel(this.provider, input.model);
     const actor = input.actor;
     const projectRef = input.projectRef;
     const document = this.store.getDocument(projectRef, actor, input.documentRef);
@@ -690,6 +802,8 @@ export class ConversationController {
       throw Object.assign(new Error('project revision conflict'), { code: 'revision_conflict' });
     }
 
+    const { provider, modelId } = this.#pinSelection(projectRef, input);
+
     const abort = new AbortController();
     const timeout = AbortSignal.timeout(this.limits.maxDurationMs);
     const onParentAbort = () => abort.abort(input.signal?.reason);
@@ -703,7 +817,7 @@ export class ConversationController {
 
     try {
       if (signal?.aborted) {
-        return { status: 'incomplete', incomplete_reason: 'cancelled', project, proposals_created: [] };
+        return { status: 'incomplete', incomplete_reason: 'cancelled', project, proposals_created: [], ...this.#billingNote() };
       }
       const bounded = document.extracted_text.slice(0, PROVIDER_DOCUMENT_CHARS);
       const truncatedForProvider = document.extracted_text.length > PROVIDER_DOCUMENT_CHARS || document.truncated;
@@ -715,14 +829,14 @@ export class ConversationController {
         bounded,
       ].filter(Boolean).join('\n');
 
-      const raw = await this.provider.understand({
+      const raw = await this.#withOutboundCall(projectRef, turnId, 'interpret', () => provider.understand({
         system: DOCUMENT_INTERPRET_SYSTEM_PROMPT,
         messages: [{ role: 'user', content: envelope }],
         signal,
         model: modelId,
-      });
+      }));
       if (signal?.aborted) {
-        return { status: 'incomplete', incomplete_reason: 'cancelled', project, proposals_created: [] };
+        return { status: 'incomplete', incomplete_reason: 'cancelled', project, proposals_created: [], ...this.#billingNote() };
       }
       const validated = validateUnderstanding(raw);
       const understanding = mergeUnderstanding(project.understanding, validated);
@@ -752,8 +866,9 @@ export class ConversationController {
         status: 'complete',
         project: completed.project,
         proposals_created: [...proposed.proposal_refs],
-        live: this.provider.live,
-        labelled_demo: this.provider.labelledDemo,
+        live: provider.live,
+        labelled_demo: provider.labelledDemo,
+        ...this.#billingNote(),
       };
     } catch (error) {
       const reason = incompleteReasonFrom(error, {
@@ -767,6 +882,7 @@ export class ConversationController {
           incomplete_reason: reason,
           project: this.store.getProject(projectRef, actor),
           proposals_created: [],
+          ...this.#billingNote(),
         };
       }
       throw error;
@@ -793,6 +909,11 @@ export function pendingProposalList(stream) {
  */
 function flightKey(projectRef, turnId) {
   return `${projectRef}\0${turnId}`;
+}
+
+function isSpendOrPolicyError(error) {
+  const code = error && typeof error === 'object' ? error.code : undefined;
+  return code === 'policy_denied' || code === 'spend_denied' || code === 'spend_uncertain';
 }
 
 /**

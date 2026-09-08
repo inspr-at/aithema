@@ -1,5 +1,6 @@
 import { isLoopbackHost } from '../runtime/identity.js';
 import { normalizeProviderLimits } from '../runtime/provider.js';
+import { normalizeOrgPolicy } from '../runtime/policy.js';
 import { normalizeUploadLimits } from '../lib/extract-limits.js';
 
 export { escapeHtml } from '../lib/text.js';
@@ -31,6 +32,10 @@ export function normalizeWorkspaceConfig(config) {
   if (mode === 'production' && !dataDir) {
     throw new Error('production workspace requires dataDir');
   }
+  const policy = normalizeOrgPolicy(config.policy, {
+    providers: config.providers,
+    defaultProvider: config.defaultProvider,
+  });
   return Object.freeze({
     mode,
     listenHost,
@@ -45,6 +50,7 @@ export function normalizeWorkspaceConfig(config) {
     limits: normalizeProviderLimits(config.limits),
     uploadLimits: normalizeUploadLimits(config.uploadLimits),
     publicOrigin: normalizePublicOrigin(config.publicOrigin),
+    policy,
   });
 }
 

@@ -90,6 +90,16 @@ Copy `examples/production-config.example.json` to an operator-owned file **outsi
 node examples/workspace.js /path/to/operator-config.json
 ```
 
-Unconfigured production identity refuses to start. Browser requests cannot change the endpoint, API key, limits, or enable a model that is not in `allowedModels`. `/health` returns only `{ ok: true, ready: true }`. Operator `limits` in config are capped; they cannot be raised from the browser.
+Unconfigured production identity refuses to start. Browser requests cannot change the endpoint, API key, limits, policy, data class, epoch, or enable a model that is not in `allowedModels`. Additive `providerId` may name a registry id already allowed by operator policy. `/health` returns only `{ ok: true, ready: true }`. Operator `limits` in config are capped; they cannot be raised from the browser.
+
+## Provider policy and request ceilings
+
+Omit `policy` to keep historical single-provider behaviour (`defaultProvider` only). When `policy` is present it is fail-closed:
+
+- `execution` is `local`, `cloud`, or `mixed`. Each registry entry used in `allowedProviders` must declare `executionLocation` (`local` or `cloud`) and `allowedDataClasses`.
+- `policy.projects.<project_ref>` may only narrow the organization values. Browsers cannot submit policy or data-class changes.
+- Unknown location or class cannot satisfy a constrained policy. A confidential-labelled project cannot call a provider that only allows `public`.
+- Default and explicit selections are pinned for both conversation calls (normally two outbound requests per turn) and document interpret. If that selection is disallowed, the request fails before any outbound call; another provider is never substituted.
+- `maxOutboundCallsPerProject` counts outbound provider requests in SQLite per project and `policy.epoch`. It is **not currency** and is not a billing estimate. This slice reports billing usage as unavailable. Bumping `epoch` in operator config starts a new count window; browsers cannot reset it. A reserved id is not refunded after a possibly-sent call or crash; retrying the same id fails honestly instead of sending again.
 
 Live IdP and live model calls are **out of scope for AIT-6 worker evidence**. Wire them later and keep the proof separate from `npm test`.

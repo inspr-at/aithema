@@ -56,6 +56,15 @@ CREATE TABLE IF NOT EXISTS documents (
   created_at TEXT NOT NULL,
   FOREIGN KEY (project_ref) REFERENCES projects(project_ref)
 );
+CREATE TABLE IF NOT EXISTS provider_spend (
+  project_ref TEXT NOT NULL,
+  epoch INTEGER NOT NULL,
+  call_id TEXT NOT NULL,
+  status TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (project_ref, epoch, call_id),
+  FOREIGN KEY (project_ref) REFERENCES projects(project_ref)
+);
 `
 
 /**
@@ -299,6 +308,77 @@ export class SqliteProjectStore {
    * @param {import('./identity.js').VerifiedActor} actor
    * @param {string} documentRef
    */
+  /**
+   * Atomically reserve one outbound provider call against a project epoch
+   * ceiling. Reserved and committed rows both count. A reserved row is never
+   * deleted after a possibly-sent request; retries must not reissue the same id.
+   *
+   * @param {{
+   *   projectRef: string,
+   *   epoch: number,
+   *   callId: string,
+   *   ceiling: number,
+   * }} input
+   * @returns {{ reserved: true } | { uncertain: true } | { alreadyCommitted: true } | { denied: true }}
+   */
+  reserveOutboundCall(input) {
+    const { projectRef, epoch, callId, ceiling } = input;
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const existing = this.db.prepare(
+        'SELECT status FROM provider_spend WHERE project_ref = ? AND epoch = ? AND call_id = ?',
+      ).get(projectRef, epoch, callId);
+      if (existing?.status === 'reserved') {
+        this.db.exec('ROLLBACK');
+        return { uncertain: true };
+      }
+      if (existing?.status === 'committed') {
+        this.db.exec('ROLLBACK');
+        return { alreadyCommitted: true };
+      }
+      const used = this.db.prepare(
+        'SELECT COUNT(*) AS n FROM provider_spend WHERE project_ref = ? AND epoch = ?',
+      ).get(projectRef, epoch).n;
+      if (used >= ceiling) {
+        this.db.exec('ROLLBACK');
+        return { denied: true };
+      }
+      this.db.prepare(`
+        INSERT INTO provider_spend (project_ref, epoch, call_id, status, created_at)
+        VALUES (?, ?, ?, 'reserved', ?)
+      `).run(projectRef, epoch, callId, new Date().toISOString());
+      this.db.exec('COMMIT');
+      return { reserved: true };
+    } catch (error) {
+      try { this.db.exec('ROLLBACK'); } catch { /* already rolled back */ }
+      throw error;
+    }
+  }
+
+  /**
+   * Mark a reserved call committed after the adapter was invoked.
+   * Missing or already-committed rows stay as-is; reserved cannot be refunded.
+   *
+   * @param {{ projectRef: string, epoch: number, callId: string }} input
+   */
+  commitOutboundCall(input) {
+    this.db.prepare(`
+      UPDATE provider_spend
+      SET status = 'committed'
+      WHERE project_ref = ? AND epoch = ? AND call_id = ? AND status = 'reserved'
+    `).run(input.projectRef, input.epoch, input.callId);
+  }
+
+  /**
+   * @param {string} projectRef
+   * @param {number} epoch
+   */
+  countOutboundCalls(projectRef, epoch) {
+    return this.db.prepare(
+      'SELECT COUNT(*) AS n FROM provider_spend WHERE project_ref = ? AND epoch = ?',
+    ).get(projectRef, epoch).n;
+  }
+
   getDocument(projectRef, actor, documentRef) {
     this.#assertMember(projectRef, actor);
     const row = this.db.prepare(

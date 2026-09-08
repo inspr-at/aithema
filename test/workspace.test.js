@@ -419,6 +419,10 @@ describe('workspace UI and HTTP boundaries', () => {
     assert.equal(production.mode, 'production');
     assert.equal(production.identity.kind, 'jwt-jwks');
     assert.equal(production.providers['local-openai'].kind, 'openai-compatible');
+    assert.equal(demo.policy, undefined);
+    assert.equal(production.policy.execution, 'local');
+    assert.equal(production.policy.maxOutboundCallsPerProject, 40);
+    assert.equal(production.providers['local-openai'].executionLocation, 'local');
   });
 
   it('rejects cross-origin cookie mutations, advertises security headers, and keeps health basic', async () => {

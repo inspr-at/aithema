@@ -30,13 +30,24 @@
       }
     ]
   },
+  "policy": {
+    "epoch": 1,
+    "execution": "local",
+    "allowedProviders": ["local-openai"],
+    "allowedDataClasses": ["unclassified"],
+    "dataClass": "unclassified",
+    "maxOutboundCallsPerProject": 40,
+    "projects": {}
+  },
   "providers": {
     "local-openai": {
       "kind": "openai-compatible",
       "baseUrl": "http://127.0.0.1:8080/v1",
       "apiKey": "",
       "modelId": "operator-approved-model",
-      "allowedModels": ["operator-approved-model"]
+      "allowedModels": ["operator-approved-model"],
+      "executionLocation": "local",
+      "allowedDataClasses": ["unclassified"]
     }
   }
 }
