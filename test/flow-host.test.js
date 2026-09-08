@@ -231,6 +231,7 @@ describe('Flow workspace host', () => {
       assert.match(homeHtml, /workspace-flow-host\.js/);
       assert.match(home.headers.get('content-security-policy'), /script-src 'self'/);
       assert.match(home.headers.get('content-security-policy'), /img-src 'self'/);
+      assert.match(home.headers.get('content-security-policy'), /connect-src 'self'/);
 
       const location = await createProject(url, cookie);
       const projectUrl = new URL(location, url);
@@ -425,6 +426,45 @@ describe('Flow workspace host', () => {
       assert.equal(outsider.status, 403);
 
       assert.equal(stateB.identityContext.project_ref !== stateA.identityContext.project_ref, true);
+    } finally {
+      await workspace.close();
+    }
+  });
+
+  it('allows same-origin Flow intent fetch under connect-src self without opening default-src', async () => {
+    const { workspace, url } = await start();
+    try {
+      const cookie = await demoSession(url, 'demo-reviewer');
+      const location = await createProject(url, cookie, 'CSP review batch');
+      const projectUrl = new URL(location, url);
+      const page = await fetch(projectUrl, { headers: { cookie } });
+      assert.equal(page.status, 200);
+      const csp = page.headers.get('content-security-policy') ?? '';
+      assert.match(csp, /default-src 'none'/);
+      assert.match(csp, /connect-src 'self'/);
+      assert.match(csp, /script-src 'self'/);
+      assert.match(csp, /form-action 'self'/);
+      assert.doesNotMatch(csp, /connect-src [^;]*(?:\*|https:|http:)/);
+      assert.equal(page.headers.get('x-content-type-options'), 'nosniff');
+      assert.equal(page.headers.get('x-frame-options'), 'SAMEORIGIN');
+      assert.equal(page.headers.get('referrer-policy'), 'strict-origin-when-cross-origin');
+
+      const state = await (await fetch(`${projectUrl}/flow-state`, { headers: { cookie } })).json();
+      const review = await fetch(`${projectUrl}/flow-intents`, {
+        method: 'POST',
+        headers: originHeaders(url, cookie),
+        body: JSON.stringify({
+          type: 'flow:review-batch',
+          identity: flowBinding(state.identityContext),
+        }),
+      });
+      assert.equal(review.status, 200);
+      const reviewed = await review.json();
+      assert.equal(reviewed.executed, false);
+      assert.equal(reviewed.routed, 'workspace-review');
+      const reviewCsp = review.headers.get('content-security-policy') ?? '';
+      assert.match(reviewCsp, /connect-src 'self'/);
+      assert.match(reviewCsp, /default-src 'none'/);
     } finally {
       await workspace.close();
     }

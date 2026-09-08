@@ -26,6 +26,7 @@ const SECURITY_HEADERS = Object.freeze({
     "script-src 'self'",
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self'",
+    "connect-src 'self'",
     "form-action 'self'",
     "base-uri 'self'",
     "frame-ancestors 'self'",

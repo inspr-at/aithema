@@ -431,6 +431,8 @@ describe('workspace UI and HTTP boundaries', () => {
       const health = await fetch(`${url}/health`);
       assert.equal(health.status, 200);
       assert.equal(health.headers.get('content-security-policy')?.includes("frame-ancestors 'self'"), true);
+      assert.equal(health.headers.get('content-security-policy')?.includes("connect-src 'self'"), true);
+      assert.equal(health.headers.get('content-security-policy')?.includes("default-src 'none'"), true);
       assert.equal(health.headers.get('x-content-type-options'), 'nosniff');
       assert.equal(health.headers.get('x-frame-options'), 'SAMEORIGIN');
       assert.equal(health.headers.get('referrer-policy'), 'strict-origin-when-cross-origin');
