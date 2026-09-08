@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { createWorkspaceServer } from '../workspace/index.js';
 import { normalizeWorkspaceConfig } from '../workspace/config.js';
-import { allowlistedReturnPath, LOGIN_COOKIE_NAME, SESSION_COOKIE_NAME } from '../runtime/oidc-login.js';
+import { allowlistedReturnPath, LOGIN_COOKIE_NAME, MAX_LOGIN_TRANSACTIONS, SESSION_COOKIE_NAME } from '../runtime/oidc-login.js';
 import { startSyntheticOidcIssuer } from './fixtures/synthetic-oidc.mjs';
 
 const memberships = [
@@ -169,7 +169,9 @@ describe('OIDC browser login', () => {
       const home = await fetch(url);
       assert.equal(home.status, 401);
       const homeText = await home.text();
-      assert.match(homeText, /Sign in/);
+      assert.match(homeText, /<a class="button" href="\/login">Sign in<\/a>/);
+      assert.doesNotMatch(homeText, /<form[^>]*action="\/login"/i);
+      assert.match(home.headers.get('content-security-policy') ?? '', /form-action 'self'/);
       assert.doesNotMatch(homeText, /Continue with labelled demo identity/);
       assertNoSecrets(homeText);
 
@@ -190,7 +192,7 @@ describe('OIDC browser login', () => {
       assert.equal(signedIn.status, 200);
       const html = await signedIn.text();
       assert.match(html, /party:alice/);
-      assert.match(html, /Sign out/);
+      assert.match(html, /<form method="post" action="\/logout">/);
       assert.doesNotMatch(html, /Demo \/ mock/i);
       assertNoSecrets(html);
 
@@ -324,7 +326,15 @@ describe('OIDC browser login', () => {
         },
         redirect: 'manual',
       });
-      assert.equal(logout.status, 303);
+      assert.equal(logout.status, 200);
+      assert.equal(logout.headers.get('location'), null);
+      assert.match(logout.headers.get('content-security-policy') ?? '', /form-action 'self'/);
+      const signedOut = await logout.text();
+      assert.match(signedOut, /Signed out/);
+      assert.match(signedOut, /<a class="button" href="\/login">Sign in<\/a>/);
+      assert.doesNotMatch(signedOut, /<form[^>]*action="\/login"/i);
+      assert.match(signedOut, new RegExp(`<a class="button" href="${issuer.issuer.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/end-session`));
+      assert.doesNotMatch(signedOut, /<form[^>]*action="http:\/\/127\.0\.0\.1/i);
       const afterLogout = await fetch(url, { headers: { cookie: again.cookie } });
       assert.equal(afterLogout.status, 401);
 
@@ -374,6 +384,48 @@ describe('OIDC browser login', () => {
       const unavailableText = await unavailable.text();
       assert.match(unavailableText, /unavailable|Sign-in/i);
       assertNoSecrets(unavailableText);
+    } finally {
+      await workspace.close();
+      await issuer.close();
+    }
+  });
+
+  it('evicts the oldest pending login so unauthenticated /login cannot exhaust sign-in', async () => {
+    const issuer = await startSyntheticOidcIssuer();
+    const { workspace, url } = await startWorkspace(issuer);
+    try {
+      /** @type {{ cookie: string, authorizeUrl: string }[]} */
+      const started = [];
+      for (let index = 0; index < MAX_LOGIN_TRANSACTIONS + 1; index += 1) {
+        const login = await fetch(`${url}/login`, { redirect: 'manual' });
+        assert.equal(login.status, 303, `login ${index} should not be capacity-denied`);
+        started.push({
+          cookie: cookieNamed(login, LOGIN_COOKIE_NAME),
+          authorizeUrl: login.headers.get('location'),
+        });
+      }
+
+      const oldest = started[0];
+      const oldestAuthorize = await fetch(oldest.authorizeUrl, { redirect: 'manual' });
+      assert.equal(oldestAuthorize.status, 302);
+      const oldestCallback = await fetch(oldestAuthorize.headers.get('location'), {
+        headers: { cookie: oldest.cookie },
+        redirect: 'manual',
+      });
+      assert.equal(oldestCallback.status, 401);
+
+      const newest = started.at(-1);
+      const newestAuthorize = await fetch(newest.authorizeUrl, { redirect: 'manual' });
+      assert.equal(newestAuthorize.status, 302);
+      const newestCallback = await fetch(newestAuthorize.headers.get('location'), {
+        headers: { cookie: newest.cookie },
+        redirect: 'manual',
+      });
+      assert.equal(newestCallback.status, 303);
+      const sessionCookie = cookieNamed(newestCallback, SESSION_COOKIE_NAME);
+      const home = await fetch(url, { headers: { cookie: sessionCookie } });
+      assert.equal(home.status, 200);
+      assert.match(await home.text(), /party:alice/);
     } finally {
       await workspace.close();
       await issuer.close();

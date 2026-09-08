@@ -197,7 +197,10 @@ export function createWorkspaceServer(rawConfig, options = {}) {
 
     if (oidc && req.method === 'POST' && url.pathname === OIDC_LOGOUT_PATH) {
       const result = await oidc.logout(readCookie(req, SESSION_COOKIE_NAME));
-      redirect(res, result.location, { 'set-cookie': result.cookies });
+      html(res, 200, pageModel({
+        notice: 'Signed out.',
+        idpLogoutUrl: result.endSessionUrl,
+      }), { 'set-cookie': result.cookies });
       return;
     }
 

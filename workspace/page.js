@@ -133,12 +133,17 @@ function renderProjectPage(model, demoBanner) {
   ${renderSecondaryControls(model)}`);
 }
 
+function renderTrustedHttpLink(url, label) {
+  if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return '';
+  return `<p><a class="button" href="${escapeHtml(url)}">${escapeHtml(label)}</a></p>`;
+}
+
 function renderSignIn(model) {
   if (!model.labelledDemo && model.browserLogin) {
+    const idpLogout = renderTrustedHttpLink(model.idpLogoutUrl, 'Sign out of identity provider');
     return `<p>Sign in with the operator-configured identity provider. Actor kind, roles, and project membership come from the operator map, not from the sign-in token.</p>
-  <form method="get" action="/login">
-    <button type="submit">Sign in</button>
-  </form>
+  <p><a class="button" href="/login">Sign in</a></p>
+  ${idpLogout}
   <p class="meta">API clients can still send an <code>Authorization: Bearer</code> token from a configured OIDC gateway.</p>`;
   }
   if (!model.labelledDemo) {

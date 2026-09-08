@@ -150,7 +150,7 @@ export function createOidcBrowserLogin(options) {
   const memberships = options.memberships;
   const nowFn = options.now ?? Date.now;
   const fetchImpl = options.fetchImpl ?? fetch;
-  const logins = new BoundedTtlMap(MAX_LOGIN_TRANSACTIONS);
+  const logins = new BoundedTtlMap(MAX_LOGIN_TRANSACTIONS, { evictOldest: true });
   const sessions = new BoundedTtlMap(MAX_SESSIONS);
   const secure = cookieSecure(options.publicOrigin, browserLogin.redirect_uri);
   /** @type {Promise<client.Configuration> | null} */
@@ -279,7 +279,7 @@ export function createOidcBrowserLogin(options) {
         cookieHeader(SESSION_COOKIE_NAME, '', { maxAge: 0, secure, clear: true }),
         cookieHeader(LOGIN_COOKIE_NAME, '', { maxAge: 0, secure, clear: true }),
       ];
-      let location = '/';
+      let endSessionUrl;
       try {
         const configuration = await loadConfiguration();
         const metadata = configuration.serverMetadata();
@@ -288,12 +288,12 @@ export function createOidcBrowserLogin(options) {
           if (browserLogin.post_logout_redirect_uri) {
             parameters.post_logout_redirect_uri = browserLogin.post_logout_redirect_uri;
           }
-          location = client.buildEndSessionUrl(configuration, parameters).href;
+          endSessionUrl = client.buildEndSessionUrl(configuration, parameters).href;
         }
       } catch {
-        location = '/';
+        endSessionUrl = undefined;
       }
-      return { location, cookies };
+      return { location: '/', cookies, endSessionUrl };
     },
   };
 
@@ -576,9 +576,11 @@ function wrapUnavailable(error) {
 class BoundedTtlMap {
   /**
    * @param {number} max
+   * @param {{ evictOldest?: boolean }} [options]
    */
-  constructor(max) {
+  constructor(max, options = {}) {
     this.max = max;
+    this.evictOldest = Boolean(options.evictOldest);
     /** @type {Map<string, { expiresAt: number }>} */
     this.map = new Map();
   }
@@ -592,7 +594,12 @@ class BoundedTtlMap {
   set(key, value, now) {
     this.prune(now);
     if (this.map.size >= this.max && !this.map.has(key)) {
-      throw Object.assign(new Error(PUBLIC_CAPACITY), { code: 'capacity' });
+      if (this.evictOldest) {
+        const oldest = this.map.keys().next().value;
+        if (oldest !== undefined) this.map.delete(oldest);
+      } else {
+        throw Object.assign(new Error(PUBLIC_CAPACITY), { code: 'capacity' });
+      }
     }
     this.map.set(key, value);
   }
