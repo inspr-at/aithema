@@ -14,4 +14,4 @@ export {
   opaqueHostRef,
 } from './flow-context.js';
 export { renderWorkspacePage } from './page.js';
-export { createWorkspaceServer, DEMO_COOKIE_NAME } from './server.js';
+export { createWorkspaceServer, DEMO_COOKIE_NAME, SESSION_COOKIE_NAME, LOGIN_COOKIE_NAME } from './server.js';

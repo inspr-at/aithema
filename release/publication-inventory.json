@@ -69,6 +69,7 @@
     "fixtures": {
       "mock_provider": "Labelled demo/test double only; never live AI",
       "demo_identity": "Loopback-only HMAC demo; not OIDC proof",
+      "oidc_browser_login": "Local synthetic OpenID Provider in test/oidc-login.test.js; not live Zitadel proof",
       "http_provider": "Local deterministic fixture server in test/provider-http.test.js"
     }
   },
