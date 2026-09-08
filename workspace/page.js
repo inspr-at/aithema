@@ -353,7 +353,7 @@ function documentShell(title, demoBanner, model, inner) {
 </head>
 <body>
   ${demoBanner}
-  <inspr-flow-shell logo-src="/flow-shell/assets/inspr-logo.svg">
+  <inspr-flow-shell layout-mode="bounded" logo-src="/flow-shell/assets/inspr-logo.svg">
     <div class="host-main">
       ${inner}
     </div>
