@@ -27,6 +27,10 @@ import {
 } from '../release/prime-consumer-cache.mjs';
 import { sha256 } from '../release/lib/digest.mjs';
 import {
+  FLOW_SHELL_TARBALL_SHA256,
+  FLOW_SHELL_VERSION,
+} from '../workspace/flow-assets.js';
+import {
   commitEpochSeconds,
   expandAllowlistPaths,
   readAllowlistAtCommit,
@@ -69,6 +73,19 @@ const PRIVATE_ARTIFACT_NAME = stableArtifactFilename(PRIVATE_FIXTURE_VERSION);
 const PRIVATE_MANIFEST_NAME = stableManifestFilename(PRIVATE_FIXTURE_VERSION);
 const PRIVATE_RELEASE_DIRNAME = stableReleaseDirname(PRIVATE_FIXTURE_VERSION);
 const COORDINATE = `npm:@inspr/aithema-core@${VERSION}.tgz`;
+const FLOW_SHELL_ARTIFACT = `inspr-flow-shell-${FLOW_SHELL_VERSION}.tgz`;
+
+/**
+ * npm --offline cannot replay GitHub Release HTTP tarball fetches. The primed
+ * cache still stores the exact bytes by integrity; the consumer proof replays
+ * those bytes as a file: override without changing the published GitHub pin.
+ * @param {string} cacheDir
+ * @param {string} integrity
+ */
+function cachedIntegrityTarball(cacheDir, integrity) {
+  const hex = Buffer.from(integrity.slice('sha512-'.length), 'base64').toString('hex');
+  return join(cacheDir, '_cacache', 'content-v2', 'sha512', hex.slice(0, 2), hex.slice(2, 4), hex.slice(4));
+}
 
 /**
  * @param {string} path
@@ -620,12 +637,21 @@ describe('AIT-10 reproducible packaging', () => {
       const vendorDir = join(consumerDir, 'vendor');
       mkdirSync(vendorDir, { recursive: true });
       copyFileSync(built.artifactPath, join(vendorDir, ARTIFACT_NAME));
+      const flowIntegrity = JSON.parse(readFileSync(join(repoRoot, 'package-lock.json'), 'utf8'))
+        .packages['node_modules/@inspr/flow-shell'].integrity;
+      const flowTarball = cachedIntegrityTarball(cacheDir, flowIntegrity);
+      copyFileSync(flowTarball, join(vendorDir, FLOW_SHELL_ARTIFACT));
+      assert.equal(sha256(readFileSync(join(vendorDir, FLOW_SHELL_ARTIFACT))), FLOW_SHELL_TARBALL_SHA256);
       writeFileSync(join(consumerDir, 'package.json'), `${JSON.stringify({
         name: 'aithema-clean-consumer-proof',
         private: true,
         type: 'module',
         dependencies: {
           '@inspr/aithema-core': `file:./vendor/${ARTIFACT_NAME}`,
+          '@inspr/flow-shell': `file:./vendor/${FLOW_SHELL_ARTIFACT}`,
+        },
+        overrides: {
+          '@inspr/flow-shell': `file:./vendor/${FLOW_SHELL_ARTIFACT}`,
         },
       }, null, 2)}\n`, 'utf8');
 

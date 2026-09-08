@@ -9,7 +9,7 @@ Prerequisites:
 - Node.js 24 and npm 10+ (workspace Flow host consumes `@inspr/flow-shell` 0.1.2, which requires Node 24)
 - `trash` CLI on PATH (packaging and source-export cleanup tests; on macOS this is typically preinstalled)
 - Pinned font/PDF dependencies arrive through ordinary `npm ci` (`pdfkit`, `fontkit`, `@fontsource/noto-sans`, `unpdf`)
-- Offline tarball consumer proof uses a named online packument prime, not a warm operator cache: `AITHEMA_NPM_CACHE` + `AITHEMA_PRIME_OUT` (never `dist/`) then `node release/prime-consumer-cache.mjs --build`. `npm ci` alone is not enough. The packaging test also proves `--offline` fails on an empty cache before that prime.
+- Offline tarball consumer proof uses a named online packument prime, not a warm operator cache: `AITHEMA_NPM_CACHE` + `AITHEMA_PRIME_OUT` (never `dist/`) then `node release/prime-consumer-cache.mjs --build`. `npm ci` alone is not enough. The packaging test also proves `--offline` fails on an empty cache before that prime. npm `--offline` cannot replay GitHub Release HTTP tarball fetches; the test replays the primed Flow 0.1.2 integrity blob as a file: override after checking SHA256 `116e7477…`.
 
 ```bash
 npm ci

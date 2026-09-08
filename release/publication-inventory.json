@@ -65,7 +65,7 @@
       "tar",
       "git (private export builder only; exported source must not require it)"
     ],
-    "offline_install": "Named helper release/prime-consumer-cache.mjs does one online file: install of the admitted runtime tarball into an explicit AITHEMA_NPM_CACHE. npm ci alone caches lockfile tarballs and does not prime packuments. The packaging test then asserts npm install --offline of a fresh consumer against that cache.",
+    "offline_install": "Named helper release/prime-consumer-cache.mjs does one online file: install of the admitted runtime tarball into an explicit AITHEMA_NPM_CACHE. npm ci alone caches lockfile tarballs and does not prime packuments. GitHub Release tarball dependencies (Flow Shell 0.1.2) are stored content-addressed; npm --offline cannot replay that HTTP URL, so the packaging test replays the primed integrity blob as a file: override after verifying the independently known SHA256. The packaging test then asserts npm install --offline of a fresh consumer against that cache.",
     "fixtures": {
       "mock_provider": "Labelled demo/test double only; never live AI",
       "demo_identity": "Loopback-only HMAC demo; not OIDC proof",
