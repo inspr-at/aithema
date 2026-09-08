@@ -94,7 +94,7 @@ export const GNU_TAR_FALLBACK_FLAGS = [
  */
 export const CANONICAL_ARTIFACT_TOOLCHAIN = {
   ci_runner: 'ubuntu-latest',
-  node: '22',
+  node: '24',
   tar_family: 'gnu',
   tar_format: 'gnu',
   timestamp_policy: 'git-committer-epoch-seconds',

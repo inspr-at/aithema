@@ -469,6 +469,11 @@ describe('AIT-11 public source export', () => {
     assert.equal(pkg.private, true);
     assert.equal(lock.version, VERSION);
     assert.equal(lock.packages[''].version, VERSION);
+    assert.equal(pkg.engines.node, '>=24');
+    assert.equal(lock.packages[''].engines.node, '>=24');
+    assert.equal(inventory.test_prerequisites.node, '>=24');
+    assert.equal(inventory.reproducibility.canonical_toolchain.node, '24');
+    assert.equal(CANONICAL_ARTIFACT_TOOLCHAIN.node, '24');
     assert.equal(notices.package.version, VERSION);
     assert.equal(notices.package.private, true);
     assert.equal(inventory.version_scheme, LEGACY_SEMVER_PUBLIC);
@@ -491,7 +496,11 @@ describe('AIT-11 public source export', () => {
     assert.match(inventory.ci.canonical_toolchain_enforcement, /AITHEMA_CANONICAL_RELEASE/);
     assert.match(inventory.ci.ephemeral_transfer, /upload-artifact/);
     assert.equal(inventory.reproducibility.canonical_toolchain.tar_family, 'gnu');
+    assert.equal(inventory.reproducibility.canonical_toolchain.node, CANONICAL_ARTIFACT_TOOLCHAIN.node);
     assert.equal(inventory.reproducibility.canonical_toolchain.timestamp_policy, 'git-committer-epoch-seconds');
+    const releaseWorkflow = readFileSync(join(repoRoot, '.github/workflows/release.yml'), 'utf8');
+    assert.match(releaseWorkflow, /node-version: '24'/);
+    assert.doesNotMatch(releaseWorkflow, /node-version: '22'/);
     assert.equal(inventory.reproducibility.runtime_manifest_schema, 'aithema-release-manifest/0.1');
     assert.match(inventory.handoff.provenance_note, /source\.commit/);
   });
@@ -537,6 +546,7 @@ describe('AIT-11 public source export', () => {
     assert.equal(identifyTarFamily('bsdtar 3.5.3 - libarchive 3.5.3 zlib/1.2.11'), 'bsd');
     assert.equal(CANONICAL_ARTIFACT_TOOLCHAIN.tar_family, 'gnu');
     assert.equal(CANONICAL_ARTIFACT_TOOLCHAIN.ci_runner, 'ubuntu-latest');
+    assert.equal(CANONICAL_ARTIFACT_TOOLCHAIN.node, '24');
     assert.equal(CANONICAL_ARTIFACT_TOOLCHAIN.timestamp_policy, 'git-committer-epoch-seconds');
     assert.equal(
       assertCanonicalReleaseToolchain({
@@ -550,7 +560,7 @@ describe('AIT-11 public source export', () => {
       assertCanonicalReleaseToolchain({
         requireCanonical: true,
         tarVersionText: 'tar (GNU tar) 1.35',
-        nodeVersion: '22.11.0',
+        nodeVersion: '24.18.0',
       }).enforced,
       true,
     );
@@ -558,7 +568,7 @@ describe('AIT-11 public source export', () => {
       () => assertCanonicalReleaseToolchain({
         requireCanonical: true,
         tarVersionText: 'bsdtar 3.5.3 - libarchive 3.5.3',
-        nodeVersion: '22.11.0',
+        nodeVersion: '24.18.0',
       }),
       /requires gnu tar/,
     );
@@ -566,9 +576,9 @@ describe('AIT-11 public source export', () => {
       () => assertCanonicalReleaseToolchain({
         requireCanonical: true,
         tarVersionText: 'tar (GNU tar) 1.35',
-        nodeVersion: '20.11.0',
+        nodeVersion: '22.11.0',
       }),
-      /requires Node 22/,
+      /requires Node 24/,
     );
     assert.equal(assertStrictSemVer('0.0.0'), '0.0.0');
     assert.equal(assertStrictSemVer(VERSION), VERSION);

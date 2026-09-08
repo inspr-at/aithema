@@ -27,23 +27,12 @@ export function renderWorkspacePage(model) {
     return renderProjectPage(model, demoBanner);
   }
 
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Requirements workspace</title>
-  ${sharedStyles()}
-</head>
-<body>
-  ${demoBanner}
+  return documentShell('Requirements workspace', demoBanner, model, `
   <h1>Requirements workspace</h1>
   <p>Conversation builds an evolving understanding and unapproved proposals. Only a mapped human reviewer can confirm a baseline.</p>
   ${model.error ? `<p class="error">${escapeHtml(model.error)}</p>` : ''}
   ${model.notice ? `<p class="notice">${escapeHtml(model.notice)}</p>` : ''}
-  ${model.actor ? renderSignedInHome(model) : renderSignIn(model)}
-</body>
-</html>`;
+  ${model.actor ? renderSignedInHome(model) : renderSignIn(model)}`);
 }
 
 function sharedStyles() {
@@ -51,7 +40,9 @@ function sharedStyles() {
     :root { color-scheme: light; font-family: ui-sans-serif, system-ui, sans-serif; }
     *, *::before, *::after { box-sizing: border-box; }
     html, body { margin: 0; max-width: 100%; }
-    body { margin: 0 auto; width: min(52rem, 100%); padding: 1rem; line-height: 1.45; }
+    body { margin: 0; width: 100%; padding: 0; line-height: 1.45; }
+    .host-main { margin: 0 auto; width: min(52rem, 100%); padding: 1rem; }
+    inspr-flow-shell { display: block; }
     h1, h2, h3, p, li, label, a, .meta, .wrap, .banner, .error, .notice { overflow-wrap: anywhere; word-break: break-word; }
     .banner { padding: .5rem .75rem; margin: 0 0 .75rem; border: 1px solid #8a5a00; background: #fff4d6; font-size: .9rem; }
     .error { padding: .75rem 1rem; border: 2px solid #8a1f1f; background: #fde8e8; }
@@ -97,20 +88,11 @@ function renderProjectPage(model, demoBanner) {
     ? `<div class="next-question"><strong>Focused next question:</strong> ${escapeHtml(understanding.next_question)}</div>`
     : '<p class="meta">No focused next question yet.</p>';
 
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${escapeHtml(project.title)}</title>
-  ${sharedStyles()}
-</head>
-<body>
-  ${demoBanner}
+  return documentShell(project.title, demoBanner, model, `
   <h1 class="project-title">${escapeHtml(project.title)}</h1>
   ${model.error ? `<p class="error">${escapeHtml(model.error)}</p>` : ''}
   ${model.notice ? `<p class="notice">${escapeHtml(model.notice)}</p>` : ''}
-  <section class="primary">
+  <section class="primary" id="workspace-compose">
     ${next}
     <form method="post" action="/projects/${encodeURIComponent(project.project_ref)}/turns">
       <input type="hidden" name="expected_revision" value="${escapeHtml(String(project.revision))}">
@@ -120,7 +102,7 @@ function renderProjectPage(model, demoBanner) {
     </form>
     ${renderSpendNotice(model)}
   </section>
-  <section>
+  <section id="workspace-review">
     <h2>Pending proposals</h2>
     <p class="meta">Unapproved — selecting them does not start delivery.</p>
     ${pending.length && canReview ? `
@@ -148,9 +130,7 @@ function renderProjectPage(model, demoBanner) {
     <h3>Open questions</h3>
     <ul>${open || '<li>None recorded.</li>'}</ul>
   </details>
-  ${renderSecondaryControls(model)}
-</body>
-</html>`;
+  ${renderSecondaryControls(model)}`);
 }
 
 function renderSignIn(model) {
@@ -187,14 +167,14 @@ function renderProjectNav(model, collapsed) {
     </form>`;
   if (!collapsed) {
     return `
-  <section>
+  <section id="workspace-projects">
     <h2>Projects</h2>
     <ul>${list || '<li>No projects yet.</li>'}</ul>
     ${form}
   </section>`;
   }
   return `
-  <details class="secondary">
+  <details class="secondary" id="workspace-projects">
     <summary>Projects and new work</summary>
     <ul>${list || '<li>No projects yet.</li>'}</ul>
     ${form}
@@ -204,7 +184,7 @@ function renderProjectNav(model, collapsed) {
 function renderIdentityDetails(model) {
   if (!model.actor) return '';
   return `
-  <details class="secondary">
+  <details class="secondary" id="identity-access">
     <summary>Identity and access</summary>
     <p class="meta wrap">Subject ${escapeHtml(model.actor.subject)} · party ${escapeHtml(model.actor.party_ref)} · actor kind <strong>${escapeHtml(model.actor.actor_kind)}</strong> · roles ${escapeHtml(model.actor.roles.join(', '))}</p>
     <p>Access is the current verified membership for this subject. Sharing a party name does not share project access. Only a mapped human reviewer can approve a baseline.</p>
@@ -337,4 +317,33 @@ function renderDocumentIntake(model) {
     </form>
     <ul>${docs || '<li class="meta">No documents yet.</li>'}</ul>
   </details>`;
+}
+
+function embedJson(value) {
+  return JSON.stringify(value)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026');
+}
+
+function documentShell(title, demoBanner, model, inner) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${escapeHtml(title)}</title>
+  ${sharedStyles()}
+</head>
+<body>
+  ${demoBanner}
+  <inspr-flow-shell logo-src="/flow-shell/assets/inspr-logo.svg">
+    <div class="host-main">
+      ${inner}
+    </div>
+  </inspr-flow-shell>
+  <script type="application/json" id="aithema-flow-state">${embedJson(model.flowState ?? null)}</script>
+  <script type="module" src="/workspace-flow-host.js"></script>
+</body>
+</html>`;
 }

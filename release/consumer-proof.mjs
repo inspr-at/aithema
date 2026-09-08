@@ -15,6 +15,7 @@ const CONSUMER_SPECIFIERS = [
   '@inspr/aithema-core',
   '@inspr/aithema-core/runtime',
   '@inspr/aithema-core/workspace',
+  '@inspr/flow-shell',
   'unpdf',
 ];
 
@@ -147,6 +148,8 @@ async function main() {
   });
   assert.match(page, /Demo \/ mock/i);
   assert.match(page, /not live AI/i);
+  assert.match(page, /<inspr-flow-shell /);
+  assert.match(page, /workspace-flow-host\.js/);
 
   const full = core.exportHandoverJson(core.createStream('stream:json', ['new_product']));
   assert.equal(full.pending_proposals.length, 0);
