@@ -115,7 +115,7 @@ function renderProjectPage(model, demoBanner) {
     <form method="post" action="/projects/${encodeURIComponent(project.project_ref)}/turns">
       <input type="hidden" name="expected_revision" value="${escapeHtml(String(project.revision))}">
       ${renderProviderFields(model)}
-      <label>Your message <textarea name="message" required maxlength="8000"></textarea></label>
+      <label>Your message <textarea name="message" required maxlength="8000">${escapeHtml(model.draftMessage ?? '')}</textarea></label>
       <button type="submit">Send</button>
     </form>
     ${renderSpendNotice(model)}

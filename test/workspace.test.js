@@ -808,6 +808,67 @@ describe('workspace UI and HTTP boundaries', () => {
     }
   });
 
+  it('cap denial HTML uses the current revision and keeps unsaved draft text', async () => {
+    const { workspace, url } = await start({
+      ...demoConfig,
+      providers: {
+        mock: {
+          kind: 'mock',
+          executionLocation: 'local',
+          allowedDataClasses: ['unclassified'],
+        },
+      },
+      policy: {
+        epoch: 1,
+        execution: 'local',
+        allowedProviders: ['mock'],
+        allowedDataClasses: ['unclassified'],
+        dataClass: 'unclassified',
+        maxOutboundCallsPerProject: 2,
+      },
+    });
+    try {
+      const cookie = await demoSession(url, 'demo-reviewer');
+      const location = await createProject(url, cookie);
+      const projectUrl = new URL(location, url);
+      const origin = new URL(url).origin;
+      const first = await fetch(`${projectUrl}/turns`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+          cookie,
+          origin,
+        },
+        body: new URLSearchParams({ message: 'Need a first complete turn' }),
+        redirect: 'manual',
+      });
+      assert.equal(first.status, 303);
+      const after = await (await fetch(projectUrl, { headers: { cookie } })).text();
+      const expected = after.match(/name="expected_revision" value="(\d+)"/)[1];
+      const denied = await fetch(`${projectUrl}/turns`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+          cookie,
+          origin,
+        },
+        body: new URLSearchParams({
+          message: 'Draft that must remain visible',
+          expected_revision: expected,
+        }),
+        redirect: 'manual',
+      });
+      assert.equal(denied.status, 403);
+      const html = await denied.text();
+      assert.match(html, /outbound request ceiling reached/);
+      assert.match(html, new RegExp(`name="expected_revision" value="${expected}"`));
+      assert.match(html, /<textarea name="message"[^>]*>Draft that must remain visible<\/textarea>/);
+      assert.doesNotMatch(html, /<div class="turn user">[\s\S]*Draft that must remain visible/);
+    } finally {
+      await workspace.close();
+    }
+  });
+
   it('describes PDF subset limits with precise glyph capability wording', () => {
     const readme = readFileSync(fileURLToPath(new URL('../README.md', import.meta.url)), 'utf8');
     assert.match(readme, /some Latin Extended Additional codepoints such as U\+1EBF and U\+1EC7/);

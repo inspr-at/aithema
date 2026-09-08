@@ -595,3 +595,171 @@ describe('durable outbound request ceiling', () => {
     store.close();
   });
 });
+
+describe('document interpret spend ids', () => {
+  const encoder = new TextEncoder();
+
+  function noteFile() {
+    const bytes = encoder.encode('The product must export a reviewed CSV.');
+    return {
+      filename: 'need.txt',
+      mimeType: 'text/plain',
+      bytes,
+      byteSize: bytes.byteLength,
+    };
+  }
+
+  it('lets a deliberate second interpret use a new id, replays a completed id, and never resends reserved or committed ids', async () => {
+    const { store, local, controller: ctl } = controllerFor(':memory:', {
+      policy: orgPolicy({ maxOutboundCallsPerProject: 2 }),
+    });
+    const project = ctl.createProject(reviewer, { title: 'Interpret', projectKinds: ['iteration'] });
+    const intake = await ctl.intakeDocuments({
+      actor: reviewer,
+      projectRef: project.project_ref,
+      files: [noteFile()],
+    });
+    const documentRef = intake.accepted[0];
+    const first = await ctl.interpretDocument({
+      actor: reviewer,
+      projectRef: project.project_ref,
+      documentRef,
+      turnId: 'interpret:one',
+      expectedRevision: project.revision,
+    });
+    assert.equal(first.status, 'complete');
+    assert.equal(local.calls, 1);
+    assert.ok(first.proposals_created.length >= 1);
+
+    const replay = await ctl.interpretDocument({
+      actor: reviewer,
+      projectRef: project.project_ref,
+      documentRef,
+      turnId: 'interpret:one',
+      expectedRevision: first.project.revision,
+    });
+    assert.equal(replay.idempotent, true);
+    assert.equal(local.calls, 1);
+    assert.equal(store.countOutboundCalls(project.project_ref, 1), 1);
+
+    const second = await ctl.interpretDocument({
+      actor: reviewer,
+      projectRef: project.project_ref,
+      documentRef,
+      turnId: 'interpret:two',
+      expectedRevision: replay.project.revision,
+    });
+    assert.equal(second.status, 'complete');
+    assert.equal(local.calls, 2);
+    assert.equal(store.countOutboundCalls(project.project_ref, 1), 2);
+
+    await assert.rejects(
+      () => ctl.interpretDocument({
+        actor: reviewer,
+        projectRef: project.project_ref,
+        documentRef,
+        turnId: 'interpret:three',
+        expectedRevision: second.project.revision,
+      }),
+      (error) => error.code === 'spend_denied',
+    );
+    assert.equal(local.calls, 2);
+    store.close();
+  });
+
+  it('reports reserved ids as uncertain and committed-without-cache as already completed', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'aithema-interpret-id-'));
+    const file = join(dir, 'workspace.sqlite');
+    try {
+      const seeded = controllerFor(file, { policy: orgPolicy({ maxOutboundCallsPerProject: 4 }) });
+      const project = seeded.controller.createProject(reviewer, { title: 'Ids', projectKinds: ['iteration'] });
+      const intake = await seeded.controller.intakeDocuments({
+        actor: reviewer,
+        projectRef: project.project_ref,
+        files: [noteFile()],
+      });
+      const documentRef = intake.accepted[0];
+      const reserved = seeded.store.reserveOutboundCall({
+        projectRef: project.project_ref,
+        epoch: 1,
+        callId: spendCallId('interpret:crash', 'interpret'),
+        ceiling: 4,
+      });
+      assert.equal(reserved.reserved, true);
+      seeded.store.close();
+
+      const later = controllerFor(file, { policy: orgPolicy({ maxOutboundCallsPerProject: 4 }) });
+      await assert.rejects(
+        () => later.controller.interpretDocument({
+          actor: reviewer,
+          projectRef: project.project_ref,
+          documentRef,
+          turnId: 'interpret:crash',
+        }),
+        (error) => error.code === 'spend_uncertain',
+      );
+      assert.equal(later.local.calls, 0);
+
+      const committed = later.store.reserveOutboundCall({
+        projectRef: project.project_ref,
+        epoch: 1,
+        callId: spendCallId('interpret:done', 'interpret'),
+        ceiling: 4,
+      });
+      assert.equal(committed.reserved, true);
+      later.store.commitOutboundCall({
+        projectRef: project.project_ref,
+        epoch: 1,
+        callId: spendCallId('interpret:done', 'interpret'),
+      });
+      await assert.rejects(
+        () => later.controller.interpretDocument({
+          actor: reviewer,
+          projectRef: project.project_ref,
+          documentRef,
+          turnId: 'interpret:done',
+        }),
+        (error) => error.code === 'spend_committed',
+      );
+      assert.equal(later.local.calls, 0);
+      later.store.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not persist a denied turn after the ceiling is already spent', async () => {
+    const { store, local, controller: ctl } = controllerFor(':memory:', {
+      policy: orgPolicy({ maxOutboundCallsPerProject: 2 }),
+    });
+    const project = ctl.createProject(reviewer, { title: 'Cap write', projectKinds: ['iteration'] });
+    const afterCreate = project.revision;
+    const complete = await ctl.submitTurn({
+      actor: reviewer,
+      projectRef: project.project_ref,
+      message: 'Need a first complete turn',
+      turnId: 'turn:paid',
+    });
+    assert.equal(complete.status, 'complete');
+    const afterComplete = complete.project.revision;
+    assert.ok(afterComplete > afterCreate);
+    await assert.rejects(
+      () => ctl.submitTurn({
+        actor: reviewer,
+        projectRef: project.project_ref,
+        message: 'This must not be stored when the ceiling is spent',
+        turnId: 'turn:denied',
+        expectedRevision: afterComplete,
+      }),
+      (error) => error.code === 'spend_denied',
+    );
+    assert.equal(local.calls, 2);
+    const loaded = ctl.loadProject(reviewer, project.project_ref);
+    assert.equal(loaded.revision, afterComplete);
+    assert.equal(
+      loaded.transcript.some((entry) => entry.content.includes('must not be stored')),
+      false,
+    );
+    store.close();
+  });
+});

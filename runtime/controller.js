@@ -190,6 +190,8 @@ export class ConversationController {
 
     const selection = this.#pinSelection(projectRef, input);
     const { provider, modelId } = selection;
+    this.#assertSpendCapacity(projectRef);
+    this.#assertCallIdFresh(projectRef, turnId, 'chat');
 
     const userAppend = appendTurn(project.transcript, 'user', userText, undefined, {
       source: 'human',
@@ -423,10 +425,16 @@ export class ConversationController {
       callId,
       ceiling,
     });
-    if (reservation.uncertain || reservation.alreadyCommitted) {
+    if (reservation.uncertain) {
       throw spendError(
         'previous outbound call with this id did not finish cleanly; not retrying',
         'spend_uncertain',
+      );
+    }
+    if (reservation.alreadyCommitted) {
+      throw spendError(
+        'previous outbound call with this id already completed; not retrying',
+        'spend_committed',
       );
     }
     if (reservation.denied) {
@@ -446,6 +454,50 @@ export class ConversationController {
   #billingNote() {
     if (!this.policy) return {};
     return { billing: { usage: BILLING_USAGE_UNAVAILABLE } };
+  }
+
+  /**
+   * Refuse a new outbound attempt when the durable count is already at the
+   * ceiling, before writing a user turn. Races still serialize at reserve.
+   * @param {string} projectRef
+   */
+  #assertSpendCapacity(projectRef) {
+    const effective = effectiveProjectPolicy(this.policy, projectRef);
+    const ceiling = effective?.maxOutboundCallsPerProject;
+    if (ceiling == null) return;
+    const used = this.store.countOutboundCalls(projectRef, effective.epoch);
+    if (used >= ceiling) {
+      throw spendError('project outbound request ceiling reached', 'spend_denied');
+    }
+  }
+
+  /**
+   * Same reserved or committed call id must not be resent. Cached complete
+   * replays are handled before this check.
+   * @param {string} projectRef
+   * @param {string} turnId
+   * @param {'chat' | 'understand' | 'interpret'} phase
+   */
+  #assertCallIdFresh(projectRef, turnId, phase) {
+    const effective = effectiveProjectPolicy(this.policy, projectRef);
+    if (effective?.maxOutboundCallsPerProject == null) return;
+    const status = this.store.getOutboundCall(
+      projectRef,
+      effective.epoch,
+      spendCallId(turnId, phase),
+    );
+    if (status === 'reserved') {
+      throw spendError(
+        'previous outbound call with this id did not finish cleanly; not retrying',
+        'spend_uncertain',
+      );
+    }
+    if (status === 'committed') {
+      throw spendError(
+        'previous outbound call with this id already completed; not retrying',
+        'spend_committed',
+      );
+    }
   }
 
   /**
@@ -774,7 +826,9 @@ export class ConversationController {
    *   projectRef: string,
    *   documentRef: string,
    *   expectedRevision?: number,
+   *   turnId?: string,
    *   model?: unknown,
+   *   providerId?: unknown,
    *   browserBody?: unknown,
    *   signal?: AbortSignal,
    * }} input
@@ -802,7 +856,47 @@ export class ConversationController {
       throw Object.assign(new Error('project revision conflict'), { code: 'revision_conflict' });
     }
 
+    const turnId = input.turnId || `interpret:${randomUUID()}`;
+    const cached = this.store.getTurnResult(projectRef, turnId);
+    if (cached?.status === 'complete') {
+      return {
+        ...cached,
+        project: this.store.getProject(projectRef, actor),
+        idempotent: true,
+        ...this.#billingNote(),
+      };
+    }
+
+    const lockKey = flightKey(projectRef, turnId);
+    const inflight = this.turnLocks.get(lockKey);
+    if (inflight) return inflight;
+
+    const work = this.#executeInterpret({ ...input, actor, projectRef, document, project, turnId })
+      .finally(() => {
+        this.turnLocks.delete(lockKey);
+      });
+    this.turnLocks.set(lockKey, work);
+    return work;
+  }
+
+  /**
+   * @param {object} input
+   */
+  async #executeInterpret(input) {
+    const { actor, projectRef, document, turnId } = input;
+    const project = this.store.getProject(projectRef, actor);
+    const cached = this.store.getTurnResult(projectRef, turnId);
+    if (cached?.status === 'complete') {
+      return {
+        ...cached,
+        project,
+        idempotent: true,
+        ...this.#billingNote(),
+      };
+    }
     const { provider, modelId } = this.#pinSelection(projectRef, input);
+    this.#assertSpendCapacity(projectRef);
+    this.#assertCallIdFresh(projectRef, turnId, 'interpret');
 
     const abort = new AbortController();
     const timeout = AbortSignal.timeout(this.limits.maxDurationMs);
@@ -812,7 +906,6 @@ export class ConversationController {
       else input.signal.addEventListener('abort', onParentAbort, { once: true });
     }
     const signal = composeAbortSignals([abort.signal, timeout, input.signal]);
-    const turnId = `interpret:${document.document_ref}`;
     this.inFlight.set(flightKey(projectRef, turnId), abort);
 
     try {
@@ -851,21 +944,40 @@ export class ConversationController {
         subject: actor.subject,
       });
       const transcript = userAppend.ok ? userAppend.transcript : project.transcript;
+      const proposalRefs = [...proposed.proposal_refs];
 
       const completed = this.store.apply({
         projectRef,
         actor,
         expectedRevision: project.revision,
+        turnId,
         mutate: () => ({
           stream: proposed.stream,
           transcript,
           understanding,
+          turnResult: {
+            status: 'complete',
+            turn_id: turnId,
+            proposals_created: proposalRefs,
+            stream_completed: true,
+          },
         }),
       });
+      if (completed.deduped && completed.turnResult) {
+        return {
+          ...completed.turnResult,
+          project: completed.project,
+          idempotent: true,
+          live: provider.live,
+          labelled_demo: provider.labelledDemo,
+          ...this.#billingNote(),
+        };
+      }
       return {
         status: 'complete',
+        turn_id: turnId,
         project: completed.project,
-        proposals_created: [...proposed.proposal_refs],
+        proposals_created: proposalRefs,
         live: provider.live,
         labelled_demo: provider.labelledDemo,
         ...this.#billingNote(),
@@ -913,7 +1025,7 @@ function flightKey(projectRef, turnId) {
 
 function isSpendOrPolicyError(error) {
   const code = error && typeof error === 'object' ? error.code : undefined;
-  return code === 'policy_denied' || code === 'spend_denied' || code === 'spend_uncertain';
+  return code === 'policy_denied' || code === 'spend_denied' || code === 'spend_uncertain' || code === 'spend_committed';
 }
 
 /**

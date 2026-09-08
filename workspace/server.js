@@ -252,8 +252,11 @@ export function createWorkspaceServer(rawConfig, options = {}) {
         }
       } catch (error) {
         const status = mutationStatus(error);
-        if (wantsJson(req)) json(res, status, { error: messageOf(error), code: error?.code });
-        else html(res, status, pageModel({ actor, projects: store.listProjects(actor), project, error: messageOf(error) }));
+        if (wantsJson(req)) json(res, status, mutationErrorBody(actor, projectRef, project, error));
+        else html(res, status, mutationErrorPage(actor, projectRef, project, {
+          error: messageOf(error),
+          draftMessage: String(body.message ?? ''),
+        }));
       } finally {
         req.off('close', onClose);
       }
@@ -327,6 +330,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
           projectRef,
           documentRef,
           expectedRevision: body.expected_revision ? Number(body.expected_revision) : undefined,
+          turnId: typeof body.turn_id === 'string' && body.turn_id ? String(body.turn_id) : undefined,
           model: body.model,
           providerId: body.providerId,
           browserBody: body,
@@ -349,8 +353,8 @@ export function createWorkspaceServer(rawConfig, options = {}) {
         }
       } catch (error) {
         const status = mutationStatus(error);
-        if (wantsJson(req)) json(res, status, { error: messageOf(error), code: error?.code });
-        else html(res, status, pageModel({ actor, projects: store.listProjects(actor), project, error: messageOf(error) }));
+        if (wantsJson(req)) json(res, status, mutationErrorBody(actor, projectRef, project, error));
+        else html(res, status, mutationErrorPage(actor, projectRef, project, { error: messageOf(error) }));
       } finally {
         res.off('close', onClose);
       }
@@ -393,6 +397,31 @@ export function createWorkspaceServer(rawConfig, options = {}) {
       subject: entry.subject,
       actor_kind: entry.actor_kind,
     }));
+  }
+
+  function mutationErrorPage(actor, projectRef, staleProject, extra = {}) {
+    let current = staleProject;
+    try {
+      current = controller.loadProject(actor, projectRef);
+    } catch {
+      current = staleProject;
+    }
+    const keepDraft = extra.draftMessage != null && current?.revision === staleProject?.revision;
+    return pageModel({
+      actor,
+      projects: store.listProjects(actor),
+      project: current,
+      error: extra.error,
+      draftMessage: keepDraft ? extra.draftMessage : undefined,
+    });
+  }
+
+  function mutationErrorBody(actor, projectRef, staleProject, error) {
+    let revision = staleProject?.revision;
+    try {
+      revision = controller.loadProject(actor, projectRef).revision;
+    } catch { /* keep */ }
+    return { error: messageOf(error), code: error?.code, revision };
   }
 
   function pageModel(extra) {
@@ -793,7 +822,7 @@ function pageNotice(params) {
 
 function mutationStatus(error) {
   if (error?.code === 'revision_conflict') return 409;
-  if (error?.code === 'spend_uncertain') return 409;
+  if (error?.code === 'spend_uncertain' || error?.code === 'spend_committed') return 409;
   if (error?.code === 'forbidden' || error?.code === 'policy_denied' || error?.code === 'spend_denied') return 403;
   return 400;
 }

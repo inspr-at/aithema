@@ -304,11 +304,6 @@ export class SqliteProjectStore {
   }
 
   /**
-   * @param {string} projectRef
-   * @param {import('./identity.js').VerifiedActor} actor
-   * @param {string} documentRef
-   */
-  /**
    * Atomically reserve one outbound provider call against a project epoch
    * ceiling. Reserved and committed rows both count. A reserved row is never
    * deleted after a possibly-sent request; retries must not reissue the same id.
@@ -367,6 +362,19 @@ export class SqliteProjectStore {
       SET status = 'committed'
       WHERE project_ref = ? AND epoch = ? AND call_id = ? AND status = 'reserved'
     `).run(input.projectRef, input.epoch, input.callId);
+  }
+
+  /**
+   * @param {string} projectRef
+   * @param {number} epoch
+   * @param {string} callId
+   * @returns {'reserved' | 'committed' | null}
+   */
+  getOutboundCall(projectRef, epoch, callId) {
+    const row = this.db.prepare(
+      'SELECT status FROM provider_spend WHERE project_ref = ? AND epoch = ? AND call_id = ?',
+    ).get(projectRef, epoch, callId);
+    return row?.status ?? null;
   }
 
   /**
