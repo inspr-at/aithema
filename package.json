@@ -16,6 +16,7 @@
     "test:source-export": "node --test test/source-export.test.js",
     "release:build": "node release/build-release.mjs",
     "source:export": "node release/build-source.mjs",
+    "cache:prime-consumer": "node release/prime-consumer-cache.mjs --build",
     "verify:license": "node release/verify-license.mjs",
     "example": "node examples/consumer.js",
     "workspace": "node examples/workspace.js"

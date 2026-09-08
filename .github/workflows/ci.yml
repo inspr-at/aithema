@@ -24,5 +24,13 @@ jobs:
         run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Verify license surface
         run: npm run verify:license
+      - name: Prime consumer packument cache
+        env:
+          AITHEMA_NPM_CACHE: ${{ runner.temp }}/aithema-npm-cache
+          AITHEMA_PRIME_OUT: ${{ runner.temp }}/aithema-consumer-prime
+        run: node release/prime-consumer-cache.mjs --build
       - name: Run tests
+        env:
+          npm_config_cache: ${{ runner.temp }}/aithema-npm-cache
+          AITHEMA_NPM_CACHE: ${{ runner.temp }}/aithema-npm-cache
         run: npm test

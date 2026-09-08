@@ -106,6 +106,7 @@ function seedSourceExportTree(repo, allowlist) {
     'release/lib/provenance.mjs',
     'release/admit-release.mjs',
     'release/retain-forge-assets.mjs',
+    'release/prime-consumer-cache.mjs',
     '.gitignore',
     'test/baseline.test.js',
     '.github/workflows/ci.yml',
@@ -345,6 +346,7 @@ describe('AIT-11 public source export', () => {
             AITHEMA_SOURCE_PROOF: '1',
           };
           if (process.env.npm_config_cache) env.npm_config_cache = process.env.npm_config_cache;
+          if (process.env.AITHEMA_NPM_CACHE) env.AITHEMA_NPM_CACHE = process.env.AITHEMA_NPM_CACHE;
           const tests = spawnSync('npm', ['test'], {
             cwd: extractDir,
             encoding: 'utf8',
@@ -479,6 +481,8 @@ describe('AIT-11 public source export', () => {
     assert.ok(Array.isArray(inventory.outstanding_coordinator_gates));
     assert.ok(inventory.outstanding_coordinator_gates.length >= 3);
     assert.match(inventory.test_prerequisites.system.join(' '), /trash/i);
+    assert.match(inventory.test_prerequisites.offline_install, /prime-consumer-cache/);
+    assert.match(inventory.test_prerequisites.offline_install, /AITHEMA_NPM_CACHE/);
     assert.equal(inventory.ci.auto_publish_on_push, false);
     assert.equal(inventory.exports.public_source_candidate.script, 'source:export');
     assert.match(inventory.handoff.review_extract, /mkdir -p/);
@@ -816,6 +820,13 @@ describe('AIT-11 public source export', () => {
     assert.match(workflow, /upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a/);
     assert.equal(workflow.includes('--clobber'), false);
     for (const match of workflow.matchAll(/^\s+run:\s*(.+)$/gm)) {
+      assert.equal(match[1].includes('${{'), false, match[1]);
+    }
+    const ciWorkflow = readFileSync(join(repoRoot, '.github/workflows/ci.yml'), 'utf8');
+    assert.match(ciWorkflow, /prime-consumer-cache\.mjs/);
+    assert.match(ciWorkflow, /AITHEMA_NPM_CACHE/);
+    assert.match(ciWorkflow, /AITHEMA_PRIME_OUT/);
+    for (const match of ciWorkflow.matchAll(/^\s+run:\s*(.+)$/gm)) {
       assert.equal(match[1].includes('${{'), false, match[1]);
     }
   });
