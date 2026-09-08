@@ -165,14 +165,35 @@ export async function* streamWords(text, delayMs, signal) {
 
 export class MockLlmProvider {
   /**
-   * @param {{ chunkDelayMs?: number }} [options]
+   * @param {{
+   *   chunkDelayMs?: number,
+   *   id?: string,
+   *   executionLocation?: 'local' | 'cloud',
+   *   allowedDataClasses?: readonly string[],
+   * }} [options]
    */
   constructor(options = {}) {
-    this.id = MOCK_PROVIDER_ID;
+    this.id = options.id || MOCK_PROVIDER_ID;
     this.modelId = MOCK_PROVIDER_ID;
+    this.allowedModels = Object.freeze([MOCK_PROVIDER_ID]);
     this.live = false;
     this.labelledDemo = true;
     this.chunkDelayMs = options.chunkDelayMs ?? 0;
+    this.executionLocation = options.executionLocation;
+    this.allowedDataClasses = options.allowedDataClasses
+      ? Object.freeze([...options.allowedDataClasses])
+      : undefined;
+  }
+
+  /**
+   * @param {string} [requested]
+   */
+  resolveModel(requested) {
+    if (!requested) return this.modelId;
+    if (requested !== this.modelId) {
+      throw new Error('requested model is not in the operator-approved registry');
+    }
+    return requested;
   }
 
   /**
@@ -256,6 +277,8 @@ export class OpenAICompatibleProvider {
    *   allowedModels: readonly string[],
    *   fetchImpl?: typeof fetch,
    *   limits?: unknown,
+   *   executionLocation?: 'local' | 'cloud',
+   *   allowedDataClasses?: readonly string[],
    * }} config
    */
   constructor(config) {
@@ -280,6 +303,10 @@ export class OpenAICompatibleProvider {
     this.allowedModels = Object.freeze([...config.allowedModels]);
     this.fetchImpl = config.fetchImpl ?? fetch;
     this.limits = normalizeProviderLimits(config.limits);
+    this.executionLocation = config.executionLocation;
+    this.allowedDataClasses = config.allowedDataClasses
+      ? Object.freeze([...config.allowedDataClasses])
+      : undefined;
   }
 
   /**
@@ -522,7 +549,57 @@ function abortError(signal) {
  * @param {unknown} config
  * @param {{ fetchImpl?: typeof fetch, allowMock?: boolean, mode?: string }} [options]
  */
-export function createProviderFromRegistry(config, options = {}) {
+/**
+ * @param {string} name
+ * @param {object} entry
+ * @param {object} config
+ * @param {{ fetchImpl?: typeof fetch, allowMock?: boolean, mode?: string, limits?: unknown }} options
+ */
+function instantiateRegistryProvider(name, entry, config, options) {
+  if (!entry || typeof entry !== 'object') {
+    throw new Error(`provider ${name} is not in the operator registry`);
+  }
+  const mode = options.mode ?? config.mode ?? 'production';
+  const kind = entry.kind;
+  if (kind === 'mock') {
+    if (mode === 'production' || options.allowMock === false) {
+      throw new Error('mock provider is not allowed in production');
+    }
+    if (mode !== 'demo' && mode !== 'test') {
+      throw new Error('mock provider requires explicit demo or test mode');
+    }
+    return new MockLlmProvider({
+      id: name,
+      chunkDelayMs: entry.chunkDelayMs ?? 0,
+      executionLocation: entry.executionLocation,
+      allowedDataClasses: Array.isArray(entry.allowedDataClasses) ? entry.allowedDataClasses : undefined,
+    });
+  }
+  if (kind === 'openai-compatible') {
+    const allowedModels = Array.isArray(entry.allowedModels) ? entry.allowedModels : [];
+    const modelId = typeof config.defaultModel === 'string' && name === config.defaultProvider
+      ? config.defaultModel
+      : (entry.modelId ?? allowedModels[0]);
+    return new OpenAICompatibleProvider({
+      id: name,
+      baseUrl: entry.baseUrl,
+      apiKey: entry.apiKey,
+      modelId,
+      allowedModels,
+      fetchImpl: options.fetchImpl,
+      limits: options.limits ?? config.limits,
+      executionLocation: entry.executionLocation,
+      allowedDataClasses: Array.isArray(entry.allowedDataClasses) ? entry.allowedDataClasses : undefined,
+    });
+  }
+  throw new Error(`unknown provider kind: ${kind}`);
+}
+
+/**
+ * @param {unknown} config
+ * @param {{ fetchImpl?: typeof fetch, allowMock?: boolean, mode?: string, limits?: unknown, instantiateAll?: boolean }} [options]
+ */
+export function createProviderRegistry(config, options = {}) {
   if (config === null || typeof config !== 'object' || Array.isArray(config)) {
     throw new Error('provider registry config must be an object');
   }
@@ -534,35 +611,29 @@ export function createProviderFromRegistry(config, options = {}) {
   if (typeof selectedName !== 'string' || !selectedName.trim()) {
     throw new Error('defaultProvider is required');
   }
-  const entry = providers[selectedName];
-  if (!entry || typeof entry !== 'object') {
+  if (!providers[selectedName] || typeof providers[selectedName] !== 'object') {
     throw new Error(`provider ${selectedName} is not in the operator registry`);
   }
-  const mode = options.mode ?? config.mode ?? 'production';
-  const kind = entry.kind;
-  if (kind === 'mock') {
-    if (mode === 'production' || options.allowMock === false) {
-      throw new Error('mock provider is not allowed in production');
-    }
-    if (mode !== 'demo' && mode !== 'test') {
-      throw new Error('mock provider requires explicit demo or test mode');
-    }
-    return new MockLlmProvider({ chunkDelayMs: entry.chunkDelayMs ?? 0 });
+  const instantiateAll = options.instantiateAll === true || config.policy != null;
+  const names = instantiateAll ? Object.keys(providers) : [selectedName];
+  /** @type {Record<string, MockLlmProvider | OpenAICompatibleProvider>} */
+  const byId = Object.create(null);
+  for (const name of names) {
+    byId[name] = instantiateRegistryProvider(name, providers[name], config, options);
   }
-  if (kind === 'openai-compatible') {
-    const allowedModels = Array.isArray(entry.allowedModels) ? entry.allowedModels : [];
-    const modelId = typeof config.defaultModel === 'string' ? config.defaultModel : entry.modelId;
-    return new OpenAICompatibleProvider({
-      id: selectedName,
-      baseUrl: entry.baseUrl,
-      apiKey: entry.apiKey,
-      modelId,
-      allowedModels,
-      fetchImpl: options.fetchImpl,
-      limits: options.limits ?? config.limits,
-    });
-  }
-  throw new Error(`unknown provider kind: ${kind}`);
+  return Object.freeze({
+    defaultId: selectedName,
+    defaultProvider: byId[selectedName],
+    byId: Object.freeze(byId),
+  });
+}
+
+/**
+ * @param {unknown} config
+ * @param {{ fetchImpl?: typeof fetch, allowMock?: boolean, mode?: string, limits?: unknown }} [options]
+ */
+export function createProviderFromRegistry(config, options = {}) {
+  return createProviderRegistry(config, options).defaultProvider;
 }
 
 /**
@@ -576,8 +647,11 @@ export function rejectBrowserProviderOverride(body) {
     'maxDurationMs', 'maxResponseBytes', 'maxStreamBufferBytes', 'maxAssembledChars',
     'maxUnderstandingBytes', 'limits', 'timeout', 'timeoutMs',
     'system', 'prompt', 'system_prompt', 'systemPrompt', 'instructions',
-    'roles', 'role', 'accounts', 'account', 'provider', 'provider_id', 'providerId',
+    'roles', 'role', 'accounts', 'account', 'provider', 'provider_id',
     'messages',
+    'policy', 'epoch', 'dataClass', 'data_class', 'execution', 'executionLocation',
+    'allowedProviders', 'allowedDataClasses', 'allowedModels',
+    'maxOutboundCallsPerProject', 'spend', 'billing',
   ]) {
     if (key in body && body[key] != null && body[key] !== '') {
       throw new Error('browser must not supply provider endpoints, credentials, or limits');

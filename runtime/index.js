@@ -23,6 +23,7 @@ export {
   OpenAICompatibleProvider,
   iterateSseContent,
   createProviderFromRegistry,
+  createProviderRegistry,
   rejectBrowserProviderOverride,
   assertApprovedModel,
   normalizeProviderLimits,
@@ -31,6 +32,16 @@ export {
   PROVIDER_LIMIT_DEFAULTS,
   PROVIDER_LIMIT_CEILINGS,
 } from './provider.js';
+
+export {
+  normalizeOrgPolicy,
+  effectiveProjectPolicy,
+  assertCallAllowed,
+  allowedSelections,
+  spendCallId,
+  BILLING_USAGE_UNAVAILABLE,
+  policyDeniedError,
+} from './policy.js';
 
 export {
   MAX_TRACKED_QUESTIONS,

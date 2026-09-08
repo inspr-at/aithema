@@ -66,6 +66,15 @@ describe('provider registry', () => {
       () => rejectBrowserProviderOverride({ baseUrl: 'http://evil.example', message: 'hi' }),
       /must not supply provider endpoints, credentials, or limits/,
     );
+    assert.throws(
+      () => rejectBrowserProviderOverride({ provider: 'other', message: 'hi' }),
+      /must not supply provider endpoints, credentials, or limits/,
+    );
+    assert.throws(
+      () => rejectBrowserProviderOverride({ policy: { execution: 'cloud' }, message: 'hi' }),
+      /must not supply provider endpoints, credentials, or limits/,
+    );
+    assert.doesNotThrow(() => rejectBrowserProviderOverride({ providerId: 'local', message: 'hi' }));
     const provider = new OpenAICompatibleProvider({
       id: 'local',
       baseUrl: 'http://127.0.0.1:9/v1',

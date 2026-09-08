@@ -114,9 +114,11 @@ function renderProjectPage(model, demoBanner) {
     ${next}
     <form method="post" action="/projects/${encodeURIComponent(project.project_ref)}/turns">
       <input type="hidden" name="expected_revision" value="${escapeHtml(String(project.revision))}">
-      <label>Your message <textarea name="message" required maxlength="8000"></textarea></label>
+      ${renderProviderFields(model)}
+      <label>Your message <textarea name="message" required maxlength="8000">${escapeHtml(model.draftMessage ?? '')}</textarea></label>
       <button type="submit">Send</button>
     </form>
+    ${renderSpendNotice(model)}
   </section>
   <section>
     <h2>Pending proposals</h2>
@@ -215,6 +217,36 @@ function renderSecondaryControls(model) {
   return `${renderDocumentIntake(model)}${renderProjectNav(model, true)}${renderIdentityDetails(model)}${renderRevisionDetails(model, baseline)}${renderWorkspaceExplainer(model)}`;
 }
 
+function renderSpendNotice(model) {
+  if (!model.policyActive) return '';
+  return '<p class="meta">Outbound request ceilings count provider calls. They are not currency. Billing usage is unavailable.</p>';
+}
+
+function renderProviderFields(model) {
+  const selections = model.allowedSelections;
+  const providers = selections?.providers ?? [];
+  if (!providers.length) return '';
+  const defaultAllowed = selections.defaultAllowed;
+  if (providers.length === 1 && providers[0].models.length <= 1 && defaultAllowed) {
+    return '';
+  }
+  const parts = [];
+  if (providers.length === 1 && !defaultAllowed) {
+    parts.push(`<input type="hidden" name="providerId" value="${escapeHtml(providers[0].id)}">`);
+  } else if (providers.length > 1) {
+    const options = providers.map((item) => (
+      `<option value="${escapeHtml(item.id)}"${item.id === selections.defaultProviderId ? ' selected' : ''}>${escapeHtml(item.id)}</option>`
+    )).join('');
+    parts.push(`<label>Configured provider <select name="providerId" ${defaultAllowed ? '' : 'required'}>${options}</select></label>`);
+  }
+  const models = [...new Set(providers.flatMap((item) => item.models))];
+  if (models.length > 1) {
+    const options = models.map((id) => `<option value="${escapeHtml(id)}">${escapeHtml(id)}</option>`).join('');
+    parts.push(`<label>Approved model <select name="model">${options}</select></label>`);
+  }
+  return parts.join('');
+}
+
 function renderWorkspaceExplainer(model) {
   return `
   <details class="secondary">
@@ -281,6 +313,7 @@ function renderDocumentIntake(model) {
     const interpret = doc.source_kind !== 'own_format' && doc.extraction_reason === 'ok'
       ? `<form method="post" action="/projects/${encodeURIComponent(project.project_ref)}/documents/${encodeURIComponent(doc.document_ref)}/interpret">
           <input type="hidden" name="expected_revision" value="${escapeHtml(String(project.revision))}">
+          ${renderProviderFields(model)}
           <button type="submit">Interpret into proposals</button>
         </form>`
       : doc.source_kind === 'own_format'

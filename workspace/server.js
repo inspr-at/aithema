@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { validateProjectKinds } from '../lib/validate.js';
 import { ConversationController } from '../runtime/controller.js';
 import { createIdentityVerifier, isLoopbackHost } from '../runtime/identity.js';
-import { createProviderFromRegistry } from '../runtime/provider.js';
+import { createProviderRegistry } from '../runtime/provider.js';
 import { SqliteProjectStore } from '../runtime/store.js';
 import { normalizeWorkspaceConfig } from './config.js';
 import { renderWorkspacePage } from './page.js';
@@ -40,11 +40,13 @@ export function createWorkspaceServer(rawConfig, options = {}) {
     identityConfig.demoHmacSecret = randomBytes(32).toString('hex');
   }
   const identity = createIdentityVerifier(identityConfig, config.mode);
-  const provider = createProviderFromRegistry(config, {
+  const registry = createProviderRegistry(config, {
     mode: config.mode,
     fetchImpl: options.fetchImpl ?? rawConfig.fetchImpl,
     limits: config.limits,
+    instantiateAll: Boolean(config.policy),
   });
+  const provider = registry.defaultProvider;
   const dbFile = config.dataDir === ':memory:'
     ? ':memory:'
     : (config.databaseFile || join(config.dataDir, 'aithema-workspace.sqlite'));
@@ -52,6 +54,9 @@ export function createWorkspaceServer(rawConfig, options = {}) {
   const controller = new ConversationController({
     store,
     provider,
+    providers: registry.byId,
+    defaultProviderId: registry.defaultId,
+    policy: config.policy,
     mode: config.mode,
     limits: config.limits,
     uploadLimits: config.uploadLimits,
@@ -222,6 +227,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
           turnId: String(body.turn_id || `turn:${randomUUID()}`),
           expectedRevision: body.expected_revision ? Number(body.expected_revision) : undefined,
           model: body.model,
+          providerId: body.providerId,
           browserBody: body,
           signal: abort.signal,
         });
@@ -234,6 +240,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
             live: result.live ?? provider.live,
             stream_completed: result.stream_completed,
             incomplete_reason: result.incomplete_reason,
+            ...(result.billing ? { billing: result.billing } : {}),
           });
           return;
         }
@@ -244,9 +251,12 @@ export function createWorkspaceServer(rawConfig, options = {}) {
           redirect(res, `/projects/${encodeURIComponent(projectRef)}`);
         }
       } catch (error) {
-        const status = error?.code === 'revision_conflict' ? 409 : error?.code === 'forbidden' ? 403 : 400;
-        if (wantsJson(req)) json(res, status, { error: messageOf(error) });
-        else html(res, status, pageModel({ actor, projects: store.listProjects(actor), project, error: messageOf(error) }));
+        const status = mutationStatus(error);
+        if (wantsJson(req)) json(res, status, mutationErrorBody(actor, projectRef, project, error));
+        else html(res, status, mutationErrorPage(actor, projectRef, project, {
+          error: messageOf(error),
+          draftMessage: String(body.message ?? ''),
+        }));
       } finally {
         req.off('close', onClose);
       }
@@ -320,7 +330,9 @@ export function createWorkspaceServer(rawConfig, options = {}) {
           projectRef,
           documentRef,
           expectedRevision: body.expected_revision ? Number(body.expected_revision) : undefined,
+          turnId: typeof body.turn_id === 'string' && body.turn_id ? String(body.turn_id) : undefined,
           model: body.model,
+          providerId: body.providerId,
           browserBody: body,
           signal: abort.signal,
         });
@@ -330,6 +342,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
             revision: result.project.revision,
             proposals_created: result.proposals_created,
             incomplete_reason: result.incomplete_reason,
+            ...(result.billing ? { billing: result.billing } : {}),
           });
           return;
         }
@@ -339,9 +352,9 @@ export function createWorkspaceServer(rawConfig, options = {}) {
           redirect(res, `/projects/${encodeURIComponent(projectRef)}`);
         }
       } catch (error) {
-        const status = error?.code === 'revision_conflict' ? 409 : error?.code === 'forbidden' ? 403 : 400;
-        if (wantsJson(req)) json(res, status, { error: messageOf(error) });
-        else html(res, status, pageModel({ actor, projects: store.listProjects(actor), project, error: messageOf(error) }));
+        const status = mutationStatus(error);
+        if (wantsJson(req)) json(res, status, mutationErrorBody(actor, projectRef, project, error));
+        else html(res, status, mutationErrorPage(actor, projectRef, project, { error: messageOf(error) }));
       } finally {
         res.off('close', onClose);
       }
@@ -386,14 +399,44 @@ export function createWorkspaceServer(rawConfig, options = {}) {
     }));
   }
 
+  function mutationErrorPage(actor, projectRef, staleProject, extra = {}) {
+    let current = staleProject;
+    try {
+      current = controller.loadProject(actor, projectRef);
+    } catch {
+      current = staleProject;
+    }
+    const keepDraft = extra.draftMessage != null && current?.revision === staleProject?.revision;
+    return pageModel({
+      actor,
+      projects: store.listProjects(actor),
+      project: current,
+      error: extra.error,
+      draftMessage: keepDraft ? extra.draftMessage : undefined,
+    });
+  }
+
+  function mutationErrorBody(actor, projectRef, staleProject, error) {
+    let revision = staleProject?.revision;
+    try {
+      revision = controller.loadProject(actor, projectRef).revision;
+    } catch { /* keep */ }
+    return { error: messageOf(error), code: error?.code, revision };
+  }
+
   function pageModel(extra) {
+    const project = extra.project;
     return renderWorkspacePage({
       mode: config.mode,
       labelledDemo: config.labelledDemo,
       providerLive: provider.live,
       providerId: provider.id,
       demoSubjects: demoSubjects(),
+      policyActive: Boolean(config.policy),
       ...extra,
+      allowedSelections: project
+        ? controller.selectionsFor(project.project_ref)
+        : extra.allowedSelections,
     });
   }
 
@@ -775,6 +818,13 @@ function pageNotice(params) {
   if (incomplete) return incomplete;
   const notice = params.get('notice');
   return notice || undefined;
+}
+
+function mutationStatus(error) {
+  if (error?.code === 'revision_conflict') return 409;
+  if (error?.code === 'spend_uncertain' || error?.code === 'spend_committed') return 409;
+  if (error?.code === 'forbidden' || error?.code === 'policy_denied' || error?.code === 'spend_denied') return 403;
+  return 400;
 }
 
 function exportStatus(error) {
