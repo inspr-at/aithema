@@ -55,5 +55,12 @@
       "executionLocation": "local",
       "allowedDataClasses": ["unclassified"]
     }
+  },
+  "speech": {
+    "kind": "openai-compatible-transcription",
+    "providerId": "local-openai",
+    "model": "operator-approved-whisper",
+    "endpoint": "http://127.0.0.1:8080/v1/audio/transcriptions",
+    "acceptedMediaTypes": ["audio/webm", "audio/mp4"]
   }
 }

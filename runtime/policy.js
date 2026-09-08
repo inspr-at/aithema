@@ -7,7 +7,7 @@
 
 export const EXECUTION_MODES = Object.freeze(['local', 'cloud', 'mixed']);
 export const EXECUTION_LOCATIONS = Object.freeze(['local', 'cloud']);
-export const SPEND_PHASES = Object.freeze(['chat', 'understand', 'interpret']);
+export const SPEND_PHASES = Object.freeze(['chat', 'understand', 'interpret', 'transcribe']);
 export const BILLING_USAGE_UNAVAILABLE = 'billing usage unavailable';
 
 export const POLICY_ID_MAX_CHARS = 80;

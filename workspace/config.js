@@ -4,8 +4,10 @@ import { normalizeProviderLimits } from '../runtime/provider.js';
 import { normalizeOrgPolicy } from '../runtime/policy.js';
 import { normalizeUploadLimits } from '../lib/extract-limits.js';
 import { normalizePublicBasePath } from '../runtime/public-path.js';
+import { normalizeSpeechConfig } from '../runtime/speech.js';
 
 export { escapeHtml } from '../lib/text.js';
+export { normalizeSpeechConfig } from '../runtime/speech.js';
 export { homePath, joinMountPath, normalizePublicBasePath, stripMountPath } from '../runtime/public-path.js';
 
 /**
@@ -50,6 +52,11 @@ export function normalizeWorkspaceConfig(config) {
     publicBasePath,
     listenHost,
   });
+  const speech = normalizeSpeechConfig(config.speech, {
+    providers: config.providers,
+    mode,
+    policy,
+  });
   return Object.freeze({
     mode,
     listenHost,
@@ -66,6 +73,7 @@ export function normalizeWorkspaceConfig(config) {
     publicOrigin,
     publicBasePath,
     policy,
+    speech,
   });
 }
 

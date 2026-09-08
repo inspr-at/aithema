@@ -44,6 +44,25 @@ export {
 } from './policy.js';
 
 export {
+  MOCK_SPEECH_ID,
+  MOCK_SPEECH_MARK,
+  SPEECH_ACCEPTED_MEDIA_TYPES,
+  SPEECH_LIMIT_DEFAULTS,
+  SPEECH_LIMIT_CEILINGS,
+  canonicalSpeechMediaType,
+  isAcceptedSpeechMediaType,
+  filenameForSpeechMediaType,
+  normalizeSpeechLimits,
+  boundSpeechTranscript,
+  normalizeSpeechConfig,
+  publicSpeechCapability,
+  MockSpeechTranscriber,
+  OpenAICompatibleTranscription,
+  createSpeechAdapter,
+  assertSpeechAudio,
+} from './speech.js';
+
+export {
   MAX_TRACKED_QUESTIONS,
   MAX_GUIDED_ITEMS,
   cleanQuestions,

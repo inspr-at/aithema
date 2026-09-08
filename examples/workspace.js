@@ -23,4 +23,12 @@ console.log(`Mode: ${workspace.config.mode}${workspace.config.labelledDemo ? ' (
 if (workspace.config.labelledDemo && !(config.identity && config.identity.demoHmacSecret)) {
   console.log('Demo signing key is ephemeral for this process. Set identity.demoHmacSecret in a private config to keep demo cookies across restarts.');
 }
+if (workspace.config.speech?.enabled) {
+  const location = workspace.config.speech.executionLocation
+    ? `configured ${workspace.config.speech.executionLocation}`
+    : 'configured';
+  console.log(`Speech input is enabled for ${workspace.config.speech.providerId} / ${workspace.config.speech.model} (${location} label; not measured network placement).`);
+} else {
+  console.log('Speech input is disabled until an operator configures a speech provider, model, and exact transcription endpoint.');
+}
 console.log('This process does not perform live provider or OIDC proof by itself.');

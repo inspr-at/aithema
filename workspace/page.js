@@ -105,6 +105,7 @@ function renderProjectPage(model, demoBanner) {
       <label>Your message <textarea name="message" required maxlength="8000">${escapeHtml(model.draftMessage ?? '')}</textarea></label>
       <button type="submit">Send</button>
     </form>
+    ${renderSpeechInput(model)}
     ${renderSpendNotice(model)}
   </section>
   <section id="workspace-review">
@@ -220,7 +221,27 @@ function renderSecondaryControls(model) {
 
 function renderSpendNotice(model) {
   if (!model.policyActive) return '';
-  return '<p class="meta">Outbound request ceilings count provider calls. They are not currency. Billing usage is unavailable.</p>';
+  return '<p class="meta">Outbound request ceilings count provider calls, including transcription. They are not currency. Billing usage is unavailable.</p>';
+}
+
+function renderSpeechInput(model) {
+  const speech = model.speechCapability;
+  if (!speech?.enabled) return '';
+  const destination = speech.destinationLabel || 'configured';
+  const note = speech.destinationNote
+    || 'Operator-declared location label; not measured network placement.';
+  return `
+    <div id="workspace-speech" data-speech-root>
+      <p class="meta">Speech input uses <strong>${escapeHtml(speech.providerId)}</strong> / <strong>${escapeHtml(speech.model)}</strong>. Destination: ${escapeHtml(destination)}. ${escapeHtml(note)} Record stays in memory. Transcribe fills this draft only. Send is never automatic.</p>
+      <p class="meta" data-speech-status></p>
+      <p>
+        <button type="button" data-speech-record>Record</button>
+        <button type="button" data-speech-stop disabled>Stop</button>
+        <button type="button" data-speech-transcribe disabled>Transcribe</button>
+        <button type="button" data-speech-cancel hidden>Cancel</button>
+      </p>
+    </div>
+    <script type="application/json" id="aithema-speech-capability">${embedJson(speech)}</script>`;
 }
 
 function renderProviderFields(model) {
@@ -367,6 +388,7 @@ function documentShell(title, demoBanner, model, inner) {
   </inspr-flow-shell>
   <script type="application/json" id="aithema-flow-state">${embedJson(model.flowState ?? null)}</script>
   <script type="module" src="${href(model, '/workspace-flow-host.js')}"></script>
+  ${model.speechCapability?.enabled ? `<script type="module" src="${href(model, '/workspace-speech-input.js')}"></script>` : ''}
 </body>
 </html>`;
 }

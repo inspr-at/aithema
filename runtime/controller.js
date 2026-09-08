@@ -53,6 +53,11 @@ import {
 import { mergeUnderstanding, proposeFromUnderstanding, validateUnderstanding } from './understanding.js';
 import { assertHumanApprover, authorityFromActor } from './identity.js';
 import { createDocumentRecord, extractDocument } from './extract.js';
+import {
+  assertSpeechAudio,
+  boundSpeechTranscript,
+  filenameForSpeechMediaType,
+} from './speech.js';
 
 export class ConversationController {
   /**
@@ -65,6 +70,8 @@ export class ConversationController {
    *   mode: string,
    *   limits?: unknown,
    *   uploadLimits?: unknown,
+   *   speech?: object | null,
+   *   speechAdapter?: object | null,
    * }} deps
    */
   constructor(deps) {
@@ -76,6 +83,8 @@ export class ConversationController {
     this.mode = deps.mode;
     this.limits = normalizeProviderLimits(deps.limits);
     this.uploadLimits = normalizeUploadLimits(deps.uploadLimits);
+    this.speech = deps.speech?.enabled ? deps.speech : null;
+    this.speechAdapter = this.speech ? (deps.speechAdapter ?? null) : null;
     /** @type {Map<string, AbortController>} */
     this.inFlight = new Map();
     /** @type {Map<string, Promise<unknown>>} */
@@ -87,6 +96,49 @@ export class ConversationController {
    */
   selectionsFor(projectRef) {
     return allowedSelections(this.policy, projectRef, this.providers, this.defaultProviderId);
+  }
+
+  /**
+   * Browser may choose only the operator-approved speech provider/model.
+   * Endpoint, location, data class, credentials, and limits stay server-owned.
+   * @param {string} projectRef
+   */
+  speechSelectionsFor(projectRef) {
+    if (!this.speech) {
+      return Object.freeze({
+        enabled: false,
+        defaultProviderId: null,
+        defaultAllowed: false,
+        providers: Object.freeze([]),
+      });
+    }
+    if (this.policy) {
+      const adapter = this.providers[this.speech.providerId];
+      try {
+        assertCallAllowed(effectiveProjectPolicy(this.policy, projectRef), {
+          providerId: this.speech.providerId,
+          executionLocation: this.speech.executionLocation ?? adapter?.executionLocation,
+          allowedModels: this.speech.allowedModels,
+          providerDataClasses: this.speech.allowedDataClasses ?? adapter?.allowedDataClasses,
+        });
+      } catch {
+        return Object.freeze({
+          enabled: false,
+          defaultProviderId: this.speech.providerId,
+          defaultAllowed: false,
+          providers: Object.freeze([]),
+        });
+      }
+    }
+    return Object.freeze({
+      enabled: true,
+      defaultProviderId: this.speech.providerId,
+      defaultAllowed: true,
+      providers: Object.freeze([{
+        id: this.speech.providerId,
+        models: Object.freeze([...this.speech.allowedModels]),
+      }]),
+    });
   }
 
   /**
@@ -190,8 +242,7 @@ export class ConversationController {
 
     const selection = this.#pinSelection(projectRef, input);
     const { provider, modelId } = selection;
-    this.#assertSpendCapacity(projectRef);
-    this.#assertCallIdFresh(projectRef, turnId, 'chat');
+    this.#assertOutboundSpend(projectRef, turnId, 'chat');
 
     const userAppend = appendTurn(project.transcript, 'user', userText, undefined, {
       source: 'human',
@@ -405,11 +456,46 @@ export class ConversationController {
   }
 
   /**
+   * @param {string} projectRef
+   * @param {{ providerId?: unknown, model?: unknown }} input
+   */
+  #pinSpeechSelection(projectRef, input) {
+    if (!this.speech || !this.speechAdapter) {
+      throw Object.assign(new Error('speech input is not configured'), { code: 'speech_disabled' });
+    }
+    const requestedId = input.providerId == null || input.providerId === ''
+      ? null
+      : boundProviderId(input.providerId);
+    if (requestedId && requestedId !== this.speech.providerId) {
+      throw policyDeniedError('requested speech provider is not the configured speech provider', 'provider');
+    }
+    const providerId = this.speech.providerId;
+    const requestedModel = input.model == null || input.model === ''
+      ? this.speech.model
+      : input.model;
+    if (typeof requestedModel !== 'string' || !this.speech.allowedModels.includes(requestedModel)) {
+      throw policyDeniedError('requested speech model is not in the operator-approved registry', 'model');
+    }
+    if (this.policy) {
+      const adapter = this.providers[providerId];
+      assertCallAllowed(effectiveProjectPolicy(this.policy, projectRef), {
+        providerId,
+        model: requestedModel,
+        executionLocation: this.speech.executionLocation ?? adapter?.executionLocation,
+        allowedModels: this.speech.allowedModels,
+        providerDataClasses: this.speech.allowedDataClasses ?? adapter?.allowedDataClasses,
+      });
+    }
+    const modelId = this.speechAdapter.resolveModel(requestedModel);
+    return { providerId, modelId };
+  }
+
+  /**
    * Reserve, invoke, then mark committed. Crash between reserve and invoke
    * leaves a reserved row: the same id must not be resent.
    * @param {string} projectRef
    * @param {string} turnId
-   * @param {'chat' | 'understand' | 'interpret'} phase
+   * @param {'chat' | 'understand' | 'interpret' | 'transcribe'} phase
    * @param {() => Promise<unknown>} invoke
    */
   async #withOutboundCall(projectRef, turnId, phase, invoke) {
@@ -457,6 +543,18 @@ export class ConversationController {
   }
 
   /**
+   * Classify a reserved/committed id before asking for a new slot. A reserved
+   * row already counts; retrying it is uncertain, not a ceiling denial.
+   * @param {string} projectRef
+   * @param {string} turnId
+   * @param {'chat' | 'understand' | 'interpret' | 'transcribe'} phase
+   */
+  #assertOutboundSpend(projectRef, turnId, phase) {
+    this.#assertCallIdFresh(projectRef, turnId, phase);
+    this.#assertSpendCapacity(projectRef);
+  }
+
+  /**
    * Refuse a new outbound attempt when the durable count is already at the
    * ceiling, before writing a user turn. Races still serialize at reserve.
    * @param {string} projectRef
@@ -476,7 +574,7 @@ export class ConversationController {
    * replays are handled before this check.
    * @param {string} projectRef
    * @param {string} turnId
-   * @param {'chat' | 'understand' | 'interpret'} phase
+   * @param {'chat' | 'understand' | 'interpret' | 'transcribe'} phase
    */
   #assertCallIdFresh(projectRef, turnId, phase) {
     const effective = effectiveProjectPolicy(this.policy, projectRef);
@@ -497,6 +595,86 @@ export class ConversationController {
         'previous outbound call with this id already completed; not retrying',
         'spend_committed',
       );
+    }
+  }
+
+  /**
+   * Transcribe in-memory audio into an editable draft. Does not write revision,
+   * transcript, understanding, proposal, baseline, or Flow state.
+   *
+   * @param {{
+   *   actor: import('./identity.js').VerifiedActor,
+   *   projectRef: string,
+   *   file: { bytes: Uint8Array, mimeType: string, filename?: string, byteSize?: number },
+   *   speechId?: string,
+   *   model?: unknown,
+   *   providerId?: unknown,
+   *   browserBody?: unknown,
+   *   signal?: AbortSignal,
+   * }} input
+   */
+  async transcribeSpeech(input) {
+    rejectBrowserProviderOverride(input.browserBody);
+    if (!this.speech?.enabled || !this.speechAdapter) {
+      throw Object.assign(new Error('speech input is not configured'), { code: 'speech_disabled' });
+    }
+    const { actor, projectRef } = input;
+    this.store.getProject(projectRef, actor);
+    const files = input.files;
+    if (Array.isArray(files) && files.length > 1) {
+      throw Object.assign(new Error('exactly one audio file is required'), { code: 'too_many' });
+    }
+    const file = input.file ?? files?.[0];
+    if (!file) {
+      throw Object.assign(new Error('exactly one audio file is required'), { code: 'empty_audio' });
+    }
+    const mimeType = file.mimeType;
+    const bytes = file.bytes instanceof Uint8Array ? file.bytes : new Uint8Array();
+    assertSpeechAudio(
+      { bytes, mimeType },
+      this.speech.acceptedMediaTypes,
+      this.speech.limits.maxAudioBytes,
+    );
+    const selection = this.#pinSpeechSelection(projectRef, input);
+    const speechId = typeof input.speechId === 'string' && input.speechId.trim()
+      ? input.speechId.trim()
+      : `speech:${randomUUID()}`;
+    this.#assertOutboundSpend(projectRef, speechId, 'transcribe');
+
+    const abort = new AbortController();
+    const key = flightKey(projectRef, speechId);
+    this.inFlight.set(key, abort);
+    const onParentAbort = () => abort.abort(input.signal?.reason);
+    if (input.signal) {
+      if (input.signal.aborted) abort.abort(input.signal.reason);
+      else input.signal.addEventListener('abort', onParentAbort, { once: true });
+    }
+    const signal = composeAbortSignals([abort.signal, input.signal]);
+
+    try {
+      const result = await this.#withOutboundCall(projectRef, speechId, 'transcribe', () => (
+        this.speechAdapter.transcribe({
+          bytes,
+          mimeType,
+          filename: filenameForSpeechMediaType(mimeType),
+          model: selection.modelId,
+          signal,
+        })
+      ));
+      const project = this.store.getProject(projectRef, actor);
+      return {
+        text: boundSpeechTranscript(result.text, this.speech.limits.maxTranscriptChars),
+        speech_id: speechId,
+        providerId: selection.providerId,
+        modelId: selection.modelId,
+        labelled_demo: result.labelledDemo ?? this.speechAdapter.labelledDemo,
+        live: result.live ?? this.speechAdapter.live,
+        revision: project.revision,
+        ...this.#billingNote(),
+      };
+    } finally {
+      input.signal?.removeEventListener('abort', onParentAbort);
+      this.inFlight.delete(key);
     }
   }
 
@@ -895,8 +1073,7 @@ export class ConversationController {
       };
     }
     const { provider, modelId } = this.#pinSelection(projectRef, input);
-    this.#assertSpendCapacity(projectRef);
-    this.#assertCallIdFresh(projectRef, turnId, 'interpret');
+    this.#assertOutboundSpend(projectRef, turnId, 'interpret');
 
     const abort = new AbortController();
     const timeout = AbortSignal.timeout(this.limits.maxDurationMs);

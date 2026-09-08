@@ -16,6 +16,7 @@ import {
   publicOidcError,
 } from '../runtime/oidc-login.js';
 import { createProviderRegistry } from '../runtime/provider.js';
+import { createSpeechAdapter, publicSpeechCapability } from '../runtime/speech.js';
 import { SqliteProjectStore } from '../runtime/store.js';
 import { normalizeWorkspaceConfig } from './config.js';
 import { joinMountPath, stripMountPath } from '../runtime/public-path.js';
@@ -72,6 +73,12 @@ export function createWorkspaceServer(rawConfig, options = {}) {
     instantiateAll: Boolean(config.policy),
   });
   const provider = registry.defaultProvider;
+  const speechAdapter = config.speech?.enabled
+    ? createSpeechAdapter(config.speech, {
+      mode: config.mode,
+      fetchImpl: options.fetchImpl ?? rawConfig.fetchImpl,
+    })
+    : null;
   const dbFile = config.dataDir === ':memory:'
     ? ':memory:'
     : (config.databaseFile || join(config.dataDir, 'aithema-workspace.sqlite'));
@@ -85,6 +92,8 @@ export function createWorkspaceServer(rawConfig, options = {}) {
     mode: config.mode,
     limits: config.limits,
     uploadLimits: config.uploadLimits,
+    speech: config.speech,
+    speechAdapter,
   });
 
   const server = createServer((req, res) => {
@@ -149,7 +158,11 @@ export function createWorkspaceServer(rawConfig, options = {}) {
         serveAllowedStatic(res, asset, req.method === 'HEAD');
         return;
       }
-      if (url.pathname.startsWith('/flow-shell/') || url.pathname === '/workspace-flow-host.js') {
+      if (
+        url.pathname.startsWith('/flow-shell/')
+        || url.pathname === '/workspace-flow-host.js'
+        || url.pathname === '/workspace-speech-input.js'
+      ) {
         json(res, 404, { error: 'static asset is not on the closed allowlist' });
         return;
       }
@@ -390,6 +403,54 @@ export function createWorkspaceServer(rawConfig, options = {}) {
       return;
     }
 
+    if (req.method === 'POST' && rest === 'transcribe') {
+      if (!config.speech?.enabled || !speechAdapter) {
+        json(res, 404, { error: 'speech input is not configured' });
+        return;
+      }
+      const abort = new AbortController();
+      const onClose = () => {
+        if (!res.writableEnded) abort.abort();
+      };
+      res.on('close', onClose);
+      try {
+        const maxRequestBytes = config.speech.limits.maxRequestBytes;
+        const contentLength = Number(req.headers['content-length']);
+        if (Number.isFinite(contentLength) && contentLength > maxRequestBytes) {
+          json(res, 413, { error: 'request body too large' });
+          return;
+        }
+        const uploaded = await readSpeechMultipart(req, maxRequestBytes);
+        const result = await controller.transcribeSpeech({
+          actor,
+          projectRef,
+          file: uploaded.file,
+          files: uploaded.files,
+          speechId: typeof uploaded.fields.speech_id === 'string' ? uploaded.fields.speech_id : undefined,
+          model: uploaded.fields.model,
+          providerId: uploaded.fields.providerId,
+          browserBody: uploaded.fields,
+          signal: abort.signal,
+        });
+        json(res, 200, {
+          text: result.text,
+          speech_id: result.speech_id,
+          revision: result.revision,
+          labelled_demo: result.labelled_demo,
+          live: result.live,
+          ...(result.billing ? { billing: result.billing } : {}),
+        });
+      } catch (error) {
+        const status = transcribeStatus(error);
+        if (!res.destroyed) {
+          json(res, status, { error: messageOf(error), code: error?.code });
+        }
+      } finally {
+        res.off('close', onClose);
+      }
+      return;
+    }
+
     if (req.method === 'POST' && rest === 'cancel') {
       const body = await readForm(req);
       const turnId = typeof body.turn_id === 'string' && body.turn_id ? body.turn_id : undefined;
@@ -600,7 +661,19 @@ export function createWorkspaceServer(rawConfig, options = {}) {
       allowedSelections: project
         ? controller.selectionsFor(project.project_ref)
         : extra.allowedSelections,
+      speechCapability: extra.speechCapability ?? speechCapabilityFor(project),
     });
+  }
+
+  function speechCapabilityFor(project) {
+    if (!project || !config.speech?.enabled) return { enabled: false };
+    const allowed = controller.speechSelectionsFor(project.project_ref);
+    if (!allowed.enabled) return { enabled: false };
+    return publicSpeechCapability(
+      config.speech,
+      { projectRef: project.project_ref, publicBasePath: config.publicBasePath },
+      joinMountPath,
+    );
   }
 
   function toPublic(appPath) {
@@ -1036,6 +1109,15 @@ function intakeStatus(error) {
   return 400;
 }
 
+function transcribeStatus(error) {
+  if (error?.code === 'too_large' || /too large/i.test(messageOf(error))) return 413;
+  if (error?.code === 'speech_disabled') return 404;
+  if (error?.code === 'spend_uncertain' || error?.code === 'spend_committed') return 409;
+  if (error?.code === 'forbidden' || error?.code === 'policy_denied' || error?.code === 'spend_denied') return 403;
+  if (error?.code === 'cancelled' || error?.name === 'AbortError') return 400;
+  return 400;
+}
+
 async function readBoundedBody(req, maxBytes) {
   const chunks = [];
   let size = 0;
@@ -1092,6 +1174,57 @@ async function readMultipart(req, maxBytes) {
     });
   }
   return { files, fields };
+}
+
+/**
+ * Dedicated single-audio multipart. Raw bytes stay in memory only.
+ * @param {import('node:http').IncomingMessage} req
+ * @param {number} maxBytes
+ */
+async function readSpeechMultipart(req, maxBytes) {
+  const type = req.headers['content-type'] ?? '';
+  if (!type.includes('multipart/form-data')) {
+    throw Object.assign(new Error('multipart form data is required'), { code: 'malformed' });
+  }
+  const buf = await readBoundedBody(req, maxBytes);
+  const request = new Request('http://127.0.0.1/transcribe', {
+    method: 'POST',
+    headers: { 'content-type': type },
+    body: buf,
+  });
+  let form;
+  try {
+    form = await request.formData();
+  } catch {
+    throw Object.assign(new Error('malformed multipart body'), { code: 'malformed' });
+  }
+  const files = [];
+  const fields = Object.create(null);
+  for (const [key, value] of form.entries()) {
+    if (typeof value === 'string') {
+      if (key in fields) {
+        const current = fields[key];
+        fields[key] = Array.isArray(current) ? [...current, value] : [current, value];
+      } else {
+        fields[key] = value;
+      }
+      continue;
+    }
+    if (key !== 'file' && key !== 'audio') continue;
+    const bytes = new Uint8Array(await value.arrayBuffer());
+    files.push({
+      filename: 'recording',
+      mimeType: value.type || 'application/octet-stream',
+      bytes,
+      byteSize: bytes.byteLength,
+    });
+  }
+  if (files.length !== 1) {
+    throw Object.assign(new Error('exactly one audio file is required'), {
+      code: files.length === 0 ? 'empty_audio' : 'too_many',
+    });
+  }
+  return { file: files[0], files, fields };
 }
 
 export { COOKIE as DEMO_COOKIE_NAME, SESSION_COOKIE_NAME, LOGIN_COOKIE_NAME };

@@ -108,3 +108,21 @@ Omit `policy` to keep historical single-provider behaviour (`defaultProvider` on
 - `maxOutboundCallsPerProject` counts outbound provider requests in SQLite per project and `policy.epoch`. It is **not currency** and is not a billing estimate. This slice reports billing usage as unavailable. Bumping `epoch` in operator config starts a new count window; browsers cannot reset it. A reserved id is not refunded after a possibly-sent call or crash; retrying the same id fails honestly instead of sending again.
 
 Live IdP and live model calls are **out of scope for AIT-6 worker evidence**. Wire them later and keep the proof separate from `npm test`.
+
+## Optional speech input
+
+Speech input is **disabled** unless operator config sets `speech` with a registry `providerId`, approved `model`, and — for the live adapter — an **exact** transcription URL (`kind: "openai-compatible-transcription"`). Chat Completions compatibility does not enable audio. There is no implicit `https://api.openai.com/...` default, no vendor SDK, and no SpeechRecognition implicit-cloud fallback.
+
+```json
+"speech": {
+  "kind": "openai-compatible-transcription",
+  "providerId": "local-openai",
+  "model": "operator-approved-whisper",
+  "endpoint": "http://127.0.0.1:8080/v1/audio/transcriptions",
+  "acceptedMediaTypes": ["audio/webm", "audio/mp4"]
+}
+```
+
+The browser may choose only that approved provider/model. It cannot set endpoint, credentials, location, data class, or limits. Record → Stop → Transcribe fills the existing message box as an editable draft. Existing Send is unchanged and never automatic. Raw audio and unsent transcripts are not written to SQLite, logs, or temp files. When `policy.maxOutboundCallsPerProject` is set, transcription reserves one outbound request-count slot; that count is not currency. Configured `local` / `cloud` labels are operator-declared, not measured network placement.
+
+Labelled mock speech (`kind: "mock"`) is demo/test only. Native browser/microphone QA is coordinator work; `npm test` uses synthetic in-memory audio and a local HTTP fixture.
