@@ -18,6 +18,7 @@ import {
 import { createProviderRegistry } from '../runtime/provider.js';
 import { SqliteProjectStore } from '../runtime/store.js';
 import { normalizeWorkspaceConfig } from './config.js';
+import { joinMountPath, stripMountPath } from '../runtime/public-path.js';
 import { readAllowedStatic, resolveWorkspaceStatic } from './flow-assets.js';
 import { buildWorkspaceFlowState, handleHostFlowIntent } from './flow-context.js';
 import { renderWorkspacePage } from './page.js';
@@ -59,6 +60,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
       browserLogin: config.identity.browser_login,
       memberships: identity.memberships,
       publicOrigin: config.publicOrigin,
+      publicBasePath: config.publicBasePath,
       now: options.now,
       fetchImpl: options.fetchImpl ?? identityConfig.fetchImpl ?? fetch,
     })
@@ -100,6 +102,16 @@ export function createWorkspaceServer(rawConfig, options = {}) {
       return;
     }
     const url = new URL(req.url ?? '/', `http://${host || '127.0.0.1'}`);
+    const appPath = stripMountPath(url.pathname, config.publicBasePath);
+    if (appPath == null) {
+      if (wantsJson(req)) json(res, 404, { error: 'Not found' });
+      else {
+        res.writeHead(404, { ...SECURITY_HEADERS, 'content-type': 'text/plain; charset=utf-8' });
+        res.end('Not found');
+      }
+      return;
+    }
+    url.pathname = appPath;
     if (req.method !== 'GET' && req.method !== 'HEAD' && url.pathname !== '/health') {
       try {
         assertSameOriginMutation(req, url, config.publicOrigin);
@@ -156,7 +168,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
       const subject = String(body.subject || identity.defaultSubject);
       try {
         const cookie = identity.issueCookie(subject);
-        redirect(res, '/', { 'set-cookie': `${COOKIE}=${cookie}; Path=/; HttpOnly; SameSite=Lax` });
+        redirect(res, toPublic('/'), { 'set-cookie': `${COOKIE}=${cookie}; Path=/; HttpOnly; SameSite=Lax` });
       } catch (error) {
         html(res, 400, pageModel({ error: error instanceof Error ? error.message : 'demo identity failed', demoSubjects: demoSubjects() }));
       }
@@ -165,7 +177,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
 
     if (oidc && (req.method === 'GET' || req.method === 'HEAD') && url.pathname === OIDC_LOGIN_PATH) {
       if (actor) {
-        redirect(res, allowlistedReturnPathFromQuery(url));
+        redirect(res, allowlistedReturnPathFromQuery(url, config.publicBasePath));
         return;
       }
       try {
@@ -249,7 +261,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
           title: String(body.title || '').trim() || 'Untitled project',
           projectKinds: kinds,
         });
-        redirect(res, `/projects/${encodeURIComponent(project.project_ref)}`);
+        redirect(res, toPublic(`/projects/${encodeURIComponent(project.project_ref)}`));
       } catch (error) {
         html(res, 400, pageModel({ actor, sessionAuthenticated, projects: store.listProjects(actor), error: messageOf(error) }));
       }
@@ -360,9 +372,9 @@ export function createWorkspaceServer(rawConfig, options = {}) {
         }
         if (result.status === 'incomplete') {
           const reason = encodeURIComponent(result.incomplete_reason || 'truncated');
-          redirect(res, `/projects/${encodeURIComponent(projectRef)}?incomplete=${reason}`);
+          redirect(res, toPublic(`/projects/${encodeURIComponent(projectRef)}?incomplete=${reason}`));
         } else {
-          redirect(res, `/projects/${encodeURIComponent(projectRef)}`);
+          redirect(res, toPublic(`/projects/${encodeURIComponent(projectRef)}`));
         }
       } catch (error) {
         const status = mutationStatus(error);
@@ -383,7 +395,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
       const turnId = typeof body.turn_id === 'string' && body.turn_id ? body.turn_id : undefined;
       controller.cancel(projectRef, turnId);
       if (wantsJson(req)) json(res, 200, { cancelled: true });
-      else redirect(res, `/projects/${encodeURIComponent(projectRef)}`);
+      else redirect(res, toPublic(`/projects/${encodeURIComponent(projectRef)}`));
       return;
     }
 
@@ -419,7 +431,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
           });
           return;
         }
-        redirect(res, buildDocumentIntakeRedirect(projectRef, result));
+        redirect(res, buildDocumentIntakeRedirect(projectRef, result, config.publicBasePath));
       } catch (error) {
         const status = intakeStatus(error);
         if (wantsJson(req)) json(res, status, { error: messageOf(error) });
@@ -462,9 +474,9 @@ export function createWorkspaceServer(rawConfig, options = {}) {
           return;
         }
         if (result.status === 'incomplete') {
-          redirect(res, `/projects/${encodeURIComponent(projectRef)}?incomplete=${encodeURIComponent(result.incomplete_reason || 'cancelled')}`);
+          redirect(res, toPublic(`/projects/${encodeURIComponent(projectRef)}?incomplete=${encodeURIComponent(result.incomplete_reason || 'cancelled')}`));
         } else {
-          redirect(res, `/projects/${encodeURIComponent(projectRef)}`);
+          redirect(res, toPublic(`/projects/${encodeURIComponent(projectRef)}`));
         }
       } catch (error) {
         const status = mutationStatus(error);
@@ -497,7 +509,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
             expectedRevision: body.expected_revision ? Number(body.expected_revision) : undefined,
           });
         if (wantsJson(req)) json(res, 200, { revision: next.revision, baseline: next.stream.baselines.at(-1) ?? null });
-        else redirect(res, `/projects/${encodeURIComponent(projectRef)}`);
+        else redirect(res, toPublic(`/projects/${encodeURIComponent(projectRef)}`));
       } catch (error) {
         const status = /human actor may approve|requirements_approver/.test(messageOf(error)) ? 403 : 400;
         if (wantsJson(req)) json(res, status, { error: messageOf(error) });
@@ -560,6 +572,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
         project: currentProject,
         labelledDemo: config.labelledDemo,
         identityConfig: config.identity,
+        publicBasePath: config.publicBasePath,
         intent: body,
       });
       json(res, 200, result);
@@ -581,12 +594,17 @@ export function createWorkspaceServer(rawConfig, options = {}) {
       providerId: provider.id,
       demoSubjects: demoSubjects(),
       policyActive: Boolean(config.policy),
+      publicBasePath: config.publicBasePath,
       ...extra,
       flowState: extra.flowState ?? flowStateFor(actor, project ?? null),
       allowedSelections: project
         ? controller.selectionsFor(project.project_ref)
         : extra.allowedSelections,
     });
+  }
+
+  function toPublic(appPath) {
+    return joinMountPath(config.publicBasePath, appPath);
   }
 
   return {
@@ -614,8 +632,8 @@ export function createWorkspaceServer(rawConfig, options = {}) {
   };
 }
 
-function allowlistedReturnPathFromQuery(url) {
-  return allowlistedReturnPath(url.searchParams.get('return'));
+function allowlistedReturnPathFromQuery(url, publicBasePath = '') {
+  return allowlistedReturnPath(url.searchParams.get('return'), publicBasePath);
 }
 
 function wantsJson(req) {
@@ -888,18 +906,23 @@ function joinDocumentIntakeNotice(header, notices, rejected, filenameLimit, reas
 /**
  * @param {string} projectRef
  * @param {string} notice
+ * @param {string} [publicBasePath]
  */
-function documentIntakeLocation(projectRef, notice) {
+function documentIntakeLocation(projectRef, notice, publicBasePath = '') {
   const safeNotice = sanitizeDisplayText(notice);
-  return `/projects/${encodeURIComponent(projectRef)}?notice=${encodeURIComponent(safeNotice)}`;
+  return joinMountPath(
+    publicBasePath,
+    `/projects/${encodeURIComponent(projectRef)}?notice=${encodeURIComponent(safeNotice)}`,
+  );
 }
 
 /**
  * @param {string} projectRef
  * @param {string} notice
+ * @param {string} [publicBasePath]
  */
-function documentIntakeLocationFits(projectRef, notice) {
-  return Buffer.byteLength(documentIntakeLocation(projectRef, notice), 'utf8')
+function documentIntakeLocationFits(projectRef, notice, publicBasePath = '') {
+  return Buffer.byteLength(documentIntakeLocation(projectRef, notice, publicBasePath), 'utf8')
     <= MAX_DOCUMENT_INTAKE_LOCATION_BYTES;
 }
 
@@ -909,8 +932,9 @@ function documentIntakeLocationFits(projectRef, notice) {
  * shrink under an encoded Location budget.
  * @param {{ accepted?: readonly unknown[], rejected?: readonly { filename?: string, reason?: string }[], notices?: readonly string[] }} result
  * @param {string} projectRef
+ * @param {string} [publicBasePath]
  */
-function formatDocumentIntakeNotice(result, projectRef) {
+function formatDocumentIntakeNotice(result, projectRef, publicBasePath = '') {
   const accepted = result.accepted ?? [];
   const rejected = result.rejected ?? [];
   const notices = (result.notices ?? []).filter(Boolean);
@@ -955,7 +979,7 @@ function formatDocumentIntakeNotice(result, projectRef) {
 
   for (const build of attempts) {
     const text = build();
-    if (documentIntakeLocationFits(projectRef, text)) return text;
+    if (documentIntakeLocationFits(projectRef, text, publicBasePath)) return text;
   }
 
   return header;
@@ -964,9 +988,10 @@ function formatDocumentIntakeNotice(result, projectRef) {
 /**
  * @param {string} projectRef
  * @param {{ accepted?: readonly unknown[], rejected?: readonly { filename?: string, reason?: string }[], notices?: readonly string[] }} result
+ * @param {string} [publicBasePath]
  */
-function buildDocumentIntakeRedirect(projectRef, result) {
-  return documentIntakeLocation(projectRef, formatDocumentIntakeNotice(result, projectRef));
+function buildDocumentIntakeRedirect(projectRef, result, publicBasePath = '') {
+  return documentIntakeLocation(projectRef, formatDocumentIntakeNotice(result, projectRef, publicBasePath), publicBasePath);
 }
 
 /**

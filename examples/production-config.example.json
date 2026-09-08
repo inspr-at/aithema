@@ -4,6 +4,7 @@
   "listenPort": 8787,
   "dataDir": "./.data",
   "publicOrigin": "https://workspace.example.invalid",
+  "publicBasePath": "",
   "defaultProvider": "local-openai",
   "defaultModel": "operator-approved-model",
   "limits": {

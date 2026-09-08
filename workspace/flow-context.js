@@ -15,6 +15,7 @@ import { normalizeShellState } from '@inspr/flow-shell/state';
 
 import { currentBaseline } from '../lib/stream.js';
 import { pendingProposalList } from '../runtime/controller.js';
+import { joinMountPath } from '../runtime/public-path.js';
 
 export const FLOW_HOST_ID = 'aithema';
 export const FLOW_CONTEXT_TTL_MS = 8 * 60 * 60 * 1000;
@@ -378,12 +379,21 @@ function bindingMismatch(currentContext, submitted) {
  *   project?: object | null,
  *   labelledDemo: boolean,
  *   identityConfig?: object | null,
+ *   publicBasePath?: string,
  *   intent: object,
  *   now?: number,
  * }} input
  */
 export function handleHostFlowIntent(input) {
-  const { actor, project = null, labelledDemo, identityConfig = null, intent, now = Date.now() } = input;
+  const {
+    actor,
+    project = null,
+    labelledDemo,
+    identityConfig = null,
+    publicBasePath = '',
+    intent,
+    now = Date.now(),
+  } = input;
   if (!actor) {
     throw Object.assign(new Error('Verified identity required.'), { code: 'unauthorized', status: 401 });
   }
@@ -439,7 +449,7 @@ export function handleHostFlowIntent(input) {
       executed: false,
       unsupported: false,
       routed: 'workspace-review',
-      location: `/projects/${encodeURIComponent(project.project_ref)}#workspace-review`,
+      location: joinMountPath(publicBasePath, `/projects/${encodeURIComponent(project.project_ref)}#workspace-review`),
       reason: null,
       notice:
         'Requirements review stays in this workspace. Use the existing authenticated approve, reject, and handover controls. This is not a delivery start.',
@@ -450,7 +460,7 @@ export function handleHostFlowIntent(input) {
       executed: false,
       unsupported: false,
       routed: 'workspace-conversation',
-      location: `/projects/${encodeURIComponent(project.project_ref)}#workspace-compose`,
+      location: joinMountPath(publicBasePath, `/projects/${encodeURIComponent(project.project_ref)}#workspace-compose`),
       reason: null,
       notice:
         'Draft ideas stay in this workspace conversation as unapproved proposals. A Flow idea is not a delivery start.',
@@ -461,7 +471,7 @@ export function handleHostFlowIntent(input) {
       executed: false,
       unsupported: false,
       routed: 'health',
-      location: '/health',
+      location: joinMountPath(publicBasePath, '/health'),
       notice: 'Workspace health is the existing /health probe. It is not delivery evidence.',
     };
   }

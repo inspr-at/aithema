@@ -202,7 +202,10 @@ describe('Flow workspace host', () => {
 
       const host = await fetch(`${url}/workspace-flow-host.js`);
       assert.equal(host.status, 200);
-      assert.match(await host.text(), /flow-intent/);
+      const hostText = await host.text();
+      assert.match(hostText, /flow-intent/);
+      assert.match(hostText, /from '\.\/flow-shell\/identity\.js'/);
+      assert.doesNotMatch(hostText, /from '\/flow-shell\//);
 
       for (const path of [
         '/flow-shell/node_modules/foo',

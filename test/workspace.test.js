@@ -419,6 +419,7 @@ describe('workspace UI and HTTP boundaries', () => {
     assert.equal(production.mode, 'production');
     assert.equal(production.identity.kind, 'jwt-jwks');
     assert.equal(production.identity.browser_login.client_id, 'replace-with-zitadel-client-id');
+    assert.equal(production.publicBasePath, '');
     assert.equal(production.providers['local-openai'].kind, 'openai-compatible');
     assert.equal(demo.policy, undefined);
     assert.equal(production.policy.execution, 'local');

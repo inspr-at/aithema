@@ -1,4 +1,4 @@
-export { normalizeWorkspaceConfig, escapeHtml } from './config.js';
+export { normalizeWorkspaceConfig, escapeHtml, homePath, joinMountPath, normalizePublicBasePath, stripMountPath } from './config.js';
 export {
   FLOW_SHELL_TARBALL_SHA256,
   FLOW_SHELL_TARBALL_URL,

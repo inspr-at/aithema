@@ -13,7 +13,11 @@ const configPath = resolve(process.argv[2] ?? defaultPath);
 const config = JSON.parse(readFileSync(configPath, 'utf8'));
 const workspace = createWorkspaceServer(config);
 const { url } = await workspace.listen();
-console.log(`Aithema workspace listening at ${url}`);
+const publicMount = workspace.config.publicBasePath || '';
+console.log(`Aithema workspace listening at ${url}${publicMount}`);
+if (publicMount) {
+  console.log(`Public base path: ${publicMount} (prefix-preserving; requests outside this mount are not served)`);
+}
 console.log(`Config: ${pathToFileURL(configPath).href}`);
 console.log(`Mode: ${workspace.config.mode}${workspace.config.labelledDemo ? ' (labelled demo/test — not production identity or live AI unless a registry adapter is configured)' : ''}`);
 if (workspace.config.labelledDemo && !(config.identity && config.identity.demoHmacSecret)) {

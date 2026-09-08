@@ -76,23 +76,26 @@ Older databases that stored `members` as `(project_ref, party_ref)` are migrated
 
 **Non-destructive recovery:** existing projects, transcripts, revisions, and sealed baselines are retained across migration. To restore access for a retained project, add its `project_ref` to the intended subject's `identity.memberships[].projects` in operator config and restart — do not delete or recreate the SQLite file. Re-binding preserves `content_digest`, `revision_seal`, transcript, and approved baseline intact. `members_legacy_party` is left in place for inspection and is not consulted for authorization.
 
-## TLS reverse proxy and public origin
+## TLS reverse proxy, public origin, and optional public base path
 
-When the workspace sits behind a TLS reverse proxy, set `publicOrigin` in operator config to the browser-visible origin (for example `https://workspace.example.invalid`). Same-origin CSRF checks compare `Origin` / `Referer` against this value. The server does not trust arbitrary `X-Forwarded-*` request headers for origin validation; only the operator-configured `publicOrigin` overrides the loopback bind URL.
+When the workspace sits behind a TLS reverse proxy, set `publicOrigin` in operator config to the browser-visible origin (for example `https://workspace.example.invalid`). Same-origin CSRF checks compare `Origin` / `Referer` against this value. `publicOrigin` is scheme + host only; do not put a path there. The server does not trust arbitrary `X-Forwarded-*` request headers for origin validation, mount prefix, or identity; only the operator-configured `publicOrigin` overrides the loopback bind URL.
+
+Optional `publicBasePath` defaults to empty and keeps today’s origin-root standalone behaviour. A canonical value is an ASCII absolute path of one or more `[A-Za-z0-9_-]` segments with no trailing slash (sample shared-origin vocabulary: `/aithema`). The edge must forward the same public path (prefix-preserving). The workspace serves only that mount, with an exact segment boundary: `/aithema` is not `/aithema-other`. Templates, static ES modules, Flow, login, logout, callback, and export links use the prefix; there is no HTML rewriter, iframe gateway, dual origin-root mount, or forwarded-user trust. OIDC `redirect_uri` is exactly `publicOrigin` + `publicBasePath` + `/oidc/callback`. Sessions stay `aithema_session` / `aithema_login` with `Path=/` (not a cookie-path isolation claim). Shared origin is a shared trust domain; this app still verifies its own membership and audience.
 
 ## Configured production-shaped run (still local)
 
 Copy `examples/production-config.example.json` to an operator-owned file **outside git**. Fill:
 
 - `identity.jwks_uri`, `issuer`, `audience`, and memberships (`actor_kind` and roles). Do not map `requirements_approver` onto `agent`.
-- Optional `identity.browser_login` (`client_id`, and `client_secret` when the Zitadel application is confidential). Incomplete browser-login config refuses to start. Sessions are opaque, HttpOnly, SameSite=Lax, Secure when `publicOrigin` is https, and expire without refresh. Sign out clears the workspace session; it does not put tokens in the redirect.
+- Optional `identity.browser_login` (`client_id`, and `client_secret` when the Zitadel application is confidential). Incomplete browser-login config refuses to start. Sessions are opaque, HttpOnly, SameSite=Lax, Secure when `publicOrigin` is https, and expire without refresh. Sign out clears the workspace session; it does not put tokens in the redirect. Register the callback as origin + `publicBasePath` + `/oidc/callback` (origin-root when `publicBasePath` is empty).
 - `providers.<name>.baseUrl` / `allowedModels` for an OpenAI-compatible endpoint (self-hosted included). Credentials stay in that server-owned file.
+- Optional `publicBasePath` (`""` standalone, or `/aithema` when sharing one customer origin). Leave empty unless the edge will preserve that prefix.
 
 ```bash
 node examples/workspace.js /path/to/operator-config.json
 ```
 
-Unconfigured production identity refuses to start. Browser requests cannot change the endpoint, API key, limits, policy, data class, epoch, or enable a model that is not in `allowedModels`. Additive `providerId` may name a registry id already allowed by operator policy. `/health` returns only `{ ok: true, ready: true }`. Operator `limits` in config are capped; they cannot be raised from the browser.
+Unconfigured production identity refuses to start. Browser requests cannot change the endpoint, API key, limits, policy, data class, epoch, or enable a model that is not in `allowedModels`. Additive `providerId` may name a registry id already allowed by operator policy. `/health` (or `{publicBasePath}/health`) returns only `{ ok: true, ready: true }`. Operator `limits` in config are capped; they cannot be raised from the browser.
 
 ## Provider policy and request ceilings
 

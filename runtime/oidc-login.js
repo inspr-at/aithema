@@ -8,6 +8,7 @@ import { randomBytes } from 'node:crypto';
 import * as client from 'openid-client';
 
 import { isLoopbackHost, validateVerifiedActor } from './identity.js';
+import { homePath, joinMountPath, joinPublicHref } from './public-path.js';
 
 export const SESSION_COOKIE_NAME = 'aithema_session';
 export const LOGIN_COOKIE_NAME = 'aithema_login';
@@ -30,7 +31,7 @@ const PUBLIC_CAPACITY = 'Sign-in is temporarily unavailable.';
 
 /**
  * @param {unknown} identityConfig
- * @param {{ publicOrigin?: string, listenHost?: string }} [context]
+ * @param {{ publicOrigin?: string, publicBasePath?: string, listenHost?: string }} [context]
  */
 export function normalizeBrowserLoginConfig(identityConfig, context = {}) {
   const raw = identityConfig?.browser_login;
@@ -58,9 +59,11 @@ export function normalizeBrowserLoginConfig(identityConfig, context = {}) {
   }
 
   const publicOrigin = context.publicOrigin;
+  const publicBasePath = context.publicBasePath || '';
+  const callbackPath = joinMountPath(publicBasePath, OIDC_CALLBACK_PATH);
   let redirectUri;
   if (raw.redirect_uri != null && raw.redirect_uri !== '') {
-    redirectUri = normalizeRedirectUri(raw.redirect_uri, issuerUrl);
+    redirectUri = normalizeRedirectUri(raw.redirect_uri, issuerUrl, callbackPath);
     if (publicOrigin) {
       const expectedOrigin = new URL(publicOrigin).origin;
       if (new URL(redirectUri).origin !== expectedOrigin) {
@@ -68,16 +71,21 @@ export function normalizeBrowserLoginConfig(identityConfig, context = {}) {
       }
     }
   } else if (publicOrigin) {
-    redirectUri = normalizeRedirectUri(new URL(OIDC_CALLBACK_PATH, publicOrigin).href, issuerUrl);
+    redirectUri = normalizeRedirectUri(joinPublicHref(publicOrigin, publicBasePath, OIDC_CALLBACK_PATH), issuerUrl, callbackPath);
   } else if (!isLoopbackHost(context.listenHost ?? '127.0.0.1')) {
     throw new Error('browser login requires redirect_uri or publicOrigin');
   }
 
   let postLogoutRedirectUri;
   if (raw.post_logout_redirect_uri != null && raw.post_logout_redirect_uri !== '') {
-    postLogoutRedirectUri = normalizePostLogoutUri(raw.post_logout_redirect_uri, redirectUri, publicOrigin);
+    postLogoutRedirectUri = normalizePostLogoutUri(
+      raw.post_logout_redirect_uri,
+      redirectUri,
+      publicOrigin,
+      publicBasePath,
+    );
   } else if (publicOrigin) {
-    postLogoutRedirectUri = new URL('/', publicOrigin).href;
+    postLogoutRedirectUri = new URL(homePath(publicBasePath), publicOrigin).href;
   }
 
   const scopes = normalizeScopes(raw.scopes);
@@ -97,30 +105,46 @@ export function normalizeBrowserLoginConfig(identityConfig, context = {}) {
     session_ttl_seconds: sessionTtlSeconds,
     subject_claim: subjectClaim,
     algorithms: Object.freeze([...algorithms]),
+    public_base_path: publicBasePath,
   });
 }
 
 /**
- * Local path only. External or protocol-relative values become `/`.
+ * Local path only. External or protocol-relative values become the mount home.
+ * Safe query is preserved. Paths outside the configured mount, traversal, and
+ * duplicate-join mistakes are not followed.
  * @param {unknown} value
+ * @param {string} [publicBasePath]
  */
-export function allowlistedReturnPath(value) {
-  if (typeof value !== 'string' || !value) return '/';
-  if (value.length > 1024) return '/';
-  if (!value.startsWith('/') || value.startsWith('//')) return '/';
-  if (value.includes('\\') || value.includes('://')) return '/';
-  if (/[\u0000-\u001F\u007F]/.test(value)) return '/';
+export function allowlistedReturnPath(value, publicBasePath = '') {
+  const home = homePath(publicBasePath);
+  if (typeof value !== 'string' || !value) return home;
+  if (value.length > 1024) return home;
+  if (!value.startsWith('/') || value.startsWith('//')) return home;
+  if (value.includes('\\') || value.includes('://')) return home;
+  if (/[\u0000-\u001F\u007F]/.test(value)) return home;
   let decoded = value;
   try {
     decoded = decodeURIComponent(value);
   } catch {
-    return '/';
+    return home;
   }
   if (!decoded.startsWith('/') || decoded.startsWith('//') || decoded.includes('\\') || decoded.includes('://')) {
-    return '/';
+    return home;
   }
-  if (/[\u0000-\u001F\u007F]/.test(decoded)) return '/';
-  return value;
+  if (/[\u0000-\u001F\u007F]/.test(decoded)) return home;
+  const decodedPath = decoded.split(/[?#]/, 1)[0];
+  const segments = decodedPath.split('/');
+  if (segments[0] !== '' || segments.slice(1).some((segment) => segment === '' || segment === '.' || segment === '..')) {
+    return home;
+  }
+  const extraIndex = value.search(/[?#]/);
+  const extra = extraIndex >= 0 ? value.slice(extraIndex) : '';
+  if (!publicBasePath) return value;
+  const publicPath = (decodedPath === publicBasePath || decodedPath.startsWith(`${publicBasePath}/`))
+    ? decodedPath
+    : `${publicBasePath}${decodedPath}`;
+  return `${publicPath}${extra}`;
 }
 
 /**
@@ -140,6 +164,7 @@ export function publicOidcError(error) {
  *   browserLogin: object,
  *   memberships: Map<string, import('./identity.js').VerifiedActor>,
  *   publicOrigin?: string,
+ *   publicBasePath?: string,
  *   now?: () => number,
  *   fetchImpl?: typeof fetch,
  * }} options
@@ -148,6 +173,7 @@ export function createOidcBrowserLogin(options) {
   const browserLogin = options.browserLogin;
   if (!browserLogin) return null;
   const memberships = options.memberships;
+  const publicBasePath = options.publicBasePath || browserLogin.public_base_path || '';
   const nowFn = options.now ?? Date.now;
   const fetchImpl = options.fetchImpl ?? fetch;
   const logins = new BoundedTtlMap(MAX_LOGIN_TRANSACTIONS, { evictOldest: true });
@@ -164,7 +190,7 @@ export function createOidcBrowserLogin(options) {
      */
     async startLogin(input) {
       const now = nowFn();
-      const redirectUri = resolveRedirectUri(browserLogin, input.requestUrl);
+      const redirectUri = resolveRedirectUri(browserLogin, input.requestUrl, publicBasePath);
       const configuration = await loadConfiguration();
       const codeVerifier = client.randomPKCECodeVerifier();
       const codeChallenge = await client.calculatePKCECodeChallenge(codeVerifier);
@@ -177,7 +203,7 @@ export function createOidcBrowserLogin(options) {
         nonce,
         codeVerifier,
         redirectUri,
-        returnPath: allowlistedReturnPath(input.returnPath),
+        returnPath: allowlistedReturnPath(input.returnPath, publicBasePath),
       }, now);
       const authorizationUrl = client.buildAuthorizationUrl(configuration, {
         redirect_uri: redirectUri,
@@ -293,7 +319,7 @@ export function createOidcBrowserLogin(options) {
       } catch {
         endSessionUrl = undefined;
       }
-      return { location: '/', cookies, endSessionUrl };
+      return { location: homePath(publicBasePath), cookies, endSessionUrl };
     },
   };
 
@@ -446,12 +472,12 @@ function assertTrustedClaims(claims, browserLogin) {
   }
 }
 
-function resolveRedirectUri(browserLogin, requestUrl) {
+function resolveRedirectUri(browserLogin, requestUrl, publicBasePath = '') {
   if (browserLogin.redirect_uri) return browserLogin.redirect_uri;
   if (!isLoopbackHost(requestUrl.hostname)) {
     throw Object.assign(new Error(PUBLIC_SIGNIN_UNAVAILABLE), { code: 'unavailable' });
   }
-  return new URL(OIDC_CALLBACK_PATH, requestUrl.origin).href;
+  return new URL(joinMountPath(publicBasePath, OIDC_CALLBACK_PATH), requestUrl.origin).href;
 }
 
 function trustedIssuerUrl(issuer) {
@@ -469,15 +495,15 @@ function trustedIssuerUrl(issuer) {
   throw new Error('OIDC issuer must be https (or loopback http for local synthetic issuers)');
 }
 
-function normalizeRedirectUri(value, issuerUrl) {
+function normalizeRedirectUri(value, issuerUrl, expectedPath = OIDC_CALLBACK_PATH) {
   let url;
   try {
     url = new URL(value);
   } catch {
     throw new Error('browser login redirect_uri must be a valid URL');
   }
-  if (url.pathname !== OIDC_CALLBACK_PATH) {
-    throw new Error('browser login redirect_uri path must be /oidc/callback');
+  if (url.pathname !== expectedPath) {
+    throw new Error(`browser login redirect_uri path must be ${expectedPath}`);
   }
   if (url.search || url.hash || url.username || url.password) {
     throw new Error('browser login redirect_uri must not include query, fragment, or credentials');
@@ -488,7 +514,7 @@ function normalizeRedirectUri(value, issuerUrl) {
   throw new Error('browser login redirect_uri must be https (or loopback http)');
 }
 
-function normalizePostLogoutUri(value, redirectUri, publicOrigin) {
+function normalizePostLogoutUri(value, redirectUri, publicOrigin, publicBasePath = '') {
   let url;
   try {
     url = new URL(value);
@@ -503,6 +529,12 @@ function normalizePostLogoutUri(value, redirectUri, publicOrigin) {
   if (redirectUri) allowedOrigins.push(new URL(redirectUri).origin);
   if (allowedOrigins.length && !allowedOrigins.includes(url.origin)) {
     throw new Error('browser login post_logout_redirect_uri origin is not allowed');
+  }
+  if (publicBasePath) {
+    const home = homePath(publicBasePath);
+    if (url.pathname !== home && url.pathname !== `${home}/`) {
+      throw new Error('browser login post_logout_redirect_uri path must match publicBasePath');
+    }
   }
   if (url.protocol === 'https:') return url.href;
   if (url.protocol === 'http:' && isLoopbackHost(url.hostname)) return url.href;
