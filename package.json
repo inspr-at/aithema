@@ -1,6 +1,6 @@
 {
   "name": "@inspr/aithema-core",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "type": "module",
   "description": "Reusable requirements assistant: stable IDs, revision digests, baseline approval, and proposal boundaries",
