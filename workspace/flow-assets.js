@@ -17,6 +17,8 @@ const FLOW_PREFIX = '/flow-shell/';
 const HOST_SCRIPTS = Object.freeze({
   '/workspace-flow-host.js': 'flow-host.js',
   '/workspace-speech-input.js': 'speech-input.js',
+  '/workspace-preview-feedback.js': 'preview-feedback.js',
+  '/preview-adapter.js': 'preview-adapter.js',
 });
 
 const FLOW_STATIC = Object.freeze({

@@ -18,6 +18,7 @@ import {
 import { createProviderRegistry } from '../runtime/provider.js';
 import { createSpeechAdapter, publicSpeechCapability } from '../runtime/speech.js';
 import { SqliteProjectStore } from '../runtime/store.js';
+import { PreviewBindingRegistry, normalizePreviewBindings } from '../runtime/preview.js';
 import { normalizeWorkspaceConfig } from './config.js';
 import { joinMountPath, stripMountPath } from '../runtime/public-path.js';
 import { readAllowedStatic, resolveWorkspaceStatic } from './flow-assets.js';
@@ -46,12 +47,26 @@ const SECURITY_HEADERS = Object.freeze({
   ].join('; '),
 });
 
+export function contentSecurityPolicyForPreviewBindings(previewBindings = []) {
+  const origins = [...new Set(previewBindings.map((binding) => binding.previewOrigin))];
+  const base = SECURITY_HEADERS['content-security-policy'];
+  return origins.length ? `${base}; frame-src ${origins.join(' ')}` : base;
+}
+
 /**
  * @param {import('./config.js').normalizeWorkspaceConfig extends Function ? object : never} rawConfig
  * @param {{ fetchImpl?: typeof fetch }} [options]
  */
 export function createWorkspaceServer(rawConfig, options = {}) {
   const config = normalizeWorkspaceConfig(rawConfig);
+  let previewBindingsForHeaders = config.previewBindings;
+  const html = (res, status, body, extra = {}) => writeHtml(
+    res,
+    status,
+    body,
+    extra,
+    previewBindingsForHeaders,
+  );
   const identityConfig = { ...(config.identity ?? {}) };
   if (config.labelledDemo && (identityConfig.demoHmacSecret == null || identityConfig.demoHmacSecret === '')) {
     identityConfig.demoHmacSecret = randomBytes(32).toString('hex');
@@ -84,6 +99,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
     ? ':memory:'
     : (config.databaseFile || join(config.dataDir, 'aithema-workspace.sqlite'));
   const store = new SqliteProjectStore(dbFile);
+  const previewBindings = new PreviewBindingRegistry(config.previewBindings, { now: options.now });
   const controller = new ConversationController({
     store,
     provider,
@@ -95,6 +111,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
     uploadLimits: config.uploadLimits,
     speech: config.speech,
     speechAdapter,
+    previewBindings,
   });
 
   const server = createServer((req, res) => {
@@ -417,6 +434,60 @@ export function createWorkspaceServer(rawConfig, options = {}) {
       return;
     }
 
+    if (req.method === 'POST' && rest === 'preview-feedback') {
+      const body = await readForm(req);
+      const abort = new AbortController();
+      const onClose = () => {
+        if (!res.writableEnded) abort.abort();
+      };
+      req.on('close', onClose);
+      try {
+        const result = await controller.submitPreviewFeedback({
+          actor,
+          projectRef,
+          message: String(body.message ?? ''),
+          turnId: typeof body.turn_id === 'string' ? body.turn_id : '',
+          expectedRevision: body.expected_revision ? Number(body.expected_revision) : undefined,
+          nonce: body.preview_nonce,
+          bindingKey: body.binding_key,
+          artifactRevision: body.artifact_revision,
+          elementRef: body.element_ref,
+          elementLabel: body.element_label,
+          model: body.model,
+          providerId: body.providerId,
+          browserBody: body,
+          signal: abort.signal,
+        });
+        if (wantsJson(req)) {
+          json(res, result.status === 'incomplete' ? 202 : 200, {
+            status: result.status,
+            turn_id: result.turn_id,
+            revision: result.project.revision,
+            proposals_created: result.proposals_created,
+            stream_completed: result.stream_completed,
+            incomplete_reason: result.incomplete_reason,
+            ...(result.billing ? { billing: result.billing } : {}),
+          });
+          return;
+        }
+        if (result.status === 'incomplete') {
+          redirect(res, toPublic(`/projects/${encodeURIComponent(projectRef)}?incomplete=${encodeURIComponent(result.incomplete_reason || 'truncated')}`));
+        } else {
+          redirect(res, toPublic(`/projects/${encodeURIComponent(projectRef)}?notice=${encodeURIComponent('Preview feedback saved as unapproved input.')}`));
+        }
+      } catch (error) {
+        const status = mutationStatus(error);
+        if (wantsJson(req)) json(res, status, mutationErrorBody(actor, projectRef, project, error));
+        else html(res, status, mutationErrorPage(actor, projectRef, project, {
+          error: messageOf(error),
+          sessionAuthenticated,
+        }));
+      } finally {
+        req.off('close', onClose);
+      }
+      return;
+    }
+
     if (req.method === 'POST' && rest === 'transcribe') {
       if (!config.speech?.enabled || !speechAdapter) {
         json(res, 404, { error: 'speech input is not configured' });
@@ -683,6 +754,9 @@ export function createWorkspaceServer(rawConfig, options = {}) {
         ? controller.selectionsFor(project.project_ref)
         : extra.allowedSelections,
       speechCapability: extra.speechCapability ?? speechCapabilityFor(project),
+      previewCapability: extra.previewCapability ?? (
+        project && actor ? controller.previewCapability(actor, project.project_ref) : null
+      ),
     });
   }
 
@@ -708,6 +782,19 @@ export function createWorkspaceServer(rawConfig, options = {}) {
     controller,
     provider,
     identity,
+    previewBindings,
+    replacePreviewBindings(bindings) {
+      const normalized = normalizePreviewBindings(bindings);
+      if (normalized.length && !config.publicOrigin) {
+        throw new Error('publicOrigin is required when previewBindings are configured');
+      }
+      if (config.publicOrigin && normalized.some((binding) => binding.previewOrigin === config.publicOrigin)) {
+        throw new Error('preview origin must differ from publicOrigin');
+      }
+      const replaced = previewBindings.replace(normalized);
+      previewBindingsForHeaders = replaced;
+      return replaced;
+    },
     listen() {
       return new Promise((resolve, reject) => {
         const onError = (error) => { reject(error); };
@@ -781,8 +868,9 @@ function json(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
-function html(res, status, body, extra = {}) {
+function writeHtml(res, status, body, extra = {}, previewBindings = []) {
   const headers = { ...SECURITY_HEADERS, 'content-type': 'text/html; charset=utf-8' };
+  headers['content-security-policy'] = contentSecurityPolicyForPreviewBindings(previewBindings);
   if (Array.isArray(extra)) {
     headers['set-cookie'] = extra;
   } else {
@@ -807,7 +895,7 @@ function redirect(res, location, extra = {}) {
   res.end();
 }
 
-function assertSameOriginMutation(req, url, publicOrigin) {
+export function assertSameOriginMutation(req, url, publicOrigin) {
   const expectedOrigin = publicOrigin ?? url.origin;
   const originHeader = req.headers.origin;
   if (originHeader) {
@@ -1150,7 +1238,8 @@ function pageNotice(params) {
 }
 
 function mutationStatus(error) {
-  if (error?.code === 'revision_conflict') return 409;
+  if (error?.code === 'revision_conflict' || error?.code === 'stale_preview' || error?.code === 'preview_turn_conflict') return 409;
+  if (error?.code === 'preview_disabled') return 404;
   if (error?.code === 'spend_uncertain' || error?.code === 'spend_committed') return 409;
   if (error?.code === 'forbidden' || error?.code === 'policy_denied' || error?.code === 'spend_denied') return 403;
   return 400;

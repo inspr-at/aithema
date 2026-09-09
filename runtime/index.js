@@ -105,4 +105,11 @@ export { rehydrateStoredStream, SqliteProjectStore } from './store.js';
 
 export { ConversationController, pendingProposalList } from './controller.js';
 
+export {
+  PREVIEW_LIMITS,
+  normalizePreviewBindings,
+  normalizePreviewElement,
+  PreviewBindingRegistry,
+} from './preview.js';
+
 export { extractDocument, extractPdfInChild, activePdfParserCount } from './extract.js';
