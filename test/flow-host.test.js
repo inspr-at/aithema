@@ -161,11 +161,11 @@ function signedJwt() {
 }
 
 describe('Flow workspace host', () => {
-  it('pins the independently verified Flow 0.1.4 GitHub runtime tarball', () => {
+  it('pins the independently verified Flow 0.1.5 GitHub runtime tarball', () => {
     const repoRoot = fileURLToPath(new URL('..', import.meta.url));
     const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
     const lock = JSON.parse(readFileSync(join(repoRoot, 'package-lock.json'), 'utf8'));
-    assert.equal(pkg.version, '0.5.0');
+    assert.equal(pkg.version, '0.6.0');
     assert.equal(pkg.dependencies['@inspr/flow-shell'], FLOW_SHELL_TARBALL_URL);
     const entry = lock.packages['node_modules/@inspr/flow-shell'];
     assert.equal(entry.version, FLOW_SHELL_VERSION);
