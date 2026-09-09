@@ -2,7 +2,7 @@
   "schema": "aithema-publication-inventory/0.1",
   "package": "@inspr/aithema-core",
   "version_scheme": "legacy-semver-public",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "public_repository_target": "inspr-at/aithema",
   "package_registry": {
     "publish": false,
@@ -74,7 +74,7 @@
       "tar",
       "git (private export builder only; exported source must not require it)"
     ],
-    "offline_install": "Named helper release/prime-consumer-cache.mjs does one online file: install of the admitted runtime tarball into an explicit AITHEMA_NPM_CACHE. npm ci alone caches lockfile tarballs and does not prime packuments. GitHub Release tarball dependencies (Flow Shell 0.1.4) are stored content-addressed; npm --offline cannot replay that HTTP URL, so the packaging test replays the primed integrity blob as a file: override after verifying the independently known SHA256. The packaging test then asserts npm install --offline of a fresh consumer against that cache.",
+    "offline_install": "Named helper release/prime-consumer-cache.mjs does one online file: install of the admitted runtime tarball into an explicit AITHEMA_NPM_CACHE. npm ci alone caches lockfile tarballs and does not prime packuments. GitHub Release tarball dependencies (Flow Shell 0.1.5) are stored content-addressed; npm --offline cannot replay that HTTP URL, so the packaging test replays the primed integrity blob as a file: override after verifying the independently known SHA256. The packaging test then asserts npm install --offline of a fresh consumer against that cache.",
     "fixtures": {
       "mock_provider": "Labelled demo/test double only; never live AI",
       "demo_identity": "Loopback-only HMAC demo; not OIDC proof",
@@ -136,25 +136,33 @@
         "source_commit": "54c3339f4983364910fae9a6cb5c76ab7fd2f68c",
         "status": "published",
         "note": "Configured OIDC browser login release; immutable source/runtime GitHub assets."
+      },
+      {
+        "version": "0.5.0",
+        "public_repository": "inspr-at/aithema",
+        "tag": "v0.5.0",
+        "source_commit": "8a0b780a9361b1176b7a51d82b7c9eb90a9d70f3",
+        "status": "published",
+        "note": "Installable workspace executable, native public path and optional speech input; immutable source/runtime GitHub assets."
       }
     ],
     "prepared_candidate": {
-      "version": "0.5.0",
+      "version": "0.6.0",
       "status": "metadata-prepared",
-      "feature_note": "Installable aithema-workspace service executable with validated configuration and bounded shutdown, optional native public URL prefix, and workspace speech input with cancellation on disconnect. Existing operator authority, Flow Shell 0.1.4 and GitHub source/runtime-tgz channels remain unchanged; production identity/provider activation is separate."
+      "feature_note": "Review exact before/after requirement impact and collect explicit operator-bound preview-element feedback as unapproved input. Human revision approval, provider/identity policy and private START boundaries remain unchanged."
     }
   },
   "outstanding_coordinator_gates": [
-    "Published 0.1.0, 0.2.0, 0.3.0 and 0.4.0 tags and assets remain immutable at inspr-at/aithema",
-    "Exact release metadata approval and CI, matching v0.5.0 tag, canonical forge publication and downloaded clean-consumer proof",
+    "Published 0.1.0 through 0.5.0 tags and assets remain immutable at inspr-at/aithema",
+    "Exact release metadata approval and CI, matching v0.6.0 tag, canonical forge publication and downloaded clean-consumer proof",
     "Package registry publication remains unauthorized; this coordinate does not claim the @inspr npm namespace",
-    "Prior synthetic browser login/logout proof covers the existing host; verify downloaded 0.5.0 artifacts and installed workspace executable before release acceptance",
+    "Prior synthetic browser login/logout proof covers the existing host; verify downloaded 0.6.0 artifacts and installed workspace executable before release acceptance",
     "Configured production identity, live provider, and OIDC proof remain unproven",
     "Combined daily QA and native Claude Opus 5 xhigh exact-source review are required before publication",
     "START consumer cutover remains separate and subject to the agreed licensing basis"
   ],
   "handoff": {
-    "review_extract": "npm run source:export && mkdir -p /tmp/aithema-source-review && tar -xzf dist/inspr-aithema-core-source-0.5.0/inspr-aithema-core-source-0.5.0.tgz -C /tmp/aithema-source-review",
+    "review_extract": "npm run source:export && mkdir -p /tmp/aithema-source-review && tar -xzf dist/inspr-aithema-core-source-0.6.0/inspr-aithema-core-source-0.6.0.tgz -C /tmp/aithema-source-review",
     "review_verify": "cd /tmp/aithema-source-review && npm ci && npm test && npm run release:build",
     "provenance_note": "private_source_commit is original private lineage. current_source_commit is the Git commit actually exported. Runtime artifact manifests bind source.commit to current_source_commit under frozen schema 0.1. runtime_tree_digest uses the AIT-10 path+blob-sha inventory and is not a Git tree object id."
   }
