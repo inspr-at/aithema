@@ -135,13 +135,13 @@
         "tag": "v0.4.0",
         "source_commit": "54c3339f4983364910fae9a6cb5c76ab7fd2f68c",
         "status": "published",
-        "note": "Configured OIDC browser login and workspace speech release; immutable source/runtime GitHub assets."
+        "note": "Configured OIDC browser login release; immutable source/runtime GitHub assets."
       }
     ],
     "prepared_candidate": {
       "version": "0.5.0",
       "status": "metadata-prepared",
-      "feature_note": "Installable aithema-workspace service executable with validated configuration and bounded shutdown, optional native public URL prefix, and speech cancellation on disconnect. Existing operator authority, Flow Shell 0.1.4 and GitHub source/runtime-tgz channels remain unchanged; production identity/provider activation is separate."
+      "feature_note": "Installable aithema-workspace service executable with validated configuration and bounded shutdown, optional native public URL prefix, and workspace speech input with cancellation on disconnect. Existing operator authority, Flow Shell 0.1.4 and GitHub source/runtime-tgz channels remain unchanged; production identity/provider activation is separate."
     }
   },
   "outstanding_coordinator_gates": [
