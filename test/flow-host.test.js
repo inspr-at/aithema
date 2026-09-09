@@ -291,6 +291,7 @@ describe('Flow workspace host', () => {
       const before = await (await fetch(projectUrl, { headers: { cookie } })).text();
       const refs = [...before.matchAll(/name="proposal_refs" value="([^"]+)"/g)].map((match) => match[1]);
       const expected = before.match(/name="expected_revision" value="(\d+)"/)[1];
+      const reviewDigest = before.match(/name="review_digest" value="([^"]+)"/)[1];
       await fetch(`${projectUrl}/review`, {
         method: 'POST',
         headers: {
@@ -301,6 +302,7 @@ describe('Flow workspace host', () => {
         body: new URLSearchParams([
           ['action', 'approve'],
           ['expected_revision', expected],
+          ['review_digest', reviewDigest],
           ...refs.map((ref) => ['proposal_refs', ref]),
         ]),
         redirect: 'manual',

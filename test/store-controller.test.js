@@ -121,11 +121,13 @@ describe('durable store, turns, and human review', () => {
         /human actor may approve/,
       );
 
+      const review = second.controller.reviewPending(reviewer, created.project_ref);
       const approved = second.controller.approveSelected({
         actor: reviewer,
         projectRef: created.project_ref,
-        proposalRefs: pendingProposalList(resumed.stream).map((item) => item.proposal_ref),
+        proposalRefs: review.proposals.map((item) => item.proposal_ref),
         expectedRevision: replay.project.revision,
+        reviewDigest: review.review_digest,
       });
       const baseline = currentBaseline(approved.stream);
       assert.ok(baseline);
@@ -498,12 +500,13 @@ describe('document intake caps', () => {
       message: 'Need a reviewed baseline before own-format intake',
       turnId: 'turn:cap-base',
     });
+    const review = ctl.reviewPending(reviewer, project.project_ref);
     const approved = ctl.approveSelected({
       actor: reviewer,
       projectRef: project.project_ref,
-      proposalRefs: pendingProposalList(
-        ctl.loadProject(reviewer, project.project_ref).stream,
-      ).map((item) => item.proposal_ref),
+      proposalRefs: review.proposals.map((item) => item.proposal_ref),
+      expectedRevision: review.project_revision,
+      reviewDigest: review.review_digest,
     });
     assert.ok(currentBaseline(approved.stream));
     await fillDocuments(ctl, project.project_ref, 2);
@@ -555,12 +558,13 @@ describe('document intake caps', () => {
       message: 'Need a reviewed baseline before mixed intake',
       turnId: 'turn:mixed-base',
     });
+    const review = ctl.reviewPending(reviewer, project.project_ref);
     const approved = ctl.approveSelected({
       actor: reviewer,
       projectRef: project.project_ref,
-      proposalRefs: pendingProposalList(
-        ctl.loadProject(reviewer, project.project_ref).stream,
-      ).map((item) => item.proposal_ref),
+      proposalRefs: review.proposals.map((item) => item.proposal_ref),
+      expectedRevision: review.project_revision,
+      reviewDigest: review.review_digest,
     });
     assert.ok(currentBaseline(approved.stream));
     await fillDocuments(ctl, project.project_ref, 2);

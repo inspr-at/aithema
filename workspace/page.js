@@ -66,6 +66,14 @@ function sharedStyles() {
     details.secondary > summary { cursor: pointer; font-weight: 600; }
     .project-title { margin: 0 0 .5rem; font-size: 1.35rem; }
     .next-question { margin: .5rem 0 1rem; padding: .75rem; background: #f8f9fc; border-left: 3px solid #1f4f8a; }
+    .revision-review { margin: .75rem 0; padding: .75rem; border: 1px solid #bbb; }
+    .revision-review > h3 { margin-top: 0; }
+    .comparison { width: 100%; margin: .5rem 0; border-collapse: collapse; table-layout: fixed; }
+    .comparison caption { text-align: left; font-weight: 700; }
+    .comparison th, .comparison td { padding: .35rem; border-top: 1px solid #ddd; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+    .comparison th { width: 7rem; }
+    .comparison ul { margin: 0; padding-left: 1.2rem; }
+    .review-choice { padding: .4rem; border: 1px solid #777; font-weight: 700; }
   </style>`;
 }
 
@@ -81,14 +89,11 @@ function renderProjectPage(model, demoBanner) {
     `<li><strong>${escapeHtml(fact.key)}</strong>: ${escapeHtml(fact.value)}</li>`
   )).join('');
   const open = (understanding?.open_questions ?? []).map((q) => `<li>${escapeHtml(q)}</li>`).join('');
-  const proposals = pending.map((proposal) => {
-    const body = proposal.requirement
-      ? `${proposal.requirement.requirement_ref}: ${proposal.requirement.statement}`
-      : proposal.summary;
-    return `<label><input type="checkbox" name="proposal_refs" value="${escapeHtml(proposal.proposal_ref)}">
-      ${escapeHtml(proposal.kind)} — ${escapeHtml(body)}</label>`;
-  }).join('');
   const canReview = model.actor.actor_kind === 'human' && model.actor.roles.includes('requirements_approver');
+  const revisionReview = model.revisionReview;
+  const proposals = (revisionReview?.proposals ?? []).map((proposal) => (
+    renderProposalReview(proposal, canReview)
+  )).join('');
   const next = understanding?.next_question
     ? `<div class="next-question"><strong>Focused next question:</strong> ${escapeHtml(understanding.next_question)}</div>`
     : '<p class="meta">No focused next question yet.</p>';
@@ -114,6 +119,7 @@ function renderProjectPage(model, demoBanner) {
     ${pending.length && canReview ? `
       <form method="post" action="${href(model, `/projects/${encodeURIComponent(project.project_ref)}/review`)}">
         <input type="hidden" name="expected_revision" value="${escapeHtml(String(project.revision))}">
+        <input type="hidden" name="review_digest" value="${escapeHtml(revisionReview.review_digest)}">
         ${proposals}
         <button type="submit" name="action" value="approve">Approve selected into a new baseline</button>
         <button type="submit" name="action" value="reject">Reject selected</button>
@@ -137,6 +143,75 @@ function renderProjectPage(model, demoBanner) {
     <ul>${open || '<li>None recorded.</li>'}</ul>
   </details>
   ${renderSecondaryControls(model)}`);
+}
+
+function renderProposalReview(proposal, selectable) {
+  const choice = selectable
+    ? `<label class="review-choice"><input type="checkbox" name="proposal_refs" value="${escapeHtml(proposal.proposal_ref)}"> Select this exact revision</label>`
+    : '';
+  const baseline = proposal.compared_baseline
+    ? `baseline_ref ${proposal.compared_baseline.baseline_ref} · revision ${proposal.compared_baseline.revision} · digest ${proposal.compared_baseline.content_digest}`
+    : 'No approved baseline; proposed values are additions.';
+  const requirements = proposal.requirement_changes.map((change) => `
+    <section>
+      <h4>Requirement ${escapeHtml(change.requirement_ref)}</h4>
+      ${renderScalarComparison('Statement', change.statement)}
+      ${renderListComparison('Acceptance criteria', change.acceptance_criteria)}
+      ${renderListComparison('Constraint references', change.constraint_refs)}
+    </section>`).join('');
+  const constraints = proposal.constraint_changes.map((change) => `
+    <section>
+      <h4>Constraint ${escapeHtml(change.constraint_ref)}</h4>
+      ${renderScalarComparison('Kind', change.kind)}
+      ${renderScalarComparison('Statement', change.statement)}
+    </section>`).join('');
+  const impact = proposal.deterministic_estimated_impact;
+  const affected = impact.affected_requirement_refs.length
+    ? `<p><strong>Affected requirement references:</strong></p><ul>${impact.affected_requirement_refs.map((ref) => `<li>${escapeHtml(ref)}</li>`).join('')}</ul>`
+    : '<p class="meta"><strong>Affected requirement references:</strong> none established by these content links.</p>';
+  return `<article class="revision-review">
+    <h3>${escapeHtml(proposal.kind)} · ${escapeHtml(proposal.proposal_ref)}</h3>
+    ${choice}
+    <p class="meta digest"><strong>Exact comparison baseline:</strong> ${escapeHtml(baseline)}</p>
+    ${requirements}${constraints}
+    <p><strong>Deterministic estimated impact:</strong> ${escapeHtml(String(impact.changed_value_count))} explicit value change(s); ${escapeHtml(String(impact.affected_requirement_refs.length))} directly affected requirement reference(s).</p>
+    ${affected}
+    <p class="meta">This count comes only from exact content differences and explicit constraint references. It is not selection size, effort, schedule, or money.</p>
+    <p><strong>Unknown downstream impact:</strong> delivery, integration, schedule, cost, and other downstream effects are not known from this requirements record and need human assessment.</p>
+    <p class="meta digest">Proposal digest ${escapeHtml(proposal.proposal_digest)}</p>
+  </article>`;
+}
+
+function renderScalarComparison(label, difference) {
+  return `<table class="comparison">
+    <caption>${escapeHtml(label)} — ${escapeHtml(difference.status)}</caption>
+    <tbody>
+      <tr><th scope="row">Before</th><td>${renderComparisonValue(difference.before)}</td></tr>
+      <tr><th scope="row">After</th><td>${renderComparisonValue(difference.after)}</td></tr>
+    </tbody>
+  </table>`;
+}
+
+function renderListComparison(label, difference) {
+  return `<table class="comparison">
+    <caption>${escapeHtml(label)} — ${escapeHtml(difference.status)}</caption>
+    <tbody>
+      <tr><th scope="row">Before</th><td>${renderValueList(difference.before)}</td></tr>
+      <tr><th scope="row">After</th><td>${renderValueList(difference.after)}</td></tr>
+      <tr><th scope="row">Added</th><td>${renderValueList(difference.added)}</td></tr>
+      <tr><th scope="row">Removed</th><td>${renderValueList(difference.removed)}</td></tr>
+      <tr><th scope="row">Unchanged</th><td>${renderValueList(difference.unchanged)}</td></tr>
+    </tbody>
+  </table>`;
+}
+
+function renderComparisonValue(value) {
+  return value === null ? '<span class="meta">Not present</span>' : `<pre>${escapeHtml(value)}</pre>`;
+}
+
+function renderValueList(values) {
+  if (!values.length) return '<span class="meta">None</span>';
+  return `<ul>${values.map((value) => `<li>${escapeHtml(value)}</li>`).join('')}</ul>`;
 }
 
 function renderTrustedHttpLink(url, label) {
