@@ -582,13 +582,19 @@ export function createWorkspaceServer(rawConfig, options = {}) {
             projectRef,
             proposalRefs: refs,
             expectedRevision: body.expected_revision ? Number(body.expected_revision) : undefined,
+            reviewDigest: typeof body.review_digest === 'string' ? body.review_digest : undefined,
           });
         if (wantsJson(req)) json(res, 200, { revision: next.revision, baseline: next.stream.baselines.at(-1) ?? null });
         else redirect(res, toPublic(`/projects/${encodeURIComponent(projectRef)}`));
       } catch (error) {
-        const status = /human actor may approve|requirements_approver/.test(messageOf(error)) ? 403 : 400;
+        const status = /human actor may approve|requirements_approver/.test(messageOf(error))
+          ? 403
+          : (error?.code === 'revision_conflict' || error?.code === 'stale_review' ? 409 : 400);
         if (wantsJson(req)) json(res, status, { error: messageOf(error) });
-        else html(res, status, pageModel({ actor, sessionAuthenticated, projects: store.listProjects(actor), project, error: messageOf(error) }));
+        else html(res, status, mutationErrorPage(actor, projectRef, project, {
+          error: messageOf(error),
+          sessionAuthenticated,
+        }));
       }
       return;
     }
@@ -671,6 +677,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
       policyActive: Boolean(config.policy),
       publicBasePath: config.publicBasePath,
       ...extra,
+      revisionReview: extra.revisionReview ?? (project ? controller.reviewPending(actor, project.project_ref) : undefined),
       flowState: extra.flowState ?? flowStateFor(actor, project ?? null),
       allowedSelections: project
         ? controller.selectionsFor(project.project_ref)

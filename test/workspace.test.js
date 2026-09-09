@@ -110,6 +110,7 @@ async function approveBaseline(url, cookie, projectUrl) {
   const page = await (await fetch(projectUrl, { headers: { cookie } })).text();
   const refs = [...page.matchAll(/name="proposal_refs" value="([^"]+)"/g)].map((match) => match[1]);
   const expected = page.match(/name="expected_revision" value="(\d+)"/)[1];
+  const reviewDigest = page.match(/name="review_digest" value="([^"]+)"/)[1];
   await fetch(`${projectUrl}/review`, {
     method: 'POST',
     headers: {
@@ -120,6 +121,7 @@ async function approveBaseline(url, cookie, projectUrl) {
     body: new URLSearchParams([
       ['action', 'approve'],
       ['expected_revision', expected],
+      ['review_digest', reviewDigest],
       ...refs.map((ref) => ['proposal_refs', ref]),
     ]),
     redirect: 'manual',
@@ -284,6 +286,30 @@ describe('workspace UI and HTTP boundaries', () => {
       const refs = [...page.matchAll(/name="proposal_refs" value="([^"]+)"/g)].map((match) => match[1]);
       assert.ok(refs.length >= 1);
       const expected = page.match(/name="expected_revision" value="(\d+)"/)[1];
+      const reviewDigest = page.match(/name="review_digest" value="([^"]+)"/)[1];
+      assert.match(page, /Exact comparison baseline/);
+      assert.match(page, /<th scope="row">Before<\/th>/);
+      assert.match(page, /<th scope="row">After<\/th>/);
+      assert.match(page, /Deterministic estimated impact/);
+      assert.match(page, /Unknown downstream impact/);
+      assert.match(page, /not selection size, effort, schedule, or money/);
+      const stale = await fetch(`${projectUrl}/review`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+          accept: 'application/json',
+          cookie,
+          origin: new URL(url).origin,
+        },
+        body: new URLSearchParams([
+          ['action', 'approve'],
+          ['expected_revision', expected],
+          ['review_digest', `sha256:${'0'.repeat(64)}`],
+          ...refs.map((ref) => ['proposal_refs', ref]),
+        ]),
+      });
+      assert.equal(stale.status, 409);
+      assert.match((await stale.json()).error, /changed; refresh and review again/);
       await fetch(`${projectUrl}/review`, {
         method: 'POST',
         headers: {
@@ -294,6 +320,7 @@ describe('workspace UI and HTTP boundaries', () => {
         body: new URLSearchParams([
           ['action', 'approve'],
           ['expected_revision', expected],
+          ['review_digest', reviewDigest],
           ...refs.map((ref) => ['proposal_refs', ref]),
         ]),
         redirect: 'manual',
@@ -301,6 +328,8 @@ describe('workspace UI and HTTP boundaries', () => {
       const json = await (await fetch(`${projectUrl}/handover.json`, { headers: { cookie } })).json();
       const csv = await (await fetch(`${projectUrl}/handover.csv`, { headers: { cookie } })).text();
       assert.equal(json.baseline.revision, 1);
+      assert.equal(json.decisions.at(-1).review_identity.review_digest, reviewDigest);
+      assert.match(json.decisions.at(-1).review_identity.accepted_review_digest, /^sha256:[a-f0-9]{64}$/);
       assert.ok(csv.includes(json.baseline.revision_seal));
       assert.ok(csv.includes(json.baseline.content_digest));
       const reviewed = await (await fetch(projectUrl, { headers: { cookie } })).text();

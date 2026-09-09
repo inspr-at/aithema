@@ -100,6 +100,7 @@ async function approveFirstProposals(url, cookie, projectUrl) {
   const page = await (await fetch(projectUrl, { headers: { cookie } })).text();
   const refs = [...page.matchAll(/name="proposal_refs" value="([^"]+)"/g)].map((match) => match[1]);
   const expected = page.match(/name="expected_revision" value="(\d+)"/)[1];
+  const reviewDigest = page.match(/name="review_digest" value="([^"]+)"/)[1];
   await fetch(`${projectUrl}/review`, {
     method: 'POST',
     headers: {
@@ -110,6 +111,7 @@ async function approveFirstProposals(url, cookie, projectUrl) {
     body: new URLSearchParams([
       ['action', 'approve'],
       ['expected_revision', expected],
+      ['review_digest', reviewDigest],
       ...refs.map((ref) => ['proposal_refs', ref]),
     ]),
     redirect: 'manual',
@@ -220,6 +222,7 @@ describe('portable HTTP export and document intake', () => {
       const pendingPage = await (await fetch(projectUrl, { headers: { cookie } })).text();
       const refs = [...pendingPage.matchAll(/name="proposal_refs" value="([^"]+)"/g)].map((match) => match[1]);
       assert.ok(refs.length >= 1);
+      const reviewDigest = pendingPage.match(/name="review_digest" value="([^"]+)"/)[1];
       await fetch(`${projectUrl}/review`, {
         method: 'POST',
         headers: {
@@ -230,6 +233,7 @@ describe('portable HTTP export and document intake', () => {
         body: new URLSearchParams([
           ['action', 'approve'],
           ['expected_revision', pendingPage.match(/name="expected_revision" value="(\d+)"/)[1]],
+          ['review_digest', reviewDigest],
           ...refs.map((ref) => ['proposal_refs', ref]),
         ]),
         redirect: 'manual',

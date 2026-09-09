@@ -11,6 +11,7 @@ import {
   currentBaseline,
   rejectProposals,
 } from '../lib/stream.js';
+import { buildRevisionReview } from '../lib/revision-review.js';
 import { exportHandoverCsv, exportHandoverJson, handoverRevisionIdentity } from '../lib/export.js';
 import { exportReviewedCsv, exportReviewedHandover } from '../lib/portable.js';
 import { exportReviewedHtml } from '../lib/export-html.js';
@@ -706,18 +707,27 @@ export class ConversationController {
    *   proposalRefs: readonly string[],
    *   baselineRef?: string,
    *   expectedRevision?: number,
+   *   reviewDigest?: string,
    * }} input
    */
   approveSelected(input) {
     assertHumanApprover(input.actor);
     const project = this.store.getProject(input.projectRef, input.actor);
     assertCanApproveBaseline(authorityFromActor(input.actor));
+    if (typeof input.reviewDigest !== 'string' || !input.reviewDigest) {
+      throw Object.assign(
+        new Error('review_digest is required; refresh and review again'),
+        { code: 'stale_review' },
+      );
+    }
     const baselineRef = input.baselineRef || `baseline:${project.revision + 1}`;
     const stream = approveBaselineFromProposals(
       project.stream,
       authorityFromActor(input.actor),
       input.proposalRefs,
       baselineRef,
+      undefined,
+      input.reviewDigest,
     );
     return this.store.apply({
       projectRef: input.projectRef,
@@ -729,6 +739,21 @@ export class ConversationController {
         understanding: project.understanding,
       }),
     }).project;
+  }
+
+  /**
+   * Read-only deterministic review for the current authorized project state.
+   * The project revision remains the storage concurrency token; review_digest
+   * binds the exact proposal and baseline content shown to the human.
+   * @param {import('./identity.js').VerifiedActor} actor
+   * @param {string} projectRef
+   */
+  reviewPending(actor, projectRef) {
+    const project = this.store.getProject(projectRef, actor);
+    return Object.freeze({
+      project_revision: project.revision,
+      ...buildRevisionReview(project.stream),
+    });
   }
 
   /**

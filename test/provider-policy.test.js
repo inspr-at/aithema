@@ -585,11 +585,13 @@ describe('durable outbound request ceiling', () => {
       }),
       /not a member|human actor may approve/,
     );
+    const review = ctl.reviewPending(reviewer, project.project_ref);
     const approved = ctl.approveSelected({
       actor: reviewer,
       projectRef: project.project_ref,
-      proposalRefs: pendingProposalList(complete.project.stream).map((item) => item.proposal_ref),
+      proposalRefs: review.proposals.map((item) => item.proposal_ref),
       expectedRevision: complete.project.revision,
+      reviewDigest: review.review_digest,
     });
     assert.ok(currentBaseline(approved.stream));
     store.close();
