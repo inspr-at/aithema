@@ -63,6 +63,8 @@ Expected local browser QA (coordinator, after this commit):
 
 Stop the process when finished. Demo identity is rejected off loopback. Demo cookies do not survive restart unless `identity.demoHmacSecret` is set in a **private** operator config (not the committed demo file). Restart durability of project data still uses the SQLite directory; sign in again after an ephemeral-key restart.
 
+This `npm run workspace` route is an example convenience, not the supported service command. It intentionally defaults to the committed labelled demo configuration; the installed service executable never does.
+
 ## Membership and SQLite schema
 
 Access is decided on every request from:
@@ -76,23 +78,30 @@ Older databases that stored `members` as `(project_ref, party_ref)` are migrated
 
 **Non-destructive recovery:** existing projects, transcripts, revisions, and sealed baselines are retained across migration. To restore access for a retained project, add its `project_ref` to the intended subject's `identity.memberships[].projects` in operator config and restart — do not delete or recreate the SQLite file. Re-binding preserves `content_digest`, `revision_seal`, transcript, and approved baseline intact. `members_legacy_party` is left in place for inspection and is not consulted for authorization.
 
-## TLS reverse proxy and public origin
+## TLS reverse proxy, public origin, and optional public base path
 
-When the workspace sits behind a TLS reverse proxy, set `publicOrigin` in operator config to the browser-visible origin (for example `https://workspace.example.invalid`). Same-origin CSRF checks compare `Origin` / `Referer` against this value. The server does not trust arbitrary `X-Forwarded-*` request headers for origin validation; only the operator-configured `publicOrigin` overrides the loopback bind URL.
+When the workspace sits behind a TLS reverse proxy, set `publicOrigin` in operator config to the browser-visible origin (for example `https://workspace.example.invalid`). Same-origin CSRF checks compare `Origin` / `Referer` against this value. `publicOrigin` is scheme + host only; do not put a path there. The server does not trust arbitrary `X-Forwarded-*` request headers for origin validation, mount prefix, or identity; only the operator-configured `publicOrigin` overrides the loopback bind URL.
+
+Optional `publicBasePath` defaults to empty and keeps today’s origin-root standalone behaviour. A canonical value is an ASCII absolute path of one or more `[A-Za-z0-9_-]` segments with no trailing slash (sample shared-origin vocabulary: `/aithema`). The edge must forward the same public path (prefix-preserving). The workspace serves only that mount, with an exact segment boundary: `/aithema` is not `/aithema-other`. Templates, static ES modules, Flow, login, logout, callback, and export links use the prefix; there is no HTML rewriter, iframe gateway, dual origin-root mount, or forwarded-user trust. OIDC `redirect_uri` is exactly `publicOrigin` + `publicBasePath` + `/oidc/callback`. Sessions stay `aithema_session` / `aithema_login` with `Path=/` (not a cookie-path isolation claim). Shared origin is a shared trust domain; this app still verifies its own membership and audience.
 
 ## Configured production-shaped run (still local)
 
 Copy `examples/production-config.example.json` to an operator-owned file **outside git**. Fill:
 
 - `identity.jwks_uri`, `issuer`, `audience`, and memberships (`actor_kind` and roles). Do not map `requirements_approver` onto `agent`.
-- Optional `identity.browser_login` (`client_id`, and `client_secret` when the Zitadel application is confidential). Incomplete browser-login config refuses to start. Sessions are opaque, HttpOnly, SameSite=Lax, Secure when `publicOrigin` is https, and expire without refresh. Sign out clears the workspace session; it does not put tokens in the redirect.
+- Optional `identity.browser_login` (`client_id`, and `client_secret` when the Zitadel application is confidential). Incomplete browser-login config refuses to start. Sessions are opaque, HttpOnly, SameSite=Lax, Secure when `publicOrigin` is https, and expire without refresh. Sign out clears the workspace session; it does not put tokens in the redirect. Register the callback as origin + `publicBasePath` + `/oidc/callback` (origin-root when `publicBasePath` is empty).
 - `providers.<name>.baseUrl` / `allowedModels` for an OpenAI-compatible endpoint (self-hosted included). Credentials stay in that server-owned file.
+- Optional `publicBasePath` (`""` standalone, or `/aithema` when sharing one customer origin). Leave empty unless the edge will preserve that prefix.
 
 ```bash
-node examples/workspace.js /path/to/operator-config.json
+aithema-workspace --config /path/to/operator-config.json
 ```
 
-Unconfigured production identity refuses to start. Browser requests cannot change the endpoint, API key, limits, policy, data class, epoch, or enable a model that is not in `allowedModels`. Additive `providerId` may name a registry id already allowed by operator policy. `/health` returns only `{ ok: true, ready: true }`. Operator `limits` in config are capped; they cannot be raised from the browser.
+The executable requires the explicit `--config FILE`; missing, unreadable, malformed, or invalid configuration exits nonzero before listening, and startup diagnostics never print the config body or underlying credential-bearing errors. Production continues to require `identity.kind: "jwt-jwks"` and a durable `dataDir`; demo/test configurations remain loopback-only. Browser requests cannot change the endpoint, API key, limits, policy, data class, epoch, or enable a model that is not in `allowedModels`. Additive `providerId` may name a registry id already allowed by operator policy.
+
+`/health` (or `{publicBasePath}/health`) returns only `{ ok: true, ready: true }`; when mounted, the unprefixed route remains unavailable. This readiness signal covers local process startup, configuration validation, the opened SQLite store, and the listening socket only. It does not prove provider or IdP reachability. Operator `limits` in config are capped; they cannot be raised from the browser.
+
+On the first `SIGTERM` or `SIGINT`, the executable stops accepting new connections and drains in-flight HTTP work for at most 10 seconds. At the deadline it force-closes lingering HTTP connections, closes SQLite exactly once, and exits. A repeated termination signal force-closes immediately. Override the bound when an operator needs a different drain window with `--shutdown-grace-ms MILLISECONDS` (0–300000); this changes shutdown timing only, never workspace or provider configuration.
 
 ## Provider policy and request ceilings
 
@@ -105,3 +114,21 @@ Omit `policy` to keep historical single-provider behaviour (`defaultProvider` on
 - `maxOutboundCallsPerProject` counts outbound provider requests in SQLite per project and `policy.epoch`. It is **not currency** and is not a billing estimate. This slice reports billing usage as unavailable. Bumping `epoch` in operator config starts a new count window; browsers cannot reset it. A reserved id is not refunded after a possibly-sent call or crash; retrying the same id fails honestly instead of sending again.
 
 Live IdP and live model calls are **out of scope for AIT-6 worker evidence**. Wire them later and keep the proof separate from `npm test`.
+
+## Optional speech input
+
+Speech input is **disabled** unless operator config sets `speech` with a registry `providerId`, approved `model`, and — for the live adapter — an **exact** transcription URL (`kind: "openai-compatible-transcription"`). Chat Completions compatibility does not enable audio. There is no implicit `https://api.openai.com/...` default, no vendor SDK, and no SpeechRecognition implicit-cloud fallback.
+
+```json
+"speech": {
+  "kind": "openai-compatible-transcription",
+  "providerId": "local-openai",
+  "model": "operator-approved-whisper",
+  "endpoint": "http://127.0.0.1:8080/v1/audio/transcriptions",
+  "acceptedMediaTypes": ["audio/webm", "audio/mp4"]
+}
+```
+
+The browser may choose only that approved provider/model. It cannot set endpoint, credentials, location, data class, or limits. Record → Stop → Transcribe fills the existing message box as an editable draft. Existing Send is unchanged and never automatic. Raw audio and unsent transcripts are not written to SQLite, logs, or temp files. When `policy.maxOutboundCallsPerProject` is set, transcription reserves one outbound request-count slot; that count is not currency. Configured `local` / `cloud` labels are operator-declared, not measured network placement.
+
+Labelled mock speech (`kind: "mock"`) is demo/test only. Native browser/microphone QA is coordinator work; `npm test` uses synthetic in-memory audio and a local HTTP fixture.

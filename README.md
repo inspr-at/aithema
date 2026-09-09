@@ -33,15 +33,16 @@ START remains unchanged on its PMA business track. Public forge publication, STA
 - **Handover export** — `exportHandoverJson` and `exportHandoverCsv` identify the same revision, digest, and seal for the current stream (including pending proposals). Reviewed portable exports (`exportReviewedHandover`, CSV/HTML/PDF) bind one explicit approved `baseline_ref`/`revision` and omit unapproved notes, provider config, and identity maps.
 - **Document intake** — own-format `aithema.handover/0.1` JSON validates the canonical `content_digest` and becomes unapproved add/update proposals. `approved_by` / `revision_seal` stay claims. Generic text/CSV/JSON/XML/PDF keep filename, media type, and extraction/uncertainty; Interpret uses only the server-configured provider/model.
 - **Conversation runtime** — authenticated input → configured provider → evolving understanding → unapproved proposals. A provider stream is complete only after an explicit successful terminator (`[DONE]` or `finish_reason: stop`). Premature EOF, length/content-filter finishes, cancellation, timeout, and oversized responses are incomplete: they do not persist assistant turns or mint proposals.
-- **Provider registry** — named operator-owned providers and allowed models. OpenAI-compatible endpoints (including self-hosted) are server-configured, with bounded duration and response size. The browser cannot supply endpoints, credentials, limits, or an unapproved model. The mock provider exists only in explicit labelled demo/test mode and never claims live AI.
-- **Execution and data policy** — optional operator `policy` on workspace config is the configured boundary (not organizational identity). Projects inherit and may only narrow via operator keys in `policy.projects`. Humans select among configured registry ids with additive `providerId` plus an approved model; the same pin is used for chat, understanding, and interpret. There is no fallback if the explicit or default selection is disallowed. Absent `policy` keeps the historical single-provider process. Operator-declared data-class labels are not automatic classification. `maxOutboundCallsPerProject` is a durable request count, not currency; billing usage is unavailable in this slice.
-- **Identity** — production uses JWT/JWKS (issuer, audience, algorithm, time) plus a trusted membership/actor-kind map. Optional operator-owned OIDC Authorization Code + S256 PKCE browser login issues opaque HttpOnly sessions; ID-token claims never set actor-kind or roles. A signed subject is not automatically human. Unconfigured production identity fails closed, and incomplete browser-login config is refused. Demo auth is loopback-only, HMAC-bound, and visibly labelled. Demo signing keys are ephemeral per process unless the operator sets a private secret.
+- **Speech input** — optional and disabled until an operator configures a speech provider, model, and exact OpenAI-compatible transcription endpoint. Chat Completions compatibility does not imply audio support. Record → Stop → Transcribe fills the existing message textarea as an editable draft; existing Send is unchanged and never automatic. No TTS. Raw audio stays in memory, is membership- and policy-gated, and is not stored. Browser MediaRecorder only; the implicit-cloud SpeechRecognition API is not used.
+- **Provider registry** — named operator-owned providers and allowed models. OpenAI-compatible endpoints (including self-hosted) are server-configured, with bounded duration and response size. The browser cannot supply endpoints, credentials, limits, or an unapproved model. The mock provider exists only in explicit labelled demo/test mode and never claims live AI. Speech uses an independent completed-file adapter and a labelled test double; it does not treat an arbitrary chat endpoint as a transcriber.
+- **Execution and data policy** — optional operator `policy` on workspace config is the configured boundary (not organizational identity). Projects inherit and may only narrow via operator keys in `policy.projects`. Humans select among configured registry ids with additive `providerId` plus an approved model; the same pin is used for chat, understanding, and interpret. Speech may use a separately approved model on a named registry provider and still cannot change endpoint, location, data class, credentials, or limits. There is no fallback if the explicit or default selection is disallowed. Absent `policy` keeps the historical single-provider process. Operator-declared data-class and local/cloud labels are not automatic classification or measured network placement. `maxOutboundCallsPerProject` is a durable request count, not currency; billing usage is unavailable in this slice. Transcription is one outbound request when the ceiling is configured.
+- **Identity** — production uses JWT/JWKS (issuer, audience, algorithm, time) plus a trusted membership/actor-kind map. Optional operator-owned OIDC Authorization Code + S256 PKCE browser login issues opaque HttpOnly sessions; ID-token claims never set actor-kind or roles. A signed subject is not automatically human. Unconfigured production identity fails closed, and incomplete browser-login config is refused. Demo auth is loopback-only, HMAC-bound, and visibly labelled. Demo signing keys are ephemeral per process unless the operator sets a private secret. Optional `publicBasePath` (empty default) serves the workspace under a configured prefix such as `/aithema` without changing `publicOrigin`, cookie names, or per-app membership; cookie `Path=/` is not a security boundary on a shared origin.
 - **Flow host** — the workspace embeds the pinned public Flow Shell 0.1.4 as a normal dependency. Host-issued Flow context uses opaque host/project/principal/binding/revision refs from the current verified actor and project membership. Raw subjects, emails, roles, tokens, and invented organizations are not placed in that context. Local demo vs OIDC-backed kinds stay distinct. Context is display data: consequential Flow intents are revalidated against current membership, and Paimos/Pharos/Janus starts stay explicitly unsupported. Requirements review still uses the existing approve/handover path.
 - **Durable store** — SQLite with atomic revision updates, idempotent turn ids, and membership isolation. Current verified subject membership is authoritative on each request; `members` stores creator grants keyed by subject, not shared `party_ref`. Mapped project access is re-checked from the operator map and is not cached as a permanent grant.
 
 Names align with `inspr.delivery-stream/0.1-draft` baseline shapes without implementing the full delivery protocol.
 
-Voice SDK extraction and element-specific preview feedback remain later work.
+START voice SDK extraction and element-specific preview feedback remain later work. Public speech input is the optional completed-file path above, not a vendor voice SDK.
 
 ## Dependencies and fonts
 
@@ -56,7 +57,7 @@ Pinned in `package-lock.json` (package.json remains `private: true` as the npm p
 | `fontkit` 2.0.4 | MIT | Opens pinned Noto Sans WOFF subsets to verify glyph coverage before PDF export. |
 | `@fontsource/noto-sans` 5.2.5 | SIL OFL 1.1 | Embedded Latin, Latin-Extended, Greek, and Cyrillic WOFF subsets in PDF. Standalone HTML uses the viewing device’s system font stack for broader Unicode. PDF export is not universal Unicode: characters those subset files cannot paint (for example CJK and some Latin Extended Additional codepoints such as U+1EBF and U+1EC7) are refused with an error that points at lossless HTML/JSON, never dropped as missing glyphs. CJK is not embedded (those files are large). |
 
-No raw uploads or customer records are written. Tests use the labelled mock provider only.
+No raw uploads or customer records are written. Tests use the labelled mock provider and labelled speech test double only.
 
 ## Usage
 
@@ -69,7 +70,12 @@ npm run release:build
 npm run source:export
 npm run example
 npm run workspace -- examples/demo-config.json
+aithema-workspace --config /path/to/operator-config.json
 ```
+
+`aithema-workspace` is the supported service executable installed from the immutable GitHub runtime tgz. It never selects the committed demo config implicitly: `--config FILE` is required, and the file must be readable, valid JSON, and valid workspace configuration before a socket is opened. `npm run workspace` remains a labelled loopback demo convenience and defaults to `examples/demo-config.json` only on that example path.
+
+The executable handles `SIGTERM` and `SIGINT` with a bounded drain: it stops accepting connections, waits up to 10 seconds by default, force-closes lingering HTTP connections at the deadline, and closes SQLite once. Operators may set a shorter or longer bound (maximum 300 seconds) with `--shutdown-grace-ms MILLISECONDS`. Readiness at `/health`, or `{publicBasePath}/health` when mounted, is the existing safe `{ "ok": true, "ready": true }` response. It attests only that the local process has validated configuration, opened its SQLite store, and started listening; it does not probe provider or identity-provider reachability. When `publicBasePath` is set, the unprefixed health path is not served.
 
 `npm run release:build` publishes one immutable runtime release coordinate as a single directory, `dist/inspr-aithema-core-0.4.0/`, holding `inspr-aithema-core-0.4.0.tgz` and its sidecar manifest built from the closed allowlist in `release/allowlist.json`. The directory is staged and committed with one rename, so the pair is never half-written and an existing coordinate is never replaced: a byte-identical rebuild is accepted, different bytes are refused.
 
@@ -77,9 +83,9 @@ npm run workspace -- examples/demo-config.json
 
 First public coordinate `0.1.0` is published at [inspr-at/aithema](https://github.com/inspr-at/aithema) (`v0.1.0`, commit `1028b450`). Provider-policy coordinate `0.2.0` is also published (`v0.2.0`, commit `cff9eae`). Shared Flow host coordinate `0.3.0` is published (`v0.3.0`, commit `28c5576`). This tree prepares legacy SemVer `0.4.0` as a GitHub-source and runtime-tgz coordinate. Preparation alone does not publish it: the matching tag and [GitHub Release assets](https://github.com/inspr-at/aithema/releases) are the authority for availability. This repository does not claim the `@inspr` npm namespace. `package.json` `private: true` remains the npm publish guard.
 
-This candidate adds optional configured OIDC browser login and server-side sessions, while preserving operator-controlled identity and project membership. The existing shared Flow header and delivery footer consume immutable Flow Shell 0.1.4 for bounded mobile layouts. They use current host identity and real baseline records; disconnected delivery stages remain gated. Node 24 or newer is required for consumers; canonical releases use Node 24 with GNU tar.
+This combined candidate adds optional configured OIDC browser login, workspace speech input, and the supported workspace executable while preserving operator-controlled identity and project membership. The existing shared Flow header and delivery footer consume immutable Flow Shell 0.1.4 for bounded mobile layouts. They use current host identity and real baseline records; disconnected delivery stages remain gated. Node 24 or newer is required for consumers; canonical releases use Node 24 with GNU tar.
 
-Package subpaths: `@inspr/aithema-core` (domain), `@inspr/aithema-core/runtime`, `@inspr/aithema-core/workspace`.
+Package subpaths: `@inspr/aithema-core` (domain), `@inspr/aithema-core/runtime`, `@inspr/aithema-core/workspace`. Installed executable: `aithema-workspace`.
 
 ```js
 import {
@@ -102,7 +108,7 @@ stream = approveBaselineFromProposals(stream, approver, [stream.proposals[0].pro
 console.log(exportHandoverJson(stream));
 ```
 
-Operator setup for the workspace is in `RUNBOOK.md`. Local tests use a deterministic HTTP fixture, a synthetic OIDC issuer, and labelled demo identity; they are not live provider or OIDC proof.
+Operator setup for the workspace is in `RUNBOOK.md`. Local tests use a deterministic HTTP fixture, a synthetic OIDC issuer, a labelled speech test double, and labelled demo identity; they are not live provider, microphone, or OIDC proof.
 
 ## License
 

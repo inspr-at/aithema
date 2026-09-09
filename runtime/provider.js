@@ -652,6 +652,9 @@ export function rejectBrowserProviderOverride(body) {
     'policy', 'epoch', 'dataClass', 'data_class', 'execution', 'executionLocation',
     'allowedProviders', 'allowedDataClasses', 'allowedModels',
     'maxOutboundCallsPerProject', 'spend', 'billing',
+    'speech', 'speechEndpoint', 'speech_endpoint', 'transcriptionEndpoint',
+    'transcription_endpoint', 'audio', 'audioBytes', 'redirect', 'location',
+    'acceptedMediaTypes', 'maxAudioBytes', 'maxRecordingMs', 'maxTranscriptChars',
   ]) {
     if (key in body && body[key] != null && body[key] !== '') {
       throw new Error('browser must not supply provider endpoints, credentials, or limits');

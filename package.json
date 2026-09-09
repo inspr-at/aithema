@@ -8,6 +8,9 @@
   "engines": {
     "node": ">=24"
   },
+  "bin": {
+    "aithema-workspace": "./bin/aithema-workspace.js"
+  },
   "exports": {
     ".": "./lib/index.js",
     "./runtime": "./runtime/index.js",

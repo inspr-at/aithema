@@ -1,4 +1,4 @@
-export { normalizeWorkspaceConfig, escapeHtml } from './config.js';
+export { normalizeWorkspaceConfig, normalizeSpeechConfig, escapeHtml, homePath, joinMountPath, normalizePublicBasePath, stripMountPath } from './config.js';
 export {
   FLOW_SHELL_TARBALL_SHA256,
   FLOW_SHELL_TARBALL_URL,
@@ -14,4 +14,18 @@ export {
   opaqueHostRef,
 } from './flow-context.js';
 export { renderWorkspacePage } from './page.js';
-export { createWorkspaceServer, DEMO_COOKIE_NAME, SESSION_COOKIE_NAME, LOGIN_COOKIE_NAME } from './server.js';
+export {
+  createWorkspaceServer,
+  DEFAULT_SHUTDOWN_GRACE_MS,
+  DEMO_COOKIE_NAME,
+  SESSION_COOKIE_NAME,
+  LOGIN_COOKIE_NAME,
+} from './server.js';
+export {
+  detectSpeechCaptureSupport,
+  pickRecordingMimeType,
+  speechRecordingBounds,
+  createSpeechDraftGuard,
+  stopMediaStream,
+  bindSpeechComposer,
+} from './speech-input.js';

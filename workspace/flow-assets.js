@@ -14,7 +14,10 @@ export const FLOW_SHELL_TARBALL_SHA256 =
 export const FLOW_SHELL_VERSION = '0.1.4';
 
 const FLOW_PREFIX = '/flow-shell/';
-const HOST_SCRIPT_PATH = '/workspace-flow-host.js';
+const HOST_SCRIPTS = Object.freeze({
+  '/workspace-flow-host.js': 'flow-host.js',
+  '/workspace-speech-input.js': 'speech-input.js',
+});
 
 const FLOW_STATIC = Object.freeze({
   'inspr-flow-shell.js': 'text/javascript; charset=utf-8',
@@ -112,10 +115,10 @@ export function resolveFlowStaticAsset(pathname) {
  */
 export function resolveHostScript(pathname) {
   const decoded = decodePathname(pathname);
-  if (decoded !== HOST_SCRIPT_PATH) return null;
+  if (!decoded || !Object.hasOwn(HOST_SCRIPTS, decoded)) return null;
   const path = resolveInsideRoot(
     realpathSync(fileURLToPath(new URL('.', import.meta.url))),
-    'flow-host.js',
+    HOST_SCRIPTS[decoded],
   );
   if (!path) return null;
   return { path, contentType: 'text/javascript; charset=utf-8' };

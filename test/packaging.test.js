@@ -1,4 +1,5 @@
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync, spawn, spawnSync } from 'node:child_process';
+import { once } from 'node:events';
 import {
   copyFileSync,
   existsSync,
@@ -14,6 +15,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -152,6 +154,7 @@ describe('AIT-10 reproducible packaging', () => {
     }
     assert.equal(paths.includes('test/baseline.test.js'), false);
     assert.equal(paths.includes('release/build-release.mjs'), false);
+    assert.equal(paths.includes('bin/aithema-workspace.js'), true);
   });
 
   it('resolves any supplied ref to an immutable commit and records that sha', () => {
@@ -613,12 +616,13 @@ describe('AIT-10 reproducible packaging', () => {
     assert.ok(notices.dependencies.length >= 4);
   });
 
-  it('clean consumer installs the tarball offline and resolves every import from its own node_modules', () => {
+  it('clean consumer installs the tarball offline, starts its actual bin, and resolves imports locally', async () => {
     const buildDir = mkdtempSync(join(tmpdir(), 'aithema-pack-consumer-build-'));
     const unprimedDir = mkdtempSync(join(tmpdir(), 'aithema-pack-consumer-unprimed-'));
     const consumerDir = mkdtempSync(join(tmpdir(), 'aithema-pack-consumer-'));
     const cacheDir = mkdtempSync(join(tmpdir(), 'aithema-pack-npm-cache-'));
     const source = resolveReleaseSource(repoRoot);
+    let installedWorkspace;
     try {
       assert.throws(() => resolveExplicitNpmCache(''), /implicit global npm cache/);
       assert.throws(() => resolvePrimeOutDir(join(repoRoot, 'dist')), /into dist/);
@@ -717,7 +721,59 @@ describe('AIT-10 reproducible packaging', () => {
       assert.ok(payload.resolved['@inspr/aithema-core'].includes('/node_modules/@inspr/aithema-core/'));
       assert.equal(payload.resolved['@inspr/aithema-core'].startsWith(pathToFileURL(repoRoot).href), false);
       assert.equal(lstatSync(join(consumerDir, 'node_modules', '@inspr', 'aithema-core')).isDirectory(), true);
+      const installedBin = join(consumerDir, 'node_modules', '.bin', 'aithema-workspace');
+      assert.equal(lstatSync(installedBin).isSymbolicLink(), true);
+      const configPath = join(consumerDir, 'workspace-config.json');
+      const dataDir = join(consumerDir, 'workspace-data');
+      writeFileSync(configPath, `${JSON.stringify({
+        mode: 'test',
+        listenHost: '127.0.0.1',
+        listenPort: 0,
+        dataDir,
+        publicBasePath: '/aithema',
+        defaultProvider: 'mock',
+        identity: {
+          kind: 'demo',
+          demoHmacSecret: 'installed-bin-test-only-key',
+          defaultSubject: 'consumer',
+          memberships: [{
+            subject: 'consumer',
+            party_ref: 'party:consumer',
+            actor_kind: 'human',
+            roles: ['requirements_approver'],
+            projects: [],
+          }],
+        },
+        providers: { mock: { kind: 'mock' } },
+      }, null, 2)}\n`, 'utf8');
+      installedWorkspace = spawn(installedBin, ['--config', configPath, '--shutdown-grace-ms', '100'], {
+        cwd: consumerDir,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      installedWorkspace.stdout.setEncoding('utf8');
+      installedWorkspace.stderr.setEncoding('utf8');
+      let binStdout = '';
+      let binStderr = '';
+      installedWorkspace.stdout.on('data', (chunk) => { binStdout += chunk; });
+      installedWorkspace.stderr.on('data', (chunk) => { binStderr += chunk; });
+      const deadline = Date.now() + 5_000;
+      let mountedUrl;
+      while (Date.now() < deadline) {
+        mountedUrl = binStdout.match(/listening at (http:\/\/\S+)/)?.[1];
+        if (mountedUrl) break;
+        if (installedWorkspace.exitCode !== null) break;
+        await delay(10);
+      }
+      assert.ok(mountedUrl, binStderr || binStdout || 'installed workspace did not listen');
+      assert.equal(pathToFileURL(installedBin).href.startsWith(pathToFileURL(repoRoot).href), false);
+      const binHealth = await fetch(`${mountedUrl}/health`);
+      assert.deepEqual(await binHealth.json(), { ok: true, ready: true });
+      installedWorkspace.kill('SIGTERM');
+      const [binCode, binSignal] = await once(installedWorkspace, 'exit');
+      assert.equal(binCode, 0, binStderr || binStdout);
+      assert.equal(binSignal, null);
     } finally {
+      if (installedWorkspace?.exitCode === null) installedWorkspace.kill('SIGKILL');
       removeTemp(buildDir);
       removeTemp(unprimedDir);
       removeTemp(consumerDir);

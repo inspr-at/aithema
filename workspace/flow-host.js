@@ -1,7 +1,8 @@
-import { identityBinding } from '/flow-shell/identity.js';
-import '/flow-shell/inspr-flow-shell.js';
+import { identityBinding } from './flow-shell/identity.js';
+import './flow-shell/inspr-flow-shell.js';
 
 const CONSEQUENTIAL = new Set(['flow:start-intent', 'flow:review-batch', 'flow:save-proposal']);
+const MOUNT_PATTERN = /^(?:\/[A-Za-z0-9_-]+)+$/;
 
 const shell = document.querySelector('inspr-flow-shell');
 const raw = document.getElementById('aithema-flow-state');
@@ -15,9 +16,31 @@ function readState() {
   }
 }
 
+function readPublicBasePath() {
+  const meta = document.querySelector('meta[name="aithema-public-base-path"]');
+  const value = meta?.getAttribute('content') ?? '';
+  if (!value) return '';
+  if (!MOUNT_PATTERN.test(value)) return '';
+  return value;
+}
+
+const mount = readPublicBasePath();
+
+function appPathname() {
+  const pathname = window.location.pathname;
+  if (!mount) return pathname;
+  if (pathname === mount) return '/';
+  if (pathname.startsWith(`${mount}/`)) return pathname.slice(mount.length) || '/';
+  return pathname;
+}
+
 function projectIntentUrl() {
-  const match = window.location.pathname.match(/^\/projects\/[^/]+/);
-  return match ? `${match[0]}/flow-intents` : '/flow-intents';
+  const match = appPathname().match(/^\/projects\/[^/]+/);
+  return match ? `${mount}${match[0]}/flow-intents` : `${mount}/flow-intents`;
+}
+
+function healthUrl() {
+  return `${mount}/health`;
 }
 
 function scrollToId(id) {
@@ -49,7 +72,7 @@ shell?.addEventListener('flow-intent', async (event) => {
   }
   if (detail.type === 'flow:health') {
     try {
-      const response = await fetch('/health', { headers: { accept: 'application/json' } });
+      const response = await fetch(healthUrl(), { headers: { accept: 'application/json' } });
       const body = await response.json();
       shell.showNotice(body.ok ? 'Workspace health probe succeeded. This is not delivery evidence.' : 'Workspace health probe failed.');
     } catch {

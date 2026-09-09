@@ -1,6 +1,11 @@
 import { currentBaseline } from '../lib/stream.js';
 import { pendingProposalList } from '../runtime/controller.js';
+import { joinMountPath } from '../runtime/public-path.js';
 import { escapeHtml } from './config.js';
+
+function href(model, appPath) {
+  return joinMountPath(model.publicBasePath ?? '', appPath);
+}
 
 /**
  * Neutral workspace HTML. User content and AI output are escaped text only.
@@ -94,19 +99,20 @@ function renderProjectPage(model, demoBanner) {
   ${model.notice ? `<p class="notice">${escapeHtml(model.notice)}</p>` : ''}
   <section class="primary" id="workspace-compose">
     ${next}
-    <form method="post" action="/projects/${encodeURIComponent(project.project_ref)}/turns">
+    <form method="post" action="${href(model, `/projects/${encodeURIComponent(project.project_ref)}/turns`)}">
       <input type="hidden" name="expected_revision" value="${escapeHtml(String(project.revision))}">
       ${renderProviderFields(model)}
       <label>Your message <textarea name="message" required maxlength="8000">${escapeHtml(model.draftMessage ?? '')}</textarea></label>
       <button type="submit">Send</button>
     </form>
+    ${renderSpeechInput(model)}
     ${renderSpendNotice(model)}
   </section>
   <section id="workspace-review">
     <h2>Pending proposals</h2>
     <p class="meta">Unapproved — selecting them does not start delivery.</p>
     ${pending.length && canReview ? `
-      <form method="post" action="/projects/${encodeURIComponent(project.project_ref)}/review">
+      <form method="post" action="${href(model, `/projects/${encodeURIComponent(project.project_ref)}/review`)}">
         <input type="hidden" name="expected_revision" value="${escapeHtml(String(project.revision))}">
         ${proposals}
         <button type="submit" name="action" value="approve">Approve selected into a new baseline</button>
@@ -117,7 +123,7 @@ function renderProjectPage(model, demoBanner) {
   </section>
   <section>
     <h2>Reviewed baseline</h2>
-    ${renderReviewedExports(project)}
+    ${renderReviewedExports(model)}
   </section>
   <details class="secondary">
     <summary>Conversation history</summary>
@@ -142,7 +148,7 @@ function renderSignIn(model) {
   if (!model.labelledDemo && model.browserLogin) {
     const idpLogout = renderTrustedHttpLink(model.idpLogoutUrl, 'Sign out of identity provider');
     return `<p>Sign in with the operator-configured identity provider. Actor kind, roles, and project membership come from the operator map, not from the sign-in token.</p>
-  <p><a class="button" href="/login">Sign in</a></p>
+  <p><a class="button" href="${href(model, '/login')}">Sign in</a></p>
   ${idpLogout}
   <p class="meta">API clients can still send an <code>Authorization: Bearer</code> token from a configured OIDC gateway.</p>`;
   }
@@ -152,7 +158,7 @@ function renderSignIn(model) {
   const options = (model.demoSubjects ?? []).map((entry) => (
     `<option value="${escapeHtml(entry.subject)}">${escapeHtml(entry.subject)} (${escapeHtml(entry.actor_kind)})</option>`
   )).join('');
-  return `<form method="post" action="/session/demo">
+  return `<form method="post" action="${href(model, '/session/demo')}">
     <p>Choose a configured demo actor. Roles are server-mapped and cannot be declared in the browser.</p>
     <label>Demo actor
       <select name="subject">${options}</select>
@@ -167,9 +173,9 @@ function renderSignedInHome(model) {
 
 function renderProjectNav(model, collapsed) {
   const list = (model.projects ?? []).map((project) => (
-    `<li><a class="wrap" href="/projects/${encodeURIComponent(project.project_ref)}">${escapeHtml(project.title)}</a></li>`
+    `<li><a class="wrap" href="${href(model, `/projects/${encodeURIComponent(project.project_ref)}`)}">${escapeHtml(project.title)}</a></li>`
   )).join('');
-  const form = `<form method="post" action="/projects">
+  const form = `<form method="post" action="${href(model, '/projects')}">
       <label>Title <input name="title" required maxlength="200"></label>
       <p>Project kinds are not mutually exclusive:</p>
       <label><input type="checkbox" name="project_kinds" value="new_product" checked> new product</label>
@@ -196,7 +202,7 @@ function renderProjectNav(model, collapsed) {
 function renderIdentityDetails(model) {
   if (!model.actor) return '';
   const logout = model.sessionAuthenticated
-    ? '<form method="post" action="/logout"><button type="submit">Sign out</button></form>'
+    ? `<form method="post" action="${href(model, '/logout')}"><button type="submit">Sign out</button></form>`
     : '';
   return `
   <details class="secondary" id="identity-access">
@@ -215,7 +221,27 @@ function renderSecondaryControls(model) {
 
 function renderSpendNotice(model) {
   if (!model.policyActive) return '';
-  return '<p class="meta">Outbound request ceilings count provider calls. They are not currency. Billing usage is unavailable.</p>';
+  return '<p class="meta">Outbound request ceilings count provider calls, including transcription. They are not currency. Billing usage is unavailable.</p>';
+}
+
+function renderSpeechInput(model) {
+  const speech = model.speechCapability;
+  if (!speech?.enabled) return '';
+  const destination = speech.destinationLabel || 'configured';
+  const note = speech.destinationNote
+    || 'Operator-declared location label; not measured network placement.';
+  return `
+    <div id="workspace-speech" data-speech-root>
+      <p class="meta">Speech input uses <strong>${escapeHtml(speech.providerId)}</strong> / <strong>${escapeHtml(speech.model)}</strong>. Destination: ${escapeHtml(destination)}. ${escapeHtml(note)} Record stays in memory. Transcribe fills this draft only. Send is never automatic.</p>
+      <p class="meta" data-speech-status></p>
+      <p>
+        <button type="button" data-speech-record>Record</button>
+        <button type="button" data-speech-stop disabled>Stop</button>
+        <button type="button" data-speech-transcribe disabled>Transcribe</button>
+        <button type="button" data-speech-cancel hidden>Cancel</button>
+      </p>
+    </div>
+    <script type="application/json" id="aithema-speech-capability">${embedJson(speech)}</script>`;
 }
 
 function renderProviderFields(model) {
@@ -265,13 +291,14 @@ function renderRevisionDetails(model, baseline) {
     ${baseline
     ? `<p class="digest wrap">baseline_ref ${escapeHtml(baseline.baseline_ref)} · digest ${escapeHtml(baseline.content_digest)} · seal ${escapeHtml(baseline.revision_seal)}</p>
       <p class="meta">Full stream handover includes pending proposals. Reviewed portable exports bind one approved revision and omit unapproved notes.</p>
-      <p><a class="button" href="/projects/${encodeURIComponent(project.project_ref)}/handover.json">Download JSON handover</a>
-         <a class="button" href="/projects/${encodeURIComponent(project.project_ref)}/handover.csv">Download CSV handover</a></p>`
+      <p><a class="button" href="${href(model, `/projects/${encodeURIComponent(project.project_ref)}/handover.json`)}">Download JSON handover</a>
+         <a class="button" href="${href(model, `/projects/${encodeURIComponent(project.project_ref)}/handover.csv`)}">Download CSV handover</a></p>`
     : '<p class="meta">No approved baseline yet.</p>'}
   </details>`;
 }
 
-function renderReviewedExports(project) {
+function renderReviewedExports(model) {
+  const project = model.project;
   const baselines = project.stream?.baselines ?? [];
   if (!baselines.length) {
     return '<p class="meta">No approved baseline yet.</p>';
@@ -280,16 +307,16 @@ function renderReviewedExports(project) {
   const earlier = baselines.slice(0, -1);
   return `
     <p class="meta">A reviewed baseline is on record. Downloads bind this exact baseline_ref and revision.</p>
-    ${exportLinkRow(project.project_ref, current)}
+    ${exportLinkRow(model, project.project_ref, current)}
     ${earlier.length ? `
       <details class="secondary">
         <summary>Earlier reviewed revisions</summary>
-        ${earlier.map((item) => exportLinkRow(project.project_ref, item)).join('')}
+        ${earlier.map((item) => exportLinkRow(model, project.project_ref, item)).join('')}
       </details>` : ''}`;
 }
 
-function exportLinkRow(projectRef, baseline) {
-  const base = `/projects/${encodeURIComponent(projectRef)}/export?baseline_ref=${encodeURIComponent(baseline.baseline_ref)}&revision=${encodeURIComponent(String(baseline.revision))}`;
+function exportLinkRow(model, projectRef, baseline) {
+  const base = href(model, `/projects/${encodeURIComponent(projectRef)}/export?baseline_ref=${encodeURIComponent(baseline.baseline_ref)}&revision=${encodeURIComponent(String(baseline.revision))}`);
   return `<p class="meta wrap">revision ${escapeHtml(String(baseline.revision))} · ${escapeHtml(baseline.baseline_ref)}</p>
     <p>
       <a class="button" href="${base}&format=json">JSON</a>
@@ -307,7 +334,7 @@ function renderDocumentIntake(model) {
       ? (doc.truncated ? 'readable, truncated' : 'readable')
       : doc.extraction_reason;
     const interpret = doc.source_kind !== 'own_format' && doc.extraction_reason === 'ok'
-      ? `<form method="post" action="/projects/${encodeURIComponent(project.project_ref)}/documents/${encodeURIComponent(doc.document_ref)}/interpret">
+      ? `<form method="post" action="${href(model, `/projects/${encodeURIComponent(project.project_ref)}/documents/${encodeURIComponent(doc.document_ref)}/interpret`)}">
           <input type="hidden" name="expected_revision" value="${escapeHtml(String(project.revision))}">
           ${renderProviderFields(model)}
           <button type="submit">Interpret into proposals</button>
@@ -324,7 +351,7 @@ function renderDocumentIntake(model) {
   <details class="secondary">
     <summary>Document intake</summary>
     <p class="meta">Own-format JSON is validated and becomes unapproved proposals. Other text/CSV/JSON/XML/PDF files keep extracted text only until you Interpret. Raw uploads are not stored.</p>
-    <form method="post" action="/projects/${encodeURIComponent(project.project_ref)}/documents" enctype="multipart/form-data">
+    <form method="post" action="${href(model, `/projects/${encodeURIComponent(project.project_ref)}/documents`)}" enctype="multipart/form-data">
       <input type="hidden" name="expected_revision" value="${escapeHtml(String(project.revision))}">
       <label>Files
         <input type="file" name="files" multiple accept=".json,.csv,.txt,.xml,.pdf,application/json,text/csv,text/plain,application/xml,text/xml,application/pdf">
@@ -348,18 +375,20 @@ function documentShell(title, demoBanner, model, inner) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="aithema-public-base-path" content="${escapeHtml(model.publicBasePath ?? '')}">
   <title>${escapeHtml(title)}</title>
   ${sharedStyles()}
 </head>
 <body>
   ${demoBanner}
-  <inspr-flow-shell layout-mode="bounded" logo-src="/flow-shell/assets/inspr-logo.svg">
+  <inspr-flow-shell layout-mode="bounded" logo-src="${href(model, '/flow-shell/assets/inspr-logo.svg')}">
     <div class="host-main">
       ${inner}
     </div>
   </inspr-flow-shell>
   <script type="application/json" id="aithema-flow-state">${embedJson(model.flowState ?? null)}</script>
-  <script type="module" src="/workspace-flow-host.js"></script>
+  <script type="module" src="${href(model, '/workspace-flow-host.js')}"></script>
+  ${model.speechCapability?.enabled ? `<script type="module" src="${href(model, '/workspace-speech-input.js')}"></script>` : ''}
 </body>
 </html>`;
 }

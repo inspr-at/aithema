@@ -3,8 +3,12 @@ import { normalizeBrowserLoginConfig } from '../runtime/oidc-login.js';
 import { normalizeProviderLimits } from '../runtime/provider.js';
 import { normalizeOrgPolicy } from '../runtime/policy.js';
 import { normalizeUploadLimits } from '../lib/extract-limits.js';
+import { normalizePublicBasePath } from '../runtime/public-path.js';
+import { normalizeSpeechConfig } from '../runtime/speech.js';
 
 export { escapeHtml } from '../lib/text.js';
+export { normalizeSpeechConfig } from '../runtime/speech.js';
+export { homePath, joinMountPath, normalizePublicBasePath, stripMountPath } from '../runtime/public-path.js';
 
 /**
  * @param {unknown} config
@@ -41,7 +45,18 @@ export function normalizeWorkspaceConfig(config) {
     defaultProvider: config.defaultProvider,
   });
   const publicOrigin = normalizePublicOrigin(config.publicOrigin);
-  const identity = normalizeIdentityConfig(config.identity, { mode, publicOrigin, listenHost });
+  const publicBasePath = normalizePublicBasePath(config.publicBasePath);
+  const identity = normalizeIdentityConfig(config.identity, {
+    mode,
+    publicOrigin,
+    publicBasePath,
+    listenHost,
+  });
+  const speech = normalizeSpeechConfig(config.speech, {
+    providers: config.providers,
+    mode,
+    policy,
+  });
   return Object.freeze({
     mode,
     listenHost,
@@ -56,13 +71,15 @@ export function normalizeWorkspaceConfig(config) {
     limits: normalizeProviderLimits(config.limits),
     uploadLimits: normalizeUploadLimits(config.uploadLimits),
     publicOrigin,
+    publicBasePath,
     policy,
+    speech,
   });
 }
 
 /**
  * @param {unknown} identity
- * @param {{ mode: string, publicOrigin?: string, listenHost: string }} context
+ * @param {{ mode: string, publicOrigin?: string, publicBasePath?: string, listenHost: string }} context
  */
 function normalizeIdentityConfig(identity, context) {
   if (!identity || typeof identity !== 'object' || Array.isArray(identity)) return identity;
@@ -73,9 +90,9 @@ function normalizeIdentityConfig(identity, context) {
 }
 
 /**
- * Operator-configured public origin for TLS reverse proxies. Must be a full
- * origin (scheme + host + optional port). Request headers such as X-Forwarded-*
- * are not trusted for CSRF checks.
+ * Operator-configured public origin for TLS reverse proxies. Must be scheme +
+ * host (+ optional port) only. Paths belong in publicBasePath. Request headers
+ * such as X-Forwarded-* are not trusted for CSRF checks or the mount prefix.
  * @param {unknown} value
  */
 function normalizePublicOrigin(value) {
@@ -89,6 +106,12 @@ function normalizePublicOrigin(value) {
   }
   if (!parsed.protocol || !parsed.host) {
     throw new Error('publicOrigin must include scheme and host');
+  }
+  if (parsed.username || parsed.password || parsed.search || parsed.hash) {
+    throw new Error('publicOrigin must not include credentials, query, or fragment');
+  }
+  if (parsed.pathname && parsed.pathname !== '/') {
+    throw new Error('publicOrigin must be origin only; set publicBasePath separately');
   }
   return parsed.origin;
 }

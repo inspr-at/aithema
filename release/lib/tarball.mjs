@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { gzipSync } from 'node:zlib';
 import {
+  chmodSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -38,6 +39,11 @@ function normalizeTreeTimes(root, mtimeEpoch) {
   utimesSync(root, when, when);
 }
 
+function writeStagedFile(dest, path, content) {
+  writeFileSync(dest, content);
+  if (path === 'bin/aithema-workspace.js') chmodSync(dest, 0o755);
+}
+
 /**
  * Stage allowlisted blobs under package/ with deterministic directory layout.
  * @param {string} stageRoot
@@ -48,7 +54,7 @@ export function stagePackageTree(stageRoot, files) {
   for (const [path, content] of [...files.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     const dest = join(packageRoot, path);
     mkdirSync(dirname(dest), { recursive: true });
-    writeFileSync(dest, content);
+    writeStagedFile(dest, path, content);
   }
   return packageRoot;
 }
@@ -63,7 +69,7 @@ export function stageSourceTree(stageRoot, files) {
   for (const [path, content] of [...files.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     const dest = join(sourceRoot, path);
     mkdirSync(dirname(dest), { recursive: true });
-    writeFileSync(dest, content);
+    writeStagedFile(dest, path, content);
   }
   return sourceRoot;
 }

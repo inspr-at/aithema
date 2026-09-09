@@ -189,6 +189,7 @@ describe('AIT-11 public source export', () => {
     assert.equal(paths.includes('test/packaging.test.js'), true);
     assert.equal(paths.includes('release/build-source.mjs'), true);
     assert.equal(paths.includes('release/publication-inventory.json'), true);
+    assert.equal(paths.includes('bin/aithema-workspace.js'), true);
     assert.equal(paths.includes('.github/workflows/ci.yml'), true);
   });
 
@@ -356,7 +357,9 @@ describe('AIT-11 public source export', () => {
           const output = `${tests.stdout}\n${tests.stderr}`;
           assert.equal(tests.status, 0, output);
           assert.match(output, /fail 0/);
-          assert.match(output, /tests 1\d\d/);
+          const testCount = output.match(/^ℹ tests (\d+)\r?$/m);
+          assert.ok(testCount, `missing extracted-suite test count\n${output}`);
+          assert.ok(Number(testCount[1]) >= 100, `expected at least 100 extracted-suite tests, got ${testCount[1]}`);
         }
 
         const gitRelease = buildRelease({ repoRoot: repo, commit: source.commit, outDir: gitOut });
@@ -490,6 +493,8 @@ describe('AIT-11 public source export', () => {
     assert.match(inventory.test_prerequisites.offline_install, /AITHEMA_NPM_CACHE/);
     assert.equal(inventory.ci.auto_publish_on_push, false);
     assert.equal(inventory.exports.public_source_candidate.script, 'source:export');
+    assert.equal(inventory.exports.runtime_package.installed_bin, 'aithema-workspace');
+    assert.equal(inventory.service_executable.package_path, 'bin/aithema-workspace.js');
     assert.match(inventory.handoff.review_extract, /mkdir -p/);
     assert.match(inventory.ci.retained_forge_assets, /retain-forge-assets/);
     assert.match(inventory.ci.retained_forge_assets, /refs\/tags\//);

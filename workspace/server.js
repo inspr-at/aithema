@@ -16,14 +16,17 @@ import {
   publicOidcError,
 } from '../runtime/oidc-login.js';
 import { createProviderRegistry } from '../runtime/provider.js';
+import { createSpeechAdapter, publicSpeechCapability } from '../runtime/speech.js';
 import { SqliteProjectStore } from '../runtime/store.js';
 import { normalizeWorkspaceConfig } from './config.js';
+import { joinMountPath, stripMountPath } from '../runtime/public-path.js';
 import { readAllowedStatic, resolveWorkspaceStatic } from './flow-assets.js';
 import { buildWorkspaceFlowState, handleHostFlowIntent } from './flow-context.js';
 import { renderWorkspacePage } from './page.js';
 
 const COOKIE = 'aithema_demo';
 const MAX_BODY = 32_000;
+export const DEFAULT_SHUTDOWN_GRACE_MS = 10_000;
 const SECURITY_HEADERS = Object.freeze({
   'x-content-type-options': 'nosniff',
   'x-frame-options': 'SAMEORIGIN',
@@ -59,6 +62,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
       browserLogin: config.identity.browser_login,
       memberships: identity.memberships,
       publicOrigin: config.publicOrigin,
+      publicBasePath: config.publicBasePath,
       now: options.now,
       fetchImpl: options.fetchImpl ?? identityConfig.fetchImpl ?? fetch,
     })
@@ -70,6 +74,12 @@ export function createWorkspaceServer(rawConfig, options = {}) {
     instantiateAll: Boolean(config.policy),
   });
   const provider = registry.defaultProvider;
+  const speechAdapter = config.speech?.enabled
+    ? createSpeechAdapter(config.speech, {
+      mode: config.mode,
+      fetchImpl: options.fetchImpl ?? rawConfig.fetchImpl,
+    })
+    : null;
   const dbFile = config.dataDir === ':memory:'
     ? ':memory:'
     : (config.databaseFile || join(config.dataDir, 'aithema-workspace.sqlite'));
@@ -83,6 +93,8 @@ export function createWorkspaceServer(rawConfig, options = {}) {
     mode: config.mode,
     limits: config.limits,
     uploadLimits: config.uploadLimits,
+    speech: config.speech,
+    speechAdapter,
   });
 
   const server = createServer((req, res) => {
@@ -92,6 +104,19 @@ export function createWorkspaceServer(rawConfig, options = {}) {
       }
     });
   });
+  let closePromise;
+  let closeTimer;
+  let storeClosed = false;
+
+  function closeStoreOnce() {
+    if (storeClosed) return;
+    storeClosed = true;
+    store.close();
+  }
+
+  function forceClose() {
+    server.closeAllConnections();
+  }
 
   async function handle(req, res) {
     const host = req.headers.host ?? '';
@@ -100,6 +125,16 @@ export function createWorkspaceServer(rawConfig, options = {}) {
       return;
     }
     const url = new URL(req.url ?? '/', `http://${host || '127.0.0.1'}`);
+    const appPath = stripMountPath(url.pathname, config.publicBasePath);
+    if (appPath == null) {
+      if (wantsJson(req)) json(res, 404, { error: 'Not found' });
+      else {
+        res.writeHead(404, { ...SECURITY_HEADERS, 'content-type': 'text/plain; charset=utf-8' });
+        res.end('Not found');
+      }
+      return;
+    }
+    url.pathname = appPath;
     if (req.method !== 'GET' && req.method !== 'HEAD' && url.pathname !== '/health') {
       try {
         assertSameOriginMutation(req, url, config.publicOrigin);
@@ -137,7 +172,11 @@ export function createWorkspaceServer(rawConfig, options = {}) {
         serveAllowedStatic(res, asset, req.method === 'HEAD');
         return;
       }
-      if (url.pathname.startsWith('/flow-shell/') || url.pathname === '/workspace-flow-host.js') {
+      if (
+        url.pathname.startsWith('/flow-shell/')
+        || url.pathname === '/workspace-flow-host.js'
+        || url.pathname === '/workspace-speech-input.js'
+      ) {
         json(res, 404, { error: 'static asset is not on the closed allowlist' });
         return;
       }
@@ -156,7 +195,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
       const subject = String(body.subject || identity.defaultSubject);
       try {
         const cookie = identity.issueCookie(subject);
-        redirect(res, '/', { 'set-cookie': `${COOKIE}=${cookie}; Path=/; HttpOnly; SameSite=Lax` });
+        redirect(res, toPublic('/'), { 'set-cookie': `${COOKIE}=${cookie}; Path=/; HttpOnly; SameSite=Lax` });
       } catch (error) {
         html(res, 400, pageModel({ error: error instanceof Error ? error.message : 'demo identity failed', demoSubjects: demoSubjects() }));
       }
@@ -165,7 +204,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
 
     if (oidc && (req.method === 'GET' || req.method === 'HEAD') && url.pathname === OIDC_LOGIN_PATH) {
       if (actor) {
-        redirect(res, allowlistedReturnPathFromQuery(url));
+        redirect(res, allowlistedReturnPathFromQuery(url, config.publicBasePath));
         return;
       }
       try {
@@ -249,7 +288,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
           title: String(body.title || '').trim() || 'Untitled project',
           projectKinds: kinds,
         });
-        redirect(res, `/projects/${encodeURIComponent(project.project_ref)}`);
+        redirect(res, toPublic(`/projects/${encodeURIComponent(project.project_ref)}`));
       } catch (error) {
         html(res, 400, pageModel({ actor, sessionAuthenticated, projects: store.listProjects(actor), error: messageOf(error) }));
       }
@@ -360,9 +399,9 @@ export function createWorkspaceServer(rawConfig, options = {}) {
         }
         if (result.status === 'incomplete') {
           const reason = encodeURIComponent(result.incomplete_reason || 'truncated');
-          redirect(res, `/projects/${encodeURIComponent(projectRef)}?incomplete=${reason}`);
+          redirect(res, toPublic(`/projects/${encodeURIComponent(projectRef)}?incomplete=${reason}`));
         } else {
-          redirect(res, `/projects/${encodeURIComponent(projectRef)}`);
+          redirect(res, toPublic(`/projects/${encodeURIComponent(projectRef)}`));
         }
       } catch (error) {
         const status = mutationStatus(error);
@@ -378,12 +417,60 @@ export function createWorkspaceServer(rawConfig, options = {}) {
       return;
     }
 
+    if (req.method === 'POST' && rest === 'transcribe') {
+      if (!config.speech?.enabled || !speechAdapter) {
+        json(res, 404, { error: 'speech input is not configured' });
+        return;
+      }
+      const abort = new AbortController();
+      const onClose = () => {
+        if (!res.writableEnded) abort.abort();
+      };
+      res.on('close', onClose);
+      try {
+        const maxRequestBytes = config.speech.limits.maxRequestBytes;
+        const contentLength = Number(req.headers['content-length']);
+        if (Number.isFinite(contentLength) && contentLength > maxRequestBytes) {
+          json(res, 413, { error: 'request body too large' });
+          return;
+        }
+        const uploaded = await readSpeechMultipart(req, maxRequestBytes);
+        const result = await controller.transcribeSpeech({
+          actor,
+          projectRef,
+          file: uploaded.file,
+          files: uploaded.files,
+          speechId: typeof uploaded.fields.speech_id === 'string' ? uploaded.fields.speech_id : undefined,
+          model: uploaded.fields.model,
+          providerId: uploaded.fields.providerId,
+          browserBody: uploaded.fields,
+          signal: abort.signal,
+        });
+        json(res, 200, {
+          text: result.text,
+          speech_id: result.speech_id,
+          revision: result.revision,
+          labelled_demo: result.labelled_demo,
+          live: result.live,
+          ...(result.billing ? { billing: result.billing } : {}),
+        });
+      } catch (error) {
+        const status = transcribeStatus(error);
+        if (!res.destroyed) {
+          json(res, status, { error: messageOf(error), code: error?.code });
+        }
+      } finally {
+        res.off('close', onClose);
+      }
+      return;
+    }
+
     if (req.method === 'POST' && rest === 'cancel') {
       const body = await readForm(req);
       const turnId = typeof body.turn_id === 'string' && body.turn_id ? body.turn_id : undefined;
       controller.cancel(projectRef, turnId);
       if (wantsJson(req)) json(res, 200, { cancelled: true });
-      else redirect(res, `/projects/${encodeURIComponent(projectRef)}`);
+      else redirect(res, toPublic(`/projects/${encodeURIComponent(projectRef)}`));
       return;
     }
 
@@ -419,7 +506,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
           });
           return;
         }
-        redirect(res, buildDocumentIntakeRedirect(projectRef, result));
+        redirect(res, buildDocumentIntakeRedirect(projectRef, result, config.publicBasePath));
       } catch (error) {
         const status = intakeStatus(error);
         if (wantsJson(req)) json(res, status, { error: messageOf(error) });
@@ -462,9 +549,9 @@ export function createWorkspaceServer(rawConfig, options = {}) {
           return;
         }
         if (result.status === 'incomplete') {
-          redirect(res, `/projects/${encodeURIComponent(projectRef)}?incomplete=${encodeURIComponent(result.incomplete_reason || 'cancelled')}`);
+          redirect(res, toPublic(`/projects/${encodeURIComponent(projectRef)}?incomplete=${encodeURIComponent(result.incomplete_reason || 'cancelled')}`));
         } else {
-          redirect(res, `/projects/${encodeURIComponent(projectRef)}`);
+          redirect(res, toPublic(`/projects/${encodeURIComponent(projectRef)}`));
         }
       } catch (error) {
         const status = mutationStatus(error);
@@ -497,7 +584,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
             expectedRevision: body.expected_revision ? Number(body.expected_revision) : undefined,
           });
         if (wantsJson(req)) json(res, 200, { revision: next.revision, baseline: next.stream.baselines.at(-1) ?? null });
-        else redirect(res, `/projects/${encodeURIComponent(projectRef)}`);
+        else redirect(res, toPublic(`/projects/${encodeURIComponent(projectRef)}`));
       } catch (error) {
         const status = /human actor may approve|requirements_approver/.test(messageOf(error)) ? 403 : 400;
         if (wantsJson(req)) json(res, status, { error: messageOf(error) });
@@ -560,6 +647,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
         project: currentProject,
         labelledDemo: config.labelledDemo,
         identityConfig: config.identity,
+        publicBasePath: config.publicBasePath,
         intent: body,
       });
       json(res, 200, result);
@@ -581,12 +669,29 @@ export function createWorkspaceServer(rawConfig, options = {}) {
       providerId: provider.id,
       demoSubjects: demoSubjects(),
       policyActive: Boolean(config.policy),
+      publicBasePath: config.publicBasePath,
       ...extra,
       flowState: extra.flowState ?? flowStateFor(actor, project ?? null),
       allowedSelections: project
         ? controller.selectionsFor(project.project_ref)
         : extra.allowedSelections,
+      speechCapability: extra.speechCapability ?? speechCapabilityFor(project),
     });
+  }
+
+  function speechCapabilityFor(project) {
+    if (!project || !config.speech?.enabled) return { enabled: false };
+    const allowed = controller.speechSelectionsFor(project.project_ref);
+    if (!allowed.enabled) return { enabled: false };
+    return publicSpeechCapability(
+      config.speech,
+      { projectRef: project.project_ref, publicBasePath: config.publicBasePath },
+      joinMountPath,
+    );
+  }
+
+  function toPublic(appPath) {
+    return joinMountPath(config.publicBasePath, appPath);
   }
 
   return {
@@ -597,25 +702,66 @@ export function createWorkspaceServer(rawConfig, options = {}) {
     provider,
     identity,
     listen() {
-      return new Promise((resolve) => {
+      return new Promise((resolve, reject) => {
+        const onError = (error) => { reject(error); };
+        server.once('error', onError);
         server.listen(config.listenPort, config.listenHost, () => {
+          server.off('error', onError);
           const address = server.address();
           resolve({
-            url: `http://${config.listenHost}:${address.port}`,
+            url: listenUrl(address),
             port: address.port,
           });
         });
       });
     },
-    async close() {
-      await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-      store.close();
+    close({ gracePeriodMs = DEFAULT_SHUTDOWN_GRACE_MS } = {}) {
+      if (!Number.isInteger(gracePeriodMs) || gracePeriodMs < 0) {
+        return Promise.reject(new Error('gracePeriodMs must be a non-negative integer'));
+      }
+      if (closePromise) return closePromise;
+      closePromise = new Promise((resolve, reject) => {
+        const finish = (serverError) => {
+          if (closeTimer) clearTimeout(closeTimer);
+          let closeError = serverError;
+          try {
+            closeStoreOnce();
+          } catch (error) {
+            closeError ??= error;
+          }
+          if (closeError) reject(closeError);
+          else resolve();
+        };
+
+        if (!server.listening) {
+          finish();
+          return;
+        }
+
+        closeTimer = setTimeout(forceClose, gracePeriodMs);
+        closeTimer.unref();
+        try {
+          server.close(finish);
+        } catch (error) {
+          finish(error);
+        }
+      });
+      return closePromise;
     },
+    forceClose,
   };
 }
 
-function allowlistedReturnPathFromQuery(url) {
-  return allowlistedReturnPath(url.searchParams.get('return'));
+function listenUrl(address) {
+  if (!address || typeof address === 'string') {
+    throw new Error('workspace did not bind a TCP address');
+  }
+  const host = address.family === 'IPv6' ? `[${address.address}]` : address.address;
+  return `http://${host}:${address.port}`;
+}
+
+function allowlistedReturnPathFromQuery(url, publicBasePath = '') {
+  return allowlistedReturnPath(url.searchParams.get('return'), publicBasePath);
 }
 
 function wantsJson(req) {
@@ -888,18 +1034,23 @@ function joinDocumentIntakeNotice(header, notices, rejected, filenameLimit, reas
 /**
  * @param {string} projectRef
  * @param {string} notice
+ * @param {string} [publicBasePath]
  */
-function documentIntakeLocation(projectRef, notice) {
+function documentIntakeLocation(projectRef, notice, publicBasePath = '') {
   const safeNotice = sanitizeDisplayText(notice);
-  return `/projects/${encodeURIComponent(projectRef)}?notice=${encodeURIComponent(safeNotice)}`;
+  return joinMountPath(
+    publicBasePath,
+    `/projects/${encodeURIComponent(projectRef)}?notice=${encodeURIComponent(safeNotice)}`,
+  );
 }
 
 /**
  * @param {string} projectRef
  * @param {string} notice
+ * @param {string} [publicBasePath]
  */
-function documentIntakeLocationFits(projectRef, notice) {
-  return Buffer.byteLength(documentIntakeLocation(projectRef, notice), 'utf8')
+function documentIntakeLocationFits(projectRef, notice, publicBasePath = '') {
+  return Buffer.byteLength(documentIntakeLocation(projectRef, notice, publicBasePath), 'utf8')
     <= MAX_DOCUMENT_INTAKE_LOCATION_BYTES;
 }
 
@@ -909,8 +1060,9 @@ function documentIntakeLocationFits(projectRef, notice) {
  * shrink under an encoded Location budget.
  * @param {{ accepted?: readonly unknown[], rejected?: readonly { filename?: string, reason?: string }[], notices?: readonly string[] }} result
  * @param {string} projectRef
+ * @param {string} [publicBasePath]
  */
-function formatDocumentIntakeNotice(result, projectRef) {
+function formatDocumentIntakeNotice(result, projectRef, publicBasePath = '') {
   const accepted = result.accepted ?? [];
   const rejected = result.rejected ?? [];
   const notices = (result.notices ?? []).filter(Boolean);
@@ -955,7 +1107,7 @@ function formatDocumentIntakeNotice(result, projectRef) {
 
   for (const build of attempts) {
     const text = build();
-    if (documentIntakeLocationFits(projectRef, text)) return text;
+    if (documentIntakeLocationFits(projectRef, text, publicBasePath)) return text;
   }
 
   return header;
@@ -964,9 +1116,10 @@ function formatDocumentIntakeNotice(result, projectRef) {
 /**
  * @param {string} projectRef
  * @param {{ accepted?: readonly unknown[], rejected?: readonly { filename?: string, reason?: string }[], notices?: readonly string[] }} result
+ * @param {string} [publicBasePath]
  */
-function buildDocumentIntakeRedirect(projectRef, result) {
-  return documentIntakeLocation(projectRef, formatDocumentIntakeNotice(result, projectRef));
+function buildDocumentIntakeRedirect(projectRef, result, publicBasePath = '') {
+  return documentIntakeLocation(projectRef, formatDocumentIntakeNotice(result, projectRef, publicBasePath), publicBasePath);
 }
 
 /**
@@ -1007,6 +1160,15 @@ function intakeStatus(error) {
   if (error?.code === 'too_large' || /too large/i.test(messageOf(error))) return 413;
   if (error?.code === 'revision_conflict') return 409;
   if (error?.code === 'forbidden') return 403;
+  if (error?.code === 'cancelled' || error?.name === 'AbortError') return 400;
+  return 400;
+}
+
+function transcribeStatus(error) {
+  if (error?.code === 'too_large' || /too large/i.test(messageOf(error))) return 413;
+  if (error?.code === 'speech_disabled') return 404;
+  if (error?.code === 'spend_uncertain' || error?.code === 'spend_committed') return 409;
+  if (error?.code === 'forbidden' || error?.code === 'policy_denied' || error?.code === 'spend_denied') return 403;
   if (error?.code === 'cancelled' || error?.name === 'AbortError') return 400;
   return 400;
 }
@@ -1067,6 +1229,57 @@ async function readMultipart(req, maxBytes) {
     });
   }
   return { files, fields };
+}
+
+/**
+ * Dedicated single-audio multipart. Raw bytes stay in memory only.
+ * @param {import('node:http').IncomingMessage} req
+ * @param {number} maxBytes
+ */
+async function readSpeechMultipart(req, maxBytes) {
+  const type = req.headers['content-type'] ?? '';
+  if (!type.includes('multipart/form-data')) {
+    throw Object.assign(new Error('multipart form data is required'), { code: 'malformed' });
+  }
+  const buf = await readBoundedBody(req, maxBytes);
+  const request = new Request('http://127.0.0.1/transcribe', {
+    method: 'POST',
+    headers: { 'content-type': type },
+    body: buf,
+  });
+  let form;
+  try {
+    form = await request.formData();
+  } catch {
+    throw Object.assign(new Error('malformed multipart body'), { code: 'malformed' });
+  }
+  const files = [];
+  const fields = Object.create(null);
+  for (const [key, value] of form.entries()) {
+    if (typeof value === 'string') {
+      if (key in fields) {
+        const current = fields[key];
+        fields[key] = Array.isArray(current) ? [...current, value] : [current, value];
+      } else {
+        fields[key] = value;
+      }
+      continue;
+    }
+    if (key !== 'file' && key !== 'audio') continue;
+    const bytes = new Uint8Array(await value.arrayBuffer());
+    files.push({
+      filename: 'recording',
+      mimeType: value.type || 'application/octet-stream',
+      bytes,
+      byteSize: bytes.byteLength,
+    });
+  }
+  if (files.length !== 1) {
+    throw Object.assign(new Error('exactly one audio file is required'), {
+      code: files.length === 0 ? 'empty_audio' : 'too_many',
+    });
+  }
+  return { file: files[0], files, fields };
 }
 
 export { COOKIE as DEMO_COOKIE_NAME, SESSION_COOKIE_NAME, LOGIN_COOKIE_NAME };
