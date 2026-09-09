@@ -5,6 +5,7 @@ import { normalizeOrgPolicy } from '../runtime/policy.js';
 import { normalizeUploadLimits } from '../lib/extract-limits.js';
 import { normalizePublicBasePath } from '../runtime/public-path.js';
 import { normalizeSpeechConfig } from '../runtime/speech.js';
+import { normalizePreviewBindings } from '../runtime/preview.js';
 
 export { escapeHtml } from '../lib/text.js';
 export { normalizeSpeechConfig } from '../runtime/speech.js';
@@ -57,6 +58,17 @@ export function normalizeWorkspaceConfig(config) {
     mode,
     policy,
   });
+  const previewBindings = normalizePreviewBindings(config.previewBindings);
+  if (previewBindings.length && !publicOrigin) {
+    throw new Error('publicOrigin is required when previewBindings are configured');
+  }
+  if (publicOrigin) {
+    for (const binding of previewBindings) {
+      if (binding.previewOrigin === publicOrigin) {
+        throw new Error('preview origin must differ from publicOrigin');
+      }
+    }
+  }
   return Object.freeze({
     mode,
     listenHost,
@@ -74,6 +86,7 @@ export function normalizeWorkspaceConfig(config) {
     publicBasePath,
     policy,
     speech,
+    previewBindings,
   });
 }
 

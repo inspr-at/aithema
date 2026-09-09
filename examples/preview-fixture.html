@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Synthetic Aithema preview fixture</title>
+  <style>
+    :root { font-family: ui-sans-serif, system-ui, sans-serif; color: #15202b; background: #f5f7fa; }
+    body { max-width: 46rem; margin: 0 auto; padding: 2rem 1rem; }
+    .card { padding: 1.25rem; border: 1px solid #bdc7d3; border-radius: .5rem; background: white; }
+    button { padding: .6rem 1rem; font: inherit; }
+    [data-aithema-selected="true"] { outline: 3px solid #1f67d2; outline-offset: 3px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Synthetic checkout preview</h1>
+    <section class="card" data-aithema-ref="checkout.summary" data-aithema-label="Order summary" tabindex="0">
+      <h2>Order summary</h2>
+      <p>One synthetic item. No live data.</p>
+      <button type="button" data-aithema-ref="checkout.primary" data-aithema-label="Primary checkout action">
+        Continue
+      </button>
+    </section>
+  </main>
+  <script type="module">
+    import { createPreviewAdapter } from '../workspace/preview-adapter.js';
+
+    createPreviewAdapter({ workspaceOrigin: 'https://workspace.example.invalid' });
+  </script>
+</body>
+</html>

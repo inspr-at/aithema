@@ -74,6 +74,8 @@ function sharedStyles() {
     .comparison th { width: 7rem; }
     .comparison ul { margin: 0; padding-left: 1.2rem; }
     .review-choice { padding: .4rem; border: 1px solid #777; font-weight: 700; }
+    .preview-frame { width: 100%; height: min(34rem, 68vh); border: 1px solid #777; background: #fff; }
+    .preview-selection { padding: .6rem .75rem; border-left: 3px solid #1f4f8a; background: #f8f9fc; }
   </style>`;
 }
 
@@ -113,6 +115,7 @@ function renderProjectPage(model, demoBanner) {
     ${renderSpeechInput(model)}
     ${renderSpendNotice(model)}
   </section>
+  ${renderPreviewFeedback(model)}
   <section id="workspace-review">
     <h2>Pending proposals</h2>
     <p class="meta">Unapproved — selecting them does not start delivery.</p>
@@ -143,6 +146,40 @@ function renderProjectPage(model, demoBanner) {
     <ul>${open || '<li>None recorded.</li>'}</ul>
   </details>
   ${renderSecondaryControls(model)}`);
+}
+
+function renderPreviewFeedback(model) {
+  const binding = model.previewCapability;
+  const project = model.project;
+  if (!binding || !project) return '';
+  return `<section id="workspace-preview-feedback">
+    <h2>Preview feedback</h2>
+    <p>Select an annotated element in this exact operator-configured preview. Selection only prepares a draft; it does not send, approve, or start delivery.</p>
+    <p class="meta wrap">Artifact revision <strong>${escapeHtml(binding.artifactRevision)}</strong> · allowed preview ${escapeHtml(binding.previewUrl)}</p>
+    <iframe class="preview-frame" data-preview-frame src="${escapeHtml(binding.previewUrl)}" title="Configured artifact preview" sandbox="allow-scripts allow-same-origin" referrerpolicy="no-referrer"></iframe>
+    <form method="post" hidden data-preview-feedback-form action="${href(model, `/projects/${encodeURIComponent(project.project_ref)}/preview-feedback`)}">
+      <input type="hidden" name="expected_revision" value="${escapeHtml(String(project.revision))}">
+      <input type="hidden" name="preview_nonce" value="${escapeHtml(binding.nonce)}">
+      <input type="hidden" name="turn_id" value="${escapeHtml(binding.turnId)}">
+      <input type="hidden" name="binding_key" value="${escapeHtml(binding.bindingKey)}">
+      <input type="hidden" name="artifact_revision" value="${escapeHtml(binding.artifactRevision)}">
+      <input type="hidden" name="element_ref" value="">
+      <input type="hidden" name="element_label" value="">
+      ${renderProviderFields(model)}
+      <p class="preview-selection"><strong>Selected element:</strong> <span data-preview-selection-summary></span></p>
+      <label>Proposed change <textarea name="message" required disabled maxlength="8000"></textarea></label>
+      <button type="submit">Submit preview feedback</button>
+      <p class="meta">The artifact and element reference are untrusted context attached to your explicit, unapproved input.</p>
+    </form>
+    <script type="application/json" id="aithema-preview-binding">${embedJson({
+      projectRef: project.project_ref,
+      artifactRevision: binding.artifactRevision,
+      previewUrl: binding.previewUrl,
+      previewOrigin: binding.previewOrigin,
+      bindingKey: binding.bindingKey,
+      nonce: binding.nonce,
+    })}</script>
+  </section>`;
 }
 
 function renderProposalReview(proposal, selectable) {
@@ -291,7 +328,21 @@ function renderIdentityDetails(model) {
 function renderSecondaryControls(model) {
   const project = model.project;
   const baseline = project ? currentBaseline(project.stream) : null;
-  return `${renderDocumentIntake(model)}${renderProjectNav(model, true)}${renderIdentityDetails(model)}${renderRevisionDetails(model, baseline)}${renderWorkspaceExplainer(model)}`;
+  return `${renderPreviewProvenance(model)}${renderDocumentIntake(model)}${renderProjectNav(model, true)}${renderIdentityDetails(model)}${renderRevisionDetails(model, baseline)}${renderWorkspaceExplainer(model)}`;
+}
+
+function renderPreviewProvenance(model) {
+  const inputs = model.project?.preview_feedback ?? [];
+  if (!inputs.length) return '';
+  const rows = inputs.map((input) => `<li>
+    <p>${escapeHtml(input.human_text)}</p>
+    <p class="meta wrap">Artifact ${escapeHtml(input.artifact_revision)} · element ${escapeHtml(input.element_ref)}${input.element_label ? ` · ${escapeHtml(input.element_label)}` : ''} · ${escapeHtml(input.status)} · ${escapeHtml(String(input.proposal_refs.length))} linked proposal(s)</p>
+  </li>`).join('');
+  return `<details class="secondary">
+    <summary>Preview feedback provenance</summary>
+    <p class="meta">Unapproved human input with untrusted artifact/element context.</p>
+    <ul>${rows}</ul>
+  </details>`;
 }
 
 function renderSpendNotice(model) {
@@ -464,6 +515,7 @@ function documentShell(title, demoBanner, model, inner) {
   <script type="application/json" id="aithema-flow-state">${embedJson(model.flowState ?? null)}</script>
   <script type="module" src="${href(model, '/workspace-flow-host.js')}"></script>
   ${model.speechCapability?.enabled ? `<script type="module" src="${href(model, '/workspace-speech-input.js')}"></script>` : ''}
+  ${model.previewCapability ? `<script type="module" src="${href(model, '/workspace-preview-feedback.js')}"></script>` : ''}
 </body>
 </html>`;
 }

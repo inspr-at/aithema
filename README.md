@@ -34,6 +34,7 @@ START remains unchanged on its PMA business track. Public forge publication, STA
 - **Handover export** — `exportHandoverJson` and `exportHandoverCsv` identify the same revision, digest, and seal for the current stream (including pending proposals). Reviewed portable exports (`exportReviewedHandover`, CSV/HTML/PDF) bind one explicit approved `baseline_ref`/`revision` and omit unapproved notes, provider config, and identity maps.
 - **Document intake** — own-format `aithema.handover/0.1` JSON validates the canonical `content_digest` and becomes unapproved add/update proposals. `approved_by` / `revision_seal` stay claims. Generic text/CSV/JSON/XML/PDF keep filename, media type, and extraction/uncertainty; Interpret uses only the server-configured provider/model.
 - **Conversation runtime** — authenticated input → configured provider → evolving understanding → unapproved proposals. A provider stream is complete only after an explicit successful terminator (`[DONE]` or `finish_reason: stop`). Premature EOF, length/content-filter finishes, cancellation, timeout, and oversized responses are incomplete: they do not persist assistant turns or mint proposals.
+- **Working-preview feedback** — optional operator-owned `previewBindings` map an existing project to one exact artifact revision and HTTP(S) preview URL. The framed preview is untrusted and can send only explicit bounded element refs through the opt-in adapter. Exact origin/window/binding/nonce checks populate an editable local draft; only the mapped human's authenticated, CSRF-protected Submit enters the existing conversation/provider/proposal path. Artifact rebinds and stale project revisions invalidate the draft. Preview context never approves a baseline or starts delivery.
 - **Speech input** — optional and disabled until an operator configures a speech provider, model, and exact OpenAI-compatible transcription endpoint. Chat Completions compatibility does not imply audio support. Record → Stop → Transcribe fills the existing message textarea as an editable draft; existing Send is unchanged and never automatic. No TTS. Raw audio stays in memory, is membership- and policy-gated, and is not stored. Browser MediaRecorder only; the implicit-cloud SpeechRecognition API is not used.
 - **Provider registry** — named operator-owned providers and allowed models. OpenAI-compatible endpoints (including self-hosted) are server-configured, with bounded duration and response size. The browser cannot supply endpoints, credentials, limits, or an unapproved model. The mock provider exists only in explicit labelled demo/test mode and never claims live AI. Speech uses an independent completed-file adapter and a labelled test double; it does not treat an arbitrary chat endpoint as a transcriber.
 - **Execution and data policy** — optional operator `policy` on workspace config is the configured boundary (not organizational identity). Projects inherit and may only narrow via operator keys in `policy.projects`. Humans select among configured registry ids with additive `providerId` plus an approved model; the same pin is used for chat, understanding, and interpret. Speech may use a separately approved model on a named registry provider and still cannot change endpoint, location, data class, credentials, or limits. There is no fallback if the explicit or default selection is disallowed. Absent `policy` keeps the historical single-provider process. Operator-declared data-class and local/cloud labels are not automatic classification or measured network placement. `maxOutboundCallsPerProject` is a durable request count, not currency; billing usage is unavailable in this slice. Transcription is one outbound request when the ceiling is configured.
@@ -43,7 +44,7 @@ START remains unchanged on its PMA business track. Public forge publication, STA
 
 Names align with `inspr.delivery-stream/0.1-draft` baseline shapes without implementing the full delivery protocol.
 
-START voice SDK extraction and element-specific preview feedback remain later work. Public speech input is the optional completed-file path above, not a vendor voice SDK.
+START voice SDK extraction remains later work. Public speech input is the optional completed-file path above, not a vendor voice SDK.
 
 ## Dependencies and fonts
 
@@ -75,6 +76,39 @@ aithema-workspace --config /path/to/operator-config.json
 ```
 
 `aithema-workspace` is the supported service executable installed from the immutable GitHub runtime tgz. It never selects the committed demo config implicitly: `--config FILE` is required, and the file must be readable, valid JSON, and valid workspace configuration before a socket is opened. `npm run workspace` remains a labelled loopback demo convenience and defaults to `examples/demo-config.json` only on that example path.
+
+### Opt-in preview feedback
+
+Preview feedback is disabled when `previewBindings` is absent or empty. After the target project exists, the operator may add an exact mapping and restart the workspace (or an embedding host may call the returned server object's operator-only `replacePreviewBindings` method):
+
+```json
+{
+  "publicOrigin": "https://workspace.example.invalid",
+  "previewBindings": [
+    {
+      "projectRef": "project:exact-existing-ref",
+      "artifactRevision": "git:exact-immutable-revision",
+      "previewUrl": "https://preview.example.invalid/build/exact-revision/index.html"
+    }
+  ]
+}
+```
+
+The preview URL is rendered directly in the mapped authenticated project; the server does not fetch it. Preview bindings require the workspace's exact `publicOrigin`; the preview must allow framing by that workspace, use a different origin, and remain pinned to the declared artifact revision. Native `publicBasePath` is preserved for the feedback form and workspace module.
+
+Copy [`workspace/preview-adapter.js`](workspace/preview-adapter.js) into the preview artifact, configure one exact workspace origin (scheme, host, and port; no path), and annotate only selectable elements:
+
+```html
+<button data-aithema-ref="checkout.primary" data-aithema-label="Primary checkout action">
+  Continue
+</button>
+<script type="module">
+  import { createPreviewAdapter } from './preview-adapter.js';
+  createPreviewAdapter({ workspaceOrigin: 'https://workspace.example.invalid' });
+</script>
+```
+
+The adapter reads only `data-aithema-ref` and optional `data-aithema-label` on the selected element. It does not serialize the DOM, inspect text/classes, evaluate a received selector, capture screenshots, collect ambient page data, or receive credentials. It uses exact `postMessage` targets and accepts binding messages only from the configured origin and parent window. See [`examples/preview-fixture.html`](examples/preview-fixture.html) for a synthetic keyboard-focusable fixture. Preview metadata remains untrusted text; the human can inspect the selected ref, edit the proposed-change text, and must explicitly Submit it as unapproved input.
 
 The executable handles `SIGTERM` and `SIGINT` with a bounded drain: it stops accepting connections, waits up to 10 seconds by default, force-closes lingering HTTP connections at the deadline, and closes SQLite once. Operators may set a shorter or longer bound (maximum 300 seconds) with `--shutdown-grace-ms MILLISECONDS`. Readiness at `/health`, or `{publicBasePath}/health` when mounted, is the existing safe `{ "ok": true, "ready": true }` response. It attests only that the local process has validated configuration, opened its SQLite store, and started listening; it does not probe provider or identity-provider reachability. When `publicBasePath` is set, the unprefixed health path is not served.
 

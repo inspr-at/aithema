@@ -65,6 +65,24 @@ CREATE TABLE IF NOT EXISTS provider_spend (
   PRIMARY KEY (project_ref, epoch, call_id),
   FOREIGN KEY (project_ref) REFERENCES projects(project_ref)
 );
+CREATE TABLE IF NOT EXISTS preview_feedback_inputs (
+  input_ref TEXT PRIMARY KEY,
+  project_ref TEXT NOT NULL,
+  turn_id TEXT NOT NULL,
+  binding_key TEXT NOT NULL,
+  artifact_revision TEXT NOT NULL,
+  element_ref TEXT NOT NULL,
+  element_label TEXT NOT NULL,
+  human_text TEXT NOT NULL,
+  actor_party_ref TEXT NOT NULL,
+  actor_subject TEXT NOT NULL,
+  proposal_refs_json TEXT NOT NULL,
+  status TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  UNIQUE (project_ref, turn_id),
+  FOREIGN KEY (project_ref) REFERENCES projects(project_ref)
+);
 `
 
 /**
@@ -257,6 +275,12 @@ export class SqliteProjectStore {
           next.maxDocuments,
         );
       }
+      if (next.previewFeedbackInput) {
+        this.#insertPreviewFeedback(input.projectRef, next.previewFeedbackInput);
+      }
+      if (next.previewFeedbackResult) {
+        this.#updatePreviewFeedback(next.previewFeedbackResult, true);
+      }
       this.db.exec('COMMIT');
       return {
         deduped: false,
@@ -387,6 +411,19 @@ export class SqliteProjectStore {
     ).get(projectRef, epoch).n;
   }
 
+  /**
+   * Update provider outcome without changing the project concurrency revision.
+   * The explicit human input was already inserted atomically with its user turn.
+   */
+  markPreviewFeedback(inputRef, status, proposalRefs = []) {
+    this.#updatePreviewFeedback({ inputRef, status, proposalRefs });
+  }
+
+  getPreviewFeedbackInputs(projectRef, actor) {
+    this.#assertMember(projectRef, actor);
+    return Object.freeze(this.#previewFeedbackRows(projectRef));
+  }
+
   getDocument(projectRef, actor, documentRef) {
     this.#assertMember(projectRef, actor);
     const row = this.db.prepare(
@@ -442,6 +479,86 @@ export class SqliteProjectStore {
     `).run(projectRef, actor.subject, actor.party_ref, actor.actor_kind, JSON.stringify(actor.roles));
   }
 
+  #insertPreviewFeedback(projectRef, input) {
+    const now = input.createdAt ?? new Date().toISOString();
+    const existing = this.db.prepare(
+      'SELECT * FROM preview_feedback_inputs WHERE project_ref = ? AND turn_id = ?',
+    ).get(projectRef, input.turnId);
+    if (existing) {
+      const same = existing.binding_key === input.bindingKey
+        && existing.artifact_revision === input.artifactRevision
+        && existing.element_ref === input.elementRef
+        && existing.element_label === input.elementLabel
+        && existing.human_text === input.humanText
+        && existing.actor_party_ref === input.actorPartyRef
+        && existing.actor_subject === input.actorSubject;
+      if (!same) {
+        throw Object.assign(new Error('preview feedback turn id conflicts with different input'), {
+          code: 'preview_turn_conflict',
+        });
+      }
+      return;
+    }
+    this.db.prepare(`
+      INSERT INTO preview_feedback_inputs (
+        input_ref, project_ref, turn_id, binding_key, artifact_revision,
+        element_ref, element_label, human_text, actor_party_ref, actor_subject,
+        proposal_refs_json, status, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', 'submitted', ?, ?)
+    `).run(
+      input.inputRef,
+      projectRef,
+      input.turnId,
+      input.bindingKey,
+      input.artifactRevision,
+      input.elementRef,
+      input.elementLabel,
+      input.humanText,
+      input.actorPartyRef,
+      input.actorSubject,
+      now,
+      now,
+    );
+  }
+
+  #updatePreviewFeedback(input, required = false) {
+    const result = this.db.prepare(`
+      UPDATE preview_feedback_inputs
+      SET proposal_refs_json = ?, status = ?, updated_at = ?
+      WHERE input_ref = ?
+    `).run(
+      JSON.stringify(input.proposalRefs ?? []),
+      input.status,
+      new Date().toISOString(),
+      input.inputRef,
+    );
+    if (required && result.changes !== 1) {
+      throw new Error('preview feedback provenance linkage is missing');
+    }
+  }
+
+  #previewFeedbackRows(projectRef) {
+    return this.db.prepare(`
+      SELECT input_ref, turn_id, artifact_revision, element_ref, element_label,
+             human_text, actor_party_ref, proposal_refs_json, status, created_at, updated_at
+      FROM preview_feedback_inputs
+      WHERE project_ref = ?
+      ORDER BY created_at ASC, rowid ASC
+    `).all(projectRef).map((row) => Object.freeze({
+      input_ref: row.input_ref,
+      turn_id: row.turn_id,
+      artifact_revision: row.artifact_revision,
+      element_ref: row.element_ref,
+      element_label: row.element_label,
+      human_text: row.human_text,
+      actor_party_ref: row.actor_party_ref,
+      proposal_refs: Object.freeze(JSON.parse(row.proposal_refs_json)),
+      status: row.status,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+    }));
+  }
+
   #assertMember(projectRef, actor) {
     const grant = this.db.prepare(
       `SELECT subject FROM members WHERE project_ref = ? AND subject = ? AND grant_kind = 'creator'`,
@@ -471,6 +588,7 @@ export class SqliteProjectStore {
       created_at: row.created_at,
       updated_at: row.updated_at,
       documents: Object.freeze(documents),
+      preview_feedback: Object.freeze(this.#previewFeedbackRows(row.project_ref)),
     });
   }
 }

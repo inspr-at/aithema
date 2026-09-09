@@ -29,3 +29,11 @@ export {
   stopMediaStream,
   bindSpeechComposer,
 } from './speech-input.js';
+export {
+  PREVIEW_PROTOCOL,
+  PREVIEW_ELEMENT_REF_CHARS,
+  PREVIEW_ELEMENT_LABEL_CHARS,
+  previewElementMetadata,
+  createPreviewAdapter,
+} from './preview-adapter.js';
+export { acceptWorkspacePreviewMessage, bindWorkspacePreviewFeedback } from './preview-feedback.js';
