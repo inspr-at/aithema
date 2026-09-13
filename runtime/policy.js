@@ -164,9 +164,8 @@ function boundCurrency(value, name = 'estimated spend currency') {
  * provider invoice or discovered current price.
  * @param {unknown} value
  * @param {string} providerId
- * @param {readonly string[]} allowedModels
  */
-export function normalizeProviderEstimatedSpend(value, providerId, allowedModels) {
+export function normalizeProviderEstimatedSpend(value, providerId) {
   if (value == null || value === false) return null;
   if (typeof value !== 'object' || Array.isArray(value)) {
     throw new Error(`provider ${providerId} estimatedSpend must be an object`);
@@ -177,8 +176,8 @@ export function normalizeProviderEstimatedSpend(value, providerId, allowedModels
   }
   const models = Object.create(null);
   for (const [modelId, raw] of Object.entries(value.models)) {
-    if (!allowedModels.includes(modelId)) {
-      throw new Error(`provider ${providerId} estimated spend names an unapproved model`);
+    if (!modelId || modelId.trim() !== modelId || modelId.length > 200 || /[\x00-\x1f\x7f]/.test(modelId)) {
+      throw new Error(`provider ${providerId} estimated spend model id is invalid`);
     }
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
       throw new Error(`provider ${providerId} model ${modelId} estimated spend must be an object`);
@@ -247,7 +246,6 @@ export function providerPolicyFields(entry, providerId) {
     estimatedSpend: normalizeProviderEstimatedSpend(
       entry.estimatedSpend,
       providerId,
-      Array.isArray(entry.allowedModels) ? entry.allowedModels : [],
     ),
   };
 }
@@ -323,6 +321,17 @@ export function normalizeOrgPolicy(value, context = {}) {
       }
       if (providerSpend.currency !== estimatedSpend.currency) {
         throw new Error(`provider ${id} estimated spend currency does not match policy`);
+      }
+      const selectableModels = providers[id].kind === 'mock'
+        ? (providers[id].allowedModels ?? ['mock'])
+        : providers[id].allowedModels;
+      if (!Array.isArray(selectableModels) || selectableModels.length === 0) {
+        throw new Error(`provider ${id} must declare selectable models for estimated spend`);
+      }
+      for (const modelId of selectableModels) {
+        if (!providerSpend.models[modelId]) {
+          throw new Error(`policy estimatedSpend requires pricing for selectable model ${modelId}`);
+        }
       }
     }
   }

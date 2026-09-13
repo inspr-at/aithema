@@ -189,7 +189,6 @@ export class MockLlmProvider {
     this.estimatedSpend = normalizeProviderEstimatedSpend(
       options.estimatedSpend,
       this.id,
-      this.allowedModels,
     );
   }
 
@@ -319,7 +318,6 @@ export class OpenAICompatibleProvider {
     this.estimatedSpend = normalizeProviderEstimatedSpend(
       config.estimatedSpend,
       config.id,
-      this.allowedModels,
     );
   }
 
@@ -548,7 +546,7 @@ export function normalizeProviderUsage(value) {
     throw providerUsageError('provider token usage is invalid');
   }
   const total = value.total_tokens;
-  if (total != null && (!Number.isSafeInteger(total) || total < input + output)) {
+  if (total != null && (!Number.isSafeInteger(total) || total !== input + output)) {
     throw providerUsageError('provider total token usage is invalid');
   }
   return Object.freeze({

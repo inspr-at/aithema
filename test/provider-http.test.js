@@ -10,6 +10,7 @@ import {
   MockLlmProvider,
   OpenAICompatibleProvider,
   createProviderFromRegistry,
+  iterateSseContent,
   normalizeProviderUsage,
   rejectBrowserProviderOverride,
   assistantTurnForPersistence,
@@ -100,6 +101,10 @@ describe('provider registry', () => {
       (error) => error.code === 'provider_usage_invalid',
     );
     assert.throws(
+      () => normalizeProviderUsage({ prompt_tokens: 0, completion_tokens: 0, total_tokens: 100 }),
+      (error) => error.code === 'provider_usage_invalid',
+    );
+    assert.throws(
       () => normalizeProviderUsage({ type: 'images', images: 1 }),
       (error) => error.code === 'provider_usage_unsupported',
     );
@@ -107,6 +112,21 @@ describe('provider registry', () => {
 });
 
 describe('configured openai-compatible HTTP adapter', () => {
+  it('rejects a malformed usage record that follows a valid stream usage record', async () => {
+    const response = new Response([
+      'data: {"choices":[],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}\n\n',
+      'data: {"choices":[],"usage":{}}\n\n',
+      'data: [DONE]\n\n',
+    ].join(''), { headers: { 'content-type': 'text/event-stream' } });
+    const seen = [];
+    await assert.rejects(async () => {
+      for await (const chunk of iterateSseContent(response, undefined, undefined, (usage) => seen.push(usage))) {
+        void chunk;
+      }
+    }, (error) => error.code === 'provider_usage_invalid');
+    assert.equal(seen.length, 1);
+  });
+
   it('requests and normalizes supported provider-reported token usage only when accounting is enabled', async () => {
     const requestBodies = [];
     const server = createServer(async (req, res) => {

@@ -1044,6 +1044,108 @@ function speechSpendHarness(ceiling) {
 }
 
 describe('speech policy and reserved spend', () => {
+  it('rejects estimated-spend speech configuration without pricing for its selected model', () => {
+    assert.throws(() => normalizeWorkspaceConfig({
+      mode: 'test',
+      defaultProvider: 'mock',
+      providers: {
+        mock: {
+          kind: 'mock', allowedModels: ['mock'], executionLocation: 'local',
+          allowedDataClasses: ['unclassified'],
+          estimatedSpend: {
+            currency: 'EUR',
+            models: {
+              mock: {
+                unit: 'tokens', inputMicroPerMillion: 1,
+                outputMicroPerMillion: 1, maxMicroPerCall: 20,
+              },
+            },
+          },
+        },
+      },
+      policy: {
+        epoch: 4, execution: 'local', allowedProviders: ['mock'],
+        allowedDataClasses: ['unclassified'], dataClass: 'unclassified',
+        estimatedSpend: { currency: 'EUR', maxMicroPerProject: 40 },
+      },
+      speech: { kind: 'mock', providerId: 'mock', model: 'whisper-unpriced' },
+    }), /requires pricing for speech model whisper-unpriced/);
+  });
+
+  it('prices an independently approved speech model without exposing it as a chat model', async () => {
+    const estimatedSpend = {
+      currency: 'EUR',
+      models: {
+        mock: {
+          unit: 'tokens', inputMicroPerMillion: 1_000_000,
+          outputMicroPerMillion: 1_000_000, maxMicroPerCall: 20,
+        },
+        'whisper-fixture': {
+          unit: 'tokens', inputMicroPerMillion: 1_000_000,
+          outputMicroPerMillion: 1_000_000, maxMicroPerCall: 20,
+        },
+      },
+    };
+    const config = normalizeWorkspaceConfig({
+      mode: 'test',
+      defaultProvider: 'mock',
+      providers: {
+        mock: {
+          kind: 'mock', allowedModels: ['mock'], executionLocation: 'local',
+          allowedDataClasses: ['unclassified'], estimatedSpend,
+        },
+      },
+      policy: {
+        epoch: 4, execution: 'local', allowedProviders: ['mock'],
+        allowedDataClasses: ['unclassified'], dataClass: 'unclassified',
+        estimatedSpend: { currency: 'EUR', maxMicroPerProject: 40 },
+      },
+      speech: { kind: 'mock', providerId: 'mock', model: 'whisper-fixture' },
+    });
+    const store = new SqliteProjectStore(':memory:');
+    const provider = new MockLlmProvider({
+      executionLocation: 'local', allowedDataClasses: ['unclassified'], estimatedSpend,
+    });
+    let usage = { kind: 'tokens', inputTokens: 3, outputTokens: 1, totalTokens: 4, source: 'provider_response' };
+    const speechAdapter = {
+      live: false,
+      labelledDemo: true,
+      resolveModel(model) { return model; },
+      async transcribe(request) {
+        request.onUsage?.(usage);
+        return { text: 'Editable transcript', live: false, labelledDemo: true };
+      },
+    };
+    const controller = new ConversationController({
+      store, provider, providers: { mock: provider }, defaultProviderId: 'mock',
+      policy: config.policy, mode: 'test', speech: config.speech, speechAdapter,
+    });
+    const project = controller.createProject(reviewer, {
+      title: 'Speech estimate', projectKinds: ['iteration'],
+    });
+    assert.deepEqual(controller.selectionsFor(project.project_ref).providers[0].models, ['mock']);
+    const result = await controller.transcribeSpeech({
+      actor: reviewer, projectRef: project.project_ref,
+      file: { bytes: SAMPLE, mimeType: 'audio/webm' }, speechId: 'speech:tokens',
+    });
+    assert.equal(result.text, 'Editable transcript');
+    assert.equal(controller.estimatedSpendSummary(reviewer, project.project_ref).accountedMicro, 4);
+
+    usage = { kind: 'duration', seconds: 2, source: 'provider_response' };
+    await assert.rejects(
+      () => controller.transcribeSpeech({
+        actor: reviewer, projectRef: project.project_ref,
+        file: { bytes: SAMPLE, mimeType: 'audio/webm' }, speechId: 'speech:duration',
+      }),
+      (error) => error.code === 'spend_usage_unsupported',
+    );
+    const summary = controller.estimatedSpendSummary(reviewer, project.project_ref);
+    assert.equal(summary.accountedMicro, 24);
+    assert.equal(summary.providerReportedCalls, 1);
+    assert.equal(summary.conservativeCalls, 1);
+    store.close();
+  });
+
   it('rejects the same reserved transcription id while capacity remains and does not call the adapter', async () => {
     const harness = speechSpendHarness(3);
     const before = harness.snapshot();

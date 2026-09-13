@@ -659,13 +659,15 @@ export class ConversationController {
         usageStatus: 'unavailable',
         usage: null,
       };
-      if (!usage && invocationError?.code === 'provider_usage_invalid') {
-        reconciliation.usageStatus = 'invalid';
-      } else if (!usage && invocationError?.code === 'provider_usage_unsupported') {
-        reconciliation.usageStatus = 'unsupported';
-      }
+      const usageFailure = invocationError?.code === 'provider_usage_invalid'
+        ? 'invalid'
+        : invocationError?.code === 'provider_usage_unsupported'
+          ? 'unsupported'
+          : null;
       if (usageConflict) {
         reconciliation.usageStatus = 'invalid';
+      } else if (usageFailure) {
+        reconciliation.usageStatus = usageFailure;
       } else if (estimate && usage) {
         try {
           reconciliation.accountedMicro = estimateUsageMicro(usage, estimate);

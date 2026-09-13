@@ -153,6 +153,7 @@ class UsageMock extends CountingMock {
   constructor(options = {}) {
     super({ id: 'local', estimatedSpend: syntheticPricing });
     this.reportUsage = options.reportUsage !== false;
+    this.afterUsageError = options.afterUsageError ?? null;
     this.usage = options.usage ?? Object.freeze({
       kind: 'tokens', inputTokens: 3, outputTokens: 2, totalTokens: 5,
       source: 'provider_response',
@@ -161,6 +162,7 @@ class UsageMock extends CountingMock {
 
   async *streamChat(request) {
     if (this.reportUsage) request.onUsage?.(this.usage);
+    if (this.afterUsageError) throw this.afterUsageError;
     yield* super.streamChat(request);
   }
 
@@ -570,6 +572,35 @@ describe('configured estimated spend', () => {
       store.db.prepare('SELECT usage_status FROM provider_spend WHERE project_ref = ?').get(project.project_ref).usage_status,
       'invalid',
     );
+    store.close();
+  });
+
+  it('keeps the reservation when a later provider usage record is malformed', async () => {
+    const local = new UsageMock({
+      afterUsageError: Object.assign(new Error('later provider usage is invalid'), {
+        code: 'provider_usage_invalid',
+      }),
+    });
+    const { store, controller: ctl } = controllerFor(':memory:', {
+      local,
+      policy: estimatedSpendPolicy(40),
+    });
+    const project = ctl.createProject(reviewer, { title: 'Later invalid', projectKinds: ['iteration'] });
+    await assert.rejects(
+      () => ctl.submitTurn({
+        actor: reviewer,
+        projectRef: project.project_ref,
+        message: 'Do not settle the first usage record',
+        turnId: 'turn:later-invalid',
+      }),
+      /later provider usage is invalid/,
+    );
+    const row = store.db.prepare(`
+      SELECT reserved_micro, accounted_micro, usage_status, usage_json FROM provider_spend
+    `).get();
+    assert.deepEqual({ ...row }, {
+      reserved_micro: 20, accounted_micro: 20, usage_status: 'invalid', usage_json: null,
+    });
     store.close();
   });
 });
