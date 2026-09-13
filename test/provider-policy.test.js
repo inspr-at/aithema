@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 
 import { currentBaseline } from '../lib/index.js';
 import {
@@ -19,6 +20,7 @@ import {
   spendCallId,
 } from '../runtime/index.js';
 import { normalizeWorkspaceConfig } from '../workspace/config.js';
+import { renderWorkspacePage } from '../workspace/page.js';
 
 const reviewer = {
   party_ref: 'party:reviewer',
@@ -112,6 +114,62 @@ function controllerFor(file, options = {}) {
   };
 }
 
+const syntheticPricing = Object.freeze({
+  currency: 'EUR',
+  models: {
+    mock: {
+      unit: 'tokens',
+      inputMicroPerMillion: 1_000_000,
+      outputMicroPerMillion: 1_000_000,
+      maxMicroPerCall: 20,
+    },
+  },
+});
+
+function estimatedSpendPolicy(maxMicroPerProject = 40, projects = undefined) {
+  return normalizeOrgPolicy({
+    epoch: 11,
+    execution: 'local',
+    allowedProviders: ['local'],
+    allowedDataClasses: ['unclassified'],
+    dataClass: 'unclassified',
+    estimatedSpend: { currency: 'EUR', maxMicroPerProject },
+    ...(projects ? { projects } : {}),
+  }, {
+    defaultProvider: 'local',
+    providers: {
+      local: {
+        kind: 'mock',
+        allowedModels: ['mock'],
+        executionLocation: 'local',
+        allowedDataClasses: ['unclassified'],
+        estimatedSpend: syntheticPricing,
+      },
+    },
+  });
+}
+
+class UsageMock extends CountingMock {
+  constructor(options = {}) {
+    super({ id: 'local', estimatedSpend: syntheticPricing });
+    this.reportUsage = options.reportUsage !== false;
+    this.usage = options.usage ?? Object.freeze({
+      kind: 'tokens', inputTokens: 3, outputTokens: 2, totalTokens: 5,
+      source: 'provider_response',
+    });
+  }
+
+  async *streamChat(request) {
+    if (this.reportUsage) request.onUsage?.(this.usage);
+    yield* super.streamChat(request);
+  }
+
+  async understand(request) {
+    if (this.reportUsage) request.onUsage?.(this.usage);
+    return super.understand(request);
+  }
+}
+
 describe('operator policy normalization', () => {
   it('inherits organization defaults and refuses project broadening', () => {
     const org = orgPolicy({
@@ -200,6 +258,319 @@ describe('operator policy normalization', () => {
       }),
       /executionLocation must be local or cloud/,
     );
+  });
+
+  it('requires configured token estimates and only lets project policy narrow them', () => {
+    const policy = estimatedSpendPolicy(100, {
+      'project:narrow': {
+        estimatedSpend: { currency: 'EUR', maxMicroPerProject: 60 },
+      },
+    });
+    assert.deepEqual(effectiveProjectPolicy(policy, 'project:narrow').estimatedSpend, {
+      currency: 'EUR', maxMicroPerProject: 60,
+    });
+    assert.throws(
+      () => estimatedSpendPolicy(100, {
+        'project:wide': { estimatedSpend: { maxMicroPerProject: 101 } },
+      }),
+      /cannot exceed/,
+    );
+    assert.throws(
+      () => estimatedSpendPolicy(100, {
+        'project:off': { estimatedSpend: false },
+      }),
+      /cannot disable/,
+    );
+    assert.throws(
+      () => normalizeOrgPolicy({
+        epoch: 1,
+        execution: 'local',
+        allowedProviders: ['local'],
+        allowedDataClasses: ['unclassified'],
+        dataClass: 'unclassified',
+        estimatedSpend: { currency: 'EUR', maxMicroPerProject: 100 },
+      }, {
+        defaultProvider: 'local',
+        providers: { local: { kind: 'mock', allowedModels: ['mock'], executionLocation: 'local', allowedDataClasses: ['unclassified'] } },
+      }),
+      /requires configured pricing/,
+    );
+    assert.throws(
+      () => normalizeOrgPolicy({
+        epoch: 1,
+        execution: 'local',
+        allowedProviders: ['local'],
+        allowedDataClasses: ['unclassified'],
+        dataClass: 'unclassified',
+        estimatedSpend: { currency: 'EUR', maxMicroPerProject: 100 },
+      }, {
+        defaultProvider: 'local',
+        providers: {
+          local: {
+            kind: 'mock',
+            allowedModels: ['mock'],
+            executionLocation: 'local',
+            allowedDataClasses: ['unclassified'],
+            estimatedSpend: {
+              currency: 'EUR',
+              models: { mock: { unit: 'duration', maxMicroPerCall: 20 } },
+            },
+          },
+        },
+      }),
+      /unit must be tokens/,
+    );
+  });
+});
+
+describe('configured estimated spend', () => {
+  it('migrates an existing request-count ledger without reclassifying old rows', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'aithema-estimate-migration-'));
+    const file = join(dir, 'workspace.sqlite');
+    try {
+      const old = new DatabaseSync(file);
+      old.exec(`
+        CREATE TABLE provider_spend (
+          project_ref TEXT NOT NULL, epoch INTEGER NOT NULL, call_id TEXT NOT NULL,
+          status TEXT NOT NULL, created_at TEXT NOT NULL,
+          PRIMARY KEY (project_ref, epoch, call_id)
+        );
+        INSERT INTO provider_spend VALUES ('project:old', 1, 'call:old', 'committed', '2026-01-01T00:00:00.000Z');
+      `);
+      old.close();
+      const migrated = new SqliteProjectStore(file);
+      const row = migrated.db.prepare(`
+        SELECT status, accounted_micro, usage_status FROM provider_spend WHERE call_id = 'call:old'
+      `).get();
+      assert.deepEqual({ ...row }, {
+        status: 'committed', accounted_micro: 0, usage_status: 'unavailable',
+      });
+      migrated.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('reconciles provider token usage and projects provenance without calling it billing', async () => {
+    const local = new UsageMock();
+    const { store, controller: ctl } = controllerFor(':memory:', {
+      local,
+      policy: estimatedSpendPolicy(30),
+    });
+    const project = ctl.createProject(reviewer, { title: 'Estimate', projectKinds: ['iteration'] });
+    const result = await ctl.submitTurn({
+      actor: reviewer,
+      projectRef: project.project_ref,
+      message: 'Keep the estimate traceable',
+      turnId: 'turn:estimate',
+    });
+    assert.equal(result.status, 'complete');
+    assert.equal(result.billing.billed_total, BILLING_USAGE_UNAVAILABLE);
+    const summary = ctl.estimatedSpendSummary(reviewer, project.project_ref);
+    assert.deepEqual(summary, {
+      mode: 'configured_estimate',
+      currency: 'EUR',
+      budgetMicro: 30,
+      accountedMicro: 10,
+      providerReportedCalls: 2,
+      conservativeCalls: 0,
+      remainingMicro: 20,
+      budgetExceeded: false,
+      billedTotal: BILLING_USAGE_UNAVAILABLE,
+    });
+    const rows = store.db.prepare(`
+      SELECT provider_id, model_id, phase, reserved_micro, accounted_micro,
+             usage_status, usage_json
+      FROM provider_spend ORDER BY phase
+    `).all();
+    assert.deepEqual(rows.map((row) => ({ ...row, usage_json: JSON.parse(row.usage_json) })), [
+      {
+        provider_id: 'local', model_id: 'mock', phase: 'chat',
+        reserved_micro: 20, accounted_micro: 5, usage_status: 'provider_reported',
+        usage_json: local.usage,
+      },
+      {
+        provider_id: 'local', model_id: 'mock', phase: 'understand',
+        reserved_micro: 20, accounted_micro: 5, usage_status: 'provider_reported',
+        usage_json: local.usage,
+      },
+    ]);
+    const html = renderWorkspacePage({
+      mode: 'test', labelledDemo: true, providerLive: false, providerId: 'local',
+      policyActive: true, estimatedSpend: summary, projects: [result.project],
+      actor: reviewer, project: result.project,
+      revisionReview: ctl.reviewPending(reviewer, project.project_ref),
+      allowedSelections: ctl.selectionsFor(project.project_ref),
+    });
+    assert.match(html, /operator-configured estimate, not a billed total or guaranteed currency cap/);
+    assert.doesNotMatch(html, /€0\.000010/);
+    store.close();
+  });
+
+  it('keeps the conservative maximum when usage is absent and refuses egress before storing another turn', async () => {
+    const local = new UsageMock({ reportUsage: false });
+    const { store, controller: ctl } = controllerFor(':memory:', {
+      local,
+      policy: estimatedSpendPolicy(40),
+    });
+    const project = ctl.createProject(reviewer, { title: 'Conservative', projectKinds: ['iteration'] });
+    const complete = await ctl.submitTurn({
+      actor: reviewer,
+      projectRef: project.project_ref,
+      message: 'Usage might be missing',
+      turnId: 'turn:missing-usage',
+    });
+    assert.equal(complete.status, 'complete');
+    assert.equal(ctl.estimatedSpendSummary(reviewer, project.project_ref).accountedMicro, 40);
+    assert.equal(ctl.estimatedSpendSummary(reviewer, project.project_ref).conservativeCalls, 2);
+    const revision = complete.project.revision;
+    await assert.rejects(
+      () => ctl.submitTurn({
+        actor: reviewer,
+        projectRef: project.project_ref,
+        message: 'Must not leave the process',
+        turnId: 'turn:denied-estimate',
+        expectedRevision: revision,
+      }),
+      (error) => error.code === 'spend_estimate_denied',
+    );
+    assert.equal(local.calls, 2);
+    const loaded = ctl.loadProject(reviewer, project.project_ref);
+    assert.equal(loaded.revision, revision);
+    assert.equal(loaded.transcript.some((turn) => turn.content.includes('Must not leave')), false);
+    store.close();
+  });
+
+  it('records a known estimate above its reservation without clamping and blocks later requests', async () => {
+    const local = new UsageMock({
+      usage: Object.freeze({
+        kind: 'tokens', inputTokens: 24, outputTokens: 26, totalTokens: 50,
+        source: 'provider_response',
+      }),
+    });
+    const { store, controller: ctl } = controllerFor(':memory:', {
+      local,
+      policy: estimatedSpendPolicy(30),
+    });
+    const project = ctl.createProject(reviewer, { title: 'Upward', projectKinds: ['iteration'] });
+    const result = await ctl.submitTurn({
+      actor: reviewer,
+      projectRef: project.project_ref,
+      message: 'Report actual configured estimate',
+      turnId: 'turn:upward',
+    });
+    assert.equal(result.status, 'complete');
+    assert.deepEqual(result.proposals_created, []);
+    // Chat was sent and honestly reconciled to 50; understanding was refused
+    // before egress because the project estimate was already over budget.
+    assert.equal(local.calls, 1);
+    const summary = ctl.estimatedSpendSummary(reviewer, project.project_ref);
+    assert.equal(summary.accountedMicro, 50);
+    assert.equal(summary.remainingMicro, 0);
+    assert.equal(summary.budgetExceeded, true);
+    const row = store.db.prepare('SELECT reserved_micro, accounted_micro, usage_status FROM provider_spend').get();
+    assert.deepEqual({ ...row }, { reserved_micro: 20, accounted_micro: 50, usage_status: 'provider_reported' });
+    const revision = ctl.loadProject(reviewer, project.project_ref).revision;
+    await assert.rejects(
+      () => ctl.submitTurn({
+        actor: reviewer,
+        projectRef: project.project_ref,
+        message: 'No further provider request',
+        turnId: 'turn:after-upward',
+        expectedRevision: revision,
+      }),
+      (error) => error.code === 'spend_estimate_denied',
+    );
+    assert.equal(local.calls, 1);
+    store.close();
+  });
+
+  it('serializes estimate reservations across connections and keeps an uncertain maximum after restart', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'aithema-estimate-race-'));
+    const file = join(dir, 'workspace.sqlite');
+    try {
+      const setup = new SqliteProjectStore(file);
+      const project = setup.createProject({
+        projectRef: 'project:estimate-race', title: 'Race', projectKinds: ['iteration'], actor: reviewer,
+      });
+      setup.close();
+      const left = new SqliteProjectStore(file);
+      const right = new SqliteProjectStore(file);
+      const common = {
+        projectRef: project.project_ref,
+        epoch: 3,
+        estimate: { currency: 'EUR', maxMicroPerProject: 30, maxMicroPerCall: 20 },
+      };
+      const first = left.reserveOutboundCall({ ...common, callId: 'call:first' });
+      const second = right.reserveOutboundCall({ ...common, callId: 'call:second' });
+      assert.equal(first.reserved, true);
+      assert.deepEqual(second, { denied: true, reason: 'estimated_spend' });
+      left.close();
+      right.close();
+      const reopened = new SqliteProjectStore(file);
+      assert.equal(reopened.getOutboundCall(project.project_ref, 3, 'call:first'), 'reserved');
+      assert.equal(reopened.accountedEstimatedSpend(project.project_ref, 3, 'EUR'), 20);
+      assert.equal(
+        reopened.reserveOutboundCall({ ...common, callId: 'call:first' }).uncertain,
+        true,
+      );
+      reopened.close();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails explicitly on unsupported provider units and retains the reservation', async () => {
+    const local = new UsageMock({
+      usage: Object.freeze({ kind: 'duration', seconds: 1.5, source: 'provider_response' }),
+    });
+    const { store, controller: ctl } = controllerFor(':memory:', {
+      local,
+      policy: estimatedSpendPolicy(40),
+    });
+    const project = ctl.createProject(reviewer, { title: 'Units', projectKinds: ['iteration'] });
+    await assert.rejects(
+      () => ctl.submitTurn({
+        actor: reviewer,
+        projectRef: project.project_ref,
+        message: 'Duration is not priced',
+        turnId: 'turn:duration',
+      }),
+      (error) => error.code === 'spend_usage_unsupported',
+    );
+    const summary = ctl.estimatedSpendSummary(reviewer, project.project_ref);
+    assert.equal(summary.accountedMicro, 20);
+    assert.equal(summary.conservativeCalls, 1);
+    assert.equal(store.getOutboundCall(project.project_ref, 11, spendCallId('turn:duration', 'chat')), 'committed');
+    store.close();
+  });
+
+  it('rejects malformed usage and retains the full conservative amount', async () => {
+    const local = new UsageMock({
+      usage: Object.freeze({ kind: 'tokens', inputTokens: -1, outputTokens: 2, source: 'provider_response' }),
+    });
+    const { store, controller: ctl } = controllerFor(':memory:', {
+      local,
+      policy: estimatedSpendPolicy(40),
+    });
+    const project = ctl.createProject(reviewer, { title: 'Invalid usage', projectKinds: ['iteration'] });
+    await assert.rejects(
+      () => ctl.submitTurn({
+        actor: reviewer,
+        projectRef: project.project_ref,
+        message: 'Do not undercount malformed usage',
+        turnId: 'turn:invalid-usage',
+      }),
+      /provider input tokens must be a non-negative safe integer/,
+    );
+    const summary = ctl.estimatedSpendSummary(reviewer, project.project_ref);
+    assert.equal(summary.accountedMicro, 20);
+    assert.equal(summary.conservativeCalls, 1);
+    assert.equal(
+      store.db.prepare('SELECT usage_status FROM provider_spend WHERE project_ref = ?').get(project.project_ref).usage_status,
+      'invalid',
+    );
+    store.close();
   });
 });
 

@@ -8,6 +8,7 @@
  */
 
 import { validateUnderstanding } from './understanding.js';
+import { normalizeProviderEstimatedSpend } from './policy.js';
 
 export const MOCK_PROVIDER_ID = 'mock';
 export const MOCK_REPLY_MARK = '[Demo / test provider — no live model was contacted.]';
@@ -88,6 +89,7 @@ export function composeAbortSignals(signals) {
  *   messages: readonly LlmMessage[],
  *   signal?: AbortSignal,
  *   model?: string,
+ *   onUsage?: (usage: object) => void,
  * }} LlmChatRequest
  * @typedef {{
  *   readonly id: string,
@@ -170,6 +172,7 @@ export class MockLlmProvider {
    *   id?: string,
    *   executionLocation?: 'local' | 'cloud',
    *   allowedDataClasses?: readonly string[],
+   *   estimatedSpend?: unknown,
    * }} [options]
    */
   constructor(options = {}) {
@@ -183,6 +186,11 @@ export class MockLlmProvider {
     this.allowedDataClasses = options.allowedDataClasses
       ? Object.freeze([...options.allowedDataClasses])
       : undefined;
+    this.estimatedSpend = normalizeProviderEstimatedSpend(
+      options.estimatedSpend,
+      this.id,
+      this.allowedModels,
+    );
   }
 
   /**
@@ -279,6 +287,7 @@ export class OpenAICompatibleProvider {
    *   limits?: unknown,
    *   executionLocation?: 'local' | 'cloud',
    *   allowedDataClasses?: readonly string[],
+   *   estimatedSpend?: unknown,
    * }} config
    */
   constructor(config) {
@@ -307,6 +316,11 @@ export class OpenAICompatibleProvider {
     this.allowedDataClasses = config.allowedDataClasses
       ? Object.freeze([...config.allowedDataClasses])
       : undefined;
+    this.estimatedSpend = normalizeProviderEstimatedSpend(
+      config.estimatedSpend,
+      config.id,
+      this.allowedModels,
+    );
   }
 
   /**
@@ -329,6 +343,9 @@ export class OpenAICompatibleProvider {
     return {
       model,
       stream: options.stream === true,
+      ...(options.stream === true && typeof request.onUsage === 'function'
+        ? { stream_options: { include_usage: true } }
+        : {}),
       messages: [
         { role: 'system', content: request.system },
         ...request.messages.map((message) => ({ role: message.role, content: message.content })),
@@ -343,7 +360,7 @@ export class OpenAICompatibleProvider {
   async *streamChat(request) {
     const signal = this.#callSignal(request.signal);
     const response = await this.postCompletions(request, { stream: true }, signal);
-    for await (const chunk of iterateSseContent(response, signal, this.limits)) {
+    for await (const chunk of iterateSseContent(response, signal, this.limits, request.onUsage)) {
       yield chunk;
     }
   }
@@ -360,6 +377,9 @@ export class OpenAICompatibleProvider {
       payload = JSON.parse(raw.toString('utf8'));
     } catch {
       throw new Error('provider understanding response was not JSON');
+    }
+    if (payload.usage != null && typeof request.onUsage === 'function') {
+      request.onUsage(normalizeProviderUsage(payload.usage));
     }
     const finishReason = payload?.choices?.[0]?.finish_reason;
     if (typeof finishReason === 'string' && FAILED_FINISH.has(finishReason)) {
@@ -425,8 +445,9 @@ export class OpenAICompatibleProvider {
  * @param {Response} response
  * @param {AbortSignal} [signal]
  * @param {ReturnType<typeof normalizeProviderLimits>} [limits]
+ * @param {(usage: object) => void} [onUsage]
  */
-export async function* iterateSseContent(response, signal, limits) {
+export async function* iterateSseContent(response, signal, limits, onUsage) {
   if (!response.body) throw new Error('provider stream had no body');
   const bound = normalizeProviderLimits(limits);
   const reader = response.body.getReader();
@@ -470,6 +491,9 @@ export async function* iterateSseContent(response, signal, limits) {
             finishReason = reason;
           }
         }
+        if (parsed?.usage != null && typeof onUsage === 'function') {
+          onUsage(normalizeProviderUsage(parsed.usage));
+        }
         const delta = parsed?.choices?.[0]?.delta?.content;
         if (typeof delta === 'string' && delta) {
           assembledChars += delta.length;
@@ -497,6 +521,47 @@ export async function* iterateSseContent(response, signal, limits) {
   if (!sawDone && !successfulStop) {
     throw new IncompleteProviderStreamError('truncated', 'provider stream closed without a successful terminator');
   }
+}
+
+/**
+ * Supported OpenAI-compatible response usage. Extra detail fields are ignored;
+ * unknown billable units stay explicit instead of being coerced to tokens.
+ * @param {unknown} value
+ */
+export function normalizeProviderUsage(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw providerUsageError('provider usage must be an object');
+  }
+  if (value.type === 'duration') {
+    const seconds = Number(value.seconds);
+    if (!Number.isFinite(seconds) || seconds < 0) {
+      throw providerUsageError('provider duration usage is invalid');
+    }
+    return Object.freeze({ kind: 'duration', seconds, source: 'provider_response' });
+  }
+  if (value.type != null && value.type !== 'tokens') {
+    throw providerUsageError('provider usage unit is unsupported', 'provider_usage_unsupported');
+  }
+  const input = value.input_tokens ?? value.prompt_tokens;
+  const output = value.output_tokens ?? value.completion_tokens;
+  if (!Number.isSafeInteger(input) || input < 0 || !Number.isSafeInteger(output) || output < 0) {
+    throw providerUsageError('provider token usage is invalid');
+  }
+  const total = value.total_tokens;
+  if (total != null && (!Number.isSafeInteger(total) || total < input + output)) {
+    throw providerUsageError('provider total token usage is invalid');
+  }
+  return Object.freeze({
+    kind: 'tokens',
+    inputTokens: input,
+    outputTokens: output,
+    totalTokens: total ?? input + output,
+    source: 'provider_response',
+  });
+}
+
+function providerUsageError(message, code = 'provider_usage_invalid') {
+  return Object.assign(new Error(message), { code });
 }
 
 /**
@@ -573,6 +638,7 @@ function instantiateRegistryProvider(name, entry, config, options) {
       chunkDelayMs: entry.chunkDelayMs ?? 0,
       executionLocation: entry.executionLocation,
       allowedDataClasses: Array.isArray(entry.allowedDataClasses) ? entry.allowedDataClasses : undefined,
+      estimatedSpend: entry.estimatedSpend,
     });
   }
   if (kind === 'openai-compatible') {
@@ -590,6 +656,7 @@ function instantiateRegistryProvider(name, entry, config, options) {
       limits: options.limits ?? config.limits,
       executionLocation: entry.executionLocation,
       allowedDataClasses: Array.isArray(entry.allowedDataClasses) ? entry.allowedDataClasses : undefined,
+      estimatedSpend: entry.estimatedSpend,
     });
   }
   throw new Error(`unknown provider kind: ${kind}`);
@@ -651,7 +718,9 @@ export function rejectBrowserProviderOverride(body) {
     'messages',
     'policy', 'epoch', 'dataClass', 'data_class', 'execution', 'executionLocation',
     'allowedProviders', 'allowedDataClasses', 'allowedModels',
-    'maxOutboundCallsPerProject', 'spend', 'billing',
+    'maxOutboundCallsPerProject', 'estimatedSpend', 'estimated_spend',
+    'maxMicroPerProject', 'maxMicroPerCall', 'inputMicroPerMillion',
+    'outputMicroPerMillion', 'currency', 'usage', 'spend', 'billing',
     'speech', 'speechEndpoint', 'speech_endpoint', 'transcriptionEndpoint',
     'transcription_endpoint', 'audio', 'audioBytes', 'redirect', 'location',
     'acceptedMediaTypes', 'maxAudioBytes', 'maxRecordingMs', 'maxTranscriptChars',

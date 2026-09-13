@@ -1,8 +1,9 @@
 /**
- * Operator-configured execution/data policy and outbound request ceilings.
+ * Operator-configured execution/data policy and outbound limits.
  * Workspace config is the policy boundary; it is not organizational identity.
  * Browser input cannot set policy, data class, epoch, or ceilings.
- * Request ceilings count outbound provider calls. They are not currency.
+ * Request ceilings count outbound provider calls. Optional monetary values are
+ * operator-configured estimates, never discovered prices or provider billing.
  */
 
 export const EXECUTION_MODES = Object.freeze(['local', 'cloud', 'mixed']);
@@ -15,9 +16,13 @@ export const DATA_CLASS_MAX_CHARS = 64;
 export const CALL_ID_MAX_CHARS = 200;
 export const MAX_OUTBOUND_CALLS_CEILING = 1_000_000;
 export const MAX_POLICY_EPOCH = 1_000_000_000;
+export const MAX_ESTIMATED_MICRO = 9_000_000_000_000;
+export const MAX_PROVIDER_TOKENS = 1_000_000_000_000;
 
 const PROVIDER_ID_RE = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,79}$/;
 const DATA_CLASS_RE = /^[a-z][a-z0-9._-]{0,63}$/;
+const CURRENCY_RE = /^[A-Z]{3}$/;
+const ISO_CURRENCIES = new Set(Intl.supportedValuesOf('currency'));
 
 /**
  * @param {string} message
@@ -131,6 +136,81 @@ function boundCeiling(value, name) {
   return numeric;
 }
 
+function boundNonNegativeInteger(value, name, maximum = MAX_ESTIMATED_MICRO) {
+  const numeric = Number(value);
+  if (!Number.isSafeInteger(numeric) || numeric < 0 || numeric > maximum) {
+    throw new Error(`${name} must be a non-negative safe integer`);
+  }
+  return numeric;
+}
+
+function boundPositiveMicro(value, name) {
+  const numeric = Number(value);
+  if (!Number.isSafeInteger(numeric) || numeric < 1 || numeric > MAX_ESTIMATED_MICRO) {
+    throw new Error(`${name} must be a positive integer micro amount`);
+  }
+  return numeric;
+}
+
+function boundCurrency(value, name = 'estimated spend currency') {
+  if (typeof value !== 'string' || !CURRENCY_RE.test(value) || !ISO_CURRENCIES.has(value)) {
+    throw new Error(`${name} must be an uppercase three-letter currency code`);
+  }
+  return value;
+}
+
+/**
+ * Optional operator-supplied pricing. It is a configured estimate, never a
+ * provider invoice or discovered current price.
+ * @param {unknown} value
+ * @param {string} providerId
+ * @param {readonly string[]} allowedModels
+ */
+export function normalizeProviderEstimatedSpend(value, providerId, allowedModels) {
+  if (value == null || value === false) return null;
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(`provider ${providerId} estimatedSpend must be an object`);
+  }
+  const currency = boundCurrency(value.currency, `provider ${providerId} estimated spend currency`);
+  if (!value.models || typeof value.models !== 'object' || Array.isArray(value.models)) {
+    throw new Error(`provider ${providerId} estimatedSpend.models must be an object`);
+  }
+  const models = Object.create(null);
+  for (const [modelId, raw] of Object.entries(value.models)) {
+    if (!allowedModels.includes(modelId)) {
+      throw new Error(`provider ${providerId} estimated spend names an unapproved model`);
+    }
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+      throw new Error(`provider ${providerId} model ${modelId} estimated spend must be an object`);
+    }
+    if (raw.unit !== 'tokens') {
+      throw new Error(`provider ${providerId} model ${modelId} estimated spend unit must be tokens`);
+    }
+    models[modelId] = Object.freeze({
+      unit: 'tokens',
+      inputMicroPerMillion: boundNonNegativeInteger(raw.inputMicroPerMillion, 'inputMicroPerMillion'),
+      outputMicroPerMillion: boundNonNegativeInteger(raw.outputMicroPerMillion, 'outputMicroPerMillion'),
+      maxMicroPerCall: boundPositiveMicro(raw.maxMicroPerCall, 'maxMicroPerCall'),
+    });
+  }
+  if (Object.keys(models).length === 0) {
+    throw new Error(`provider ${providerId} estimatedSpend.models must not be empty`);
+  }
+  return Object.freeze({ currency, models: Object.freeze(models) });
+}
+
+/** @param {unknown} value */
+function normalizeOrgEstimatedSpend(value) {
+  if (value == null || value === false) return null;
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('policy estimatedSpend must be an object');
+  }
+  return Object.freeze({
+    currency: boundCurrency(value.currency),
+    maxMicroPerProject: boundPositiveMicro(value.maxMicroPerProject, 'estimatedSpend.maxMicroPerProject'),
+  });
+}
+
 /**
  * @param {unknown} value
  * @returns {'local' | 'cloud' | 'mixed'}
@@ -164,6 +244,11 @@ export function providerPolicyFields(entry, providerId) {
   return {
     executionLocation: boundExecutionLocation(entry.executionLocation),
     allowedDataClasses: Object.freeze(uniqueBoundIds(entry.allowedDataClasses, 'allowedDataClasses')),
+    estimatedSpend: normalizeProviderEstimatedSpend(
+      entry.estimatedSpend,
+      providerId,
+      Array.isArray(entry.allowedModels) ? entry.allowedModels : [],
+    ),
   };
 }
 
@@ -229,6 +314,18 @@ export function normalizeOrgPolicy(value, context = {}) {
     value.maxOutboundCallsPerProject,
     'maxOutboundCallsPerProject',
   );
+  const estimatedSpend = normalizeOrgEstimatedSpend(value.estimatedSpend);
+  if (estimatedSpend) {
+    for (const id of allowedProviders) {
+      const providerSpend = providerPolicyFields(providers[id], id).estimatedSpend;
+      if (!providerSpend) {
+        throw new Error(`policy estimatedSpend requires configured pricing for provider ${id}`);
+      }
+      if (providerSpend.currency !== estimatedSpend.currency) {
+        throw new Error(`provider ${id} estimated spend currency does not match policy`);
+      }
+    }
+  }
   const epoch = boundEpoch(value.epoch);
   const projectSource = value.projects;
   /** @type {Record<string, object>} */
@@ -247,6 +344,7 @@ export function normalizeOrgPolicy(value, context = {}) {
         allowedDataClasses,
         dataClass,
         maxOutboundCallsPerProject,
+        estimatedSpend,
         epoch,
       }));
     }
@@ -258,6 +356,7 @@ export function normalizeOrgPolicy(value, context = {}) {
     allowedDataClasses: Object.freeze(allowedDataClasses),
     dataClass,
     maxOutboundCallsPerProject,
+    estimatedSpend,
     projects: Object.freeze(projects),
   });
 }
@@ -305,6 +404,31 @@ function normalizeProjectOverride(override, org) {
       throw new Error('project request ceiling cannot exceed the organization ceiling');
     }
   }
+  let estimatedSpend = org.estimatedSpend;
+  if (override.estimatedSpend === false && org.estimatedSpend) {
+    throw new Error('project policy cannot disable the organization estimated spend budget');
+  }
+  if (override.estimatedSpend != null && override.estimatedSpend !== false) {
+    if (!org.estimatedSpend) {
+      throw new Error('project policy cannot add an estimated spend budget');
+    }
+    if (typeof override.estimatedSpend !== 'object' || Array.isArray(override.estimatedSpend)) {
+      throw new Error('project estimatedSpend must be an object');
+    }
+    const currency = override.estimatedSpend.currency == null
+      ? org.estimatedSpend.currency
+      : boundCurrency(override.estimatedSpend.currency, 'project estimated spend currency');
+    if (currency !== org.estimatedSpend.currency) {
+      throw new Error('project estimated spend currency cannot differ from the organization');
+    }
+    const maxMicroPerProject = override.estimatedSpend.maxMicroPerProject == null
+      ? org.estimatedSpend.maxMicroPerProject
+      : boundPositiveMicro(override.estimatedSpend.maxMicroPerProject, 'project estimatedSpend.maxMicroPerProject');
+    if (maxMicroPerProject > org.estimatedSpend.maxMicroPerProject) {
+      throw new Error('project estimated spend budget cannot exceed the organization budget');
+    }
+    estimatedSpend = Object.freeze({ currency, maxMicroPerProject });
+  }
   return {
     epoch: org.epoch,
     execution,
@@ -312,6 +436,7 @@ function normalizeProjectOverride(override, org) {
     allowedDataClasses,
     dataClass,
     maxOutboundCallsPerProject,
+    estimatedSpend,
   };
 }
 
@@ -323,6 +448,7 @@ function freezeEffective(policy) {
     allowedDataClasses: Object.freeze([...policy.allowedDataClasses]),
     dataClass: policy.dataClass,
     maxOutboundCallsPerProject: policy.maxOutboundCallsPerProject,
+    estimatedSpend: policy.estimatedSpend ?? null,
     ...(policy.projects ? { projects: policy.projects } : {}),
   });
 }
@@ -346,7 +472,51 @@ export function effectiveProjectPolicy(orgPolicy, projectRef) {
     allowedDataClasses: orgPolicy.allowedDataClasses,
     dataClass: orgPolicy.dataClass,
     maxOutboundCallsPerProject: orgPolicy.maxOutboundCallsPerProject,
+    estimatedSpend: orgPolicy.estimatedSpend,
   });
+}
+
+/**
+ * Resolve the exact configured pricing record for one selected model.
+ * @param {object | null} effective
+ * @param {object} provider
+ * @param {string} modelId
+ */
+export function configuredCallEstimate(effective, provider, modelId) {
+  if (!effective?.estimatedSpend) return null;
+  const pricing = provider?.estimatedSpend?.models?.[modelId];
+  if (!pricing || provider.estimatedSpend.currency !== effective.estimatedSpend.currency) {
+    throw spendError('selected provider/model has no compatible estimated spend configuration', 'spend_unpriced');
+  }
+  return Object.freeze({
+    currency: effective.estimatedSpend.currency,
+    maxMicroPerProject: effective.estimatedSpend.maxMicroPerProject,
+    ...pricing,
+  });
+}
+
+/**
+ * Convert provider-reported token usage using only configured integer rates.
+ * @param {{ kind?: string, inputTokens?: number, outputTokens?: number }} usage
+ * @param {{ inputMicroPerMillion: number, outputMicroPerMillion: number, maxMicroPerCall: number }} pricing
+ */
+export function estimateUsageMicro(usage, pricing) {
+  if (usage?.kind !== 'tokens') {
+    throw spendError('provider usage unit is unsupported for configured estimated spend', 'spend_usage_unsupported');
+  }
+  if (usage.source !== 'provider_response') {
+    throw spendError('estimated spend requires provider-reported usage provenance', 'spend_usage_invalid');
+  }
+  const input = boundNonNegativeInteger(usage.inputTokens, 'provider input tokens', MAX_PROVIDER_TOKENS);
+  const output = boundNonNegativeInteger(usage.outputTokens, 'provider output tokens', MAX_PROVIDER_TOKENS);
+  const million = 1_000_000n;
+  const numerator = BigInt(input) * BigInt(pricing.inputMicroPerMillion)
+    + BigInt(output) * BigInt(pricing.outputMicroPerMillion);
+  const estimatedInteger = (numerator + million - 1n) / million;
+  if (estimatedInteger > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw spendError('provider-reported usage estimate exceeds the durable numeric range', 'spend_usage_overflow');
+  }
+  return Number(estimatedInteger);
 }
 
 /**

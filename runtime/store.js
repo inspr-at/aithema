@@ -61,7 +61,16 @@ CREATE TABLE IF NOT EXISTS provider_spend (
   epoch INTEGER NOT NULL,
   call_id TEXT NOT NULL,
   status TEXT NOT NULL,
+  provider_id TEXT,
+  model_id TEXT,
+  phase TEXT,
+  currency TEXT,
+  reserved_micro INTEGER NOT NULL DEFAULT 0,
+  accounted_micro INTEGER NOT NULL DEFAULT 0,
+  usage_status TEXT NOT NULL DEFAULT 'unavailable',
+  usage_json TEXT,
   created_at TEXT NOT NULL,
+  committed_at TEXT,
   PRIMARY KEY (project_ref, epoch, call_id),
   FOREIGN KEY (project_ref) REFERENCES projects(project_ref)
 );
@@ -110,6 +119,7 @@ export class SqliteProjectStore {
     this.db.exec('PRAGMA journal_mode = WAL');
     this.db.exec(SCHEMA);
     migrateMembersSchema(this.db);
+    migrateProviderSpendSchema(this.db);
   }
 
   close() {
@@ -336,12 +346,20 @@ export class SqliteProjectStore {
    *   projectRef: string,
    *   epoch: number,
    *   callId: string,
-   *   ceiling: number,
+   *   ceiling?: number | null,
+   *   providerId?: string,
+   *   modelId?: string,
+   *   phase?: string,
+   *   estimate?: { currency: string, maxMicroPerProject: number, maxMicroPerCall: number } | null,
    * }} input
-   * @returns {{ reserved: true } | { uncertain: true } | { alreadyCommitted: true } | { denied: true }}
+   * @returns {{ reserved: true } | { uncertain: true } | { alreadyCommitted: true } | { denied: true, reason: string }}
    */
   reserveOutboundCall(input) {
-    const { projectRef, epoch, callId, ceiling } = input;
+    const { projectRef, epoch, callId, ceiling = null } = input;
+    const estimate = normalizeStoreEstimate(input.estimate);
+    if (ceiling != null && (!Number.isSafeInteger(ceiling) || ceiling < 1)) {
+      throw new Error('outbound request ceiling must be a positive safe integer');
+    }
     this.db.exec('BEGIN IMMEDIATE');
     try {
       const existing = this.db.prepare(
@@ -355,17 +373,48 @@ export class SqliteProjectStore {
         this.db.exec('ROLLBACK');
         return { alreadyCommitted: true };
       }
-      const used = this.db.prepare(
-        'SELECT COUNT(*) AS n FROM provider_spend WHERE project_ref = ? AND epoch = ?',
-      ).get(projectRef, epoch).n;
-      if (used >= ceiling) {
+      if (ceiling != null) {
+        const used = this.db.prepare(
+          'SELECT COUNT(*) AS n FROM provider_spend WHERE project_ref = ? AND epoch = ?',
+        ).get(projectRef, epoch).n;
+        if (used >= ceiling) {
+          this.db.exec('ROLLBACK');
+          return { denied: true, reason: 'request_count' };
+        }
+      }
+      if (estimate) {
+        const accounted = this.db.prepare(`
+          SELECT COALESCE(SUM(accounted_micro), 0) AS total
+          FROM provider_spend
+          WHERE project_ref = ? AND epoch = ? AND currency = ?
+        `).get(projectRef, epoch, estimate.currency).total;
+        if (accounted + estimate.maxMicroPerCall > estimate.maxMicroPerProject) {
+          this.db.exec('ROLLBACK');
+          return { denied: true, reason: 'estimated_spend' };
+        }
+      }
+      if (ceiling == null && !estimate) {
         this.db.exec('ROLLBACK');
-        return { denied: true };
+        throw new Error('outbound call reservation requires an active limit');
       }
       this.db.prepare(`
-        INSERT INTO provider_spend (project_ref, epoch, call_id, status, created_at)
-        VALUES (?, ?, ?, 'reserved', ?)
-      `).run(projectRef, epoch, callId, new Date().toISOString());
+        INSERT INTO provider_spend (
+          project_ref, epoch, call_id, status, provider_id, model_id, phase,
+          currency, reserved_micro, accounted_micro, usage_status, created_at
+        ) VALUES (?, ?, ?, 'reserved', ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        projectRef,
+        epoch,
+        callId,
+        input.providerId ?? null,
+        input.modelId ?? null,
+        input.phase ?? null,
+        estimate?.currency ?? null,
+        estimate?.maxMicroPerCall ?? 0,
+        estimate?.maxMicroPerCall ?? 0,
+        estimate ? 'reserved' : 'unavailable',
+        new Date().toISOString(),
+      );
       this.db.exec('COMMIT');
       return { reserved: true };
     } catch (error) {
@@ -378,14 +427,44 @@ export class SqliteProjectStore {
    * Mark a reserved call committed after the adapter was invoked.
    * Missing or already-committed rows stay as-is; reserved cannot be refunded.
    *
-   * @param {{ projectRef: string, epoch: number, callId: string }} input
+   * @param {{
+   *   projectRef: string,
+   *   epoch: number,
+   *   callId: string,
+   *   usageStatus?: 'provider_reported' | 'unavailable' | 'unsupported' | 'invalid',
+   *   accountedMicro?: number,
+   *   usage?: object | null,
+   * }} input
    */
   commitOutboundCall(input) {
+    const usageStatus = input.usageStatus ?? 'unavailable';
+    const accountedMicro = input.accountedMicro;
+    if (!['provider_reported', 'unavailable', 'unsupported', 'invalid'].includes(usageStatus)) {
+      throw new Error('provider usage status is invalid');
+    }
+    if (accountedMicro != null && (!Number.isSafeInteger(accountedMicro) || accountedMicro < 0)) {
+      throw new Error('accounted estimate must be a non-negative safe integer');
+    }
+    if (usageStatus === 'provider_reported' && (accountedMicro == null || !input.usage)) {
+      throw new Error('provider-reported accounting requires usage and an amount');
+    }
     this.db.prepare(`
       UPDATE provider_spend
-      SET status = 'committed'
+      SET status = 'committed',
+          accounted_micro = COALESCE(?, accounted_micro),
+          usage_status = ?,
+          usage_json = ?,
+          committed_at = ?
       WHERE project_ref = ? AND epoch = ? AND call_id = ? AND status = 'reserved'
-    `).run(input.projectRef, input.epoch, input.callId);
+    `).run(
+      accountedMicro ?? null,
+      usageStatus,
+      input.usage == null ? null : JSON.stringify(input.usage),
+      new Date().toISOString(),
+      input.projectRef,
+      input.epoch,
+      input.callId,
+    );
   }
 
   /**
@@ -409,6 +488,34 @@ export class SqliteProjectStore {
     return this.db.prepare(
       'SELECT COUNT(*) AS n FROM provider_spend WHERE project_ref = ? AND epoch = ?',
     ).get(projectRef, epoch).n;
+  }
+
+  /**
+   * Read-only aggregate after membership authorization. Billed totals remain
+   * unavailable: this table contains only configured estimates.
+   */
+  estimatedSpendSummary(projectRef, epoch, currency, actor) {
+    this.#assertMember(projectRef, actor);
+    return this.#estimatedSpendSummary(projectRef, epoch, currency);
+  }
+
+  accountedEstimatedSpend(projectRef, epoch, currency) {
+    return this.#estimatedSpendSummary(projectRef, epoch, currency).accountedMicro;
+  }
+
+  #estimatedSpendSummary(projectRef, epoch, currency) {
+    const row = this.db.prepare(`
+      SELECT COALESCE(SUM(accounted_micro), 0) AS accounted_micro,
+             COALESCE(SUM(CASE WHEN usage_status = 'provider_reported' THEN 1 ELSE 0 END), 0) AS provider_reported_calls,
+             COALESCE(SUM(CASE WHEN currency IS NOT NULL AND usage_status != 'provider_reported' THEN 1 ELSE 0 END), 0) AS conservative_calls
+      FROM provider_spend
+      WHERE project_ref = ? AND epoch = ? AND currency = ?
+    `).get(projectRef, epoch, currency);
+    return Object.freeze({
+      accountedMicro: row.accounted_micro,
+      providerReportedCalls: row.provider_reported_calls,
+      conservativeCalls: row.conservative_calls,
+    });
   }
 
   /**
@@ -637,4 +744,48 @@ function migrateMembersSchema(db) {
       FOREIGN KEY (project_ref) REFERENCES projects(project_ref)
     );
   `);
+}
+
+/**
+ * Additive migration for databases created before configured spend estimates.
+ * Old request-count rows remain truthful with zero estimated amount and
+ * unavailable provider usage.
+ * @param {import('node:sqlite').DatabaseSync} db
+ */
+function migrateProviderSpendSchema(db) {
+  const names = new Set(
+    db.prepare('PRAGMA table_info(provider_spend)').all().map((column) => column.name),
+  );
+  const additions = [
+    ['provider_id', 'TEXT'],
+    ['model_id', 'TEXT'],
+    ['phase', 'TEXT'],
+    ['currency', 'TEXT'],
+    ['reserved_micro', 'INTEGER NOT NULL DEFAULT 0'],
+    ['accounted_micro', 'INTEGER NOT NULL DEFAULT 0'],
+    ['usage_status', "TEXT NOT NULL DEFAULT 'unavailable'"],
+    ['usage_json', 'TEXT'],
+    ['committed_at', 'TEXT'],
+  ];
+  for (const [name, definition] of additions) {
+    if (!names.has(name)) {
+      db.exec(`ALTER TABLE provider_spend ADD COLUMN ${name} ${definition}`);
+    }
+  }
+}
+
+function normalizeStoreEstimate(value) {
+  if (value == null) return null;
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('estimated spend reservation must be an object');
+  }
+  if (typeof value.currency !== 'string' || !/^[A-Z]{3}$/.test(value.currency)) {
+    throw new Error('estimated spend reservation currency is invalid');
+  }
+  for (const key of ['maxMicroPerProject', 'maxMicroPerCall']) {
+    if (!Number.isSafeInteger(value[key]) || value[key] < 1) {
+      throw new Error(`estimated spend reservation ${key} must be a positive safe integer`);
+    }
+  }
+  return value;
 }

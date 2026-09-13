@@ -746,6 +746,9 @@ export function createWorkspaceServer(rawConfig, options = {}) {
       providerId: provider.id,
       demoSubjects: demoSubjects(),
       policyActive: Boolean(config.policy),
+      estimatedSpend: project && actor
+        ? controller.estimatedSpendSummary(actor, project.project_ref)
+        : null,
       publicBasePath: config.publicBasePath,
       ...extra,
       revisionReview: extra.revisionReview ?? (project ? controller.reviewPending(actor, project.project_ref) : undefined),

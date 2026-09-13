@@ -10,6 +10,7 @@ import {
   MockLlmProvider,
   OpenAICompatibleProvider,
   createProviderFromRegistry,
+  normalizeProviderUsage,
   rejectBrowserProviderOverride,
   assistantTurnForPersistence,
 } from '../runtime/index.js';
@@ -74,6 +75,10 @@ describe('provider registry', () => {
       () => rejectBrowserProviderOverride({ policy: { execution: 'cloud' }, message: 'hi' }),
       /must not supply provider endpoints, credentials, or limits/,
     );
+    assert.throws(
+      () => rejectBrowserProviderOverride({ estimatedSpend: { maxMicroPerProject: 1 }, message: 'hi' }),
+      /must not supply provider endpoints, credentials, or limits/,
+    );
     assert.doesNotThrow(() => rejectBrowserProviderOverride({ providerId: 'local', message: 'hi' }));
     const provider = new OpenAICompatibleProvider({
       id: 'local',
@@ -88,9 +93,66 @@ describe('provider registry', () => {
     const source = readFileSync(fileURLToPath(new URL('../runtime/provider.js', import.meta.url)), 'utf8');
     assert.equal(/anthropic|openrouter|elevenlabs|@openai/.test(source), false);
   });
+
+  it('classifies malformed and unsupported provider usage without guessing billable units', () => {
+    assert.throws(
+      () => normalizeProviderUsage({ prompt_tokens: -1, completion_tokens: 2 }),
+      (error) => error.code === 'provider_usage_invalid',
+    );
+    assert.throws(
+      () => normalizeProviderUsage({ type: 'images', images: 1 }),
+      (error) => error.code === 'provider_usage_unsupported',
+    );
+  });
 });
 
 describe('configured openai-compatible HTTP adapter', () => {
+  it('requests and normalizes supported provider-reported token usage only when accounting is enabled', async () => {
+    const requestBodies = [];
+    const server = createServer(async (req, res) => {
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      requestBodies.push(body);
+      if (body.stream) {
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        res.write('data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n');
+        res.write('data: {"choices":[],"usage":{"prompt_tokens":7,"completion_tokens":2,"total_tokens":9}}\n\n');
+        res.write('data: [DONE]\n\n');
+        res.end();
+        return;
+      }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify(validUnderstanding()) } }],
+        usage: { type: 'tokens', input_tokens: 11, output_tokens: 3, total_tokens: 14 },
+      }));
+    });
+    const baseUrl = `${await listen(server)}/v1`;
+    try {
+      const provider = new OpenAICompatibleProvider({
+        id: 'fixture', baseUrl, modelId: 'fixture-model', allowedModels: ['fixture-model'],
+      });
+      const usage = [];
+      for await (const chunk of provider.streamChat({
+        system: 'test', messages: [{ role: 'user', content: 'hi' }], onUsage: (item) => usage.push(item),
+      })) {
+        assert.equal(chunk, 'ok');
+      }
+      await provider.understand({
+        system: 'test', messages: [{ role: 'user', content: 'hi' }], onUsage: (item) => usage.push(item),
+      });
+      assert.deepEqual(usage, [
+        { kind: 'tokens', inputTokens: 7, outputTokens: 2, totalTokens: 9, source: 'provider_response' },
+        { kind: 'tokens', inputTokens: 11, outputTokens: 3, totalTokens: 14, source: 'provider_response' },
+      ]);
+      assert.deepEqual(requestBodies[0].stream_options, { include_usage: true });
+      assert.equal('stream_options' in requestBodies[1], false);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
   it('streams a complete turn from a deterministic test server and refuses incomplete persistence', async () => {
     const server = createServer(async (req, res) => {
       assert.equal(req.headers.authorization, 'Bearer test-key');

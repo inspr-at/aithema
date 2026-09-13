@@ -10,6 +10,7 @@
 import {
   composeAbortSignals,
   IncompleteProviderStreamError,
+  normalizeProviderUsage,
   readBoundedResponse,
 } from './provider.js';
 import { boundProviderId, providerPolicyFields } from './policy.js';
@@ -397,6 +398,7 @@ export class MockSpeechTranscriber {
    *   filename?: string,
    *   model?: string,
    *   signal?: AbortSignal,
+   *   onUsage?: (usage: object) => void,
    * }} request
    */
   async transcribe(request) {
@@ -475,6 +477,7 @@ export class OpenAICompatibleTranscription {
    *   filename?: string,
    *   model?: string,
    *   signal?: AbortSignal,
+   *   onUsage?: (usage: object) => void,
    * }} request
    */
   async transcribe(request) {
@@ -518,6 +521,9 @@ export class OpenAICompatibleTranscription {
     }
     if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
       throw new Error('speech transcription response was not a JSON object');
+    }
+    if (payload.usage != null && typeof request.onUsage === 'function') {
+      request.onUsage(normalizeProviderUsage(payload.usage));
     }
     return {
       text: boundSpeechTranscript(payload.text, this.limits.maxTranscriptChars),

@@ -347,6 +347,10 @@ function renderPreviewProvenance(model) {
 
 function renderSpendNotice(model) {
   if (!model.policyActive) return '';
+  if (model.estimatedSpend) {
+    const spend = model.estimatedSpend;
+    return `<p class="meta">Configured estimated spend: ${escapeHtml(String(spend.accountedMicro))} integer micro-${escapeHtml(spend.currency)} accounted of ${escapeHtml(String(spend.budgetMicro))}; ${escapeHtml(String(spend.remainingMicro))} remains.${spend.budgetExceeded ? ' The configured budget is exceeded; new requests are blocked.' : ''} ${escapeHtml(String(spend.providerReportedCalls))} call(s) reconciled from provider-reported token usage; ${escapeHtml(String(spend.conservativeCalls))} call(s) retain the configured per-call reservation. This is an operator-configured estimate, not a billed total or guaranteed currency cap.</p>`;
+  }
   return '<p class="meta">Outbound request ceilings count provider calls, including transcription. They are not currency. Billing usage is unavailable.</p>';
 }
 
