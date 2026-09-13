@@ -10,6 +10,7 @@
 import {
   composeAbortSignals,
   IncompleteProviderStreamError,
+  normalizeProviderUsage,
   readBoundedResponse,
 } from './provider.js';
 import { boundProviderId, providerPolicyFields } from './policy.js';
@@ -201,6 +202,16 @@ export function normalizeSpeechConfig(value, context = {}) {
     const fields = providerPolicyFields(entry, providerId);
     executionLocation = fields.executionLocation;
     allowedDataClasses = fields.allowedDataClasses;
+    if (context.policy.estimatedSpend) {
+      if (!fields.estimatedSpend || fields.estimatedSpend.currency !== context.policy.estimatedSpend.currency) {
+        throw new Error('speech provider estimated spend currency does not match policy');
+      }
+      for (const modelId of allowedModels) {
+        if (!fields.estimatedSpend.models[modelId]) {
+          throw new Error(`policy estimatedSpend requires pricing for speech model ${modelId}`);
+        }
+      }
+    }
   } else if (entry.executionLocation != null && entry.executionLocation !== '') {
     const fields = providerPolicyFields({
       executionLocation: entry.executionLocation,
@@ -397,6 +408,7 @@ export class MockSpeechTranscriber {
    *   filename?: string,
    *   model?: string,
    *   signal?: AbortSignal,
+   *   onUsage?: (usage: object) => void,
    * }} request
    */
   async transcribe(request) {
@@ -475,6 +487,7 @@ export class OpenAICompatibleTranscription {
    *   filename?: string,
    *   model?: string,
    *   signal?: AbortSignal,
+   *   onUsage?: (usage: object) => void,
    * }} request
    */
   async transcribe(request) {
@@ -518,6 +531,9 @@ export class OpenAICompatibleTranscription {
     }
     if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
       throw new Error('speech transcription response was not a JSON object');
+    }
+    if (payload.usage != null && typeof request.onUsage === 'function') {
+      request.onUsage(normalizeProviderUsage(payload.usage));
     }
     return {
       text: boundSpeechTranscript(payload.text, this.limits.maxTranscriptChars),

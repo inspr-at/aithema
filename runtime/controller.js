@@ -46,7 +46,9 @@ import {
   assertCallAllowed,
   BILLING_USAGE_UNAVAILABLE,
   boundProviderId,
+  configuredCallEstimate,
   effectiveProjectPolicy,
+  estimateUsageMicro,
   policyDeniedError,
   spendCallId,
   spendError,
@@ -315,7 +317,7 @@ export class ConversationController {
 
     const selection = this.#pinSelection(projectRef, input);
     const { provider, modelId } = selection;
-    this.#assertOutboundSpend(projectRef, turnId, 'chat');
+    this.#assertOutboundSpend(projectRef, turnId, 'chat', selection);
 
     const userAppend = appendTurn(project.transcript, 'user', userText, undefined, {
       source: input.feedback ? 'preview_feedback' : 'human',
@@ -370,8 +372,8 @@ export class ConversationController {
         signal,
         model: modelId,
       };
-      await this.#withOutboundCall(projectRef, turnId, 'chat', async () => {
-        for await (const chunk of provider.streamChat(chatRequest)) {
+      await this.#withOutboundCall(projectRef, turnId, 'chat', selection, async (onUsage) => {
+        for await (const chunk of provider.streamChat({ ...chatRequest, onUsage })) {
           assembled += chunk;
           if (assembled.length > this.limits.maxAssembledChars) {
             abort.abort();
@@ -421,11 +423,12 @@ export class ConversationController {
         const providerAssistantTranscript = input.feedback
           ? replaceLastUserContent(assistantAppend.transcript, providerUserText)
           : assistantAppend.transcript;
-        const raw = await this.#withOutboundCall(projectRef, turnId, 'understand', () => provider.understand({
+        const raw = await this.#withOutboundCall(projectRef, turnId, 'understand', selection, (onUsage) => provider.understand({
           system: UNDERSTANDING_SYSTEM_PROMPT,
           messages: messagesForProvider(providerAssistantTranscript),
           signal,
           model: modelId,
+          onUsage,
         }));
         const validated = validateUnderstanding(raw);
         understanding = mergeUnderstanding(understanding, validated);
@@ -433,9 +436,10 @@ export class ConversationController {
         stream = proposed.stream;
         proposalRefs = [...proposed.proposal_refs];
       } catch (error) {
-        if (isSpendOrPolicyError(error)) throw error;
+        if (isSpendOrPolicyError(error) && error?.code !== 'spend_estimate_denied') throw error;
         // Complete chat remains durable. Cancel, timeout, invalid, or partial
-        // understanding must not mint proposals or replace a good snapshot.
+        // understanding, including a newly exhausted estimate budget, must not
+        // mint proposals or replace a good snapshot.
       }
 
       const completed = this.store.apply({
@@ -584,7 +588,7 @@ export class ConversationController {
       });
     }
     const modelId = this.speechAdapter.resolveModel(requestedModel);
-    return { providerId, modelId };
+    return { providerId, modelId, provider: this.providers[providerId] };
   }
 
   /**
@@ -593,12 +597,14 @@ export class ConversationController {
    * @param {string} projectRef
    * @param {string} turnId
    * @param {'chat' | 'understand' | 'interpret' | 'transcribe'} phase
-   * @param {() => Promise<unknown>} invoke
+   * @param {{ provider: object, modelId: string, providerId?: string }} selection
+   * @param {(onUsage?: (usage: object) => void) => Promise<unknown>} invoke
    */
-  async #withOutboundCall(projectRef, turnId, phase, invoke) {
+  async #withOutboundCall(projectRef, turnId, phase, selection, invoke) {
     const effective = effectiveProjectPolicy(this.policy, projectRef);
     const ceiling = effective?.maxOutboundCallsPerProject;
-    if (ceiling == null) {
+    const estimate = configuredCallEstimate(effective, selection.provider, selection.modelId);
+    if (ceiling == null && !estimate) {
       return invoke();
     }
     const callId = spendCallId(turnId, phase);
@@ -607,6 +613,10 @@ export class ConversationController {
       epoch: effective.epoch,
       callId,
       ceiling,
+      providerId: selection.providerId ?? selection.provider.id,
+      modelId: selection.modelId,
+      phase,
+      estimate,
     });
     if (reservation.uncertain) {
       throw spendError(
@@ -621,22 +631,95 @@ export class ConversationController {
       );
     }
     if (reservation.denied) {
+      if (reservation.reason === 'estimated_spend') {
+        throw spendError('project configured estimated spend budget reached', 'spend_estimate_denied');
+      }
       throw spendError('project outbound request ceiling reached', 'spend_denied');
     }
+    let usage = null;
+    let usageConflict = false;
+    const onUsage = estimate ? (reported) => {
+      if (usage && JSON.stringify(usage) !== JSON.stringify(reported)) {
+        usageConflict = true;
+        throw spendError('provider returned conflicting usage records', 'spend_usage_conflict');
+      }
+      usage = reported;
+    } : undefined;
+    let result;
+    let invocationError;
     try {
-      return await invoke();
+      result = await invoke(onUsage);
+    } catch (error) {
+      invocationError = error;
     } finally {
-      this.store.commitOutboundCall({
+      const reconciliation = {
         projectRef,
         epoch: effective.epoch,
         callId,
-      });
+        usageStatus: 'unavailable',
+        usage: null,
+      };
+      const usageFailure = invocationError?.code === 'provider_usage_invalid'
+        ? 'invalid'
+        : invocationError?.code === 'provider_usage_unsupported'
+          ? 'unsupported'
+          : null;
+      if (usageConflict) {
+        reconciliation.usageStatus = 'invalid';
+      } else if (usageFailure) {
+        reconciliation.usageStatus = usageFailure;
+      } else if (estimate && usage) {
+        try {
+          reconciliation.accountedMicro = estimateUsageMicro(usage, estimate);
+          reconciliation.usageStatus = 'provider_reported';
+          reconciliation.usage = Object.freeze({
+            kind: 'tokens',
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+            totalTokens: usage.totalTokens,
+            source: 'provider_response',
+          });
+        } catch (error) {
+          reconciliation.usageStatus = usage.kind === 'tokens' ? 'invalid' : 'unsupported';
+          invocationError ??= error;
+        }
+      }
+      this.store.commitOutboundCall(reconciliation);
     }
+    if (invocationError) throw invocationError;
+    return result;
   }
 
   #billingNote() {
     if (!this.policy) return {};
-    return { billing: { usage: BILLING_USAGE_UNAVAILABLE } };
+    if (!this.policy.estimatedSpend) return { billing: { usage: BILLING_USAGE_UNAVAILABLE } };
+    return {
+      billing: {
+        usage: 'provider-reported usage is retained when supported',
+        billed_total: BILLING_USAGE_UNAVAILABLE,
+      },
+    };
+  }
+
+  estimatedSpendSummary(actor, projectRef) {
+    this.store.getProject(projectRef, actor);
+    const effective = effectiveProjectPolicy(this.policy, projectRef);
+    if (!effective?.estimatedSpend) return null;
+    const totals = this.store.estimatedSpendSummary(
+      projectRef,
+      effective.epoch,
+      effective.estimatedSpend.currency,
+      actor,
+    );
+    return Object.freeze({
+      mode: 'configured_estimate',
+      currency: effective.estimatedSpend.currency,
+      budgetMicro: effective.estimatedSpend.maxMicroPerProject,
+      ...totals,
+      remainingMicro: Math.max(0, effective.estimatedSpend.maxMicroPerProject - totals.accountedMicro),
+      budgetExceeded: totals.accountedMicro > effective.estimatedSpend.maxMicroPerProject,
+      billedTotal: BILLING_USAGE_UNAVAILABLE,
+    });
   }
 
   /**
@@ -646,9 +729,9 @@ export class ConversationController {
    * @param {string} turnId
    * @param {'chat' | 'understand' | 'interpret' | 'transcribe'} phase
    */
-  #assertOutboundSpend(projectRef, turnId, phase) {
+  #assertOutboundSpend(projectRef, turnId, phase, selection) {
     this.#assertCallIdFresh(projectRef, turnId, phase);
-    this.#assertSpendCapacity(projectRef);
+    this.#assertSpendCapacity(projectRef, selection);
   }
 
   /**
@@ -656,13 +739,25 @@ export class ConversationController {
    * ceiling, before writing a user turn. Races still serialize at reserve.
    * @param {string} projectRef
    */
-  #assertSpendCapacity(projectRef) {
+  #assertSpendCapacity(projectRef, selection) {
     const effective = effectiveProjectPolicy(this.policy, projectRef);
     const ceiling = effective?.maxOutboundCallsPerProject;
-    if (ceiling == null) return;
-    const used = this.store.countOutboundCalls(projectRef, effective.epoch);
-    if (used >= ceiling) {
-      throw spendError('project outbound request ceiling reached', 'spend_denied');
+    if (ceiling != null) {
+      const used = this.store.countOutboundCalls(projectRef, effective.epoch);
+      if (used >= ceiling) {
+        throw spendError('project outbound request ceiling reached', 'spend_denied');
+      }
+    }
+    const estimate = configuredCallEstimate(effective, selection.provider, selection.modelId);
+    if (estimate) {
+      const accountedMicro = this.store.accountedEstimatedSpend(
+        projectRef,
+        effective.epoch,
+        estimate.currency,
+      );
+      if (accountedMicro + estimate.maxMicroPerCall > estimate.maxMicroPerProject) {
+        throw spendError('project configured estimated spend budget reached', 'spend_estimate_denied');
+      }
     }
   }
 
@@ -675,7 +770,7 @@ export class ConversationController {
    */
   #assertCallIdFresh(projectRef, turnId, phase) {
     const effective = effectiveProjectPolicy(this.policy, projectRef);
-    if (effective?.maxOutboundCallsPerProject == null) return;
+    if (effective?.maxOutboundCallsPerProject == null && !effective?.estimatedSpend) return;
     const status = this.store.getOutboundCall(
       projectRef,
       effective.epoch,
@@ -736,7 +831,7 @@ export class ConversationController {
     const speechId = typeof input.speechId === 'string' && input.speechId.trim()
       ? input.speechId.trim()
       : `speech:${randomUUID()}`;
-    this.#assertOutboundSpend(projectRef, speechId, 'transcribe');
+    this.#assertOutboundSpend(projectRef, speechId, 'transcribe', selection);
 
     const abort = new AbortController();
     const key = flightKey(projectRef, speechId);
@@ -749,13 +844,14 @@ export class ConversationController {
     const signal = composeAbortSignals([abort.signal, input.signal]);
 
     try {
-      const result = await this.#withOutboundCall(projectRef, speechId, 'transcribe', () => (
+      const result = await this.#withOutboundCall(projectRef, speechId, 'transcribe', selection, (onUsage) => (
         this.speechAdapter.transcribe({
           bytes,
           mimeType,
           filename: filenameForSpeechMediaType(mimeType),
           model: selection.modelId,
           signal,
+          onUsage,
         })
       ));
       const project = this.store.getProject(projectRef, actor);
@@ -1194,7 +1290,7 @@ export class ConversationController {
       };
     }
     const { provider, modelId } = this.#pinSelection(projectRef, input);
-    this.#assertOutboundSpend(projectRef, turnId, 'interpret');
+    this.#assertOutboundSpend(projectRef, turnId, 'interpret', { provider, modelId, providerId: provider.id });
 
     const abort = new AbortController();
     const timeout = AbortSignal.timeout(this.limits.maxDurationMs);
@@ -1220,11 +1316,12 @@ export class ConversationController {
         bounded,
       ].filter(Boolean).join('\n');
 
-      const raw = await this.#withOutboundCall(projectRef, turnId, 'interpret', () => provider.understand({
+      const raw = await this.#withOutboundCall(projectRef, turnId, 'interpret', { provider, modelId, providerId: provider.id }, (onUsage) => provider.understand({
         system: DOCUMENT_INTERPRET_SYSTEM_PROMPT,
         messages: [{ role: 'user', content: envelope }],
         signal,
         model: modelId,
+        onUsage,
       }));
       if (signal?.aborted) {
         return { status: 'incomplete', incomplete_reason: 'cancelled', project, proposals_created: [], ...this.#billingNote() };
@@ -1347,7 +1444,7 @@ function flightKey(projectRef, turnId) {
 
 function isSpendOrPolicyError(error) {
   const code = error && typeof error === 'object' ? error.code : undefined;
-  return code === 'policy_denied' || code === 'spend_denied' || code === 'spend_uncertain' || code === 'spend_committed';
+  return code === 'policy_denied' || (typeof code === 'string' && code.startsWith('spend_'));
 }
 
 /**

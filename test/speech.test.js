@@ -182,7 +182,10 @@ describe('openai-compatible completed-file transcription adapter', () => {
       });
       form = await request.formData();
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ text: 'Users need a sign-in check.' }));
+      res.end(JSON.stringify({
+        text: 'Users need a sign-in check.',
+        usage: { type: 'tokens', input_tokens: 12, output_tokens: 4, total_tokens: 16 },
+      }));
     });
     const origin = await listen(server);
     const endpoint = `${origin}/v1/audio/transcriptions`;
@@ -194,12 +197,18 @@ describe('openai-compatible completed-file transcription adapter', () => {
         modelId: 'whisper-fixture',
         allowedModels: ['whisper-fixture'],
       });
+      let usage = null;
       const result = await adapter.transcribe({
         bytes: SAMPLE,
         mimeType: 'audio/webm',
         model: 'whisper-fixture',
+        onUsage: (item) => { usage = item; },
       });
       assert.equal(result.text, 'Users need a sign-in check.');
+      assert.deepEqual(usage, {
+        kind: 'tokens', inputTokens: 12, outputTokens: 4, totalTokens: 16,
+        source: 'provider_response',
+      });
       assert.equal(seen?.method, 'POST');
       assert.equal(seen?.url, '/v1/audio/transcriptions');
       assert.equal(seen?.headers.authorization, 'Bearer dummy-speech-test');
