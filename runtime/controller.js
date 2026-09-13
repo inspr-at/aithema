@@ -1442,7 +1442,7 @@ function flightKey(projectRef, turnId) {
 
 function isSpendOrPolicyError(error) {
   const code = error && typeof error === 'object' ? error.code : undefined;
-  return code === 'policy_denied' || code === 'spend_denied' || code === 'spend_uncertain' || code === 'spend_committed';
+  return code === 'policy_denied' || (typeof code === 'string' && code.startsWith('spend_'));
 }
 
 /**

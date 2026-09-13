@@ -1244,7 +1244,9 @@ function mutationStatus(error) {
   if (error?.code === 'revision_conflict' || error?.code === 'stale_preview' || error?.code === 'preview_turn_conflict') return 409;
   if (error?.code === 'preview_disabled') return 404;
   if (error?.code === 'spend_uncertain' || error?.code === 'spend_committed') return 409;
-  if (error?.code === 'forbidden' || error?.code === 'policy_denied' || error?.code === 'spend_denied') return 403;
+  if (error?.code === 'forbidden' || error?.code === 'policy_denied' || error?.code === 'spend_denied'
+      || error?.code === 'spend_estimate_denied' || error?.code === 'spend_unpriced') return 403;
+  if (typeof error?.code === 'string' && error.code.startsWith('spend_usage_')) return 502;
   return 400;
 }
 
@@ -1267,7 +1269,9 @@ function transcribeStatus(error) {
   if (error?.code === 'too_large' || /too large/i.test(messageOf(error))) return 413;
   if (error?.code === 'speech_disabled') return 404;
   if (error?.code === 'spend_uncertain' || error?.code === 'spend_committed') return 409;
-  if (error?.code === 'forbidden' || error?.code === 'policy_denied' || error?.code === 'spend_denied') return 403;
+  if (error?.code === 'forbidden' || error?.code === 'policy_denied' || error?.code === 'spend_denied'
+      || error?.code === 'spend_estimate_denied' || error?.code === 'spend_unpriced') return 403;
+  if (typeof error?.code === 'string' && error.code.startsWith('spend_usage_')) return 502;
   if (error?.code === 'cancelled' || error?.name === 'AbortError') return 400;
   return 400;
 }
