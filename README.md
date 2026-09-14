@@ -37,6 +37,7 @@ START remains unchanged on its PMA business track. Public forge publication, STA
 - **Working-preview feedback** — optional operator-owned `previewBindings` map an existing project to one exact artifact revision and HTTP(S) preview URL. The framed preview is untrusted and can send only explicit bounded element refs through the opt-in adapter. Exact origin/window/binding/nonce checks populate an editable local draft; only the mapped human's authenticated, CSRF-protected Submit enters the existing conversation/provider/proposal path. Artifact rebinds and stale project revisions invalidate the draft. Preview context never approves a baseline or starts delivery.
 - **Speech input** — optional and disabled until an operator configures a speech provider, model, and exact OpenAI-compatible transcription endpoint. Chat Completions compatibility does not imply audio support. Record → Stop → Transcribe fills the existing message textarea as an editable draft; existing Send is unchanged and never automatic. No TTS. Raw audio stays in memory, is membership- and policy-gated, and is not stored. Browser MediaRecorder only; the implicit-cloud SpeechRecognition API is not used.
 - **Provider registry** — named operator-owned providers and allowed models. OpenAI-compatible endpoints (including self-hosted) are server-configured, with bounded duration and response size. The browser cannot supply endpoints, credentials, limits, or an unapproved model. The mock provider exists only in explicit labelled demo/test mode and never claims live AI. Speech uses an independent completed-file adapter and a labelled test double; it does not treat an arbitrary chat endpoint as a transcriber.
+- **Paimos harness provider** — optional `paimos-harness` registry entries use an existing enrolled Paimos account through its server-side conversation-service binding. The HTTPS origin, owner-only credential file, Paimos project, binding revision, trusted actor issuer, and single binding-approved model are operator configuration; none are browser inputs. Aithema sends the current verified actor subject in a separate trusted execution context for chat, understanding, and document interpretation. Calls remain cloud execution even when the enrolled account is a native Codex account. Completion is accepted only after consecutive bounded events and an exact SHA-256 answer digest; timeout, cancellation, partial output, malformed understanding, changed replay, redirects, and missing actor context fail closed without turning partial text into proposals.
 - **Execution and data policy** — optional operator `policy` on workspace config is the configured boundary (not organizational identity). Projects inherit and may only narrow via operator keys in `policy.projects`. Humans select among configured registry ids with additive `providerId` plus an approved model; the same pin is used for chat, understanding, and interpret. Speech may use a separately approved model on a named registry provider and still cannot change endpoint, location, data class, credentials, or limits. There is no fallback if the explicit or default selection is disallowed. Absent `policy` keeps the historical single-provider process. Operator-declared data-class and local/cloud labels are not automatic classification or measured network placement. `maxOutboundCallsPerProject` remains the default durable request-count policy. Operators may additionally configure fixed integer-micro token rates, a conservative maximum per call, and a project estimate budget; Aithema reserves the maximum atomically before egress and reconciles only supported provider-reported usage. Missing or uncertain usage keeps the maximum. These are configured estimates, not provider invoices, billed totals, or guaranteed currency caps.
 - **Identity** — production uses JWT/JWKS (issuer, audience, algorithm, time) plus a trusted membership/actor-kind map. Optional operator-owned OIDC Authorization Code + S256 PKCE browser login issues opaque HttpOnly sessions; ID-token claims never set actor-kind or roles. A signed subject is not automatically human. Unconfigured production identity fails closed, and incomplete browser-login config is refused. Demo auth is loopback-only, HMAC-bound, and visibly labelled. Demo signing keys are ephemeral per process unless the operator sets a private secret. Optional `publicBasePath` (empty default) serves the workspace under a configured prefix such as `/aithema` without changing `publicOrigin`, cookie names, or per-app membership; cookie `Path=/` is not a security boundary on a shared origin.
 - **Flow host** — the workspace embeds the pinned public Flow Shell 0.1.5 as a normal dependency. Host-issued Flow context uses opaque host/project/principal/binding/revision refs from the current verified actor and project membership. Raw subjects, emails, roles, tokens, and invented organizations are not placed in that context. Local demo vs OIDC-backed kinds stay distinct. Context is display data: consequential Flow intents are revalidated against current membership, and Paimos/Pharos/Janus starts stay explicitly unsupported. Requirements review still uses the existing approve/handover path.
@@ -76,6 +77,31 @@ aithema-workspace --config /path/to/operator-config.json
 ```
 
 `aithema-workspace` is the supported service executable installed from the immutable GitHub runtime tgz. It never selects the committed demo config implicitly: `--config FILE` is required, and the file must be readable, valid JSON, and valid workspace configuration before a socket is opened. `npm run workspace` remains a labelled loopback demo convenience and defaults to `examples/demo-config.json` only on that example path.
+
+An enrolled Paimos binding can be selected with a production registry entry like this (the credential file contains only the dedicated conversation-service bearer and must not be group/world-accessible):
+
+```json
+{
+  "defaultProvider": "paimos-account",
+  "providers": {
+    "paimos-account": {
+      "kind": "paimos-harness",
+      "origin": "https://paimos-operator.example.invalid",
+      "credentialFile": "/run/credentials/aithema-paimos-conversation",
+      "projectID": "operator-pinned-paimos-project",
+      "bindingID": "operator-pinned-binding",
+      "bindingRevision": 1,
+      "trustedIssuer": "https://auth.example.invalid",
+      "modelId": "binding-approved-model",
+      "allowedModels": ["binding-approved-model"],
+      "executionLocation": "cloud",
+      "allowedDataClasses": ["confidential"]
+    }
+  }
+}
+```
+
+The corresponding organization/project policy must allow that provider, `cloud` execution, and the intended data class. Runtime/account/profile selection stays inside the Paimos binding; Aithema sends no model override, browser cookie, account home, credential, output schema, path, command, or execution policy. Plain HTTP origins are accepted only for loopback fixtures in workspace `test` mode.
 
 ### Opt-in preview feedback
 

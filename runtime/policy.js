@@ -240,8 +240,12 @@ export function providerPolicyFields(entry, providerId) {
   if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
     throw new Error(`provider ${providerId} is not in the operator registry`);
   }
+  const executionLocation = boundExecutionLocation(entry.executionLocation);
+  if (entry.kind === 'paimos-harness' && executionLocation !== 'cloud') {
+    throw new Error(`provider ${providerId} paimos harness executionLocation must be cloud`);
+  }
   return {
-    executionLocation: boundExecutionLocation(entry.executionLocation),
+    executionLocation,
     allowedDataClasses: Object.freeze(uniqueBoundIds(entry.allowedDataClasses, 'allowedDataClasses')),
     estimatedSpend: normalizeProviderEstimatedSpend(
       entry.estimatedSpend,

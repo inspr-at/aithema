@@ -9,6 +9,7 @@
 
 import { validateUnderstanding } from './understanding.js';
 import { normalizeProviderEstimatedSpend } from './policy.js';
+import { PaimosHarnessProvider } from './paimos-provider.js';
 
 export const MOCK_PROVIDER_ID = 'mock';
 export const MOCK_REPLY_MARK = '[Demo / test provider — no live model was contacted.]';
@@ -89,6 +90,7 @@ export function composeAbortSignals(signals) {
  *   messages: readonly LlmMessage[],
  *   signal?: AbortSignal,
  *   model?: string,
+ *   executionContext?: object,
  *   onUsage?: (usage: object) => void,
  * }} LlmChatRequest
  * @typedef {{
@@ -657,6 +659,31 @@ function instantiateRegistryProvider(name, entry, config, options) {
       estimatedSpend: entry.estimatedSpend,
     });
   }
+  if (kind === 'paimos-harness') {
+    if (entry.executionLocation !== 'cloud') {
+      throw new Error('paimos harness executionLocation must be cloud');
+    }
+    return new PaimosHarnessProvider({
+      id: name,
+      origin: entry.origin,
+      credentialFile: entry.credentialFile,
+      projectID: entry.projectID,
+      bindingID: entry.bindingID,
+      bindingRevision: entry.bindingRevision,
+      trustedIssuer: entry.trustedIssuer,
+      modelId: entry.modelId,
+      allowedModels: entry.allowedModels,
+      executionLocation: entry.executionLocation,
+      allowedDataClasses: Array.isArray(entry.allowedDataClasses) ? entry.allowedDataClasses : undefined,
+      estimatedSpend: entry.estimatedSpend,
+      fetchImpl: options.fetchImpl,
+      limits: options.limits ?? config.limits,
+      mode,
+      pollIntervalMs: entry.pollIntervalMs,
+      retryDelayMs: entry.retryDelayMs,
+      cleanupTimeoutMs: entry.cleanupTimeoutMs,
+    });
+  }
   throw new Error(`unknown provider kind: ${kind}`);
 }
 
@@ -722,6 +749,12 @@ export function rejectBrowserProviderOverride(body) {
     'speech', 'speechEndpoint', 'speech_endpoint', 'transcriptionEndpoint',
     'transcription_endpoint', 'audio', 'audioBytes', 'redirect', 'location',
     'acceptedMediaTypes', 'maxAudioBytes', 'maxRecordingMs', 'maxTranscriptChars',
+    'origin', 'credentialFile', 'credential_file', 'projectID', 'project_id',
+    'bindingID', 'binding_id', 'bindingRevision', 'binding_revision',
+    'trustedIssuer', 'trusted_issuer', 'executionContext', 'execution_context',
+    'credential', 'credentialPath', 'credential_path', 'runtime', 'runtimeID',
+    'runtime_id', 'profile', 'profileID', 'profile_id', 'dispatchProfile',
+    'dispatch_profile',
   ]) {
     if (key in body && body[key] != null && body[key] !== '') {
       throw new Error('browser must not supply provider endpoints, credentials, or limits');
