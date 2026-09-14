@@ -34,6 +34,8 @@ export {
   PROVIDER_LIMIT_CEILINGS,
 } from './provider.js';
 
+export { PaimosHarnessProvider } from './paimos-provider.js';
+
 export {
   normalizeOrgPolicy,
   effectiveProjectPolicy,

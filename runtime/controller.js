@@ -372,8 +372,12 @@ export class ConversationController {
         signal,
         model: modelId,
       };
-      await this.#withOutboundCall(projectRef, turnId, 'chat', selection, async (onUsage) => {
-        for await (const chunk of provider.streamChat({ ...chatRequest, onUsage })) {
+      await this.#withOutboundCall(projectRef, turnId, 'chat', selection, async (onUsage, outbound) => {
+        for await (const chunk of provider.streamChat({
+          ...chatRequest,
+          executionContext: trustedExecutionContext(actor, projectRef, turnId, 'chat', outbound.requestId),
+          onUsage,
+        })) {
           assembled += chunk;
           if (assembled.length > this.limits.maxAssembledChars) {
             abort.abort();
@@ -423,11 +427,12 @@ export class ConversationController {
         const providerAssistantTranscript = input.feedback
           ? replaceLastUserContent(assistantAppend.transcript, providerUserText)
           : assistantAppend.transcript;
-        const raw = await this.#withOutboundCall(projectRef, turnId, 'understand', selection, (onUsage) => provider.understand({
+        const raw = await this.#withOutboundCall(projectRef, turnId, 'understand', selection, (onUsage, outbound) => provider.understand({
           system: UNDERSTANDING_SYSTEM_PROMPT,
           messages: messagesForProvider(providerAssistantTranscript),
           signal,
           model: modelId,
+          executionContext: trustedExecutionContext(actor, projectRef, turnId, 'understand', outbound.requestId),
           onUsage,
         }));
         const validated = validateUnderstanding(raw);
@@ -598,16 +603,17 @@ export class ConversationController {
    * @param {string} turnId
    * @param {'chat' | 'understand' | 'interpret' | 'transcribe'} phase
    * @param {{ provider: object, modelId: string, providerId?: string }} selection
-   * @param {(onUsage?: (usage: object) => void) => Promise<unknown>} invoke
+   * @param {(onUsage: ((usage: object) => void) | undefined, outbound: {requestId: string, phase: string}) => Promise<unknown>} invoke
    */
   async #withOutboundCall(projectRef, turnId, phase, selection, invoke) {
     const effective = effectiveProjectPolicy(this.policy, projectRef);
     const ceiling = effective?.maxOutboundCallsPerProject;
     const estimate = configuredCallEstimate(effective, selection.provider, selection.modelId);
-    if (ceiling == null && !estimate) {
-      return invoke();
-    }
     const callId = spendCallId(turnId, phase);
+    const outbound = Object.freeze({ requestId: callId, phase });
+    if (ceiling == null && !estimate) {
+      return invoke(undefined, outbound);
+    }
     const reservation = this.store.reserveOutboundCall({
       projectRef,
       epoch: effective.epoch,
@@ -648,7 +654,7 @@ export class ConversationController {
     let result;
     let invocationError;
     try {
-      result = await invoke(onUsage);
+      result = await invoke(onUsage, outbound);
     } catch (error) {
       invocationError = error;
     } finally {
@@ -1316,11 +1322,12 @@ export class ConversationController {
         bounded,
       ].filter(Boolean).join('\n');
 
-      const raw = await this.#withOutboundCall(projectRef, turnId, 'interpret', { provider, modelId, providerId: provider.id }, (onUsage) => provider.understand({
+      const raw = await this.#withOutboundCall(projectRef, turnId, 'interpret', { provider, modelId, providerId: provider.id }, (onUsage, outbound) => provider.understand({
         system: DOCUMENT_INTERPRET_SYSTEM_PROMPT,
         messages: [{ role: 'user', content: envelope }],
         signal,
         model: modelId,
+        executionContext: trustedExecutionContext(actor, projectRef, turnId, 'interpret', outbound.requestId),
         onUsage,
       }));
       if (signal?.aborted) {
@@ -1432,6 +1439,21 @@ function replaceLastUserContent(transcript, content) {
     }
   }
   return copy;
+}
+
+/**
+ * Provider execution metadata is built only from the already verified actor
+ * and controller-owned project/turn state. It is never part of model input.
+ */
+function trustedExecutionContext(actor, projectRef, turnId, purpose, requestId) {
+  return Object.freeze({
+    actor,
+    projectRef,
+    conversationId: projectRef,
+    turnId,
+    purpose,
+    requestId,
+  });
 }
 
 /**
