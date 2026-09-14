@@ -65,6 +65,33 @@ function callSnapshot(requestID, deadline, overrides = {}) {
   };
 }
 
+function boundedBarrier(label, timeoutMs = 1_000) {
+  let signal;
+  const reached = new Promise((resolve) => {
+    signal = resolve;
+  });
+  return {
+    signal,
+    wait: async () => {
+      let timer;
+      try {
+        await Promise.race([
+          reached,
+          new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error(`${label} was not reached`)), timeoutMs);
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+  };
+}
+
+function cancellationRequests(requests) {
+  return requests.filter((item) => item.method === 'POST' && item.url.endsWith('/cancel'));
+}
+
 async function fixture(mode = 'success') {
   const root = mkdtempSync(join(tmpdir(), 'aithema-paimos-'));
   const credentialFile = join(root, 'conversation.key');
@@ -75,6 +102,12 @@ async function fixture(mode = 'success') {
   let getAttempts = 0;
   let cancelled = 0;
   let admittedBody;
+  const admissionRequest = boundedBarrier('admission request');
+  const firstEventsRequest = boundedBarrier('first events request');
+  let releaseAdmissionResponse;
+  const admissionResponseReleased = new Promise((resolve) => {
+    releaseAdmissionResponse = resolve;
+  });
   const deadline = new Date(Date.now() + 60_000).toISOString();
   const server = createServer(async (req, res) => {
     const chunks = [];
@@ -87,6 +120,8 @@ async function fixture(mode = 'success') {
     if (req.method === 'POST' && req.url.endsWith('/calls')) {
       postAttempts += 1;
       admittedBody ??= body;
+      admissionRequest.signal();
+      if (mode === 'pre-admission-cancel') await admissionResponseReleased;
       if (mode === 'retry' && postAttempts === 1) {
         res.statusCode = 503;
         res.end('{}');
@@ -103,7 +138,8 @@ async function fixture(mode = 'success') {
       })));
       return;
     }
-    if (mode === 'timeout' || mode === 'cancel') {
+    if (req.method === 'GET' && req.url.includes('/events?')) firstEventsRequest.signal();
+    if (mode === 'cancel') {
       res.end(JSON.stringify({
         schema_version: 1,
         call_id: 'call-1',
@@ -173,15 +209,87 @@ async function fixture(mode = 'success') {
     pollIntervalMs: 2,
     retryDelayMs: 1,
     cleanupTimeoutMs: 200,
-    limits: { maxDurationMs: mode === 'timeout' ? 30 : 2_000 },
+    limits: { maxDurationMs: 2_000 },
   });
   return {
     provider,
     requests,
     postAttempts: () => postAttempts,
     cancelled: () => cancelled,
+    waitForAdmissionRequest: admissionRequest.wait,
+    releaseAdmissionResponse,
+    waitForFirstEventsRequest: firstEventsRequest.wait,
     close: async () => {
+      releaseAdmissionResponse();
       await new Promise((resolve) => server.close(resolve));
+      rmSync(root, { recursive: true, force: true });
+    },
+  };
+}
+
+async function timeoutFixture() {
+  const root = mkdtempSync(join(tmpdir(), 'aithema-paimos-timeout-'));
+  const credentialFile = join(root, 'conversation.key');
+  writeFileSync(credentialFile, 'fixture-conversation-key\n', { mode: 0o600 });
+  chmodSync(credentialFile, 0o600);
+  const requests = [];
+  const firstEventsRequest = boundedBarrier('first events request');
+  let releaseFirstEventsResponse;
+  const firstEventsResponseReleased = new Promise((resolve) => {
+    releaseFirstEventsResponse = resolve;
+  });
+  const deadline = new Date(Date.now() + 60_000).toISOString();
+  let admittedBody;
+  let cancelled = 0;
+  const fetchImpl = async (target, options) => {
+    const body = options.body ? JSON.parse(options.body) : undefined;
+    requests.push({ method: options.method, url: `${target.pathname}${target.search}`, body });
+    if (options.method === 'POST' && target.pathname.endsWith('/calls')) {
+      admittedBody = body;
+      return Response.json(callSnapshot(body.request_id, deadline), { status: 202 });
+    }
+    if (options.method === 'POST' && target.pathname.endsWith('/cancel')) {
+      cancelled += 1;
+      return Response.json(callSnapshot(admittedBody.request_id, deadline, {
+        state: 'cancel_requested',
+      }));
+    }
+    if (options.method === 'GET' && target.pathname.endsWith('/events')) {
+      firstEventsRequest.signal();
+      await firstEventsResponseReleased;
+      return Response.json({
+        schema_version: 1,
+        call_id: 'call-1',
+        events: [],
+        call: callSnapshot(admittedBody.request_id, deadline),
+      });
+    }
+    throw new Error('unexpected timeout fixture request');
+  };
+  const provider = new PaimosHarnessProvider({
+    id: 'paimos',
+    origin: 'https://paimos.example.invalid',
+    credentialFile,
+    projectID: 'paimos-project',
+    bindingID: 'binding-1',
+    bindingRevision: 7,
+    trustedIssuer: 'https://issuer.example.invalid',
+    modelId: 'binding-model',
+    allowedModels: ['binding-model'],
+    executionLocation: 'cloud',
+    allowedDataClasses: ['confidential'],
+    fetchImpl,
+    cleanupTimeoutMs: 200,
+    limits: { maxDurationMs: 30 },
+  });
+  return {
+    provider,
+    requests,
+    cancelled: () => cancelled,
+    waitForFirstEventsRequest: firstEventsRequest.wait,
+    releaseFirstEventsResponse,
+    close: () => {
+      releaseFirstEventsResponse();
       rmSync(root, { recursive: true, force: true });
     },
   };
@@ -312,17 +420,37 @@ describe('Paimos harness HTTP provider', () => {
     });
   }
 
-  it('uses an immutable timeout and a separate cleanup deadline', async () => {
-    const fx = await fixture('timeout');
+  it('uses an immutable timeout and a separate cleanup deadline', async (context) => {
+    let now = Date.now();
+    const requestedTimeouts = [];
+    const timeoutControllers = [];
+    context.mock.method(Date, 'now', () => now);
+    context.mock.method(AbortSignal, 'timeout', (duration) => {
+      const controller = new AbortController();
+      requestedTimeouts.push(duration);
+      timeoutControllers.push(controller);
+      return controller.signal;
+    });
+    const fx = await timeoutFixture();
     try {
-      await assert.rejects(
+      const rejected = assert.rejects(
         collect(fx.provider.streamChat(request('chat'))),
         (error) => error.code === 'incomplete_stream' && error.reason === 'timeout',
       );
+      await fx.waitForFirstEventsRequest();
+      assert.equal(requestedTimeouts[0], 30);
+      now += 30;
+      timeoutControllers.at(-1).abort(new DOMException('deadline exceeded', 'TimeoutError'));
+      fx.releaseFirstEventsResponse();
+      await rejected;
       assert.equal(fx.cancelled(), 1);
       assert.equal(fx.requests[0].body.timeout_ms, 30);
+      assert.equal(cancellationRequests(fx.requests).length, 1);
+      assert.equal(requestedTimeouts.at(-1), 200);
     } finally {
-      await fx.close();
+      fx.releaseFirstEventsResponse();
+      fx.close();
+      context.mock.restoreAll();
     }
   });
 
@@ -331,10 +459,31 @@ describe('Paimos harness HTTP provider', () => {
     const abort = new AbortController();
     try {
       const work = collect(fx.provider.streamChat(request('chat', abort.signal)));
-      setTimeout(() => abort.abort(), 15);
-      await assert.rejects(work, (error) => error.name === 'AbortError');
-      assert.equal(fx.cancelled(), 1);
+      const rejected = assert.rejects(work, (error) => error.name === 'AbortError');
+      await fx.waitForFirstEventsRequest();
+      abort.abort();
+      await rejected;
+      assert.equal(cancellationRequests(fx.requests).length, 1);
+      assert.deepEqual(cancellationRequests(fx.requests)[0].body, {});
     } finally {
+      abort.abort();
+      await fx.close();
+    }
+  });
+
+  it('does not claim remote cancellation when the caller aborts before admission', async () => {
+    const fx = await fixture('pre-admission-cancel');
+    const abort = new AbortController();
+    try {
+      const work = collect(fx.provider.streamChat(request('chat', abort.signal)));
+      const rejected = assert.rejects(work, (error) => error.name === 'AbortError');
+      await fx.waitForAdmissionRequest();
+      abort.abort();
+      await rejected;
+      assert.equal(cancellationRequests(fx.requests).length, 0);
+    } finally {
+      abort.abort();
+      fx.releaseAdmissionResponse();
       await fx.close();
     }
   });
