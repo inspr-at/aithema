@@ -5,7 +5,8 @@
 
 import { createHash } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
-import { open } from 'node:fs/promises';
+import { lstat, open, realpath } from 'node:fs/promises';
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 
 import {
   IncompleteProviderStreamError,
@@ -25,6 +26,9 @@ const MAX_CREDENTIAL_BYTES = 8 * 1024;
 const MAX_JSON_BYTES = 4 * 1024 * 1024;
 const DEFAULT_POLL_MS = 500;
 const DEFAULT_CLEANUP_MS = 2_000;
+const SYSTEMD_CREDENTIAL_NAME = 'paimos-conversation-api-key';
+const SYSTEMD_CREDENTIALS_PARENT = '/run/credentials';
+const SYSTEMD_CREDENTIALS_DIRECTORY = `${SYSTEMD_CREDENTIALS_PARENT}/aithema-workspace.service`;
 const CALL_STATES = new Set([
   'queued', 'claimed', 'running', 'cancel_requested', 'completed', 'failed', 'cancelled',
 ]);
@@ -48,6 +52,79 @@ function safeHeader(value, label) {
   const text = boundedString(value, label, 1024);
   if (!/^[\x20-\x7e]+$/u.test(text)) throw new Error(`${label} is invalid`);
   return text;
+}
+
+function permissionBits(stat) {
+  return stat.mode & 0o777;
+}
+
+function isPrivateCredentialFile(stat) {
+  return stat.isFile()
+    && stat.size >= 1
+    && stat.size <= MAX_CREDENTIAL_BYTES
+    && (stat.mode & 0o077) === 0
+    && (typeof process.geteuid !== 'function' || stat.uid === process.geteuid());
+}
+
+/**
+ * Classify a configured path against the one fixed systemd LoadCredential
+ * mount and filename this provider supports. A malformed in-directory reference
+ * is rejected instead of falling through to the generic credential reader.
+ *
+ * @param {string} credentialFile
+ * @param {unknown} credentialsDirectory
+ * @returns {{ kind: 'generic' } | { kind: 'invalid' } | { kind: 'systemd', directory: string }}
+ */
+export function classifySystemdCredentialPath(credentialFile, credentialsDirectory) {
+  if (typeof credentialsDirectory !== 'string' || !credentialsDirectory
+    || credentialsDirectory.includes('\0') || !isAbsolute(credentialsDirectory)) {
+    return { kind: 'generic' };
+  }
+  const directory = resolve(credentialsDirectory);
+  if (credentialsDirectory !== SYSTEMD_CREDENTIALS_DIRECTORY) {
+    return credentialFile === join(directory, SYSTEMD_CREDENTIAL_NAME)
+      || credentialFile.startsWith(`${directory}${sep}`)
+      ? { kind: 'invalid' }
+      : { kind: 'generic' };
+  }
+  const expected = join(directory, SYSTEMD_CREDENTIAL_NAME);
+  if (credentialFile === expected) return { kind: 'systemd', directory };
+
+  // Keep an attempt such as "$CREDENTIALS_DIRECTORY/../other" from being
+  // accepted under the less-special generic rule.
+  if (credentialFile === directory || credentialFile.startsWith(`${directory}${sep}`)) {
+    return { kind: 'invalid' };
+  }
+  return { kind: 'generic' };
+}
+
+/**
+ * Validate only the observed, service-owned systemd LoadCredential layout:
+ * root:root 0550 directory and root:root 0400/0440 regular file. The caller
+ * obtains all metadata with lstat/open(O_NOFOLLOW), so symlinks are refused.
+ *
+ * @param {{ isDirectory: () => boolean, isSymbolicLink: () => boolean, uid: number, gid: number, mode: number }} directory
+ * @param {{ isDirectory: () => boolean, isSymbolicLink: () => boolean, uid: number, gid: number, mode: number }} parent
+ * @param {{ isFile: () => boolean, uid: number, gid: number, mode: number, size: number }} credential
+ */
+export function hasProtectedSystemdCredentialLayout(directory, parent, credential) {
+  const fileMode = permissionBits(credential);
+  return directory.isDirectory()
+    && !directory.isSymbolicLink()
+    && directory.uid === 0
+    && directory.gid === 0
+    && permissionBits(directory) === 0o550
+    && parent.isDirectory()
+    && !parent.isSymbolicLink()
+    && parent.uid === 0
+    && parent.gid === 0
+    && (permissionBits(parent) & 0o022) === 0
+    && credential.isFile()
+    && credential.uid === 0
+    && credential.gid === 0
+    && (fileMode === 0o400 || fileMode === 0o440)
+    && credential.size >= 1
+    && credential.size <= MAX_CREDENTIAL_BYTES;
 }
 
 function wellFormed(value) {
@@ -460,11 +537,12 @@ export class PaimosHarnessProvider {
   async #readCredential() {
     let handle;
     try {
+      const systemd = await this.#systemdCredentialContext();
       handle = await open(this.credentialFile, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
       const stat = await handle.stat();
-      if (!stat.isFile() || stat.size < 1 || stat.size > MAX_CREDENTIAL_BYTES
-        || (stat.mode & 0o077) !== 0
-        || (typeof process.geteuid === 'function' && stat.uid !== process.geteuid())) {
+      if (systemd
+        ? !hasProtectedSystemdCredentialLayout(systemd.directory, systemd.parent, stat)
+        : !isPrivateCredentialFile(stat)) {
         throw new Error('Paimos credential file is not protected');
       }
       const text = (await handle.readFile('utf8')).replace(/\r?\n$/u, '');
@@ -477,6 +555,25 @@ export class PaimosHarnessProvider {
     } finally {
       await handle?.close().catch(() => {});
     }
+  }
+
+  async #systemdCredentialContext() {
+    const candidate = classifySystemdCredentialPath(
+      this.credentialFile,
+      process.env.CREDENTIALS_DIRECTORY,
+    );
+    if (candidate.kind === 'generic') return null;
+    if (candidate.kind === 'invalid') throw new Error('Paimos credential file is not protected');
+
+    const directory = await lstat(candidate.directory);
+    const parentPath = dirname(candidate.directory);
+    const parent = await lstat(parentPath);
+    if (parentPath !== SYSTEMD_CREDENTIALS_PARENT
+      || await realpath(candidate.directory) !== candidate.directory
+      || await realpath(parentPath) !== SYSTEMD_CREDENTIALS_PARENT) {
+      throw new Error('Paimos credential file is not protected');
+    }
+    return { directory, parent };
   }
 
   #signal(parent, deadline) {
