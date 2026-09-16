@@ -60,6 +60,22 @@ Pinned in `package-lock.json` (package.json remains `private: true` as the npm p
 | `fontkit` 2.0.4 | MIT | Opens pinned Noto Sans WOFF subsets to verify glyph coverage before PDF export. |
 | `@fontsource/noto-sans` 5.2.5 | SIL OFL 1.1 | Embedded Latin, Latin-Extended, Greek, and Cyrillic WOFF subsets in PDF. Standalone HTML uses the viewing device’s system font stack for broader Unicode. PDF export is not universal Unicode: characters those subset files cannot paint (for example CJK and some Latin Extended Additional codepoints such as U+1EBF and U+1EC7) are refused with an error that points at lossless HTML/JSON, never dropped as missing glyphs. CJK is not embedded (those files are large). |
 
+## Privacy and necessary storage
+
+The current Aithema workspace has no analytics, advertising, or social cookies and ships no consent banner. Its server-rendered shell and the pinned Flow Shell assets load from the same origin. Standalone HTML uses the device’s system font stack; PDF fonts are embedded in the PDF. Aithema has no `localStorage` or `sessionStorage` keys. Raw speech data, when the optional feature is configured, is held in memory for the request and is not stored.
+
+The inventory below covers the `aithema` workspace source and the packaged runtime built from it. A marketing microsite and any hosted preview are separate surfaces: they are not loaded by the workspace shell and need their own deployment inventory. An operator-configured preview is a contextual, sandboxed iframe and is admitted only through its exact origin in the response CSP; it is absent unless a binding is configured. An identity-provider redirect or sign-in link is navigation, not a page resource loaded by Aithema. Provider-owned login cookies are set on the identity provider’s origin and are not set or read by Aithema.
+
+| Storage | Setter | Purpose | Lifetime | Category / deployment note | Legal-basis record |
+| --- | --- | --- | --- | --- | --- |
+| `aithema_demo` cookie | `workspace/server.js` | Loopback-only labelled demo identity, authenticated by the server’s HMAC verifier | Browser session; no `Max-Age` | Necessary authentication for demo/test mode; `Path=/; HttpOnly; SameSite=Lax` | Operator records the applicable basis for the deployment; this package makes no legal determination |
+| `aithema_login` cookie | `runtime/oidc-login.js` | Binds the OIDC Authorization Code + PKCE callback to its short-lived login transaction | 600 seconds | Necessary sign-in security state; `Path=/; HttpOnly; SameSite=Lax`, plus `Secure` for HTTPS | Operator records the applicable basis for the deployment; this package makes no legal determination |
+| `aithema_session` cookie | `runtime/oidc-login.js` | Opaque server-side session for an operator-configured OIDC identity | Configured `session_ttl_seconds`, 1 second to 24 hours (larger values capped); default 8 hours | Necessary authenticated session; `Path=/; HttpOnly; SameSite=Lax`, plus `Secure` for HTTPS | Operator records the applicable basis for the deployment; this package makes no legal determination |
+| Provider-owned identity cookies | The configured OIDC provider | Provider sign-in and session state | Provider-defined | Outside Aithema’s response; the operator must obtain the provider’s actual names, purposes, and retention for the deployed issuer | Provider/operator documentation |
+| `localStorage` / `sessionStorage` | None in Aithema source/runtime | No browser key is used | None | No client storage inventory entry | Not applicable |
+
+The workspace’s default shell is authored to reference only same-origin HTML, inline styles, same-origin host modules, the pinned Flow Shell modules/styles, and the same-origin logo. External links may be shown for operator-configured identity-provider actions; they are not fetched as page resources. Any future analytics, advertising, or social integration remains off by default and must be cookieless with no persistent identifier and EU hosting if an operator later enables it; any consent component also remains off by default until separately reviewed. This source and CI check does not replace a fresh-profile network capture. Operators remain responsible for the notices and records required by their deployment and identity provider.
+
 No raw uploads or customer records are written. Tests use the labelled mock provider and labelled speech test double only.
 
 ## Usage
