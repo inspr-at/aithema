@@ -2,7 +2,14 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdtempSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -13,6 +20,10 @@ import {
   createProviderRegistry,
   normalizeOrgPolicy,
 } from '../runtime/index.js';
+import {
+  classifySystemdCredentialPath,
+  hasProtectedSystemdCredentialLayout,
+} from '../runtime/paimos-provider.js';
 
 const actor = Object.freeze({
   party_ref: 'party:reviewer',
@@ -213,6 +224,7 @@ async function fixture(mode = 'success') {
   });
   return {
     provider,
+    credentialFile,
     requests,
     postAttempts: () => postAttempts,
     cancelled: () => cancelled,
@@ -317,6 +329,125 @@ async function collect(iterable) {
   for await (const chunk of iterable) text += chunk;
   return text;
 }
+
+function statFixture({
+  type,
+  uid = 0,
+  gid = 0,
+  mode,
+  size = 32,
+  symlink = false,
+}) {
+  return {
+    uid,
+    gid,
+    mode,
+    size,
+    isDirectory: () => type === 'directory',
+    isFile: () => type === 'file',
+    isSymbolicLink: () => symlink,
+  };
+}
+
+describe('Paimos credential source boundary', () => {
+  const credentialsDirectory = '/run/credentials/aithema-workspace.service';
+  const credentialFile = `${credentialsDirectory}/paimos-conversation-api-key`;
+
+  it('admits only the observed root-owned systemd LoadCredential layout', () => {
+    const directory = statFixture({ type: 'directory', mode: 0o550 });
+    const parent = statFixture({ type: 'directory', mode: 0o755 });
+    const credential = statFixture({ type: 'file', mode: 0o440 });
+    assert.deepEqual(
+      classifySystemdCredentialPath(credentialFile, credentialsDirectory),
+      { kind: 'systemd', directory: credentialsDirectory },
+    );
+    assert.equal(hasProtectedSystemdCredentialLayout(directory, parent, credential), true);
+  });
+
+  it('rejects root/group-readable ordinary files and unsafe systemd metadata', () => {
+    const directory = statFixture({ type: 'directory', mode: 0o550 });
+    const parent = statFixture({ type: 'directory', mode: 0o755 });
+    assert.equal(
+      hasProtectedSystemdCredentialLayout(directory, parent, statFixture({ type: 'file', mode: 0o640 })),
+      false,
+    );
+    assert.equal(
+      hasProtectedSystemdCredentialLayout(
+        statFixture({ type: 'directory', mode: 0o550, symlink: true }),
+        parent,
+        statFixture({ type: 'file', mode: 0o440 }),
+      ),
+      false,
+    );
+    assert.equal(
+      hasProtectedSystemdCredentialLayout(
+        directory,
+        statFixture({ type: 'directory', mode: 0o775 }),
+        statFixture({ type: 'file', mode: 0o440 }),
+      ),
+      false,
+    );
+  });
+
+  it('rejects alternate names and reference/path escapes below CREDENTIALS_DIRECTORY', () => {
+    assert.deepEqual(
+      classifySystemdCredentialPath(`${credentialsDirectory}/other`, credentialsDirectory),
+      { kind: 'invalid' },
+    );
+    assert.deepEqual(
+      classifySystemdCredentialPath(`${credentialsDirectory}/../other/paimos-conversation-api-key`, credentialsDirectory),
+      { kind: 'invalid' },
+    );
+    assert.deepEqual(
+      classifySystemdCredentialPath('/operator-owned/credential', credentialsDirectory),
+      { kind: 'generic' },
+    );
+    assert.deepEqual(
+      classifySystemdCredentialPath(
+        '/root/forged/paimos-conversation-api-key',
+        '/root/forged',
+      ),
+      { kind: 'invalid' },
+    );
+    assert.deepEqual(
+      classifySystemdCredentialPath(
+        credentialFile,
+        '/run/credentials/../credentials/aithema-workspace.service',
+      ),
+      { kind: 'invalid' },
+    );
+  });
+
+  it('keeps generic credentials owner-only and refuses symlinks before egress', async () => {
+    const groupReadable = await fixture();
+    try {
+      chmodSync(groupReadable.credentialFile, 0o640);
+      await assert.rejects(
+        () => collect(groupReadable.provider.streamChat(request('chat'))),
+        /Paimos credential is unavailable/,
+      );
+      assert.equal(groupReadable.postAttempts(), 0);
+    } finally {
+      await groupReadable.close();
+    }
+
+    const linked = await fixture();
+    try {
+      const target = `${linked.credentialFile}.target`;
+      writeFileSync(target, 'fixture-conversation-key\n', { mode: 0o600 });
+      chmodSync(target, 0o600);
+      unlinkSync(linked.credentialFile);
+      symlinkSync(target, linked.credentialFile);
+      await assert.rejects(
+        () => collect(linked.provider.streamChat(request('chat'))),
+        /Paimos credential is unavailable/,
+      );
+      assert.equal(linked.postAttempts(), 0);
+    } finally {
+      await linked.close();
+    }
+  });
+});
 
 describe('Paimos harness HTTP provider', () => {
   it('executes the bounded protocol through the configured fetch boundary', async () => {
