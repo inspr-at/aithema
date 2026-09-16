@@ -39,11 +39,40 @@ function testConfig(dataDir) {
   };
 }
 
-function launch(configPath, gracePeriodMs = 200) {
-  const child = spawn(executable, [
+function protectedSpeechConfig(dataDir, speech = undefined) {
+  const config = testConfig(dataDir);
+  config.providers.local = {
+    kind: 'openai-compatible',
+    baseUrl: 'http://127.0.0.1:9/v1',
+    apiKey: 'protected-provider-fixture-key',
+    modelId: 'chat-fixture',
+    allowedModels: ['chat-fixture'],
+    executionLocation: 'local',
+    allowedDataClasses: ['unclassified'],
+  };
+  if (speech !== undefined) config.speech = speech;
+  return config;
+}
+
+function validPublicSpeechConfig() {
+  return {
+    kind: 'openai-compatible-transcription',
+    providerId: 'local',
+    model: 'speech-fixture',
+    allowedModels: ['speech-fixture'],
+    endpoint: 'http://127.0.0.1:9/v1/audio/transcriptions',
+    acceptedMediaTypes: ['audio/webm', 'audio/mp4'],
+    limits: { maxAudioBytes: 1024, maxRequestBytes: 2048, maxDurationMs: 1000 },
+  };
+}
+
+function launch(configPath, gracePeriodMs = 200, speechConfigPath = null) {
+  const args = [
     '--config', configPath,
     '--shutdown-grace-ms', String(gracePeriodMs),
-  ], {
+  ];
+  if (speechConfigPath) args.push('--speech-config', speechConfigPath);
+  const child = spawn(executable, args, {
     cwd: '/tmp',
     stdio: ['ignore', 'pipe', 'pipe'],
   });
@@ -145,6 +174,92 @@ describe('AIT-22 supported workspace executable', () => {
       assert.deepEqual(exited, { code: 0, signal: null });
     } finally {
       if (running.child.exitCode === null) running.child.kill('SIGKILL');
+      trashTemp(dir);
+    }
+  });
+
+  it('accepts only a public speech sidecar and inherits the protected registry provider', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'aithema-pack-cli-speech-'));
+    const configPath = join(dir, 'config.json');
+    const speechPath = join(dir, 'speech.json');
+    const config = protectedSpeechConfig(join(dir, 'data'));
+    writeFileSync(configPath, `${JSON.stringify(config)}\n`, 'utf8');
+    writeFileSync(speechPath, `${JSON.stringify(validPublicSpeechConfig())}\n`, 'utf8');
+    const running = launch(configPath, 200, speechPath);
+    try {
+      const match = await running.waitFor(/listening at (http:\/\/\S+)/);
+      const health = await fetch(`${match[1]}/health`);
+      assert.deepEqual(await health.json(), { ok: true, ready: true });
+      const mounted = new URL(match[1]);
+      const session = await fetch(`${mounted.origin}${mounted.pathname}/session/demo`, {
+        method: 'POST',
+        headers: {
+          origin: mounted.origin,
+          'content-type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({ subject: 'runner-test' }),
+        redirect: 'manual',
+      });
+      const cookie = (session.headers.getSetCookie?.() ?? []).find((item) => item.startsWith('aithema_demo='))?.split(';')[0];
+      assert.equal(session.status, 303);
+      assert.ok(cookie);
+      const project = await fetch(`${mounted.origin}${mounted.pathname}/projects`, {
+        method: 'POST',
+        headers: {
+          cookie,
+          origin: mounted.origin,
+          'content-type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({ title: 'Speech sidecar project', project_kinds: 'new_product' }),
+        redirect: 'manual',
+      });
+      assert.equal(project.status, 303);
+      const page = await (await fetch(new URL(project.headers.get('location'), mounted.origin), {
+        headers: { cookie },
+      })).text();
+      assert.match(page, /id="workspace-speech"/);
+      assert.match(page, /speech-fixture/);
+      running.child.kill('SIGTERM');
+      assert.deepEqual(await running.waitForExit(), { code: 0, signal: null });
+    } finally {
+      if (running.child.exitCode === null) running.child.kill('SIGKILL');
+      trashTemp(dir);
+    }
+  });
+
+  it('rejects malformed, secret-bearing, unknown, and colliding speech sidecars without echoing input', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'aithema-pack-cli-speech-invalid-'));
+    const configPath = join(dir, 'config.json');
+    const speechPath = join(dir, 'speech-secret-marker.json');
+    const collisionPath = join(dir, 'collision.json');
+    try {
+      writeFileSync(configPath, `${JSON.stringify(protectedSpeechConfig(join(dir, 'data')))}\n`, 'utf8');
+      writeFileSync(collisionPath, `${JSON.stringify(protectedSpeechConfig(
+        join(dir, 'collision-data'), validPublicSpeechConfig(),
+      ))}\n`, 'utf8');
+      for (const body of [
+        '{"apiKey":"speech-sidecar-secret-marker"',
+        'null',
+        '[]',
+        JSON.stringify({ ...validPublicSpeechConfig(), apiKey: 'speech-sidecar-secret-marker' }),
+        JSON.stringify({ ...validPublicSpeechConfig(), providers: { replacement: {} } }),
+        JSON.stringify({ ...validPublicSpeechConfig(), limits: { ...validPublicSpeechConfig().limits, unknown: 1 } }),
+        JSON.stringify({ ...validPublicSpeechConfig(), endpoint: 'https://user:pass@invalid.example/transcriptions' }),
+      ]) {
+        writeFileSync(speechPath, body, 'utf8');
+        const result = spawnSync(executable, ['--config', configPath, '--speech-config', speechPath], {
+          cwd: '/tmp', encoding: 'utf8',
+        });
+        assert.notEqual(result.status, 0);
+        assert.doesNotMatch(`${result.stdout}\n${result.stderr}`, /speech-sidecar-secret-marker|user:pass|providers/);
+      }
+      writeFileSync(speechPath, JSON.stringify(validPublicSpeechConfig()), 'utf8');
+      const collision = spawnSync(executable, ['--config', collisionPath, '--speech-config', speechPath], {
+        cwd: '/tmp', encoding: 'utf8',
+      });
+      assert.notEqual(collision.status, 0);
+      assert.doesNotMatch(`${collision.stdout}\n${collision.stderr}`, /speech-sidecar-secret-marker/);
+    } finally {
       trashTemp(dir);
     }
   });
