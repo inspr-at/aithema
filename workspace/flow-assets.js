@@ -8,10 +8,10 @@ import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const FLOW_SHELL_TARBALL_URL =
-  'https://github.com/inspr-at/flow-shell/releases/download/v0.1.5/inspr-flow-shell-0.1.5.tgz';
+  'https://github.com/inspr-at/flow-shell/releases/download/v0.2.1/inspr-flow-shell-0.2.1.tgz';
 export const FLOW_SHELL_TARBALL_SHA256 =
-  '17a56f0b2899c91847521672bc9b58b82e85e0259dd69f8e9f416949561641c7';
-export const FLOW_SHELL_VERSION = '0.1.5';
+  '26d77999397dc25247066a189c8a4a728f636a0f7046b60dbb13cfedeab250bf';
+export const FLOW_SHELL_VERSION = '0.2.1';
 
 const FLOW_PREFIX = '/flow-shell/';
 const HOST_SCRIPTS = Object.freeze({
