@@ -9,8 +9,25 @@ import {
   DEFAULT_SHUTDOWN_GRACE_MS,
 } from '../workspace/index.js';
 
-const USAGE = 'Usage: aithema-workspace --config FILE [--shutdown-grace-ms MILLISECONDS]';
+const USAGE = 'Usage: aithema-workspace --config FILE [--speech-config FILE] [--shutdown-grace-ms MILLISECONDS]';
 const MAX_SHUTDOWN_GRACE_MS = 300_000;
+const SPEECH_CONFIG_KEYS = new Set([
+  'kind',
+  'providerId',
+  'model',
+  'allowedModels',
+  'endpoint',
+  'acceptedMediaTypes',
+  'limits',
+]);
+const SPEECH_LIMIT_KEYS = new Set([
+  'maxAudioBytes',
+  'maxRequestBytes',
+  'maxRecordingMs',
+  'maxDurationMs',
+  'maxResponseBytes',
+  'maxTranscriptChars',
+]);
 
 function parseCli(argv) {
   let parsed;
@@ -21,6 +38,7 @@ function parseCli(argv) {
       strict: true,
       options: {
         config: { type: 'string' },
+        'speech-config': { type: 'string' },
         help: { type: 'boolean', short: 'h' },
         'shutdown-grace-ms': { type: 'string' },
       },
@@ -30,6 +48,7 @@ function parseCli(argv) {
   }
   if (parsed.values.help) return { help: true };
   if (!parsed.values.config) throw new Error('arguments');
+  if (parsed.values['speech-config'] === '') throw new Error('arguments');
 
   const graceText = parsed.values['shutdown-grace-ms'];
   const gracePeriodMs = graceText === undefined
@@ -44,9 +63,54 @@ function parseCli(argv) {
   }
   return {
     configPath: resolve(parsed.values.config),
+    speechConfigPath: parsed.values['speech-config']
+      ? resolve(parsed.values['speech-config'])
+      : null,
     gracePeriodMs,
     help: false,
   };
+}
+
+/**
+ * A public speech sidecar intentionally has a narrower schema than the
+ * operator-owned speech object. It cannot carry credentials, provider
+ * registry entries, policy, identity, or arbitrary future fields.
+ * @param {unknown} value
+ */
+function validatePublicSpeechConfig(value) {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('speech config must be an object');
+  }
+  for (const key of Object.keys(value)) {
+    if (!SPEECH_CONFIG_KEYS.has(key)) throw new Error('speech config contains an unsupported field');
+  }
+  const limits = value.limits;
+  if (limits != null) {
+    if (typeof limits !== 'object' || Array.isArray(limits)) {
+      throw new Error('speech limits must be an object');
+    }
+    for (const key of Object.keys(limits)) {
+      if (!SPEECH_LIMIT_KEYS.has(key)) throw new Error('speech limits contain an unsupported field');
+    }
+  }
+  return value;
+}
+
+/**
+ * Merge one strictly public speech object without writing a derived runtime
+ * config. The protected config remains the sole owner of registry credentials,
+ * policy, and identity.
+ * @param {unknown} protectedConfig
+ * @param {unknown} publicSpeechConfig
+ */
+function mergeSpeechConfig(protectedConfig, publicSpeechConfig) {
+  if (protectedConfig === null || typeof protectedConfig !== 'object' || Array.isArray(protectedConfig)) {
+    throw new Error('workspace config must be an object');
+  }
+  if (Object.hasOwn(protectedConfig, 'speech')) {
+    throw new Error('protected workspace config already owns speech configuration');
+  }
+  return { ...protectedConfig, speech: validatePublicSpeechConfig(publicSpeechConfig) };
 }
 
 async function run() {
@@ -66,7 +130,11 @@ async function run() {
   let workspace;
   try {
     const configText = await readFile(options.configPath, 'utf8');
-    const config = JSON.parse(configText);
+    let config = JSON.parse(configText);
+    if (options.speechConfigPath) {
+      const speechText = await readFile(options.speechConfigPath, 'utf8');
+      config = mergeSpeechConfig(config, JSON.parse(speechText));
+    }
     workspace = createWorkspaceServer(config);
     if (workspace.config.mode === 'production' && workspace.config.dataDir === ':memory:') {
       throw new Error('production service requires persistent storage');
