@@ -98,6 +98,10 @@ function listTarballPaths(archivePath) {
 function seedSourceExportTree(repo, allowlist) {
   seedMinimalPackageTree(repo, allowlist);
   for (const rel of [
+    'DCO',
+    'scripts/check-dco.py',
+    'tests/test_dco.py',
+    '.github/workflows/dco.yml',
     'release/source-allowlist.json',
     'release/build-source.mjs',
     'release/publication-inventory.json',
@@ -191,6 +195,9 @@ describe('AIT-11 public source export', () => {
     assert.equal(paths.includes('release/publication-inventory.json'), true);
     assert.equal(paths.includes('bin/aithema-workspace.js'), true);
     assert.equal(paths.includes('.github/workflows/ci.yml'), true);
+    for (const path of ['DCO', 'scripts/check-dco.py', 'tests/test_dco.py', '.github/workflows/dco.yml']) {
+      assert.equal(paths.includes(path), true, `source export must retain ${path}`);
+    }
   });
 
   it('refuses to widen the export through a caller-supplied allowlist', () => {
