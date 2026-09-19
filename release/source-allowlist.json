@@ -3,6 +3,9 @@
   "paths": [
     ".gitignore",
     "LICENSE",
+    "DCO",
+    "scripts/check-dco.py",
+    "tests/test_dco.py",
     "NOTICES.json",
     "README.md",
     "RUNBOOK.md",
