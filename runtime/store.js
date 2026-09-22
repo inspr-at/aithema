@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 
 import { assertRehydratedBaseline } from '../lib/validate.js';
 import { createStream } from '../lib/stream.js';
+import { assertCanCreateProjects } from './identity.js';
 
 const SCHEMA = `
 PRAGMA foreign_keys = ON;
@@ -135,6 +136,7 @@ export class SqliteProjectStore {
    * }} input
    */
   createProject(input) {
+    assertCanCreateProjects(input.actor);
     const projectRef = input.projectRef || `project:${randomUUID()}`;
     const conversationRef = `conversation:${randomUUID()}`;
     const now = new Date().toISOString();

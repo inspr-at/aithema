@@ -307,7 +307,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
         });
         redirect(res, toPublic(`/projects/${encodeURIComponent(project.project_ref)}`));
       } catch (error) {
-        html(res, 400, pageModel({ actor, sessionAuthenticated, projects: store.listProjects(actor), error: messageOf(error) }));
+        html(res, error?.code === 'forbidden' ? 403 : 400, pageModel({ actor, sessionAuthenticated, projects: store.listProjects(actor), error: messageOf(error) }));
       }
       return;
     }

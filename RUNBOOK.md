@@ -74,6 +74,25 @@ Access is decided on every request from:
 
 Removing a `project_ref` from a subject's `projects[]` revokes mapped access to that project for every path (page, handover, review, cancel). It does **not** revoke access to projects that subject created independently — creator grants persist until the subject is removed from `memberships` entirely. Sharing `party_ref` does not share access. Human approval still requires a mapped human with `requirements_approver`; creator grant is access, not approval.
 
+An optional membership `can_create_projects: false` disables project creation
+in both the browser and store API; omitted or `true` preserves existing behavior.
+The field must be a boolean and comes only from operator membership mapping,
+never token claims or form input. Existing project membership remains unchanged.
+For a dedicated sandbox reviewer, set `actor_kind: "human"`, only
+`roles: ["requirements_approver"]`, exactly one `projects` reference and
+`can_create_projects: false` before enabling access.
+
+To provision that initial empty project without temporarily broadening access,
+back up the existing database and stop its workspace service. From the deployed
+package run `node bin/aithema-provision-project.js --config FILE --subject ID
+--project-ref REF --title "UXQA sandbox"` for a read-only preflight, then repeat
+with `--apply`. The protected config stays in memory and output is value-free.
+The operator command requires an existing database/current membership schema,
+inserts only the configured new project, creates no persistent creator grant,
+and refuses an existing project rather than altering it. It does not start a
+web server, call a provider or migrate the schema. Restart the workspace with
+the same reviewed config afterward; normal browser login remains required.
+
 Older databases that stored `members` as `(project_ref, party_ref)` are migrated by renaming that table to `members_legacy_party` and creating the subject-keyed table empty. Legacy party-keyed rows are **not** replayed as grants: they mixed creator rows with write-once mapped-access cache and cannot distinguish subjects who share a party name.
 
 **Non-destructive recovery:** existing projects, transcripts, revisions, and sealed baselines are retained across migration. To restore access for a retained project, add its `project_ref` to the intended subject's `identity.memberships[].projects` in operator config and restart — do not delete or recreate the SQLite file. Re-binding preserves `content_digest`, `revision_seal`, transcript, and approved baseline intact. `members_legacy_party` is left in place for inspection and is not consulted for authorization.

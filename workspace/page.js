@@ -287,7 +287,9 @@ function renderProjectNav(model, collapsed) {
   const list = (model.projects ?? []).map((project) => (
     `<li><a class="wrap" href="${href(model, `/projects/${encodeURIComponent(project.project_ref)}`)}">${escapeHtml(project.title)}</a></li>`
   )).join('');
-  const form = `<form method="post" action="${href(model, '/projects')}">
+  const form = model.actor?.can_create_projects === false
+    ? '<p class="meta">Project creation is managed by your administrator.</p>'
+    : `<form method="post" action="${href(model, '/projects')}">
       <label>Title <input name="title" required maxlength="200"></label>
       <p>Project kinds are not mutually exclusive:</p>
       <label><input type="checkbox" name="project_kinds" value="new_product" checked> new product</label>
