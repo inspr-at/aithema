@@ -20,6 +20,7 @@ export const JWKS_REFRESH_COOLDOWN_CEILING_MS = 300_000;
  *   roles: readonly import('../lib/types.js').PartyRole[],
  *   subject: string,
  *   projects: readonly string[],
+ *   can_create_projects?: boolean,
  * }} VerifiedActor
  */
 
@@ -40,6 +41,9 @@ export function validateVerifiedActor(value) {
   }
   if (!Array.isArray(value.projects)) {
     throw new Error('verified actor projects must be an array');
+  }
+  if (Object.hasOwn(value, 'can_create_projects') && typeof value.can_create_projects !== 'boolean') {
+    throw new Error('can_create_projects must be a boolean');
   }
   if (typeof value.subject !== 'string' || !value.subject.trim()) {
     throw new Error('verified actor subject is required');
@@ -80,6 +84,15 @@ export function assertProjectMember(actor, projectRef) {
   throw new Error('not a member of this project');
 }
 
+/** Operator-owned creation ceiling; omitted preserves existing behavior. */
+export function assertCanCreateProjects(actor) {
+  const verified = validateVerifiedActor(actor);
+  if (verified.can_create_projects === false) {
+    throw Object.assign(new Error('Project creation is not permitted for this account.'), { code: 'forbidden' });
+  }
+  return verified;
+}
+
 /**
  * @param {unknown} mapping
  * @param {string} mode
@@ -96,6 +109,7 @@ export function validateMembershipMapping(mapping, mode = 'production') {
       roles: entry.roles,
       subject: entry.subject,
       projects: Array.isArray(entry.projects) ? entry.projects : [],
+      ...(Object.hasOwn(entry, 'can_create_projects') ? { can_create_projects: entry.can_create_projects } : {}),
     });
     if (mode === 'production' && actor.projects.includes('*')) {
       throw new Error('production identity cannot use wildcard project membership');

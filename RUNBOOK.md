@@ -1,6 +1,6 @@
 # Aithema workspace runbook
 
-This package prepares public GitHub-source candidate `0.10.0` (explicit `legacy-semver-public`). Releases `0.1.0` through `0.9.0` are already published at [inspr-at/aithema](https://github.com/inspr-at/aithema) (`v0.1.0` through `v0.9.0`). The commands below are for local operator/developer use. They do not publish to npm, create a tag, deploy, or prove a live provider or OIDC integration.
+This package prepares public GitHub-source candidate `0.10.1` (explicit `legacy-semver-public`). Releases `0.1.0` through `0.10.0` are already published at [inspr-at/aithema](https://github.com/inspr-at/aithema) (`v0.1.0` through `v0.10.0`). The commands below are for local operator/developer use. They do not publish to npm, create a tag, deploy, or prove a live provider or OIDC integration.
 
 ## Tests (deterministic, no live credentials)
 
@@ -29,14 +29,14 @@ Generated printable fixtures for coordinator QA (outside the repo): write review
 ```bash
 npm run source:export
 mkdir -p /tmp/aithema-source-review
-tar -xzf dist/inspr-aithema-core-source-0.10.0/inspr-aithema-core-source-0.10.0.tgz -C /tmp/aithema-source-review
+tar -xzf dist/inspr-aithema-core-source-0.10.1/inspr-aithema-core-source-0.10.1.tgz -C /tmp/aithema-source-review
 cd /tmp/aithema-source-review
 npm ci
 npm test
 npm run release:build
 ```
 
-The extracted tree has no private Git metadata. Runtime release builds inside the extracted tree bind `release/source-provenance.json` to the runtime tree and lock digests, then stamp frozen `source.commit` with `current_source_commit` (the Git commit actually exported). They do not require private history and do not put private lineage into the runtime manifest. `private_source_commit` stays the original lineage (`2ba95dad…`) and `current_source_commit` is the public commit; git-mode and tree-mode runtime manifests then agree. Canonical publication toolchain is CI `ubuntu-latest` + Node 24 + GNU tar; timestamp input is the committer epoch recorded as `export_mtime_epoch`. Tag-gated `release/retain-forge-assets.mjs` retains admitted GitHub Release assets only when the ref is `refs/tags/{version}` or `refs/tags/v{version}`; a syntactically valid tag for another coordinate is refused before any forge I/O. `upload-artifact` is ephemeral transfer only. The release workflow sets `AITHEMA_CANONICAL_RELEASE=1` so admission and builders require the declared Node 24 + GNU tar toolchain; local BSD tar builds stay valid and are not claimed to match CI bytes. Coordinator-only gates after this candidate: published `0.1.0` through `0.9.0` at `inspr-at/aithema` remain immutable; run the release workflow on a matching `0.10.0` tag, download consumer proof, and pin START separately. npm registry publication is not authorized and this tree does not claim the `@inspr` npm namespace. NIX-501 identity configuration and API activation, and AIT-14 configured request-count/provider execution, have separate evidence; those checks do not establish a complete production browser OIDC login journey, which remains an explicit acceptance gate. Measured provider billing remains unavailable while estimates are unset. This candidate carries optional `--speech-config` without changing legacy protected inline speech behavior or implicitly enabling production speech, Flow Shell 0.2.1, and an exact `$CREDENTIALS_DIRECTORY=/run/credentials/aithema-workspace.service` systemd `LoadCredential=` Paimos credential mount reader; generic credential files remain owner-only. OpenRouter speech compatibility is proven separately on v0.8.0; production speech activation and controller-owned browser/microphone QA remain required. Paimos credential enrollment remains a separate gate.
+The extracted tree has no private Git metadata. Runtime release builds inside the extracted tree bind `release/source-provenance.json` to the runtime tree and lock digests, then stamp frozen `source.commit` with `current_source_commit` (the Git commit actually exported). They do not require private history and do not put private lineage into the runtime manifest. `private_source_commit` stays the original lineage (`2ba95dad…`) and `current_source_commit` is the public commit; git-mode and tree-mode runtime manifests then agree. Canonical publication toolchain is CI `ubuntu-latest` + Node 24 + GNU tar; timestamp input is the committer epoch recorded as `export_mtime_epoch`. Tag-gated `release/retain-forge-assets.mjs` retains admitted GitHub Release assets only when the ref is `refs/tags/{version}` or `refs/tags/v{version}`; a syntactically valid tag for another coordinate is refused before any forge I/O. `upload-artifact` is ephemeral transfer only. The release workflow sets `AITHEMA_CANONICAL_RELEASE=1` so admission and builders require the declared Node 24 + GNU tar toolchain; local BSD tar builds stay valid and are not claimed to match CI bytes. Coordinator-only gates after this candidate: published `0.1.0` through `0.10.0` at `inspr-at/aithema` remain immutable; run the release workflow on a matching `0.10.1` tag, download consumer proof, and pin START separately. npm registry publication is not authorized and this tree does not claim the `@inspr` npm namespace. NIX-501 identity configuration and API activation, and AIT-14 configured request-count/provider execution, have separate evidence; those checks do not establish a complete production browser OIDC login journey, which remains an explicit acceptance gate. Measured provider billing remains unavailable while estimates are unset. This candidate carries optional `--speech-config` without changing legacy protected inline speech behavior or implicitly enabling production speech, Flow Shell 0.2.1, and an exact `$CREDENTIALS_DIRECTORY=/run/credentials/aithema-workspace.service` systemd `LoadCredential=` Paimos credential mount reader; generic credential files remain owner-only. OpenRouter speech compatibility is proven separately on v0.8.0; production speech activation and controller-owned browser/microphone QA remain required. Paimos credential enrollment remains a separate gate.
 
 ## Labelled demo workspace (loopback only)
 
@@ -73,6 +73,46 @@ Access is decided on every request from:
 2. the current operator membership `projects[]` mapping for that same subject.
 
 Removing a `project_ref` from a subject's `projects[]` revokes mapped access to that project for every path (page, handover, review, cancel). It does **not** revoke access to projects that subject created independently — creator grants persist until the subject is removed from `memberships` entirely. Sharing `party_ref` does not share access. Human approval still requires a mapped human with `requirements_approver`; creator grant is access, not approval.
+
+An optional membership `can_create_projects: false` disables project creation
+in both the browser and store API; omitted or `true` preserves existing behavior.
+The field must be a boolean and comes only from operator membership mapping,
+never token claims or form input. Existing project membership remains unchanged.
+For a dedicated sandbox reviewer, first deploy the AIT-31-capable package
+(`0.10.1` or later) and confirm that exact package is running **before** adding
+its membership. Earlier binaries silently ignore `can_create_projects` and
+would allow project creation. Only after that confirmation add the subject with
+`actor_kind: "human"`, only `roles: ["requirements_approver"]`, exactly one
+`projects` reference and `can_create_projects: false`. Keep the workspace
+stopped while adding this restricted mapping and provisioning its project.
+
+To provision that initial empty project without temporarily broadening access,
+back up the existing database and stop its workspace service. Run as the
+workspace service account, with the same restricted access to its database and
+protected config; running SQLite as root can leave root-owned WAL/SHM files.
+The Nix package installs the operator script at
+`$DEPLOYED_AITHEMA_PACKAGE/lib/node_modules/@inspr/aithema-core/bin/aithema-provision-project.js`.
+Resolve `DEPLOYED_AITHEMA_PACKAGE` to the confirmed running package before
+stopping it; this script is not a separate executable on PATH. Use its Node 24
+runtime with `--config FILE --subject ID --project-ref REF --title "UXQA sandbox"`
+for a read-only preflight, then repeat with `--apply`. Arrange service-account
+access to the protected config without printing it; a systemd credential mount
+may disappear when the service stops. The config stays in memory and output
+is value-free.
+
+The operator command requires an existing database/current membership schema,
+inserts only the configured new project, creates no persistent creator grant,
+and refuses an existing project or **any** older `members` row for the subject.
+Both the preflight and write transaction check those constraints consistently;
+the apply path rechecks under a write lock. A refusal needs explicit review,
+not automatic removal of existing grants. The tool does not start a web server,
+call a provider or migrate the schema. Restart the confirmed new package with
+the same reviewed config afterward; normal browser login remains required.
+
+Before rollback to a build older than AIT-31, stop the workspace and remove the
+restricted subject from operator memberships **before** activating the older
+binary. Do not retain that mapping and rely on the older reader to enforce the
+new field. Preserve the sandbox database for a later reviewed re-enable.
 
 Older databases that stored `members` as `(project_ref, party_ref)` are migrated by renaming that table to `members_legacy_party` and creating the subject-keyed table empty. Legacy party-keyed rows are **not** replayed as grants: they mixed creator rows with write-once mapped-access cache and cannot distinguish subjects who share a party name.
 
