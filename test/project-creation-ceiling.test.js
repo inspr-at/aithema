@@ -65,6 +65,25 @@ test('offline provision inserts only the mapped project, no creator grant, and n
   } finally { store.close(); }
 });
 
+test('provisioning refuses a reviewer with any earlier creator grant without changing stored rows', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'aithema-existing-reviewer-'));
+  t.after(() => execFileSync('trash', [dir]));
+  const databaseFile = join(dir, 'aithema-workspace.sqlite');
+  const store = new SqliteProjectStore(databaseFile);
+  store.createProject({ projectRef: 'project:earlier-work', title: 'Earlier work', projectKinds: ['integration'], actor: { ...reviewer, can_create_projects: true } });
+  store.close();
+  const inspect = () => {
+    const db = new DatabaseSync(databaseFile, { readOnly: true });
+    try { return { projects: db.prepare('SELECT * FROM projects ORDER BY project_ref').all(), members: db.prepare('SELECT * FROM members ORDER BY project_ref, subject').all() }; }
+    finally { db.close(); }
+  };
+  const before = inspect();
+  for (const apply of [false, true]) {
+    assert.throws(() => provisionMappedProject({ databaseFile, actor: reviewer, projectRef: 'project:uxqa', title: 'UXQA sandbox', apply }), /Existing subject grants/);
+    assert.deepEqual(inspect(), before);
+  }
+});
+
 test('HTTP and visible UI reject creation without losing mapped project access', async () => {
   const workspace = createWorkspaceServer({ mode: 'test', dataDir: ':memory:', listenHost: '127.0.0.1', listenPort: 0,
     defaultProvider: 'mock', providers: { mock: { kind: 'mock' } },

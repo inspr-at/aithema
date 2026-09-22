@@ -24,13 +24,18 @@ export function provisionMappedProject({ databaseFile, actor, projectRef, title,
   const db = new DatabaseSync(databaseFile, { readOnly: !apply });
   let transaction = false;
   try {
-    if (apply) { db.exec('BEGIN IMMEDIATE'); transaction = true; }
+    db.exec(apply ? 'BEGIN IMMEDIATE' : 'BEGIN'); transaction = true;
     const existing = db.prepare('SELECT project_ref FROM projects WHERE project_ref = ?').get(projectRef);
     if (existing) throw new Error('Project already exists; provisioning never changes an existing project.');
     db.prepare(`SELECT project_ref, title, project_kinds, stream_json, transcript_json,
       understanding_json, conversation_ref, revision, created_at, updated_at FROM projects LIMIT 0`).all();
     // Confirm the current membership schema without writing any membership.
     db.prepare('SELECT project_ref, subject, grant_kind FROM members LIMIT 0').all();
+    // Creation ceilings do not revoke older creator grants. Refuse any prior
+    // subject membership in the same snapshot/transaction as the insert.
+    if (db.prepare('SELECT 1 FROM members WHERE subject = ? LIMIT 1').get(actor.subject)) {
+      throw new Error('Existing subject grants require explicit review before provisioning.');
+    }
     if (apply) {
       const now = new Date().toISOString();
       db.prepare(`INSERT INTO projects (

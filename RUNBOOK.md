@@ -78,20 +78,41 @@ An optional membership `can_create_projects: false` disables project creation
 in both the browser and store API; omitted or `true` preserves existing behavior.
 The field must be a boolean and comes only from operator membership mapping,
 never token claims or form input. Existing project membership remains unchanged.
-For a dedicated sandbox reviewer, set `actor_kind: "human"`, only
-`roles: ["requirements_approver"]`, exactly one `projects` reference and
-`can_create_projects: false` before enabling access.
+For a dedicated sandbox reviewer, first deploy the AIT-31-capable package
+(`0.10.1` or later) and confirm that exact package is running **before** adding
+its membership. Earlier binaries silently ignore `can_create_projects` and
+would allow project creation. Only after that confirmation add the subject with
+`actor_kind: "human"`, only `roles: ["requirements_approver"]`, exactly one
+`projects` reference and `can_create_projects: false`. Keep the workspace
+stopped while adding this restricted mapping and provisioning its project.
 
 To provision that initial empty project without temporarily broadening access,
-back up the existing database and stop its workspace service. From the deployed
-package run `node bin/aithema-provision-project.js --config FILE --subject ID
---project-ref REF --title "UXQA sandbox"` for a read-only preflight, then repeat
-with `--apply`. The protected config stays in memory and output is value-free.
+back up the existing database and stop its workspace service. Run as the
+workspace service account, with the same restricted access to its database and
+protected config; running SQLite as root can leave root-owned WAL/SHM files.
+The Nix package installs the operator script at
+`$DEPLOYED_AITHEMA_PACKAGE/lib/node_modules/@inspr/aithema-core/bin/aithema-provision-project.js`.
+Resolve `DEPLOYED_AITHEMA_PACKAGE` to the confirmed running package before
+stopping it; this script is not a separate executable on PATH. Use its Node 24
+runtime with `--config FILE --subject ID --project-ref REF --title "UXQA sandbox"`
+for a read-only preflight, then repeat with `--apply`. Arrange service-account
+access to the protected config without printing it; a systemd credential mount
+may disappear when the service stops. The config stays in memory and output
+is value-free.
+
 The operator command requires an existing database/current membership schema,
 inserts only the configured new project, creates no persistent creator grant,
-and refuses an existing project rather than altering it. It does not start a
-web server, call a provider or migrate the schema. Restart the workspace with
+and refuses an existing project or **any** older `members` row for the subject.
+Both the preflight and write transaction check those constraints consistently;
+the apply path rechecks under a write lock. A refusal needs explicit review,
+not automatic removal of existing grants. The tool does not start a web server,
+call a provider or migrate the schema. Restart the confirmed new package with
 the same reviewed config afterward; normal browser login remains required.
+
+Before rollback to a build older than AIT-31, stop the workspace and remove the
+restricted subject from operator memberships **before** activating the older
+binary. Do not retain that mapping and rely on the older reader to enforce the
+new field. Preserve the sandbox database for a later reviewed re-enable.
 
 Older databases that stored `members` as `(project_ref, party_ref)` are migrated by renaming that table to `members_legacy_party` and creating the subject-keyed table empty. Legacy party-keyed rows are **not** replayed as grants: they mixed creator rows with write-once mapped-access cache and cannot distinguish subjects who share a party name.
 
