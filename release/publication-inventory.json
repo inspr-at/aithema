@@ -189,7 +189,7 @@
     "prepared_candidate": {
       "version": "0.10.1",
       "status": "metadata-prepared",
-      "feature_note": "Mapped human reviewers can be confined to explicitly provisioned projects with can_create_projects:false. The operator-only offline provisioner creates a non-production sandbox and its exact subject membership without enabling browser project creation. Existing OIDC browser login, Flow Shell 0.2.1, credential boundaries and legacy version scheme are retained."
+      "feature_note": "Mapped human reviewers can be confined to explicitly provisioned projects with can_create_projects:false. The operator-only offline provisioner inserts one empty, operator-mapped project into an existing production database; it writes no membership or creator grant. Existing OIDC browser login, Flow Shell 0.2.1, credential boundaries and legacy version scheme are retained."
     }
   },
   "outstanding_coordinator_gates": [
