@@ -27,11 +27,11 @@ const mutations = [
     ['revoke', "this.#dispatch({ type: 'revoke', epoch });", 'callback revoke stops every signal'],
     ['captureOnly', "this.#dispatch({ type: 'capture-only', reason });", 'callback revoke stops every signal'],
     ['end', "this.#dispatch({ type: 'end', reason });", 'session end stops every signal'],
-    ['applyAuthority', "this.#dispatch({ type: 'authority', authority });", 'authority epoch stops every signal'],
-    ['consumeStoredRecord', "this.#dispatch({ type: 'journal-record', record: { document, bytes: Buffer.from(stored.bytes).toString('base64') } });", 'journal suspend stops every signal'],
+    ['applyAuthority', "this.#dispatch({ type: 'authority', authority, purgeCoordinator });", 'authority epoch stops every signal'],
+    ['consumeStoredRecord', "this.#dispatch({ type: 'journal-record', record: { document, bytes: Buffer.from(stored.bytes).toString('base64') }, purgeCoordinator });", 'journal suspend stops every signal'],
     ['markPurged', "this.#dispatch({ type: 'cache-purged' });", 'tombstone is committed before cancellation/drain'],
     ['markPurgeAcknowledged', "this.#dispatch({ type: 'purge-acknowledged' });", 'journal re-drives a failed purge cache'],
-  ].map(([name, needle, regression]) => ({ name: `${name} calls the single transition authority`, file: 'session.js', changes: [[needle, '/* mutation: omitted transition */']], regression })),
+  ].map(([name, needle, regression]) => ({ name: `${name} calls the single transition authority`, file: 'session.js', changes: [[needle, 'undefined; /* mutation: omitted transition */']], regression })),
   {
     name: 'monitor callback calls the single transition authority', file: 'authority-monitor.js',
     changes: [["revoke(epoch) { this.#session.revoke(epoch); }", "revoke(epoch) {}"]],
@@ -39,7 +39,7 @@ const mutations = [
   },
   {
     name: 'poll applies the accepted authority before purge effects', file: 'authority-monitor.js',
-    changes: [["this.#session.applyAuthority(authority);", '/* mutation: omitted authority */']],
+    changes: [["this.#session.applyAuthority(authority, { purgeCoordinator: this.#purge });", 'undefined; /* mutation: omitted authority */']],
     regression: 'a +60s clock spike followed by honest epoch',
   },
   {
@@ -50,12 +50,12 @@ const mutations = [
   {
     name: 'host issued_at never orders accepted responses', file: 'authority-monitor.js',
     changes: [["  #lastAuthority;", "  #lastAuthority;\n  #lastIssued = -Infinity;"],
-      ["this.#session.applyAuthority(authority);", "if (Date.parse(authority.issued_at) < this.#lastIssued) throw new AuthzError(503, 'Backwards host time');\n      this.#lastIssued = Date.parse(authority.issued_at);\n      this.#session.applyAuthority(authority);"]],
+      ["const purging = this.#session.applyAuthority(authority, { purgeCoordinator: this.#purge });", "if (Date.parse(authority.issued_at) < this.#lastIssued) throw new AuthzError(503, 'Backwards host time');\n      this.#lastIssued = Date.parse(authority.issued_at);\n      const purging = this.#session.applyAuthority(authority, { purgeCoordinator: this.#purge });"]],
     regression: 'a +60s clock spike followed by honest epoch stops old signals within 45s with 9000ms responses',
   },
   {
     name: 'lifecycle observer stop prevents authority lease renewal', file: 'authority-monitor.js',
-    changes: [["if (!this.#running) return; // A synchronous lifecycle observer may stop us.", '/* mutation: renew after observer stop */']],
+    changes: [["if (!this.#running) { await purging; return; } // A synchronous lifecycle observer may stop us.", '/* mutation: renew after observer stop */']],
     regression: 'a lifecycle observer stopping the monitor cannot create new authority timers after stop',
   },
   {
@@ -80,7 +80,7 @@ const mutations = [
   },
   {
     name: 'initial journal purge uses the common re-drive entry point', file: 'session.js',
-    changes: [["if (this.scope.tombstone === 'purge') await this.redrivePurge(options.purgeCoordinator);", '/* mutation: omitted initial purge */']],
+    changes: [["this.consumeStoredRecord(stored, { purgeCoordinator: options.purgeCoordinator });", 'undefined; /* mutation: omitted initial purge */']],
     regression: 'a purge learned through JournalPort runs the same bounded coordinator protocol',
   },
   {
@@ -89,9 +89,70 @@ const mutations = [
     regression: 'journal re-drives a failed purge cache',
   },
   {
-    name: 'authority snapshots re-drive purge after a failed step', file: 'authority-monitor.js',
-    changes: [["await this.#session.redrivePurge(this.#purge, authority.tombstone_record);", '/* mutation: omitted authority purge */']],
+    name: 'authority snapshots re-drive purge after a failed step', file: 'transition.js',
+    changes: [["if (next.scope.tombstone === 'purge' && !next.purgeAcknowledged)", "if (event.type !== 'authority' && next.scope.tombstone === 'purge' && !next.purgeAcknowledged)"]],
     regression: 'authority re-drives a failed purge cache',
+  },
+  {
+    name: 're-entrant inputs cannot run a nested transition synchronously', file: 'session.js',
+    changes: [["if (this.#draining) return;", '/* mutation: run a nested transition synchronously */']],
+    regression: 'an abort listener queues nested applyAuthority until captureOnly stops and notifies completely',
+  },
+  ...['revoke', 'captureOnly', 'end', 'applyAuthority', 'consumeStoredRecord suspend', 'consumeStoredRecord resume'].map((entry) => ({
+    name: `${entry} enqueues from an observer without a nested transition`, file: 'session.js',
+    changes: [["if (this.#draining) return;", '/* mutation: run a nested transition synchronously */']],
+    regression: `an onChange observer queues ${entry} until the current notification completes`,
+  })),
+  ...['markPurged', 'markPurgeAcknowledged'].map((entry) => ({
+    name: `${entry} enqueues from an observer without a nested transition`, file: 'session.js',
+    changes: [["if (this.#draining) return;", '/* mutation: run a nested transition synchronously */']],
+    regression: `an onChange observer queues ${entry} before the next purge state commit`,
+  })),
+  {
+    name: 'redrivePurge enqueues from an observer without a nested transition', file: 'session.js',
+    changes: [["if (this.#draining) return;", '/* mutation: run a nested transition synchronously */']],
+    regression: 'an observer queues redrivePurge and retains its receipt only after the current event completes',
+  },
+  {
+    name: 'queued authority owns a call-time snapshot', file: 'session.js',
+    changes: [["authority: structuredClone(event.authority)", "authority: event.authority"]],
+    regression: 'queued authority inputs retain their call-time bytes',
+  },
+  {
+    name: 'the event loop commits state before abort callbacks', file: 'session.js',
+    changes: [["this.#lifecycle = state;", 'if (!this.#lifecycle) this.#lifecycle = state; /* mutation: defer state commit */'],
+      ["for (const effect of effects) {", "for (const effect of effects) {\n      if (effect.type === 'notify') this.#lifecycle = state;"]],
+    regression: 'an abort listener queues nested applyAuthority until captureOnly stops and notifies completely',
+  },
+  {
+    name: 'observer failure cannot strand already queued inputs', file: 'session.js',
+    changes: [["catch (error) { failure ??= error; }", "catch (error) { failure ??= error; break; }"]],
+    regression: 'an observer failure cannot strand queued revocation',
+  },
+  {
+    name: 'PURGING retains the authority receipt before observer notification', file: 'transition.js',
+    changes: [["if (authority.tombstone === 'purge' && event.record)", 'if (false)']],
+    regression: 'an observer stopping the monitor on PURGING cannot skip receipt retention',
+  },
+  {
+    name: 'stopping the monitor cannot skip the purge lifecycle effect', file: 'session.js',
+    changes: [["entry.result = this.#startPurge(effect.error);", 'entry.result = undefined; /* mutation: omitted purge effect */']],
+    regression: 'an observer stopping the monitor on PURGING cannot skip receipt retention',
+  },
+  {
+    name: 'PURGING schedules re-drive before observer notification', file: 'transition.js',
+    changes: [["return { state: freeze(next), effects };", "return { state: freeze(next), effects: effects.sort((a, b) => (a.type === 'notify' ? -1 : b.type === 'notify' ? 1 : 0)) };"]],
+    regression: 'purge re-drive is scheduled before a failing PURGING observer notification',
+  },
+  {
+    name: 'initial journal receipt emits a purge lifecycle effect', file: 'transition.js',
+    changes: [["if (next.scope.tombstone === 'purge' && !next.purgeAcknowledged)", "if (event.type !== 'journal-record' && next.scope.tombstone === 'purge' && !next.purgeAcknowledged)"]],
+    regression: 'a purge learned through JournalPort runs the same bounded coordinator protocol',
+  },
+  {
+    name: 'explicit purge retry emits the same lifecycle effect', file: 'transition.js',
+    changes: [["if (next.scope.tombstone === 'purge' && !next.purgeAcknowledged)", "if (event.type !== 'redrive-purge' && next.scope.tombstone === 'purge' && !next.purgeAcknowledged)"]],
+    regression: 'journal re-drives a failed purge cache',
   },
   {
     name: 'failed inventory is retried before drain/deletion/ack', file: 'purge.js',

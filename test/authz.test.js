@@ -698,6 +698,106 @@ describe('(a, c, e) processing authorization, revocation and journal tombstones'
     return { bytes: bytes(doc), document: { ...doc, seq } };
   };
 
+  it('an abort listener queues nested applyAuthority until captureOnly stops and notifies completely', () => {
+    const observations = [];
+    let afterNested;
+    const local = localSession({ onChange: ({ state }) => observations.push({ state, actual: local.state,
+      aborted: [local.captureSignal, local.microphoneSignal, local.outputSignal, local.pendingSignal].map((signal) => signal.aborted) }) });
+    const originals = [local.captureSignal, local.microphoneSignal, local.outputSignal, local.pendingSignal];
+    originals[1].addEventListener('abort', () => {
+      local.applyAuthority({ ...scope(), tombstone: null });
+      afterNested = local.state;
+    }, { once: true });
+    local.captureOnly();
+    assert.equal(afterNested, 'CAPTURE_ONLY', 'A re-entrant call enqueues and returns without transitioning');
+    assert.deepEqual(observations, [
+      { state: 'CAPTURE_ONLY', actual: 'CAPTURE_ONLY', aborted: [false, true, true, true] },
+      { state: 'ACTIVE', actual: 'ACTIVE', aborted: [false, false, false, false] },
+    ]);
+    assert.equal(local.state, 'ACTIVE');
+    local.assertNewClaim();
+    assert.ok([local.microphoneSignal, local.outputSignal, local.pendingSignal].every((signal) => !signal.aborted));
+    local.revoke();
+    assert.ok(originals.every((signal) => signal.aborted), 'The queue retains historical capture signals too');
+  });
+
+  for (const [name, enqueue, final] of [
+    ['revoke', (local) => local.revoke(2), 'REVOKED'],
+    ['captureOnly', (local) => local.captureOnly(), 'CAPTURE_ONLY'],
+    ['end', (local) => local.end(), 'ENDED'],
+    ['applyAuthority', (local) => local.applyAuthority({ ...scope({ worker_generation: 2 }), tombstone: null }), 'FENCED'],
+    ['consumeStoredRecord suspend', (local) => local.consumeStoredRecord(storedControl('suspend')), 'SUSPENDED'],
+    ['consumeStoredRecord resume', (local) => local.consumeStoredRecord(storedControl('resume', 2)), 'ACTIVE'],
+  ]) it(`an onChange observer queues ${name} until the current notification completes`, () => {
+    const notifications = [];
+    let inside;
+    let queued = false;
+    const local = localSession({ onChange: ({ state }) => {
+      notifications.push([state, local.state]);
+      if (!queued && (name !== 'captureOnly' || state === 'ACTIVE')) {
+        queued = true;
+        enqueue(local);
+        inside = local.state;
+      }
+    } });
+    const initial = name === 'captureOnly' ? 'ACTIVE' : name.endsWith('resume') ? 'SUSPENDED' : 'CAPTURE_ONLY';
+    if (initial === 'SUSPENDED') local.consumeStoredRecord(storedControl('suspend'));
+    else if (initial === 'ACTIVE') {
+      local.consumeStoredRecord(storedControl('suspend'));
+      local.consumeStoredRecord(storedControl('resume', 2));
+    }
+    else local.captureOnly();
+    assert.equal(inside, initial);
+    assert.equal(local.state, final);
+    const expected = initial === final ? [[initial, initial]] : [[initial, initial], [final, final]];
+    if (initial === 'ACTIVE') expected.unshift(['SUSPENDED', 'SUSPENDED']);
+    assert.deepEqual(notifications, expected);
+    assert.ok([local.microphoneSignal, local.outputSignal, local.pendingSignal].every((signal) => signal.aborted === (final !== 'ACTIVE')));
+  });
+
+  for (const step of ['markPurged', 'markPurgeAcknowledged']) it(`an onChange observer queues ${step} before the next purge state commit`, () => {
+    let before, after, queued = false;
+    const at = step === 'markPurged' ? 'PURGING' : 'PURGED';
+    const local = localSession({ onChange: ({ state }) => {
+      if (state !== at || queued) return;
+      queued = true;
+      before = [local.state, local.purgeAcknowledged];
+      local[step]();
+      after = [local.state, local.purgeAcknowledged];
+    } });
+    local.applyAuthority({ ...scope(), tombstone: 'purge' });
+    if (step === 'markPurgeAcknowledged') local.markPurged();
+    assert.deepEqual(after, before, 'A purge callback cannot run a nested transition');
+    assert.equal(local.state, 'PURGED');
+    assert.equal(local.purgeAcknowledged, step === 'markPurgeAcknowledged');
+  });
+
+  it('queued authority inputs retain their call-time bytes when an observer mutates its object', () => {
+    const authority = { ...scope({ auth_epoch: 2 }), tombstone: null };
+    let once = false;
+    const local = localSession({ onChange: () => {
+      if (once) return;
+      once = true;
+      local.applyAuthority(authority);
+      authority.auth_epoch = 1;
+      authority.pid = 'fixture-mutated';
+    } });
+    local.captureOnly();
+    assert.equal(local.state, 'REVOKED');
+    assert.equal(local.scope.auth_epoch, 2);
+  });
+
+  it('an observer failure cannot strand queued revocation or leave the drain loop locked', () => {
+    const local = localSession({ onChange: ({ state }) => {
+      if (state === 'CAPTURE_ONLY') { local.revoke(2); throw new Error('fixture observer failed'); }
+    } });
+    assert.throws(() => local.captureOnly(), /fixture observer failed/);
+    assert.equal(local.state, 'REVOKED');
+    assert.ok([local.captureSignal, local.microphoneSignal, local.outputSignal, local.pendingSignal].every((signal) => signal.aborted));
+    local.end();
+    assert.equal(local.state, 'ENDED');
+  });
+
   for (const [name, apply, expected] of [
     ['callback revoke', (local) => local.revoke(2), 'REVOKED'],
     ['authority epoch', (local) => local.applyAuthority({ ...scope({ auth_epoch: 2 }), tombstone: null }), 'REVOKED'],
@@ -1031,7 +1131,7 @@ describe('(d) tombstone, bounded drain, cache deletion, host purge acknowledgeme
     const journal = new SqliteJournal(':memory:', { now: () => fake.clock.wallNow() });
     t.after(() => journal.close());
     journal.createSession(bytes(journalSession()));
-    const local = localSession();
+    const local = overrides.session ?? localSession();
     const events = [];
     const artifacts = [`journal:${sid}`, 'intake:fixture-draft', 'budget:fixture-hold'];
     const cache = new Map([['fixture', 'synthetic cache content']]);
@@ -1055,6 +1155,117 @@ describe('(d) tombstone, bounded drain, cache deletion, host purge acknowledgeme
     return { fake, journal, local, events, artifacts, cache, coordinator };
   }
   const host = () => journalAuthority({ writer_kind: 'host' });
+
+  it('an observer stopping the monitor on PURGING cannot skip receipt retention, cache deletion or acknowledgement', async (t) => {
+    let monitor;
+    const notifications = [];
+    const local = localSession({ onChange: ({ state }) => {
+      notifications.push({ state, actual: local.state, seq: local.lastRecordSeq,
+        aborted: [local.captureSignal, local.microphoneSignal, local.outputSignal, local.pendingSignal].every((signal) => signal.aborted) });
+      if (state === 'PURGING') monitor.stop();
+    } });
+    const { coordinator, fake, journal, cache, events } = setup(t, { session: local });
+    const stored = journal.append(bytes(record('session.control', { action: 'purge' }, { writer: { kind: 'host' } })), host());
+    monitor = new AuthorityMonitor({ session: local, purgeCoordinator: coordinator, clock: fake.clock, scheduler: fake.scheduler,
+      fetchAuthority: () => authorityResponse(fake, { tombstone: 'purge', tombstone_record: stored }) });
+    monitor.start();
+    await fake.advance(0);
+    assert.deepEqual(notifications, [
+      { state: 'PURGING', actual: 'PURGING', seq: 1, aborted: true },
+      { state: 'PURGED', actual: 'PURGED', seq: 1, aborted: true },
+    ]);
+    assert.equal(local.state, 'PURGED');
+    assert.equal(local.purgeAcknowledged, true);
+    assert.equal(cache.size, 0);
+    assert.deepEqual(events, ['inventory', 'cache', 'ack']);
+    assert.equal(fake.timers.size, 0);
+    await local.consumeJournal(journal, host(), { clock: fake.clock, scheduler: fake.scheduler, purgeCoordinator: coordinator });
+    await local.applyAuthority(authorityResponse(fake, { tombstone: 'purge' }), { purgeCoordinator: coordinator });
+    assert.deepEqual(events, ['inventory', 'cache', 'ack'], 'Completed deletion remains idempotent after monitor stop');
+  });
+
+  for (const retry of ['journal', 'authority']) it(`a stopped PURGING observer retains a failed cache purge for ${retry} retry`, async (t) => {
+    let monitor, attempts = 0;
+    const local = localSession({ onChange: ({ state }) => { if (state === 'PURGING') monitor.stop(); } });
+    const { coordinator, fake, journal, cache, events } = setup(t, { session: local, purgeCache: () => {
+      if (++attempts === 1) throw new Error('fixture cache retry required');
+      cache.clear();
+    } });
+    const stored = journal.append(bytes(record('session.control', { action: 'purge' }, { writer: { kind: 'host' } })), host());
+    monitor = new AuthorityMonitor({ session: local, purgeCoordinator: coordinator, clock: fake.clock, scheduler: fake.scheduler,
+      fetchAuthority: () => authorityResponse(fake, { tombstone: 'purge', tombstone_record: stored }) });
+    monitor.start();
+    await fake.advance(0);
+    assert.equal(local.state, 'PURGING');
+    assert.equal(local.lastRecordSeq, 1);
+    assert.equal(local.purgeAcknowledged, false);
+    assert.equal(attempts, 1);
+    assert.equal(cache.size, 1);
+    assert.equal(fake.timers.size, 0);
+    if (retry === 'journal') await local.consumeJournal(journal, host(), { clock: fake.clock, scheduler: fake.scheduler });
+    else await local.applyAuthority(authorityResponse(fake, { tombstone: 'purge' }));
+    assert.equal(local.state, 'PURGED');
+    assert.equal(local.purgeAcknowledged, true);
+    assert.equal(attempts, 2);
+    assert.equal(cache.size, 0);
+    assert.deepEqual(events, ['inventory', 'ack']);
+  });
+
+  it('the purge effect survives a queued observer end and stops signals before deletion', async (t) => {
+    let local, ended = false;
+    const ordering = [];
+    local = localSession({ onChange: ({ state }) => {
+      ordering.push(`observe:${state}`);
+      if (state === 'PURGING' && !ended) {
+        ended = true;
+        local.end();
+        ordering.push(`after-enqueue:${local.state}`);
+      }
+    } });
+    const { coordinator, fake, journal, cache } = setup(t, { session: local,
+      hostArtifacts: () => {
+        ordering.push('inventory');
+        assert.ok([local.captureSignal, local.microphoneSignal, local.outputSignal, local.pendingSignal].every((signal) => signal.aborted));
+        return [];
+      }, acknowledge: () => { ordering.push('ack'); } });
+    const stored = journal.append(bytes(record('session.control', { action: 'purge' }, { writer: { kind: 'host' } })), host());
+    await local.applyAuthority(authorityResponse(fake, { tombstone: 'purge', tombstone_record: stored }), { purgeCoordinator: coordinator });
+    assert.deepEqual(ordering, ['observe:PURGING', 'after-enqueue:PURGING', 'observe:ENDED', 'observe:PURGING', 'inventory', 'observe:PURGED', 'ack']);
+    assert.equal(local.purgeAcknowledged, true);
+    assert.equal(cache.size, 0);
+  });
+
+  it('purge re-drive is scheduled before a failing PURGING observer notification', async (t) => {
+    const local = localSession({ onChange: ({ state }) => {
+      if (state === 'PURGING') throw new Error('fixture purge observer failed');
+    } });
+    const { coordinator, fake, journal, cache } = setup(t, { session: local });
+    const stored = journal.append(bytes(record('session.control', { action: 'purge' }, { writer: { kind: 'host' } })), host());
+    assert.throws(() => local.applyAuthority(authorityResponse(fake, { tombstone: 'purge', tombstone_record: stored }),
+      { purgeCoordinator: coordinator }), /fixture purge observer failed/);
+    await flush();
+    assert.equal(local.state, 'PURGED');
+    assert.equal(local.purgeAcknowledged, true);
+    assert.equal(cache.size, 0);
+  });
+
+  it('an observer queues redrivePurge and retains its receipt only after the current event completes', async (t) => {
+    let coordinator, stored, retry, inside;
+    const local = localSession({ onChange: ({ state }) => {
+      if (state !== 'PURGING') return;
+      retry = local.redrivePurge(coordinator, stored);
+      inside = local.lastRecordSeq;
+    } });
+    const { fake, journal, cache, coordinator: purge } = setup(t, { session: local });
+    coordinator = purge;
+    stored = journal.append(bytes(record('session.control', { action: 'purge' }, { writer: { kind: 'host' } })), host());
+    await local.applyAuthority(authorityResponse(fake, { tombstone: 'purge' }));
+    await retry;
+    assert.equal(inside, 0, 'Only the outer tombstone flag is committed during its observer');
+    assert.equal(local.lastRecordSeq, 1);
+    assert.equal(local.purgeAcknowledged, true);
+    assert.equal(cache.size, 0);
+  });
 
   it('tombstone is committed before cancellation/drain, then purges local cache and lists only host deletion refs', async (t) => {
     const { coordinator, events, cache, local, journal, artifacts } = setup(t);

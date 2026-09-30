@@ -28,6 +28,15 @@ export function hostRecord(stored, sid) {
   return checked.document;
 }
 
+/** The original host purge receipt is required on every deletion entry point. */
+export function purgeRecord(stored, sid) {
+  const document = hostRecord(stored, sid);
+  if (document.kind !== 'session.control' || document.data.action !== 'purge' || document.writer.kind !== 'host') {
+    throw new AuthzError(403, 'Purge requires an acknowledged host tombstone');
+  }
+  return { document, bytes: Buffer.from(stored.bytes).toString('base64') };
+}
+
 /**
  * Local cancellation is separate from provider completion. Never hand the
  * capture/output/pending signals to an already committed provider request.
@@ -41,6 +50,10 @@ export class AuthorizationSession {
   #inflight = new Map();
   #permits = new WeakSet();
   #onChange;
+  #events = [];
+  #draining = false;
+  #purgeCoordinator;
+  #purgeOperation;
 
   constructor({ authorization, scope, settingsSha256, onChange = () => {} }) {
     validateProcessingAuthorization(authorization, scope, settingsSha256);
@@ -67,10 +80,35 @@ export class AuthorizationSession {
     return permit;
   }
 
-  /** The only runner of lifecycle effects; no other path creates/aborts channels. */
+  /** Re-entrant callbacks only enqueue; the current event runs to completion. */
   #dispatch(event) {
+    const entry = { event: { ...event, ...(event.authority && { authority: structuredClone(event.authority) }) } };
+    this.#events.push(entry);
+    if (this.#draining) return;
+    this.#draining = true;
+    let failure;
+    try {
+      while (this.#events.length) {
+        const queued = this.#events.shift();
+        try { this.#runEvent(queued); }
+        catch (error) { failure ??= error; }
+      }
+    } finally { this.#draining = false; }
+    if (failure) throw failure;
+    return entry.result;
+  }
+
+  /** Commit, stop/create signals, start required deletion, then notify last. */
+  #runEvent(entry) {
+    const event = entry.event;
+    const stored = event.stored ?? (event.authority?.tombstone === 'purge' && event.authority.tombstone_record);
+    if (stored) {
+      try { event.record = purgeRecord(stored, this.scope.sid); }
+      catch (error) { event.purgeError = error; }
+    }
     const { state, effects } = transition(this.#lifecycle ?? null, event);
     this.#lifecycle = state;
+    if (event.purgeCoordinator) this.#purgeCoordinator = event.purgeCoordinator;
     for (const effect of effects) {
       if (effect.type === 'create-signals') {
         for (const channel of effect.channels) {
@@ -83,14 +121,34 @@ export class AuthorizationSession {
         for (const channel of effect.channels) {
           for (const controller of this.#channels.get(channel).controllers) controller.abort(effect.reason);
         }
-      } else if (effect.type === 'notify') this.#onChange({ previous: effect.previous, state: effect.state, reason: effect.reason });
+      } else if (effect.type === 'redrive-purge') entry.result = this.#startPurge(effect.error);
+      else if (effect.type === 'notify') this.#onChange({ previous: effect.previous, state: effect.state, reason: effect.reason });
     }
+  }
+
+  #startPurge(error) {
+    if (!error && this.#purgeOperation) return this.#purgeOperation;
+    // Schedule before notifying. A callback can stop the monitor, but cannot
+    // cancel this effect or recurse through coordinator.complete's journal input.
+    const operation = Promise.resolve().then(() => {
+      if (error) throw error;
+      if (!this.#purgeCoordinator) throw new AuthzError(502, 'Purge requires a coordinator');
+      const retained = this.#lifecycle.purgeRecord;
+      if (!retained) throw new AuthzError(502, 'Purge requires its original stored host tombstone');
+      return this.#purgeCoordinator.complete({ document: retained.document, bytes: Buffer.from(retained.bytes, 'base64') });
+    });
+    if (!error) this.#purgeOperation = operation;
+    // Synchronous lifecycle callers may ignore the optional deletion promise.
+    // Awaiting callers still receive the failure and can re-drive a later event.
+    const finished = () => { if (this.#purgeOperation === operation) this.#purgeOperation = null; };
+    operation.then(finished, finished);
+    return operation;
   }
 
   revoke(epoch = this.scope.auth_epoch) { this.#dispatch({ type: 'revoke', epoch }); }
   captureOnly(reason) { this.#dispatch({ type: 'capture-only', reason }); }
   end(reason) { this.#dispatch({ type: 'end', reason }); }
-  applyAuthority(authority) { this.#dispatch({ type: 'authority', authority }); }
+  applyAuthority(authority, { purgeCoordinator } = {}) { return this.#dispatch({ type: 'authority', authority, purgeCoordinator }); }
 
   assertNewClaim() {
     if (this.state === 'ACTIVE') return;
@@ -138,19 +196,14 @@ export class AuthorizationSession {
     while (this.#inflight.size) await Promise.allSettled([...this.#inflight.values()]);
   }
 
-  consumeStoredRecord(stored) {
+  consumeStoredRecord(stored, { purgeCoordinator } = {}) {
     const document = hostRecord(stored, this.scope.sid);
-    this.#dispatch({ type: 'journal-record', record: { document, bytes: Buffer.from(stored.bytes).toString('base64') } });
+    return this.#dispatch({ type: 'journal-record', record: { document, bytes: Buffer.from(stored.bytes).toString('base64') }, purgeCoordinator });
   }
 
   /** All journal/authority entry points re-drive retained deletion until ack. */
   async redrivePurge(coordinator, stored) {
-    if (this.scope.tombstone !== 'purge') return;
-    if (!coordinator) throw new AuthzError(502, 'Purge requires a coordinator');
-    const retained = this.#lifecycle.purgeRecord;
-    const receipt = stored ?? (retained && { document: retained.document, bytes: Buffer.from(retained.bytes, 'base64') });
-    if (!receipt) throw new AuthzError(502, 'Purge requires its original stored host tombstone');
-    return coordinator.complete(receipt);
+    return this.#dispatch({ type: 'redrive-purge', purgeCoordinator: coordinator, stored });
   }
 
   /** Pull acknowledged controls using JournalPort; a denied read fails closed. */
@@ -174,8 +227,12 @@ export class AuthorizationSession {
       if (doc.seq <= seq) throw new AuthzError(502, 'Journal records are not ordered');
       seq = doc.seq;
     }
-    for (const stored of records) this.consumeStoredRecord(stored);
-    if (this.scope.tombstone === 'purge') await this.redrivePurge(options.purgeCoordinator);
+    let purging;
+    for (const stored of records) {
+      const completion = this.consumeStoredRecord(stored, { purgeCoordinator: options.purgeCoordinator });
+      if (completion) purging = completion;
+    }
+    if (purging) await purging;
     return this.lastRecordSeq;
   }
 

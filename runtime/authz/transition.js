@@ -5,6 +5,37 @@ const channels = Object.freeze(['capture', 'microphone', 'output', 'pending']);
 const terminal = ['REVOKED', 'FENCED', 'PURGING', 'PURGED', 'ENDED'];
 const revoked = () => new AuthzError(409, 'Session revoked', 'revoked');
 
+/** Apply the same acknowledged bytes/cursor rules on every receipt entry. */
+function applyRecord(next, status, { document, bytes }) {
+  const control = ['authz.epoch', 'session.control'].includes(document.kind);
+  if (control && document.writer.kind !== 'host') throw new AuthzError(403, 'Only the host writes authority controls');
+  const canonical = canonicalJson(document);
+  const prior = next.controls[document.seq];
+  if (prior && prior !== canonical) throw new AuthzError(409, 'Journal control changed bytes', 'idempotency_conflict');
+  const purge = document.kind === 'session.control' && document.data.action === 'purge';
+  let reason;
+  if (purge) {
+    if (next.purgeRecord && canonicalJson(next.purgeRecord.document) !== canonical) throw new AuthzError(409, 'Different purge tombstone');
+    next.purgeRecord = { bytes, document: structuredClone(document) };
+    status = 'PURGING'; reason = revoked();
+  }
+  if (document.seq > next.lastSeq) {
+    if (control) next.controls[document.seq] = canonical;
+    next.lastSeq = document.seq;
+    if (document.kind === 'authz.epoch' && document.data.epoch > next.scope.auth_epoch) {
+      next.scope.auth_epoch = document.data.epoch;
+      if (!['PURGING', 'PURGED', 'ENDED'].includes(status)) status = 'REVOKED';
+      reason = revoked();
+    } else if (document.kind === 'session.control') {
+      if (document.data.action === 'suspend') {
+        next.scope.suspended = true;
+        if (['ACTIVE', 'CAPTURE_ONLY'].includes(status)) { status = 'SUSPENDED'; reason = revoked(); }
+      } else if (document.data.action === 'resume' && status === 'SUSPENDED') status = 'ACTIVE';
+    }
+  }
+  return { status, reason };
+}
+
 /**
  * The single lifecycle authority. Inputs are verified host events, never request
  * JSON. State contains only immutable data; controllers belong to the effect
@@ -24,11 +55,13 @@ export function transition(state, event) {
     if (status === 'SUSPENDED') { scope.suspended = true; scope.tombstone = null; }
     return { state: freeze({ status, scope, revision: 0, lastSeq: 0, controls: {}, purgeRecord: null, purgeAcknowledged: false }),
       effects: [{ type: 'create-signals', channels },
-        ...(status === 'ACTIVE' ? [] : [{ type: 'stop-signals', channels, reason: revoked() }])] };
+        ...(status === 'ACTIVE' ? [] : [{ type: 'stop-signals', channels, reason: revoked() }]),
+        ...(status === 'PURGING' ? [{ type: 'redrive-purge' }] : [])] };
   }
   const next = structuredClone(state);
   let status = state.status;
   let reason = event.reason;
+  let purgeError = event.purgeError;
   switch (event.type) {
     case 'revoke':
       if (Number.isSafeInteger(event.epoch) && event.epoch > next.scope.auth_epoch) next.scope.auth_epoch = event.epoch;
@@ -63,34 +96,20 @@ export function transition(state, event) {
         else if (authority.tombstone === 'suspend') { status = 'SUSPENDED'; reason = revoked(); }
         else if (status === 'CAPTURE_ONLY') status = 'ACTIVE';
       }
+      if (authority.tombstone === 'purge' && event.record) {
+        // Retain the receipt in this commit, before any stop/observer callback.
+        // Invalid receipts still close claims, but cannot drive cache deletion.
+        try { ({ status, reason } = applyRecord(next, status, event.record)); }
+        catch (error) { purgeError = error; }
+      }
       break;
     }
     case 'journal-record': {
-      const { document, bytes } = event.record;
-      const control = ['authz.epoch', 'session.control'].includes(document.kind);
-      if (control && document.writer.kind !== 'host') throw new AuthzError(403, 'Only the host writes authority controls');
-      const canonical = canonicalJson(document);
-      const prior = next.controls[document.seq];
-      if (prior && prior !== canonical) throw new AuthzError(409, 'Journal control changed bytes', 'idempotency_conflict');
-      const purge = document.kind === 'session.control' && document.data.action === 'purge';
-      if (purge) {
-        if (next.purgeRecord && canonicalJson(next.purgeRecord.document) !== canonical) throw new AuthzError(409, 'Different purge tombstone');
-        next.purgeRecord = { bytes, document: structuredClone(document) };
-        status = 'PURGING'; reason = revoked();
-      }
-      if (document.seq <= next.lastSeq) break;
-      if (control) next.controls[document.seq] = canonical;
-      next.lastSeq = document.seq;
-      if (document.kind === 'authz.epoch' && document.data.epoch > next.scope.auth_epoch) {
-        next.scope.auth_epoch = document.data.epoch;
-        if (!['PURGING', 'PURGED', 'ENDED'].includes(status)) status = 'REVOKED';
-        reason = revoked();
-      } else if (document.kind === 'session.control') {
-        if (document.data.action === 'suspend') {
-          next.scope.suspended = true;
-          if (['ACTIVE', 'CAPTURE_ONLY'].includes(status)) { status = 'SUSPENDED'; reason = revoked(); }
-        } else if (document.data.action === 'resume' && status === 'SUSPENDED') status = 'ACTIVE';
-      }
+      ({ status, reason } = applyRecord(next, status, event.record));
+      break;
+    }
+    case 'redrive-purge': {
+      if (next.scope.tombstone === 'purge' && event.record) ({ status, reason } = applyRecord(next, status, event.record));
       break;
     }
     case 'cache-purged':
@@ -115,7 +134,8 @@ export function transition(state, event) {
     next.revision++;
     effects.push(status === 'ACTIVE' ? { type: 'create-signals', channels }
       : { type: 'stop-signals', channels: status === 'CAPTURE_ONLY' ? channels.slice(1) : channels, reason });
-    effects.push({ type: 'notify', previous: state.status, state: status, reason });
   }
+  if (next.scope.tombstone === 'purge' && !next.purgeAcknowledged) effects.push({ type: 'redrive-purge', error: purgeError });
+  if (status !== state.status) effects.push({ type: 'notify', previous: state.status, state: status, reason });
   return { state: freeze(next), effects };
 }

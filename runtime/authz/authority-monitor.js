@@ -129,17 +129,19 @@ export class AuthorityMonitor {
       if (!this.#running) return;
       const now = this.#clock.monotonicNow();
       const authority = checkedAuthority(value, this.#session.scope, this.#wallOrigin + now - this.#origin);
-      this.#session.applyAuthority(authority);
-      if (!this.#running) return; // A synchronous lifecycle observer may stop us.
+      const purging = this.#session.applyAuthority(authority, { purgeCoordinator: this.#purge });
+      // Deletion was enqueued as a lifecycle effect before observer callbacks.
+      // It must finish even if an observer stopped this monitor on PURGING.
+      if (!this.#running) { await purging; return; } // A synchronous lifecycle observer may stop us.
       this.#lastAuthority = now;
       this.#failures = 0;
       this.#lastError = null;
       this.#scheduleEnd();
       this.#scheduleFreshness();
+      if (purging) await purging;
       if (this.#session.scope.tombstone === 'purge') {
         // The session retains an earlier original receipt through failed cache
         // deletion/acknowledgement, even if a later snapshot contains only a flag.
-        await this.#session.redrivePurge(this.#purge, authority.tombstone_record);
         if (this.#running) this.stop();
       }
     } catch (error) {

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { canonicalJson } from '../../contracts/validate.js';
 import { AuthzError, checkedDocument, freeze, systemClock, systemScheduler, withDeadline } from './common.js';
-import { hostRecord } from './session.js';
+import { purgeRecord } from './session.js';
 
 /**
  * Host writes the tombstone through JournalPort FIRST. An authenticated host
@@ -40,10 +40,7 @@ export class PurgeCoordinator {
   }
 
   #checkedTombstone(stored) {
-    const document = hostRecord(stored, this.#session.scope.sid);
-    if (document.kind !== 'session.control' || document.data.action !== 'purge' || document.writer.kind !== 'host') {
-      throw new AuthzError(403, 'Purge requires an acknowledged host tombstone');
-    }
+    const { document } = purgeRecord(stored, this.#session.scope.sid);
     const bytes = Buffer.from(stored.bytes);
     if (this.#submission && !bytes.equals(this.#submission)) throw new AuthzError(502, 'Purge acknowledgement changed submission');
     if (this.#tombstone && this.#tombstone !== canonicalJson(document)) throw new AuthzError(409, 'Different purge tombstone');
@@ -100,7 +97,7 @@ export class PurgeCoordinator {
     const { document } = this.#stored;
     this.#tombstone = canonicalJson(document);
     if (!this.#ack) {
-      this.#session.consumeStoredRecord(stored);
+      this.#session.consumeStoredRecord(stored, { purgeCoordinator: this });
       if (!['PURGING', 'ENDED'].includes(this.#session.state) || this.#session.scope.tombstone !== 'purge') throw new AuthzError(409, 'Purge tombstone not applied');
       this.#drainDeadline ??= this.#clock.monotonicNow() + 10_000;
       if (!this.#artifactsSnapshot) {
