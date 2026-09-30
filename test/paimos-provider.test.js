@@ -115,6 +115,7 @@ async function fixture(mode = 'success') {
   let admittedBody;
   const admissionRequest = boundedBarrier('admission request');
   const firstEventsRequest = boundedBarrier('first events request');
+  const eventsBodyClosed = boundedBarrier('cancelled events body');
   let releaseAdmissionResponse;
   const admissionResponseReleased = new Promise((resolve) => {
     releaseAdmissionResponse = resolve;
@@ -150,6 +151,13 @@ async function fixture(mode = 'success') {
       return;
     }
     if (req.method === 'GET' && req.url.includes('/events?')) firstEventsRequest.signal();
+    if (['stalled-events-body', 'invalid-events-encoding', 'oversized-events-body'].includes(mode)) {
+      res.once('close', eventsBodyClosed.signal);
+      if (mode === 'invalid-events-encoding') res.setHeader('content-type', 'text/plain');
+      if (mode === 'oversized-events-body') res.setHeader('content-length', String(8 * 1024 * 1024));
+      res.write('{"schema_version":');
+      return;
+    }
     if (mode === 'cancel') {
       res.end(JSON.stringify({
         schema_version: 1,
@@ -183,7 +191,8 @@ async function fixture(mode = 'success') {
       }));
       return;
     }
-    const returnedEvents = mode === 'replay' ? events.slice(1) : events;
+    const returnedEvents = mode === 'replay' ? events.slice(1)
+      : mode === 'missing-terminal' ? events.slice(0, 2) : events;
     res.end(JSON.stringify({
       schema_version: 1,
       call_id: 'call-1',
@@ -231,6 +240,7 @@ async function fixture(mode = 'success') {
     waitForAdmissionRequest: admissionRequest.wait,
     releaseAdmissionResponse,
     waitForFirstEventsRequest: firstEventsRequest.wait,
+    waitForEventsBodyClosed: eventsBodyClosed.wait,
     close: async () => {
       releaseAdmissionResponse();
       await new Promise((resolve) => server.close(resolve));
@@ -450,6 +460,64 @@ describe('Paimos credential source boundary', () => {
 });
 
 describe('Paimos harness HTTP provider', () => {
+  it('refuses pre-cancelled work before credential access or outbound admission', async () => {
+    const fx = await fixture();
+    const abort = new AbortController();
+    abort.abort();
+    // A pre-cancelled call must not even attempt to read this unavailable file.
+    fx.provider.credentialFile = '/synthetic-unavailable-file';
+    try {
+      await assert.rejects(collect(fx.provider.streamChat(request('chat', abort.signal))), { name: 'AbortError' });
+      await assert.rejects(fx.provider.understand(request('understand', abort.signal)), { name: 'AbortError' });
+      assert.equal(fx.requests.length, 0);
+    } finally { await fx.close(); }
+  });
+
+  it('cancels a stalled event response body, closes its socket, and requests remote cancellation', async () => {
+    const fx = await fixture('stalled-events-body');
+    const abort = new AbortController();
+    try {
+      const work = collect(fx.provider.streamChat(request('chat', abort.signal)));
+      const rejected = assert.rejects(work, { name: 'AbortError' });
+      await fx.waitForFirstEventsRequest();
+      abort.abort();
+      await rejected;
+      await fx.waitForEventsBodyClosed();
+      assert.equal(cancellationRequests(fx.requests).length, 1);
+    } finally { abort.abort(); await fx.close(); }
+  });
+
+  for (const [mode, pattern] of [['invalid-events-encoding', /encoding is invalid/], ['oversized-events-body', /did not complete/]]) {
+    it(`closes a rejected ${mode} stream without waiting for its body to finish`, async () => {
+      const fx = await fixture(mode);
+      try {
+        await assert.rejects(collect(fx.provider.streamChat(request('chat'))), pattern);
+        await fx.waitForEventsBodyClosed();
+        assert.equal(cancellationRequests(fx.requests).length, 1);
+      } finally { await fx.close(); }
+    });
+  }
+
+  it('cancellation between buffered deltas and completion remains incomplete', async () => {
+    const fx = await fixture();
+    const abort = new AbortController();
+    try {
+      const iterator = fx.provider.streamChat(request('chat', abort.signal));
+      assert.equal((await iterator.next()).value, 'hello from Paimos');
+      abort.abort();
+      await assert.rejects(iterator.next(), { name: 'AbortError' });
+      assert.equal(cancellationRequests(fx.requests).length, 1);
+    } finally { abort.abort(); await fx.close(); }
+  });
+
+  it('rejects a completed call without its explicit terminal event', async () => {
+    const fx = await fixture('missing-terminal');
+    try {
+      await assert.rejects(collect(fx.provider.streamChat(request('chat'))), /terminal call is missing|event sequence/);
+      assert.equal(cancellationRequests(fx.requests).length, 1);
+    } finally { await fx.close(); }
+  });
+
   it('executes the bounded protocol through the configured fetch boundary', async () => {
     const root = mkdtempSync(join(tmpdir(), 'aithema-paimos-fetch-'));
     const credentialFile = join(root, 'conversation.key');
