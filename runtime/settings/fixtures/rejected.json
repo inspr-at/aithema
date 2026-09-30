@@ -473,6 +473,46 @@
             "model"
           ],
           "unapproved-model"
+        ],
+        [
+          [
+            "presets",
+            "local-l1",
+            "lanes",
+            "spec",
+            "model"
+          ],
+          "unapproved-model"
+        ],
+        [
+          [
+            "presets",
+            "local-l1",
+            "lanes",
+            "design",
+            "model"
+          ],
+          "unapproved-model"
+        ],
+        [
+          [
+            "presets",
+            "local-l1",
+            "lanes",
+            "stt",
+            "model"
+          ],
+          "unapproved-model"
+        ],
+        [
+          [
+            "presets",
+            "local-l1",
+            "lanes",
+            "tts",
+            "model"
+          ],
+          "unapproved-model"
         ]
       ]
     },
@@ -490,6 +530,259 @@
             "template_ref"
           ],
           "missing-template"
+        ],
+        [
+          [
+            "presets",
+            "local-l1",
+            "lanes",
+            "spec",
+            "template_ref"
+          ],
+          "missing-template"
+        ],
+        [
+          [
+            "presets",
+            "local-l1",
+            "lanes",
+            "design",
+            "template_ref"
+          ],
+          "missing-template"
+        ],
+        [
+          [
+            "presets",
+            "local-l1",
+            "lanes",
+            "stt",
+            "template_ref"
+          ],
+          "missing-template"
+        ],
+        [
+          [
+            "presets",
+            "local-l1",
+            "lanes",
+            "tts",
+            "template_ref"
+          ],
+          "missing-template"
+        ]
+      ]
+    },
+    {
+      "name": "foreign-secret-binding-account",
+      "reason": "secret_binding_invalid",
+      "preset": "local-l1",
+      "replacements": [
+        [
+          [
+            "evidence",
+            0,
+            "secret_binding",
+            "account_ref"
+          ],
+          "operator-other"
+        ]
+      ]
+    },
+    {
+      "name": "cross-template-secret-reference",
+      "reason": "secret_binding_invalid",
+      "preset": "cloud-c1",
+      "replacements": [
+        [
+          [
+            "provider_templates",
+            2,
+            "secret",
+            "ref"
+          ],
+          "secret:synthetic-eu"
+        ],
+        [
+          [
+            "evidence",
+            2,
+            "secret_binding",
+            "ref"
+          ],
+          "secret:synthetic-eu"
+        ]
+      ]
+    },
+    {
+      "name": "bundled-gplv3-piper",
+      "reason": "licence_denied",
+      "preset": "local-l1",
+      "replacements": [
+        [
+          [
+            "provider_templates",
+            0,
+            "artifacts",
+            0,
+            "kind"
+          ],
+          "code"
+        ],
+        [
+          [
+            "provider_templates",
+            0,
+            "artifacts",
+            0,
+            "product"
+          ],
+          "piper"
+        ],
+        [
+          [
+            "provider_templates",
+            0,
+            "artifacts",
+            0,
+            "licence"
+          ],
+          "GPLv3"
+        ]
+      ]
+    },
+    {
+      "name": "bundled-english-gpl-piper",
+      "reason": "licence_denied",
+      "preset": "local-l1",
+      "replacements": [
+        [
+          [
+            "provider_templates",
+            0,
+            "artifacts",
+            0,
+            "kind"
+          ],
+          "code"
+        ],
+        [
+          [
+            "provider_templates",
+            0,
+            "artifacts",
+            0,
+            "product"
+          ],
+          "piper"
+        ],
+        [
+          [
+            "provider_templates",
+            0,
+            "artifacts",
+            0,
+            "licence"
+          ],
+          "GNU General Public License v3"
+        ]
+      ]
+    },
+    {
+      "name": "bundled-agpl-piper",
+      "reason": "licence_denied",
+      "preset": "local-l1",
+      "replacements": [
+        [
+          [
+            "provider_templates",
+            0,
+            "artifacts",
+            0,
+            "kind"
+          ],
+          "code"
+        ],
+        [
+          [
+            "provider_templates",
+            0,
+            "artifacts",
+            0,
+            "product"
+          ],
+          "piper"
+        ],
+        [
+          [
+            "provider_templates",
+            0,
+            "artifacts",
+            0,
+            "licence"
+          ],
+          "AGPL-3.0-only"
+        ]
+      ]
+    },
+    {
+      "name": "noncommercial-bundled-gpl-piper",
+      "reason": "licence_denied",
+      "preset": "local-l1",
+      "replacements": [
+        [
+          [
+            "provider_templates",
+            0,
+            "artifacts",
+            0,
+            "kind"
+          ],
+          "code"
+        ],
+        [
+          [
+            "provider_templates",
+            0,
+            "artifacts",
+            0,
+            "product"
+          ],
+          "piper"
+        ],
+        [
+          [
+            "provider_templates",
+            0,
+            "artifacts",
+            0,
+            "licence"
+          ],
+          "GPL-3.0-only"
+        ],
+        [
+          [
+            "hosting",
+            "commercial"
+          ],
+          false
+        ]
+      ]
+    },
+    {
+      "name": "creative-commons-noncommercial-weights",
+      "reason": "licence_denied",
+      "preset": "local-l1",
+      "replacements": [
+        [
+          [
+            "provider_templates",
+            0,
+            "artifacts",
+            0,
+            "licence"
+          ],
+          "Creative Commons Attribution-NonCommercial 4.0"
         ]
       ]
     }

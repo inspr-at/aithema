@@ -1,6 +1,6 @@
 import { canExecute, validate } from '../../contracts/validate.js';
 import { sameCountries } from './countries.js';
-import { deepFreeze, instant, LANES, resolveSettings } from './resolver.js';
+import { deepFreeze, instant, isLoopbackHost, LANES, resolveSettings } from './resolver.js';
 
 /**
  * @typedef {object} AdapterDescriptor
@@ -85,8 +85,16 @@ function processorReason(record, row) {
 function budgetReason(budget, resolved, row) {
   const spend = resolved.policy.spend;
   const maximum = spend.provider_max[row.lane];
-  if (maximum === 0 && row.execution_location === 'operator' && row.template.deployment === 'self_hosted') return null;
-  if (maximum === 0) return 'budget_invalid';
+  if (maximum === 0) {
+    if (row.execution_location === 'operator' && row.template.deployment === 'self_hosted') {
+      try {
+        if (isLoopbackHost(new URL(row.template.endpoint).hostname)) return null;
+      } catch {
+        return 'budget_invalid';
+      }
+    }
+    return 'budget_invalid';
+  }
   if (budget === undefined || budget === null) return 'budget_missing';
   if (!isObject(budget) || Object.keys(budget).some((key) => !['currency', 'spent_micro'].includes(key))
       || budget.currency !== spend.currency || !isObject(budget.spent_micro)

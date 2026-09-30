@@ -137,16 +137,27 @@ function preferencesFor(settings, input) {
   return structuredClone(out);
 }
 
+// Offline, closed v1 recognition list: unlisted identifiers, prose, custom
+// licences and compound SPDX expressions require review before admission.
+const weightLicences = new Set([
+  'MIT', 'MIT-0', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'ISC',
+  'CC0-1.0', 'CC-BY-3.0', 'CC-BY-4.0', 'CC-BY-SA-3.0', 'CC-BY-SA-4.0',
+  'MPL-2.0', 'GPL-2.0-only', 'GPL-2.0-or-later', 'GPL-3.0-only', 'GPL-3.0-or-later',
+  'AGPL-3.0-only', 'AGPL-3.0-or-later', 'LGPL-2.1-only', 'LGPL-2.1-or-later',
+  'LGPL-3.0-only', 'LGPL-3.0-or-later', 'Unlicense', 'BSL-1.0', 'Zlib',
+]);
+
 function licenceAllowed(template, commercial) {
   if (template.deployment !== 'api' && /voxtral[-_.:]?tts/i.test(template.product)) return false;
   for (const artifact of template.artifacts) {
-    const licence = artifact.licence.toUpperCase();
+    const licence = artifact.licence.trim().replace(/\s+/g, '-');
     const product = artifact.product.toLowerCase();
     // §9.5: Voxtral TTS weights never self-hosted; its evidenced API is allowed.
-    if (artifact.kind === 'weights' && /voxtral[-_.:]?tts/.test(product)) return false;
-    if (commercial && artifact.kind === 'weights' && /CC[- ]BY[- ]NC/.test(licence)) return false;
-    // The GPL Piper fork may only be a separately installed service (§9.5).
-    if (artifact.bundled && /piper/.test(product) && /(?:^|[^A-Z])GPL(?:-|\b)/.test(licence)) return false;
+    if (template.deployment !== 'api' && artifact.kind === 'weights' && /voxtral[-_.:]?tts/.test(product)) return false;
+    if (commercial && artifact.kind === 'weights'
+        && (/^CC-BY-NC(?:-|$)/i.test(licence) || !weightLicences.has(licence))) return false;
+    // Only the archived MIT release may be bundled, even noncommercially.
+    if (artifact.bundled && /piper/.test(product) && !['MIT', 'MIT-0'].includes(licence)) return false;
   }
   return true;
 }
@@ -180,6 +191,13 @@ export function resolveSettings(document, options = {}) {
   const preferences = preferencesFor(settings, options.preferences);
   const templates = uniqueById(settings.provider_templates, 'template');
   const evidence = uniqueById(settings.evidence, 'evidence');
+  const secretAccounts = new Map();
+  for (const template of templates.values()) {
+    const accounts = secretAccounts.get(template.secret.ref) ?? new Set();
+    accounts.add(template.account_ref);
+    accounts.add(template.secret.account_ref);
+    secretAccounts.set(template.secret.ref, accounts);
+  }
   const expand = countryRegistry(settings.country_sets);
   const globalCountries = expand(settings.policy.residency.allowed_countries);
   const placement = expand(settings.hosting.region_placement);
@@ -214,6 +232,7 @@ export function resolveSettings(document, options = {}) {
       else {
         if (!template.models.includes(selection.model)) add(reasons, 'model_not_allowed');
         if (template.account_ref !== template.secret.account_ref) add(reasons, 'account_mismatch');
+        if (secretAccounts.get(template.secret.ref).size !== 1) add(reasons, 'secret_binding_invalid');
         if (!licenceAllowed(template, settings.hosting.commercial)) add(reasons, 'licence_denied');
         if (!endpointAllowed(template.endpoint, template.location, hosts)
             || (presetId === 'local-l1' && (template.location !== 'operator'

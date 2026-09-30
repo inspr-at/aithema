@@ -43,16 +43,24 @@ function contextFor(doc, preset = 'local-l1', enabled = true) {
   return { now: NOW, preferences, adapters, authorization: { record, scope }, budget: { currency: 'EUR', spent_micro: { session: 0, principal_day: 0, tenant_day: 0 } } };
 }
 
-function assertAllDisabled(matrix, reason) {
+function assertLanesDisabled(lanes, reason) {
   for (const lane of LANES) {
-    assert.equal(matrix.lanes[lane].enabled, false, lane);
-    assert.ok(matrix.lanes[lane].reasons.includes(reason), `${lane}: ${matrix.lanes[lane].reasons}`);
+    assert.equal(lanes[lane].enabled, false, lane);
+    assert.ok(lanes[lane].reasons.includes(reason), `${lane}: ${lanes[lane].reasons}`);
   }
+}
+
+function assertAllDisabled(matrix, reason) {
+  assertLanesDisabled(matrix.lanes, reason);
   assert.equal(matrix.voice.enabled, false);
+  assert.ok(matrix.voice.reasons.includes(reason), `voice: ${matrix.voice.reasons}`);
 }
 
 function assertAllEnabled(matrix) {
-  for (const lane of LANES) assert.deepEqual(matrix.lanes[lane].reasons, [], lane);
+  for (const lane of LANES) {
+    assert.equal(matrix.lanes[lane].enabled, true, lane);
+    assert.deepEqual(matrix.lanes[lane].reasons, [], lane);
+  }
   assert.equal(matrix.voice.enabled, true);
   assert.equal(matrix.text_capture.enabled, true);
 }
@@ -126,6 +134,31 @@ describe('AIT-40 (a), (c), (d), (e): strict contract and executable fixtures', (
     }]);
   });
 
+  it('rejects a shared secret reference on every affected template, including when the other preset is unselected', () => {
+    const doc = settings();
+    doc.provider_templates[2].secret.ref = doc.provider_templates[1].secret.ref;
+    doc.evidence[2].secret_binding.ref = doc.provider_templates[1].secret.ref;
+    assert.equal(validate('aithema.settings', doc).ok, true);
+    for (const preset of ['eu-e1', 'cloud-c1']) {
+      const matrix = computeCapabilityMatrix(doc, contextFor(doc, preset));
+      assertAllDisabled(matrix, 'secret_binding_invalid');
+      for (const lane of LANES) assert.equal(matrix.lanes[lane].reason, 'secret_binding_invalid');
+      assert.equal(matrix.text_capture.enabled, true);
+    }
+    assertAllEnabled(computeCapabilityMatrix(doc, contextFor(doc)));
+  });
+
+  it('allows templates to share a reference only when they attest the same qualified operator account', () => {
+    const doc = settings();
+    const account = doc.provider_templates[1].account_ref;
+    const ref = doc.provider_templates[1].secret.ref;
+    doc.provider_templates[2].account_ref = account;
+    Object.assign(doc.provider_templates[2].secret, { account_ref: account, ref });
+    doc.evidence[2].account_ref = account;
+    Object.assign(doc.evidence[2].secret_binding, { account_ref: account, ref });
+    for (const preset of PRESETS) assertAllEnabled(computeCapabilityMatrix(doc, contextFor(doc, preset)));
+  });
+
   for (const key of ['provider_templates', 'evidence']) {
     it(`refuses ambiguous duplicate ${key} identities`, () => {
       const doc = settings();
@@ -165,7 +198,7 @@ describe('AIT-40 (a), (b), (c), (e): labelled semantic rejected fixtures', () =>
       assert.equal(validate('aithema.settings', doc).ok, true, 'semantic rejection must be schema-valid');
       const result = resolveSettings(doc, { now: NOW, preferences: { preset: fixture.preset } });
       assert.ok(result.issues.some((issue) => issue.preset === fixture.preset && issue.reason === fixture.reason), fixture.name);
-      assert.ok(Object.values(result.lanes).some((lane) => !lane.enabled && lane.reasons.includes(fixture.reason)));
+      assertLanesDisabled(result.lanes, fixture.reason);
       assert.ok(CAPABILITY_REASONS.includes(fixture.reason));
     });
   }
@@ -270,20 +303,87 @@ describe('AIT-40 (b): evidence, residency, licences and revalidation', () => {
     const doc = settings();
     doc.hosting.commercial = false;
     doc.provider_templates[0].artifacts[0].licence = 'CC-BY-NC-4.0';
-    assert.equal(resolveSettings(doc, { now: NOW }).lanes.reaction.enabled, true);
+    assertAllEnabled(computeCapabilityMatrix(doc, contextFor(doc)));
     doc.hosting.commercial = true;
     Object.assign(doc.provider_templates[0].artifacts[0], { kind: 'code', product: 'piper-archived', licence: 'MIT', bundled: true });
-    assert.equal(resolveSettings(doc, { now: NOW }).lanes.reaction.enabled, true);
+    assertAllEnabled(computeCapabilityMatrix(doc, contextFor(doc)));
     Object.assign(doc.provider_templates[0].artifacts[0], { product: 'piper', licence: 'GPL-3.0-only', bundled: false });
-    assert.equal(resolveSettings(doc, { now: NOW }).lanes.reaction.enabled, true);
+    assertAllEnabled(computeCapabilityMatrix(doc, contextFor(doc)));
   });
+
+  for (const commercial of [true, false]) {
+    for (const licence of [
+      'GPL-3.0-only', 'GPLv3', 'GNU General Public License v3', 'AGPL-3.0-only',
+      'LGPL-3.0-only', 'Apache-2.0', 'UNLICENSED', 'Proprietary', 'unknown',
+      'MIT OR Apache-2.0', 'MIT-Unknown',
+    ]) {
+      it(`disables all five lanes for bundled Piper ${licence} (commercial=${commercial})`, () => {
+        const doc = settings();
+        doc.hosting.commercial = commercial;
+        Object.assign(doc.provider_templates[0].artifacts[0], { kind: 'code', product: 'Piper-archived', licence, bundled: true });
+        assertAllDisabled(computeCapabilityMatrix(doc, contextFor(doc)), 'licence_denied');
+      });
+    }
+    for (const licence of ['MIT', 'MIT-0']) {
+      it(`admits bundled Piper ${licence} (commercial=${commercial})`, () => {
+        const doc = settings();
+        doc.hosting.commercial = commercial;
+        Object.assign(doc.provider_templates[0].artifacts[0], { kind: 'code', product: 'piper-archived', licence, bundled: true });
+        assertAllEnabled(computeCapabilityMatrix(doc, contextFor(doc)));
+      });
+    }
+  }
+
+  for (const licence of [
+    'CC-BY-NC', 'CC-BY-NC-4.0', 'CC-BY-NC-SA-4.0', 'CC BY-NC 4.0',
+    'CC   BY  NC  4.0', 'cc by nc 4.0', 'CCBYNC',
+    'Creative Commons Attribution-NonCommercial 4.0', 'UNLICENSED', 'Proprietary',
+    'LicenseRef-synthetic', 'MIT OR CC-BY-NC-4.0', 'MIT AND Apache-2.0', 'Apache-99.0', 'GPLv3',
+  ]) {
+    it(`disables all five lanes for commercial weights with inadmissible licence ${licence}`, () => {
+      const doc = settings();
+      doc.provider_templates[0].artifacts[0].licence = licence;
+      assertAllDisabled(computeCapabilityMatrix(doc, contextFor(doc)), 'licence_denied');
+    });
+  }
+
+  for (const licence of ['MIT', 'MIT-0', 'Apache-2.0', 'BSD-3-Clause', 'CC0-1.0', 'CC BY 4.0', 'CC-BY-SA-4.0', 'GPL-3.0-only']) {
+    it(`admits a recognized single SPDX identifier for ordinary commercial weights: ${licence}`, () => {
+      const doc = settings();
+      doc.provider_templates[0].artifacts[0].licence = licence;
+      assertAllEnabled(computeCapabilityMatrix(doc, contextFor(doc)));
+    });
+  }
 
   it('blocks self-hosted Voxtral TTS even without a weights inventory entry', () => {
     const doc = settings();
     Object.assign(doc.provider_templates[0], { product: 'voxtral-tts', artifacts: [] });
-    assert.equal(resolveSettings(doc, { now: NOW }).lanes.reaction.reason, 'licence_denied');
+    assertAllDisabled(computeCapabilityMatrix(doc, contextFor(doc)), 'licence_denied');
     const euTemplate = doc.provider_templates[1];
     euTemplate.product = 'voxtral-tts-api';
+    assertAllEnabled(computeCapabilityMatrix(doc, contextFor(doc, 'eu-e1')));
+  });
+
+  for (const commercial of [true, false]) {
+    it(`permits evidenced Voxtral TTS API inventory but refuses its self-hosted weights (commercial=${commercial})`, () => {
+      const doc = settings();
+      doc.hosting.commercial = commercial;
+      const template = doc.provider_templates[1];
+      template.artifacts = [{ ...doc.provider_templates[0].artifacts[0], product: 'voxtral-tts', bundled: false }];
+      assertAllEnabled(computeCapabilityMatrix(doc, contextFor(doc, 'eu-e1')));
+      template.product = 'voxtral-tts-api';
+      assertAllEnabled(computeCapabilityMatrix(doc, contextFor(doc, 'eu-e1')));
+      template.product = 'mistral-api';
+      template.deployment = 'self_hosted';
+      assertAllDisabled(computeCapabilityMatrix(doc, contextFor(doc, 'eu-e1')), 'licence_denied');
+    });
+  }
+
+  it('keeps the commercial noncommercial-weights predicate for API inventories', () => {
+    const doc = settings();
+    doc.provider_templates[1].artifacts = [{ ...doc.provider_templates[0].artifacts[0], product: 'voxtral-tts', licence: 'CC-BY-NC-4.0', bundled: false }];
+    assertAllDisabled(computeCapabilityMatrix(doc, contextFor(doc, 'eu-e1')), 'licence_denied');
+    doc.hosting.commercial = false;
     assertAllEnabled(computeCapabilityMatrix(doc, contextFor(doc, 'eu-e1')));
   });
 
@@ -495,14 +595,54 @@ describe('AIT-40: server-side capability intersection', () => {
     });
   }
 
-  it('admits declared free operator service lanes without a paid budget but refuses zero cloud maxima', () => {
-    const doc = settings();
-    for (const lane of LANES) doc.policy.spend.provider_max[lane] = 0;
-    const context = contextFor(doc);
-    delete context.budget;
-    assertAllEnabled(computeCapabilityMatrix(doc, context));
-    assertAllDisabled(computeCapabilityMatrix(doc, contextFor(doc, 'cloud-c1')), 'budget_invalid');
-  });
+  for (const host of ['127.0.0.1', '127.0.0.2', 'localhost', '[::1]']) {
+    it(`admits zero-max operator self-hosted loopback lanes on ${host} without a budget or at the session cap`, () => {
+      const doc = settings();
+      for (const lane of LANES) doc.policy.spend.provider_max[lane] = 0;
+      if (!doc.policy.egress.allow.includes(host)) doc.policy.egress.allow.push(host);
+      doc.presets['local-l1'].egress.allow = [host];
+      doc.provider_templates[0].endpoint = `http://${host}:9/v1`;
+      const context = contextFor(doc);
+      context.budget.spent_micro.session = doc.policy.spend.caps.session_micro;
+      assertAllEnabled(computeCapabilityMatrix(doc, context));
+      delete context.budget;
+      assertAllEnabled(computeCapabilityMatrix(doc, context));
+      assertAllDisabled(computeCapabilityMatrix(doc, contextFor(doc, 'cloud-c1')), 'budget_invalid');
+    });
+  }
+
+  for (const budgetState of ['omitted', 'session cap exhausted']) {
+    it(`refuses all five zero-max eu-e1 lanes for an operator self-hosted public endpoint with budget ${budgetState}`, () => {
+      const doc = settings();
+      Object.assign(doc.provider_templates[1], { deployment: 'self_hosted', location: 'operator' });
+      assert.equal(doc.provider_templates[1].endpoint, 'https://eu-provider.example.invalid/v1');
+      for (const lane of LANES) doc.policy.spend.provider_max[lane] = 0;
+      const context = contextFor(doc, 'eu-e1');
+      if (budgetState === 'omitted') delete context.budget;
+      else context.budget.spent_micro.session = doc.policy.spend.caps.session_micro;
+      const matrix = computeCapabilityMatrix(doc, context);
+      assertAllDisabled(matrix, 'budget_invalid');
+      for (const lane of LANES) assert.equal(matrix.lanes[lane].reason, 'budget_invalid');
+      assert.equal(matrix.text_capture.enabled, true);
+    });
+  }
+
+  for (const [label, deployment, location, endpoint] of [
+    ['operator API on loopback', 'api', 'operator', 'http://127.0.0.1:9/v1'],
+    ['cloud self-hosted on loopback', 'self_hosted', 'cloud', 'https://127.0.0.1:9/v1'],
+    ['cloud self-hosted public endpoint', 'self_hosted', 'cloud', 'https://eu-provider.example.invalid/v1'],
+    ['malformed operator endpoint', 'self_hosted', 'operator', 'not a URL'],
+  ]) {
+    it(`refuses the zero-budget exemption for ${label}`, () => {
+      const doc = settings();
+      for (const lane of LANES) doc.policy.spend.provider_max[lane] = 0;
+      Object.assign(doc.provider_templates[1], { deployment, location, endpoint });
+      doc.presets['eu-e1'].egress.allow.push('127.0.0.1');
+      const context = contextFor(doc, 'eu-e1');
+      delete context.budget;
+      assertAllDisabled(computeCapabilityMatrix(doc, context), 'budget_invalid');
+    });
+  }
 
   for (const [label, change] of [
     ['future rate', (d) => d.policy.spend.fx[0].as_of = '2026-10-01T00:00:00Z'],
