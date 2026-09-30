@@ -4,7 +4,7 @@ import { errorResponse, HostError } from './protocol.js';
 /**
  * Loopback only, ephemeral port only, and no outbound sockets. Authorization
  * uses Bearer JWTs; fixture person sessions use a separate opaque cookie.
- * Intake writes additionally send X-Live-Grant and Idempotency-Key.
+ * Intake writes additionally send X-Live-Grant, Idempotency-Key and X-Aithema-Intake.
  * Returns { server, url, close }; callers must await close() in test teardown.
  */
 export async function serveHost(host) {
@@ -29,6 +29,7 @@ export async function serveHost(host) {
         ...(auth === undefined ? {} : { token: auth.slice(7) }),
         person: people[0]?.slice('host_person='.length),
         opKey: req.headers['idempotency-key'], liveGrant: req.headers['x-live-grant'],
+        intakeMetadata: req.headers['x-aithema-intake'],
         ...(bytes === '' ? {} : { body: bytes }),
       });
       res.writeHead(response.status, { 'content-type': 'application/json; charset=utf-8', ...response.headers });

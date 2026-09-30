@@ -1,4 +1,4 @@
-import { canExecute, validate } from '../../contracts/validate.js';
+import { canExecute, canonicalJson, validate } from '../../contracts/validate.js';
 import { loadContractFile } from '../../contracts/validate.js';
 
 export const capabilities = loadContractFile('capabilities.json');
@@ -63,6 +63,21 @@ export function input(value) {
     if (error instanceof HostError) throw error;
     throw new HostError(400, 'Malformed JSON');
   }
+}
+
+/** Optional on legacy contract-only fixtures; Aeon sends canonical metadata. */
+export function intakeMetadata(header) {
+  if (header === undefined) return null;
+  try {
+    if (typeof header !== 'string' || !/^[A-Za-z0-9_-]+$/.test(header)) throw new Error();
+    const bytes = Buffer.from(header, 'base64url');
+    if (bytes.toString('base64url') !== header) throw new Error();
+    const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+    const metadata = JSON.parse(text);
+    jsonValue(metadata);
+    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata) || canonicalJson(metadata) !== text) throw new Error();
+    return metadata;
+  } catch { throw new HostError(400, 'Invalid X-Aithema-Intake metadata'); }
 }
 
 export function budget(type, body) {
