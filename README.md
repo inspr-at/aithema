@@ -21,6 +21,14 @@ Selectively adapted from read-only inspection of START (`start-agm-com`) primiti
 
 START remains unchanged on its PMA business track. Public forge publication, START cutover, and live provider/OIDC proof remain later work.
 
+### Model weights and voices
+
+This inventory matches `NOTICES.json` (`model_assets`). No model weights or voices are bundled in v1.
+
+| ID | Kind | Source | License | SHA-256 | Bytes |
+| --- | --- | --- | --- | --- | --- |
+| none bundled | — | — | — | — | — |
+
 ## Design
 
 - **Pure domain APIs** — caller supplies `VerifiedAuthority` (`party_ref` + `roles`); no fake auth.

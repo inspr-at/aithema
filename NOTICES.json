@@ -43,6 +43,7 @@
       "use": "Pinned public Flow Shell runtime tarball (GitHub Release v0.2.1). Compact header/footer Web Component consumed by the Aithema workspace host. Not a source fork and not an npm namespace claim."
     }
   ],
+  "model_assets": [],
   "extraction_provenance": [
     {
       "aithema_module": "lib/csv.js",

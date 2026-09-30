@@ -28,6 +28,7 @@ import {
   resolvePrimeOutDir,
 } from '../release/prime-consumer-cache.mjs';
 import { sha256 } from '../release/lib/digest.mjs';
+import { SBOM_PATH, sbomBytes } from '../release/lib/sbom.mjs';
 import {
   FLOW_SHELL_TARBALL_SHA256,
   FLOW_SHELL_VERSION,
@@ -59,7 +60,7 @@ import {
   git,
   indexTree,
   runPublishRace,
-  seedMinimalPackageTree,
+  seedMinimalPackageTree as seedBasePackageTree,
   stagingResidue,
   trashTemp,
 } from './fixtures/packaging-support.mjs';
@@ -76,6 +77,14 @@ const PRIVATE_MANIFEST_NAME = stableManifestFilename(PRIVATE_FIXTURE_VERSION);
 const PRIVATE_RELEASE_DIRNAME = stableReleaseDirname(PRIVATE_FIXTURE_VERSION);
 const COORDINATE = `npm:@inspr/aithema-core@${VERSION}.tgz`;
 const FLOW_SHELL_ARTIFACT = `inspr-flow-shell-${FLOW_SHELL_VERSION}.tgz`;
+
+function seedMinimalPackageTree(repo, allowlist) {
+  seedBasePackageTree(repo, allowlist);
+  for (const path of ['sbom', 'model-assets', 'licence-boundary']) {
+    const rel = `release/lib/${path}.mjs`;
+    copyFileSync(join(repoRoot, rel), join(repo, rel));
+  }
+}
 
 /**
  * npm --offline cannot replay GitHub Release HTTP tarball fetches. The primed
@@ -379,6 +388,15 @@ describe('AIT-10 reproducible packaging', () => {
     try {
       const first = buildRelease({ repoRoot, ...source, outDir: outA });
       const second = buildRelease({ repoRoot, ...source, outDir: outB });
+      assert.ok(first.paths.includes(SBOM_PATH));
+      const sbomA = execFileSync('tar', ['-xOzf', first.artifactPath, `package/${SBOM_PATH}`]);
+      const sbomB = execFileSync('tar', ['-xOzf', second.artifactPath, `package/${SBOM_PATH}`]);
+      assert.deepEqual(sbomA, sbomB);
+      assert.equal(JSON.parse(sbomA).specVersion, '1.6');
+      const readInput = (path) => JSON.parse(execFileSync('tar', ['-xOzf', first.artifactPath, `package/${path}`]));
+      const epoch = hasGitMetadata(repoRoot) ? commitEpochSeconds(repoRoot, source.commit)
+        : JSON.parse(readFileSync(join(repoRoot, 'release/source-provenance.json'))).export_mtime_epoch;
+      assert.deepEqual(sbomA, sbomBytes(readInput('package.json'), readInput('package-lock.json'), epoch));
       assert.equal(first.artifactSha256, second.artifactSha256);
       assert.equal(first.manifestText, second.manifestText);
       assert.equal(first.manifest.artifacts[0].path, ARTIFACT_NAME);
