@@ -257,3 +257,47 @@ requirements still apply; DCO introduces no second-maintainer requirement.
 ## License
 
 AGPL-3.0-only. First public GitHub source/runtime-tgz coordinate `0.1.0` is published at [inspr-at/aithema](https://github.com/inspr-at/aithema); `0.2.0` through `0.10.0` are also published and `0.10.1` is the prepared candidate in this increment. npm registry publication is not authorized.
+
+### Running Aithema in a commercial host (informational, not legal advice)
+
+Aithema's own code throughout this repository is currently **AGPL-3.0-only**,
+including `contracts/` and any in-repo element code; dependencies retain their
+own licences. ND1's planned Apache-2.0 split for contracts and the element takes
+effect only after the rights audit and any required remediation (AIT-P24/P25)
+and the release gate (AIT-P30), with the new licences actually released.
+Until then, `contracts/` is AGPL too; the plan grants no present Apache licence.
+
+Commercial use is permitted ([LICENSE](LICENSE), §2). If you modify Aithema and
+users interact with that version over a network, §13 requires a prominent offer
+to **all those users** of access to the running version's Corresponding Source
+from a network server at no charge, for example a visible UI/API source link.
+Offer the complete source needed to build, install, run and modify that version,
+including relevant scripts (§1), rather than just patches or an upstream URL
+that lacks your changes.
+
+Running an unmodified version does not itself trigger a new §13 source-offer
+duty; retain any existing source offer. Network interaction alone, without
+transferring a copy, is not conveying (§0). If you convey copies, §§4–6 apply:
+preserve notices and provide the licence, mark and date modifications and
+license the covered modified work under AGPL, and meet Corresponding Source
+requirements for non-source forms. These duties also apply to unmodified copies
+where relevant, independently of the network-use rule.
+
+Editing Aithema's source files, patching its runtime, or bundling a build with
+those changes are practical examples of modification (§0). Using supported
+settings, configuring exposed adapters/ports, or host code calling Aithema's
+HTTP/intake API does not, by itself, modify Aithema. Copying or adapting Aithema
+code when implementing an adapter or integration can change that assessment.
+
+A host may keep its own UI over the API, its own services, and its own domain
+extensions registered through the typed extension point (when it lands)
+proprietary **if they are separate works**. An API or extension boundary alone
+does not settle whether code forms a derivative or combined covered work;
+copying, linkage and combination depend on the facts (§§0, 1, 5). Obtain legal
+counsel for that assessment; this guidance grants no exception to the licence.
+
+Once the audited split takes effect, hosts can build against
+`@inspr/aithema-contracts` and use `@inspr/aithema-element` under Apache-2.0,
+without AGPL obligations arising from those packages themselves, while complying
+with their Apache terms and notices. The runtime stays **AGPL-3.0-only**;
+using Apache packages does not remove duties for any AGPL covered work.
