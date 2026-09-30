@@ -219,12 +219,44 @@ export function readerSupport() {
  * @returns {string}
  */
 export function canonicalJson(value) {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  if (value !== null && typeof value === 'object') {
-    const obj = /** @type {Record<string, unknown>} */ (value);
-    return `{${Object.keys(obj).sort().map((k) => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`).join(',')}}`;
+  const ancestors = new Set();
+  /** @param {string} text */
+  function string(text) {
+    for (const char of text) {
+      const code = char.codePointAt(0);
+      if (code >= 0xd800 && code <= 0xdfff) {
+        throw new TypeError('canonical JSON cannot contain lone UTF-16 surrogates');
+      }
+    }
+    return JSON.stringify(text);
   }
-  return JSON.stringify(value);
+  /** @param {unknown} node @returns {string} */
+  function encode(node) {
+    if (node === null) return 'null';
+    if (typeof node === 'string') return string(node);
+    if (typeof node === 'boolean') return JSON.stringify(node);
+    if (typeof node === 'number') {
+      if (!Number.isFinite(node)) throw new TypeError('canonical JSON requires finite numbers');
+      return JSON.stringify(node);
+    }
+    if (typeof node !== 'object') throw new TypeError('canonical JSON requires JSON values');
+    if (ancestors.has(node)) throw new TypeError('canonical JSON cannot contain cycles');
+    ancestors.add(node);
+    try {
+      if (Array.isArray(node)) {
+        // Array.from also visits holes, which are not JSON values.
+        return `[${Array.from(node, encode).join(',')}]`;
+      }
+      const obj = /** @type {Record<string, unknown>} */ (node);
+      if (Object.getPrototypeOf(obj) !== Object.prototype && Object.getPrototypeOf(obj) !== null) {
+        throw new TypeError('canonical JSON requires plain objects');
+      }
+      return `{${Object.keys(obj).sort().map((k) => `${string(k)}:${encode(obj[k])}`).join(',')}}`;
+    } finally {
+      ancestors.delete(node);
+    }
+  }
+  return encode(value);
 }
 
 /** @param {string} text */

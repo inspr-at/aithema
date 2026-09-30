@@ -63,6 +63,34 @@ describe('AIT-35 foundation contracts: fixtures', () => {
 });
 
 describe('AIT-35 foundation contracts: canonical digests', () => {
+  it('refuses lone UTF-16 surrogates in values and keys at every depth', () => {
+    for (const text of ['\ud800', '\udfff', 'x\ud800y', '\udc00\ud800']) {
+      for (const value of [text, { value: [text] }, { [text]: 1 }]) {
+        assert.throws(() => canonicalJson(value), /lone UTF-16 surrogates/);
+      }
+    }
+    assert.equal(canonicalJson({ '\ud83d\ude00': '\ud83d\ude00' }), '{"😀":"😀"}');
+  });
+
+  it('refuses non-finite numbers instead of hashing null', () => {
+    for (const number of [NaN, Infinity, -Infinity]) {
+      for (const value of [number, [number], { nested: { number } }]) {
+        assert.throws(() => canonicalJson(value), /finite numbers/);
+      }
+    }
+  });
+
+  it('refuses non-JSON values and cycles without rejecting shared children', () => {
+    for (const value of [undefined, [undefined], Array(1), { x: undefined }, 1n, () => {}, Symbol(), new Date()]) {
+      assert.throws(() => canonicalJson(value), /JSON values|plain objects/);
+    }
+    const cyclic = {};
+    cyclic.self = cyclic;
+    assert.throws(() => canonicalJson(cyclic), /cycles/);
+    const child = { a: 1 };
+    assert.equal(canonicalJson([child, child]), '[{"a":1},{"a":1}]');
+  });
+
   it('encodes objects with sorted keys and no whitespace', () => {
     assert.equal(canonicalJson({ b: [2, { d: 1, c: 'x' }], a: null }), '{"a":null,"b":[2,{"c":"x","d":1}]}');
     assert.equal(sha256Hex('abc'), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
@@ -78,6 +106,14 @@ describe('AIT-35 foundation contracts: canonical digests', () => {
     assert.ok(canonical.indexOf('\u{1F600}') < canonical.indexOf('\uE000'), 'UTF-16 key order');
     assert.ok(canonical.includes('[1e+21,1e-7,0.1,0]'), 'ECMAScript numbers, -0 → 0');
   });
+});
+
+it('repairing only the denied budget reason makes the authority-reason fixture valid', () => {
+  const fixture = JSON.parse(readFileSync(join(fixtures, 'invalid/budget.denied-with-authority-reason.json'), 'utf8'));
+  assert.equal(validate(fixture.contract, fixture.doc).ok, false);
+  const repaired = structuredClone(fixture.doc);
+  repaired.body.denied = 'session_cap';
+  assert.equal(validate(fixture.contract, repaired).ok, true);
 });
 
 describe('AIT-35 foundation contracts: compatibility (§9.7)', () => {
