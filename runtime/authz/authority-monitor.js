@@ -107,6 +107,7 @@ export class AuthorityMonitor {
     this.#endTimer = this.#scheduler.setTimeout(() => {
       if (!this.#running) return;
       this.#session.end();
+      if (!this.#running) return; // A lifecycle callback stopped the monitor inside end().
       // Ending paid work never strands a retained deletion: without authority
       // the purge steps still run until the host acknowledges them.
       if (this.#purge && this.#session.state === 'PURGING' && !this.#session.purgeAcknowledged) {
@@ -122,10 +123,14 @@ export class AuthorityMonitor {
 
   #schedulePurgeRedrive() {
     this.#scheduler.clearTimeout(this.#purgeTimer);
+    if (!this.#running) return;
     this.#purgeTimer = this.#scheduler.setTimeout(async () => {
       if (!this.#running) return;
       try { await this.#session.redrivePurge(this.#purge); }
-      catch (error) { this.#lastError = error; this.#onError(error); }
+      catch (error) {
+        this.#lastError = error;
+        try { this.#onError(error); } catch { /* an error sink must not stop deletion */ }
+      }
       if (!this.#running) return;
       if (this.#session.purgeAcknowledged || this.#session.state !== 'PURGING') this.stop();
       else this.#schedulePurgeRedrive();
@@ -172,7 +177,7 @@ export class AuthorityMonitor {
       this.#lastError = error;
       if (error.code === 'revoked') this.#session.revoke();
       else if (++this.#failures >= 2) this.#session.captureOnly(error);
-      this.#onError(error);
+      try { this.#onError(error); } catch { /* an error sink must not break polling */ }
     } finally {
       // An observer may throw after the terminal commit. The recorded host ack
       // still ends polling, without waiting for another authority response.

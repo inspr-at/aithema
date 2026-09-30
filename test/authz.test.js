@@ -1735,6 +1735,54 @@ describe('(d) tombstone, bounded drain, cache deletion, host purge acknowledgeme
     assert.equal(fake.timers.size, 0, 'The monitor stops once the purge is acknowledged');
   });
 
+  it('a throwing error sink or a stop() inside end() cannot strand or resurrect the post-end purge re-drive', async (t) => {
+    for (const mode of ['throwing-sink', 'stop-inside-end']) {
+      let cacheBlocked = true;
+      const { coordinator, fake, local, journal, cache } = setup(t, {
+        purgeCache: async () => {
+          if (cacheBlocked) throw new Error('fixture cache unavailable');
+          cache.clear();
+        },
+      });
+      const stored = journal.append(bytes(record('session.control', { action: 'purge' }, { writer: { kind: 'host' } })), host());
+      let polls = 0;
+      let available = true;
+      let sinkCalls = 0;
+      const monitor = new AuthorityMonitor({ session: local, purgeCoordinator: coordinator,
+        clock: fake.clock, scheduler: fake.scheduler,
+        onError: () => { sinkCalls++; if (mode === 'throwing-sink') throw new Error('fixture sink failure'); },
+        fetchAuthority: () => available
+          ? authorityResponse(fake, { tombstone: 'purge', ...(++polls === 1 ? { tombstone_record: stored } : {}) })
+          : new Promise(() => {}) });
+      let endCalls = 0;
+      const end = local.end.bind(local);
+      local.end = (...args) => {
+        endCalls++;
+        const result = end(...args);
+        if (mode === 'stop-inside-end') monitor.stop();
+        return result;
+      };
+      monitor.start();
+      await fake.advance(0);
+      available = false;
+      await fake.advance(600_000);
+      assert.equal(endCalls, 1, 'the ten-minute end ran while the purge was still blocked');
+      assert.equal(local.state, 'PURGING');
+      if (mode === 'stop-inside-end') {
+        assert.equal(fake.timers.size, 0, 'stop() inside end() leaves no re-drive armed');
+        continue;
+      }
+      const before = sinkCalls;
+      await fake.advance(30_000); // post-end re-drive fails; the throwing sink must not stop the next one
+      assert.ok(sinkCalls > before, 'the post-end re-drive reported its failure to the sink');
+      cacheBlocked = false;
+      await fake.advance(30_000);
+      assert.equal(local.state, 'PURGED', 'the re-drive survives a throwing error sink');
+      assert.equal(cache.size, 0);
+      assert.equal(fake.timers.size, 0);
+    }
+  });
+
   it('invalid or stale authority tombstone records cannot cause cache deletion or acknowledgement', async (t) => {
     for (const mode of ['foreign', 'projection', 'suspend', 'stale', 'missing coordinator']) {
       const { coordinator, fake, local, cache, events } = setup(t);
