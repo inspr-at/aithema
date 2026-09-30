@@ -10,6 +10,7 @@
 import { validateUnderstanding } from './understanding.js';
 import { normalizeProviderEstimatedSpend } from './policy.js';
 import { PaimosHarnessProvider } from './paimos-provider.js';
+import { cancelReader, delayWithCancellation, readWithCancellation, withCancellation } from './ports/cancellation.js';
 
 export const MOCK_PROVIDER_ID = 'mock';
 export const MOCK_REPLY_MARK = '[Demo / test provider — no live model was contacted.]';
@@ -77,6 +78,9 @@ export function isIncompleteProviderStream(error) {
  * @returns {AbortSignal | undefined}
  */
 export function composeAbortSignals(signals) {
+  if (signals.some((signal) => signal != null && !(signal instanceof AbortSignal))) {
+    throw new TypeError('provider signal must be an AbortSignal');
+  }
   const active = signals.filter((signal) => signal instanceof AbortSignal);
   if (active.length === 0) return undefined;
   if (active.length === 1) return active[0];
@@ -146,25 +150,11 @@ export async function* streamWords(text, delayMs, signal) {
       throw error;
     }
     if (delayMs > 0) {
-      await new Promise((resolve, reject) => {
-        const timer = setTimeout(resolve, delayMs);
-        const onAbort = () => {
-          clearTimeout(timer);
-          const error = new Error('provider stream cancelled');
-          error.name = 'AbortError';
-          reject(error);
-        };
-        if (signal) {
-          if (signal.aborted) {
-            onAbort();
-            return;
-          }
-          signal.addEventListener('abort', onAbort, { once: true });
-        }
-      });
+      await delayWithCancellation(delayMs, signal, abortError);
     }
     yield word;
   }
+  if (signal?.aborted) throw abortError(signal);
 }
 
 export class MockLlmProvider {
@@ -400,6 +390,7 @@ export class OpenAICompatibleProvider {
     } catch {
       throw new Error('provider understanding response was not JSON');
     }
+    if (signal?.aborted) throw abortError(signal);
     return validateUnderstanding(parsed);
   }
 
@@ -429,15 +420,41 @@ export class OpenAICompatibleProvider {
         headers,
         body: JSON.stringify(this.buildBody(request, options)),
         signal: combined,
+        redirect: 'error',
       });
     } catch (error) {
       if (combined?.aborted) throw abortError(combined);
       throw error;
     }
+    if (combined?.aborted) {
+      void response.body?.cancel().catch(() => {});
+      throw abortError(combined);
+    }
     if (!response.ok) {
+      void response.body?.cancel().catch(() => {});
       throw new Error(`provider HTTP ${response.status}`);
     }
     return response;
+  }
+}
+
+/** Operator-local OpenAI server. Literal loopback avoids DNS rebinding. */
+export class LocalOpenAIProvider extends OpenAICompatibleProvider {
+  constructor(config) {
+    let endpoint;
+    try { endpoint = new URL(config?.baseUrl); } catch {
+      throw new Error('local-openai baseUrl must be a loopback http(s) URL');
+    }
+    const loopback = endpoint.hostname === '[::1]'
+      || /^127\.(?:[0-9]{1,3}\.){2}[0-9]{1,3}$/u.test(endpoint.hostname);
+    if (!loopback || !['http:', 'https:'].includes(endpoint.protocol)
+      || endpoint.username || endpoint.password || endpoint.search || endpoint.hash) {
+      throw new Error('local-openai baseUrl must be a loopback http(s) URL without credentials, query, or fragment');
+    }
+    if (config.executionLocation != null && config.executionLocation !== 'local') {
+      throw new Error('local-openai executionLocation must be local');
+    }
+    super({ ...config, baseUrl: endpoint.href.replace(/\/+$/u, ''), executionLocation: 'local' });
   }
 }
 
@@ -460,7 +477,7 @@ export async function* iterateSseContent(response, signal, limits, onUsage) {
   try {
     while (!sawDone) {
       if (signal?.aborted) throw abortError(signal);
-      const { done, value } = await reader.read();
+      const { done, value } = await readWithCancellation(reader, signal, abortError);
       if (done) break;
       responseBytes += value.byteLength;
       if (responseBytes > bound.maxResponseBytes) {
@@ -473,6 +490,7 @@ export async function* iterateSseContent(response, signal, limits, onUsage) {
       const lines = buffer.split(/\r?\n/);
       buffer = lines.pop() ?? '';
       for (const line of lines) {
+        if (signal?.aborted) throw abortError(signal);
         const payload = line.startsWith('data:') ? line.slice(5).trim() : '';
         if (!payload) continue;
         if (payload === '[DONE]') {
@@ -494,6 +512,7 @@ export async function* iterateSseContent(response, signal, limits, onUsage) {
         if (parsed?.usage != null && typeof onUsage === 'function') {
           onUsage(normalizeProviderUsage(parsed.usage));
         }
+        if (signal?.aborted) throw abortError(signal);
         const delta = parsed?.choices?.[0]?.delta?.content;
         if (typeof delta === 'string' && delta) {
           assembledChars += delta.length;
@@ -508,7 +527,7 @@ export async function* iterateSseContent(response, signal, limits, onUsage) {
     if (signal?.aborted && !isIncompleteProviderStream(error)) throw abortError(signal);
     throw error;
   } finally {
-    await reader.cancel().catch(() => {});
+    await cancelReader(reader, signal, abortError);
   }
   if (signal?.aborted) throw abortError(signal);
   if (finishReason && FAILED_FINISH.has(finishReason)) {
@@ -570,9 +589,12 @@ function providerUsageError(message, code = 'provider_usage_invalid') {
  * @param {AbortSignal} [signal]
  */
 export async function readBoundedResponse(response, maxBytes, signal) {
-  if (signal?.aborted) throw abortError(signal);
+  if (signal?.aborted) {
+    void response.body?.cancel().catch(() => {});
+    throw abortError(signal);
+  }
   if (!response.body) {
-    const fallback = Buffer.from(await response.arrayBuffer());
+    const fallback = Buffer.from(await withCancellation(() => response.arrayBuffer(), signal, abortError));
     if (fallback.length > maxBytes) {
       throw new IncompleteProviderStreamError('response_too_large', 'provider response exceeded the configured byte limit');
     }
@@ -584,7 +606,7 @@ export async function readBoundedResponse(response, maxBytes, signal) {
   try {
     while (true) {
       if (signal?.aborted) throw abortError(signal);
-      const { done, value } = await reader.read();
+      const { done, value } = await readWithCancellation(reader, signal, abortError);
       if (done) break;
       size += value.byteLength;
       if (size > maxBytes) {
@@ -593,8 +615,9 @@ export async function readBoundedResponse(response, maxBytes, signal) {
       chunks.push(value);
     }
   } finally {
-    await reader.cancel().catch(() => {});
+    await cancelReader(reader, signal, abortError);
   }
+  if (signal?.aborted) throw abortError(signal);
   return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
 }
 
@@ -641,12 +664,13 @@ function instantiateRegistryProvider(name, entry, config, options) {
       estimatedSpend: entry.estimatedSpend,
     });
   }
-  if (kind === 'openai-compatible') {
+  if (kind === 'openai-compatible' || kind === 'local-openai') {
     const allowedModels = Array.isArray(entry.allowedModels) ? entry.allowedModels : [];
     const modelId = typeof config.defaultModel === 'string' && name === config.defaultProvider
       ? config.defaultModel
       : (entry.modelId ?? allowedModels[0]);
-    return new OpenAICompatibleProvider({
+    const Adapter = kind === 'local-openai' ? LocalOpenAIProvider : OpenAICompatibleProvider;
+    return new Adapter({
       id: name,
       baseUrl: entry.baseUrl,
       apiKey: entry.apiKey,

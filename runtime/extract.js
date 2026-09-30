@@ -90,7 +90,7 @@ function decodeUtf8(bytes) {
 export async function extractDocument(bytes, mimeType, options = {}) {
   const type = mediaTypeFromFilename(options.filename, mimeType);
   if (options.signal?.aborted) {
-    return { text: null, reason: 'cancelled', truncated: false, media_type: type, own_format: false };
+    throw abortError();
   }
   if (!isAcceptedMediaType(type)) {
     return { text: null, reason: 'unsupported', truncated: false, media_type: type, own_format: false };
@@ -141,6 +141,10 @@ export async function extractDocument(bytes, mimeType, options = {}) {
  */
 export async function extractPdfInChild(bytes, options = {}) {
   await acquirePdfSlot(options.signal);
+  if (options.signal?.aborted) {
+    releasePdfSlot();
+    throw abortError();
+  }
   let child;
   try {
     child = fork(CHILD_PATH, [], {

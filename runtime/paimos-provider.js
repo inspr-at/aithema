@@ -12,7 +12,9 @@ import {
   IncompleteProviderStreamError,
   composeAbortSignals,
   normalizeProviderLimits,
+  readBoundedResponse,
 } from './provider.js';
+import { delayWithCancellation } from './ports/cancellation.js';
 import { validateVerifiedActor } from './identity.js';
 import { boundDataClass, normalizeProviderEstimatedSpend } from './policy.js';
 import { validateUnderstanding } from './understanding.js';
@@ -184,44 +186,23 @@ function incomplete(reason = 'provider_failed') {
 }
 
 async function delay(ms, signal) {
-  if (ms <= 0) return;
-  await new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, ms);
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(abortedError(signal));
-    };
-    if (signal) {
-      if (signal.aborted) return onAbort();
-      signal.addEventListener('abort', onAbort, { once: true });
-    }
-  });
+  if (signal?.aborted) throw abortedError(signal);
+  if (ms > 0) await delayWithCancellation(ms, signal, abortedError);
 }
 
 async function boundedJson(response, signal, maxBytes) {
   const type = response.headers.get('content-type') ?? '';
   if (!/^application\/json(?:\s*;\s*charset=utf-8)?$/iu.test(type.trim())) {
+    void response.body?.cancel().catch(() => {});
     throw new Error('Paimos response encoding is invalid');
   }
   const declared = Number(response.headers.get('content-length'));
-  if (Number.isFinite(declared) && declared > maxBytes) throw incomplete('response_too_large');
-  if (!response.body) throw new Error('Paimos response is invalid');
-  const reader = response.body.getReader();
-  const chunks = [];
-  let bytes = 0;
-  try {
-    while (true) {
-      if (signal?.aborted) throw abortedError(signal);
-      const { done, value } = await reader.read();
-      if (done) break;
-      bytes += value.byteLength;
-      if (bytes > maxBytes) throw incomplete('response_too_large');
-      chunks.push(value);
-    }
-  } finally {
-    await reader.cancel().catch(() => {});
+  if (Number.isFinite(declared) && declared > maxBytes) {
+    void response.body?.cancel().catch(() => {});
+    throw incomplete('response_too_large');
   }
-  const body = Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)));
+  if (!response.body) throw new Error('Paimos response is invalid');
+  const body = await readBoundedResponse(response, maxBytes, signal);
   let text;
   try {
     text = new TextDecoder('utf-8', { fatal: true }).decode(body);
@@ -328,6 +309,7 @@ export class PaimosHarnessProvider {
   }
 
   async *#execute(request, purpose) {
+    if (request.signal?.aborted) throw abortedError(request.signal);
     if (!PURPOSES.has(purpose)) throw new Error('Paimos purpose is invalid');
     const context = this.#executionContext(request.executionContext, purpose);
     const timeoutMs = Math.min(180_000, this.limits.maxDurationMs);
@@ -381,6 +363,7 @@ export class PaimosHarnessProvider {
         if (result.call.deadline_at !== serverDeadline) throw new Error('Paimos call deadline changed');
         call = result.call;
         for (const event of result.events) {
+          if (request.signal?.aborted) throw abortedError(request.signal);
           this.#validateEvent(event);
           const fingerprint = canonical(event);
           if (event.sequence <= after) {
@@ -587,6 +570,7 @@ export class PaimosHarnessProvider {
     if (target.origin !== this.origin) throw new Error('Paimos request origin is invalid');
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const signal = this.#signal(parentSignal, deadline);
+      if (signal.aborted) throw abortedError(signal);
       let response;
       try {
         response = await this.fetchImpl(target, {
