@@ -21,10 +21,13 @@ import { buildRelease } from '../release/build-release.mjs';
 import { buildSourceExport, resolveSourceExport } from '../release/build-source.mjs';
 import { gitBlobSha1, sha256 } from '../release/lib/digest.mjs';
 import {
+  commitEpochSeconds,
   expandAllowlistPaths,
+  readAllowlistAtCommit,
   readBlob,
   readSourceAllowlistAtCommit,
   resolveCommit,
+  treeDigest,
   validateArchivePath,
 } from '../release/lib/git.mjs';
 import {
@@ -98,6 +101,12 @@ function listTarballPaths(archivePath) {
 // The exporter rewrites this generated provenance file. All other allowlisted
 // files must retain the exact bytes of the exported commit (RUNBOOK: Test loop).
 const NORMALIZED_SOURCE_PATH = 'release/source-provenance.json';
+// Duplicated from the builder so an edit to normalization_note, or any other
+// rewritten provenance byte, fails the extracted-byte compare.
+const SOURCE_PROVENANCE_NORMALIZATION_NOTE =
+  'private_source_commit is lineage from the original private export. '
+  + 'current_source_commit is the Git commit actually exported. '
+  + 'runtime_tree_digest uses the AIT-10 path+blob-sha inventory; it is not a Git tree object id.';
 const EXPORT_SMOKE_TESTS = [
   'test/baseline.test.js',
   'test/contracts.test.js',
@@ -114,6 +123,20 @@ function extractedFilePaths(root, prefix = '') {
   }).sort((a, b) => a.localeCompare(b));
 }
 
+function expectedRewrittenProvenance(repo, source, manifest) {
+  const runtimeAllowlist = readAllowlistAtCommit(repo, source.commit);
+  const runtimePaths = expandAllowlistPaths(repo, source.commit, runtimeAllowlist.paths);
+  return `${JSON.stringify({
+    schema: 'aithema-source-provenance/0.1',
+    private_source_commit: manifest.source.private_source_commit,
+    current_source_commit: source.commit,
+    export_mtime_epoch: commitEpochSeconds(repo, source.commit),
+    runtime_tree_digest: treeDigest(repo, source.commit, runtimePaths),
+    lock_digest: manifest.source.lock_digest,
+    normalization_note: SOURCE_PROVENANCE_NORMALIZATION_NOTE,
+  }, null, 2)}\n`;
+}
+
 function assertExtractedHashManifest(repo, source, extractDir, manifest) {
   const paths = expandAllowlistPaths(repo, source.commit, source.allowlist.paths)
     .filter((path) => path !== NORMALIZED_SOURCE_PATH);
@@ -125,7 +148,13 @@ function assertExtractedHashManifest(repo, source, extractDir, manifest) {
   // Bind the rewritten provenance bytes too, through the source manifest.
   assert.equal(extractedPaths.length, manifest.source.path_count);
   assert.equal(treeDigestFromTree(extractDir, extractedPaths), manifest.source.tree_digest);
-  const provenance = parseSourceProvenance(readFileSync(join(extractDir, NORMALIZED_SOURCE_PATH)));
+  const provenanceBytes = readFileSync(join(extractDir, NORMALIZED_SOURCE_PATH));
+  assert.equal(
+    provenanceBytes.toString('utf8'),
+    expectedRewrittenProvenance(repo, source, manifest),
+    'rewritten release/source-provenance.json bytes must match export inputs, including normalization_note',
+  );
+  const provenance = parseSourceProvenance(provenanceBytes);
   assert.equal(provenance.current_source_commit, source.commit);
   assert.equal(provenance.private_source_commit, manifest.source.private_source_commit);
   assert.equal(provenance.lock_digest, manifest.source.lock_digest);

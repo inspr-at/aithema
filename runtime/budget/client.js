@@ -99,13 +99,16 @@ export class BudgetClient {
       if (error.code === 'budget_denied') this.#paidState = 'BUDGET_DENIED';
       throw error;
     }
-    this.#paidState = 'ACTIVE';
     const submitted = JSON.parse(original).body;
     await this.#record('budget.hold', { hold_id: result.hold_id, attempt_id: submitted.attempt_id,
       lane: submitted.lane, max_micro: submitted.max_micro, currency: submitted.currency }, authority, true);
     // Recovery can close the reservation while its critical journal ack is
     // in flight. Only the ledger may decide whether it remains open.
-    if (await findOpenHold((query) => this.#listOpen(query, authority), result.hold_id)) return result;
+    // Paid lanes resume only when that post-ack check still shows the hold.
+    if (await findOpenHold((query) => this.#listOpen(query, authority), result.hold_id)) {
+      this.#paidState = 'ACTIVE';
+      return result;
+    }
     return this.recover({ hold_id: result.hold_id, worker_generation: this.#authority.gen, auth_epoch: this.#authority.auth_epoch });
   }
 

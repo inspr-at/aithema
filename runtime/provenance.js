@@ -145,9 +145,8 @@ function evidenceValidator(context) {
     if (record.kind === 'turn' && record.data.speaker === 'person') {
       const ordinal = ordinals.get(record.seq);
       if (ordinal === undefined) throw new InvalidCitationError('missing_turn_ordinal');
-      if (!locator.startsWith('turn:') || Number(locator.slice(5)) !== ordinal) {
-        throw new InvalidCitationError('dangling_locator');
-      }
+      // Locator text is canonical decimal: `turn:3`, with no zero padding.
+      if (locator !== `turn:${ordinal}`) throw new InvalidCitationError('dangling_locator');
       text = record.data.body;
     } else if (record.kind === 'source') {
       if (!sourceSegments.has(record.seq)) {
@@ -158,7 +157,9 @@ function evidenceValidator(context) {
       if (!segment) throw new InvalidCitationError('dangling_locator');
       if (quote !== undefined) {
         if (!sourceCodePoints.has(record.seq)) sourceCodePoints.set(record.seq, [...record.data.text]);
-        text = sourceCodePoints.get(record.seq).slice(segment.start, segment.end).join('');
+        // `end` is exclusive: the code point at end is outside the quote window.
+        const points = sourceCodePoints.get(record.seq);
+        text = points.slice(segment.start, segment.end).join('');
       }
     } else {
       // Includes assistant turns and all reactions, even ones citing a person.
