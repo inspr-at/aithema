@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { canonicalJson, sha256Hex } from '../contracts/validate.js';
 import {
   approveBaselineFromProposals, createStream, currentBaseline,
   proposeConstraint, proposeImport, proposeRequirement,
@@ -30,11 +31,21 @@ function initial() {
 
 function replacement(stream, counter = 1) {
   const old = stream.proposals[0];
-  return {
+  return enveloped({
     proposal_ref: `proposal:replacement-${counter}`, kind: 'add_requirement',
     contributed_by: contributor.party_ref, contributed_at: at, summary: 'Replace status requirement',
     op_key: `${sid}:replace:${counter}`,
     requirement: { ...structuredClone(old.requirement), statement: 'Expose status and readiness endpoints.' },
+  });
+}
+
+function enveloped(proposal) {
+  const content = proposal.kind === 'add_constraint'
+    ? { statement: proposal.constraint.statement, acceptance_criteria: [], constraint_refs: [], constraint_kind: proposal.constraint.kind }
+    : { statement: proposal.requirement.statement, acceptance_criteria: proposal.requirement.acceptance_criteria, constraint_refs: proposal.requirement.constraint_refs };
+  return {
+    ...proposal, content, content_sha256: sha256Hex(canonicalJson(content)),
+    citations: [{ record_seq: 1, locator: 'turn:0' }], provenance: { intent: 'requested', derived_from: [1] },
   };
 }
 
@@ -162,12 +173,12 @@ describe('AIT-36 (b): immutable atomic replaceProposal', () => {
       constraint: { ...old.constraint, statement: 'Use status and readiness endpoints.' },
     };
     delete request.requirement;
-    const next = replaceProposal(before, contributor, old.proposal_ref, request);
+    const next = replaceProposal(before, contributor, old.proposal_ref, enveloped(request));
     const approved = approveBaselineFromProposals(next, approver, [before.proposals[0].proposal_ref, request.proposal_ref], 'baseline:1', at);
     assert.equal(currentBaseline(approved).constraints[0].statement, request.constraint.statement);
   });
 
-  it('replaces an update bound to a baseline and rejects a stale replacement', () => {
+  it('keeps legacy update approval and staleness checks, but refuses projected update replacements', () => {
     const seed = initial();
     let stream = approveBaselineFromProposals(seed, approver, [seed.proposals[0].proposal_ref], 'baseline:1', at);
     stream = proposeRequirementUpdate(stream, contributor, { ...requirement, statement: 'Status version two.' }, at);
@@ -176,14 +187,18 @@ describe('AIT-36 (b): immutable atomic replaceProposal', () => {
       ...old, proposal_ref: 'proposal:update-replacement', op_key: `${sid}:replace:4`,
       requirement: { ...old.requirement, statement: 'Status version three.' },
     };
-    assert.throws(() => replaceProposal(stream, contributor, old.proposal_ref, { ...request, against_content_digest: `sha256:${'0'.repeat(64)}` }), /stale|match/);
-    const next = replaceProposal(stream, contributor, old.proposal_ref, request);
-    const approved = approveBaselineFromProposals(next, approver, [request.proposal_ref], 'baseline:2', at);
-    assert.equal(currentBaseline(approved).requirements[0].statement, 'Status version three.');
+    for (const proposal of [request, enveloped(request)]) {
+      assert.throws(() => replaceProposal(stream, contributor, old.proposal_ref, proposal), /projection requires content|projections are new requirement or constraint proposals/);
+    }
+    const stale = { ...stream, proposals: [stream.proposals[0], { ...old, against_content_digest: `sha256:${'0'.repeat(64)}` }] };
+    assert.throws(() => approveBaselineFromProposals(stale, approver, [old.proposal_ref], 'baseline:2', at), /stale|match/);
+    const approved = approveBaselineFromProposals(stream, approver, [old.proposal_ref], 'baseline:2', at);
+    assert.equal(currentBaseline(approved).requirements[0].statement, 'Status version two.');
     assert.equal(currentBaseline(stream).requirements[0].statement, requirement.statement);
+    assert.equal(stream.decisions.length, 1, 'refused replacements never withdraw the pending update');
   });
 
-  it('supports a replacement import bundle without losing defensive copies', () => {
+  it('keeps legacy import copies and approval, but refuses projected import replacements', () => {
     const before = proposeImport(createStream('stream:synthetic', ['new_product']), contributor, [requirement], [], at);
     const old = before.proposals[0];
     const request = {
@@ -191,14 +206,17 @@ describe('AIT-36 (b): immutable atomic replaceProposal', () => {
       import_requirements: [{ ...requirement, statement: 'Replace synthetic imported status.' }],
       import_constraints: [],
     };
-    const next = replaceProposal(before, contributor, old.proposal_ref, request);
+    assert.throws(() => replaceProposal(before, contributor, old.proposal_ref, request), /projection requires content/);
+    const envelope = enveloped(replacement(initial()));
+    const projectedImport = { ...request, content: envelope.content, content_sha256: envelope.content_sha256, citations: envelope.citations, provenance: envelope.provenance };
+    assert.throws(() => replaceProposal(before, contributor, old.proposal_ref, projectedImport), /projections are new requirement or constraint proposals/);
     request.import_requirements[0].statement = 'Caller mutation';
-    assert.equal(next.proposals[1].import_requirements[0].statement, 'Replace synthetic imported status.');
-    const approved = approveBaselineFromProposals(next, approver, [request.proposal_ref], 'baseline:1', at);
-    assert.equal(currentBaseline(approved).requirements[0].statement, 'Replace synthetic imported status.');
+    assert.equal(before.proposals[0].import_requirements[0].statement, requirement.statement);
+    const approved = approveBaselineFromProposals(before, approver, [old.proposal_ref], 'baseline:1', at);
+    assert.equal(currentBaseline(approved).requirements[0].statement, requirement.statement);
     assert.throws(() => replaceProposal(before, contributor, old.proposal_ref, {
       ...request, import_requirements: [],
-    }), /preserve imported/);
+    }), /projection requires content/);
     assert.equal(before.decisions.length, 0, 'an empty import must not become a bare withdrawal');
   });
 
