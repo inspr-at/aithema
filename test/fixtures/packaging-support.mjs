@@ -60,6 +60,8 @@ export function seedMinimalPackageTree(repoRoot, allowlist) {
   cpSync(join(sourceRoot, 'workspace'), join(repoRoot, 'workspace'), { recursive: true });
   cpSync(join(sourceRoot, 'examples'), join(repoRoot, 'examples'), { recursive: true });
   cpSync(join(sourceRoot, 'bin'), join(repoRoot, 'bin'), { recursive: true });
+  // lib/ and runtime/ import the foundation contracts, so the release ships them (AIT-36).
+  cpSync(join(sourceRoot, 'contracts'), join(repoRoot, 'contracts'), { recursive: true });
   for (const rel of [
     'package.json',
     'package-lock.json',
