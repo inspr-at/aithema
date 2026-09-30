@@ -1,0 +1,10 @@
+{
+  "screen_ir": {
+    "screen": "synthetic-export",
+    "nodes": [
+      { "kind": "text", "id": "title", "text": "Export entries" },
+      { "kind": "button", "id": "export", "label": "Export CSV" }
+    ]
+  },
+  "tokens": { "color": { "surface": "#ffffff", "ink": "#222222" }, "space": 8 }
+}
