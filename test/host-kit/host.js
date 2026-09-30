@@ -423,7 +423,9 @@ export class MockHost {
   /** Build once per commit; polling and retries return the stored revision. */
   #intakeSnapshot(session, items) {
     const canonical = canonicalJson({ op: 'intake-projection' });
+    const minor = items.some((item) => Object.hasOwn(item, 'extensions')) ? 1 : 0;
     return document(envelope('aithema.spec.snapshot', {
+      minor, min_reader: 0,
       sid: session.authz.sid, client_event_id: randomUUID(),
       working_rev: session.intakeRev + 1, expected_prev_rev: session.intakeRev,
       consumed_seq: session.seq, worker_generation: session.generation, host_mode: session.hostMode,

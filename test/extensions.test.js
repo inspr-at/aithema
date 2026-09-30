@@ -4,6 +4,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { canonicalJson, sha256Hex, validate, validateExtensions, index } from '../contracts/validate.js';
 import { createExtensionRegistry, registerExtension, assertItemExtensions } from '../lib/extensions.js';
+import { addWorkingItem, createWorkingSpec } from '../lib/working-spec.js';
 
 const string = (maxLength = 1000) => ({ type: 'string', maxLength });
 const object = (properties, required = []) => ({ type: 'object', additionalProperties: false, properties, required });
@@ -321,6 +322,80 @@ it('(a) registration and instance checks perform no lazy file I/O', () => {
     } finally { fs.readFileSync = original; syncBuiltinESMExports(); }
   `;
   assert.equal(execFileSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8' }), '');
+});
+
+it('(e) classifies extension_limit only from maxLength and maxItems, not from error text', () => {
+  const schema = object({
+    note: { type: 'string', maxLength: 100, enum: ['ok'] },
+    list: { type: 'array', maxItems: 4, items: { type: 'string', maxLength: 100, enum: ['ok'] } },
+    text: string(2),
+  });
+  const registry = createExtensionRegistry([descriptor(schema)]);
+  assert.throws(() => assertItemExtensions(map({ note: 'longer than 5', list: ['ok'], text: 'ab' }), registry), code('extension_invalid'));
+  assert.throws(() => assertItemExtensions(map({ note: 'ok', list: ['more than 2 items'], text: 'ab' }), registry), code('extension_invalid'));
+  assert.throws(() => assertItemExtensions(map({ note: 'longer than 5', list: ['ok'], text: 'abcdef' }), registry), code('extension_limit'));
+  assert.throws(() => assertItemExtensions(map({ note: 'ok', list: ['ok', 'ok', 'ok', 'ok', 'ok'], text: 'ab' }), registry), code('extension_limit'));
+});
+
+it('(a) a cyclic descriptor schema is extension_invalid', () => {
+  const schema = object({ child: string(1) });
+  schema.properties.child = schema;
+  const described = descriptor(schema);
+  const registered = validate('aithema.extension', described);
+  assert.equal(registered.ok, false);
+  assert.deepEqual(registered.schemaErrors, ['extension_invalid: cyclic schema']);
+  assert.equal(validateExtensions(map({}), [described]).code, 'extension_invalid');
+  const items = { type: 'array', maxItems: 1, items: string(1) };
+  items.items = items;
+  assert.equal(validate('aithema.extension', descriptor(items)).schemaErrors[0], 'extension_invalid: cyclic schema');
+});
+
+it('(b) an instance version above MAX_SAFE_INTEGER is extension_invalid', () => {
+  const unsafe = String(Number.MAX_SAFE_INTEGER + 1);
+  const safe = String(Number.MAX_SAFE_INTEGER);
+  for (const version of [`${unsafe}.0`, `1.${unsafe}`, '9007199254740993.0']) {
+    const major = version.split('.')[0];
+    const result = validateExtensions({ [`x-demo.readiness@${major}`]: { version, data: true } });
+    assert.equal(result.ok, false, version);
+    assert.equal(result.code, 'extension_invalid', version);
+  }
+  assert.equal(validateExtensions({ [`x-demo.readiness@${safe}`]: { version: `${safe}.0`, data: true } }).ok, true);
+});
+
+it('(c) a snapshot carrying item extensions requires minor >= 1 and the working-spec shell stamps it', () => {
+  const fixture = JSON.parse(readFileSync(new URL('../contracts/fixtures/valid/extension-snapshot.json', import.meta.url), 'utf8'));
+  const stale = structuredClone(fixture.doc);
+  stale.minor = 0;
+  const rejected = validate('aithema.spec.snapshot', stale);
+  assert.equal(rejected.ok, false);
+  assert.ok(rejected.invariants.includes('snapshot.extensions_require_minor'));
+  assert.equal(validate('aithema.spec.snapshot', fixture.doc).ok, true);
+  const newer = structuredClone(fixture.doc);
+  newer.minor = 2;
+  newer.min_reader = 0;
+  assert.equal(validate('aithema.spec.snapshot', newer).ok, true);
+  const cleared = structuredClone(fixture.doc);
+  cleared.minor = 0;
+  for (const item of cleared.spec.items) delete item.extensions;
+  assert.equal(validate('aithema.spec.snapshot', cleared).ok, true);
+  const empty = structuredClone(cleared);
+  empty.spec.items[0].extensions = {};
+  assert.ok(validate('aithema.spec.snapshot', empty).invariants.includes('snapshot.extensions_require_minor'));
+  empty.minor = 1;
+  empty.min_reader = 0;
+  assert.equal(validate('aithema.spec.snapshot', empty).ok, true);
+
+  const registry = createExtensionRegistry([descriptor({ type: 'boolean' })]);
+  const item = {
+    item_ref: 'REQ-1', kind: 'requirement',
+    content: { statement: 'Expose a synthetic status endpoint.', acceptance_criteria: [], constraint_refs: [] },
+    citations: [], provenance: { intent: 'inferred', derived_from: [] },
+    extensions: { 'x-demo.readiness@1': { version: '1.0', data: true } },
+  };
+  assert.equal(addWorkingItem(createWorkingSpec('review'), item, registry).items[0].extensions['x-demo.readiness@1'].data, true);
+  const plain = { ...item };
+  delete plain.extensions;
+  assert.equal(Object.hasOwn(addWorkingItem(createWorkingSpec('review'), plain).items[0], 'extensions'), false);
 });
 
 it('(a,b) the contracts authority refuses unvalidated descriptor schemas supplied directly', () => {

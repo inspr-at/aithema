@@ -66,15 +66,18 @@ function validPublicSpeechConfig() {
   };
 }
 
-function launch(configPath, gracePeriodMs = 200, speechConfigPath = null) {
+function launch(configPath, gracePeriodMs = 200, speechConfigPath = null, clock = null) {
   const args = [
     '--config', configPath,
     '--shutdown-grace-ms', String(gracePeriodMs),
   ];
   if (speechConfigPath) args.push('--speech-config', speechConfigPath);
-  const child = spawn(executable, args, {
+  const child = spawn(clock ? process.execPath : executable, clock ? [
+    '--import', join(repoRoot, 'test/fixtures/workspace-cli-clock.mjs'), executable, ...args,
+  ] : args, {
     cwd: '/tmp',
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: clock ? ['ignore', 'pipe', 'pipe', 'ipc'] : ['ignore', 'pipe', 'pipe'],
+    ...(clock ? { env: { ...process.env, AITHEMA_TEST_SHUTDOWN_MUTATION: clock.mutation ?? '' } } : {}),
   });
   let stdout = '';
   let stderr = '';
@@ -85,19 +88,39 @@ function launch(configPath, gracePeriodMs = 200, speechConfigPath = null) {
   return {
     child,
     output: () => ({ stdout, stderr }),
-    async waitFor(pattern, timeoutMs = 5_000) {
-      const deadline = Date.now() + timeoutMs;
-      while (Date.now() < deadline) {
-        const match = stdout.match(pattern);
-        if (match) return match;
-        if (child.exitCode !== null) {
-          throw new Error(`workspace exited before expected output: ${stderr || stdout}`);
-        }
-        await delay(10);
-      }
-      throw new Error(`timed out waiting for workspace output: ${stderr || stdout}`);
+    waitFor(pattern, timeoutMs = 10_000) {
+      return new Promise((resolveMatch, reject) => {
+        const finish = (error, match) => {
+          clearTimeout(timer);
+          child.stdout.off('data', check);
+          child.off('exit', check);
+          if (error) reject(error);
+          else resolveMatch(match);
+        };
+        const check = () => {
+          const match = stdout.match(pattern);
+          if (match) finish(null, match);
+          else if (child.exitCode !== null || child.signalCode !== null) {
+            finish(new Error(`workspace exited before expected output: ${stderr || stdout}`));
+          }
+        };
+        const timer = setTimeout(() => finish(new Error(`timed out waiting for workspace output: ${stderr || stdout}`)), timeoutMs);
+        child.stdout.on('data', check);
+        child.on('exit', check);
+        check();
+      });
     },
-    async waitForExit(timeoutMs = 5_000) {
+    async advance(ms) {
+      assert.ok(clock, 'controlled child clock');
+      assert.equal(child.exitCode, null, 'child remains alive before advancing its clock');
+      const advanced = once(child, 'message');
+      const exited = once(child, 'exit').then(() => { throw new Error('child exited before clock acknowledgement'); });
+      child.send({ advanceMs: ms }, (error) => { if (error) child.emit('error', error); });
+      const response = await Promise.race([advanced, exited,
+        delay(10_000, undefined, { ref: false }).then(() => { throw new Error('child clock did not acknowledge'); })]);
+      assert.deepEqual(response[0], { advancedMs: ms });
+    },
+    async waitForExit(timeoutMs = 10_000) {
       if (child.exitCode !== null) return { code: child.exitCode, signal: child.signalCode };
       return Promise.race([
         once(child, 'exit').then(([code, signal]) => ({ code, signal })),
@@ -110,18 +133,95 @@ function launch(configPath, gracePeriodMs = 200, speechConfigPath = null) {
 async function holdRequest(url) {
   const parsed = new URL(url);
   const socket = connect({ host: parsed.hostname, port: Number(parsed.port) });
+  socket.on('error', () => {}); // Force-close can reset an incomplete HTTP request.
   await once(socket, 'connect');
-  socket.write([
-    'POST /aithema/session/demo HTTP/1.1',
-    `Host: ${parsed.host}`,
-    'Content-Type: application/x-www-form-urlencoded',
-    'Content-Length: 100',
-    'Connection: keep-alive',
-    '',
-    'x',
-  ].join('\r\n'));
-  await delay(25);
+  const acknowledged = new Promise((resolveAck, reject) => {
+    let response = '';
+    const cleanup = () => {
+      socket.off('data', received);
+      socket.off('error', failed);
+      socket.off('end', ended);
+    };
+    const received = (chunk) => {
+      response += chunk.toString();
+      if (response.includes('\r\n\r\n')) {
+        cleanup();
+        resolveAck(response);
+      }
+    };
+    const failed = (error) => { cleanup(); reject(error); };
+    const ended = () => failed(new Error('held request ended before its acknowledgement'));
+    socket.on('data', received);
+    socket.once('error', failed);
+    socket.once('end', ended);
+  });
+  await new Promise((resolve, reject) => {
+    socket.write([
+      'POST /aithema/session/demo HTTP/1.1',
+      `Host: ${parsed.host}`,
+      'Content-Type: application/x-www-form-urlencoded',
+      'Content-Length: 100',
+      'Connection: keep-alive',
+      'Expect: 100-continue',
+      '',
+      '',
+    ].join('\r\n'), (error) => (error ? reject(error) : resolve()));
+  });
+  // The acknowledgement is on the held socket itself, so shutdown cannot race
+  // acceptance of this request. Its body intentionally remains incomplete.
+  assert.match(await acknowledged, /^HTTP\/1\.1 100 Continue\r\n\r\n$/);
+  socket.resume();
   return socket;
+}
+
+async function proveGraceExpiry(configPath, mutation = null) {
+  const running = launch(configPath, 150, null, { mutation });
+  let held;
+  try {
+    const match = await running.waitFor(/listening at (http:\/\/\S+)/);
+    held = await holdRequest(match[1]);
+    const closed = new Promise((resolveClose) => held.once('close', resolveClose));
+    running.child.kill('SIGTERM');
+    await running.waitFor(/draining for at most 150ms/);
+    await running.advance(149);
+    assert.equal(held.destroyed, false, 'the held request stays open before the grace deadline');
+    assert.equal(running.child.exitCode, null);
+    assert.doesNotMatch(running.output().stdout, /stopped cleanly/);
+    await running.advance(1);
+    assert.deepEqual(await running.waitForExit(), { code: 0, signal: null });
+    await closed;
+    assert.equal(held.destroyed, true, 'grace expiry force-closes the held request');
+    assert.match(running.output().stdout, /stopped cleanly/);
+  } finally {
+    held?.destroy();
+    if (running.child.exitCode === null) running.child.kill('SIGKILL');
+  }
+}
+
+async function proveRepeatedSignal(configPath, mutation = null) {
+  const running = launch(configPath, 300_000, null, { mutation });
+  let held;
+  try {
+    const match = await running.waitFor(/listening at (http:\/\/\S+)/);
+    held = await holdRequest(match[1]);
+    const closed = new Promise((resolveClose) => held.once('close', resolveClose));
+    running.child.kill('SIGTERM');
+    await running.waitFor(/draining for at most 300000ms/);
+    await running.advance(0);
+    assert.equal(held.destroyed, false);
+    assert.equal(running.child.exitCode, null);
+    running.child.kill('SIGINT');
+    await running.waitFor(/Repeated shutdown signal/);
+    // No grace time elapses on the child clock. Only the repeated signal can
+    // close this acknowledged, incomplete request and let the CLI exit.
+    assert.deepEqual(await running.waitForExit(), { code: 0, signal: null });
+    await closed;
+    assert.equal(held.destroyed, true, 'repeated signal force-closes without advancing grace time');
+    assert.match(running.output().stdout, /stopped cleanly/);
+  } finally {
+    held?.destroy();
+    if (running.child.exitCode === null) running.child.kill('SIGKILL');
+  }
 }
 
 describe('AIT-22 supported workspace executable', () => {
@@ -264,51 +364,45 @@ describe('AIT-22 supported workspace executable', () => {
     }
   });
 
-  it('bounds a held connection, handles repeated signals, and restarts on the same data directory', async () => {
+  it('bounds a held connection, handles repeated signals, and restarts on the same data directory', { timeout: 40_000 }, async () => {
     const dir = mkdtempSync(join(tmpdir(), 'aithema-pack-cli-lifecycle-'));
     const dataDir = join(dir, 'data');
     const configPath = join(dir, 'config.json');
     writeFileSync(configPath, `${JSON.stringify(testConfig(dataDir))}\n`, 'utf8');
     let running;
-    let held;
     try {
+      await proveGraceExpiry(configPath);
+      await proveRepeatedSignal(configPath);
       running = launch(configPath, 150);
-      let match = await running.waitFor(/listening at (http:\/\/\S+)/);
-      held = await holdRequest(match[1]);
-      const started = Date.now();
-      running.child.kill('SIGTERM');
-      let exited = await running.waitForExit(2_000);
-      assert.deepEqual(exited, { code: 0, signal: null });
-      assert.ok(Date.now() - started >= 100, 'held request should drain until the configured deadline');
-      assert.ok(Date.now() - started < 1_500, 'held request must be force-closed within the bound');
-      held.destroy();
-
-      running = launch(configPath, 5_000);
-      match = await running.waitFor(/listening at (http:\/\/\S+)/);
-      held = await holdRequest(match[1]);
-      const repeatedAt = Date.now();
-      running.child.kill('SIGTERM');
-      await delay(50);
-      running.child.kill('SIGINT');
-      exited = await running.waitForExit(1_500);
-      assert.deepEqual(exited, { code: 0, signal: null });
-      assert.ok(Date.now() - repeatedAt < 1_000, 'repeated signal should force-close immediately');
-      assert.match(running.output().stdout, /Repeated shutdown signal/);
-      held.destroy();
-
-      running = launch(configPath, 150);
-      match = await running.waitFor(/listening at (http:\/\/\S+)/);
+      const match = await running.waitFor(/listening at (http:\/\/\S+)/);
       const restarted = await fetch(`${match[1]}/health`);
       assert.deepEqual(await restarted.json(), { ok: true, ready: true });
       running.child.kill('SIGTERM');
-      exited = await running.waitForExit();
-      assert.deepEqual(exited, { code: 0, signal: null });
+      assert.deepEqual(await running.waitForExit(), { code: 0, signal: null });
     } finally {
-      held?.destroy();
       if (running?.child.exitCode === null) running.child.kill('SIGKILL');
       trashTemp(dir);
     }
   });
+
+  for (const mutation of ['early', 'late', 'noExpiry', 'noRepeated']) {
+    it(`mutation proof: shutdown ${mutation} turns its controlled-clock regression red`, { timeout: 30_000 }, async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'aithema-pack-cli-mutation-'));
+      const configPath = join(dir, 'config.json');
+      writeFileSync(configPath, `${JSON.stringify(testConfig(join(dir, 'data')))}\n`, 'utf8');
+      try {
+        const regression = mutation === 'noRepeated' ? proveRepeatedSignal : proveGraceExpiry;
+        await regression(configPath);
+        await assert.rejects(() => regression(configPath, mutation), (error) => {
+          assert.doesNotMatch(error.message, /SyntaxError|ERR_MODULE_NOT_FOUND|mutation site/);
+          return error.code === 'ERR_ASSERTION' || error.code === 'ERR_IPC_CHANNEL_CLOSED' || error.code === 'EPIPE'
+            || /child exited before clock acknowledgement|workspace child did not exit/.test(error.message);
+        });
+      } finally {
+        trashTemp(dir);
+      }
+    });
+  }
 
   it('keeps library shutdown idempotent and closes SQLite once', async () => {
     const workspace = createWorkspaceServer(testConfig(':memory:'));

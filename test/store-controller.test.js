@@ -329,9 +329,11 @@ describe('durable store, turns, and human review', () => {
     }
   });
 
-  it('honours explicit cancel through the understanding phase', async () => {
+  it('honours explicit cancel through the understanding phase', { timeout: 10_000 }, async () => {
     const { createServer } = await import('node:http');
     const { OpenAICompatibleProvider } = await import('../runtime/provider.js');
+    let understandingStarted;
+    const understanding = new Promise((resolve) => { understandingStarted = resolve; });
     const server = createServer(async (req, res) => {
       const chunks = [];
       for await (const chunk of req) chunks.push(chunk);
@@ -343,23 +345,12 @@ describe('durable store, turns, and human review', () => {
         res.end();
         return;
       }
-      await new Promise((resolve) => setTimeout(resolve, 200));
-      res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({
-        choices: [{ message: { content: JSON.stringify({
-          summary: 'late understanding',
-          facts: [],
-          open_questions: [],
-          next_question: 'late',
-          candidate_requirements: [{
-            requirement_ref: 'req.late',
-            statement: 'should not mint',
-            acceptance_criteria: ['no'],
-            constraint_refs: [],
-          }],
-          project_kinds: ['new_product'],
-        }) } }],
-      }));
+      understandingStarted();
+      await new Promise((resolve) => {
+        res.once('close', resolve);
+        req.once('aborted', resolve);
+      });
+      if (!res.writableEnded) res.end();
     });
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
     const { port } = server.address();
@@ -383,7 +374,7 @@ describe('durable store, turns, and human review', () => {
         message: 'Cancel during understanding',
         turnId,
       });
-      await new Promise((resolve) => setTimeout(resolve, 30));
+      await understanding;
       assert.equal(ctl.cancel(project.project_ref, turnId), true);
       const result = await pending;
       assert.equal(result.status, 'complete');

@@ -91,6 +91,23 @@ it('rejects invalid epochs and unsupported or inconsistent lockfiles', () => {
     lock.packages[''][key] = key === 'dependencies' ? {} : 'wrong';
     assert.throws(() => buildSbom(pkg, lock, epoch), new RegExp(`disagree on ${key}`));
   }
+  for (const key of ['name', 'version']) {
+    const lock = fixture();
+    lock[key] = 'mismatched';
+    assert.equal(lock.packages[''][key], pkg[key]);
+    assert.throws(() => buildSbom(pkg, lock, epoch), new RegExp(`disagree on ${key}`));
+  }
+  for (const key of ['devDependencies', 'optionalDependencies']) {
+    const declared = { ...pkg, [key]: { '@example/tool': '^1.2.3' } };
+    const matching = fixture();
+    matching.packages[''][key] = { '@example/tool': '^1.2.3' };
+    assert.equal(buildSbom(declared, matching, epoch).metadata.component.name, 'core');
+    const drifted = fixture();
+    drifted.packages[''][key] = { '@example/tool': '^9.9.9' };
+    assert.throws(() => buildSbom(declared, drifted, epoch), new RegExp(`disagree on ${key}`));
+    const missing = fixture();
+    assert.throws(() => buildSbom(declared, missing, epoch), new RegExp(`disagree on ${key}`));
+  }
   const lock = fixture();
   lock.packages['node_modules/@example/lib'].link = true;
   assert.throws(() => buildSbom(pkg, lock, epoch), /path or link/);

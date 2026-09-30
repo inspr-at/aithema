@@ -92,8 +92,9 @@ function isRealDateTime(value) {
  * @param {string} file
  * @param {string} path
  * @param {string[]} errors
+ * @param {{limit: boolean}} [flags] Set when a reported maxLength or maxItems failure is recorded.
  */
-function check(schema, value, file, path, errors) {
+function check(schema, value, file, path, errors, flags) {
   if (schema === true) return;
   if (schema === false) {
     errors.push(`${path}: not allowed`);
@@ -101,7 +102,7 @@ function check(schema, value, file, path, errors) {
   }
   if (schema.$ref) {
     const target = resolveRef(schema.$ref, file);
-    check(target.schema, value, target.file, path, errors);
+    check(target.schema, value, target.file, path, errors, flags);
   }
   if (schema.type !== undefined) {
     const types = Array.isArray(schema.type) ? schema.type : [schema.type];
@@ -119,7 +120,10 @@ function check(schema, value, file, path, errors) {
   }
   if (typeof value === 'string') {
     if (schema.minLength !== undefined && [...value].length < schema.minLength) errors.push(`${path}: shorter than ${schema.minLength}`);
-    if (schema.maxLength !== undefined && [...value].length > schema.maxLength) errors.push(`${path}: longer than ${schema.maxLength}`);
+    if (schema.maxLength !== undefined && [...value].length > schema.maxLength) {
+      errors.push(`${path}: longer than ${schema.maxLength}`);
+      if (flags) flags.limit = true;
+    }
     if (schema.pattern !== undefined && !new RegExp(schema.pattern, 'u').test(value)) errors.push(`${path}: does not match ${schema.pattern}`);
     if (schema.format === 'date-time' && !isRealDateTime(value)) errors.push(`${path}: not a real date-time`);
   }
@@ -129,9 +133,12 @@ function check(schema, value, file, path, errors) {
   }
   if (Array.isArray(value)) {
     if (schema.minItems !== undefined && value.length < schema.minItems) errors.push(`${path}: fewer than ${schema.minItems} items`);
-    if (schema.maxItems !== undefined && value.length > schema.maxItems) errors.push(`${path}: more than ${schema.maxItems} items`);
+    if (schema.maxItems !== undefined && value.length > schema.maxItems) {
+      errors.push(`${path}: more than ${schema.maxItems} items`);
+      if (flags) flags.limit = true;
+    }
     if (schema.uniqueItems && new Set(value.map((v) => JSON.stringify(v))).size !== value.length) errors.push(`${path}: items not unique`);
-    if (schema.items !== undefined) value.forEach((item, i) => check(schema.items, item, file, `${path}[${i}]`, errors));
+    if (schema.items !== undefined) value.forEach((item, i) => check(schema.items, item, file, `${path}[${i}]`, errors, flags));
   }
   if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
     const obj = /** @type {Record<string, unknown>} */ (value);
@@ -144,33 +151,37 @@ function check(schema, value, file, path, errors) {
     const props = schema.properties ?? {};
     for (const [key, child] of Object.entries(obj)) {
       let matched = Object.hasOwn(props, key);
-      if (matched) check(props[key], child, file, `${path}.${key}`, errors);
+      if (matched) check(props[key], child, file, `${path}.${key}`, errors, flags);
       for (const [pattern, rule] of Object.entries(schema.patternProperties ?? {})) {
         if (new RegExp(pattern, 'u').test(key)) {
           matched = true;
-          check(rule, child, file, `${path}.${key}`, errors);
+          check(rule, child, file, `${path}.${key}`, errors, flags);
         }
       }
       if (!matched && schema.additionalProperties === false) errors.push(`${path}: unknown key ${key}`);
       else if (!matched && schema.additionalProperties && typeof schema.additionalProperties === 'object') {
-        check(schema.additionalProperties, child, file, `${path}.${key}`, errors);
+        check(schema.additionalProperties, child, file, `${path}.${key}`, errors, flags);
       }
     }
   }
-  if (schema.allOf) for (const sub of schema.allOf) check(sub, value, file, path, errors);
+  if (schema.allOf) for (const sub of schema.allOf) check(sub, value, file, path, errors, flags);
   if (schema.oneOf) {
     const results = schema.oneOf.map((/** @type {any} */ sub) => {
       /** @type {string[]} */
       const subErrors = [];
-      check(sub, value, file, path, subErrors);
-      return { sub, subErrors };
+      const subFlags = { limit: false };
+      check(sub, value, file, path, subErrors, subFlags);
+      return { sub, subErrors, subFlags };
     });
     const passing = results.filter((r) => r.subErrors.length === 0).length;
     if (passing !== 1) {
       errors.push(`${path}: matches ${passing} of oneOf, expected exactly 1`);
       // Discriminated union: report the errors of the one branch whose const keys match.
       const selected = results.filter((r) => discriminatorMatches(r.sub, value));
-      if (passing === 0 && selected.length === 1) errors.push(...selected[0].subErrors);
+      if (passing === 0 && selected.length === 1) {
+        errors.push(...selected[0].subErrors);
+        if (flags && selected[0].subFlags.limit) flags.limit = true;
+      }
     }
   }
 }
@@ -406,10 +417,10 @@ export function validateExtensions(extensions, descriptors) {
       return { ok: false, code: errors.some((error) => error.startsWith('extension_limit:')) ? 'extension_limit' : 'extension_invalid', errors };
     }
     const dataErrors = [];
-    check(descriptor.schema, instance.data, 'extension.schema.json', `$.extensions.${key}.data`, dataErrors);
+    const dataFlags = { limit: false };
+    check(descriptor.schema, instance.data, 'extension.schema.json', `$.extensions.${key}.data`, dataErrors, dataFlags);
     if (dataErrors.length) {
-      const limit = dataErrors.some((error) => /longer than|more than .* items/.test(error));
-      return { ok: false, code: limit ? 'extension_limit' : 'extension_invalid', errors: dataErrors };
+      return { ok: false, code: dataFlags.limit ? 'extension_limit' : 'extension_invalid', errors: dataErrors };
     }
   }
   return { ok: true, errors: [] };
@@ -422,6 +433,9 @@ export function validateExtensions(extensions, descriptors) {
 function snapshotInvariants(doc, out) {
   if (doc.working_rev !== doc.expected_prev_rev + 1) out.push('snapshot.rev_is_prev_plus_one');
   if (sha256Hex(doc.patch.canonical) !== doc.patch.sha256) out.push('snapshot.patch_sha256_matches');
+  if (doc.spec.items.some((/** @type {any} */ item) => Object.hasOwn(item, 'extensions')) && doc.minor < 1) {
+    out.push('snapshot.extensions_require_minor');
+  }
   const mode = transitions.modes[doc.host_mode];
   /** @type {Map<string, any>} */
   const byRef = new Map();
