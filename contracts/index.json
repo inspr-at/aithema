@@ -49,6 +49,13 @@
       "minor": 0,
       "file": "element-event.schema.json",
       "root": "/$defs/event"
+    },
+    {
+      "contract": "aithema.settings",
+      "major": 1,
+      "minor": 0,
+      "file": "settings.schema.json",
+      "root": "/$defs/settings"
     }
   ],
   "tables": [
