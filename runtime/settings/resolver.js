@@ -1,6 +1,7 @@
 import { BlockList, isIP } from 'node:net';
 import { canExecute, canonicalJson, sha256Hex, validate } from '../../contracts/validate.js';
 import { countryRegistry, isSubset } from './countries.js';
+import { checkDeploymentPeriod } from '../budget/period.js';
 
 export const LANES = Object.freeze(['reaction', 'spec', 'design', 'stt', 'tts']);
 export const PRESETS = Object.freeze(['local-l1', 'eu-e1', 'cloud-c1']);
@@ -184,6 +185,10 @@ export function resolveSettings(document, options = {}) {
   if (!compatible.ok) throw new SettingsError(compatible.code, ['unsupported major or min_reader']);
   const validated = validate('aithema.settings', document);
   if (!validated.ok) throw new SettingsError('settings_invalid', [...validated.schemaErrors, ...validated.invariants]);
+  if (Object.hasOwn(document.policy.spend, 'deployment_period')) {
+    try { checkDeploymentPeriod(document.policy.spend.deployment_period); }
+    catch { throw new SettingsError('settings_invalid', ['invalid deployment_period policy, IANA time_zone or notify_at ordering']); }
+  }
   // Work on detached bytes; callers retain their verbatim document.
   const settings = structuredClone(document);
   const now = options.now === undefined ? new Date().toISOString() : options.now;
