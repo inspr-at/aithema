@@ -28,7 +28,7 @@ export function validateDesignResults(results, workingRev = Infinity) {
 export function validateEngineMetadata(state, meta, events) {
   return runtimeCall(() => {
     const fail = () => { throw new EngineError('invalid_resume', 'Malformed engine delivery metadata', { status: 422 }); };
-    exactKeys(meta, ['version', 'claims', 'receipts', 'outbox', 'last_activity_at', 'design_results'],
+    exactKeys(meta, ['version', 'claims', 'receipts', 'outbox', 'last_activity_at', 'design_results', 'confirmation_results'],
       ['version', 'claims', 'receipts', 'outbox', 'last_activity_at']);
     if (meta.version !== 1 || !Number.isFinite(meta.last_activity_at) || !meta.claims || Array.isArray(meta.claims)
         || !Array.isArray(meta.receipts) || meta.receipts.length > 432) fail();
@@ -39,6 +39,22 @@ export function validateEngineMetadata(state, meta, events) {
       if (correction.state === 'pending' && !Object.hasOwn(meta.claims, correction.correction_id)) fail();
     }
     const records = new Map(events.map((r) => [r.seq, r]));
+    const confirms = new Set();
+    if (Object.hasOwn(meta, 'confirmation_results') && !Array.isArray(meta.confirmation_results)) fail();
+    for (const result of meta.confirmation_results ?? []) {
+      exactKeys(result, ['record_seq', 'reason']);
+      const record = records.get(result.record_seq);
+      const item = state.spec.items.find((row) => row.item_ref === record?.data?.item_ref && row.version === record?.data?.version);
+      if (!Number.isSafeInteger(result.record_seq) || confirms.has(result.record_seq)
+          || record?.kind !== 'ui.confirm' || record.writer.kind !== 'worker'
+          || !item || item.content_sha256 !== record.data.content_sha256
+          || !['confirmed', 'already_confirmed', 'superseded', 'not_draft'].includes(result.reason)
+          || result.reason === 'superseded' && item.state !== 'superseded'
+            && !state.spec.items.some((row) => row.item_ref === item.item_ref && row.version > item.version)
+          || result.reason === 'not_draft' && item.state === 'draft'
+          || ['confirmed', 'already_confirmed'].includes(result.reason) && item.state === 'draft') fail();
+      confirms.add(result.record_seq);
+    }
     const ids = new Set();
     function segments(list, text, tools) {
       if (!Array.isArray(list) || list.length > 34 || !Array.isArray(tools) || tools.length > 12) fail();

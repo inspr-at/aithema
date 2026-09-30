@@ -62,7 +62,7 @@ export class TextEngine {
   #correctionTimer = null;
   #activity = null;
   #counters = { reaction: 0, spec: 0, design: 0 };
-  #metrics = { likely_extra_questions: 0, reaction_regenerations: 0, cas_retries: 0 };
+  #metrics = { likely_extra_questions: 0, reaction_regenerations: 0, cas_retries: 0, error_observer_failures: 0 };
   #design;
 
   /**
@@ -174,6 +174,7 @@ export class TextEngine {
     this.#meta = patch.engine_state ?? { version: 1, claims: {}, receipts: [], outbox: null, last_activity_at: this.#clock.wallNow() };
     validateEngineMetadata(state, this.#meta, this.#events);
     this.#meta.design_results ??= [];
+    this.#meta.confirmation_results ??= [];
     for (const list of [state.spec.questions.map((q) => q.question_id), state.corrections.map((c) => c.correction_id)]) {
       if (new Set(list).size !== list.length) throw new EngineError('invalid_resume', 'Duplicate engine state identities');
     }
@@ -320,6 +321,10 @@ export class TextEngine {
       await this.#finishOutbox();
       await this.#commitConfirmations();
       this.#armCorrections();
+      this.#scheduleDesignReceipts();
+      return this.state;
+    }).then(async () => {
+      await this.#design.recoverCompletions();
       return this.state;
     }));
   }
@@ -423,7 +428,7 @@ export class TextEngine {
         const view = await this.#enqueue(async () => { await this.#finishOutbox(); return this.#load(); });
         const events = view.events.filter((r) => r.seq > view.state.consumed_seq);
         const meaningful = events.filter((r) => actionable.has(r.kind));
-        const confirmations = pendingConfirmations(view.state, view.events);
+        const confirmations = pendingConfirmations(view.metadata, view.events);
         meaningful.push(...confirmations.filter((record) => record.seq <= view.state.consumed_seq));
         if (!meaningful.length) return { status: 'idle', working_rev: view.state.working_rev };
         const paid = await this.#reason('spec', { base_rev: view.state.working_rev, spec: view.state.spec,
@@ -432,7 +437,7 @@ export class TextEngine {
           turn_ordinals: [...this.#context(view.events).turnOrdinals] });
         if (paid.status !== 'ok') return paid;
         const changed = applySpecPatch(view.state, view.metadata, this.#parse(paid.output), this.#context(view.events));
-        applyConfirmations(changed.state, confirmations);
+        applyConfirmations(changed.state, changed.metadata, confirmations);
         // Never consume events that arrived during this provider pass. A CAS
         // loser discards these computed bytes and re-reads the new cursor.
         changed.state.consumed_seq = Math.max(view.state.consumed_seq, ...events.map((r) => r.seq));
@@ -572,7 +577,7 @@ export class TextEngine {
           writer: { kind: 'worker', generation: authority.gen }, recorded_at: new Date(this.#clock.wallNow()).toISOString(), kind: 'ui.confirm', data };
         this.#checkDocument(document);
         // Validate on a detached view first; no effect precedes acknowledgement.
-        applyConfirmations(view.state, [document]);
+        applyConfirmations(view.state, view.metadata, [document]);
         await this.#checkpoint('confirmation.before_append');
         try { await this.#host(() => this.#journal.append(Buffer.from(canonicalJson(document)))); }
         catch (error) {
@@ -589,10 +594,9 @@ export class TextEngine {
     for (let retry = 0; retry < 20; retry++) {
       this.#guard();
       const view = await this.#load();
-      const before = canonicalJson(view.state.spec.items);
-      const confirmations = pendingConfirmations(view.state, view.events);
-      applyConfirmations(view.state, confirmations);
-      if (canonicalJson(view.state.spec.items) === before) return this.state;
+      const confirmations = pendingConfirmations(view.metadata, view.events);
+      if (!confirmations.length) return this.state;
+      applyConfirmations(view.state, view.metadata, confirmations);
       if (await this.#write(view.state, view.metadata, { lane: 'confirmation', record_seqs: confirmations.map((record) => record.seq) })) {
         return this.state;
       }
@@ -644,8 +648,11 @@ export class TextEngine {
     this.#correctionTimer = this.#clock.setTimeout(() => {
       this.#correctionTimer = null;
       void this.deliverCorrections().catch((error) => {
-        this.#onError(normalizeError(error));
         this.#armCorrections(true);
+        // Observers cannot disarm the durable outbox retry or reject the timer.
+        try {
+          Promise.resolve(this.#onError(normalizeError(error))).catch(() => { this.#metrics.error_observer_failures++; });
+        } catch { this.#metrics.error_observer_failures++; }
       });
     }, Math.max(0, deadline - this.#clock.wallNow()));
   }

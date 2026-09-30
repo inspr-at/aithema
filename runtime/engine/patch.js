@@ -44,7 +44,7 @@ export function applySpecPatch(state, metadata, input, context) {
           throw new EngineError('invalid_output', 'Questions must be unique; asked state belongs to the engine');
         }
         ids.add(question.question_id);
-        if (question.state === 'asked') return structuredClone(prior);
+        if (prior?.state === 'asked' && ['open', 'asked'].includes(question.state)) return structuredClone(prior);
         return { ...question, ...(prior?.asked_in_reaction_seq !== undefined
           ? { asked_in_reaction_seq: prior.asked_in_reaction_seq } : {}) };
       });
@@ -57,27 +57,51 @@ export function applySpecPatch(state, metadata, input, context) {
   });
 }
 
-/** Include old confirmations dropped by an earlier worker's consumed watermark. */
-export function pendingConfirmations(state, events) {
-  return runtimeCall(() => events.filter((record) => record.kind === 'ui.confirm'
-    && (record.seq > state.consumed_seq || state.spec.items.some((item) => item.state === 'draft'
-      && item.item_ref === record.data.item_ref && item.version === record.data.version))));
+/** Receipts cover early UI effects and recovery of legacy watermark omissions. */
+export function pendingConfirmations(metadata, events) {
+  return runtimeCall(() => {
+    const consumed = new Set((metadata.confirmation_results ?? []).map((result) => result.record_seq));
+    return events.filter((record) => record.kind === 'ui.confirm' && !consumed.has(record.seq));
+  });
 }
 
-/** The same trusted transition governs live UI actions, lane B and recovery. */
-export function applyConfirmations(state, records) {
+/**
+ * One authority for live UI, lane B and recovery. A receipt is committed in
+ * the SAME snapshot as the effect, so an early UI confirmation cannot replay
+ * above consumed_seq. Lane B alone advances that watermark over its full batch.
+ * Stale/already-confirmed actions are bound, journaled no-ops, never new grants.
+ * An unsequenced document is detached preflight only, before write-ahead append.
+ */
+export function applyConfirmations(state, metadata, records) {
   return runtimeCall(() => {
     let domain = createWorkingSpec(state.host_mode, state.spec.items);
+    const results = structuredClone(metadata.confirmation_results ?? []);
+    const consumed = new Set(results.map((result) => result.record_seq));
     for (const record of records) {
+      if (consumed.has(record.seq)) continue;
       if (record.kind !== 'ui.confirm' || record.writer.kind !== 'worker') {
         throw new EngineError('invalid_confirmation', 'Confirmation requires a trusted worker UI record', { status: 409 });
       }
-      try { domain = confirmWorkingItem(domain, record.data); }
+      let reason;
+      try {
+        const item = domain.items.find((row) => row.item_ref === record.data.item_ref && row.version === record.data.version);
+        if (!item || item.content_sha256 !== record.data.content_sha256) throw new Error('Item version/hash mismatch');
+        if (item.state === 'superseded' || domain.items.some((row) => row.item_ref === item.item_ref && row.version > item.version)) {
+          reason = 'superseded';
+        } else if (item.state === 'confirmed') reason = 'already_confirmed';
+        else if (item.state !== 'draft') reason = 'not_draft';
+        else { domain = confirmWorkingItem(domain, record.data); reason = 'confirmed'; }
+      }
       catch (cause) {
         throw new EngineError('invalid_confirmation', 'Confirmation must bind the current complete item version and hash', { cause, status: 409 });
       }
+      if (record.seq !== undefined) {
+        results.push({ record_seq: record.seq, reason });
+        consumed.add(record.seq);
+      }
     }
     state.spec.items = structuredClone(domain.items);
+    metadata.confirmation_results = results;
     return state;
   });
 }

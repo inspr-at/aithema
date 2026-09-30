@@ -70,6 +70,10 @@ export class DesignScheduler {
   #onError;
   #onComplete;
   #lastNow = -Infinity;
+  #completions = new Map();
+  #completionFlight = null;
+  #completionTimer = null;
+  #observerErrors = 0;
 
   constructor(options = {}) {
     runtimeCall(() => {
@@ -92,7 +96,8 @@ export class DesignScheduler {
 
   get state() {
     return runtimeCall(() => json({ busy: this.#active !== null, stopped: this.#stopped,
-      intents: [...this.#intents.values()], runs: this.#runs }));
+      intents: [...this.#intents.values()], runs: this.#runs,
+      pending_completions: [...this.#completions.values()], error_observer_failures: this.#observerErrors }));
   }
 
   #time() {
@@ -105,13 +110,13 @@ export class DesignScheduler {
   intent(input) {
     return runtimeCall(() => {
       const { intent_id, working_rev } = json(input);
-      if (this.#stopped) throw new EngineError('scheduler_stopped', 'Design scheduling is stopped', { status: 409 });
       if (!ref(intent_id) || !Number.isSafeInteger(working_rev) || working_rev < 1) throw new EngineError('invalid_intent', 'Design intent identity and revision required');
       const prior = this.#intents.get(intent_id);
       if (prior) {
         if (prior.working_rev !== working_rev) throw new EngineError('invalid_intent', 'Intent ids are immutable', { code: 'idempotency_conflict', status: 409 });
         return json(prior);
       }
+      if (this.#stopped) throw new EngineError('scheduler_stopped', 'Design scheduling is stopped', { status: 409 });
       if (this.#intents.size >= 400) throw new EngineError('intent_bound', 'Session design-intent bound reached', { status: 413 });
       const intent = { intent_id, working_rev, arrived_at: this.#time(), state: 'queued' };
       this.#intents.set(intent_id, intent);
@@ -133,8 +138,47 @@ export class DesignScheduler {
             throw new EngineError('invalid_intent', 'Restored completion disagrees with scheduler', { code: 'idempotency_conflict', status: 409 });
           }
         } else this.#intents.set(result.intent_id, result);
+        this.#completions.delete(result.intent_id);
       }
+      if (!this.#completions.size) this.#clock.clearTimeout(this.#completionTimer);
     });
+  }
+
+  /** Retry completion writes, never renderer attempts or paid claims. Called
+   * after host journal recovery, outside the engine's snapshot queue. */
+  recoverCompletions() {
+    return runtimeCall(() => {
+      if (this.#completionFlight) return this.#completionFlight;
+      this.#clock.clearTimeout(this.#completionTimer);
+      this.#completionTimer = null;
+      if (!this.#completions.size) return Promise.resolve();
+      const results = json([...this.#completions.values()]);
+      const operation = Promise.resolve().then(async () => {
+        await this.#onComplete(results);
+        for (const result of results) this.#completions.delete(result.intent_id);
+      });
+      this.#completionFlight = operation;
+      const finished = () => {
+        this.#completionFlight = null;
+        this.#retryCompletions();
+      };
+      operation.then(finished, finished);
+      return operation;
+    });
+  }
+
+  #report(error) {
+    try {
+      Promise.resolve(this.#onError(normalizeError(error))).catch(() => { this.#observerErrors++; });
+    } catch { this.#observerErrors++; }
+  }
+
+  #retryCompletions() {
+    if (this.#stopped || !this.#completions.size || this.#completionTimer !== null) return;
+    this.#completionTimer = this.#clock.setTimeout(() => {
+      this.#completionTimer = null;
+      void this.recoverCompletions().catch((error) => this.#report(error));
+    }, 3000);
   }
 
   setAudioBusy(busy) {
@@ -151,6 +195,8 @@ export class DesignScheduler {
       this.#stopped = true;
       this.#clock.clearTimeout(this.#timer);
       this.#timer = null;
+      this.#clock.clearTimeout(this.#completionTimer);
+      this.#completionTimer = null;
     });
   }
 
@@ -163,7 +209,7 @@ export class DesignScheduler {
       this.#timer = null;
       void this.#start().catch((error) => {
         this.#stopped = true;
-        this.#onError(normalizeError(error));
+        this.#report(error);
       });
     }, Math.max(0, start - this.#time()));
   }
@@ -229,14 +275,15 @@ export class DesignScheduler {
         intent.rendered_rev = run.working_rev;
         intent.attempts = run.attempts;
       }
-      try {
-        await this.#onComplete(json(intents.map(({ intent_id, state, working_rev, rendered_rev, attempts }) =>
-          ({ intent_id, state, working_rev, rendered_rev, attempts }))));
-      } finally {
-        this.#active = null;
-        this.#endedAt = run.ended_at;
+      for (const { intent_id, state, working_rev, rendered_rev, attempts } of intents) {
+        this.#completions.set(intent_id, { intent_id, state, working_rev, rendered_rev, attempts });
       }
+      this.#active = null;
+      this.#endedAt = run.ended_at;
       this.#schedule();
+      // Rendering has terminated. A failed completion write retains its bytes
+      // for retry/recovery; it must never latch off future runs or reactions.
+      await this.recoverCompletions().catch((error) => this.#report(error));
     }
   }
 }

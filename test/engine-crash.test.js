@@ -5,12 +5,12 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { validate, canonicalJson } from '../contracts/validate.js';
-import { fixture, authorizationFor } from './engine-helpers.test.js';
+import { fixture, authorizationFor, defaultOutput } from './engine-helpers.test.js';
 
 // A real process exit, not a thrown error (a throw would run gate settlement
 // finally/catch paths). SQLite FULL/WAL is reopened by a new worker process.
 const worker = `
-import { fixture, bytes, snapshot, defaultOutput } from ${JSON.stringify(new URL('./engine-helpers.test.js', import.meta.url).href)};
+import { fixture, bytes, snapshot, record, defaultOutput } from ${JSON.stringify(new URL('./engine-helpers.test.js', import.meta.url).href)};
 const [path, mode, boundary, occurrenceText] = process.argv.slice(1);
 let enabled = false, seen = 0, f;
 const occurrence = Number(occurrenceText);
@@ -23,11 +23,17 @@ f = fixture(null, { path, checkpoint: stop, handler: (lane, payload) => mode ===
 if (mode === 'reaction') f.journal.append(bytes(snapshot({ spec: { items: [], questions: [{question_id:'q',text:'Canonical stored question?',state:'open'}], brief:null, screens:[] } })), f.auth);
 const turnSeq = f.personTurn();
 await f.engine.start();
-if (mode === 'confirmation') {
+if (mode === 'confirmation' || mode === 'confirmation-spec') {
   await f.engine.passSpec();
   const item = f.engine.state.spec.items[0];
   enabled = true;
-  await f.engine.confirmItem({item_ref:item.item_ref,version:item.version,content_sha256:item.content_sha256,principal_ref:'fixture-person'});
+  const confirmation = {item_ref:item.item_ref,version:item.version,content_sha256:item.content_sha256,principal_ref:'fixture-person'};
+  if (mode === 'confirmation') await f.engine.confirmItem(confirmation);
+  else {
+    f.journal.append(bytes(record('ui.confirm', confirmation)), f.auth);
+    f.personTurn();
+    await f.engine.passSpec();
+  }
 } else if (mode === 'design') {
   await f.engine.react(turnSeq);
   enabled = true;
@@ -54,7 +60,13 @@ function crash(mode, boundary, occurrence = 1) {
 for (const boundary of ['confirmation.before_append', 'confirmation.after_ack', 'snapshot.before_append', 'snapshot.after_ack']) {
   it(`process crash at confirmation boundary ${boundary}: acknowledged UI action recovers exactly once`, async (t) => {
     const path = crash('confirmation', boundary);
-    const f = fixture(t, { path, initialize: false });
+    let editing = false;
+    const f = fixture(t, { path, initialize: false, handler: (lane, payload) => {
+      if (lane === 'reaction' || !editing) return defaultOutput(lane, payload);
+      const item = payload.spec.items.at(-1);
+      return { base_rev: payload.base_rev, items: [{ op: 'revise', identity: { item_ref: item.item_ref, version: item.version },
+        revision: { content: { ...item.content, statement: 'Revision after confirmation crash.' }, citations: item.citations, provenance: item.provenance } }] };
+    } });
     await f.engine.resume({ authorizationFor, replay: false });
     const acknowledged = boundary !== 'confirmation.before_append';
     assert.equal(f.engine.state.spec.items[0].state, acknowledged ? 'confirmed' : 'draft');
@@ -63,6 +75,31 @@ for (const boundary of ['confirmation.before_append', 'confirmation.after_ack', 
     assert.equal(validate(f.engine.state.contract, f.engine.state).ok, true);
     await f.engine.replay();
     assert.equal(f.engine.state.spec.items[0].state, acknowledged ? 'confirmed' : 'draft');
+    const results = JSON.parse(f.engine.state.patch.canonical).engine_state.confirmation_results;
+    assert.equal(results.length, acknowledged ? 1 : 0);
+    if (acknowledged) assert.deepEqual(results[0], { record_seq: f.records('ui.confirm')[0].document.seq, reason: 'confirmed' });
+    editing = true; const seq = f.personTurn(); await f.engine.passSpec();
+    assert.equal(f.engine.state.consumed_seq, seq);
+    assert.deepEqual(f.engine.state.spec.items.map((row) => row.state), ['superseded', 'draft']);
+    assert.deepEqual(JSON.parse(f.engine.state.patch.canonical).engine_state.confirmation_results, results);
+    assert.equal((await f.engine.passSpec()).status, 'idle');
+  });
+}
+
+for (const boundary of ['spec.after_compute', 'snapshot.before_append', 'snapshot.after_ack']) {
+  it(`process crash at confirmation consumption boundary ${boundary}: receipt, effect and watermark recover together`, async (t) => {
+    const path = crash('confirmation-spec', boundary);
+    const f = fixture(t, { path, initialize: false });
+    await f.engine.resume({ authorizationFor });
+    const confirmSeq = f.records('ui.confirm')[0].document.seq;
+    assert.equal(f.engine.state.spec.items[0].state, 'confirmed');
+    const results = JSON.parse(f.engine.state.patch.canonical).engine_state.confirmation_results;
+    assert.deepEqual(results, [{ record_seq: confirmSeq, reason: 'confirmed' }]);
+    assert.ok(f.engine.state.consumed_seq >= f.records('turn').at(-1).document.seq);
+    const rev = f.engine.state.working_rev;
+    assert.equal((await f.engine.passSpec()).status, 'idle');
+    assert.equal(f.engine.state.working_rev, rev);
+    assert.equal(validate(f.engine.state.contract, f.engine.state).ok, true);
   });
 }
 

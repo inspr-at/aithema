@@ -61,7 +61,7 @@ export function defaultOutput(lane, payload) {
 }
 
 export function fixture(t, { path, initialize = true, clock = new FakeClock(), handler = defaultOutput,
-  checkpoint, cap = 100_000, journalOverrides = {}, ledgerOverrides = {}, priceUsage, renderer, designWaitMs, hostMode = 'review' } = {}) {
+  checkpoint, cap = 100_000, journalOverrides = {}, ledgerOverrides = {}, priceUsage, renderer, designWaitMs, hostMode = 'review', onError } = {}) {
   path ??= join(mkdtempSync(join(tmpdir(), 'aithema-engine-')), 'host.sqlite');
   const journal = new SqliteJournal(path, { now: clock.wallNow });
   if (initialize) journal.createSession(bytes(session({ host_mode: hostMode })));
@@ -91,7 +91,7 @@ export function fixture(t, { path, initialize = true, clock = new FakeClock(), h
   const errors = [];
   const engine = new TextEngine({ journal: client, journalPort: port, budget, authorization: authz, reasoning,
     maxMicro: { reaction: 100, spec: 100, design: 100 }, priceUsage: priceUsage ?? (() => 7), clock, checkpoint,
-    renderer, designWaitMs, hostMode, onError: (error) => errors.push(error) });
+    renderer, designWaitMs, hostMode, onError: (error) => { errors.push(error); return onError?.(error); } });
   const close = () => { engine.close(); ledger.close(); journal.close(); };
   t?.after(close);
   return { engine, journal, ledger, client, budget, auth, authz, clock, calls, errors, path, close, port,

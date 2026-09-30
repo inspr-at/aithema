@@ -8,12 +8,14 @@ import { fixture, FakeClock, defaultOutput, authorizationFor, bytes, snapshot } 
 
 const question = { question_id: 'format', text: 'Which format?', state: 'open' };
 
+for (const echoState of ['asked', 'open']) {
 for (const withMarker of [false, true]) {
-  it(`lane B can echo a stored asked question after react (marker included=${withMarker})`, async (t) => {
+  it(`lane B can echo a stored asked question after react (echo=${echoState}, marker included=${withMarker})`, async (t) => {
     const f = fixture(t, { handler: (lane, payload, request) => {
       if (lane === 'reaction') return defaultOutput(lane, payload);
       assert.match(request.system, /Question states: open, answered, dropped; asked may only echo/);
       const questions = structuredClone(payload.spec.questions);
+      for (const row of questions) row.state = echoState;
       if (!withMarker) for (const row of questions) delete row.asked_in_reaction_seq;
       return { base_rev: payload.base_rev, items: [], questions };
     } });
@@ -24,7 +26,11 @@ for (const withMarker of [false, true]) {
     assert.deepEqual(f.engine.state.spec.questions[0], prior);
     assert.equal(f.engine.state.spec.questions[0].state, 'asked');
     assert.ok(f.engine.state.consumed_seq >= seq);
+    await f.engine.react(f.personTurn());
+    assert.equal(f.calls.at(-1).payload.questions.some((q) => q.state === 'open'), false);
+    assert.equal(f.records('reaction').filter((r) => r.document.data.text.includes(question.text)).length, 1);
   });
+}
 }
 
 for (const changed of [
@@ -73,6 +79,31 @@ it('persistent silence-timer failures are retried with a bounded delay rather th
   assert.equal(f.errors.length, 3);
   assert.equal(f.records('reaction').length, 1);
 });
+
+for (const asyncObserver of [false, true]) {
+  it(`silence retry is armed before a throwing onError observer (async=${asyncObserver})`, async (t) => {
+    let fail = false;
+    const f = fixture(t, { checkpoint: (point) => {
+      if (fail && point === 'snapshot.before_append') { fail = false; throw new Error('Transient failure'); }
+    }, onError: () => {
+      if (asyncObserver) return Promise.reject(new Error('Observer rejected'));
+      throw new Error('Observer threw');
+    } });
+    const seq = f.personTurn(); await f.engine.start(); const delivered = await f.engine.react(seq);
+    await f.engine.addCorrection({ correction_id: 'observer', claim_ref: 'claim', about_reaction_seq: delivered.reaction_seq, text: 'Retry despite observer.' });
+    fail = true;
+    await f.clock.advance(3000);
+    assert.equal(f.errors.length, 1);
+    assert.equal(f.engine.metrics.error_observer_failures, 1);
+    assert.equal(f.engine.state.corrections[0].state, 'pending');
+    await f.clock.advance(2999);
+    assert.equal(f.engine.state.corrections[0].state, 'pending');
+    await f.clock.advance(1);
+    assert.equal(f.engine.state.corrections[0].state, 'delivered');
+    assert.equal(f.records('reaction').filter((r) => r.document.data.text === 'Retry despite observer.').length, 1);
+    assert.equal(f.calls.length, 1);
+  });
+}
 
 it('a correction id with different segment text never marks the stored correction delivered', async (t) => {
   const f = fixture(t); const seq = f.personTurn(); await f.engine.start(); const delivered = await f.engine.react(seq);
