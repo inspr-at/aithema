@@ -183,6 +183,66 @@ it('(d) stale worker/late claimed output after takeover is journal-fenced', asyn
   assert.equal(f.journal.cursor(authority()).last_seq, 0);
 });
 
+for (const [name, make] of [['person turn', turn], ['source body', source]]) {
+  it(`(c,d) a fenced never-committed ${name} stays byte-exact in the export bin and is never retried`, async (t) => {
+    const f = fixture(t);
+    let available = false;
+    let calls = 0;
+    const client = f.client({ append: (b, a) => {
+      calls++;
+      if (!available) throw new JournalError(503, 'Fixture host unavailable');
+      return f.journal.append(b, a);
+    } });
+    const submitted = bytes(make());
+    const original = Buffer.from(submitted);
+    await assert.rejects(client.append(submitted), { status: 503 });
+    submitted.fill(0);
+    assert.equal(f.journal.cursor(authority()).last_seq, 0, 'initial outage happened before commit');
+    f.journal.takeover(authority());
+    available = true;
+    await assert.rejects(client.flush(), code('fenced_generation'));
+    assert.equal(calls, 2);
+    const exported = client.exportUnacknowledged();
+    assert.deepEqual(exported.unacknowledged, [original]);
+    exported.unacknowledged[0].fill(0);
+    assert.deepEqual(client.exportUnacknowledged().unacknowledged, [original]);
+    assert.deepEqual(await client.flush(), []);
+    await assert.rejects(client.append(original), code('fenced_generation'));
+    await assert.rejects(client.append(Buffer.concat([original, Buffer.from(' ')])), code('idempotency_conflict'));
+    assert.equal(calls, 2, 'neither flush nor explicit re-submission resends a terminally refused event');
+    assert.equal(f.journal.cursor(authority()).last_seq, 0);
+  });
+}
+
+it('(c,d) fenced captured person text moves to export once and leaves the retry queue', async (t) => {
+  const f = fixture(t);
+  let available = false;
+  let calls = 0;
+  const client = f.client({ append: (b, a) => {
+    calls++;
+    if (!available) throw new JournalError(503, 'Fixture host unavailable');
+    return f.journal.append(b, a);
+  } });
+  const pending = Array.from({ length: 5 }, () => bytes(turn()));
+  for (const input of pending) await assert.rejects(client.append(input), { status: 503 });
+  await assert.rejects(client.append(bytes(turn())), { status: 503 });
+  const captured = bytes(turn());
+  client.captureTurn(captured);
+  await assert.rejects(client.append(Buffer.concat([captured, Buffer.from(' ')])), code('idempotency_conflict'));
+  await assert.rejects(client.append(captured), { status: 503 });
+  assert.equal(calls, 5, 'captured text cannot bypass the five-turn send bound');
+  f.journal.takeover(authority());
+  available = true;
+  for (let i = 0; i < 6; i++) await assert.rejects(client.flush(), code('fenced_generation'));
+  assert.equal(calls, 11);
+  assert.deepEqual(client.exportUnacknowledged().unacknowledged, [...pending, captured]);
+  assert.deepEqual(client.exportUnacknowledged().captured_turns, []);
+  assert.deepEqual(await client.flush(), []);
+  assert.equal(calls, 11);
+  assert.equal(client.state, 'ACTIVE');
+  assert.equal(f.journal.cursor(authority()).last_seq, 0);
+});
+
 it('(d) late claimed output after epoch withdrawal is revoked, never journaled', async (t) => {
   const f = fixture(t);
   const old = f.client();
@@ -218,6 +278,61 @@ it('(d) unreachable host → bounded journal cache → CAPTURE_ONLY → 10-minut
   await assert.rejects(client.append(bytes(turn())), { status: 409 });
   assert.throws(() => client.captureTurn(bytes(turn())), { status: 409 });
 });
+
+it('(d) an ENDED client refuses resume before takeover or any journal call', async (t) => {
+  const f = fixture(t);
+  let clock = now();
+  let takeovers = 0;
+  let calls = 0;
+  const client = f.client({
+    append: () => { calls++; throw new JournalError(503, 'Fixture unavailable'); },
+    takeover: (a) => { takeovers++; return f.journal.takeover(a); },
+  }, authority(), () => clock);
+  const submitted = bytes(turn());
+  await assert.rejects(client.append(submitted), { status: 503 });
+  clock += 600_000;
+  assert.equal(client.state, 'ENDED');
+  await assert.rejects(client.resume(), { status: 409, code: null,
+    message: 'Journal outage ended the session; export available' });
+  assert.equal(takeovers, 0);
+  assert.equal(calls, 1);
+  assert.equal(client.authority.gen, 1);
+  assert.equal(f.journal.cursor(authority()).worker_generation, 1);
+  assert.deepEqual(client.exportUnacknowledged().unacknowledged, [submitted]);
+});
+
+for (const retainedBody of [false, true]) {
+  it(`(d) terminal refusal clears the outage clock when queues drain${retainedBody ? ', even with export-only bytes' : ''}`, async (t) => {
+    const f = fixture(t);
+    let clock = now();
+    let calls = 0;
+    let takeovers = 0;
+    const port = {
+      append: (b, a) => {
+        calls++;
+        if (calls === 1) throw new JournalError(503, 'Fixture unavailable');
+        if (calls === 2) throw new JournalError(409, 'Fixture refusal', 'fenced_generation');
+        return f.journal.append(b, a);
+      },
+      takeover: (a) => { takeovers++; return f.journal.takeover(a); },
+      recordsByIds: (ids, a) => f.journal.recordsByIds(ids, a),
+      recordsAfter: (after, a, through) => f.journal.recordsAfter(after, a, through),
+    };
+    const client = f.client(port, authority(), () => clock);
+    const submitted = bytes(retainedBody ? turn() : snapshot());
+    await assert.rejects(client.append(submitted), { status: 503 });
+    clock += 599_999;
+    await assert.rejects(client.flush(), code('fenced_generation'));
+    assert.equal(client.state, 'ACTIVE');
+    assert.deepEqual(client.exportUnacknowledged().unacknowledged, retainedBody ? [submitted] : []);
+    clock += 600_001;
+    assert.equal(client.state, 'ACTIVE', 'a drained queue cannot end later because of a stale outage clock');
+    const resumed = await client.resume();
+    assert.equal(takeovers, 1);
+    assert.equal(resumed.cursor.worker_generation, 2);
+    assert.deepEqual(client.exportUnacknowledged().unacknowledged, retainedBody ? [submitted] : []);
+  });
+}
 
 it('(d) separate unacked source/snapshot bounds, duplicate id conflict and text byte cap', async (t) => {
   const f = fixture(t);
@@ -258,11 +373,15 @@ it('(d) host recovery flushes buffered bytes and captured text in order; no dupl
   assert.deepEqual(client.exportUnacknowledged().captured_turns, []);
 });
 
-it('(d) contract refusals are surfaced immediately and never buffered or silently retried', async (t) => {
+it('(d) contract refusals are surfaced immediately; person bytes are export-only and never retried', async (t) => {
   const f = fixture(t);
-  const client = f.client({ append: () => { throw new JournalError(409, 'Fixture conflict', 'idempotency_conflict'); } });
-  await assert.rejects(client.append(bytes(turn())), code('idempotency_conflict'));
-  assert.deepEqual(client.exportUnacknowledged().unacknowledged, []);
+  let calls = 0;
+  const client = f.client({ append: () => { calls++; throw new JournalError(409, 'Fixture conflict', 'idempotency_conflict'); } });
+  const submitted = bytes(turn());
+  await assert.rejects(client.append(submitted), code('idempotency_conflict'));
+  assert.deepEqual(client.exportUnacknowledged().unacknowledged, [submitted]);
+  assert.deepEqual(await client.flush(), []);
+  assert.equal(calls, 1);
   assert.equal(client.state, 'ACTIVE');
 });
 

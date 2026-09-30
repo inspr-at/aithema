@@ -50,7 +50,7 @@ export function validateCitations(snapshot, closure) {
         // turn:N is a turn locator, not the host journal seq (golden fixtures
         // use record_seq:3, locator:turn:1). The record contains one whole turn.
         const match = /^turn:([0-9]+)$/.exec(citation.locator);
-        if (!match || !Number.isSafeInteger(Number(match[1])) || Number(match[1]) < 1) {
+        if (!match || !Number.isSafeInteger(Number(match[1]))) {
           throw invalid('Turn citation has an invalid locator');
         }
         text = record.data.body;

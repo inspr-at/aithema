@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { canonicalJson } from '../../contracts/validate.js';
 import { JournalError, decodeDocument, submissionBytes } from './port.js';
 import { checkedRecord, hydrateSnapshot } from './hydrate.js';
 
@@ -14,6 +15,7 @@ export class JournalClient {
   #now;
   #uuid;
   #pending = new Map();
+  #exportOnly = new Map();
   #captured = [];
   #unavailableSince = null;
   #captureOnly = false;
@@ -42,20 +44,39 @@ export class JournalClient {
   }
 
   #remember(bytes, doc) {
+    const refused = this.#exportOnly.get(doc.client_event_id);
+    if (refused) {
+      if (!refused.bytes.equals(bytes)) throw new JournalError(409, 'Export event id has different bytes', 'idempotency_conflict');
+      throw new JournalError(refused.refusal.status, refused.refusal.message, refused.refusal.code);
+    }
     const existing = this.#pending.get(doc.client_event_id);
     if (existing) {
       if (!existing.bytes.equals(bytes)) throw new JournalError(409, 'Pending event id has different bytes', 'idempotency_conflict');
       return;
     }
     const kind = doc.contract === 'aithema.spec.snapshot' ? 'spec.snapshot' : doc.kind;
+    const captured = this.#captured.find((p) => decodeDocument(p.bytes).client_event_id === doc.client_event_id);
+    if (captured && !captured.bytes.equals(bytes)) {
+      throw new JournalError(409, 'Captured event id has different bytes', 'idempotency_conflict');
+    }
     const limits = { turn: 5, source: 1, 'spec.snapshot': 1 };
-    const count = [...this.#pending.values()].filter((p) => p.kind === kind).length;
+    const retained = [...this.#pending.values(), ...this.#exportOnly.values()];
+    const count = (captured ? [...this.#pending.values()] : retained).filter((p) => p.kind === kind).length;
     // Other records have a bounded combined queue as well; no unbounded audit tail.
-    if ((limits[kind] !== undefined && count >= limits[kind]) || this.#pending.size >= 32) {
+    // Captured text already passed the separate 20-turn/byte bound; moving it
+    // into the send/export queue does not add another retained submission.
+    if ((limits[kind] !== undefined && count >= limits[kind]) || retained.length >= 32) {
       this.#captureOnly = true;
       throw new JournalError(503, 'Unacknowledged journal bound reached; retain new text with captureTurn()');
     }
     this.#pending.set(doc.client_event_id, { bytes: Buffer.from(bytes), kind });
+  }
+
+  #clearOutageWhenDrained() {
+    if (this.#pending.size === 0 && this.#captured.length === 0) {
+      this.#unavailableSince = null;
+      this.#captureOnly = false;
+    }
   }
 
   async #send(bytes, doc) {
@@ -65,6 +86,16 @@ export class JournalClient {
     } catch (error) {
       if (error instanceof JournalError && error.status < 500) {
         this.#pending.delete(doc.client_event_id);
+        // Refused person/source bytes were never acknowledged. Keep them for
+        // export, separately from the queue that flush() may send again.
+        if (doc.kind === 'source' || (doc.kind === 'turn' && doc.data.speaker === 'person')) {
+          this.#exportOnly.set(doc.client_event_id, {
+            bytes: Buffer.from(bytes), kind: doc.kind,
+            refusal: { status: error.status, message: error.message, code: error.code },
+          });
+        }
+        this.#captured = this.#captured.filter((p) => decodeDocument(p.bytes).client_event_id !== doc.client_event_id);
+        this.#clearOutageWhenDrained();
         throw error; // terminal contract/fencing refusals are surfaced, never retried
       }
       this.#unavailableSince ??= this.#now();
@@ -81,7 +112,7 @@ export class JournalClient {
       throw new JournalError(502, 'Invalid journal acknowledgement; original submission retained');
     }
     this.#pending.delete(doc.client_event_id);
-    if (this.#pending.size === 0 && this.#captured.length === 0) { this.#unavailableSince = null; this.#captureOnly = false; }
+    this.#clearOutageWhenDrained();
     return result;
   }
 
@@ -104,7 +135,7 @@ export class JournalClient {
       results.push(await this.append(bytes));
       this.#captured.shift();
     }
-    if (this.#pending.size === 0) { this.#unavailableSince = null; this.#captureOnly = false; }
+    this.#clearOutageWhenDrained();
     return results;
   }
 
@@ -116,7 +147,7 @@ export class JournalClient {
     if (doc.sid !== this.#authority.sid || doc.kind !== 'turn' || doc.data.channel !== 'text' || doc.data.speaker !== 'person') {
       throw new JournalError(400, 'Capture buffer accepts only person text turns in this session');
     }
-    const all = [...this.#pending.values(), ...this.#captured];
+    const all = [...this.#pending.values(), ...this.#exportOnly.values(), ...this.#captured];
     const existing = all.find((p) => decodeDocument(p.bytes).client_event_id === doc.client_event_id);
     if (existing) {
       if (!existing.bytes.equals(original)) throw new JournalError(409, 'Captured event id has different bytes', 'idempotency_conflict');
@@ -129,11 +160,11 @@ export class JournalClient {
     this.#captured.push({ bytes: original });
   }
 
-  /** Includes source bodies, snapshot/op bytes and captured text; no lossy projection. */
+  /** Includes export-only refusals, pending bodies and captured text; no lossy projection. */
   exportUnacknowledged() {
     return {
       state: this.state,
-      unacknowledged: [...this.#pending.values()].map((p) => Buffer.from(p.bytes)),
+      unacknowledged: [...this.#pending.values(), ...this.#exportOnly.values()].map((p) => Buffer.from(p.bytes)),
       captured_turns: this.#captured.map((p) => Buffer.from(p.bytes)),
     };
   }
@@ -144,6 +175,7 @@ export class JournalClient {
    * The engine removes completed ops in its next full snapshot.
    */
   async resume({ retryOp, lastAckedAuditSeq = 0 } = {}) {
+    if (this.state === 'ENDED') throw new JournalError(409, 'Journal outage ended the session; export available');
     if (this.#busy) throw new JournalError(409, 'Resume is already running');
     if (this.#pending.size || this.#captured.length) throw new JournalError(409, 'Export or flush the volatile cache before takeover');
     this.#busy = true;
@@ -160,7 +192,12 @@ export class JournalClient {
         .filter((record) => record.document.contract === 'aithema.journal.record');
       const completedOps = new Map();
       for (const { document } of replay) {
-        if (document.kind === 'op.result') completedOps.set(document.data.op_key, document.data.host_ids);
+        if (document.kind !== 'op.result') continue;
+        const { op_key, host_ids } = document.data;
+        if (completedOps.has(op_key) && canonicalJson(completedOps.get(op_key)) !== canonicalJson(host_ids)) {
+          throw new JournalError(409, 'Same op_key has different host_ids', 'idempotency_conflict');
+        }
+        completedOps.set(op_key, host_ids);
       }
       for (const op of snapshot?.pending_ops ?? []) {
         if (completedOps.has(op.op_key)) continue;

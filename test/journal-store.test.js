@@ -6,12 +6,12 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { SqliteJournal } from '../runtime/journal/index.js';
 import { loadContractFile, validate, sha256Hex } from '../contracts/validate.js';
-import { authority, bytes, code, now, otherSid, record, session, sid, snapshot, source, turn } from './fixtures/journal/helpers.mjs';
+import { authority, bytes, code, now, otherSid, pendingOp, record, session, sid, snapshot, source, turn } from './fixtures/journal/helpers.mjs';
 
-function host(t) {
+function host(t, sessionOverrides = {}) {
   const path = join(mkdtempSync(join(tmpdir(), 'aithema-journal-store-')), 'journal.sqlite');
   const journal = new SqliteJournal(path, { now });
-  journal.createSession(bytes(session()));
+  journal.createSession(bytes(session(sessionOverrides)));
   t.after(() => journal.close());
   return { journal, path };
 }
@@ -77,6 +77,47 @@ it('(a) op.result persists host ids and binds the op key to its own session', (t
   assert.throws(() => journal.append(bytes(record('op.result', { op_key: `${otherSid}:submit:1`, host_ids: {} })), authority()), { status: 400 });
 });
 
+it('(a) foreign-session pending_ops are rejected without committing a snapshot or allocating seq', (t) => {
+  const { journal } = host(t);
+  const foreign = pendingOp({ op_key: `${otherSid}:source:1` });
+  const valid = pendingOp();
+  let rejected;
+  for (const pending_ops of [[foreign], [valid, foreign]]) {
+    const submitted = snapshot({ pending_ops });
+    rejected = submitted;
+    assert.equal(validate(submitted.contract, submitted).ok, true, 'the key is structurally valid');
+    assert.throws(() => journal.append(bytes(submitted), authority()), { status: 400, code: null });
+    const cursor = journal.cursor(authority());
+    assert.equal(cursor.last_seq, 0);
+    assert.equal(cursor.working_rev, 0);
+    assert.equal(cursor.snapshot, null);
+    assert.deepEqual(journal.recordsAfter(0, authority()), []);
+  }
+  // Even a rejected id remains usable with the corrected session key.
+  const corrected = bytes({ ...rejected, pending_ops: [valid] });
+  assert.equal(journal.append(corrected, authority()).document.seq, 1);
+  assert.equal(journal.append(corrected, authority()).document.seq, 1);
+});
+
+for (const host_mode of ['review', 'working_spec_only']) {
+  for (const writerKind of ['worker', 'host']) {
+    it(`(a) session.end from ${writerKind} must match ${host_mode} session mode`, (t) => {
+      const { journal } = host(t, { host_mode });
+      const writer = writerKind === 'worker' ? { kind: writerKind, generation: 1 } : { kind: writerKind };
+      const mismatched = record('session.end', { reason: 'host',
+        host_mode: host_mode === 'review' ? 'working_spec_only' : 'review', export: 'exported' }, { writer });
+      const grant = authority({ writer_kind: writerKind });
+      assert.equal(validate(mismatched.contract, mismatched).ok, true);
+      assert.throws(() => journal.append(bytes(mismatched), grant), { status: 400, code: null });
+      assert.equal(journal.cursor(authority()).last_seq, 0);
+      const matching = bytes({ ...mismatched, data: { ...mismatched.data, host_mode } });
+      assert.equal(journal.append(matching, grant).document.seq, 1);
+      assert.equal(journal.append(matching, grant).document.seq, 1);
+      assert.deepEqual(journal.recordsByIds([1], authority())[0].bytes, matching);
+    });
+  }
+}
+
 it('(a) takeover fences old writes AND exact retries, but journal reads need no current gen', (t) => {
   const { journal } = host(t);
   const original = bytes(turn());
@@ -90,6 +131,23 @@ it('(a) takeover fences old writes AND exact retries, but journal reads need no 
   const current = snapshot({ worker_generation: 2 });
   assert.equal(journal.append(bytes(current), authority({ gen: 2 })).document.seq, 2);
 });
+
+for (const [kind, make, writerKind] of [
+  ['turn', turn, 'worker'],
+  ['host session.control', (overrides) => record('session.control', { action: 'suspend' }, overrides), 'host'],
+]) {
+  it(`(a) stale writer.generation on ${kind} is fenced even with current authority.gen`, (t) => {
+    const { journal } = host(t);
+    journal.takeover(authority());
+    const grant = authority({ gen: 2, writer_kind: writerKind });
+    const stale = make({ writer: { kind: writerKind, generation: 1 } });
+    assert.throws(() => journal.append(bytes(stale), grant), code('fenced_generation'));
+    assert.equal(journal.cursor(authority()).last_seq, 0);
+    const current = bytes({ ...stale, writer: { kind: writerKind, generation: 2 } });
+    assert.equal(journal.append(current, grant).document.seq, 1);
+    assert.deepEqual(journal.recordsByIds([1], authority())[0].bytes, current);
+  });
+}
 
 const fixtureRoot = new URL('../contracts/fixtures/valid/', import.meta.url);
 const fixtures = readdirSync(fixtureRoot).filter((name) => name.startsWith('record.')).map((name) =>
@@ -158,14 +216,45 @@ it('(a) purge tombstone survives reopening and can never be resumed', (t) => {
     authority({ writer_kind: 'host' })), code('revoked'));
 });
 
-it('(a) suspend requires host resume before workers can continue', (t) => {
+it('(a) suspend keeps reads open and refuses worker writes until host resume, without revoking authority', (t) => {
   const { journal } = host(t);
   const hostAuthority = authority({ writer_kind: 'host' });
-  journal.append(bytes(record('session.control', { action: 'suspend' }, { writer: { kind: 'host' } })), hostAuthority);
-  assert.throws(() => journal.takeover(authority()), code('revoked'));
+  const suspended = journal.append(bytes(record('session.control', { action: 'suspend' }, { writer: { kind: 'host' } })), hostAuthority);
+  for (const call of [() => journal.takeover(authority()), () => journal.append(bytes(turn()), authority()),
+    () => journal.append(bytes(snapshot()), authority())]) {
+    assert.throws(call, { status: 409, code: null });
+  }
+  for (const reader of ['worker', 'browser', 'host']) {
+    const grant = authority({ writer_kind: reader, gen: 0, capabilities: ['aithema.journal.read'] });
+    const cursor = journal.cursor(grant);
+    assert.equal(cursor.worker_generation, 1, 'refused takeover does not burn a generation');
+    assert.equal(cursor.last_seq, 1, 'refused writes do not allocate seq');
+    assert.deepEqual(journal.recordsByIds([1], grant)[0].bytes, suspended.bytes);
+    assert.deepEqual(journal.recordsAfter(0, grant)[0].document.data, { action: 'suspend' });
+  }
+  assert.throws(() => journal.append(bytes(turn()), authority({ gen: 0 })), code('fenced_generation'));
   journal.append(bytes(record('session.control', { action: 'resume' }, { writer: { kind: 'host' } })), hostAuthority);
   assert.equal(journal.append(bytes(turn()), authority()).document.seq, 3);
 });
+
+for (const revoke of ['epoch', 'purge']) {
+  it(`(a) ${revoke} still revokes every journal route for host and worker while suspended`, (t) => {
+    const { journal } = host(t);
+    const hostAuthority = authority({ writer_kind: 'host' });
+    journal.append(bytes(record('session.control', { action: 'suspend' }, { writer: { kind: 'host' } })), hostAuthority);
+    const doc = revoke === 'epoch'
+      ? record('authz.epoch', { epoch: 2, reason: 'withdrawal' }, { writer: { kind: 'host' } })
+      : record('session.control', { action: 'purge' }, { writer: { kind: 'host' } });
+    journal.append(bytes(doc), hostAuthority);
+    for (const writer_kind of ['worker', 'host']) {
+      const grant = authority({ writer_kind });
+      for (const call of [() => journal.cursor(grant), () => journal.recordsByIds([1], grant),
+        () => journal.recordsAfter(0, grant), () => journal.takeover(grant), () => journal.append(bytes(turn()), grant)]) {
+        assert.throws(call, code('revoked'));
+      }
+    }
+  });
+}
 
 it('(b,c) original bytes are verbatim; SQL updates/deletes and caller mutation cannot alter records', (t) => {
   const { journal, path } = host(t);

@@ -88,11 +88,14 @@ export class SqliteJournal {
     if (!Array.isArray(authority.capabilities) || !authority.capabilities.includes(capability)) {
       throw new JournalError(403, `Missing ${capability}`);
     }
-    if (session.tombstone || session.auth_epoch !== authority.auth_epoch || (session.suspended && authority.writer_kind !== 'host')) {
+    if (session.tombstone || session.auth_epoch !== authority.auth_epoch) {
       throw new JournalError(409, 'Session authority revoked', 'revoked');
     }
     if (write && session.worker_generation !== authority.gen) {
       throw new JournalError(409, 'Worker generation is fenced', 'fenced_generation');
+    }
+    if (write && session.suspended && authority.writer_kind === 'worker') {
+      throw new JournalError(409, 'Session is suspended');
     }
     return session;
   }
@@ -152,6 +155,9 @@ export class SqliteJournal {
       if (snapshot) {
         if (doc.expected_prev_rev !== session.working_rev) throw new JournalError(409, 'Snapshot revision CAS conflict');
         if (doc.host_mode !== session.host_mode) throw new JournalError(400, 'Snapshot host_mode does not match session');
+        if (doc.pending_ops.some((op) => !op.op_key.startsWith(`${doc.sid}:`))) {
+          throw new JournalError(400, 'Pending op_key belongs to another session');
+        }
         if (doc.consumed_seq > session.last_seq || doc.consumed_seq < session.consumed_seq) {
           throw new JournalError(400, 'Snapshot consumed_seq is ahead of the journal or moves backwards');
         }

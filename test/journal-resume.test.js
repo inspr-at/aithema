@@ -85,13 +85,29 @@ it('(b) summary leaves are hydrated even when omitted from direct citations', as
   assert.deepEqual([...resumed.closure.keys()], [1, 2]);
 });
 
+it('(b,d) restart accepts a zero-based turn:0 citation to the first hydrated person turn', async (t) => {
+  const fixture = setup(t);
+  const person = fixture.journal.append(bytes(turn()), authority());
+  const submitted = snapshot({ consumed_seq: 1, spec: {
+    items: [item({ citations: [{ record_seq: person.document.seq, locator: 'turn:0', quote: 'requests an export' }],
+      leaves: [person.document.seq] })], questions: [], brief: null, screens: [],
+  } });
+  assert.equal(validate(submitted.contract, submitted).ok, true);
+  fixture.journal.append(bytes(submitted), authority());
+  fixture.restart();
+  const resumed = await fixture.client().resume();
+  assert.deepEqual([...resumed.closure.keys()], [1]);
+  assert.deepEqual(resumed.closure.get(1).bytes, person.bytes);
+  assert.equal(resumed.snapshot.spec.items[0].citations[0].locator, 'turn:0');
+  assert.deepEqual(resumed.replay, [], 'the first turn is outside the replay window');
+});
+
 for (const [name, change] of [
   ['missing segment', (spec) => { spec.items[0].citations[1].locator = 'seg:missing'; }],
   ['quote outside selected segment', (spec) => { spec.items[0].citations[1].quote = '🧪'; }],
   ['wrong turn quote', (spec) => { spec.items[0].citations[0].quote = 'invented quotation'; }],
   ['source locator on a turn', (spec) => { spec.items[0].citations[0].locator = 'seg:leaf'; }],
   ['turn locator on a source', (spec) => { spec.items[0].citations[1].locator = 'turn:1'; }],
-  ['zero turn locator', (spec) => { spec.items[0].citations[0].locator = 'turn:0'; }],
   ['unsafe turn locator', (spec) => { spec.items[0].citations[0].locator = 'turn:999999999999999999999'; }],
   ['missing record', (spec) => { spec.items[0].provenance.derived_from.push(100); }],
   ['screen ref to a source', (spec) => { spec.screens[0].design_input_seq = 2; }],
@@ -196,6 +212,37 @@ it('(d) durable op.result suppresses retry after another crash even while old sn
   const resumed = await fixture.client().resume({ retryOp: () => { retries++; return {}; } });
   assert.equal(retries, 0);
   assert.equal(resumed.completedOps.size, 1);
+});
+
+it('(d) conflicting duplicate op.result host_ids surface idempotency_conflict before any retry', async (t) => {
+  const fixture = setup(t);
+  const op = pendingOp();
+  const unretried = pendingOp({ op_key: `${sid}:source:2` });
+  fixture.journal.append(bytes(snapshot({ pending_ops: [unretried, op] })), authority());
+  for (const proposal_ref of ['fixture-P1', 'fixture-P2']) {
+    fixture.journal.append(bytes(record('op.result', { op_key: op.op_key, host_ids: { proposal_ref } })), authority());
+  }
+  fixture.restart();
+  let retries = 0;
+  await assert.rejects(fixture.client().resume({ retryOp: () => { retries++; return {}; } }), code('idempotency_conflict'));
+  assert.equal(retries, 0);
+  assert.equal(fixture.journal.recordsAfter(0, authority()).filter((r) => r.document.kind === 'op.result').length, 2);
+});
+
+it('(d) duplicate op.result with identical host_ids in a different key order remains idempotent', async (t) => {
+  const fixture = setup(t);
+  const op = pendingOp();
+  const host_ids = { proposal_ref: 'fixture-P1', source_id: '33333333-3333-4333-8333-333333333333' };
+  fixture.journal.append(bytes(snapshot({ pending_ops: [op] })), authority());
+  fixture.journal.append(bytes(record('op.result', { op_key: op.op_key, host_ids })), authority());
+  fixture.journal.append(bytes(record('op.result', { op_key: op.op_key,
+    host_ids: { source_id: host_ids.source_id, proposal_ref: host_ids.proposal_ref } })), authority());
+  fixture.restart();
+  let retries = 0;
+  const resumed = await fixture.client().resume({ retryOp: () => { retries++; return {}; } });
+  assert.equal(retries, 0);
+  assert.equal(resumed.completedOps.size, 1);
+  assert.deepEqual(resumed.completedOps.get(op.op_key), host_ids);
 });
 
 it('(d) intake idempotency_conflict is surfaced without retry or op.result', async (t) => {
