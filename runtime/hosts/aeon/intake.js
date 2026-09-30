@@ -43,6 +43,8 @@ function manifest(op, sid) {
  * both metadata and document_bytes in pending_op.payload makes restart retries
  * independent of current source mappings, generations, clocks or serialisers.
  * The real Aeon plugin must consume this metadata when creating native drafts.
+ * Typed working-item extensions stay inside document_bytes, byte-exact across
+ * submission, replacement and retries; native rendering belongs to Aeon.
  */
 export class AeonIntake {
   #http;

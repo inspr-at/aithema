@@ -20,6 +20,7 @@ import { admitRelease, assertAdmissibleReleaseRef, assertReleaseRefMatchesVersio
 import { buildRelease } from '../release/build-release.mjs';
 import { buildSourceExport, resolveSourceExport } from '../release/build-source.mjs';
 import { gitBlobSha1, sha256 } from '../release/lib/digest.mjs';
+import { SBOM_PATH, sbomBytes } from '../release/lib/sbom.mjs';
 import {
   commitEpochSeconds,
   expandAllowlistPaths,
@@ -139,12 +140,17 @@ function expectedRewrittenProvenance(repo, source, manifest) {
 
 function assertExtractedHashManifest(repo, source, extractDir, manifest) {
   const paths = expandAllowlistPaths(repo, source.commit, source.allowlist.paths)
-    .filter((path) => path !== NORMALIZED_SOURCE_PATH);
+    .filter((path) => path !== NORMALIZED_SOURCE_PATH && path !== SBOM_PATH);
   const extractedPaths = extractedFilePaths(extractDir);
   const expected = paths.map((path) => [path, sha256(readBlob(repo, source.commit, path))]);
-  const actual = extractedPaths.filter((path) => path !== NORMALIZED_SOURCE_PATH)
+  const actual = extractedPaths.filter((path) => path !== NORMALIZED_SOURCE_PATH && path !== SBOM_PATH)
     .map((path) => [path, sha256(readFileSync(join(extractDir, path)))]);
   assert.deepEqual(actual, expected, 'extracted file set and hashes must match the pinned source allowlist');
+  assert.deepEqual(readFileSync(join(extractDir, SBOM_PATH)), sbomBytes(
+    JSON.parse(readBlob(repo, source.commit, 'package.json')),
+    JSON.parse(readBlob(repo, source.commit, 'package-lock.json')),
+    commitEpochSeconds(repo, source.commit),
+  ), 'generated SBOM bytes must match the pinned package/lockfile and commit epoch');
   // Bind the rewritten provenance bytes too, through the source manifest.
   assert.equal(extractedPaths.length, manifest.source.path_count);
   assert.equal(treeDigestFromTree(extractDir, extractedPaths), manifest.source.tree_digest);
@@ -179,6 +185,9 @@ function seedSourceExportTree(repo, allowlist) {
     'release/lib/source-manifest.mjs',
     'release/lib/tree.mjs',
     'release/lib/provenance.mjs',
+    'release/lib/sbom.mjs',
+    'release/lib/model-assets.mjs',
+    'release/lib/licence-boundary.mjs',
     'release/admit-release.mjs',
     'release/retain-forge-assets.mjs',
     'release/prime-consumer-cache.mjs',
@@ -378,6 +387,12 @@ describe('AIT-11 public source export', () => {
       try {
         const first = buildSourceExport({ repoRoot: repo, commit: source.commit, allowlist: source.allowlist, outDir: outA });
         const second = buildSourceExport({ repoRoot: repo, commit: source.commit, allowlist: source.allowlist, outDir: outB });
+        assert.ok(first.paths.includes(SBOM_PATH));
+        const sbomA = execFileSync('tar', ['-xOzf', first.artifactPath, SBOM_PATH]);
+        const sbomB = execFileSync('tar', ['-xOzf', second.artifactPath, SBOM_PATH]);
+        assert.deepEqual(sbomA, sbomB);
+        const runtime = buildRelease({ repoRoot: repo, commit: source.commit, outDir: outA });
+        assert.deepEqual(sbomA, execFileSync('tar', ['-xOzf', runtime.artifactPath, `package/${SBOM_PATH}`]));
         assert.equal(first.artifactSha256, second.artifactSha256);
         assert.equal(first.manifestText, second.manifestText);
         assert.equal(first.publication.status, 'published');
@@ -401,6 +416,12 @@ describe('AIT-11 public source export', () => {
       const exported = buildSourceExport({ repoRoot: repo, commit: source.commit, outDir: buildDir });
       extractTarball(exported.artifactPath, extractDir);
       assertExtractedHashManifest(repo, source, extractDir, exported.manifest);
+
+      const sbomPath = join(extractDir, SBOM_PATH);
+      const originalSbom = readFileSync(sbomPath);
+      writeFileSync(sbomPath, '{}\n');
+      assert.throws(() => assertExtractedHashManifest(repo, source, extractDir, exported.manifest), /generated SBOM bytes/);
+      writeFileSync(sbomPath, originalSbom);
 
       const changedPath = join(extractDir, 'README.md');
       const original = readFileSync(changedPath);

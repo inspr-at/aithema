@@ -121,6 +121,9 @@
               }
             }
           ]
+        },
+        "extensions": {
+          "$ref": "extension.schema.json#/$defs/instances"
         }
       }
     },

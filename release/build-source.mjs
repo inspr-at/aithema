@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { sha256 } from './lib/digest.mjs';
+import { addSbom } from './lib/sbom.mjs';
 import {
   assertCommitRef,
   commitEpochSeconds,
@@ -136,6 +137,7 @@ export function buildSourceExport({
   const runtimeTreeDigest = treeDigest(repoRoot, resolvedCommit, runtimePaths);
   const lockDigest = `sha256:${sha256(files.get('package-lock.json'))}`;
   const mtimeEpoch = commitEpochSeconds(repoRoot, resolvedCommit);
+  addSbom(files, mtimeEpoch);
   files.set(
     SOURCE_PROVENANCE_PATH,
     Buffer.from(buildSourceProvenanceText({

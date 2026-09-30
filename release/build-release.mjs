@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { sha256 } from './lib/digest.mjs';
+import { addSbom } from './lib/sbom.mjs';
 import {
   assertCommitRef,
   commitEpochSeconds,
@@ -112,6 +113,7 @@ function buildReleaseFromTree({
   // Frozen runtime schema 0.1 has one source.commit: the Git commit actually
   // exported (current_source_commit). private_source_commit stays in provenance.
   const currentCommit = provenance.current_source_commit;
+  addSbom(files, provenance.export_mtime_epoch);
   const stageRoot = mkdtempSync(join(tmpdir(), 'aithema-release-stage-'));
   const packageRoot = stagePackageTree(stageRoot, files);
   const probePath = join(stageRoot, 'probe.tgz');
@@ -151,7 +153,7 @@ function buildReleaseFromTree({
     manifestText,
     artifactSha256,
     artifactBytes,
-    paths,
+    paths: [...files.keys()].sort(),
     commit: currentCommit,
     publication,
   };
@@ -233,9 +235,10 @@ export function buildRelease({
 
   const lockDigest = `sha256:${sha256(files.get('package-lock.json'))}`;
   const sourceTreeDigest = treeDigest(repoRoot, resolvedCommit, paths);
+  const mtimeEpoch = commitEpochSeconds(repoRoot, resolvedCommit);
+  addSbom(files, mtimeEpoch);
   const stageRoot = mkdtempSync(join(tmpdir(), 'aithema-release-stage-'));
   const packageRoot = stagePackageTree(stageRoot, files);
-  const mtimeEpoch = commitEpochSeconds(repoRoot, resolvedCommit);
   const probePath = join(stageRoot, 'probe.tgz');
   createDeterministicTarball(packageRoot, probePath, mtimeEpoch);
   const artifactBytes = readFileSync(probePath);
@@ -273,7 +276,7 @@ export function buildRelease({
     manifestText,
     artifactSha256,
     artifactBytes,
-    paths,
+    paths: [...files.keys()].sort(),
     commit: resolvedCommit,
     publication,
   };

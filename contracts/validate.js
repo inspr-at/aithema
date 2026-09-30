@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import extensionSchema from './extension.schema.json' with { type: 'json' };
 
 /**
  * Foundation contracts (AIT-35). A small, dependency-free validator for the
@@ -13,7 +14,8 @@ import { fileURLToPath } from 'node:url';
 const here = dirname(fileURLToPath(import.meta.url));
 
 /** @type {Map<string, any>} */
-const fileCache = new Map();
+// Extension registration and instance checks never trigger lazy schema I/O.
+const fileCache = new Map([['extension.schema.json', extensionSchema]]);
 
 /** @param {string} name */
 export function loadContractFile(name) {
@@ -111,7 +113,8 @@ function check(schema, value, file, path, errors) {
   if ('const' in schema && JSON.stringify(schema.const) !== JSON.stringify(value)) {
     errors.push(`${path}: expected const ${JSON.stringify(schema.const)}`);
   }
-  if (schema.enum && !schema.enum.some((/** @type {unknown} */ e) => JSON.stringify(e) === JSON.stringify(value))) {
+  if (schema.enum && !schema.enum.some((/** @type {unknown} */ e) =>
+    file === 'extension.schema.json' ? canonicalJson(e) === canonicalJson(value) : JSON.stringify(e) === JSON.stringify(value))) {
     errors.push(`${path}: ${JSON.stringify(value)} not in enum`);
   }
   if (typeof value === 'string') {
@@ -132,14 +135,24 @@ function check(schema, value, file, path, errors) {
   }
   if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
     const obj = /** @type {Record<string, unknown>} */ (value);
+    if (schema.maxProperties !== undefined && Object.keys(obj).length > schema.maxProperties) {
+      errors.push(`${path}: more than ${schema.maxProperties} properties`);
+    }
     for (const key of schema.required ?? []) {
       if (!Object.hasOwn(obj, key)) errors.push(`${path}: missing ${key}`);
     }
     const props = schema.properties ?? {};
     for (const [key, child] of Object.entries(obj)) {
-      if (Object.hasOwn(props, key)) check(props[key], child, file, `${path}.${key}`, errors);
-      else if (schema.additionalProperties === false) errors.push(`${path}: unknown key ${key}`);
-      else if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
+      let matched = Object.hasOwn(props, key);
+      if (matched) check(props[key], child, file, `${path}.${key}`, errors);
+      for (const [pattern, rule] of Object.entries(schema.patternProperties ?? {})) {
+        if (new RegExp(pattern, 'u').test(key)) {
+          matched = true;
+          check(rule, child, file, `${path}.${key}`, errors);
+        }
+      }
+      if (!matched && schema.additionalProperties === false) errors.push(`${path}: unknown key ${key}`);
+      else if (!matched && schema.additionalProperties && typeof schema.additionalProperties === 'object') {
         check(schema.additionalProperties, child, file, `${path}.${key}`, errors);
       }
     }
@@ -183,6 +196,11 @@ export function validateSchema(contract, doc) {
   const entry = contractEntry(contract);
   /** @type {string[]} */
   const errors = [];
+  // Bound recursion before the recursive meta-schema is walked.
+  if (contract === 'aithema.extension') {
+    const depthErrors = extensionDepthErrors(doc?.schema);
+    if (depthErrors.length) return depthErrors;
+  }
   const { schema, file } = resolveRef(`${entry.file}#${entry.root}`, entry.file);
   check(schema, doc, file, '$', errors);
   return errors;
@@ -279,6 +297,7 @@ export function checkInvariants(contract, doc) {
   const out = [];
   if (doc.min_reader > doc.minor) out.push('envelope.min_reader_le_minor');
   if (contract === 'aithema.spec.snapshot') snapshotInvariants(doc, out);
+  if (contract === 'aithema.extension') extensionDescriptorInvariants(doc, out);
   if (contract === 'aithema.token.claims') tokenInvariants(doc, out);
   if (contract === 'aithema.budget.message') budgetInvariants(doc, out);
   if (contract === 'aithema.journal.record') recordInvariants(doc, out);
@@ -305,6 +324,97 @@ function checkCanonicalDigest(value, digest, field, out) {
   }
 }
 
+/** Schema-node depth, rather than the depth of JSON Schema's metadata objects. */
+function extensionDepthErrors(schema, depth = 1, ancestors = new Set()) {
+  if (depth > 6) return ['extension_limit: schema depth exceeds 6'];
+  if (!schema || typeof schema !== 'object') return [];
+  if (ancestors.has(schema)) return ['extension_invalid: cyclic schema'];
+  ancestors.add(schema);
+  const children = [...Object.values(schema.properties ?? {}), ...(schema.items === undefined ? [] : [schema.items])];
+  const errors = children.flatMap((child) => extensionDepthErrors(child, depth + 1, ancestors));
+  ancestors.delete(schema);
+  return errors;
+}
+
+function extensionDescriptorInvariants(doc, out) {
+  if (doc.version.split('.').some((part) => !Number.isSafeInteger(Number(part)))) out.push('extension.version_safe_integers');
+  if (/^x-[a-z0-9]+(\.[a-z0-9-]+)+$/u.exec(doc.namespace)?.[0] !== doc.namespace) out.push('extension.namespace_exact');
+  try { canonicalJson(doc); }
+  catch (error) {
+    if (!(error instanceof TypeError)) throw error;
+    out.push('extension.descriptor_canonicalizable');
+    return;
+  }
+  function visit(schema) {
+    if ((schema.required ?? []).some((key) => !Object.hasOwn(schema.properties ?? {}, key))) out.push('extension.required_property_defined');
+    if (schema.enum) {
+      const { enum: values, ...base } = schema;
+      if (new Set(values.map(canonicalJson)).size !== values.length) out.push('extension.enum_unique');
+      for (const value of values) {
+        const errors = [];
+        check(base, value, 'extension.schema.json', '$', errors);
+        if (errors.length) out.push('extension.enum_matches_schema');
+      }
+    }
+    for (const child of Object.values(schema.properties ?? {})) visit(child);
+    if (schema.items) visit(schema.items);
+  }
+  visit(doc.schema);
+}
+
+/**
+ * Single extension instance authority. Without descriptors this checks the
+ * transport shape and bounds; with descriptors it also requires the exact
+ * declared version and validates data using the same contracts validator.
+ * All byte counts are RFC 8785 UTF-8 bytes, including wrappers and map keys.
+ * @param {unknown} extensions
+ * @param {readonly any[]} [descriptors]
+ * @returns {{ok: boolean, code?: string, errors: string[]}}
+ */
+export function validateExtensions(extensions, descriptors) {
+  const refused = (code, message) => ({ ok: false, code, errors: [message] });
+  if (extensions === undefined) return { ok: true, errors: [] };
+  if (extensions === null || typeof extensions !== 'object' || Array.isArray(extensions)) {
+    return refused('extension_invalid', 'extensions must be an object');
+  }
+  const entries = Object.entries(extensions);
+  if (entries.length > 8) return refused('extension_limit', 'extensions exceeds 8 instances');
+  try {
+    if (Buffer.byteLength(canonicalJson(extensions), 'utf8') > 64 * 1024) return refused('extension_limit', 'extensions exceeds 64 KiB per item');
+    for (const [, instance] of entries) {
+      if (Buffer.byteLength(canonicalJson(instance), 'utf8') > 16 * 1024) return refused('extension_limit', 'extension instance exceeds 16 KiB');
+    }
+  } catch (error) {
+    if (!(error instanceof TypeError)) throw error;
+    return refused('extension_invalid', error.message);
+  }
+  const errors = [];
+  const { schema, file } = resolveRef('extension.schema.json#/$defs/instances', 'extension.schema.json');
+  check(schema, extensions, file, '$.extensions', errors);
+  if (errors.length) return { ok: false, code: 'extension_invalid', errors };
+  for (const [key, instance] of entries) {
+    const [namespace, major] = key.split('@');
+    if (/^x-[a-z0-9]+(\.[a-z0-9-]+)+@(0|[1-9][0-9]*)$/u.exec(key)?.[0] !== key ||
+        instance.version.split('.').some((part) => !Number.isSafeInteger(Number(part))) ||
+        instance.version.split('.')[0] !== major) return refused('extension_invalid', 'extension key and version must name the same major');
+    if (descriptors === undefined) continue;
+    const descriptor = descriptors.find((entry) => entry.namespace === namespace && entry.version === instance.version);
+    if (!descriptor) return refused('extension_unknown', `unregistered extension ${key} version ${instance.version}`);
+    const registration = validate('aithema.extension', descriptor);
+    if (!registration.ok) {
+      const errors = [...registration.schemaErrors, ...registration.invariants];
+      return { ok: false, code: errors.some((error) => error.startsWith('extension_limit:')) ? 'extension_limit' : 'extension_invalid', errors };
+    }
+    const dataErrors = [];
+    check(descriptor.schema, instance.data, 'extension.schema.json', `$.extensions.${key}.data`, dataErrors);
+    if (dataErrors.length) {
+      const limit = dataErrors.some((error) => /longer than|more than .* items/.test(error));
+      return { ok: false, code: limit ? 'extension_limit' : 'extension_invalid', errors: dataErrors };
+    }
+  }
+  return { ok: true, errors: [] };
+}
+
 /**
  * @param {any} doc
  * @param {string[]} out
@@ -320,6 +430,8 @@ function snapshotInvariants(doc, out) {
     if (byRef.has(key)) out.push('item.version_unique');
     byRef.set(key, item);
     checkCanonicalDigest(item.content, item.content_sha256, 'item.content', out);
+    const extensions = validateExtensions(item.extensions);
+    if (!extensions.ok) out.push(`item.${extensions.code}`);
     if (!mode.states.includes(item.state)) out.push('item.state_allowed_in_mode');
     if (!mode.submits && item.host) out.push('mode.working_spec_only_no_host_identity');
     if (transitions.host_identity_required.includes(item.state) && !item.host) out.push('item.host_identity_required');

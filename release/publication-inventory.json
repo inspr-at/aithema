@@ -22,7 +22,8 @@
       "installed_bin": "aithema-workspace",
       "output_dir_pattern": "dist/inspr-aithema-core-{version}/",
       "artifact_pattern": "inspr-aithema-core-{version}.tgz",
-      "manifest_pattern": "inspr-aithema-core-{version}.manifest.json"
+      "manifest_pattern": "inspr-aithema-core-{version}.manifest.json",
+      "generated_files": ["sbom.cdx.json"]
     },
     "public_source_candidate": {
       "allowlist": "release/source-allowlist.json",
@@ -30,7 +31,8 @@
       "script": "source:export",
       "output_dir_pattern": "dist/inspr-aithema-core-source-{version}/",
       "artifact_pattern": "inspr-aithema-core-source-{version}.tgz",
-      "manifest_pattern": "inspr-aithema-core-source-{version}.manifest.json"
+      "manifest_pattern": "inspr-aithema-core-source-{version}.manifest.json",
+      "generated_files": ["sbom.cdx.json"]
     }
   },
   "excluded_from_public_source": [
@@ -52,6 +54,7 @@
     ".gitignore",
     ".github/workflows/",
     "bin/",
+    "contracts/",
     "examples/",
     "lib/",
     "release/",
@@ -101,7 +104,14 @@
     },
     "boundary": "Published bytes are reproducible under the canonical GNU tar toolchain used by CI. BSD tar may emit different archive bytes for the same tree; local macOS builds are valid for development but are not the publication basis.",
     "timestamp_policy_note": "Git-mode uses the committer epoch of the exported commit. Tree-mode reuses provenance.export_mtime_epoch recorded for that current_source_commit. Runtime source.commit is that current commit under frozen aithema-release-manifest/0.1; private_source_commit remains independent lineage in source provenance.",
-    "runtime_manifest_schema": "aithema-release-manifest/0.1"
+    "runtime_manifest_schema": "aithema-release-manifest/0.1",
+    "sbom": {
+      "format": "CycloneDX 1.6 JSON",
+      "generator": "release/lib/sbom.mjs",
+      "inputs": ["package.json", "package-lock.json"],
+      "timestamp_policy": "git-committer-epoch-seconds",
+      "inventory": "All locked packages, including transitive, dev and optional entries; missing lockfile licence evidence is explicit. Identical SBOM bytes in runtime and source exports."
+    }
   },
   "release_lineage": {
     "published": [

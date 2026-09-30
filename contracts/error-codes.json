@@ -98,6 +98,27 @@
       "scope": "v1",
       "retry": false,
       "meaning": "Admission refused at a session, principal/day or tenant/day cap, or for missing evidence."
+    },
+    {
+      "code": "extension_unknown",
+      "http": 422,
+      "scope": "v1",
+      "retry": false,
+      "meaning": "The extension namespace, major or exact declared minor is not registered."
+    },
+    {
+      "code": "extension_invalid",
+      "http": 422,
+      "scope": "v1",
+      "retry": false,
+      "meaning": "The extension descriptor, evolution, instance shape or typed data is invalid."
+    },
+    {
+      "code": "extension_limit",
+      "http": 422,
+      "scope": "v1",
+      "retry": false,
+      "meaning": "An extension count, canonical byte, string, array or schema depth limit was exceeded."
     }
   ],
   "port_results": [

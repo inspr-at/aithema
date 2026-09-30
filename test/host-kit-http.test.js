@@ -191,6 +191,12 @@ describe('host kit loopback HTTP facade (AIT-44b/c)', () => {
     validDocuments(resubmit.body);
   });
 
+  const extensionDescriptor = { namespace: 'x-test.analysis', version: '1.0', title: 'Synthetic analysis', schema: {
+    type: 'object', additionalProperties: false, required: ['score'], properties: {
+      score: { type: 'number' }, evidence: { type: 'string', maxLength: 8 },
+    },
+  } };
+  const extensionData = (data) => ({ 'x-test.analysis@1': { version: '1.0', data } });
   const errors = [
     ['idempotency_conflict', 'journal', 'records', (f, req) => { f.host.request(req); req.body = `${JSON.stringify(req.body)}\n`; }],
     ['citation_invalid', 'intake', 'drafts', (_f, req) => { req.body.spec.items[0].citations = [{ record_seq: 999, locator: 'turn:0' }]; }],
@@ -208,6 +214,17 @@ describe('host kit loopback HTTP facade (AIT-44b/c)', () => {
       req.body = claimRequest(req.body.body.hold_id);
     }],
     ['budget_denied', 'ledger', 'admit', (f) => { f.host.setEvidence(f.sid, false); }],
+    ['extension_unknown', 'intake', 'drafts', (_f, req) => {
+      req.body.spec.items[0].extensions = extensionData({ score: 1 });
+    }],
+    ['extension_invalid', 'intake', 'drafts', (f, req) => {
+      f.host.registerExtension(f.sid, extensionDescriptor);
+      req.body.spec.items[0].extensions = extensionData({ score: 'high' });
+    }],
+    ['extension_limit', 'intake', 'drafts', (f, req) => {
+      f.host.registerExtension(f.sid, extensionDescriptor);
+      req.body.spec.items[0].extensions = extensionData({ score: 1, evidence: 'x'.repeat(9) });
+    }],
   ];
   it('has a transport scenario for every v1 catalogue code; post-v1 target codes stay outside this kit', () => {
     assert.deepEqual(errors.map(([code]) => code).sort(), loadContractFile('error-codes.json').codes.filter((entry) => entry.scope === 'v1').map((entry) => entry.code).sort());
@@ -217,12 +234,26 @@ describe('host kit loopback HTTP facade (AIT-44b/c)', () => {
       const route = routes.find((r) => r.area === area && r.action === action && r.method === 'POST');
       const { f, request } = routeScenario(route);
       prepare(f, request);
+      const before = code.startsWith('extension_') ? {
+        intake: f.request('intake', '').body, cursor: f.request('journal', 'cursor').body,
+      } : null;
       const local = await serveHost(f.host);
       t.after(local.close);
       const response = await send(local.url, request);
       assert.equal(response.status, loadContractFile('error-codes.json').codes.find((entry) => entry.code === code).http);
       assert.equal(response.body.code, code);
       validDocuments(response.body);
+      if (before) {
+        assert.deepEqual(f.request('intake', '').body, before.intake);
+        assert.deepEqual(f.request('journal', 'cursor').body, before.cursor);
+        if (code === 'extension_unknown') f.host.registerExtension(f.sid, extensionDescriptor);
+        request.body.spec.items[0].extensions = extensionData({ score: 1, evidence: 'x'.repeat(8) });
+        const submitted = await send(local.url, request);
+        assert.equal(submitted.status, 200, JSON.stringify(submitted.body));
+        assert.deepEqual(submitted.body.snapshot.spec.items[0].extensions, request.body.spec.items[0].extensions);
+        assert.deepEqual((await send(local.url, request)).body, submitted.body);
+        validDocuments(submitted.body);
+      }
     });
   }
 

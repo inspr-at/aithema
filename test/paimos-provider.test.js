@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { once } from 'node:events';
 import { createServer } from 'node:http';
 import {
   chmodSync,
@@ -76,26 +77,41 @@ function callSnapshot(requestID, deadline, overrides = {}) {
   };
 }
 
-function boundedBarrier(label, timeoutMs = 1_000) {
-  let signal;
-  const reached = new Promise((resolve) => {
-    signal = resolve;
-  });
+// Test timeouts are deadlock watchdogs only. Events and logical time drive state.
+function eventBarrier(testSignal) {
+  const target = new EventTarget();
+  let reached = false;
   return {
-    signal,
+    signal: () => {
+      reached = true;
+      target.dispatchEvent(new Event('reached'));
+    },
     wait: async () => {
-      let timer;
-      try {
-        await Promise.race([
-          reached,
-          new Promise((_, reject) => {
-            timer = setTimeout(() => reject(new Error(`${label} was not reached`)), timeoutMs);
-          }),
-        ]);
-      } finally {
-        clearTimeout(timer);
+      testSignal?.throwIfAborted();
+      if (!reached) await once(target, 'reached', { signal: testSignal });
+    },
+  };
+}
+
+function manualClock() {
+  let now = Date.UTC(2026, 0, 1);
+  const timeouts = [];
+  return {
+    now: () => now,
+    timeoutSignal: (ms) => {
+      const controller = new AbortController();
+      timeouts.push({ ms, deadline: now + ms, controller });
+      return controller.signal;
+    },
+    advance: (ms) => {
+      now += ms;
+      for (const timeout of timeouts) {
+        if (timeout.deadline <= now) {
+          timeout.controller.abort(new DOMException('deadline exceeded', 'TimeoutError'));
+        }
       }
     },
+    requestedTimeouts: () => timeouts.map(({ ms }) => ms),
   };
 }
 
@@ -103,7 +119,7 @@ function cancellationRequests(requests) {
   return requests.filter((item) => item.method === 'POST' && item.url.endsWith('/cancel'));
 }
 
-async function fixture(mode = 'success') {
+async function fixture(mode = 'success', testSignal) {
   const root = mkdtempSync(join(tmpdir(), 'aithema-paimos-'));
   const credentialFile = join(root, 'conversation.key');
   writeFileSync(credentialFile, 'fixture-conversation-key\n', { mode: 0o600 });
@@ -113,14 +129,18 @@ async function fixture(mode = 'success') {
   let getAttempts = 0;
   let cancelled = 0;
   let admittedBody;
-  const admissionRequest = boundedBarrier('admission request');
-  const firstEventsRequest = boundedBarrier('first events request');
-  const eventsBodyClosed = boundedBarrier('cancelled events body');
+  const clock = manualClock();
+  const admissionRequest = eventBarrier(testSignal);
+  const firstEventsRequest = eventBarrier(testSignal);
+  const eventsBodyStalled = eventBarrier(testSignal);
+  const eventsBodyClosed = eventBarrier(testSignal);
+  const eventsSocketClosed = eventBarrier(testSignal);
+  let bodyCancellations = 0;
   let releaseAdmissionResponse;
   const admissionResponseReleased = new Promise((resolve) => {
     releaseAdmissionResponse = resolve;
   });
-  const deadline = new Date(Date.now() + 60_000).toISOString();
+  const deadline = new Date(clock.now() + 60_000).toISOString();
   const server = createServer(async (req, res) => {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
@@ -153,6 +173,7 @@ async function fixture(mode = 'success') {
     if (req.method === 'GET' && req.url.includes('/events?')) firstEventsRequest.signal();
     if (['stalled-events-body', 'invalid-events-encoding', 'oversized-events-body'].includes(mode)) {
       res.once('close', eventsBodyClosed.signal);
+      req.socket.once('close', eventsSocketClosed.signal);
       if (mode === 'invalid-events-encoding') res.setHeader('content-type', 'text/plain');
       if (mode === 'oversized-events-body') res.setHeader('content-length', String(8 * 1024 * 1024));
       res.write('{"schema_version":');
@@ -213,7 +234,39 @@ async function fixture(mode = 'success') {
     rmSync(root, { recursive: true, force: true });
     throw error;
   }
-  const provider = new PaimosHarnessProvider({
+  const fetchImpl = async (target, options) => {
+    if (mode !== 'stalled-events-body' || !target.pathname.endsWith('/events')) {
+      return fetch(target, options);
+    }
+    // Only explicit body cancellation may close this connection: a fetch-level
+    // signal would hide a missing reader.cancel() behind automatic socket abort.
+    const response = await fetch(target, { ...options, signal: undefined });
+    const reader = response.body.getReader();
+    let chunks = 0;
+    let cancelled = false;
+    const body = new ReadableStream({
+      async pull(controller) {
+        const pending = reader.read();
+        if (chunks > 0) eventsBodyStalled.signal();
+        const { done, value } = await pending;
+        if (cancelled) return;
+        if (done) controller.close();
+        else {
+          chunks += 1;
+          controller.enqueue(value);
+        }
+      },
+      cancel() {
+        cancelled = true;
+        bodyCancellations += 1;
+        // Mutation sentinel: omitting this native cancel leaves the close
+        // barriers unmet even though the observed response body was cancelled.
+        return reader.cancel();
+      },
+    }, { highWaterMark: 0 });
+    return new Response(body, { status: response.status, headers: response.headers });
+  };
+  const config = {
     id: 'paimos',
     origin,
     credentialFile,
@@ -226,41 +279,52 @@ async function fixture(mode = 'success') {
     executionLocation: 'cloud',
     allowedDataClasses: ['confidential'],
     mode: 'test',
+    fetchImpl,
+    clock,
     pollIntervalMs: 2,
     retryDelayMs: 1,
     cleanupTimeoutMs: 200,
     limits: { maxDurationMs: 2_000 },
-  });
+  };
+  const provider = new PaimosHarnessProvider(config);
   return {
     provider,
+    config,
+    clock,
     credentialFile,
     requests,
     postAttempts: () => postAttempts,
     cancelled: () => cancelled,
+    bodyCancellations: () => bodyCancellations,
     waitForAdmissionRequest: admissionRequest.wait,
     releaseAdmissionResponse,
     waitForFirstEventsRequest: firstEventsRequest.wait,
+    waitForEventsBodyStalled: eventsBodyStalled.wait,
     waitForEventsBodyClosed: eventsBodyClosed.wait,
+    waitForEventsSocketClosed: eventsSocketClosed.wait,
     close: async () => {
       releaseAdmissionResponse();
+      // Forced teardown follows assertions, so it cannot satisfy close barriers.
+      server.closeAllConnections();
       await new Promise((resolve) => server.close(resolve));
       rmSync(root, { recursive: true, force: true });
     },
   };
 }
 
-async function timeoutFixture() {
+async function timeoutFixture(testSignal) {
   const root = mkdtempSync(join(tmpdir(), 'aithema-paimos-timeout-'));
   const credentialFile = join(root, 'conversation.key');
   writeFileSync(credentialFile, 'fixture-conversation-key\n', { mode: 0o600 });
   chmodSync(credentialFile, 0o600);
   const requests = [];
-  const firstEventsRequest = boundedBarrier('first events request');
+  const clock = manualClock();
+  const firstEventsRequest = eventBarrier(testSignal);
   let releaseFirstEventsResponse;
   const firstEventsResponseReleased = new Promise((resolve) => {
     releaseFirstEventsResponse = resolve;
   });
-  const deadline = new Date(Date.now() + 60_000).toISOString();
+  const deadline = new Date(clock.now() + 60_000).toISOString();
   let admittedBody;
   let cancelled = 0;
   const fetchImpl = async (target, options) => {
@@ -301,11 +365,13 @@ async function timeoutFixture() {
     executionLocation: 'cloud',
     allowedDataClasses: ['confidential'],
     fetchImpl,
+    clock,
     cleanupTimeoutMs: 200,
     limits: { maxDurationMs: 30 },
   });
   return {
     provider,
+    clock,
     requests,
     cancelled: () => cancelled,
     waitForFirstEventsRequest: firstEventsRequest.wait,
@@ -460,6 +526,44 @@ describe('Paimos credential source boundary', () => {
 });
 
 describe('Paimos harness HTTP provider', () => {
+  it('keeps production clock and timing defaults without an injected clock', async (context) => {
+    const fx = await fixture();
+    try {
+      const provider = new PaimosHarnessProvider({
+        ...fx.config,
+        clock: undefined,
+        pollIntervalMs: undefined,
+        retryDelayMs: undefined,
+        cleanupTimeoutMs: undefined,
+      });
+      const timeout = new AbortController();
+      context.mock.method(Date, 'now', () => 123_456);
+      const timeoutSpy = context.mock.method(AbortSignal, 'timeout', () => timeout.signal);
+      assert.equal(provider.clock.now(), 123_456);
+      assert.equal(provider.clock.timeoutSignal(2_000), timeout.signal);
+      assert.deepEqual(timeoutSpy.mock.calls[0].arguments, [2_000]);
+      assert.equal(provider.pollIntervalMs, 500);
+      assert.equal(provider.retryDelayMs, 100);
+      assert.equal(provider.cleanupTimeoutMs, 2_000);
+    } finally {
+      context.mock.restoreAll();
+      await fx.close();
+    }
+  });
+
+  it('rejects incomplete clock injections before credential access or egress', async () => {
+    const fx = await fixture();
+    try {
+      for (const clock of [{}, { now: () => 0 }, { timeoutSignal: () => new AbortController().signal }, false]) {
+        assert.throws(
+          () => new PaimosHarnessProvider({ ...fx.config, clock }),
+          { name: 'TypeError', message: 'Paimos clock must provide now and timeoutSignal' },
+        );
+      }
+      assert.equal(fx.requests.length, 0);
+    } finally { await fx.close(); }
+  });
+
   it('refuses pre-cancelled work before credential access or outbound admission', async () => {
     const fx = await fixture();
     const abort = new AbortController();
@@ -473,26 +577,45 @@ describe('Paimos harness HTTP provider', () => {
     } finally { await fx.close(); }
   });
 
-  it('cancels a stalled event response body, closes its socket, and requests remote cancellation', async () => {
-    const fx = await fixture('stalled-events-body');
-    const abort = new AbortController();
-    try {
-      const work = collect(fx.provider.streamChat(request('chat', abort.signal)));
-      const rejected = assert.rejects(work, { name: 'AbortError' });
-      await fx.waitForFirstEventsRequest();
-      abort.abort();
-      await rejected;
-      await fx.waitForEventsBodyClosed();
-      assert.equal(cancellationRequests(fx.requests).length, 1);
-    } finally { abort.abort(); await fx.close(); }
-  });
+  for (const [stop, name, expectedError] of [
+    ['abort', 'cancels a stalled event response body, closes its socket, and requests remote cancellation', {
+      name: 'AbortError', message: 'provider stream cancelled',
+    }],
+    ['timeout', 'times out a stalled event response body, closes its socket, and requests remote cancellation', {
+      name: 'IncompleteProviderStreamError', code: 'incomplete_stream', reason: 'timeout',
+      message: 'Paimos call exceeded the configured duration',
+    }],
+  ]) {
+    it(name, { timeout: 10_000 }, async (context) => {
+      const fx = await fixture('stalled-events-body', context.signal);
+      const abort = new AbortController();
+      try {
+        const work = collect(fx.provider.streamChat(request('chat', abort.signal)));
+        const rejected = assert.rejects(work, expectedError);
+        await fx.waitForEventsBodyStalled();
+        fx.clock.advance(fx.provider.limits.maxDurationMs - 1);
+        assert.equal(fx.bodyCancellations(), 0);
+        assert.equal(cancellationRequests(fx.requests).length, 0);
+        if (stop === 'abort') abort.abort();
+        else fx.clock.advance(1);
+        await rejected;
+        assert.equal(fx.bodyCancellations(), 1);
+        await fx.waitForEventsBodyClosed();
+        await fx.waitForEventsSocketClosed();
+        assert.equal(cancellationRequests(fx.requests).length, 1);
+        assert.deepEqual(cancellationRequests(fx.requests)[0].body, {});
+        assert.equal(fx.clock.requestedTimeouts().at(-1), 200);
+      } finally { abort.abort(); await fx.close(); }
+    });
+  }
 
   for (const [mode, pattern] of [['invalid-events-encoding', /encoding is invalid/], ['oversized-events-body', /did not complete/]]) {
-    it(`closes a rejected ${mode} stream without waiting for its body to finish`, async () => {
-      const fx = await fixture(mode);
+    it(`closes a rejected ${mode} stream without waiting for its body to finish`, { timeout: 10_000 }, async (context) => {
+      const fx = await fixture(mode, context.signal);
       try {
         await assert.rejects(collect(fx.provider.streamChat(request('chat'))), pattern);
         await fx.waitForEventsBodyClosed();
+        await fx.waitForEventsSocketClosed();
         assert.equal(cancellationRequests(fx.requests).length, 1);
       } finally { await fx.close(); }
     });
@@ -619,42 +742,30 @@ describe('Paimos harness HTTP provider', () => {
     });
   }
 
-  it('uses an immutable timeout and a separate cleanup deadline', async (context) => {
-    let now = Date.now();
-    const requestedTimeouts = [];
-    const timeoutControllers = [];
-    context.mock.method(Date, 'now', () => now);
-    context.mock.method(AbortSignal, 'timeout', (duration) => {
-      const controller = new AbortController();
-      requestedTimeouts.push(duration);
-      timeoutControllers.push(controller);
-      return controller.signal;
-    });
-    const fx = await timeoutFixture();
+  it('uses an immutable timeout and a separate cleanup deadline', { timeout: 10_000 }, async (context) => {
+    const fx = await timeoutFixture(context.signal);
     try {
       const rejected = assert.rejects(
         collect(fx.provider.streamChat(request('chat'))),
         (error) => error.code === 'incomplete_stream' && error.reason === 'timeout',
       );
       await fx.waitForFirstEventsRequest();
-      assert.equal(requestedTimeouts[0], 30);
-      now += 30;
-      timeoutControllers.at(-1).abort(new DOMException('deadline exceeded', 'TimeoutError'));
+      assert.equal(fx.clock.requestedTimeouts()[0], 30);
+      fx.clock.advance(30);
       fx.releaseFirstEventsResponse();
       await rejected;
       assert.equal(fx.cancelled(), 1);
       assert.equal(fx.requests[0].body.timeout_ms, 30);
       assert.equal(cancellationRequests(fx.requests).length, 1);
-      assert.equal(requestedTimeouts.at(-1), 200);
+      assert.equal(fx.clock.requestedTimeouts().at(-1), 200);
     } finally {
       fx.releaseFirstEventsResponse();
       fx.close();
-      context.mock.restoreAll();
     }
   });
 
-  it('cancels admitted work when the caller aborts', async () => {
-    const fx = await fixture('cancel');
+  it('cancels admitted work when the caller aborts', { timeout: 10_000 }, async (context) => {
+    const fx = await fixture('cancel', context.signal);
     const abort = new AbortController();
     try {
       const work = collect(fx.provider.streamChat(request('chat', abort.signal)));
@@ -670,8 +781,8 @@ describe('Paimos harness HTTP provider', () => {
     }
   });
 
-  it('does not claim remote cancellation when the caller aborts before admission', async () => {
-    const fx = await fixture('pre-admission-cancel');
+  it('does not claim remote cancellation when the caller aborts before admission', { timeout: 10_000 }, async (context) => {
+    const fx = await fixture('pre-admission-cancel', context.signal);
     const abort = new AbortController();
     try {
       const work = collect(fx.provider.streamChat(request('chat', abort.signal)));

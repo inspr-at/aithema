@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { canonicalJson, sha256Hex } from '../../contracts/validate.js';
+import { canonicalJson, sha256Hex, validateExtensions } from '../../contracts/validate.js';
+import { registerExtension } from '../../lib/extensions.js';
 import { validateItemProvenance } from '../../runtime/provenance.js';
 import {
   budget, capabilities, document, envelope, errorResponse, fail, HostError, input, intakeMetadata, transitions,
@@ -96,7 +97,7 @@ export class MockHost {
       authz: structuredClone(authz), generation, principal, hostMode, evidence, currency,
       tombstone: authz.withdrawn_at !== null, seq: 0, workingRev: 0, snapshot: null,
       records: [], events: new Map(), operations: new Map(), imports: new Map(), drafts: new Map(),
-      intakeRev: 0, intakeSnapshot: null, attempts: new Map(), holds: new Map(), claims: new Map(), holdSequence: 0,
+      intakeRev: 0, intakeSnapshot: null, extensionRegistry: [], attempts: new Map(), holds: new Map(), claims: new Map(), holdSequence: 0,
     });
     return structuredClone(authz);
   }
@@ -116,6 +117,12 @@ export class MockHost {
   setEvidence(sid, present) {
     if (typeof present !== 'boolean') throw new TypeError('Evidence must be boolean');
     this.#session(sid).evidence = present;
+  }
+
+  /** In-process fixture control; no registration route is exposed over HTTP. */
+  registerExtension(sid, descriptor) {
+    const session = this.#session(sid);
+    session.extensionRegistry = registerExtension(session.extensionRegistry, descriptor);
   }
 
   /** Host writes control records before changing the authoritative projection. */
@@ -317,6 +324,10 @@ export class MockHost {
         this.#arbitrate(old.item.state, 'replace');
       }
       if (doc.host_mode !== session.hostMode) throw new HostError(400, 'Wrong intake mode');
+      for (const candidate of doc.spec.items) {
+        const result = validateExtensions(candidate.extensions, session.extensionRegistry);
+        if (!result.ok) fail(result.code);
+      }
       const candidates = doc.spec.items.filter((item) => item.state === 'confirmed' && item.host === null);
       if (candidates.length !== 1) throw new HostError(400, 'Submit exactly one confirmed candidate');
       const item = structuredClone(candidates[0]);
