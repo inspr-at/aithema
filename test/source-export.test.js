@@ -1,6 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import {
   copyFileSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -120,6 +121,8 @@ function seedSourceExportTree(repo, allowlist) {
     mkdirSync(dirname(dest), { recursive: true });
     copyFileSync(join(repoRoot, rel), dest);
   }
+  // Source-only directory (AIT-35 foundation contracts); not in the release artefact.
+  cpSync(join(repoRoot, 'contracts'), join(repo, 'contracts'), { recursive: true });
   if (allowlist) {
     writeFileSync(join(repo, 'release/source-allowlist.json'), `${JSON.stringify(allowlist, null, 2)}\n`, 'utf8');
   }
