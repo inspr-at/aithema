@@ -4,7 +4,8 @@ const timing = capabilities.authority;
 
 /**
  * @typedef {{tid:string, pid:string, sid:string, worker_generation:number,
- *   auth_epoch:number, issued_at:string, tombstone:null|'suspend'|'purge'}} AuthoritySnapshot
+ *   auth_epoch:number, issued_at:string, tombstone:null|'suspend'|'purge',
+ *   tombstone_record?:import('../journal/port.js').StoredRecord}} AuthoritySnapshot
  * Authority response is transport metadata, not a new foundation document.
  */
 function checkedAuthority(value, scope, wallNow) {
@@ -18,7 +19,8 @@ function checkedAuthority(value, scope, wallNow) {
   if (!Number.isFinite(issued) || Number(match[4]) > 23 || Number(match[5]) > 59 || Number(match[6]) > 59
       || new Date(issued).getUTCFullYear() !== Number(match[1])
       || new Date(issued).getUTCMonth() + 1 !== Number(match[2]) || new Date(issued).getUTCDate() !== Number(match[3])
-      || issued > wallNow || wallNow - issued > timing.stale_after_seconds * 1000) {
+      || issued > wallNow + capabilities.token_verification.max_clock_skew_seconds * 1000
+      || wallNow - issued > timing.stale_after_seconds * 1000) {
     throw new AuthzError(503, 'Authority issued_at is invalid, future or stale');
   }
   return { authority: structuredClone(value), issued };
@@ -48,14 +50,16 @@ export class AuthorityMonitor {
   #freshnessTimer;
   #request = new AbortController();
   #lastError = null;
+  #purge;
 
-  constructor({ session, fetchAuthority, clock = systemClock, scheduler = systemScheduler, onError = () => {} }) {
+  constructor({ session, fetchAuthority, purgeCoordinator, clock = systemClock, scheduler = systemScheduler, onError = () => {} }) {
     if (typeof fetchAuthority !== 'function') throw new TypeError('Host authority adapter required');
     this.#session = session;
     this.#fetch = fetchAuthority;
     this.#clock = clock;
     this.#scheduler = scheduler;
     this.#onError = onError;
+    this.#purge = purgeCoordinator;
   }
 
   get lastError() { return this.#lastError; }
@@ -127,12 +131,23 @@ export class AuthorityMonitor {
       const { authority, issued } = checkedAuthority(value, this.#session.scope, this.#wallOrigin + now - this.#origin);
       if (issued < this.#lastIssued) throw new AuthzError(503, 'Authority issued_at moved backwards');
       this.#session.applyAuthority(authority);
+      if (authority.tombstone === 'purge') {
+        // Reads are denied after tombstoning. The authenticated host adapter
+        // must forward the original StoredRecord, including bytes and seq.
+        if (!authority.tombstone_record || !this.#purge) throw new AuthzError(502, 'Purge authority requires its stored host tombstone and coordinator');
+        await this.#purge.complete(authority.tombstone_record);
+        if (!this.#running) return;
+        this.stop();
+      }
       this.#lastIssued = issued;
-      this.#lastAuthority = this.#origin + issued - this.#wallOrigin;
+      // Host clock skew is allowed but cannot grant time beyond local receipt.
+      this.#lastAuthority = Math.min(now, this.#origin + issued - this.#wallOrigin);
       this.#failures = 0;
       this.#lastError = null;
-      this.#scheduleEnd();
-      this.#scheduleFreshness();
+      if (this.#running) {
+        this.#scheduleEnd();
+        this.#scheduleFreshness();
+      }
     } catch (error) {
       if (!this.#running) return;
       this.#lastError = error;

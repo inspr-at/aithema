@@ -2,16 +2,25 @@ import { AuthzError, capabilities, freeze } from './common.js';
 
 // Operation identifiers select EXACT contract rows; HTTP adapters map their
 // matched routes to these identifiers, never infer a capability from a prefix.
-const names = [
-  ['intake.sources', 'intake.transcript-turns', 'intake.drafts', 'intake.replace'],
-  ['intake.read'], ['intake.accept'],
-  ['journal.append', 'journal.snapshot', 'journal.op-result'],
-  ['journal.records', 'journal.cursor'], ['journal.authority'],
-  ['ledger.admit', 'ledger.claim', 'ledger.settle'], ['ledger.recover'], ['ledger.holds'],
-  ['service.create', 'service.host-event', 'service.revoke', 'service.context'],
+const bindings = [
+  ['POST …/intake/sources | …/transcript-turns | …/drafts | …/drafts/{id}/replace',
+    ['intake.sources', 'intake.transcript-turns', 'intake.drafts', 'intake.replace']],
+  ['GET …/intake', ['intake.read']],
+  ['POST …/drafts/{id}/accept', ['intake.accept']],
+  ['POST /journal/sessions/{sid}/records | snapshots | op.result', ['journal.append', 'journal.snapshot', 'journal.op-result']],
+  ['GET /journal/sessions/{sid}/records | …/cursor', ['journal.records', 'journal.cursor']],
+  ['GET /journal/sessions/{sid}/authority', ['journal.authority']],
+  ['ledger admit | claim | settle', ['ledger.admit', 'ledger.claim', 'ledger.settle']],
+  ['ledger recover(hold_id)', ['ledger.recover']],
+  ['GET /ledger/sessions/{sid}/holds?state=open', ['ledger.holds']],
+  ['POST /v1/sessions | /v1/sessions/{sid}/host-event | …/revoke | …/context',
+    ['service.create', 'service.host-event', 'service.revoke', 'service.context']],
 ];
-export const ROUTES = freeze(Object.fromEntries(names.flatMap((ids, i) =>
-  ids.map((id) => [id, structuredClone(capabilities.routes[i])]))));
+export const ROUTES = freeze(Object.fromEntries(bindings.flatMap(([route, ids]) => {
+  const rows = capabilities.routes.filter((row) => row.route === route);
+  if (rows.length !== 1) throw new TypeError(`Expected exactly one capability row for ${route}`);
+  return ids.map((id) => [id, structuredClone(rows[0])]);
+})));
 
 /** Both host handlers and the outbound gate use this independent scope check. */
 export class CapabilityGuard {
@@ -32,7 +41,7 @@ export class CapabilityGuard {
     }
     if (row.checks.includes('epoch')) {
       if (!Number.isSafeInteger(current.auth_epoch) || current.auth_epoch < 1) throw new AuthzError(403, 'Missing current epoch');
-      if (current.tombstone || current.auth_epoch !== claims.auth_epoch) throw new AuthzError(409, 'Session revoked', 'revoked');
+      if (current.revoked || current.tombstone || current.auth_epoch !== claims.auth_epoch) throw new AuthzError(409, 'Session revoked', 'revoked');
     }
     if (row.checks.some((check) => check.startsWith('gen'))) {
       if (!Number.isSafeInteger(current.worker_generation) || current.worker_generation < 1) throw new AuthzError(403, 'Missing current generation');
@@ -41,6 +50,6 @@ export class CapabilityGuard {
     }
     if (row.checks.includes('ephemeral LiveGrant') && !liveGrant) throw new AuthzError(403, 'Ephemeral LiveGrant required');
     return freeze({ tid: claims.tid, pid: claims.pid, sid: claims.sid, gen: claims.gen,
-      auth_epoch: claims.auth_epoch, exp: claims.exp, writer_kind: 'worker', capabilities: [...claims.capabilities] });
+      auth_epoch: claims.auth_epoch, exp: claims.exp, writer_kind: 'worker', capabilities: [row.capability] });
   }
 }

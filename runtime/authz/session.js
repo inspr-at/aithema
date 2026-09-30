@@ -39,6 +39,7 @@ export class AuthorizationSession {
   #state = 'ACTIVE';
   #revision = 0;
   #capture = new AbortController();
+  #microphone = new AbortController();
   #output = new AbortController();
   #pending = new AbortController();
   #usedClaims = new Set();
@@ -51,13 +52,14 @@ export class AuthorizationSession {
   constructor({ authorization, scope, settingsSha256, onChange = () => {} }) {
     validateProcessingAuthorization(authorization, scope, settingsSha256);
     if (!Number.isSafeInteger(scope.worker_generation) || scope.worker_generation < 1) throw new TypeError('Current worker generation required');
-    this.#scope = structuredClone(scope);
+    this.#scope = { tombstone: null, suspended: false, revoked: false, ...structuredClone(scope) };
     this.#onChange = onChange;
   }
 
   get state() { return this.#state; }
   get scope() { return freeze(structuredClone(this.#scope)); }
   get captureSignal() { return this.#capture.signal; }
+  get microphoneSignal() { return this.#microphone.signal; }
   get outputSignal() { return this.#output.signal; }
   get pendingSignal() { return this.#pending.signal; }
   get lastRecordSeq() { return this.#lastSeq; }
@@ -76,12 +78,21 @@ export class AuthorizationSession {
     const previous = this.#state;
     this.#state = state;
     this.#revision++;
+    // Publish local controls on the same scope consumed by EVERY route guard.
+    // A refusal without a new epoch is still irreversible for this session.
+    if (state === 'SUSPENDED') this.#scope.suspended = true;
+    else if (state === 'ACTIVE') this.#scope.suspended = false;
+    if (['REVOKED', 'ENDED'].includes(state)) this.#scope.revoked = true;
+    if (['PURGING', 'PURGED'].includes(state)) this.#scope.tombstone = 'purge';
     if (state === 'ACTIVE') {
       this.#capture = new AbortController();
+      this.#microphone = new AbortController();
       this.#output = new AbortController();
       this.#pending = new AbortController();
     } else {
-      for (const controller of [this.#capture, this.#output, this.#pending]) controller.abort(reason);
+      const channels = state === 'CAPTURE_ONLY' ? [this.#microphone, this.#output, this.#pending]
+        : [this.#capture, this.#microphone, this.#output, this.#pending];
+      for (const controller of channels) controller.abort(reason);
     }
     this.#onChange({ previous, state, reason });
   }
@@ -98,19 +109,28 @@ export class AuthorizationSession {
   }
 
   end(reason = new AuthzError(503, 'Ten minutes without authority; export available')) {
-    if (!['PURGING', 'PURGED'].includes(this.#state)) this.#transition('ENDED', reason);
+    if (this.#state !== 'PURGED') this.#transition('ENDED', reason);
   }
 
   applyAuthority(authority) {
     if (['tid', 'pid', 'sid'].some((key) => authority[key] !== this.#scope[key])) throw new AuthzError(403, 'Authority scope mismatch');
+    if (!Number.isSafeInteger(authority.auth_epoch) || authority.auth_epoch < 1
+        || !Number.isSafeInteger(authority.worker_generation) || authority.worker_generation < 1
+        || ![null, 'suspend', 'purge'].includes(authority.tombstone)) throw new AuthzError(502, 'Invalid host authority response');
     if (authority.auth_epoch < this.#scope.auth_epoch) throw new AuthzError(502, 'Authority epoch moved backwards');
+    if (authority.worker_generation < this.#scope.worker_generation) throw new AuthzError(502, 'Authority generation moved backwards');
+    const generationChanged = authority.worker_generation !== this.#scope.worker_generation;
+    this.#scope.worker_generation = authority.worker_generation;
+    // Keep host suspension visible even if takeover/revocation wins the local
+    // state transition. Only an acknowledged resume can clear suspension.
+    if (authority.tombstone === 'suspend') this.#scope.suspended = true;
     if (authority.auth_epoch !== this.#scope.auth_epoch) this.revoke(authority.auth_epoch);
     if (authority.tombstone === 'purge') {
       this.#transition('PURGING', new AuthzError(409, 'Session purge tombstone', 'revoked'));
       return;
     }
     if (['REVOKED', 'FENCED', 'PURGING', 'PURGED', 'ENDED'].includes(this.#state)) return;
-    if (authority.worker_generation !== this.#scope.worker_generation) {
+    if (generationChanged) {
       this.#transition('FENCED', new AuthzError(409, 'Worker generation fenced', 'fenced_generation'));
     } else if (authority.tombstone === 'suspend') {
       this.#transition('SUSPENDED', new AuthzError(409, 'Session suspended', 'revoked'));
@@ -200,12 +220,18 @@ export class AuthorizationSession {
       if (doc.seq <= seq) throw new AuthzError(502, 'Journal records are not ordered');
       seq = doc.seq;
     }
-    for (const stored of records) this.consumeStoredRecord(stored);
+    for (const stored of records) {
+      this.consumeStoredRecord(stored);
+      if (stored.document.kind === 'session.control' && stored.document.data.action === 'purge') {
+        if (!options.purgeCoordinator) throw new AuthzError(502, 'Journal purge requires a coordinator');
+        await options.purgeCoordinator.complete(stored);
+      }
+    }
     return this.#lastSeq;
   }
 
   markPurged() {
-    if (this.#state !== 'PURGING') throw new AuthzError(409, 'Purge requires a host tombstone');
+    if (this.#scope.tombstone !== 'purge' || !['PURGING', 'ENDED'].includes(this.#state)) throw new AuthzError(409, 'Purge requires a host tombstone');
     this.#transition('PURGED', new AuthzError(409, 'Session purged', 'revoked'));
   }
 }

@@ -92,6 +92,32 @@ function jwt(claims = delegated(), signingKey = ed, header = {}) {
 function verifier(now = () => time) { return new TokenVerifier({ issuer, hostAudience, jwks: jwks(ed, ec), now }); }
 const authorityResponse = (fake, overrides = {}) => ({ ...scope(), tombstone: null, issued_at: fake.issued(), ...overrides });
 
+// Independent literal oracle: operation, capability, generation, epoch, pid,
+// LiveGrant. Never derive the expected matrix from the implementation's rows.
+const expectedRoutes = [
+  ['intake.sources', 'intake.write', true, true, true, true],
+  ['intake.transcript-turns', 'intake.write', true, true, true, true],
+  ['intake.drafts', 'intake.write', true, true, true, true],
+  ['intake.replace', 'intake.write', true, true, true, true],
+  ['intake.read', 'intake.read', false, true, true, false],
+  ['intake.accept', 'intake.decide', false, false, false, false],
+  ['journal.append', 'aithema.journal.write', true, true, true, false],
+  ['journal.snapshot', 'aithema.journal.write', true, true, true, false],
+  ['journal.op-result', 'aithema.journal.write', true, true, true, false],
+  ['journal.records', 'aithema.journal.read', false, true, true, false],
+  ['journal.cursor', 'aithema.journal.read', false, true, true, false],
+  ['journal.authority', 'aithema.authority.read', false, false, false, false],
+  ['ledger.admit', 'aithema.ledger', true, true, true, false],
+  ['ledger.claim', 'aithema.ledger', true, true, true, false],
+  ['ledger.settle', 'aithema.ledger', true, true, true, false],
+  ['ledger.recover', 'aithema.ledger', true, true, true, false],
+  ['ledger.holds', 'aithema.ledger', false, true, true, false],
+  ['service.create', 'host service credential', false, false, false, false],
+  ['service.host-event', 'host service credential', false, false, false, false],
+  ['service.revoke', 'host service credential', false, false, false, false],
+  ['service.context', 'host service credential', false, false, false, false],
+];
+
 describe('(a) host JWT verification', () => {
   for (const signingKey of [ed, ec]) for (const type of ['session', 'delegated']) {
     it(`verifies ${type} ${signingKey.algorithm} against public host JWKS and the foundation contract`, () => {
@@ -176,6 +202,33 @@ describe('(a) host JWT verification', () => {
 });
 
 describe('(a, e) exact capability and route matrix', () => {
+  it('pins the literal capability, generation, epoch, pid and LiveGrant matrix for every route', () => {
+    assert.deepEqual(Object.keys(ROUTES).sort(), expectedRoutes.map(([route]) => route).sort());
+    for (const [route, capability, gen, epoch, pid, liveGrant] of expectedRoutes) {
+      const row = ROUTES[route];
+      assert.deepEqual([row.capability, row.checks.some((check) => check.startsWith('gen')),
+        row.checks.includes('epoch'), row.checks.includes('pid'), row.checks.includes('ephemeral LiveGrant')],
+      [capability, gen, epoch, pid, liveGrant], route);
+    }
+  });
+
+  for (const [route, capability] of expectedRoutes.filter(([route]) => route !== 'intake.accept' && !route.startsWith('service.'))) {
+    it(`${route} returns only its allowed capability from a token granting all capabilities`, () => {
+      const result = new CapabilityGuard({ verifier: verifier() }).authorize(route, jwt(), scope(), { liveGrant: true });
+      assert.deepEqual(result.capabilities, [capability]);
+      assert.ok(Object.isFrozen(result.capabilities));
+    });
+  }
+
+  it('journal read authority cannot be reused for a JournalPort append', (t) => {
+    const journal = new SqliteJournal(':memory:', { now: () => time });
+    t.after(() => journal.close());
+    journal.createSession(bytes(journalSession()));
+    const read = new CapabilityGuard({ verifier: verifier() }).authorize('journal.records', jwt(), scope());
+    assert.throws(() => journal.append(bytes(turn()), read), status(403));
+    assert.deepEqual(journal.recordsAfter(0, read), []);
+  });
+
   for (const [route, row] of Object.entries(ROUTES)) {
     it(`${route} enforces its exact capability, scopes, epoch, generation and expiry`, () => {
       let now = time;
@@ -263,8 +316,71 @@ describe('(b, e) continuous authority with one monotonic origin', () => {
     await fake.advance(39_998);
     assert.equal(session.state, 'REVOKED');
     assert.ok(stoppedAt - changedAt <= policy.authority.revocation_healthy_max_seconds * 1000);
-    assert.ok([session.captureSignal, session.outputSignal, session.pendingSignal].every((signal) => signal.aborted));
+    assert.ok([session.captureSignal, session.microphoneSignal, session.outputSignal, session.pendingSignal].every((signal) => signal.aborted));
     assert.throws(() => session.assertNewClaim(), code('revoked'));
+    monitor.stop();
+  });
+
+  for (const ahead of [1, 60_000]) {
+    it(`host clock ${ahead}ms ahead still delivers lost-callback revocation within 45s`, async () => {
+      const fake = new FakeClock();
+      let epoch = 1, stoppedAt;
+      const local = localSession({ onChange: ({ state }) => { if (state === 'REVOKED') stoppedAt = fake.mono; } });
+      const monitor = new AuthorityMonitor({ session: local, clock: fake.clock, scheduler: fake.scheduler,
+        fetchAuthority: () => new Promise((resolve) => fake.scheduler.setTimeout(() => resolve(
+          authorityResponse(fake, { auth_epoch: epoch, issued_at: fake.issued(fake.mono + ahead) })), 9999)) });
+      monitor.start();
+      await fake.advance(10_000);
+      assert.equal(monitor.lastError, null);
+      assert.equal(monitor.lastAuthorityMonotonic, fake.origin + 9999, 'A future stamp grants no future lease');
+      epoch = 2;
+      const changedAt = fake.mono;
+      await fake.advance(29_999);
+      assert.equal(local.state, 'REVOKED');
+      assert.equal(local.scope.auth_epoch, 2);
+      assert.ok(stoppedAt - changedAt <= 45_000);
+      assert.equal(monitor.lastError, null);
+      monitor.stop();
+    });
+
+    it(`host clock ${ahead}ms ahead cannot extend the 70s outage or 10min authority deadlines`, async () => {
+      const fake = new FakeClock();
+      let available = true;
+      const local = localSession();
+      const monitor = new AuthorityMonitor({ session: local, clock: fake.clock, scheduler: fake.scheduler,
+        fetchAuthority: () => available
+          ? authorityResponse(fake, { issued_at: fake.issued(fake.mono + ahead) }) : new Promise(() => {}) });
+      monitor.start();
+      await fake.advance(0);
+      assert.equal(monitor.lastAuthorityMonotonic, fake.origin);
+      available = false;
+      await fake.advance(70_000);
+      assert.equal(local.state, 'CAPTURE_ONLY');
+      await fake.advance(529_999);
+      assert.equal(local.state, 'CAPTURE_ONLY');
+      await fake.advance(1);
+      assert.equal(local.state, 'ENDED');
+      assert.equal(fake.timers.size, 0);
+    });
+  }
+
+  it('a revoked error from an authority poll closes every epoch-checked route without a new epoch', async () => {
+    const fake = new FakeClock();
+    const local = localSession();
+    const errors = [];
+    const monitor = new AuthorityMonitor({ session: local, clock: fake.clock, scheduler: fake.scheduler,
+      onError: (error) => errors.push(error), fetchAuthority: () => { throw new AuthzError(409, 'Fixture host refusal', 'revoked'); } });
+    monitor.start();
+    await fake.advance(0);
+    assert.equal(local.state, 'REVOKED');
+    assert.equal(local.scope.auth_epoch, 1);
+    assert.equal(local.scope.revoked, true);
+    assert.equal(monitor.consecutiveFailures, 0);
+    assert.equal(errors.length, 1);
+    const guard = new CapabilityGuard({ verifier: verifier() });
+    for (const [route, , , epoch] of expectedRoutes.filter(([, , , epoch]) => epoch)) {
+      assert.throws(() => guard.authorize(route, jwt(), local.scope, { liveGrant: true }), code('revoked'), route);
+    }
     monitor.stop();
   });
 
@@ -288,7 +404,8 @@ describe('(b, e) continuous authority with one monotonic origin', () => {
     assert.equal(session.state, 'CAPTURE_ONLY');
     assert.ok(captureAt - lostAt <= 75_000);
     assert.equal(monitor.consecutiveFailures, 2);
-    assert.equal(session.captureSignal.aborted, true);
+    assert.equal(session.captureSignal.aborted, false, 'Text capture continues in CAPTURE_ONLY');
+    assert.ok([session.microphoneSignal, session.outputSignal, session.pendingSignal].every((signal) => signal.aborted));
     assert.throws(() => session.assertNewClaim(), status(503));
     await fake.advance(529_999);
     assert.equal(session.state, 'CAPTURE_ONLY');
@@ -307,7 +424,8 @@ describe('(b, e) continuous authority with one monotonic origin', () => {
     monitor.start();
     await fake.advance(40_000);
     assert.equal(session.state, 'CAPTURE_ONLY');
-    assert.equal(originalCapture.aborted, true);
+    assert.equal(originalCapture.aborted, false);
+    assert.equal(session.microphoneSignal.aborted, true);
     available = true;
     await fake.advance(20_000);
     assert.equal(session.state, 'ACTIVE');
@@ -337,9 +455,10 @@ describe('(b, e) continuous authority with one monotonic origin', () => {
   for (const [name, patch] of [
     ['missing timestamp', () => ({ issued_at: undefined })],
     ['stale timestamp', (fake) => ({ issued_at: fake.issued(fake.mono - 30_001) })],
-    ['future timestamp', (fake) => ({ issued_at: fake.issued(fake.mono + 1) })],
+    ['future timestamp beyond skew', (fake) => ({ issued_at: fake.issued(fake.mono + 60_001) })],
     ['impossible date', () => ({ issued_at: '2026-02-30T07:00:00Z' })],
-    ['foreign tenant', () => ({ tid: 'foreign' })], ['foreign session', () => ({ sid: randomUUID() })],
+    ['foreign tenant', () => ({ tid: 'foreign' })], ['foreign pid', () => ({ pid: 'foreign' })],
+    ['foreign session', () => ({ sid: randomUUID() })],
     ['missing epoch', () => ({ auth_epoch: undefined })], ['missing tombstone status', () => ({ tombstone: undefined })],
     ['unsafe generation', () => ({ worker_generation: Number.MAX_SAFE_INTEGER + 1 })],
   ]) it(`refuses ${name} without refreshing authority`, async () => {
@@ -352,6 +471,7 @@ describe('(b, e) continuous authority with one monotonic origin', () => {
     await fake.advance(30_000);
     assert.equal(session.state, 'CAPTURE_ONLY');
     assert.equal(errors.length, 2);
+    if (name.startsWith('foreign')) assert.ok(errors.every((error) => error.status === 502), 'Transport binding fails before applying the snapshot');
     assert.equal(monitor.lastAuthorityMonotonic, fake.origin);
     monitor.stop();
   });
@@ -498,13 +618,98 @@ describe('(b, e) continuous authority with one monotonic origin', () => {
 });
 
 describe('(a, c, e) processing authorization, revocation and journal tombstones', () => {
+  const storedControl = (action, seq = 1) => {
+    const doc = record('session.control', { action }, { writer: { kind: 'host' } });
+    return { bytes: bytes(doc), document: { ...doc, seq } };
+  };
+
+  for (const [name, apply, refusal] of [
+    ['callback without epoch', (local) => local.revoke(), 'revoked'],
+    ['callback with epoch', (local) => local.revoke(2), 'revoked'],
+    ['authority epoch', (local) => local.applyAuthority({ ...scope({ auth_epoch: 2 }), tombstone: null }), 'revoked'],
+    ['authority generation', (local) => local.applyAuthority({ ...scope({ worker_generation: 2 }), tombstone: null }), 'fenced_generation'],
+    ['authority suspend', (local) => local.applyAuthority({ ...scope(), tombstone: 'suspend' }), 'revoked'],
+    ['authority purge', (local) => local.applyAuthority({ ...scope(), tombstone: 'purge' }), 'revoked'],
+    ['journal suspend', (local) => local.consumeStoredRecord(storedControl('suspend')), 'revoked'],
+    ['journal purge', (local) => local.consumeStoredRecord(storedControl('purge')), 'revoked'],
+    ['journal epoch', (local) => {
+      const doc = record('authz.epoch', { epoch: 2, reason: 'withdrawal' }, { writer: { kind: 'host' } });
+      local.consumeStoredRecord({ bytes: bytes(doc), document: { ...doc, seq: 1 } });
+    }, 'revoked'],
+  ]) {
+    it(`${name} publishes scope that refuses old tokens on every affected route`, () => {
+      const local = localSession();
+      const guard = new CapabilityGuard({ verifier: verifier() });
+      const token = jwt();
+      apply(local);
+      assert.throws(() => local.assertNewClaim(), code(refusal));
+      if (refusal === 'fenced_generation') assert.equal(local.scope.worker_generation, 2);
+      if (name.includes('suspend')) assert.equal(local.scope.suspended, true);
+      if (name.includes('purge')) assert.equal(local.scope.tombstone, 'purge');
+      for (const [route, , generation, epoch] of expectedRoutes.filter(([route]) => route !== 'intake.accept' && !route.startsWith('service.'))) {
+        const affected = name.includes('suspend') || refusal === 'fenced_generation' ? generation : epoch;
+        if (affected) assert.throws(() => guard.authorize(route, token, local.scope, { liveGrant: true }), code(refusal), route);
+        else assert.ok(guard.authorize(route, token, local.scope, { liveGrant: true }), route);
+      }
+    });
+  }
+
+  it('a revoked JournalPort read publishes permanent revocation even without its epoch record', async () => {
+    const local = localSession();
+    await assert.rejects(local.consumeJournal({ recordsAfter: () => { throw new AuthzError(409, 'Fixture revoked read', 'revoked'); } }, journalAuthority()), code('revoked'));
+    assert.equal(local.scope.auth_epoch, 1);
+    assert.equal(local.scope.revoked, true);
+    const guard = new CapabilityGuard({ verifier: verifier() });
+    for (const [route] of expectedRoutes.filter(([, , , epoch]) => epoch)) {
+      assert.throws(() => guard.authorize(route, jwt(), local.scope, { liveGrant: true }), code('revoked'), route);
+    }
+    local.applyAuthority({ ...scope(), tombstone: null });
+    assert.equal(local.state, 'REVOKED');
+  });
+
+  it('journal resume clears the same suspension scope used by route guards', () => {
+    const local = localSession();
+    const guard = new CapabilityGuard({ verifier: verifier() });
+    local.consumeStoredRecord(storedControl('suspend'));
+    assert.throws(() => guard.authorize('ledger.claim', jwt(), local.scope), code('revoked'));
+    local.consumeStoredRecord(storedControl('resume', 2));
+    assert.equal(local.scope.suspended, false);
+    assert.ok(guard.authorize('ledger.claim', jwt(), local.scope));
+  });
+
+  it('host suspension remains on scope when a simultaneous or earlier takeover has fenced the worker', () => {
+    for (const together of [false, true]) {
+      const local = localSession();
+      if (!together) local.applyAuthority({ ...scope({ worker_generation: 2 }), tombstone: null });
+      local.applyAuthority({ ...scope({ worker_generation: 2 }), tombstone: 'suspend' });
+      assert.equal(local.state, 'FENCED');
+      assert.equal(local.scope.worker_generation, 2);
+      assert.equal(local.scope.suspended, true);
+      const guard = new CapabilityGuard({ verifier: verifier() });
+      for (const [route] of expectedRoutes.filter(([, , gen]) => gen)) {
+        assert.throws(() => guard.authorize(route, jwt(), local.scope, { liveGrant: true }), code('fenced_generation'), route);
+        assert.throws(() => guard.authorize(route, jwt(delegated({ gen: 2 })), local.scope, { liveGrant: true }), code('revoked'), route);
+      }
+      local.applyAuthority({ ...scope({ worker_generation: 2 }), tombstone: null });
+      assert.equal(local.scope.suspended, true, 'A null authority flag cannot undo a journal suspension');
+    }
+  });
+
+  it('refuses duplicate processor_ref even when the evidence references differ', () => {
+    const doc = authRecord();
+    doc.processors.push({ ...doc.processors[0], evidence_ref: 'fixture-other-evidence' });
+    assert.equal(validate(doc.contract, doc).ok, true, 'This requires the runtime uniqueness check');
+    assert.throws(() => validateProcessingAuthorization(doc, scope(), doc.settings_sha256), status(400));
+  });
+
   it('requires a contract-valid processing record even for local sessions, with exact settings/scope binding', () => {
     const doc = authRecord();
     assert.equal(validate(doc.contract, doc).ok, true);
     assert.deepEqual(validateProcessingAuthorization(doc, scope(), doc.settings_sha256), doc);
     for (const invalid of [undefined, null, { ...doc, participants: [] }, { ...doc, purposes: [] },
       { ...doc, basis_label: '' }, { ...doc, processors: [{ processor_ref: 'missing-fields' }] },
-      { ...doc, participants: [...doc.participants, doc.participants[0]] }]) {
+      { ...doc, participants: [...doc.participants, doc.participants[0]] },
+      { ...doc, processors: [...doc.processors, doc.processors[0]] }]) {
       assert.throws(() => validateProcessingAuthorization(invalid, scope(), doc.settings_sha256), status(400));
     }
     assert.throws(() => validateProcessingAuthorization(doc, scope({ pid: 'foreign' }), doc.settings_sha256), status(403));
@@ -725,6 +930,84 @@ describe('(d) tombstone, bounded drain, cache deletion, host purge acknowledgeme
       'The host session still exists; only the host can delete its artifacts');
   });
 
+  it('authority polling completes a host purge even when the callback was lost and journal reads are denied', async (t) => {
+    const { coordinator, fake, local, journal, cache, events, artifacts } = setup(t);
+    let stored;
+    let polls = 0;
+    const monitor = new AuthorityMonitor({ session: local, purgeCoordinator: coordinator,
+      clock: fake.clock, scheduler: fake.scheduler, fetchAuthority: () => {
+        polls++;
+        return authorityResponse(fake, stored ? { tombstone: 'purge', tombstone_record: stored } : {});
+      } });
+    monitor.start();
+    await fake.advance(1);
+    stored = journal.append(bytes(record('session.control', { action: 'purge' }, { writer: { kind: 'host' } })), host());
+    assert.throws(() => journal.recordsAfter(0, journalAuthority()), code('revoked'));
+    await fake.advance(29_999);
+    assert.equal(local.state, 'PURGED');
+    assert.equal(cache.size, 0);
+    assert.deepEqual(events, ['inventory', 'cache', 'ack']);
+    assert.deepEqual((await coordinator.complete(stored)).host_artifacts, artifacts);
+    assert.equal(fake.timers.size, 0);
+    await fake.advance(700_000);
+    assert.equal(local.state, 'PURGED');
+    assert.equal(polls, 2);
+  });
+
+  it('a purge learned through JournalPort runs the same bounded coordinator protocol', async (t) => {
+    const { coordinator, fake, local, journal, events, cache } = setup(t);
+    const stored = journal.append(bytes(record('session.control', { action: 'purge' }, { writer: { kind: 'host' } })), host());
+    // An authenticated host adapter forwards its receipt; ordinary post-purge
+    // delegated reads remain forbidden by the journal.
+    const port = { recordsAfter: () => [stored] };
+    assert.equal(await local.consumeJournal(port, host(), { clock: fake.clock, scheduler: fake.scheduler, purgeCoordinator: coordinator }), 1);
+    assert.equal(local.state, 'PURGED');
+    assert.equal(cache.size, 0);
+    assert.deepEqual(events, ['inventory', 'cache', 'ack']);
+  });
+
+  it('a purge flag without its original stored record fails closed and still ends after 10min', async (t) => {
+    const { coordinator, fake, local, cache, events } = setup(t);
+    const monitor = new AuthorityMonitor({ session: local, purgeCoordinator: coordinator,
+      clock: fake.clock, scheduler: fake.scheduler, fetchAuthority: () => authorityResponse(fake, { tombstone: 'purge' }) });
+    monitor.start();
+    await fake.advance(0);
+    assert.equal(local.state, 'PURGING');
+    assert.equal(local.scope.tombstone, 'purge');
+    assert.equal(monitor.lastError.status, 502);
+    assert.equal(cache.size, 1);
+    assert.deepEqual(events, []);
+    await fake.advance(600_000);
+    assert.equal(local.state, 'ENDED');
+    assert.equal(fake.timers.size, 0);
+    assert.equal(cache.size, 1);
+    const doc = record('session.control', { action: 'purge' }, { writer: { kind: 'host' } });
+    await coordinator.complete({ bytes: bytes(doc), document: { ...doc, seq: 1 } });
+    assert.equal(local.state, 'PURGED', 'Late original host receipt can still finish deletion after end');
+    assert.equal(cache.size, 0);
+  });
+
+  it('invalid or stale authority tombstone records cannot cause cache deletion or acknowledgement', async (t) => {
+    for (const mode of ['foreign', 'projection', 'suspend', 'stale', 'missing coordinator']) {
+      const { coordinator, fake, local, cache, events } = setup(t);
+      const doc = record('session.control', { action: mode === 'suspend' ? 'suspend' : 'purge' },
+        { writer: { kind: 'host' }, ...(mode === 'foreign' ? { sid: randomUUID() } : {}) });
+      const stored = { bytes: bytes(doc), document: { ...doc, seq: 1 } };
+      if (mode === 'projection') stored.document.client_event_id = randomUUID();
+      const monitor = new AuthorityMonitor({ session: local,
+        ...(mode === 'missing coordinator' ? {} : { purgeCoordinator: coordinator }), clock: fake.clock, scheduler: fake.scheduler,
+        fetchAuthority: () => authorityResponse(fake, { tombstone: 'purge', tombstone_record: stored,
+          ...(mode === 'stale' ? { issued_at: fake.issued(fake.mono - 30_001) } : {}) }) });
+      monitor.start();
+      await fake.advance(0);
+      assert.ok(monitor.lastError, mode);
+      assert.equal(cache.size, 1, mode);
+      assert.deepEqual(events, [], mode);
+      assert.equal(local.state, mode === 'stale' ? 'ACTIVE' : 'PURGING', mode);
+      monitor.stop();
+    }
+  });
+
   it('waits for committed work to settle within the drain deadline and then discards its output', async (t) => {
     const { coordinator, fake, local, events } = setup(t);
     const provider = deferred();
@@ -822,6 +1105,62 @@ describe('(d) tombstone, bounded drain, cache deletion, host purge acknowledgeme
     assert.deepEqual(submitted[0], submitted[1]);
   });
 
+  for (const elapsed of [10_000, 10_001]) {
+    it(`adopts a byte-exact committed purge receipt resolved at ${elapsed}ms despite an overdue timer`, async (t) => {
+      let attempts = 0;
+      const { coordinator, fake, local, journal, cache } = setup(t, { journal: { append: (original, authority) => {
+        attempts++;
+        const stored = journal.append(original, authority);
+        fake.mono += elapsed; // Delayed event loop: resolution wins the microtask before the timer.
+        return stored;
+      } } });
+      const result = await coordinator.purge({ authority: host() });
+      assert.equal(result.tombstone_seq, 1);
+      assert.equal(local.state, 'PURGED');
+      assert.equal(cache.size, 0);
+      await coordinator.purge({ authority: host() });
+      assert.equal(attempts, 1, 'Never replay a tombstone whose original receipt was received');
+      assert.equal(fake.timers.size, 0);
+    });
+  }
+
+  it('retains a valid purge receipt arriving after timeout so retry needs no second append', async (t) => {
+    const response = deferred();
+    let attempts = 0, stored;
+    const { coordinator, fake, local, journal } = setup(t, { journal: { append: (original, authority) => {
+      attempts++;
+      stored = journal.append(original, authority);
+      return response.promise;
+    } } });
+    const refusal = assert.rejects(coordinator.purge({ authority: host() }), status(504));
+    await fake.advance(10_000);
+    await refusal;
+    assert.equal(local.state, 'ACTIVE');
+    response.resolve(stored);
+    await flush();
+    const result = await coordinator.purge({ authority: host() });
+    assert.equal(result.tombstone_seq, 1);
+    assert.equal(local.state, 'PURGED');
+    assert.equal(attempts, 1);
+  });
+
+  it('documents the JournalPort lost-response replay blocker and can recover from the host original receipt', async (t) => {
+    let stored;
+    const { coordinator, fake, local, journal } = setup(t, { journal: { append: (original, authority) => {
+      const result = journal.append(original, authority);
+      stored = result;
+      return new Promise(() => {}); // The response is lost permanently after commitment.
+    } } });
+    const refusal = assert.rejects(coordinator.purge({ authority: host() }), status(504));
+    await fake.advance(10_000);
+    await refusal;
+    await assert.rejects(coordinator.purge({ authority: host() }), code('revoked'),
+      'JournalPort currently authorizes before its idempotent lookup; coordinator must fix this outside AIT-39 ownership');
+    assert.equal(local.state, 'ACTIVE');
+    assert.equal((await coordinator.complete(stored)).tombstone_seq, 1);
+    assert.equal(local.state, 'PURGED');
+  });
+
   it('can finish from the host-forwarded original journal ack when post-tombstone reads are denied', async (t) => {
     const { coordinator, journal, events, local } = setup(t);
     const stored = journal.append(bytes(record('session.control', { action: 'purge' }, { writer: { kind: 'host' } })), host());
@@ -834,6 +1173,27 @@ describe('(d) tombstone, bounded drain, cache deletion, host purge acknowledgeme
     assert.equal(local.state, 'PURGED');
     await coordinator.complete(stored);
     assert.deepEqual(events, ['inventory', 'cache', 'ack', 'ack'], 'Retry acknowledges the same result, without repeating deletion');
+    await coordinator.purge({ authority: host() });
+    assert.deepEqual(events, ['inventory', 'cache', 'ack', 'ack', 'ack'], 'Host-originated completion also retains its receipt for purge retries');
+  });
+
+  it('concurrent purge callers still verify host authentication and original tombstone identity', async (t) => {
+    const response = deferred();
+    const { coordinator, local, journal, cache } = setup(t, { acknowledge: () => response.promise });
+    const stored = journal.append(bytes(record('session.control', { action: 'purge' }, { writer: { kind: 'host' } })), host());
+    const completion = coordinator.complete(stored);
+    await flush();
+    assert.equal(local.state, 'PURGED');
+    assert.equal(cache.size, 0);
+    assert.throws(() => coordinator.purge({ authority: journalAuthority() }), status(403));
+    const suspend = record('session.control', { action: 'suspend' }, { writer: { kind: 'host' } });
+    await assert.rejects(coordinator.complete({ bytes: bytes(suspend), document: { ...suspend, seq: 2 } }), status(403));
+    const { seq, ...original } = stored.document;
+    const changed = { ...original, client_event_id: randomUUID() };
+    await assert.rejects(coordinator.complete({ bytes: bytes(changed), document: { ...changed, seq } }), status(409));
+    assert.equal(coordinator.complete(stored), completion);
+    response.resolve();
+    await completion;
   });
 
   it('cache deletion failures keep PURGING and suppress acknowledgement until a successful retry', async (t) => {
@@ -897,6 +1257,33 @@ describe('(d) tombstone, bounded drain, cache deletion, host purge acknowledgeme
     assert.equal(local.state, 'ACTIVE');
     assert.deepEqual(events, []);
   });
+
+  for (const mode of ['different id', 'invalid projection', 'noncanonical original bytes']) {
+    it(`retries append after ${mode} rather than caching a bad purge acknowledgement`, async (t) => {
+      let attempts = 0;
+      const submitted = [];
+      const { coordinator, local, events, cache } = setup(t, { journal: { append: (original) => {
+        submitted.push(Buffer.from(original));
+        attempts++;
+        const doc = JSON.parse(original);
+        if (attempts > 1) return { bytes: original, document: { ...doc, seq: 1 } };
+        if (mode === 'different id') {
+          const changed = { ...doc, client_event_id: randomUUID() };
+          return { bytes: bytes(changed), document: { ...changed, seq: 1 } };
+        }
+        if (mode === 'invalid projection') return { bytes: original, document: { ...doc, seq: 0 } };
+        return { bytes: Buffer.from(JSON.stringify(doc, null, 2)), document: { ...doc, seq: 1 } };
+      } } });
+      await assert.rejects(coordinator.purge({ authority: host() }), status(502));
+      assert.equal(local.state, 'ACTIVE');
+      assert.equal(cache.size, 1);
+      assert.deepEqual(events, []);
+      assert.equal((await coordinator.purge({ authority: host() })).tombstone_seq, 1);
+      assert.equal(attempts, 2);
+      assert.deepEqual(submitted[1], submitted[0]);
+      assert.equal(local.state, 'PURGED');
+    });
+  }
 
   it('invalid host artifact inventory cannot claim cache deletion was completed', async (t) => {
     const { coordinator, events, local } = setup(t, { hostArtifacts: () => ['fixture-ref', 'fixture-ref'] });
