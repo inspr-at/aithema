@@ -5,6 +5,8 @@
     "LICENSE",
     "DCO",
     "scripts/check-dco.py",
+    "scripts/needs-release-proof.mjs",
+    "scripts/test-fast.mjs",
     "tests/test_dco.py",
     "NOTICES.json",
     "README.md",
