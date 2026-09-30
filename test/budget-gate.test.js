@@ -335,6 +335,35 @@ it('(f) sibling cap denials allow an admitted claim and the same client resumes 
   assert.equal(client.paidState, 'ACTIVE');
 });
 
+it('replay after a sibling denial stays denied unless the post-ack check still shows the hold', async (t) => {
+  const { ledger, journal } = host(t, { session_cap_micro: 100 });
+  let closeOnAck = false;
+  const client = new BudgetClient({ port: ledger, journal: {
+    append: (original, auth) => {
+      const stored = journal.append(original, auth);
+      if (closeOnAck) recover(ledger, stored.document.data.hold_id, auth);
+      return stored;
+    },
+    recordsAfter: journal.recordsAfter.bind(journal),
+  }, authority: authority(), now });
+  const original = { ...admission(), max_micro: 80 };
+  const held = await client.admit(original);
+  await assert.rejects(client.admit({ ...admission(2), max_micro: 50 }), code('budget_denied', 402));
+  assert.equal(client.paidState, 'BUDGET_DENIED');
+  closeOnAck = true;
+  const replay = await client.admit(original);
+  assert.deepEqual(replay, { hold_id: held.hold_id, closed_reason: 'void', charged_micro: 0 });
+  assert.equal(client.paidState, 'BUDGET_DENIED');
+  let opened = 0;
+  const dispatch = createOutboundGate({ budget: client, open: () => { opened++; } });
+  await assert.rejects(dispatch({ hold_id: held.hold_id, request_bytes: request }), code('hold_closed'));
+  assert.equal(opened, 0);
+  assert.equal(client.paidState, 'BUDGET_DENIED');
+  closeOnAck = false;
+  assert.equal(typeof (await client.admit({ ...admission(3), max_micro: 50 })).hold_id, 'string');
+  assert.equal(client.paidState, 'ACTIVE');
+});
+
 it('gate rejects caller-supplied claims, invalid bytes, malformed or reused fresh claim ids', async () => {
   const claimId = randomUUID();
   let opened = 0;

@@ -7,6 +7,7 @@ const releaseProofFiles = new Set([
   'test/packaging.test.js',
   'test/source-export.test.js',
   'test/fixtures/packaging-support.mjs',
+  'test/fixtures/publish-race-child.mjs',
 ]);
 
 function git(args) {

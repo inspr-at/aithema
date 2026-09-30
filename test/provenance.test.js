@@ -99,6 +99,17 @@ describe('hash-bound, acknowledged UI confirmation', () => {
     });
   }
 
+  for (const intent of ['extracted_instruction', 'inferred']) {
+    it(`confirms ${intent} when a bound ui.confirm is acknowledged`, () => {
+      const value = item({ provenance: { intent, derived_from: [10] } });
+      const ui = confirmation(value);
+      const ctx = context([turn(10), ui]);
+      assert.equal(validateItemProvenance(value, ctx).authorizes, false);
+      assert.equal(confirmItem(value, ui, ctx).state, 'confirmed');
+      assert.equal(value.state, 'draft');
+    });
+  }
+
   it('uses RFC 8785 rather than insertion order, and accepts reordered content keys', () => {
     const value = item();
     const ui = confirmation(value);
@@ -171,6 +182,19 @@ describe('hash-bound, acknowledged UI confirmation', () => {
       assert.throws(() => validateConfirmation(item(), ui, context()), invalidConfirmation('invalid_record'));
     });
   }
+
+  it('refuses a major-2 ui.confirm that is not in the hydrated journal', () => {
+    const value = item();
+    const ui = confirmation(value);
+    ui.major = 2;
+    const ctx = context([turn(10)]);
+    assert.equal(ctx.records.some((row) => row.kind === 'ui.confirm'), false);
+    assert.throws(() => confirmItem(value, ui, ctx), (error) => {
+      assert.equal(error.code, 'contract_too_new');
+      assert.equal(error instanceof InvalidConfirmationError, false);
+      return true;
+    });
+  });
 
   it('requires host acknowledgement, hydration, and exactly matching confirmation fields', () => {
     const ui = confirmation();
@@ -326,6 +350,17 @@ describe('transitive citation adversarial corpus', () => {
     assert.throws(() => validateCitations([{ kind: 'summary', leaf_refs: [999] }], ctx), invalidCitation('dangling_record'));
   });
 
+  it('requires the canonical turn:N locator and rejects zero-padded ordinals', () => {
+    const ctx = context([turn(10)]);
+    assert.throws(
+      () => validateCitations([{ record_seq: 10, locator: 'turn:03' }], ctx),
+      invalidCitation('dangling_locator'),
+    );
+    assert.deepEqual(validateCitations([{ record_seq: 10, locator: 'turn:3' }], ctx), {
+      leaf_refs: [{ record_seq: 10, locator: 'turn:3' }], authorizes: false,
+    });
+  });
+
   it('resolves sparse earlier turns with the explicit host ordinal index', () => {
     const ctx = context([turn(10)], { turnOrdinals: new Map([[10, 19]]) });
     assert.equal(validateCitations([{ record_seq: 10, locator: 'turn:19' }], ctx).authorizes, false);
@@ -343,6 +378,25 @@ describe('transitive citation adversarial corpus', () => {
     assert.equal(validateCitations([{ record_seq: 12, locator: 'seg:first', quote: '😀 first' }], ctx).authorizes, false);
     assert.throws(() => validateCitations([{ record_seq: 12, locator: 'seg:first', quote: 'second' }], ctx), invalidCitation('quote_mismatch'));
     assert.throws(() => validateCitations([{ record_seq: 12, locator: 'seg:first', quote: 'forged quote' }], ctx), invalidCitation('quote_mismatch'));
+  });
+
+  it('treats segment end as an exclusive code-point bound', () => {
+    const text = 'a😀b';
+    const doc = source(12, text);
+    doc.data.segments = [{ id: 'bound', start: 0, end: 2 }];
+    const ctx = context([doc], { turnOrdinals: new Map() });
+    const points = [...text];
+    assert.equal(points[2], 'b');
+    assert.equal(points[1], '😀');
+    assert.equal(validate('aithema.journal.record', doc).ok, true);
+    assert.throws(
+      () => validateCitations([{ record_seq: 12, locator: 'seg:bound', quote: points[doc.data.segments[0].end] }], ctx),
+      invalidCitation('quote_mismatch'),
+    );
+    assert.equal(
+      validateCitations([{ record_seq: 12, locator: 'seg:bound', quote: points[doc.data.segments[0].end - 1] }], ctx).authorizes,
+      false,
+    );
   });
 
   it('rejects malformed citations, foreign/unacknowledged hydration, and duplicate seqs', () => {

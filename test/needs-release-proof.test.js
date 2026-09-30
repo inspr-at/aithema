@@ -69,6 +69,7 @@ describe('AIT-83 release proof trigger', () => {
     'test/packaging.test.js',
     'test/source-export.test.js',
     'test/fixtures/packaging-support.mjs',
+    'test/fixtures/publish-race-child.mjs',
   ]) {
     it(`requires proof for committed changes to ${path}`, (t) => {
       const repo = fixture(t);
