@@ -156,7 +156,7 @@ it('(b) takeover before claim refuses both a stale worker and a new worker reusi
     { hold_id: held.hold_id, closed_reason: 'void', charged_micro: 0 });
 });
 
-for (const change of ['takeover', 'revocation', 'purge', 'suspend']) {
+for (const change of ['takeover', 'revocation', 'purge']) {
   it(`(b) ${change} after claim lets its original owner finish, charged at maximum`, async (t) => {
     const { client, ledger, journal } = host(t);
     const held = await client.admit(admitBody());
@@ -172,6 +172,53 @@ for (const change of ['takeover', 'revocation', 'purge', 'suspend']) {
     assert.deepEqual(claim(ledger, held.hold_id).body, { error: change === 'takeover' ? 'fenced_generation' : 'revoked' });
   });
 }
+
+it('suspend pauses new admissions and claims, leaves reads/recovery open, and resume restores dispatch', async (t) => {
+  const { client, ledger, journal, db } = host(t);
+  const held = await client.admit(admitBody());
+  journal.append(bytes(record('session.control', { action: 'suspend' }, { writer: { kind: 'host' } })), authority({ writer_kind: 'host' }));
+  assert.throws(() => admit(ledger, admitBody(2)), { status: 409, code: null });
+  assert.throws(() => admit(ledger, admitBody()), { status: 409, code: null });
+  assert.throws(() => claim(ledger, held.hold_id), { status: 409, code: null });
+  assert.equal(ledger.isCurrent(authority()), true);
+  assert.deepEqual(ledger.listOpen({}, authority()).body.holds, [{ hold_id: held.hold_id, attempt_id: admitBody().attempt_id, claimed: false }]);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM budget_holds').get().n, 1);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM budget_claims').get().n, 0);
+  const closed = recover(ledger, held.hold_id);
+  assert.deepEqual(closed.body, { hold_id: held.hold_id, closed_reason: 'void', charged_micro: 0 });
+  assert.deepEqual(recover(ledger, held.hold_id), closed);
+  journal.append(bytes(record('session.control', { action: 'resume' }, { writer: { kind: 'host' } })), authority({ writer_kind: 'host' }));
+  const resumed = await client.admit(admitBody(2));
+  assert.ok(claim(ledger, resumed.hold_id).body.claim_id);
+  assert.deepEqual(claim(ledger, held.hold_id).body, { error: 'hold_closed' });
+});
+
+it('suspend after claim preserves current authority and actual settlement across resume and retry', async (t) => {
+  const { client, ledger, journal } = host(t);
+  const held = await client.admit(admitBody());
+  const committed = claim(ledger, held.hold_id).body.claim_id;
+  journal.append(bytes(record('session.control', { action: 'suspend' }, { writer: { kind: 'host' } })), authority({ writer_kind: 'host' }));
+  assert.equal(ledger.isCurrent(authority()), true);
+  const closed = settle(ledger, committed, 5);
+  assert.deepEqual(closed.body, { hold_id: held.hold_id, closed_reason: 'settled', charged_micro: 5 });
+  assert.deepEqual(recover(ledger, held.hold_id), closed);
+  assert.deepEqual(ledger.listOpen({}, authority()).body.holds, []);
+  journal.append(bytes(record('session.control', { action: 'resume' }, { writer: { kind: 'host' } })), authority({ writer_kind: 'host' }));
+  assert.deepEqual(settle(ledger, committed, 5), closed);
+  assert.deepEqual(recover(ledger, held.hold_id), closed);
+});
+
+it('suspend never masks an epoch revocation or a stale generation on new admission/claim', async (t) => {
+  const { client, ledger, journal } = host(t);
+  const held = await client.admit(admitBody());
+  journal.takeover(authority());
+  journal.append(bytes(record('session.control', { action: 'suspend' }, { writer: { kind: 'host' } })), authority({ writer_kind: 'host', gen: 2 }));
+  assert.deepEqual(admit(ledger, admitBody(2)).body, { error: 'fenced_generation' });
+  assert.deepEqual(claim(ledger, held.hold_id).body, { error: 'fenced_generation' });
+  journal.append(bytes(record('authz.epoch', { epoch: 2, reason: 'change' }, { writer: { kind: 'host' } })), authority({ writer_kind: 'host', gen: 2 }));
+  assert.deepEqual(admit(ledger, admitBody(2)).body, { error: 'revoked' });
+  assert.deepEqual(claim(ledger, held.hold_id).body, { error: 'revoked' });
+});
 
 it('(b) revocation before claim refuses stale epoch, even with the new generation supplied', async (t) => {
   const { client, journal, ledger } = host(t);

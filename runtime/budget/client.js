@@ -1,7 +1,16 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { canonicalJson, validate } from '../../contracts/validate.js';
 import { checkedRecord } from '../journal/hydrate.js';
-import { BudgetError, checkMessage, encodeMessage, requireSuccess } from './port.js';
+import { BudgetError, checkMessage, encodeMessage, findOpenHold, openHoldPages, requireSuccess } from './port.js';
+
+/** Namespaced UUIDv8: one critical hold event per caller-assigned attempt. */
+function holdEventId(attemptId) {
+  const bytes = createHash('sha256').update(`aithema.budget.hold:${attemptId}`).digest().subarray(0, 16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x80;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = bytes.toString('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
 
 /**
  * Engine client. A retry of a transport admission uses the same attempt_id;
@@ -44,11 +53,33 @@ export class BudgetClient {
   async #record(kind, data, authority, critical = false) {
     try {
       const doc = { contract: 'aithema.journal.record', major: 1, minor: 0, min_reader: 0,
-        sid: authority.sid, client_event_id: randomUUID(), writer: { kind: 'worker', generation: authority.gen },
+        sid: authority.sid, client_event_id: critical ? holdEventId(data.attempt_id) : randomUUID(),
+        writer: { kind: 'worker', generation: authority.gen },
         recorded_at: new Date(this.#now()).toISOString(), kind, data };
       if (!validate(doc.contract, doc).ok) throw new BudgetError(400, 'Invalid budget journal record');
-      const original = Buffer.from(canonicalJson(doc));
-      const stored = checkedRecord(await this.#journal.append(Buffer.from(original), structuredClone(authority)), authority.sid);
+      let original = Buffer.from(canonicalJson(doc));
+      let stored;
+      try {
+        stored = checkedRecord(await this.#journal.append(Buffer.from(original), structuredClone(authority)), authority.sid);
+      } catch (error) {
+        if (!critical || error.code !== 'idempotency_conflict') throw error;
+        // A restart or advancing clock changes recorded_at. Read the existing
+        // durable event rather than overwriting it or inventing another id.
+        if (typeof this.#journal.recordsAfter !== 'function') {
+          throw new BudgetError(502, 'JournalPort.recordsAfter is required to resolve a hold event retry');
+        }
+        const records = await this.#journal.recordsAfter(0, structuredClone(authority));
+        if (!Array.isArray(records)) throw new BudgetError(502, 'Journal returned no hold retry records');
+        const matches = records.filter((row) => row?.document?.client_event_id === doc.client_event_id);
+        if (matches.length !== 1) throw new BudgetError(502, 'Journal did not return exactly one existing hold event');
+        stored = checkedRecord(matches[0], authority.sid);
+        const { recorded_at: priorTime, seq, ...prior } = stored.document;
+        const { recorded_at: newTime, ...submitted } = doc;
+        if (canonicalJson(prior) !== canonicalJson(submitted)) {
+          throw new BudgetError(409, 'Existing hold event has different content', 'idempotency_conflict');
+        }
+        original = stored.bytes;
+      }
       if (!stored.bytes.equals(original)) throw new BudgetError(502, 'Journal acknowledgement changed budget record bytes');
     } catch (error) {
       if (critical) throw error;
@@ -60,7 +91,6 @@ export class BudgetClient {
   }
 
   async admit(body) {
-    if (this.#paidState !== 'ACTIVE') throw new BudgetError(402, 'Paid scheduling stopped', 'budget_denied');
     const original = encodeMessage('admit_request', body);
     const authority = this.authority;
     let result;
@@ -69,14 +99,17 @@ export class BudgetClient {
       if (error.code === 'budget_denied') this.#paidState = 'BUDGET_DENIED';
       throw error;
     }
+    this.#paidState = 'ACTIVE';
     const submitted = JSON.parse(original).body;
     await this.#record('budget.hold', { hold_id: result.hold_id, attempt_id: submitted.attempt_id,
       lane: submitted.lane, max_micro: submitted.max_micro, currency: submitted.currency }, authority, true);
-    return result;
+    // Recovery can close the reservation while its critical journal ack is
+    // in flight. Only the ledger may decide whether it remains open.
+    if (await findOpenHold((query) => this.#listOpen(query, authority), result.hold_id)) return result;
+    return this.recover({ hold_id: result.hold_id, worker_generation: this.#authority.gen, auth_epoch: this.#authority.auth_epoch });
   }
 
   async claim(body) {
-    if (this.#paidState !== 'ACTIVE') throw new BudgetError(402, 'Paid scheduling stopped', 'budget_denied');
     const original = encodeMessage('claim_request', body);
     const submitted = JSON.parse(original).body;
     const authority = this.authority;
@@ -110,28 +143,24 @@ export class BudgetClient {
     return result;
   }
 
-  async listOpen(query = {}) {
-    const response = checkMessage(await this.#port.listOpen({ ...query }, this.authority), 'holds_list');
-    if (response.body.sid !== this.#authority.sid) throw new BudgetError(502, 'Ledger enumeration belongs to another session');
+  async #listOpen(query, authority) {
+    const response = checkMessage(await this.#port.listOpen({ ...query }, structuredClone(authority)), 'holds_list');
+    if (response.body.sid !== authority.sid) throw new BudgetError(502, 'Ledger enumeration belongs to another session');
     return response.body;
   }
+
+  async listOpen(query = {}) { return this.#listOpen(query, this.authority); }
 
   /** Batch-and-drain from the LEDGER. Journal absence never hides a hold. */
   async recoverOpen({ limit = 1000 } = {}) {
     const settlements = [];
-    const seen = new Set();
-    let cursor = null;
-    do {
-      const page = await this.listOpen({ cursor, limit });
+    for await (const page of openHoldPages((query) => this.listOpen(query), { limit })) {
       for (const hold of page.holds) {
         const authority = this.authority;
         settlements.push(await this.recover({ hold_id: hold.hold_id,
           worker_generation: authority.gen, auth_epoch: authority.auth_epoch }));
       }
-      cursor = page.next_cursor;
-      if (cursor !== null && seen.has(cursor)) throw new BudgetError(502, 'Ledger enumeration cursor did not advance');
-      seen.add(cursor);
-    } while (cursor !== null);
+    }
     return settlements;
   }
 

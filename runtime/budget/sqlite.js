@@ -128,11 +128,17 @@ export class SqliteBudgetLedger {
   }
 
   #fence(session, authority, body = {}, generation = true) {
-    if (session.tombstone || session.suspended || authority.auth_epoch !== session.auth_epoch ||
+    if (session.tombstone || authority.auth_epoch !== session.auth_epoch ||
         (body.auth_epoch !== undefined && body.auth_epoch !== authority.auth_epoch)) return 'revoked';
     if (generation && (session.worker_generation !== authority.gen ||
         (body.worker_generation !== undefined && body.worker_generation !== authority.gen))) return 'fenced_generation';
     return null;
+  }
+
+  #requireActive(session) {
+    // Suspend is a reversible pause, not an epoch change or tombstone. Only
+    // new spend authority is paused; committed claims and recovery can finish.
+    if (session.suspended) throw new BudgetError(409, 'Session is suspended');
   }
 
   admit(bytes, authority) {
@@ -145,6 +151,7 @@ export class SqliteBudgetLedger {
       // Host fencing takes precedence over replay: stale workers cannot obtain
       // spend authority even by replaying a formerly successful admission.
       if (error) return budgetMessage('admit_response', { error });
+      this.#requireActive(session);
       const existing = this.#db.prepare('SELECT * FROM budget_holds WHERE attempt_id = ?').get(body.attempt_id);
       if (existing) {
         if (!Buffer.from(existing.original_bytes).equals(original)) return budgetMessage('admit_response', { error: 'idempotency_conflict' });
@@ -211,6 +218,7 @@ export class SqliteBudgetLedger {
       const session = this.#authorize(authority);
       const error = this.#fence(session, authority, body);
       if (error) return budgetMessage('claim_response', { error });
+      this.#requireActive(session);
       const hold = this.#hold(body.hold_id, session.sid);
       if (hold.state === 'closed') return budgetMessage('claim_response', { error: 'hold_closed' });
       if (this.#claim(hold.hold_id)) return budgetMessage('claim_response', { error: 'already_claimed' });

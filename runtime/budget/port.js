@@ -70,3 +70,25 @@ export function requireSuccess(doc, type) {
   if (code) throw new BudgetError(status, doc.body.denied ?? code, code);
   return doc.body;
 }
+
+/** Keyset traversal shared by admission checks, dispatch finishing and drain. */
+export async function* openHoldPages(listOpen, { limit = 1000 } = {}) {
+  const seen = new Set();
+  let cursor = null;
+  do {
+    const page = await listOpen({ cursor, limit });
+    budgetMessage('holds_list', page);
+    cursor = page.next_cursor;
+    if (cursor !== null && seen.has(cursor)) throw new BudgetError(502, 'Ledger enumeration cursor did not advance');
+    seen.add(cursor);
+    yield page;
+  } while (cursor !== null);
+}
+
+export async function findOpenHold(listOpen, holdId) {
+  for await (const page of openHoldPages(listOpen)) {
+    const hold = page.holds.find((entry) => entry.hold_id === holdId);
+    if (hold) return hold;
+  }
+  return null;
+}
