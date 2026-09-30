@@ -168,11 +168,13 @@ function lex(source, file) {
   return scan();
 }
 
+const punct = (token, value) => token?.type === 'punct' && token.value === value;
+
 function parenEnd(tokens, openIndex) {
   let depth = 0;
   for (let index = openIndex; index < tokens.length; index++) {
-    if (tokens[index].value === '(') depth++;
-    else if (tokens[index].value === ')') {
+    if (punct(tokens[index], '(')) depth++;
+    else if (punct(tokens[index], ')')) {
       depth--;
       if (depth === 0) return index;
     }
@@ -180,29 +182,84 @@ function parenEnd(tokens, openIndex) {
   return -1;
 }
 
+/** Split call arguments or object fields using syntax tokens only. */
+function splitArguments(tokens) {
+  const args = [];
+  let start = 0;
+  let depth = 0;
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index];
+    if (token.type !== 'punct') continue;
+    if (['(', '[', '{'].includes(token.value)) depth++;
+    else if ([')', ']', '}'].includes(token.value)) depth--;
+    else if (token.value === ',' && depth === 0) {
+      args.push(tokens.slice(start, index));
+      start = index + 1;
+    }
+  }
+  if (start < tokens.length) args.push(tokens.slice(start));
+  return args;
+}
+
+const importMetaBase = { kind: 'import.meta.url' };
+
+/** A deliberately bounded static grammar. Never evaluate candidate code. */
+function staticLoaderBase(tokens) {
+  while (punct(tokens[0], '(') && parenEnd(tokens, 0) === tokens.length - 1) tokens = tokens.slice(1, -1);
+  if (tokens.length === 5 && tokens[0].type === 'id' && tokens[0].value === 'import'
+      && punct(tokens[1], '.') && tokens[2].type === 'id' && tokens[2].value === 'meta'
+      && punct(tokens[3], '.') && tokens[4].type === 'id' && tokens[4].value === 'url') return importMetaBase;
+  if (tokens.length === 1 && tokens[0].type === 'string') return { kind: 'literal', value: tokens[0].value };
+  if (tokens[0]?.type !== 'id' || tokens[0].value !== 'new' || tokens[1]?.type !== 'id'
+      || tokens[1].value !== 'URL' || !punct(tokens[2], '(')) return undefined;
+  const end = parenEnd(tokens, 2);
+  if (end < 0 || (end !== tokens.length - 1 && !(end === tokens.length - 3
+      && punct(tokens[end + 1], '.') && tokens[end + 2].type === 'id' && tokens[end + 2].value === 'href'))) return undefined;
+  const args = splitArguments(tokens.slice(3, end));
+  if (args.length !== 2 || args[0].length !== 1 || args[0][0].type !== 'string') return undefined;
+  const base = staticLoaderBase(args[1]);
+  return base ? { kind: 'url', value: args[0][0].value, base } : undefined;
+}
+
+/** module.register also accepts an options object containing parentURL. */
+function registerParent(tokens) {
+  if (!punct(tokens[0], '{') || !punct(tokens.at(-1), '}')) return tokens;
+  let parent;
+  for (const field of splitArguments(tokens.slice(1, -1))) {
+    const key = field[0];
+    if (!['id', 'string'].includes(key?.type) || !punct(field[1], ':')
+        || !['parentURL', 'data', 'transferList'].includes(key.value)) return [];
+    if (key.value === 'parentURL') {
+      if (parent) return [];
+      parent = field.slice(2);
+    }
+  }
+  return parent ?? [];
+}
+
 /** Dotted or computed `name` call, including optional chaining. Not a declaration. */
 function isNamedCall(tokens, index, name) {
   const token = tokens[index];
   const previous = tokens[index - 1];
-  if (token.type === 'id' && token.value === name) return previous?.value !== 'function';
-  return token.type === 'string' && token.value === name && previous?.value === '[';
+  if (token.type === 'id' && token.value === name) return !(previous?.type === 'id' && previous.value === 'function');
+  return token.type === 'string' && token.value === name && punct(previous, '[');
 }
 
 function receiverIsModule(tokens, index) {
   const token = tokens[index];
   if (token.type === 'id') {
     const dot = tokens[index - 1];
-    return ['.', '?.'].includes(dot?.value) && tokens[index - 2]?.type === 'id' && tokens[index - 2]?.value === 'module';
+    return (punct(dot, '.') || punct(dot, '?.')) && tokens[index - 2]?.type === 'id' && tokens[index - 2]?.value === 'module';
   }
-  const beforeBracket = tokens[index - 2]?.value === '?.' ? tokens[index - 3] : tokens[index - 2];
+  const beforeBracket = punct(tokens[index - 2], '?.') ? tokens[index - 3] : tokens[index - 2];
   return beforeBracket?.type === 'id' && beforeBracket?.value === 'module';
 }
 
 function callOpen(tokens, index) {
   let open = index + 1;
-  if (tokens[index].type === 'string' && tokens[open]?.value === ']') open++;
-  if (tokens[open]?.value === '?.') open++;
-  return tokens[open]?.value === '(' ? open : -1;
+  if (tokens[index].type === 'string' && punct(tokens[open], ']')) open++;
+  if (punct(tokens[open], '?.')) open++;
+  return punct(tokens[open], '(') ? open : -1;
 }
 
 /** Collect literal import/export-from/require specifiers, failing closed on computed calls. */
@@ -212,14 +269,15 @@ export function moduleSpecifiers(source, file = '<source>') {
     const error = (token, kind) => {
       throw new Error(`${file}:${lineNumber(source, token.at)}: non-literal ${kind} specifier`);
     };
-    const add = (token, kind) => out.push({ specifier: token.value, kind, line: lineNumber(source, token.at) });
+    const add = (token, kind, loaderBase) => out.push({ specifier: token.value, kind, line: lineNumber(source, token.at), ...(loaderBase ? { loaderBase } : {}) });
+    const loaderBase = (args, token, kind) => {
+      const base = staticLoaderBase(args);
+      if (!base) throw new Error(`${file}:${lineNumber(source, token.at)}: unproven ${kind} loader base`);
+      return base;
+    };
     const methodDefinition = (start) => {
-      let depth = 0;
-      for (let index = start; index < tokens.length; index++) {
-        if (tokens[index].value === '(') depth++;
-        if (tokens[index].value === ')' && --depth === 0) return tokens[index + 1]?.value === '{';
-      }
-      return false;
+      const end = parenEnd(tokens, start);
+      return end >= 0 && punct(tokens[end + 1], '{');
     };
     for (let index = 0; index < tokens.length; index++) {
       const token = tokens[index];
@@ -262,27 +320,37 @@ export function moduleSpecifiers(source, file = '<source>') {
         const open = callOpen(tokens, index);
         if (open < 0 || (token.canBeMethod && methodDefinition(open))) continue;
         const arg = tokens[open + 1];
-        if (arg?.type !== 'string' || ![')', ','].includes(tokens[open + 2]?.value)) error(token, 'module.register');
-        add(arg, 'module.register');
+        if (arg?.type !== 'string' || !(punct(tokens[open + 2], ')') || punct(tokens[open + 2], ','))) error(token, 'module.register');
+        const end = parenEnd(tokens, open);
+        if (end < 0) error(token, 'module.register');
+        const args = splitArguments(tokens.slice(open + 1, end));
+        const base = args.length < 2 ? { kind: 'literal', value: 'data:' }
+          : loaderBase(registerParent(args[1]), token, 'module.register');
+        add(arg, 'module.register', base);
       } else if (isNamedCall(tokens, index, 'createRequire')) {
         const open = callOpen(tokens, index);
         if (open < 0 || (token.canBeMethod && methodDefinition(open))) continue;
         const end = parenEnd(tokens, open);
         if (end < 0) error(token, 'createRequire');
+        const base = loaderBase(tokens.slice(open + 1, end), token, 'createRequire');
         let cursor = end + 1;
-        while (tokens[cursor]?.value === ')') cursor++;
-        if (tokens[cursor]?.value === '?.' && tokens[cursor + 1]?.value === 'resolve') {
+        while (punct(tokens[cursor], ')')) cursor++;
+        if (punct(tokens[cursor], '?.') && tokens[cursor + 1]?.value === 'resolve') {
           cursor += 2;
-          if (tokens[cursor]?.value === '?.') cursor++;
-        } else if (tokens[cursor]?.value === '?.') cursor++;
-        if (tokens[cursor]?.value === '.' && tokens[cursor + 1]?.value === 'resolve') {
+          if (punct(tokens[cursor], '?.')) cursor++;
+        } else if (punct(tokens[cursor], '?.')) cursor++;
+        if (punct(tokens[cursor], '.') && tokens[cursor + 1]?.value === 'resolve') {
           cursor += 2;
-          if (tokens[cursor]?.value === '?.') cursor++;
+          if (punct(tokens[cursor], '?.')) cursor++;
         }
-        if (tokens[cursor]?.value !== '(') continue;
+        if (!punct(tokens[cursor], '(')) {
+          // Check constructions too: their result may be stored and called later.
+          add(token, 'loader base', base);
+          continue;
+        }
         const arg = tokens[cursor + 1];
-        if (arg?.type !== 'string' || ![')', ','].includes(tokens[cursor + 2]?.value)) error(token, 'createRequire');
-        add(arg, 'createRequire');
+        if (arg?.type !== 'string' || !(punct(tokens[cursor + 2], ')') || punct(tokens[cursor + 2], ','))) error(token, 'createRequire');
+        add(arg, 'createRequire', base);
       }
     }
     embedded.forEach(scan);
@@ -296,16 +364,35 @@ function inside(root, path) {
   return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
-function allowedSpecifier(tree, file, specifier) {
-  if (specifier.startsWith('node:')) return isBuiltin(specifier);
-  if (!specifier.startsWith('./') && !specifier.startsWith('../')) return false;
+function safeFileURL(tree, url) {
   try {
-    const target = fileURLToPath(new URL(specifier, pathToFileURL(file)));
+    const target = fileURLToPath(url);
     if (!inside(tree, target)) return false;
-    // Check existing ancestors too: a missing leaf must not hide a symlink out.
     let ancestor = target;
     while (!existsSync(ancestor) && ancestor !== tree) ancestor = dirname(ancestor);
     return inside(realpathSync(tree), realpathSync(ancestor));
+  } catch { return false; }
+}
+
+function resolveLoaderBase(base, file) {
+  if (base.kind === 'import.meta.url') return pathToFileURL(file);
+  if (base.kind === 'literal') return isAbsolute(base.value) ? pathToFileURL(base.value) : new URL(base.value);
+  return new URL(base.value, resolveLoaderBase(base.base, file));
+}
+
+function allowedSpecifier(tree, file, specifier, loaderBase, kind) {
+  let base = pathToFileURL(file);
+  if (loaderBase) {
+    try { base = resolveLoaderBase(loaderBase, file); }
+    catch { return false; }
+    if (!safeFileURL(tree, base)) return false;
+    if (kind === 'loader base') return true;
+  }
+  if (specifier.startsWith('node:')) return isBuiltin(specifier);
+  if (!specifier.startsWith('./') && !specifier.startsWith('../')) return false;
+  try {
+    // Check existing ancestors too: a missing leaf must not hide a symlink out.
+    return safeFileURL(tree, new URL(specifier, base));
   } catch { return false; }
 }
 
@@ -323,8 +410,8 @@ export function verifyLicenceBoundary(repoRoot) {
         for (const entry of readdirSync(path).sort()) walk(join(path, entry));
       } else if (/\.(?:[cm]?js|jsx|[cm]?ts|tsx)$/.test(path)) {
         checked++;
-        for (const { specifier, line } of moduleSpecifiers(readFileSync(path, 'utf8'), file)) {
-          if (!allowedSpecifier(tree, path, specifier)) {
+        for (const { specifier, line, loaderBase, kind } of moduleSpecifiers(readFileSync(path, 'utf8'), file)) {
+          if (!allowedSpecifier(tree, path, specifier, loaderBase, kind)) {
             throw new Error(`${file}:${line}: licence boundary rejects specifier ${JSON.stringify(specifier)}`);
           }
         }
