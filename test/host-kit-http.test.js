@@ -4,7 +4,7 @@ import { request as httpRequest } from 'node:http';
 import { readFileSync } from 'node:fs';
 import { loadContractFile } from '../contracts/validate.js';
 import { serveHost } from './host-kit/index.js';
-import { claimRequest, fixture, record, validDocuments } from './host-kit/fixtures.js';
+import { claimRequest, fixture, record, snapshot, validDocuments } from './host-kit/fixtures.js';
 import { routeScenario, routes } from './host-kit/scenarios.js';
 
 /** A loopback-only client makes accidental external test traffic impossible. */
@@ -83,20 +83,68 @@ describe('host kit loopback HTTP facade (AIT-44b/c)', () => {
     assert.equal((await send(local.url, request)).body.code, 'fenced_generation');
   });
 
-  it('retries after the committed response socket is destroyed, without adding a second record', async (t) => {
-    const f = fixture();
+  for (const [area, action] of [['journal', 'records'], ['journal', 'snapshots'], ['journal', 'op.result'], ['ledger', 'admit']]) {
+    it(`${area}/${action}: current worker retries a lost HTTP ack after takeover without a second write`, async (t) => {
+      const route = routes.find((r) => r.area === area && r.action === action && r.method === 'POST');
+      const { f, request } = routeScenario(route);
+      const local = await serveHost(f.host);
+      t.after(local.close);
+      const body = `\n${JSON.stringify(request.body, null, 2)}\n`;
+      const original = { ...request, body };
+      local.server.prependOnceListener('request', (_req, res) => {
+        res.end = () => res.destroy();
+      });
+      await assert.rejects(send(local.url, original), { code: 'ECONNRESET' });
+      f.host.takeover(f.sid);
+      assert.equal((await send(local.url, original)).body.code, 'fenced_generation');
+      const current = { ...original, token: f.token({ gen: 2 }) };
+      const retry = await send(local.url, current);
+      assert.equal(retry.status, 200);
+      assert.deepEqual(retry.body, f.host.request(current).body);
+      validDocuments(retry.body);
+      if (area === 'journal') {
+        assert.equal(retry.body.seq, 1);
+        assert.equal(f.request('journal', 'records').body.length, 1);
+        assert.equal(f.host.storedBytes(f.sid, request.body.client_event_id), body);
+      } else {
+        const holds = f.request('ledger', 'holds', undefined, { path: `/ledger/sessions/${f.sid}/holds?state=open` });
+        assert.equal(holds.body.body.holds.length, 1);
+        assert.equal(retry.body.body.hold_id, holds.body.body.holds[0].hold_id);
+        assert.equal(retry.body.body.remaining_micro, 999_900);
+      }
+      const conflict = await send(local.url, { ...current, body: `${body}\n` });
+      assert.equal(conflict.status, 409);
+      assert.equal(conflict.body.code, 'idempotency_conflict');
+    });
+  }
+
+  it('HTTP intake polling returns the committed snapshot bytes after append and takeover; accepted resubmits have a code', async (t) => {
+    const { f, request } = routeScenario(routes.find((r) => r.area === 'intake' && r.action === 'drafts'));
     const local = await serveHost(f.host);
     t.after(local.close);
-    local.server.prependOnceListener('request', (_req, res) => {
-      res.end = () => res.destroy();
-    });
-    const doc = record(f.sid);
-    const request = { method: 'POST', path: `/journal/sessions/${f.sid}/records`, token: f.token(), body: doc };
-    await assert.rejects(send(local.url, request), { code: 'ECONNRESET' });
-    const retry = await send(local.url, request);
-    assert.equal(retry.status, 200);
-    assert.equal(retry.body.seq, 1);
-    assert.equal(f.request('journal', 'records').body.length, 1);
+    const submitted = await send(local.url, request);
+    assert.equal(submitted.status, 200);
+    const bytes = JSON.stringify(submitted.body.snapshot);
+    const recordRequest = { method: 'POST', path: `/journal/sessions/${f.sid}/records`, token: f.token(), body: record(f.sid) };
+    assert.equal((await send(local.url, recordRequest)).status, 200);
+    f.host.takeover(f.sid);
+    const current = { token: f.token({ gen: 2 }), liveGrant: f.host.liveGrant(f.sid) };
+    const read = { method: 'GET', path: `/intake/sessions/${f.sid}`, token: f.token() };
+    const polled = await send(local.url, read);
+    assert.equal(polled.status, 200);
+    assert.equal(JSON.stringify(polled.body.snapshot), bytes);
+    assert.deepEqual((await send(local.url, { ...request, ...current })).body, submitted.body);
+    const id = submitted.body.result.data.host_ids.draft_id;
+    const accepted = await send(local.url, { method: 'POST', path: `/intake/sessions/${f.sid}/drafts/${id}/accept`,
+      person: f.host.personSession(f.sid, 'person-1') });
+    assert.equal(accepted.status, 200);
+    assert.notEqual(accepted.body.snapshot.client_event_id, submitted.body.snapshot.client_event_id);
+    assert.equal(JSON.stringify((await send(local.url, read)).body.snapshot), JSON.stringify(accepted.body.snapshot));
+    const resubmit = await send(local.url, { ...request, ...current, opKey: `${f.sid}:submit:2`,
+      body: snapshot(f.sid, [request.body.spec.items[0]], { worker_generation: 2 }) });
+    assert.equal(resubmit.status, 409);
+    assert.equal(resubmit.body.code, 'already_accepted');
+    validDocuments(resubmit.body);
   });
 
   const errors = [

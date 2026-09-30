@@ -87,7 +87,70 @@ describe('host kit intake arbitration (AIT-44b/c)', () => {
     assert.equal(response.status, 409);
     assert.equal(response.body.code, 'already_accepted');
     assert.deepEqual(f.request('intake', '').body.snapshot.spec.items.map((i) => i.state), ['accepted']);
-    assert.equal(f.request('intake', 'drafts', snapshot(f.sid, [item({ version: 2 })]), { opKey: `${f.sid}:submit:2` }).status, 409);
+    const resubmit = f.request('intake', 'drafts', snapshot(f.sid, [item({ version: 2 })]), { opKey: `${f.sid}:submit:2` });
+    assert.equal(resubmit.status, 409);
+    assert.equal(resubmit.body.code, 'already_accepted');
+    validDocuments(resubmit.body);
+    assert.deepEqual(f.request('intake', 'drafts', old.doc, { opKey: `${f.sid}:submit:1` }), old.response, 'exact retry still precedes terminal lifecycle');
+  });
+
+  for (const action of ['submit', 'replace', 'accept']) {
+    it(`${action}: stores distinct revision bytes that survive journal appends and takeover`, () => {
+      const f = fixture();
+      const old = submit(f);
+      const originalBytes = JSON.stringify(old.response.body.snapshot);
+      assert.notEqual(old.response.body.snapshot.client_event_id, f.sid);
+      let committed = old.response;
+      let retry = (extras) => f.request('intake', 'drafts', old.doc, { opKey: `${f.sid}:submit:1`, ...extras });
+      if (action === 'replace') {
+        const next = replacement(f, old);
+        committed = f.request('intake', 'replace', next.doc, next.extras);
+        retry = (extras) => f.request('intake', 'replace', next.doc, { ...next.extras, ...extras });
+      } else if (action === 'accept') {
+        committed = accept(f, old.id);
+        retry = () => accept(f, old.id);
+      }
+      assert.equal(committed.status, 200);
+      const stored = committed.body.snapshot;
+      const bytes = JSON.stringify(stored);
+      assert.equal(stored.working_rev, action === 'submit' ? 1 : 2);
+      assert.equal(stored.expected_prev_rev, stored.working_rev - 1);
+      assert.equal(stored.consumed_seq, f.request('journal', 'cursor').body.seq);
+      assert.equal(stored.worker_generation, 1);
+      if (action !== 'submit') assert.notEqual(stored.client_event_id, old.response.body.snapshot.client_event_id);
+      assert.equal(JSON.stringify(old.response.body.snapshot), originalBytes, 'later commits cannot mutate prior snapshots');
+      assert.equal(f.request('journal', 'records', record(f.sid)).status, 200);
+      assert.equal(JSON.stringify(f.request('intake', '').body.snapshot), bytes, 'journal appends cannot change revision bytes');
+      f.host.takeover(f.sid);
+      const current = { token: f.token({ gen: 2 }), liveGrant: f.host.liveGrant(f.sid) };
+      assert.equal(f.request('journal', 'records', record(f.sid, 'turn', null, { writer: { kind: 'worker', generation: 2 } }), current).status, 200);
+      const poll = f.request('intake', '');
+      assert.equal(JSON.stringify(poll.body.snapshot), bytes, 'takeover cannot rewrite the committed generation or cursor');
+      assert.deepEqual(retry(current), committed);
+      validDocuments(poll.body);
+      poll.body.snapshot.consumed_seq = 999;
+      committed.body.snapshot.spec.items[0].state = 'rejected';
+      assert.equal(JSON.stringify(f.request('intake', '').body.snapshot), bytes, 'responses cannot mutate the stored projection');
+    });
+  }
+
+  it('the same op key and bytes against another draft id conflict before lifecycle checks', () => {
+    const f = fixture();
+    const old = submit(f);
+    const other = submit(f, item({ item_ref: 'REQ-other' }), 2);
+    const next = replacement(f, old);
+    const first = f.request('intake', 'replace', next.doc, next.extras);
+    assert.equal(first.status, 200);
+    assert.equal(accept(f, other.id).status, 200);
+    const before = f.request('intake', '').body;
+    for (const id of [other.id, randomUUID()]) {
+      const response = f.request('intake', 'replace', next.doc, { ...next.extras, path: routePath('intake', f.sid, 'replace', id) });
+      assert.equal(response.status, 409);
+      assert.equal(response.body.code, 'idempotency_conflict', 'draft id is part of the operation identity');
+      validDocuments(response.body);
+      assert.deepEqual(f.request('intake', '').body, before);
+    }
+    assert.deepEqual(f.request('intake', 'replace', next.doc, next.extras), first);
   });
 
   it('replace versus replace refuses the loser; exact op retries return the original result even after acceptance', () => {

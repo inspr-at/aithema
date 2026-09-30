@@ -41,6 +41,39 @@ describe('host kit journal (AIT-44b/c)', () => {
     assert.equal(f.request('journal', 'records').body.length, 1);
   });
 
+  for (const action of ['records', 'snapshots', 'op.result']) {
+    it(`${action}: current-generation lost-ack retries return old bytes without another write`, () => {
+      const f = fixture();
+      const doc = action === 'snapshots' ? snapshot(f.sid) : record(f.sid, action === 'op.result' ? action : 'turn');
+      const bytes = `\n${JSON.stringify(doc, null, 2)}\n`;
+      const first = f.request('journal', action, bytes);
+      assert.equal(first.status, 200);
+      assert.equal(first.body.seq, 1);
+      f.host.takeover(f.sid);
+      const current = { token: f.token({ gen: 2 }) };
+      assert.equal(f.request('journal', action, bytes).body.code, 'fenced_generation', 'old tokens cannot replay');
+      assert.deepEqual(f.request('journal', action, bytes, current), first);
+      validDocuments(first.body);
+      assert.equal(f.host.storedBytes(f.sid, doc.client_event_id), bytes);
+
+      const rewritten = action === 'snapshots' ? { ...doc, worker_generation: 2 }
+        : { ...doc, writer: { kind: 'worker', generation: 2 } };
+      for (const changed of [rewritten, `${bytes}\n`]) {
+        const conflict = f.request('journal', action, changed, current);
+        assert.equal(conflict.status, 409);
+        assert.equal(conflict.body.code, 'idempotency_conflict', 'replay/conflict precedes embedded generation');
+        validDocuments(conflict.body);
+      }
+      const stale = f.request('journal', action, { ...doc, client_event_id: randomUUID() }, current);
+      assert.equal(stale.status, 409);
+      assert.equal(stale.body.code, 'fenced_generation', 'new ids still require current embedded generation');
+      assert.equal(f.request('journal', 'cursor').body.seq, 1);
+      assert.equal(f.request('journal', 'records').body.length, 1);
+      f.host.revoke(f.sid);
+      assert.equal(f.request('journal', action, bytes, current).body.code, 'revoked', 'authorization precedes replay');
+    });
+  }
+
   it('(sid, client_event_id) scopes idempotency to one session', () => {
     const a = fixture();
     const b = fixture();

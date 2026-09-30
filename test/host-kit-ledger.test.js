@@ -40,6 +40,39 @@ describe('host kit authoritative ledger (AIT-44b/c)', () => {
     assert.equal(f.request('journal', 'records').body.length, 0, 'enumeration must not depend on a journaled budget.hold');
   });
 
+  for (const denied of [false, true]) {
+    it(`current-generation admission retry preserves the ${denied ? 'denied' : 'admitted'} verdict without another hold`, () => {
+      const f = fixture({ caps: { session: 500 }, session: { evidence: !denied } });
+      const doc = admitRequest(f.sid);
+      const bytes = `\n${JSON.stringify(doc, null, 2)}\n`;
+      const first = f.request('ledger', 'admit', bytes);
+      assert.equal(first.status, denied ? 402 : 200);
+      validDocuments(first.body);
+      f.host.setEvidence(f.sid, denied);
+      f.host.takeover(f.sid);
+      const current = { token: f.token({ gen: 2 }) };
+      assert.equal(f.request('ledger', 'admit', bytes).body.code, 'fenced_generation');
+      assert.deepEqual(f.request('ledger', 'admit', bytes, current), first, 'replay retains the original verdict and HTTP status');
+      for (const changed of [`${bytes}\n`, { ...doc, body: { ...doc.body, worker_generation: 2 } }]) {
+        const conflict = f.request('ledger', 'admit', changed, current);
+        assert.equal(conflict.status, 409);
+        assert.equal(conflict.body.code, 'idempotency_conflict');
+        validDocuments(conflict.body);
+      }
+      const stale = f.request('ledger', 'admit', admitRequest(f.sid, 2), current);
+      assert.equal(stale.status, 409);
+      assert.equal(stale.body.code, 'fenced_generation', 'new attempts cannot carry a stale generation');
+      assert.equal(holds(f).body.body.holds.length, denied ? 0 : 1);
+      f.host.setEvidence(f.sid, true);
+      const fresh = f.request('ledger', 'admit', admitRequest(f.sid, 2, { worker_generation: 2 }), current);
+      assert.equal(fresh.status, 200);
+      assert.equal(fresh.body.body.remaining_micro, denied ? 400 : 300, 'replay cannot reserve the budget twice');
+      assert.equal(holds(f).body.body.holds.length, denied ? 1 : 2);
+      f.host.revoke(f.sid);
+      assert.equal(f.request('ledger', 'admit', bytes, current).body.code, 'revoked');
+    });
+  }
+
   it('duplicate claims, including identical digests, never return the claim twice (§3.4)', () => {
     const f = fixture();
     const hold = admit(f);
@@ -222,6 +255,27 @@ describe('host kit authoritative ledger (AIT-44b/c)', () => {
     assert.equal(f.host.request({ method: 'POST', path: `/ledger/sessions/${other}/admit`, token: f.token({ sid: other, act: { sub: 'person-2' } }), body: admitRequest(other) }).status, 200);
     f.advance(86400);
     assert.equal(f.request('ledger', 'admit', admitRequest(f.sid, 2)).status, 200);
+  });
+
+  it('tenant/day caps aggregate two different persons and reset on the next admission day', () => {
+    const f = fixture({ caps: { tenantDay: 150 } });
+    admit(f);
+    const other = randomUUID();
+    f.host.createSession(authorization(other, { participants: [{ participant_ref: 'person-2', role: 'owner', notice_ref: 'notice-test' }] }));
+    const request = (n) => f.host.request({ method: 'POST', path: `/ledger/sessions/${other}/admit`,
+      token: f.token({ sid: other, act: { sub: 'person-2' } }), body: admitRequest(other, n) });
+    const denied = request(1);
+    assert.equal(denied.status, 402);
+    assert.equal(denied.body.code, 'budget_denied');
+    assert.equal(denied.body.document.body.denied, 'tenant_day_cap');
+    validDocuments(denied.body);
+    f.advance(86400);
+    assert.deepEqual(request(1), denied, 'the original denied attempt stays denied across days');
+    const nextDay = request(2);
+    assert.equal(nextDay.status, 200);
+    assert.equal(nextDay.body.body.remaining_micro, 50);
+    validDocuments(nextDay.body);
+    assert.equal(holds(f).body.body.holds.length, 1, 'the previous day reservation remains open');
   });
 
   it('foreign holds, claims, sessions and invalid settlement/body fields fail without consuming or closing holds', () => {

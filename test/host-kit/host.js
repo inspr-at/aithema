@@ -6,24 +6,31 @@ import {
 
 /** Concrete host-side routes. /v1/* callbacks belong to the service, not this host. */
 export const routes = [
-  { area: 'intake', action: 'sources', method: 'POST', matrix: 0 },
-  { area: 'intake', action: 'transcript-turns', method: 'POST', matrix: 0 },
-  { area: 'intake', action: 'drafts', method: 'POST', matrix: 0 },
-  { area: 'intake', action: 'replace', method: 'POST', matrix: 0 },
-  { area: 'intake', action: '', method: 'GET', matrix: 1 },
-  { area: 'intake', action: 'accept', method: 'POST', matrix: 2 },
-  { area: 'journal', action: 'records', method: 'POST', matrix: 3 },
-  { area: 'journal', action: 'snapshots', method: 'POST', matrix: 3 },
-  { area: 'journal', action: 'op.result', method: 'POST', matrix: 3 },
-  { area: 'journal', action: 'records', method: 'GET', matrix: 4 },
-  { area: 'journal', action: 'cursor', method: 'GET', matrix: 4 },
-  { area: 'journal', action: 'authority', method: 'GET', matrix: 5 },
-  { area: 'ledger', action: 'admit', method: 'POST', matrix: 6 },
-  { area: 'ledger', action: 'claim', method: 'POST', matrix: 6 },
-  { area: 'ledger', action: 'settle', method: 'POST', matrix: 6 },
-  { area: 'ledger', action: 'recover', method: 'POST', matrix: 7 },
-  { area: 'ledger', action: 'holds', method: 'GET', matrix: 8 },
-].map((route) => Object.freeze({ ...route, ...capabilities.routes[route.matrix], route: undefined }));
+  { area: 'intake', action: 'sources', method: 'POST', capability: 'intake.write' },
+  { area: 'intake', action: 'transcript-turns', method: 'POST', capability: 'intake.write' },
+  { area: 'intake', action: 'drafts', method: 'POST', capability: 'intake.write' },
+  { area: 'intake', action: 'replace', method: 'POST', capability: 'intake.write' },
+  { area: 'intake', action: '', method: 'GET', capability: 'intake.read' },
+  { area: 'intake', action: 'accept', method: 'POST', capability: 'intake.decide' },
+  { area: 'journal', action: 'records', method: 'POST', capability: 'aithema.journal.write' },
+  { area: 'journal', action: 'snapshots', method: 'POST', capability: 'aithema.journal.write' },
+  { area: 'journal', action: 'op.result', method: 'POST', capability: 'aithema.journal.write' },
+  { area: 'journal', action: 'records', method: 'GET', capability: 'aithema.journal.read' },
+  { area: 'journal', action: 'cursor', method: 'GET', capability: 'aithema.journal.read' },
+  { area: 'journal', action: 'authority', method: 'GET', capability: 'aithema.authority.read' },
+  { area: 'ledger', action: 'admit', method: 'POST', capability: 'aithema.ledger' },
+  { area: 'ledger', action: 'claim', method: 'POST', capability: 'aithema.ledger' },
+  { area: 'ledger', action: 'settle', method: 'POST', capability: 'aithema.ledger' },
+  { area: 'ledger', action: 'recover', method: 'POST', capability: 'aithema.ledger' },
+  { area: 'ledger', action: 'holds', method: 'GET', capability: 'aithema.ledger' },
+].map((route) => {
+  // Ledger shares a capability across reads, ordinary controls and recovery.
+  const matches = capabilities.routes.filter((entry) => entry.capability === route.capability &&
+    (entry.class === 'read') === (route.method === 'GET') &&
+    entry.checks.includes('gen = current only') === (route.action === 'recover'));
+  if (matches.length !== 1) throw new Error(`Ambiguous or missing capability binding: ${route.method} ${route.area}/${route.action}`);
+  return Object.freeze({ ...route, ...matches[0], route: undefined });
+});
 
 export function routePath(area, sid, action = '', draftId = null) {
   return `/${area}/sessions/${sid}${draftId ? `/drafts/${draftId}` : ''}${action ? `/${action}` : ''}`;
@@ -88,7 +95,7 @@ export class MockHost {
       authz: structuredClone(authz), generation, principal, hostMode, evidence, currency,
       tombstone: authz.withdrawn_at !== null, seq: 0, workingRev: 0, snapshot: null,
       records: [], events: new Map(), operations: new Map(), imports: new Map(), drafts: new Map(),
-      intakeRev: 0, attempts: new Map(), holds: new Map(), claims: new Map(), holdSequence: 0,
+      intakeRev: 0, intakeSnapshot: null, attempts: new Map(), holds: new Map(), claims: new Map(), holdSequence: 0,
     });
     return structuredClone(authz);
   }
@@ -187,7 +194,7 @@ export class MockHost {
       return success({
         sources: [...session.imports.values()].filter((entry) => entry.record.kind === 'source').map((entry) => entry.record),
         turns: [...session.imports.values()].filter((entry) => entry.record.kind === 'turn').map((entry) => entry.record),
-        snapshot: this.#intakeSnapshot(session),
+        snapshot: session.intakeSnapshot,
       });
     }
     if (route.action === 'authority') {
@@ -246,10 +253,11 @@ export class MockHost {
   #journal(route, session, actor, payload) {
     const contract = route.action === 'snapshots' ? 'aithema.spec.snapshot' : 'aithema.journal.record';
     if (!payload.doc || payload.doc.contract !== contract) throw new HostError(400, `Expected ${contract}`);
-    this.#bound(session, actor, payload.doc);
     if (route.action === 'op.result' && payload.doc.kind !== 'op.result') throw new HostError(400, 'Expected op.result record');
     const previous = session.events.get(payload.doc.client_event_id);
     if (previous) return success(this.#append(session, payload));
+    // Token fencing already passed. Exact retries retain their original generation.
+    this.#bound(session, actor, payload.doc);
     const doc = document(payload.doc, contract);
     if (doc.seq !== undefined) throw new HostError(400, 'Sequence is host-assigned');
     if (contract === 'aithema.spec.snapshot') {
@@ -310,6 +318,7 @@ export class MockHost {
         throw new HostError(400, 'Replacement must link the previous item version');
       }
       if (!old && (item.supersedes_item_version !== null || [...session.drafts.values()].some((d) => d.item.item_ref === item.item_ref))) {
+        if ([...session.drafts.values()].some((d) => d.item.item_ref === item.item_ref && d.item.state === 'accepted')) fail('already_accepted');
         throw new HostError(409, 'Item already submitted; use atomic replace');
       }
       this.#citations(session, item);
@@ -322,12 +331,13 @@ export class MockHost {
       // Validate the prospective complete projection before either side mutates.
       const items = [...session.drafts.values()].map((d) => d === old ? { ...d.item, state: 'superseded' } : d.item);
       items.push(item);
-      this.#intakeSnapshot(session, items);
+      const projection = this.#intakeSnapshot(session, items);
       if (old) old.item.state = 'superseded';
       session.drafts.set(id, { item, supersedesDraftId: route.draftId ?? null, acceptance: null });
-      session.intakeRev++;
+      session.intakeRev = projection.working_rev;
+      session.intakeSnapshot = projection;
       response = success({ result: this.#workerDocument(session, 'op.result', { op_key: opKey, host_ids: { draft_id: id } }),
-        snapshot: this.#intakeSnapshot(session), supersedes_draft_id: route.draftId ?? null });
+        snapshot: projection, supersedes_draft_id: route.draftId ?? null });
     }
     session.operations.set(opKey, { identity, response: structuredClone(response), action: route.action });
     return response;
@@ -356,12 +366,12 @@ export class MockHost {
     for (const seq of item.provenance.derived_from) evidence(seq);
   }
 
-  #intakeSnapshot(session, items = [...session.drafts.values()].map((d) => d.item)) {
-    if (!items.length) return null;
+  /** Build once per commit; polling and retries return the stored revision. */
+  #intakeSnapshot(session, items) {
     const canonical = canonicalJson({ op: 'intake-projection' });
     return document(envelope('aithema.spec.snapshot', {
-      sid: session.authz.sid, client_event_id: session.authz.sid,
-      working_rev: Math.max(1, session.intakeRev), expected_prev_rev: Math.max(1, session.intakeRev) - 1,
+      sid: session.authz.sid, client_event_id: randomUUID(),
+      working_rev: session.intakeRev + 1, expected_prev_rev: session.intakeRev,
       consumed_seq: session.seq, worker_generation: session.generation, host_mode: session.hostMode,
       spec: { items: structuredClone(items), questions: [], brief: null, screens: [] },
       pending_ops: [], corrections: [], patch: { canonical, sha256: sha256Hex(canonical) },
@@ -382,11 +392,12 @@ export class MockHost {
     this.#arbitrate(draft.item.state, 'accept');
     if (draft.acceptance) return structuredClone(draft.acceptance);
     const items = [...session.drafts.values()].map((d) => d === draft ? { ...d.item, state: 'accepted' } : d.item);
-    this.#intakeSnapshot(session, items);
+    const projection = this.#intakeSnapshot(session, items);
     draft.item.state = 'accepted';
-    session.intakeRev++;
+    session.intakeRev = projection.working_rev;
+    session.intakeSnapshot = projection;
     draft.acceptance = success({ draft_id: route.draftId, origin_draft_id: route.draftId,
-      node_id: randomUUID(), snapshot: this.#intakeSnapshot(session) });
+      node_id: randomUUID(), snapshot: projection });
     return structuredClone(draft.acceptance);
   }
 
@@ -419,12 +430,12 @@ export class MockHost {
     const body = candidate.body;
     if (body.sid !== undefined && body.sid !== route.sid) throw new HostError(403, 'Foreign budget session');
     if (Number.isSafeInteger(body.auth_epoch) && body.auth_epoch !== session.authz.epoch) fail('revoked');
-    if (Number.isSafeInteger(body.worker_generation) && body.worker_generation !== actor.gen) fail('fenced_generation');
     const prior = route.action === 'admit' ? session.attempts.get(body.attempt_id) : null;
     if (prior) {
       if (prior.bytes !== payload.bytes) fail('idempotency_conflict');
       return structuredClone(prior.response);
     }
+    if (Number.isSafeInteger(body.worker_generation) && body.worker_generation !== actor.gen) fail('fenced_generation');
     document(candidate, 'aithema.budget.message');
     if (route.action === 'admit') {
       if (body.currency !== session.currency) throw new HostError(400, 'Budget currency mismatch');
