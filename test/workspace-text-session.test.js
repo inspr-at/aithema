@@ -75,17 +75,18 @@ async function setup(t, { handler: lane = handler, principalRef = 'fixture-perso
     if (attach) ports.set(decodeURIComponent(path.split('/')[2]), session);
     return path;
   }
-  const request = (path, { cookie, method = 'GET', form, json, origin: from = origin, headers = {} } = {}) => fetch(`${url}${mount}${path}`, {
+  const request = (path, { cookie, method = 'GET', form, body, json, origin: from = origin, headers = {} } = {}) => fetch(`${url}${mount}${path}`, {
     method, redirect: 'manual',
     headers: { cookie, ...(from ? { origin: from } : {}), ...(form ? { 'content-type': 'application/x-www-form-urlencoded' } : {}),
       ...(json ? { accept: 'application/json' } : {}), ...headers },
-    ...(form ? { body: new URLSearchParams(form) } : {}),
+    ...(form ? { body: new URLSearchParams(form) } : (body ? { body } : {})),
   });
   const page = async (path, cookie) => (await request(path, { cookie })).text();
   const cookie = await login('demo-reviewer');
+  const actor = await workspace.identity.verify(undefined, cookie.slice('aithema_demo='.length));
   const projectPath = await createProject(cookie);
   const records = (kind) => f.records(kind).map((row) => row.document);
-  return { f, session, errors, workspace, url, origin, mount, login, createProject, request, page, cookie, projectPath, records, ports,
+  return { f, session, errors, workspace, url, origin, mount, login, createProject, request, page, cookie, actor, projectPath, records, ports,
     send: async (text, extra = {}) => {
       const response = await request(`${projectPath}/text/turns`, { cookie, method: 'POST', form: { message: text, ...extra } });
       await session.idle();
@@ -193,6 +194,84 @@ describe('text session page (real engine, real journal)', () => {
 const f = (w, ref) => w.f.engine.state.spec.items.filter((row) => row.item_ref === ref).sort((a, b) => b.version - a.version)[0];
 const binding = (row) => `${row.item_ref}@${row.version}@${row.content_sha256}`;
 
+describe('legacy intake authority with an attached text session', () => {
+  const routes = [
+    { path: 'turns', method: 'submitTurn' },
+    { path: 'preview-feedback', method: 'submitPreviewFeedback' },
+    { path: 'documents', method: 'intakeDocuments' },
+    { path: 'documents/retained-document/interpret', method: 'interpretDocument' },
+  ];
+  const input = (path) => {
+    if (path !== 'documents') return { form: { message: 'bypass the engine', turn_id: 'legacy-turn' } };
+    const body = new FormData();
+    body.append('files', new Blob(['Admins need an export.'], { type: 'text/plain' }), 'requirements.txt');
+    return { body };
+  };
+
+  for (const route of routes) {
+    it(`refuses POST ${route.path} before controller, provider or journal mutations`, async (t) => {
+      const w = await setup(t);
+      const legacy = t.mock.method(w.workspace.controller, route.method);
+      const chat = t.mock.method(w.workspace.provider, 'streamChat');
+      const understand = t.mock.method(w.workspace.provider, 'understand');
+      const engineTurn = t.mock.method(w.session, 'submitTurn');
+      const projectRef = decodeURIComponent(w.projectPath.split('/')[2]);
+      const beforeProject = w.workspace.store.getProject(projectRef, w.actor);
+      const beforeRecords = w.records();
+      for (const json of [false, true]) {
+        const response = await w.request(`${w.projectPath}/${route.path}`, {
+          cookie: w.cookie, method: 'POST', ...input(route.path), json,
+        });
+        assert.equal(response.status, 409);
+        if (json) {
+          const body = await response.json();
+          assert.equal(body.code, 'text_session_required');
+          assert.match(body.error, /Send input through the text session/);
+        } else {
+          const html = await response.text();
+          assert.match(textOf(find(parseHtml(html), (n) => n.attrs.role === 'alert')[0]), /Send input through the text session/);
+          assert.match(html, /data-ai-disclosure="art50-1"/);
+          assert.ok(byId(html, 'text-turn-form'), 'the refusal points to the usable text composer');
+        }
+      }
+      assert.equal(legacy.mock.callCount(), 0);
+      assert.equal(chat.mock.callCount(), 0);
+      assert.equal(understand.mock.callCount(), 0);
+      assert.equal(engineTurn.mock.callCount(), 0);
+      assert.deepEqual(w.records(), beforeRecords);
+      assert.deepEqual(w.workspace.store.getProject(projectRef, w.actor), beforeProject);
+    });
+
+    it(`keeps POST ${route.path} available when the project has no text session`, async (t) => {
+      const w = await setup(t);
+      const path = await w.createProject(w.cookie, false);
+      const project = w.workspace.store.getProject(decodeURIComponent(path.split('/')[2]), w.actor);
+      const legacy = t.mock.method(w.workspace.controller, route.method, async () => ({
+        status: 'complete', project, accepted: [], rejected: [], notices: [], proposals_created: [],
+      }));
+      const response = await w.request(`${path}/${route.path}`, { cookie: w.cookie, method: 'POST', ...input(route.path) });
+      assert.equal(response.status, 303);
+      assert.equal(legacy.mock.callCount(), 1);
+    });
+  }
+
+  it('keeps the legacy guard closed when the attached session cannot be read', async (t) => {
+    const w = await setup(t);
+    const projectRef = decodeURIComponent(w.projectPath.split('/')[2]);
+    w.ports.set(projectRef, { ...w.session, view: async () => { throw new Error('journal down'); } });
+    const chat = t.mock.method(w.workspace.provider, 'streamChat');
+    for (const route of routes) {
+      const response = await w.request(`${w.projectPath}/${route.path}`, {
+        cookie: w.cookie, method: 'POST', ...input(route.path), json: true,
+      });
+      assert.equal(response.status, 409);
+      assert.equal((await response.json()).code, 'text_session_required');
+    }
+    assert.equal(chat.mock.callCount(), 0);
+    assert.equal(w.records('turn').length, 0);
+  });
+});
+
 describe('confirmation routes (write-ahead ui.confirm through the engine)', () => {
   async function withDrafts(t, options) {
     const w = await setup(t, options);
@@ -252,6 +331,44 @@ describe('confirmation routes (write-ahead ui.confirm through the engine)', () =
     assert.equal(w.records('ui.confirm').length, 1);
     const bodies = await Promise.all(results.map((r) => r.json()));
     assert.deepEqual(bodies.map((b) => b.confirmed).sort(), [0, 0, 1]);
+  });
+
+  it('retries the Einreichen hook after submit_failed without confirming or journaling again', async (t) => {
+    let attempts = 0;
+    const projected = new Set();
+    const w = await withDrafts(t, { sessionOptions: { submitConfirmed: async () => {
+      attempts += 1;
+      // Model a lost acknowledgement after a host committed the projection.
+      projected.add('REQ-A@1');
+      projected.add('REQ-B@1');
+      if (attempts === 1) throw Object.assign(new Error('acknowledgement lost'), { status: 503 });
+    } } });
+    const confirmItem = t.mock.method(w.session, 'confirmItem');
+    const form = [['action', 'einreichen'], ['binding', binding(f(w, 'REQ-A'))], ['binding', binding(f(w, 'REQ-B'))]];
+    const first = await confirm(w, form, { json: true });
+    assert.equal(first.status, 503);
+    const failed = await first.json();
+    assert.equal(failed.code, 'submit_failed');
+    assert.equal(failed.confirmed, 2);
+    assert.match(failed.error, /Items are confirmed.*can be retried/);
+    assert.equal(attempts, 1);
+    assert.equal(w.records('ui.confirm').length, 2);
+    const before = w.records();
+    const rev = w.f.engine.state.working_rev;
+    for (const expectedAttempts of [2, 3]) {
+      const retry = await confirm(w, form, { json: true });
+      assert.equal(retry.status, 200);
+      const result = await retry.json();
+      assert.equal(result.confirmed, 0);
+      assert.equal(result.already_confirmed, 2);
+      assert.equal(result.submitted, true);
+      assert.match(result.message, /Submitted to the host/);
+      assert.equal(attempts, expectedAttempts);
+      assert.equal(confirmItem.mock.callCount(), 2);
+      assert.deepEqual(w.records(), before);
+      assert.equal(w.f.engine.state.working_rev, rev);
+      assert.deepEqual([...projected], ['REQ-A@1', 'REQ-B@1']);
+    }
   });
 
   for (const [name, mutate, status, code] of [

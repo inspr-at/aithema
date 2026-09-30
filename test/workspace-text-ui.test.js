@@ -271,7 +271,10 @@ describe('full-item confirmation view', () => {
   it('says so when nothing waits, and notes the host mode', () => {
     assert.match(render({ items: [item({ state: 'confirmed' })] }).confirmation, /No items are waiting/);
     assert.match(render({ hostMode: 'working_spec_only' }).confirmation, /keeps the working spec only/);
-    assert.match(render({ hostMode: 'review' }).confirmation, /submitted to the host as immutable proposals/);
+    const review = render({ hostMode: 'review' }).confirmation;
+    assert.match(review, /Einreichen records your confirmation of the items as shown/);
+    assert.match(review, /Submission to the host as immutable proposals runs only when a host submission hook is configured/);
+    assert.ok(!review.includes('Confirmed items are submitted'));
   });
 
   it('never offers confirmation for the superseded, proposed or accepted versions', () => {
@@ -476,6 +479,44 @@ describe('accessibility of the rendered workspace page', () => {
     assert.match(html, /id="workspace-compose"/);
     assert.ok(!html.includes('id="text-conversation"'));
     assert.deepEqual(auditAccessibility(html).problems, []);
+  });
+
+  it('keeps the configured spend estimate next to text durability, including pending and unavailable sessions', () => {
+    const model = { policyActive: true, estimatedSpend: { accountedMicro: 20, budgetMicro: 100, remainingMicro: 80,
+      currency: 'EUR<script>', providerReportedCalls: 1, conservativeCalls: 2 } };
+    const unavailable = { textSession: { view: { state: null, transcript: [], durability: null, unavailable: true }, canAct: true } };
+    for (const html of [page({}, model), page({ durability: { ...durable, unacknowledged: 1 } }, model), page({}, { ...model, ...unavailable })]) {
+      assert.equal((html.match(/Configured estimated spend:/g) ?? []).length, 1);
+      assert.match(html, /20 integer micro-EUR&lt;script&gt; accounted of 100; 80 remains/);
+      assert.ok(html.indexOf('id="text-durability"') < html.indexOf('Configured estimated spend:'));
+      assert.ok(html.indexOf('Configured estimated spend:') < html.indexOf('id="text-conversation"'));
+      assert.deepEqual(auditAccessibility(html).problems, []);
+    }
+    const legacy = page({}, { ...model, textSession: undefined });
+    assert.equal((legacy.match(/Configured estimated spend:/g) ?? []).length, 1);
+    assert.match(page({}, { policyActive: true }), /Billing usage is unavailable/);
+    assert.ok(!page({}, { ...model, policyActive: false }).includes('Configured estimated spend:'));
+  });
+
+  it('removes legacy preview, upload and interpretation controls only for attached text sessions', () => {
+    const base = { project_ref: 'p1', title: 'Project', revision: 1, conversation_ref: 'c1', project_kinds: ['new_product'],
+      stream: { proposals: [], decisions: [], baselines: [] }, transcript: [], documents: [{
+        document_ref: 'doc-1', filename: 'requirements.txt', media_type: 'text/plain', extraction_reason: 'ok', source_kind: 'generic',
+      }] };
+    const model = { project: base, previewCapability: { previewUrl: 'https://preview.invalid/artifact', previewOrigin: 'https://preview.invalid',
+      artifactRevision: 'r1', bindingKey: 'b1', nonce: 'n1', turnId: 't1' } };
+    const html = page({}, model);
+    const actions = find(parseHtml(html), (n) => n.tag === 'form').map((n) => n.attrs.action);
+    assert.ok(!actions.some((action) => /\/(preview-feedback|documents)(\/|$)/.test(action)));
+    assert.match(html, /Send preview feedback through the text session/);
+    assert.match(html, /Document upload and interpretation are unavailable/);
+    assert.ok(html.includes('<iframe'), 'the configured preview remains viewable');
+    assert.deepEqual(auditAccessibility(html).problems, []);
+    const legacy = page({}, { ...model, textSession: undefined });
+    const legacyActions = find(parseHtml(legacy), (n) => n.tag === 'form').map((n) => n.attrs.action);
+    for (const suffix of ['/preview-feedback', '/documents', '/documents/doc-1/interpret']) {
+      assert.ok(legacyActions.some((action) => action.endsWith(suffix)), suffix);
+    }
   });
 
   it('prefixes every action with the public base path', () => {

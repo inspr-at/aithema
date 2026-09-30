@@ -331,7 +331,7 @@ export function renderTextConfirmation(model) {
   const drafts = confirmableItems(view.state);
   const modeNote = view.state?.host_mode === 'working_spec_only'
     ? '<p class="meta">This host keeps the working spec only; confirmed items are not sent onward.</p>'
-    : '<p class="meta">Confirmed items are submitted to the host as immutable proposals at submission.</p>';
+    : '<p class="meta">Einreichen records your confirmation of the items as shown. Submission to the host as immutable proposals runs only when a host submission hook is configured.</p>';
   let body;
   if (!drafts.length) {
     body = '<p class="meta" id="text-no-drafts">No items are waiting for your confirmation.</p>';

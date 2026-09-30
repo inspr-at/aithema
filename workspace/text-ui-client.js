@@ -48,7 +48,7 @@ export function bindTextUi(doc = document, win = window, fetchImpl = globalThis.
 
   const clearError = () => doc.getElementById('page-error')?.remove();
 
-  async function refresh() {
+  async function refresh({ preserveFocus = true } = {}) {
     const response = await fetchImpl(pathOnly(win), { credentials: 'same-origin', headers: { accept: 'text/html' } });
     if (!response.ok) throw new Error('refresh failed');
     const page = new win.DOMParser().parseFromString(await response.text(), 'text/html');
@@ -70,7 +70,12 @@ export function bindTextUi(doc = document, win = window, fetchImpl = globalThis.
     for (const id of REFRESH_REGIONS) {
       const next = page.getElementById(id);
       const current = doc.getElementById(id);
-      if (next && current) current.replaceWith(doc.importNode(next, true));
+      // Polling must not detach a control (or a review link) being used with
+      // the keyboard. Its displayed content and digest stay together until
+      // focus leaves; the server still rejects a stale confirmation binding.
+      if (next && current && !(preserveFocus && current.contains(doc.activeElement))) {
+        current.replaceWith(doc.importNode(next, true));
+      }
     }
     const question = [...log.querySelectorAll('[data-seq]')].filter((node) => fresh.has(node.getAttribute('data-seq')))
       .flatMap((node) => [...node.querySelectorAll('[data-canonical-question]')]).at(-1);
@@ -123,7 +128,7 @@ export function bindTextUi(doc = document, win = window, fetchImpl = globalThis.
       }
       announce(data.message);
       const token = ++polling;
-      const level = await refresh();
+      const level = await refresh({ preserveFocus: false });
       // Refresh replaces the confirmation region, so focus moves afterwards:
       // back to the composer after a message, to the section heading after a
       // confirmation (the confirmed item's own button is gone).

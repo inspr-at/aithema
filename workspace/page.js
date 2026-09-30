@@ -150,7 +150,7 @@ function renderProjectPage(model, demoBanner) {
 
   return documentShell(project.title, demoBanner, model, `
   <h1 class="project-title">${escapeHtml(project.title)}</h1>
-  ${text ? text.status : ''}
+  ${text ? `${text.status}${renderSpendNotice(model)}` : ''}
   ${model.error ? `<p class="error" id="page-error" role="alert" tabindex="-1">${escapeHtml(model.error)}</p>` : ''}
   ${model.notice ? `<p class="notice" id="page-notice" role="status" tabindex="-1">${escapeHtml(model.notice)}</p>` : ''}
   ${compose}
@@ -191,6 +191,13 @@ function renderPreviewFeedback(model) {
   const binding = model.previewCapability;
   const project = model.project;
   if (!binding || !project) return '';
+  if (model.textSession) {
+    return `<section id="workspace-preview-feedback">
+      <h2>Preview feedback</h2>
+      <p>Send preview feedback through the text session above.</p>
+      <iframe class="preview-frame" src="${escapeHtml(binding.previewUrl)}" title="Configured artifact preview" sandbox="allow-scripts allow-same-origin" referrerpolicy="no-referrer"></iframe>
+    </section>`;
+  }
   return `<section id="workspace-preview-feedback">
     <h2>Preview feedback</h2>
     <p>Select an annotated element in this exact operator-configured preview. Selection only prepares a draft; it does not send, approve, or start delivery.</p>
@@ -500,6 +507,12 @@ function exportLinkRow(model, projectRef, baseline) {
 function renderDocumentIntake(model) {
   const project = model.project;
   if (!project) return '';
+  if (model.textSession) {
+    return `<details class="secondary">
+      <summary>Document intake</summary>
+      <p class="meta">Document upload and interpretation are unavailable while this text session is attached. Send requirements through the text session above.</p>
+    </details>`;
+  }
   const docs = (project.documents ?? []).map((doc) => {
     const status = doc.extraction_reason === 'ok'
       ? (doc.truncated ? 'readable, truncated' : 'readable')

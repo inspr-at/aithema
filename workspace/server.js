@@ -342,6 +342,15 @@ export function createWorkspaceServer(rawConfig, options = {}) {
     }
 
     const text = await attachTextSession(actor, projectRef);
+    // Every legacy intake entry uses this authority check before parsing or
+    // mutating anything: an attached engine owns input, even if its view fails.
+    const refuseLegacyIntake = () => {
+      if (!text) return false;
+      const error = 'This project uses the AI text session. Send input through the text session so it is budgeted and journaled.';
+      if (wantsJson(req)) json(res, 409, { error, code: 'text_session_required' });
+      else html(res, 409, pageModel({ actor, sessionAuthenticated, projects: store.listProjects(actor), project, error }));
+      return true;
+    };
 
     const textRoute = rest.match(/^text\/(turns|confirm)$/);
     if (textRoute && req.method === 'POST') {
@@ -399,6 +408,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
     }
 
     if (req.method === 'POST' && rest === 'turns') {
+      if (refuseLegacyIntake()) return;
       const body = await readForm(req);
       const abort = new AbortController();
       const onClose = () => {
@@ -451,6 +461,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
     }
 
     if (req.method === 'POST' && rest === 'preview-feedback') {
+      if (refuseLegacyIntake()) return;
       const body = await readForm(req);
       const abort = new AbortController();
       const onClose = () => {
@@ -562,6 +573,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
     }
 
     if (req.method === 'POST' && rest === 'documents') {
+      if (refuseLegacyIntake()) return;
       const abort = new AbortController();
       const onClose = () => {
         if (!res.writableEnded) abort.abort();
@@ -606,6 +618,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
 
     const interpretMatch = rest.match(/^documents\/([^/]+)\/interpret$/);
     if (req.method === 'POST' && interpretMatch) {
+      if (refuseLegacyIntake()) return;
       const documentRef = decodeURIComponent(interpretMatch[1]);
       const abort = new AbortController();
       const onClose = () => {

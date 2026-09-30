@@ -65,7 +65,9 @@ function exclusive(port, operation) {
  *
  * @param {TextSessionPort} port
  * @param {unknown} rawBindings form value(s) in item_ref@version@sha256 form
- * @param {{einreichen?: boolean}} [options] Einreichen also runs the optional host submission hook
+ * @param {{einreichen?: boolean}} [options] Einreichen also runs the optional host submission hook.
+ *   The hook must be idempotent: a retry with already confirmed bindings runs
+ *   it again without writing another ui.confirm, including after submit_failed.
  */
 export async function confirmBatch(port, rawBindings, { einreichen = false } = {}) {
   assertTextSessionPort(port);
