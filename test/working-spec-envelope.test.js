@@ -64,6 +64,12 @@ function approve(stream, refs = ['proposal:original']) {
   return approveBaselineFromProposals(stream, approver, refs, 'baseline:synthetic', at);
 }
 
+function assertReplaySnapshot(actual, expected) {
+  assert.deepEqual(actual, expected, 'replay preserves the exact original records');
+  assert.notStrictEqual(actual, expected, 'replay returns a detached snapshot');
+  assert.ok(Object.isFrozen(actual));
+}
+
 describe('AIT-36 round 2: one projected-envelope authority at every boundary', () => {
   it('append entry point refuses stripped original submissions before recording anything', () => {
     const { empty, proposal } = fixture();
@@ -262,9 +268,9 @@ describe('AIT-36 round 2: one projected-envelope authority at every boundary', (
 
   it('append retries preserve the original result and conflict on different bytes after acceptance', () => {
     const { empty, stream, proposal } = fixture();
-    assert.strictEqual(appendProposal(stream, contributor, structuredClone(proposal)), stream);
+    assertReplaySnapshot(appendProposal(stream, contributor, structuredClone(proposal)), stream);
     const accepted = approve(stream);
-    assert.strictEqual(appendProposal(accepted, contributor, structuredClone(proposal)), accepted);
+    assertReplaySnapshot(appendProposal(accepted, contributor, structuredClone(proposal)), accepted);
     for (const change of [
       { summary: 'Different request bytes' }, { content_sha256: '0'.repeat(64) },
       { requirement: { ...proposal.requirement, statement: 'Different native payload.' } },
@@ -383,13 +389,13 @@ describe('AIT-36 round 3: stream integrity before replay and projection walks', 
     assert.deepEqual(corrupt, before);
   });
 
-  it('the projection authority rechecks integrity if caller input changes the stream after preflight', () => {
+  it('normalization rejects a payload getter before it can change the projection walk', () => {
     const corrupt = duplicateAncestorFixture('mid');
     const [original, twin, mid, far] = corrupt.proposals;
     const stream = { ...corrupt, proposals: [original, mid, far] };
     let injected = false;
-    // An accessor can insert the hidden twin during payload validation, after
-    // approval's preflight but before the projection authority walks ancestry.
+    // Previously this accessor inserted a hidden twin during validation. The
+    // snapshot boundary must reject it before any caller code executes.
     Object.defineProperty(far, 'kind', {
       enumerable: true,
       get() {
@@ -398,8 +404,9 @@ describe('AIT-36 round 3: stream integrity before replay and projection walks', 
         return 'add_requirement';
       },
     });
-    assert.throws(() => approve(stream, [far.proposal_ref]), duplicateRef);
-    assert.equal(injected, true);
+    assert.throws(() => approve(stream, [far.proposal_ref]), /plain-data snapshot: accessors/);
+    assert.equal(injected, false);
+    assert.deepEqual(stream.proposals, [original, mid, far]);
     assert.deepEqual(stream.baselines, []);
     assert.deepEqual(stream.decisions, []);
   });
@@ -408,7 +415,7 @@ describe('AIT-36 round 3: stream integrity before replay and projection walks', 
     const { stream, proposal, replacement } = fixture();
     const replaced = replaceProposal(stream, contributor, proposal.proposal_ref, replacement.proposal);
     assert.equal(replaced.proposals[1].op_key, replaced.decisions[0].op_key);
-    assert.strictEqual(replaceProposal(replaced, contributor, proposal.proposal_ref, replacement.proposal), replaced);
+    assertReplaySnapshot(replaceProposal(replaced, contributor, proposal.proposal_ref, replacement.proposal), replaced);
     assert.equal(currentBaseline(approve(replaced, [replacement.proposal.proposal_ref])).requirements[0].statement,
       replacement.proposal.requirement.statement);
     for (const operation of ['submit', 'replace', 'source', 'turn']) {

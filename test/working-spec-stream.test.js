@@ -56,13 +56,19 @@ function apply(store, project, mutate) {
   }).project;
 }
 
+function assertReplaySnapshot(actual, expected) {
+  assert.deepEqual(actual, expected, 'replay preserves the exact original records');
+  assert.notStrictEqual(actual, expected, 'replay returns a detached snapshot');
+  assert.ok(Object.isFrozen(actual));
+}
+
 // Host fixture using the existing store gate: membership/authority before
 // replay, replay before lifecycle/CAS, then domain arbitration in mutate().
 // Exact replay must not cause another project revision or undo a later accept.
 function gatedReplace(store, project, oldRef, proposal) {
   const live = store.getProject(project.project_ref, actor);
   if (live.stream.decisions.some((decision) => decision.op_key === proposal.op_key)) {
-    assert.strictEqual(replaceProposal(live.stream, contributor, oldRef, proposal), live.stream);
+    assertReplaySnapshot(replaceProposal(live.stream, contributor, oldRef, proposal), live.stream);
     return live;
   }
   return apply(store, project, (stream) => replaceProposal(stream, contributor, oldRef, proposal));
@@ -85,7 +91,8 @@ describe('AIT-36 (b): immutable atomic replaceProposal', () => {
     assert.equal(next.decisions[0].outcome, 'withdrawn');
     assert.equal(next.decisions[0].proposal_ref, before.proposals[0].proposal_ref);
     assert.equal(next.proposals.length, 2);
-    assert.strictEqual(next.proposals[0], before.proposals[0]);
+    assert.deepEqual(next.proposals[0], before.proposals[0]);
+    assert.notStrictEqual(next.proposals[0], before.proposals[0], 'history is detached from caller data');
     assert.equal(next.proposals[1].supersedes_proposal_ref, before.proposals[0].proposal_ref);
     assert.equal(next.proposals[1].op_key, request.op_key);
     assert.deepEqual(next.baselines, []);
@@ -445,7 +452,7 @@ describe('AIT-36 (c, z): SQLite project-revision arbitration and retry fixtures'
     const before = initial();
     const request = replacement(before);
     const next = replaceProposal(before, contributor, before.proposals[0].proposal_ref, request);
-    assert.strictEqual(replaceProposal(next, contributor, before.proposals[0].proposal_ref, structuredClone(request)), next);
+    assertReplaySnapshot(replaceProposal(next, contributor, before.proposals[0].proposal_ref, structuredClone(request)), next);
   });
 
   it('an original retry preserves a later replacement of its successor', () => {
@@ -455,7 +462,7 @@ describe('AIT-36 (c, z): SQLite project-revision arbitration and retry fixtures'
     const next = replaceProposal(before, contributor, oldRef, first);
     const second = replacement(next, 2);
     const twice = replaceProposal(next, contributor, first.proposal_ref, second);
-    assert.strictEqual(replaceProposal(twice, contributor, oldRef, first), twice);
+    assertReplaySnapshot(replaceProposal(twice, contributor, oldRef, first), twice);
     assert.equal(twice.proposals.length, 3);
     assert.equal(twice.decisions.length, 2);
     assert.equal(twice.proposals[2].supersedes_proposal_ref, first.proposal_ref);
@@ -502,7 +509,7 @@ describe('AIT-36 (c, z): SQLite project-revision arbitration and retry fixtures'
       }));
       assert.equal(accepted.stream.working_spec.items[1].state, 'accepted');
       assert.equal(currentBaseline(accepted.stream).requirements[0].statement, candidate.content.statement);
-      assert.strictEqual(replaceProposal(accepted.stream, contributor, 'proposal:original', originalRequest), accepted.stream);
+      assertReplaySnapshot(replaceProposal(accepted.stream, contributor, 'proposal:original', originalRequest), accepted.stream);
     } finally { store.close(); }
   });
 });
