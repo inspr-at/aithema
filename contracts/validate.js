@@ -219,12 +219,44 @@ export function readerSupport() {
  * @returns {string}
  */
 export function canonicalJson(value) {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  if (value !== null && typeof value === 'object') {
-    const obj = /** @type {Record<string, unknown>} */ (value);
-    return `{${Object.keys(obj).sort().map((k) => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`).join(',')}}`;
+  const ancestors = new Set();
+  /** @param {string} text */
+  function string(text) {
+    for (const char of text) {
+      const code = char.codePointAt(0);
+      if (code >= 0xd800 && code <= 0xdfff) {
+        throw new TypeError('canonical JSON cannot contain lone UTF-16 surrogates');
+      }
+    }
+    return JSON.stringify(text);
   }
-  return JSON.stringify(value);
+  /** @param {unknown} node @returns {string} */
+  function encode(node) {
+    if (node === null) return 'null';
+    if (typeof node === 'string') return string(node);
+    if (typeof node === 'boolean') return JSON.stringify(node);
+    if (typeof node === 'number') {
+      if (!Number.isFinite(node)) throw new TypeError('canonical JSON requires finite numbers');
+      return JSON.stringify(node);
+    }
+    if (typeof node !== 'object') throw new TypeError('canonical JSON requires JSON values');
+    if (ancestors.has(node)) throw new TypeError('canonical JSON cannot contain cycles');
+    ancestors.add(node);
+    try {
+      if (Array.isArray(node)) {
+        // Array.from also visits holes, which are not JSON values.
+        return `[${Array.from(node, encode).join(',')}]`;
+      }
+      const obj = /** @type {Record<string, unknown>} */ (node);
+      if (Object.getPrototypeOf(obj) !== Object.prototype && Object.getPrototypeOf(obj) !== null) {
+        throw new TypeError('canonical JSON requires plain objects');
+      }
+      return `{${Object.keys(obj).sort().map((k) => `${string(k)}:${encode(obj[k])}`).join(',')}}`;
+    } finally {
+      ancestors.delete(node);
+    }
+  }
+  return encode(value);
 }
 
 /** @param {string} text */
@@ -257,6 +289,23 @@ export function checkInvariants(contract, doc) {
 }
 
 /**
+ * Canonicalisation failures invalidate a digest-bearing field without making
+ * validate() throw. Unexpected implementation errors still propagate.
+ * @param {unknown} value
+ * @param {string} digest
+ * @param {string} field
+ * @param {string[]} out
+ */
+function checkCanonicalDigest(value, digest, field, out) {
+  try {
+    if (sha256Hex(canonicalJson(value)) !== digest) out.push(`${field}_sha256_matches`);
+  } catch (error) {
+    if (!(error instanceof TypeError)) throw error;
+    out.push(`${field}_canonicalizable`);
+  }
+}
+
+/**
  * @param {any} doc
  * @param {string[]} out
  */
@@ -270,7 +319,7 @@ function snapshotInvariants(doc, out) {
     const key = `${item.item_ref}@${item.version}`;
     if (byRef.has(key)) out.push('item.version_unique');
     byRef.set(key, item);
-    if (sha256Hex(canonicalJson(item.content)) !== item.content_sha256) out.push('item.content_sha256_matches');
+    checkCanonicalDigest(item.content, item.content_sha256, 'item.content', out);
     if (!mode.states.includes(item.state)) out.push('item.state_allowed_in_mode');
     if (!mode.submits && item.host) out.push('mode.working_spec_only_no_host_identity');
     if (transitions.host_identity_required.includes(item.state) && !item.host) out.push('item.host_identity_required');
@@ -389,8 +438,8 @@ function recordInvariants(doc, out) {
     if (doc.data.segments.some((/** @type {any} */ g) => g.start > g.end || g.end > length)) out.push('source.segments_in_bounds');
   }
   if (doc.kind === 'design.input') {
-    if (sha256Hex(canonicalJson(doc.data.screen_ir)) !== doc.data.screen_ir_sha256) out.push('design_input.screen_ir_sha256_matches');
-    if (sha256Hex(canonicalJson(doc.data.tokens)) !== doc.data.tokens_sha256) out.push('design_input.tokens_sha256_matches');
+    checkCanonicalDigest(doc.data.screen_ir, doc.data.screen_ir_sha256, 'design_input.screen_ir', out);
+    checkCanonicalDigest(doc.data.tokens, doc.data.tokens_sha256, 'design_input.tokens', out);
   }
   if (Buffer.byteLength(JSON.stringify(doc), 'utf8') > 1024 * 1024) out.push('record.encoded_max_1_mib');
 }
