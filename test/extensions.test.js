@@ -229,12 +229,63 @@ it('(e) schema depth exactly 6 passes and 7 fails through registration and contr
   assert.equal(validate('aithema.extension', descriptor(nested(7))).ok, false);
 });
 
+// The valid fixtures that existed when extensions landed (AIT-79). Their bytes are
+// pinned; fixtures added later are validated below but not pinned here.
+const PRE_EXTENSION_VALID_FIXTURES = [
+  'authz.record.json',
+  'budget.admit-denied.json',
+  'budget.admit-idempotency-conflict.json',
+  'budget.admit-ok.json',
+  'budget.admit-request.json',
+  'budget.admit-revoked.json',
+  'budget.claim-after-void.json',
+  'budget.claim-already-claimed.json',
+  'budget.claim-ok.json',
+  'budget.claim-request.json',
+  'budget.holds-list.json',
+  'budget.recover-fenced.json',
+  'budget.recover-request.json',
+  'budget.recover-response.json',
+  'budget.recover-unknown.json',
+  'budget.recover-void.json',
+  'budget.settle-actual.json',
+  'budget.settle-unknown.json',
+  'element.ended.json',
+  'element.error.json',
+  'element.state.json',
+  'element.submitted.json',
+  'record.audit-restart.json',
+  'record.authz-epoch.json',
+  'record.budget-claim.json',
+  'record.budget-hold.json',
+  'record.budget-settle-actual.json',
+  'record.budget-settle-void.json',
+  'record.design-input.json',
+  'record.op-result.json',
+  'record.reaction-partial.json',
+  'record.session-end-export.json',
+  'record.session-end-working-spec-only.json',
+  'record.session-purge.json',
+  'record.source.json',
+  'record.turn.json',
+  'record.ui-confirm.json',
+  'session.create-working-spec-only.json',
+  'settings.executable.json',
+  'snapshot.persisted.json',
+  'snapshot.review.json',
+  'snapshot.working-spec-only.json',
+  'token.delegated.json',
+  'token.session.json',
+];
+
 it('(f) all existing valid fixtures retain their canonical digests and validity; golden vector bytes remain unchanged', () => {
   const dir = new URL('../contracts/fixtures/valid/', import.meta.url);
-  const names = readdirSync(dir).filter(name => !name.startsWith('extension-')).sort();
-  const fixtures = names.map(name => [name, JSON.parse(readFileSync(new URL(name, dir), 'utf8'))]);
+  const fixtures = PRE_EXTENSION_VALID_FIXTURES.map(name => [name, JSON.parse(readFileSync(new URL(name, dir), 'utf8'))]);
   assert.equal(sha256Hex(canonicalJson(fixtures)), '8432f397c341123467fc8b083694627c308ff8c1b25d12f2db66823643dbadbe');
-  for (const [, fixture] of fixtures) assert.equal(validate(fixture.contract, fixture.doc).ok, true);
+  for (const name of readdirSync(dir).filter(name => name.endsWith('.json'))) {
+    const fixture = JSON.parse(readFileSync(new URL(name, dir), 'utf8'));
+    assert.equal(validate(fixture.contract, fixture.doc).ok, true, name);
+  }
   assert.equal(sha256Hex(readFileSync(new URL('../contracts/fixtures/canonical/rfc8785-golden.json', import.meta.url), 'utf8')), 'd40f1ed836d9b286ee03b94c56fe410922fa92019aeaf018357f0d362337cb3a');
 });
 
