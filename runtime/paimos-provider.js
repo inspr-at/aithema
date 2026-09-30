@@ -28,6 +28,10 @@ const MAX_CREDENTIAL_BYTES = 8 * 1024;
 const MAX_JSON_BYTES = 4 * 1024 * 1024;
 const DEFAULT_POLL_MS = 500;
 const DEFAULT_CLEANUP_MS = 2_000;
+const DEFAULT_CLOCK = Object.freeze({
+  now: () => Date.now(),
+  timeoutSignal: (ms) => AbortSignal.timeout(ms),
+});
 const SYSTEMD_CREDENTIAL_NAME = 'paimos-conversation-api-key';
 const SYSTEMD_CREDENTIALS_PARENT = '/run/credentials';
 const SYSTEMD_CREDENTIALS_DIRECTORY = `${SYSTEMD_CREDENTIALS_PARENT}/aithema-workspace.service`;
@@ -231,6 +235,7 @@ export class PaimosHarnessProvider {
    *   allowedModels: readonly string[],
    *   limits?: unknown,
    *   fetchImpl?: typeof fetch,
+   *   clock?: { now: () => number, timeoutSignal: (ms: number) => AbortSignal },
    *   mode?: string,
    *   pollIntervalMs?: number,
    *   retryDelayMs?: number,
@@ -274,6 +279,10 @@ export class PaimosHarnessProvider {
     this.estimatedSpend = normalizeProviderEstimatedSpend(config.estimatedSpend, this.id);
     this.limits = normalizeProviderLimits(config.limits);
     this.fetchImpl = config.fetchImpl ?? fetch;
+    this.clock = config.clock ?? DEFAULT_CLOCK;
+    if (typeof this.clock.now !== 'function' || typeof this.clock.timeoutSignal !== 'function') {
+      throw new TypeError('Paimos clock must provide now and timeoutSignal');
+    }
     this.pollIntervalMs = Math.min(DEFAULT_POLL_MS, Math.max(0, config.pollIntervalMs ?? DEFAULT_POLL_MS));
     this.retryDelayMs = Math.min(DEFAULT_POLL_MS, Math.max(0, config.retryDelayMs ?? 100));
     this.cleanupTimeoutMs = Math.min(5_000, Math.max(100, config.cleanupTimeoutMs ?? DEFAULT_CLEANUP_MS));
@@ -313,7 +322,7 @@ export class PaimosHarnessProvider {
     if (!PURPOSES.has(purpose)) throw new Error('Paimos purpose is invalid');
     const context = this.#executionContext(request.executionContext, purpose);
     const timeoutMs = Math.min(180_000, this.limits.maxDurationMs);
-    let deadline = Date.now() + timeoutMs;
+    let deadline = this.clock.now() + timeoutMs;
     const credential = await this.#credential();
     const headers = Object.freeze({
       authorization: `Bearer ${credential}`,
@@ -345,7 +354,7 @@ export class PaimosHarnessProvider {
       const serverDeadline = call.deadline_at;
 
       while (true) {
-        if (Date.now() >= deadline) throw timeoutError();
+        if (this.clock.now() >= deadline) throw timeoutError();
         const result = await this.#request(
           'GET',
           `${this.basePath}/calls/${encodeURIComponent(callID)}/events?after=${after}`,
@@ -420,7 +429,7 @@ export class PaimosHarnessProvider {
         if (call.state === 'completed' || call.state === 'failed' || call.state === 'cancelled') {
           throw new Error('Paimos terminal call is missing its terminal event');
         }
-        await delay(Math.min(this.pollIntervalMs, Math.max(0, deadline - Date.now())), this.#signal(request.signal, deadline));
+        await delay(Math.min(this.pollIntervalMs, Math.max(0, deadline - this.clock.now())), this.#signal(request.signal, deadline));
       }
     } finally {
       if (admitted && !terminal && call?.call_id) {
@@ -560,9 +569,9 @@ export class PaimosHarnessProvider {
   }
 
   #signal(parent, deadline) {
-    const remaining = deadline - Date.now();
+    const remaining = deadline - this.clock.now();
     if (remaining <= 0) throw timeoutError();
-    return composeAbortSignals([parent, AbortSignal.timeout(remaining)]);
+    return composeAbortSignals([parent, this.clock.timeoutSignal(remaining)]);
   }
 
   async #request(method, path, headers, body, deadline, parentSignal) {
@@ -582,9 +591,9 @@ export class PaimosHarnessProvider {
         });
       } catch {
         if (parentSignal?.aborted) throw abortedError(parentSignal);
-        if (Date.now() >= deadline || signal.aborted) throw timeoutError();
+        if (this.clock.now() >= deadline || signal.aborted) throw timeoutError();
         if (attempt === 0) {
-          await delay(Math.min(this.retryDelayMs, Math.max(0, deadline - Date.now())), this.#signal(parentSignal, deadline));
+          await delay(Math.min(this.retryDelayMs, Math.max(0, deadline - this.clock.now())), this.#signal(parentSignal, deadline));
           continue;
         }
         throw incomplete('transport');
@@ -596,7 +605,7 @@ export class PaimosHarnessProvider {
       if (!response.ok) {
         await response.body?.cancel().catch(() => {});
         if (attempt === 0 && RETRYABLE_STATUS.has(response.status)) {
-          await delay(Math.min(this.retryDelayMs, Math.max(0, deadline - Date.now())), this.#signal(parentSignal, deadline));
+          await delay(Math.min(this.retryDelayMs, Math.max(0, deadline - this.clock.now())), this.#signal(parentSignal, deadline));
           continue;
         }
         throw incomplete(response.status === 408 ? 'timeout' : 'provider_failed');
@@ -605,7 +614,7 @@ export class PaimosHarnessProvider {
         return await boundedJson(response, signal, Math.min(MAX_JSON_BYTES, this.limits.maxResponseBytes));
       } catch (error) {
         if (parentSignal?.aborted) throw abortedError(parentSignal);
-        if (Date.now() >= deadline || signal.aborted) throw timeoutError();
+        if (this.clock.now() >= deadline || signal.aborted) throw timeoutError();
         throw error;
       }
     }
@@ -613,7 +622,7 @@ export class PaimosHarnessProvider {
   }
 
   async #cancel(callID, headers, requestID, serverDeadline) {
-    const deadline = Date.now() + this.cleanupTimeoutMs;
+    const deadline = this.clock.now() + this.cleanupTimeoutMs;
     const result = await this.#request(
       'POST',
       `${this.basePath}/calls/${encodeURIComponent(callID)}/cancel`,
