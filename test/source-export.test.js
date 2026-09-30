@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -21,6 +22,7 @@ import { buildSourceExport, resolveSourceExport } from '../release/build-source.
 import { gitBlobSha1, sha256 } from '../release/lib/digest.mjs';
 import {
   expandAllowlistPaths,
+  readBlob,
   readSourceAllowlistAtCommit,
   resolveCommit,
   validateArchivePath,
@@ -51,6 +53,7 @@ import { planForgeAssetRetention, retainForgeAssets } from '../release/retain-fo
 import {
   expandAllowlistPathsFromTree,
   hasGitMetadata,
+  treeDigestFromTree,
 } from '../release/lib/tree.mjs';
 import {
   commitAll,
@@ -92,6 +95,42 @@ function listTarballPaths(archivePath) {
   return output.trim().split('\n').filter(Boolean);
 }
 
+// The exporter rewrites this generated provenance file. All other allowlisted
+// files must retain the exact bytes of the exported commit (RUNBOOK: Test loop).
+const NORMALIZED_SOURCE_PATH = 'release/source-provenance.json';
+const EXPORT_SMOKE_TESTS = [
+  'test/baseline.test.js',
+  'test/contracts.test.js',
+  'test/runtime-transcript.test.js',
+  'test/workspace.test.js',
+];
+
+function extractedFilePaths(root, prefix = '') {
+  return readdirSync(join(root, prefix), { withFileTypes: true }).flatMap((entry) => {
+    const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) return extractedFilePaths(root, path);
+    assert.equal(entry.isFile(), true, `extracted path must be a regular file: ${path}`);
+    return [path];
+  }).sort((a, b) => a.localeCompare(b));
+}
+
+function assertExtractedHashManifest(repo, source, extractDir, manifest) {
+  const paths = expandAllowlistPaths(repo, source.commit, source.allowlist.paths)
+    .filter((path) => path !== NORMALIZED_SOURCE_PATH);
+  const extractedPaths = extractedFilePaths(extractDir);
+  const expected = paths.map((path) => [path, sha256(readBlob(repo, source.commit, path))]);
+  const actual = extractedPaths.filter((path) => path !== NORMALIZED_SOURCE_PATH)
+    .map((path) => [path, sha256(readFileSync(join(extractDir, path)))]);
+  assert.deepEqual(actual, expected, 'extracted file set and hashes must match the pinned source allowlist');
+  // Bind the rewritten provenance bytes too, through the source manifest.
+  assert.equal(extractedPaths.length, manifest.source.path_count);
+  assert.equal(treeDigestFromTree(extractDir, extractedPaths), manifest.source.tree_digest);
+  const provenance = parseSourceProvenance(readFileSync(join(extractDir, NORMALIZED_SOURCE_PATH)));
+  assert.equal(provenance.current_source_commit, source.commit);
+  assert.equal(provenance.private_source_commit, manifest.source.private_source_commit);
+  assert.equal(provenance.lock_digest, manifest.source.lock_digest);
+}
+
 /**
  * @param {string} repo
  * @param {object} [allowlist]
@@ -101,6 +140,8 @@ function seedSourceExportTree(repo, allowlist) {
   for (const rel of [
     'DCO',
     'scripts/check-dco.py',
+    'scripts/test-fast.mjs',
+    'scripts/needs-release-proof.mjs',
     'tests/test_dco.py',
     '.github/workflows/dco.yml',
     'release/source-allowlist.json',
@@ -320,7 +361,41 @@ describe('AIT-11 public source export', () => {
     });
   });
 
-  it('independent extracted source installs, runs full npm test, and matches git-mode release', () => {
+  it('extracted hash manifest rejects added, missing, and changed files', () => {
+    const repo = createTempRepo('aithema-source-hashes-');
+    const buildDir = mkdtempSync(join(tmpdir(), 'aithema-source-hashes-build-'));
+    const extractDir = mkdtempSync(join(tmpdir(), 'aithema-source-hashes-extract-'));
+    try {
+      seedSourceExportTree(repo);
+      commitAll(repo, 'seed hash manifest fixture');
+      const source = resolveSourceExport(repo);
+      const exported = buildSourceExport({ repoRoot: repo, commit: source.commit, outDir: buildDir });
+      extractTarball(exported.artifactPath, extractDir);
+      assertExtractedHashManifest(repo, source, extractDir, exported.manifest);
+
+      const changedPath = join(extractDir, 'README.md');
+      const original = readFileSync(changedPath);
+      writeFileSync(changedPath, 'changed source bytes\n');
+      assert.throws(() => assertExtractedHashManifest(repo, source, extractDir, exported.manifest),
+        /extracted file set and hashes must match/);
+      writeFileSync(changedPath, original);
+
+      const extraPath = join(extractDir, 'unexpected.txt');
+      writeFileSync(extraPath, 'not allowlisted\n');
+      assert.throws(() => assertExtractedHashManifest(repo, source, extractDir, exported.manifest),
+        /extracted file set and hashes must match/);
+      removeTemp(extraPath);
+      removeTemp(changedPath);
+      assert.throws(() => assertExtractedHashManifest(repo, source, extractDir, exported.manifest),
+        /extracted file set and hashes must match/);
+    } finally {
+      removeTemp(repo);
+      removeTemp(buildDir);
+      removeTemp(extractDir);
+    }
+  });
+
+  it('independent extracted source matches commit hashes, installs offline, runs smoke or full tests, and matches git-mode release', () => {
     if (process.env.AITHEMA_SOURCE_PROOF === '1') return;
     withGitSource((repo) => {
       const buildDir = mkdtempSync(join(tmpdir(), 'aithema-source-build-'));
@@ -339,26 +414,34 @@ describe('AIT-11 public source export', () => {
         assert.equal(hasGitMetadata(extractDir), false);
         assert.equal(existsSync(join(extractDir, 'release/source-provenance.json')), true);
         assert.equal(existsSync(join(extractDir, 'AGENTS.md')), false);
+        assertExtractedHashManifest(repo, source, extractDir, exported.manifest);
 
-        const install = spawnSync('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], {
+        const env = {
+          PATH: process.env.PATH,
+          HOME: process.env.HOME,
+          TMPDIR: process.env.TMPDIR,
+          USER: process.env.USER,
+          LANG: process.env.LANG,
+          AITHEMA_SOURCE_PROOF: '1',
+        };
+        if (process.env.npm_config_cache) env.npm_config_cache = process.env.npm_config_cache;
+        if (process.env.AITHEMA_NPM_CACHE) env.AITHEMA_NPM_CACHE = process.env.AITHEMA_NPM_CACHE;
+        const install = spawnSync('npm', ['ci', '--offline', '--ignore-scripts', '--no-audit', '--no-fund'], {
           cwd: extractDir,
           encoding: 'utf8',
           timeout: 300_000,
+          env,
         });
         assert.equal(install.status, 0, install.stderr || install.stdout);
 
         if (hasGitMetadata(repoRoot)) {
-          const env = {
-            PATH: process.env.PATH,
-            HOME: process.env.HOME,
-            TMPDIR: process.env.TMPDIR,
-            USER: process.env.USER,
-            LANG: process.env.LANG,
-            AITHEMA_SOURCE_PROOF: '1',
-          };
-          if (process.env.npm_config_cache) env.npm_config_cache = process.env.npm_config_cache;
-          if (process.env.AITHEMA_NPM_CACHE) env.AITHEMA_NPM_CACHE = process.env.AITHEMA_NPM_CACHE;
-          const tests = spawnSync('npm', ['test'], {
+          const fullProof = process.env.AITHEMA_FULL_EXPORT_PROOF === '1';
+          for (const path of EXPORT_SMOKE_TESTS) {
+            assert.equal(existsSync(join(extractDir, path)), true, `missing extracted smoke test: ${path}`);
+          }
+          const command = fullProof ? 'npm' : process.execPath;
+          const args = fullProof ? ['test'] : ['--test', '--test-reporter=spec', ...EXPORT_SMOKE_TESTS];
+          const tests = spawnSync(command, args, {
             cwd: extractDir,
             encoding: 'utf8',
             timeout: 300_000,
@@ -369,7 +452,12 @@ describe('AIT-11 public source export', () => {
           assert.match(output, /fail 0/);
           const testCount = output.match(/^ℹ tests (\d+)\r?$/m);
           assert.ok(testCount, `missing extracted-suite test count\n${output}`);
-          assert.ok(Number(testCount[1]) >= 100, `expected at least 100 extracted-suite tests, got ${testCount[1]}`);
+          if (fullProof) {
+            assert.ok(Number(testCount[1]) >= 100, `expected at least 100 extracted-suite tests, got ${testCount[1]}`);
+          } else {
+            assert.ok(Number(testCount[1]) >= EXPORT_SMOKE_TESTS.length,
+              `expected tests from ${EXPORT_SMOKE_TESTS.length} extracted smoke files, got ${testCount[1]}`);
+          }
         }
 
         const gitRelease = buildRelease({ repoRoot: repo, commit: source.commit, outDir: gitOut });

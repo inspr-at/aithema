@@ -24,6 +24,16 @@ npm run example
 
 Generated printable fixtures for coordinator QA (outside the repo): write reviewed JSON/CSV/HTML/PDF exports to an operator-owned temporary directory.
 
+## Test loop
+
+Workers and gates run `npm run test:fast` plus targeted tests for their changes. The fast runner discovers every `test/*.test.js` except packaging and source-export, with explicit concurrency from `os.availableParallelism()`. `npm test` still selects the full suite; `npm run test:release` selects the two slow release proofs.
+
+Run `node scripts/needs-release-proof.mjs origin/main` to compare the branch from its merge base, including staged, unstaged, and untracked changes. It prints `release-proof: required` or `release-proof: not-required` and exits 0; an invalid ref exits 2. Release tooling/allowlists, package metadata/lockfile, executables, export/packaging scripts, and release proof tests/fixtures require the slow proofs. Run them on the final commit when required. CI is the source of truth: independent `fast`, `packaging`, and `source-export` jobs always run in parallel on pull requests and pushes to main.
+
+The source-export proof compares the complete extracted file inventory and SHA256 hashes with the exported commit's source allowlist. Only generated `release/source-provenance.json` is excluded from commit-byte equality because the exporter rewrites it; its provenance fields and the full extracted tree digest remain bound to the source manifest. After an offline install, the extraction runs four smoke files: baseline, contracts, runtime transcript, and workspace. `AITHEMA_FULL_EXPORT_PROOF=1 npm test` retains the full recursive extracted suite (with the existing recursion guard). `.github/workflows/nightly.yml` runs that command daily at 02:00 UTC and on manual dispatch.
+
+Release proofs need dependencies and consumer packuments primed online before offline execution. `npm run cache:prime` aliases the existing consumer prime; set `AITHEMA_NPM_CACHE` and `AITHEMA_PRIME_OUT` to explicit temporary paths outside `dist/`, then run it. Use the same cache as `npm_config_cache` for the proofs. CI installs dependencies and primes the cache in both slow jobs and nightly. If a worker cannot prime the cache without network, report that limitation; nobody rewrites the harness to work around missing network.
+
 ## Public source candidate review (local, no publish)
 
 ```bash
