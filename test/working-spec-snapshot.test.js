@@ -189,7 +189,7 @@ describe('AIT-36 round 4: plain-data snapshot at every stream boundary', () => {
   }
 
   for (const boundary of ['append', 'replace', 'approve']) {
-    it(`${boundary} uses a detached snapshot before authorization and returns no caller-owned data`, () => {
+    it(`${boundary} refuses authority accessors and returns no caller-owned data for plain authority`, () => {
       const stream = fixture();
       const original = JSON.parse(JSON.stringify(stream));
       let reads = 0;
@@ -202,11 +202,15 @@ describe('AIT-36 round 4: plain-data snapshot at every stream boundary', () => {
           return boundary === 'approve' ? approver.party_ref : contributor.party_ref;
         },
       };
-      let result;
-      if (boundary === 'append') result = appendProposal(stream, trustedAuthority, proposal('proposal:append', 'source:9', 'REQ-2', false));
-      else if (boundary === 'replace') result = replaceProposal(stream, trustedAuthority, 'proposal:original', proposal('proposal:replacement', 'replace:9'));
-      else result = approveBaselineFromProposals(stream, trustedAuthority, ['proposal:original'], 'baseline:synthetic', at);
-      assert.ok(reads > 0, 'the authorized adapter runs after the snapshot');
+      const invoke = (authority) => boundary === 'append'
+        ? appendProposal(stream, authority, proposal('proposal:append', 'source:9', 'REQ-2', false))
+        : boundary === 'replace'
+          ? replaceProposal(stream, authority, 'proposal:original', proposal('proposal:replacement', 'replace:9'))
+          : approveBaselineFromProposals(stream, authority, ['proposal:original'], 'baseline:synthetic', at);
+      assert.throws(() => invoke(trustedAuthority), normalization);
+      assert.equal(reads, 0, 'authority accessors must never run');
+      assert.deepEqual(stream, original);
+      const result = invoke(boundary === 'approve' ? approver : contributor);
       assert.deepEqual(result.proposals[0], original.proposals[0]);
       assert.notStrictEqual(result.proposals[0], stream.proposals[0]);
       assert.ok(Object.isFrozen(result.proposals[0].content));
@@ -259,7 +263,7 @@ describe('AIT-36 round 4: plain-data snapshot at every stream boundary', () => {
   it('requires primitive references in operation arguments and on all stored records', () => {
     const stream = fixture();
     const request = proposal('proposal:replacement', 'replace:9');
-    assert.throws(() => replaceProposal(stream, contributor, new String('proposal:original'), request), /primitive string/);
+    assert.throws(() => replaceProposal(stream, contributor, new String('proposal:original'), request), normalization);
     for (const refs of [[new String('proposal:original')], [42], Array(1)]) {
       assert.throws(() => approveBaselineFromProposals(stream, approver, refs, 'baseline:synthetic', at), /plain-data snapshot|primitive strings/);
     }
@@ -322,18 +326,18 @@ describe('AIT-36 round 4: plain-data snapshot at every stream boundary', () => {
     const hostile = { ...stream };
     Object.defineProperty(hostile, 'proposals', { enumerable: true, get() { reads += 1; return stream.proposals; } });
     assert.throws(() => rejectProposals(hostile, approver, ['proposal:original'], 'no', at), normalization);
-    assert.ok(reads <= 1, 'the accessor must not be walked after the snapshot');
+    assert.equal(reads, 0, 'the accessor must not be walked before the snapshot');
     const boxed = { ...fixture(), proposals: [{ ...proposal('proposal:original', 'submit:1'), proposal_ref: new String('proposal:original') }] };
     assert.throws(() => rejectProposals(boxed, approver, ['proposal:original'], 'no', at), normalization);
     assert.throws(() => rejectProposals(fixture(), approver, [new String('proposal:original')], 'no', at), normalization);
-    assert.throws(() => rejectProposals(fixture(), approver, ['proposal:original'], 'no', new String(at)), /decided_at must be a non-empty primitive string/);
+    assert.throws(() => rejectProposals(fixture(), approver, ['proposal:original'], 'no', new String(at)), normalization);
     const rejected = rejectProposals(JSON.parse(JSON.stringify(fixture())), approver, ['proposal:original'], 'no', at);
     assert.equal(rejected.decisions.at(-1).outcome, 'rejected');
   });
 
   it('approval refuses boxed baseline_ref and approved_at instead of sealing them', () => {
-    assert.throws(() => approveBaselineFromProposals(fixture(), approver, ['proposal:original'], new String('baseline:synthetic'), at), /baseline_ref must be a non-empty primitive string/);
-    assert.throws(() => approveBaselineFromProposals(fixture(), approver, ['proposal:original'], 'baseline:synthetic', new String(at)), /approved_at must be a non-empty primitive string/);
+    assert.throws(() => approveBaselineFromProposals(fixture(), approver, ['proposal:original'], new String('baseline:synthetic'), at), normalization);
+    assert.throws(() => approveBaselineFromProposals(fixture(), approver, ['proposal:original'], 'baseline:synthetic', new String(at)), normalization);
     const approved = approveBaselineFromProposals(fixture(), approver, ['proposal:original'], 'baseline:synthetic', at);
     assert.equal(typeof currentBaseline(approved).baseline_ref, 'string');
     assert.equal(typeof currentBaseline(approved).approved_at, 'string');
