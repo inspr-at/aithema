@@ -2,6 +2,9 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { canonicalJson, sha256Hex, validate } from '../contracts/validate.js';
+import * as publicApi from '../lib/index.js';
+import * as workingSpecApi from '../lib/working-spec.js';
+import { replaceProposal } from '../lib/stream.js';
 import {
   addWorkingItem, assertWorkingSpec, confirmWorkingItem, confirmWorkingItemVersion,
   createWorkingSpec, prepareWorkingItemRevision, projectSubmission,
@@ -15,6 +18,13 @@ const nextDraftId = '20000000-0000-4000-8000-000000000000';
 const authority = { party_ref: 'party:synthetic', roles: ['delivery_party'] };
 const at = '2026-09-30T00:00:00Z';
 const identity = { item_ref: 'REQ-1', version: 1 };
+
+it('exports replaceProposal and every working-spec function through the package entry point', () => {
+  assert.strictEqual(publicApi.replaceProposal, replaceProposal);
+  for (const [name, implementation] of Object.entries(workingSpecApi)) {
+    assert.strictEqual(publicApi[name], implementation, `missing or incorrect export ${name}`);
+  }
+});
 
 function input(ref = 'REQ-1') {
   return {

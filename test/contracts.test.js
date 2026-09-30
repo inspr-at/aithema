@@ -80,6 +80,42 @@ describe('AIT-35 foundation contracts: canonical digests', () => {
     }
   });
 
+  it('reports non-canonicalizable item content as an invariant instead of throwing', () => {
+    const fixture = load('valid').find((f) => f.name === 'snapshot.review.json');
+    for (const text of ['\ud800', '\udfff', 'x\ud800y']) {
+      for (const field of ['statement', 'acceptance_criteria']) {
+        const doc = structuredClone(fixture.doc);
+        doc.spec.items[0].content[field] = field === 'statement' ? text : [text];
+        assert.deepEqual(validateSchema(fixture.contract, doc), [], 'digest invariants handle structurally valid content');
+        assert.deepEqual(validate(fixture.contract, doc), {
+          ok: false, schemaErrors: [], invariants: ['item.content_canonicalizable'],
+        });
+      }
+    }
+    assert.equal(validate(fixture.contract, fixture.doc).ok, true);
+  });
+
+  it('reports non-canonicalizable design digest fields without throwing', () => {
+    const fixture = load('valid').find((f) => f.name === 'record.design-input.json');
+    for (const field of ['screen_ir', 'tokens']) {
+      for (const value of ['\ud800', '\udfff', NaN, Infinity, -Infinity]) {
+        const doc = structuredClone(fixture.doc);
+        doc.data[field] = { nested: { value } };
+        assert.deepEqual(validateSchema(fixture.contract, doc), []);
+        assert.deepEqual(validate(fixture.contract, doc), {
+          ok: false, schemaErrors: [], invariants: [`design_input.${field}_canonicalizable`],
+        });
+      }
+    }
+    const both = structuredClone(fixture.doc);
+    both.data.screen_ir = { '\ud800': 'invalid key' };
+    both.data.tokens = { value: '\udfff' };
+    assert.deepEqual(validate(fixture.contract, both), {
+      ok: false, schemaErrors: [], invariants: ['design_input.screen_ir_canonicalizable', 'design_input.tokens_canonicalizable'],
+    });
+    assert.equal(validate(fixture.contract, fixture.doc).ok, true);
+  });
+
   it('refuses non-JSON values and cycles without rejecting shared children', () => {
     for (const value of [undefined, [undefined], Array(1), { x: undefined }, 1n, () => {}, Symbol(), new Date()]) {
       assert.throws(() => canonicalJson(value), /JSON values|plain objects/);

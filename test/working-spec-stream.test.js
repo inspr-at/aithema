@@ -1,5 +1,6 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   approveBaselineFromProposals, createStream, currentBaseline,
   proposeConstraint, proposeImport, proposeRequirement,
@@ -135,7 +136,7 @@ describe('AIT-36 (b): immutable atomic replaceProposal', () => {
       { supersedes_proposal_ref: 'proposal:unrelated' }, { supersedes_draft_id: sid },
       { node_id: 'node:accepted' }, { supersedes_item_version: { item_ref: 'REQ-1', version: 1 } },
       { requirement: { ...requirement, requirement_ref: 'REQ-2' } },
-      { requirement: { ...requirement, acceptance_criteria: [] } },
+      { requirement: { ...requirement, acceptance_criteria: [''] } },
       { kind: 'add_constraint', requirement: undefined, constraint: { constraint_ref: 'CON-1', kind: 'technical', statement: 'Synthetic constraint' } },
     ]) {
       assert.throws(() => replaceProposal(before, contributor, oldRef, { ...replacement(before), ...change }));
@@ -233,6 +234,83 @@ describe('AIT-36 (b): immutable atomic replaceProposal', () => {
     const forged = { ...submitted.proposals[0], requirement: { ...submitted.proposals[0].requirement, statement: 'Unconfirmed native payload.' } };
     assert.throws(() => approveBaselineFromProposals({ ...stream, proposals: [forged] }, approver, [forged.proposal_ref], 'baseline:1'), /differs from the confirmed/);
   });
+
+  it('refuses stripped successor envelopes during replacement and rehydrated approval', () => {
+    const source = {
+      item_ref: 'REQ-1', kind: 'requirement',
+      content: { statement: requirement.statement, acceptance_criteria: requirement.acceptance_criteria, constraint_refs: [] },
+      citations: [{ record_seq: 1, locator: 'turn:0' }], provenance: { intent: 'requested', derived_from: [1] },
+    };
+    const confirm = (item) => ({ item_ref: item.item_ref, version: item.version, content_sha256: item.content_sha256, principal_ref: 'person:synthetic' });
+    let spec = addWorkingItem(createWorkingSpec('review'), source);
+    spec = confirmWorkingItem(spec, confirm(spec.items[0]));
+    const submitted = projectSubmission(spec, contributor, {
+      contributed_at: at, bindings: [{ item_ref: 'REQ-1', version: 1, host: { op_key: `${sid}:submit:1`, proposal_ref: 'proposal:original' } }],
+    });
+    const before = { ...createStream('stream:synthetic', ['new_product']), proposals: submitted.proposals };
+    const draft = prepareWorkingItemRevision(submitted.spec, { item_ref: 'REQ-1', version: 1 }, {
+      content: { ...source.content, statement: 'Expose status and readiness endpoints.' },
+      citations: source.citations, provenance: source.provenance,
+    });
+    const candidate = confirmWorkingItemVersion(draft, confirm(draft), 'review');
+    const request = projectWorkingItemReplacement(submitted.spec, contributor, { item_ref: 'REQ-1', version: 1 }, candidate, {
+      contributed_at: at, host: { op_key: `${sid}:replace:2`, proposal_ref: 'proposal:replacement' },
+    }).proposal;
+    const valid = replaceProposal(before, contributor, 'proposal:original', request);
+    const fields = ['content', 'content_sha256', 'citations', 'provenance'];
+    for (const omitted of [fields, ...fields.map((field) => [field])]) {
+      const stripped = structuredClone(request);
+      for (const field of omitted) delete stripped[field];
+      stripped.requirement.statement = 'Changed without full-content confirmation.';
+      assert.throws(() => replaceProposal(before, contributor, 'proposal:original', stripped), /projection requires content/);
+      const hydrated = { ...valid, proposals: [valid.proposals[0], stripped] };
+      assert.throws(() => approveBaselineFromProposals(hydrated, approver, [stripped.proposal_ref], 'baseline:1'), /projection requires content/);
+    }
+    assert.equal(before.decisions.length, 0);
+    assert.equal(valid.baselines.length, 0);
+    const approved = approveBaselineFromProposals(valid, approver, [request.proposal_ref], 'baseline:1', at);
+    assert.equal(currentBaseline(approved).requirements[0].statement, candidate.content.statement);
+  });
+
+  it('projects, approves and replaces the contract REQ-2 with empty acceptance criteria', () => {
+    const fixture = JSON.parse(readFileSync(new URL('../contracts/fixtures/valid/snapshot.review.json', import.meta.url), 'utf8'));
+    const item = fixture.doc.spec.items.find((entry) => entry.item_ref === 'REQ-2');
+    assert.deepEqual(item.content.acceptance_criteria, []);
+    const submitted = projectSubmission(createWorkingSpec('review', [item]), contributor, {
+      contributed_at: at, bindings: [{ item_ref: item.item_ref, version: item.version, host: { op_key: `${sid}:submit:1`, proposal_ref: 'proposal:empty-criteria' } }],
+    });
+    const stream = { ...createStream('stream:synthetic', ['new_product']), proposals: submitted.proposals };
+    const approved = approveBaselineFromProposals(stream, approver, ['proposal:empty-criteria'], 'baseline:original', at);
+    assert.deepEqual(currentBaseline(approved).requirements[0], submitted.proposals[0].requirement);
+    const draft = prepareWorkingItemRevision(submitted.spec, { item_ref: item.item_ref, version: item.version }, {
+      content: { ...item.content, statement: 'Expose a synthetic due-date filter.' },
+      citations: item.citations, provenance: item.provenance,
+    });
+    const candidate = confirmWorkingItemVersion(draft, {
+      item_ref: draft.item_ref, version: draft.version, content_sha256: draft.content_sha256, principal_ref: 'person:synthetic',
+    }, 'review');
+    const request = projectWorkingItemReplacement(submitted.spec, contributor, { item_ref: item.item_ref, version: item.version }, candidate, {
+      contributed_at: at, host: { op_key: `${sid}:replace:2`, proposal_ref: 'proposal:empty-criteria-replacement' },
+    }).proposal;
+    const replaced = replaceProposal(stream, contributor, 'proposal:empty-criteria', request);
+    const accepted = approveBaselineFromProposals(replaced, approver, [request.proposal_ref], 'baseline:replacement', at);
+    assert.deepEqual(currentBaseline(accepted).requirements[0].acceptance_criteria, []);
+    assert.equal(currentBaseline(accepted).requirements[0].statement, candidate.content.statement);
+    assert.throws(() => replaceProposal(approved, contributor, 'proposal:empty-criteria', request), { code: 'already_accepted' });
+  });
+
+  it('still rejects empty criteria strings and empty statements at proposal and approval boundaries', () => {
+    for (const change of [
+      { acceptance_criteria: [''] }, { acceptance_criteria: [' '] },
+      { statement: '', acceptance_criteria: [] }, { statement: ' ', acceptance_criteria: [] },
+    ]) {
+      const invalid = { ...requirement, ...change };
+      assert.throws(() => proposeRequirement(createStream('stream:synthetic', ['new_product']), contributor, invalid, at), /non-empty strings|statement is required/);
+      const stream = initial();
+      const forged = { ...stream.proposals[0], requirement: invalid };
+      assert.throws(() => approveBaselineFromProposals({ ...stream, proposals: [forged] }, approver, [forged.proposal_ref], 'baseline:1'), /non-empty strings|statement is required/);
+    }
+  });
 });
 
 describe('AIT-36 (c, z): SQLite project-revision arbitration and retry fixtures', () => {
@@ -298,6 +376,33 @@ describe('AIT-36 (c, z): SQLite project-revision arbitration and retry fixtures'
       assert.deepEqual(afterAcceptRetry.stream.proposals[1], next.stream.proposals[1]);
       assert.deepEqual(afterAcceptRetry.stream.decisions[0], next.stream.decisions[0]);
       assert.deepEqual(afterAcceptRetry.stream.baselines, accepted.stream.baselines);
+    } finally { store.close(); }
+  });
+
+  it('replays the stored successor with its injected supersedes link before and after acceptance', () => {
+    const { store, project } = fixture();
+    try {
+      const oldRef = project.stream.proposals[0].proposal_ref;
+      const request = replacement(project.stream);
+      assert.equal(Object.hasOwn(request, 'supersedes_proposal_ref'), false);
+      const next = gatedReplace(store, project, oldRef, request);
+      const stored = next.stream.proposals[1];
+      assert.equal(stored.supersedes_proposal_ref, oldRef);
+      assert.equal(Object.hasOwn(request, 'supersedes_proposal_ref'), false, 'caller request stays unchanged');
+      const replay = gatedReplace(store, project, oldRef, structuredClone(stored));
+      assert.equal(replay.revision, next.revision);
+      assert.deepEqual(replay.stream, next.stream);
+      const accepted = apply(store, next, (stream) => approveBaselineFromProposals(stream, approver, [stored.proposal_ref], 'baseline:1', at));
+      const afterAccept = gatedReplace(store, project, oldRef, stored);
+      assert.equal(afterAccept.revision, accepted.revision);
+      assert.deepEqual(afterAccept.stream, accepted.stream);
+      for (const change of [
+        { supersedes_proposal_ref: 'proposal:another' },
+        { requirement: { ...stored.requirement, statement: 'Different stored bytes.' } },
+      ]) {
+        assert.throws(() => gatedReplace(store, project, oldRef, { ...stored, ...change }), { code: 'idempotency_conflict', status: 409 });
+      }
+      assert.equal(store.getProject(project.project_ref, actor).revision, accepted.revision);
     } finally { store.close(); }
   });
 

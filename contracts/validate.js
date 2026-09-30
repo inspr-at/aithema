@@ -289,6 +289,23 @@ export function checkInvariants(contract, doc) {
 }
 
 /**
+ * Canonicalisation failures invalidate a digest-bearing field without making
+ * validate() throw. Unexpected implementation errors still propagate.
+ * @param {unknown} value
+ * @param {string} digest
+ * @param {string} field
+ * @param {string[]} out
+ */
+function checkCanonicalDigest(value, digest, field, out) {
+  try {
+    if (sha256Hex(canonicalJson(value)) !== digest) out.push(`${field}_sha256_matches`);
+  } catch (error) {
+    if (!(error instanceof TypeError)) throw error;
+    out.push(`${field}_canonicalizable`);
+  }
+}
+
+/**
  * @param {any} doc
  * @param {string[]} out
  */
@@ -302,7 +319,7 @@ function snapshotInvariants(doc, out) {
     const key = `${item.item_ref}@${item.version}`;
     if (byRef.has(key)) out.push('item.version_unique');
     byRef.set(key, item);
-    if (sha256Hex(canonicalJson(item.content)) !== item.content_sha256) out.push('item.content_sha256_matches');
+    checkCanonicalDigest(item.content, item.content_sha256, 'item.content', out);
     if (!mode.states.includes(item.state)) out.push('item.state_allowed_in_mode');
     if (!mode.submits && item.host) out.push('mode.working_spec_only_no_host_identity');
     if (transitions.host_identity_required.includes(item.state) && !item.host) out.push('item.host_identity_required');
@@ -421,8 +438,8 @@ function recordInvariants(doc, out) {
     if (doc.data.segments.some((/** @type {any} */ g) => g.start > g.end || g.end > length)) out.push('source.segments_in_bounds');
   }
   if (doc.kind === 'design.input') {
-    if (sha256Hex(canonicalJson(doc.data.screen_ir)) !== doc.data.screen_ir_sha256) out.push('design_input.screen_ir_sha256_matches');
-    if (sha256Hex(canonicalJson(doc.data.tokens)) !== doc.data.tokens_sha256) out.push('design_input.tokens_sha256_matches');
+    checkCanonicalDigest(doc.data.screen_ir, doc.data.screen_ir_sha256, 'design_input.screen_ir', out);
+    checkCanonicalDigest(doc.data.tokens, doc.data.tokens_sha256, 'design_input.tokens', out);
   }
   if (Buffer.byteLength(JSON.stringify(doc), 'utf8') > 1024 * 1024) out.push('record.encoded_max_1_mib');
 }

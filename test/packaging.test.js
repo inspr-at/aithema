@@ -628,6 +628,10 @@ describe('AIT-10 reproducible packaging', () => {
       assert.throws(() => resolvePrimeOutDir(join(repoRoot, 'dist')), /into dist/);
 
       const built = buildRelease({ repoRoot, ...source, outDir: buildDir });
+      // lib/ and runtime/ import the foundation contracts at load time (AIT-36).
+      for (const path of ['contracts/validate.js', 'contracts/index.json', 'contracts/common.schema.json', 'contracts/fixtures/canonical/rfc8785-golden.json']) {
+        assert.ok(built.paths.includes(path), `runtime package must ship ${path}`);
+      }
       const vendorUnprimed = join(unprimedDir, 'vendor');
       mkdirSync(vendorUnprimed, { recursive: true });
       copyFileSync(built.artifactPath, join(vendorUnprimed, ARTIFACT_NAME));
