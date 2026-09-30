@@ -1704,6 +1704,37 @@ describe('(d) tombstone, bounded drain, cache deletion, host purge acknowledgeme
     assert.equal(cache.size, 0);
   });
 
+  it('the ten-minute end keeps re-driving a retained purge without authority until it is acknowledged', async (t) => {
+    let cacheAvailable = false;
+    const { coordinator, fake, local, journal, cache } = setup(t, {
+      purgeCache: async () => {
+        if (!cacheAvailable) throw new Error('fixture cache unavailable');
+        cache.clear();
+      },
+    });
+    const stored = journal.append(bytes(record('session.control', { action: 'purge' }, { writer: { kind: 'host' } })), host());
+    let polls = 0;
+    let available = true;
+    const monitor = new AuthorityMonitor({ session: local, purgeCoordinator: coordinator,
+      clock: fake.clock, scheduler: fake.scheduler, fetchAuthority: () => available
+        ? authorityResponse(fake, { tombstone: 'purge', ...(++polls === 1 ? { tombstone_record: stored } : {}) })
+        : new Promise(() => {}) });
+    monitor.start();
+    await fake.advance(0);
+    assert.equal(local.state, 'PURGING');
+    assert.equal(local.purgeAcknowledged, false);
+    available = false; // Authority disappears while deletion is still retained.
+    await fake.advance(600_000);
+    assert.equal(local.state, 'PURGING', 'The end cannot strand a retained deletion');
+    assert.ok(fake.timers.size > 0, 'The monitor keeps a purge re-drive scheduled after polling ends');
+    cacheAvailable = true;
+    await fake.advance(30_000);
+    assert.equal(local.state, 'PURGED');
+    assert.equal(local.purgeAcknowledged, true);
+    assert.equal(cache.size, 0);
+    assert.equal(fake.timers.size, 0, 'The monitor stops once the purge is acknowledged');
+  });
+
   it('invalid or stale authority tombstone records cannot cause cache deletion or acknowledgement', async (t) => {
     for (const mode of ['foreign', 'projection', 'suspend', 'stale', 'missing coordinator']) {
       const { coordinator, fake, local, cache, events } = setup(t);

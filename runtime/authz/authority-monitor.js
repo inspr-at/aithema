@@ -47,6 +47,7 @@ export class AuthorityMonitor {
   #running = false;
   #pollTimer;
   #endTimer;
+  #purgeTimer;
   #freshnessTimer;
   #request = new AbortController();
   #lastError = null;
@@ -83,6 +84,7 @@ export class AuthorityMonitor {
     this.#scheduler.clearTimeout(this.#pollTimer);
     this.#scheduler.clearTimeout(this.#endTimer);
     this.#scheduler.clearTimeout(this.#freshnessTimer);
+    this.#scheduler.clearTimeout(this.#purgeTimer);
     this.#request.abort(new AuthzError(499, 'Authority monitor stopped'));
   }
 
@@ -105,8 +107,29 @@ export class AuthorityMonitor {
     this.#endTimer = this.#scheduler.setTimeout(() => {
       if (!this.#running) return;
       this.#session.end();
+      // Ending paid work never strands a retained deletion: without authority
+      // the purge steps still run until the host acknowledges them.
+      if (this.#purge && this.#session.state === 'PURGING' && !this.#session.purgeAcknowledged) {
+        this.#scheduler.clearTimeout(this.#pollTimer);
+        this.#scheduler.clearTimeout(this.#freshnessTimer);
+        this.#request.abort(new AuthzError(499, 'Authority polling ended; purge continues'));
+        this.#schedulePurgeRedrive();
+        return;
+      }
       this.stop();
     }, Math.max(0, deadline - this.#clock.monotonicNow()));
+  }
+
+  #schedulePurgeRedrive() {
+    this.#scheduler.clearTimeout(this.#purgeTimer);
+    this.#purgeTimer = this.#scheduler.setTimeout(async () => {
+      if (!this.#running) return;
+      try { await this.#session.redrivePurge(this.#purge); }
+      catch (error) { this.#lastError = error; this.#onError(error); }
+      if (!this.#running) return;
+      if (this.#session.purgeAcknowledged || this.#session.state !== 'PURGING') this.stop();
+      else this.#schedulePurgeRedrive();
+    }, timing.poll_interval_seconds * 1000);
   }
 
   #schedulePoll(index) {
