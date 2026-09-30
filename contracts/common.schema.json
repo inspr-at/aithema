@@ -72,7 +72,10 @@
         "contract_too_new",
         "already_claimed",
         "hold_closed",
-        "budget_denied"
+        "budget_denied",
+        "extension_unknown",
+        "extension_invalid",
+        "extension_limit"
       ]
     },
     "major": {

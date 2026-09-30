@@ -1,0 +1,36 @@
+{
+  "contract": "aithema.extension",
+  "doc": {
+    "contract": "aithema.extension",
+    "major": 1,
+    "minor": 0,
+    "min_reader": 0,
+    "namespace": "x-demo.readiness",
+    "version": "1.0",
+    "title": "Readiness",
+    "schema": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "score"
+      ],
+      "properties": {
+        "score": {
+          "type": "number"
+        },
+        "track": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        }
+      }
+    }
+  }
+}

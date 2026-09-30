@@ -11,7 +11,7 @@
     {
       "contract": "aithema.spec.snapshot",
       "major": 1,
-      "minor": 0,
+      "minor": 1,
       "file": "spec-snapshot.schema.json",
       "root": "/$defs/snapshot"
     },
@@ -56,6 +56,13 @@
       "minor": 0,
       "file": "settings.schema.json",
       "root": "/$defs/settings"
+    },
+    {
+      "contract": "aithema.extension",
+      "major": 1,
+      "minor": 0,
+      "file": "extension.schema.json",
+      "root": "/$defs/extension"
     }
   ],
   "tables": [
