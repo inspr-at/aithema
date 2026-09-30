@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { validate } from '../../contracts/validate.js';
-import { JournalError, decodeDocument } from '../journal/port.js';
+import { canonicalJson, validate } from '../../contracts/validate.js';
+import { JournalError, decodeDocument, submissionBytes } from '../journal/port.js';
 import { checkedRecord } from '../journal/hydrate.js';
 
 export const CRITICAL_RECORD_KINDS = Object.freeze([
@@ -45,8 +45,13 @@ export function restartLoss(record) {
  * Every host call has a monotonic 10 s deadline by default. JournalPort cannot
  * cancel an append, so timeout/cancellation blocks this instance: the host may
  * still commit, but a late response must never run an effect. Recovery/takeover
- * belongs to the coordinator. Critical effects are NOT replayed automatically;
- * recovery and idempotency of effects remain the caller's responsibility.
+ * belongs to the coordinator. The single retained critical slot is volatile;
+ * its bytes survive call failures and can be exported for an explicit handoff.
+ * Only a same-kind, same-data critical() retry can replay them and run its
+ * supplied effect after an ack;
+ * the failed invocation's callback is never retained or run automatically.
+ * Effect recovery/idempotency remains the caller's responsibility. JournalPort
+ * still fences exact retries under old generations or revoked authority.
  */
 export class AuditWriter {
   #port;
@@ -62,6 +67,8 @@ export class AuditWriter {
   #blocked = false;
   #started = false;
   #restartBytes = null;
+  #criticalBytes = null;
+  #criticalRefusal = null;
   #lastAcked;
   #issued = 0;
   #loss = null;
@@ -71,10 +78,11 @@ export class AuditWriter {
    *   authority:import('../journal/port.js').JournalAuthority,
    *   lastAckedAuditSeq?:number, now?:()=>number, uuid?:()=>string,
    *   clock?:{now:()=>number,setTimeout:Function,clearTimeout:Function},
-   *   ackTimeoutMs?:number,maxPending?:number}} options
+   *   ackTimeoutMs?:number,maxPending?:number,
+   *   unacknowledgedCritical?:string|Uint8Array|null}} options
    */
   constructor({ port, authority, lastAckedAuditSeq = 0, now = () => Date.now(), uuid = randomUUID,
-    clock = systemClock, ackTimeoutMs = 10_000, maxPending = 32 }) {
+    clock = systemClock, ackTimeoutMs = 10_000, maxPending = 32, unacknowledgedCritical = null }) {
     if (!port || typeof port.append !== 'function' || typeof port.cursor !== 'function') {
       throw new TypeError('A JournalPort is required');
     }
@@ -99,6 +107,16 @@ export class AuditWriter {
     this.#ackTimeoutMs = ackTimeoutMs;
     this.#maxPending = maxPending;
     this.#lastAcked = lastAckedAuditSeq;
+    if (unacknowledgedCritical !== null) {
+      const bytes = submissionBytes(unacknowledgedCritical);
+      const doc = decodeDocument(bytes, { submission: true });
+      if (doc.contract !== 'aithema.journal.record' || !CRITICAL_RECORD_KINDS.includes(doc.kind)
+          || doc.sid !== this.#authority.sid || doc.writer.kind !== this.#authority.writer_kind
+          || (doc.writer.kind === 'worker' && doc.writer.generation > this.#authority.gen)) {
+        throw new JournalError(400, 'Invalid unacknowledged critical submission for this authority');
+      }
+      this.#criticalBytes = bytes;
+    }
   }
 
   get authority() { return structuredClone(this.#authority); }
@@ -106,6 +124,7 @@ export class AuditWriter {
     return {
       generation: this.#authority.gen, started: this.#started,
       closed: this.#stop.signal.aborted, blocked: this.#blocked, pending: this.#pending,
+      unacknowledged_critical: this.#criticalBytes !== null,
       last_acked_audit_seq: this.#lastAcked, last_issued_audit_seq: this.#issued,
       possibly_lost_tail: this.#loss ? { ...this.#loss } : null,
     };
@@ -113,10 +132,15 @@ export class AuditWriter {
 
   close() { this.#stop.abort(new JournalError(409, 'Audit writer is closed')); }
 
+  /** Original submission only; copied even when closed/blocked for coordinator recovery. */
+  exportUnacknowledgedCritical() {
+    return this.#criticalBytes === null ? null : Buffer.from(this.#criticalBytes);
+  }
+
   #guard(signal) {
     if (this.#stop.signal.aborted) throw this.#stop.signal.reason;
     if (signal?.aborted) throw signal.reason;
-    if (this.#blocked) throw new JournalError(503, 'Host acknowledgement is uncertain; a new worker generation is required');
+    if (this.#blocked) throw new JournalError(503, 'Host acknowledgement is uncertain; coordinator recovery is required');
   }
 
   #enqueue(operation, signal) {
@@ -173,14 +197,15 @@ export class AuditWriter {
     }
   }
 
-  #event(kind, data) {
-    const doc = {
+  #event(kind, data, original = null) {
+    const envelope = original === null ? {
       contract: 'aithema.journal.record', major: 1, minor: 0, min_reader: 0,
       sid: this.#authority.sid, client_event_id: this.#uuid(),
       writer: this.#authority.writer_kind === 'worker'
         ? { kind: 'worker', generation: this.#authority.gen } : { kind: 'host' },
-      recorded_at: new Date(this.#wallNow()).toISOString(), kind, data: structuredClone(data),
-    };
+      recorded_at: new Date(this.#wallNow()).toISOString(),
+    } : decodeDocument(original, { submission: true });
+    const doc = { ...envelope, kind, data: structuredClone(data) };
     if (!validate(doc.contract, doc).ok) throw new JournalError(400, 'Invalid audit journal record');
     const bytes = Buffer.from(JSON.stringify(doc), 'utf8');
     decodeDocument(bytes, { submission: true });
@@ -196,6 +221,38 @@ export class AuditWriter {
     } catch {
       throw new JournalError(502, 'Invalid audit acknowledgement');
     }
+  }
+
+  /** The single critical submission/replay gate, always inside the append queue. */
+  async #recordCritical(bytes, signal, retryOf) {
+    // Concurrent retries of one outstanding record cannot each run an effect
+    // or become new submissions once the first retry receives its ack.
+    if (retryOf !== null && retryOf !== this.#criticalBytes) {
+      throw new JournalError(409, 'The outstanding critical retry has already been acknowledged');
+    }
+    if (this.#criticalBytes !== null) {
+      const pending = decodeDocument(this.#criticalBytes, { submission: true });
+      const requested = decodeDocument(bytes, { submission: true });
+      if (pending.kind !== requested.kind || canonicalJson(pending.data) !== canonicalJson(requested.data)) {
+        throw new JournalError(409, 'Retry the unacknowledged critical record before submitting another');
+      }
+    } else {
+      this.#criticalBytes = bytes;
+    }
+    // A terminal contract/authority refusal is surfaced, never retried by this
+    // instance. Retain its original bytes for the coordinator, without granting
+    // permission to bypass fencing, change its generation, or invent a new id.
+    if (this.#criticalRefusal !== null) throw this.#criticalRefusal;
+    let record;
+    try {
+      record = await this.#send(this.#criticalBytes, signal);
+    } catch (error) {
+      if (error instanceof JournalError && error.status < 500) this.#criticalRefusal = error;
+      throw error;
+    }
+    // Only a fully validated, byte-identical acknowledgement clears the slot.
+    this.#criticalBytes = null;
+    return record;
   }
 
   async #initialize(signal) {
@@ -236,14 +293,19 @@ export class AuditWriter {
    * failed, timed-out, malformed, cancelled or crash-interrupted ack. The effect
    * receives the acknowledged immutable record's copied bytes and host seq.
    * Effects run outside the append queue so they may themselves await audit.
+   * After an uncertain append, retry with the same kind/data: the original
+   * bytes (including UUID/timestamp) are used. Different critical submissions
+   * are refused until that acknowledgement is validated. A timeout/cancelled
+   * writer stays blocked; export its original bytes for coordinator recovery.
    */
   critical(kind, data, effect, { signal } = {}) {
     if (!CRITICAL_RECORD_KINDS.includes(kind)) throw new JournalError(400, 'Not a critical audit record kind');
     if (typeof effect !== 'function') throw new TypeError('A critical effect callback is required');
-    const bytes = this.#event(kind, data);
+    const retryOf = this.#criticalBytes;
+    const bytes = this.#event(kind, data, retryOf);
     return this.#enqueue(async () => {
       await this.#initialize(signal);
-      return this.#send(bytes, signal);
+      return this.#recordCritical(bytes, signal, retryOf);
     }, signal).then(async (record) => {
       this.#guard(signal);
       const value = await effect(record);

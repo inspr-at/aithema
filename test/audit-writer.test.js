@@ -254,12 +254,18 @@ it('(a) a blocked event loop cannot turn an expired deadline into an ack', async
   const journal = host(t);
   const fakeClock = clock();
   let effects = 0;
+  let appends = 0;
   const audit = writer({ cursor: (a) => journal.cursor(a), append(b, a) {
+    appends++;
     const stored = journal.append(b, a);
     fakeClock.advance(10_001, false);
     return stored;
   } }, { clock: fakeClock });
   await assert.rejects(audit.critical('ui.confirm', criticalCases[4][1], () => effects++), { status: 504 });
+  assert.equal(effects, 0);
+  assert.equal(audit.state.blocked, true);
+  await assert.rejects(audit.critical('ui.confirm', criticalCases[4][1], () => effects++), { status: 503 });
+  assert.equal(appends, 1, 'an expired synchronous response blocks further append calls');
   assert.equal(effects, 0);
   assert.equal(fakeClock.timerCount, 0);
 });
