@@ -1,0 +1,28 @@
+{
+  "contract": "aithema.journal.record",
+  "expect": {
+    "schema": "$.recorded_at: not a real date-time"
+  },
+  "doc": {
+    "contract": "aithema.journal.record",
+    "major": 1,
+    "minor": 0,
+    "min_reader": 0,
+    "sid": "0f8e9d2c-3b4a-4c5d-8e6f-7a8b9c0d1e2f",
+    "seq": 43,
+    "client_event_id": "6c1d2e3f-4a5b-4c6d-9e7f-8a9b0c1d2e3f",
+    "writer": {
+      "kind": "browser"
+    },
+    "recorded_at": "2026-02-30T08:15:00Z",
+    "kind": "turn",
+    "data": {
+      "speaker": "person",
+      "participant_ref": "person-1",
+      "channel": "voice",
+      "trust": "authenticated_person",
+      "lang": "de-AT",
+      "body": "Wir brauchen einen Export als CSV."
+    }
+  }
+}

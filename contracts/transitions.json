@@ -1,0 +1,160 @@
+{
+  "description": "Working-spec item lifecycle per host mode (§4.1, AIT-78) and the host's atomic replace/accept arbitration (§4.1, §4.3). A content change is never a transition: it creates a new version (and needs a new confirmation).",
+  "modes": {
+    "review": {
+      "submits": true,
+      "states": [
+        "draft",
+        "confirmed",
+        "proposed",
+        "superseded",
+        "accepted",
+        "invalidated",
+        "rejected"
+      ],
+      "transitions": [
+        {
+          "from": "draft",
+          "to": "confirmed",
+          "by": "ui.confirm on the complete item version"
+        },
+        {
+          "from": "draft",
+          "to": "superseded",
+          "by": "newer version in the working spec"
+        },
+        {
+          "from": "confirmed",
+          "to": "superseded",
+          "by": "newer version in the working spec"
+        },
+        {
+          "from": "confirmed",
+          "to": "proposed",
+          "by": "submission (explicit, session end, or auto at most every 5 min)"
+        },
+        {
+          "from": "proposed",
+          "to": "superseded",
+          "by": "atomic host replace(old, new)"
+        },
+        {
+          "from": "proposed",
+          "to": "accepted",
+          "by": "a person's decision in the host (terminal in v1)"
+        },
+        {
+          "from": "proposed",
+          "to": "rejected",
+          "by": "standalone rejectProposals"
+        },
+        {
+          "from": "proposed",
+          "to": "invalidated",
+          "by": "host-computed staleness (standalone against_* drift; Aeon target drift is post-v1)"
+        }
+      ]
+    },
+    "working_spec_only": {
+      "submits": false,
+      "states": [
+        "draft",
+        "confirmed",
+        "superseded"
+      ],
+      "transitions": [
+        {
+          "from": "draft",
+          "to": "confirmed",
+          "by": "ui.confirm on the complete item version"
+        },
+        {
+          "from": "draft",
+          "to": "superseded",
+          "by": "newer version in the working spec"
+        },
+        {
+          "from": "confirmed",
+          "to": "superseded",
+          "by": "newer version in the working spec"
+        }
+      ],
+      "session_end": "handover package exported with provenance (session.end export = exported)"
+    }
+  },
+  "closed_states": [
+    "superseded",
+    "accepted",
+    "invalidated",
+    "rejected"
+  ],
+  "host_identity_required": [
+    "proposed",
+    "accepted",
+    "invalidated",
+    "rejected"
+  ],
+  "host_identity_forbidden": [
+    "draft",
+    "confirmed"
+  ],
+  "submission_ops": [
+    "submit",
+    "replace"
+  ],
+  "arbitration": [
+    {
+      "old": "proposed",
+      "op": "replace",
+      "result": "ok",
+      "effect": "old becomes superseded and new is inserted with its supersedes link in one host transaction"
+    },
+    {
+      "old": "accepted",
+      "op": "replace",
+      "result": "already_accepted",
+      "effect": "refused; the item is terminal and lane B is told"
+    },
+    {
+      "old": "superseded",
+      "op": "replace",
+      "result": "draft_superseded",
+      "effect": "refused (replace versus replace)"
+    },
+    {
+      "old": "superseded",
+      "op": "accept",
+      "result": "draft_superseded",
+      "effect": "refused; a stale version can no longer be accepted"
+    },
+    {
+      "old": "accepted",
+      "op": "accept",
+      "result": "original result",
+      "effect": "idempotent; the host returns the existing acceptance"
+    },
+    {
+      "old": "proposed",
+      "op": "accept",
+      "result": "ok",
+      "effect": "accepted by a person; terminal for the item in v1"
+    },
+    {
+      "old": "any",
+      "op": "exact retry (same op key, same bytes)",
+      "result": "original result",
+      "effect": "idempotent"
+    },
+    {
+      "old": "any",
+      "op": "same op key, different bytes",
+      "result": "idempotency_conflict",
+      "effect": "a bug; surfaced"
+    }
+  ],
+  "arbitration_precedence": [
+    "authorization and fencing (revoked, fenced_generation)",
+    "operation-key replay or conflict (original result, idempotency_conflict)",
+    "lifecycle arbitration (already_accepted, draft_superseded, ok)"
+  ]
+}

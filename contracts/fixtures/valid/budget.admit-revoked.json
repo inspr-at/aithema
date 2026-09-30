@@ -1,0 +1,13 @@
+{
+  "contract": "aithema.budget.message",
+  "doc": {
+    "contract": "aithema.budget.message",
+    "major": 1,
+    "minor": 0,
+    "min_reader": 0,
+    "type": "admit_response",
+    "body": {
+      "error": "revoked"
+    }
+  }
+}

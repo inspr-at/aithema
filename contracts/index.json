@@ -1,0 +1,60 @@
+{
+  "description": "Aithema foundation contracts (AIT-35), source of truth before code. Versioned per contract (§9.7): adding any key bumps minor; min_reader rises only when an older reader would execute a document unsafely without the key. Not part of the published package yet.",
+  "contracts": [
+    {
+      "contract": "aithema.journal.record",
+      "major": 1,
+      "minor": 0,
+      "file": "journal-record.schema.json",
+      "root": "/$defs/record"
+    },
+    {
+      "contract": "aithema.spec.snapshot",
+      "major": 1,
+      "minor": 0,
+      "file": "spec-snapshot.schema.json",
+      "root": "/$defs/snapshot"
+    },
+    {
+      "contract": "aithema.budget.message",
+      "major": 1,
+      "minor": 0,
+      "file": "budget.schema.json",
+      "root": "/$defs/message"
+    },
+    {
+      "contract": "aithema.token.claims",
+      "major": 1,
+      "minor": 0,
+      "file": "token-claims.schema.json",
+      "root": "/$defs/descriptor"
+    },
+    {
+      "contract": "aithema.authz",
+      "major": 1,
+      "minor": 0,
+      "file": "authz-record.schema.json",
+      "root": "/$defs/record"
+    },
+    {
+      "contract": "aithema.session.create",
+      "major": 1,
+      "minor": 0,
+      "file": "session.schema.json",
+      "root": "/$defs/create"
+    },
+    {
+      "contract": "aithema.element.event",
+      "major": 1,
+      "minor": 0,
+      "file": "element-event.schema.json",
+      "root": "/$defs/event"
+    }
+  ],
+  "tables": [
+    "error-codes.json",
+    "transitions.json",
+    "capabilities.json",
+    "record-writers.json"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "contract": "aithema.element.event",
+  "expect": {
+    "schema": "$.detail.code: \"teapot\" not in enum"
+  },
+  "doc": {
+    "contract": "aithema.element.event",
+    "major": 1,
+    "minor": 0,
+    "min_reader": 0,
+    "type": "aithema-error",
+    "detail": {
+      "code": "teapot"
+    }
+  }
+}

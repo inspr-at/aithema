@@ -1,0 +1,247 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/inspr-at/aithema/contracts/spec-snapshot.schema.json",
+  "title": "spec.snapshot journal record (§3.1, §3.2)",
+  "description": "The complete working spec at one revision, written by the worker and owned by the host. The host accepts it only when expected_prev_rev equals the current working_rev and worker_generation is current (CAS); appending the snapshot is the commit. It carries state and references; source bodies and design inputs stay immutable host records that resume hydrates explicitly. Digests: content_sha256 = sha256 of the RFC 8785 (JSON Canonicalization Scheme) UTF-8 bytes of content; payload_sha256 = sha256(payload bytes); patch.sha256 = sha256(patch.canonical bytes), where patch.canonical is RFC 8785 text. Golden vector: fixtures/canonical/rfc8785-golden.json.",
+  "$defs": {
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "major",
+        "minor",
+        "min_reader",
+        "sid",
+        "client_event_id",
+        "working_rev",
+        "expected_prev_rev",
+        "consumed_seq",
+        "worker_generation",
+        "host_mode",
+        "spec",
+        "pending_ops",
+        "corrections",
+        "patch"
+      ],
+      "properties": {
+        "contract": {
+          "const": "aithema.spec.snapshot"
+        },
+        "major": {
+          "const": 1
+        },
+        "minor": {
+          "$ref": "common.schema.json#/$defs/minor"
+        },
+        "min_reader": {
+          "$ref": "common.schema.json#/$defs/minor"
+        },
+        "sid": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "seq": {
+          "description": "Host-assigned on acceptance; absent on submission.",
+          "$ref": "common.schema.json#/$defs/count"
+        },
+        "client_event_id": {
+          "description": "Worker-generated; a lost acknowledgement is retried with the same id and receives the existing seq.",
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "working_rev": {
+          "$ref": "common.schema.json#/$defs/positive"
+        },
+        "expected_prev_rev": {
+          "$ref": "common.schema.json#/$defs/count"
+        },
+        "consumed_seq": {
+          "$ref": "common.schema.json#/$defs/count"
+        },
+        "worker_generation": {
+          "$ref": "common.schema.json#/$defs/positive"
+        },
+        "host_mode": {
+          "$ref": "common.schema.json#/$defs/host_mode"
+        },
+        "spec": {
+          "$ref": "#/$defs/spec"
+        },
+        "pending_ops": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/pending_op"
+          }
+        },
+        "corrections": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/correction"
+          }
+        },
+        "patch": {
+          "description": "The canonical patch bytes that produced this revision.",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "sha256",
+            "canonical"
+          ],
+          "properties": {
+            "sha256": {
+              "$ref": "common.schema.json#/$defs/sha256"
+            },
+            "canonical": {
+              "type": "string",
+              "maxLength": 262144
+            }
+          }
+        }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "items",
+        "questions",
+        "brief",
+        "screens"
+      ],
+      "properties": {
+        "items": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "$ref": "working-item.schema.json#/$defs/item"
+          }
+        },
+        "questions": {
+          "description": "The single open-questions list: the same list the next spoken turn uses.",
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "question_id",
+              "text",
+              "state"
+            ],
+            "properties": {
+              "question_id": {
+                "$ref": "common.schema.json#/$defs/ref"
+              },
+              "text": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              },
+              "state": {
+                "enum": [
+                  "open",
+                  "asked",
+                  "answered",
+                  "dropped"
+                ]
+              },
+              "asked_in_reaction_seq": {
+                "$ref": "common.schema.json#/$defs/count"
+              }
+            }
+          }
+        },
+        "brief": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 8000
+        },
+        "screens": {
+          "type": "array",
+          "maxItems": 12,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "screen_ref",
+              "design_input_seq"
+            ],
+            "properties": {
+              "screen_ref": {
+                "$ref": "common.schema.json#/$defs/ref"
+              },
+              "design_input_seq": {
+                "$ref": "common.schema.json#/$defs/count"
+              }
+            }
+          }
+        }
+      }
+    },
+    "pending_op": {
+      "description": "An intake write not yet acknowledged. Retried byte-exact on resume under the same op_key; the next snapshot drops it once op.result is journaled.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op_key",
+        "op",
+        "payload_sha256",
+        "payload"
+      ],
+      "properties": {
+        "op_key": {
+          "$ref": "working-item.schema.json#/$defs/op_key"
+        },
+        "op": {
+          "enum": [
+            "post_source",
+            "post_turn",
+            "submit",
+            "replace"
+          ]
+        },
+        "payload_sha256": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "payload": {
+          "type": "string",
+          "maxLength": 65536
+        }
+      }
+    },
+    "correction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "correction_id",
+        "about_reaction_seq",
+        "text",
+        "state"
+      ],
+      "properties": {
+        "correction_id": {
+          "$ref": "common.schema.json#/$defs/ref"
+        },
+        "about_reaction_seq": {
+          "$ref": "common.schema.json#/$defs/count"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "state": {
+          "enum": [
+            "pending",
+            "delivered",
+            "superseded",
+            "acknowledged"
+          ]
+        }
+      }
+    }
+  }
+}

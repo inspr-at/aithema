@@ -1,0 +1,16 @@
+{
+  "contract": "aithema.budget.message",
+  "doc": {
+    "contract": "aithema.budget.message",
+    "major": 1,
+    "minor": 0,
+    "min_reader": 0,
+    "type": "claim_request",
+    "body": {
+      "hold_id": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+      "request_sha256": "c3f7bdf537c46724392c4428e47e04c148c56966190c3c9ed92114800c9f35bb",
+      "worker_generation": 2,
+      "auth_epoch": 3
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "contract": "aithema.token.claims",
+  "expect": {
+    "schema": "$.claims.aud: expected const \"aithema\""
+  },
+  "doc": {
+    "contract": "aithema.token.claims",
+    "major": 1,
+    "minor": 0,
+    "min_reader": 0,
+    "token": "session",
+    "claims": {
+      "iss": "https://host.example",
+      "aud": "aeon",
+      "sub": "person-1",
+      "tid": "tenant-1",
+      "pid": "project-1",
+      "sid": "0f8e9d2c-3b4a-4c5d-8e6f-7a8b9c0d1e2f",
+      "scope": [
+        "session.converse",
+        "session.confirm"
+      ],
+      "actor_kind": "person",
+      "host_mode": "review",
+      "auth_epoch": 3,
+      "iat": 1790000000,
+      "exp": 1790000900
+    }
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "contract": "aithema.authz",
+  "expect": {
+    "schema": "$.participants: fewer than 1 items"
+  },
+  "doc": {
+    "contract": "aithema.authz",
+    "major": 1,
+    "minor": 0,
+    "min_reader": 0,
+    "tid": "tenant-1",
+    "pid": "project-1",
+    "sid": "0f8e9d2c-3b4a-4c5d-8e6f-7a8b9c0d1e2f",
+    "epoch": 3,
+    "participants": [],
+    "purposes": [
+      "intake",
+      "specification",
+      "transcription"
+    ],
+    "processors": [
+      {
+        "processor_ref": "mistral-api",
+        "evidence_ref": "ev-mistral-2026-09",
+        "location": "cloud",
+        "countries": [
+          "FR"
+        ]
+      }
+    ],
+    "settings_sha256": "cde0fb0dec1400c54a0f7e7eafa73624c53e4da258bbd34b3380a0defeba95c1",
+    "basis_label": "contract",
+    "created_at": "2026-09-30T08:00:00Z",
+    "withdrawn_at": null
+  }
+}

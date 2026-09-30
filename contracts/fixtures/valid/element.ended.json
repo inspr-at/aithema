@@ -1,0 +1,14 @@
+{
+  "contract": "aithema.element.event",
+  "doc": {
+    "contract": "aithema.element.event",
+    "major": 1,
+    "minor": 0,
+    "min_reader": 0,
+    "type": "aithema-ended",
+    "detail": {
+      "reason": "person",
+      "export": "exported"
+    }
+  }
+}

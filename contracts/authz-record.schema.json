@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/inspr-at/aithema/contracts/authz-record.schema.json",
+  "title": "Processing authorization record aithema.authz/1 (§9.2)",
+  "description": "Host-owned record required for every session, local ones included. The host decides the lawful basis and supplies its label; Aithema only checks presence, participants, purposes, processors and the settings digest. Withdrawal bumps the epoch: capture and output stop and new budget claims are refused (already committed claims finish and are charged). Purge is a tombstone first, then drain and cache purge, then a purge acknowledgement listing host-side artefacts the host deletes itself.",
+  "$defs": {
+    "record": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract", "major", "minor", "min_reader", "tid", "pid", "sid", "epoch", "participants", "purposes", "processors", "settings_sha256", "basis_label", "created_at", "withdrawn_at"],
+      "properties": {
+        "contract": { "const": "aithema.authz" },
+        "major": { "const": 1 },
+        "minor": { "$ref": "common.schema.json#/$defs/minor" },
+        "min_reader": { "$ref": "common.schema.json#/$defs/minor" },
+        "tid": { "$ref": "common.schema.json#/$defs/ref" },
+        "pid": { "$ref": "common.schema.json#/$defs/ref" },
+        "sid": { "$ref": "common.schema.json#/$defs/uuid" },
+        "epoch": { "$ref": "common.schema.json#/$defs/positive" },
+        "participants": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["participant_ref", "role", "notice_ref"],
+            "properties": {
+              "participant_ref": { "$ref": "common.schema.json#/$defs/ref" },
+              "role": { "enum": ["owner", "participant", "visitor"] },
+              "notice_ref": { "$ref": "common.schema.json#/$defs/ref" }
+            }
+          }
+        },
+        "purposes": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "enum": ["intake", "specification", "design", "transcription"] } },
+        "processors": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["processor_ref", "evidence_ref", "location", "countries"],
+            "properties": {
+              "processor_ref": { "$ref": "common.schema.json#/$defs/ref" },
+              "evidence_ref": { "$ref": "common.schema.json#/$defs/ref" },
+              "location": { "enum": ["operator", "cloud"] },
+              "countries": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "pattern": "^[A-Z]{2}$" } }
+            }
+          }
+        },
+        "settings_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+        "basis_label": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "created_at": { "$ref": "common.schema.json#/$defs/timestamp" },
+        "withdrawn_at": { "oneOf": [{ "type": "null" }, { "$ref": "common.schema.json#/$defs/timestamp" }] }
+      }
+    }
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "contract": "aithema.journal.record",
+  "doc": {
+    "contract": "aithema.journal.record",
+    "major": 1,
+    "minor": 0,
+    "min_reader": 0,
+    "sid": "0f8e9d2c-3b4a-4c5d-8e6f-7a8b9c0d1e2f",
+    "seq": 43,
+    "client_event_id": "6c1d2e3f-4a5b-4c6d-9e7f-8a9b0c1d2e3f",
+    "writer": {
+      "kind": "worker",
+      "generation": 2
+    },
+    "recorded_at": "2026-09-30T08:15:00Z",
+    "kind": "design.input",
+    "data": {
+      "screen_ir_sha256": "db2f2cd474597f76d9544258998b8ec5f8f1713f00af2890b947d929e1e7186a",
+      "screen_ir": {
+        "screen": "export",
+        "nodes": []
+      },
+      "tokens_sha256": "223188e8ae2909b23171eccc007c1dc43285907d2480a803f4113faf820ba729",
+      "tokens": {
+        "color": {}
+      }
+    }
+  }
+}

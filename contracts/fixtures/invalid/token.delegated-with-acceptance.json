@@ -1,0 +1,35 @@
+{
+  "contract": "aithema.token.claims",
+  "expect": {
+    "invariant": "token.acceptance_never_delegated"
+  },
+  "doc": {
+    "contract": "aithema.token.claims",
+    "major": 1,
+    "minor": 0,
+    "min_reader": 0,
+    "token": "delegated",
+    "claims": {
+      "iss": "https://host.example",
+      "aud": "host.example",
+      "sub": "plugin-aithema",
+      "act": {
+        "sub": "person-1"
+      },
+      "tid": "tenant-1",
+      "pid": "project-1",
+      "sid": "0f8e9d2c-3b4a-4c5d-8e6f-7a8b9c0d1e2f",
+      "gen": 2,
+      "auth_epoch": 3,
+      "capabilities": [
+        "intake.read",
+        "intake.write",
+        "aithema.journal.write",
+        "aithema.ledger",
+        "intake.decide"
+      ],
+      "iat": 1790000000,
+      "exp": 1790000600
+    }
+  }
+}

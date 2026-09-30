@@ -1,0 +1,16 @@
+{
+  "contract": "aithema.element.event",
+  "doc": {
+    "contract": "aithema.element.event",
+    "major": 1,
+    "minor": 0,
+    "min_reader": 0,
+    "type": "aithema-submitted",
+    "detail": {
+      "item_refs": [
+        "REQ-2"
+      ],
+      "working_rev": 7
+    }
+  }
+}
