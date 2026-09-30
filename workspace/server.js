@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 
@@ -24,6 +25,8 @@ import { joinMountPath, stripMountPath } from '../runtime/public-path.js';
 import { readAllowedStatic, resolveWorkspaceStatic } from './flow-assets.js';
 import { buildWorkspaceFlowState, handleHostFlowIntent } from './flow-context.js';
 import { renderWorkspacePage } from './page.js';
+import { assertTextSessionPort, assertTextSessionProvider, confirmBatch, normalizeTurnText } from './text-session.js';
+import { TextUiError } from './text-ui.js';
 
 const COOKIE = 'aithema_demo';
 const MAX_BODY = 32_000;
@@ -55,10 +58,15 @@ export function contentSecurityPolicyForPreviewBindings(previewBindings = []) {
 
 /**
  * @param {import('./config.js').normalizeWorkspaceConfig extends Function ? object : never} rawConfig
- * @param {{ fetchImpl?: typeof fetch }} [options]
+ * @param {{ fetchImpl?: typeof fetch, textSessions?: import('./text-session.js').TextSessionProvider }} [options]
+ *   textSessions attaches engine text sessions (AIT-43) to projects; without it
+ *   the workspace is unchanged.
  */
 export function createWorkspaceServer(rawConfig, options = {}) {
   const config = normalizeWorkspaceConfig(rawConfig);
+  const textSessions = options.textSessions === undefined ? null : assertTextSessionProvider(options.textSessions);
+  // Per-request text session view, read by the synchronous page renderer.
+  const requestScope = new AsyncLocalStorage();
   let previewBindingsForHeaders = config.previewBindings;
   const html = (res, status, body, extra = {}) => writeHtml(
     res,
@@ -115,7 +123,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
   });
 
   const server = createServer((req, res) => {
-    handle(req, res).catch((error) => {
+    requestScope.run({ textSession: null }, () => handle(req, res)).catch((error) => {
       if (!res.headersSent) {
         html(res, 500, pageModel({ error: error instanceof Error ? error.message : 'server error' }));
       }
@@ -333,6 +341,23 @@ export function createWorkspaceServer(rawConfig, options = {}) {
       return;
     }
 
+    const text = await attachTextSession(actor, projectRef);
+    // Every legacy intake entry uses this authority check before parsing or
+    // mutating anything: an attached engine owns input, even if its view fails.
+    const refuseLegacyIntake = () => {
+      if (!text) return false;
+      const error = 'This project uses the AI text session. Send input through the text session so it is budgeted and journaled.';
+      if (wantsJson(req)) json(res, 409, { error, code: 'text_session_required' });
+      else html(res, 409, pageModel({ actor, sessionAuthenticated, projects: store.listProjects(actor), project, error }));
+      return true;
+    };
+
+    const textRoute = rest.match(/^text\/(turns|confirm)$/);
+    if (textRoute && req.method === 'POST') {
+      await respondTextAction(req, res, { actor, sessionAuthenticated, project, text, action: textRoute[1] });
+      return;
+    }
+
     if (req.method === 'GET' && rest === '') {
       const notice = pageNotice(url.searchParams);
       html(res, 200, pageModel({ actor, sessionAuthenticated, projects: store.listProjects(actor), project, notice }));
@@ -383,6 +408,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
     }
 
     if (req.method === 'POST' && rest === 'turns') {
+      if (refuseLegacyIntake()) return;
       const body = await readForm(req);
       const abort = new AbortController();
       const onClose = () => {
@@ -435,6 +461,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
     }
 
     if (req.method === 'POST' && rest === 'preview-feedback') {
+      if (refuseLegacyIntake()) return;
       const body = await readForm(req);
       const abort = new AbortController();
       const onClose = () => {
@@ -546,6 +573,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
     }
 
     if (req.method === 'POST' && rest === 'documents') {
+      if (refuseLegacyIntake()) return;
       const abort = new AbortController();
       const onClose = () => {
         if (!res.writableEnded) abort.abort();
@@ -590,6 +618,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
 
     const interpretMatch = rest.match(/^documents\/([^/]+)\/interpret$/);
     if (req.method === 'POST' && interpretMatch) {
+      if (refuseLegacyIntake()) return;
       const documentRef = decodeURIComponent(interpretMatch[1]);
       const abort = new AbortController();
       const onClose = () => {
@@ -673,6 +702,76 @@ export function createWorkspaceServer(rawConfig, options = {}) {
     html(res, 404, pageModel({ actor, sessionAuthenticated, projects: store.listProjects(actor), project, error: 'Not found' }));
   }
 
+  /**
+   * Resolve the project's engine text session and cache its view for this
+   * request's page renders. A failing session never blanks the page.
+   */
+  async function attachTextSession(actor, projectRef) {
+    if (!textSessions) return null;
+    const port = textSessions.get({ actor, projectRef });
+    if (!port) return null;
+    assertTextSessionPort(port);
+    const scope = requestScope.getStore();
+    const canAct = actor.actor_kind === 'human';
+    const refresh = async () => {
+      try {
+        scope.textSession = { view: await port.view(), canAct };
+        scope.textError = undefined;
+      } catch {
+        scope.textSession = { view: { state: null, transcript: [], durability: null, unavailable: true }, canAct };
+        scope.textError = 'The text session is unavailable right now; nothing new can be confirmed until it is back.';
+      }
+    };
+    await refresh();
+    return { port, refresh };
+  }
+
+  async function respondTextAction(req, res, { actor, sessionAuthenticated, project, text, action }) {
+    const projectRef = project.project_ref;
+    const fail = async (error, draftMessage) => {
+      const status = textErrorStatus(error);
+      await text?.refresh();
+      if (wantsJson(req)) {
+        json(res, status, { error: messageOf(error), code: error?.code, ...(error?.confirmed ? { confirmed: error.confirmed.length } : {}) });
+      } else {
+        html(res, status, pageModel({
+          actor, sessionAuthenticated, projects: store.listProjects(actor), project,
+          error: messageOf(error), draftMessage,
+        }));
+      }
+    };
+    if (!text) {
+      await fail(new TextUiError('no_text_session', 'This project has no text session.', 404));
+      return;
+    }
+    const body = await readForm(req);
+    if (actor.actor_kind !== 'human') {
+      await fail(new TextUiError('forbidden', 'Only a signed-in human participant can send messages or confirm items.', 403));
+      return;
+    }
+    try {
+      let message;
+      let payload;
+      if (action === 'turns') {
+        const result = await text.port.submitTurn({ text: normalizeTurnText(body.message) });
+        message = TURN_MESSAGES[result.reaction?.status] ?? TURN_MESSAGES.default;
+        payload = { status: 'ok', turn_seq: result.turn_seq, reaction_status: result.reaction?.status ?? null };
+      } else {
+        const result = await confirmBatch(text.port, body.binding, { einreichen: body.action === 'einreichen' });
+        message = confirmMessage(result);
+        payload = { status: 'ok', confirmed: result.confirmed.length, already_confirmed: result.already.length, submitted: result.submitted };
+      }
+      await text.refresh();
+      if (wantsJson(req)) {
+        json(res, 200, { ...payload, message, durability: requestScope.getStore().textSession.view.durability });
+      } else {
+        redirect(res, toPublic(`/projects/${encodeURIComponent(projectRef)}?notice=${encodeURIComponent(message)}#page-notice`));
+      }
+    } catch (error) {
+      await fail(error, action === 'turns' && typeof body.message === 'string' ? body.message : undefined);
+    }
+  }
+
   function demoSubjects() {
     if (!identity.memberships) return [];
     return [...identity.memberships.values()].map((entry) => ({
@@ -738,6 +837,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
   function pageModel(extra) {
     const project = extra.project;
     const actor = extra.actor ?? null;
+    const scope = requestScope.getStore();
     return renderWorkspacePage({
       mode: config.mode,
       labelledDemo: config.labelledDemo,
@@ -751,6 +851,8 @@ export function createWorkspaceServer(rawConfig, options = {}) {
         : null,
       publicBasePath: config.publicBasePath,
       ...extra,
+      textSession: extra.textSession ?? (project ? scope?.textSession : null) ?? null,
+      error: extra.error ?? (project ? scope?.textError : undefined),
       revisionReview: extra.revisionReview ?? (project ? controller.reviewPending(actor, project.project_ref) : undefined),
       flowState: extra.flowState ?? flowStateFor(actor, project ?? null),
       allowedSelections: project
@@ -1238,6 +1340,29 @@ function pageNotice(params) {
   if (incomplete) return incomplete;
   const notice = params.get('notice');
   return notice || undefined;
+}
+
+const TURN_MESSAGES = Object.freeze({
+  delivered: 'Message sent. The AI assistant replied.',
+  already_delivered: 'Message sent. The AI assistant had already replied.',
+  denied: 'Message saved. The AI assistant could not reply because a budget or setting denied it.',
+  discarded: 'Message saved. The reply was discarded because the session authorization changed.',
+  failed: 'Message saved. The AI assistant could not produce a reply; you can send another message.',
+  default: 'Message saved.',
+});
+
+/** Fixed wording plus counts only; nothing the browser sent is reflected. */
+function confirmMessage({ confirmed, already, submitted }) {
+  const parts = [`Confirmed ${confirmed.length} item${confirmed.length === 1 ? '' : 's'}.`];
+  if (already.length) parts.push(`${already.length} already confirmed.`);
+  if (submitted) parts.push('Submitted to the host.');
+  return parts.join(' ');
+}
+
+function textErrorStatus(error) {
+  if (error instanceof TextUiError) return error.status;
+  if (Number.isInteger(error?.status) && error.status >= 400 && error.status < 600) return error.status;
+  return 400;
 }
 
 function mutationStatus(error) {

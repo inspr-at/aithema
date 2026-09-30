@@ -18,6 +18,7 @@ const HOST_SCRIPTS = Object.freeze({
   '/workspace-flow-host.js': 'flow-host.js',
   '/workspace-speech-input.js': 'speech-input.js',
   '/workspace-preview-feedback.js': 'preview-feedback.js',
+  '/workspace-text-ui.js': 'text-ui-client.js',
   '/preview-adapter.js': 'preview-adapter.js',
 });
 

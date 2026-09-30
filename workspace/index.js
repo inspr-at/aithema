@@ -37,3 +37,19 @@ export {
   createPreviewAdapter,
 } from './preview-adapter.js';
 export { acceptWorkspacePreviewMessage, bindWorkspacePreviewFeedback } from './preview-feedback.js';
+export {
+  INTERACTION_DISCLOSURE,
+  TextUiError,
+  confirmableItems,
+  describeDurability,
+  parseBindings,
+  planConfirmation,
+  renderTextSession,
+} from './text-ui.js';
+export {
+  assertTextSessionPort,
+  confirmBatch,
+  createTextSession,
+  normalizeTurnText,
+} from './text-session.js';
+export { bindTextUi, unseenSeqs } from './text-ui-client.js';

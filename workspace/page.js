@@ -2,6 +2,7 @@ import { currentBaseline } from '../lib/stream.js';
 import { pendingProposalList } from '../runtime/controller.js';
 import { joinMountPath } from '../runtime/public-path.js';
 import { escapeHtml } from './config.js';
+import { renderTextSession } from './text-ui.js';
 
 function href(model, appPath) {
   return joinMountPath(model.publicBasePath ?? '', appPath);
@@ -35,8 +36,8 @@ export function renderWorkspacePage(model) {
   return documentShell('Requirements workspace', demoBanner, model, `
   <h1>Requirements workspace</h1>
   <p>Conversation builds an evolving understanding and unapproved proposals. Only a mapped human reviewer can confirm a baseline.</p>
-  ${model.error ? `<p class="error">${escapeHtml(model.error)}</p>` : ''}
-  ${model.notice ? `<p class="notice">${escapeHtml(model.notice)}</p>` : ''}
+  ${model.error ? `<p class="error" role="alert">${escapeHtml(model.error)}</p>` : ''}
+  ${model.notice ? `<p class="notice" role="status">${escapeHtml(model.notice)}</p>` : ''}
   ${model.actor ? renderSignedInHome(model) : renderSignIn(model)}`);
 }
 
@@ -76,6 +77,27 @@ function sharedStyles() {
     .review-choice { padding: .4rem; border: 1px solid #777; font-weight: 700; }
     .preview-frame { width: 100%; height: min(34rem, 68vh); border: 1px solid #777; background: #fff; }
     .preview-selection { padding: .6rem .75rem; border-left: 3px solid #1f4f8a; background: #f8f9fc; }
+    .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+    .skip-link { position: absolute; left: .5rem; top: -4rem; padding: .5rem .75rem; background: #fff; border: 2px solid #1f4f8a; z-index: 10; }
+    .skip-link:focus { top: .5rem; }
+    :focus-visible { outline: 3px solid #1f4f8a; outline-offset: 2px; }
+    .text-status { display: flex; flex-wrap: wrap; gap: .5rem; margin: 0 0 .75rem; }
+    .ai-badge { margin: 0; padding: .35rem .6rem; border: 2px solid #1f4f8a; background: #e8f1fd; font-size: .9rem; }
+    .durability { margin: 0; padding: .35rem .6rem; border: 2px solid #555; font-size: .9rem; }
+    .durability[data-durability="durable"] { border-color: #1f6a2f; background: #e9f6ec; }
+    .durability[data-durability="pending"], .durability[data-durability="not_started"] { border-color: #8a5a00; background: #fff4d6; }
+    .durability[data-durability="capture_only"], .durability[data-durability="ended"] { border-color: #8a1f1f; background: #fde8e8; }
+    .disclosure { padding: .5rem .75rem; border-left: 3px solid #1f4f8a; background: #f8f9fc; }
+    .transcript { max-height: 24rem; overflow-y: auto; border: 1px solid #bbb; padding: .25rem .5rem; }
+    .transcript .turn { margin: .4rem 0; }
+    .transcript .speaker { margin: 0 0 .15rem; }
+    .segment { margin: .2rem 0; }
+    .segment.question { padding: .35rem .5rem; border-left: 4px solid #1f4f8a; background: #eef3fb; font-weight: 600; }
+    .text-items { list-style: none; margin: 0; padding: 0; }
+    .text-item { margin: .75rem 0; padding: .75rem; border: 1px solid #777; }
+    .item-fields dt { margin-top: .5rem; font-weight: 700; }
+    .item-fields dd { margin: .15rem 0 0; }
+    .ai-generated { font-weight: 700; }
   </style>`;
 }
 
@@ -100,13 +122,23 @@ function renderProjectPage(model, demoBanner) {
     ? `<div class="next-question"><strong>Focused next question:</strong> ${escapeHtml(understanding.next_question)}</div>`
     : '<p class="meta">No focused next question yet.</p>';
 
-  return documentShell(project.title, demoBanner, model, `
-  <h1 class="project-title">${escapeHtml(project.title)}</h1>
-  ${model.error ? `<p class="error">${escapeHtml(model.error)}</p>` : ''}
-  ${model.notice ? `<p class="notice">${escapeHtml(model.notice)}</p>` : ''}
+  const projectPath = `/projects/${encodeURIComponent(project.project_ref)}`;
+  const text = model.textSession
+    ? renderTextSession({
+      view: model.textSession.view,
+      canAct: Boolean(model.textSession.canAct),
+      draftMessage: model.draftMessage,
+      turnAction: href(model, `${projectPath}/text/turns`),
+      confirmAction: href(model, `${projectPath}/text/confirm`),
+    })
+    : null;
+  // A project with an engine text session replaces the legacy composer: two
+  // message forms on one page would be ambiguous and the legacy one bypasses
+  // the engine's budget gate and journal.
+  const compose = text ? `${text.conversation}${text.confirmation}${text.review}` : `
   <section class="primary" id="workspace-compose">
     ${next}
-    <form method="post" action="${href(model, `/projects/${encodeURIComponent(project.project_ref)}/turns`)}">
+    <form method="post" action="${href(model, `${projectPath}/turns`)}">
       <input type="hidden" name="expected_revision" value="${escapeHtml(String(project.revision))}">
       ${renderProviderFields(model)}
       <label>Your message <textarea name="message" required maxlength="8000">${escapeHtml(model.draftMessage ?? '')}</textarea></label>
@@ -114,7 +146,14 @@ function renderProjectPage(model, demoBanner) {
     </form>
     ${renderSpeechInput(model)}
     ${renderSpendNotice(model)}
-  </section>
+  </section>`;
+
+  return documentShell(project.title, demoBanner, model, `
+  <h1 class="project-title">${escapeHtml(project.title)}</h1>
+  ${text ? `${text.status}${renderSpendNotice(model)}` : ''}
+  ${model.error ? `<p class="error" id="page-error" role="alert" tabindex="-1">${escapeHtml(model.error)}</p>` : ''}
+  ${model.notice ? `<p class="notice" id="page-notice" role="status" tabindex="-1">${escapeHtml(model.notice)}</p>` : ''}
+  ${compose}
   ${renderPreviewFeedback(model)}
   <section id="workspace-review">
     <h2>Pending proposals</h2>
@@ -152,6 +191,13 @@ function renderPreviewFeedback(model) {
   const binding = model.previewCapability;
   const project = model.project;
   if (!binding || !project) return '';
+  if (model.textSession) {
+    return `<section id="workspace-preview-feedback">
+      <h2>Preview feedback</h2>
+      <p>Send preview feedback through the text session above.</p>
+      <iframe class="preview-frame" src="${escapeHtml(binding.previewUrl)}" title="Configured artifact preview" sandbox="allow-scripts allow-same-origin" referrerpolicy="no-referrer"></iframe>
+    </section>`;
+  }
   return `<section id="workspace-preview-feedback">
     <h2>Preview feedback</h2>
     <p>Select an annotated element in this exact operator-configured preview. Selection only prepares a draft; it does not send, approve, or start delivery.</p>
@@ -461,6 +507,12 @@ function exportLinkRow(model, projectRef, baseline) {
 function renderDocumentIntake(model) {
   const project = model.project;
   if (!project) return '';
+  if (model.textSession) {
+    return `<details class="secondary">
+      <summary>Document intake</summary>
+      <p class="meta">Document upload and interpretation are unavailable while this text session is attached. Send requirements through the text session above.</p>
+    </details>`;
+  }
   const docs = (project.documents ?? []).map((doc) => {
     const status = doc.extraction_reason === 'ok'
       ? (doc.truncated ? 'readable, truncated' : 'readable')
@@ -512,16 +564,18 @@ function documentShell(title, demoBanner, model, inner) {
   ${sharedStyles()}
 </head>
 <body>
+  <a class="skip-link" href="#main-content">Skip to main content</a>
   ${demoBanner}
   <inspr-flow-shell layout-mode="bounded" logo-src="${href(model, '/flow-shell/assets/inspr-logo.svg')}">
-    <div class="host-main">
+    <main class="host-main" id="main-content" tabindex="-1">
       ${inner}
-    </div>
+    </main>
   </inspr-flow-shell>
   <script type="application/json" id="aithema-flow-state">${embedJson(model.flowState ?? null)}</script>
   <script type="module" src="${href(model, '/workspace-flow-host.js')}"></script>
   ${model.speechCapability?.enabled ? `<script type="module" src="${href(model, '/workspace-speech-input.js')}"></script>` : ''}
   ${model.previewCapability ? `<script type="module" src="${href(model, '/workspace-preview-feedback.js')}"></script>` : ''}
+  ${model.textSession ? `<script type="module" src="${href(model, '/workspace-text-ui.js')}"></script>` : ''}
 </body>
 </html>`;
 }
