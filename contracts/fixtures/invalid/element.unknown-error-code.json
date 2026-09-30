@@ -1,7 +1,7 @@
 {
   "contract": "aithema.element.event",
   "expect": {
-    "schema": "matches 0 of oneOf"
+    "schema": "$.detail.code: \"teapot\" not in enum"
   },
   "doc": {
     "contract": "aithema.element.event",

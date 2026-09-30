@@ -88,6 +88,13 @@ describe('AIT-35 foundation contracts: compatibility (§9.7)', () => {
     assert.deepEqual(canExecute({ ...doc, min_reader: 0 }, readerSupport()), { ok: true });
   });
 
+  it('accepts early-year dates and refuses leap seconds per the stated profile', () => {
+    const f = load('valid').find((x) => x.name === 'record.turn.json');
+    assert.ok(f);
+    assert.deepEqual(validateSchema(f.contract, { ...f.doc, recorded_at: '0099-01-01T00:00:00Z' }), []);
+    assert.notDeepEqual(validateSchema(f.contract, { ...f.doc, recorded_at: '2016-12-31T23:59:60Z' }), []);
+  });
+
   it('rejects any unknown key, policy-relevant or cosmetic', () => {
     const f = load('valid').find((x) => x.name === 'session.create-working-spec-only.json');
     assert.ok(f);
@@ -144,6 +151,16 @@ describe('AIT-35 foundation contracts: tables stay consistent', () => {
     for (const route of capabilities.routes) {
       if (route.class === 'person-only') assert.ok(capabilities.never_in_token.includes(route.capability), route.route);
       else if (route.class !== 'host-to-service') assert.ok(capabilities.delegated_allowed.includes(route.capability), route.route);
+    }
+  });
+
+  it('every delegated route checks expiry; writes and controls are fenced; intake writes need the LiveGrant', () => {
+    for (const route of capabilities.routes) {
+      if (!['read', 'write', 'control'].includes(route.class)) continue;
+      assert.ok(route.checks.includes('exp'), `${route.route}: exp`);
+      assert.ok(route.checks.includes('epoch') || route.capability === 'aithema.authority.read', `${route.route}: epoch`);
+      if (route.class !== 'read') assert.ok(route.checks.some((/** @type {string} */ c) => c.startsWith('gen')), `${route.route}: gen`);
+      if (route.capability === 'intake.write') assert.ok(route.checks.includes('ephemeral LiveGrant'), route.route);
     }
   });
 

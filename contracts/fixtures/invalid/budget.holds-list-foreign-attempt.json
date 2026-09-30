@@ -1,7 +1,7 @@
 {
   "contract": "aithema.budget.message",
   "expect": {
-    "schema": "$.body: missing next_cursor"
+    "invariant": "budget.holds_list_same_session"
   },
   "doc": {
     "contract": "aithema.budget.message",
@@ -10,7 +10,7 @@
     "min_reader": 0,
     "type": "holds_list",
     "body": {
-      "sid": "0f8e9d2c-3b4a-4c5d-8e6f-7a8b9c0d1e2f",
+      "sid": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
       "state": "open",
       "holds": [
         {
@@ -18,7 +18,8 @@
           "attempt_id": "0f8e9d2c-3b4a-4c5d-8e6f-7a8b9c0d1e2f:2:spec:5",
           "claimed": true
         }
-      ]
+      ],
+      "next_cursor": null
     }
   }
 }

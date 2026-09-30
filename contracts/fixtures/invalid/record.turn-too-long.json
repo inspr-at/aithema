@@ -1,7 +1,7 @@
 {
   "contract": "aithema.journal.record",
   "expect": {
-    "schema": "matches 0 of oneOf"
+    "schema": "$.data.body: longer than 8000"
   },
   "doc": {
     "contract": "aithema.journal.record",

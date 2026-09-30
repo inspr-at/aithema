@@ -16,7 +16,7 @@
       "type": "string",
       "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?Z$",
       "format": "date-time",
-      "description": "RFC 3339 UTC; the date must exist (validated beyond the pattern)."
+      "description": "RFC 3339 UTC profile: the date must exist and seconds are 00–59 (leap seconds are not represented; hosts record :59). Validated beyond the pattern."
     },
     "count": {
       "type": "integer",

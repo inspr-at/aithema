@@ -261,7 +261,8 @@
             "error": {
               "enum": [
                 "fenced_generation",
-                "revoked"
+                "revoked",
+                "idempotency_conflict"
               ]
             }
           }
@@ -368,28 +369,47 @@
       }
     },
     "recover_response": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "hold_id",
-        "closed_reason",
-        "charged_micro"
-      ],
-      "properties": {
-        "hold_id": {
-          "$ref": "common.schema.json#/$defs/uuid"
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "hold_id",
+            "closed_reason",
+            "charged_micro"
+          ],
+          "properties": {
+            "hold_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "closed_reason": {
+              "enum": [
+                "void",
+                "settled",
+                "unknown"
+              ]
+            },
+            "charged_micro": {
+              "$ref": "common.schema.json#/$defs/count"
+            }
+          }
         },
-        "closed_reason": {
-          "enum": [
-            "void",
-            "settled",
-            "unknown"
-          ]
-        },
-        "charged_micro": {
-          "$ref": "common.schema.json#/$defs/count"
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "error"
+          ],
+          "properties": {
+            "error": {
+              "enum": [
+                "fenced_generation",
+                "revoked"
+              ]
+            }
+          }
         }
-      }
+      ]
     },
     "holds_list": {
       "type": "object",

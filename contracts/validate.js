@@ -78,8 +78,10 @@ function isRealDateTime(value) {
   const m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(\.[0-9]{1,6})?Z$/.exec(value);
   if (!m) return false;
   const [, y, mo, d, h, mi, se] = m.map(Number);
-  const t = new Date(Date.UTC(y, mo - 1, d, h, mi, se));
-  return t.getUTCFullYear() === y && t.getUTCMonth() === mo - 1 && t.getUTCDate() === d && t.getUTCHours() === h && t.getUTCMinutes() === mi && t.getUTCSeconds() === se;
+  if (h > 23 || mi > 59 || se > 59) return false;
+  const t = new Date(0);
+  t.setUTCFullYear(y, mo - 1, d); // setUTCFullYear does not remap years 0–99
+  return t.getUTCFullYear() === y && t.getUTCMonth() === mo - 1 && t.getUTCDate() === d;
 }
 
 /**
@@ -144,14 +146,31 @@ function check(schema, value, file, path, errors) {
   }
   if (schema.allOf) for (const sub of schema.allOf) check(sub, value, file, path, errors);
   if (schema.oneOf) {
-    const passing = schema.oneOf.filter((/** @type {any} */ sub) => {
+    const results = schema.oneOf.map((/** @type {any} */ sub) => {
       /** @type {string[]} */
       const subErrors = [];
       check(sub, value, file, path, subErrors);
-      return subErrors.length === 0;
-    }).length;
-    if (passing !== 1) errors.push(`${path}: matches ${passing} of oneOf, expected exactly 1`);
+      return { sub, subErrors };
+    });
+    const passing = results.filter((r) => r.subErrors.length === 0).length;
+    if (passing !== 1) {
+      errors.push(`${path}: matches ${passing} of oneOf, expected exactly 1`);
+      // Discriminated union: report the errors of the one branch whose const keys match.
+      const selected = results.filter((r) => discriminatorMatches(r.sub, value));
+      if (passing === 0 && selected.length === 1) errors.push(...selected[0].subErrors);
+    }
   }
+}
+
+/**
+ * @param {any} sub
+ * @param {unknown} value
+ */
+function discriminatorMatches(sub, value) {
+  if (value === null || typeof value !== 'object' || !sub.properties) return false;
+  const consts = Object.entries(sub.properties).filter(([, s]) => s && typeof s === 'object' && 'const' in /** @type {object} */ (s));
+  const obj = /** @type {Record<string, unknown>} */ (value);
+  return consts.length > 0 && consts.every(([k, s]) => Object.hasOwn(obj, k) && JSON.stringify(/** @type {any} */ (s).const) === JSON.stringify(obj[k]));
 }
 
 /**
@@ -310,6 +329,16 @@ function budgetInvariants(doc, out) {
   if (doc.type === 'recover_response' && doc.body.closed_reason === 'void' && doc.body.charged_micro !== 0) {
     out.push('budget.recover_void_zero');
   }
+  if (doc.type === 'recover_response' && doc.body.closed_reason === 'unknown' && !(doc.body.charged_micro > 0)) {
+    out.push('budget.unknown_charged_positive');
+  }
+  if (doc.type === 'holds_list') {
+    const holds = doc.body.holds;
+    if (holds.some((/** @type {any} */ h) => h.attempt_id.split(':')[0] !== doc.body.sid)) out.push('budget.holds_list_same_session');
+    const ids = holds.map((/** @type {any} */ h) => h.hold_id);
+    const attempts = holds.map((/** @type {any} */ h) => h.attempt_id);
+    if (new Set(ids).size !== ids.length || new Set(attempts).size !== attempts.length) out.push('budget.holds_list_unique');
+  }
   if (doc.type === 'settle_request') {
     const hasActual = doc.body.actual_micro !== undefined;
     if ((doc.body.outcome === 'settled') !== hasActual) out.push('budget.settled_has_actual_unknown_has_none');
@@ -347,6 +376,7 @@ function recordInvariants(doc, out) {
     const claimed = doc.data.claim_id !== undefined;
     if (doc.data.outcome === 'void' && (claimed || doc.data.charged_micro !== 0)) out.push('budget.settle_void_unclaimed_zero');
     if (doc.data.outcome !== 'void' && !claimed) out.push('budget.settle_claim_required');
+    if (doc.data.outcome === 'unknown' && !(doc.data.charged_micro > 0)) out.push('budget.unknown_charged_positive');
   }
   if (doc.kind === 'budget.hold') {
     const [sid, gen, lane] = doc.data.attempt_id.split(':');
