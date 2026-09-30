@@ -151,20 +151,49 @@ it('(a) old unconfigured sessions keep original behavior alongside scoped deploy
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM budget_deployment_holds').get().n, 1);
 });
 
-it('(a) deployment registration is immutable, shared, currency-safe and atomic', (t) => {
+it('(a) deployment identity and session bindings stay immutable, shared, currency-safe and atomic', (t) => {
   const { ledger, journal, db } = host(t);
   assert.doesNotThrow(() => ledger.registerSession(registration()));
-  for (const deployment_period of [undefined, policy({ deployment_id: 'different' }), policy({ ceiling_micro: 200 }),
-    policy({ time_zone: 'UTC' }), policy({ notify_at: [] })]) {
+  for (const deployment_period of [undefined, policy({ deployment_id: 'different' }), policy({ time_zone: 'UTC' })]) {
     assert.throws(() => ledger.registerSession(registration({ deployment_period })), { status: 409 });
   }
   const otherSid = randomUUID();
   journal.createSession(bytes(session({ sid: otherSid, tid: 'fixture-other-tenant' })));
-  for (const overrides of [{ deployment_period: policy({ ceiling_micro: 101 }) }, { currency: 'USD' }]) {
+  for (const overrides of [{ deployment_period: policy({ time_zone: 'UTC' }) }, { currency: 'USD' }]) {
     assert.throws(() => ledger.registerSession(registration({ sid: otherSid, ...overrides })), { status: 409 });
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM budget_sessions WHERE sid = ?').get(otherSid).n, 0);
   }
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM budget_deployments').get().n, 1);
+  ledger.registerSession(registration({ sid: otherSid, deployment_period: undefined }));
+  assert.throws(() => ledger.registerSession(registration({ sid: otherSid })), { status: 409 });
+});
+
+it('(a) ceiling and notifications update on the same deployment through existing or new sessions', (t) => {
+  const { ledger, addSession, db } = host(t);
+  ledger.registerSession(registration({ deployment_period: policy({ ceiling_micro: 200 }) }));
+  assert.equal(report(ledger).ceiling_micro, 200);
+  ledger.registerSession(registration({ deployment_period: policy({ ceiling_micro: 200, notify_at: [] }) }));
+  const changed = policy({ ceiling_micro: 300, notify_at: [] });
+  addSession({ tid: 'fixture-other-tenant' }, { deployment_period: changed });
+  assert.deepEqual(JSON.parse(Buffer.from(db.prepare('SELECT policy_bytes FROM budget_deployments').get().policy_bytes)), changed);
+  assert.ok(admit(ledger, admission(1, { max_micro: 300 })).body.hold_id);
+  assert.deepEqual(report(ledger), expected({ ceiling_micro: 300, admitted_micro: 300, open_holds: 1 }));
+  assert.equal(notifications(db).length, 0);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM budget_deployments').get().n, 1);
+});
+
+it('(a) failed registration rolls back a policy update and any new session binding', (t) => {
+  const { ledger, journal, db } = host(t);
+  const original = Buffer.from(db.prepare('SELECT policy_bytes FROM budget_deployments').get().policy_bytes);
+  const otherSid = randomUUID();
+  journal.createSession(bytes(session({ sid: otherSid })));
+  for (const registrationSid of [sid, otherSid]) {
+    assert.throws(() => ledger.registerSession(registration({ sid: registrationSid, tenant_day_cap_micro: 999,
+      deployment_period: policy({ ceiling_micro: 200, notify_at: [] }) })), { status: 409 });
+    assert.deepEqual(Buffer.from(db.prepare('SELECT policy_bytes FROM budget_deployments').get().policy_bytes), original);
+  }
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM budget_sessions WHERE sid = ?').get(otherSid).n, 0);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM budget_session_deployments WHERE sid = ?').get(otherSid).n, 0);
 });
 
 it('(a) invalid host policy never registers a session or deployment', (t) => {
@@ -176,6 +205,125 @@ it('(a) invalid host policy never registers a session or deployment', (t) => {
     assert.throws(() => ledger.registerSession(registration({ sid: otherSid, deployment_period })), { status: 400 });
   }
   assert.equal(db.prepare('SELECT COUNT(*) AS n FROM budget_sessions').get().n, 1);
+});
+
+for (const [oldCeiling, newCeiling] of [[100, 200], [200, 100], [100, 0]]) {
+  it(`(a,c,e) an opened October keeps ceiling ${oldCeiling}; November uses the updated ${newCeiling}`, (t) => {
+    const { ledger, clock, path, now } = host(t, { deployment_period: policy({ ceiling_micro: oldCeiling }) });
+    const body = admission(1, { max_micro: 40 });
+    const held = admit(ledger, body);
+    ledger.registerSession(registration({ deployment_period: policy({ ceiling_micro: newCeiling }) }));
+    const reopened = new SqliteBudgetLedger(path, { now });
+    t.after(() => reopened.close());
+    assert.deepEqual(admit(reopened, body), held);
+    assert.deepEqual(report(reopened), expected({ ceiling_micro: oldCeiling, admitted_micro: 40, open_holds: 1 }));
+    assert.equal(admit(reopened, admission(2, { max_micro: oldCeiling - 40 })).body.remaining_micro, 0);
+    assert.equal(admit(ledger, admission(3, { max_micro: 1 })).body.denied, 'deployment_period_cap');
+    assert.deepEqual(report(ledger), expected({ ceiling_micro: oldCeiling, admitted_micro: oldCeiling, open_holds: 2 }));
+    clock.at = Date.parse('2026-10-31T23:00:00Z');
+    assert.deepEqual(admit(reopened, body), held);
+    assert.deepEqual(report(reopened, '2026-11'), expected({ period_id: '2026-11', ceiling_micro: newCeiling }));
+    const next = admit(reopened, admission(4, { max_micro: newCeiling || 1 }));
+    if (newCeiling === 0) assert.equal(next.body.denied, 'deployment_period_cap');
+    else assert.equal(next.body.remaining_micro, 0);
+    assert.deepEqual(report(ledger, '2026-11'), expected({ period_id: '2026-11', ceiling_micro: newCeiling,
+      admitted_micro: newCeiling, open_holds: newCeiling ? 1 : 0 }));
+  });
+}
+
+it('(a,c,d) an opened period freezes both notification ratios and their ceiling across edits and restart', (t) => {
+  const { ledger, db, clock, path, now } = host(t);
+  admit(ledger, admission(1)); // 40, below every original threshold.
+  ledger.registerSession(registration({ deployment_period: policy({ ceiling_micro: 200, notify_at: [0.25, 0.75] }) }));
+  const reopened = new SqliteBudgetLedger(path, { now });
+  t.after(() => reopened.close());
+  admit(reopened, admission(2, { max_micro: 10 }));
+  assert.deepEqual(notifications(db).map((doc) => JSON.parse(doc.data.detail).notify_at), [0.5]);
+  admit(reopened, admission(3, { max_micro: 50 }));
+  assert.deepEqual(notifications(db).map((doc) => JSON.parse(doc.data.detail).notify_at), [0.5, 0.8, 1]);
+  assert.ok(notifications(db).every((doc) => JSON.parse(doc.data.detail).ceiling_micro === 100));
+  clock.at = Date.parse('2026-10-31T23:00:00Z');
+  admit(reopened, admission(4, { max_micro: 100 }));
+  admit(reopened, admission(5, { max_micro: 50 }));
+  assert.deepEqual(notifications(db).slice(3).map((doc) => JSON.parse(doc.data.detail)), [0.25, 0.75].map((notify_at, i) => ({
+    scope: 'deployment_period', deployment_id: 'fixture-host', period_id: '2026-11',
+    notify_at, ceiling_micro: 200, reserved_or_charged_micro: i === 0 ? 100 : 150,
+  })));
+});
+
+it('(a,c,d) fully recovered reservations leave the period policy frozen and crossings deduplicated', (t) => {
+  const { ledger, db } = host(t);
+  const held = admit(ledger, admission(1, { max_micro: 100 }));
+  recover(ledger, held.body.hold_id);
+  ledger.registerSession(registration({ deployment_period: policy({ ceiling_micro: 200, notify_at: [0.25] }) }));
+  assert.equal(report(ledger).ceiling_micro, 100);
+  assert.equal(admit(ledger, admission(2, { max_micro: 101 })).body.denied, 'deployment_period_cap');
+  assert.ok(admit(ledger, admission(3, { max_micro: 100 })).body.hold_id);
+  assert.equal(notifications(db).length, 3);
+});
+
+it('(a,c,e) a denial leaves the period unopened; changed policy applies to a new attempt, never to replay', (t) => {
+  const { ledger, db } = host(t);
+  const body = admission(1, { max_micro: 101 });
+  const denied = admit(ledger, body);
+  assert.equal(denied.body.denied, 'deployment_period_cap');
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM budget_deployment_periods').get().n, 0);
+  ledger.registerSession(registration({ deployment_period: policy({ ceiling_micro: 200, notify_at: [0.25] }) }));
+  assert.deepEqual(report(ledger), expected({ ceiling_micro: 200 }));
+  assert.deepEqual(admit(ledger, body), denied);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM budget_deployment_periods').get().n, 0);
+  assert.ok(admit(ledger, admission(2, { max_micro: 101 })).body.hold_id);
+  assert.deepEqual(report(ledger), expected({ ceiling_micro: 200, admitted_micro: 101, open_holds: 1 }));
+  assert.deepEqual(notifications(db).map((doc) => JSON.parse(doc.data.detail).notify_at), [0.25]);
+});
+
+it('(a,c,d,e) upgrade freezes legacy reserved periods, removes denial-only metadata and preserves original bytes atomically', async (t) => {
+  const { ledger, client, db, clock, path, now } = host(t);
+  const body = admission(1, { max_micro: 60 });
+  const held = await client.admit(body);
+  clock.at = Date.parse('2026-10-31T23:00:00Z');
+  const deniedBody = admission(2, { max_micro: 101 });
+  const denied = admit(ledger, deniedBody);
+  // Reproduce the previous schema, whose admission opened metadata on denial.
+  const bounds = deploymentPeriodBounds('2026-11', 'Europe/Vienna');
+  db.prepare('INSERT INTO budget_deployment_periods VALUES(?,?,?,?,?,?)')
+    .run('fixture-host', '2026-11', bounds.start_at, bounds.end_at, 100, Buffer.from('[]'));
+  db.exec('ALTER TABLE budget_deployment_periods DROP COLUMN notify_at_bytes');
+  const ledgerBytes = () => db.prepare('SELECT original_bytes,verdict_bytes FROM budget_holds ORDER BY attempt_id').all()
+    .map((row) => [Buffer.from(row.original_bytes), Buffer.from(row.verdict_bytes)]);
+  const journalBytes = () => db.prepare('SELECT original_bytes FROM journal_records ORDER BY seq').all()
+    .map((row) => Buffer.from(row.original_bytes));
+  const before = { ledger: ledgerBytes(), journal: journalBytes() };
+  db.exec(`CREATE TRIGGER fail_period_upgrade BEFORE UPDATE ON budget_deployment_periods
+    BEGIN SELECT RAISE(ABORT,'fixture period upgrade failure'); END;`);
+  assert.throws(() => new SqliteBudgetLedger(path, { now }), /fixture period upgrade failure/);
+  assert.equal(db.prepare('PRAGMA table_info(budget_deployment_periods)').all().some((column) => column.name === 'notify_at_bytes'), false);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM budget_deployment_periods').get().n, 2);
+  assert.deepEqual({ ledger: ledgerBytes(), journal: journalBytes() }, before);
+  db.exec('DROP TRIGGER fail_period_upgrade');
+  const reopened = new SqliteBudgetLedger(path, { now });
+  t.after(() => reopened.close());
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM budget_deployment_periods').get().n, 1);
+  assert.deepEqual(report(reopened), expected({ admitted_micro: 60, open_holds: 1 }));
+  assert.deepEqual(report(reopened, '2026-11'), expected({ period_id: '2026-11' }));
+  assert.deepEqual({ ledger: ledgerBytes(), journal: journalBytes() }, before);
+  reopened.registerSession(registration({ deployment_period: policy({ ceiling_micro: 200, notify_at: [] }) }));
+  assert.deepEqual(admit(reopened, body).body, held);
+  assert.deepEqual(admit(reopened, deniedBody), denied);
+  assert.deepEqual(report(reopened), expected({ admitted_micro: 60, open_holds: 1 }));
+  assert.deepEqual(report(reopened, '2026-11'), expected({ period_id: '2026-11', ceiling_micro: 200 }));
+  const committed = claim(reopened, held.hold_id).body.claim_id;
+  assert.equal(settle(reopened, committed, 20).body.charged_micro, 20);
+  assert.deepEqual(report(reopened), expected({ settled_micro: 20 }));
+  const frozen = db.prepare('SELECT notify_at_bytes FROM budget_deployment_periods WHERE period_id = ?').get('2026-10');
+  assert.deepEqual(JSON.parse(Buffer.from(frozen.notify_at_bytes)), [0.5, 0.8, 1]);
+  const again = new SqliteBudgetLedger(path, { now });
+  t.after(() => again.close());
+  assert.deepEqual(report(again), report(reopened));
+  assert.ok(admit(again, admission(3, { max_micro: 150 })).body.hold_id);
+  assert.deepEqual(report(again, '2026-11'), expected({ period_id: '2026-11', ceiling_micro: 200, admitted_micro: 150, open_holds: 1 }));
+  assert.equal(notifications(db).length, 1);
+  assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(), []);
 });
 
 it('(b,c) admitted holds retain their period through late claim, settlement and all replays', async (t) => {
@@ -250,6 +398,7 @@ for (const [scope, overrides, denied] of [
     assert.equal(validate(result.contract, result).ok, true);
     assert.equal(report(ledger).admitted_micro, 0);
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM budget_deployment_holds').get().n, 0);
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM budget_deployment_periods').get().n, 0);
     assert.equal(notifications(db).length, 0);
   });
 }
@@ -284,6 +433,25 @@ it('(c) independent concurrent admissions cannot jointly exceed a deployment cei
   assert.deepEqual(notifications(db).map((doc) => JSON.parse(doc.data.detail).notify_at).sort(), [0.5, 0.8]);
 });
 
+it('(a,c) parallel admits use the frozen ceiling after an edit and the new ceiling next month', { timeout: 15_000 }, async (t) => {
+  const { ledger, addSession, path, clock, db } = host(t);
+  const auths = [authority(), ...Array.from({ length: 3 }, (_, n) => addSession({ tid: `fixture-tenant-${n}` }))];
+  admit(ledger, admission(1, { max_micro: 20 }));
+  ledger.registerSession(registration({ deployment_period: policy({ ceiling_micro: 200, notify_at: [] }) }));
+  const calls = (n) => auths.map((auth) => ({ auth, body: admission(n, { sid: auth.sid, max_micro: 60 }) }));
+  const october = await parallelAdmits(path, calls(2), clock.at);
+  assert.equal(october.filter((result) => result.body.hold_id).length, 1);
+  assert.equal(october.filter((result) => result.body.denied === 'deployment_period_cap').length, 3);
+  assert.deepEqual(report(ledger), expected({ admitted_micro: 80, open_holds: 2 }));
+  assert.equal(notifications(db).length, 2);
+  clock.at = Date.parse('2026-10-31T23:00:00Z');
+  const november = await parallelAdmits(path, calls(3), clock.at);
+  assert.equal(november.filter((result) => result.body.hold_id).length, 3);
+  assert.equal(november.filter((result) => result.body.denied === 'deployment_period_cap').length, 1);
+  assert.deepEqual(report(ledger, '2026-11'), expected({ period_id: '2026-11', ceiling_micro: 200, admitted_micro: 180, open_holds: 3 }));
+  assert.equal(notifications(db).length, 2);
+});
+
 it('(c,d) concurrent exact replays reserve and notify once', { timeout: 10_000 }, async (t) => {
   const { ledger, path, clock, db } = host(t);
   const call = { auth: authority(), body: admission(1, { max_micro: 80 }) };
@@ -307,6 +475,29 @@ it('(c,d) admission, period binding, notification and journal cursors roll back 
   assert.ok(admit(ledger, admission(1, { max_micro: 80 })).body.hold_id);
   assert.deepEqual(report(ledger), expected({ admitted_micro: 80, open_holds: 1 }));
 });
+
+for (const cursor of ['last_seq', 'audit_seq']) {
+  for (const slots of [0, 1]) {
+    it(`(c,d) exhausted ${cursor} with ${slots} notification slots returns 409 and rolls back every write`, (t) => {
+      const { ledger, db } = host(t);
+      const cursors = { last_seq: 0, audit_seq: 0, [cursor]: Number.MAX_SAFE_INTEGER - slots };
+      db.prepare('UPDATE journal_sessions SET last_seq = ?, audit_seq = ? WHERE sid = ?')
+        .run(cursors.last_seq, cursors.audit_seq, sid);
+      assert.throws(() => admit(ledger, admission(1, { max_micro: 80 })), {
+        status: 409, message: 'Journal or audit sequence exhausted',
+      });
+      for (const table of ['budget_holds', 'budget_deployment_holds', 'budget_deployment_periods',
+        'budget_deployment_notifications', 'journal_records']) {
+        assert.equal(db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n, 0, table);
+      }
+      assert.deepEqual({ ...db.prepare('SELECT last_seq,audit_seq FROM journal_sessions WHERE sid = ?').get(sid) }, cursors);
+      assert.deepEqual(report(ledger), expected());
+      db.prepare('UPDATE journal_sessions SET last_seq = 0, audit_seq = 0 WHERE sid = ?').run(sid);
+      assert.ok(admit(ledger, admission(1, { max_micro: 80 })).body.hold_id);
+      assert.equal(notifications(db).length, 2);
+    });
+  }
+}
 
 it('(c,d) exact integer arithmetic admits the last micro-unit without overflow or premature notifications', (t) => {
   const maximum = Number.MAX_SAFE_INTEGER;
@@ -469,5 +660,16 @@ it('(e) reports empty past/future periods without writes and rejects malformed o
   assert.throws(() => report(ledger, '2026-10', 'fixture-host\n'), { status: 400 });
   for (const query of [undefined, null, [], {}, { deployment_id: 'fixture-host', period_id: '2026-10', bypass: true }]) {
     assert.throws(() => ledger.getDeploymentPeriod(query), { status: 400 });
+  }
+});
+
+it('(e) reports unopened past, current and future periods using the live policy without freezing them', (t) => {
+  const { ledger, db } = host(t);
+  for (const ceiling_micro of [200, 0, 300]) {
+    ledger.registerSession(registration({ deployment_period: policy({ ceiling_micro, notify_at: [] }) }));
+    for (const period_id of ['2020-01', '2026-10', '2027-01']) {
+      assert.deepEqual(report(ledger, period_id), expected({ period_id, ceiling_micro }));
+    }
+    assert.equal(db.prepare('SELECT COUNT(*) AS n FROM budget_deployment_periods').get().n, 0);
   }
 });

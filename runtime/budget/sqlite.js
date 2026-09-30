@@ -58,7 +58,8 @@ CREATE TABLE IF NOT EXISTS budget_session_deployments (
 CREATE TABLE IF NOT EXISTS budget_deployment_periods (
   deployment_id TEXT NOT NULL REFERENCES budget_deployments(deployment_id), period_id TEXT NOT NULL,
   start_at TEXT NOT NULL, end_at TEXT NOT NULL,
-  ceiling_micro INTEGER NOT NULL CHECK(ceiling_micro >= 0), PRIMARY KEY(deployment_id,period_id)
+  ceiling_micro INTEGER NOT NULL CHECK(ceiling_micro >= 0), notify_at_bytes BLOB NOT NULL,
+  PRIMARY KEY(deployment_id,period_id)
 );
 CREATE TABLE IF NOT EXISTS budget_deployment_holds (
   hold_id TEXT PRIMARY KEY REFERENCES budget_holds(hold_id), deployment_id TEXT NOT NULL, period_id TEXT NOT NULL,
@@ -97,7 +98,23 @@ export class SqliteBudgetLedger {
       }
       // Additive tables also upgrade existing hosts, preserving every original
       // session, hold, verdict and journal byte. Concurrent opens share a lock.
-      this.#transaction(() => this.#db.exec(SCHEMA));
+      this.#transaction(() => {
+        this.#db.exec(SCHEMA);
+        if (!this.#db.prepare('PRAGMA table_info(budget_deployment_periods)').all().some((column) => column.name === 'notify_at_bytes')) {
+          // Earlier hosts pinned the entire deployment policy. Its ratios are
+          // therefore also the original ratios for every reserved period.
+          this.#db.exec("ALTER TABLE budget_deployment_periods ADD COLUMN notify_at_bytes BLOB NOT NULL DEFAULT x'5b5d'");
+          for (const row of this.#db.prepare('SELECT deployment_id, policy_bytes FROM budget_deployments').all()) {
+            const policy = JSON.parse(Buffer.from(row.policy_bytes).toString('utf8'));
+            this.#db.prepare('UPDATE budget_deployment_periods SET notify_at_bytes = ? WHERE deployment_id = ?')
+              .run(Buffer.from(canonicalJson(policy.notify_at)), row.deployment_id);
+          }
+          // Those hosts also wrote period metadata on denial. Only periods
+          // with a successful reservation were opened; keep all verdict bytes.
+          this.#db.exec(`DELETE FROM budget_deployment_periods AS p WHERE NOT EXISTS
+            (SELECT 1 FROM budget_deployment_holds h WHERE h.deployment_id = p.deployment_id AND h.period_id = p.period_id)`);
+        }
+      });
     } catch (error) { this.#db.close(); throw error; }
   }
 
@@ -112,7 +129,7 @@ export class SqliteBudgetLedger {
     } catch (error) { this.#db.exec('ROLLBACK'); throw error; }
   }
 
-  /** Immutable host registration. Identity is namespaced by issuer and tenant. */
+  /** Immutable host scope registration; future-period ceiling/notifications may change. */
   registerSession({ sid, issuer, principal, currency, session_cap_micro, principal_day_cap_micro, tenant_day_cap_micro, evidence, deployment_period }) {
     for (const [key, value] of Object.entries({ sid, issuer, principal, currency })) {
       if (typeof value !== 'string' || !value.length) throw new BudgetError(400, `${key} is required`);
@@ -139,10 +156,13 @@ export class SqliteBudgetLedger {
       if (deployment) {
         const policyBytes = Buffer.from(canonicalJson(deployment));
         const row = this.#db.prepare('SELECT * FROM budget_deployments WHERE deployment_id = ?').get(deployment.deployment_id);
-        if (row && (row.currency !== currency || !Buffer.from(row.policy_bytes).equals(policyBytes))) {
-          throw new BudgetError(409, 'Deployment policy and currency are immutable');
+        const prior = row && JSON.parse(Buffer.from(row.policy_bytes).toString('utf8'));
+        if (row && (row.currency !== currency || prior.period !== deployment.period || prior.time_zone !== deployment.time_zone)) {
+          throw new BudgetError(409, 'Deployment identity, period, time zone and currency are immutable');
         }
-        this.#db.prepare('INSERT OR IGNORE INTO budget_deployments VALUES(?,?,?)').run(deployment.deployment_id, currency, policyBytes);
+        this.#db.prepare(`INSERT INTO budget_deployments VALUES(?,?,?)
+          ON CONFLICT(deployment_id) DO UPDATE SET policy_bytes = excluded.policy_bytes`)
+          .run(deployment.deployment_id, currency, policyBytes);
       }
       for (const [scope, key, cap] of [['principal', principalKey, principal_day_cap_micro], ['tenant', tenantKey, tenant_day_cap_micro]]) {
         const row = this.#db.prepare('SELECT cap_micro FROM budget_caps WHERE scope = ? AND scope_key = ? AND currency = ?').get(scope, key, currency);
@@ -202,13 +222,13 @@ export class SqliteBudgetLedger {
     return query.get(deploymentId, periodId);
   }
 
-  #deploymentPeriod(session, timestamp) {
-    if (session.deployment_id === null) return null;
-    const policy = this.#deployment(session.deployment_id);
-    const period = deploymentPeriodAt(Date.parse(timestamp), policy.time_zone);
-    this.#db.prepare('INSERT OR IGNORE INTO budget_deployment_periods VALUES(?,?,?,?,?)')
-      .run(policy.deployment_id, period.period_id, period.start_at, period.end_at, policy.ceiling_micro);
-    return { ...policy, ...period };
+  /** One policy authority for admission, notification and reporting; lookup never opens a period. */
+  #deploymentPeriod(policy, period) {
+    const row = this.#db.prepare('SELECT * FROM budget_deployment_periods WHERE deployment_id = ? AND period_id = ?')
+      .get(policy.deployment_id, period.period_id);
+    if (!row) return { ...policy, ...period };
+    return { ...policy, period_id: row.period_id, start_at: row.start_at, end_at: row.end_at,
+      ceiling_micro: row.ceiling_micro, notify_at: JSON.parse(Buffer.from(row.notify_at_bytes).toString('utf8')) };
   }
 
   #notifyDeployment(period, session, before, after, timestamp) {
@@ -253,12 +273,12 @@ export class SqliteBudgetLedger {
     }
     return this.#transaction(() => {
       const policy = this.#deployment(deployment_id);
-      try { deploymentPeriodBounds(period_id, policy.time_zone); }
+      let bounds;
+      try { bounds = deploymentPeriodBounds(period_id, policy.time_zone); }
       catch { throw new BudgetError(400, 'Invalid period_id'); }
-      const row = this.#db.prepare('SELECT ceiling_micro FROM budget_deployment_periods WHERE deployment_id = ? AND period_id = ?')
-        .get(deployment_id, period_id);
+      const period = this.#deploymentPeriod(policy, bounds);
       const usage = this.#deploymentUsage(deployment_id, period_id);
-      return budgetMessage('deployment_period_report', { deployment_id, period_id, ceiling_micro: row?.ceiling_micro ?? policy.ceiling_micro,
+      return budgetMessage('deployment_period_report', { deployment_id, period_id, ceiling_micro: period.ceiling_micro,
         ...Object.fromEntries(Object.entries(usage).map(([key, value]) => [key, Number(value)])) }).body;
     });
   }
@@ -282,7 +302,8 @@ export class SqliteBudgetLedger {
       if (body.currency !== session.currency) throw new BudgetError(400, 'Admission currency differs from the host budget');
       const timestamp = new Date(this.#now()).toISOString();
       const day = timestamp.slice(0, 10); // UTC admission day; recovery never moves a charge to a different day.
-      const period = this.#deploymentPeriod(session, timestamp);
+      const policy = session.deployment_id === null ? null : this.#deployment(session.deployment_id);
+      const period = policy ? this.#deploymentPeriod(policy, deploymentPeriodAt(Date.parse(timestamp), policy.time_zone)) : null;
       const scopes = [
         ['session_cap', session.session_cap_micro, 'sid = ?', [session.sid]],
         ...[['principal', session.principal_key], ['tenant', session.tenant_key]].map(([scope, key]) => [
@@ -318,6 +339,13 @@ export class SqliteBudgetLedger {
         body.auth_epoch, body.lane, body.max_micro, body.currency, denied ? 'denied' : 'admitted', timestamp,
         original, encodeMessage('admit_response', response.body), session.principal_key, session.tenant_key, day);
       if (period && !denied) {
+        // Freeze only the first successful reservation, under the same lock
+        // as every cap check, hold, binding and notification. Later policy
+        // edits cannot affect this period, even after all holds are voided.
+        this.#db.prepare(`INSERT OR IGNORE INTO budget_deployment_periods
+          (deployment_id,period_id,start_at,end_at,ceiling_micro,notify_at_bytes) VALUES(?,?,?,?,?,?)`)
+          .run(period.deployment_id, period.period_id, period.start_at, period.end_at, period.ceiling_micro,
+            Buffer.from(canonicalJson(period.notify_at)));
         this.#db.prepare('INSERT INTO budget_deployment_holds VALUES(?,?,?)').run(holdId, period.deployment_id, period.period_id);
         this.#notifyDeployment(period, session, deploymentUsed, deploymentUsed + BigInt(body.max_micro), timestamp);
       }
