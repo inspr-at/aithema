@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { canonicalJson, sha256Hex } from '../contracts/validate.js';
 import {
-  appendProposal, approveBaselineFromProposals, createStream, currentBaseline, replaceProposal,
+  appendProposal, approveBaselineFromProposals, createStream, currentBaseline, rejectProposals, replaceProposal,
 } from '../lib/stream.js';
 
 // Exercise the private authority itself, so removing its snapshot cannot hide
@@ -314,5 +314,28 @@ describe('AIT-36 round 4: plain-data snapshot at every stream boundary', () => {
     assert.throws(() => approve(JSON.parse(JSON.stringify(stream))), envelopeRequired);
     stream.proposals.splice(1, 0, twin);
     assert.throws(() => approve(JSON.parse(JSON.stringify(stream))), /duplicate stream proposal_ref/);
+  });
+
+  it('rejectProposals normalizes the caller stream before any lookup (round-5 entry point)', () => {
+    const stream = fixture();
+    let reads = 0;
+    const hostile = { ...stream };
+    Object.defineProperty(hostile, 'proposals', { enumerable: true, get() { reads += 1; return stream.proposals; } });
+    assert.throws(() => rejectProposals(hostile, approver, ['proposal:original'], 'no', at), normalization);
+    assert.ok(reads <= 1, 'the accessor must not be walked after the snapshot');
+    const boxed = { ...fixture(), proposals: [{ ...proposal('proposal:original', 'submit:1'), proposal_ref: new String('proposal:original') }] };
+    assert.throws(() => rejectProposals(boxed, approver, ['proposal:original'], 'no', at), normalization);
+    assert.throws(() => rejectProposals(fixture(), approver, [new String('proposal:original')], 'no', at), normalization);
+    assert.throws(() => rejectProposals(fixture(), approver, ['proposal:original'], 'no', new String(at)), /decided_at must be a non-empty primitive string/);
+    const rejected = rejectProposals(JSON.parse(JSON.stringify(fixture())), approver, ['proposal:original'], 'no', at);
+    assert.equal(rejected.decisions.at(-1).outcome, 'rejected');
+  });
+
+  it('approval refuses boxed baseline_ref and approved_at instead of sealing them', () => {
+    assert.throws(() => approveBaselineFromProposals(fixture(), approver, ['proposal:original'], new String('baseline:synthetic'), at), /baseline_ref must be a non-empty primitive string/);
+    assert.throws(() => approveBaselineFromProposals(fixture(), approver, ['proposal:original'], 'baseline:synthetic', new String(at)), /approved_at must be a non-empty primitive string/);
+    const approved = approveBaselineFromProposals(fixture(), approver, ['proposal:original'], 'baseline:synthetic', at);
+    assert.equal(typeof currentBaseline(approved).baseline_ref, 'string');
+    assert.equal(typeof currentBaseline(approved).approved_at, 'string');
   });
 });
