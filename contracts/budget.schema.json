@@ -37,7 +37,8 @@
             "settle_request",
             "recover_request",
             "recover_response",
-            "holds_list"
+            "holds_list",
+            "deployment_period_report"
           ]
         },
         "body": {
@@ -156,6 +157,20 @@
               "$ref": "#/$defs/holds_list"
             }
           }
+        },
+        {
+          "required": [
+            "type",
+            "body"
+          ],
+          "properties": {
+            "type": {
+              "const": "deployment_period_report"
+            },
+            "body": {
+              "$ref": "#/$defs/deployment_period_report"
+            }
+          }
         }
       ]
     },
@@ -264,6 +279,22 @@
                 "revoked",
                 "idempotency_conflict"
               ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "denied",
+            "detail"
+          ],
+          "properties": {
+            "denied": {
+              "const": "deployment_period_cap"
+            },
+            "detail": {
+              "$ref": "#/$defs/deployment_period_detail"
             }
           }
         }
@@ -463,6 +494,112 @@
               "maxLength": 256
             }
           ]
+        }
+      }
+    },
+    "deployment_period_settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional host-owned policy. v1 supports calendar months only; period enum may be extended later. Runtime validates IANA names and strictly increasing notify_at.",
+      "required": [
+        "deployment_id",
+        "period",
+        "time_zone",
+        "ceiling_micro",
+        "notify_at"
+      ],
+      "properties": {
+        "deployment_id": {
+          "$ref": "common.schema.json#/$defs/ref",
+          "maxLength": 128
+        },
+        "period": {
+          "type": "string",
+          "enum": [
+            "month"
+          ]
+        },
+        "time_zone": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[A-Za-z][A-Za-z0-9._+-]*(?:/[A-Za-z0-9._+-]+)*$"
+        },
+        "ceiling_micro": {
+          "$ref": "common.schema.json#/$defs/count"
+        },
+        "notify_at": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 4,
+          "uniqueItems": true,
+          "items": {
+            "type": "number",
+            "minimum": 5e-324,
+            "maximum": 1
+          }
+        }
+      }
+    },
+    "deployment_period_detail": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scope",
+        "deployment_id",
+        "period_id"
+      ],
+      "properties": {
+        "scope": {
+          "const": "deployment_period"
+        },
+        "deployment_id": {
+          "$ref": "common.schema.json#/$defs/ref",
+          "maxLength": 128
+        },
+        "period_id": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$",
+          "minLength": 7,
+          "maxLength": 7
+        }
+      }
+    },
+    "deployment_period_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Disjoint usage buckets: admitted_micro = open unclaimed reservations; claimed_micro = open claimed reservations; settled_micro = closed actual/unknown charges. Voided and denied holds contribute zero. open_holds counts both open buckets.",
+      "required": [
+        "deployment_id",
+        "period_id",
+        "ceiling_micro",
+        "admitted_micro",
+        "claimed_micro",
+        "settled_micro",
+        "open_holds"
+      ],
+      "properties": {
+        "deployment_id": {
+          "$ref": "common.schema.json#/$defs/ref",
+          "maxLength": 128
+        },
+        "period_id": {
+          "$ref": "#/$defs/deployment_period_detail/properties/period_id"
+        },
+        "ceiling_micro": {
+          "$ref": "common.schema.json#/$defs/count"
+        },
+        "admitted_micro": {
+          "$ref": "common.schema.json#/$defs/count"
+        },
+        "claimed_micro": {
+          "$ref": "common.schema.json#/$defs/count"
+        },
+        "settled_micro": {
+          "$ref": "common.schema.json#/$defs/count"
+        },
+        "open_holds": {
+          "$ref": "common.schema.json#/$defs/count"
         }
       }
     }

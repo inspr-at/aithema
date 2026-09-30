@@ -1,0 +1,22 @@
+{
+  "contract": "aithema.budget.message",
+  "doc": {
+    "contract": "aithema.budget.message",
+    "major": 1,
+    "minor": 0,
+    "min_reader": 0,
+    "type": "deployment_period_report",
+    "body": {
+      "deployment_id": "fixture-host",
+      "period_id": "2026-10",
+      "ceiling_micro": 100,
+      "admitted_micro": 40,
+      "claimed_micro": 40,
+      "settled_micro": -1,
+      "open_holds": 2
+    }
+  },
+  "expect": {
+    "schema": "below"
+  }
+}

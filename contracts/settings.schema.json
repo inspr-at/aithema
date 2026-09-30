@@ -743,6 +743,9 @@
               "$ref": "common.schema.json#/$defs/count"
             }
           }
+        },
+        "deployment_period": {
+          "$ref": "budget.schema.json#/$defs/deployment_period_settings"
         }
       }
     },

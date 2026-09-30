@@ -1,0 +1,18 @@
+{
+  "contract": "aithema.budget.message",
+  "doc": {
+    "contract": "aithema.budget.message",
+    "major": 1,
+    "minor": 0,
+    "min_reader": 0,
+    "type": "admit_response",
+    "body": {
+      "denied": "deployment_period_cap",
+      "detail": {
+        "scope": "deployment_period",
+        "deployment_id": "fixture-host",
+        "period_id": "2026-10"
+      }
+    }
+  }
+}

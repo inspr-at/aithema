@@ -18,11 +18,12 @@ import { canExecute, canonicalJson, loadContractFile, validate } from '../../con
 const codes = new Map(loadContractFile('error-codes.json').codes.map((entry) => [entry.code, entry.http]));
 
 export class BudgetError extends Error {
-  constructor(status, message, code = null) {
+  constructor(status, message, code = null, detail = undefined) {
     super(message);
     this.name = 'BudgetError';
     this.status = status;
     this.code = code;
+    if (detail !== undefined) this.detail = structuredClone(detail);
   }
 }
 
@@ -67,7 +68,7 @@ export function resultStatus(doc) {
 export function requireSuccess(doc, type) {
   checkMessage(doc, type);
   const { status, code } = resultStatus(doc);
-  if (code) throw new BudgetError(status, doc.body.denied ?? code, code);
+  if (code) throw new BudgetError(status, doc.body.denied ?? code, code, doc.body.detail);
   return doc.body;
 }
 
