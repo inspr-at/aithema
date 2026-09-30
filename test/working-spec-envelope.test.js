@@ -275,3 +275,145 @@ describe('AIT-36 round 2: one projected-envelope authority at every boundary', (
     assert.deepEqual(empty.proposals, []);
   });
 });
+
+const duplicateRef = /duplicate stream proposal_ref/;
+const invalidStreamKey = /stream op_key is invalid/;
+
+function duplicateAncestorFixture(duplicate) {
+  const { stream, proposal, submitted, replacement } = fixture();
+  const mid = { ...structuredClone(replacement.proposal), proposal_ref: 'proposal:mid' };
+  const original = duplicate === 'mid' ? mid : proposal;
+  const twin = strip(original);
+  twin.op_key = `${sid}:turn:3`;
+  delete twin.supersedes_proposal_ref;
+  const far = { ...strip(mid), proposal_ref: 'proposal:far', op_key: `${sid}:source:4`, supersedes_proposal_ref: original.proposal_ref };
+  return {
+    ...stream,
+    proposals: duplicate === 'mid' ? [proposal, twin, mid, far] : [twin, proposal, far],
+    // In the mid case the original projection is also bound in the spec.
+    ...(duplicate === 'mid' ? { working_spec: submitted.spec } : {}),
+  };
+}
+
+describe('AIT-36 round 3: stream integrity before replay and projection walks', () => {
+  for (const duplicate of ['mid', 'original']) {
+    it(`refuses an earlier marker-free twin of the ${duplicate} ancestor, including after JSON rehydration`, () => {
+      const corrupt = duplicateAncestorFixture(duplicate);
+      for (const stream of [corrupt, JSON.parse(JSON.stringify(corrupt))]) {
+        const before = structuredClone(stream);
+        assert.throws(() => approve(stream, ['proposal:far']), duplicateRef);
+        assert.deepEqual(stream, before);
+      }
+    });
+  }
+
+  it('refuses a boxed submit key on a stripped projection instead of treating it as absent', () => {
+    const { stream, proposal } = fixture();
+    const stripped = strip(proposal);
+    stripped.op_key = new String(proposal.op_key);
+    const corrupt = { ...stream, proposals: [stripped] };
+    assert.throws(() => approve(corrupt), invalidStreamKey);
+    assert.strictEqual(corrupt.proposals[0].op_key, stripped.op_key);
+    assert.deepEqual(corrupt.baselines, []);
+    assert.deepEqual(corrupt.decisions, []);
+  });
+
+  for (const boundary of ['append', 'replace', 'approve']) {
+    it(`${boundary} rejects invalid keys on every proposal and decision before returning any state`, () => {
+      const { empty, stream, proposal, replacement } = fixture();
+      const legacy = proposeRequirement(empty, contributor, {
+        requirement_ref: 'REQ-2', statement: 'Expose a synthetic health endpoint.', acceptance_criteria: [], constraint_refs: [],
+      }, at).proposals[0];
+      const invoke = (corrupt) => {
+        if (boundary === 'append') return appendProposal(corrupt, contributor, legacy);
+        if (boundary === 'replace') return replaceProposal(corrupt, contributor, proposal.proposal_ref, replacement.proposal);
+        return approve(corrupt);
+      };
+      const invalidKeys = [
+        new String(`${sid}:submit:1`), undefined, null, false, 1, [],
+        { toString: () => `${sid}:submit:1` }, '', `${sid}:SUBMIT:1`,
+        `${sid}:submit:-1`, `${sid}:submit:1:extra`, ` ${sid}:submit:1`, `${sid}:submit:1\n`,
+      ];
+      for (const key of invalidKeys) {
+        for (const location of ['selected', 'unselected', 'decision']) {
+          const corrupt = {
+            ...stream,
+            proposals: [
+              { ...proposal, ...(location === 'selected' ? { op_key: key } : {}) },
+              ...(location === 'unselected' ? [{ ...legacy, op_key: key }] : []),
+            ],
+            decisions: location === 'decision'
+              ? [{ proposal_ref: 'proposal:unrelated', outcome: 'withdrawn', op_key: key }] : [],
+          };
+          const proposals = [...corrupt.proposals];
+          const decisions = [...corrupt.decisions];
+          assert.throws(() => invoke(corrupt), invalidStreamKey, `${location}: ${typeof key}`);
+          assert.deepEqual(corrupt.proposals, proposals);
+          assert.deepEqual(corrupt.decisions, decisions);
+          assert.deepEqual(corrupt.baselines, []);
+          assert.equal(Object.isFrozen(corrupt), false);
+        }
+      }
+    });
+  }
+
+  it('append checks stream integrity before a conflicting operation-key replay', () => {
+    const { stream, proposal } = fixture();
+    const corrupt = { ...stream, proposals: [proposal, structuredClone(proposal)] };
+    const before = structuredClone(corrupt);
+    assert.throws(() => appendProposal(corrupt, contributor, { ...proposal, summary: 'Changed retry bytes' }), duplicateRef);
+    assert.deepEqual(corrupt, before);
+  });
+
+  it('replace checks stream integrity before returning an exact retry', () => {
+    const { stream, proposal, replacement } = fixture();
+    const replaced = replaceProposal(stream, contributor, proposal.proposal_ref, replacement.proposal);
+    const corrupt = { ...replaced, proposals: [...replaced.proposals, structuredClone(proposal)] };
+    const before = structuredClone(corrupt);
+    assert.throws(() => replaceProposal(corrupt, contributor, proposal.proposal_ref, replacement.proposal), duplicateRef);
+    assert.deepEqual(corrupt, before);
+  });
+
+  it('approval checks stream integrity before lifecycle arbitration on a withdrawn ref', () => {
+    const { stream, proposal, replacement } = fixture();
+    const replaced = replaceProposal(stream, contributor, proposal.proposal_ref, replacement.proposal);
+    const corrupt = { ...replaced, proposals: [...replaced.proposals, structuredClone(proposal)] };
+    const before = structuredClone(corrupt);
+    assert.throws(() => approve(corrupt), duplicateRef);
+    assert.deepEqual(corrupt, before);
+  });
+
+  it('the projection authority rechecks integrity if caller input changes the stream after preflight', () => {
+    const corrupt = duplicateAncestorFixture('mid');
+    const [original, twin, mid, far] = corrupt.proposals;
+    const stream = { ...corrupt, proposals: [original, mid, far] };
+    let injected = false;
+    // An accessor can insert the hidden twin during payload validation, after
+    // approval's preflight but before the projection authority walks ancestry.
+    Object.defineProperty(far, 'kind', {
+      enumerable: true,
+      get() {
+        injected = true;
+        stream.proposals = [original, twin, mid, far];
+        return 'add_requirement';
+      },
+    });
+    assert.throws(() => approve(stream, [far.proposal_ref]), duplicateRef);
+    assert.equal(injected, true);
+    assert.deepEqual(stream.baselines, []);
+    assert.deepEqual(stream.decisions, []);
+  });
+
+  it('valid primitive keys, shared replacement keys and absent legacy keys retain their behavior', () => {
+    const { stream, proposal, replacement } = fixture();
+    const replaced = replaceProposal(stream, contributor, proposal.proposal_ref, replacement.proposal);
+    assert.equal(replaced.proposals[1].op_key, replaced.decisions[0].op_key);
+    assert.strictEqual(replaceProposal(replaced, contributor, proposal.proposal_ref, replacement.proposal), replaced);
+    assert.equal(currentBaseline(approve(replaced, [replacement.proposal.proposal_ref])).requirements[0].statement,
+      replacement.proposal.requirement.statement);
+    for (const operation of ['submit', 'replace', 'source', 'turn']) {
+      const accepted = approve({ ...stream, proposals: [{ ...proposal, op_key: `${sid}:${operation}:1` }] });
+      assert.equal(currentBaseline(accepted).requirements[0].statement, proposal.requirement.statement);
+    }
+  });
+});
