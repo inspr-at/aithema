@@ -51,7 +51,10 @@ export function decodeMessage(bytes, type) {
 }
 
 export function budgetMessage(type, body) {
-  return checkMessage({ contract: 'aithema.budget.message', major: 1, minor: 0, min_reader: 0, type, body }, type);
+  // Strict older readers reject the new lane_kind key. Legacy messages retain
+  // their exact envelope; the additive local-lane documents use the next minor.
+  return checkMessage({ contract: 'aithema.budget.message', major: 1,
+    minor: body?.lane_kind === undefined ? 0 : 1, min_reader: 0, type, body }, type);
 }
 
 export function encodeMessage(type, body) {

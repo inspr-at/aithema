@@ -717,6 +717,7 @@
           }
         },
         "provider_max": {
+          "description": "Per-lane reservation ceilings. Zero is executable only for enabled operator self-hosted inference on a loopback endpoint, with a host-registered operator_local budget lane; admission and single-use claim still precede dispatch.",
           "type": "object",
           "additionalProperties": false,
           "required": [

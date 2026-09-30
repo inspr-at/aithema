@@ -137,6 +137,7 @@ for (const lane of ['reaction', 'spec', 'design']) {
   it(`zero settings provider_max refuses ${lane} before admission or dispatch`, async (t) => {
     const f = fixture(t);
     const settings = JSON.parse(readFileSync(new URL('../contracts/fixtures/valid/settings.executable.json', import.meta.url))).doc;
+    settings.defaults.preset = 'eu-e1';
     settings.policy.spend.provider_max[lane] = 0;
     let providerCalls = 0;
     const renderer = new ControlledRenderer({ clock: f.clock, plan: () => { providerCalls++; return { duration_ms: 0, fail: false }; } });

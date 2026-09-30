@@ -5,23 +5,14 @@ import { decodeDocument } from '../journal/port.js';
 import { BudgetError, budgetBytes, budgetMessage, decodeMessage, encodeMessage } from './port.js';
 import { checkDeploymentPeriod, deploymentPeriodAt, deploymentPeriodBounds, notificationThreshold } from './period.js';
 
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS budget_sessions (
-  sid TEXT PRIMARY KEY REFERENCES journal_sessions(sid),
-  principal_key TEXT NOT NULL, tenant_key TEXT NOT NULL, currency TEXT NOT NULL,
-  session_cap_micro INTEGER NOT NULL CHECK(session_cap_micro >= 0),
-  evidence INTEGER NOT NULL CHECK(evidence IN (0,1))
-);
-CREATE TABLE IF NOT EXISTS budget_caps (
-  scope TEXT NOT NULL CHECK(scope IN ('principal','tenant')), scope_key TEXT NOT NULL,
-  currency TEXT NOT NULL, cap_micro INTEGER NOT NULL CHECK(cap_micro >= 0),
-  PRIMARY KEY(scope, scope_key, currency)
-);
+const HOLD_TABLE = `
 CREATE TABLE IF NOT EXISTS budget_holds (
   attempt_id TEXT PRIMARY KEY, hold_id TEXT UNIQUE,
   sid TEXT NOT NULL REFERENCES budget_sessions(sid),
   worker_generation INTEGER NOT NULL, auth_epoch INTEGER NOT NULL,
-  lane TEXT NOT NULL, max_micro INTEGER NOT NULL CHECK(max_micro > 0), currency TEXT NOT NULL,
+  lane TEXT NOT NULL, max_micro INTEGER NOT NULL
+    CHECK(max_micro > 0 OR (max_micro = 0 AND lane_kind IS 'operator_local')), currency TEXT NOT NULL,
+  lane_kind TEXT CHECK(lane_kind IN ('operator_local','remote')),
   state TEXT NOT NULL CHECK(state IN ('admitted','denied','closed')),
   closed_reason TEXT CHECK(closed_reason IN ('void','settled','unknown')),
   created_at TEXT NOT NULL, closed_at TEXT,
@@ -30,7 +21,24 @@ CREATE TABLE IF NOT EXISTS budget_holds (
   CHECK((state = 'denied' AND hold_id IS NULL) OR (state != 'denied' AND hold_id IS NOT NULL)),
   CHECK((state = 'closed' AND closed_reason IS NOT NULL AND closed_at IS NOT NULL)
     OR (state != 'closed' AND closed_reason IS NULL AND closed_at IS NULL))
+);`;
+
+const SCHEMA = `
+CREATE TABLE IF NOT EXISTS budget_sessions (
+  sid TEXT PRIMARY KEY REFERENCES journal_sessions(sid),
+  principal_key TEXT NOT NULL, tenant_key TEXT NOT NULL, currency TEXT NOT NULL,
+  session_cap_micro INTEGER NOT NULL CHECK(session_cap_micro >= 0),
+  evidence INTEGER NOT NULL CHECK(evidence IN (0,1))
 );
+CREATE TABLE IF NOT EXISTS budget_session_lanes (
+  sid TEXT PRIMARY KEY REFERENCES budget_sessions(sid), operator_local_lanes BLOB NOT NULL
+);
+CREATE TABLE IF NOT EXISTS budget_caps (
+  scope TEXT NOT NULL CHECK(scope IN ('principal','tenant')), scope_key TEXT NOT NULL,
+  currency TEXT NOT NULL, cap_micro INTEGER NOT NULL CHECK(cap_micro >= 0),
+  PRIMARY KEY(scope, scope_key, currency)
+);
+${HOLD_TABLE}
 CREATE TABLE IF NOT EXISTS budget_claims (
   claim_id TEXT PRIMARY KEY, hold_id TEXT NOT NULL UNIQUE REFERENCES budget_holds(hold_id),
   request_sha256 TEXT NOT NULL, worker_generation INTEGER NOT NULL, auth_epoch INTEGER NOT NULL,
@@ -98,7 +106,12 @@ export class SqliteBudgetLedger {
       }
       // Additive tables also upgrade existing hosts, preserving every original
       // session, hold, verdict and journal byte. Concurrent opens share a lock.
+      // SQLite cannot alter a CHECK. Rebuild only the holds table under the
+      // initialization lock, with FK checks before commit and enforcement back
+      // on before exposing this connection. Other connections retain their FKs.
+      this.#db.exec('PRAGMA foreign_keys = OFF');
       this.#transaction(() => {
+        this.#upgradeHolds();
         this.#db.exec(SCHEMA);
         if (!this.#db.prepare('PRAGMA table_info(budget_deployment_periods)').all().some((column) => column.name === 'notify_at_bytes')) {
           // Earlier hosts pinned the entire deployment policy. Its ratios are
@@ -114,11 +127,31 @@ export class SqliteBudgetLedger {
           this.#db.exec(`DELETE FROM budget_deployment_periods AS p WHERE NOT EXISTS
             (SELECT 1 FROM budget_deployment_holds h WHERE h.deployment_id = p.deployment_id AND h.period_id = p.period_id)`);
         }
+        if (this.#db.prepare('PRAGMA foreign_key_check').all().length) throw new BudgetError(409, 'Budget migration found broken foreign keys');
       });
+      this.#db.exec('PRAGMA foreign_keys = ON');
     } catch (error) { this.#db.close(); throw error; }
   }
 
   close() { this.#db.close(); }
+
+  #upgradeHolds() {
+    const columns = this.#db.prepare('PRAGMA table_info(budget_holds)').all();
+    if (!columns.length || columns.some((column) => column.name === 'lane_kind')) return;
+    const objects = this.#db.prepare(`SELECT type, sql FROM sqlite_master WHERE sql IS NOT NULL
+      AND ((tbl_name = 'budget_holds' AND type IN ('index','trigger')) OR type = 'view')`).all()
+      .filter((object) => object.type !== 'view' || /\bbudget_holds\b/i.test(object.sql));
+    // Preserve rowids too: open-hold pagination uses them as durable cursors.
+    const names = ['rowid', ...columns.map((column) => column.name)]
+      .map((name) => `"${name.replaceAll('"', '""')}"`).join(',');
+    this.#db.exec(HOLD_TABLE.replace('IF NOT EXISTS budget_holds', 'budget_holds_local_upgrade'));
+    this.#db.exec(`INSERT INTO budget_holds_local_upgrade(${names}) SELECT ${names} FROM budget_holds`);
+    const views = this.#db.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'view'").all()
+      .filter((view) => /\bbudget_holds\b/i.test(view.sql));
+    for (const view of views) this.#db.exec(`DROP VIEW "${view.name.replaceAll('"', '""')}"`);
+    this.#db.exec('DROP TABLE budget_holds; ALTER TABLE budget_holds_local_upgrade RENAME TO budget_holds');
+    for (const object of objects) this.#db.exec(object.sql);
+  }
 
   #transaction(fn) {
     this.#db.exec('BEGIN IMMEDIATE');
@@ -130,12 +163,20 @@ export class SqliteBudgetLedger {
   }
 
   /** Immutable host scope registration; future-period ceiling/notifications may change. */
-  registerSession({ sid, issuer, principal, currency, session_cap_micro, principal_day_cap_micro, tenant_day_cap_micro, evidence, deployment_period }) {
+  registerSession({ sid, issuer, principal, currency, session_cap_micro, principal_day_cap_micro, tenant_day_cap_micro,
+    evidence, deployment_period, operator_local_lanes = [] }) {
     for (const [key, value] of Object.entries({ sid, issuer, principal, currency })) {
       if (typeof value !== 'string' || !value.length) throw new BudgetError(400, `${key} is required`);
     }
     if (!/^[A-Z]{3}$/.test(currency) || typeof evidence !== 'boolean') throw new BudgetError(400, 'Invalid currency or evidence');
     for (const [key, value] of Object.entries({ session_cap_micro, principal_day_cap_micro, tenant_day_cap_micro })) count(value, key);
+    // Trusted host policy, never delegated request metadata. Old sessions may
+    // receive this binding on their first registration after the migration.
+    if (!Array.isArray(operator_local_lanes) || new Set(operator_local_lanes).size !== operator_local_lanes.length
+        || !operator_local_lanes.every((lane) => ['reaction', 'spec', 'design', 'stt', 'tts'].includes(lane))) {
+      throw new BudgetError(400, 'Invalid operator_local_lanes policy');
+    }
+    const localBytes = Buffer.from(canonicalJson([...operator_local_lanes].sort()));
     let deployment = null;
     if (deployment_period !== undefined) {
       try { deployment = checkDeploymentPeriod(deployment_period); }
@@ -148,9 +189,11 @@ export class SqliteBudgetLedger {
       const tenantKey = canonicalJson([issuer, session.tid]);
       const existing = this.#db.prepare('SELECT * FROM budget_sessions WHERE sid = ?').get(sid);
       const binding = this.#db.prepare('SELECT deployment_id FROM budget_session_deployments WHERE sid = ?').get(sid);
+      const lanes = this.#db.prepare('SELECT operator_local_lanes FROM budget_session_lanes WHERE sid = ?').get(sid);
       if (existing && (existing.principal_key !== principalKey || existing.tenant_key !== tenantKey ||
           existing.currency !== currency || existing.session_cap_micro !== session_cap_micro || existing.evidence !== Number(evidence) ||
-          (binding?.deployment_id ?? null) !== (deployment?.deployment_id ?? null))) {
+          (binding?.deployment_id ?? null) !== (deployment?.deployment_id ?? null)
+          || (lanes && !Buffer.from(lanes.operator_local_lanes).equals(localBytes)))) {
         throw new BudgetError(409, 'Budget registration is immutable');
       }
       if (deployment) {
@@ -171,6 +214,7 @@ export class SqliteBudgetLedger {
       }
       this.#db.prepare('INSERT OR IGNORE INTO budget_sessions VALUES(?,?,?,?,?,?)')
         .run(sid, principalKey, tenantKey, currency, session_cap_micro, Number(evidence));
+      this.#db.prepare('INSERT OR IGNORE INTO budget_session_lanes VALUES(?,?)').run(sid, localBytes);
       if (deployment) this.#db.prepare('INSERT OR IGNORE INTO budget_session_deployments VALUES(?,?)').run(sid, deployment.deployment_id);
     });
   }
@@ -299,6 +343,12 @@ export class SqliteBudgetLedger {
         if (!Buffer.from(existing.original_bytes).equals(original)) return budgetMessage('admit_response', { error: 'idempotency_conflict' });
         return decodeMessage(existing.verdict_bytes, 'admit_response');
       }
+      if (body.lane_kind === 'operator_local') {
+        const policy = this.#db.prepare('SELECT operator_local_lanes FROM budget_session_lanes WHERE sid = ?').get(session.sid);
+        if (!policy || !JSON.parse(Buffer.from(policy.operator_local_lanes).toString('utf8')).includes(body.lane)) {
+          throw new BudgetError(400, 'Operator-local lane is not registered by the host');
+        }
+      }
       if (body.currency !== session.currency) throw new BudgetError(400, 'Admission currency differs from the host budget');
       const timestamp = new Date(this.#now()).toISOString();
       const day = timestamp.slice(0, 10); // UTC admission day; recovery never moves a charge to a different day.
@@ -333,10 +383,10 @@ export class SqliteBudgetLedger {
       const response = budgetMessage('admit_response', denied ? { denied, ...detail } : {
         hold_id: holdId, remaining_micro: Number(remaining - BigInt(body.max_micro)),
       });
-      this.#db.prepare(`INSERT INTO budget_holds(attempt_id,hold_id,sid,worker_generation,auth_epoch,lane,max_micro,
+      this.#db.prepare(`INSERT INTO budget_holds(attempt_id,hold_id,sid,worker_generation,auth_epoch,lane,max_micro,lane_kind,
         currency,state,created_at,original_bytes,verdict_bytes,principal_key,tenant_key,budget_day)
-        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(body.attempt_id, holdId, session.sid, body.worker_generation,
-        body.auth_epoch, body.lane, body.max_micro, body.currency, denied ? 'denied' : 'admitted', timestamp,
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(body.attempt_id, holdId, session.sid, body.worker_generation,
+        body.auth_epoch, body.lane, body.max_micro, body.lane_kind ?? null, body.currency, denied ? 'denied' : 'admitted', timestamp,
         original, encodeMessage('admit_response', response.body), session.principal_key, session.tenant_key, day);
       if (period && !denied) {
         // Freeze only the first successful reservation, under the same lock
@@ -370,6 +420,7 @@ export class SqliteBudgetLedger {
       const doc = decodeDocument(row.original_bytes);
       return doc.writer.generation === hold.worker_generation && canonicalJson(doc.data) === canonicalJson({
         hold_id: hold.hold_id, attempt_id: hold.attempt_id, lane: hold.lane, max_micro: hold.max_micro, currency: hold.currency,
+        ...(hold.lane_kind === null ? {} : { lane_kind: hold.lane_kind }),
       });
     });
   }
@@ -397,7 +448,8 @@ export class SqliteBudgetLedger {
 
   #settlement(hold, claim) {
     return budgetMessage('recover_response', { hold_id: hold.hold_id, closed_reason: hold.closed_reason,
-      charged_micro: hold.closed_reason === 'void' ? 0 : claim.settled_micro });
+      charged_micro: hold.closed_reason === 'void' ? 0 : claim.settled_micro,
+      ...(hold.lane_kind === null ? {} : { lane_kind: hold.lane_kind }) });
   }
 
   #close(hold, claim, reason, charged) {
@@ -406,7 +458,8 @@ export class SqliteBudgetLedger {
       .run(reason, charged, timestamp, claim.claim_id);
     this.#db.prepare("UPDATE budget_holds SET state = 'closed', closed_reason = ?, closed_at = ? WHERE hold_id = ?")
       .run(reason, timestamp, hold.hold_id);
-    return budgetMessage('recover_response', { hold_id: hold.hold_id, closed_reason: reason, charged_micro: charged });
+    return budgetMessage('recover_response', { hold_id: hold.hold_id, closed_reason: reason, charged_micro: charged,
+      ...(hold.lane_kind === null ? {} : { lane_kind: hold.lane_kind }) });
   }
 
   settle(bytes, authority) {

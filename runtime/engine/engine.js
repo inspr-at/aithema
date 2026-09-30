@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { canExecute, canonicalJson, loadContractFile, sha256Hex, validate } from '../../contracts/validate.js';
 import { checkedRecord, hydrateSnapshot } from '../journal/hydrate.js';
 import { createOutboundGate } from '../budget/gate.js';
+import { isOperatorLocalLane } from '../budget/local.js';
 import { withCancellation } from '../ports/cancellation.js';
 import { createReasoningPort } from '../ports/reasoning.js';
 import { withDeadline } from '../authz/common.js';
@@ -83,10 +84,13 @@ export class TextEngine {
         [authorization, ['assertNewClaim', 'outputPermit']]]) {
         if (methods.some((method) => typeof object?.[method] !== 'function')) throw new EngineError('invalid_dependency', 'Engine dependency is missing required methods');
       }
+      const configuredLanes = settings && Object.values(maxMicro ?? {}).includes(0)
+        ? resolveSettings(settings, { now: new Date(clock.wallNow()).toISOString(), preferences }).lanes : null;
       if (!['review', 'working_spec_only'].includes(hostMode) || !/^[A-Z]{3}$/.test(currency)
           || typeof priceUsage !== 'function' || typeof uuid !== 'function' || typeof checkpoint !== 'function'
-          || typeof onError !== 'function' || ['reaction', 'spec', 'design'].some((lane) => !Number.isSafeInteger(maxMicro?.[lane]) || maxMicro[lane] < 1)) {
-        throw new EngineError('invalid_configuration', 'Host mode, currency, positive lane maxima and explicit cost adapter required');
+          || typeof onError !== 'function' || ['reaction', 'spec', 'design'].some((lane) => !Number.isSafeInteger(maxMicro?.[lane])
+            || maxMicro[lane] < 0 || (maxMicro[lane] < 1 && !isOperatorLocalLane(configuredLanes?.[lane])))) {
+        throw new EngineError('invalid_configuration', 'Host mode, currency, local-only zero lane maxima and explicit cost adapter required');
       }
       this.#journal = journal; this.#port = journalPort; this.#budget = budget; this.#authz = authorization;
       this.#reasoning = createReasoningPort(reasoning); this.#clock = clock; this.#uuid = uuid;
@@ -333,12 +337,16 @@ export class TextEngine {
   async #paid(lane, payload, invoke) {
     this.#guard();
     let maximum = this.#max[lane];
+    let operatorLocal = false;
     if (this.#settings) {
       const settings = resolveSettings(this.#settings, { now: new Date(this.#clock.wallNow()).toISOString(), preferences: this.#preferences });
       if (!settings.lanes[lane].enabled) return { status: 'denied', reason: settings.lanes[lane].reason };
       if (settings.policy.spend.currency !== this.#currency) throw new EngineError('invalid_configuration', 'Budget currency differs from settings');
       maximum = settings.policy.spend.provider_max[lane];
-      if (maximum < 1) throw new EngineError('invalid_configuration', 'Foundation ledger requires a positive reservation maximum');
+      operatorLocal = isOperatorLocalLane(settings.lanes[lane]);
+      if (!operatorLocal) {
+        if (maximum < 1) throw new EngineError('invalid_configuration', 'Foundation ledger requires a positive reservation maximum');
+      }
     }
     const authority = this.#journal.authority;
     const outputSignal = this.#authz.outputSignal;
@@ -347,7 +355,8 @@ export class TextEngine {
     let hold;
     try {
       hold = await this.#host(() => this.#budget.admit({ attempt_id: `${authority.sid}:${authority.gen}:${lane}:${n}`, sid: authority.sid,
-        worker_generation: authority.gen, auth_epoch: authority.auth_epoch, lane, max_micro: maximum, currency: this.#currency }));
+        worker_generation: authority.gen, auth_epoch: authority.auth_epoch, lane, max_micro: maximum, currency: this.#currency,
+        ...(maximum === 0 && operatorLocal ? { lane_kind: 'operator_local' } : {}) }));
     } catch (error) {
       if (error.code === 'budget_denied') return { status: 'denied', reason: 'budget_denied' };
       throw error;
