@@ -1,4 +1,5 @@
 import { describe, it } from 'node:test';
+import { transition } from '../runtime/authz/transition.js';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync, randomUUID, sign } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -364,6 +365,56 @@ describe('(b, e) continuous authority with one monotonic origin', () => {
     });
   }
 
+  for (const delay of [0, 9000, 9999]) for (const control of ['epoch', 'suspend', 'purge']) {
+    it(`a +60s clock spike followed by honest ${control} stops old signals within 45s with ${delay}ms responses`, async () => {
+      const fake = new FakeClock();
+      const local = localSession();
+      const originals = [local.captureSignal, local.microphoneSignal, local.outputSignal, local.pendingSignal];
+      let calls = 0;
+      const monitor = new AuthorityMonitor({ session: local, clock: fake.clock, scheduler: fake.scheduler,
+        fetchAuthority: () => new Promise((resolve) => fake.scheduler.setTimeout(() => {
+          const patch = ++calls === 1 ? { issued_at: fake.issued(fake.mono + 60_000) }
+            : control === 'epoch' ? { auth_epoch: 2 } : { tombstone: control };
+          resolve(authorityResponse(fake, patch));
+        }, delay)) });
+      monitor.start();
+      await fake.advance(delay);
+      assert.equal(local.state, 'ACTIVE');
+      assert.equal(monitor.lastAuthorityMonotonic, fake.mono);
+      const changedAt = fake.mono + 1;
+      await fake.advance(30_000);
+      assert.equal(local.state, control === 'epoch' ? 'REVOKED' : control === 'suspend' ? 'SUSPENDED' : 'PURGING');
+      assert.ok(fake.mono - changedAt <= 45_000);
+      assert.ok(originals.every((signal) => signal.aborted));
+      assert.throws(() => local.assertNewClaim(), code('revoked'));
+      // Purge lacks the original host receipt, but still stops immediately.
+      if (control !== 'purge') assert.equal(monitor.lastError, null);
+      monitor.stop();
+    });
+  }
+
+  it('local receipt renews freshness even when a plausible host clock is 30s behind', async () => {
+    const fake = new FakeClock();
+    let available = true;
+    const local = localSession();
+    const monitor = new AuthorityMonitor({ session: local, clock: fake.clock, scheduler: fake.scheduler,
+      fetchAuthority: () => available
+        ? authorityResponse(fake, { issued_at: fake.issued(fake.mono - 30_000) }) : new Promise(() => {}) });
+    monitor.start();
+    await fake.advance(30_000);
+    assert.equal(monitor.lastAuthorityMonotonic, fake.origin + 30_000);
+    available = false;
+    await fake.advance(69_999);
+    assert.equal(local.state, 'ACTIVE');
+    await fake.advance(1);
+    assert.equal(local.state, 'CAPTURE_ONLY');
+    assert.equal(fake.mono - fake.origin - 30_000, 70_000);
+    await fake.advance(529_999);
+    assert.equal(local.state, 'CAPTURE_ONLY');
+    await fake.advance(1);
+    assert.equal(local.state, 'ENDED');
+  });
+
   it('a revoked error from an authority poll closes every epoch-checked route without a new epoch', async () => {
     const fake = new FakeClock();
     const local = localSession();
@@ -432,10 +483,13 @@ describe('(b, e) continuous authority with one monotonic origin', () => {
     assert.equal(session.captureSignal.aborted, false);
     assert.notEqual(session.captureSignal, originalCapture);
     session.assertNewClaim();
+    session.revoke(2);
+    assert.equal(originalCapture.aborted, true, 'Recovery cannot orphan an earlier text capture signal');
+    assert.equal(session.captureSignal.aborted, true);
     monitor.stop();
   });
 
-  it('exactly 30s old responses cannot slide the outage/10min origins', async () => {
+  it('valid 30s old responses use local receipt time for outage/10min origins', async () => {
     const fake = new FakeClock();
     const oldIssued = fake.issued();
     const session = localSession();
@@ -444,11 +498,15 @@ describe('(b, e) continuous authority with one monotonic origin', () => {
     monitor.start();
     await fake.advance(30_000);
     assert.equal(monitor.lastError, null, '30s boundary is fresh');
-    assert.equal(monitor.lastAuthorityMonotonic, fake.origin, 'arrival never extends issued authority');
+    assert.equal(monitor.lastAuthorityMonotonic, fake.origin + 30_000, 'Only local receipt renews authority');
     await fake.advance(40_000);
+    assert.equal(session.state, 'ACTIVE');
+    await fake.advance(20_000);
     assert.equal(session.state, 'CAPTURE_ONLY');
     assert.equal(monitor.lastError.status, 503);
-    await fake.advance(530_000);
+    await fake.advance(539_999);
+    assert.equal(session.state, 'CAPTURE_ONLY');
+    await fake.advance(1);
     assert.equal(session.state, 'ENDED');
   });
 
@@ -566,6 +624,23 @@ describe('(b, e) continuous authority with one monotonic origin', () => {
     next.stop();
   });
 
+  it('a lifecycle observer stopping the monitor cannot create new authority timers after stop', async () => {
+    const fake = new FakeClock();
+    let monitor, epoch = 1, polls = 0;
+    const local = localSession({ onChange: ({ state }) => { if (state === 'REVOKED') monitor.stop(); } });
+    monitor = new AuthorityMonitor({ session: local, clock: fake.clock, scheduler: fake.scheduler,
+      fetchAuthority: () => { polls++; return authorityResponse(fake, { auth_epoch: epoch }); } });
+    monitor.start();
+    await fake.advance(0);
+    epoch = 2;
+    await fake.advance(30_000);
+    assert.equal(local.state, 'REVOKED');
+    assert.equal(fake.timers.size, 0);
+    assert.equal(monitor.lastAuthorityMonotonic, fake.origin);
+    await fake.advance(700_000);
+    assert.equal(polls, 2);
+  });
+
   it('all host requests use a 10s deadline and abort, including adapters that ignore signal', async () => {
     const fake = new FakeClock();
     let signal;
@@ -599,7 +674,7 @@ describe('(b, e) continuous authority with one monotonic origin', () => {
     assert.equal(fake.timers.size, 0);
   });
 
-  it('refuses an older issued_at even when it is still within the 30s freshness window', async () => {
+  it('accepts a later response with an older plausible issued_at and renews only at local receipt', async () => {
     const fake = new FakeClock();
     let calls = 0;
     const session = localSession();
@@ -611,8 +686,8 @@ describe('(b, e) continuous authority with one monotonic origin', () => {
     await fake.advance(39_000);
     assert.equal(monitor.lastAuthorityMonotonic, fake.origin + 39_000);
     await fake.advance(21_000);
-    assert.match(monitor.lastError.message, /moved backwards/);
-    assert.equal(monitor.lastAuthorityMonotonic, fake.origin + 39_000);
+    assert.equal(monitor.lastError, null);
+    assert.equal(monitor.lastAuthorityMonotonic, fake.origin + 60_000);
     monitor.stop();
   });
 });
@@ -622,6 +697,70 @@ describe('(a, c, e) processing authorization, revocation and journal tombstones'
     const doc = record('session.control', { action }, { writer: { kind: 'host' } });
     return { bytes: bytes(doc), document: { ...doc, seq } };
   };
+
+  for (const [name, apply, expected] of [
+    ['callback revoke', (local) => local.revoke(2), 'REVOKED'],
+    ['authority epoch', (local) => local.applyAuthority({ ...scope({ auth_epoch: 2 }), tombstone: null }), 'REVOKED'],
+    ['authority generation', (local) => local.applyAuthority({ ...scope({ worker_generation: 2 }), tombstone: null }), 'FENCED'],
+    ['authority suspend', (local) => local.applyAuthority({ ...scope(), tombstone: 'suspend' }), 'SUSPENDED'],
+    ['authority purge', (local) => local.applyAuthority({ ...scope(), tombstone: 'purge' }), 'PURGING'],
+    ['journal suspend', (local) => local.consumeStoredRecord(storedControl('suspend')), 'SUSPENDED'],
+    ['journal purge', (local) => local.consumeStoredRecord(storedControl('purge')), 'PURGING'],
+    ['journal epoch', (local) => {
+      const doc = record('authz.epoch', { epoch: 2, reason: 'withdrawal' }, { writer: { kind: 'host' } });
+      local.consumeStoredRecord({ bytes: bytes(doc), document: { ...doc, seq: 1 } });
+    }, 'REVOKED'],
+    ['session end', (local) => local.end(), 'ENDED'],
+  ]) it(`${name} stops every signal issued across repeated outage/resume cycles`, () => {
+    const local = localSession();
+    const captures = [], stopped = [];
+    for (let i = 0; i < 3; i++) {
+      captures.push(local.captureSignal);
+      stopped.push(local.microphoneSignal, local.outputSignal, local.pendingSignal);
+      local.captureOnly();
+      assert.equal(local.state, 'CAPTURE_ONLY');
+      assert.ok(captures.every((signal) => !signal.aborted));
+      assert.ok(stopped.every((signal) => signal.aborted));
+      local.applyAuthority({ ...scope(), tombstone: null });
+      assert.equal(local.state, 'ACTIVE');
+    }
+    captures.push(local.captureSignal);
+    stopped.push(local.microphoneSignal, local.outputSignal, local.pendingSignal);
+    apply(local);
+    assert.equal(local.state, expected);
+    assert.ok([...captures, ...stopped].every((signal) => signal.aborted));
+  });
+
+  it('end directly from CAPTURE_ONLY stops earlier text capture and keeps every other channel stopped', () => {
+    const local = localSession();
+    const capture = local.captureSignal;
+    local.captureOnly();
+    local.end();
+    assert.equal(local.state, 'ENDED');
+    assert.ok([capture, local.microphoneSignal, local.outputSignal, local.pendingSignal].every((signal) => signal.aborted));
+  });
+
+  for (const [status, event] of [
+    ['CAPTURE_ONLY', { type: 'capture-only' }],
+    ['SUSPENDED', { type: 'authority', authority: { ...scope(), tombstone: 'suspend' } }],
+    ['REVOKED', { type: 'revoke', epoch: 2 }],
+    ['FENCED', { type: 'authority', authority: { ...scope({ worker_generation: 2 }), tombstone: null } }],
+    ['PURGING', { type: 'authority', authority: { ...scope(), tombstone: 'purge' } }],
+    ['PURGED', { type: 'cache-purged' }],
+    ['ENDED', { type: 'end' }],
+  ]) it(`the pure ${status} transition owns its complete signal stop effect`, () => {
+    let initial = transition(null, { type: 'start', scope: scope() }).state;
+    if (status === 'PURGED') initial = transition(initial, { type: 'authority', authority: { ...scope(), tombstone: 'purge' } }).state;
+    const original = JSON.stringify(initial);
+    const result = transition(initial, event);
+    assert.equal(JSON.stringify(initial), original, 'No input mutation');
+    assert.deepEqual(result, transition(initial, event), 'Deterministic pure transition');
+    assert.equal(result.state.status, status);
+    assert.deepEqual(result.effects.filter((effect) => effect.type === 'stop-signals').map((effect) => effect.channels),
+      [status === 'CAPTURE_ONLY' ? ['microphone', 'output', 'pending'] : ['capture', 'microphone', 'output', 'pending']]);
+    assert.equal(result.state.revision, initial.revision + 1);
+    assert.ok(Object.isFrozen(result.state.scope));
+  });
 
   for (const [name, apply, refusal] of [
     ['callback without epoch', (local) => local.revoke(), 'revoked'],
@@ -966,10 +1105,122 @@ describe('(d) tombstone, bounded drain, cache deletion, host purge acknowledgeme
     assert.deepEqual(events, ['inventory', 'cache', 'ack']);
   });
 
-  it('a purge flag without its original stored record fails closed and still ends after 10min', async (t) => {
+  for (const entry of ['journal', 'authority']) for (const step of ['inventory', 'drain', 'cache', 'acknowledgement']) {
+    it(`${entry} re-drives a failed purge ${step} from retained tombstone state until acknowledgement`, async (t) => {
+      const calls = { inventory: 0, drain: 0, cache: 0, acknowledgement: 0 };
+      const acknowledgements = [];
+      let artifacts = ['journal:fixture-original', 'intake:fixture-original'];
+      const { coordinator, fake, local, journal, cache } = setup(t, {
+        hostArtifacts: () => {
+          calls.inventory++;
+          if (step === 'inventory' && calls.inventory === 1) throw new Error('fixture inventory unavailable');
+          return artifacts;
+        },
+        purgeCache: async () => {
+          calls.cache++;
+          if (step === 'cache' && calls.cache === 1) {
+            artifacts = []; // A partial deletion must not lose host-owned refs on retry.
+            throw new Error('fixture cache unavailable');
+          }
+          cache.clear();
+        },
+        acknowledge: (ack) => {
+          calls.acknowledgement++;
+          acknowledgements.push(ack);
+          if (step === 'acknowledgement' && calls.acknowledgement === 1) return new Promise(() => {});
+        },
+      });
+      const drain = local.drain.bind(local);
+      local.drain = () => {
+        calls.drain++;
+        if (step === 'drain' && calls.drain === 1) throw new Error('fixture drain unavailable');
+        return drain();
+      };
+      const stored = journal.append(bytes(record('session.control', { action: 'purge' }, { writer: { kind: 'host' } })), host());
+      let reads = 0;
+      const port = { recordsAfter: (...args) => ++reads === 1 ? [stored] : journal.recordsAfter(...args) };
+      const options = { clock: fake.clock, scheduler: fake.scheduler, purgeCoordinator: coordinator };
+      let monitor;
+      if (entry === 'journal') {
+        const failure = assert.rejects(local.consumeJournal(port, host(), options),
+          step === 'acknowledgement' ? status(504) : new RegExp(`fixture ${step} unavailable`));
+        if (step === 'acknowledgement') await fake.advance(10_000);
+        await failure;
+      } else {
+        let polls = 0;
+        monitor = new AuthorityMonitor({ session: local, ...options, fetchAuthority: () => authorityResponse(fake,
+          { tombstone: 'purge', ...(++polls === 1 ? { tombstone_record: stored } : {}) }) });
+        monitor.start();
+        await fake.advance(step === 'acknowledgement' ? 10_000 : 0);
+        assert.ok(monitor.lastError);
+      }
+      assert.equal(local.state, step === 'acknowledgement' ? 'PURGED' : 'PURGING');
+      assert.equal(local.lastRecordSeq, 1);
+      assert.equal(local.purgeAcknowledged, false);
+      assert.throws(() => local.assertNewClaim(), code('revoked'));
+      if (entry === 'journal') {
+        assert.equal(await local.consumeJournal(port, host(), options), 1);
+        assert.equal(reads, 1, 'Retry cannot depend on a denied post-tombstone journal read');
+      } else await fake.advance(30_000 - (fake.mono - fake.origin));
+      assert.equal(local.state, 'PURGED');
+      assert.equal(local.purgeAcknowledged, true);
+      assert.equal(cache.size, 0);
+      if (step === 'drain' && entry === 'authority') {
+        assert.equal(calls.drain, 1, 'The next fixed poll is past the original drain deadline');
+        assert.equal(acknowledgements.at(-1).drained, false, 'Re-drive advances an expired drain to cache deletion');
+      } else assert.equal(calls[step], 2, 'The failed step must run again');
+      assert.deepEqual(acknowledgements.at(-1).host_artifacts, ['journal:fixture-original', 'intake:fixture-original']);
+      if (step === 'acknowledgement') {
+        assert.equal(acknowledgements[0], acknowledgements[1], 'Stable acknowledgement across transport retry');
+        assert.equal(calls.cache, 1);
+        assert.equal(calls.drain, 1);
+      }
+      const completed = { ...calls };
+      await local.consumeJournal(port, host(), options);
+      assert.deepEqual(calls, completed, 'Recorded acknowledgement ends every purge step');
+      if (monitor) assert.equal(fake.timers.size, 0);
+    });
+  }
+
+  it('a journal tombstone learned without a coordinator retains its receipt for the next consumeJournal', async (t) => {
+    const { coordinator, fake, local, journal, cache } = setup(t);
+    const stored = journal.append(bytes(record('session.control', { action: 'purge' }, { writer: { kind: 'host' } })), host());
+    await assert.rejects(local.consumeJournal({ recordsAfter: () => [stored] }, host(), { clock: fake.clock, scheduler: fake.scheduler }), status(502));
+    assert.equal(local.state, 'PURGING');
+    assert.equal(local.lastRecordSeq, 1);
+    assert.equal(await local.consumeJournal(journal, host(), { clock: fake.clock, scheduler: fake.scheduler, purgeCoordinator: coordinator }), 1);
+    assert.equal(local.purgeAcknowledged, true);
+    assert.equal(cache.size, 0);
+  });
+
+  it('a retried drain shares the original 10s allowance rather than starting a new one', async (t) => {
+    const { coordinator, fake, local, journal, cache } = setup(t);
+    let attempts = 0;
+    local.drain = () => ++attempts === 1
+      ? new Promise((_, reject) => fake.scheduler.setTimeout(() => reject(new Error('fixture drain interrupted')), 6000))
+      : new Promise(() => {});
+    const stored = journal.append(bytes(record('session.control', { action: 'purge' }, { writer: { kind: 'host' } })), host());
+    const first = assert.rejects(coordinator.complete(stored), /fixture drain interrupted/);
+    await fake.advance(6000);
+    await first;
+    await fake.advance(3000);
+    const retry = coordinator.complete(stored);
+    await fake.advance(999);
+    assert.equal(local.state, 'PURGING');
+    await fake.advance(1);
+    assert.equal(local.state, 'PURGED', 'The retry must finish at the original deadline');
+    assert.equal((await retry).drained, false);
+    assert.equal(fake.mono - fake.origin, 10_000);
+    assert.equal(local.purgeAcknowledged, true);
+    assert.equal(cache.size, 0);
+  });
+
+  it('a purge flag without its original stored record fails closed and ends after 10min without authority', async (t) => {
     const { coordinator, fake, local, cache, events } = setup(t);
+    let available = true;
     const monitor = new AuthorityMonitor({ session: local, purgeCoordinator: coordinator,
-      clock: fake.clock, scheduler: fake.scheduler, fetchAuthority: () => authorityResponse(fake, { tombstone: 'purge' }) });
+      clock: fake.clock, scheduler: fake.scheduler, fetchAuthority: () => available
+        ? authorityResponse(fake, { tombstone: 'purge' }) : new Promise(() => {}) });
     monitor.start();
     await fake.advance(0);
     assert.equal(local.state, 'PURGING');
@@ -977,6 +1228,7 @@ describe('(d) tombstone, bounded drain, cache deletion, host purge acknowledgeme
     assert.equal(monitor.lastError.status, 502);
     assert.equal(cache.size, 1);
     assert.deepEqual(events, []);
+    available = false;
     await fake.advance(600_000);
     assert.equal(local.state, 'ENDED');
     assert.equal(fake.timers.size, 0);
@@ -1144,9 +1396,9 @@ describe('(d) tombstone, bounded drain, cache deletion, host purge acknowledgeme
     assert.equal(attempts, 1);
   });
 
-  it('documents the JournalPort lost-response replay blocker and can recover from the host original receipt', async (t) => {
+  it('a lost tombstone response followed by revoked closes claims until the host original receipt completes purge', async (t) => {
     let stored;
-    const { coordinator, fake, local, journal } = setup(t, { journal: { append: (original, authority) => {
+    const { coordinator, fake, local, journal, cache } = setup(t, { journal: { append: (original, authority) => {
       const result = journal.append(original, authority);
       stored = result;
       return new Promise(() => {}); // The response is lost permanently after commitment.
@@ -1155,8 +1407,25 @@ describe('(d) tombstone, bounded drain, cache deletion, host purge acknowledgeme
     await fake.advance(10_000);
     await refusal;
     await assert.rejects(coordinator.purge({ authority: host() }), code('revoked'),
-      'JournalPort currently authorizes before its idempotent lookup; coordinator must fix this outside AIT-39 ownership');
-    assert.equal(local.state, 'ACTIVE');
+      'The reference JournalPort refuses replay after committing its tombstone; local authorization must fail closed');
+    assert.equal(local.state, 'REVOKED');
+    assert.ok([local.captureSignal, local.microphoneSignal, local.outputSignal, local.pendingSignal].every((signal) => signal.aborted));
+    assert.throws(() => local.assertNewClaim(), code('revoked'));
+    assert.throws(() => new CapabilityGuard({ verifier: verifier() }).authorize('ledger.claim', jwt(), local.scope), code('revoked'));
+    let forwardReceipt = false;
+    const monitor = new AuthorityMonitor({ session: local, purgeCoordinator: coordinator, clock: fake.clock, scheduler: fake.scheduler,
+      fetchAuthority: () => authorityResponse(fake, { tombstone: 'purge', ...(forwardReceipt ? { tombstone_record: stored } : {}) }) });
+    monitor.start();
+    await fake.advance(0);
+    assert.equal(local.state, 'PURGING');
+    assert.equal(cache.size, 1, 'A refusal/flag cannot invent the host receipt');
+    assert.throws(() => local.assertNewClaim(), code('revoked'));
+    forwardReceipt = true;
+    await fake.advance(30_000);
+    assert.equal(local.state, 'PURGED');
+    assert.equal(local.purgeAcknowledged, true);
+    assert.equal(cache.size, 0);
+    assert.equal(fake.timers.size, 0);
     assert.equal((await coordinator.complete(stored)).tombstone_seq, 1);
     assert.equal(local.state, 'PURGED');
   });
@@ -1172,9 +1441,9 @@ describe('(d) tombstone, bounded drain, cache deletion, host purge acknowledgeme
     assert.deepEqual(events, ['inventory', 'cache', 'ack']);
     assert.equal(local.state, 'PURGED');
     await coordinator.complete(stored);
-    assert.deepEqual(events, ['inventory', 'cache', 'ack', 'ack'], 'Retry acknowledges the same result, without repeating deletion');
+    assert.deepEqual(events, ['inventory', 'cache', 'ack'], 'A recorded acknowledgement ends retries');
     await coordinator.purge({ authority: host() });
-    assert.deepEqual(events, ['inventory', 'cache', 'ack', 'ack', 'ack'], 'Host-originated completion also retains its receipt for purge retries');
+    assert.deepEqual(events, ['inventory', 'cache', 'ack'], 'Host-originated completion retains the recorded acknowledgement');
   });
 
   it('concurrent purge callers still verify host authentication and original tombstone identity', async (t) => {

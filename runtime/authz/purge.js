@@ -22,6 +22,9 @@ export class PurgeCoordinator {
   #ack;
   #busy;
   #tombstone;
+  #artifactsSnapshot;
+  #drainDeadline;
+  #drained;
 
   constructor({ journal, session, purgeCache, acknowledge, hostArtifacts, clock = systemClock, scheduler = systemScheduler }) {
     if (typeof purgeCache !== 'function' || typeof acknowledge !== 'function' || typeof hostArtifacts !== 'function') {
@@ -69,6 +72,10 @@ export class PurgeCoordinator {
             this.#stored = this.#checkedTombstone(stored);
           }, { clock: this.#clock, scheduler: this.#scheduler });
         } catch (error) {
+          // A committed tombstone's lost response is indistinguishable from
+          // another host revocation here. Fail closed immediately; never invent
+          // a receipt/seq or delete caches before the original host ack arrives.
+          if (error.code === 'revoked') this.#session.revoke();
           if (!(error instanceof AuthzError) || error.status !== 504 || !this.#stored) throw error;
         }
       }
@@ -95,23 +102,36 @@ export class PurgeCoordinator {
     if (!this.#ack) {
       this.#session.consumeStoredRecord(stored);
       if (!['PURGING', 'ENDED'].includes(this.#session.state) || this.#session.scope.tombstone !== 'purge') throw new AuthzError(409, 'Purge tombstone not applied');
-      const artifacts = this.#artifacts(); // Capture refs before deleting the local cache.
-      if (!Array.isArray(artifacts) || new Set(artifacts).size !== artifacts.length
-          || artifacts.some((ref) => typeof ref !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/.test(ref))) {
-        throw new TypeError('Host artifacts must be unique opaque references');
+      this.#drainDeadline ??= this.#clock.monotonicNow() + 10_000;
+      if (!this.#artifactsSnapshot) {
+        const artifacts = this.#artifacts(); // Retain refs through partial cache deletion and retries.
+        if (!Array.isArray(artifacts) || new Set(artifacts).size !== artifacts.length
+            || artifacts.some((ref) => typeof ref !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/.test(ref))) {
+          throw new TypeError('Host artifacts must be unique opaque references');
+        }
+        this.#artifactsSnapshot = [...artifacts];
       }
-      let drained = true;
-      try {
-        await withDeadline(() => this.#session.drain(), { clock: this.#clock, scheduler: this.#scheduler, milliseconds: 10_000 });
-      } catch (error) {
-        if (!(error instanceof AuthzError) || error.status !== 504) throw error;
-        drained = false; // Provider work may finish later; output remains permanently discarded.
+      if (this.#drained === undefined) {
+        const remaining = this.#drainDeadline - this.#clock.monotonicNow();
+        if (remaining <= 0) this.#drained = false;
+        else {
+          try {
+            await withDeadline(() => this.#session.drain(), { clock: this.#clock, scheduler: this.#scheduler, milliseconds: remaining });
+            this.#drained = true;
+          } catch (error) {
+            if (!(error instanceof AuthzError) || error.status !== 504) throw error;
+            this.#drained = false; // Late provider output stays permanently discarded.
+          }
+        }
       }
       await this.#purgeCache(); // Failure leaves PURGING; never acknowledge incomplete deletion.
       this.#session.markPurged();
-      this.#ack = freeze({ sid: document.sid, tombstone_seq: document.seq, drained, host_artifacts: [...artifacts] });
+      this.#ack = freeze({ sid: document.sid, tombstone_seq: document.seq, drained: this.#drained, host_artifacts: [...this.#artifactsSnapshot] });
     }
-    await withDeadline((signal) => this.#acknowledge(this.#ack, { signal }), { clock: this.#clock, scheduler: this.#scheduler });
+    if (!this.#session.purgeAcknowledged) {
+      await withDeadline((signal) => this.#acknowledge(this.#ack, { signal }), { clock: this.#clock, scheduler: this.#scheduler });
+      this.#session.markPurgeAcknowledged();
+    }
     return this.#ack;
   }
 }

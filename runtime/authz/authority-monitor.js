@@ -23,13 +23,14 @@ function checkedAuthority(value, scope, wallNow) {
       || wallNow - issued > timing.stale_after_seconds * 1000) {
     throw new AuthzError(503, 'Authority issued_at is invalid, future or stale');
   }
-  return { authority: structuredClone(value), issued };
+  return structuredClone(value);
 }
 
 /**
  * Poll at start + n*30s, never completion + 30s. Duration accounting uses one
- * monotonic origin; issued_at is mapped onto it using the wall clock captured
- * at start. Subsequent local wall-clock adjustments cannot reset the bounds.
+ * monotonic origin and local receipt time only. issued_at checks plausibility
+ * against the wall clock captured at start; it never orders responses or renews
+ * a lease. Subsequent local wall-clock adjustments cannot reset the bounds.
  * fetchAuthority is a HOST adapter: send cache: no-store and honour signal.
  * JournalPort itself has no authority endpoint; do not infer it from cursor.
  */
@@ -42,7 +43,6 @@ export class AuthorityMonitor {
   #origin;
   #wallOrigin;
   #lastAuthority;
-  #lastIssued = -Infinity;
   #failures = 0;
   #running = false;
   #pollTimer;
@@ -91,8 +91,8 @@ export class AuthorityMonitor {
 
   #scheduleFreshness() {
     this.#scheduler.clearTimeout(this.#freshnessTimer);
-    // A replay still within the 30s freshness window must not postpone the
-    // outage bound. Only issued_at, never response arrival, renews this lease.
+    // Only receipt of a valid uncached host response renews this local lease.
+    // Host timestamps and clock corrections never move its monotonic origin.
     const deadline = this.#lastAuthority + (timing.revocation_outage_max_seconds - timing.stop_allowance_seconds) * 1000;
     this.#freshnessTimer = this.#scheduler.setTimeout(() => {
       if (this.#running) this.#session.captureOnly(new AuthzError(503, 'Authority freshness lease expired'));
@@ -128,25 +128,19 @@ export class AuthorityMonitor {
       }), { clock: this.#clock, scheduler: this.#scheduler, signal: this.#request.signal });
       if (!this.#running) return;
       const now = this.#clock.monotonicNow();
-      const { authority, issued } = checkedAuthority(value, this.#session.scope, this.#wallOrigin + now - this.#origin);
-      if (issued < this.#lastIssued) throw new AuthzError(503, 'Authority issued_at moved backwards');
+      const authority = checkedAuthority(value, this.#session.scope, this.#wallOrigin + now - this.#origin);
       this.#session.applyAuthority(authority);
-      if (authority.tombstone === 'purge') {
-        // Reads are denied after tombstoning. The authenticated host adapter
-        // must forward the original StoredRecord, including bytes and seq.
-        if (!authority.tombstone_record || !this.#purge) throw new AuthzError(502, 'Purge authority requires its stored host tombstone and coordinator');
-        await this.#purge.complete(authority.tombstone_record);
-        if (!this.#running) return;
-        this.stop();
-      }
-      this.#lastIssued = issued;
-      // Host clock skew is allowed but cannot grant time beyond local receipt.
-      this.#lastAuthority = Math.min(now, this.#origin + issued - this.#wallOrigin);
+      if (!this.#running) return; // A synchronous lifecycle observer may stop us.
+      this.#lastAuthority = now;
       this.#failures = 0;
       this.#lastError = null;
-      if (this.#running) {
-        this.#scheduleEnd();
-        this.#scheduleFreshness();
+      this.#scheduleEnd();
+      this.#scheduleFreshness();
+      if (this.#session.scope.tombstone === 'purge') {
+        // The session retains an earlier original receipt through failed cache
+        // deletion/acknowledgement, even if a later snapshot contains only a flag.
+        await this.#session.redrivePurge(this.#purge, authority.tombstone_record);
+        if (this.#running) this.stop();
       }
     } catch (error) {
       if (!this.#running) return;
