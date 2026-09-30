@@ -1,18 +1,140 @@
 {
-  "description": "Stable host error codes (§4.2, §6.2, §6.3, §9.7). Hosts and adapters return these codes verbatim; any other code is a contract violation. scope post-v1 codes are reserved: v1 never sends targets or merges human text.",
+  "description": "Stable contract-level error codes (§4.2, §6.2, §6.3, §9.7). Hosts and adapters return these codes verbatim in a machine-readable `code` field for the conditions listed here; scope post-v1 codes are reserved (v1 never sends targets or merges human text). Ordinary transport errors (401 unauthenticated, 400 malformed request, 404 not found, 413 too large, 5xx) keep standard HTTP semantics and are not part of this catalogue.",
   "codes": [
-    { "code": "idempotency_conflict", "http": 409, "scope": "v1", "retry": false, "meaning": "Same op key, different bytes. A bug; surfaced, never retried." },
-    { "code": "citation_invalid", "http": 422, "scope": "v1", "retry": false, "meaning": "A citation does not resolve to a person turn or document segment in the hydrated closure, or its chain passes through assistant records." },
-    { "code": "draft_superseded", "http": 409, "scope": "v1", "retry": false, "meaning": "Accept or replace on a proposal that a replacement already superseded." },
-    { "code": "already_accepted", "http": 409, "scope": "v1", "retry": false, "meaning": "Replace on an accepted proposal; acceptance is terminal for the item in v1." },
-    { "code": "target_changed", "http": 409, "scope": "post-v1", "retry": false, "meaning": "Proposal or accept with a target whose base moved." },
-    { "code": "already_accepted_on_target", "http": 409, "scope": "post-v1", "retry": false, "meaning": "Another proposal was already accepted on the same target." },
-    { "code": "no_recorded_content", "http": 409, "scope": "post-v1", "retry": false, "meaning": "The target has no recorded content to refine." },
-    { "code": "person_authored", "http": 409, "scope": "post-v1", "retry": false, "meaning": "The target's current text was written by a person; no automatic merge." },
-    { "code": "fenced_generation", "http": 409, "scope": "v1", "retry": false, "meaning": "The token's gen is not the session's current worker generation." },
-    { "code": "revoked", "http": 403, "scope": "v1", "retry": false, "meaning": "The auth epoch changed or a tombstone exists; stop capture, output and new claims." },
-    { "code": "contract_too_new", "http": 422, "scope": "v1", "retry": false, "meaning": "Unsupported major, or reader minor below min_reader." },
-    { "code": "already_claimed", "http": 409, "scope": "v1", "retry": false, "meaning": "The hold was already claimed; a resend needs a new attempt, hold and claim." },
-    { "code": "budget_denied", "http": 402, "scope": "v1", "retry": false, "meaning": "Admission refused at a session, principal/day or tenant/day cap, or for missing evidence." }
+    {
+      "code": "idempotency_conflict",
+      "http": 409,
+      "scope": "v1",
+      "retry": false,
+      "meaning": "Same op key, different bytes. A bug; surfaced, never retried."
+    },
+    {
+      "code": "citation_invalid",
+      "http": 422,
+      "scope": "v1",
+      "retry": false,
+      "meaning": "A citation does not resolve to a person turn or document segment in the hydrated closure, or its chain passes through assistant records."
+    },
+    {
+      "code": "draft_superseded",
+      "http": 409,
+      "scope": "v1",
+      "retry": false,
+      "meaning": "Accept or replace on a proposal that a replacement already superseded."
+    },
+    {
+      "code": "already_accepted",
+      "http": 409,
+      "scope": "v1",
+      "retry": false,
+      "meaning": "Replace on an accepted proposal; acceptance is terminal for the item in v1."
+    },
+    {
+      "code": "target_changed",
+      "http": 409,
+      "scope": "post-v1",
+      "retry": false,
+      "meaning": "Proposal or accept with a target whose base moved."
+    },
+    {
+      "code": "already_accepted_on_target",
+      "http": 409,
+      "scope": "post-v1",
+      "retry": false,
+      "meaning": "Another proposal was already accepted on the same target."
+    },
+    {
+      "code": "no_recorded_content",
+      "http": 409,
+      "scope": "post-v1",
+      "retry": false,
+      "meaning": "The target has no recorded content to refine."
+    },
+    {
+      "code": "person_authored",
+      "http": 409,
+      "scope": "post-v1",
+      "retry": false,
+      "meaning": "The target's current text was written by a person; no automatic merge."
+    },
+    {
+      "code": "fenced_generation",
+      "http": 409,
+      "scope": "v1",
+      "retry": false,
+      "meaning": "The token's gen is not the session's current worker generation."
+    },
+    {
+      "code": "revoked",
+      "http": 403,
+      "scope": "v1",
+      "retry": false,
+      "meaning": "The auth epoch changed or a tombstone exists; stop capture, output and new claims."
+    },
+    {
+      "code": "contract_too_new",
+      "http": 422,
+      "scope": "v1",
+      "retry": false,
+      "meaning": "Unsupported major, or reader minor below min_reader."
+    },
+    {
+      "code": "already_claimed",
+      "http": 409,
+      "scope": "v1",
+      "retry": false,
+      "meaning": "The hold was already claimed; a resend needs a new attempt, hold and claim."
+    },
+    {
+      "code": "hold_closed",
+      "http": 409,
+      "scope": "v1",
+      "retry": false,
+      "meaning": "Claim on a hold that recover() already finalised (void, settled or unknown); a new attempt needs a new hold."
+    },
+    {
+      "code": "budget_denied",
+      "http": 402,
+      "scope": "v1",
+      "retry": false,
+      "meaning": "Admission refused at a session, principal/day or tenant/day cap, or for missing evidence."
+    }
+  ],
+  "port_results": [
+    {
+      "result": "admit denied (session, principal/day or tenant/day cap, missing evidence)",
+      "http": 402,
+      "code": "budget_denied"
+    },
+    {
+      "result": "stale worker generation on any fenced route",
+      "http": 409,
+      "code": "fenced_generation"
+    },
+    {
+      "result": "auth epoch changed or tombstone present",
+      "http": 403,
+      "code": "revoked"
+    },
+    {
+      "result": "second claim on a claimed hold",
+      "http": 409,
+      "code": "already_claimed"
+    },
+    {
+      "result": "claim after recover() finalised the hold",
+      "http": 409,
+      "code": "hold_closed"
+    },
+    {
+      "result": "same op key or attempt id with different bytes",
+      "http": 409,
+      "code": "idempotency_conflict"
+    },
+    {
+      "result": "exact retry (same key, same bytes)",
+      "http": 200,
+      "code": null
+    }
   ]
 }

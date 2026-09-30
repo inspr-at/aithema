@@ -104,6 +104,14 @@ describe('AIT-35 foundation contracts: tables stay consistent', () => {
     }
   });
 
+  it('port results map to catalogued codes with matching HTTP status', () => {
+    const catalog = new Map(loadContractFile('error-codes.json').codes.map((/** @type {any} */ c) => [c.code, c.http]));
+    for (const r of loadContractFile('error-codes.json').port_results) {
+      if (r.code === null) assert.equal(r.http, 200);
+      else assert.equal(catalog.get(r.code), r.http, r.code);
+    }
+  });
+
   it('arbitration results are ok, the original result, or a catalogued code', () => {
     for (const row of transitions.arbitration) {
       assert.ok(['ok', 'original result'].includes(row.result) || errorCodes.includes(row.result), row.result);
@@ -113,7 +121,7 @@ describe('AIT-35 foundation contracts: tables stay consistent', () => {
   it('acceptance is never a delegated capability and the route matrix uses only allowed capabilities', () => {
     for (const cap of capabilities.never_in_token) assert.ok(!capabilities.delegated_allowed.includes(cap));
     for (const route of capabilities.routes) {
-      if (route.class === 'person-only') assert.equal(route.capability, null);
+      if (route.class === 'person-only') assert.ok(capabilities.never_in_token.includes(route.capability), route.route);
       else if (route.class !== 'host-to-service') assert.ok(capabilities.delegated_allowed.includes(route.capability), route.route);
     }
   });

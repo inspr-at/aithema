@@ -2,87 +2,389 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/inspr-at/aithema/contracts/journal-record.schema.json",
   "title": "Host journal event record (§3.1, §3.5, §5.3, §6.3, §9.2)",
-  "description": "Append-only event records owned by the host. The browser or worker assigns client_event_id; the host assigns seq (absent on submission, present when the host returns or lists a record). Idempotency is by (sid, client_event_id): a resubmission with the same id returns the existing seq. Critical records (authz.epoch, budget.hold, session.control, session.end, ui.confirm) are write-ahead: their effect happens only after the host acknowledged them.",
+  "description": "Append-only event records owned by the host. The browser or worker assigns client_event_id; the host assigns seq (absent on submission, present when the host returns or lists a record). Idempotency is by (sid, client_event_id): a resubmission with the same id returns the existing seq. Critical records (authz.epoch, budget.hold, session.control, session.end, ui.confirm) are write-ahead: their effect happens only after the host acknowledged them. Hosts store each submitted document's original bytes verbatim, separately from any indexed projection (JSONB reserialisation changes bytes; §9.7 storage rule). One record's encoded JSON is at most 1 MiB.",
   "$defs": {
     "record": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["contract", "major", "minor", "min_reader", "sid", "client_event_id", "writer", "recorded_at", "kind", "data"],
+      "required": [
+        "contract",
+        "major",
+        "minor",
+        "min_reader",
+        "sid",
+        "client_event_id",
+        "writer",
+        "recorded_at",
+        "kind",
+        "data"
+      ],
       "properties": {
-        "contract": { "const": "aithema.journal.record" },
-        "major": { "const": 1 },
-        "minor": { "$ref": "common.schema.json#/$defs/minor" },
-        "min_reader": { "$ref": "common.schema.json#/$defs/minor" },
-        "sid": { "$ref": "common.schema.json#/$defs/uuid" },
-        "seq": { "$ref": "common.schema.json#/$defs/count" },
-        "client_event_id": { "$ref": "common.schema.json#/$defs/uuid" },
+        "contract": {
+          "const": "aithema.journal.record"
+        },
+        "major": {
+          "const": 1
+        },
+        "minor": {
+          "$ref": "common.schema.json#/$defs/minor"
+        },
+        "min_reader": {
+          "$ref": "common.schema.json#/$defs/minor"
+        },
+        "sid": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "seq": {
+          "$ref": "common.schema.json#/$defs/count"
+        },
+        "client_event_id": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
         "writer": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["kind"],
+          "required": [
+            "kind"
+          ],
           "properties": {
-            "kind": { "enum": ["browser", "worker", "host"] },
-            "generation": { "$ref": "common.schema.json#/$defs/positive" }
+            "kind": {
+              "enum": [
+                "browser",
+                "worker",
+                "host"
+              ]
+            },
+            "generation": {
+              "$ref": "common.schema.json#/$defs/positive"
+            }
           }
         },
-        "recorded_at": { "$ref": "common.schema.json#/$defs/timestamp" },
-        "kind": {
-          "enum": ["turn", "source", "design.input", "reaction", "ui.confirm", "authz.epoch", "budget.hold", "budget.claim", "budget.settle", "audit.event", "audit.restart", "session.control", "session.end", "op.result"]
+        "recorded_at": {
+          "$ref": "common.schema.json#/$defs/timestamp"
         },
-        "data": { "type": "object" }
+        "kind": {
+          "enum": [
+            "turn",
+            "source",
+            "design.input",
+            "reaction",
+            "ui.confirm",
+            "authz.epoch",
+            "budget.hold",
+            "budget.claim",
+            "budget.settle",
+            "audit.event",
+            "audit.restart",
+            "session.control",
+            "session.end",
+            "op.result"
+          ]
+        },
+        "data": {
+          "type": "object"
+        }
       },
       "oneOf": [
-        { "required": ["kind", "data"], "properties": { "kind": { "const": "turn" }, "data": { "$ref": "#/$defs/turn" } } },
-        { "required": ["kind", "data"], "properties": { "kind": { "const": "source" }, "data": { "$ref": "#/$defs/source" } } },
-        { "required": ["kind", "data"], "properties": { "kind": { "const": "design.input" }, "data": { "$ref": "#/$defs/design_input" } } },
-        { "required": ["kind", "data"], "properties": { "kind": { "const": "reaction" }, "data": { "$ref": "#/$defs/reaction" } } },
-        { "required": ["kind", "data"], "properties": { "kind": { "const": "ui.confirm" }, "data": { "$ref": "#/$defs/ui_confirm" } } },
-        { "required": ["kind", "data"], "properties": { "kind": { "const": "authz.epoch" }, "data": { "$ref": "#/$defs/authz_epoch" } } },
-        { "required": ["kind", "data"], "properties": { "kind": { "const": "budget.hold" }, "data": { "$ref": "#/$defs/budget_hold" } } },
-        { "required": ["kind", "data"], "properties": { "kind": { "const": "budget.claim" }, "data": { "$ref": "#/$defs/budget_claim" } } },
-        { "required": ["kind", "data"], "properties": { "kind": { "const": "budget.settle" }, "data": { "$ref": "#/$defs/budget_settle" } } },
-        { "required": ["kind", "data"], "properties": { "kind": { "const": "audit.event" }, "data": { "$ref": "#/$defs/audit_event" } } },
-        { "required": ["kind", "data"], "properties": { "kind": { "const": "audit.restart" }, "data": { "$ref": "#/$defs/audit_restart" } } },
-        { "required": ["kind", "data"], "properties": { "kind": { "const": "session.control" }, "data": { "$ref": "#/$defs/session_control" } } },
-        { "required": ["kind", "data"], "properties": { "kind": { "const": "session.end" }, "data": { "$ref": "#/$defs/session_end" } } },
-        { "required": ["kind", "data"], "properties": { "kind": { "const": "op.result" }, "data": { "$ref": "#/$defs/op_result" } } }
+        {
+          "required": [
+            "kind",
+            "data"
+          ],
+          "properties": {
+            "kind": {
+              "const": "turn"
+            },
+            "data": {
+              "$ref": "#/$defs/turn"
+            }
+          }
+        },
+        {
+          "required": [
+            "kind",
+            "data"
+          ],
+          "properties": {
+            "kind": {
+              "const": "source"
+            },
+            "data": {
+              "$ref": "#/$defs/source"
+            }
+          }
+        },
+        {
+          "required": [
+            "kind",
+            "data"
+          ],
+          "properties": {
+            "kind": {
+              "const": "design.input"
+            },
+            "data": {
+              "$ref": "#/$defs/design_input"
+            }
+          }
+        },
+        {
+          "required": [
+            "kind",
+            "data"
+          ],
+          "properties": {
+            "kind": {
+              "const": "reaction"
+            },
+            "data": {
+              "$ref": "#/$defs/reaction"
+            }
+          }
+        },
+        {
+          "required": [
+            "kind",
+            "data"
+          ],
+          "properties": {
+            "kind": {
+              "const": "ui.confirm"
+            },
+            "data": {
+              "$ref": "#/$defs/ui_confirm"
+            }
+          }
+        },
+        {
+          "required": [
+            "kind",
+            "data"
+          ],
+          "properties": {
+            "kind": {
+              "const": "authz.epoch"
+            },
+            "data": {
+              "$ref": "#/$defs/authz_epoch"
+            }
+          }
+        },
+        {
+          "required": [
+            "kind",
+            "data"
+          ],
+          "properties": {
+            "kind": {
+              "const": "budget.hold"
+            },
+            "data": {
+              "$ref": "#/$defs/budget_hold"
+            }
+          }
+        },
+        {
+          "required": [
+            "kind",
+            "data"
+          ],
+          "properties": {
+            "kind": {
+              "const": "budget.claim"
+            },
+            "data": {
+              "$ref": "#/$defs/budget_claim"
+            }
+          }
+        },
+        {
+          "required": [
+            "kind",
+            "data"
+          ],
+          "properties": {
+            "kind": {
+              "const": "budget.settle"
+            },
+            "data": {
+              "$ref": "#/$defs/budget_settle"
+            }
+          }
+        },
+        {
+          "required": [
+            "kind",
+            "data"
+          ],
+          "properties": {
+            "kind": {
+              "const": "audit.event"
+            },
+            "data": {
+              "$ref": "#/$defs/audit_event"
+            }
+          }
+        },
+        {
+          "required": [
+            "kind",
+            "data"
+          ],
+          "properties": {
+            "kind": {
+              "const": "audit.restart"
+            },
+            "data": {
+              "$ref": "#/$defs/audit_restart"
+            }
+          }
+        },
+        {
+          "required": [
+            "kind",
+            "data"
+          ],
+          "properties": {
+            "kind": {
+              "const": "session.control"
+            },
+            "data": {
+              "$ref": "#/$defs/session_control"
+            }
+          }
+        },
+        {
+          "required": [
+            "kind",
+            "data"
+          ],
+          "properties": {
+            "kind": {
+              "const": "session.end"
+            },
+            "data": {
+              "$ref": "#/$defs/session_end"
+            }
+          }
+        },
+        {
+          "required": [
+            "kind",
+            "data"
+          ],
+          "properties": {
+            "kind": {
+              "const": "op.result"
+            },
+            "data": {
+              "$ref": "#/$defs/op_result"
+            }
+          }
+        }
       ]
     },
     "turn": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["speaker", "participant_ref", "channel", "trust", "lang", "body"],
+      "required": [
+        "speaker",
+        "participant_ref",
+        "channel",
+        "trust",
+        "lang",
+        "body"
+      ],
       "properties": {
-        "speaker": { "enum": ["person", "assistant"] },
-        "participant_ref": { "$ref": "common.schema.json#/$defs/ref" },
-        "channel": { "enum": ["text", "voice"] },
-        "trust": { "enum": ["authenticated_person", "anonymous_person", "assistant"] },
-        "lang": { "$ref": "common.schema.json#/$defs/lang" },
-        "body": { "type": "string", "minLength": 1, "maxLength": 8000 }
+        "speaker": {
+          "enum": [
+            "person",
+            "assistant"
+          ]
+        },
+        "participant_ref": {
+          "$ref": "common.schema.json#/$defs/ref"
+        },
+        "channel": {
+          "enum": [
+            "text",
+            "voice"
+          ]
+        },
+        "trust": {
+          "enum": [
+            "authenticated_person",
+            "anonymous_person",
+            "assistant"
+          ]
+        },
+        "lang": {
+          "$ref": "common.schema.json#/$defs/lang"
+        },
+        "body": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 8000
+        }
       }
     },
     "source": {
       "description": "An upload's normalised text and segments as an immutable host-owned body. non_resumable sources cannot be re-extracted after a restart.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["label", "media_type", "sha256", "durability", "text", "segments"],
+      "required": [
+        "label",
+        "media_type",
+        "sha256",
+        "durability",
+        "text",
+        "segments"
+      ],
       "properties": {
-        "label": { "type": "string", "minLength": 1, "maxLength": 256 },
-        "media_type": { "type": "string", "pattern": "^[a-z]+/[a-z0-9.+-]+$" },
-        "sha256": { "$ref": "common.schema.json#/$defs/sha256" },
-        "durability": { "enum": ["resumable", "non_resumable"] },
-        "text": { "type": "string", "maxLength": 200000 },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "media_type": {
+          "type": "string",
+          "pattern": "^[a-z]+/[a-z0-9.+-]+$"
+        },
+        "sha256": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "durability": {
+          "enum": [
+            "resumable",
+            "non_resumable"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 200000
+        },
         "segments": {
           "type": "array",
           "maxItems": 2000,
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["id", "start", "end"],
+            "required": [
+              "id",
+              "start",
+              "end"
+            ],
             "properties": {
-              "id": { "type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$" },
-              "start": { "$ref": "common.schema.json#/$defs/count" },
-              "end": { "$ref": "common.schema.json#/$defs/count" }
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,64}$"
+              },
+              "start": {
+                "$ref": "common.schema.json#/$defs/count"
+              },
+              "end": {
+                "$ref": "common.schema.json#/$defs/count"
+              }
             }
           }
         }
@@ -92,138 +394,297 @@
       "description": "Canonical screen IR (≤ 512 KiB) and design-token bytes (≤ 64 KiB), immutable, appended before a render; design_rev references this record's seq.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["screen_ir_sha256", "screen_ir", "tokens_sha256", "tokens"],
+      "required": [
+        "screen_ir_sha256",
+        "screen_ir",
+        "tokens_sha256",
+        "tokens"
+      ],
       "properties": {
-        "screen_ir_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
-        "screen_ir": { "type": "object" },
-        "tokens_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
-        "tokens": { "type": "object" }
+        "screen_ir_sha256": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "screen_ir": {
+          "type": "object"
+        },
+        "tokens_sha256": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "tokens": {
+          "type": "object"
+        }
       }
     },
     "reaction": {
       "description": "A spoken or written answer. delivered_prefix is what the person heard (browser playback ack); certainty uncertain means the browser did not survive to acknowledge.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["turn_seq", "text", "delivered_prefix", "certainty", "complete"],
+      "required": [
+        "turn_seq",
+        "text",
+        "delivered_prefix",
+        "certainty",
+        "complete"
+      ],
       "properties": {
-        "turn_seq": { "$ref": "common.schema.json#/$defs/count" },
-        "text": { "type": "string", "maxLength": 4000 },
-        "delivered_prefix": { "type": "string", "maxLength": 4000 },
-        "certainty": { "enum": ["delivered", "uncertain", "not_delivered"] },
-        "complete": { "type": "boolean" }
+        "turn_seq": {
+          "$ref": "common.schema.json#/$defs/count"
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "delivered_prefix": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "certainty": {
+          "enum": [
+            "delivered",
+            "uncertain",
+            "not_delivered"
+          ]
+        },
+        "complete": {
+          "type": "boolean"
+        }
       }
     },
     "ui_confirm": {
       "description": "Write-ahead record of the trusted UI action confirming one complete item version (§5.3). A spoken yes or turn text is evidence, never confirmation.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["item_ref", "version", "content_sha256", "principal_ref"],
+      "required": [
+        "item_ref",
+        "version",
+        "content_sha256",
+        "principal_ref"
+      ],
       "properties": {
-        "item_ref": { "$ref": "common.schema.json#/$defs/ref" },
-        "version": { "$ref": "common.schema.json#/$defs/positive" },
-        "content_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
-        "principal_ref": { "$ref": "common.schema.json#/$defs/ref" }
+        "item_ref": {
+          "$ref": "common.schema.json#/$defs/ref"
+        },
+        "version": {
+          "$ref": "common.schema.json#/$defs/positive"
+        },
+        "content_sha256": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "principal_ref": {
+          "$ref": "common.schema.json#/$defs/ref"
+        }
       }
     },
     "authz_epoch": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["epoch", "reason"],
+      "required": [
+        "epoch",
+        "reason"
+      ],
       "properties": {
-        "epoch": { "$ref": "common.schema.json#/$defs/positive" },
-        "reason": { "enum": ["grant", "change", "withdrawal"] }
+        "epoch": {
+          "$ref": "common.schema.json#/$defs/positive"
+        },
+        "reason": {
+          "enum": [
+            "grant",
+            "change",
+            "withdrawal"
+          ]
+        }
       }
     },
     "budget_hold": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["hold_id", "attempt_id", "lane", "max_micro", "currency"],
+      "required": [
+        "hold_id",
+        "attempt_id",
+        "lane",
+        "max_micro",
+        "currency"
+      ],
       "properties": {
-        "hold_id": { "$ref": "common.schema.json#/$defs/uuid" },
-        "attempt_id": { "$ref": "budget.schema.json#/$defs/attempt_id" },
-        "lane": { "$ref": "common.schema.json#/$defs/lane" },
-        "max_micro": { "$ref": "common.schema.json#/$defs/positive" },
-        "currency": { "$ref": "common.schema.json#/$defs/currency" }
+        "hold_id": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "attempt_id": {
+          "$ref": "budget.schema.json#/$defs/attempt_id"
+        },
+        "lane": {
+          "$ref": "common.schema.json#/$defs/lane"
+        },
+        "max_micro": {
+          "$ref": "common.schema.json#/$defs/positive"
+        },
+        "currency": {
+          "$ref": "common.schema.json#/$defs/currency"
+        }
       }
     },
     "budget_claim": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["hold_id", "claim_id", "request_sha256"],
+      "required": [
+        "hold_id",
+        "claim_id",
+        "request_sha256"
+      ],
       "properties": {
-        "hold_id": { "$ref": "common.schema.json#/$defs/uuid" },
-        "claim_id": { "$ref": "common.schema.json#/$defs/uuid" },
-        "request_sha256": { "$ref": "common.schema.json#/$defs/sha256" }
+        "hold_id": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "claim_id": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "request_sha256": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        }
       }
     },
     "budget_settle": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["hold_id", "outcome", "charged_micro"],
+      "required": [
+        "hold_id",
+        "outcome",
+        "charged_micro"
+      ],
       "properties": {
-        "hold_id": { "$ref": "common.schema.json#/$defs/uuid" },
-        "claim_id": { "$ref": "common.schema.json#/$defs/uuid" },
-        "outcome": { "enum": ["settled", "unknown", "void"] },
-        "charged_micro": { "$ref": "common.schema.json#/$defs/count" }
+        "hold_id": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "claim_id": {
+          "$ref": "common.schema.json#/$defs/uuid"
+        },
+        "outcome": {
+          "enum": [
+            "settled",
+            "unknown",
+            "void"
+          ]
+        },
+        "charged_micro": {
+          "$ref": "common.schema.json#/$defs/count"
+        }
       }
     },
     "audit_event": {
       "description": "Best-effort audit record; no gap-detection guarantee for the volatile tail (see audit.restart).",
       "type": "object",
       "additionalProperties": false,
-      "required": ["audit_seq", "name"],
+      "required": [
+        "audit_seq",
+        "name"
+      ],
       "properties": {
-        "audit_seq": { "$ref": "common.schema.json#/$defs/count" },
-        "name": { "type": "string", "pattern": "^[a-z][a-z0-9_.]{0,63}$" },
-        "detail": { "type": "string", "maxLength": 2000 }
+        "audit_seq": {
+          "$ref": "common.schema.json#/$defs/count"
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_.]{0,63}$"
+        },
+        "detail": {
+          "type": "string",
+          "maxLength": 2000
+        }
       }
     },
     "audit_restart": {
       "description": "Written first after a restart: records after last_acked_audit_seq from the previous generation may be lost.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["generation", "last_acked_audit_seq"],
+      "required": [
+        "generation",
+        "last_acked_audit_seq"
+      ],
       "properties": {
-        "generation": { "$ref": "common.schema.json#/$defs/positive" },
-        "last_acked_audit_seq": { "$ref": "common.schema.json#/$defs/count" }
+        "generation": {
+          "$ref": "common.schema.json#/$defs/positive"
+        },
+        "last_acked_audit_seq": {
+          "$ref": "common.schema.json#/$defs/count"
+        }
       }
     },
     "session_control": {
       "description": "Host-written tombstones and controls; purge is tombstone first, then drain and cache purge.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["action"],
+      "required": [
+        "action"
+      ],
       "properties": {
-        "action": { "enum": ["suspend", "resume", "purge"] },
-        "reason": { "type": "string", "maxLength": 500 }
+        "action": {
+          "enum": [
+            "suspend",
+            "resume",
+            "purge"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 500
+        }
       }
     },
     "session_end": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["reason", "export"],
+      "required": [
+        "reason",
+        "export"
+      ],
       "properties": {
-        "reason": { "enum": ["person", "timeout", "authority_lost", "capture_only_timeout", "host", "revoked"] },
+        "reason": {
+          "enum": [
+            "person",
+            "timeout",
+            "authority_lost",
+            "capture_only_timeout",
+            "host",
+            "revoked"
+          ]
+        },
         "export": {
           "description": "working_spec_only sessions always end with a handover export; review sessions offer one.",
-          "enum": ["exported", "offered", "none"]
+          "enum": [
+            "exported",
+            "offered",
+            "none"
+          ]
         }
       }
     },
     "op_result": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["op_key", "host_ids"],
+      "required": [
+        "op_key",
+        "host_ids"
+      ],
       "properties": {
-        "op_key": { "$ref": "working-item.schema.json#/$defs/op_key" },
+        "op_key": {
+          "$ref": "working-item.schema.json#/$defs/op_key"
+        },
         "host_ids": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "draft_id": { "$ref": "common.schema.json#/$defs/uuid" },
-            "proposal_ref": { "$ref": "common.schema.json#/$defs/ref" },
-            "source_id": { "$ref": "common.schema.json#/$defs/uuid" },
-            "turn_id": { "$ref": "common.schema.json#/$defs/uuid" }
+            "draft_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "proposal_ref": {
+              "$ref": "common.schema.json#/$defs/ref"
+            },
+            "source_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            },
+            "turn_id": {
+              "$ref": "common.schema.json#/$defs/uuid"
+            }
           }
         }
       }

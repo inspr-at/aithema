@@ -54,7 +54,8 @@ function resolveRef(ref, baseFile) {
 function typeOf(value) {
   if (value === null) return 'null';
   if (Array.isArray(value)) return 'array';
-  if (Number.isInteger(value)) return 'integer';
+  // Unsafe integers round in JavaScript; they are never valid contract integers.
+  if (Number.isSafeInteger(value)) return 'integer';
   return typeof value;
 }
 
@@ -66,6 +67,18 @@ function matchesType(value, type) {
   const actual = typeOf(value);
   if (type === 'number') return actual === 'number' || actual === 'integer';
   return actual === type;
+}
+
+/**
+ * RFC 3339 UTC with a date that exists (the pattern alone accepts 2026-02-30).
+ * @param {string} value
+ */
+function isRealDateTime(value) {
+  const m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})T([0-9]{2}):([0-9]{2}):([0-9]{2})(\.[0-9]{1,6})?Z$/.exec(value);
+  if (!m) return false;
+  const [, y, mo, d, h, mi, se] = m.map(Number);
+  const t = new Date(Date.UTC(y, mo - 1, d, h, mi, se));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === mo - 1 && t.getUTCDate() === d && t.getUTCHours() === h && t.getUTCMinutes() === mi && t.getUTCSeconds() === se;
 }
 
 /**
@@ -102,6 +115,7 @@ function check(schema, value, file, path, errors) {
     if (schema.minLength !== undefined && [...value].length < schema.minLength) errors.push(`${path}: shorter than ${schema.minLength}`);
     if (schema.maxLength !== undefined && [...value].length > schema.maxLength) errors.push(`${path}: longer than ${schema.maxLength}`);
     if (schema.pattern !== undefined && !new RegExp(schema.pattern, 'u').test(value)) errors.push(`${path}: does not match ${schema.pattern}`);
+    if (schema.format === 'date-time' && !isRealDateTime(value)) errors.push(`${path}: not a real date-time`);
   }
   if (typeof value === 'number') {
     if (schema.minimum !== undefined && value < schema.minimum) errors.push(`${path}: below ${schema.minimum}`);
@@ -261,10 +275,11 @@ function budgetInvariants(doc, out) {
     if ((doc.body.outcome === 'settled') !== hasActual) out.push('budget.settled_has_actual_unknown_has_none');
   }
   if (doc.type !== 'admit_request') return;
-  const [sid, gen, lane] = doc.body.attempt_id.split(':');
+  const [sid, gen, lane, n] = doc.body.attempt_id.split(':');
   if (sid !== doc.body.sid || Number(gen) !== doc.body.worker_generation || lane !== doc.body.lane) {
     out.push('budget.attempt_id_binds_sid_generation_lane');
   }
+  if (!Number.isSafeInteger(Number(gen)) || !Number.isSafeInteger(Number(n))) out.push('budget.attempt_id_safe_integers');
 }
 
 /**
@@ -279,6 +294,7 @@ function recordInvariants(doc, out) {
     if (Buffer.byteLength(JSON.stringify(doc.data.tokens), 'utf8') > 64 * 1024) out.push('design_input.tokens_max_64_kib');
   }
   if (doc.writer.kind === 'worker' && doc.writer.generation === undefined) out.push('record.worker_has_generation');
+  if (Buffer.byteLength(JSON.stringify(doc), 'utf8') > 1024 * 1024) out.push('record.encoded_max_1_mib');
 }
 
 /**
