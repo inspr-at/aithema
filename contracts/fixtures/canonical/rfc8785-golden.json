@@ -1,0 +1,7 @@
+{
+  "description": "RFC 8785 (JSON Canonicalization Scheme) golden vector. input_json is parsed as JSON text; canonical is the exact output (UTF-8); every host canonicalizer must reproduce canonical_utf8_hex and sha256. Covers HTML-sensitive characters and U+2028 (never escaped), keys whose UTF-16 order (U+D83D… before U+E000) differs from UTF-8 order, and ECMAScript number serialisation (1e21 → 1e+21, 1e-7, 0.1, -0 → 0).",
+  "input_json": "{\"\\ue000\": 1, \"\\ud83d\\ude00\": 2, \"a\": \"<>& \\u2028 end\", \"n\": [1e21, 1e-7, 0.1, -0]}",
+  "canonical": "{\"a\":\"<>&   end\",\"n\":[1e+21,1e-7,0.1,0],\"😀\":2,\"\":1}",
+  "canonical_utf8_hex": "7b2261223a223c3e2620e280a820656e64222c226e223a5b31652b32312c31652d372c302e312c305d2c22f09f9880223a322c22ee8080223a317d",
+  "sha256": "df0a9c998926f7b4d1a67656f22e197c965001806e5ae8d6305a2a8a22cdc913"
+}

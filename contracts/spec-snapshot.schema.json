@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/inspr-at/aithema/contracts/spec-snapshot.schema.json",
   "title": "spec.snapshot journal record (§3.1, §3.2)",
-  "description": "The complete working spec at one revision, written by the worker and owned by the host. The host accepts it only when expected_prev_rev equals the current working_rev and worker_generation is current (CAS); appending the snapshot is the commit. It carries state and references; source bodies and design inputs stay immutable host records that resume hydrates explicitly. Digests use canonical JSON (object keys sorted by UTF-16 code units, no whitespace, UTF-8): content_sha256 = sha256(canonical(content)); payload_sha256 = sha256(payload); patch.sha256 = sha256(patch.canonical).",
+  "description": "The complete working spec at one revision, written by the worker and owned by the host. The host accepts it only when expected_prev_rev equals the current working_rev and worker_generation is current (CAS); appending the snapshot is the commit. It carries state and references; source bodies and design inputs stay immutable host records that resume hydrates explicitly. Digests: content_sha256 = sha256 of the RFC 8785 (JSON Canonicalization Scheme) UTF-8 bytes of content; payload_sha256 = sha256(payload bytes); patch.sha256 = sha256(patch.canonical bytes), where patch.canonical is RFC 8785 text. Golden vector: fixtures/canonical/rfc8785-golden.json.",
   "$defs": {
     "snapshot": {
       "type": "object",

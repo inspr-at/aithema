@@ -7,47 +7,118 @@
     "item": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["item_ref", "kind", "version", "content", "content_sha256", "citations", "provenance", "state", "supersedes_item_version", "host"],
+      "required": [
+        "item_ref",
+        "kind",
+        "version",
+        "content",
+        "content_sha256",
+        "citations",
+        "provenance",
+        "state",
+        "supersedes_item_version",
+        "host"
+      ],
       "properties": {
-        "item_ref": { "$ref": "common.schema.json#/$defs/ref" },
-        "kind": { "enum": ["requirement", "constraint"] },
-        "version": { "$ref": "common.schema.json#/$defs/positive" },
-        "content": { "$ref": "#/$defs/content" },
+        "item_ref": {
+          "$ref": "common.schema.json#/$defs/ref"
+        },
+        "kind": {
+          "enum": [
+            "requirement",
+            "constraint"
+          ]
+        },
+        "version": {
+          "$ref": "common.schema.json#/$defs/positive"
+        },
+        "content": {
+          "$ref": "#/$defs/content"
+        },
         "content_sha256": {
-          "description": "sha256 of the canonical content bytes; confirmation binds to it, so any content change is a new version with a new confirmation.",
+          "description": "sha256 of the RFC 8785 (JSON Canonicalization Scheme) UTF-8 bytes of content; confirmation binds to it, so any content change is a new version with a new confirmation. Golden vector: fixtures/canonical/rfc8785-golden.json.",
           "$ref": "common.schema.json#/$defs/sha256"
         },
-        "citations": { "type": "array", "maxItems": 32, "items": { "$ref": "#/$defs/citation" } },
-        "provenance": { "$ref": "#/$defs/provenance" },
-        "state": { "enum": ["draft", "confirmed", "proposed", "superseded", "accepted", "invalidated", "rejected"] },
+        "citations": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "$ref": "#/$defs/citation"
+          }
+        },
+        "provenance": {
+          "$ref": "#/$defs/provenance"
+        },
+        "state": {
+          "enum": [
+            "draft",
+            "confirmed",
+            "proposed",
+            "superseded",
+            "accepted",
+            "invalidated",
+            "rejected"
+          ]
+        },
         "supersedes_item_version": {
           "oneOf": [
-            { "type": "null" },
+            {
+              "type": "null"
+            },
             {
               "type": "object",
               "additionalProperties": false,
-              "required": ["item_ref", "version"],
+              "required": [
+                "item_ref",
+                "version"
+              ],
               "properties": {
-                "item_ref": { "$ref": "common.schema.json#/$defs/ref" },
-                "version": { "$ref": "common.schema.json#/$defs/positive" }
+                "item_ref": {
+                  "$ref": "common.schema.json#/$defs/ref"
+                },
+                "version": {
+                  "$ref": "common.schema.json#/$defs/positive"
+                }
               }
             }
           ]
         },
         "host": {
           "oneOf": [
-            { "type": "null" },
             {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["op_key", "proposal_ref"],
-              "properties": { "op_key": { "$ref": "#/$defs/op_key" }, "proposal_ref": { "$ref": "common.schema.json#/$defs/ref" } }
+              "type": "null"
             },
             {
               "type": "object",
               "additionalProperties": false,
-              "required": ["op_key", "draft_id"],
-              "properties": { "op_key": { "$ref": "#/$defs/op_key" }, "draft_id": { "$ref": "common.schema.json#/$defs/uuid" } }
+              "required": [
+                "op_key",
+                "proposal_ref"
+              ],
+              "properties": {
+                "op_key": {
+                  "$ref": "#/$defs/op_key"
+                },
+                "proposal_ref": {
+                  "$ref": "common.schema.json#/$defs/ref"
+                }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "op_key",
+                "draft_id"
+              ],
+              "properties": {
+                "op_key": {
+                  "$ref": "#/$defs/op_key"
+                },
+                "draft_id": {
+                  "$ref": "common.schema.json#/$defs/uuid"
+                }
+              }
             }
           ]
         }
@@ -56,37 +127,96 @@
     "content": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["statement", "acceptance_criteria", "constraint_refs"],
+      "required": [
+        "statement",
+        "acceptance_criteria",
+        "constraint_refs"
+      ],
       "properties": {
-        "statement": { "type": "string", "minLength": 1, "maxLength": 4000 },
-        "acceptance_criteria": { "type": "array", "maxItems": 20, "items": { "type": "string", "minLength": 1, "maxLength": 1000 } },
-        "constraint_refs": { "type": "array", "maxItems": 20, "uniqueItems": true, "items": { "$ref": "common.schema.json#/$defs/ref" } },
-        "constraint_kind": { "enum": ["technical", "data", "authority", "cost", "agreement"] }
+        "statement": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "acceptance_criteria": {
+          "type": "array",
+          "maxItems": 20,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000
+          }
+        },
+        "constraint_refs": {
+          "type": "array",
+          "maxItems": 20,
+          "uniqueItems": true,
+          "items": {
+            "$ref": "common.schema.json#/$defs/ref"
+          }
+        },
+        "constraint_kind": {
+          "enum": [
+            "technical",
+            "data",
+            "authority",
+            "cost",
+            "agreement"
+          ]
+        }
       }
     },
     "citation": {
       "description": "Evidence, never authorization. record_seq points at a host journal record (turn or source); chains must end in person turns or documents and are validated transitively (§5.3).",
       "type": "object",
       "additionalProperties": false,
-      "required": ["record_seq", "locator"],
+      "required": [
+        "record_seq",
+        "locator"
+      ],
       "properties": {
-        "record_seq": { "$ref": "common.schema.json#/$defs/count" },
-        "locator": { "type": "string", "pattern": "^(turn:[0-9]+|seg:[A-Za-z0-9_-]{1,64})$" },
-        "quote": { "type": "string", "minLength": 1, "maxLength": 1000 }
+        "record_seq": {
+          "$ref": "common.schema.json#/$defs/count"
+        },
+        "locator": {
+          "type": "string",
+          "pattern": "^(turn:[0-9]+|seg:[A-Za-z0-9_-]{1,64})$"
+        },
+        "quote": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        }
       }
     },
     "provenance": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["intent", "derived_from"],
+      "required": [
+        "intent",
+        "derived_from"
+      ],
       "properties": {
         "intent": {
           "description": "Lane B's label; advisory only, shown at confirmation time.",
-          "enum": ["requested", "extracted_instruction", "inferred"]
+          "enum": [
+            "requested",
+            "extracted_instruction",
+            "inferred"
+          ]
         },
-        "derived_from": { "type": "array", "maxItems": 64, "items": { "$ref": "common.schema.json#/$defs/count" } }
+        "derived_from": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "common.schema.json#/$defs/count"
+          }
+        }
       }
     },
-    "op_key": { "type": "string", "pattern": "^[0-9a-f-]{36}:(submit|replace|source|turn):[0-9]+$" }
+    "op_key": {
+      "type": "string",
+      "pattern": "^[0-9a-f-]{36}:(submit|replace|source|turn):[0-9]+$"
+    }
   }
 }

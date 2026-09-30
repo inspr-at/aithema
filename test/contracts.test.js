@@ -67,6 +67,17 @@ describe('AIT-35 foundation contracts: canonical digests', () => {
     assert.equal(canonicalJson({ b: [2, { d: 1, c: 'x' }], a: null }), '{"a":null,"b":[2,{"c":"x","d":1}]}');
     assert.equal(sha256Hex('abc'), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
   });
+
+  it('reproduces the RFC 8785 golden vector byte for byte', () => {
+    const golden = JSON.parse(readFileSync(join(fixtures, 'canonical/rfc8785-golden.json'), 'utf8'));
+    const canonical = canonicalJson(JSON.parse(golden.input_json));
+    assert.equal(canonical, golden.canonical);
+    assert.equal(Buffer.from(canonical, 'utf8').toString('hex'), golden.canonical_utf8_hex);
+    assert.equal(sha256Hex(canonical), golden.sha256);
+    assert.ok(canonical.includes('<>&') && canonical.includes('\u2028'), 'no HTML escaping, U+2028 literal');
+    assert.ok(canonical.indexOf('\u{1F600}') < canonical.indexOf('\uE000'), 'UTF-16 key order');
+    assert.ok(canonical.includes('[1e+21,1e-7,0.1,0]'), 'ECMAScript numbers, -0 → 0');
+  });
 });
 
 describe('AIT-35 foundation contracts: compatibility (§9.7)', () => {

@@ -192,7 +192,10 @@ export function readerSupport() {
 }
 
 /**
- * Canonical JSON: object keys sorted by UTF-16 code units, no whitespace.
+ * RFC 8785 JSON Canonicalization Scheme (JCS): ECMAScript JSON.stringify
+ * string and number serialisation (no HTML escaping, U+2028 literal, 1e21 →
+ * 1e+21, -0 → 0), object keys sorted by UTF-16 code units, no whitespace.
+ * Hosts in other languages must reproduce fixtures/canonical/rfc8785-golden.json.
  * @param {unknown} value
  * @returns {string}
  */

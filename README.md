@@ -59,7 +59,7 @@ START voice SDK extraction remains later work. Public speech input is the option
 - **Other contracts**: the processing authorization record, session creation, `<aithema-session>` element events, and stable error codes (`error-codes.json`).
 
 Every document carries `contract`, `major`, `minor` and `min_reader` (§9.7 calls the major field `settings_version`; these contracts use `major` uniformly). Validation is strict: every closed object rejects unknown keys (own keys only, including `__proto__`/`constructor`). The design IR and token objects inside `design.input` are intentionally opaque here; the renderer ticket defines them. The validator also checks invariants a schema cannot express:
-- digests over canonical JSON (keys sorted by UTF-16 code units, no whitespace);
+- digests over RFC 8785 (JSON Canonicalization Scheme) bytes, with a golden vector in `contracts/fixtures/canonical/rfc8785-golden.json` that every host canonicalizer must reproduce;
 - one accepted version per item, with no live or later version beside it;
 - writer kind per record kind (`record-writers.json`);
 - working-spec-only never submits and always exports;
