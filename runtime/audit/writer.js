@@ -50,8 +50,9 @@ export function restartLoss(record) {
  * Only a same-kind, same-data critical() retry can replay them and run its
  * supplied effect after an ack;
  * the failed invocation's callback is never retained or run automatically.
- * Effect recovery/idempotency remains the caller's responsibility. JournalPort
- * still fences exact retries under old generations or revoked authority.
+ * Effect recovery/idempotency remains the caller's responsibility. A current
+ * token can replay already-committed bytes from an older generation; stale or
+ * revoked tokens and new records with a stale embedded generation stay fenced.
  */
 export class AuditWriter {
   #port;

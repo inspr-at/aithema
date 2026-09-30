@@ -118,7 +118,7 @@ for (const host_mode of ['review', 'working_spec_only']) {
   }
 }
 
-it('(a) takeover fences old writes AND exact retries, but journal reads need no current gen', (t) => {
+it('(a) takeover fences stale tokens on writes AND exact retries, but journal reads need no current gen', (t) => {
   const { journal } = host(t);
   const original = bytes(turn());
   journal.append(original, authority());
@@ -130,6 +130,35 @@ it('(a) takeover fences old writes AND exact retries, but journal reads need no 
   assert.equal(journal.cursor(authority()).worker_generation, 2);
   const current = snapshot({ worker_generation: 2 });
   assert.equal(journal.append(bytes(current), authority({ gen: 2 })).document.seq, 2);
+});
+
+it('(a) cross-generation event replay leaves snapshot generation fencing and CAS unchanged', (t) => {
+  const { journal } = host(t);
+  const original = bytes(snapshot());
+  journal.append(original, authority());
+  journal.takeover(authority());
+  const current = authority({ gen: 2 });
+  assert.throws(() => journal.append(original, current), code('fenced_generation'));
+  assert.throws(() => journal.append(bytes(snapshot({ worker_generation: 2 })), current), { status: 409, code: null });
+  assert.equal(journal.cursor(current).last_seq, 1);
+  assert.equal(journal.cursor(current).working_rev, 1);
+  const next = bytes(snapshot({ worker_generation: 2, working_rev: 2, expected_prev_rev: 1 }));
+  const committed = journal.append(next, current);
+  assert.equal(committed.document.seq, 2);
+  assert.deepEqual(journal.append(next, current), committed, 'same-generation snapshot replay still precedes CAS');
+  assert.equal(journal.cursor(current).working_rev, 2);
+});
+
+it('(a,c) current-token replay recovers the durable old-generation record after reopening SQLite', (t) => {
+  const { journal, path } = host(t);
+  const original = bytes(turn());
+  const committed = journal.append(original, authority());
+  journal.takeover(authority());
+  const reopened = new SqliteJournal(path, { now });
+  t.after(() => reopened.close());
+  assert.deepEqual(reopened.append(original, authority({ gen: 2 })), committed);
+  assert.equal(reopened.cursor(authority({ gen: 2 })).last_seq, 1);
+  assert.deepEqual(journal.recordsByIds([1], authority())[0], committed);
 });
 
 for (const [kind, make, writerKind] of [

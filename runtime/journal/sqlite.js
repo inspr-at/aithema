@@ -132,7 +132,7 @@ export class SqliteJournal {
   append(bytes, authority) {
     const original = submissionBytes(bytes);
     return this.#transaction(() => {
-      // Fence even exact retries: an old worker cannot write after takeover.
+      // Authenticate and fence the token before resolving any idempotency key.
       const session = this.#authorize(authority, true);
       const doc = decodeDocument(original, { submission: true });
       if (doc.sid !== session.sid) throw new JournalError(403, 'Document session mismatch');
@@ -141,7 +141,9 @@ export class SqliteJournal {
       const writer = snapshot ? 'worker' : doc.writer.kind;
       if (writer !== authority.writer_kind) throw new JournalError(403, 'Record writer does not match authenticated writer');
       const generation = snapshot ? doc.worker_generation : doc.writer.generation;
-      if ((writer === 'worker' || generation !== undefined) && generation !== session.worker_generation) {
+      // Snapshots keep their generation fence and CAS semantics. Event replay
+      // acknowledges an existing append, so its original generation can differ.
+      if (snapshot && generation !== session.worker_generation) {
         throw new JournalError(409, 'Record generation is fenced', 'fenced_generation');
       }
       const existing = this.#db.prepare('SELECT * FROM journal_records WHERE sid = ? AND client_event_id = ?')
@@ -151,6 +153,9 @@ export class SqliteJournal {
           throw new JournalError(409, 'Same client_event_id with different bytes', 'idempotency_conflict');
         }
         return this.#stored(existing);
+      }
+      if (!snapshot && (writer === 'worker' || generation !== undefined) && generation !== session.worker_generation) {
+        throw new JournalError(409, 'Record generation is fenced', 'fenced_generation');
       }
       if (snapshot) {
         if (doc.expected_prev_rev !== session.working_rev) throw new JournalError(409, 'Snapshot revision CAS conflict');

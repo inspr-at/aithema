@@ -268,29 +268,104 @@ for (const committed of [false, true]) {
     it(`(a,b) ${kind}: takeover preserves ${committed ? 'committed' : 'uncommitted'} original bytes without rewriting the generation`, async (t) => {
       const journal = host(t);
       let original;
-      let effects = 0;
+      let stored;
+      let oldEffects = 0;
+      let recoveredEffects = 0;
       const audit = writer({ cursor: (a) => journal.cursor(a), append(b, a) {
         original = Buffer.from(b);
-        if (committed) journal.append(b, a);
+        if (committed) stored = journal.append(b, a);
         throw new Error('fixture uncertain append');
       } });
-      await assert.rejects(audit.critical(kind, data, () => effects++), /uncertain/);
+      await assert.rejects(audit.critical(kind, data, () => oldEffects++), /uncertain/);
       journal.takeover(authority());
       const submissions = [];
       const recovered = writer({ cursor: (a) => journal.cursor(a), append(b, a) {
-        submissions.push(Buffer.from(b)); return journal.append(b, a);
+        submissions.push(Buffer.from(b));
+        assert.equal(a.gen, 2, 'recovery uses the new verified token without rewriting the record');
+        return journal.append(b, a);
       } }, { authority: authority({ gen: 2 }), unacknowledgedCritical: audit.exportUnacknowledgedCritical() });
-      await assert.rejects(recovered.critical(kind, data, () => effects++), { code: 'fenced_generation' });
+      await assert.rejects(recovered.critical(kind, changed, () => recoveredEffects++), { status: 409 });
+      assert.equal(submissions.length, 1, 'only the restart marker may precede a mismatched critical retry');
+      const recovery = recovered.critical(kind, data, () => recoveredEffects++);
+      if (committed) {
+        const result = await recovery;
+        assert.deepEqual(result.record, stored, 'the original host acknowledgement is recovered');
+        assert.equal(recoveredEffects, 1, 'only the explicitly supplied recovery effect runs');
+        assert.equal(recovered.exportUnacknowledgedCritical(), null);
+      } else {
+        await assert.rejects(recovery, { code: 'fenced_generation' });
+        assert.deepEqual(recovered.exportUnacknowledgedCritical(), original);
+        await assert.rejects(recovered.critical(kind, data, () => recoveredEffects++), { code: 'fenced_generation' });
+        assert.equal(recoveredEffects, 0);
+      }
       assert.equal(JSON.parse(submissions[0]).kind, 'audit.restart', 'restart marker is still first');
       assert.deepEqual(submissions[1], original, 'the coordinator retains original generation, id and bytes');
-      assert.deepEqual(recovered.exportUnacknowledgedCritical(), original);
+      assert.deepEqual(audit.exportUnacknowledgedCritical(), original, 'the old writer retains its handoff bytes');
       assert.equal(journal.cursor(recovered.authority).last_seq, committed ? 2 : 1);
-      assert.equal(effects, 0);
-      await assert.rejects(recovered.critical(kind, changed, () => effects++), { status: 409 });
+      assert.equal(oldEffects, 0, 'the failed invocation is never re-run');
       assert.equal(submissions.length, 2);
     });
   }
 }
+
+it('(a,b) timeout recovery after takeover awaits exact replay and concurrent retries cannot re-run the effect', async (t) => {
+  const journal = host(t);
+  let time = 0;
+  let expire;
+  let acknowledgeOld;
+  let enteredOld;
+  const oldAppend = new Promise((resolve) => { enteredOld = resolve; });
+  const oldAck = new Promise((resolve) => { acknowledgeOld = resolve; });
+  let stored;
+  let oldEffects = 0;
+  let recoveredEffects = 0;
+  const audit = writer({ cursor: (a) => journal.cursor(a), append(b, a) {
+    stored = journal.append(b, a);
+    enteredOld();
+    return oldAck;
+  } }, { clock: { now: () => time, setTimeout: (fn) => { expire = fn; return 1; }, clearTimeout() {} } });
+  const rejected = assert.rejects(audit.critical('ui.confirm', cases[4][1], () => oldEffects++), { status: 504 });
+  await oldAppend;
+  time = 10_000;
+  expire();
+  await rejected;
+  const retained = audit.exportUnacknowledgedCritical();
+  journal.takeover(authority());
+
+  let enteredReplay;
+  let acknowledgeReplay;
+  const replayAppend = new Promise((resolve) => { enteredReplay = resolve; });
+  const replayAck = new Promise((resolve) => { acknowledgeReplay = resolve; });
+  const submissions = [];
+  const recovered = writer({ cursor: (a) => journal.cursor(a), append(b, a) {
+    assert.equal(a.gen, 2);
+    submissions.push(Buffer.from(b));
+    const response = journal.append(b, a);
+    if (response.document.kind === 'audit.restart') return response;
+    assert.deepEqual(response, stored);
+    enteredReplay();
+    return replayAck;
+  } }, { authority: authority({ gen: 2 }), unacknowledgedCritical: retained });
+  const first = recovered.critical('ui.confirm', cases[4][1], () => recoveredEffects++);
+  const second = assert.rejects(recovered.critical('ui.confirm', cases[4][1], () => recoveredEffects++), { status: 409 });
+  await replayAppend;
+  acknowledgeOld(stored);
+  await Promise.resolve();
+  assert.equal(oldEffects, 0, 'a late old acknowledgement never revives the timed-out callback');
+  assert.equal(recoveredEffects, 0, 'the recovery effect still waits for its own acknowledgement');
+  assert.deepEqual(recovered.exportUnacknowledgedCritical(), retained);
+  acknowledgeReplay(stored);
+  assert.deepEqual((await first).record, stored);
+  await second;
+  assert.equal(oldEffects, 0);
+  assert.equal(recoveredEffects, 1);
+  assert.equal(recovered.exportUnacknowledgedCritical(), null);
+  assert.equal(audit.state.blocked, true);
+  assert.deepEqual(submissions[1], retained);
+  assert.equal(submissions.length, 2, 'one restart marker and one replay; no duplicate critical append');
+  assert.equal(journal.cursor(recovered.authority).last_seq, 2);
+  assert.deepEqual(journal.recordsAfter(0, recovered.authority).map((r) => r.document.kind), ['ui.confirm', 'audit.restart']);
+});
 
 it('(a) recovery imports accept only original contract-valid critical submissions of the same session and writer', (t) => {
   const journal = host(t);
