@@ -52,7 +52,7 @@ export class BudgetClient {
 
   async #record(kind, data, authority, critical = false) {
     try {
-      const doc = { contract: 'aithema.journal.record', major: 1, minor: 0, min_reader: 0,
+      const doc = { contract: 'aithema.journal.record', major: 1, minor: data.lane_kind === undefined ? 0 : 1, min_reader: 0,
         sid: authority.sid, client_event_id: critical ? holdEventId(data.attempt_id) : randomUUID(),
         writer: { kind: 'worker', generation: authority.gen },
         recorded_at: new Date(this.#now()).toISOString(), kind, data };
@@ -101,7 +101,8 @@ export class BudgetClient {
     }
     const submitted = JSON.parse(original).body;
     await this.#record('budget.hold', { hold_id: result.hold_id, attempt_id: submitted.attempt_id,
-      lane: submitted.lane, max_micro: submitted.max_micro, currency: submitted.currency }, authority, true);
+      lane: submitted.lane, max_micro: submitted.max_micro, currency: submitted.currency,
+      ...(submitted.lane_kind === undefined ? {} : { lane_kind: submitted.lane_kind }) }, authority, true);
     // Recovery can close the reservation while its critical journal ack is
     // in flight. Only the ledger may decide whether it remains open.
     // Paid lanes resume only when that post-ack check still shows the hold.
@@ -134,7 +135,8 @@ export class BudgetClient {
       throw new BudgetError(502, 'Ledger settlement does not match the committed claim');
     }
     await this.#record('budget.settle', { hold_id: result.hold_id, claim_id: submitted.claim_id,
-      outcome: result.closed_reason, charged_micro: result.charged_micro }, authority);
+      outcome: result.closed_reason, charged_micro: result.charged_micro,
+      ...(result.lane_kind === undefined ? {} : { lane_kind: result.lane_kind }) }, authority);
     return result;
   }
 

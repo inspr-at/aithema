@@ -224,12 +224,20 @@
         },
         "max_micro": {
           "description": "Conservative per-attempt bound: bounded input tokens × price + max_output_tokens × price + audio seconds × per-minute maximum.",
-          "$ref": "common.schema.json#/$defs/positive"
+          "$ref": "common.schema.json#/$defs/count"
         },
         "currency": {
           "$ref": "common.schema.json#/$defs/currency"
+        },
+        "lane_kind": {
+          "$ref": "#/$defs/lane_kind"
         }
-      }
+      },
+      "allOf": [
+        {
+          "$ref": "#/$defs/reservation_maximum"
+        }
+      ]
     },
     "admit_response": {
       "oneOf": [
@@ -422,6 +430,9 @@
             },
             "charged_micro": {
               "$ref": "common.schema.json#/$defs/count"
+            },
+            "lane_kind": {
+              "$ref": "#/$defs/lane_kind"
             }
           }
         },
@@ -602,6 +613,37 @@
           "$ref": "common.schema.json#/$defs/count"
         }
       }
+    },
+    "lane_kind": {
+      "enum": [
+        "operator_local",
+        "remote"
+      ],
+      "description": "Absent means remote. operator_local is host-registered operator self-hosted inference on a loopback endpoint; it still requires an acknowledged hold and a single-use claim."
+    },
+    "reservation_maximum": {
+      "oneOf": [
+        {
+          "properties": {
+            "max_micro": {
+              "$ref": "common.schema.json#/$defs/positive"
+            }
+          }
+        },
+        {
+          "required": [
+            "lane_kind"
+          ],
+          "properties": {
+            "lane_kind": {
+              "const": "operator_local"
+            },
+            "max_micro": {
+              "const": 0
+            }
+          }
+        }
+      ]
     }
   }
 }

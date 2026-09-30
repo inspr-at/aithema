@@ -490,7 +490,8 @@ function budgetInvariants(doc, out) {
   if (doc.type === 'recover_response' && doc.body.closed_reason === 'void' && doc.body.charged_micro !== 0) {
     out.push('budget.recover_void_zero');
   }
-  if (doc.type === 'recover_response' && doc.body.closed_reason === 'unknown' && !(doc.body.charged_micro > 0)) {
+  if (doc.type === 'recover_response' && doc.body.closed_reason === 'unknown'
+      && !(doc.body.charged_micro > 0 || (doc.body.charged_micro === 0 && doc.body.lane_kind === 'operator_local'))) {
     out.push('budget.unknown_charged_positive');
   }
   if (doc.type === 'holds_list') {
@@ -537,7 +538,10 @@ function recordInvariants(doc, out) {
     const claimed = doc.data.claim_id !== undefined;
     if (doc.data.outcome === 'void' && (claimed || doc.data.charged_micro !== 0)) out.push('budget.settle_void_unclaimed_zero');
     if (doc.data.outcome !== 'void' && !claimed) out.push('budget.settle_claim_required');
-    if (doc.data.outcome === 'unknown' && !(doc.data.charged_micro > 0)) out.push('budget.unknown_charged_positive');
+    if (doc.data.outcome === 'unknown'
+        && !(doc.data.charged_micro > 0 || (doc.data.charged_micro === 0 && doc.data.lane_kind === 'operator_local'))) {
+      out.push('budget.unknown_charged_positive');
+    }
   }
   if (doc.kind === 'budget.hold') {
     const [sid, gen, lane] = doc.data.attempt_id.split(':');

@@ -517,12 +517,20 @@
           "$ref": "common.schema.json#/$defs/lane"
         },
         "max_micro": {
-          "$ref": "common.schema.json#/$defs/positive"
+          "$ref": "common.schema.json#/$defs/count"
         },
         "currency": {
           "$ref": "common.schema.json#/$defs/currency"
+        },
+        "lane_kind": {
+          "$ref": "budget.schema.json#/$defs/lane_kind"
         }
-      }
+      },
+      "allOf": [
+        {
+          "$ref": "budget.schema.json#/$defs/reservation_maximum"
+        }
+      ]
     },
     "budget_claim": {
       "type": "object",
@@ -568,6 +576,9 @@
         },
         "charged_micro": {
           "$ref": "common.schema.json#/$defs/count"
+        },
+        "lane_kind": {
+          "$ref": "budget.schema.json#/$defs/lane_kind"
         }
       }
     },
