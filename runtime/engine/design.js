@@ -1,4 +1,5 @@
 import { EngineError, checkClock, json, normalizeError, ref, runtimeCall, systemClock } from './common.js';
+import { validateDesignResults } from './metadata.js';
 
 /**
  * This ticket's renderer is deliberately a controlled, timer-backed stub.
@@ -67,14 +68,15 @@ export class DesignScheduler {
   #timer = null;
   #stopped = false;
   #onError;
+  #onComplete;
   #lastNow = -Infinity;
 
   constructor(options = {}) {
     runtimeCall(() => {
-      const { clock = systemClock, renderer, getRevision, execute, waitMs = 30_000, onError = () => {} } = options;
+      const { clock = systemClock, renderer, getRevision, execute, waitMs = 30_000, onError = () => {}, onComplete = () => {} } = options;
       checkClock(clock);
       if (!(renderer instanceof ControlledRenderer) || typeof getRevision !== 'function'
-          || (execute !== undefined && typeof execute !== 'function') || typeof onError !== 'function'
+          || (execute !== undefined && typeof execute !== 'function') || typeof onError !== 'function' || typeof onComplete !== 'function'
           || !Number.isFinite(waitMs) || waitMs < 0 || waitMs > 30_000) {
         throw new EngineError('invalid_scheduler', 'Controlled renderer, revision reader and wait <=30 seconds required');
       }
@@ -84,6 +86,7 @@ export class DesignScheduler {
       this.#revision = getRevision;
       this.#wait = waitMs;
       this.#onError = onError;
+      this.#onComplete = onComplete;
     });
   }
 
@@ -115,6 +118,22 @@ export class DesignScheduler {
       this.#pending.push(intent);
       this.#schedule();
       return json(intent);
+    });
+  }
+
+  /** Restore served/failed ids for display without re-admitting their runs. */
+  restore(input) {
+    return runtimeCall(() => {
+      const results = json(input);
+      validateDesignResults(results);
+      for (const result of results) {
+        const prior = this.#intents.get(result.intent_id);
+        if (prior) {
+          if (['state', 'working_rev', 'rendered_rev', 'attempts'].some((key) => prior[key] !== result[key])) {
+            throw new EngineError('invalid_intent', 'Restored completion disagrees with scheduler', { code: 'idempotency_conflict', status: 409 });
+          }
+        } else this.#intents.set(result.intent_id, result);
+      }
     });
   }
 
@@ -210,8 +229,13 @@ export class DesignScheduler {
         intent.rendered_rev = run.working_rev;
         intent.attempts = run.attempts;
       }
-      this.#active = null;
-      this.#endedAt = run.ended_at;
+      try {
+        await this.#onComplete(json(intents.map(({ intent_id, state, working_rev, rendered_rev, attempts }) =>
+          ({ intent_id, state, working_rev, rendered_rev, attempts }))));
+      } finally {
+        this.#active = null;
+        this.#endedAt = run.ended_at;
+      }
       this.#schedule();
     }
   }

@@ -10,19 +10,29 @@ import { fixture, authorizationFor } from './engine-helpers.test.js';
 // A real process exit, not a thrown error (a throw would run gate settlement
 // finally/catch paths). SQLite FULL/WAL is reopened by a new worker process.
 const worker = `
-import { fixture, bytes, snapshot } from ${JSON.stringify(new URL('./engine-helpers.test.js', import.meta.url).href)};
+import { fixture, bytes, snapshot, defaultOutput } from ${JSON.stringify(new URL('./engine-helpers.test.js', import.meta.url).href)};
 const [path, mode, boundary, occurrenceText] = process.argv.slice(1);
 let enabled = false, seen = 0, f;
 const occurrence = Number(occurrenceText);
 const stop = (name) => { if (enabled && name === boundary && ++seen === occurrence) process.exit(42); };
-f = fixture(null, { path, checkpoint: stop, ledgerOverrides: {
+f = fixture(null, { path, checkpoint: stop, handler: (lane, payload) => mode === 'design' && lane === 'reaction'
+  ? {say:'Design requested.',question_id:null,tools:[{name:'design_intent'}]} : defaultOutput(lane, payload), ledgerOverrides: {
   admit: (original, auth) => { const result = f.ledger.admit(original, auth); stop('budget.admit_before_journal'); return result; },
   settle: (original, auth) => { const result = f.ledger.settle(original, auth); stop('budget.settle_response_lost'); return result; },
 } });
 if (mode === 'reaction') f.journal.append(bytes(snapshot({ spec: { items: [], questions: [{question_id:'q',text:'Canonical stored question?',state:'open'}], brief:null, screens:[] } })), f.auth);
 const turnSeq = f.personTurn();
 await f.engine.start();
-if (mode === 'correction') {
+if (mode === 'confirmation') {
+  await f.engine.passSpec();
+  const item = f.engine.state.spec.items[0];
+  enabled = true;
+  await f.engine.confirmItem({item_ref:item.item_ref,version:item.version,content_sha256:item.content_sha256,principal_ref:'fixture-person'});
+} else if (mode === 'design') {
+  await f.engine.react(turnSeq);
+  enabled = true;
+  await f.clock.advance(30_000);
+} else if (mode === 'correction') {
   const delivered = await f.engine.react(turnSeq);
   await f.engine.addCorrection({correction_id:'c',claim_ref:'claim',about_reaction_seq:delivered.reaction_seq,text:'Durable correction.'});
   enabled = true; stop('correction.pending');
@@ -39,6 +49,39 @@ function crash(mode, boundary, occurrence = 1) {
   const child = spawnSync(process.execPath, ['--input-type=module', '-e', worker, path, mode, boundary, String(occurrence)], { encoding: 'utf8', timeout: 10_000 });
   assert.equal(child.status, 42, child.stderr);
   return path;
+}
+
+for (const boundary of ['confirmation.before_append', 'confirmation.after_ack', 'snapshot.before_append', 'snapshot.after_ack']) {
+  it(`process crash at confirmation boundary ${boundary}: acknowledged UI action recovers exactly once`, async (t) => {
+    const path = crash('confirmation', boundary);
+    const f = fixture(t, { path, initialize: false });
+    await f.engine.resume({ authorizationFor, replay: false });
+    const acknowledged = boundary !== 'confirmation.before_append';
+    assert.equal(f.engine.state.spec.items[0].state, acknowledged ? 'confirmed' : 'draft');
+    assert.equal(f.records('ui.confirm').length, acknowledged ? 1 : 0);
+    assert.equal(f.calls.length, 0);
+    assert.equal(validate(f.engine.state.contract, f.engine.state).ok, true);
+    await f.engine.replay();
+    assert.equal(f.engine.state.spec.items[0].state, acknowledged ? 'confirmed' : 'draft');
+  });
+}
+
+for (const boundary of ['design.before_finalize', 'design.after_finalize', 'snapshot.before_append', 'snapshot.after_ack']) {
+  it(`process crash at design completion boundary ${boundary}: only unacknowledged completion is re-admitted`, async (t) => {
+    const path = crash('design', boundary);
+    const f = fixture(t, { path, initialize: false });
+    const holds = f.records('budget.hold').length;
+    await f.engine.resume({ authorizationFor, replay: false });
+    const committed = boundary === 'design.after_finalize' || boundary === 'snapshot.after_ack';
+    await f.clock.advance(30_000);
+    assert.equal(f.records('budget.hold').length, holds + (committed ? 0 : 1));
+    const results = JSON.parse(f.engine.state.patch.canonical).engine_state.design_results;
+    assert.equal(results.length, 1);
+    assert.equal(results[0].state, 'rendered');
+    assert.equal(f.records('reaction').length, 1);
+    await f.clock.advance(300_000);
+    assert.equal(f.records('budget.hold').length, holds + (committed ? 0 : 1));
+  });
 }
 
 for (const boundary of ['turn.after_ack', 'spec.after_compute', 'snapshot.before_append', 'snapshot.after_ack']) {

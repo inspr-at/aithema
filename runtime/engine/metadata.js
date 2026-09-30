@@ -1,6 +1,26 @@
 import { validate } from '../../contracts/validate.js';
 import { EngineError, exactKeys, ref, runtimeCall } from './common.js';
 
+/** Durable terminal states use revisions, never a prior process's clock origin. */
+export function validateDesignResults(results, workingRev = Infinity) {
+  return runtimeCall(() => {
+    const ids = new Set();
+    if (!Array.isArray(results) || results.length > 400) throw new EngineError('invalid_resume', 'Invalid design completions', { status: 422 });
+    for (const result of results) {
+      exactKeys(result, ['intent_id', 'state', 'working_rev', 'rendered_rev', 'attempts']);
+      if (!ref(result.intent_id) || ids.has(result.intent_id) || !['rendered', 'render_failed', 'blocked'].includes(result.state)
+          || !Number.isSafeInteger(result.working_rev) || result.working_rev < 1
+          || !Number.isSafeInteger(result.rendered_rev) || result.rendered_rev < result.working_rev
+          || result.rendered_rev > workingRev || ![1, 2].includes(result.attempts)
+          || result.state === 'render_failed' && result.attempts !== 2) {
+        throw new EngineError('invalid_resume', 'Invalid design completion identity or revision', { status: 422 });
+      }
+      ids.add(result.intent_id);
+    }
+    return true;
+  });
+}
+
 /**
  * Foundation patch bytes are opaque JSON. Validate our own versioned subformat
  * too: an invalid receipt must never suppress an acknowledged person's turn.
@@ -8,9 +28,11 @@ import { EngineError, exactKeys, ref, runtimeCall } from './common.js';
 export function validateEngineMetadata(state, meta, events) {
   return runtimeCall(() => {
     const fail = () => { throw new EngineError('invalid_resume', 'Malformed engine delivery metadata', { status: 422 }); };
-    exactKeys(meta, ['version', 'claims', 'receipts', 'outbox', 'last_activity_at']);
+    exactKeys(meta, ['version', 'claims', 'receipts', 'outbox', 'last_activity_at', 'design_results'],
+      ['version', 'claims', 'receipts', 'outbox', 'last_activity_at']);
     if (meta.version !== 1 || !Number.isFinite(meta.last_activity_at) || !meta.claims || Array.isArray(meta.claims)
         || !Array.isArray(meta.receipts) || meta.receipts.length > 432) fail();
+    validateDesignResults(Object.hasOwn(meta, 'design_results') ? meta.design_results : [], state.working_rev);
     const corrections = new Map(state.corrections.map((c) => [c.correction_id, c]));
     for (const [id, claim] of Object.entries(meta.claims)) if (!corrections.has(id) || !ref(claim)) fail();
     for (const correction of state.corrections) {
@@ -48,6 +70,11 @@ export function validateEngineMetadata(state, meta, events) {
           || receipt.working_rev < 1 || receipt.working_rev > state.working_rev) fail();
       ids.add(receipt.client_event_id);
       segments(receipt.segments, reaction.data.text, receipt.tools);
+    }
+    for (const result of meta.design_results ?? []) {
+      if (!result.intent_id.startsWith('reaction:')) continue;
+      const receipt = meta.receipts.find((row) => `reaction:${row.reaction_seq}` === result.intent_id);
+      if (!receipt || receipt.working_rev !== result.working_rev || !receipt.tools.some((tool) => tool.name === 'design_intent')) fail();
     }
     if (meta.outbox !== null) {
       const outbox = meta.outbox;

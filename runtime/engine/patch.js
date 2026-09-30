@@ -1,4 +1,4 @@
-import { addWorkingItem, createWorkingSpec, reviseWorkingItem } from '../../lib/working-spec.js';
+import { addWorkingItem, confirmWorkingItem, createWorkingSpec, reviseWorkingItem } from '../../lib/working-spec.js';
 import { validateItemProvenance } from '../provenance.js';
 import { EngineError, exactKeys, json, ref, runtimeCall } from './common.js';
 
@@ -35,13 +35,16 @@ export function applySpecPatch(state, metadata, input, context) {
       if (!Array.isArray(patch.questions) || patch.questions.length > 50) throw new EngineError('invalid_output', 'Invalid questions');
       const ids = new Set();
       next.spec.questions = patch.questions.map((question) => {
-        exactKeys(question, ['question_id', 'text', 'state']);
+        exactKeys(question, ['question_id', 'text', 'state', 'asked_in_reaction_seq'], ['question_id', 'text', 'state']);
+        const prior = state.spec.questions.find((q) => q.question_id === question.question_id && q.text === question.text);
         if (!ref(question.question_id) || ids.has(question.question_id)
-            || !['open', 'answered', 'dropped'].includes(question.state)) {
+            || !['open', 'asked', 'answered', 'dropped'].includes(question.state)
+            || question.state === 'asked' && prior?.state !== 'asked'
+            || Object.hasOwn(question, 'asked_in_reaction_seq') && question.asked_in_reaction_seq !== prior?.asked_in_reaction_seq) {
           throw new EngineError('invalid_output', 'Questions must be unique; asked state belongs to the engine');
         }
         ids.add(question.question_id);
-        const prior = state.spec.questions.find((q) => q.question_id === question.question_id && q.text === question.text);
+        if (question.state === 'asked') return structuredClone(prior);
         return { ...question, ...(prior?.asked_in_reaction_seq !== undefined
           ? { asked_in_reaction_seq: prior.asked_in_reaction_seq } : {}) };
       });
@@ -51,6 +54,31 @@ export function applySpecPatch(state, metadata, input, context) {
       for (const correction of patch.corrections) queueCorrection(next, meta, correction, context.records);
     }
     return { state: next, metadata: meta, patch };
+  });
+}
+
+/** Include old confirmations dropped by an earlier worker's consumed watermark. */
+export function pendingConfirmations(state, events) {
+  return runtimeCall(() => events.filter((record) => record.kind === 'ui.confirm'
+    && (record.seq > state.consumed_seq || state.spec.items.some((item) => item.state === 'draft'
+      && item.item_ref === record.data.item_ref && item.version === record.data.version))));
+}
+
+/** The same trusted transition governs live UI actions, lane B and recovery. */
+export function applyConfirmations(state, records) {
+  return runtimeCall(() => {
+    let domain = createWorkingSpec(state.host_mode, state.spec.items);
+    for (const record of records) {
+      if (record.kind !== 'ui.confirm' || record.writer.kind !== 'worker') {
+        throw new EngineError('invalid_confirmation', 'Confirmation requires a trusted worker UI record', { status: 409 });
+      }
+      try { domain = confirmWorkingItem(domain, record.data); }
+      catch (cause) {
+        throw new EngineError('invalid_confirmation', 'Confirmation must bind the current complete item version and hash', { cause, status: 409 });
+      }
+    }
+    state.spec.items = structuredClone(domain.items);
+    return state;
   });
 }
 
