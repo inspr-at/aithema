@@ -168,6 +168,43 @@ function lex(source, file) {
   return scan();
 }
 
+function parenEnd(tokens, openIndex) {
+  let depth = 0;
+  for (let index = openIndex; index < tokens.length; index++) {
+    if (tokens[index].value === '(') depth++;
+    else if (tokens[index].value === ')') {
+      depth--;
+      if (depth === 0) return index;
+    }
+  }
+  return -1;
+}
+
+/** Dotted or computed `name` call, including optional chaining. Not a declaration. */
+function isNamedCall(tokens, index, name) {
+  const token = tokens[index];
+  const previous = tokens[index - 1];
+  if (token.type === 'id' && token.value === name) return previous?.value !== 'function';
+  return token.type === 'string' && token.value === name && previous?.value === '[';
+}
+
+function receiverIsModule(tokens, index) {
+  const token = tokens[index];
+  if (token.type === 'id') {
+    const dot = tokens[index - 1];
+    return ['.', '?.'].includes(dot?.value) && tokens[index - 2]?.type === 'id' && tokens[index - 2]?.value === 'module';
+  }
+  const beforeBracket = tokens[index - 2]?.value === '?.' ? tokens[index - 3] : tokens[index - 2];
+  return beforeBracket?.type === 'id' && beforeBracket?.value === 'module';
+}
+
+function callOpen(tokens, index) {
+  let open = index + 1;
+  if (tokens[index].type === 'string' && tokens[open]?.value === ']') open++;
+  if (tokens[open]?.value === '?.') open++;
+  return tokens[open]?.value === '(' ? open : -1;
+}
+
 /** Collect literal import/export-from/require specifiers, failing closed on computed calls. */
 export function moduleSpecifiers(source, file = '<source>') {
   const out = [];
@@ -221,6 +258,31 @@ export function moduleSpecifiers(source, file = '<source>') {
         const arg = tokens[open + 1];
         if (arg?.type !== 'string' || ![')', ','].includes(tokens[open + 2]?.value)) error(token, 'require');
         add(arg, 'require');
+      } else if (isNamedCall(tokens, index, 'register') && receiverIsModule(tokens, index)) {
+        const open = callOpen(tokens, index);
+        if (open < 0 || (token.canBeMethod && methodDefinition(open))) continue;
+        const arg = tokens[open + 1];
+        if (arg?.type !== 'string' || ![')', ','].includes(tokens[open + 2]?.value)) error(token, 'module.register');
+        add(arg, 'module.register');
+      } else if (isNamedCall(tokens, index, 'createRequire')) {
+        const open = callOpen(tokens, index);
+        if (open < 0 || (token.canBeMethod && methodDefinition(open))) continue;
+        const end = parenEnd(tokens, open);
+        if (end < 0) error(token, 'createRequire');
+        let cursor = end + 1;
+        while (tokens[cursor]?.value === ')') cursor++;
+        if (tokens[cursor]?.value === '?.' && tokens[cursor + 1]?.value === 'resolve') {
+          cursor += 2;
+          if (tokens[cursor]?.value === '?.') cursor++;
+        } else if (tokens[cursor]?.value === '?.') cursor++;
+        if (tokens[cursor]?.value === '.' && tokens[cursor + 1]?.value === 'resolve') {
+          cursor += 2;
+          if (tokens[cursor]?.value === '?.') cursor++;
+        }
+        if (tokens[cursor]?.value !== '(') continue;
+        const arg = tokens[cursor + 1];
+        if (arg?.type !== 'string' || ![')', ','].includes(tokens[cursor + 2]?.value)) error(token, 'createRequire');
+        add(arg, 'createRequire');
       }
     }
     embedded.forEach(scan);

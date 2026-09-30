@@ -168,6 +168,8 @@ describe('host kit loopback HTTP facade (AIT-44b/c)', () => {
     t.after(local.close);
     const submitted = await send(local.url, request);
     assert.equal(submitted.status, 200);
+    assert.equal(submitted.body.snapshot.minor, 0);
+    assert.equal(submitted.body.snapshot.min_reader, 0);
     const bytes = JSON.stringify(submitted.body.snapshot);
     const recordRequest = { method: 'POST', path: `/journal/sessions/${f.sid}/records`, token: f.token(), body: record(f.sid) };
     assert.equal((await send(local.url, recordRequest)).status, 200);
@@ -215,14 +217,17 @@ describe('host kit loopback HTTP facade (AIT-44b/c)', () => {
     }],
     ['budget_denied', 'ledger', 'admit', (f) => { f.host.setEvidence(f.sid, false); }],
     ['extension_unknown', 'intake', 'drafts', (_f, req) => {
+      req.body.minor = 1;
       req.body.spec.items[0].extensions = extensionData({ score: 1 });
     }],
     ['extension_invalid', 'intake', 'drafts', (f, req) => {
       f.host.registerExtension(f.sid, extensionDescriptor);
+      req.body.minor = 1;
       req.body.spec.items[0].extensions = extensionData({ score: 'high' });
     }],
     ['extension_limit', 'intake', 'drafts', (f, req) => {
       f.host.registerExtension(f.sid, extensionDescriptor);
+      req.body.minor = 1;
       req.body.spec.items[0].extensions = extensionData({ score: 1, evidence: 'x'.repeat(9) });
     }],
   ];
@@ -247,9 +252,13 @@ describe('host kit loopback HTTP facade (AIT-44b/c)', () => {
         assert.deepEqual(f.request('intake', '').body, before.intake);
         assert.deepEqual(f.request('journal', 'cursor').body, before.cursor);
         if (code === 'extension_unknown') f.host.registerExtension(f.sid, extensionDescriptor);
+        request.body.minor = 1;
+        request.body.min_reader = 0;
         request.body.spec.items[0].extensions = extensionData({ score: 1, evidence: 'x'.repeat(8) });
         const submitted = await send(local.url, request);
         assert.equal(submitted.status, 200, JSON.stringify(submitted.body));
+        assert.equal(submitted.body.snapshot.minor, 1);
+        assert.equal(submitted.body.snapshot.min_reader, 0);
         assert.deepEqual(submitted.body.snapshot.spec.items[0].extensions, request.body.spec.items[0].extensions);
         assert.deepEqual((await send(local.url, request)).body, submitted.body);
         validDocuments(submitted.body);

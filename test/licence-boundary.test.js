@@ -47,6 +47,8 @@ for (const [name, source] of [
   ['division and a safe dynamic import', `const n = 5 / 2; const other = n / import('./local.js') / 2;`],
   ['template expressions with allowed imports', `const text = \`hello \${import('./local.js')}\`;`],
   ['export without from followed by imports', `export { thing };\nconst thing = import('./local.js');`],
+  ['importing node:module', `import { createRequire, register } from 'node:module';\nimport module from 'node:module';\nconst local = createRequire(import.meta.url);`],
+  ['literal module.register and immediate createRequire calls', `import module from 'node:module';\nmodule.register('./hook.js', import.meta.url);\nmodule?.register('./optional.js');\nmodule['register']('./computed.js');\ncreateRequire(import.meta.url)('./common.cjs');\n(createRequire(import.meta.url))('./grouped.cjs');\ncreateRequire(import.meta.url)?.('./chained.cjs');\nmodule.createRequire(import.meta.url).resolve('./resolved.cjs');`],
 ]) {
   it(`accepts ${name}`, (t) => assert.equal(verifyLicenceBoundary(fixture(t, source)), 1));
 }
@@ -84,6 +86,25 @@ for (const [name, source, specifier] of [
   ['import after a Unicode line separator in a comment', `// comment\u2028import('pdfkit');`, 'pdfkit'],
   ['import after a Unicode paragraph separator in a comment', `// comment\u2029import('pdfkit');`, 'pdfkit'],
   ['Unicode line continuation in a specifier', "import('./..\\\u2028/../runtime/evil.js');", './../../runtime/evil.js'],
+  ['module.register package', `module.register('pdfkit');`, 'pdfkit'],
+  ['module.register traversal', `module.register('../runtime/evil.js');`, '../runtime/evil.js'],
+  ['optional module.register', `module?.register('../lib/evil.js');`, '../lib/evil.js'],
+  ['computed module.register', `module['register']('../runtime/evil.js');`, '../runtime/evil.js'],
+  ['optional computed module.register', `module?.['register']('../element/index.js');`, '../element/index.js'],
+  ['escaped module.register', String.raw`modul\u0065.register('../runtime/evil.js');`, '../runtime/evil.js'],
+  ['module.register template specifier', 'module.register(`../runtime/evil.js`);', '../runtime/evil.js'],
+  ['createRequire immediate package', `createRequire(import.meta.url)('pdfkit');`, 'pdfkit'],
+  ['createRequire immediate traversal', `createRequire(import.meta.url)('../runtime/evil.js');`, '../runtime/evil.js'],
+  ['grouped createRequire call', `(createRequire(import.meta.url))('../lib/evil.js');`, '../lib/evil.js'],
+  ['nested grouped createRequire call', `((createRequire(import.meta.url)))('../runtime/evil.js');`, '../runtime/evil.js'],
+  ['optional immediate createRequire', `createRequire(import.meta.url)?.('../runtime/evil.js');`, '../runtime/evil.js'],
+  ['optional createRequire construction', `createRequire?.(import.meta.url)('../lib/evil.js');`, '../lib/evil.js'],
+  ['module.createRequire immediate call', `module.createRequire(import.meta.url)('pdfkit');`, 'pdfkit'],
+  ['computed createRequire immediate call', `module['createRequire'](import.meta.url)('../runtime/evil.js');`, '../runtime/evil.js'],
+  ['createRequire resolve', `createRequire(import.meta.url).resolve('pdfkit');`, 'pdfkit'],
+  ['optional createRequire resolve', `createRequire(import.meta.url)?.resolve?.('../lib/evil.js');`, '../lib/evil.js'],
+  ['optional createRequire resolve call', `createRequire(import.meta.url)?.resolve('pdfkit');`, 'pdfkit'],
+  ['optional module.register call', `module.register?.('../runtime/evil.js');`, '../runtime/evil.js'],
 ]) {
   it(`rejects ${name} with the file and decoded specifier`, (t) => {
     assert.throws(() => verifyLicenceBoundary(fixture(t, source)), (error) => {
@@ -97,6 +118,15 @@ for (const [name, source, specifier] of [
 for (const source of [
   'import(path);', `import('./local.js' + name);`, 'import(`./${name}.js`);',
   `import(('./local.js'));`, `import();`, `require(name);`, `require('./local.js' + name);`,
+  'module.register(path);', 'module.register(name, import.meta.url);', 'module?.register(path);',
+  `module['register'](name);`, 'module.register();', 'module.register(`./${name}.js`);',
+  'createRequire(import.meta.url)(name);', `createRequire(import.meta.url)('./' + name);`,
+  '(createRequire(import.meta.url))(name);', 'createRequire(import.meta.url)();',
+  'createRequire?.(import.meta.url)(name);', 'module.createRequire(import.meta.url)(path);',
+  `module['createRequire'](import.meta.url)(name);`,   'createRequire(import.meta.url).resolve(name);',
+  'createRequire(import.meta.url)?.resolve?.(name);',
+  'createRequire(import.meta.url)?.resolve(name);',
+  'module.register?.(path);',
 ]) {
   it(`rejects non-literal loading: ${source}`, (t) => {
     assert.throws(() => verifyLicenceBoundary(fixture(t, source)), /contracts\/check.js:1: non-literal/);

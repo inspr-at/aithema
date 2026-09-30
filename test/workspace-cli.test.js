@@ -111,16 +111,21 @@ async function holdRequest(url) {
   const parsed = new URL(url);
   const socket = connect({ host: parsed.hostname, port: Number(parsed.port) });
   await once(socket, 'connect');
-  socket.write([
-    'POST /aithema/session/demo HTTP/1.1',
-    `Host: ${parsed.host}`,
-    'Content-Type: application/x-www-form-urlencoded',
-    'Content-Length: 100',
-    'Connection: keep-alive',
-    '',
-    'x',
-  ].join('\r\n'));
-  await delay(25);
+  await new Promise((resolve, reject) => {
+    socket.write([
+      'POST /aithema/session/demo HTTP/1.1',
+      `Host: ${parsed.host}`,
+      'Content-Type: application/x-www-form-urlencoded',
+      'Content-Length: 100',
+      'Connection: keep-alive',
+      '',
+      'x',
+    ].join('\r\n'), (error) => (error ? reject(error) : resolve()));
+  });
+  // A completed request is accepted only after this connection is already in the server's queue.
+  const health = await fetch(`${url}/health`, { headers: { connection: 'close' } });
+  assert.equal(health.status, 200);
+  await health.text();
   return socket;
 }
 
@@ -264,7 +269,7 @@ describe('AIT-22 supported workspace executable', () => {
     }
   });
 
-  it('bounds a held connection, handles repeated signals, and restarts on the same data directory', async () => {
+  it('bounds a held connection, handles repeated signals, and restarts on the same data directory', { timeout: 20_000 }, async () => {
     const dir = mkdtempSync(join(tmpdir(), 'aithema-pack-cli-lifecycle-'));
     const dataDir = join(dir, 'data');
     const configPath = join(dir, 'config.json');
@@ -277,20 +282,23 @@ describe('AIT-22 supported workspace executable', () => {
       held = await holdRequest(match[1]);
       const started = Date.now();
       running.child.kill('SIGTERM');
-      let exited = await running.waitForExit(2_000);
+      await running.waitFor(/draining for at most 150ms/);
+      let exited = await running.waitForExit(5_000);
       assert.deepEqual(exited, { code: 0, signal: null });
-      assert.ok(Date.now() - started >= 100, 'held request should drain until the configured deadline');
-      assert.ok(Date.now() - started < 1_500, 'held request must be force-closed within the bound');
+      const elapsed = Date.now() - started;
+      assert.ok(elapsed >= 100, 'held request should drain until the configured deadline');
+      assert.ok(elapsed < 1_500, 'held request must be force-closed within the bound');
       held.destroy();
 
       running = launch(configPath, 5_000);
       match = await running.waitFor(/listening at (http:\/\/\S+)/);
       held = await holdRequest(match[1]);
-      const repeatedAt = Date.now();
       running.child.kill('SIGTERM');
-      await delay(50);
+      await running.waitFor(/draining for at most 5000ms/);
+      assert.equal(running.child.exitCode, null);
+      const repeatedAt = Date.now();
       running.child.kill('SIGINT');
-      exited = await running.waitForExit(1_500);
+      exited = await running.waitForExit(2_000);
       assert.deepEqual(exited, { code: 0, signal: null });
       assert.ok(Date.now() - repeatedAt < 1_000, 'repeated signal should force-close immediately');
       assert.match(running.output().stdout, /Repeated shutdown signal/);
