@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -130,11 +131,11 @@ function check(schema, value, file, path, errors) {
   if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
     const obj = /** @type {Record<string, unknown>} */ (value);
     for (const key of schema.required ?? []) {
-      if (!(key in obj)) errors.push(`${path}: missing ${key}`);
+      if (!Object.hasOwn(obj, key)) errors.push(`${path}: missing ${key}`);
     }
     const props = schema.properties ?? {};
     for (const [key, child] of Object.entries(obj)) {
-      if (key in props) check(props[key], child, file, `${path}.${key}`, errors);
+      if (Object.hasOwn(props, key)) check(props[key], child, file, `${path}.${key}`, errors);
       else if (schema.additionalProperties === false) errors.push(`${path}: unknown key ${key}`);
       else if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
         check(schema.additionalProperties, child, file, `${path}.${key}`, errors);
@@ -190,7 +191,27 @@ export function readerSupport() {
   return out;
 }
 
+/**
+ * Canonical JSON: object keys sorted by UTF-16 code units, no whitespace.
+ * @param {unknown} value
+ * @returns {string}
+ */
+export function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value !== null && typeof value === 'object') {
+    const obj = /** @type {Record<string, unknown>} */ (value);
+    return `{${Object.keys(obj).sort().map((k) => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/** @param {string} text */
+export function sha256Hex(text) {
+  return createHash('sha256').update(text, 'utf8').digest('hex');
+}
+
 const transitions = loadContractFile('transitions.json');
+const writers = loadContractFile('record-writers.json');
 const capabilities = loadContractFile('capabilities.json');
 
 /**
@@ -207,6 +228,9 @@ export function checkInvariants(contract, doc) {
   if (contract === 'aithema.token.claims') tokenInvariants(doc, out);
   if (contract === 'aithema.budget.message') budgetInvariants(doc, out);
   if (contract === 'aithema.journal.record') recordInvariants(doc, out);
+  if (contract === 'aithema.session.create' && doc.host_mode === 'working_spec_only' && doc.submission.auto) {
+    out.push('session.working_spec_only_no_auto');
+  }
   return out;
 }
 
@@ -216,15 +240,18 @@ export function checkInvariants(contract, doc) {
  */
 function snapshotInvariants(doc, out) {
   if (doc.working_rev !== doc.expected_prev_rev + 1) out.push('snapshot.rev_is_prev_plus_one');
+  if (sha256Hex(doc.patch.canonical) !== doc.patch.sha256) out.push('snapshot.patch_sha256_matches');
   const mode = transitions.modes[doc.host_mode];
+  /** @type {Map<string, any>} */
   const byRef = new Map();
   for (const item of doc.spec.items) {
     const key = `${item.item_ref}@${item.version}`;
     if (byRef.has(key)) out.push('item.version_unique');
     byRef.set(key, item);
+    if (sha256Hex(canonicalJson(item.content)) !== item.content_sha256) out.push('item.content_sha256_matches');
     if (!mode.states.includes(item.state)) out.push('item.state_allowed_in_mode');
-    const hosted = transitions.host_identity_required.includes(item.state);
-    if (hosted && !item.host) out.push('item.host_identity_required');
+    if (!mode.submits && item.host) out.push('mode.working_spec_only_no_host_identity');
+    if (transitions.host_identity_required.includes(item.state) && !item.host) out.push('item.host_identity_required');
     if (transitions.host_identity_forbidden.includes(item.state) && item.host) out.push('item.host_identity_forbidden');
   }
   for (const item of doc.spec.items) {
@@ -232,14 +259,18 @@ function snapshotInvariants(doc, out) {
     if (!sup) continue;
     if (sup.item_ref !== item.item_ref || sup.version >= item.version) out.push('item.supersedes_same_ref_older_version');
     const prior = byRef.get(`${sup.item_ref}@${sup.version}`);
-    if (prior && prior.state !== 'superseded') out.push('item.supersedes_target_is_superseded');
+    if (!prior) out.push('item.supersedes_target_exists');
+    else if (prior.state !== 'superseded') out.push('item.supersedes_target_is_superseded');
   }
   /** @type {Map<string, any[]>} */
   const versions = new Map();
   for (const item of doc.spec.items) versions.set(item.item_ref, [...(versions.get(item.item_ref) ?? []), item]);
   for (const list of versions.values()) {
-    const accepted = list.find((i) => i.state === 'accepted');
-    if (accepted && list.some((i) => i.version > accepted.version)) out.push('item.accepted_is_terminal');
+    const accepted = list.filter((i) => i.state === 'accepted');
+    if (accepted.length > 1) out.push('item.one_accepted_version');
+    if (accepted.length && list.some((i) => i.version > accepted[0].version || !transitions.closed_states.includes(i.state))) {
+      out.push('item.accepted_is_terminal');
+    }
     if (list.filter((i) => !transitions.closed_states.includes(i.state)).length > 1) out.push('item.one_live_version');
   }
   if (!mode.submits && doc.pending_ops.some((/** @type {any} */ op) => transitions.submission_ops.includes(op.op))) {
@@ -247,6 +278,9 @@ function snapshotInvariants(doc, out) {
   }
   const keys = doc.pending_ops.map((/** @type {any} */ op) => op.op_key);
   if (new Set(keys).size !== keys.length) out.push('ops.op_key_unique');
+  for (const op of doc.pending_ops) {
+    if (sha256Hex(op.payload) !== op.payload_sha256) out.push('op.payload_sha256_matches');
+  }
 }
 
 /**
@@ -270,6 +304,9 @@ function tokenInvariants(doc, out) {
  * @param {string[]} out
  */
 function budgetInvariants(doc, out) {
+  if (doc.type === 'recover_response' && doc.body.closed_reason === 'void' && doc.body.charged_micro !== 0) {
+    out.push('budget.recover_void_zero');
+  }
   if (doc.type === 'settle_request') {
     const hasActual = doc.body.actual_micro !== undefined;
     if ((doc.body.outcome === 'settled') !== hasActual) out.push('budget.settled_has_actual_unknown_has_none');
@@ -294,6 +331,34 @@ function recordInvariants(doc, out) {
     if (Buffer.byteLength(JSON.stringify(doc.data.tokens), 'utf8') > 64 * 1024) out.push('design_input.tokens_max_64_kib');
   }
   if (doc.writer.kind === 'worker' && doc.writer.generation === undefined) out.push('record.worker_has_generation');
+  if (!writers.writers[doc.kind].includes(doc.writer.kind)) out.push('record.writer_allowed');
+  if (doc.kind === 'turn') {
+    const assistant = doc.data.speaker === 'assistant';
+    if (assistant !== (doc.data.trust === 'assistant')) out.push('turn.speaker_trust_consistent');
+    if (doc.writer.kind === 'browser' && doc.data.speaker !== writers.browser_turn_speaker) out.push('turn.browser_writes_person_turns');
+  }
+  if (doc.kind === 'session.end' && doc.data.host_mode === 'working_spec_only' && doc.data.export !== 'exported') {
+    out.push('session_end.working_spec_only_exports');
+  }
+  if (doc.kind === 'budget.settle') {
+    const claimed = doc.data.claim_id !== undefined;
+    if (doc.data.outcome === 'void' && (claimed || doc.data.charged_micro !== 0)) out.push('budget.settle_void_unclaimed_zero');
+    if (doc.data.outcome !== 'void' && !claimed) out.push('budget.settle_claim_required');
+  }
+  if (doc.kind === 'budget.hold') {
+    const [sid, gen, lane] = doc.data.attempt_id.split(':');
+    if (sid !== doc.sid || Number(gen) !== doc.writer.generation || lane !== doc.data.lane) out.push('budget.hold_attempt_binds_record');
+  }
+  if (doc.kind === 'source') {
+    const length = [...doc.data.text].length;
+    const ids = doc.data.segments.map((/** @type {any} */ g) => g.id);
+    if (new Set(ids).size !== ids.length) out.push('source.segment_ids_unique');
+    if (doc.data.segments.some((/** @type {any} */ g) => g.start > g.end || g.end > length)) out.push('source.segments_in_bounds');
+  }
+  if (doc.kind === 'design.input') {
+    if (sha256Hex(canonicalJson(doc.data.screen_ir)) !== doc.data.screen_ir_sha256) out.push('design_input.screen_ir_sha256_matches');
+    if (sha256Hex(canonicalJson(doc.data.tokens)) !== doc.data.tokens_sha256) out.push('design_input.tokens_sha256_matches');
+  }
   if (Buffer.byteLength(JSON.stringify(doc), 'utf8') > 1024 * 1024) out.push('record.encoded_max_1_mib');
 }
 

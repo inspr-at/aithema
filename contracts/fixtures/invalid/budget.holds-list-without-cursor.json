@@ -1,7 +1,7 @@
 {
   "contract": "aithema.budget.message",
   "expect": {
-    "schema": true
+    "schema": "matches 0 of oneOf"
   },
   "doc": {
     "contract": "aithema.budget.message",

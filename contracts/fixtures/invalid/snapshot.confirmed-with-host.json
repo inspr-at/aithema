@@ -9,6 +9,7 @@
     "minor": 0,
     "min_reader": 0,
     "sid": "0f8e9d2c-3b4a-4c5d-8e6f-7a8b9c0d1e2f",
+    "client_event_id": "7d8e9f0a-1b2c-4d3e-8f4a-5b6c7d8e9f0a",
     "working_rev": 7,
     "expected_prev_rev": 6,
     "consumed_seq": 42,
@@ -25,7 +26,7 @@
             "acceptance_criteria": [],
             "constraint_refs": []
           },
-          "content_sha256": "d3427742ce610793acf582841ec0f04b1155dd96282423a77a40761a128820cf",
+          "content_sha256": "0b9ebff09fb74ea991959005255bd19902eff180721777543d419da0090e2ebb",
           "citations": [
             {
               "record_seq": 3,
@@ -57,7 +58,7 @@
             ],
             "constraint_refs": []
           },
-          "content_sha256": "12c22e4dd0d2801bd6fcdb2bada469e2c48d011a8cba0c90f58199f1fe46e465",
+          "content_sha256": "1460a8222618f8e020507eaeaad36bf056e41d19927a6ba24759ea75e71ee423",
           "citations": [
             {
               "record_seq": 3,
@@ -90,7 +91,7 @@
             "acceptance_criteria": [],
             "constraint_refs": []
           },
-          "content_sha256": "228acb8f2995cd8cdab0c42c7fd4421e5424646780b18b6839626998bc4e3943",
+          "content_sha256": "d797b02150e2fc06d68a8f8c6497f3d6a3ee3836a698900f0083853f415c0ffd",
           "citations": [
             {
               "record_seq": 3,
@@ -121,7 +122,7 @@
             "constraint_refs": [],
             "constraint_kind": "data"
           },
-          "content_sha256": "44d97fa9f3cee7bd7f1e8df0b0e11b3d635268ab07ab1ec3042c584e565fdb4c",
+          "content_sha256": "367f49d16c7aee2228ee1d640dc363497c235fd12fc156ef4edd1d4223784b8f",
           "citations": [
             {
               "record_seq": 3,
@@ -173,8 +174,8 @@
       }
     ],
     "patch": {
-      "sha256": "f8b0d8dae97ad38ca3fd87dd46ec06d0cbe769c98396702bad5a5d881c96ecf9",
-      "canonical": "{\"op\":\"add\",\"item_ref\":\"REQ-2\"}"
+      "sha256": "2211661d30d944ac25ed634c4dbc741ca9bba33940acad86780ab1aa4c5f3422",
+      "canonical": "{\"item_ref\":\"REQ-2\",\"op\":\"add\"}"
     }
   }
 }

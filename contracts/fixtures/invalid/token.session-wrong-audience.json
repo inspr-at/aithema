@@ -1,7 +1,7 @@
 {
   "contract": "aithema.token.claims",
   "expect": {
-    "schema": true
+    "schema": "matches 0 of oneOf"
   },
   "doc": {
     "contract": "aithema.token.claims",

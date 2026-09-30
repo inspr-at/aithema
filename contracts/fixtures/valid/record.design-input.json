@@ -15,7 +15,7 @@
     "recorded_at": "2026-09-30T08:15:00Z",
     "kind": "design.input",
     "data": {
-      "screen_ir_sha256": "9b0cb0500ff3bd6633ce145f2e07f0f537405f8ada11d7dbbcb743b71def1538",
+      "screen_ir_sha256": "db2f2cd474597f76d9544258998b8ec5f8f1713f00af2890b947d929e1e7186a",
       "screen_ir": {
         "screen": "export",
         "nodes": []

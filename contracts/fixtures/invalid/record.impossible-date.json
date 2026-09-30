@@ -1,7 +1,7 @@
 {
   "contract": "aithema.journal.record",
   "expect": {
-    "schema": true
+    "schema": "$.recorded_at: not a real date-time"
   },
   "doc": {
     "contract": "aithema.journal.record",

@@ -1,7 +1,7 @@
 {
   "contract": "aithema.journal.record",
   "expect": {
-    "schema": true
+    "schema": "$.seq: expected integer, got number"
   },
   "doc": {
     "contract": "aithema.journal.record",

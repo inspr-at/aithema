@@ -1,0 +1,35 @@
+{
+  "contract": "aithema.journal.record",
+  "expect": {
+    "invariant": "source.segments_in_bounds"
+  },
+  "doc": {
+    "contract": "aithema.journal.record",
+    "major": 1,
+    "minor": 0,
+    "min_reader": 0,
+    "sid": "0f8e9d2c-3b4a-4c5d-8e6f-7a8b9c0d1e2f",
+    "seq": 43,
+    "client_event_id": "6c1d2e3f-4a5b-4c6d-9e7f-8a9b0c1d2e3f",
+    "writer": {
+      "kind": "worker",
+      "generation": 2
+    },
+    "recorded_at": "2026-09-30T08:15:00Z",
+    "kind": "source",
+    "data": {
+      "label": "lastenheft.pdf",
+      "media_type": "application/pdf",
+      "sha256": "c35b21d6ca39aa7cc3b79a705d989f1a6e88b99ab43988d74048799e3db926a3",
+      "durability": "resumable",
+      "text": "Kapitel 1 Export",
+      "segments": [
+        {
+          "id": "p1-a",
+          "start": 10,
+          "end": 4
+        }
+      ]
+    }
+  }
+}

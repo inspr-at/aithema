@@ -58,7 +58,16 @@ START voice SDK extraction remains later work. Public speech input is the option
 - **Budget ledger**: idempotent `admit` by attempt id, then a single-use claim as the dispatch boundary, then `settle` / `recover(hold_id)`.
 - **Other contracts**: the processing authorization record, session creation, `<aithema-session>` element events, and stable error codes (`error-codes.json`).
 
-Every document carries `contract`, `major`, `minor` and `min_reader`. Validation is strict: an unknown key fails. A reader executes a document only for a supported major with `reader_minor ≥ min_reader`; otherwise it refuses with `contract_too_new`. `node --test test/contracts.test.js` checks every fixture and the tables' internal consistency. The contracts are part of the source tree only; they are not in the release artefact.
+Every document carries `contract`, `major`, `minor` and `min_reader` (§9.7 calls the major field `settings_version`; these contracts use `major` uniformly). Validation is strict: every closed object rejects unknown keys (own keys only, including `__proto__`/`constructor`). The design IR and token objects inside `design.input` are intentionally opaque here; the renderer ticket defines them. The validator also checks invariants a schema cannot express:
+- digests over canonical JSON (keys sorted by UTF-16 code units, no whitespace);
+- one accepted version per item, with no live or later version beside it;
+- writer kind per record kind (`record-writers.json`);
+- working-spec-only never submits and always exports;
+- budget settle/recover consistency.
+
+A reader executes a document only for a supported major with `reader_minor ≥ min_reader`; otherwise it refuses with `contract_too_new`. Integers must be safe JavaScript integers. `JSON.parse` rounds numbers before validation, so hosts that need byte-exact numbers validate from the raw text (e.g. Go `json.Number`) and store the original bytes. `node --test test/contracts.test.js` checks every fixture, including the expected diagnostic for each rejection, and the tables' internal consistency.
+
+Out of scope here: the `aithema.settings/1` schema and the computed capability matrix (§2.4–2.5) belong to the settings ticket; `capabilities.json` is route authorization only. The contracts are part of the source tree only; they are not in the release artefact.
 
 ## Dependencies and fonts
 

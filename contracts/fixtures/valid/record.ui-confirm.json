@@ -9,14 +9,15 @@
     "seq": 43,
     "client_event_id": "6c1d2e3f-4a5b-4c6d-9e7f-8a9b0c1d2e3f",
     "writer": {
-      "kind": "browser"
+      "kind": "worker",
+      "generation": 2
     },
     "recorded_at": "2026-09-30T08:15:00Z",
     "kind": "ui.confirm",
     "data": {
       "item_ref": "REQ-2",
       "version": 1,
-      "content_sha256": "228acb8f2995cd8cdab0c42c7fd4421e5424646780b18b6839626998bc4e3943",
+      "content_sha256": "d797b02150e2fc06d68a8f8c6497f3d6a3ee3836a698900f0083853f415c0ffd",
       "principal_ref": "person-1"
     }
   }

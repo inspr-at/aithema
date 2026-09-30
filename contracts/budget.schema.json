@@ -246,7 +246,20 @@
                 "session_cap",
                 "principal_day_cap",
                 "tenant_day_cap",
-                "no_evidence",
+                "no_evidence"
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "error"
+          ],
+          "properties": {
+            "error": {
+              "enum": [
                 "fenced_generation",
                 "revoked"
               ]

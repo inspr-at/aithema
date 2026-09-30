@@ -1,0 +1,178 @@
+{
+  "contract": "aithema.spec.snapshot",
+  "expect": {
+    "invariant": "op.payload_sha256_matches"
+  },
+  "doc": {
+    "contract": "aithema.spec.snapshot",
+    "major": 1,
+    "minor": 0,
+    "min_reader": 0,
+    "sid": "0f8e9d2c-3b4a-4c5d-8e6f-7a8b9c0d1e2f",
+    "client_event_id": "7d8e9f0a-1b2c-4d3e-8f4a-5b6c7d8e9f0a",
+    "working_rev": 7,
+    "expected_prev_rev": 6,
+    "consumed_seq": 42,
+    "worker_generation": 2,
+    "host_mode": "review",
+    "spec": {
+      "items": [
+        {
+          "item_ref": "REQ-1",
+          "kind": "requirement",
+          "version": 1,
+          "content": {
+            "statement": "Export der offenen Rechnungen als CSV.",
+            "acceptance_criteria": [],
+            "constraint_refs": []
+          },
+          "content_sha256": "0b9ebff09fb74ea991959005255bd19902eff180721777543d419da0090e2ebb",
+          "citations": [
+            {
+              "record_seq": 3,
+              "locator": "turn:1",
+              "quote": "Wir brauchen einen Export als CSV."
+            }
+          ],
+          "provenance": {
+            "intent": "requested",
+            "derived_from": [
+              3
+            ]
+          },
+          "state": "superseded",
+          "supersedes_item_version": null,
+          "host": {
+            "op_key": "0f8e9d2c-3b4a-4c5d-8e6f-7a8b9c0d1e2f:submit:1",
+            "proposal_ref": "P-11"
+          }
+        },
+        {
+          "item_ref": "REQ-1",
+          "kind": "requirement",
+          "version": 2,
+          "content": {
+            "statement": "Export der offenen Rechnungen als CSV und XLSX.",
+            "acceptance_criteria": [
+              "Datei enthält alle offenen Rechnungen"
+            ],
+            "constraint_refs": []
+          },
+          "content_sha256": "1460a8222618f8e020507eaeaad36bf056e41d19927a6ba24759ea75e71ee423",
+          "citations": [
+            {
+              "record_seq": 3,
+              "locator": "turn:1",
+              "quote": "Wir brauchen einen Export als CSV."
+            }
+          ],
+          "provenance": {
+            "intent": "requested",
+            "derived_from": [
+              3
+            ]
+          },
+          "state": "proposed",
+          "supersedes_item_version": {
+            "item_ref": "REQ-1",
+            "version": 1
+          },
+          "host": {
+            "op_key": "0f8e9d2c-3b4a-4c5d-8e6f-7a8b9c0d1e2f:replace:2",
+            "proposal_ref": "P-12"
+          }
+        },
+        {
+          "item_ref": "REQ-2",
+          "kind": "requirement",
+          "version": 1,
+          "content": {
+            "statement": "Filter nach Fälligkeitsdatum.",
+            "acceptance_criteria": [],
+            "constraint_refs": []
+          },
+          "content_sha256": "d797b02150e2fc06d68a8f8c6497f3d6a3ee3836a698900f0083853f415c0ffd",
+          "citations": [
+            {
+              "record_seq": 3,
+              "locator": "turn:1",
+              "quote": "Wir brauchen einen Export als CSV."
+            }
+          ],
+          "provenance": {
+            "intent": "requested",
+            "derived_from": [
+              3
+            ]
+          },
+          "state": "confirmed",
+          "supersedes_item_version": null,
+          "host": null
+        },
+        {
+          "item_ref": "CON-1",
+          "kind": "constraint",
+          "version": 1,
+          "content": {
+            "statement": "Daten bleiben in der EU.",
+            "acceptance_criteria": [],
+            "constraint_refs": [],
+            "constraint_kind": "data"
+          },
+          "content_sha256": "367f49d16c7aee2228ee1d640dc363497c235fd12fc156ef4edd1d4223784b8f",
+          "citations": [
+            {
+              "record_seq": 3,
+              "locator": "turn:1",
+              "quote": "Wir brauchen einen Export als CSV."
+            }
+          ],
+          "provenance": {
+            "intent": "inferred",
+            "derived_from": [
+              3
+            ]
+          },
+          "state": "draft",
+          "supersedes_item_version": null,
+          "host": null
+        }
+      ],
+      "questions": [
+        {
+          "question_id": "Q-1",
+          "text": "Welche Spalten braucht der Export?",
+          "state": "asked",
+          "asked_in_reaction_seq": 40
+        }
+      ],
+      "brief": "Kundenportal: Export offener Rechnungen.",
+      "screens": [
+        {
+          "screen_ref": "S-export",
+          "design_input_seq": 38
+        }
+      ]
+    },
+    "pending_ops": [
+      {
+        "op_key": "0f8e9d2c-3b4a-4c5d-8e6f-7a8b9c0d1e2f:submit:3",
+        "op": "submit",
+        "payload_sha256": "40c8f5b4a8fd914a9416446c656fb4cb6007519682b140b155865ba09391a5fa",
+        "payload": "{\"item_ref\":\"REQ-9\"}"
+      }
+    ],
+    "corrections": [
+      {
+        "correction_id": "C-1",
+        "about_reaction_seq": 40,
+        "text": "Korrektur: XLSX kommt dazu.",
+        "state": "pending"
+      }
+    ],
+    "patch": {
+      "sha256": "2211661d30d944ac25ed634c4dbc741ca9bba33940acad86780ab1aa4c5f3422",
+      "canonical": "{\"item_ref\":\"REQ-2\",\"op\":\"add\"}"
+    }
+  }
+}

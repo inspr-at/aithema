@@ -66,10 +66,10 @@
     },
     {
       "code": "revoked",
-      "http": 403,
+      "http": 409,
       "scope": "v1",
       "retry": false,
-      "meaning": "The auth epoch changed or a tombstone exists; stop capture, output and new claims."
+      "meaning": "The auth epoch changed or a tombstone exists (409 per §6.3 on every fenced route); stop capture, output and new claims."
     },
     {
       "code": "contract_too_new",
@@ -113,7 +113,7 @@
     },
     {
       "result": "auth epoch changed or tombstone present",
-      "http": 403,
+      "http": 409,
       "code": "revoked"
     },
     {

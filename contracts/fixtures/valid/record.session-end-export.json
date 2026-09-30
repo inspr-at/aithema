@@ -16,7 +16,8 @@
     "kind": "session.end",
     "data": {
       "reason": "person",
-      "export": "exported"
+      "host_mode": "review",
+      "export": "offered"
     }
   }
 }

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/inspr-at/aithema/contracts/common.schema.json",
   "title": "Aithema foundation contracts: shared definitions",
-  "description": "Shared value types and the version envelope (§9.7). Every top-level contract document carries contract, major, minor and min_reader; a reader executes it only for a supported major with reader_minor ≥ min_reader, otherwise it refuses with contract_too_new.",
+  "description": "Shared value types and the version envelope (§9.7). Every top-level contract document carries contract, major, minor and min_reader; a reader executes it only for a supported major with reader_minor ≥ min_reader, otherwise it refuses with contract_too_new. Amendment (AIT-35): §9.7 names the major field settings_version; the foundation contracts, and aithema.settings/1 later, use `major` uniformly.",
   "$defs": {
     "sha256": {
       "type": "string",

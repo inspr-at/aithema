@@ -6,6 +6,8 @@ import { fileURLToPath } from 'node:url';
 
 import {
   canExecute,
+  canonicalJson,
+  sha256Hex,
   checkInvariants,
   index,
   loadContractFile,
@@ -45,7 +47,8 @@ describe('AIT-35 foundation contracts: fixtures', () => {
   for (const f of invalid) {
     it(`refuses ${f.name}`, () => {
       if (f.expect.schema) {
-        assert.notDeepEqual(validateSchema(f.contract, f.doc), [], 'expected a schema error');
+        const errors = validateSchema(f.contract, f.doc);
+        assert.ok(errors.some((e) => e.includes(f.expect.schema)), `expected "${f.expect.schema}" in: ${errors.join('; ')}`);
       } else if (f.expect.invariant) {
         assert.deepEqual(validateSchema(f.contract, f.doc), [], 'fixture must be structurally valid');
         assert.ok(checkInvariants(f.contract, f.doc).includes(f.expect.invariant), `expected invariant ${f.expect.invariant}`);
@@ -57,6 +60,13 @@ describe('AIT-35 foundation contracts: fixtures', () => {
       }
     });
   }
+});
+
+describe('AIT-35 foundation contracts: canonical digests', () => {
+  it('encodes objects with sorted keys and no whitespace', () => {
+    assert.equal(canonicalJson({ b: [2, { d: 1, c: 'x' }], a: null }), '{"a":null,"b":[2,{"c":"x","d":1}]}');
+    assert.equal(sha256Hex('abc'), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+  });
 });
 
 describe('AIT-35 foundation contracts: compatibility (§9.7)', () => {

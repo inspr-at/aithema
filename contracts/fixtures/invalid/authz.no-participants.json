@@ -1,7 +1,7 @@
 {
   "contract": "aithema.authz",
   "expect": {
-    "schema": true
+    "schema": "$.participants: fewer than 1 items"
   },
   "doc": {
     "contract": "aithema.authz",
