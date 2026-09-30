@@ -67,7 +67,7 @@ Every document carries `contract`, `major`, `minor` and `min_reader` (§9.7 call
 
 A reader executes a document only for a supported major with `reader_minor ≥ min_reader`; otherwise it refuses with `contract_too_new`. Integers must be safe JavaScript integers. `JSON.parse` rounds numbers before validation, so hosts that need byte-exact numbers validate from the raw text (e.g. Go `json.Number`) and store the original bytes. `node --test test/contracts.test.js` checks every fixture, including the expected diagnostic for each rejection, and the tables' internal consistency.
 
-Out of scope here: the `aithema.settings/1` schema and the computed capability matrix (§2.4–2.5) belong to the settings ticket; `capabilities.json` is route authorization only. The contracts are part of the source tree only; they are not in the release artefact.
+`capabilities.json` is route authorization only; the settings contract `aithema.settings/1` and its resolver live in `contracts/settings.schema.json` and `runtime/settings/`. `lib/` and `runtime/` import the contracts at load time, so `contracts/` ships in the release artefact. Every exported `lib/` function sits behind one normalising boundary (`lib/boundary.js`): arguments are copied into plain-data snapshots before use, and a guard test fails on any unwrapped export.
 
 ## Dependencies and fonts
 
