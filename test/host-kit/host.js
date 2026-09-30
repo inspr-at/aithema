@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { canonicalJson, sha256Hex } from '../../contracts/validate.js';
+import { validateItemProvenance } from '../../runtime/provenance.js';
 import {
-  budget, capabilities, document, envelope, errorResponse, fail, HostError, input, transitions,
+  budget, capabilities, document, envelope, errorResponse, fail, HostError, input, intakeMetadata, transitions,
 } from './protocol.js';
 
 /** Concrete host-side routes. /v1/* callbacks belong to the service, not this host. */
@@ -182,7 +183,7 @@ export class MockHost {
       if (route.action === 'accept') return this.#accept(route, session, request);
       const payload = input(request.body);
       if (route.area === 'journal') return this.#journal(route, session, actor, payload);
-      if (route.area === 'intake') return this.#intake(route, session, actor, payload, request.opKey);
+      if (route.area === 'intake') return this.#intake(route, session, actor, payload, request.opKey, request.intakeMetadata);
       return this.#ledger(route, session, actor, payload);
     } catch (error) {
       return errorResponse(error);
@@ -272,10 +273,10 @@ export class MockHost {
     return success(this.#append(session, payload));
   }
 
-  #bound(session, actor, doc) {
+  #bound(session, actor, doc, { generation = true } = {}) {
     if (doc.sid !== session.authz.sid) throw new HostError(403, 'Foreign document session');
-    if (doc.worker_generation !== undefined && doc.worker_generation !== actor.gen) fail('fenced_generation');
-    if (doc.writer?.kind === 'worker' && doc.writer.generation !== actor.gen) fail('fenced_generation');
+    if (generation && doc.worker_generation !== undefined && doc.worker_generation !== actor.gen) fail('fenced_generation');
+    if (generation && doc.writer?.kind === 'worker' && doc.writer.generation !== actor.gen) fail('fenced_generation');
   }
 
   #opKey(sid, opKey, action) {
@@ -283,22 +284,30 @@ export class MockHost {
     if (typeof opKey !== 'string' || !new RegExp(`^${sid}:${verb}:[0-9]+$`).test(opKey)) throw new HostError(400, 'Invalid operation key');
   }
 
-  #intake(route, session, actor, payload, opKey) {
+  #intake(route, session, actor, payload, opKey, metadataHeader) {
     this.#opKey(route.sid, opKey, route.action);
     const prior = session.operations.get(opKey);
-    const identity = `${route.action}:${route.draftId ?? ''}:${payload.bytes}`;
+    const identity = canonicalJson([route.action, route.draftId ?? null, payload.bytes, metadataHeader ?? null]);
     if (prior) {
       if (prior.identity !== identity) fail('idempotency_conflict');
       return structuredClone(prior.response);
     }
+    // Intake is fenced solely by the delegated token in #authorize. A durable
+    // pending operation keeps its original document generation after takeover.
+    const sourceOperation = ['sources', 'transcript-turns'].includes(route.action);
+    const doc = document(payload.doc, sourceOperation ? 'aithema.journal.record' : 'aithema.spec.snapshot');
+    this.#bound(session, actor, doc, { generation: false });
+    const metadata = intakeMetadata(metadataHeader);
     let response;
-    if (['sources', 'transcript-turns'].includes(route.action)) {
-      const doc = document(payload.doc, 'aithema.journal.record');
-      this.#bound(session, actor, doc);
+    if (sourceOperation) {
       if (doc.kind !== (route.action === 'sources' ? 'source' : 'turn') || doc.seq !== undefined) throw new HostError(400, 'Wrong intake record kind or sequence');
+      this.#projectionMetadata(route, session, metadata);
+      const previous = session.imports.get(doc.client_event_id);
+      const conversationSourceId = metadata?.conversation_source_id ?? null;
+      if (previous && previous.conversationSourceId !== conversationSourceId) fail('idempotency_conflict');
       const record = this.#append(session, payload);
       const hostIds = session.imports.get(doc.client_event_id)?.hostIds ?? { [route.action === 'sources' ? 'source_id' : 'turn_id']: randomUUID() };
-      session.imports.set(doc.client_event_id, { record, hostIds });
+      session.imports.set(doc.client_event_id, { record, hostIds, conversationSourceId });
       response = success({ record, result: this.#workerDocument(session, 'op.result', { op_key: opKey, host_ids: hostIds }) });
     } else {
       if (session.hostMode !== 'review') throw new HostError(403, 'This session never submits proposals');
@@ -307,8 +316,6 @@ export class MockHost {
         if (!old) throw new HostError(404, 'Unknown draft');
         this.#arbitrate(old.item.state, 'replace');
       }
-      const doc = document(payload.doc, 'aithema.spec.snapshot');
-      this.#bound(session, actor, doc);
       if (doc.host_mode !== session.hostMode) throw new HostError(400, 'Wrong intake mode');
       const candidates = doc.spec.items.filter((item) => item.state === 'confirmed' && item.host === null);
       if (candidates.length !== 1) throw new HostError(400, 'Submit exactly one confirmed candidate');
@@ -325,6 +332,7 @@ export class MockHost {
       const confirmed = session.records.some((r) => r.kind === 'ui.confirm' && r.data.item_ref === item.item_ref &&
         r.data.version === item.version && r.data.content_sha256 === item.content_sha256 && r.data.principal_ref === actor.act.sub);
       if (!confirmed) throw new HostError(403, 'Complete item version confirmation required');
+      this.#projectionMetadata(route, session, metadata, item);
       const id = randomUUID();
       item.state = 'proposed';
       item.host = { op_key: opKey, draft_id: id };
@@ -341,6 +349,41 @@ export class MockHost {
     }
     session.operations.set(opKey, { identity, response: structuredClone(response), action: route.action });
     return response;
+  }
+
+  /** Compare native host identities with the same hydrated leaves as the engine.
+   * No host IDs or replacement fields are inserted into contract documents. */
+  #projectionMetadata(route, session, metadata, item) {
+    if (metadata === null) return; // raw contract-only host-kit callers
+    if (['sources', 'transcript-turns'].includes(route.action)) {
+      if (Object.keys(metadata).length !== 1 || !Object.hasOwn(metadata, 'conversation_source_id') ||
+          (route.action === 'sources' ? metadata.conversation_source_id !== null :
+            ![...session.imports.values()].some((entry) => entry.record.kind === 'source' &&
+              entry.hostIds.source_id === metadata.conversation_source_id))) {
+        throw new HostError(400, 'Invalid intake conversation source metadata');
+      }
+      return;
+    }
+    if (Object.keys(metadata).length !== 3 || metadata.kind !== (item.kind === 'requirement' ? 'requirement' : 'brief') ||
+        metadata.supersedes_draft_id !== (route.draftId ?? null) || !Array.isArray(metadata.citations)) {
+      throw new HostError(400, 'Invalid intake draft metadata');
+    }
+    const turns = session.records.filter((r) => r.kind === 'turn');
+    let leaves;
+    try {
+      leaves = validateItemProvenance(item, { sid: route.sid,
+        records: session.records.filter((r) => r.contract === 'aithema.journal.record'),
+        turnOrdinals: new Map(turns.map((r, ordinal) => [r.seq, ordinal])) }).leaf_refs;
+    } catch { fail('citation_invalid'); }
+    const expected = leaves.map((leaf) => {
+      const imported = [...session.imports.values()].find((entry) => entry.record.seq === leaf.record_seq);
+      if (!imported) fail('citation_invalid');
+      const binding = imported.record.kind === 'source' ? { source_id: imported.hostIds.source_id } :
+        { source_id: imported.conversationSourceId, turn_id: imported.hostIds.turn_id };
+      const quote = item.citations.find((c) => c.record_seq === leaf.record_seq && c.locator === leaf.locator)?.quote;
+      return { ...binding, locator: leaf.locator, ...(quote === undefined ? {} : { quote }) };
+    });
+    if (canonicalJson(metadata.citations) !== canonicalJson(expected)) fail('citation_invalid');
   }
 
   #citations(session, item) {

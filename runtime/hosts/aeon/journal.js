@@ -46,7 +46,9 @@ export class AeonJournal {
     const original = submissionBytes(bytes);
     const doc = decodeDocument(original, { submission: true });
     if (doc.sid !== authority.sid || doc.contract === 'aithema.session.create') throw new AeonError(400, 'Wrong journal submission');
-    if (doc.writer?.kind === 'host') throw new AeonError(403, 'Delegated workers cannot write host records');
+    if (doc.contract === 'aithema.journal.record' && doc.writer.kind !== 'worker') {
+      throw new AeonError(403, 'Delegated journal writes require worker-authored records');
+    }
     const action = doc.contract === 'aithema.spec.snapshot' ? 'snapshots' : doc.kind === 'op.result' ? 'op.result' : 'records';
     const response = await this.#http.request({ area: 'journal', action, method: 'POST',
       capability: 'aithema.journal.write', authority, bytes: original });
@@ -70,9 +72,11 @@ export class AeonJournal {
       throw new AeonError(400, 'Invalid journal record ids');
     }
     const records = [];
-    // Bound URL size even at the maximum working-spec citation closure.
-    for (let start = 0; start < ids.length; start += 100) {
-      const page = ids.slice(start, start + 100);
+    // A record is at most 1 MiB. Stored envelopes also contain the original
+    // JSON as an escaped string, so fetch those singly under the 4 MiB cap.
+    const pageSize = this.#format === 'stored' ? 1 : 3;
+    for (let start = 0; start < ids.length; start += pageSize) {
+      const page = ids.slice(start, start + pageSize);
       const body = await this.#http.request({ area: 'journal', action: 'records', capability: 'aithema.journal.read', authority,
         query: { ids: page.join(',') } });
       if (!Array.isArray(body)) throw new AeonError(502, 'Host returned no journal records');
@@ -89,18 +93,24 @@ export class AeonJournal {
   }
 
   async recordsAfter(after, authority, through) {
+    this.#http.checkAuthority(authority, 'aithema.journal.read');
     if (!Number.isSafeInteger(after) || after < 0 || through !== undefined && (!Number.isSafeInteger(through) || through < after)) {
       throw new AeonError(400, 'Invalid replay cursor');
     }
-    const body = await this.#http.request({ area: 'journal', action: 'records', capability: 'aithema.journal.read', authority, query: { after } });
-    if (!Array.isArray(body)) throw new AeonError(502, 'Host returned no replay records');
-    let last = after;
-    return body.map((value) => {
-      const record = this.#record(value, authority.sid);
-      if (record.document.seq <= last) throw new AeonError(502, 'Journal replay is not ordered');
-      last = record.document.seq;
-      return record;
-    }).filter((record) => through === undefined || record.document.seq <= through);
+    if (through === undefined) {
+      const cursor = await this.#http.request({ area: 'journal', action: 'cursor', capability: 'aithema.journal.read', authority });
+      if (!Number.isSafeInteger(cursor?.seq) || cursor.seq < 0) throw new AeonError(502, 'Invalid journal replay bound');
+      through = cursor.seq;
+    }
+    // The host's ?after= route returns the entire tail. Pin the replay bound
+    // once, then require every seq via the same bounded hydration path.
+    const records = [];
+    for (let last = after; last < through;) {
+      const ids = Array.from({ length: Math.min(3, through - last) }, (_, i) => last + i + 1);
+      records.push(...await this.recordsByIds(ids, authority));
+      last = ids.at(-1);
+    }
+    return records;
   }
 
   async cursor(authority) {

@@ -29,6 +29,7 @@ export class AeonSessionMonitor {
   #inflight = null;
   #abort = null;
   #rev = 0;
+  #delivery = Promise.resolve();
 
   constructor({ intake, authority, onSnapshot, onControl, onError,
     clock = { now: () => performance.now(), setTimeout, clearTimeout } }) {
@@ -99,8 +100,15 @@ export class AeonSessionMonitor {
         // Only the HTTP read is single-flight. An embedding application's
         // processing time must not move the next 30-second polling deadline.
         if (this.#inflight === promise) { this.#inflight = null; this.#abort = null; }
-        await this.#onSnapshot(response);
-        return response;
+        const delivery = this.#delivery.then(async () => {
+          if (!this.#active || run !== this.#run) return null;
+          await this.#onSnapshot(response);
+          return response;
+        });
+        // A handler failure remains visible to its caller but does not poison
+        // later deliveries. Reads keep their deadlines; handlers never overlap.
+        this.#delivery = delivery.catch(() => {});
+        return await delivery;
       } catch (error) {
         if (!this.#active || run !== this.#run) return null;
         if (['revoked', 'fenced_generation'].includes(error.code)) this.stop();

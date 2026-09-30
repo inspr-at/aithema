@@ -2,7 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { request as httpRequest } from 'node:http';
 import { readFileSync } from 'node:fs';
-import { loadContractFile } from '../contracts/validate.js';
+import { canonicalJson, loadContractFile } from '../contracts/validate.js';
 import { serveHost } from './host-kit/index.js';
 import { claimRequest, fixture, record, snapshot, validDocuments } from './host-kit/fixtures.js';
 import { routeScenario, routes } from './host-kit/scenarios.js';
@@ -18,6 +18,7 @@ function send(base, request) {
       ...(request.person ? { cookie: `host_person=${request.person}` } : {}),
       ...(request.opKey ? { 'idempotency-key': request.opKey } : {}),
       ...(request.liveGrant ? { 'x-live-grant': request.liveGrant } : {}),
+      ...(request.intakeMetadata === undefined ? {} : { 'x-aithema-intake': request.intakeMetadata }),
       ...(body === null ? {} : { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) }),
       ...request.headers,
     };
@@ -37,6 +38,49 @@ function send(base, request) {
 }
 
 describe('host kit loopback HTTP facade (AIT-44b/c)', () => {
+  for (const action of ['sources', 'transcript-turns', 'drafts', 'replace']) {
+    it(`${action}: forwards and validates intake metadata before mutation, and includes it in retry identity`, async (t) => {
+      const { f, request } = routeScenario(routes.find((r) => r.area === 'intake' && r.action === action));
+      let conversationSourceId = null;
+      if (action === 'transcript-turns') {
+        conversationSourceId = f.request('intake', 'sources', record(f.sid, 'source'), { opKey: `${f.sid}:source:1` }).body.result.data.host_ids.source_id;
+      }
+      const metadata = action === 'sources' || action === 'transcript-turns' ? { conversation_source_id: conversationSourceId } :
+        { kind: 'requirement', citations: [], supersedes_draft_id: action === 'replace' ? request.path.split('/').at(-2) : null };
+      const encode = (value) => Buffer.from(canonicalJson(value)).toString('base64url');
+      const local = await serveHost(f.host);
+      t.after(local.close);
+      const before = f.request('intake', '').body;
+      const seq = f.request('journal', 'cursor').body.seq;
+      const foreign = await send(local.url, { ...request, body: { ...request.body, sid: '11111111-1111-4111-8111-111111111111' },
+        intakeMetadata: encode(metadata) });
+      assert.equal(foreign.status, 403);
+      for (const header of ['not*base64url', Buffer.from([0xff]).toString('base64url'), encode([]), encode(null),
+        encode({ ...metadata, target_node_id: f.sid }), encode({ ...metadata, generation: 1 }),
+        Buffer.from(JSON.stringify(metadata, null, 2)).toString('base64url')]) {
+        assert.equal((await send(local.url, { ...request, intakeMetadata: header })).status, 400);
+        assert.deepEqual(f.request('intake', '').body, before);
+        assert.equal(f.request('journal', 'cursor').body.seq, seq);
+      }
+      const wrong = action === 'sources' || action === 'transcript-turns' ?
+        { conversation_source_id: '11111111-1111-4111-8111-111111111111' } :
+        { ...metadata, kind: 'brief' };
+      assert.equal((await send(local.url, { ...request, intakeMetadata: encode(wrong) })).status, 400);
+      if (action === 'replace') {
+        assert.equal((await send(local.url, { ...request, intakeMetadata: encode({ ...metadata,
+          supersedes_draft_id: '11111111-1111-4111-8111-111111111111' }) })).status, 400);
+      }
+      const valid = { ...request, intakeMetadata: encode(metadata) };
+      const first = await send(local.url, valid);
+      assert.equal(first.status, 200, JSON.stringify(first.body));
+      assert.deepEqual((await send(local.url, valid)).body, first.body);
+      const conflict = await send(local.url, { ...valid, intakeMetadata: encode({ ...metadata, extra: true }) });
+      assert.equal(conflict.status, 409);
+      assert.equal(conflict.body.code, 'idempotency_conflict');
+      assert.deepEqual((await send(local.url, valid)).body, first.body);
+    });
+  }
+
   for (const route of routes) {
     it(`${route.method} ${route.area}/${route.action || '(snapshot)'} works identically over HTTP`, async (t) => {
       const { f, request } = routeScenario(route);

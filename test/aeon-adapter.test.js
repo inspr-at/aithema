@@ -133,7 +133,8 @@ it('(a,d) resume hydrates sources, cited earlier turns, summary leaves and immut
   assert.equal(resumed.cursor.worker_generation, 2);
   assert.deepEqual([...resumed.closure.keys()], [1, 2, 3, 4]);
   assert.deepEqual(resumed.replay.map((r) => r.document.seq), [6]);
-  assert.ok(s.requests.some((r) => r.path.endsWith('records?ids=1%2C2%2C3%2C4')));
+  assert.ok(s.requests.some((r) => r.path.endsWith('records?ids=1%2C2%2C3')));
+  assert.ok(s.requests.some((r) => r.path.endsWith('records?ids=4')));
   const rendering = await reopenDesign(resumed.snapshot, resumed.closure, 'test-screen', (input) => {
     assert.deepEqual(input.record_bytes, bytes(docs[3]));
     return Buffer.concat([input.screen_ir_bytes, input.tokens_bytes]);
@@ -147,7 +148,7 @@ it('(a) large records-by-ids closures use bounded batches and require every requ
   for (let n = 0; n < 101; n++) assert.equal(s.f.request('journal', 'records', record(s.f.sid)).status, 200);
   const ids = Array.from({ length: 101 }, (_, n) => n + 1);
   assert.equal((await s.journal.recordsByIds(ids, s.authority)).length, 101);
-  assert.equal(s.requests.filter((r) => r.path.includes('?ids=')).length, 2);
+  assert.equal(s.requests.filter((r) => r.path.includes('?ids=')).length, 34);
   await assert.rejects(s.journal.recordsByIds([102], s.authority), code('citation_invalid', 422));
   for (const bad of [[0], [-1], [1.5], [Number.MAX_SAFE_INTEGER + 1], [1, 1], ['1']]) {
     await assert.rejects(s.journal.recordsByIds(bad, s.authority), { status: 400 });
@@ -227,6 +228,57 @@ it('(b) host-only metadata carries brief mapping and supersedes_draft_id on the 
   assert.deepEqual(replaced.snapshot.spec.items.map((i) => i.state), ['superseded', 'proposed']);
 });
 
+for (const operation of ['submit', 'replace']) {
+  for (const [name, change] of [
+    ['foreign source id', (m) => { m.citations[0].source_id = randomUUID(); }],
+    ['foreign turn id', (m) => { m.citations[1].turn_id = randomUUID(); }],
+    ['wrong locator', (m) => { m.citations[0].locator = 'seg:missing'; }],
+    ['wrong quote', (m) => { m.citations[1].quote = 'Invented quotation'; }],
+    ['omitted citation', (m) => { m.citations.pop(); }],
+    ['duplicate citation', (m) => { m.citations.push(m.citations[0]); }],
+    ['hidden citation field', (m) => { m.citations[0].target_node_id = randomUUID(); }],
+  ]) {
+    it(`(b,d) ${operation} validates ${name} in the actual host metadata before creating a draft`, async (t) => {
+      let tamper = false;
+      const s = await setup(t, { fetchImpl(url, init) {
+        if (tamper && init.headers['x-aithema-intake']) {
+          const metadata = JSON.parse(Buffer.from(init.headers['x-aithema-intake'], 'base64url'));
+          change(metadata);
+          init = { ...init, headers: { ...init.headers,
+            'x-aithema-intake': Buffer.from(canonicalJson(metadata)).toString('base64url') } };
+        }
+        return fetch(url, init);
+      } });
+      const source = await s.intake.execute(s.intake.prepare({ op: 'post_source', n: 1,
+        bytes: bytes(record(s.f.sid, 'source')) }), s.authority);
+      const turn = await s.intake.execute(s.intake.prepare({ op: 'post_turn', n: 1,
+        bytes: bytes(record(s.f.sid)), conversation_source_id: source.result.data.host_ids.source_id }), s.authority);
+      const citations = [{ record_seq: source.record.seq, locator: 'seg:s1', quote: 'Synthetic' },
+        { record_seq: turn.record.seq, locator: 'turn:0', quote: 'export' }];
+      const provenance = { intent: 'requested', derived_from: [source.record.seq, turn.record.seq] };
+      const context = { sid: s.f.sid, records: [source.record, turn.record], turnOrdinals: new Map([[turn.record.seq, 0]]) };
+      let op;
+      if (operation === 'replace') {
+        const old = await submit(s);
+        const next = await replacement(s, old);
+        Object.assign(next.doc.spec.items.at(-1), { citations, provenance });
+        op = s.intake.prepare({ op: operation, n: 1, bytes: bytes(next.doc), supersedes_draft_id: old.id, context });
+      } else {
+        const candidate = item({ citations, provenance });
+        await confirm(s, candidate);
+        op = s.intake.prepare({ op: operation, n: 1, bytes: bytes(snapshot(s.f.sid, [candidate])), context });
+      }
+      const before = await s.intake.snapshot(s.authority);
+      tamper = true;
+      await assert.rejects(s.intake.execute(op, s.authority), code('citation_invalid', 422));
+      tamper = false;
+      assert.deepEqual(await s.intake.snapshot(s.authority), before);
+      assert.ok((await s.intake.execute(op, s.authority)).result.data.host_ids.draft_id,
+        'refused metadata never reserves the operation key or supersedes the old draft');
+    });
+  }
+}
+
 it('(a,b,d) acknowledged operation with missing op.result retries byte-exact after takeover and journals its original IDs', async (t) => {
   const s = await setup(t);
   const original = Buffer.from(`\n${JSON.stringify(record(s.f.sid, 'source'), null, 2)}\n`);
@@ -258,19 +310,90 @@ it('(b,d) source and draft payload byte changes under the same operation key sur
   await assert.rejects(s.intake.execute(changedDraft, s.authority), code('idempotency_conflict'));
 });
 
-it('(a,b) preserves an unsent pending operation when the mock refuses its original embedded generation after takeover', async (t) => {
-  const s = await setup(t);
-  const op = s.intake.prepare({ op: 'post_source', n: 1, bytes: bytes(record(s.f.sid, 'source')) });
-  await s.journal.append(bytes(snapshot(s.f.sid, [], { pending_ops: [op] })), s.authority);
-  const client = new JournalClient({ port: s.journal, authority: s.authority });
-  await assert.rejects(client.resume({ retryOp: s.intake.retryOp.bind(s.intake) }), code('fenced_generation'));
-  assert.equal(client.authority.gen, 2);
-  assert.equal(s.requests.filter((r) => r.path.endsWith('/sources')).length, 1);
-  assert.equal(s.requests.find((r) => r.path.endsWith('/sources')).body, JSON.parse(op.payload).document_bytes);
-  const cursor = await s.journal.cursor(client.authority);
-  assert.deepEqual(cursor.snapshot.document.pending_ops, [op], 'never rewrite payload generation or pretend it was acknowledged');
-  assert.equal((await s.journal.recordsAfter(0, client.authority)).some((r) => r.document.kind === 'op.result'), false);
-});
+for (const operation of ['post_source', 'post_turn', 'submit', 'replace']) {
+  for (const boundary of ['never-sent', 'lost-ack']) {
+    it(`(a,b,d) ${boundary} ${operation} retries its original document and metadata after takeover`, async (t) => {
+      let loseAck = false;
+      let originalIds;
+      const s = await setup(t, { transform(response) {
+        if (loseAck && response.status === 200) {
+          loseAck = false;
+          originalIds = response.body.result.data.host_ids;
+          return { status: 503, body: { message: 'Synthetic lost acknowledgement' } };
+        }
+        return response;
+      } });
+      let op;
+      if (operation === 'replace') op = (await replacement(s, await submit(s))).op;
+      else if (operation === 'submit') {
+        await confirm(s, item());
+        op = s.intake.prepare({ op: operation, n: 1, bytes: bytes(snapshot(s.f.sid, [item()])) });
+      } else {
+        let conversation_source_id;
+        if (operation === 'post_turn') {
+          const source = s.intake.prepare({ op: 'post_source', n: 1, bytes: bytes(record(s.f.sid, 'source')) });
+          conversation_source_id = (await s.intake.execute(source, s.authority)).result.data.host_ids.source_id;
+        }
+        const doc = record(s.f.sid, operation === 'post_source' ? 'source' : 'turn');
+        op = s.intake.prepare({ op: operation, n: 2, bytes: `\n${JSON.stringify(doc, null, 2)}\n`, conversation_source_id });
+      }
+      const seq = (await s.journal.cursor(s.authority)).last_seq;
+      await s.journal.append(bytes(snapshot(s.f.sid, [], { consumed_seq: seq, pending_ops: [op] })), s.authority);
+      if (boundary === 'lost-ack') {
+        loseAck = true;
+        await assert.rejects(s.intake.execute(op, s.authority), { status: 503 });
+      }
+      const restarted = new AeonIntake({ http: s.http, supportsReplace: true });
+      const client = new JournalClient({ port: s.journal, authority: s.authority });
+      const resumed = await client.resume({ retryOp: restarted.retryOp.bind(restarted) });
+      assert.equal(client.authority.gen, 2);
+      const receipt = resumed.completedOps.get(op.op_key);
+      assert.ok(receipt);
+      if (originalIds) assert.deepEqual(receipt, originalIds);
+      const sent = s.requests.filter((r) => r.opKey === op.op_key);
+      assert.equal(sent.length, boundary === 'never-sent' ? 1 : 2);
+      for (const request of sent) {
+        assert.equal(request.body, JSON.parse(op.payload).document_bytes);
+        assert.equal(request.intakeMetadata, Buffer.from(canonicalJson(JSON.parse(op.payload).metadata)).toString('base64url'));
+      }
+      assert.deepEqual(resumed.snapshot.pending_ops, [op], 'the saved envelope is never rewritten during takeover');
+      const results = (await s.journal.recordsAfter(0, client.authority)).filter((r) =>
+        r.document.kind === 'op.result' && r.document.data.op_key === op.op_key);
+      assert.equal(results.length, 1);
+      assert.deepEqual(results[0].document.data.host_ids, receipt);
+    });
+  }
+}
+
+for (const [kind, data, writer] of [
+  ['turn', null, 'browser'],
+  ['reaction', { turn_seq: 1, text: 'Synthetic answer.', delivered_prefix: '', certainty: 'uncertain', complete: false }, 'browser'],
+  ['session.control', { action: 'suspend' }, 'host'],
+  ['session.end', { reason: 'person', host_mode: 'review', export: 'offered' }, 'host'],
+]) {
+  it(`(a) rejects ${writer}-authored ${kind} before any delegated journal request`, async (t) => {
+    const s = await setup(t);
+    const doc = record(s.f.sid, kind, data, { writer: { kind: writer } });
+    assert.equal(validate(doc.contract, doc).ok, true);
+    await assert.rejects(s.journal.append(bytes(doc), s.authority), { status: 403 });
+    assert.equal(s.requests.length, 0);
+    assert.equal(s.f.request('journal', 'cursor').body.seq, 0);
+  });
+}
+
+for (const entry of ['prepare', 'execute']) {
+  it(`(b) ${entry} rejects two confirmed candidates before HTTP`, async (t) => {
+    const s = await setup(t);
+    const doc = snapshot(s.f.sid, [item(), item({ item_ref: 'REQ-2' })]);
+    assert.equal(validate(doc.contract, doc).ok, true);
+    const payload = canonicalJson({ document_bytes: bytes(doc).toString(),
+      metadata: { kind: 'requirement', citations: [], supersedes_draft_id: null } });
+    if (entry === 'prepare') assert.throws(() => s.intake.prepare({ op: 'submit', n: 1, bytes: bytes(doc) }), { status: 400 });
+    else await assert.rejects(s.intake.execute({ op: 'submit', op_key: `${s.f.sid}:submit:1`, payload,
+      payload_sha256: sha256Hex(payload) }, s.authority), { status: 400 });
+    assert.equal(s.requests.length, 0);
+  });
+}
 
 it('(b) refuses replacement without an explicit host feature declaration before sending HTTP', async (t) => {
   const s = await setup(t);
@@ -527,7 +650,7 @@ it('(d) deadlines include credential acquisition and response bodies, cancellati
   await assert.rejects(s.intake.snapshot(s.authority, { signal: controller.signal }), { status: 499 });
 });
 
-it('(d) transport refuses invalid UTF-8/JSON, excessive bodies, redirects and unsafe endpoint mounts', async (t) => {
+it('(d) transport refuses invalid UTF-8/JSON, excessive bodies and unsafe endpoint mounts', async (t) => {
   const s = await setup(t);
   for (const body of ['not JSON', new Uint8Array([0xff]), 'x'.repeat(4 * 1024 * 1024 + 1)]) {
     const http = new AeonHttp({ baseUrl: s.url, scope: s.authority,
@@ -543,6 +666,34 @@ it('(d) transport refuses invalid UTF-8/JSON, excessive bodies, redirects and un
   }
   assert.equal(s.requests.length, 0);
 });
+
+for (const status of [301, 302, 303, 307, 308]) {
+  it(`(d) refuses a real loopback HTTP ${status} redirect without following it`, async (t) => {
+    let requests = 0;
+    let followed = 0;
+    const server = createServer((req, res) => {
+      requests++;
+      if (req.url === '/redirect') {
+        res.writeHead(status, { location: '/destination' });
+        res.end();
+      } else {
+        followed++;
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ sources: [], turns: [], snapshot: null }));
+      }
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    t.after(() => new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve())));
+    const f = fixture();
+    const scope = { sid: f.sid, tid: f.authz.tid, pid: f.authz.pid, writer_kind: 'worker', gen: 1, auth_epoch: 1,
+      capabilities: ['intake.read'] };
+    const http = new AeonHttp({ baseUrl: `http://127.0.0.1:${server.address().port}`, scope,
+      credentials: () => ({ token: f.token() }), paths: () => 'redirect' });
+    await assert.rejects(new AeonIntake({ http }).snapshot(scope), { status: 503 });
+    assert.equal(requests, 1);
+    assert.equal(followed, 0);
+  });
+}
 
 class FakeClock {
   time = 0;
@@ -676,12 +827,16 @@ it('(c) polling rejects backwards revisions and reports timer failures without u
   m.monitor.stop();
 });
 
-it('(c) a slow snapshot consumer does not delay the next intake polling request', async () => {
+it('(c) polling stays on deadline while snapshot handlers complete in revision order', async () => {
   let reads = 0;
   let deliveries = 0;
   let release;
-  const m = monitorFor({ authority: {}, intake: { snapshot: async () => { reads++; return { snapshot: null }; } } }, {
-    onSnapshot: () => ++deliveries === 1 ? new Promise((resolve) => { release = resolve; }) : undefined,
+  const applied = [];
+  const m = monitorFor({ authority: {}, intake: { snapshot: async () => ({ snapshot: { working_rev: ++reads } }) } }, {
+    onSnapshot: async (response) => {
+      if (++deliveries === 1) await new Promise((resolve) => { release = resolve; });
+      applied.push(response.snapshot.working_rev);
+    },
   });
   const first = m.monitor.start();
   await new Promise((resolve) => setImmediate(resolve));
@@ -689,10 +844,38 @@ it('(c) a slow snapshot consumer does not delay the next intake polling request'
   m.clock.advance(30_000);
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(reads, 2);
-  assert.equal(deliveries, 2);
+  assert.equal(deliveries, 1);
+  assert.deepEqual(applied, []);
   release();
   await first;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(applied, [1, 2]);
   m.monitor.stop();
+});
+
+it('(c) failed handlers do not poison the delivery queue; stopping suppresses queued revisions', async () => {
+  let reads = 0;
+  let release;
+  const applied = [];
+  const m = monitorFor({ authority: {}, intake: { snapshot: async () => ({ snapshot: { working_rev: ++reads } }) } }, {
+    onSnapshot: async (response) => {
+      if (response.snapshot.working_rev === 1) throw new Error('Synthetic handler failure');
+      if (response.snapshot.working_rev === 2) await new Promise((resolve) => { release = resolve; });
+      applied.push(response.snapshot.working_rev);
+    },
+  });
+  await assert.rejects(m.monitor.start(), /Synthetic handler failure/);
+  const second = m.monitor.refresh();
+  await new Promise((resolve) => setImmediate(resolve));
+  m.clock.advance(30_000);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(reads, 3);
+  assert.deepEqual(applied, []);
+  m.monitor.stop();
+  release();
+  await second;
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(applied, [2], 'already running handlers finish; queued callbacks are suppressed');
 });
 
 it('(c) strict host-event validation rejects unknown kinds, foreign identifiers and hidden fields', () => {
