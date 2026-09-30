@@ -1,0 +1,137 @@
+{
+  "contract": "aithema.spec.snapshot",
+  "expect": {
+    "invariant": "item.state_allowed_in_mode"
+  },
+  "doc": {
+    "contract": "aithema.spec.snapshot",
+    "major": 1,
+    "minor": 0,
+    "min_reader": 0,
+    "sid": "0f8e9d2c-3b4a-4c5d-8e6f-7a8b9c0d1e2f",
+    "working_rev": 7,
+    "expected_prev_rev": 6,
+    "consumed_seq": 42,
+    "worker_generation": 2,
+    "host_mode": "working_spec_only",
+    "spec": {
+      "items": [
+        {
+          "item_ref": "REQ-1",
+          "kind": "requirement",
+          "version": 1,
+          "content": {
+            "statement": "Terminbuchung für Erstgespräche.",
+            "acceptance_criteria": [],
+            "constraint_refs": []
+          },
+          "content_sha256": "46df57b9a0e93c0c300b6f091b3949a80ef55ea3d5ab4647bf91ba5ac30dfaac",
+          "citations": [
+            {
+              "record_seq": 3,
+              "locator": "turn:1",
+              "quote": "Wir brauchen einen Export als CSV."
+            }
+          ],
+          "provenance": {
+            "intent": "requested",
+            "derived_from": [
+              3
+            ]
+          },
+          "state": "superseded",
+          "supersedes_item_version": null,
+          "host": null
+        },
+        {
+          "item_ref": "REQ-1",
+          "kind": "requirement",
+          "version": 2,
+          "content": {
+            "statement": "Terminbuchung für Erstgespräche mit Kalenderabgleich.",
+            "acceptance_criteria": [],
+            "constraint_refs": []
+          },
+          "content_sha256": "4af34b5a2c79bc16a96845965c1f4307f6bdb24d6ee0addc2f0abecb47c371a5",
+          "citations": [
+            {
+              "record_seq": 3,
+              "locator": "turn:1",
+              "quote": "Wir brauchen einen Export als CSV."
+            }
+          ],
+          "provenance": {
+            "intent": "requested",
+            "derived_from": [
+              3
+            ]
+          },
+          "state": "proposed",
+          "supersedes_item_version": {
+            "item_ref": "REQ-1",
+            "version": 1
+          },
+          "host": {
+            "op_key": "0f8e9d2c-3b4a-4c5d-8e6f-7a8b9c0d1e2f:submit:1",
+            "proposal_ref": "P-1"
+          }
+        },
+        {
+          "item_ref": "REQ-2",
+          "kind": "requirement",
+          "version": 1,
+          "content": {
+            "statement": "Erinnerung per E-Mail.",
+            "acceptance_criteria": [],
+            "constraint_refs": []
+          },
+          "content_sha256": "3b81768730a6ac6d91f557ffc0521c9cd4c92ed628198ddd584b33616a42bb63",
+          "citations": [
+            {
+              "record_seq": 3,
+              "locator": "turn:1",
+              "quote": "Wir brauchen einen Export als CSV."
+            }
+          ],
+          "provenance": {
+            "intent": "requested",
+            "derived_from": [
+              3
+            ]
+          },
+          "state": "draft",
+          "supersedes_item_version": null,
+          "host": null
+        }
+      ],
+      "questions": [
+        {
+          "question_id": "Q-1",
+          "text": "Welche Spalten braucht der Export?",
+          "state": "asked",
+          "asked_in_reaction_seq": 40
+        }
+      ],
+      "brief": "Kundenportal: Export offener Rechnungen.",
+      "screens": [
+        {
+          "screen_ref": "S-export",
+          "design_input_seq": 38
+        }
+      ]
+    },
+    "pending_ops": [
+      {
+        "op_key": "0f8e9d2c-3b4a-4c5d-8e6f-7a8b9c0d1e2f:turn:9",
+        "op": "post_turn",
+        "payload_sha256": "ef46a230cfb0c087fdd8883bc989a3eaa253428f9f6033335e0cee7173c42a92",
+        "payload": "t9"
+      }
+    ],
+    "corrections": [],
+    "patch": {
+      "sha256": "f8b0d8dae97ad38ca3fd87dd46ec06d0cbe769c98396702bad5a5d881c96ecf9",
+      "canonical": "{\"op\":\"add\",\"item_ref\":\"REQ-2\"}"
+    }
+  }
+}

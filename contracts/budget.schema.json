@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/inspr-at/aithema/contracts/budget.schema.json",
+  "title": "Budget ledger messages (§6.3)",
+  "description": "admit is idempotent by the caller-assigned attempt_id (\"<sid>:<worker_generation>:<lane>:<n>\"); every potentially chargeable attempt, including a retry, gets its own hold and its own claim. A hold is claimed exactly once, before any socket is opened; claim commitment is the irreversible dispatch boundary. recover(hold_id) is idempotent, needs current-generation authority, and finalises an open hold: unclaimed → void, claimed and unsettled → unknown (charged at max_micro), settled → the recorded settlement; it blocks later claims. The authoritative list of open holds comes from the ledger, never the journal.",
+  "$defs": {
+    "message": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contract", "major", "minor", "min_reader", "type", "body"],
+      "properties": {
+        "contract": { "const": "aithema.budget.message" },
+        "major": { "const": 1 },
+        "minor": { "$ref": "common.schema.json#/$defs/minor" },
+        "min_reader": { "$ref": "common.schema.json#/$defs/minor" },
+        "type": {
+          "enum": ["admit_request", "admit_response", "claim_request", "claim_response", "settle_request", "recover_request", "recover_response", "holds_list"]
+        },
+        "body": { "type": "object" }
+      },
+      "oneOf": [
+        { "required": ["type", "body"], "properties": { "type": { "const": "admit_request" }, "body": { "$ref": "#/$defs/admit_request" } } },
+        { "required": ["type", "body"], "properties": { "type": { "const": "admit_response" }, "body": { "$ref": "#/$defs/admit_response" } } },
+        { "required": ["type", "body"], "properties": { "type": { "const": "claim_request" }, "body": { "$ref": "#/$defs/claim_request" } } },
+        { "required": ["type", "body"], "properties": { "type": { "const": "claim_response" }, "body": { "$ref": "#/$defs/claim_response" } } },
+        { "required": ["type", "body"], "properties": { "type": { "const": "settle_request" }, "body": { "$ref": "#/$defs/settle_request" } } },
+        { "required": ["type", "body"], "properties": { "type": { "const": "recover_request" }, "body": { "$ref": "#/$defs/recover_request" } } },
+        { "required": ["type", "body"], "properties": { "type": { "const": "recover_response" }, "body": { "$ref": "#/$defs/recover_response" } } },
+        { "required": ["type", "body"], "properties": { "type": { "const": "holds_list" }, "body": { "$ref": "#/$defs/holds_list" } } }
+      ]
+    },
+    "attempt_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}:[1-9][0-9]*:(reaction|spec|design|stt|tts):[0-9]+$"
+    },
+    "authority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["worker_generation", "auth_epoch"],
+      "properties": {
+        "worker_generation": { "$ref": "common.schema.json#/$defs/positive" },
+        "auth_epoch": { "$ref": "common.schema.json#/$defs/positive" }
+      }
+    },
+    "admit_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attempt_id", "sid", "worker_generation", "auth_epoch", "lane", "max_micro", "currency"],
+      "properties": {
+        "attempt_id": { "$ref": "#/$defs/attempt_id" },
+        "sid": { "$ref": "common.schema.json#/$defs/uuid" },
+        "worker_generation": { "$ref": "common.schema.json#/$defs/positive" },
+        "auth_epoch": { "$ref": "common.schema.json#/$defs/positive" },
+        "lane": { "$ref": "common.schema.json#/$defs/lane" },
+        "max_micro": {
+          "description": "Conservative per-attempt bound: bounded input tokens × price + max_output_tokens × price + audio seconds × per-minute maximum.",
+          "$ref": "common.schema.json#/$defs/positive"
+        },
+        "currency": { "$ref": "common.schema.json#/$defs/currency" }
+      }
+    },
+    "admit_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["hold_id", "remaining_micro"],
+          "properties": { "hold_id": { "$ref": "common.schema.json#/$defs/uuid" }, "remaining_micro": { "$ref": "common.schema.json#/$defs/count" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["denied"],
+          "properties": { "denied": { "enum": ["session_cap", "principal_day_cap", "tenant_day_cap", "no_evidence", "fenced_generation", "revoked"] } }
+        }
+      ]
+    },
+    "claim_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hold_id", "request_sha256", "worker_generation", "auth_epoch"],
+      "properties": {
+        "hold_id": { "$ref": "common.schema.json#/$defs/uuid" },
+        "request_sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+        "worker_generation": { "$ref": "common.schema.json#/$defs/positive" },
+        "auth_epoch": { "$ref": "common.schema.json#/$defs/positive" }
+      }
+    },
+    "claim_response": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["claim_id"],
+          "properties": { "claim_id": { "$ref": "common.schema.json#/$defs/uuid" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["error"],
+          "properties": { "error": { "enum": ["already_claimed", "fenced_generation", "revoked"] } }
+        }
+      ]
+    },
+    "settle_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["claim_id", "outcome"],
+      "properties": {
+        "claim_id": { "$ref": "common.schema.json#/$defs/uuid" },
+        "outcome": { "enum": ["settled", "unknown"] },
+        "actual_micro": { "$ref": "common.schema.json#/$defs/count" }
+      }
+    },
+    "recover_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hold_id", "worker_generation", "auth_epoch"],
+      "properties": {
+        "hold_id": { "$ref": "common.schema.json#/$defs/uuid" },
+        "worker_generation": { "$ref": "common.schema.json#/$defs/positive" },
+        "auth_epoch": { "$ref": "common.schema.json#/$defs/positive" }
+      }
+    },
+    "recover_response": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["hold_id", "closed_reason", "charged_micro"],
+      "properties": {
+        "hold_id": { "$ref": "common.schema.json#/$defs/uuid" },
+        "closed_reason": { "enum": ["void", "settled", "unknown"] },
+        "charged_micro": { "$ref": "common.schema.json#/$defs/count" }
+      }
+    },
+    "holds_list": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sid", "state", "holds"],
+      "properties": {
+        "sid": { "$ref": "common.schema.json#/$defs/uuid" },
+        "state": { "const": "open" },
+        "holds": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["hold_id", "attempt_id", "claimed"],
+            "properties": {
+              "hold_id": { "$ref": "common.schema.json#/$defs/uuid" },
+              "attempt_id": { "$ref": "#/$defs/attempt_id" },
+              "claimed": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

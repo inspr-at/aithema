@@ -1,0 +1,19 @@
+{
+  "contract": "aithema.budget.message",
+  "doc": {
+    "contract": "aithema.budget.message",
+    "major": 1,
+    "minor": 0,
+    "min_reader": 0,
+    "type": "admit_request",
+    "body": {
+      "attempt_id": "0f8e9d2c-3b4a-4c5d-8e6f-7a8b9c0d1e2f:2:reaction:14",
+      "sid": "0f8e9d2c-3b4a-4c5d-8e6f-7a8b9c0d1e2f",
+      "worker_generation": 2,
+      "auth_epoch": 3,
+      "lane": "reaction",
+      "max_micro": 1200,
+      "currency": "EUR"
+    }
+  }
+}

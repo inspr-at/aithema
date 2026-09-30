@@ -47,6 +47,19 @@ Names align with `inspr.delivery-stream/0.1-draft` baseline shapes without imple
 
 START voice SDK extraction remains later work. Public speech input is the optional completed-file path above, not a vendor voice SDK.
 
+## Foundation contracts (host-agnostic v1)
+
+`contracts/` is the source of truth for the host-agnostic v1 (AIT-35). Runtime code is written against it and must not diverge. It holds JSON Schema (2020-12 subset) files, machine-readable tables, fixtures, and a dependency-free validator in `contracts/validate.js`:
+
+- **Journal and snapshot**: the host owns an append-only journal. Every commit is one complete `spec.snapshot` checked by CAS on `expected_prev_rev` and the current worker generation. Idempotency is by `client_event_id` and per-operation keys.
+- **Working spec**: immutable item versions with distinct identities. The item version, host proposal and accepted node are never mixed in one relation. Acceptance is terminal. Replacement and acceptance are arbitrated atomically in the host (`transitions.json`).
+- **Host modes**: `review`, where a person accepts in the host, and `working_spec_only`, for anonymous intake with no submission or acceptance and a handover export at session end.
+- **Tokens and capabilities**: 15-minute session and delegated tokens with a least-privilege route matrix. Acceptance is never a token capability (`capabilities.json`).
+- **Budget ledger**: idempotent `admit` by attempt id, then a single-use claim as the dispatch boundary, then `settle` / `recover(hold_id)`.
+- **Other contracts**: the processing authorization record, session creation, `<aithema-session>` element events, and stable error codes (`error-codes.json`).
+
+Every document carries `contract`, `major`, `minor` and `min_reader`. Validation is strict: an unknown key fails. A reader executes a document only for a supported major with `reader_minor ≥ min_reader`; otherwise it refuses with `contract_too_new`. `node --test test/contracts.test.js` checks every fixture and the tables' internal consistency. The contracts are part of the source tree only; they are not in the release artefact.
+
 ## Dependencies and fonts
 
 Pinned in `package-lock.json` (package.json remains `private: true` as the npm publish guard; this is not an npm registry publication):

@@ -1,0 +1,27 @@
+{
+  "description": "Least-privilege capability and route matrix (§6.2). Fencing is enforced in the host: journal, ledger and intake handlers compare the token's gen with the session's current generation and reject stale ones with fenced_generation; Aithema's outbound gate is a second check. Acceptance is never in any token.",
+  "token_max_lifetime_seconds": 900,
+  "delegated_allowed": ["intake.read", "intake.write", "aithema.journal.read", "aithema.journal.write", "aithema.authority.read", "aithema.ledger"],
+  "never_in_token": ["intake.decide", "intake.accept", "nodes.write"],
+  "routes": [
+    { "route": "POST …/intake/sources | …/transcript-turns | …/drafts | …/drafts/{id}/replace", "class": "write", "capability": "intake.write", "checks": ["tid", "pid", "sid", "gen", "epoch", "exp"] },
+    { "route": "GET …/intake", "class": "read", "capability": "intake.read", "checks": ["tid", "pid", "sid", "epoch", "exp"] },
+    { "route": "POST …/drafts/{id}/accept", "class": "person-only", "capability": null, "checks": ["person session auth"] },
+    { "route": "POST /journal/sessions/{sid}/records | snapshots | op.result", "class": "write", "capability": "aithema.journal.write", "checks": ["tid", "pid", "sid", "gen", "epoch"] },
+    { "route": "GET /journal/sessions/{sid}/records | …/cursor", "class": "read", "capability": "aithema.journal.read", "checks": ["tid", "pid", "sid", "epoch"] },
+    { "route": "GET /journal/sessions/{sid}/authority", "class": "read", "capability": "aithema.authority.read", "checks": ["tid", "sid", "exp"], "response": "Cache-Control: no-store; carries issued_at" },
+    { "route": "ledger admit | claim | settle", "class": "control", "capability": "aithema.ledger", "checks": ["tid", "pid", "sid", "gen", "epoch"] },
+    { "route": "ledger recover(hold_id)", "class": "control", "capability": "aithema.ledger", "checks": ["tid", "pid", "sid", "gen = current only", "epoch"] },
+    { "route": "GET /ledger/sessions/{sid}/holds?state=open", "class": "read", "capability": "aithema.ledger", "checks": ["tid", "pid", "sid", "epoch"], "response": "uncached; authoritative" },
+    { "route": "POST /v1/sessions | /v1/sessions/{sid}/host-event | …/revoke | …/context", "class": "host-to-service", "capability": "host service credential", "checks": ["sid"] }
+  ],
+  "authority": {
+    "request_deadline_seconds": 10,
+    "poll_interval_seconds": 30,
+    "stale_after_seconds": 30,
+    "stop_allowance_seconds": 5,
+    "revocation_healthy_max_seconds": 45,
+    "revocation_outage_max_seconds": 75,
+    "end_after_no_authority_seconds": 600
+  }
+}
