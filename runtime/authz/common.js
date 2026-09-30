@@ -35,6 +35,7 @@ export function checkedDocument(contract, document, status = 400) {
 export async function withDeadline(operation, {
   clock = systemClock, scheduler = systemScheduler,
   milliseconds = capabilities.authority.request_deadline_seconds * 1000, signal,
+  deferOperation = true,
 } = {}) {
   if (typeof operation !== 'function' || !Number.isFinite(milliseconds) || milliseconds <= 0) throw new TypeError('Operation and positive deadline required');
   const deadline = clock.monotonicNow() + milliseconds;
@@ -58,10 +59,13 @@ export async function withDeadline(operation, {
   });
   try {
     if (controller.signal.aborted) return await cancelled;
-    const result = await Promise.race([Promise.resolve().then(() => {
+    const run = () => {
       if (controller.signal.aborted) throw controller.signal.reason;
       return operation(controller.signal);
-    }), cancelled]);
+    };
+    // Lifecycle effects invoke their adapters inside the draining event, after
+    // installing the deadline. Their callbacks can only enqueue follow-ups.
+    const result = await Promise.race([deferOperation ? Promise.resolve().then(run) : run(), cancelled]);
     if (controller.signal.aborted) throw controller.signal.reason;
     // Timers can be delayed by the event loop. A late promise must not win
     // simply because its microtask ran before the overdue timeout callback.

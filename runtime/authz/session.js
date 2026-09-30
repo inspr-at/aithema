@@ -54,6 +54,7 @@ export class AuthorizationSession {
   #draining = false;
   #purgeCoordinator;
   #purgeOperation;
+  #purgeStep;
 
   constructor({ authorization, scope, settingsSha256, onChange = () => {} }) {
     validateProcessingAuthorization(authorization, scope, settingsSha256);
@@ -71,6 +72,8 @@ export class AuthorizationSession {
   get lastRecordSeq() { return this.#lifecycle.lastSeq; }
   get inflightCount() { return this.#inflight.size; }
   get purgeAcknowledged() { return this.#lifecycle.purgeAcknowledged; }
+  get purgeReceipt() { return this.#lifecycle.purge.receipt; }
+  get purgeProgress() { return this.#lifecycle.purge; }
 
   /** Capture before awaiting a claim response; a late response cannot refresh it. */
   outputPermit() {
@@ -90,8 +93,17 @@ export class AuthorizationSession {
     try {
       while (this.#events.length) {
         const queued = this.#events.shift();
+        let eventError;
         try { this.#runEvent(queued); }
-        catch (error) { failure ??= error; }
+        catch (error) { eventError = error; failure ??= error; }
+        if (queued.finishPurge) {
+          const operation = this.#purgeOperation;
+          this.#purgeOperation = null;
+          this.#purgeStep = null;
+          const error = queued.finishPurge.error ?? eventError;
+          if (error) operation?.reject(error);
+          else operation?.resolve(queued.finishPurge.receipt);
+        }
       }
     } finally { this.#draining = false; }
     if (failure) throw failure;
@@ -108,6 +120,7 @@ export class AuthorizationSession {
     }
     const { state, effects } = transition(this.#lifecycle ?? null, event);
     this.#lifecycle = state;
+    if (['purge-step-completed', 'purge-step-failed', 'purge_acknowledged'].includes(event.type)) this.#purgeStep = null;
     if (event.purgeCoordinator) this.#purgeCoordinator = event.purgeCoordinator;
     for (const effect of effects) {
       if (effect.type === 'create-signals') {
@@ -121,28 +134,46 @@ export class AuthorizationSession {
         for (const channel of effect.channels) {
           for (const controller of this.#channels.get(channel).controllers) controller.abort(effect.reason);
         }
-      } else if (effect.type === 'redrive-purge') entry.result = this.#startPurge(effect.error);
+      } else if (effect.type === 'redrive-purge') entry.result = this.#startPurge(effect.step, effect.error);
+      else if (effect.type === 'purge-failed') entry.finishPurge = { error: effect.error };
+      else if (effect.type === 'purge-finished') entry.finishPurge = { receipt: effect.receipt };
       else if (effect.type === 'notify') this.#onChange({ previous: effect.previous, state: effect.state, reason: effect.reason });
     }
   }
 
-  #startPurge(error) {
-    if (!error && this.#purgeOperation) return this.#purgeOperation;
-    // Schedule before notifying. A callback can stop the monitor, but cannot
-    // cancel this effect or recurse through coordinator.complete's journal input.
-    const operation = Promise.resolve().then(() => {
+  #startPurge(step = 'begin', error) {
+    if (!this.#purgeOperation) {
+      this.#purgeOperation = Promise.withResolvers();
+      // Sync callers may ignore deletion; async callers still receive failures.
+      this.#purgeOperation.promise.catch(() => {});
+    }
+    const operation = this.#purgeOperation;
+    if (this.#purgeStep) return operation.promise;
+    this.#purgeStep = step;
+    const failed = (failure) => {
+      try { this.#dispatch({ type: 'purge-step-failed', step, error: failure }); }
+      catch (observerError) { operation.reject(observerError); }
+    };
+    const completed = (value) => {
+      try {
+        // Neither event nor dispatch is exposed to callers, listeners or observers.
+        this.#dispatch(step === 'acknowledgement' ? { type: 'purge_acknowledged', receipt: value }
+          : { type: 'purge-step-completed', step, value });
+      } catch (failure) { operation.reject(failure); }
+    };
+    try {
       if (error) throw error;
       if (!this.#purgeCoordinator) throw new AuthzError(502, 'Purge requires a coordinator');
       const retained = this.#lifecycle.purgeRecord;
       if (!retained) throw new AuthzError(502, 'Purge requires its original stored host tombstone');
-      return this.#purgeCoordinator.complete({ document: retained.document, bytes: Buffer.from(retained.bytes, 'base64') });
-    });
-    if (!error) this.#purgeOperation = operation;
-    // Synchronous lifecycle callers may ignore the optional deletion promise.
-    // Awaiting callers still receive the failure and can re-drive a later event.
-    const finished = () => { if (this.#purgeOperation === operation) this.#purgeOperation = null; };
-    operation.then(finished, finished);
-    return operation;
+      // Invoke inside this event's effects, before notification. Only async step
+      // results wait for a promise; no microtask defers the purge body itself.
+      const value = this.#purgeCoordinator.performStep(step,
+        { document: retained.document, bytes: Buffer.from(retained.bytes, 'base64') }, this.#lifecycle.purge);
+      if (value && typeof value.then === 'function') value.then(completed, failed);
+      else completed(value);
+    } catch (failure) { failed(failure); }
+    return operation.promise;
   }
 
   revoke(epoch = this.scope.auth_epoch) { this.#dispatch({ type: 'revoke', epoch }); }
@@ -203,7 +234,8 @@ export class AuthorizationSession {
 
   /** All journal/authority entry points re-drive retained deletion until ack. */
   async redrivePurge(coordinator, stored) {
-    return this.#dispatch({ type: 'redrive-purge', purgeCoordinator: coordinator, stored });
+    const completion = this.#dispatch({ type: 'redrive-purge', purgeCoordinator: coordinator, stored });
+    return completion ?? (this.purgeAcknowledged ? this.purgeReceipt : undefined);
   }
 
   /** Pull acknowledged controls using JournalPort; a denied read fails closed. */
@@ -235,7 +267,4 @@ export class AuthorizationSession {
     if (purging) await purging;
     return this.lastRecordSeq;
   }
-
-  markPurged() { this.#dispatch({ type: 'cache-purged' }); }
-  markPurgeAcknowledged() { this.#dispatch({ type: 'purge-acknowledged' }); }
 }

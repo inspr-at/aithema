@@ -29,8 +29,6 @@ const mutations = [
     ['end', "this.#dispatch({ type: 'end', reason });", 'session end stops every signal'],
     ['applyAuthority', "this.#dispatch({ type: 'authority', authority, purgeCoordinator });", 'authority epoch stops every signal'],
     ['consumeStoredRecord', "this.#dispatch({ type: 'journal-record', record: { document, bytes: Buffer.from(stored.bytes).toString('base64') }, purgeCoordinator });", 'journal suspend stops every signal'],
-    ['markPurged', "this.#dispatch({ type: 'cache-purged' });", 'tombstone is committed before cancellation/drain'],
-    ['markPurgeAcknowledged', "this.#dispatch({ type: 'purge-acknowledged' });", 'journal re-drives a failed purge cache'],
   ].map(([name, needle, regression]) => ({ name: `${name} calls the single transition authority`, file: 'session.js', changes: [[needle, 'undefined; /* mutation: omitted transition */']], regression })),
   {
     name: 'monitor callback calls the single transition authority', file: 'authority-monitor.js',
@@ -103,10 +101,10 @@ const mutations = [
     changes: [["if (this.#draining) return;", '/* mutation: run a nested transition synchronously */']],
     regression: `an onChange observer queues ${entry} until the current notification completes`,
   })),
-  ...['markPurged', 'markPurgeAcknowledged'].map((entry) => ({
-    name: `${entry} enqueues from an observer without a nested transition`, file: 'session.js',
+  ...['inventory', 'drain', 'cache', 'acknowledgement'].map((step) => ({
+    name: `${step} callback enqueues without a nested transition`, file: 'session.js',
     changes: [["if (this.#draining) return;", '/* mutation: run a nested transition synchronously */']],
-    regression: `an onChange observer queues ${entry} before the next purge state commit`,
+    regression: `a ${step} callback enqueues lifecycle inputs`,
   })),
   {
     name: 'redrivePurge enqueues from an observer without a nested transition', file: 'session.js',
@@ -126,7 +124,7 @@ const mutations = [
   },
   {
     name: 'observer failure cannot strand already queued inputs', file: 'session.js',
-    changes: [["catch (error) { failure ??= error; }", "catch (error) { failure ??= error; break; }"]],
+    changes: [["catch (error) { eventError = error; failure ??= error; }", "catch (error) { eventError = error; failure ??= error; break; }"]],
     regression: 'an observer failure cannot strand queued revocation',
   },
   {
@@ -136,7 +134,7 @@ const mutations = [
   },
   {
     name: 'stopping the monitor cannot skip the purge lifecycle effect', file: 'session.js',
-    changes: [["entry.result = this.#startPurge(effect.error);", 'entry.result = undefined; /* mutation: omitted purge effect */']],
+    changes: [["entry.result = this.#startPurge(effect.step, effect.error);", 'entry.result = undefined; /* mutation: omitted purge effect */']],
     regression: 'an observer stopping the monitor on PURGING cannot skip receipt retention',
   },
   {
@@ -156,30 +154,120 @@ const mutations = [
   },
   {
     name: 'failed inventory is retried before drain/deletion/ack', file: 'purge.js',
-    changes: [["const artifacts = this.#artifacts();", "this.#artifactsSnapshot = [];\n        const artifacts = this.#artifacts();"]],
+    changes: [["const artifacts = this.#artifacts();", "let artifacts; try { artifacts = this.#artifacts(); } catch { artifacts = []; }"]],
     regression: 'journal re-drives a failed purge inventory',
   },
   {
-    name: 'failed drain is retried within the remaining allowance', file: 'purge.js',
-    changes: [["if (!(error instanceof AuthzError) || error.status !== 504) throw error;", "if (!(error instanceof AuthzError) || error.status !== 504) { this.#drained = true; throw error; }"]],
+    name: 'failed drain is retried within the remaining allowance', file: 'transition.js',
+    changes: [["next.purge.retry = { step: event.step, message: event.error.message };", "next.purge.retry = { step: event.step, message: event.error.message };\n      if (event.step === 'drain') next.purge.drained = true;"]],
     regression: 'journal re-drives a failed purge drain',
   },
   {
     name: 'drain retry does not reset the original 10s bound', file: 'purge.js',
-    changes: [["this.#drainDeadline ??=", "this.#drainDeadline ="]],
+    changes: [["const remaining = deadline - this.#clock.monotonicNow();", "const remaining = 10_000;"]],
     regression: 'a retried drain shares the original 10s allowance',
   },
   {
     name: 'failed cache purge is retried', file: 'purge.js',
-    changes: [["  #drained;", "  #drained;\n  #cacheAttempted = false;"],
-      ["await this.#purgeCache();", "if (!this.#cacheAttempted) { this.#cacheAttempted = true; await this.#purgeCache(); }"]],
+    changes: [["  #tombstone;", "  #tombstone;\n  #cacheAttempted = false;"],
+      ["case 'cache': return Promise.resolve(this.#purgeCache()).then(() => true);", "case 'cache': if (this.#cacheAttempted) return true; this.#cacheAttempted = true; return Promise.resolve(this.#purgeCache()).then(() => true);"]],
     regression: 'journal re-drives a failed purge cache',
   },
   {
     name: 'unrecorded acknowledgement is retried', file: 'purge.js',
-    changes: [["  #drained;", "  #drained;\n  #ackAttempted = false;"],
-      ["if (!this.#session.purgeAcknowledged) {", "if (!this.#session.purgeAcknowledged && !this.#ackAttempted) {\n      this.#ackAttempted = true;"]],
+    changes: [["  #tombstone;", "  #tombstone;\n  #ackAttempted = false;"],
+      ["case 'acknowledgement': return withDeadline", "case 'acknowledgement': if (this.#ackAttempted) return progress.receipt; this.#ackAttempted = true; return withDeadline"]],
     regression: 'journal re-drives a failed purge acknowledgement',
+  },
+  ...[
+    ['markPurged', "this.#dispatch({ type: 'cache-purged' });"],
+    ['markPurgeAcknowledged', "this.#dispatch({ type: 'purge_acknowledged', receipt: this.purgeReceipt });"],
+  ].map(([name, body]) => ({
+    name: `${name} has no public entry point`, file: 'session.js',
+    changes: [["  get purgeAcknowledged()", `  ${name}() { ${body} }\n  get purgeAcknowledged()`]],
+    regression: 'callers have no public purge completion or acknowledgement setter',
+  })),
+  {
+    name: 'every other event is forbidden from entering PURGED', file: 'transition.js',
+    changes: [["case 'purge_acknowledged':", "case 'cache-purged':\n      status = 'PURGED'; break;\n    case 'purge_acknowledged':"]],
+    regression: 'only the internal receipt event with every completed step can enter PURGED',
+  },
+  ...[
+    ["status !== 'PURGING' || next.scope.tombstone", 'false || next.scope.tombstone'],
+    ["next.scope.tombstone !== 'purge' || !next.purgeRecord", 'false || !next.purgeRecord'],
+    ["|| !next.purgeRecord\n          || next.purge.drainDeadline", '|| false\n          || next.purge.drainDeadline'],
+    ['next.purge.drainDeadline === null ||', 'false ||'],
+    ['next.purge.artifacts === null || next.purge.drained', 'false || next.purge.drained'],
+    ['next.purge.drained === null\n          ||', 'false\n          ||'],
+    ['!next.purge.cacheDeleted ||', 'false ||'],
+    ['|| !next.purge.receipt\n          || canonicalJson', '|| false\n          || canonicalJson'],
+    ['canonicalJson(event.receipt) !== canonicalJson(next.purge.receipt)', 'false'],
+  ].map(([needle, replacement], index) => ({
+    name: `internal acknowledgement checks completed purge prerequisite ${index + 1}`, file: 'transition.js',
+    changes: [[needle, replacement]],
+    regression: 'only the internal receipt event with every completed step can enter PURGED',
+  })),
+  {
+    name: 'cache completion cannot enter PURGED before acknowledgement', file: 'transition.js',
+    changes: [["next.purge.cacheDeleted = true;", "next.purge.cacheDeleted = true; status = 'PURGED';"]],
+    regression: 'PURGED notification follows the recorded host acknowledgement',
+  },
+  {
+    name: 'receipt is recorded before the PURGED observer', file: 'transition.js',
+    changes: [["next.purgeAcknowledged = true;", '/* mutation: skip recording host acknowledgement */']],
+    regression: 'PURGED notification follows the recorded host acknowledgement',
+  },
+  {
+    name: 'pending acknowledgement cannot produce a PURGED notification', file: 'session.js',
+    changes: [["value.then(completed, failed);", "step === 'acknowledgement' ? completed(this.#lifecycle.purge.receipt) : value.then(completed, failed);"]],
+    regression: 'PURGED notification follows the recorded host acknowledgement',
+  },
+  {
+    name: 'purge body starts inside the draining event', file: 'session.js',
+    changes: [["const value = this.#purgeCoordinator.performStep(step,\n        { document: retained.document, bytes: Buffer.from(retained.bytes, 'base64') }, this.#lifecycle.purge);",
+      "const value = Promise.resolve().then(() => this.#purgeCoordinator.performStep(step,\n        { document: retained.document, bytes: Buffer.from(retained.bytes, 'base64') }, this.#lifecycle.purge));"]],
+    regression: 'purge step adapters run inside the draining event',
+  },
+  {
+    name: 'drain adapter runs inside the draining event', file: 'purge.js',
+    changes: [["milliseconds: remaining, deferOperation: false", "milliseconds: remaining, deferOperation: true"]],
+    regression: 'a drain callback enqueues lifecycle inputs',
+  },
+  {
+    name: 'acknowledgement adapter runs inside the draining event', file: 'purge.js',
+    changes: [["scheduler: this.#scheduler, deferOperation: false", "scheduler: this.#scheduler, deferOperation: true"]],
+    regression: 'a acknowledgement callback enqueues lifecycle inputs',
+  },
+  {
+    name: 'cache adapter runs inside the draining event', file: 'purge.js',
+    changes: [["Promise.resolve(this.#purgeCache()).then(() => true)", "Promise.resolve().then(() => this.#purgeCache()).then(() => true)"]],
+    regression: 'a cache callback enqueues lifecycle inputs',
+  },
+  {
+    name: 'failed terminal observer cannot leave authority timers running', file: 'authority-monitor.js',
+    changes: [["if (this.#session.purgeAcknowledged && this.#running) this.stop();", '/* mutation: retain timers after observer failure */']],
+    regression: 'a PURGED observer attempting start monitor cannot skip the host acknowledgement',
+  },
+  {
+    name: 'coordinator host purge uses the single lifecycle queue', file: 'purge.js',
+    changes: [["this.#session.redrivePurge(this, this.#stored)", 'null']],
+    regression: 'tombstone is committed before cancellation/drain',
+  },
+  {
+    name: 'coordinator completion uses the single lifecycle queue', file: 'purge.js',
+    changes: [["this.#session.redrivePurge(this, checked)", 'null']],
+    regression: 'complete: a observer cannot queue public markPurged',
+  },
+  {
+    name: 'pending completion is installed before a purge callback', file: 'purge.js',
+    changes: [["this.#busy = operation.promise;", '/* mutation: defer coalescing */'],
+      ["return operation.promise;", "this.#busy = operation.promise; return operation.promise;"]],
+    regression: 'coordinator completion is coalesced before a purge callback can re-enter it',
+  },
+  {
+    name: 'cache step completion requires a successful result', file: 'transition.js',
+    changes: [["if (event.value !== true) throw new TypeError('Completed cache deletion required');", '/* mutation: accept incomplete cache deletion */']],
+    regression: 'only the internal receipt event with every completed step can enter PURGED',
   },
   {
     name: 'generation publishes the shared route scope', file: 'transition.js',

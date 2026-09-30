@@ -5,6 +5,15 @@ const channels = Object.freeze(['capture', 'microphone', 'output', 'pending']);
 const terminal = ['REVOKED', 'FENCED', 'PURGING', 'PURGED', 'ENDED'];
 const revoked = () => new AuthzError(409, 'Session revoked', 'revoked');
 
+/** Progress is committed by the same transition authority as session state. */
+function purgeStep(progress) {
+  if (progress.drainDeadline === null) return 'begin';
+  if (progress.artifacts === null) return 'inventory';
+  if (progress.drained === null) return 'drain';
+  if (!progress.cacheDeleted) return 'cache';
+  return 'acknowledgement';
+}
+
 /** Apply the same acknowledged bytes/cursor rules on every receipt entry. */
 function applyRecord(next, status, { document, bytes }) {
   const control = ['authz.epoch', 'session.control'].includes(document.kind);
@@ -53,12 +62,15 @@ export function transition(state, event) {
     const status = scope.tombstone === 'purge' ? 'PURGING' : scope.revoked ? 'REVOKED'
       : scope.suspended || scope.tombstone === 'suspend' ? 'SUSPENDED' : 'ACTIVE';
     if (status === 'SUSPENDED') { scope.suspended = true; scope.tombstone = null; }
-    return { state: freeze({ status, scope, revision: 0, lastSeq: 0, controls: {}, purgeRecord: null, purgeAcknowledged: false }),
+    return { state: freeze({ status, scope, revision: 0, lastSeq: 0, controls: {}, purgeRecord: null, purgeAcknowledged: false,
+      purge: { drainDeadline: null, artifacts: null, drained: null, cacheDeleted: false, receipt: null, retry: null } }),
       effects: [{ type: 'create-signals', channels },
         ...(status === 'ACTIVE' ? [] : [{ type: 'stop-signals', channels, reason: revoked() }]),
         ...(status === 'PURGING' ? [{ type: 'redrive-purge' }] : [])] };
   }
   const next = structuredClone(state);
+  // Keep one immutable acknowledgement object across transport retries.
+  next.purge.receipt = state.purge.receipt;
   let status = state.status;
   let reason = event.reason;
   let purgeError = event.purgeError;
@@ -73,7 +85,8 @@ export function transition(state, event) {
       reason ??= new AuthzError(503, 'Authority unavailable');
       break;
     case 'end':
-      if (status !== 'PURGED') status = 'ENDED';
+      // Ending paid work cannot interrupt an acknowledged deletion process.
+      if (status !== 'PURGED' && !(status === 'PURGING' && next.purgeRecord)) status = 'ENDED';
       reason ??= new AuthzError(503, 'Ten minutes without authority; export available');
       break;
     case 'authority': {
@@ -109,16 +122,39 @@ export function transition(state, event) {
       break;
     }
     case 'redrive-purge': {
-      if (next.scope.tombstone === 'purge' && event.record) ({ status, reason } = applyRecord(next, status, event.record));
+      if (event.record) ({ status, reason } = applyRecord(next, status, event.record));
       break;
     }
-    case 'cache-purged':
-      if (next.scope.tombstone !== 'purge' || !['PURGING', 'PURGED', 'ENDED'].includes(status)) throw new AuthzError(409, 'Purge requires a host tombstone');
-      status = 'PURGED'; reason = revoked();
+    case 'purge-step-completed': {
+      if (status !== 'PURGING' || !next.purgeRecord || event.step !== purgeStep(next.purge)) throw new AuthzError(409, 'Purge step out of order');
+      next.purge.retry = null;
+      if (event.step === 'begin') {
+        if (!Number.isFinite(event.value)) throw new TypeError('Finite purge drain deadline required');
+        next.purge.drainDeadline = event.value;
+      } else if (event.step === 'inventory') next.purge.artifacts = [...event.value];
+      else if (event.step === 'drain') {
+        if (typeof event.value !== 'boolean') throw new TypeError('Purge drain result required');
+        next.purge.drained = event.value;
+      } else if (event.step === 'cache') {
+        if (event.value !== true) throw new TypeError('Completed cache deletion required');
+        next.purge.cacheDeleted = true;
+        next.purge.receipt = freeze({ sid: next.scope.sid, tombstone_seq: next.purgeRecord.document.seq,
+          drained: next.purge.drained, host_artifacts: [...next.purge.artifacts] });
+      } else throw new TypeError('Acknowledgement requires its internal receipt event');
       break;
-    case 'purge-acknowledged':
-      if (status !== 'PURGED') throw new AuthzError(409, 'Purge acknowledgement requires cache deletion');
+    }
+    case 'purge_acknowledged':
+      // Only the private effect runner produces this event after the host ack.
+      if (status !== 'PURGING' || next.scope.tombstone !== 'purge' || !next.purgeRecord
+          || next.purge.drainDeadline === null || next.purge.artifacts === null || next.purge.drained === null
+          || !next.purge.cacheDeleted || !next.purge.receipt
+          || canonicalJson(event.receipt) !== canonicalJson(next.purge.receipt)) throw new AuthzError(409, 'Purge acknowledgement requires completed deletion');
+      status = 'PURGED'; reason = revoked();
       next.purgeAcknowledged = true;
+      next.purge.retry = null;
+      break;
+    case 'purge-step-failed':
+      next.purge.retry = { step: event.step, message: event.error.message };
       break;
     default: throw new TypeError(`Unknown authorization event ${event.type}`);
   }
@@ -135,7 +171,9 @@ export function transition(state, event) {
     effects.push(status === 'ACTIVE' ? { type: 'create-signals', channels }
       : { type: 'stop-signals', channels: status === 'CAPTURE_ONLY' ? channels.slice(1) : channels, reason });
   }
-  if (next.scope.tombstone === 'purge' && !next.purgeAcknowledged) effects.push({ type: 'redrive-purge', error: purgeError });
+  if (event.type === 'purge-step-failed') effects.push({ type: 'purge-failed', error: event.error });
+  else if (next.scope.tombstone === 'purge' && !next.purgeAcknowledged) effects.push({ type: 'redrive-purge', step: purgeStep(next.purge), error: purgeError });
+  if (event.type === 'purge_acknowledged') effects.push({ type: 'purge-finished', receipt: next.purge.receipt });
   if (status !== state.status) effects.push({ type: 'notify', previous: state.status, state: status, reason });
   return { state: freeze(next), effects };
 }

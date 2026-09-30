@@ -755,21 +755,72 @@ describe('(a, c, e) processing authorization, revocation and journal tombstones'
     assert.ok([local.microphoneSignal, local.outputSignal, local.pendingSignal].every((signal) => signal.aborted === (final !== 'ACTIVE')));
   });
 
-  for (const step of ['markPurged', 'markPurgeAcknowledged']) it(`an onChange observer queues ${step} before the next purge state commit`, () => {
-    let before, after, queued = false;
-    const at = step === 'markPurged' ? 'PURGING' : 'PURGED';
-    const local = localSession({ onChange: ({ state }) => {
-      if (state !== at || queued) return;
-      queued = true;
-      before = [local.state, local.purgeAcknowledged];
-      local[step]();
-      after = [local.state, local.purgeAcknowledged];
-    } });
-    local.applyAuthority({ ...scope(), tombstone: 'purge' });
-    if (step === 'markPurgeAcknowledged') local.markPurged();
-    assert.deepEqual(after, before, 'A purge callback cannot run a nested transition');
-    assert.equal(local.state, 'PURGED');
-    assert.equal(local.purgeAcknowledged, step === 'markPurgeAcknowledged');
+  it('callers have no public purge completion or acknowledgement setter', () => {
+    const local = localSession();
+    assert.equal(local.markPurged, undefined);
+    assert.equal(local.markPurgeAcknowledged, undefined);
+    assert.equal(local.dispatch, undefined);
+  });
+
+  it('only the internal receipt event with every completed step can enter PURGED', () => {
+    const doc = record('session.control', { action: 'purge' }, { writer: { kind: 'host' } });
+    const stored = { document: { ...doc, seq: 1 }, bytes: bytes(doc).toString('base64') };
+    let state = transition(null, { type: 'start', scope: scope() }).state;
+    state = transition(state, { type: 'journal-record', record: stored }).state;
+    const phases = [state];
+    for (const [step, value] of [['begin', 10_000], ['inventory', ['journal:fixture']], ['drain', true], ['cache', true]]) {
+      state = transition(state, { type: 'purge-step-completed', step, value }).state;
+      phases.push(state);
+    }
+    const receipt = state.purge.receipt;
+    for (const partial of phases.slice(0, -1)) {
+      assert.throws(() => transition(partial, { type: 'purge_acknowledged', receipt }), status(409));
+    }
+    assert.throws(() => transition(phases[0], { type: 'purge-step-completed', step: 'begin', value: NaN }), TypeError);
+    assert.throws(() => transition(phases[2], { type: 'purge-step-completed', step: 'drain', value: null }), TypeError);
+    assert.throws(() => transition(phases[3], { type: 'purge-step-completed', step: 'cache', value: false }), TypeError);
+    for (const [index, partial] of phases.entries()) for (const step of ['begin', 'inventory', 'drain', 'cache']) {
+      if (step !== ['begin', 'inventory', 'drain', 'cache', 'acknowledgement'][index]) {
+        assert.throws(() => transition(partial, { type: 'purge-step-completed', step, value: true }), status(409));
+      }
+    }
+    for (const [name, value] of [['drainDeadline', null], ['artifacts', null], ['drained', null], ['cacheDeleted', false], ['receipt', null]]) {
+      const partial = structuredClone(state);
+      partial.purge[name] = value;
+      assert.throws(() => transition(partial, { type: 'purge_acknowledged', receipt }), status(409), name);
+      if (name === 'receipt') assert.throws(() => transition(partial, { type: 'purge_acknowledged', receipt: null }), status(409));
+    }
+    for (const [name, value] of [['status', 'ENDED'], ['purgeRecord', null]]) {
+      assert.throws(() => transition({ ...state, [name]: value }, { type: 'purge_acknowledged', receipt }), status(409), name);
+    }
+    assert.throws(() => transition({ ...state, scope: { ...state.scope, tombstone: null } },
+      { type: 'purge_acknowledged', receipt }), status(409));
+    for (const changed of [{ ...receipt, sid: randomUUID() }, { ...receipt, tombstone_seq: 2 },
+      { ...receipt, drained: false }, { ...receipt, host_artifacts: [] }]) {
+      assert.throws(() => transition(state, { type: 'purge_acknowledged', receipt: changed }), status(409));
+    }
+    for (const type of ['cache-purged', 'purge-acknowledged', 'markPurged', 'markPurgeAcknowledged']) {
+      assert.throws(() => transition(state, { type, receipt }), TypeError, type);
+    }
+    for (const event of [{ type: 'revoke', epoch: 2 }, { type: 'capture-only' }, { type: 'end' },
+      { type: 'authority', authority: { ...scope(), tombstone: 'purge' } },
+      { type: 'journal-record', record: stored }, { type: 'redrive-purge', record: stored }]) {
+      assert.equal(transition(state, event).state.status, 'PURGING', event.type);
+    }
+    const completed = transition(state, { type: 'purge_acknowledged', receipt });
+    assert.equal(completed.state.status, 'PURGED');
+    assert.equal(completed.state.purgeAcknowledged, true);
+    assert.deepEqual(completed.state.purge.receipt, receipt);
+    assert.equal(completed.effects.at(-1).type, 'notify');
+    for (const event of [{ type: 'revoke', epoch: 2 }, { type: 'end' }, { type: 'capture-only' },
+      { type: 'authority', authority: { ...scope(), tombstone: null } },
+      { type: 'authority', authority: { ...scope(), tombstone: 'purge' } },
+      { type: 'journal-record', record: stored }, { type: 'redrive-purge', record: stored }]) {
+      const terminal = transition(completed.state, event);
+      assert.equal(terminal.state.status, 'PURGED', event.type);
+      assert.equal(terminal.state.purgeAcknowledged, true);
+      assert.deepEqual(terminal.effects, [], 'Terminal inputs cannot re-drive or notify purge');
+    }
   });
 
   it('queued authority inputs retain their call-time bytes when an observer mutates its object', () => {
@@ -840,17 +891,25 @@ describe('(a, c, e) processing authorization, revocation and journal tombstones'
     assert.ok([capture, local.microphoneSignal, local.outputSignal, local.pendingSignal].every((signal) => signal.aborted));
   });
 
-  for (const [status, event] of [
+  for (const [status, input] of [
     ['CAPTURE_ONLY', { type: 'capture-only' }],
     ['SUSPENDED', { type: 'authority', authority: { ...scope(), tombstone: 'suspend' } }],
     ['REVOKED', { type: 'revoke', epoch: 2 }],
     ['FENCED', { type: 'authority', authority: { ...scope({ worker_generation: 2 }), tombstone: null } }],
     ['PURGING', { type: 'authority', authority: { ...scope(), tombstone: 'purge' } }],
-    ['PURGED', { type: 'cache-purged' }],
+    ['PURGED', { type: 'purge_acknowledged' }],
     ['ENDED', { type: 'end' }],
   ]) it(`the pure ${status} transition owns its complete signal stop effect`, () => {
+    let event = input;
     let initial = transition(null, { type: 'start', scope: scope() }).state;
-    if (status === 'PURGED') initial = transition(initial, { type: 'authority', authority: { ...scope(), tombstone: 'purge' } }).state;
+    if (status === 'PURGED') {
+      const doc = record('session.control', { action: 'purge' }, { writer: { kind: 'host' } });
+      initial = transition(initial, { type: 'journal-record', record: { document: { ...doc, seq: 1 }, bytes: bytes(doc).toString('base64') } }).state;
+      for (const [step, value] of [['begin', 10_000], ['inventory', []], ['drain', true], ['cache', true]]) {
+        initial = transition(initial, { type: 'purge-step-completed', step, value }).state;
+      }
+      event = { ...event, receipt: initial.purge.receipt };
+    }
     const original = JSON.stringify(initial);
     const result = transition(initial, event);
     assert.equal(JSON.stringify(initial), original, 'No input mutation');
@@ -1011,8 +1070,8 @@ describe('(a, c, e) processing authorization, revocation and journal tombstones'
     local.consumeStoredRecord({ bytes: bytes(resume), document: { ...resume, seq: 2 } });
     local.applyAuthority({ ...scope(), tombstone: null });
     assert.equal(local.state, 'PURGING');
-    local.markPurged();
-    assert.equal(local.state, 'PURGED');
+    assert.equal(local.markPurged, undefined, 'A tombstone alone cannot complete purge');
+    assert.equal(local.state, 'PURGING');
     assert.throws(() => local.assertNewClaim(), code('revoked'));
     assert.throws(() => journal.append(bytes(resume), journalAuthority({ writer_kind: 'host' })), code('revoked'));
   });
@@ -1148,13 +1207,200 @@ describe('(d) tombstone, bounded drain, cache deletion, host purge acknowledgeme
     purgeCache: async () => { events.push('cache'); cache.clear(); },
     acknowledge: async (ack) => {
       assert.equal(cache.size, 0);
-      assert.equal(local.state, 'PURGED');
+      assert.equal(local.state, 'PURGING');
+      assert.equal(local.purgeAcknowledged, false);
+      assert.equal(local.purgeProgress.cacheDeleted, true);
       events.push('ack');
       assert.deepEqual(ack.host_artifacts, artifacts);
     }, ...overrides });
     return { fake, journal, local, events, artifacts, cache, coordinator };
   }
   const host = () => journalAuthority({ writer_kind: 'host' });
+
+  it('purge step adapters run inside the draining event before its observer notification', async (t) => {
+    const ordering = [];
+    const local = localSession({ onChange: ({ state }) => ordering.push(`observe:${state}`) });
+    const { coordinator } = setup(t, { session: local });
+    const performStep = coordinator.performStep.bind(coordinator);
+    coordinator.performStep = (step, stored, progress) => {
+      ordering.push(`step:${step}`);
+      return performStep(step, stored, progress);
+    };
+    await coordinator.purge({ authority: host() });
+    assert.deepEqual(ordering, ['step:begin', 'observe:PURGING', 'step:inventory', 'step:drain', 'step:cache', 'step:acknowledgement', 'observe:PURGED']);
+  });
+
+  it('a failed purge clock origin leaves a retryable begin step without deletion or acknowledgement', async (t) => {
+    let invalid = true;
+    const { fake, local, journal, coordinator, cache, events } = setup(t, {
+      clock: { monotonicNow: () => invalid ? NaN : fake.clock.monotonicNow(), wallNow: () => time },
+    });
+    const stored = journal.append(bytes(record('session.control', { action: 'purge' }, { writer: { kind: 'host' } })), host());
+    await assert.rejects(coordinator.complete(stored), /Finite purge clock origin required/);
+    assert.equal(local.state, 'PURGING');
+    assert.equal(local.purgeProgress.retry.step, 'begin');
+    assert.equal(local.purgeProgress.drainDeadline, null);
+    assert.equal(local.purgeAcknowledged, false);
+    assert.equal(cache.size, 1);
+    assert.deepEqual(events, []);
+    invalid = false;
+    await coordinator.complete(stored);
+    assert.equal(local.state, 'PURGED');
+    assert.equal(local.purgeAcknowledged, true);
+    assert.equal(cache.size, 0);
+    assert.deepEqual(events, ['inventory', 'cache', 'ack']);
+  });
+
+  it('coordinator completion is coalesced before a purge callback can re-enter it', async (t) => {
+    let stored, nested;
+    const { coordinator, journal, local } = setup(t, { hostArtifacts: () => {
+      nested = coordinator.complete(stored);
+      return [];
+    }, acknowledge: () => {} });
+    stored = journal.append(bytes(record('session.control', { action: 'purge' }, { writer: { kind: 'host' } })), host());
+    const completion = coordinator.complete(stored);
+    assert.equal(nested, completion);
+    const receipt = await completion;
+    assert.equal(await nested, receipt);
+    assert.equal(local.state, 'PURGED');
+    assert.equal(local.purgeAcknowledged, true);
+  });
+
+  for (const entry of ['complete', 'journal', 'authority']) for (const callback of ['observer', 'abort listener']) {
+    it(`${entry}: a ${callback} cannot queue public markPurged before the purge body`, async (t) => {
+      const attempts = [];
+      const notifications = [];
+      const attempt = () => {
+        const before = local.state;
+        local.markPurged?.();
+        local.markPurgeAcknowledged?.();
+        attempts.push({ before, after: local.state, setter: typeof local.markPurged,
+          ackSetter: typeof local.markPurgeAcknowledged, acknowledged: local.purgeAcknowledged });
+      };
+      const local = localSession({ onChange: ({ state }) => {
+        notifications.push([state, local.purgeAcknowledged]);
+        if (callback === 'observer' && state === 'PURGING') attempt();
+      } });
+      if (callback === 'abort listener') local.captureSignal.addEventListener('abort', attempt, { once: true });
+      const { fake, journal, coordinator, cache, events, artifacts } = setup(t, { session: local });
+      const stored = journal.append(bytes(record('session.control', { action: 'purge' }, { writer: { kind: 'host' } })), host());
+      if (entry === 'complete') await coordinator.complete(stored);
+      else if (entry === 'journal') await local.consumeJournal({ recordsAfter: () => [stored] }, host(),
+        { clock: fake.clock, scheduler: fake.scheduler, purgeCoordinator: coordinator });
+      else await local.applyAuthority(authorityResponse(fake, { tombstone: 'purge', tombstone_record: stored }), { purgeCoordinator: coordinator });
+      assert.deepEqual(attempts, [{ before: 'PURGING', after: 'PURGING', setter: 'undefined', ackSetter: 'undefined', acknowledged: false }]);
+      assert.deepEqual(events, ['inventory', 'cache', 'ack']);
+      assert.deepEqual(notifications, [['PURGING', false], ['PURGED', true]]);
+      assert.equal(local.state, 'PURGED');
+      assert.equal(local.purgeAcknowledged, true);
+      assert.equal(cache.size, 0);
+      assert.deepEqual(local.purgeReceipt.host_artifacts, artifacts);
+      for (const repeat of [() => coordinator.complete(stored), () => local.redrivePurge(coordinator, stored),
+        () => local.consumeJournal(journal, host()), () => local.applyAuthority(authorityResponse(fake, { tombstone: 'purge' }))]) await repeat();
+      assert.deepEqual(events, ['inventory', 'cache', 'ack'], 'The retained acknowledgement makes every entry idempotent');
+    });
+  }
+
+  it('PURGED notification follows the recorded host acknowledgement and cannot run while it is pending', async (t) => {
+    const acknowledgement = deferred();
+    const ordering = [];
+    const local = localSession({ onChange: ({ state }) => {
+      ordering.push(`observe:${state}:${local.purgeAcknowledged}`);
+      if (state === 'PURGED') {
+        assert.equal(local.markPurgeAcknowledged, undefined);
+        assert.ok(Object.isFrozen(local.purgeReceipt.host_artifacts));
+      }
+    } });
+    const { journal, coordinator, cache, artifacts } = setup(t, { session: local, acknowledge: (receipt) => {
+      ordering.push('ack-sent');
+      assert.equal(local.state, 'PURGING');
+      assert.equal(local.purgeAcknowledged, false);
+      assert.deepEqual(receipt.host_artifacts, artifacts);
+      return acknowledgement.promise.then(() => { ordering.push('ack-recorded'); });
+    } });
+    const stored = journal.append(bytes(record('session.control', { action: 'purge' }, { writer: { kind: 'host' } })), host());
+    const completion = coordinator.complete(stored);
+    await flush();
+    assert.equal(cache.size, 0);
+    assert.equal(local.state, 'PURGING');
+    assert.equal(local.purgeAcknowledged, false);
+    assert.equal(local.purgeProgress.cacheDeleted, true);
+    assert.deepEqual(ordering, ['observe:PURGING:false', 'ack-sent']);
+    acknowledgement.resolve();
+    const receipt = await completion;
+    assert.deepEqual(ordering, ['observe:PURGING:false', 'ack-sent', 'ack-recorded', 'observe:PURGED:true']);
+    assert.equal(local.purgeReceipt, receipt);
+    assert.equal(local.purgeAcknowledged, true);
+    assert.equal(await coordinator.complete(stored), receipt);
+  });
+
+  for (const mode of ['throw', 'start monitor', 'ack setter']) {
+    it(`a PURGED observer attempting ${mode} cannot skip the host acknowledgement or strand retry`, async (t) => {
+      let monitor;
+      const ordering = [];
+      const local = localSession({ onChange: ({ state }) => {
+        if (state !== 'PURGED') return;
+        ordering.push(`observe:${local.purgeAcknowledged}`);
+        if (mode === 'throw') throw new Error('fixture PURGED observer failed');
+        if (mode === 'start monitor') monitor.start();
+        if (mode === 'ack setter') local.markPurgeAcknowledged?.();
+      } });
+      const { fake, journal, coordinator, cache, artifacts } = setup(t, { session: local, acknowledge: (receipt) => {
+        ordering.push('ack');
+        assert.deepEqual(receipt.host_artifacts, artifacts);
+      } });
+      const stored = journal.append(bytes(record('session.control', { action: 'purge' }, { writer: { kind: 'host' } })), host());
+      const errors = [];
+      monitor = new AuthorityMonitor({ session: local, clock: fake.clock, scheduler: fake.scheduler, purgeCoordinator: coordinator,
+        onError: (error) => errors.push(error), fetchAuthority: () => authorityResponse(fake, { tombstone: 'purge', tombstone_record: stored }) });
+      monitor.start();
+      await fake.advance(0);
+      assert.deepEqual(ordering, ['ack', 'observe:true']);
+      assert.equal(local.state, 'PURGED');
+      assert.equal(local.purgeAcknowledged, true);
+      assert.equal(local.purgeProgress.retry, null);
+      assert.equal(local.markPurgeAcknowledged, undefined);
+      assert.equal(cache.size, 0);
+      assert.equal(fake.timers.size, 0, 'Even a failing terminal observer cannot leave authority timers alive');
+      assert.equal(errors.length, mode === 'ack setter' ? 0 : 1);
+      if (mode === 'throw') assert.match(errors[0].message, /fixture PURGED observer failed/);
+      if (mode === 'start monitor') assert.equal(errors[0].status, 409);
+      const receipt = await coordinator.complete(stored);
+      assert.equal(local.purgeReceipt, receipt);
+      await local.consumeJournal(journal, host(), { purgeCoordinator: coordinator });
+      assert.deepEqual(ordering, ['ack', 'observe:true']);
+    });
+  }
+
+  for (const step of ['inventory', 'drain', 'cache', 'acknowledgement']) {
+    it(`a ${step} callback enqueues lifecycle inputs without interrupting purge or nesting transitions`, async (t) => {
+      const inside = [];
+      const notifications = [];
+      const local = localSession({ onChange: ({ state }) => { notifications.push(state); } });
+      const callback = () => {
+        const before = [local.state, local.scope.auth_epoch];
+        local.end();
+        local.captureOnly();
+        local.revoke(2);
+        inside.push([before, [local.state, local.scope.auth_epoch]]);
+      };
+      const { coordinator, cache } = setup(t, { session: local,
+        ...(step === 'inventory' && { hostArtifacts: () => { callback(); return ['journal:fixture']; } }),
+        ...(step === 'cache' && { purgeCache: () => { callback(); cache.clear(); } }),
+        acknowledge: () => { if (step === 'acknowledgement') callback(); },
+      });
+      if (step === 'drain') {
+        const drain = local.drain.bind(local);
+        local.drain = () => { callback(); return drain(); };
+      }
+      await coordinator.purge({ authority: host() });
+      assert.deepEqual(inside, [[['PURGING', 1], ['PURGING', 1]]]);
+      assert.deepEqual(notifications, ['PURGING', 'PURGED']);
+      assert.equal(local.scope.auth_epoch, 2);
+      assert.equal(local.state, 'PURGED');
+      assert.equal(local.purgeAcknowledged, true);
+    });
+  }
 
   it('an observer stopping the monitor on PURGING cannot skip receipt retention, cache deletion or acknowledgement', async (t) => {
     let monitor;
@@ -1230,7 +1476,7 @@ describe('(d) tombstone, bounded drain, cache deletion, host purge acknowledgeme
       }, acknowledge: () => { ordering.push('ack'); } });
     const stored = journal.append(bytes(record('session.control', { action: 'purge' }, { writer: { kind: 'host' } })), host());
     await local.applyAuthority(authorityResponse(fake, { tombstone: 'purge', tombstone_record: stored }), { purgeCoordinator: coordinator });
-    assert.deepEqual(ordering, ['observe:PURGING', 'after-enqueue:PURGING', 'observe:ENDED', 'observe:PURGING', 'inventory', 'observe:PURGED', 'ack']);
+    assert.deepEqual(ordering, ['observe:PURGING', 'after-enqueue:PURGING', 'inventory', 'ack', 'observe:PURGED']);
     assert.equal(local.purgeAcknowledged, true);
     assert.equal(cache.size, 0);
   });
@@ -1259,8 +1505,9 @@ describe('(d) tombstone, bounded drain, cache deletion, host purge acknowledgeme
     const { fake, journal, cache, coordinator: purge } = setup(t, { session: local });
     coordinator = purge;
     stored = journal.append(bytes(record('session.control', { action: 'purge' }, { writer: { kind: 'host' } })), host());
-    await local.applyAuthority(authorityResponse(fake, { tombstone: 'purge' }));
+    await assert.rejects(local.applyAuthority(authorityResponse(fake, { tombstone: 'purge' })), status(502));
     await retry;
+    await local.redrivePurge(coordinator);
     assert.equal(inside, 0, 'Only the outer tombstone flag is committed during its observer');
     assert.equal(local.lastRecordSeq, 1);
     assert.equal(local.purgeAcknowledged, true);
@@ -1365,9 +1612,15 @@ describe('(d) tombstone, bounded drain, cache deletion, host purge acknowledgeme
         await fake.advance(step === 'acknowledgement' ? 10_000 : 0);
         assert.ok(monitor.lastError);
       }
-      assert.equal(local.state, step === 'acknowledgement' ? 'PURGED' : 'PURGING');
+      assert.equal(local.state, 'PURGING');
       assert.equal(local.lastRecordSeq, 1);
       assert.equal(local.purgeAcknowledged, false);
+      assert.equal(local.purgeProgress.retry.step, step);
+      assert.ok(Number.isFinite(local.purgeProgress.drainDeadline));
+      assert.equal(local.purgeProgress.artifacts === null, step === 'inventory');
+      assert.equal(local.purgeProgress.drained === null, ['inventory', 'drain'].includes(step));
+      assert.equal(local.purgeProgress.cacheDeleted, step === 'acknowledgement');
+      assert.equal(local.purgeProgress.receipt === null, step !== 'acknowledgement');
       assert.throws(() => local.assertNewClaim(), code('revoked'));
       if (entry === 'journal') {
         assert.equal(await local.consumeJournal(port, host(), options), 1);
@@ -1376,6 +1629,7 @@ describe('(d) tombstone, bounded drain, cache deletion, host purge acknowledgeme
       assert.equal(local.state, 'PURGED');
       assert.equal(local.purgeAcknowledged, true);
       assert.equal(cache.size, 0);
+      assert.equal(local.purgeProgress.retry, null);
       if (step === 'drain' && entry === 'authority') {
         assert.equal(calls.drain, 1, 'The next fixed poll is past the original drain deadline');
         assert.equal(acknowledgements.at(-1).drained, false, 'Re-drive advances an expired drain to cache deletion');
@@ -1663,7 +1917,7 @@ describe('(d) tombstone, bounded drain, cache deletion, host purge acknowledgeme
     const stored = journal.append(bytes(record('session.control', { action: 'purge' }, { writer: { kind: 'host' } })), host());
     const completion = coordinator.complete(stored);
     await flush();
-    assert.equal(local.state, 'PURGED');
+    assert.equal(local.state, 'PURGING');
     assert.equal(cache.size, 0);
     assert.throws(() => coordinator.purge({ authority: journalAuthority() }), status(403));
     const suspend = record('session.control', { action: 'suspend' }, { writer: { kind: 'host' } });
@@ -1702,7 +1956,7 @@ describe('(d) tombstone, bounded drain, cache deletion, host purge acknowledgeme
     const refusal = assert.rejects(coordinator.purge({ authority: host() }), status(504));
     await fake.advance(10_000);
     await refusal;
-    assert.equal(local.state, 'PURGED');
+    assert.equal(local.state, 'PURGING');
     assert.deepEqual(events, ['tombstone', 'inventory', 'cache']);
     const result = await coordinator.purge({ authority: host() });
     assert.equal(result.tombstone_seq, 1);

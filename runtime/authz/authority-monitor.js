@@ -150,6 +150,10 @@ export class AuthorityMonitor {
       if (error.code === 'revoked') this.#session.revoke();
       else if (++this.#failures >= 2) this.#session.captureOnly(error);
       this.#onError(error);
+    } finally {
+      // An observer may throw after the terminal commit. The recorded host ack
+      // still ends polling, without waiting for another authority response.
+      if (this.#session.purgeAcknowledged && this.#running) this.stop();
     }
   }
 }

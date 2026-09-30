@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { canonicalJson } from '../../contracts/validate.js';
-import { AuthzError, checkedDocument, freeze, systemClock, systemScheduler, withDeadline } from './common.js';
+import { AuthzError, checkedDocument, systemClock, systemScheduler, withDeadline } from './common.js';
 import { purgeRecord } from './session.js';
 
 /**
@@ -19,12 +19,8 @@ export class PurgeCoordinator {
   #artifacts;
   #submission;
   #stored;
-  #ack;
   #busy;
   #tombstone;
-  #artifactsSnapshot;
-  #drainDeadline;
-  #drained;
 
   constructor({ journal, session, purgeCache, acknowledge, hostArtifacts, clock = systemClock, scheduler = systemScheduler }) {
     if (typeof purgeCache !== 'function' || typeof acknowledge !== 'function' || typeof hostArtifacts !== 'function') {
@@ -58,7 +54,7 @@ export class PurgeCoordinator {
       checkedDocument(document.contract, document);
       this.#submission = Buffer.from(canonicalJson(document));
     }
-    this.#busy = (async () => {
+    return this.#coalesce(async () => {
       if (!this.#stored) {
         try {
           await withDeadline(async (signal) => {
@@ -76,9 +72,8 @@ export class PurgeCoordinator {
           if (!(error instanceof AuthzError) || error.status !== 504 || !this.#stored) throw error;
         }
       }
-      return this.#complete(this.#stored);
-    })().finally(() => { this.#busy = null; });
-    return this.#busy;
+      return this.#session.redrivePurge(this, this.#stored);
+    });
   }
 
   complete(stored) {
@@ -88,47 +83,61 @@ export class PurgeCoordinator {
     try { checked = this.#checkedTombstone(stored); }
     catch (error) { return Promise.reject(error); }
     if (this.#busy) return this.#busy;
-    this.#busy = this.#complete(checked).finally(() => { this.#busy = null; });
-    return this.#busy;
+    return this.#coalesce(() => this.#session.redrivePurge(this, checked));
   }
 
-  async #complete(stored) {
+  /** Install the pending result BEFORE any user-supplied step can call back. */
+  #coalesce(start) {
+    const operation = Promise.withResolvers();
+    this.#busy = operation.promise;
+    const finish = (value, error) => {
+      if (this.#busy === operation.promise) this.#busy = null;
+      if (error) operation.reject(error);
+      else operation.resolve(value);
+    };
+    try { Promise.resolve(start()).then((value) => finish(value), (error) => finish(null, error)); }
+    catch (error) { finish(null, error); }
+    return operation.promise;
+  }
+
+  /**
+   * Effect adapter only: completion is returned to the session's private queue.
+   * Progress and PURGED are never written here. Each retry uses the committed
+   * first-incomplete step, inventory and original monotonic drain deadline.
+   */
+  performStep(step, stored, progress) {
     this.#stored = this.#checkedTombstone(stored);
-    const { document } = this.#stored;
-    this.#tombstone = canonicalJson(document);
-    if (!this.#ack) {
-      this.#session.consumeStoredRecord(stored, { purgeCoordinator: this });
-      if (!['PURGING', 'ENDED'].includes(this.#session.state) || this.#session.scope.tombstone !== 'purge') throw new AuthzError(409, 'Purge tombstone not applied');
-      this.#drainDeadline ??= this.#clock.monotonicNow() + 10_000;
-      if (!this.#artifactsSnapshot) {
-        const artifacts = this.#artifacts(); // Retain refs through partial cache deletion and retries.
+    this.#tombstone = canonicalJson(this.#stored.document);
+    if (this.#session.state !== 'PURGING' || this.#session.scope.tombstone !== 'purge') throw new AuthzError(409, 'Purge tombstone not applied');
+    switch (step) {
+      case 'begin': {
+        const deadline = this.#clock.monotonicNow() + 10_000;
+        if (!Number.isFinite(deadline)) throw new TypeError('Finite purge clock origin required');
+        return deadline;
+      }
+      case 'inventory': {
+        const artifacts = this.#artifacts();
         if (!Array.isArray(artifacts) || new Set(artifacts).size !== artifacts.length
-            || artifacts.some((ref) => typeof ref !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/.test(ref))) {
-          throw new TypeError('Host artifacts must be unique opaque references');
-        }
-        this.#artifactsSnapshot = [...artifacts];
+            || artifacts.some((ref) => typeof ref !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/.test(ref))) throw new TypeError('Host artifacts must be unique opaque references');
+        return [...artifacts];
       }
-      if (this.#drained === undefined) {
-        const remaining = this.#drainDeadline - this.#clock.monotonicNow();
-        if (remaining <= 0) this.#drained = false;
-        else {
-          try {
-            await withDeadline(() => this.#session.drain(), { clock: this.#clock, scheduler: this.#scheduler, milliseconds: remaining });
-            this.#drained = true;
-          } catch (error) {
-            if (!(error instanceof AuthzError) || error.status !== 504) throw error;
-            this.#drained = false; // Late provider output stays permanently discarded.
-          }
-        }
-      }
-      await this.#purgeCache(); // Failure leaves PURGING; never acknowledge incomplete deletion.
-      this.#session.markPurged();
-      this.#ack = freeze({ sid: document.sid, tombstone_seq: document.seq, drained: this.#drained, host_artifacts: [...this.#artifactsSnapshot] });
+      case 'drain': return this.#drain(progress.drainDeadline);
+      case 'cache': return Promise.resolve(this.#purgeCache()).then(() => true);
+      case 'acknowledgement': return withDeadline((signal) => this.#acknowledge(progress.receipt, { signal }),
+        { clock: this.#clock, scheduler: this.#scheduler, deferOperation: false }).then(() => progress.receipt);
+      default: throw new TypeError(`Unknown purge step ${step}`);
     }
-    if (!this.#session.purgeAcknowledged) {
-      await withDeadline((signal) => this.#acknowledge(this.#ack, { signal }), { clock: this.#clock, scheduler: this.#scheduler });
-      this.#session.markPurgeAcknowledged();
+  }
+
+  async #drain(deadline) {
+    const remaining = deadline - this.#clock.monotonicNow();
+    if (remaining <= 0) return false;
+    try {
+      await withDeadline(() => this.#session.drain(), { clock: this.#clock, scheduler: this.#scheduler, milliseconds: remaining, deferOperation: false });
+      return true;
+    } catch (error) {
+      if (!(error instanceof AuthzError) || error.status !== 504) throw error;
+      return false; // Late provider output stays permanently discarded.
     }
-    return this.#ack;
   }
 }
