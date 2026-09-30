@@ -516,6 +516,7 @@ export function createWorkspaceServer(rawConfig, options = {}) {
     }
 
     if (req.method === 'POST' && rest === 'transcribe') {
+      if (refuseLegacyIntake()) return;
       if (!config.speech?.enabled || !speechAdapter) {
         json(res, 404, { error: 'speech input is not configured' });
         return;
@@ -1356,6 +1357,7 @@ function confirmMessage({ confirmed, already, submitted }) {
   const parts = [`Confirmed ${confirmed.length} item${confirmed.length === 1 ? '' : 's'}.`];
   if (already.length) parts.push(`${already.length} already confirmed.`);
   if (submitted) parts.push('Submitted to the host.');
+  if (submitted === false) parts.push('Working spec only: items stay confirmed and are not sent to the host.');
   return parts.join(' ');
 }
 

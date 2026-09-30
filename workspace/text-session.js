@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { canonicalJson } from '../contracts/validate.js';
+import { canonicalJson, loadContractFile } from '../contracts/validate.js';
 import { TextUiError, TEXT_REF_PATTERN, parseBindings, planConfirmation } from './text-ui.js';
 
 /**
@@ -20,6 +20,7 @@ import { TextUiError, TEXT_REF_PATTERN, parseBindings, planConfirmation } from '
  */
 
 const MAX_TURN_CHARS = 8000;
+const hostModes = loadContractFile('transitions.json').modes;
 
 /** @param {unknown} provider */
 export function assertTextSessionProvider(provider) {
@@ -65,7 +66,9 @@ function exclusive(port, operation) {
  *
  * @param {TextSessionPort} port
  * @param {unknown} rawBindings form value(s) in item_ref@version@sha256 form
- * @param {{einreichen?: boolean}} [options] Einreichen also runs the optional host submission hook.
+ * @param {{einreichen?: boolean}} [options] Einreichen also runs the optional host submission hook
+ *   when the contract's host mode permits submission. Older host ports may
+ *   omit host_mode; their configured hook remains the submission boundary.
  *   The hook must be idempotent: a retry with already confirmed bindings runs
  *   it again without writing another ui.confirm, including after submit_failed.
  */
@@ -94,7 +97,8 @@ export async function confirmBatch(port, rawBindings, { einreichen = false } = {
       confirmed.push(binding);
     }
     let submitted = null;
-    if (einreichen && typeof port.submitConfirmed === 'function') {
+    if (einreichen && hostModes[before.host_mode]?.submits === false) submitted = false;
+    if (einreichen && submitted !== false && typeof port.submitConfirmed === 'function') {
       try {
         await port.submitConfirmed();
         submitted = true;
