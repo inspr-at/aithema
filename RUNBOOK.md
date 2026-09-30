@@ -186,3 +186,54 @@ The browser may choose only that approved provider/model. It cannot set endpoint
 Labelled mock speech (`kind: "mock"`) is demo/test only. Native browser/microphone QA is coordinator work; `npm test` uses synthetic in-memory audio and a local HTTP fixture.
 
 For a portable deployment, keep provider registry credentials, policy, and identity in the protected `--config` file, and pass a separate public speech object with `--speech-config /path/to/public-speech-config.json`. It may contain only `kind`, `providerId`, `model`, `allowedModels`, `endpoint`, `acceptedMediaTypes`, and `limits`; unknown or secret-bearing fields are refused. If protected config already owns `speech`, the sidecar collision is refused.
+
+## Running Aithema for a commercial host
+
+Run one dedicated Aithema instance per commercial host deployment. Give it its own qualified operator account per provider template and secrets restricted to that account (v5 ND9, R3-B2). Never share an instance, account, journal, budget ledger, audit store or evidence across hosts or trust contexts. Keep configuration, authorization records, exports and backups inside the same boundary. Across hosts, share reusable code only; nothing tenant-bound.
+
+Attest the actual secret-to-account pairing when recording evidence; matching `account_ref` values cannot prove which account a resolved credential belongs to. Evidence for one account never qualifies another. In v1, tenants choose among operator-approved presets; **tenant-owned provider accounts are not supported** (post-v1 spike AIT-S06). Browser input cannot supply credentials or widen operator policy.
+
+Keep a host-owned processor inventory with the protected settings and evidence documents, outside git. Cover the host itself and every configured provider **per lane**, including operator-local providers; identify inactive lanes and the processors selected for each session:
+
+| Processing party / lane | Data and processing to inventory |
+| --- | --- |
+| Host itself | Participant/authorization references, captured text, normalized document text, generated working specs/screens, journal, audit and budget records; hosting/storage/backup locations |
+| Provider for `reaction` | Bounded conversation context used to generate replies (`intake`) |
+| Provider for `spec` | Bounded transcript/source context used to generate the working spec (`specification`) |
+| Provider for `design` | Brief/spec context used to generate screen IR (`design`) |
+| Optional provider for `stt` | Raw voice used for transcription only (`transcription`) |
+| Optional provider for `tts` | Reply text used to synthesize speech (`intake`); no speaker identification |
+
+For each provider entry, record the lane, purpose/data sent, template/model, qualified `account_ref`, `evidence_ref`, execution location (`operator` or `cloud`), and inference/storage/log country sets. Retain the account's evidence documents, secret-binding attestation, retention entitlement and exceptions, training opt-out evidence, and `verified_at` / `expires_at` (NM8, R3-B2). Inventory parsers as operator-trusted code: child-process limits are not OS-enforced isolation in v1 (ND14; AIT-S09).
+
+Bind the inventory to `settings_sha256 = sha256Hex(canonicalJson(settings))` using `contracts/validate.js` (RFC 8785), not a hash of pretty-printed JSON. Before processing any session, including a local session or offering its microphone, retain a host-owned `aithema.authz/1` record (ND8). It carries `tid` / `pid` / `sid`, participants with roles and `notice_ref`, purposes, processors/evidence, `settings_sha256`, the host's `basis_label`, current `epoch`, `created_at` and `withdrawn_at`. Provider entries in `processors[]` use the template id as `processor_ref`, with matching `evidence_ref`, `location` and expanded `countries`; keep lane/account details in the inventory/settings, not extra authz fields. Refresh the inventory and session authorization when settings or selected processors change. Aithema checks the record and current authority; the host decides the basis.
+
+Fill the host's DPIA record from these hooks; configuration validation does not decide whether a DPIA is required or approve its outcome:
+
+| Facts supplied by Aithema | Host decision / record to complete |
+| --- | --- |
+| Settings digest, selected templates/lanes and processor references | Purposes, data/participant categories, controller/processor roles, lawful basis, notices, necessity/proportionality and approved processors |
+| Account-bound residency evidence, explicit versioned country sets, retention exceptions, training opt-out and expiry (NM8) | Acceptability of locations/transfers and evidence, provider agreements, safeguards and evidence renewal |
+| Host-owned stores, transient audio and withdrawal/purge behaviour below (NM2, NM3, NB3) | Retention periods per store, exports/backups, deletion duties, rights handling and provider-side retention/deletion arrangements |
+| Interaction disclosure and actual marking/export evidence per modality (NM9, ND-A50) | Keep disclosure visible; record the bounded marking assessment, legal input and release-qualification decision, including any modality restriction |
+| Operator-trusted parser limits (ND14) | Accepted residual risk, service privileges and deployment safeguards; overall DPIA need/outcome |
+
+V1 residency is evidence-based country-set admission, not sovereignty or air-gap assurance; there is no `deny` egress mode or automatic failover. Recheck evidence at validation, session start and every authority check. Expiry disables **every** lane using that template, including STT/TTS; remaining admissible lanes and bounded text capture may continue (NM8). Art. 50 marking effectiveness for short text/HTML and streamed PCM remains an open release-qualification decision: provenance metadata/sidecars are not a compliance guarantee. V1 has no audio export; retain the per-modality assessment and ND-A50 decision before claiming a qualified release (NM9).
+
+Keep evidence in the host-side stores (NB1, NM3, NB3):
+
+- **Journal:** turns/transcripts, normalized immutable source text and segments, immutable design inputs, complete spec snapshots, confirmations, operation results, reactions/delivered-prefix certainty, authorization epochs, controls and session ends. These contain session content, not only digests.
+- **Audit store:** host-retained audit records in the journal and any host audit exports. Critical records are acknowledged before their effects; `audit.restart` identifies a possibly lost best-effort tail. V1 does not guarantee a complete volatile audit trail.
+- **Budget ledger:** authoritative attempts, holds, single-use claims bound to request digests/generation/epoch, settlements and recovery. Unknown claimed outcomes are charged conservatively at the maximum; journal copies do not replace the ledger or prove provider invoices.
+
+Aithema does not persist raw voice or raw uploaded files and does not identify speakers. Submitted transcripts and extracted text are durable personal data. Credentials, bearer tokens and resolved secrets must never enter journal/audit/ledger records or exports; settings/evidence use secret references only. Aithema's cache is not the host's system of record.
+
+On withdrawal, bump the host authorization epoch and notify the service: local capture/output stop and new claims are refused within the healthy bound (45 s from the epoch change) or outage bound (75 s from loss of authority availability to `CAPTURE_ONLY`). Already-committed dispatch claims may still send/finish and are charged; late output is discarded, not proof of provider-side cancellation (NM2, NB3). Purge starts with a host journal tombstone, drains at most 10 s, purges the service cache and returns an acknowledgement listing host-side artefacts. The host deletes those artefacts and handles its stores, exports/backups and provider obligations; an acknowledgement is not proof that a provider deleted its copy (§9.2).
+
+Operator checklist:
+
+1. Allocate the dedicated instance, accounts, protected secret references and host-side stores; check that no host or trust-context resources are reused (ND9).
+2. Set `hosting.commercial: true`; review template/model/artifact licences, egress allowlists, residency evidence/expiry and spend caps. Attest each actual secret/account pairing.
+3. Validate settings and authorization against `contracts/validate.js`, check `canExecute()`, and inspect the server-side capability matrix for every enabled lane. Structural validation alone does not establish evidence admissibility.
+4. Retain the digest-bound processor inventory and session `aithema.authz/1`; complete the host's DPIA hooks and marking decision. Keep voice off until the selected speech processors are covered.
+5. Verify withdrawal, evidence expiry, purge and backup/restore on a local fixture or isolated test deployment with synthetic data; record results inside this host's evidence boundary. Confirm the deployed release is qualified for the selected profile and modalities before serving real sessions.
