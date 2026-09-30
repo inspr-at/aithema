@@ -454,7 +454,7 @@ it('malformed/incompatible budget messages, mismatched attempts and unsupported 
     bytes({ ...doc, body: { ...doc.body, max_micro: Number.MAX_SAFE_INTEGER + 1 } })]) {
     assert.throws(() => ledger.admit(original, authority()), { status: 400 });
   }
-  for (const doc2 of [{ ...doc, major: 2 }, { ...doc, minor: 1, min_reader: 1 }]) {
+  for (const doc2 of [{ ...doc, major: 2 }, { ...doc, minor: 2, min_reader: 2 }]) {
     assert.throws(() => ledger.admit(bytes(doc2), authority()), code('contract_too_new', 422));
   }
   assert.throws(() => ledger.admit(doc, authority()), { status: 400 });

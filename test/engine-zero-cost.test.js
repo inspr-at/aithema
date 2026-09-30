@@ -7,7 +7,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { TextEngine, ControlledRenderer } from '../runtime/engine/index.js';
 import { SqliteJournal, JournalClient } from '../runtime/journal/index.js';
 import { SqliteBudgetLedger, BudgetClient } from '../runtime/budget/index.js';
-import { isOperatorLocalLane } from '../runtime/budget/local.js';
+import { isLoopbackHost, isOperatorLocalLane } from '../runtime/budget/local.js';
+import { isLoopbackHost as settingsLoopbackHost, resolveSettings } from '../runtime/settings/resolver.js';
 import { validate } from '../contracts/validate.js';
 import { FakeClock, authorizationFor, defaultOutput } from './engine-helpers.test.js';
 import { authority, bytes, session, sid, snapshot, turn } from './fixtures/journal/helpers.mjs';
@@ -129,6 +130,49 @@ it('(c) operator-local qualification is exact about loopback, hosting and enable
   assert.equal(isOperatorLocalLane({ ...row, template: { ...row.template, deployment: 'api' } }), false);
   assert.equal(isOperatorLocalLane({ ...row, template: { ...row.template, endpoint: 'invalid URL' } }), false);
   assert.equal(isOperatorLocalLane(undefined), false);
+});
+
+it('(c) settings and zero-cost lanes share one loopback authority at every call site', () => {
+  assert.equal(settingsLoopbackHost, isLoopbackHost);
+  const resolve = (doc, preferences) => resolveSettings(doc, { now: '2026-09-30T07:00:00Z', preferences }).lanes.spec;
+  const withHost = (host) => {
+    const doc = settingsDocument();
+    doc.provider_templates.find((template) => template.id === 'synthetic-local').endpoint = `https://${host}/v1`;
+    if (!doc.policy.egress.allow.includes(host)) doc.policy.egress.allow.push(host);
+    doc.presets['local-l1'].egress.allow = [host];
+    return doc;
+  };
+  for (const [expected, hosts] of [
+    [true, ['localhost', '[::1]', '127.0.0.1', '127.0.0.2', '127.255.255.255']],
+    [false, ['127.example.invalid', 'localhost.example.invalid', '192.168.1.10', 'provider.example.invalid', '[::ffff:7f00:1]']],
+  ]) {
+    for (const host of hosts) {
+      assert.equal(isLoopbackHost(host), expected, host);
+      const doc = withHost(host);
+      const template = doc.provider_templates.find((entry) => entry.id === 'synthetic-local');
+      assert.equal(isOperatorLocalLane({ enabled: true, execution_location: 'operator', template }), expected, host);
+      const row = resolve(doc);
+      assert.equal(row.enabled, expected, `${host}: ${row.reasons}`);
+      assert.equal(isOperatorLocalLane(row), expected, host);
+    }
+  }
+  // An unused remote allowlist entry still disables local-l1, independently
+  // of its otherwise valid loopback provider endpoint.
+  const extraHost = withHost('127.0.0.2');
+  extraHost.policy.egress.allow.push('provider.example.invalid');
+  extraHost.presets['local-l1'].egress.allow.push('provider.example.invalid');
+  assert.ok(resolve(extraHost).reasons.includes('egress_denied'));
+
+  const proxy = withHost('127.0.0.2');
+  proxy.hosting.proxy = 'http://127.0.0.2:8080';
+  assert.equal(resolve(proxy).enabled, true, 'operator-local proxy accepts the whole loopback subnet');
+
+  // Isolate endpointAllowed from local-l1's separate allowlist/template gates.
+  // An allowlisted private literal must remain denied even on an operator lane.
+  const privateEndpoint = withHost('192.168.1.10');
+  privateEndpoint.presets['eu-e1'].lanes.spec = privateEndpoint.presets['local-l1'].lanes.spec;
+  privateEndpoint.presets['eu-e1'].egress.allow = ['192.168.1.10'];
+  assert.ok(resolve(privateEndpoint, { preset: 'eu-e1' }).reasons.includes('egress_denied'));
 });
 
 it('(d) interrupted local dispatch resumes by recovering its claim at zero without resending', async (t) => {

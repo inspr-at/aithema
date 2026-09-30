@@ -2,6 +2,9 @@ import { BlockList, isIP } from 'node:net';
 import { canExecute, canonicalJson, sha256Hex, validate } from '../../contracts/validate.js';
 import { countryRegistry, isSubset } from './countries.js';
 import { checkDeploymentPeriod } from '../budget/period.js';
+import { isLoopbackHost } from '../budget/local.js';
+
+export { isLoopbackHost };
 
 export const LANES = Object.freeze(['reaction', 'spec', 'design', 'stt', 'tts']);
 export const PRESETS = Object.freeze(['local-l1', 'eu-e1', 'cloud-c1']);
@@ -91,11 +94,6 @@ export function isEgressHost(host) {
   } catch {
     return false;
   }
-}
-
-/** @param {string} host */
-export function isLoopbackHost(host) {
-  return host === 'localhost' || host === '[::1]' || (isIP(host) === 4 && host.startsWith('127.'));
 }
 
 /** This validates configuration only; dispatch still needs the DNS/claim gate. */

@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { SqliteJournal } from '../runtime/journal/index.js';
 import { BudgetClient, SqliteBudgetLedger, budgetMessage, encodeMessage, createOutboundGate, requestSha256 } from '../runtime/budget/index.js';
-import { canonicalJson, validate } from '../contracts/validate.js';
+import { canExecute, canonicalJson, contractEntry, validate } from '../contracts/validate.js';
 import { authority as baseAuthority, bytes, now, record, session, sid } from './fixtures/journal/helpers.mjs';
 
 const lanes = ['reaction', 'spec', 'design', 'stt', 'tts'];
@@ -190,6 +190,43 @@ it('(e) new additive fixture documents validate without changing the original fi
     assert.equal(validate(fixture.contract, fixture.doc).ok, true, name);
     assert.equal(typeof canonicalJson(fixture.doc), 'string');
   }
+});
+
+for (const name of ['budget.admit-local-zero', 'budget.recover-local-zero', 'record.budget-hold-local-zero', 'record.budget-settle-local-zero']) {
+  it(`(e) reader minor 1 accepts ${name} without raising the fixture's min_reader`, () => {
+    const { contract, doc } = JSON.parse(readFileSync(new URL(`../contracts/fixtures/valid/${name}.json`, import.meta.url)));
+    assert.equal(contractEntry(contract).minor, 1);
+    assert.equal(doc.minor, 1);
+    assert.equal(doc.min_reader, 0);
+    assert.deepEqual(canExecute(doc), { ok: true });
+    const requiresOne = { ...doc, min_reader: 1 };
+    assert.equal(validate(contract, requiresOne).ok, true);
+    assert.deepEqual(canExecute(requiresOne), { ok: true });
+    assert.deepEqual(canExecute(requiresOne, { [contract]: { major: 1, minor: 0 } }), { ok: false, code: 'contract_too_new' });
+    for (const future of [{ ...doc, major: 2 }, { ...doc, minor: 2, min_reader: 2 }]) {
+      assert.deepEqual(canExecute(future), { ok: false, code: 'contract_too_new' });
+    }
+    assert.equal(contractEntry('aithema.settings').minor, 0);
+    assert.equal(contractEntry('aithema.authz').minor, 0);
+  });
+}
+
+it('(e) minor-1 budget admission and journal hold execute through the same claim boundary', (t) => {
+  const { ledger, journal, db } = host(t);
+  const body = admission();
+  const request = { ...budgetMessage('admit_request', body), min_reader: 1 };
+  const held = ledger.admit(bytes(request), authority()).body;
+  assert.ok(held.hold_id);
+  const hold = record('budget.hold', { hold_id: held.hold_id, attempt_id: body.attempt_id,
+    lane: body.lane, max_micro: 0, currency: body.currency, lane_kind: body.lane_kind }, { minor: 1, min_reader: 1 });
+  assert.equal(journal.append(bytes(hold), authority()).document.min_reader, 1);
+  const claimed = ledger.claim(encodeMessage('claim_request', claimRequest(held.hold_id)), authority()).body;
+  assert.ok(claimed.claim_id);
+  assert.deepEqual(ledger.claim(encodeMessage('claim_request', claimRequest(held.hold_id)), authority()).body, { error: 'already_claimed' });
+  const recovered = ledger.recover(encodeMessage('recover_request', recovery(held.hold_id)), authority());
+  assert.equal(recovered.body.closed_reason, 'unknown');
+  assert.equal(recovered.body.charged_micro, 0);
+  assert.equal(charged(db), 0);
 });
 
 // The deployed pre-AIT-88 table, retained independently of the new DDL.
