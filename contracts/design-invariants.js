@@ -21,7 +21,9 @@ export function screenBounds(doc) {
   const components = (Array.isArray(doc?.nodes) ? doc.nodes : []).map((node) => ({ node, depth: 1 }));
   let nodes = 0;
   while (components.length) {
-    const { node, depth } = components.pop();
+    const component = components.pop();
+    if (!component || component.node == null) return ['design_ir_invalid: missing component'];
+    const { node, depth } = component;
     if (++nodes > 2000 || depth > 16) return ['design_limit: maximum 2000 nodes and 16 component levels'];
     if (Array.isArray(node?.children)) {
       for (const child of node.children) components.push({ node: child, depth: depth + 1 });
