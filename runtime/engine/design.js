@@ -1,8 +1,9 @@
 import { EngineError, checkClock, json, normalizeError, ref, runtimeCall, systemClock } from './common.js';
 import { validateDesignResults } from './metadata.js';
+import { canonicalJson } from '../../contracts/validate.js';
 
 /**
- * This ticket's renderer is deliberately a controlled, timer-backed stub.
+ * Explicitly injected, controlled timer-backed stub for scheduler tests.
  * A plan is synchronous and returns {duration_ms:0..60000, fail:boolean, output?}.
  * No attempt can continue behind a timed-out promise; no real renderer runs.
  */
@@ -50,8 +51,9 @@ export class ControlledRenderer {
  * One scheduler per engine session. Retry serves the same captured revision and
  * same intents. New intents wait for the entire run (including retry) to end.
  * waitMs is inside the fixed 30 s window; audio uses at most its first 20 s.
- * execute may wrap the stub with the engine's admission/claim gate. It must
- * finish within the attempt deadline; real-renderer qualification is later work.
+ * execute may wrap the renderer with the engine's admission/claim gate. It must
+ * finish within the attempt deadline. Only compact bindings enter completions;
+ * HTML and CSS are regenerated from the acknowledged immutable design.input.
  */
 export class DesignScheduler {
   #clock;
@@ -134,7 +136,8 @@ export class DesignScheduler {
       for (const result of results) {
         const prior = this.#intents.get(result.intent_id);
         if (prior) {
-          if (['state', 'working_rev', 'rendered_rev', 'attempts'].some((key) => prior[key] !== result[key])) {
+          if (['state', 'working_rev', 'rendered_rev', 'attempts'].some((key) => prior[key] !== result[key])
+              || canonicalJson(prior.screen ?? null) !== canonicalJson(result.screen ?? null)) {
             throw new EngineError('invalid_intent', 'Restored completion disagrees with scheduler', { code: 'idempotency_conflict', status: 409 });
           }
         } else this.#intents.set(result.intent_id, result);
@@ -249,6 +252,7 @@ export class DesignScheduler {
     this.#active = run;
     this.#runs.push(run);
     for (const intent of intents) { intent.state = 'rendering'; intent.started_at = run.started_at; }
+    let screen;
     try {
       for (let attempt = 1; attempt <= 2; attempt++) {
         run.attempts = attempt;
@@ -257,6 +261,16 @@ export class DesignScheduler {
           const result = await this.#attempt({ revision, attempt, deadline: started + 60_000 });
           if (this.#time() - started > 60_000) throw new EngineError('renderer_deadline', 'Controlled attempt exceeded 60 seconds');
           run.state = result?.status === 'denied' || result?.status === 'discarded' ? 'blocked' : 'rendered';
+          if (run.state === 'rendered') {
+            const output = result?.status === 'ok' ? result.output : result;
+            if (['screen_ref', 'design_input_seq', 'design_rev'].some((key) => Object.hasOwn(output ?? {}, key))) {
+              if (output.working_rev !== revision.working_rev) throw new EngineError('invalid_output', 'Renderer binding must name the captured working revision');
+              const binding = { screen_ref: output.screen_ref, design_input_seq: output.design_input_seq, design_rev: output.design_rev };
+              validateDesignResults([{ intent_id: intents[0].intent_id, state: 'rendered',
+                working_rev: intents[0].working_rev, rendered_rev: revision.working_rev, attempts: attempt, screen: binding }]);
+              screen = binding;
+            }
+          }
           break;
         } catch (error) {
           run.error = normalizeError(error).reason;
@@ -274,9 +288,13 @@ export class DesignScheduler {
         intent.served_at = run.ended_at;
         intent.rendered_rev = run.working_rev;
         intent.attempts = run.attempts;
+        if (screen) intent.screen = json(screen);
       }
       for (const { intent_id, state, working_rev, rendered_rev, attempts } of intents) {
-        this.#completions.set(intent_id, { intent_id, state, working_rev, rendered_rev, attempts });
+        if (screen) this.#completions.set(intent_id, { intent_id, state, working_rev, rendered_rev, attempts, screen: json(screen) });
+        else {
+          this.#completions.set(intent_id, { intent_id, state, working_rev, rendered_rev, attempts });
+        }
       }
       this.#active = null;
       this.#endedAt = run.ended_at;

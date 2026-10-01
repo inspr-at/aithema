@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { SqliteJournal, JournalClient } from '../runtime/journal/index.js';
 import { BudgetClient, SqliteBudgetLedger } from '../runtime/budget/index.js';
 import { AuthorizationSession } from '../runtime/authz/index.js';
-import { TextEngine } from '../runtime/engine/index.js';
+import { ControlledRenderer, TextEngine } from '../runtime/engine/index.js';
 import { sha256Hex } from '../contracts/validate.js';
 import { authority, bytes, item, now, record, session, sid, snapshot, time, turn } from './fixtures/journal/helpers.mjs';
 
@@ -91,7 +91,7 @@ export function fixture(t, { path, initialize = true, clock = new FakeClock(), h
   const errors = [];
   const engine = new TextEngine({ journal: client, journalPort: port, budget, authorization: authz, reasoning,
     maxMicro: { reaction: 100, spec: 100, design: 100 }, priceUsage: priceUsage ?? (() => 7), clock, checkpoint,
-    renderer, designWaitMs, hostMode, onError: (error) => { errors.push(error); return onError?.(error); } });
+    renderer: renderer ?? new ControlledRenderer({ clock }), designWaitMs, hostMode, onError: (error) => { errors.push(error); return onError?.(error); } });
   const close = () => { engine.close(); ledger.close(); journal.close(); };
   t?.after(close);
   return { engine, journal, ledger, client, budget, auth, authz, clock, calls, errors, path, close, port,
