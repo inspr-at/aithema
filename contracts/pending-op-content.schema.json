@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/inspr-at/aithema/contracts/pending-op-content.schema.json",
+  "title": "Immutable pending operation content (AIT-89)",
+  "$defs": {
+    "data": {
+      "description": "Host-owned, append-only content addressed by sha256 of canonical UTF-8 bytes. Append and acknowledge before persisting a reference. This record, unlike ordinary journal events, has no 1 MiB content limit; large transport writes and reads are chunked. Journal minor 2 / min_reader 2 is required: readers must resolve and verify the immutable content before executing a referenced operation.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sha256", "size", "canonical"],
+      "properties": {
+        "sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+        "size": { "$ref": "common.schema.json#/$defs/positive" },
+        "canonical": { "type": "string", "minLength": 1 }
+      }
+    },
+    "content": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["document_bytes", "metadata"],
+      "properties": {
+        "document_bytes": { "type": "string", "minLength": 1 },
+        "metadata": { "type": "object" }
+      }
+    },
+    "reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "record_seq", "sha256", "size"],
+      "properties": {
+        "kind": { "const": "pending_op.content" },
+        "record_seq": { "$ref": "common.schema.json#/$defs/positive" },
+        "sha256": { "$ref": "common.schema.json#/$defs/sha256" },
+        "size": { "$ref": "common.schema.json#/$defs/positive" }
+      }
+    }
+  }
+}

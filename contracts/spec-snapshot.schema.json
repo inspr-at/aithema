@@ -70,7 +70,14 @@
           "type": "array",
           "maxItems": 64,
           "items": {
-            "$ref": "#/$defs/pending_op"
+            "oneOf": [
+              {
+                "$ref": "#/$defs/pending_op"
+              },
+              {
+                "$ref": "#/$defs/legacy_pending_op"
+              }
+            ]
           }
         },
         "corrections": {
@@ -186,14 +193,15 @@
       }
     },
     "pending_op": {
-      "description": "An intake write not yet acknowledged. Retried byte-exact on resume under the same op_key; the next snapshot drops it once op.result is journaled.",
+      "description": "A reference to acknowledged immutable pending_op.content. Retries load and verify canonical content, retaining exact document_bytes and metadata. Requires minor and min_reader >= 2: executing the reference itself as intake content, or regenerating the missing content, would violate byte-exact retry. Legacy inline operations remain readable at their original min_reader.",
       "type": "object",
       "additionalProperties": false,
       "required": [
         "op_key",
         "op",
         "payload_sha256",
-        "payload"
+        "payload",
+        "payload_kind"
       ],
       "properties": {
         "op_key": {
@@ -212,7 +220,11 @@
         },
         "payload": {
           "type": "string",
-          "maxLength": 65536
+          "maxLength": 159,
+          "$comment": "RFC 8785 reference envelope: 45 punctuation/key characters + 18 kind characters + 64 digest characters + 2 * 16 decimal digits (positive safe integers for seq and UTF-8 size) = 159. All values are ASCII and cannot escape. Legacy inline payloads retain their prior bound in legacy_pending_op."
+        },
+        "payload_kind": {
+          "const": "pending_op.content"
         }
       }
     },
@@ -244,6 +256,37 @@
             "superseded",
             "acknowledged"
           ]
+        }
+      }
+    },
+    "legacy_pending_op": {
+      "description": "An intake write not yet acknowledged. Retried byte-exact on resume under the same op_key; the next snapshot drops it once op.result is journaled.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "op_key",
+        "op",
+        "payload_sha256",
+        "payload"
+      ],
+      "properties": {
+        "op_key": {
+          "$ref": "working-item.schema.json#/$defs/op_key"
+        },
+        "op": {
+          "enum": [
+            "post_source",
+            "post_turn",
+            "submit",
+            "replace"
+          ]
+        },
+        "payload_sha256": {
+          "$ref": "common.schema.json#/$defs/sha256"
+        },
+        "payload": {
+          "type": "string",
+          "maxLength": 65536
         }
       }
     }

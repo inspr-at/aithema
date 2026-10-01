@@ -15,6 +15,7 @@ import { canExecute, canonicalJson, validate } from '../../contracts/validate.js
  * @property {(bytes:string|Uint8Array, authority:JournalAuthority) => StoredRecord|Promise<StoredRecord>} append
  * @property {(authority:JournalAuthority) => JournalCursor|Promise<JournalCursor>} cursor
  * @property {(ids:number[], authority:JournalAuthority) => StoredRecord[]|Promise<StoredRecord[]>} recordsByIds
+ * @property {(digests:string[], authority:JournalAuthority) => StoredRecord[]|Promise<StoredRecord[]>} recordsByDigests
  * @property {(after:number, authority:JournalAuthority, through?:number) => StoredRecord[]|Promise<StoredRecord[]>} recordsAfter
  * @property {(authority:JournalAuthority) => JournalCursor|Promise<JournalCursor>} takeover
  */
@@ -54,7 +55,7 @@ export function decodeDocument(bytes, { submission = false } = {}) {
     throw new JournalError(400, `Invalid journal document: ${[...result.schemaErrors, ...result.invariants].join('; ')}`);
   }
   if (submission && Object.hasOwn(doc, 'seq')) throw new JournalError(400, 'seq is assigned by the host');
-  if (doc.contract === 'aithema.journal.record' && bytes.length > 1024 * 1024) {
+  if (doc.contract === 'aithema.journal.record' && doc.kind !== 'pending_op.content' && bytes.length > 1024 * 1024) {
     throw new JournalError(413, 'Encoded journal record exceeds 1 MiB');
   }
   if (doc.contract === 'aithema.spec.snapshot') {

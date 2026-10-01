@@ -307,6 +307,24 @@ export function sha256Hex(text) {
   return createHash('sha256').update(text, 'utf8').digest('hex');
 }
 
+/** The reference budget is owned by the snapshot schema, including its arithmetic. */
+export const pendingContentReferenceMaxLength = loadContractFile('spec-snapshot.schema.json').$defs.pending_op.properties.payload.maxLength;
+
+/** Parse only the schema-defined, canonical, bounded reference envelope. */
+export function pendingContentReference(payload) {
+  if (typeof payload !== 'string' || payload.length > pendingContentReferenceMaxLength) {
+    throw new TypeError('Invalid canonical pending content reference');
+  }
+  const reference = JSON.parse(payload);
+  const file = 'pending-op-content.schema.json';
+  const errors = [];
+  check(loadContractFile(file).$defs.reference, reference, file, '$', errors);
+  if (errors.length || canonicalJson(reference) !== payload) {
+    throw new TypeError('Invalid canonical pending content reference');
+  }
+  return reference;
+}
+
 const transitions = loadContractFile('transitions.json');
 const writers = loadContractFile('record-writers.json');
 const capabilities = loadContractFile('capabilities.json');
@@ -501,6 +519,11 @@ function snapshotInvariants(doc, out) {
   if (new Set(keys).size !== keys.length) out.push('ops.op_key_unique');
   for (const op of doc.pending_ops) {
     if (sha256Hex(op.payload) !== op.payload_sha256) out.push('op.payload_sha256_matches');
+    if (op.payload_kind === 'pending_op.content') {
+      if (doc.minor < 2 || doc.min_reader < 2) out.push('op.content_requires_reader_2');
+      try { pendingContentReference(op.payload); }
+      catch { out.push('op.content_reference_invalid'); }
+    }
   }
 }
 
@@ -556,6 +579,20 @@ function budgetInvariants(doc, out) {
  * @param {string[]} out
  */
 function recordInvariants(doc, out) {
+  if (doc.kind === 'pending_op.content') {
+    if (doc.minor < 2 || doc.min_reader < 2) out.push('pending_content.requires_reader_2');
+    const { canonical, sha256, size } = doc.data;
+    if (sha256Hex(canonical) !== sha256) out.push('pending_content.sha256_matches');
+    if (Buffer.byteLength(canonical, 'utf8') !== size) out.push('pending_content.size_matches');
+    try {
+      const content = JSON.parse(canonical);
+      const file = 'pending-op-content.schema.json';
+      const errors = [];
+      check(loadContractFile(file).$defs.content, content, file, '$', errors);
+      if (errors.length) out.push('pending_content.envelope_invalid');
+      if (canonicalJson(content) !== canonical) out.push('pending_content.canonical');
+    } catch { out.push('pending_content.canonical'); }
+  }
   if (doc.kind === 'reaction' && !doc.data.text.startsWith(doc.data.delivered_prefix)) out.push('reaction.prefix_of_text');
   if (doc.kind === 'reaction' && doc.data.complete && doc.data.delivered_prefix !== doc.data.text) out.push('reaction.complete_means_fully_delivered');
   if (doc.kind === 'design.input') {
@@ -595,7 +632,7 @@ function recordInvariants(doc, out) {
     checkCanonicalDigest(doc.data.screen_ir, doc.data.screen_ir_sha256, 'design_input.screen_ir', out);
     checkCanonicalDigest(doc.data.tokens, doc.data.tokens_sha256, 'design_input.tokens', out);
   }
-  if (Buffer.byteLength(JSON.stringify(doc), 'utf8') > 1024 * 1024) out.push('record.encoded_max_1_mib');
+  if (doc.kind !== 'pending_op.content' && Buffer.byteLength(JSON.stringify(doc), 'utf8') > 1024 * 1024) out.push('record.encoded_max_1_mib');
 }
 
 /**

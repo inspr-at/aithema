@@ -45,6 +45,9 @@
     ],
     "op.result": [
       "worker"
+    ],
+    "pending_op.content": [
+      "worker"
     ]
   },
   "browser_turn_speaker": "person"
