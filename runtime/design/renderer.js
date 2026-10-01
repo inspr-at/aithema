@@ -5,6 +5,19 @@ import { RENDERER_VERSION, rendererFragments } from './version.js';
 export { RENDERER_VERSION };
 const { baseCss, template } = rendererFragments();
 const families = Object.freeze({ sans: 'system-ui, sans-serif', serif: 'Georgia, serif', monospace: 'monospace' });
+// Keep tag names, class names and input types closed even if a caller mutates
+// an in-memory IR after validation. Numeric keys intentionally reject strings.
+const headingTags = new Map([[1, 'h1'], [2, 'h2'], [3, 'h3'], [4, 'h4'], [5, 'h5'], [6, 'h6']]);
+const gridClasses = new Map([[1, 'grid columns-1'], [2, 'grid columns-2'], [3, 'grid columns-3'], [4, 'grid columns-4']]);
+const inputTypes = new Map(['text', 'email', 'number', 'search'].map((type) => [type, type]));
+const buttonClasses = new Map([['primary', 'button primary'], ['secondary', 'button secondary']]);
+const alertClasses = new Map([['info', 'alert info'], ['success', 'alert success'], ['warning', 'alert warning'], ['error', 'alert error']]);
+
+function renderingValue(table, value) {
+  const result = table.get(value);
+  if (result === undefined) throw new DesignError('design_ir_invalid', 'Unsupported component rendering value');
+  return result;
+}
 
 export function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
@@ -49,7 +62,7 @@ export function designRevision({ screen_ir, renderer_version, tokens_digest, gen
 }
 
 function attrs(node, className) {
-  return `id="${escapeHtml(node.id)}" class="${className}" data-element-ref="${escapeHtml(node.id)}"`;
+  return `id="${escapeHtml(node.id)}" class="${escapeHtml(className)}" data-element-ref="${escapeHtml(node.id)}"`;
 }
 
 function renderNode(node) {
@@ -58,20 +71,20 @@ function renderNode(node) {
   const a = (className = node.kind) => attrs(node, className);
   switch (node.kind) {
     case 'stack': case 'row': return `<div ${a()}>\n${children()}\n</div>`;
-    case 'grid': return `<div ${a(`grid columns-${node.columns}`)}>\n${children()}\n</div>`;
+    case 'grid': return `<div ${a(renderingValue(gridClasses, node.columns))}>\n${children()}\n</div>`;
     case 'section': return `<section ${a()} aria-label="${e(node.label)}">\n${children()}\n</section>`;
     case 'card': return `<section ${a()} aria-label="${e(node.label)}">\n${children()}\n</section>`;
-    case 'heading': return `<h${node.level} ${a()}>${e(node.text)}</h${node.level}>`;
+    case 'heading': { const tag = renderingValue(headingTags, node.level); return `<${tag} ${a()}>${e(node.text)}</${tag}>`; }
     case 'text': return `<p ${a()}>${e(node.text)}</p>`;
-    case 'button': return `<button ${a(`button ${node.variant}`)} type="button">${e(node.label)}</button>`;
+    case 'button': return `<button ${a(renderingValue(buttonClasses, node.variant))} type="button">${e(node.label)}</button>`;
     case 'link': return `<span ${a()} data-target-ref="${e(node.target)}">${e(node.label)}</span>`;
-    case 'input': return `<label ${a('field')}>${e(node.label)}<input type="${node.input_type}" value="${e(node.value)}" readonly></label>`;
+    case 'input': return `<label ${a('field')}>${e(node.label)}<input type="${renderingValue(inputTypes, node.input_type)}" value="${e(node.value)}" readonly></label>`;
     case 'textarea': return `<label ${a('field')}>${e(node.label)}<textarea readonly>${e(node.value)}</textarea></label>`;
-    case 'select': return `<label ${a('field')}>${e(node.label)}<select>${node.options.map((label) => `<option>${e(label)}</option>`).join('')}</select></label>`;
+    case 'select': return `<label ${a('field')}>${e(node.label)}<select disabled>${node.options.map((label) => `<option>${e(label)}</option>`).join('')}</select></label>`;
     case 'checkbox': case 'radio': return `<label ${a('choice')}>${e(node.label)}<input type="${node.kind}"${node.kind === 'radio' ? ` name="${e(node.group)}"` : ''}${node.checked ? ' checked' : ''} disabled></label>`;
     case 'switch': return `<span ${a('choice')} role="switch" aria-checked="${node.checked}" aria-disabled="true">${e(node.label)}</span>`;
     case 'badge': return `<span ${a()}>${e(node.text)}</span>`;
-    case 'alert': return `<div ${a(`alert ${node.variant}`)} role="note">${e(node.text)}</div>`;
+    case 'alert': return `<div ${a(renderingValue(alertClasses, node.variant))} role="note">${e(node.text)}</div>`;
     case 'list': { const tag = node.ordered ? 'ol' : 'ul'; return `<${tag} ${a()}>\n${node.children.map((child) => `<li>${renderNode(child)}</li>`).join('\n')}\n</${tag}>`; }
     case 'table': return `<table ${a()}><caption>${e(node.label)}</caption><thead><tr>${node.columns.map((label) => `<th scope="col">${e(label)}</th>`).join('')}</tr></thead><tbody>${node.rows.map((row) => `<tr>${row.map((cell) => `<td>${e(cell)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
     case 'tabs': return `<section ${a()} aria-label="${e(node.label)}">\n${children()}\n</section>`;

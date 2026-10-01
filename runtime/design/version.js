@@ -9,7 +9,7 @@ export const RENDERER_VERSION = '1';
 // review and new golden output; never silently regenerate an old revision with
 // new CSS or a new template. Digests are pinned, not derived from candidate data.
 const digests = Object.freeze({
-  'renderer.js': '3d0f000a9283e69766e5a98b042e0a5c767a9d24493c59306bec061ef8f9a327',
+  'renderer.js': 'fdd7998e5bd2f763e430e73737e1d36ff6161769a049bc867de4a7c54f7e1e4c',
   'export.js': '398b3b55a5415c82e1fab507ec29b35332aedfb26bb56d20837c114b399c1351',
   'export-fragments/base-1.css': '99b9c12cf04bd1217676a0eabefb0c5f0616e8d374b8f0d2e12a86a92ef18f9c',
   'export-fragments/document.html': '5baa6422d3600c0d3e67f022165366b7c0c803ba21454425a1fb7a686da81c6b',
