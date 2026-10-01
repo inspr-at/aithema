@@ -147,7 +147,7 @@ describe('host kit journal (AIT-44b/c)', () => {
     const good = record(f.sid);
     const cases = [
       ['not JSON', 400], [{ ...good, sid: randomUUID() }, 403], [{ ...good, extra: true }, 400],
-      [{ ...good, seq: 900 }, 400], [{ ...good, major: 2 }, 422], [{ ...good, minor: 2, min_reader: 2 }, 422],
+      [{ ...good, seq: 900 }, 400], [{ ...good, major: 2 }, 422], [{ ...good, minor: 3, min_reader: 3 }, 422],
       [{ ...good, writer: { kind: 'host' }, kind: 'session.control', data: { action: 'purge' } }, 403],
       [{ ...good, writer: { kind: 'worker', generation: 2 } }, 409],
       [{ ...good, data: { ...good.data, body: 'x'.repeat(8001) } }, 400],

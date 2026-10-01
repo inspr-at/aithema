@@ -1,5 +1,6 @@
-import { canonicalJson } from '../../contracts/validate.js';
+import { canonicalJson, pendingContentReference } from '../../contracts/validate.js';
 import { JournalError, decodeDocument, submissionBytes } from './port.js';
+import { verifyPendingContent } from './pending-content.js';
 
 function invalid(message) { return new JournalError(422, message, 'citation_invalid'); }
 
@@ -29,6 +30,9 @@ export function snapshotDependencies(snapshot) {
     for (const seq of item.provenance.derived_from) ids.add(seq);
   }
   for (const screen of snapshot.spec.screens) ids.add(screen.design_input_seq);
+  for (const op of snapshot.pending_ops) {
+    if (op.payload_kind === 'pending_op.content') ids.add(pendingContentReference(op.payload).record_seq);
+  }
   return [...ids].sort((a, b) => a - b);
 }
 
@@ -92,6 +96,12 @@ export async function hydrateSnapshot(port, storedSnapshot, authority) {
     closure.set(seq, checked);
   }
   if (closure.size !== ids.length) throw invalid('Host returned an incomplete citation closure');
+  for (const op of snapshot.pending_ops) {
+    if (op.payload_kind === 'pending_op.content') {
+      const ref = pendingContentReference(op.payload);
+      verifyPendingContent(op, closure.get(ref.record_seq), authority.sid, snapshot.seq);
+    }
+  }
   validateCitations(snapshot, closure);
   return closure;
 }

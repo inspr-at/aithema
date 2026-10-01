@@ -195,15 +195,17 @@ it('(e) new additive fixture documents validate without changing the original fi
 for (const name of ['budget.admit-local-zero', 'budget.recover-local-zero', 'record.budget-hold-local-zero', 'record.budget-settle-local-zero']) {
   it(`(e) reader minor 1 accepts ${name} without raising the fixture's min_reader`, () => {
     const { contract, doc } = JSON.parse(readFileSync(new URL(`../contracts/fixtures/valid/${name}.json`, import.meta.url)));
-    assert.equal(contractEntry(contract).minor, 1);
+    assert.equal(contractEntry(contract).minor, contract === 'aithema.journal.record' ? 2 : 1);
     assert.equal(doc.minor, 1);
     assert.equal(doc.min_reader, 0);
     assert.deepEqual(canExecute(doc), { ok: true });
+    assert.deepEqual(canExecute(doc, { [contract]: { major: 1, minor: 1 } }), { ok: true });
     const requiresOne = { ...doc, min_reader: 1 };
     assert.equal(validate(contract, requiresOne).ok, true);
     assert.deepEqual(canExecute(requiresOne), { ok: true });
     assert.deepEqual(canExecute(requiresOne, { [contract]: { major: 1, minor: 0 } }), { ok: false, code: 'contract_too_new' });
-    for (const future of [{ ...doc, major: 2 }, { ...doc, minor: 2, min_reader: 2 }]) {
+    const nextMinor = contractEntry(contract).minor + 1;
+    for (const future of [{ ...doc, major: 2 }, { ...doc, minor: nextMinor, min_reader: nextMinor }]) {
       assert.deepEqual(canExecute(future), { ok: false, code: 'contract_too_new' });
     }
     // AIT-48 added the speech lanes to settings (minor 1); the budget change itself leaves settings alone.

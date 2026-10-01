@@ -50,7 +50,7 @@ export class InvalidConfirmationError extends Error {
 // second shape validator. Cross-version snapshot invariants belong to the host.
 function itemDocument(item) {
   return {
-    contract: 'aithema.spec.snapshot', major: 1, minor: 0, min_reader: 0,
+    contract: 'aithema.spec.snapshot', major: 1, minor: Object.hasOwn(item, 'extensions') ? 1 : 0, min_reader: 0,
     sid: SID, client_event_id: SID, working_rev: 1, expected_prev_rev: 0,
     consumed_seq: 0, worker_generation: 1, host_mode: 'review',
     spec: { items: [item], questions: [], brief: null, screens: [] },

@@ -361,7 +361,7 @@ it('enforces verified scope, capabilities, expiry and authenticated writer indep
 it('strict contracts reject tampering, future readers, unknown fields, invalid UTF-8 and noncanonical patches', (t) => {
   const { journal } = host(t);
   assert.throws(() => journal.append(bytes(turn({ major: 2 })), authority()), code('contract_too_new', 422));
-  assert.throws(() => journal.append(bytes(turn({ minor: 2, min_reader: 2 })), authority()), code('contract_too_new', 422));
+  assert.throws(() => journal.append(bytes(turn({ minor: 3, min_reader: 3 })), authority()), code('contract_too_new', 422));
   assert.throws(() => journal.append(bytes(turn({ unknown: true })), authority()), { status: 400 });
   assert.throws(() => journal.append(Buffer.from([0xff]), authority()), { status: 400 });
   assert.throws(() => journal.append(Buffer.from('{'), authority()), { status: 400 });

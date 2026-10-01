@@ -55,12 +55,18 @@ function jsonValue(value) {
 export function input(value) {
   try {
     const bytes = typeof value === 'string' ? value : (jsonValue(value), JSON.stringify(value));
-    if (Buffer.byteLength(bytes, 'utf8') > 1024 * 1024) throw new HostError(413, 'Request exceeds 1 MiB');
     const doc = JSON.parse(bytes);
+    // Complete snapshots were never schema-bounded to 1 MiB. AIT-89 content
+    // records likewise hold large canonical envelopes; ordinary events retain
+    // their existing limit and all documents still pass document().
+    const large = doc?.contract === 'aithema.spec.snapshot' ||
+      doc?.contract === 'aithema.journal.record' && doc.kind === 'pending_op.content';
+    if (!large && Buffer.byteLength(bytes, 'utf8') > 1024 * 1024) throw new HostError(413, 'Request exceeds 1 MiB');
     jsonValue(doc);
     return { bytes, doc };
   } catch (error) {
     if (error instanceof HostError) throw error;
+    if (typeof value === 'string' && Buffer.byteLength(value, 'utf8') > 1024 * 1024) throw new HostError(413, 'Request exceeds 1 MiB');
     throw new HostError(400, 'Malformed JSON');
   }
 }

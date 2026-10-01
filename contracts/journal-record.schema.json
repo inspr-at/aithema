@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/inspr-at/aithema/contracts/journal-record.schema.json",
   "title": "Host journal event record (§3.1, §3.5, §5.3, §6.3, §9.2)",
-  "description": "Append-only event records owned by the host. The browser or worker assigns client_event_id; the host assigns seq (absent on submission, present when the host returns or lists a record). Idempotency is by (sid, client_event_id): a resubmission with the same id returns the existing seq. Critical records (authz.epoch, budget.hold, session.control, session.end, ui.confirm) are write-ahead: their effect happens only after the host acknowledged them. Hosts store each submitted document's original bytes verbatim, separately from any indexed projection (JSONB reserialisation changes bytes; §9.7 storage rule). One record's encoded JSON is at most 1 MiB. Allowed writer kinds per record kind: record-writers.json. Digests: design.input screen_ir_sha256 and tokens_sha256 are sha256 of the RFC 8785 (JSON Canonicalization Scheme) UTF-8 bytes.",
+  "description": "Append-only event records owned by the host. The browser or worker assigns client_event_id; the host assigns seq (absent on submission, present when the host returns or lists a record). Idempotency is by (sid, client_event_id): a resubmission with the same id returns the existing seq. Critical records (authz.epoch, budget.hold, session.control, session.end, ui.confirm) are write-ahead: their effect happens only after the host acknowledged them. Hosts store each submitted document's original bytes verbatim, separately from any indexed projection (JSONB reserialisation changes bytes; §9.7 storage rule). Ordinary event records' encoded JSON is at most 1 MiB. Allowed writer kinds per record kind: record-writers.json. Digests: design.input screen_ir_sha256 and tokens_sha256 are sha256 of the RFC 8785 (JSON Canonicalization Scheme) UTF-8 bytes. AIT-89: pending_op.content stores the canonical intake envelope as immutable, content-addressed data; it is exempt from the ordinary event byte bound and must be durable before its referencing snapshot.",
   "$defs": {
     "record": {
       "type": "object",
@@ -78,7 +78,8 @@
             "audit.restart",
             "session.control",
             "session.end",
-            "op.result"
+            "op.result",
+            "pending_op.content"
           ]
         },
         "data": {
@@ -279,6 +280,20 @@
             },
             "data": {
               "$ref": "#/$defs/op_result"
+            }
+          }
+        },
+        {
+          "required": [
+            "kind",
+            "data"
+          ],
+          "properties": {
+            "kind": {
+              "const": "pending_op.content"
+            },
+            "data": {
+              "$ref": "pending-op-content.schema.json#/$defs/data"
             }
           }
         }

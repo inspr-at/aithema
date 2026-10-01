@@ -132,7 +132,7 @@ it('(a) rejects oversized, nonfinite, negative and unknown tokens', () => {
 });
 
 it('(d) screen minor 1 records are strict, self-contained and refuse unsafe older execution', () => {
-  assert.equal(contractEntry('aithema.journal.record').minor, 1);
+  assert.equal(contractEntry('aithema.journal.record').minor, 2);
   assert.equal(contractEntry('aithema.screen').minor, 1);
   const doc = stored().document;
   assert.equal(validate(doc.contract, doc).ok, true);

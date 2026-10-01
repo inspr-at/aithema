@@ -4,14 +4,14 @@
     {
       "contract": "aithema.journal.record",
       "major": 1,
-      "minor": 1,
+      "minor": 2,
       "file": "journal-record.schema.json",
       "root": "/$defs/record"
     },
     {
       "contract": "aithema.spec.snapshot",
       "major": 1,
-      "minor": 1,
+      "minor": 2,
       "file": "spec-snapshot.schema.json",
       "root": "/$defs/snapshot"
     },

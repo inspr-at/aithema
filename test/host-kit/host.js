@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import { canonicalJson, sha256Hex, validateExtensions } from '../../contracts/validate.js';
+import { canonicalJson, pendingContentReference, sha256Hex, validateExtensions } from '../../contracts/validate.js';
 import { registerExtension } from '../../lib/extensions.js';
 import { validateItemProvenance } from '../../runtime/provenance.js';
+import { journalChunkBytes, verifyPendingContent } from '../../runtime/journal/pending-content.js';
 import {
   budget, capabilities, document, envelope, errorResponse, fail, HostError, input, intakeMetadata, transitions,
 } from './protocol.js';
@@ -96,7 +97,7 @@ export class MockHost {
     this.#sessions.set(authz.sid, {
       authz: structuredClone(authz), generation, principal, hostMode, evidence, currency,
       tombstone: authz.withdrawn_at !== null, seq: 0, workingRev: 0, snapshot: null,
-      records: [], events: new Map(), operations: new Map(), imports: new Map(), drafts: new Map(),
+      records: [], events: new Map(), content: new Map(), uploads: new Map(), operations: new Map(), imports: new Map(), drafts: new Map(),
       intakeRev: 0, intakeSnapshot: null, extensionRegistry: [], attempts: new Map(), holds: new Map(), claims: new Map(), holdSequence: 0,
     });
     return structuredClone(authz);
@@ -111,6 +112,7 @@ export class MockHost {
   takeover(sid) {
     const session = this.#session(sid);
     if (session.generation === Number.MAX_SAFE_INTEGER) throw new Error('Generation exhausted');
+    session.uploads.clear();
     return ++session.generation;
   }
 
@@ -134,6 +136,7 @@ export class MockHost {
     session.authz.epoch = epoch;
     session.authz.withdrawn_at = new Date(this.now() * 1000).toISOString();
     session.tombstone = tombstone;
+    session.uploads.clear();
     return { record, control };
   }
 
@@ -189,6 +192,22 @@ export class MockHost {
       if (route.method === 'GET') return this.#read(route, session);
       if (route.action === 'accept') return this.#accept(route, session, request);
       const payload = input(request.body);
+      if (route.area === 'journal' && route.query.has('upload')) return this.#journalUpload(route, session, actor, payload);
+      if (route.area === 'intake' && route.query.get('content') === 'reference') {
+        const op = { payload: payload.bytes };
+        let canonical;
+        try {
+          const ref = pendingContentReference(op.payload);
+          const record = session.records.find((entry) => entry.seq === ref.record_seq);
+          canonical = verifyPendingContent(op, record ? { document: record } : null, route.sid);
+        } catch { fail('citation_invalid'); }
+        const content = JSON.parse(canonical);
+        if (request.intakeMetadata !== undefined && canonicalJson(intakeMetadata(request.intakeMetadata)) !== canonicalJson(content.metadata)) {
+          fail('idempotency_conflict');
+        }
+        const metadataHeader = Buffer.from(canonicalJson(content.metadata)).toString('base64url');
+        return this.#intake(route, session, actor, input(content.document_bytes), request.opKey, metadataHeader);
+      }
       if (route.area === 'journal') return this.#journal(route, session, actor, payload);
       if (route.area === 'intake') return this.#intake(route, session, actor, payload, request.opKey, request.intakeMetadata);
       return this.#ledger(route, session, actor, payload);
@@ -209,8 +228,27 @@ export class MockHost {
       return success({ authorization: document(session.authz, 'aithema.authz'), worker_generation: session.generation,
         auth_epoch: session.authz.epoch, tombstone: session.tombstone, issued_at: new Date(this.now() * 1000).toISOString() });
     }
-    if (route.action === 'cursor') return success({ seq: session.seq, working_rev: session.workingRev, snapshot: session.snapshot });
+    if (route.action === 'cursor') return success({ seq: session.seq, working_rev: session.workingRev,
+      snapshot: route.query.get('snapshot') === 'seq' && session.snapshot ? { seq: session.snapshot.seq } : session.snapshot });
     if (route.action === 'records') {
+      if (route.query.has('digests')) {
+        const digests = route.query.get('digests').split(',');
+        if (digests.some((digest) => !/^[0-9a-f]{64}$/.test(digest))) throw new HostError(400, 'Invalid content digests');
+        return success([...new Set(digests)].flatMap((digest) => {
+          const record = session.content.get(digest);
+          return record ? [{ seq: record.seq }] : [];
+        }));
+      }
+      if (route.query.has('offset')) {
+        const seq = count(route.query.get('ids'), null);
+        const record = session.records.find((entry) => entry.seq === seq);
+        if (!record) throw new HostError(404, 'Missing journal record');
+        const offset = count(route.query.get('offset'), 0);
+        const length = count(route.query.get('length'), journalChunkBytes);
+        const bytes = Buffer.from(session.events.get(record.client_event_id).bytes, 'utf8');
+        if (length < 1 || length > journalChunkBytes || offset >= bytes.length) throw new HostError(400, 'Invalid chunk range');
+        return success({ seq, offset, total: bytes.length, chunk: bytes.subarray(offset, offset + length).toString('base64') });
+      }
       const after = count(route.query.get('after'), 0);
       let ids = null;
       if (route.query.has('ids')) ids = new Set(route.query.get('ids').split(',').map((id) => count(id, null)));
@@ -240,10 +278,19 @@ export class MockHost {
       if (previous.bytes !== payload.bytes) fail('idempotency_conflict');
       return previous.record;
     }
+    if (payload.doc.kind === 'pending_op.content') {
+      const prior = session.content.get(payload.doc.data.sha256);
+      if (prior) {
+        if (canonicalJson(prior.data) !== canonicalJson(payload.doc.data)) fail('idempotency_conflict');
+        session.events.set(payload.doc.client_event_id, { bytes: payload.bytes, record: prior });
+        return prior;
+      }
+    }
     const record = document({ ...structuredClone(payload.doc), seq: session.seq + 1 }, payload.doc.contract);
     session.seq = record.seq;
     session.records.push(record);
     session.events.set(record.client_event_id, { bytes: payload.bytes, record });
+    if (record.kind === 'pending_op.content') session.content.set(record.data.sha256, record);
     return record;
   }
 
@@ -259,11 +306,12 @@ export class MockHost {
   }
 
   #journal(route, session, actor, payload) {
+    const acknowledgement = (record) => success(route.query.get('ack') === 'seq' ? { seq: record.seq } : record);
     const contract = route.action === 'snapshots' ? 'aithema.spec.snapshot' : 'aithema.journal.record';
     if (!payload.doc || payload.doc.contract !== contract) throw new HostError(400, `Expected ${contract}`);
     if (route.action === 'op.result' && payload.doc.kind !== 'op.result') throw new HostError(400, 'Expected op.result record');
     const previous = session.events.get(payload.doc.client_event_id);
-    if (previous) return success(this.#append(session, payload));
+    if (previous) return acknowledgement(this.#append(session, payload));
     // Token fencing already passed. Exact retries retain their original generation.
     this.#bound(session, actor, payload.doc);
     const doc = document(payload.doc, contract);
@@ -271,13 +319,55 @@ export class MockHost {
     if (contract === 'aithema.spec.snapshot') {
       if (doc.host_mode !== session.hostMode || doc.consumed_seq > session.seq) throw new HostError(400, 'Invalid snapshot context');
       if (doc.expected_prev_rev !== session.workingRev) throw new HostError(409, 'Snapshot compare-and-swap failed');
+      for (const op of doc.pending_ops) {
+        if (op.payload_kind !== 'pending_op.content') continue;
+        const ref = pendingContentReference(op.payload);
+        const record = session.records.find((entry) => entry.seq === ref.record_seq);
+        try { verifyPendingContent(op, record ? { document: record } : null, route.sid, session.seq + 1); }
+        catch (error) { if (error.code === 'citation_invalid') fail(error.code); throw error; }
+      }
       const record = this.#append(session, payload);
       session.workingRev = record.working_rev;
       session.snapshot = record;
-      return success(record);
+      return acknowledgement(record);
     }
     if (doc.writer.kind === 'host') throw new HostError(403, 'Delegated tokens cannot impersonate the host');
-    return success(this.#append(session, payload));
+    return acknowledgement(this.#append(session, payload));
+  }
+
+  /** Transport staging is never a journal record; only a complete upload commits. */
+  #journalUpload(route, session, actor, payload) {
+    const digest = route.query.get('upload');
+    const { offset, total, chunk } = payload.doc ?? {};
+    if (!['records', 'snapshots'].includes(route.action) || !/^[0-9a-f]{64}$/.test(digest) ||
+        route.query.get('ack') !== 'seq' || !payload.doc || typeof payload.doc !== 'object' || Array.isArray(payload.doc) ||
+        Object.keys(payload.doc).some((key) => !['offset', 'total', 'chunk'].includes(key)) ||
+        !Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(total) || total <= 1024 * 1024 || offset >= total ||
+        typeof chunk !== 'string' || chunk.length > 4 * Math.ceil(journalChunkBytes / 3)) throw new HostError(400, 'Invalid journal upload');
+    const part = Buffer.from(chunk, 'base64');
+    if (part.toString('base64') !== chunk || part.length !== Math.min(journalChunkBytes, total - offset)) {
+      throw new HostError(400, 'Invalid journal upload chunk');
+    }
+    const key = `${actor.gen}:${route.action}:${digest}`;
+    if (offset === 0) {
+      if (!session.uploads.has(key) && session.uploads.size >= 64) throw new HostError(413, 'Too many unfinished uploads');
+      session.uploads.set(key, { total, offset: 0, chunks: [] });
+    }
+    const staged = session.uploads.get(key);
+    if (!staged || staged.total !== total || staged.offset !== offset) throw new HostError(400, 'Out-of-order journal upload');
+    staged.chunks.push(part);
+    staged.offset += part.length;
+    if (staged.offset < total) return success({ offset: staged.offset, total });
+    session.uploads.delete(key);
+    let text;
+    try { text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(Buffer.concat(staged.chunks)); }
+    catch { throw new HostError(400, 'Invalid UTF-8 journal upload'); }
+    if (sha256Hex(text) !== digest) fail('idempotency_conflict');
+    const complete = input(text);
+    if (complete.doc.contract !== 'aithema.spec.snapshot' && complete.doc.kind !== 'pending_op.content') {
+      throw new HostError(413, 'Ordinary journal events retain their 1 MiB limit');
+    }
+    return this.#journal(route, session, actor, complete);
   }
 
   #bound(session, actor, doc, { generation = true } = {}) {
