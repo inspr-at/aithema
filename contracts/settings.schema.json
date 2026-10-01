@@ -147,6 +147,31 @@
           "properties": {
             "transport": {
               "const": "inline"
+            },
+            "vad": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "adapter",
+                "threshold",
+                "max_frame_ms"
+              ],
+              "properties": {
+                "adapter": {
+                  "const": "pcm-energy-vad"
+                },
+                "threshold": {
+                  "type": "number",
+                  "maximum": 1,
+                  "minimum": 0.000001
+                },
+                "max_frame_ms": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 100
+                }
+              },
+              "description": "Optional bounded inline PCM16 energy VAD. Activity only; no end-of-turn quality claim."
             }
           }
         },

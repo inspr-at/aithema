@@ -154,6 +154,12 @@ export function computeCapabilityMatrix(settings, context = {}) {
     };
   }
   const voiceReasons = [...new Set(['stt', 'tts', 'reaction'].flatMap((lane) => lanes[lane].reasons))];
+  if (settings.voice.vad) {
+    if (!context.vad) voiceReasons.push('vad_missing');
+    else if (!isObject(context.vad) || context.vad.id !== settings.voice.vad.adapter
+        || typeof context.vad.healthy !== 'boolean') voiceReasons.push('vad_invalid');
+    else if (!context.vad.healthy) voiceReasons.push('vad_unhealthy');
+  }
   const captureReason = authReason ?? (context.authorization.record.purposes.includes('intake') ? null : 'authorization_purpose_missing');
   return deepFreeze({
     settings_sha256: resolved.settings_sha256,

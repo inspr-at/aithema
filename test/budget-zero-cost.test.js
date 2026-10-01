@@ -206,7 +206,8 @@ for (const name of ['budget.admit-local-zero', 'budget.recover-local-zero', 'rec
     for (const future of [{ ...doc, major: 2 }, { ...doc, minor: 2, min_reader: 2 }]) {
       assert.deepEqual(canExecute(future), { ok: false, code: 'contract_too_new' });
     }
-    assert.equal(contractEntry('aithema.settings').minor, 0);
+    // AIT-48 added the speech lanes to settings (minor 1); the budget change itself leaves settings alone.
+    assert.equal(contractEntry('aithema.settings').minor, 1);
     assert.equal(contractEntry('aithema.authz').minor, 0);
   });
 }

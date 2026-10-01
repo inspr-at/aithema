@@ -31,6 +31,7 @@ export const CAPABILITY_REASONS = Object.freeze([
   'adapter_unhealthy', 'adapter_unsupported', 'authorization_missing', 'authorization_invalid',
   'authorization_scope_mismatch', 'authorization_withdrawn', 'authorization_purpose_missing',
   'authorization_processor_missing', 'budget_missing', 'budget_invalid', 'budget_denied',
+  'vad_missing', 'vad_invalid', 'vad_unhealthy',
 ]);
 
 export class SettingsError extends Error {

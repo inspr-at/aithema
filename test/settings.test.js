@@ -95,10 +95,10 @@ describe('AIT-40 (a), (c), (d), (e): strict contract and executable fixtures', (
   });
 
   it('rejects a too-new min_reader and accepts a known shape in a newer minor', () => {
-    const doc = { ...settings(), minor: 1, min_reader: 1 };
+    const doc = { ...settings(), minor: 2, min_reader: 2 };
     assert.equal(validate('aithema.settings', doc).ok, true);
     assert.throws(() => resolveSettings(doc), { code: 'contract_too_new' });
-    assert.deepEqual(resolveSettings(doc, { now: NOW, reader: { 'aithema.settings': { major: 1, minor: 1 } } }).issues, []);
+    assert.deepEqual(resolveSettings(doc, { now: NOW, reader: { 'aithema.settings': { major: 1, minor: 2 } } }).issues, []);
     assert.deepEqual(resolveSettings({ ...doc, min_reader: 0 }, { now: NOW }).issues, []);
   });
 
