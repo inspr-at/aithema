@@ -11,13 +11,35 @@ import { LatencyLedger } from '../audit/latency.js';
 import { EngineError, checkClock, json, normalizeError, runtimeCall, systemClock } from './common.js';
 import { applyConfirmations, applySpecPatch, pendingConfirmations, queueCorrection } from './patch.js';
 import { likelyExtraQuestion, renderReaction, validateReaction } from './reaction.js';
-import { ControlledRenderer, DesignScheduler } from './design.js';
-import { validateEngineMetadata } from './metadata.js';
+import { DesignScheduler } from './design.js';
+import { validateDesignResults, validateEngineMetadata } from './metadata.js';
+import { designRevision } from '../design/renderer.js';
+import { storedDesignInput } from '../design/input.js';
+import { DesignRenderer } from '../design/port.js';
 
 const writers = loadContractFile('record-writers.json').writers;
 const actionable = new Set(['turn', 'source', 'reaction', 'ui.confirm', 'op.result']);
 const header = (contract) => ({ contract, major: 1, minor: 0, min_reader: 0 });
 const stopped = () => new EngineError('authority_stopped', 'Local inference/output stopped; committed claims still settle', { status: 409 });
+
+function screenBinding(record) {
+  const input = storedDesignInput(record);
+  return { screen_ref: input.screen_ir.screen_ref, design_input_seq: input.design_input_seq,
+    design_rev: designRevision({ ...input, tokens_digest: sha256Hex(canonicalJson(input.tokens)) }) };
+}
+
+function checkScreenBinding(binding, record) {
+  if (!record || canonicalJson(binding) !== canonicalJson(screenBinding(record))) {
+    throw new EngineError('invalid_design_binding', 'Screen binding differs from its immutable design input', { status: 422 });
+  }
+}
+
+function checkEventBinding(binding, events) {
+  const input = events.find((record) => record.seq === binding.design_input_seq);
+  if (!input || input.kind !== 'design.input') throw new EngineError('invalid_design_binding', 'Design completion has no acknowledged input', { status: 422 });
+  const { seq, ...document } = input;
+  checkScreenBinding(binding, { bytes: Buffer.from(canonicalJson(document)), document: { ...document, seq } });
+}
 
 /**
  * Text-only session worker. The host journal is authoritative, never this cache.
@@ -29,7 +51,8 @@ const stopped = () => new EngineError('authority_stopped', 'Local inference/outp
  *
  * Acknowledged reaction records are text delivery: a host UI renders/replays
  * that journal. No speculative output is exposed before its durable append.
- * Real playback acknowledgements and real design rendering are separate work.
+ * Real playback acknowledgements are separate work. The default design port
+ * journals caller-supplied immutable IR before producing deterministic HTML.
  */
 export class TextEngine {
   #journal;
@@ -71,13 +94,16 @@ export class TextEngine {
    * dependencies. priceUsage(usage|null,lane) MUST return a known final integer
    * micro-cost; throwing or missing usage/cost settles unknown at the maximum.
    * Models/maximums are server configuration, never selected by model output.
+   * getDesignInput(revision, {attempt}) supplies original design.input bytes
+   * for the default real renderer; the renderer retains those bytes on retry.
+   * A missing reader explicitly fails design attempts; it never selects a stub.
    */
   constructor(options = {}) {
     runtimeCall(() => {
       const { journal, journalPort, budget, authorization, reasoning, hostMode = 'review',
         currency = 'EUR', maxMicro, models = {}, priceUsage, settings, preferences,
         clock = systemClock, uuid = randomUUID, checkpoint = () => {}, latency,
-        renderer, designWaitMs = 30_000, onError = () => {} } = options;
+        renderer, getDesignInput, designWaitMs = 30_000, onError = () => {} } = options;
       checkClock(clock);
       for (const [object, methods] of [[journal, ['append', 'resume']], [journalPort, ['cursor', 'recordsAfter', 'recordsByIds']],
         [budget, ['admit', 'claim', 'settle', 'listOpen', 'recover', 'recoverOpen', 'isCurrent', 'setAuthority']],
@@ -88,7 +114,8 @@ export class TextEngine {
         ? resolveSettings(settings, { now: new Date(clock.wallNow()).toISOString(), preferences }).lanes : null;
       if (!['review', 'working_spec_only'].includes(hostMode) || !/^[A-Z]{3}$/.test(currency)
           || typeof priceUsage !== 'function' || typeof uuid !== 'function' || typeof checkpoint !== 'function'
-          || typeof onError !== 'function' || ['reaction', 'spec', 'design'].some((lane) => !Number.isSafeInteger(maxMicro?.[lane])
+          || typeof onError !== 'function' || getDesignInput !== undefined && typeof getDesignInput !== 'function'
+          || ['reaction', 'spec', 'design'].some((lane) => !Number.isSafeInteger(maxMicro?.[lane])
             || maxMicro[lane] < 0 || (maxMicro[lane] < 1 && !isOperatorLocalLane(configuredLanes?.[lane])))) {
         throw new EngineError('invalid_configuration', 'Host mode, currency, local-only zero lane maxima and explicit cost adapter required');
       }
@@ -99,16 +126,36 @@ export class TextEngine {
       this.#settings = settings === undefined ? undefined : json(settings);
       this.#preferences = preferences === undefined ? undefined : json(preferences);
       this.#latency = latency ?? new LatencyLedger({ now: clock.now });
-      this.#stub = renderer ?? new ControlledRenderer({ clock });
-      this.#design = new DesignScheduler({ clock, renderer: this.#stub,
+      this.#renderer = renderer ?? new DesignRenderer({ journal, clock, getInput: getDesignInput ?? (() => {
+        throw new EngineError('invalid_configuration', 'Default design renderer requires getDesignInput');
+      }) });
+      this.#design = new DesignScheduler({ clock, renderer: this.#renderer,
         getRevision: () => ({ working_rev: this.#state.working_rev, spec: this.#state.spec }), waitMs: designWaitMs,
         execute: (request) => this.#paid('design', request, async (body) => {
-          const output = await this.#stub.render(body);
+          const output = json(await this.#renderer.render(body));
+          if (['screen_ref', 'design_input_seq', 'design_rev'].some((key) => Object.hasOwn(output ?? {}, key))) {
+            const binding = { screen_ref: output.screen_ref, design_input_seq: output.design_input_seq, design_rev: output.design_rev };
+            validateDesignResults([{ intent_id: 'render-output', state: 'rendered', working_rev: body.revision.working_rev,
+              rendered_rev: body.revision.working_rev, attempts: body.attempt, screen: binding }]);
+            if (output.working_rev !== body.revision.working_rev) throw new EngineError('invalid_design_binding', 'Renderer output names a different captured revision', { status: 422 });
+            const rows = await this.#host(() => this.#port.recordsByIds([binding.design_input_seq], this.#journal.authority));
+            if (!Array.isArray(rows) || rows.length !== 1) throw new EngineError('invalid_design_binding', 'Renderer output has no unique acknowledged input', { status: 422 });
+            const row = checkedRecord(rows[0], this.#journal.authority.sid);
+            checkScreenBinding(binding, row);
+            if (row.document.seq !== binding.design_input_seq) throw new EngineError('invalid_design_binding', 'Host returned a different design input sequence', { status: 422 });
+            const screenRefs = new Set(this.#state.spec.screens.map((screen) => screen.screen_ref));
+            for (const result of this.#design.state.pending_completions) {
+              if (result.screen) screenRefs.add(result.screen.screen_ref);
+            }
+            if (!screenRefs.has(binding.screen_ref) && screenRefs.size >= 12) {
+              throw new EngineError('screen_bound', 'Working spec screen bound reached', { status: 413 });
+            }
+          }
           return { output, actual_micro: this.#price(null, 'design') };
         }), onComplete: (results) => this.#persistDesignResults(results), onError });
     });
   }
-  #stub;
+  #renderer;
 
   get state() { return runtimeCall(() => this.#state ? json(this.#state) : null); }
   get metrics() { return runtimeCall(() => json(this.#metrics)); }
@@ -142,7 +189,7 @@ export class TextEngine {
     }
     if (cursor.worker_generation !== authority.gen) throw new EngineError('fenced', 'Worker generation changed', { status: 409, code: 'fenced_generation' });
     if (cursor.auth_epoch !== authority.auth_epoch) throw new EngineError('revoked', 'Authorization epoch changed', { status: 409, code: 'revoked' });
-    await this.#host(() => hydrateSnapshot(this.#port, cursor.snapshot, authority));
+    const closure = await this.#host(() => hydrateSnapshot(this.#port, cursor.snapshot, authority));
     // Immutable event bodies may be cached; snapshots and the cursor remain
     // host-authoritative. Do not reload every full historical snapshot on each
     // CAS or delivery step. A fresh process still builds the real turn index.
@@ -177,6 +224,12 @@ export class TextEngine {
     const patch = JSON.parse(state.patch.canonical);
     this.#meta = patch.engine_state ?? { version: 1, claims: {}, receipts: [], outbox: null, last_activity_at: this.#clock.wallNow() };
     validateEngineMetadata(state, this.#meta, this.#events);
+    for (const screen of state.spec.screens) {
+      if (Object.hasOwn(screen, 'design_rev')) checkScreenBinding(screen, closure.get(screen.design_input_seq));
+    }
+    for (const result of this.#meta.design_results ?? []) {
+      if (result.screen) checkEventBinding(result.screen, this.#events);
+    }
     this.#meta.design_results ??= [];
     this.#meta.confirmation_results ??= [];
     for (const list of [state.spec.questions.map((q) => q.question_id), state.corrections.map((c) => c.correction_id)]) {
@@ -203,6 +256,12 @@ export class TextEngine {
     const next = { ...body, client_event_id: this.#uuid(), worker_generation: authority.gen,
       working_rev: state.working_rev + 1, expected_prev_rev: state.working_rev,
       patch: { canonical: patch, sha256: sha256Hex(patch) } };
+    if (state.spec.screens.some((screen) => Object.hasOwn(screen, 'design_rev'))
+        || metadata.design_results.some((result) => Object.hasOwn(result, 'screen'))) {
+      // Binding identity is additive presentation data. Older strict schemas
+      // reject the new field safely; it introduces no new execution authority.
+      next.minor = Math.max(next.minor, 2);
+    }
     const completed = new Set(this.#events.filter((r) => r.kind === 'op.result').map((r) => r.data.op_key));
     next.pending_ops = next.pending_ops.filter((op) => !completed.has(op.op_key));
     this.#checkDocument(next);
@@ -677,6 +736,7 @@ export class TextEngine {
   }
 
   async #persistDesignResults(results) {
+    validateDesignResults(results);
     await this.#checkpoint('design.before_finalize');
     const state = await this.#mutate({ lane: 'design', effect: 'served', intent_ids: results.map((result) => result.intent_id) }, (view) => {
       const byId = new Map(view.metadata.design_results.map((result) => [result.intent_id, result]));
@@ -684,9 +744,26 @@ export class TextEngine {
         const prior = byId.get(result.intent_id);
         if (prior && canonicalJson(prior) !== canonicalJson(result)) throw new EngineError('invalid_intent', 'Design completion is immutable', { code: 'idempotency_conflict', status: 409 });
         byId.set(result.intent_id, result);
+        if (result.screen) checkEventBinding(result.screen, view.events);
       }
       if (byId.size === view.metadata.design_results.length) return false;
       view.metadata.design_results = [...byId.values()];
+      // Completion retries may deliver older runs after a newer run. Persist
+      // the newest captured revision for each screen, independent of batch order.
+      const newest = new Map();
+      for (const result of byId.values()) {
+        if (!result.screen) continue;
+        const prior = newest.get(result.screen.screen_ref);
+        if (!prior || result.rendered_rev > prior.rendered_rev
+            || result.rendered_rev === prior.rendered_rev && result.screen.design_input_seq > prior.screen.design_input_seq) {
+          newest.set(result.screen.screen_ref, result);
+        }
+      }
+      for (const { screen } of newest.values()) {
+        const index = view.state.spec.screens.findIndex((row) => row.screen_ref === screen.screen_ref);
+        if (index < 0) view.state.spec.screens.push(json(screen));
+        else view.state.spec.screens[index] = json(screen);
+      }
     });
     await this.#checkpoint('design.after_finalize');
     return state;

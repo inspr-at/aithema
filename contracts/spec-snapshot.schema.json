@@ -182,6 +182,10 @@
               },
               "design_input_seq": {
                 "$ref": "common.schema.json#/$defs/count"
+              },
+              "design_rev": {
+                "description": "Optional deterministic artefact identity of the referenced immutable design.input; legacy bindings omit it.",
+                "$ref": "common.schema.json#/$defs/sha256"
               }
             }
           }

@@ -118,3 +118,9 @@ export {
 } from './preview.js';
 
 export { extractDocument, extractPdfInChild, activePdfParserCount } from './extract.js';
+
+export {
+  DesignError, VOCABULARY_V1, lintScreen, validateScreen, validateTokens,
+  RENDERER_VERSION, designRevision, renderScreen, tokensStylesheet,
+  designInputRecord, renderStoredDesign, renderHydratedDesign, DesignRenderer, exportDesign,
+} from './design/index.js';

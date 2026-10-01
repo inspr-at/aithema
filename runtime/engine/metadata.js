@@ -7,13 +7,22 @@ export function validateDesignResults(results, workingRev = Infinity) {
     const ids = new Set();
     if (!Array.isArray(results) || results.length > 400) throw new EngineError('invalid_resume', 'Invalid design completions', { status: 422 });
     for (const result of results) {
-      exactKeys(result, ['intent_id', 'state', 'working_rev', 'rendered_rev', 'attempts']);
+      exactKeys(result, ['intent_id', 'state', 'working_rev', 'rendered_rev', 'attempts', 'screen'],
+        ['intent_id', 'state', 'working_rev', 'rendered_rev', 'attempts']);
       if (!ref(result.intent_id) || ids.has(result.intent_id) || !['rendered', 'render_failed', 'blocked'].includes(result.state)
           || !Number.isSafeInteger(result.working_rev) || result.working_rev < 1
           || !Number.isSafeInteger(result.rendered_rev) || result.rendered_rev < result.working_rev
           || result.rendered_rev > workingRev || ![1, 2].includes(result.attempts)
           || result.state === 'render_failed' && result.attempts !== 2) {
         throw new EngineError('invalid_resume', 'Invalid design completion identity or revision', { status: 422 });
+      }
+      if (Object.hasOwn(result, 'screen')) {
+        exactKeys(result.screen, ['screen_ref', 'design_input_seq', 'design_rev']);
+        if (result.state !== 'rendered' || !ref(result.screen.screen_ref)
+            || !Number.isSafeInteger(result.screen.design_input_seq) || result.screen.design_input_seq < 1
+            || typeof result.screen.design_rev !== 'string' || !/^[0-9a-f]{64}$(?![\s\S])/.test(result.screen.design_rev)) {
+          throw new EngineError('invalid_resume', 'Invalid design completion screen binding', { status: 422 });
+        }
       }
       ids.add(result.intent_id);
     }
