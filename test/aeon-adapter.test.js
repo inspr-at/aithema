@@ -600,7 +600,7 @@ it('(a,d) append rejects changed acknowledgements, unsupported contracts and ori
     return response;
   } });
   await assert.rejects(s.journal.append(bytes(record(s.f.sid)), s.authority), code('citation_invalid', 422));
-  const tooNew = record(s.f.sid, 'turn', null, { minor: 2, min_reader: 2 });
+  const tooNew = record(s.f.sid, 'turn', null, { minor: 3, min_reader: 3 });
   await assert.rejects(s.journal.append(bytes(tooNew), s.authority), code('contract_too_new', 422));
   await assert.rejects(new AeonJournal({ http: s.http }).append(bytes(record(s.f.sid)), s.authority));
 });

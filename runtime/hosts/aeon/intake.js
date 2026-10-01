@@ -1,5 +1,8 @@
-import { canonicalJson, sha256Hex, validate } from '../../../contracts/validate.js';
+import { randomUUID } from 'node:crypto';
+import { canonicalJson, pendingContentReference, sha256Hex, validate } from '../../../contracts/validate.js';
 import { decodeDocument, submissionBytes } from '../../journal/port.js';
+import { checkedRecord } from '../../journal/hydrate.js';
+import { verifyPendingContent } from '../../journal/pending-content.js';
 import { validateItemProvenance } from '../../provenance.js';
 import { AeonError, checkDocument, UUID } from './http.js';
 
@@ -28,7 +31,7 @@ function candidate(doc, op, supersedes) {
 
 function manifest(op, sid) {
   // Reuse the merged pending_op schema through its real snapshot root.
-  const shell = { contract: 'aithema.spec.snapshot', major: 1, minor: 0, min_reader: 0,
+  const shell = { contract: 'aithema.spec.snapshot', major: 1, minor: 2, min_reader: op.payload_kind ? 2 : 0,
     sid, client_event_id: sid, working_rev: 1, expected_prev_rev: 0, consumed_seq: 0,
     worker_generation: 1, host_mode: 'review', spec: { items: [], questions: [], brief: null, screens: [] },
     pending_ops: [op], corrections: [], patch: { canonical: '{}', sha256: sha256Hex('{}') } };
@@ -38,9 +41,11 @@ function manifest(op, sid) {
 
 /**
  * The mock/plugin protocol accepts unchanged contract documents. Host-only
- * projection metadata travels in X-Aithema-Intake (base64url canonical JSON),
- * with X-Supersedes-Draft-Id also naming the replacement predecessor. Keeping
- * both metadata and document_bytes in pending_op.payload makes restart retries
+ * projection metadata travels in X-Aithema-Intake (base64url canonical JSON)
+ * for legacy integrations. The chunked plugin resolves both original bytes
+ * and metadata from the referenced content. X-Supersedes-Draft-Id also names
+ * the replacement predecessor. Keeping
+ * both metadata and document_bytes in immutable pending_op.content makes retries
  * independent of current source mappings, generations, clocks or serialisers.
  * The real Aeon plugin must consume this metadata when creating native drafts.
  * Typed working-item extensions stay inside document_bytes, byte-exact across
@@ -50,10 +55,18 @@ export class AeonIntake {
   #http;
   #bindings = new Map();
   #supportsReplace;
+  #journal;
+  #now;
+  #uuid;
 
-  constructor({ http, supportsReplace = false }) {
+  constructor({ http, supportsReplace = false, journal, now = () => Date.now(), uuid = randomUUID }) {
     if (!http || typeof http.request !== 'function' || typeof supportsReplace !== 'boolean') throw new TypeError('AeonIntake requires AeonHttp and declared host features');
+    if (journal !== undefined && (!journal || ['append', 'recordsByIds', 'recordsByDigests'].some((key) => typeof journal[key] !== 'function')) ||
+        typeof now !== 'function' || typeof uuid !== 'function') throw new TypeError('Invalid pending content journal configuration');
     this.#http = http;
+    this.#journal = journal;
+    this.#now = now;
+    this.#uuid = uuid;
     // intake.write alone does not prove that AEON-P02 is installed (§13).
     this.#supportsReplace = supportsReplace;
   }
@@ -73,8 +86,13 @@ export class AeonIntake {
     return { ...binding };
   }
 
-  /** Caller owns durable counters. No counter is guessed from a volatile cache. */
-  prepare({ op, n, bytes, supersedes_draft_id = null, conversation_source_id = null, context }) {
+  /**
+   * Caller owns durable counters. With a journal binding, await prepare() with
+   * authority: it acknowledges content BEFORE returning the small manifest.
+   * Persist that manifest in a minor 2 / min_reader 2 snapshot. The unbound,
+   * synchronous API is retained solely for legacy inline integrations.
+   */
+  prepare({ op, n, bytes, supersedes_draft_id = null, conversation_source_id = null, context, authority }) {
     if (!operations[op] || !Number.isSafeInteger(n) || n < 0) throw new AeonError(400, 'Invalid intake operation or counter');
     if (op === 'replace' && !this.#supportsReplace) throw new AeonError(501, 'Host atomic replacement support is required');
     const original = submissionBytes(bytes);
@@ -110,17 +128,54 @@ export class AeonIntake {
       metadata = { kind: item.kind === 'requirement' ? 'requirement' : 'brief', citations, supersedes_draft_id };
     }
     const payload = canonicalJson({ document_bytes: original.toString('utf8'), metadata });
+    if (this.#journal) return this.#prepareReference(op, n, payload, authority);
     const result = { op_key: `${sid}:${operations[op].verb}:${n}`, op, payload_sha256: sha256Hex(payload), payload };
     manifest(result, sid);
     return result;
   }
 
-  #decode(request) {
-    const { payload_bytes, ...op } = request;
+  async #prepareReference(op, n, canonical, authority) {
+    const sid = this.#http.scope.sid;
+    if (authority?.sid !== sid || authority.writer_kind !== 'worker') throw new AeonError(403, 'Content preparation requires session worker authority');
+    const data = { sha256: sha256Hex(canonical), size: Buffer.byteLength(canonical, 'utf8'), canonical };
+    const prior = await this.#journal.recordsByDigests([data.sha256], authority);
+    if (!Array.isArray(prior) || prior.length > 1) throw invalid('Unexpected content address lookup');
+    const stored = prior[0] ?? await this.#journal.append(Buffer.from(canonicalJson({
+      contract: 'aithema.journal.record', major: 1, minor: 2, min_reader: 2,
+      sid, client_event_id: this.#uuid(), writer: { kind: 'worker', generation: authority.gen },
+      recorded_at: new Date(this.#now()).toISOString(), kind: 'pending_op.content', data,
+    })), authority);
+    const record = checkedRecord(stored, sid);
+    const payload = canonicalJson({ kind: 'pending_op.content', record_seq: record.document.seq, sha256: data.sha256, size: data.size });
+    const result = { op_key: `${sid}:${operations[op].verb}:${n}`, op, payload_kind: 'pending_op.content', payload_sha256: sha256Hex(payload), payload };
+    verifyPendingContent(result, record, sid);
+    manifest(result, sid);
+    return result;
+  }
+
+  async #decode(request, authority) {
+    const { payload_bytes, content_record, ...op } = request;
     manifest(op, this.#http.scope.sid);
     if (payload_bytes !== undefined && !submissionBytes(payload_bytes).equals(Buffer.from(op.payload, 'utf8'))) throw new AeonError(409, 'Retry payload bytes changed', 'idempotency_conflict');
+    let canonical = op.payload;
+    if (op.payload_kind === 'pending_op.content') {
+      if (!this.#journal) throw new AeonError(409, 'Referenced operations require a content journal binding');
+      const ref = pendingContentReference(op.payload);
+      let stored = content_record;
+      if (stored === undefined) {
+        let records;
+        try { records = await this.#journal.recordsByIds([ref.record_seq], authority); }
+        catch (error) {
+          if (error.status === 404) throw invalid('Pending content record is missing');
+          throw error;
+        }
+        if (!Array.isArray(records) || records.length !== 1) throw invalid('Pending content record is missing');
+        stored = records[0];
+      }
+      canonical = verifyPendingContent(op, checkedRecord(stored, this.#http.scope.sid), this.#http.scope.sid);
+    } else if (content_record !== undefined) throw new AeonError(400, 'Inline operations cannot supply content records');
     let payload;
-    try { payload = JSON.parse(op.payload); } catch { throw new AeonError(400, 'Malformed intake payload'); }
+    try { payload = JSON.parse(canonical); } catch { throw new AeonError(400, 'Malformed intake payload'); }
     if (!payload || typeof payload.document_bytes !== 'string' || !payload.metadata || Object.keys(payload).some((key) => !['document_bytes', 'metadata'].includes(key))) {
       throw new AeonError(400, 'Invalid persisted intake envelope');
     }
@@ -147,14 +202,21 @@ export class AeonIntake {
 
   /** Execute/retry once. Arbitration codes remain visible to the engine. */
   async execute(request, authority) {
-    const { op, payload, doc } = this.#decode(request);
+    const { op, payload, doc } = await this.#decode(request, authority);
     if (op.op === 'replace' && !this.#supportsReplace) throw new AeonError(501, 'Host atomic replacement support is required');
     const metadata = payload.metadata;
+    // The chunked plugin reads its own immutable record for intake writes.
+    // Neither the document nor large citation metadata travels in HTTP headers.
+    // Idempotency compares the original document bytes and metadata after
+    // host-side resolution. A local SQLite
+    // binding has no remote record and continues to send the original document.
+    const referenced = op.payload_kind === 'pending_op.content' && this.#journal.intakeReferences === true;
     const response = await this.#http.request({ area: 'intake', action: operations[op.op].action,
       id: metadata.supersedes_draft_id ?? null, method: 'POST', capability: 'intake.write', authority,
-      bytes: Buffer.from(payload.document_bytes, 'utf8'), headers: {
+      bytes: Buffer.from(referenced ? op.payload : payload.document_bytes, 'utf8'),
+      query: referenced ? { content: 'reference' } : {}, headers: {
         'idempotency-key': op.op_key,
-        'x-aithema-intake': Buffer.from(canonicalJson(metadata)).toString('base64url'),
+        ...(!referenced ? { 'x-aithema-intake': Buffer.from(canonicalJson(metadata)).toString('base64url') } : {}),
         ...(metadata.supersedes_draft_id ? { 'x-supersedes-draft-id': metadata.supersedes_draft_id } : {}),
       } });
     const result = checkDocument(response?.result, 'aithema.journal.record');
