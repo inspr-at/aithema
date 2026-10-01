@@ -26,7 +26,7 @@ function replace(source, before, after) {
 function downgrade(source, contract) {
   const index = JSON.parse(source);
   const entry = index.contracts.find((row) => row.contract === contract);
-  assert.equal(entry.minor, 1);
+  assert.equal(entry.minor, contract === 'aithema.journal.record' ? 2 : 1);
   entry.minor = 0;
   return JSON.stringify(index);
 }

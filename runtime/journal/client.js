@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { canonicalJson } from '../../contracts/validate.js';
+import { canonicalJson, pendingContentReference } from '../../contracts/validate.js';
 import { JournalError, decodeDocument, submissionBytes } from './port.js';
 import { checkedRecord, hydrateSnapshot } from './hydrate.js';
 
@@ -202,7 +202,9 @@ export class JournalClient {
       for (const op of snapshot?.pending_ops ?? []) {
         if (completedOps.has(op.op_key)) continue;
         if (typeof retryOp !== 'function') throw new JournalError(409, 'Pending intake operations require retryOp');
-        const host_ids = await retryOp({ ...op, payload_bytes: Buffer.from(op.payload, 'utf8') }, this.authority);
+        const content = op.payload_kind === 'pending_op.content'
+          ? { content_record: closure.get(pendingContentReference(op.payload).record_seq) } : {};
+        const host_ids = await retryOp({ ...op, payload_bytes: Buffer.from(op.payload, 'utf8'), ...content }, this.authority);
         // A malformed result fails validation; never pretend an intake op finished.
         await this.append(this.#event('op.result', { op_key: op.op_key, host_ids }));
         completedOps.set(op.op_key, host_ids);

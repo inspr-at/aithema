@@ -2,6 +2,8 @@ import { closeSync, mkdirSync, openSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { DatabaseSync, backup } from 'node:sqlite';
 import { JournalError, decodeDocument, submissionBytes } from './port.js';
+import { canonicalJson, pendingContentReference, sha256Hex } from '../../contracts/validate.js';
+import { verifyPendingContent } from './pending-content.js';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS journal_sessions (
@@ -18,6 +20,18 @@ CREATE TABLE IF NOT EXISTS journal_records (
   client_event_id TEXT NOT NULL, kind TEXT NOT NULL, original_bytes BLOB NOT NULL,
   PRIMARY KEY(sid, seq), UNIQUE(sid, client_event_id)
 );
+CREATE UNIQUE INDEX IF NOT EXISTS journal_content_address
+ON journal_records(sid, json_extract(CAST(original_bytes AS TEXT), '$.data.sha256'))
+WHERE kind = 'pending_op.content';
+CREATE TABLE IF NOT EXISTS journal_content_aliases (
+  sid TEXT NOT NULL, client_event_id TEXT NOT NULL, seq INTEGER NOT NULL,
+  original_sha256 TEXT NOT NULL, PRIMARY KEY(sid, client_event_id),
+  FOREIGN KEY(sid, seq) REFERENCES journal_records(sid, seq)
+);
+CREATE TRIGGER IF NOT EXISTS journal_alias_no_update BEFORE UPDATE ON journal_content_aliases
+BEGIN SELECT RAISE(ABORT, 'journal aliases are immutable'); END;
+CREATE TRIGGER IF NOT EXISTS journal_alias_no_delete BEFORE DELETE ON journal_content_aliases
+BEGIN SELECT RAISE(ABORT, 'journal aliases are immutable'); END;
 CREATE TRIGGER IF NOT EXISTS journal_no_update BEFORE UPDATE ON journal_records
 BEGIN SELECT RAISE(ABORT, 'journal records are immutable'); END;
 CREATE TRIGGER IF NOT EXISTS journal_no_delete BEFORE DELETE ON journal_records
@@ -154,6 +168,28 @@ export class SqliteJournal {
         }
         return this.#stored(existing);
       }
+      const alias = this.#db.prepare('SELECT * FROM journal_content_aliases WHERE sid = ? AND client_event_id = ?')
+        .get(doc.sid, doc.client_event_id);
+      if (alias) {
+        if (alias.original_sha256 !== sha256Hex(original.toString('utf8'))) {
+          throw new JournalError(409, 'Same client_event_id with different bytes', 'idempotency_conflict');
+        }
+        return this.#stored(this.#db.prepare('SELECT * FROM journal_records WHERE sid = ? AND seq = ?').get(doc.sid, alias.seq));
+      }
+      if (!snapshot && doc.kind === 'pending_op.content') {
+        const prior = this.#content(doc.sid, doc.data.sha256);
+        if (prior) {
+          const stored = this.#stored(prior);
+          if (canonicalJson(stored.document.data) !== canonicalJson(doc.data)) {
+            throw new JournalError(409, 'Content digest has different bytes', 'idempotency_conflict');
+          }
+          // Reserve every acknowledged event ID without duplicating the large
+          // record. Changed bytes under an alias must still conflict on resume.
+          this.#db.prepare('INSERT INTO journal_content_aliases VALUES(?,?,?,?)')
+            .run(doc.sid, doc.client_event_id, stored.document.seq, sha256Hex(original.toString('utf8')));
+          return stored;
+        }
+      }
       if (!snapshot && (writer === 'worker' || generation !== undefined) && generation !== session.worker_generation) {
         throw new JournalError(409, 'Record generation is fenced', 'fenced_generation');
       }
@@ -162,6 +198,12 @@ export class SqliteJournal {
         if (doc.host_mode !== session.host_mode) throw new JournalError(400, 'Snapshot host_mode does not match session');
         if (doc.pending_ops.some((op) => !op.op_key.startsWith(`${doc.sid}:`))) {
           throw new JournalError(400, 'Pending op_key belongs to another session');
+        }
+        for (const op of doc.pending_ops) {
+          if (op.payload_kind !== 'pending_op.content') continue;
+          const ref = pendingContentReference(op.payload);
+          const row = this.#db.prepare('SELECT * FROM journal_records WHERE sid = ? AND seq = ?').get(doc.sid, ref.record_seq);
+          verifyPendingContent(op, row ? this.#stored(row) : null, doc.sid, session.last_seq + 1);
         }
         if (doc.consumed_seq > session.last_seq || doc.consumed_seq < session.consumed_seq) {
           throw new JournalError(400, 'Snapshot consumed_seq is ahead of the journal or moves backwards');
@@ -212,6 +254,25 @@ export class SqliteJournal {
         const row = query.get(authority.sid, id);
         if (!row) throw new JournalError(404, `Journal record ${id} not found`);
         return this.#stored(row);
+      });
+    });
+  }
+
+  #content(sid, digest) {
+    return this.#db.prepare(`SELECT * FROM journal_records WHERE sid = ? AND kind = 'pending_op.content'
+      AND json_extract(CAST(original_bytes AS TEXT), '$.data.sha256') = ?`).get(sid, digest);
+  }
+
+  /** Content addresses are scoped to a session; absent addresses return no record. */
+  recordsByDigests(digests, authority) {
+    if (!Array.isArray(digests) || digests.some((digest) => typeof digest !== 'string' || !/^[0-9a-f]{64}$/.test(digest))) {
+      throw new JournalError(400, 'Invalid content digests');
+    }
+    return this.#transaction(() => {
+      this.#authorize(authority);
+      return [...new Set(digests)].flatMap((digest) => {
+        const row = this.#content(authority.sid, digest);
+        return row ? [this.#stored(row)] : [];
       });
     });
   }

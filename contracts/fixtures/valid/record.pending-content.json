@@ -1,0 +1,22 @@
+{
+  "contract": "aithema.journal.record",
+  "doc": {
+    "contract": "aithema.journal.record",
+    "major": 1,
+    "minor": 2,
+    "min_reader": 2,
+    "sid": "11111111-1111-4111-8111-111111111111",
+    "client_event_id": "33333333-3333-4333-8333-333333333333",
+    "writer": {
+      "kind": "worker",
+      "generation": 1
+    },
+    "recorded_at": "2026-10-01T00:00:00.000Z",
+    "kind": "pending_op.content",
+    "data": {
+      "sha256": "e37ae9aef2d18a92977b2e859ca905e863d9f2bcb9a5510fd5a04c83d5f7fea8",
+      "size": 37,
+      "canonical": "{\"document_bytes\":\"{}\",\"metadata\":{}}"
+    }
+  }
+}
