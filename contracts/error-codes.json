@@ -157,5 +157,78 @@
       "http": 200,
       "code": null
     }
+  ],
+  "design_diagnostics_description": "Stable local renderer and lint diagnostics for screen vocabulary v1. These do not extend journal, intake or ledger port result codes.",
+  "design_diagnostics": [
+    {
+      "code": "design_ir_invalid",
+      "http": 422,
+      "scope": "v1",
+      "retry": false,
+      "meaning": "Screen IR shape, canonical JSON or semantic constraint invalid."
+    },
+    {
+      "code": "design_tokens_invalid",
+      "http": 422,
+      "scope": "v1",
+      "retry": false,
+      "meaning": "Design token shape or typed CSS value invalid."
+    },
+    {
+      "code": "design_limit",
+      "http": 422,
+      "scope": "v1",
+      "retry": false,
+      "meaning": "Design canonical byte, node count or nesting limit exceeded."
+    },
+    {
+      "code": "design_duplicate_id",
+      "http": 422,
+      "scope": "v1",
+      "retry": false,
+      "meaning": "Screen-local node ids are not unique."
+    },
+    {
+      "code": "design_reference_invalid",
+      "http": 422,
+      "scope": "v1",
+      "retry": false,
+      "meaning": "A link target is not a screen-local node id."
+    },
+    {
+      "code": "design_renderer_unsupported",
+      "http": 422,
+      "scope": "v1",
+      "retry": false,
+      "meaning": "The persisted renderer version is not implemented."
+    },
+    {
+      "code": "design_input_invalid",
+      "http": 422,
+      "scope": "v1",
+      "retry": false,
+      "meaning": "Design input record, acknowledgement or hydrated bytes disagree."
+    },
+    {
+      "code": "design_deadline",
+      "http": 504,
+      "scope": "v1",
+      "retry": false,
+      "meaning": "Render port deadline expired before or during work."
+    },
+    {
+      "code": "design_overlap",
+      "http": 409,
+      "scope": "v1",
+      "retry": false,
+      "meaning": "A render port attempt is still active."
+    },
+    {
+      "code": "design_label_blank",
+      "http": 422,
+      "scope": "v1",
+      "retry": false,
+      "meaning": "Design lint diagnostic: a visible label contains only whitespace."
+    }
   ]
 }
