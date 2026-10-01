@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import extensionSchema from './extension.schema.json' with { type: 'json' };
+import { screenBounds, screenInvariants } from './design-invariants.js';
 
 /**
  * Foundation contracts (AIT-35). A small, dependency-free validator for the
@@ -103,6 +104,15 @@ function check(schema, value, file, path, errors, flags) {
   if (schema.$ref) {
     const target = resolveRef(schema.$ref, file);
     check(target.schema, value, target.file, path, errors, flags);
+  }
+  // Screen nodes form a closed, uniquely discriminated union. Selecting its
+  // kind avoids exponentially revisiting children in nonmatching branches.
+  if (file === 'screen.schema.json' && schema === loadContractFile(file).$defs.node) {
+    const branch = schema.oneOf.map((sub) => resolveRef(sub.$ref, file).schema)
+      .find((sub) => sub.properties.kind.const === value?.kind);
+    if (!branch) errors.push(`${path}: unknown screen component kind`);
+    else check(branch, value, file, path, errors, flags);
+    return;
   }
   if (schema.type !== undefined) {
     const types = Array.isArray(schema.type) ? schema.type : [schema.type];
@@ -207,6 +217,10 @@ export function validateSchema(contract, doc) {
   const entry = contractEntry(contract);
   /** @type {string[]} */
   const errors = [];
+  if (contract === 'aithema.screen') {
+    const bounds = screenBounds(doc);
+    if (bounds.length) return bounds;
+  }
   // Bound recursion before the recursive meta-schema is walked.
   if (contract === 'aithema.extension') {
     const depthErrors = extensionDepthErrors(doc?.schema);
@@ -309,6 +323,16 @@ export function checkInvariants(contract, doc) {
   if (doc.min_reader > doc.minor) out.push('envelope.min_reader_le_minor');
   if (contract === 'aithema.spec.snapshot') snapshotInvariants(doc, out);
   if (contract === 'aithema.extension') extensionDescriptorInvariants(doc, out);
+  if (contract === 'aithema.screen') out.push(...screenInvariants(doc));
+  if (contract === 'aithema.screen' || contract === 'aithema.design.tokens') {
+    try {
+      const max = contract === 'aithema.screen' ? 512 * 1024 : 64 * 1024;
+      if (Buffer.byteLength(canonicalJson(doc), 'utf8') > max) out.push('design_limit: canonical byte bound exceeded');
+    } catch (error) {
+      if (!(error instanceof TypeError)) throw error;
+      out.push(`${contract === 'aithema.screen' ? 'design_ir_invalid' : 'design_tokens_invalid'}: canonical JSON required`);
+    }
+  }
   if (contract === 'aithema.token.claims') tokenInvariants(doc, out);
   if (contract === 'aithema.budget.message') budgetInvariants(doc, out);
   if (contract === 'aithema.journal.record') recordInvariants(doc, out);

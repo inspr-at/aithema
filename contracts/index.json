@@ -63,6 +63,20 @@
       "minor": 0,
       "file": "extension.schema.json",
       "root": "/$defs/extension"
+    },
+    {
+      "contract": "aithema.screen",
+      "major": 1,
+      "minor": 1,
+      "file": "screen.schema.json",
+      "root": "/$defs/screen"
+    },
+    {
+      "contract": "aithema.design.tokens",
+      "major": 1,
+      "minor": 0,
+      "file": "design-tokens.schema.json",
+      "root": "/$defs/tokens"
     }
   ],
   "tables": [

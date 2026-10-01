@@ -1,0 +1,18 @@
+{
+  "contract": "aithema.design.tokens",
+  "major": 1,
+  "minor": 0,
+  "min_reader": 0,
+  "color": {
+    "surface": "#202028",
+    "ink": "#eeeeee",
+    "muted": "#aaaaaa",
+    "primary": "#cc8844",
+    "on_primary": "#202028",
+    "border": "#555555"
+  },
+  "space": 12,
+  "radius": 0,
+  "font_family": "serif",
+  "font_size": 18
+}

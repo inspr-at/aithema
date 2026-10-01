@@ -1,0 +1,21 @@
+{
+  "text": [
+    "&amp; &lt; &#x3c;",
+    "<svg/onload=alert(1)>",
+    "</title><script src=\"https://example.invalid/x\"></script>",
+    "<img src=x onerror=alert(1)>",
+    "</style><style>@import \"https://example.invalid/x\"</style>",
+    "data:text/html,<script>alert(1)</script>",
+    "{{styles}} {{body}} \"$&\"",
+    "  "
+  ],
+  "tokens": [
+    "url(https://example.invalid/a)",
+    "url(data:text/html,<script>alert(1)</script>)",
+    "\\75rl(https://example.invalid)",
+    "</style><script>alert(1)</script>",
+    "red; background:url(x)",
+    "var(--evil)",
+    "@import \"x\""
+  ]
+}
