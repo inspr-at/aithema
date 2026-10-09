@@ -563,6 +563,168 @@ preflight plus active cancellation/deadlines. Optional `expectedUsage:
 under-reporting or unknown usage. Reference fixtures pass `spec.references`;
 CI tests their multipart transport, limits and broken content/usage fixtures.
 
+## Host ports (AIT-104 part A)
+
+Core exports pure identity, handover and credit reducers plus owner-bound library
+and delivery contracts. There is no HTTP, persistent storage, mail, CRM or billing
+implementation in these modules. Reducers return `{state, events}`; handover also
+returns a `delivery` effect. Part B persists state before dispatching effects and
+adds the routes/UI below. Host copy, branding, persona, legal text and schedules
+remain host-owned.
+
+`createIdentity({roles?, role?, demoBypass?, policy?})` starts a guest. Default
+roles are `private`, `company`, `representative`, `agency`; hosts may replace the
+taxonomy. `reduceIdentity(state, {type, now, ...})` accepts `request-verification`
+and `change-address` with `address`, `resend`, `delivery` with
+`{address, revision, status: 'sent'|'failed'}`, and authoritative `verification`
+with `{address, revision, verified: true}`. Host time is monotonic milliseconds.
+`verification.requested` carries the address/revision/deadline for host delivery;
+it does not claim mail was sent. Resend is allowed at `now >= resendAt`, including
+when a lost delivery result leaves `delivery: 'requested'`; the revision rejects
+late delivery results and confirmation for the old request. Each resend
+invalidates older evidence. Changing
+an address immediately relocks both surfaces and retains the cooldown. Expiry
+rejects late confirmation. The defaults are a 60-second cooldown and 30-minute
+expiry. `tick`, `role`, `pause {origin: 'manual'|'visibility', paused}` and
+`visibility {visible}` update renderable `identity.state` events. Confirmation
+emits `identity.unlocked` and preserves manual pause. Visible confirmation can
+release the verification detour's visibility pause; hidden confirmation sets
+the one-shot `releaseVisibilityOnReturn` flag, consumed on the next visible
+event. An ordinary blur pause remains paused on return and needs acknowledged
+resume. A new visibility pause or address change cancels a pending release.
+Demo bypass unlocks without claiming verified identity. Only trusted creation
+can grant it; the host-only `demo {origin: 'host', enabled: false}` event revokes
+it when an operator grant ends. Never expose this event to visitor input.
+Use separate session identity metadata; the existing reasoning `session.actor`
+is an evidence-based actor selection and must not become an authentication claim.
+
+`assertLibraryPort(port)` requires `list({search?, offset?, limit?})`, `open(id)`,
+`rename(id, title)`, `delete(id)`, `new({title?, locale?, processingPreset?, preset?})`
+and `reset(id)`. Lists return `{items, total, offset, limit}` with metadata
+`{id, title, revision, createdAt, updatedAt}`; open/new/reset also return `session`.
+Titles/search are at most 200 characters, pages 1–100 rows. Search is a literal,
+case-insensitive title substring: SQL hosts must escape `%` and `_` in `LIKE`.
+Lists sort by descending `updatedAt`, then ID. Offset pages can shift when a
+rename or other update lands between reads, causing repeated or skipped rows;
+clients refresh from offset zero after mutations and deduplicate displayed IDs.
+Metadata revision is
+distinct from the core input fingerprint. Delete must acknowledge `{id, erased:
+true}` only after the existing storage erasure/invalidation path completes. Reset
+erases the old conversation and creates a fresh ID retaining locale/preset.
+Concurrent resets of the same ID share one erasure and one replacement;
+failed erasure retains the original and releases the slot for retry.
+New/reset only change conversation data. Hosts must retain the same owner wallet
+and credit guard across them, as described below. `createMemoryLibrary({erase?, now?})` returns
+`{port, wasErased}`. Its default erasure is limited to its own memory;
+a supplied `erase({id, revision})` must confirm `{erased: true}`.
+`libraryConformance(port, {wasErased, foreignPort?, timeoutMs?})` runs destructive
+local fixtures and needs an independent observer of the storage erasure path.
+The optional `foreignPort` is bound to a second owner in the same fixture store:
+its list must exclude the first owner's IDs, and open/rename/delete/reset of those
+IDs must reject with `code: 'not-found'`, leaving the first owner's data unchanged.
+The kit also checks literal `%`/`_` searches when absent and when only `50% plan`
+or `under_score plan` matches. Use fresh fixtures with globally distinct IDs.
+
+`createHandover({sessionId})` and `reduceHandover` accept `request {revision}`,
+explicit `retry {revision}` for the current failed revision only,
+`result {revision, attempt, status, receiptId?}` and
+`recover`. Use the complete `inputRevision(session)` fingerprint as revision.
+`handover.state` exposes `idle`, `preparing`, `sent`, `failed` and retry state;
+effects carry `{sessionId, revision, idempotencyKey, attempt}`. The host's
+`deliver(effect)` resolves `{status: 'sent', receiptId}` only on confirmed
+delivery, otherwise rejects. Prepare the host payload from that exact revision;
+persist receipts and deduplicate concurrent deliveries across restarts by the
+same key, including failed/interrupted retries. Sent revisions stay idempotent
+after later revisions. Core retains at most `HANDOVER_REVISION_LIMIT` (100)
+revision records, preserving every retained idempotency key. At the bound,
+a new revision emits `handover.limit-reached {reason: 'revision-limit', limit}`
+without delivery; retry of the current failed revision remains available.
+The host must retain durable deduplication receipts regardless of core history.
+Offer, mail, CRM and future Paimos intake belong to the
+host. `createFakeHandoverHost()` returns `{port, failNext, deliveryCount}`;
+`handoverConformance(port, {failNext, deliveryCount, timeoutMs?})` checks a local
+fixture's receipts, failures, retries, conflicting keys and concurrent delivery.
+
+`budgetCreditView(ledger, sessionId, ownerWallet)` projects `owner`, `session` and
+`voiceVisitor` balances as `{limitMicro, committedMicro, availableMicro, overrunMicro}`.
+Both existing SQLite ledger caps are per conversation: `session` is upstream
+usage, and `voiceVisitor` is that conversation's voice charge, not the owner's
+wallet. Ledger `used`/`visitorUsed` include holds and conservative uncertain
+settlement. A required host wallet is bound to the authenticated owner across
+all their conversations. It supplies synchronous `balance()` returning
+`{limitMicro, committedMicro}`, synchronous `canAdmit({sessionId, maxMicro,
+maxVisitorMicro})` returning a boolean preview, and `admit(request)` returning
+`{ok: boolean}` (possibly asynchronously) after atomic owner admission. Admission
+must be idempotent for concurrent and serial retries of the same `attemptId` and
+request. Store the fingerprint (`sessionId`, `lane`, `maxMicro`, `maxVisitorMicro`
+with default `0`, `requestSha256`, `bindingSha256`) with that ID. Reuse with a
+different fingerprint must return `{ok: false, reason: 'attempt-conflict'}` and
+must neither return the old hold nor change it. Retain the fingerprint after
+release. The required `release({attemptId})` hook must await removal of only
+that hold; repeated and unknown releases are harmless. The host owns wallet
+billing, reservations, settlement and recovery; core adds no billing policy.
+
+`creditAdmission(ledger, sessionId, maxMicro, maxVisitorMicro, ownerWallet)` is a
+preview. Paid hosts must call `await admitCredits(ledger, request, ownerWallet)`:
+it requires confirmed owner admission before the existing atomic `ledger.admit`.
+Both ports receive the same frozen request snapshot with the caller's `attemptId`
+or a generated ID. Use that ID for admission, settlement and recovery; the ledger
+must preserve it in its admission result. Core holds an in-flight set through
+wallet admission, ledger admission and any release. Concurrent duplicates throw
+`code: 'already-claimed'` before either port is called. Multi-process hosts must
+implement the same exclusion at the wallet or ledger across their processes.
+Owner denial maps to `host-limit` and never admits the ledger; an unavailable or
+malformed wallet fails closed. Success returns `{ok: true, reason: null, admission}`;
+preview and ordinary owner denials return `{ok: false, reason, balance}`. Wallet
+conflicts return `{ok: false, reason: 'attempt-conflict', attemptId}`. A definitive
+ledger refusal must reject with `code: 'not-admitted'` and guarantee that no
+reservation was created. Core then awaits owner release and returns
+`{ok: false, reason, attemptId}` without `balance`. Ledger `already-claimed`
+errors retain the existing owner hold. An unknown ledger outcome (for example
+a remote timeout after a possible reservation) must be an error, not a definitive
+refusal: propagate it without releasing the hold and reconcile by `attemptId`.
+Wallet errors and release failures also propagate, with `attemptId` attached to
+thrown errors for recovery, including generated IDs. Continue the existing claim
+and settlement path only after success. `maxVisitorMicro` keeps the ledger's
+parameter name and remains a per-conversation voice maximum.
+
+`ownerWalletConformance(port, request, {timeoutMs?})` runs destructive checks on
+a fresh, owner-bound local fixture with an affordable positive `maxMicro` and
+the complete fingerprint fields. It checks concurrent/serial admission
+idempotency, mismatches of every fingerprint field with unchanged holds,
+idempotent release and conflicts after release. Never run the kit on a live wallet.
+
+`createCredits({sessionId, durationMs?})`
+and `reduceCredits` accept `start`, `balance {balance}`, `pause {paused}`, `tick`,
+authoritative `limit {reason: 'session'|'voiceVisitor'|'host-limit'}` and `closed`, all
+with `now`. Hosts persist one credit guard state per owner and create it only
+when that owner has no existing guard. On library new/reset, persist
+`rebindCredits(existingState, newSessionId)` and re-read the balance; do not call
+`createCredits` again. Rebinding preserves start/deadline, pause and terminal
+state, so neither operation restores the owner's balance or one-hour allowance.
+The one-hour wall-clock guard starts once and pause never extends it.
+A full outstanding hold only updates the view. An actual denial/elapsed guard
+emits one `conversation.end-requested`; the host stops fresh work, closes transport,
+settles outstanding claims and then records `closed`, preserving the transcript.
+`requestCreditTopUp(port, {sessionId}, options?)` invokes optional host `topUp`,
+returning `requested`/`unavailable`; it changes neither ledger totals nor the guard.
+
+Part B wires the following owner-authenticated surface, with bounded input,
+safe copy and durable acknowledgements:
+
+| Surface | Required integration |
+| --- | --- |
+| Identity routes and inline verification | `POST /api/sessions/:id/identity` for address/role, `POST .../identity/resend`, `GET .../identity` for polling. A host verification landing page performs read-only inspection; its explicit confirmation POST redeems host-owned evidence before recording `verification`. Bind evidence to session, address and revision; reject expiry/reuse. Poll/focus updates unlock assessment and concepts while preserving manual pause and hidden-tab holds. Tokens and addresses use erasable records; public replay must hydrate tombstones. |
+| Library routes and view | `GET /api/library?search=&offset=&limit=`, `POST /api/library` (new), `GET /api/library/:id` (open), `PATCH /api/library/:id` (rename), `DELETE /api/library/:id`, `POST /api/library/:id/reset`. Bind the port to the authenticated owner and check every target. Delete/reset await the existing `storage.erase` path, including uploads/concepts, pending-work cancellation and export/cache invalidation. Render search, paging, open, rename, delete confirmation, new/reset and empty/error states. |
+| Handover button/state and route | `POST /api/sessions/:id/handover` for request/retry; publish durable `handover.state` through session replay. Persist `preparing` before calling the configured host delivery port, recheck ownership/revision/consent, report honest sent/failed outcomes, and recover interrupted deliveries using the same key. Keep host payloads erasable and provider errors out of events. |
+| Credits slot and routes | `GET /api/sessions/:id/credits` and optional `POST .../credits/top-up`. Bind the wallet to the authenticated owner across conversations, use `admitCredits` before dispatch, and retain/rebind that owner's guard on new/reset. Render owner, session and voiceVisitor balances, guard countdown, limit reason and host top-up action; guard/denial stop fresh work and close/settle admitted transports gracefully. Re-read host credit policy after verification/top-up; no UI or new/reset action grants funds or admits work. |
+| Account menu / actor role | Host account/status, current address, configured role choices and change/resend controls consume `identity.state`. Propagate explicit role selection through the existing reasoning actor-selection path without treating inferred roles as identity proof. |
+| Settings/preset and legal/footer slots | Connect the existing preset/settings panel and feature matrix to host-approved model, effort, voice, visuals and connector choices. Supply account menu, library view, verification inline, handover button/state, credits, legal links, footer status, branding and optional release-history slots; all text/link destinations are host configuration. |
+
+The new core tests cover each reducer, the reference hosts, broken hosts for
+both conformance kits, and projections against the existing SQLite budget ledger.
+These are integration contracts; production routes and UI slots are Part B work.
+
 ## Ported from START
 
 Source reference: `start-agm-com` main `1d4078c`, the read-only port oracle.
