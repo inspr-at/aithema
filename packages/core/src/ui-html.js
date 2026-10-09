@@ -3,6 +3,7 @@
 // the enforcement boundary is the sandboxed, CSP-locked preview frame.
 import { IPTC_DIGITAL_SOURCE } from './ui-generation.js';
 export const HTML_MEDIA_TYPE = 'text/html';
+export const HTML_PREVIEW_HOST_CSP = "frame-src 'none'; child-src 'none'";
 export const MAX_HTML_BYTES = 512 * 1024;
 export const HTML_PREVIEW_CSP = "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; " +
   "img-src data:; font-src data:; form-action 'none'; base-uri 'none'";
@@ -34,6 +35,10 @@ function css(text, fail) {
   }
 }
 const js = (text, fail) => { for (const [code, rule] of JS_RULES) if (rule.test(text)) fail(code); };
+// Attribute character references are decoded by the HTML parser before handlers
+// execute. Reject encoded executable attributes rather than guessing a partial
+// named-entity table (numeric references may also omit their semicolon).
+const ENCODED = /&(?:#(?:x[0-9a-f]+|[0-9]+);?|[a-z][a-z0-9]*;)/iu;
 function attributes(tag, source, fail) {
   const seen = {};
   for (const [, rawName, ...values] of source.matchAll(ATTRS)) {
@@ -45,8 +50,8 @@ function attributes(tag, source, fail) {
     else if (name === 'href' || name.endsWith(':href')) { if (!value.startsWith('#')) fail('external-reference'); }
     else if (name === 'src' || name === 'poster') { if (tag === 'script' || !/^data:image\//iu.test(value)) fail('external-reference'); }
     else if (name === 'attributename' && /href|src/iu.test(value)) fail('external-reference');
-    else if (name === 'style') css(value, fail);
-    else if (name.startsWith('on')) js(value, fail);
+    else if (name === 'style') { if (ENCODED.test(value)) fail('obfuscation'); css(value, fail); }
+    else if (name.startsWith('on')) { if (ENCODED.test(value)) fail('obfuscation'); js(value, fail); }
   }
   return seen;
 }

@@ -86,7 +86,7 @@ export interface LiveVoice { start(request: { callId: string; context?: object }
 export interface PrivateBinding {
   plugin: string; model: string; effort: string; endpoint: string; routing?: object;
   accountRef: string; secretRef: string; maxMicro: number; maxTokens: number;
-  rates: { inputMicro: number; outputMicro: number };
+  rates: { inputMicro: number; outputMicro: number; inputUSD?: number; outputUSD?: number };
   legal: { purpose: string; recipient: string; processors: string[]; dataCategories: string[];
     consentVersion: string; countries: string[]; training: boolean; retention: string; approved: boolean;
     evidence: { accountRef: string; secretRef: string; model: string; endpoint: string; routing: object;

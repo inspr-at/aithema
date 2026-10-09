@@ -2,13 +2,50 @@
 // (sandbox="allow-scripts", nothing else) whose srcdoc starts with a strict CSP.
 // The frame cannot read this page's DOM, cookies or storage and cannot fetch.
 import { HTML_MEDIA_TYPE, HTML_PREVIEW_CSP, inspectHTML } from '../../core/src/ui-html.js';
+export { HTML_PREVIEW_HOST_CSP } from '../../core/src/ui-html.js';
 export const PREVIEW_SANDBOX = 'allow-scripts';
+const verifiedPolicies = new WeakMap();
+// The host declares the enforced policy in its head as well as its HTTP header.
+// Inspect the first occurrence of each directive: CSP ignores later duplicates.
+const declaresHostPolicy = document => [...document.head.querySelectorAll('meta[http-equiv]')].some(meta =>
+  meta.getAttribute('http-equiv').toLowerCase() === 'content-security-policy' && framePolicy(meta.content));
+function framePolicy(policy) {
+  const directives = new Map();
+  for (const part of policy.split(';')) {
+    const [name, ...values] = part.trim().split(/\s+/u);
+    if (!directives.has(name)) directives.set(name, values.join(' '));
+  }
+  return directives.get('frame-src') === "'none'" && directives.get('child-src') === "'none'";
+}
+function verifyHostPolicy(document) {
+  if (!declaresHostPolicy(document)) return Promise.resolve(false);
+  if (verifiedPolicies.has(document)) return verifiedPolicies.get(document);
+  const verification = new Promise(resolve => {
+    const probe = document.createElement('iframe');
+    probe.hidden = true; probe.setAttribute('sandbox', PREVIEW_SANDBOX);
+    probe.setAttribute('data-aithema-html-policy-probe', '');
+    // A scriptless data destination never touches a socket, even without CSP.
+    // The event must prove enforcement by the *host* frame-src/child-src policy;
+    // neither a report-only event nor the draft's own default-src can authorize it.
+    const finish = ok => { clearTimeout(timer); document.removeEventListener('securitypolicyviolation', violation); probe.remove(); resolve(ok); };
+    const violation = event => {
+      if (event.isTrusted && event.disposition === 'enforce' && ['frame-src', 'child-src'].includes(event.effectiveDirective) &&
+        event.blockedURI === 'data' && framePolicy(event.originalPolicy)) finish(true);
+    };
+    const timer = setTimeout(() => finish(false), 1500);
+    document.addEventListener('securitypolicyviolation', violation);
+    probe.srcdoc = '<!doctype html><script>self.location.href="data:text/html,%3Ctitle%3Epolicy%20probe%3C/title%3E"</script>';
+    document.body.append(probe);
+  });
+  verifiedPolicies.set(document, verification); return verification;
+}
 // Powerful features stay off even where a browser would delegate them.
 const PERMISSIONS = ['camera', 'microphone', 'geolocation', 'display-capture', 'clipboard-read', 'clipboard-write', 'payment', 'usb',
   'serial', 'hid', 'bluetooth', 'midi', 'publickey-credentials-get', 'screen-wake-lock', 'fullscreen'].map(f => `${f} 'none'`).join('; ');
 export const previewCopy = Object.freeze({ label: 'Draft — generated', title: 'Generated click-dummy draft', width: 'Preview width',
   wide: 'Wide', phone: 'Phone', empty: 'No draft yet.', invalid: 'This draft cannot be shown safely.',
-  navigated: 'The draft tried to open another page and was stopped.' });
+  navigated: 'The draft tried to open another page and was stopped.',
+  policy: 'The host page must block frame navigation before drafts can be shown.' });
 /** The srcdoc: standards mode, then the CSP before any content of the dummy. */
 export function frameDocument(html) {
   return `<!doctype html><meta http-equiv="Content-Security-Policy" content="${HTML_PREVIEW_CSP}"><meta name="referrer" content="no-referrer">${
@@ -37,7 +74,7 @@ iframe:focus-visible { outline:2px solid var(--aithema-accent,#227c78); outline-
 `;
 const DRAFT_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 13l1-3.5L10.5 3 13 5.5 6.5 12z M9.5 4l2.5 2.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>';
 export class AithemaHTMLPreview extends HTMLElement {
-  #copy = previewCopy; #artifact = null; #width = 'wide'; #frame = null; #loads = 0; #frameFocused = false;
+  #copy = previewCopy; #artifact = null; #width = 'wide'; #frame = null; #frameFocused = false; #renderId = 0; #refocus = false;
   constructor() {
     super();
     const root = this.attachShadow({ mode: 'open', delegatesFocus: true });
@@ -62,6 +99,8 @@ export class AithemaHTMLPreview extends HTMLElement {
   /** `{bytes, mediaType}` of an html artifact (extra fields ignored) or null. */
   set artifact(value) { this.#artifact = value ?? null; this.#render(); }
   get state() { return this.getAttribute('state'); }
+  connectedCallback() { this.#render(); }
+  disconnectedCallback() { this.#renderId++; this.#discard(); }
   #text() {
     const root = this.shadowRoot, seg = root.querySelector('.seg');
     root.querySelector('.label-text').textContent = this.#copy.label;
@@ -79,29 +118,34 @@ export class AithemaHTMLPreview extends HTMLElement {
     message.hidden = state === 'ready'; message.textContent = state === 'ready' ? '' : this.#copy[state];
   }
   #discard() {
-    const hadFocus = this.#frameFocused;
+    const hadFocus = this.#frameFocused || this.#frame !== null && this.ownerDocument.activeElement === this && this.shadowRoot.activeElement === this.#frame;
     this.#frame?.remove(); this.#frame = null; this.#frameFocused = false; return hadFocus;
   }
   #render() {
-    const value = this.#artifact;
-    if (!value) { this.#discard(); return this.#show('empty'); }
+    const value = this.#artifact, renderId = ++this.#renderId;
+    this.#refocus = this.#discard() || this.#refocus;
+    const reject = state => { this.#show(state); if (this.#refocus) this.shadowRoot.querySelector('.seg [aria-checked="true"]').focus(); this.#refocus = false; };
+    if (!value) return reject('empty');
     const html = value.mediaType === HTML_MEDIA_TYPE && inspectHTML(value.bytes).ok ? new TextDecoder().decode(value.bytes) : null;
-    const hadFocus = this.#discard();
-    if (html === null) return this.#show('invalid');
+    if (html === null) return reject('invalid');
+    this.#show('policy');
+    if (!this.isConnected) return;
+    void verifyHostPolicy(this.ownerDocument).then(verified => {
+      if (renderId !== this.#renderId || !this.isConnected) return;
+      if (!verified || !declaresHostPolicy(this.ownerDocument)) return reject('policy');
+      const hadFocus = this.#refocus; this.#refocus = false; this.#mount(html, hadFocus);
+    });
+  }
+  #mount(html, hadFocus) {
     // A fresh browsing context per draft; the sandbox is set before the document is assigned.
-    const frame = document.createElement('iframe');
+    const frame = this.ownerDocument.createElement('iframe');
     frame.setAttribute('sandbox', PREVIEW_SANDBOX); frame.setAttribute('referrerpolicy', 'no-referrer');
     frame.setAttribute('allow', PERMISSIONS); frame.setAttribute('title', this.#copy.title);
-    this.#loads = 0;
     // The frame element holds focus while the draft's content does; a replacement keeps it.
     frame.addEventListener('focus', () => { if (frame === this.#frame) this.#frameFocused = true; });
     frame.addEventListener('blur', () => { if (frame === this.#frame) this.#frameFocused = false; });
-    frame.addEventListener('load', () => {
-      // srcdoc loads once; any further load is the draft navigating its frame away.
-      if (frame !== this.#frame || ++this.#loads === 1) return;
-      const refocus = this.#discard(); this.#show('navigated');
-      if (refocus) this.shadowRoot.querySelector('.seg [aria-checked="true"]').focus();
-    });
+    // Host CSP blocks navigation before a request or destination script runs;
+    // counting loads cannot establish containment and is no longer needed.
     frame.setAttribute('srcdoc', frameDocument(html));
     this.#frame = frame; this.shadowRoot.querySelector('.stage').prepend(frame); this.#show('ready');
     if (hadFocus) frame.focus();

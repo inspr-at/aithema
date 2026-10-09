@@ -7,7 +7,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join, normalize } from 'node:path';
 import { test } from 'node:test';
 import puppeteer from 'puppeteer-core';
-import { inspectHTML } from '@inspr/aithema-core';
+import { HTML_PREVIEW_HOST_CSP, inspectHTML } from '@inspr/aithema-core';
 // Real Chrome: the sandboxed preview cannot read the host page, its cookies or storage, and cannot fetch.
 // Set AITHEMA_EVIDENCE_DIR to keep screenshots of the sample click-dummy (wide light/dark, phone).
 const root = new URL('../../', import.meta.url).pathname;
@@ -21,12 +21,15 @@ async function browserPath() {
   throw new Error('No Chrome or Chromium found. Set CHROME_PATH to its executable.');
 }
 const host = `<!doctype html><html><head><meta charset="utf-8"><title>Host</title>
+<meta http-equiv="Content-Security-Policy" content="${HTML_PREVIEW_HOST_CSP}">
 <style>body{margin:0;padding:24px;font:15px system-ui;background:#f7f5ef} aithema-html-preview{max-width:1200px}</style></head>
 <body><p id="parent-secret">host-page-secret</p><aithema-html-preview></aithema-html-preview>
 <script type="module">
 import '/packages/ui/src/html-preview.js';
 localStorage.setItem('host-storage', 'host-storage-secret');
 window.results = []; addEventListener('message', event => window.results.push(event.data));
+window.violations = []; addEventListener('securitypolicyviolation', event => window.violations.push({
+  directive: event.effectiveDirective, blocked: event.blockedURI, disposition: event.disposition, policy: event.originalPolicy }));
 window.show = html => { document.querySelector('aithema-html-preview').artifact = { bytes: new TextEncoder().encode(html), mediaType: 'text/html' }; };
 window.ready = true;
 </script></body></html>`;
@@ -45,30 +48,64 @@ const hostile = port => `<!doctype html><html><head><title>Hostile draft</title>
   w['par' + 'ent'].postMessage(R, '*');
 })();
 </script></body></html>`;
-const leaving = port => `<!doctype html><html><head><title>Leaving draft</title></head><body><p>leaving</p><script>
-setTimeout(() => { self['loc' + 'ation']['hr' + 'ef'] = 'ht' + 'tp:/' + '/127.0.0.1:${port}/beacon/navigate'; }, 100);
-</script></body></html>`;
+const leaving = (port, delayed) => `<!doctype html><html><head><title>Leaving draft</title><script>
+const leave = () => { self['loc' + 'ation']['hr' + 'ef'] = 'ht' + 'tp:/' + '/127.0.0.1:${port}/destination/${delayed ? 'after-load' : 'immediate'}'; };
+${delayed ? "addEventListener('load', () => setTimeout(leave, 100));" : 'leave();'}
+</script></head><body><p>leaving</p>
+</body></html>`;
 test('real Chrome isolates the html preview and renders the sample click-dummy', { timeout: 90_000 }, async t => {
   const hits = [];
   const server = createServer(async (req, res) => {
     const path = new URL(req.url, 'http://localhost').pathname;
+    if (path.startsWith('/destination/')) {
+      hits.push(path); res.writeHead(200, { 'content-type': 'text/html' });
+      return res.end('<!doctype html><script>fetch("/beacon/destination-script");new Image().src="/beacon/destination-image"</script>');
+    }
     if (path.startsWith('/beacon/')) { hits.push(path); res.writeHead(200, { 'access-control-allow-origin': '*', 'content-type': 'text/plain' }); return res.end('ok'); }
-    if (path === '/') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'set-cookie': 'host-cookie=host-cookie-secret; Path=/' }); return res.end(host); }
+    if (['/', '/no-policy', '/unverified-policy'].includes(path)) {
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'set-cookie': 'host-cookie=host-cookie-secret; Path=/',
+        ...(path === '/' ? { 'content-security-policy': HTML_PREVIEW_HOST_CSP } : {}) });
+      const declaration = `<meta http-equiv="Content-Security-Policy" content="${HTML_PREVIEW_HOST_CSP}">`;
+      return res.end(path === '/' ? host : host.replace(declaration, path === '/no-policy' ? '' :
+        `<meta id="claimed-policy"><script>const claim=document.getElementById('claimed-policy');claim.httpEquiv='Content-Security-Policy';claim.content="${HTML_PREVIEW_HOST_CSP}";</script>`));
+    }
     const file = normalize(join(root, path));
     if (!/^\/packages\/(?:ui|core)\/src\/[\w-]+\.js$/u.test(path) || !file.startsWith(root)) { res.writeHead(404); return res.end(); }
     res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' }); res.end(await readFile(file));
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const port = server.address().port, directory = await mkdtemp(join(tmpdir(), 'aithema-preview-'));
-  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
+  let browser;
+  t.after(async () => { await browser?.close(); server.closeAllConnections(); server.close(); await rm(directory, { recursive: true, force: true }); });
+  browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
+    env: { PATH: process.env.PATH, HOME: homedir() },
     args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
-  t.after(async () => { await browser.close(); server.closeAllConnections(); server.close(); await rm(directory, { recursive: true, force: true }); });
+  t.diagnostic(`Browser: ${await browser.version()}`);
   const page = await browser.newPage(); await page.setViewport({ width: 1280, height: 1000 });
+  // Missing policy fails visibly before any generated content can execute.
+  await page.goto(`http://127.0.0.1:${port}/no-policy`); await page.waitForFunction(() => window.ready === true);
+  await page.evaluate(html => window.show(html), hostile(port));
+  await page.waitForFunction(() => document.querySelector('aithema-html-preview').state === 'policy');
+  assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('iframe')), null);
+  assert.match(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('.state').textContent), /host page must block frame navigation/u);
+  assert.deepEqual(await page.evaluate(() => window.results), []);
+  // Merely changing a connected meta's attributes does not install CSP. A
+  // plausible declaration without an enforced browser event must fail closed.
+  await page.goto(`http://127.0.0.1:${port}/unverified-policy`); await page.waitForFunction(() => window.ready === true);
+  await page.evaluate(html => window.show(html), hostile(port));
+  await page.waitForFunction(() => !document.querySelector('[data-aithema-html-policy-probe]'));
+  assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').state), 'policy');
+  assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('iframe')), null);
+  assert.deepEqual(await page.evaluate(() => window.results), []);
   await page.goto(`http://127.0.0.1:${port}/`); await page.waitForFunction(() => window.ready === true);
   assert.equal(await page.evaluate(() => document.cookie), 'host-cookie=host-cookie-secret', 'the host has a cookie worth stealing');
   const stage = () => page.evaluate(() => { const r = document.querySelector('aithema-html-preview').shadowRoot.querySelector('.stage').getBoundingClientRect();
     return [r.x, r.y, r.width, r.height]; });
   const state = () => page.evaluate(() => document.querySelector('aithema-html-preview').state);
+  const waitFrame = async selector => { for (let i = 0; i < 100; i++) {
+    const found = page.frames().find(f => f !== page.mainFrame() && f.url() === 'about:srcdoc');
+    if (found && await found.evaluate(selector => document.readyState === 'complete' && Boolean(document.querySelector(selector)), selector).catch(() => false)) return found;
+    await new Promise(resolve => setTimeout(resolve, 50)); } throw new Error('click-dummy frame not ready'); };
   const empty = await stage();
 
   // 1. A hostile draft that passes the static policy is contained by sandbox + CSP.
@@ -88,10 +125,7 @@ test('real Chrome isolates the html preview and renders the sample click-dummy',
 
   // 2. The sample click-dummy works inside the frame, by pointer and keyboard.
   await page.evaluate(html => window.show(html), dummy);
-  const frame = await (async () => { for (let i = 0; i < 100; i++) {
-    const found = page.frames().find(f => f !== page.mainFrame() && f.url() === 'about:srcdoc');
-    if (found && await found.evaluate(() => document.readyState === 'complete' && Boolean(document.getElementById('new'))).catch(() => false)) return found;
-    await new Promise(resolve => setTimeout(resolve, 50)); } throw new Error('click-dummy frame not ready'); })();
+  const frame = await waitFrame('#new');
   assert.equal(await frame.evaluate(() => document.compatMode), 'CSS1Compat', 'standards mode');
   await frame.click('#new'); assert.equal(await frame.evaluate(() => document.getElementById('dialog').open), true);
   await page.keyboard.press('Escape'); assert.equal(await frame.evaluate(() => document.getElementById('dialog').open), false);
@@ -116,12 +150,36 @@ test('real Chrome isolates the html preview and renders the sample click-dummy',
   await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]); await shoot('preview-phone-dark');
   await page.setViewport({ width: 1280, height: 1000 }); await page.emulateMediaFeatures([]);
 
-  // 3. A draft that navigates its own frame away is removed and the state says so.
-  await page.evaluate(html => window.show(html), leaving(port));
-  await page.waitForFunction(() => document.querySelector('aithema-html-preview').state === 'navigated', { timeout: 15_000 });
-  assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('iframe')), null);
-  assert.equal(page.url(), `http://127.0.0.1:${port}/`);
-  // Residual, documented: CSP cannot stop a frame navigating itself; the request carries only the draft's own data.
-  t.diagnostic(`self-navigation requests observed: ${JSON.stringify(hits)}`);
-  assert.ok(hits.every(path => path === '/beacon/navigate'));
+  // Clearing and rejecting a focused draft both return to the selected width.
+  for (const replacement of [null, '<p>unsafe fragment</p>']) {
+    const focusedFrame = await waitFrame('#new');
+    await focusedFrame.waitForSelector('#new'); await focusedFrame.click('#new');
+    await page.evaluate(html => {
+      const element = document.querySelector('aithema-html-preview');
+      element.artifact = html === null ? null : { bytes: new TextEncoder().encode(html), mediaType: 'text/html' };
+    }, replacement);
+    assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.activeElement?.dataset.width), 'phone');
+    await page.evaluate(html => window.show(html), dummy);
+    await page.waitForFunction(() => document.querySelector('aithema-html-preview').state === 'ready');
+  }
+
+  // 3. Immediate (before first load) and after-load navigation are blocked by
+  // the embedding page, before the scripted HTML destination is ever fetched.
+  // Positive control: outside the sandbox that very destination emits both
+  // beacons, proving that the fixture can detect a missed navigation block.
+  const control = await browser.newPage();
+  const beacons = ['/beacon/destination-script', '/beacon/destination-image'].map(path => control.waitForResponse(`http://127.0.0.1:${port}${path}`));
+  await control.goto(`http://127.0.0.1:${port}/destination/control`); await Promise.all(beacons); await control.close();
+  assert.ok(hits.includes('/destination/control') && hits.includes('/beacon/destination-script') && hits.includes('/beacon/destination-image'));
+  hits.length = 0;
+  for (const delayed of [false, true]) {
+    const draft = leaving(port, delayed); assert.equal(inspectHTML(new TextEncoder().encode(draft)).ok, true);
+    await page.evaluate(html => window.show(html), draft);
+    const destination = `http://127.0.0.1:${port}/destination/${delayed ? 'after-load' : 'immediate'}`;
+    await page.waitForFunction(url => window.violations.some(v => v.directive === 'frame-src' && v.blocked === url && v.disposition === 'enforce'), {}, destination);
+    assert.equal(page.url(), `http://127.0.0.1:${port}/`);
+    assert.deepEqual(hits, [], 'ZERO navigation requests and ZERO requests from destination scripts');
+  }
+  t.diagnostic(`host CSP evidence: ${JSON.stringify(await page.evaluate(() => window.violations.filter(v => v.directive === 'frame-src')))}`);
+  t.diagnostic(`navigation and destination-script requests: ${JSON.stringify(hits)} (ZERO)`);
 });

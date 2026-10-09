@@ -32,6 +32,7 @@ export interface HTMLGeneration {
 export const HTML_MEDIA_TYPE: 'text/html';
 export const MAX_HTML_BYTES: number;
 export const HTML_PREVIEW_CSP: string;
+export const HTML_PREVIEW_HOST_CSP: string;
 export function inspectHTML(bytes: Uint8Array): { ok: boolean; problems: HTMLProblem[] };
 export function isHTMLArtifact(artifact: unknown): artifact is UIHTMLArtifact;
 export function verifyHTMLArtifact(artifact: unknown): Promise<boolean>;

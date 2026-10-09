@@ -800,10 +800,22 @@ only through `<aithema-html-preview>`.
 `import '@inspr/aithema-ui/html-preview'` defines a standalone element. Set
 `element.artifact = {bytes, mediaType}` (extra fields are ignored; `null` clears
 it). Optionally set `element.copy` (`label`, `title`, `width`, `wide`, `phone`,
-`empty`, `invalid`, `navigated`). The element:
+`empty`, `invalid`, `policy`). Before rendering, the embedding document must
+declare `<meta http-equiv="Content-Security-Policy" content="frame-src 'none';
+child-src 'none'">` in its head. Also send that policy in the HTML response's
+`Content-Security-Policy` header (the demo does both). `srcdoc` is not fetched;
+HTTP(S) and other fetched frame destinations are denied. The element:
 
 - re-runs `inspectHTML`; it shows `invalid` in place instead of rendering
   failing bytes;
+- verifies the host's declared policy with an inert sandboxed `srcdoc` probe
+  that navigates itself to a scriptless `data:` document. No socket is used.
+  It requires a trusted, enforced `securitypolicyviolation` event from the
+  host's `frame-src`/`child-src` policy with both directives set to `'none'`.
+  Report-only, weaker and synthetic events do not qualify. Until verification
+  succeeds, or if it times out, it shows a visible `policy` reason and renders
+  no draft. A proof is cached per document; the declaration is checked again
+  on every render;
 - renders the document only in a fresh `<iframe sandbox="allow-scripts">`. There
   is no `allow-same-origin`, `allow-forms`, `allow-popups`, `allow-modals` or
   `allow-top-navigation`, so the draft runs in an opaque origin;
@@ -819,8 +831,9 @@ it). Optionally set `element.copy` (`label`, `title`, `width`, `wide`, `phone`,
   (arrow keys) changes only the frame's width (`--aithema-preview-phone`, default
   390 px). Nothing around it moves, and switching never reloads the draft;
 - keeps keyboard focus in the preview when a new draft replaces the one being
-  used. Tab moves from the switch into the draft;
-- exposes `state` (`empty`, `ready`, `invalid`, `navigated`).
+  used. Clearing or rejecting a focused draft restores focus to the selected
+  width control. Tab moves from the switch into the draft;
+- exposes `state` (`empty`, `ready`, `invalid`, `policy`).
 
 `npm run test:browser` also runs `test/browser/html-preview.test.js` in real
 Chrome. A hostile draft that passes the static policy through string splitting
@@ -838,13 +851,14 @@ pointer and keyboard. It checks standards mode, the one-column phone layout and
 a stage that does not move. Set `AITHEMA_EVIDENCE_DIR` to keep screenshots
 (wide/phone, light/dark).
 
-Residual risk, tested and documented: CSP cannot stop a draft from navigating
-its *own* frame (`location.href = …`). That request leaves the browser and
-carries only data the draft already holds, which is its own generated content.
-The draft cannot read the host. The element treats any second frame load as
-navigation: it removes the frame and shows `navigated`. The static policy
-rejects literal `location` navigation, so only deliberately obfuscated output can
-reach this path.
+The browser fixture also attempts self-navigation in an immediate inline script
+(before the first load) and after load. Both target local HTML pages whose
+scripts beacon back. It requires enforced host-CSP violations and **zero**
+navigation requests and destination-script requests. The old second-load
+heuristic has been removed: it runs too late to contain a scripted destination.
+Entity-encoded executable attributes are rejected by the static validator.
+These are browser assertions, not evidence from happy-dom; a blocked Chrome
+launch means this validation is unavailable, never passed.
 
 ### Claude via OpenRouter
 
@@ -852,15 +866,23 @@ reach this path.
 fetchImpl, baseUrl})` comes from `@inspr/aithema-plugin-claude-html` (private
 workspace, server placement, manifest model `*` with `text/html`). The private
 binding must name plugin `claude-html` and an `anthropic/claude-*` model. The
-operator chooses the model; `DEFAULT_MODEL` is `anthropic/claude-opus-5.5`. The
+operator chooses the model; `DEFAULT_MODEL` is `anthropic/claude-opus-5.5`. A
+binding is required; there are no default rates. `binding.rates.inputUSD` and
+`outputUSD` must be explicit positive USD prices **per token**, alongside the
+existing generic `inputMicro`/`outputMicro` fields. The
 endpoint is the API base (`https://openrouter.ai/api/v1`), and `baseUrl` must
 match it. HTTP is loopback-only. `binding.secretRef` is resolved per call on the
 server. It is never logged, put in an artifact or sent to the browser.
 
 Each call posts one non-streaming chat completion to `/chat/completions`, with
 `usage: {include: true}`, `max_tokens = binding.maxTokens`, and no provider
-fallbacks. `effort` other than `none` maps to `reasoning.effort`. The request
-carries:
+fallbacks. Only `effort: 'none'` is admitted, and every request explicitly sends
+`reasoning: {enabled: false}` to disable thinking. Every request also sends
+`provider.max_price: {prompt: inputUSD * 1_000_000, completion: outputUSD *
+1_000_000}` in USD **per million tokens**, overriding any routing price ceiling.
+**UNVERIFIED API SHAPE:** `provider.max_price` and `reasoning.enabled` were not
+verified against the live API in this fix round, which forbids network calls.
+The request carries:
 
 - a fixed system prompt. It holds the quality bar (no layout shift, text space,
   light/dark/phone, keyboard, the GUI-27 antipatterns, plain words in one
@@ -894,18 +916,37 @@ The invocation contract matches the other plugins:
 - a dispatched call without usage reports `uncertain`;
 - a host-ignored transport is still released by the operation lifetime.
 
-**Spend cap.** `usage.cost` (USD credits), rounded up to micro-dollars, is added
-to a persistent per-deployment ledger (`createSpendLedger({path})`, a JSON file
-with one writer process). Before every request the plugin reserves the binding's
-per-call ceiling `maxMicro`. If spent plus open reservations plus `maxMicro`
-would exceed `capMicro` (default `10_000_000`, USD 10), it **hard-stops with
-`limit` before dispatch**. `health()` then reports `{available: false, reason:
-'spend cap reached'}`. After a call the reservation is replaced by the reported
-cost. When the cost is unknown (cancelled or deadline mid-call, 5xx, missing
-cost), the full `maxMicro` stays charged: uncertain at the claim maximum. A
-401/402/403/429 refusal releases it. A crash leaves the reservation counted. An
-unreadable ledger fails closed (`unavailable`). Reset the cap only by editing or
-replacing the ledger file deliberately.
+**Spend cap.** Before dispatch the plugin computes a conservative ceiling:
+UTF-8 byte length of the full serialized request messages (at most one input
+token per byte) times `inputUSD`, plus `maxTokens` times `outputUSD`. Decimal
+arithmetic rounds each contribution up to micro-dollars. `max_tokens` is always
+sent and reasoning is disabled. If the ceiling exceeds the admitted `maxMicro`,
+or spent plus reservations plus the ceiling exceeds `capMicro` (default USD 10),
+the call **hard-stops with `limit` before dispatch**.
+
+`usage.cost` (USD credits) replaces the reservation with the real cost. A cost
+above the reserved ceiling is recorded, the result is rejected and `health()`
+reports `{available: false, reason: 'cost ceiling breached'}`; the default file
+persists that refusal across restarts. Unknown dispatched cost, including
+401/402/403/429 responses, cancellation, deadlines and 5xx, keeps the full
+computed ceiling charged. Only provably unsent requests may release it. A crash
+leaves open reservations counted.
+
+The default `createSpendLedger({path, capMicro})` is a JSON counter. Each
+transaction uses an `O_EXCL` lock containing the owner PID; a live, unknown or
+malformed owner fails closed. Only a provably dead PID permits stale-lock
+recovery, with an exclusive recovery guard preventing competing takeovers.
+Writes synchronize the temporary file before rename, then the committed file
+and its directory after rename. An unreadable/locked counter or failed
+settlement closes the plugin.
+Reset the cap only by deliberately replacing the counter's stored state.
+
+For AIT-115/part B, inject `spend: {reserve(ceilingMicro), settle(handle,
+actualMicro), snapshot()}`. Methods may be asynchronous and handles are opaque.
+`snapshot()` returns safe nonnegative `spentMicro` and `reservedMicro` integers;
+it may also return a persisted `costCeilingBreached` flag. `reserve` must
+atomically enforce the same shared USD cap across all lanes and processes.
+The plugin's snapshot check alone does not provide interprocess admission.
 
 Tests use only a local fake OpenRouter server: request shape, repair, rejection,
 cap exhaustion and persistence, concurrency, cancellation, deadlines, refusal
@@ -917,14 +958,16 @@ Hosts still need to do the following:
 
 - register `createClaudeHTML` with a `spendPath` under the deployment's data
   directory, and bind it in `presets[preset].bindings.images` (or a dedicated
-  lane) with `maxMicro`/`maxTokens` sized for one call;
+  lane) with required per-token USD rates and `maxMicro`/`maxTokens` sized for
+  the byte-based ceiling; part B can inject the shared AIT-115 spend counter;
 - build `spec` from the session's understanding, visitor turns and language;
 - persist html artifacts like image artifacts (bytes as erasable content plus
   `mediaType`, `promptDigest` and provenance), using `verifyHTMLArtifact` before
   publication;
 - serve the bytes to the owner only as data (`application/octet-stream` or JSON,
   `no-store`), never as `text/html` from the host origin;
-- render them with `<aithema-html-preview>`.
+- declare the required host CSP in the HTML head and response header, then
+  render them with `<aithema-html-preview>` after its runtime policy probe.
 
 ## Host ports (AIT-104 part A)
 

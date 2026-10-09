@@ -10,6 +10,7 @@ import { createMistralReasoning } from '@inspr/aithema-plugin-mistral';
 import { createOpenAIImages } from '@inspr/aithema-plugin-openai-images';
 import { imagePluginBinding } from '../packages/server/src/image-binding.js';
 import { voiceAsset } from './voice-assets.js';
+import { HTML_PREVIEW_HOST_CSP } from '../packages/core/src/ui-html.js';
 import { createOwnership, startExpiry } from './session-lifecycle.js';
 
 import { deploymentConfig, deploymentGate } from './deployment.js';
@@ -120,6 +121,7 @@ async function handle(request) {
     return new Response(request.method === 'HEAD' ? null : bytes, { headers: {
       'content-type': file.endsWith('.html') ? 'text/html; charset=utf-8' : 'text/javascript; charset=utf-8',
       'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
+      ...(file.endsWith('.html') ? { 'content-security-policy': HTML_PREVIEW_HOST_CSP } : {}),
     } });
   } catch { return new Response(null, { status: 404 }); }
 }

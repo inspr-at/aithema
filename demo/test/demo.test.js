@@ -11,7 +11,14 @@ function rawStatus(url, options) {
 test('demo serves native UI modules, labelled mock host and persistent handlers', { timeout: 10_000 }, async t => {
   const db = await temporaryDb(); let running = await startChild(new URL('../server.js', import.meta.url), db);
   t.after(async () => running.kill());
-  const html = await fetch(running.url).then(r => r.text()); assert.match(html, /Demo — Aithema reset slice 1/);
+  const page = await fetch(running.url), html = await page.text(); assert.match(html, /Demo — Aithema reset slice 1/);
+  assert.equal(page.headers.get('content-security-policy'), "frame-src 'none'; child-src 'none'");
+  assert.match(html, /<meta http-equiv="Content-Security-Policy" content="frame-src 'none'; child-src 'none'">/u);
+  for (const method of ['GET', 'HEAD']) {
+    const response = await fetch(running.url + '/demo/index.html', { method });
+    assert.equal(response.headers.get('content-security-policy'), "frame-src 'none'; child-src 'none'");
+    await response.body?.cancel();
+  }
   assert.match((await fetch(running.url + '/demo/config').then(r => r.json())).label, /Mock reasoning/);
   for (const path of ['/demo/host.js', '/packages/ui/src/session-element.js', '/packages/ui/src/post-json.js', '/packages/ui/src/i18n/en.js', '/packages/core/src/readiness.js', '/plugins/device/src/index.js', '/packages/core/src/chat-completions.js', '/packages/core/src/plugins.js', '/packages/core/src/invocation.js', '/packages/core/src/presets.js']) {
     const r = await fetch(running.url + path); assert.equal(r.status, 200); assert.match(r.headers.get('content-type'), /javascript/);
