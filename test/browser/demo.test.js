@@ -8,6 +8,10 @@ import { homedir, tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
 import puppeteer from 'puppeteer-core';
+import { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL } from '../../demo/processing-consent.js';
+import { en } from '../../packages/ui/src/i18n/en.js';
+import { de } from '../../packages/ui/src/i18n/de.js';
+import { START_GERMAN_CONSENT, FEATURE_REASON_CODES, VOICE_REASON_CODES } from '../fixtures/german-server-texts.js';
 
 const waitTimeout = 45_000;
 const content = 'operations: hosted; data: public; systems: API; reach: international';
@@ -399,6 +403,86 @@ async function stopDemo(child) {
   const exited = once(child, 'exit'), timer = setTimeout(() => child.kill('SIGKILL'), 5_000);
   try { child.kill('SIGTERM'); await exited; } finally { clearTimeout(timer); }
 }
+test('AIT-117: a German processing-consent page contains START German copy and no English server reasons',
+  { timeout: 120_000 }, async t => {
+    const executablePath = await browserPath();
+    const directory = await mkdtemp(join(tmpdir(), 'aithema-german-consent-'));
+    const demo = await startDemo(directory); let browser;
+    t.after(async () => {
+      try { await browser?.close(); }
+      finally { await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); }
+    });
+    browser = await puppeteer.launch({ executablePath, headless: true, env: { PATH: process.env.PATH, HOME: homedir() },
+      userDataDir: join(directory, 'chrome'), timeout: waitTimeout,
+      args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    const page = await browser.newPage(); await preparePage(page, ['de-DE', 'de']);
+    const problems = [], external = [];
+    page.on('pageerror', error => problems.push(error.message));
+    // The production host module receives English server copy with both START
+    // item ids. Provider setup and calls are replaced by this local fixture.
+    await page.setRequestInterception(true);
+    page.on('request', request => {
+      const url = new URL(request.url());
+      if (url.origin !== demo.url && url.protocol !== 'data:') {
+        external.push(request.url()); void request.abort();
+      } else if (url.pathname === '/demo/config') {
+        void request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify({
+          label: 'Mock reasoning — deterministic demo', imageLabel: 'Images off', voiceMode: 'off', voiceDisabledReason: 'agent-api-get-403',
+          processingConsent: { contract: 'browser-fixture', intro: CONSENT_INTRO, withdrawal: CONSENT_WITHDRAWAL, items: CONSENT_ITEMS },
+        }) });
+      } else if (url.pathname.endsWith('/consent') && request.method() === 'GET') {
+        void request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify({ selected: ['voice-elevenlabs'] }) });
+      } else void request.continue();
+    });
+    await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+    await until(page, () => document.documentElement.lang === 'de' && document.querySelector('#processing-items span')?.textContent === 'KI-Modelle international');
+    const consent = await page.evaluate(() => ({
+      intro: document.querySelector('#consent-text').textContent,
+      items: [...document.querySelectorAll('#processing-items input')].map(input => ({ id: input.value,
+        title: input.parentElement.querySelector('span').textContent, text: input.parentElement.nextElementSibling.textContent, checked: input.checked })),
+      visible: document.querySelector('section[aria-labelledby="consent-title"]').innerText,
+      provider: document.querySelector('#provider').textContent,
+    }));
+    assert.equal(await inShadow(page, c => c.session.locale), 'de');
+    assert.equal(consent.intro, `${START_GERMAN_CONSENT.intro} ${START_GERMAN_CONSENT.withdrawal}`);
+    for (const item of consent.items) {
+      const expected = START_GERMAN_CONSENT.items[item.id];
+      assert.equal(item.title, expected.title);
+      assert.equal(item.text, `${expected.recipients} ${expected.text}`);
+    }
+    assert.deepEqual(consent.items.map(item => [item.id, item.checked]), [['models-international', false], ['voice-elevenlabs', true]]);
+    for (const english of [CONSENT_INTRO, CONSENT_WITHDRAWAL, ...CONSENT_ITEMS.flatMap(item => [item.title, item.recipients, item.text])]) {
+      assert.equal(consent.visible.includes(english), false, english);
+    }
+    assert.ok(consent.provider.includes(de.reasons['agent-api'].replace('{status}', '403')));
+    assert.equal(consent.provider.includes('agent-api-get-403'), false);
+    await waitForShadow(page, '.composer-reason', { text: de.reasons['current processing consent required'] });
+    // Exercise every grepped reason through actual feature rows, including HTML,
+    // delegated voice reasons and the bounded agent API status-code family.
+    const codes = [...FEATURE_REASON_CODES, ...VOICE_REASON_CODES,
+      ...FEATURE_REASON_CODES.map(code => `delegated reasoning: ${code}`), 'agent-api-get-401', 'agent-api-post-403', 'agent-api-patch-503'];
+    const rendered = await page.evaluate(async codes => {
+      const { de } = await import('/packages/ui/src/i18n/de.js');
+      const c = document.querySelector('aithema-session'), session = c.session, rows = [];
+      for (const reason of codes) {
+        session.featureMatrix.best = Object.fromEntries(['text', 'analysis', 'voice', 'transcription', 'images', 'html']
+          .map(feature => [feature, { available: false, reason }]));
+        c.configure({ copy: de, session });
+        rows.push([...c.shadowRoot.querySelectorAll('.features span')].map(node => node.textContent));
+      }
+      return rows;
+    }, codes);
+    for (const [index, code] of codes.entries()) {
+      const inner = code.replace(/^delegated reasoning: /u, ''), status = /^agent-api-(?:get|post|patch)-(\d{3})$/u.exec(code);
+      const expected = status ? de.reasons['agent-api'].replace('{status}', status[1])
+        : inner !== code ? de.reasons.delegated.replace('{reason}', de.reasons[inner]) : de.reasons[code];
+      assert.ok(rendered[index].length > 0, code);
+      assert.ok(rendered[index].every(text => text === expected), code);
+      assert.ok(rendered[index].every(text => text !== (en.reasons[inner] ?? code)), `English reason leaked: ${code}`);
+    }
+    assert.deepEqual(problems, []); assert.deepEqual(external, []);
+    t.diagnostic(`START German consent: 2 items plus intro/withdrawal; ${codes.length} reason cases rendered in German, no provider requests.`);
+  });
 async function preparePage(page, languages) {
   await page.setViewport({ width: 1440, height: 1000 });
   page.setDefaultTimeout(waitTimeout);
