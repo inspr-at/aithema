@@ -8,7 +8,22 @@ import * as creditContracts from '../src/credits.js';
 import { createMemoryLibrary } from '../src/library-port.js';
 
 const ownerWallet = { balance: () => ({ limitMicro: 1000, committedMicro: 0 }),
-  canAdmit: () => true, admit: async () => ({ ok: true }) };
+  canAdmit: () => true, admit: async () => ({ ok: true }), release: async () => {} };
+function walletFixture(limitMicro = 1000) {
+  const reservations = new Map();
+  const committed = () => [...reservations.values()].reduce((sum, amount) => sum + amount, 0);
+  const port = {
+    balance: () => ({ limitMicro, committedMicro: committed() }),
+    canAdmit: ({ maxMicro }) => maxMicro <= limitMicro - committed(),
+    async admit({ attemptId, maxMicro }) {
+      if (reservations.has(attemptId)) return { ok: true };
+      if (maxMicro > limitMicro - committed()) return { ok: false };
+      reservations.set(attemptId, maxMicro); return { ok: true };
+    },
+    async release({ attemptId }) { reservations.delete(attemptId); }
+  };
+  return { port, reservations };
+}
 const viewOf = (ledger, sessionId) => budgetCreditView(ledger, sessionId, ownerWallet);
 const previewOf = (ledger, sessionId, maxMicro, maxVisitorMicro = 0) =>
   creditAdmission(ledger, sessionId, maxMicro, maxVisitorMicro, ownerWallet);
@@ -194,11 +209,15 @@ test('authoritative owner denial prevents ledger admission even after a successf
 
 test('owner admission finishes before atomic ledger admission and cannot mutate its request', async () => {
   const calls = [], request = { sessionId: 's1', maxMicro: 1, attemptId: 'attempt' };
-  let release;
+  let release, walletSnapshot, mutationRefused = false;
   const ledger = { sessionCapMicro: 100, visitorCapMicro: 50, used: () => 0, visitorUsed: () => 0, canAdmit: () => true,
-    admit: received => { calls.push('ledger'); assert.deepEqual(received, request); return { attemptId: 'attempt', maxMicro: 1 }; } };
+    admit: received => {
+      calls.push('ledger'); assert.deepEqual(received, request); assert.equal(received, walletSnapshot);
+      return { attemptId: 'attempt', maxMicro: 1 };
+    } };
   const host = { ...ownerWallet, admit: received => {
-    calls.push('owner'); received.sessionId = 'mutated';
+    calls.push('owner'); walletSnapshot = received;
+    try { received.sessionId = 'mutated'; } catch (error) { mutationRefused = error instanceof TypeError; }
     return new Promise(resolve => { release = resolve; });
   } };
   const pending = creditContracts.admitCredits(ledger, request, host);
@@ -206,6 +225,7 @@ test('owner admission finishes before atomic ledger admission and cannot mutate 
   assert.deepEqual(calls, ['owner']);
   release({ ok: true });
   const accepted = await pending;
+  assert.equal(mutationRefused, true);
   assert.equal(accepted.ok, true);
   assert.deepEqual(accepted.admission, { attemptId: 'attempt', maxMicro: 1 });
   assert.deepEqual(calls, ['owner', 'ledger']);
@@ -214,13 +234,7 @@ test('owner admission finishes before atomic ledger admission and cannot mutate 
 test('library new/reset keep the owner balance and the existing one-hour guard across conversations', async () => {
   const storage = new SQLiteStorage(), library = createMemoryLibrary().port;
   const ledger = new SQLiteBudgetLedger(storage, { sessionCapMicro: 100, visitorCapMicro: 50 });
-  let committedMicro = 0;
-  const host = { balance: () => ({ limitMicro: 100, committedMicro }),
-    canAdmit: ({ maxMicro }) => maxMicro <= 100 - committedMicro,
-    admit: async ({ maxMicro }) => {
-      if (maxMicro > 100 - committedMicro) return { ok: false };
-      committedMicro += maxMicro; return { ok: true };
-    } };
+  const host = walletFixture(100).port;
   try {
     const original = await library.new(); storage.create({ id: original.id });
     const requestFor = (sessionId, maxMicro) => ({ sessionId, lane: 'reaction', maxMicro,
@@ -262,3 +276,157 @@ test('conversation rebinding retains pause/end state and discards only the old c
   assert.equal(next.endsAt, s.endsAt);
   assert.throws(() => creditContracts.rebindCredits(s, ''));
 }));
+
+test('credit admission generates one attempt key shared by the wallet and SQLite ledger', async () => {
+  const storage = new SQLiteStorage(), session = storage.create();
+  const ledger = new SQLiteBudgetLedger(storage, { sessionCapMicro: 100 });
+  const fixture = walletFixture();
+  let walletSnapshot;
+  const host = { ...fixture.port, admit: request => { walletSnapshot = request; return fixture.port.admit(request); } };
+  const request = { sessionId: session.id, lane: 'reaction', maxMicro: 40,
+    requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64) };
+  try {
+    const result = await creditContracts.admitCredits(ledger, request, host);
+    assert.equal(result.ok, true);
+    assert.match(walletSnapshot.attemptId, /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/u);
+    assert.equal(result.admission.attemptId, walletSnapshot.attemptId);
+    assert.equal(ledger.get(walletSnapshot.attemptId).max_micro, 40);
+    assert.equal(fixture.reservations.get(walletSnapshot.attemptId), 40);
+    assert.equal(request.attemptId, undefined);
+  } finally { storage.close(); }
+});
+
+for (const [lane, maxMicro, maxVisitorMicro, reason] of [
+  ['reaction', 60, 0, 'session'], ['voice', 10, 30, 'voiceVisitor']
+]) {
+  test(`concurrent owner-approved admissions release only the ${reason} refusal`, async () => {
+    const storage = new SQLiteStorage(), session = storage.create();
+    const ledger = new SQLiteBudgetLedger(storage, { sessionCapMicro: 100, visitorCapMicro: 50 });
+    const fixture = walletFixture(200), approved = [], released = [];
+    await fixture.port.admit({ attemptId: 'unrelated', maxMicro: 10 });
+    const before = fixture.port.balance().committedMicro;
+    let resume;
+    const barrier = new Promise(resolve => { resume = resolve; });
+    const host = { ...fixture.port, async admit(request) {
+      const result = await fixture.port.admit(request);
+      approved.push({ request, result }); await barrier; return result;
+    }, async release(request) { released.push(request); await fixture.port.release(request); } };
+    const request = { sessionId: session.id, lane, maxMicro, maxVisitorMicro,
+      requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64) };
+    try {
+      const pending = Promise.allSettled([
+        creditContracts.admitCredits(ledger, { ...request, attemptId: 'race-first' }, host),
+        creditContracts.admitCredits(ledger, { ...request, attemptId: 'race-second' }, host)
+      ]);
+      await Promise.resolve();
+      const approvalsBeforeLedger = approved.length;
+      const ownerApproved = approved.every(({ result }) => result.ok === true);
+      const ledgerBefore = ledger.used(session.id);
+      const ownerReservedBeforeLedger = fixture.port.balance().committedMicro;
+      resume();
+      const outcomes = await pending;
+      assert.equal(approvalsBeforeLedger, 2);
+      assert.equal(ownerApproved, true);
+      assert.equal(ledgerBefore, 0);
+      assert.equal(ownerReservedBeforeLedger, before + 2 * maxMicro);
+      assert.ok(outcomes.every(result => result.status === 'fulfilled'));
+      const accepted = outcomes.map(result => result.value).find(result => result.ok);
+      const refused = outcomes.map(result => result.value).find(result => !result.ok);
+      assert.ok(accepted); assert.ok(refused);
+      assert.deepEqual(refused, { ok: false, reason, attemptId: approved[1].request.attemptId });
+      assert.notEqual(refused.attemptId, accepted.admission.attemptId);
+      assert.deepEqual(released, [{ attemptId: refused.attemptId }]);
+      assert.equal(fixture.port.balance().committedMicro, before + maxMicro);
+      assert.equal(fixture.reservations.get('unrelated'), 10);
+      assert.equal(fixture.reservations.has(accepted.admission.attemptId), true);
+      assert.equal(fixture.reservations.has(refused.attemptId), false);
+      assert.equal(ledger.get(refused.attemptId), undefined);
+      assert.equal(ledger.used(session.id), maxMicro);
+    } finally { storage.close(); }
+  });
+}
+
+for (const asynchronous of [false, true]) {
+  test(`${asynchronous ? 'async' : 'sync'} ledger refusal awaits owner release and sanitizes the reason`, async () => {
+    const calls = [], request = { sessionId: 's1', maxMicro: 1, attemptId: 'refused' };
+    let completeRelease;
+    const ledger = { sessionCapMicro: 100, visitorCapMicro: 50, used: () => 0, visitorUsed: () => 0,
+      canAdmit: () => true, admit() {
+        calls.push('ledger');
+        if (asynchronous) return Promise.reject(new Error('private ledger diagnostic'));
+        throw new Error('private ledger diagnostic');
+      } };
+    const host = { ...ownerWallet, release(received) {
+      assert.deepEqual(received, { attemptId: 'refused' }); calls.push('release');
+      return new Promise(resolve => { completeRelease = resolve; });
+    } };
+    const pending = creditContracts.admitCredits(ledger, request, host);
+    const outcome = pending.then(value => ({ value }), error => ({ error }));
+    await Promise.resolve(); await Promise.resolve();
+    assert.deepEqual(calls, ['ledger', 'release']);
+    let returned = false;
+    outcome.then(() => { returned = true; });
+    await Promise.resolve(); assert.equal(returned, false);
+    completeRelease();
+    assert.deepEqual(await outcome, { value: { ok: false, reason: 'host-limit', attemptId: 'refused' } });
+  });
+}
+
+test('credit admission requires owner release before making either reservation', async () => {
+  let walletCalls = 0, ledgerCalls = 0;
+  const host = { ...ownerWallet, release: undefined, admit: async () => { walletCalls += 1; return { ok: true }; } };
+  const ledger = { sessionCapMicro: 100, visitorCapMicro: 50, used: () => 0, visitorUsed: () => 0,
+    canAdmit: () => true, admit: request => { ledgerCalls += 1; return { attemptId: request.attemptId }; } };
+  await assert.rejects(creditContracts.admitCredits(ledger, { sessionId: 's1', maxMicro: 1 }, host), /Owner wallet/);
+  assert.equal(walletCalls, 0); assert.equal(ledgerCalls, 0);
+});
+
+test('owner release failure propagates without reporting a completed denial', async () => {
+  const ledger = { sessionCapMicro: 100, visitorCapMicro: 50, used: () => 0, visitorUsed: () => 0,
+    canAdmit: () => true, admit: () => { throw new Error('ledger refused'); } };
+  const host = { ...ownerWallet, release: async () => { throw new Error('release unavailable'); } };
+  await assert.rejects(creditContracts.admitCredits(ledger, { sessionId: 's1', maxMicro: 1 }, host), /release unavailable/);
+});
+
+test('a repeated ledger attempt cannot release the already admitted owner reservation', async () => {
+  const storage = new SQLiteStorage(), session = storage.create();
+  const ledger = new SQLiteBudgetLedger(storage, { sessionCapMicro: 100 });
+  const fixture = walletFixture();
+  let releases = 0;
+  const host = { ...fixture.port, release: request => { releases += 1; return fixture.port.release(request); } };
+  const request = { attemptId: 'existing', sessionId: session.id, lane: 'reaction', maxMicro: 40,
+    requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64) };
+  try {
+    assert.equal((await creditContracts.admitCredits(ledger, request, host)).ok, true);
+    await assert.rejects(creditContracts.admitCredits(ledger, request, host), { code: 'already-claimed' });
+    assert.equal(releases, 0);
+    assert.equal(fixture.port.balance().committedMicro, 40);
+    assert.equal(ledger.used(session.id), 40);
+  } finally { storage.close(); }
+});
+
+test('owner wallet kit checks concurrent and repeated admission plus idempotent release', async () => {
+  const fixture = walletFixture();
+  assert.deepEqual(await creditContracts.ownerWalletConformance(fixture.port, { sessionId: 'kit-session', maxMicro: 10 }),
+    { ok: true, failures: [] });
+  assert.equal(fixture.port.balance().committedMicro, 0);
+});
+
+test('owner wallet kit rejects a host reserving twice for the same attempt', async () => {
+  let committedMicro = 0;
+  const host = { ...ownerWallet, balance: () => ({ limitMicro: 1000, committedMicro }),
+    admit: async ({ maxMicro }) => { committedMicro += maxMicro; return { ok: true }; },
+    release: async () => { committedMicro = 0; } };
+  const result = await creditContracts.ownerWalletConformance(host, { sessionId: 'kit-session', maxMicro: 10 });
+  assert.equal(result.ok, false);
+  assert.ok(result.failures.includes('owner admission idempotency'));
+});
+
+test('owner wallet kit requires release and detects an unreleased reservation', async () => {
+  const fixture = walletFixture(), request = { sessionId: 'kit-session', maxMicro: 10 };
+  const missing = await creditContracts.ownerWalletConformance({ ...fixture.port, release: undefined }, request);
+  assert.deepEqual(missing, { ok: false, failures: ['owner wallet operations missing'] });
+  const broken = await creditContracts.ownerWalletConformance({ ...fixture.port, release: async () => {} }, request);
+  assert.equal(broken.ok, false);
+  assert.ok(broken.failures.includes('owner reservation release'));
+});

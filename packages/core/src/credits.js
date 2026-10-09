@@ -1,6 +1,8 @@
 // Read-only projection of the existing ledger: used() includes outstanding
 // maxima and actual/uncertain settlements. Both ledger caps are per session;
 // the host's separate owner wallet spans conversations and owns its billing.
+import { hostPortKit } from './host-port-kit.js';
+
 export const CONVERSATION_LIMIT_MS = 60 * 60_000;
 const integer = n => Number.isSafeInteger(n) && n >= 0;
 const id = value => typeof value === 'string' && value.length > 0 && value.length <= 512;
@@ -9,12 +11,18 @@ function balancePart(limitMicro, committedMicro) {
   return { limitMicro, committedMicro, availableMicro: Math.max(0, limitMicro - committedMicro),
     overrunMicro: Math.max(0, committedMicro - limitMicro) };
 }
+const admissionReason = (balance, maxMicro, maxVisitorMicro) =>
+  maxMicro > balance.session.availableMicro || balance.session.overrunMicro ? 'session' :
+    maxVisitorMicro > balance.voiceVisitor.availableMicro || balance.voiceVisitor.overrunMicro ? 'voiceVisitor' : 'host-limit';
 /** Host-bound to one owner. balance() returns {limitMicro,committedMicro};
  * canAdmit(request) is a synchronous preview; admit(request) confirms an atomic
- * owner reservation with {ok:boolean}, possibly asynchronously. The host owns
- * reservation recovery, settlement and release if the session ledger rejects. */
+ * owner reservation with {ok:boolean}, possibly asynchronously. Admission MUST
+ * be idempotent per attemptId, including concurrent calls. release({attemptId})
+ * MUST await removal of only that reservation and be idempotent; unknown IDs
+ * are harmless. Rejections leave reservations unchanged. The host owns billing,
+ * settlement and crash recovery under the same attemptId. */
 export function assertOwnerWalletPort(port) {
-  if (['balance', 'canAdmit', 'admit'].some(name => typeof port?.[name] !== 'function')) {
+  if (['balance', 'canAdmit', 'admit', 'release'].some(name => typeof port?.[name] !== 'function')) {
     throw new TypeError('Owner wallet required');
   }
   return port;
@@ -38,21 +46,76 @@ export function creditAdmission(ledger, sessionId, maxMicro, maxVisitorMicro = 0
     return { ok: false, reason: 'host-limit', balance };
   }
   const ok = ledger.canAdmit(sessionId, maxMicro, maxVisitorMicro) === true;
-  return { ok, reason: ok ? null : maxMicro > balance.session.availableMicro || balance.session.overrunMicro ? 'session' :
-    maxVisitorMicro > balance.voiceVisitor.availableMicro || balance.voiceVisitor.overrunMicro ? 'voiceVisitor' : 'host-limit', balance };
+  return { ok, reason: ok ? null : admissionReason(balance, maxMicro, maxVisitorMicro), balance };
 }
 /** No billing policy lives here. A preview cannot authorize ledger admission;
- * the owner wallet must confirm first, including when racing another session. */
+ * the owner wallet must confirm first, including when racing another session.
+ * Both ports receive the same frozen snapshot with a caller or generated
+ * attemptId. ledger.admit(request) MUST preserve it in the admission result and
+ * atomically reject without creating a reservation. An already-claimed error
+ * identifies an existing ledger attempt and MUST leave its owner hold intact.
+ * Other ledger refusals await owner release, then return {ok:false,reason,
+ * attemptId}; release failures propagate for host recovery.
+ * Part B wiring: bind the required release hook to the owner's reservation
+ * store; use this attemptId for ledger admission, settlement and recovery.
+ * SQLiteBudgetLedger already accepts caller IDs, so no ledger change is needed. */
 export async function admitCredits(ledger, request, ownerWallet) {
   assertOwnerWalletPort(ownerWallet);
   if (typeof ledger?.admit !== 'function') throw new TypeError('Credit ledger admission required');
   const snapshot = structuredClone(request);
   const preview = creditAdmission(ledger, snapshot?.sessionId, snapshot?.maxMicro, snapshot?.maxVisitorMicro ?? 0, ownerWallet);
   if (!preview.ok) return preview;
-  const result = await ownerWallet.admit(structuredClone(snapshot));
+  snapshot.attemptId ??= crypto.randomUUID();
+  if (!id(snapshot.attemptId)) throw new TypeError('Invalid credit attempt');
+  Object.freeze(snapshot);
+  const result = await ownerWallet.admit(snapshot);
   if (typeof result?.ok !== 'boolean') throw new TypeError('Invalid owner wallet admission');
   if (!result.ok) return { ok: false, reason: 'host-limit', balance: budgetCreditView(ledger, snapshot.sessionId, ownerWallet) };
-  return { ok: true, reason: null, admission: await ledger.admit(snapshot) };
+  try {
+    return { ok: true, reason: null, admission: await ledger.admit(snapshot) };
+  } catch (error) {
+    if (error?.code === 'already-claimed') throw error;
+    await ownerWallet.release({ attemptId: snapshot.attemptId });
+    const balance = budgetCreditView(ledger, snapshot.sessionId, ownerWallet);
+    return { ok: false, reason: admissionReason(balance, snapshot.maxMicro, snapshot.maxVisitorMicro ?? 0), attemptId: snapshot.attemptId };
+  }
+}
+
+/** Destructive kit for an owner-bound local fixture with an affordable request
+ * ({sessionId,maxMicro,...hostFields}); maxMicro must be positive. The kit uses
+ * a fresh attemptId, checks concurrent/serial retries against balance(), then
+ * checks release and unknown/repeated release without disturbing other holds. */
+export async function ownerWalletConformance(port, request, { timeoutMs = 1000 } = {}) {
+  const kit = hostPortKit(timeoutMs), { check, run } = kit;
+  try { assertOwnerWalletPort(port); } catch { check(false, 'owner wallet operations missing'); return kit.result(); }
+  if (!id(request?.sessionId) || !integer(request?.maxMicro) || !request.maxMicro) {
+    check(false, 'owner wallet fixture request invalid'); return kit.result();
+  }
+  const snapshot = Object.freeze({ ...structuredClone(request), attemptId: crypto.randomUUID() });
+  const readBalance = () => {
+    const balance = port.balance();
+    return balancePart(balance?.limitMicro, balance?.committedMicro);
+  };
+  const before = await run('owner wallet balance failed', readBalance);
+  if (!before) return kit.result();
+  const allowed = await run('owner wallet preview failed', () => port.canAdmit(snapshot));
+  if (allowed !== true || snapshot.maxMicro > before.availableMicro) {
+    check(false, 'owner wallet fixture request unaffordable'); return kit.result();
+  }
+  const admissions = await run('owner wallet admission failed', () => Promise.all([port.admit(snapshot), port.admit(snapshot)]));
+  check(admissions?.every(result => result?.ok === true) === true, 'owner wallet admission response');
+  const retried = await run('owner wallet retry failed', () => port.admit(snapshot));
+  check(retried?.ok === true, 'owner wallet retry response');
+  const admitted = await run('owner wallet admitted balance failed', readBalance);
+  check(admitted?.committedMicro === before.committedMicro + snapshot.maxMicro, 'owner admission idempotency');
+  await run('owner reservation release failed', () => port.release({ attemptId: snapshot.attemptId }));
+  const released = await run('owner wallet released balance failed', readBalance);
+  check(released?.committedMicro === before.committedMicro, 'owner reservation release');
+  await run('owner repeated release failed', () => port.release({ attemptId: snapshot.attemptId }));
+  await run('owner unknown release failed', () => port.release({ attemptId: crypto.randomUUID() }));
+  const repeated = await run('owner wallet repeated release balance failed', readBalance);
+  check(repeated?.committedMicro === before.committedMicro, 'owner release idempotency');
+  return kit.result();
 }
 export function createCredits({ sessionId, durationMs = CONVERSATION_LIMIT_MS } = {}) {
   if (!id(sessionId) || !integer(durationMs) || !durationMs) throw new TypeError('Invalid credit slot configuration');
