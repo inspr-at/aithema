@@ -6,7 +6,10 @@
     ".": "./src/index.js",
     "./understanding": "./src/understanding.js",
     "./readiness": "./src/readiness.js",
-    "./live-voice": "./src/live-voice.js"
+    "./live-voice": "./src/live-voice.js",
+    "./extractor": "./src/extractor.js",
+    "./extractor-process": "./src/extractor-process.js",
+    "./extractor-zip": "./src/extractor-zip.js"
   },
   "engines": {
     "node": ">=24"

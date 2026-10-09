@@ -145,6 +145,12 @@
       "use": "HTTP type declarations required by @types/node (tests only)."
     },
     {
+      "name": "unpdf",
+      "version": "1.8.0",
+      "license": "MIT AND Apache-2.0",
+      "use": "Offline PDF text extraction in bounded child processes; same pinned dependency as Gen-2. Includes the Apache-2.0 serverless PDF.js 6.1.200 build."
+    },
+    {
       "name": "webrtc-adapter",
       "version": "9.0.6",
       "license": "BSD-3-Clause",
@@ -165,6 +171,11 @@
   ],
   "model_assets": [],
   "extraction_provenance": [
+    {
+      "aithema_module": "packages/core/src/extractor*.js, plugins/extract-pdf/, plugins/extract-ooxml/, plugins/extract-text/",
+      "start_source": "start-agm-com src/lib/{extract,ooxml}.ts, src/pages/api/upload.ts; archive/gen2-2026-10-01 runtime/{extract,pdf-extract-child}.js, lib/{extract-limits,intake}.js",
+      "notes": "Generic content sniffing, bounded child lifecycle, literal untrusted intake, Office readers and stricter ZIP bomb limits. Added PPTX, citable segments and kill/reaping conformance; no agency policy or imported approval authority."
+    },
     {
       "aithema_module": "packages/core/src/understanding.js",
       "start_source": "start-agm-com src/lib/qualification.ts, src/pages/api/analyze.ts",

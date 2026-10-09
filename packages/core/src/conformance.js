@@ -1,4 +1,6 @@
 import { validateManifest } from './plugins.js';
+export { extractorConformance } from './extractor-conformance.js';
+export { assertExtractor, createExtractor, isExtraction, sniffDocument, sniffUploadMime, EXTRACTOR_LIMITS, UPLOAD_LIMITS, EXTRACTOR_MEDIA_TYPES, TEXT_MEDIA_TYPES } from './extractor.js';
 export { uiGenerationConformance } from './ui-generation-conformance.js';
 import { matchesSchema, operationScope } from './reasoning.js';
 import { PLUGIN_ERROR_CODES, PluginError, isCancelledZeroReport } from './invocation.js';
