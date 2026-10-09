@@ -50,10 +50,31 @@ test('Linux RSS recovers on the next sample after the first proc read rejects', 
   assert.equal(commands.mock.callCount(), 0);
 });
 
-test('Linux RSS rejects missing, malformed and unsafe VmRSS values', async t => {
+test('Linux RSS is zero for zombie status without Vm lines', async t => {
+  const { sample, commands } = await linuxSampler(t, 'linux-zombie');
+  const status = 'Name:\tparser\nState:\tZ (zombie)\nTgid:\t423\nPid:\t423\nThreads:\t1\n';
+  assert.equal(await sample(423, async () => status), 0);
+  assert.equal(commands.mock.callCount(), 0);
+});
+
+test('Linux RSS is zero for exiting status without VmRSS', async t => {
+  const { sample, commands } = await linuxSampler(t, 'linux-exiting');
+  for (const status of [
+    'Name:\tparser\nState:\tX (dead)\nPid:\t423\nThreads:\t1\n',
+    // An exiting process can lose its memory map before its state changes.
+    'Name:\tparser\nState:\tR (running)\nPid:\t423\nThreads:\t1\n',
+    'VmSize: 1024 kB\n',
+  ]) {
+    assert.equal(await sample(423, async () => status), 0);
+  }
+  assert.equal(commands.mock.callCount(), 0);
+});
+
+test('Linux RSS rejects malformed and unsafe VmRSS values', async t => {
   const { sample } = await linuxSampler(t, 'linux-invalid');
-  for (const status of ['VmSize: 1024 kB\n', 'VmRSS: -1 kB\n', 'VmRSS: 1.5 kB\n',
-    'VmRSS: 1024 MB\n', 'VmRSS: 9007199254740992 kB\n']) {
+  for (const status of ['VmRSS:\n', 'VmRSS: -1 kB\n', 'VmRSS: 1.5 kB\n',
+    'VmRSS: 1024 MB\n', 'VmRSS: 9007199254740992 kB\n',
+    'State:\tZ (zombie)\nVmRSS: invalid kB\n']) {
     await assert.rejects(sample(423, async () => status), /Invalid RSS/u);
   }
   assert.equal(await sample(423, async () => 'VmRSS: 0 kB\n'), 0);

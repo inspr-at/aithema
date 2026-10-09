@@ -16,6 +16,8 @@ export async function residentBytes(pid, { platform = process.platform, readProc
   if (platform === 'linux') {
     // VmRSS is already in kB: no page-size command or cached promise is needed.
     const status = await readProc(`/proc/${pid}/status`, 'utf8');
+    // Exiting processes and zombies have no memory map, so proc omits VmRSS.
+    if (!/^VmRSS:/mu.test(status)) return 0;
     const match = /^VmRSS:[\t ]+(\d+)[\t ]+kB[\t ]*$/mu.exec(status);
     const kib = Number(match?.[1]);
     if (!match || !Number.isSafeInteger(kib) || kib < 0) throw new Error('Invalid RSS');
