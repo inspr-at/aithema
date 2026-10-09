@@ -33,10 +33,7 @@ export interface STT {
   stream?(request: { audio: AsyncIterable<Uint8Array>; format: string }, options: OperationOptions): AsyncIterable<{ text: string; final: boolean }>;
 }
 export interface TTS { speak(request: { text: string; voice: string; format: string }, options: OperationOptions): AsyncIterable<Uint8Array> }
-export interface UIGeneration {
-  generate(request: { brief: string; format: string }, options: OperationOptions): Promise<{ content: string; format: string }>;
-  edit(request: { content: string; instruction: string; format: string }, options: OperationOptions): Promise<{ content: string; format: string }>;
-}
+export type { UIGeneration, UISpec, UIFeedback, UIArtifact, UIReference, UIImageMediaType } from './ui-generation.js';
 export interface Extractor { extract(request: { bytes: Uint8Array; mediaType: string }, options: OperationOptions): Promise<{ text: string }> }
 export interface Exporter { export(request: { session: object; format: string }, options: OperationOptions): Promise<{ bytes: Uint8Array; mediaType: string }> }
 export type VoiceCapability = 'native' | 'emulated' | 'unavailable';
