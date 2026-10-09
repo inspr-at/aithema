@@ -4,8 +4,23 @@ export type Terminal = { attemptId: string } & ({ outcome: 'completed' | 'cancel
 export interface OperationOptions {
   signal: AbortSignal;
   deadlineAt: number;
-  attempt: { attemptId: string; claimId: string; consume(): void };
+  attempt: { attemptId: string; claimId: string; consume(): Promise<void> | void };
   report(terminal: Terminal): Promise<void> | void;
+}
+export interface ProcessingScope {
+  purpose: string; recipients: string[]; upstreamProcessors: string[]; dataCategories: string[];
+  itemVersion: string | number;
+  plugin?: string; model?: string; endpoint?: string; routing?: object; accountRef?: string; operation?: string;
+}
+export interface ConsentGrant extends ProcessingScope {
+  covered: true; consentRevision: number; expiresAt: number;
+  scope?: ProcessingScope; checkedAt?: number; withdrawn?: boolean;
+}
+export interface ConsentPort {
+  coverage(query: { sessionId: string; scope: ProcessingScope; consentRevision: number },
+    options?: Pick<OperationOptions, 'signal' | 'deadlineAt'>): Promise<ConsentGrant | { covered: false }> | ConsentGrant | { covered: false };
+  grant?(query: { sessionId: string; consentRevision: number }): Promise<void> | void;
+  withdraw?(query: { sessionId: string }): Promise<void> | void;
 }
 export interface Health { available: boolean; reason?: string }
 export interface Reasoning {

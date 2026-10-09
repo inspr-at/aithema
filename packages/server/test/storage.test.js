@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { SQLiteStorage, ConflictError, createHandlers, exportSession } from '../src/index.js';
 import { inputRevision, createMockReasoning } from '@inspr/aithema-core';
 import { instrumentedMockRuntime } from '../../../test/server-fixtures.js';
-import { temporaryDb, unzip, readEvents } from '../../../test/helpers.js';
+import { mockConsent, testToken, ownedRequest, temporaryDb, unzip, readEvents } from '../../../test/helpers.js';
 const bytes = content => Buffer.from(JSON.stringify({ clientEventId: 'turn1', content }));
 test('storage connections wait briefly for another SQLite writer', () => {
   const store = new SQLiteStorage();
@@ -51,14 +51,14 @@ test('turn transaction rolls back event and snapshot if receipt persistence fail
   } finally { store.close(); }
 });
 test('SSE Last-Event-ID replays exactly missed durable events and never partial deltas', async () => {
-  const store = new SQLiteStorage(), handlers = createHandlers({ storage: store });
+  const store = new SQLiteStorage(), handlers = createHandlers({ consent: mockConsent, storage: store });
   try {
-    const s = store.create({ demo: true }); store.postTurn(s.id, 'turn1', bytes('systems: SAP'), 'systems: SAP');
+    const s = store.create({ demo: true, ownerToken: testToken }); store.postTurn(s.id, 'turn1', bytes('systems: SAP'), 'systems: SAP');
     await handlers.lanes.run(s.id, 'reaction'); await handlers.lanes.run(s.id, 'understanding');
-    const missed = store.read(s.id, 2), response = await handlers.handle(new Request(`http://localhost/api/sessions/${s.id}/events`, { headers: { 'Last-Event-ID': '2' } }));
+    const missed = store.read(s.id, 2), response = await handlers.handle(ownedRequest(`http://localhost/api/sessions/${s.id}/events`, { headers: { 'Last-Event-ID': '2' } }));
     assert.deepEqual(await readEvents(response, missed.length), missed);
     assert.equal(missed.some(e => e.type === 'turn.partial'), false);
-    const invalid = await handlers.handle(new Request(`http://localhost/api/sessions/${s.id}/events`, { headers: { 'Last-Event-ID': '999' } }));
+    const invalid = await handlers.handle(ownedRequest(`http://localhost/api/sessions/${s.id}/events`, { headers: { 'Last-Event-ID': '999' } }));
     assert.equal(invalid.status, 400);
   } finally { await handlers.close(); store.close(); }
 });
@@ -80,10 +80,10 @@ test('turn acknowledgement happens before reasoning completes and malformed requ
     async *stream(...args) { await gate; yield* mock.stream(...args); } };
   const handlers = createHandlers({ storage: store, reasoning, pluginRuntime: instrumentedMockRuntime(store, reasoning) });
   try {
-    const s = store.create({ demo: true });
-    const response = await handlers.handle(new Request(`http://localhost/api/sessions/${s.id}/turns`, { method: 'POST', body: bytes('hello') }));
+    const s = store.create({ demo: true, ownerToken: testToken });
+    const response = await handlers.handle(ownedRequest(`http://localhost/api/sessions/${s.id}/turns`, { method: 'POST', body: bytes('hello') }));
     assert.equal(response.status, 200); assert.equal(store.get(s.id).transcript[0].content, 'hello');
-    for (const content of ['', 'a'.repeat(8001)]) assert.equal((await handlers.handle(new Request(`http://localhost/api/sessions/${s.id}/turns`, {
+    for (const content of ['', 'a'.repeat(8001)]) assert.equal((await handlers.handle(ownedRequest(`http://localhost/api/sessions/${s.id}/turns`, {
       method: 'POST', body: JSON.stringify({ clientEventId: 'bad', content }),
     }))).status, 400);
   } finally { release(); await handlers.close(); store.close(); }

@@ -15,23 +15,34 @@ export function normalizedError(error, signal) {
   return error instanceof PluginError ? error : new PluginError('provider', 'Provider request failed');
 }
 // The claim authority is an in-process closure, never a browser-supplied id.
-export function beginInvocation(options, { billable = true } = {}) {
-  let terminal = false, dispatched = false, usage = null;
+export async function beginInvocation(options, { billable = true } = {}) {
+  let terminal = false, dispatched = false, usage = null, cancelled = false;
   if (billable && (!options?.attempt?.attemptId || !options.attempt.claimId || typeof options.attempt.consume !== 'function' || typeof options.report !== 'function')) {
     throw new PluginError('not-admitted');
   }
-  options?.attempt?.consume(); // burn before any outbound work; a retry requires another admission
-  return {
-    dispatch() { dispatched = true; },
+  await options?.attempt?.consume(); // fresh host coverage before outbound work; a retry requires another admission
+  const invocation = {
+    dispatch() {
+      options?.signal?.throwIfAborted();
+      if (terminal) throw new PluginError('already-claimed');
+      dispatched = true;
+    },
     usage(value) {
       if (value && Number.isSafeInteger(value.inputTokens) && value.inputTokens >= 0 && Number.isSafeInteger(value.outputTokens) && value.outputTokens >= 0) usage = value;
     },
     async finish(completed = false) {
-      if (terminal) throw new PluginError('already-claimed');
+      if (terminal) { if (cancelled) return; throw new PluginError('already-claimed'); }
       terminal = true;
+      options?.signal?.removeEventListener('abort', abort);
       const report = !dispatched ? { outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 } }
         : usage ? { outcome: completed ? 'completed' : 'cancelled', usage } : { outcome: 'uncertain' };
       await options?.report?.({ attemptId: options.attempt?.attemptId, ...report });
     },
   };
+  // Settle on the operation lifetime even when a transport ignores cancellation.
+  // Usage received before abort remains billable; unknown dispatch retains its ceiling.
+  const abort = () => { cancelled = true; void invocation.finish(false).catch(() => {}); };
+  options?.signal?.addEventListener('abort', abort, { once: true });
+  if (options?.signal?.aborted) abort();
+  return invocation;
 }

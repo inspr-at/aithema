@@ -35,12 +35,8 @@ export function bindingReason({ binding, plugin, preset, policy = {}, now = Date
 export function processingScope(binding, operation) {
   const l = binding.legal;
   return { plugin: binding.plugin, model: binding.model, endpoint: binding.endpoint, routing: binding.routing ?? {},
-    accountRef: binding.accountRef, operation, purpose: l.purpose, recipient: l.recipient, processors: l.processors,
-    dataCategories: l.dataCategories, consentVersion: l.consentVersion };
+    accountRef: binding.accountRef, operation, purpose: l.purpose,
+    recipients: [l.recipient], upstreamProcessors: l.processors, itemVersion: l.consentVersion,
+    dataCategories: l.dataCategories };
 }
-// No boolean consent: the host returns current, exact coverage for the dispatch scope.
-export function consentReason(coverage, scope, now = Date.now()) {
-  if (!coverage || coverage.withdrawn || !Number.isFinite(coverage.expiresAt) || coverage.expiresAt <= now ||
-    !Number.isFinite(coverage.checkedAt) || coverage.checkedAt > now || now - coverage.checkedAt > 1000 || !same(coverage.scope, scope)) return 'current processing consent required';
-  return null;
-}
+export { consentReason } from './consent.js';

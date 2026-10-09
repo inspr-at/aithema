@@ -17,10 +17,13 @@ test('demo serves native UI modules, labelled mock host and persistent handlers'
     const r = await fetch(running.url + path); assert.equal(r.status, 200); assert.match(r.headers.get('content-type'), /javascript/);
   }
   for (const path of ['/package.json', '/demo/config.js', '/.env', '/packages/server/src/storage.js', '/plugins/mistral/src/index.js']) assert.equal((await fetch(running.url + path)).status, 404);
-  const s = await post(running.url + '/api/sessions', {}).then(r => r.json());
-  await post(running.url + `/api/sessions/${s.id}/turns`, { clientEventId: 'demo-turn', content: 'Demo turn' });
+  const created = await post(running.url + '/api/sessions', {}), s = await created.json();
+  const cookie = created.headers.get('set-cookie').split(';')[0];
+  assert.match(created.headers.get('set-cookie'), /HttpOnly; SameSite=Strict/);
+  assert.equal(created.headers.get('x-aithema-session-token'), null);
+  await post(running.url + `/api/sessions/${s.id}/turns`, { clientEventId: 'demo-turn', content: 'Demo turn' }, { cookie });
   await running.kill(); running = await startChild(new URL('../server.js', import.meta.url), db);
-  const restored = await fetch(running.url + `/api/sessions/${s.id}`).then(r => r.json()); assert.equal(restored.transcript[0].content, 'Demo turn');
+  const restored = await fetch(running.url + `/api/sessions/${s.id}`, { headers: { cookie } }).then(r => r.json()); assert.equal(restored.transcript[0].content, 'Demo turn');
 });
 test('demo rejects foreign Hosts and non-JSON POSTs before session creation', { timeout: 10_000 }, async t => {
   const running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb());
@@ -85,5 +88,48 @@ test('no client file sends a non-GET request except through postJson', async () 
   for (const file of files) {
     if (file.pathname.endsWith('/packages/ui/src/post-json.js')) continue;
     assert.ok(!sendsMethod(await readFile(file, 'utf8')), `${file.pathname} sets a request method; use postJson`);
+  }
+});
+
+test('postJson carries explicit header ownership without changing JSON or cookie defaults', async t => {
+  const { postJson } = await import('../../packages/ui/src/post-json.js');
+  const calls = []; t.mock.method(globalThis, 'fetch', async (url, init) => { calls.push(init); return Response.json({}); });
+  await postJson('/api/sessions', {}, { sessionToken: 'post-owner-fixture' });
+  await postJson('/api/sessions');
+  assert.equal(new Headers(calls[0].headers).get('x-aithema-session-token'), 'post-owner-fixture');
+  assert.equal(new Headers(calls[1].headers).has('x-aithema-session-token'), false);
+  assert.ok(calls.every(call => new Headers(call.headers).get('content-type') === 'application/json'));
+});
+
+for (const asynchronous of [false, true]) {
+  test(`demo expiry contains ${asynchronous ? 'asynchronous' : 'synchronous'} failures, logs metadata and runs again`, async t => {
+    const { startExpiry } = await import('../session-lifecycle.js');
+    let tick, calls = 0; const logs = [];
+    t.mock.method(globalThis, 'setInterval', callback => { tick = callback; return { unref() {} }; });
+    t.mock.method(console, 'error', (...values) => logs.push(values));
+    const handlers = { expire(before) {
+      assert.ok(before < Date.now()); calls++;
+      if (calls > 1) return;
+      const error = new Error('private expiry content must never reach a log');
+      if (asynchronous) return Promise.reject(error);
+      throw error;
+    } };
+    startExpiry(handlers);
+    await assert.doesNotReject(async () => tick());
+    assert.equal(logs.length, 1); assert.equal(JSON.stringify(logs).includes('private expiry content'), false);
+    assert.deepEqual(logs[0], [{ event: 'session-expiry-failed' }]);
+    await tick(); assert.equal(calls, 2);
+  });
+}
+
+test('demo ownership marks HTTPS cookies Secure and keeps HTTP localhost cookies usable', async () => {
+  const { ownership } = await import('../session-lifecycle.js');
+  for (const protocol of ['https', 'http']) {
+    const request = new Request(`${protocol}://localhost/api/sessions`), response = new Response();
+    ownership.created(response, 'cookie-owner-fixture', request);
+    const cookie = response.headers.get('set-cookie');
+    assert.equal(/; Secure(?:;|$)/u.test(cookie), protocol === 'https');
+    assert.match(cookie, /HttpOnly; SameSite=Strict/);
+    assert.equal(ownership.token(new Request(request.url, { headers: { cookie: cookie.split(';')[0] } })), 'cookie-owner-fixture');
   }
 });

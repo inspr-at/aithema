@@ -1,12 +1,13 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve, sep } from 'node:path';
-import { SQLiteStorage, createHandlers, createPluginRuntime } from '@inspr/aithema-server';
+import { SQLiteStorage, createHandlers, createPluginRuntime, createMemoryConsentLedger } from '@inspr/aithema-server';
 import { listen } from '@inspr/aithema-server/http';
 import { createMockReasoning, PluginRegistry } from '@inspr/aithema-core';
 import { createOpenRouterReasoning } from '@inspr/aithema-plugin-openrouter';
 import { createMistralReasoning } from '@inspr/aithema-plugin-mistral';
 import { config } from './config.js';
+import { ownership, startExpiry } from './session-lifecycle.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const defaultDb = resolve(root, '.data/session.sqlite');
@@ -23,12 +24,14 @@ const privateBinding = { plugin: provider, model: provider === 'mistral' ? (proc
   maxMicro: 1_000_000, maxTokens: 4096, rates: { inputMicro: 0, outputMicro: 0 } };
 const reasoning = provider === 'mock' ? createMockReasoning() : provider === 'openrouter'
   ? createOpenRouterReasoning({ binding: privateBinding }) : createMistralReasoning({ binding: privateBinding });
-const pluginRuntime = provider === 'mock' ? createPluginRuntime({ storage, reasoning }) : createPluginRuntime({ storage,
+const consent = createMemoryConsentLedger();
+const pluginRuntime = provider === 'mock' ? createPluginRuntime({ storage, reasoning, consent }) : createPluginRuntime({ storage, consent,
   registry: new PluginRegistry().register(reasoning), presets: {
     best: { plugins: [provider], bindings: { reaction: privateBinding, understanding: privateBinding } },
     eu: { plugins: [], bindings: {} }, custom: { plugins: [], bindings: {} },
   } });
-const handlers = createHandlers({ storage, reasoning, pluginRuntime }); handlers.resume();
+const handlers = createHandlers({ storage, reasoning, pluginRuntime, consent, ownership }); handlers.resume();
+const expiry = startExpiry(handlers);
 let allowedHosts = new Set();
 async function handle(request) {
   if (!allowedHosts.has(request.headers.get('host'))) return new Response(null, { status: 403 });
@@ -58,6 +61,7 @@ allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
 console.log(`Demo — Aithema reset slice 1: ${url} (${reasoning.label})`);
 process.send?.({ url });
 async function close() {
+  clearInterval(expiry);
   server.close(); await handlers.close(); server.closeAllConnections(); storage.close();
 }
 process.once('SIGTERM', () => void close()); process.once('SIGINT', () => void close());

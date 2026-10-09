@@ -133,6 +133,48 @@ test('an SSE cursor rejected with 400 restores the snapshot and reconnects with 
     assert.equal(c.session.seq, 1);
   } finally { c.remove(); await new Promise(r => setImmediate(r)); globalThis.fetch = originalFetch; }
 });
+test('pause state changes only after server acknowledgement; a failed resume preserves pause', async () => {
+  const c = setup(), original = globalThis.fetch; let release;
+  globalThis.fetch = () => new Promise(r => { release = r; });
+  try {
+    const button = c.shadowRoot.querySelector('.pause'); assert.ok(button);
+    button.click(); assert.equal(c.session.paused, false); assert.equal(button.disabled, true);
+    release(Response.json({ paused: true, event: { seq: 1, type: 'session.paused', data: { paused: true } } }));
+    await new Promise(r => setImmediate(r));
+    assert.equal(c.session.paused, true); assert.equal(button.textContent, en.resume);
+    button.click(); release(new Response(null, { status: 500 })); await new Promise(r => setImmediate(r));
+    assert.equal(c.session.paused, true);
+  } finally { globalThis.fetch = original; }
+});
+test('withdraw a stable statement id and clear visible projections even while hovered', async () => {
+  const c = setup(), root = c.shadowRoot, original = globalThis.fetch; let body;
+  turn(c, 'stable-turn', 'SAP');
+  c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
+  root.querySelector('.understanding').dispatchEvent(new window.Event('pointerenter'));
+  globalThis.fetch = async (url, init) => {
+    assert.ok(url.endsWith('/withdraw')); body = JSON.parse(init.body);
+    return Response.json({ event: { seq: c.session.seq + 1, type: 'turn.withdrawn', data: { turnId: 'stable-turn' } } });
+  };
+  try {
+    const button = root.querySelector('.withdraw'); assert.ok(button); button.click();
+    await new Promise(r => setImmediate(r)); assert.deepEqual(body, { turnId: 'stable-turn' });
+    assert.equal(root.querySelector('ol').textContent.includes('SAP'), false);
+    assert.equal(root.querySelector('.summary-text').textContent, '');
+    assert.equal(c.session.transcript[0].erased, true);
+  } finally { globalThis.fetch = original; }
+});
+test('a withdrawal acknowledgement with an SSE gap clears visible content before snapshot recovery', async () => {
+  const c = setup(), root = c.shadowRoot, original = globalThis.fetch; let release;
+  turn(c, 't', 'SAP'); c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
+  root.querySelector('.transcript-shell').dispatchEvent(new window.Event('pointerenter'));
+  root.querySelector('.understanding').dispatchEvent(new window.Event('pointerenter'));
+  globalThis.fetch = () => new Promise(r => { release = r; });
+  try {
+    c.receive({ seq: c.session.seq + 2, type: 'turn.withdrawn', data: { turnId: 't' } });
+    assert.equal(root.querySelector('ol').textContent.includes('SAP'), false);
+    assert.equal(root.querySelector('.summary-text').textContent, '');
+  } finally { release(Response.json(c.session)); await new Promise(r => setImmediate(r)); globalThis.fetch = original; }
+});
 test.after(async () => window.happyDOM.close());
 
 test('preset choice preserves layout and snapshot feature updates defer under the pointer', async () => {
@@ -310,4 +352,145 @@ test('device sends text in this tab only; browser configure/disconnect aborts lo
     assert.match(c.shadowRoot.querySelector('.features').textContent, /unavailable on device/);
     c.remove(); assert.equal(signal.aborted, true);
   } finally { c.remove(); globalThis.fetch = originalFetch; }
+});
+
+test('pause and consent gate sends immediately while preset updates defer and cached understanding stays visible', async () => {
+  const c = setup(), root = c.shadowRoot;
+  turn(c, 'input', 'systems: SAP');
+  c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
+  const send = root.querySelector('.send'), pause = root.querySelector('.pause'), preset = root.querySelector('.preset-panel');
+  preset.dispatchEvent(new window.Event('pointerenter'));
+  const features = root.querySelector('.features').textContent;
+  c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
+  assert.equal(send.disabled, true); assert.equal(pause.textContent, en.resume);
+  assert.equal(root.querySelector('.features').textContent, features);
+  assert.equal(root.querySelector('.summary-text').textContent.includes('untrusted'), true);
+  assert.equal(root.querySelector('.readiness').style.visibility, '');
+  assert.ok([...root.querySelectorAll('.analysis-content section')].every(node => !node.hidden));
+  preset.dispatchEvent(new window.Event('pointerleave'));
+  assert.match(root.querySelector('.features').textContent, /Session paused/);
+  root.querySelector('.transcript-shell').dispatchEvent(new window.Event('pointerenter'));
+  root.querySelector('.understanding').dispatchEvent(new window.Event('pointerenter'));
+  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: false } });
+  assert.equal(send.disabled, true); assert.equal(root.querySelector('.summary-text').textContent, '');
+  assert.equal(root.querySelector('.send'), send); assert.equal(root.querySelector('.pause'), pause);
+  assert.match(root.querySelector('style').textContent, /min-width:5.5rem/);
+});
+
+test('an old snapshot cannot undo acknowledged pause during recovery', async () => {
+  const c = setup(), beforePause = c.session, original = globalThis.fetch;
+  let release;
+  globalThis.fetch = () => new Promise(resolve => { release = resolve; });
+  try {
+    c.receive({ seq: c.session.seq + 2, type: 'turn.final', data: {} });
+    c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
+    release(Response.json(beforePause)); await new Promise(resolve => setImmediate(resolve));
+    assert.equal(c.session.paused, true);
+    assert.equal(c.shadowRoot.querySelector('.send').disabled, true);
+  } finally { globalThis.fetch = original; }
+});
+
+test('device withdrawal aborts the local stream, redacts without moving hovered targets and excludes input on the next send', async () => {
+  const c = setup(), originalFetch = globalThis.fetch, inputs = [];
+  let calls = 0, signal, release;
+  const held = new Promise(resolve => { release = resolve; });
+  const device = { async connect() {}, async *stream(input, options) {
+    inputs.push(input); signal = options.signal;
+    if (inputs.length === 1) { yield 'Local private answer'; await held; yield 'Late private answer'; }
+    else yield 'New local answer';
+  } };
+  globalThis.fetch = async () => { calls++; return new Response(null, { status: 404 }); };
+  try {
+    c.configure({ copy: en, session: createSession({ processingPreset: 'device' }), deviceReasoning: device });
+    document.body.append(c);
+    const root = c.shadowRoot, input = root.querySelector('textarea'), send = root.querySelector('.send');
+    input.value = 'Withdraw this local statement';
+    root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true }));
+    await new Promise(resolve => setImmediate(resolve));
+    const shell = root.querySelector('.transcript-shell'), list = root.querySelector('ol');
+    const row = list.querySelector('.user'), button = row.querySelector('.withdraw'), partial = list.querySelector('.partial');
+    row.getBoundingClientRect = () => ({ height: 96 }); partial.getBoundingClientRect = () => ({ height: 48 });
+    shell.scrollTop = 17; shell.dispatchEvent(new window.Event('pointerenter'));
+    root.querySelector('.understanding').dispatchEvent(new window.Event('pointerenter'));
+    button.click(); await new Promise(resolve => setImmediate(resolve));
+    assert.equal(signal.aborted, true);
+    assert.equal(c.session.transcript[0].erased, true);
+    assert.equal(list.textContent.includes('Withdraw this local statement'), false);
+    assert.equal(list.textContent.includes('Local private answer'), false);
+    assert.equal(list.querySelector('.user'), row); assert.equal(row.querySelector('.withdraw'), button);
+    assert.equal(row.style.minHeight, '96px'); assert.equal(partial.style.minHeight, '48px');
+    assert.equal(shell.scrollTop, 17); assert.equal(root.querySelector('.send'), send);
+    release(); await new Promise(resolve => setImmediate(resolve));
+    assert.equal(list.textContent.includes('Late private answer'), false);
+    shell.dispatchEvent(new window.Event('pointerleave'));
+    assert.equal(root.querySelectorAll('.withdraw').length, 0);
+    assert.equal(root.querySelectorAll('.partial').length, 0);
+    input.value = 'Keep this new statement';
+    root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true }));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(inputs[1].messages, [{ role: 'user', content: 'Keep this new statement' }]);
+    assert.equal(calls, 0, 'device withdrawal stays in this tab, including feature refresh');
+  } finally { release(); c.remove(); await new Promise(resolve => setImmediate(resolve)); globalThis.fetch = originalFetch; }
+});
+
+test('configure sends session ownership on SSE, recovery, feature refresh and every control POST', async () => {
+  const c = setup(), originalFetch = globalThis.fetch, calls = [];
+  const session = c.session, sessionToken = 'header-owner-fixture';
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, headers: new Headers(options.headers) });
+    if (url.endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+      options.signal.addEventListener('abort', () => controller.close(), { once: true });
+    } }));
+    const body = options.body ? JSON.parse(options.body) : {};
+    const event = (type, data) => ({ seq: c.session.seq + 1, type, data });
+    if (url.endsWith('/turns')) return Response.json(event('turn.final', { id: body.clientEventId, role: 'user', content: body.content }));
+    if (url.endsWith('/pause')) return Response.json({ event: event('session.paused', { paused: body.paused }) });
+    if (url.endsWith('/withdraw')) return Response.json({ event: event('turn.withdrawn', { turnId: body.turnId }) });
+    if (url.endsWith('/retry')) return Response.json({ accepted: true });
+    return Response.json(c.session);
+  };
+  const tick = () => new Promise(resolve => setImmediate(resolve));
+  try {
+    c.configure({ copy: en, session, sessionToken }); document.body.append(c); await tick();
+    const root = c.shadowRoot;
+    root.querySelector('textarea').value = 'Header owned statement';
+    root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick();
+    root.querySelector('.retry').click(); await tick();
+    root.querySelector('.pause').click(); await tick();
+    root.querySelector('.pause').click(); await tick();
+    root.querySelector('.withdraw').click(); await tick();
+    c.receive({ seq: c.session.seq + 2, type: 'turn.final', data: {} }); await tick();
+    for (const action of ['events', 'turns', 'retry', 'pause', 'withdraw']) {
+      assert.ok(calls.some(call => call.url.endsWith('/' + action)), action);
+    }
+    assert.ok(calls.filter(call => call.url.endsWith(session.id)).length >= 4, 'feature refreshes and gap recovery fetch snapshots');
+    assert.ok(calls.every(call => call.headers.get('x-aithema-session-token') === sessionToken));
+    assert.equal(c.shadowRoot.innerHTML.includes(sessionToken), false);
+  } finally { c.remove(); await tick(); globalThis.fetch = originalFetch; }
+});
+
+test('header-owned export fetches the ZIP with ownership and releases the download URL', async t => {
+  const c = setup(), originalFetch = globalThis.fetch, calls = [], downloaded = [], revoked = [];
+  t.mock.method(URL, 'createObjectURL', () => 'blob:header-owned-fixture');
+  t.mock.method(URL, 'revokeObjectURL', value => revoked.push(value));
+  const nativeClick = window.HTMLAnchorElement.prototype.click;
+  t.mock.method(window.HTMLAnchorElement.prototype, 'click', function () {
+    if (this.download) downloaded.push({ href: this.href, download: this.download });
+    else nativeClick.call(this);
+  });
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, headers: new Headers(options?.headers) });
+    return new Response('fixture-zip', { headers: { 'content-type': 'application/zip' } });
+  };
+  try {
+    c.configure({ copy: en, session: c.session, sessionToken: 'export-owner-fixture' });
+    const click = new window.MouseEvent('click', { bubbles: true, cancelable: true });
+    c.shadowRoot.querySelector('.export').dispatchEvent(click);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(click.defaultPrevented, true);
+    assert.equal(calls.length, 1); assert.ok(calls[0].url.endsWith('/export'));
+    assert.equal(calls[0].headers.get('x-aithema-session-token'), 'export-owner-fixture');
+    assert.deepEqual(downloaded, [{ href: 'blob:header-owned-fixture', download: 'aithema-session.zip' }]);
+    assert.deepEqual(revoked, ['blob:header-owned-fixture']);
+  } finally { globalThis.fetch = originalFetch; }
 });

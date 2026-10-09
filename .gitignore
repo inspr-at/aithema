@@ -4,3 +4,4 @@ worker-result.txt
 dist/
 *.sqlite*
 tests/__pycache__/
+.agent-status.json

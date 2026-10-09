@@ -16,8 +16,9 @@ The reset line is **unreleased work in progress**. The first text vertical suppl
 conversation, live understanding, durable events, restart/resume and session ZIP
 export. Requirement approval, files/uploads, voice, concepts and host integration
 remain later work. START cutover and live provider/OIDC proof are also later work;
-handover to PAIMOS is planned. Ownership/authentication, consent enforcement,
-pause, erasure and exclusive-writer safety belong to AIT-97. The demo is for localhost.
+handover to PAIMOS is planned. Sessions now have visitor ownership, authoritative
+consent checks, engine-wide pause, withdrawal/erasure and an exclusive writer.
+The demo is for localhost.
 
 All packages are private with placeholder version `0.0.0`; versioning is decided
 at release preparation (AIT-32). The old release workflow has been removed;
@@ -41,7 +42,10 @@ Tests use deterministic mocks and local HTTP fixtures; they make no live provide
 The demo visibly labels **Mock reasoning** by default. Its deterministic responses
 recognize statements such as `operations: hosted; data: public; systems: API;
 reach: international`; they do not prove model quality. Browser local storage
-keeps the session id. Reload or restart the server to resume from
+keeps the session id; an HttpOnly, SameSite=Strict cookie binds it to the visitor.
+Allow mock processing on the consent screen before reasoning starts. The demo
+ledger expires grants after twelve months and loses them on server restart;
+grant again to continue processing. Reload or restart the server to resume from
 `.data/session.sqlite`; New conversation creates a separate session without
 erasing the previous one. `PORT` and `AITHEMA_DB` override the port and database.
 The demo accepts only loopback Host headers and JSON POSTs.
@@ -52,6 +56,7 @@ and `MISTRAL_MODEL` select its model. These demo bindings remain **unverified** 
 cannot dispatch until a host supplies private qualification and current consent.
 Keys resolve from `OPENROUTER_API_KEY` or `MISTRAL_API_KEY` only at runtime; they
 never enter manifests, snapshots, UI or logs. Tests never use these environment keys.
+The demo mock consent does not cover live providers.
 
 ## Package layout
 
@@ -72,9 +77,11 @@ The private `aithema` root is an ESM npm workspace with one `package-lock.json`.
 The server exports `SQLiteStorage`, `createHandlers` and `exportSession`; its
 `/http` export supplies `listen` and `httpAdapter`. Call handlers' `resume()` on
 startup and `close()` before closing storage. A standalone mock server runs with
-`node packages/server/bin/server.js`; set `AITHEMA_DB` for persistence.
+`node packages/server/bin/server.js`; set `AITHEMA_DB` for persistence. Its mock
+ledger also requires an explicit consent grant and loses grants on restart.
 
-Hosts configure the web component with `{copy, baseUrl, session}` and receive
+Hosts configure the web component with `{copy, baseUrl, session, sessionToken}`
+(the token is optional) and receive
 `aithema-event` notifications. Serve its native ES modules with their relative
 core imports, as the demo does. Copy and CSS tokens belong to the host.
 
@@ -86,6 +93,60 @@ core imports, as the demo does. Copy and CSS tokens belong to the host.
 | `GET /api/sessions/:id/events` | SSE; resume using `Last-Event-ID` or `?after=<seq>` |
 | `POST /api/sessions/:id/retry` | Retry unfinished reasoning for the current revision |
 | `GET /api/sessions/:id/export` | Transcript JSON/Markdown and understanding JSON in a ZIP |
+| `POST /api/sessions/:id/pause` | `{paused: true/false}`; acknowledged durable state and event |
+| `POST /api/sessions/:id/withdraw` | `{turnId}`; erase a person statement and invalidate dependent understanding/replies atomically |
+| `POST /api/sessions/:id/consent` | `{granted: true/false}`; grants delegate to the host ledger; withdrawal cancels lanes |
+| `POST /api/sessions/:id/erase` | Erase all content, retain metadata and a session tombstone; provider deletion remains `not-confirmed` |
+
+API clients retain the `x-aithema-session-token` response header from creation
+and send it on every session request, including SSE and export. A host may supply
+`ownership.token(request)` and `ownership.created(response, token, request)` to
+bind tokens through cookies, as the demo does. Missing, wrong and erased ownership
+all return 404. Tokens and their stored hashes are excluded from snapshots/export.
+
+With the default header ownership, pass the creation response header as
+`sessionToken` to `configure()`. The component sends it on every request, including
+snapshot recovery, feature refresh, SSE, control POSTs and fetched ZIP downloads.
+Host POSTs can use `postJson(url, body, {sessionToken})`. Keep the token out of
+URLs, markup and stored session content. For cookie ownership, omit `sessionToken`
+and serve the component and API on the same origin; the browser sends the host's
+HttpOnly cookie. Set `Secure` for HTTPS requests, as the demo ownership hook does;
+localhost HTTP remains usable. Hosts behind TLS termination must supply an
+ownership hook that reflects their trusted transport configuration.
+Snapshots make at most three attempts to obtain matching features and state;
+continuous updates return 409 so the client can retry.
+
+Hosts supply one `consent.coverage({sessionId, scope, consentRevision}, {signal, deadlineAt})` port
+for admission and withdrawal; a supplied runtime and handlers share that same port. A covering
+grant has `covered: true`, the matching purpose and item version, arrays covering
+every recipient, upstream processor and data category, the same consent revision,
+and a future `expiresAt` timestamp. The runtime derives the scope from each
+private binding, including the exact plugin, model, endpoint, routing, account
+reference and operation. External grants also echo that exact `scope` with a
+current `checkedAt` timestamp; only the local mock has a built-in scope.
+Missing/unavailable coverage fails closed at admission and again at claim consumption. Hosts notify
+external revocation through `await handlers.withdrawConsent(id)` to persist the new
+revision, abort running work immediately and await lane settlement before acknowledgement. `createMemoryConsentLedger()` is
+the reference mock host ledger, not a durable legal record. Core-only hosts supply
+an authoritative `admit` callback to `SessionLanes`; the legacy `beforeDispatch`
+callback remains available for nonbillable bindings and defaults to refusal.
+
+Pause permits cached reads and joins to an existing pass; fresh reaction and
+understanding work waits for acknowledged resume. Input/channel controls are
+independent. Withdrawal cancels stale work, clears derived content before ack,
+and rebuilds from remaining person turns. Event rows and receipts contain only
+metadata and SHA-256 byte fingerprints; erasable content lives separately.
+Missing/erased records hydrate as tombstones, including on receipt replay,
+restart and export. SQLite secure deletion and WAL checkpointing run before
+erasure acknowledgement. `storage.expire(id, turnId)` uses the same invalidation;
+hosts await `handlers.expire(cutoffTimestamp)` to cancel and rebuild as well.
+The demo applies a twelve-month turn retention cutoff each minute.
+
+A persistent `SQLiteStorage` holds an OS-backed exclusive lock on the canonical
+database's companion `.writer.sqlite` file until close or process death. A second
+writer refuses startup. Legacy unowned sessions migrate to the erasable layout
+but remain inaccessible to visitors; create a new owned session. No ownership
+takeover is provided.
 
 ## Plugins, bindings and admission
 
@@ -132,13 +193,14 @@ and routing; no family-wide qualification or silent fallback exists.
 Admission runs on the server before **every** dispatch: preset membership,
 placement/operation support, pause, evidence identity and expiry, residency,
 endpoint policy, current consent, health and budget. EU requires all processing
-countries within the EU and no training. Hosts implementing the consent port
-provide `coverage(session, processingScope, {signal, deadlineAt})`; the result
-must contain the exact requested `scope`, a current `checkedAt`, a future
-`expiresAt`, and no withdrawal. Missing/unavailable coverage fails closed.
-The deterministic non-billable mock has no external processing and is exempt
-from external legal/consent qualification. AIT-97 owns the broader session
-safety contract; its consent adapter should expose this coverage port.
+countries within the EU and no training. The unified consent port above checks
+purpose, recipients, upstream processors, data categories, item version, revision,
+expiry and exact binding coverage. `await attempt.consume()` queries it again and
+rechecks durable ownership, revision, tombstone and pause before burning the claim.
+The deterministic non-billable mock has no external legal qualification; a host
+consent ledger still governs its local processing. The server and demo fail closed
+without a current mock grant. A standalone canonical mock runtime may omit external
+consent, as it has no external processing scope.
 
 Snapshots expose `featureMatrix[preset][feature] = {available, reason}` for
 text, analysis, voice, transcription and images. Each unavailable feature
@@ -169,7 +231,10 @@ usage settles with the binding's rates, including actual over-maximum cost with
 an overrun flag; uncertain dispatched usage charges the entire claim maximum.
 Undispatched claims settle cancelled at zero cost. Breaking a stream without
 final usage is uncertain, even if the browser locally cancelled. A retry is a
-new admission. At startup, `handlers.resume()` recovers unfinished dispatched
+new admission. Withdrawal and erasure abort the invocation and settle it before
+acknowledgement. Cancellation retains known usage; an unresponsive dispatched
+plugin without a terminal report settles uncertain, and its late results are ignored.
+At startup, `handlers.resume()` recovers unfinished dispatched
 claims at their maxima and releases undispatched reservations. It must run
 before fresh work under the host's
 exclusive-writer lifecycle. The slim ledger ports Gen-2
@@ -181,7 +246,7 @@ and cancellable health operation, bind private operator selections, and run
 `reasoningConformance(plugin, fixtureRequest, { stallRequest, requestCount })`
 with local fixtures. Billable adapters must supply a stalled request and a
 synchronous outbound request counter. Reasoning
-must consume the provided claim before dispatch and report terminal usage in
+must await consumption of the provided claim before dispatch and report terminal usage in
 `finally`, including iterator return, cancellation and deadline. The reusable
 kit checks manifest, health, error codes, claim consumption before dispatch,
 refused consumes without requests, schema output and terminal counts, with

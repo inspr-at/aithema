@@ -1,3 +1,4 @@
+import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, SQLiteBudgetLedger } from '../src/index.js';
@@ -77,7 +78,14 @@ test('budget connection waits briefly for another SQLite writer', () => {
   } finally { storage.close(); }
 });
 test('two SQLite connections share ceilings and claim uniqueness', async () => {
-  const db = await temporaryDb(), first = new SQLiteStorage(db), second = new SQLiteStorage(db);
+  const db = await temporaryDb(), first = new SQLiteStorage(db), connection = new DatabaseSync(db);
+  // Exercise ledger contention through a second raw connection, without creating
+  // a second session engine (the durable engine writer remains exclusive).
+  const second = { db: connection, transaction(fn) {
+    connection.exec('BEGIN IMMEDIATE');
+    try { const value = fn(); connection.exec('COMMIT'); return value; }
+    catch (error) { connection.exec('ROLLBACK'); throw error; }
+  }, close: () => connection.close() };
   try {
     const s = first.create(), a = new SQLiteBudgetLedger(first, { sessionCapMicro: 50 }), b = new SQLiteBudgetLedger(second, { sessionCapMicro: 50 });
     const hold = admit(a, s.id); assert.throws(() => admit(b, s.id), /Budget denied/);

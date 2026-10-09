@@ -5,7 +5,7 @@ import { SessionLanes, createMockReasoning, createSession, applyEvent, inputRevi
 function harness(plugin = createMockReasoning(), options = {}, laneOptions = {}) {
   let session = createSession({ demo: true, ...options }); const published = [], partials = [];
   const turn = content => { session = applyEvent(session, { seq: session.seq + 1, type: 'turn.final', data: { role: 'user', content } }); };
-  const lanes = new SessionLanes({ ...laneOptions, reasoning: plugin, getSession: () => structuredClone(session), deadlineMs: 1000,
+  const lanes = new SessionLanes({ beforeDispatch: async () => true, ...laneOptions, reasoning: plugin, getSession: () => structuredClone(session), deadlineMs: 1000,
     publish(id, type, data, revision) {
       if (inputRevision(session) !== revision) return false;
       const event = { seq: session.seq + 1, type, data }; session = applyEvent(session, event); published.push(event); return true;

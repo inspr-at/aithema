@@ -1,5 +1,6 @@
 import { createPluginRuntime } from './plugin-runtime.js';
-import { SessionLanes, createMockReasoning, inputRevision } from '@inspr/aithema-core';
+import { randomUUID } from 'node:crypto';
+import { SessionLanes, createMockReasoning, inputRevision, activeTurns } from '@inspr/aithema-core';
 import { ConflictError, NotFoundError } from './storage.js';
 import { exportSession } from './export.js';
 
@@ -27,7 +28,13 @@ export async function readBody(request, limit = 32_768) {
 }
 
 export function createHandlers({ storage, reasoning = createMockReasoning(), sessionOptions = { demo: true },
-  deadlineMs = 30_000, hostPrompt = '', pluginRuntime = createPluginRuntime({ storage, reasoning }) }) {
+  deadlineMs = 30_000, hostPrompt = '', pluginRuntime, consent = pluginRuntime?.consent,
+  ownership = { token: request => request.headers.get('x-aithema-session-token') } }) {
+  pluginRuntime ??= createPluginRuntime({ storage, reasoning, consent: consent ?? { coverage: () => ({ covered: false }) } });
+  consent ??= pluginRuntime.consent;
+  if (typeof consent?.coverage !== 'function' || consent !== pluginRuntime.consent) {
+    throw new TypeError('Admission and revocation require the same consent port');
+  }
   const listeners = new Map(), jobs = new Map(), failures = new Map(), stop = new AbortController();
   const broadcast = (id, event) => {
     for (const listener of listeners.get(id) ?? []) listener(event);
@@ -37,9 +44,18 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     return { inputRevision: revision, running: [...jobs.values()].filter(job => job.id === session.id).map(job => job.lane),
       lastFailure: failure?.inputRevision === revision ? failure : null };
   };
-  const snapshot = async id => { const session = storage.get(id); return { ...session, operations: operations(session), featureMatrix: await pluginRuntime.matrix(session) }; };
+  const snapshot = async id => {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const session = storage.get(id), featureMatrix = await pluginRuntime.matrix(session);
+      const current = storage.get(id), { ownerHash, ...publicSession } = current;
+      if (current.tombstone || current.ownerHash !== session.ownerHash) throw new NotFoundError('Session not found');
+      if (current.seq === session.seq) return { ...publicSession, operations: operations(current), featureMatrix };
+    }
+    throw new ConflictError('Session changed during snapshot');
+  };
   const status = id => broadcast(id, { sessionId: id, type: 'lane.status', data: operations(storage.get(id)) });
-  const lanes = new SessionLanes({ reasoning, getSession: id => storage.get(id), deadlineMs, hostPrompt, admit: args => pluginRuntime.admit(args),
+  const lanes = new SessionLanes({ reasoning, getSession: id => storage.get(id), deadlineMs, hostPrompt,
+    admit: args => pluginRuntime.admit(args),
     publish(id, type, data, revision) {
       if (stop.signal.aborted) return false;
       const event = storage.append(id, type, data, revision);
@@ -88,8 +104,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   }
   function unfinished(session) {
     const revision = inputRevision(session);
-    return session.transcript.some(t => t.role === 'user') &&
-      (!session.transcript.some(t => t.role === 'assistant' && t.inputRevision === revision) ||
+    return !session.tombstone && activeTurns(session).some(t => t.role === 'user') &&
+      (!activeTurns(session).some(t => t.role === 'assistant' && t.inputRevision === revision) ||
         session.understanding.inputRevision !== revision || session.understanding.draft);
   }
   function events(request, id) {
@@ -139,12 +155,19 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         const bytes = await readBody(request);
         const options = bytes.length ? JSON.parse(Buffer.from(bytes).toString('utf8')) : {};
         if (!options || typeof options !== 'object' || Array.isArray(options)) return json({ error: 'invalid-session' }, 400);
-        const session = storage.create({ ...sessionOptions, locale: options.locale ?? 'en', processingPreset: options.processingPreset ?? sessionOptions.processingPreset ?? 'best' });
-        return json(await snapshot(session.id), 201);
+        const ownerToken = ownership.token(request) || randomUUID();
+        const session = storage.create({ ...sessionOptions, locale: options.locale ?? 'en', ownerToken,
+          processingPreset: options.processingPreset ?? sessionOptions.processingPreset ?? 'best' });
+        const response = json(await snapshot(session.id), 201);
+        if (ownership.created) ownership.created(response, ownerToken, request);
+        else response.headers.set('x-aithema-session-token', ownerToken);
+        return response;
       }
-      const match = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})(?:\/(turns|events|export|retry))?$/u.exec(url.pathname);
+      const match = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})(?:\/(turns|events|export|retry|pause|withdraw|consent|erase))?$/u.exec(url.pathname);
       if (!match) return json({ error: 'not-found' }, 404);
       const [, id, action] = match;
+      const ownerToken = ownership.token(request), authorized = storage.authorize(id, ownerToken);
+      const guard = { ownerToken, revision: inputRevision(authorized) };
       if (!action && request.method === 'GET') return json(await snapshot(id));
       if (action === 'events' && request.method === 'GET') return events(request, id);
       if (action === 'turns' && request.method === 'POST') {
@@ -152,14 +175,46 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         const body = JSON.parse(Buffer.from(bytes).toString('utf8'));
         if (!body || typeof body.clientEventId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(body.clientEventId) ||
           typeof body.content !== 'string' || !body.content.trim() || body.content.length > 8000) return json({ error: 'invalid-turn' }, 400);
-        const { event, replayed } = storage.postTurn(id, body.clientEventId, bytes, body.content);
-        lanes.supersede(id);
+        const { event, replayed } = storage.postTurn(id, body.clientEventId, bytes, body.content,
+          { ...guard, revision: body.inputRevision ?? guard.revision });
+        if (!replayed) lanes.supersede(id);
         if (!replayed) broadcast(id, event);
         schedule(id);
         return json(event, 200);
       }
       if (action === 'retry' && request.method === 'POST') {
-        storage.get(id); schedule(id); return json({ accepted: true }, 202);
+        schedule(id); return json({ accepted: true }, 202);
+      }
+      if (action === 'pause' && request.method === 'POST') {
+        const body = JSON.parse(Buffer.from(await readBody(request)).toString('utf8'));
+        if (typeof body?.paused !== 'boolean') return json({ error: 'invalid-pause' }, 400);
+        const event = storage.pause(id, body.paused, guard); broadcast(id, event);
+        if (!body.paused) schedule(id);
+        return json({ paused: storage.get(id).paused, event });
+      }
+      if (action === 'withdraw' && request.method === 'POST') {
+        const body = JSON.parse(Buffer.from(await readBody(request)).toString('utf8'));
+        if (typeof body?.turnId !== 'string') return json({ error: 'invalid-withdrawal' }, 400);
+        const event = storage.withdraw(id, body.turnId, 'withdrawal', guard);
+        await lanes.cancel(id); failures.delete(id); broadcast(id, event); schedule(id);
+        return json({ withdrawn: body.turnId, event });
+      }
+      if (action === 'consent' && request.method === 'POST') {
+        const body = JSON.parse(Buffer.from(await readBody(request)).toString('utf8'));
+        if (typeof body?.granted !== 'boolean') return json({ error: 'invalid-consent' }, 400);
+        if (body.granted) {
+          if (!consent?.grant) return json({ error: 'host-consent-required' }, 409);
+          await consent.grant({ sessionId: id, consentRevision: authorized.consentRevision + 1 });
+        }
+        const event = storage.reviseConsent(id, body.granted, guard);
+        await lanes.cancel(id); failures.delete(id); broadcast(id, event);
+        if (body.granted) schedule(id);
+        else await consent?.withdraw?.({ sessionId: id });
+        return json({ granted: body.granted, consentRevision: storage.get(id).consentRevision, event });
+      }
+      if (action === 'erase' && request.method === 'POST') {
+        const event = storage.erase(id, guard); await lanes.cancel(id); failures.delete(id); broadcast(id, event);
+        return json({ erased: true, event, providerDeletion: 'not-confirmed' });
       }
       if (action === 'export' && request.method === 'GET') return new Response(exportSession(storage.get(id)), {
         headers: { 'content-type': 'application/zip', 'content-disposition': 'attachment; filename="aithema-session.zip"', 'cache-control': 'no-store' },
@@ -174,9 +229,22 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     }
   }
   return { handle, lanes,
+    async withdrawConsent(id) {
+      const event = storage.reviseConsent(id, false); await lanes.cancel(id); failures.delete(id); broadcast(id, event);
+      return event;
+    },
+    async expire(before) {
+      for (const id of storage.list()) {
+        const session = storage.get(id);
+        if (session.tombstone) continue;
+        for (const turn of activeTurns(session).filter(t => t.role === 'user' && Date.parse(t.at) < before)) {
+          const event = storage.expire(id, turn.id); await lanes.cancel(id); failures.delete(id); broadcast(id, event); schedule(id);
+        }
+      }
+    },
     resume() {
       pluginRuntime.budget.recover();
-      for (const id of storage.list()) if (storage.get(id).transcript.some(t => t.role === 'user')) schedule(id);
+      for (const id of storage.list()) if (unfinished(storage.get(id))) schedule(id);
     },
     async idle() { while (jobs.size) await Promise.allSettled([...jobs.values()].map(job => job.promise)); },
     async close() { stop.abort(); await Promise.allSettled([...jobs.values()].map(job => job.promise)); },

@@ -42,11 +42,11 @@ export function createMockReasoning() {
     async health(options) { const scope = operationScope(options); try { scope.signal.throwIfAborted(); return { available: true }; }
       catch (error) { throw normalizedError(error, scope.signal); } finally { scope.dispose(); } },
     async *stream(request, options) {
-      const invocation = beginInvocation(options, { billable: false });
+      const invocation = await beginInvocation(options, { billable: false });
       const scope = operationScope(options); let completed = false;
-      invocation.dispatch(); invocation.usage({ inputTokens: 0, outputTokens: 0 });
       try {
         scope.signal.throwIfAborted();
+        invocation.dispatch(); invocation.usage({ inputTokens: 0, outputTokens: 0 });
         const content = request.locale === 'de' ? 'Was sollte sich als Erstes verbessern?' : 'What should improve first?';
         for (const chunk of content.match(/\S+\s*/gu)) { scope.signal.throwIfAborted(); yield chunk; }
         completed = true;
@@ -54,11 +54,11 @@ export function createMockReasoning() {
       finally { scope.dispose(); await invocation.finish(completed); }
     },
     async structured(request, options) {
-      const invocation = beginInvocation(options, { billable: false });
+      const invocation = await beginInvocation(options, { billable: false });
       const scope = operationScope(options); let completed = false;
-      invocation.dispatch(); invocation.usage({ inputTokens: 0, outputTokens: 0 });
       try {
         scope.signal.throwIfAborted();
+        invocation.dispatch(); invocation.usage({ inputTokens: 0, outputTokens: 0 });
         const turns = request.messages.filter(m => m.role === 'user' && !m.content.startsWith('{"kind":'));
         const constraints = Object.fromEntries(request.preset.slots.map(slot => {
           const marker = `${slot}:`;

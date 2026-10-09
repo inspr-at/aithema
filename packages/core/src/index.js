@@ -9,3 +9,5 @@ export * from './invocation.js';
 export * from './chat-completions.js';
 export * from './presets.js';
 export * from './conformance.js';
+export * from './consent.js';
+export * from './cancellation.js';
