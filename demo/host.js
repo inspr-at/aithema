@@ -78,7 +78,7 @@ component.addEventListener('aithema-new-conversation', event => {
 });
 // The settings dialog defers consent to this host interface.
 component.addEventListener('aithema-consent', () => {
-  document.querySelector('#consent-status').textContent = 'Your selection needs consent. Allow processing to continue.';
+  document.querySelector('#consent-status').textContent = en.consentForSelection;
   document.querySelector('section[aria-labelledby="consent-title"]').scrollIntoView?.({ block: 'nearest' });
   (document.querySelector('#processing-items input:not(:checked)') ?? document.querySelector('#grant')).focus();
 });

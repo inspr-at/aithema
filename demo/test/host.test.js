@@ -78,6 +78,10 @@ test('demo host creates owned sessions through postJson and combines consent, pa
     assert.equal(component.shadowRoot.querySelector('.intro').dataset.mode, 'ready', 'the explicit device choice is confirmed');
     assert.equal(document.querySelector('#error').textContent, '');
     assert.ok(posts.some(post => post.path.endsWith('/settings')));
+    // The settings dialog defers consent to the host; its message comes from the i18n bundle.
+    const { en } = await import('../../packages/ui/src/i18n/en.js');
+    component.dispatchEvent(new CustomEvent('aithema-consent', { detail: { reason: 'settings', features: ['text'] } }));
+    assert.equal(document.querySelector('#consent-status').textContent, en.consentForSelection);
     assert.ok(posts.length >= 9);
     assert.ok(posts.every(post => post.contentType === 'application/json'));
     assert.equal(posts[0].path, '/api/sessions', 'browser creation uses the guarded JSON request');

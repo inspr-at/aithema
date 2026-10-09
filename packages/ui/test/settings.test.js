@@ -236,7 +236,7 @@ test('hover, focus and saves change text in fixed boxes only: no control moves u
 
 test('the conversation starts with the preset chooser, then the acknowledged ready card', async t => {
   const h = fixture(t);
-  let root = h.root, cards = () => [...root.querySelectorAll('.chooser-card')];
+  let root = h.root, cards = () => [...root.querySelectorAll('.chooser-option')];
   assert.equal(root.querySelector('.intro').dataset.mode, 'chooser');
   assert.equal(root.querySelector('.audio-rail').inert, true, 'rails wait for a choice');
   assert.deepEqual(cards().map(card => [card.querySelector('strong').textContent, card.getAttribute('aria-pressed'), card.getAttribute('aria-disabled')]),
@@ -259,11 +259,29 @@ test('the conversation starts with the preset chooser, then the acknowledged rea
 test('the Custom card opens settings with Continue and preselects the host\'s Custom preset; a last choice is announced', async t => {
   const h = fixture(t, { origin: 'last', matrix: { custom: { text: available } } });
   assert.match(h.root.querySelector('.chooser__hint > span').textContent, new RegExp(en.chooser.lastChoice));
-  [...h.root.querySelectorAll('.chooser-card')][3].click(); h.root.querySelector('.chooser__continue').click(); await tick(6);
+  [...h.root.querySelectorAll('.chooser-option')][3].click(); h.root.querySelector('.chooser__continue').click(); await tick(6);
   assert.equal(h.dialog.open, true); assert.equal(h.q('.done-label').textContent, en.settings.continue);
   assert.equal(h.posts[0].processingPreset, 'custom'); assert.equal(h.posts[0].model, 'mock/deep');
   h.q('.done').click(); await tick(6);
   assert.equal(h.dialog.open, false); assert.equal(h.root.querySelector('.intro').dataset.mode, 'ready');
+});
+
+test('focus returns to a stable control when saving replaced the card that opened settings', async t => {
+  const h = fixture(t, { matrix: { custom: { text: available } } });
+  // Chooser path: Continue opens settings, the save turns the chooser into the ready card.
+  [...h.root.querySelectorAll('.chooser-option')][3].click();
+  const opener = h.root.querySelector('.chooser__continue'); opener.click(); await tick(6);
+  assert.equal(h.dialog.open, true); assert.equal(h.posts.length, 1);
+  assert.equal(opener.isConnected, false, 'the save replaced the opener');
+  h.q('.done').click(); await tick(6);
+  assert.equal(h.dialog.open, false);
+  assert.ok(h.root.activeElement === h.root.querySelector('.settings-open'), 'focus falls back to the settings button');
+  // Ready card path: its Change button is re-rendered by the save; focus goes to the new twin.
+  const change = h.root.querySelector('.ready__change'); change.click(); await tick();
+  h.q('[data-select="model"] .select__button').click(); h.option('model', 'Mock reasoning').click(); await tick(6);
+  assert.equal(h.posts.length, 2); assert.equal(change.isConnected, false);
+  h.q('.done').click(); await tick(6);
+  assert.ok(h.root.activeElement === h.root.querySelector('.ready__change'), 'focus returns to the re-rendered Change button');
 });
 
 test('Advanced connects a local model through the host factory, with model choice, a test chat and recovery help', async t => {
@@ -284,6 +302,7 @@ test('Advanced connects a local model through the host factory, with model choic
   assert.deepEqual([...local('#local-model').options].map(o => o.value), ['alpha', 'beta']);
   local('#local-model').value = 'beta'; local('#local-model').dispatchEvent(new window.Event('change')); assert.deepEqual(selected, ['beta']);
   local('.local-test').click(); assert.equal(local('.local-test').getAttribute('aria-expanded'), 'true'); assert.equal(local('#local-chat').hidden, false);
+  assert.equal(local('.badge').textContent, en.local.textBadge, 'the test chat badge comes from the i18n bundle');
   local('#local-message').value = 'Say hi'; local('.local__composer').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick(6);
   assert.deepEqual(streamed, [[{ role: 'user', content: 'Say hi' }]]); assert.match(local('.local__messages').textContent, /Local reply/);
   assert.equal(h.posts.length, 0, 'the local connector never contacts the host server');

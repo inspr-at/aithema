@@ -99,7 +99,9 @@ export class SessionLanes {
           if (!current()) return 'stale';
           if (typeof delta !== 'string' || content.length + delta.length > 16_000) throw new TypeError('Invalid reasoning stream');
           content += delta;
-          this.transient(id, { type: 'turn.partial', data: { id: turnId, delta, inputRevision: revision } });
+          // Tagged with the settings revision it started under, so a client never shows a
+          // superseded stream beside its replacement.
+          this.transient(id, { type: 'turn.partial', data: { id: turnId, delta, inputRevision: revision, settingsRevision: session.settings?.revision ?? 0 } });
         } } catch (error) { failed = true; throw error; }
         finally { admitted?.finish({ failed }); }
         if (!current()) return 'stale';

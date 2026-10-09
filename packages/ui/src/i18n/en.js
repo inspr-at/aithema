@@ -25,7 +25,7 @@ export const en = {
   voiceClosureUncertain: 'Call ended. Provider closure is unconfirmed; the reserved maximum is recorded.',
   voicePauseFailed: 'The pause change was not acknowledged. Try again.',
   voicePlaybackBlocked: 'Sound is blocked by your browser. Select Enable sound.', voiceTextSent: 'Sent to the voice assistant',
-  voiceHostConsentTitle: 'Host-managed voice consent', voiceHostConsent: 'Live voice requires a current grant in the host consent ledger. The local mock consent button cannot grant it.',
+  consentForSelection: 'Your selection needs consent. Allow processing to continue.', voiceHostConsentTitle: 'Host-managed voice consent', voiceHostConsent: 'Live voice requires a current grant in the host consent ledger. The local mock consent button cannot grant it.',
   fakeVoice: 'Fake voice — local simulated agent, no provider network', fakeVoiceSay: 'Simulate speech',
   fakeVoiceInterrupt: 'Simulate spoken interruption', fakeVoiceDisconnect: 'Simulate connection loss',
   fakeVoiceGreeting: 'Hello. Tell me what you would like to improve.', fakeVoiceReply: 'I understand. Which part should we clarify first?',
@@ -133,7 +133,7 @@ export const en = {
     change: 'Change settings',
   },
   local: {
-    title: 'Local', intro: 'Connect an AI model running on the device you are using.', connection: 'Connection',
+    title: 'Local', intro: 'Connect an AI model running on the device you are using.', connection: 'Connection', textBadge: 'Text only',
     provider: 'Local application', providers: { mtplx: 'MTPLX', custom: 'Other local server' },
     providerHints: { mtplx: 'Other local servers can also be connected.', custom: 'Requires a local OpenAI-compatible API; see connection help.' },
     endpoint: 'Local address', endpointHint: 'Copy the host and port from your application. Enter the base address only, without /v1.',

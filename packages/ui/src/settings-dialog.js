@@ -290,7 +290,9 @@ export class SettingsDialog {
     if (!this.#saving) { this.#draft = this.#active ? { ...this.#active } : null; this.#failed = false; this.#notice = null; }
     if (typeof this.#dialog.close === 'function') this.#dialog.close(); else this.#dialog.removeAttribute('open');
     this.#ports.closed?.();
-    if (this.#opener?.isConnected) this.#opener.focus();
+    // A save can re-render the card that opened the dialog; focus then returns to a stable control.
+    const target = this.#opener?.isConnected ? this.#opener : this.#ports.focusFallback?.(this.#opener);
+    target?.focus();
     this.#closing = false;
   }
   async #done() {

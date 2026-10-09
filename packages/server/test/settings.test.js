@@ -161,10 +161,10 @@ test('a choice saved while a lane runs supersedes it like new input and reruns i
       started.resolve(); await held.promise; yield* admitted.plugin.stream(request, options);
     } } };
   } });
-  const { session } = await h.create(), failures = [];
+  const { session } = await h.create(), failures = []; let text = '';
   const events = await h.call(`/${session.id}/events?after=0`);
   const reader = events.body.getReader(); void (async () => {
-    const decoder = new TextDecoder(); let text = '';
+    const decoder = new TextDecoder();
     for (;;) { const { done, value } = await reader.read(); if (done) return; text += decoder.decode(value); if (text.includes('lane.failed')) failures.push(text); }
   })().catch(() => {});
   t.after(() => reader.cancel().catch(() => {}));
@@ -179,6 +179,10 @@ test('a choice saved while a lane runs supersedes it like new input and reruns i
   assert.equal(replies[0].engine.model, 'mock/deep'); assert.deepEqual(calls.map(call => call.model), ['mock', 'mock/deep']);
   const snapshot = await json(await h.call(`/${session.id}`));
   assert.equal(snapshot.body.operations.lastFailure, null); assert.deepEqual(failures, [], 'supersession is not a lane failure');
+  await new Promise(resolve => setTimeout(resolve, 20));
+  const partials = text.split('\n').filter(line => line.startsWith('data: ')).map(line => JSON.parse(line.slice(6))).filter(e => e.type === 'turn.partial');
+  assert.ok(partials.length > 0); assert.ok(partials.every(e => e.data.id === replies[0].id && e.data.settingsRevision === 1),
+    'the replacement stream is tagged with the settings revision it started under');
   assert.equal(snapshot.body.understanding.inputRevision, inputRevision(snapshot.body));
 });
 

@@ -54,7 +54,7 @@ export class LocalConnector {
               <p class="note" data-local="boundary"></p><p class="hint" data-local="privacy"></p></details>
           </section>
           <section class="local__chat" id="local-chat" hidden aria-labelledby="local-chat-title"><div class="local__chat-head"><h4 id="local-chat-title" data-local="testChat"></h4>
-              <span class="badge">TEXT</span><button type="button" class="local-help-link" data-local="setup"></button></div>
+              <span class="badge" data-local="textBadge"></span><button type="button" class="local-help-link" data-local="setup"></button></div>
             <div class="local__messages" role="log" aria-live="off"></div>
             <form class="local__composer"><label class="visually-hidden" for="local-message" data-local="prompt"></label>
               <textarea id="local-message" rows="3" maxlength="8000"></textarea>

@@ -12,7 +12,7 @@ import { LocalConnector } from './local-connector.js';
 import { postJson } from './post-json.js';
 
 export class AithemaSession extends HTMLElement {
-  #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #pending;
+  #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
   #hover = new Set(); #dirty = new Set(); #open = []; #cleared = []; #failure = false; #sending = false;
   #dialog; #connector; #createDevice; #deviceEndpoint; #chooser = { choice: null, busy: false, error: '' };
   constructor() { super(); this.attachShadow({ mode: 'open' }); }
@@ -32,7 +32,7 @@ export class AithemaSession extends HTMLElement {
         onChange: () => { this.#render('features'); this.#render('transcript'); this.#dialog?.sync(); } }) : null;
     }
     this.#createDevice = deviceConnector; this.#deviceEndpoint = deviceEndpoint;
-    this.#session = structuredClone(session); this.#sessionToken = sessionToken; this.#cursor = session.seq; this.#partials.clear();
+    this.#session = structuredClone(session); this.#sessionToken = sessionToken; this.#cursor = session.seq; this.#partials.clear(); this.#reasoningRevision = 0;
     this.#restoreFailure(); this.#pending = null; this.#sending = false;
     this.#invalidatedAt = 0; this.#chooser = { choice: null, busy: false, error: '' };
     this.#open = []; this.#cleared = []; this.#dirty.clear(); this.#hover.clear();
@@ -77,12 +77,16 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.settings-open span').textContent = this.#copy.settings.open;
     root.querySelector('.settings-open').addEventListener('click', event => this.openSettings(event.currentTarget));
     this.#dialog = new SettingsDialog({ dialog: root.querySelector('dialog.settings'), copy: this.#copy, ports: {
-      state: () => ({ session: this.#session, voiceActive: Boolean(this.#rail?.session), hasTurns: activeTurns(this.#session).length > 0 || this.#partials.size > 0,
+      // Withdrawn turns still mark a started conversation (the server's device lock agrees).
+      state: () => ({ session: this.#session, voiceActive: Boolean(this.#rail?.session), hasTurns: this.#session.transcript.length > 0 || this.#partials.size > 0,
         running: this.#session.operations?.inputRevision === inputRevision(this.#session) && (this.#session.operations?.running?.length ?? 0) > 0,
         consent: this.#consentState() }),
       catalog: () => this.#loadCatalog(), save: body => this.#saveSettings(body),
       endCall: () => this.#rail.close(), connector: this.#connector,
       newConversation: detail => this.#newConversation(detail), consent: (reason, features) => this.#requestConsent(reason, features),
+      // The re-rendered twin of a replaced opener, else the settings button, which is never replaced.
+      focusFallback: opener => [...root.querySelectorAll('[data-focus-key]')].find(node => opener?.dataset?.focusKey && node.dataset.focusKey === opener.dataset.focusKey &&
+        !node.closest('[hidden]')) ?? root.querySelector('.settings-open'),
     } });
     root.querySelector('.preset-panel').addEventListener('pointerenter', () => this.#hover.add('features'));
     root.querySelector('.preset-panel').addEventListener('pointerleave', () => {
@@ -383,21 +387,22 @@ export class AithemaSession extends HTMLElement {
     const node = (tag, className, text) => { const n = document.createElement(tag); if (className) n.className = className; if (text !== undefined) n.textContent = text; return n; };
     const section = node('section', 'chooser'); section.setAttribute('aria-labelledby', 'chooser-title');
     const title = node('h3', '', c.title); title.id = 'chooser-title';
-    const cards = node('div', 'chooser__cards'); cards.setAttribute('role', 'group'); cards.setAttribute('aria-labelledby', 'chooser-title');
+    const cards = node('div', 'chooser__list'); cards.setAttribute('role', 'group'); cards.setAttribute('aria-labelledby', 'chooser-title');
     for (const preset of PRESET_ORDER) {
       const verdict = this.#session.featureMatrix?.[preset]?.text;
       // Custom always opens settings; other presets are refused only for host reasons.
       const unavailable = preset !== 'custom' && preset !== current && verdict && !verdict.available && !isDynamicReason(verdict.reason);
-      const card = node('button', 'chooser-card'); card.type = 'button'; card.dataset.focusKey = preset;
+      const card = node('button', 'chooser-option'); card.type = 'button'; card.dataset.focusKey = preset; card.dataset.preset = preset;
       card.setAttribute('aria-pressed', String(choice === preset)); card.setAttribute('aria-disabled', String(Boolean(unavailable)));
-      const detail = node('span', 'chooser-card__detail'); detail.id = `chooser-${preset}-detail`;
+      const detail = node('span', 'chooser-option__detail'); detail.id = `chooser-${preset}-detail`;
       detail.append(node('span', '', c.lead[preset]), node('span', '', c.detail[preset]));
       card.setAttribute('aria-describedby', detail.id);
-      const icon = node('span', 'chooser-card__icon'); icon.setAttribute('aria-hidden', 'true'); icon.innerHTML = ICONS[preset];
+      const icon = node('span', 'chooser-option__icon'); icon.setAttribute('aria-hidden', 'true'); icon.innerHTML = ICONS[preset];
       const radio = node('span', 'radio'); radio.setAttribute('aria-hidden', 'true');
-      const note = node('small', 'chooser-card__note', unavailable ? c.unavailable : '');
+      const note = node('small', 'chooser-option__note', unavailable ? c.unavailable : '');
       if (unavailable) card.title = reasonText(copy, verdict.reason);
-      card.append(icon, radio, node('strong', '', copy.presets[preset]), detail, note);
+      const text = node('span', 'chooser-option__text'); text.append(node('strong', '', copy.presets[preset]), detail, note);
+      card.append(radio, icon, text);
       card.addEventListener('click', () => {
         if (this.#chooser.busy) return;
         this.#chooser.error = unavailable ? `${copy.presets[preset]}: ${reasonText(copy, verdict.reason)}` : '';
@@ -570,10 +575,16 @@ export class AithemaSession extends HTMLElement {
         }
         this.#abort?.abort(); void this.#restore(); return;
       }
-      const presetBefore = this.#session.processingPreset;
+      const presetBefore = this.#session.processingPreset, settingsBefore = this.#session.settings;
       this.#session = applyEvent(this.#session, event); this.#cursor = event.seq;
       this.#concept.update(this.#session);
       if (event.type === 'settings.changed') {
+        // A changed model, effort or preset supersedes the running reply on the server:
+        // its partial text goes, and late fragments tagged with an older revision are ignored.
+        const after = this.#session.settings;
+        if (presetBefore !== this.#session.processingPreset || settingsBefore?.model !== after.model || settingsBefore?.effort !== after.effort) {
+          this.#partials.clear(); this.#reasoningRevision = after.revision ?? 0;
+        }
         // Labels and verdicts belong to the old choice until the snapshot refresh confirms them.
         if (presetBefore !== this.#session.processingPreset) this.#modeChanged(presetBefore);
         this.#renderMode(); this.#dialog?.sync();
@@ -606,7 +617,8 @@ export class AithemaSession extends HTMLElement {
       const voice = this.#rail.session;
       if (voice && ['closing', 'ended'].includes(event.data.state) && event.data.reason !== 'recovery-failed' &&
         voice.callId === event.data.callId && voice.providerSessionId === event.data.providerSessionId) void this.#rail.close(event.data.reason);
-    } else if (event.type === 'turn.partial' && event.data.inputRevision === inputRevision(this.#session)) {
+    } else if (event.type === 'turn.partial' && event.data.inputRevision === inputRevision(this.#session) &&
+      (event.data.settingsRevision === undefined || event.data.settingsRevision >= this.#reasoningRevision)) {
       const existing = this.#partials.get(event.data.id);
       this.#partials.set(event.data.id, { id: event.data.id, role: 'assistant', partial: true,
         content: (existing?.content ?? '') + event.data.delta });

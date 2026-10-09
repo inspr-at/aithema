@@ -216,6 +216,30 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         assert.ok(id);
         await waitForShadow(page, '.composer textarea');
         assert.equal(await page.$eval('aithema-session', component => component.session.id), id);
+        // GUI-27 item 5: the preset chooser is a plain list on hairlines, not a row of equal
+        // bordered tiles, and hover or selection never moves or resizes an option.
+        // Positions are relative to the list, since hovering may scroll it into view.
+        const chooserGeometry = () => page.$$eval('aithema-session >>> .chooser-option', nodes => nodes.map(node => {
+          const rect = node.getBoundingClientRect(), list = node.parentElement.getBoundingClientRect(), style = getComputedStyle(node);
+          return { x: rect.x - list.x, y: rect.y - list.y, width: rect.width, height: rect.height, radius: style.borderTopLeftRadius,
+            sides: [style.borderLeftWidth, style.borderRightWidth], shadow: style.boxShadow, background: style.backgroundColor };
+        }));
+        for (const width of [390, 1024]) {
+          await page.setViewport({ width, height: 900 });
+          const resting = await chooserGeometry();
+          assert.equal(resting.length, 4);
+          assert.ok(resting.every((o, i) => o.x === resting[0].x && o.width === resting[0].width && (!i || o.y > resting[i - 1].y)), `one column at ${width}px: ${JSON.stringify(resting)}`);
+          assert.ok(resting.every(o => o.radius === '0px' && o.sides.every(side => side === '0px') && o.shadow === 'none' &&
+            o.background === 'rgba(0, 0, 0, 0)'), `no bordered or filled tiles at ${width}px`);
+          await page.hover('aithema-session >>> .chooser-option[data-preset="custom"]');
+          assert.deepEqual(await chooserGeometry(), resting, `hover moves nothing at ${width}px`);
+          await page.click('aithema-session >>> .chooser-option[data-preset="device"]');
+          await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot
+            .querySelector('.chooser-option[data-preset="device"]').getAttribute('aria-pressed') === 'true', { polling: 'mutation' });
+          assert.deepEqual(await chooserGeometry(), resting, `selection moves nothing at ${width}px`);
+          await page.click('aithema-session >>> .chooser-option[data-preset="best"]');
+        }
+        await page.setViewport({ width: 800, height: 600 });
         assert.match(await page.$eval('#provider', node => node.textContent), /Mock reasoning/u);
 
         for (const [selector, enabled] of [['#grant', true], ['#revoke', false], ['#grant', true]]) {

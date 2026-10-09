@@ -181,20 +181,23 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .intro[data-mode=chooser] { grid-row:2/5; }
 .chooser { display:grid; gap:.9rem; }
 .chooser h3, .ready h3 { font:600 1.05rem/1.3 Georgia,serif; margin:0; }
-.chooser__cards { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.6rem; }
-.chooser-card { position:relative; display:flex; flex-direction:column; align-items:flex-start; gap:.4rem; min-width:0; padding:.9rem .85rem;
-  border:1px solid var(--aithema-line); border-radius:.9rem; text-align:left; background:linear-gradient(125deg,#ffffff90,#fffefa40 50%,#ffffff60);
-  box-shadow:inset 0 1px 1px #fff,0 6px 16px #3028170f; }
-.chooser-card:hover { border-color:color-mix(in srgb,var(--aithema-accent) 45%,var(--aithema-line)); }
-.chooser-card[aria-pressed=true] { border-color:var(--aithema-accent); background:color-mix(in srgb,var(--aithema-accent) 10%,var(--aithema-surface));
-  box-shadow:inset 0 0 0 1px var(--aithema-accent); }
-.chooser-card[aria-disabled=true] { color:var(--aithema-muted); cursor:help; border-style:dashed; }
-.chooser-card__icon { display:grid; place-items:center; width:1.8rem; height:1.8rem; color:var(--aithema-accent); }
-.chooser-card__icon svg { display:block; width:100%; height:100%; }
-.chooser-card .radio { position:absolute; top:.8rem; right:.8rem; }
-.chooser-card strong { font:600 .98rem/1.2 Georgia,serif; padding-right:1.4rem; }
-.chooser-card__detail { display:grid; font-size:.74rem; line-height:1.4; color:var(--aithema-muted); }
-.chooser-card__note { min-height:1.2em; font-size:.66rem; color:#89613b; }
+.chooser__list { display:grid; max-width:44rem; border-bottom:1px solid var(--aithema-line); }
+/* GUI-27: a plain list on hairlines, not a row of equal tiles. Selection is the filled
+   radio and the accent name; hover only tints the name. Nothing moves or resizes. */
+.chooser-option { display:grid; grid-template-columns:1.05rem 1.5rem minmax(0,1fr); column-gap:.8rem; align-items:start; width:100%; min-width:0;
+  padding:.75rem .2rem; border:0; border-top:1px solid var(--aithema-line); border-radius:0; background:none; text-align:left; }
+.chooser-option:hover { background:none; }
+.chooser-option .radio { margin-top:.15rem; }
+.chooser-option__icon { display:grid; place-items:center; width:1.35rem; height:1.35rem; color:var(--aithema-accent); }
+.chooser-option__icon svg { display:block; width:100%; height:100%; }
+.chooser-option__text { display:grid; gap:.15rem; min-width:0; }
+.chooser-option strong { font:600 1.02rem/1.25 Georgia,serif; color:var(--aithema-ink); }
+.chooser-option:hover:not([aria-disabled=true]) strong { color:color-mix(in srgb,var(--aithema-accent) 35%,var(--aithema-ink)); }
+.chooser-option[aria-pressed=true] strong { color:var(--aithema-accent); }
+.chooser-option__detail { display:grid; gap:.05rem; line-height:1.4; }
+.chooser-option__detail>:first-child { font-size:.8rem; } .chooser-option__detail>:last-child { font-size:.74rem; color:var(--aithema-muted); }
+.chooser-option[aria-disabled=true] { cursor:help; } .chooser-option[aria-disabled=true] :is(strong,.chooser-option__icon,.chooser-option__detail>*) { color:var(--aithema-muted); }
+.chooser-option__note { font-size:.7rem; color:#89613b; } .chooser-option__note:empty { display:none; }
 .chooser__action { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:.8rem; align-items:center; }
 .chooser__hint { display:grid; gap:.2rem; min-width:0; }
 .chooser__summary { display:grid; } .chooser__summary>* { grid-area:1/1; }
@@ -224,8 +227,7 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 @media(max-width:60rem) {
   .settings__header { grid-template-columns:1fr; } .settings__title { font-size:1.6rem; padding-bottom:.2rem; }
   .settings-panel[data-panel=model], .general, .local__workspace { grid-template-columns:minmax(0,1fr); }
-  .settings__footer { grid-template-columns:minmax(0,1fr) auto; } .footer-links { grid-column:1/-1; }
-  .chooser__cards { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+  .settings__footer { grid-template-columns:minmax(0,1fr) auto; } .footer-links { grid-column:1/-1; } }
 @media(max-width:40rem) {
   dialog.settings { width:calc(100vw - .5rem); height:calc(100dvh - .5rem); border-radius:.8rem; }
   .settings__header { padding:.5rem .8rem 0; } .settings__title { font-size:1.35rem; }
@@ -237,9 +239,8 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
   .done { justify-self:stretch; width:100%; } .disclosure__body { left:.8rem; width:calc(100% - 1.6rem); }
   .gauges { gap:.7rem .3rem; } .gauge__glass { width:3.3rem; height:6.6rem; } .gauge__value { font-size:1rem; }
   .intro { padding:.75rem .8rem; } .chooser { gap:.6rem; }
-  .chooser-card { padding:.55rem .6rem; gap:.25rem; } .chooser-card strong { font-size:.86rem; }
-  .chooser-card__icon { width:1.35rem; height:1.35rem; } .chooser-card .radio { top:.6rem; right:.6rem; }
-  .chooser-card__detail { font-size:.68rem; line-height:1.3; }
+  .chooser-option { grid-template-columns:1.05rem minmax(0,1fr); padding:.6rem .1rem; } .chooser-option__icon { display:none; }
+  .chooser-option strong { font-size:.95rem; }
   .chooser__action { grid-template-columns:minmax(0,1fr); } .chooser__continue { justify-content:space-between; }
   .ready__row { grid-template-columns:minmax(6.2rem,1fr) minmax(0,1.3fr); gap:.4rem; } .ready dt, .ready dd { font-size:.74rem; } }
 @media(prefers-reduced-motion:reduce) { .gauge__level, .gauge__wave { transition:none !important; } }

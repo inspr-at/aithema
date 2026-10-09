@@ -62,6 +62,23 @@ test('partial assistant turns are replaced by final; stale fragments and duplica
   turn(c, 't2', 'new'); c.receive({ type: 'turn.partial', data: { id: 'stale', delta: 'stale', inputRevision: revision } });
   assert.equal(c.shadowRoot.querySelectorAll('.turn').length, 3); assert.equal(c.shadowRoot.querySelectorAll('.partial').length, 0);
 });
+test('a settings change that supersedes the reply clears its partial; old-revision fragments never render beside the replacement', () => {
+  const c = setup(); turn(c, 't1', 'Hello'); const revision = inputRevision(c.session), partials = () => [...c.shadowRoot.querySelectorAll('.partial')].map(n => n.querySelector('span').textContent);
+  const settings = (patch, at = c.session.settings.revision + 1) => c.receive({ seq: c.session.seq + 1, type: 'settings.changed',
+    data: { processingPreset: 'best', settings: { ...c.session.settings, ...patch, revision: at, origin: 'chosen', at: new Date(0).toISOString() } } });
+  c.receive({ type: 'turn.partial', data: { id: 'old', delta: 'Unfinished old', inputRevision: revision, settingsRevision: 0 } });
+  settings({ voice: 'off' });
+  c.receive({ type: 'turn.partial', data: { id: 'old', delta: ' answer', inputRevision: revision, settingsRevision: 0 } });
+  assert.deepEqual(partials(), ['Unfinished old answer'], 'a change that keeps the model and effort keeps the running reply');
+  settings({ model: 'mock/deep', effort: 'high' });
+  assert.deepEqual(partials(), [], 'the superseded partial reply is cleared at once');
+  c.receive({ type: 'turn.partial', data: { id: 'old', delta: ' late', inputRevision: revision, settingsRevision: 1 } });
+  c.receive({ type: 'turn.partial', data: { id: 'new', delta: 'Replacement', inputRevision: revision, settingsRevision: 2 } });
+  assert.deepEqual(partials(), ['Replacement'], 'fragments tagged with an older settings revision are ignored');
+  c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'new', role: 'assistant', content: 'Replacement done', inputRevision: revision } });
+  assert.deepEqual(partials(), []);
+  assert.deepEqual([...c.shadowRoot.querySelectorAll('.turn')].map(n => n.querySelector('span').textContent), ['Hello', 'Replacement done']);
+});
 test('Enter inserts a newline; Ctrl/Cmd+Enter sends; failed acknowledgement retries identical id and bytes', async () => {
   const c = setup(), root = c.shadowRoot, input = root.querySelector('textarea'); input.value = 'Hello\nworld';
   const originalFetch = globalThis.fetch, calls = []; let fail = true;
@@ -322,7 +339,7 @@ test('preset, feature and device copy comes from the host', async () => {
   assert.equal(root.querySelector('.engine__label').textContent, 'Verarbeitung');
   assert.equal(root.querySelector('.engine__value').textContent, 'Lokal');
   assert.equal(root.querySelector('.settings-open').textContent, 'Einstellungen');
-  assert.deepEqual([...root.querySelectorAll('.chooser-card strong')].map(n => n.textContent), ['Optimal', 'Europa', 'Lokal', 'Eigene']);
+  assert.deepEqual([...root.querySelectorAll('.chooser-option strong')].map(n => n.textContent), ['Optimal', 'Europa', 'Lokal', 'Eigene']);
   const originalFetch = globalThis.fetch; globalThis.fetch = async () => new Response(null, { status: 503 });
   try {
     c.openSettings(); await new Promise(r => setImmediate(r));
