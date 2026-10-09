@@ -1,9 +1,9 @@
-import { test } from 'node:test';
+import { test, observeParsers, CONFORMANCE_TIMEOUT_MS } from '../../extract-text/test/extractor-test-helpers.js';
 import assert from 'node:assert/strict';
 import { extractorConformance } from '../../../packages/core/src/extractor-conformance.js';
 import { EXTRACTOR_MEDIA_TYPES } from '../../../packages/core/src/extractor.js';
 import { createOOXMLExtractor } from '../src/index.js';
-import { docx, xlsx, pptx, zip, HANG, stallWorkerURL, observeParsers } from '../../../test/extractor-fixtures.js';
+import { docx, xlsx, pptx, zip, HANG, stallWorkerURL } from '../../../test/extractor-fixtures.js';
 
 function workbook(sheet, strings = '<si><t>First</t></si>') {
   return zip({
@@ -53,7 +53,7 @@ for (const [kind, fixture] of [['docx', docx], ['xlsx', xlsx], ['pptx', text => 
     const observed = observeParsers(t);
     const result = await extractorConformance(createOOXMLExtractor({ workerURL: stallWorkerURL }), {
       bytes: fixture('Readable Office extraction fixture source words'), mediaType: EXTRACTOR_MEDIA_TYPES[kind], expectedText: 'source words',
-    }, { ...observed, stallBytes: fixture(HANG), unreadableBytes: zip({ 'word/document.xml': '<w:document><w:t>unterminated' }),
+    }, { ...observed, timeoutMs: CONFORMANCE_TIMEOUT_MS, stallBytes: fixture(HANG), unreadableBytes: zip({ 'word/document.xml': '<w:document><w:t>unterminated' }),
       archiveBombBytes: zip({ 'word/document.xml': '<w:document>' + 'A'.repeat(200_000) + '</w:document>' }, { compress: true }),
       ...(kind === 'pptx' ? { pageBytes: pptx(['First slide', 'Second slide']) } :
         { pageBytes: xlsx(['First sheet', 'Second sheet']) }) });
