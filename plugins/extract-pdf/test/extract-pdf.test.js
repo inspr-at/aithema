@@ -6,6 +6,9 @@ import { EXTRACTOR_LIMITS } from '../../../packages/core/src/extractor.js';
 import { createPDFExtractor } from '../src/index.js';
 import { bytes, pdf, pdfStreamBomb, HANG, stallWorkerURL } from '../../../test/extractor-fixtures.js';
 
+// Capture the real monotonic clock before any test mocks time.
+const realNow = performance.now.bind(performance);
+
 test('nested FlateDecode PDF stream bomb is killed by a low RSS cap and reaped', async t => {
   const observed = observeParsers(t), data = pdfStreamBomb();
   const baseline = await createPDFExtractor().extract(pdf());
@@ -60,7 +63,13 @@ test('a hanging PDF child is reaped before cancellation resolves and carries bou
   const record = await waitFor(spawned, 'hanging PDF spawn');
   assert.equal(await waitFor(record.started, 'hanging PDF started message'), true);
   assert.equal(activeExtractorProcessCount(), 1);
-  controller.abort(); await waitFor(rejected, 'PDF cancellation acknowledgement');
+  const start = realNow();
+  controller.abort();
+  // Check elapsed time even if cancellation rejects with the wrong code.
+  await waitFor(Promise.allSettled([rejected, record.closed]), 'PDF cancellation acknowledgement and close');
+  const elapsed = realNow() - start;
+  assert.ok(elapsed < 5000, `PDF cancellation and child reaping took ${elapsed.toFixed(1)}ms; expected under 5s`);
+  await rejected;
   assert.deepEqual(await waitFor(record.closed, 'cancelled PDF close'), { code: null, signal: 'SIGKILL' });
   assert.throws(() => process.kill(record.child.pid, 0), { code: 'ESRCH' });
   assert.equal(activeExtractorProcessCount(), 0);
