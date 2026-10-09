@@ -4,3 +4,8 @@ export * from './readiness.js';
 export * from './prompts.js';
 export * from './reasoning.js';
 export * from './lanes.js';
+export * from './plugins.js';
+export * from './invocation.js';
+export * from './chat-completions.js';
+export * from './presets.js';
+export * from './conformance.js';

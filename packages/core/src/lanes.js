@@ -5,10 +5,10 @@ import { assertReasoning, operationScope, matchesSchema } from './reasoning.js';
 
 export class SessionLanes {
   #flights = new Map();
-  constructor({ reasoning, draftReasoning = reasoning, getSession, publish, transient = () => {}, deadlineMs = 30_000, hostPrompt = '' }) {
+  constructor({ reasoning, draftReasoning = reasoning, getSession, publish, transient = () => {}, deadlineMs = 30_000, hostPrompt = '', admit }) {
     this.reasoning = assertReasoning(reasoning);
     this.draftReasoning = assertReasoning(draftReasoning);
-    Object.assign(this, { getSession, publish, transient, deadlineMs, hostPrompt });
+    Object.assign(this, { getSession, publish, transient, deadlineMs, hostPrompt, admit });
   }
   supersede(id) {
     const revision = inputRevision(this.getSession(id));
@@ -43,8 +43,11 @@ export class SessionLanes {
           const latest = this.getSession(id);
           if (draft && latest.understanding.inputRevision === revision && latest.understanding.draft) continue;
           const binding = draft ? this.draftReasoning : this.reasoning;
-          const raw = await binding.structured({ ...reasoningRequest(latest, lane, draft, this.hostPrompt),
-            schema: understandingSchema(session.preset) }, options);
+          const request = { ...reasoningRequest(latest, lane, draft, this.hostPrompt), schema: understandingSchema(session.preset) };
+          const admitted = await this.admit?.({ session: this.getSession(id), lane, operation: 'structured', request, options });
+          let raw;
+          try { raw = await (admitted?.plugin ?? binding).structured(request, admitted?.options ?? options); }
+          finally { admitted?.finish(); }
           if (!current()) return 'stale';
           if (!matchesSchema(raw, understandingSchema(session.preset))) throw new TypeError('Invalid understanding output');
           const data = reduceUnderstanding(this.getSession(id).understanding, raw, {
@@ -60,12 +63,14 @@ export class SessionLanes {
         if (session.transcript.some(t => t.role === 'assistant' && t.inputRevision === revision)) return 'cached';
         const turnId = crypto.randomUUID();
         let content = '';
-        for await (const delta of this.reasoning.stream(reasoningRequest(session, lane, false, this.hostPrompt), options)) {
+        const request = reasoningRequest(session, lane, false, this.hostPrompt);
+        const admitted = await this.admit?.({ session: this.getSession(id), lane, operation: 'stream', request, options });
+        try { for await (const delta of (admitted?.plugin ?? this.reasoning).stream(request, admitted?.options ?? options)) {
           if (!current()) return 'stale';
           if (typeof delta !== 'string' || content.length + delta.length > 16_000) throw new TypeError('Invalid reasoning stream');
           content += delta;
           this.transient(id, { type: 'turn.partial', data: { id: turnId, delta, inputRevision: revision } });
-        }
+        } } finally { admitted?.finish(); }
         if (!current()) return 'stale';
         if (!content.trim()) throw new TypeError('Empty reasoning stream');
         if (!this.publish(id, 'turn.final', { id: turnId, role: 'assistant', content,

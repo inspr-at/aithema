@@ -132,3 +132,40 @@ test('an SSE cursor rejected with 400 restores the snapshot and reconnects with 
   } finally { c.remove(); await new Promise(r => setImmediate(r)); globalThis.fetch = originalFetch; }
 });
 test.after(async () => window.happyDOM.close());
+
+test('preset choice preserves layout and shows exact feature reasons; updates defer under the pointer', () => {
+  const c = setup(), root = c.shadowRoot;
+  const matrix = { best: { text: { available: true, reason: null }, analysis: { available: false, reason: 'binding evidence expired' } } };
+  c.receive({ type: 'features.updated', data: matrix });
+  assert.equal(root.querySelectorAll('.preset-choice option').length, 4);
+  assert.deepEqual([...root.querySelectorAll('.preset-choice option')].map(o => o.textContent), ['Best', 'EU', 'On my device', 'Custom']);
+  assert.match(root.querySelector('.features').textContent, /binding evidence expired/);
+  assert.ok(!root.querySelector('.features li').classList.contains('unavailable'));
+  root.querySelector('.preset-panel').dispatchEvent(new window.Event('pointerenter'));
+  c.receive({ type: 'features.updated', data: { best: {} } });
+  assert.match(root.querySelector('.features').textContent, /binding evidence expired/);
+  root.querySelector('.preset-panel').dispatchEvent(new window.Event('pointerleave'));
+  assert.ok(!root.querySelector('.features').textContent.includes('binding evidence expired'));
+  let chosen; c.addEventListener('aithema-preset', e => { chosen = e.detail.processingPreset; });
+  const select = root.querySelector('select'); select.value = 'eu'; select.dispatchEvent(new window.Event('change'));
+  assert.equal(chosen, 'eu'); assert.equal(select.value, 'best', 'host must confirm choice with a new session');
+  assert.match(root.querySelector('style').textContent, /height:9rem/);
+});
+test('device sends text in this tab only; browser configure/disconnect aborts local work', async () => {
+  const c = setup(), originalFetch = globalThis.fetch; let calls = 0, signal;
+  const device = { async connect(options) { signal = options.signal; }, async *stream() { yield 'Local answer'; } };
+  globalThis.fetch = async () => { calls++; throw new Error('No server call permitted'); };
+  try {
+    c.configure({ copy: en, session: createSession({ processingPreset: 'device' }), deviceReasoning: device });
+    document.body.append(c);
+    const input = c.shadowRoot.querySelector('textarea'); input.value = 'Local question';
+    c.shadowRoot.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true }));
+    await new Promise(r => setImmediate(r));
+    assert.equal(calls, 0); assert.deepEqual(c.session.transcript.map(t => t.content), ['Local question', 'Local answer']);
+    assert.equal(c.shadowRoot.querySelector('.retry').hidden, true);
+    assert.equal(c.shadowRoot.querySelector('.export').getAttribute('aria-disabled'), 'true');
+    assert.equal(c.shadowRoot.querySelector('.export').hasAttribute('href'), false);
+    assert.match(c.shadowRoot.querySelector('.features').textContent, /unavailable on device/);
+    c.remove(); assert.equal(signal.aborted, true);
+  } finally { c.remove(); globalThis.fetch = originalFetch; }
+});

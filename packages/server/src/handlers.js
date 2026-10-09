@@ -1,3 +1,4 @@
+import { createPluginRuntime } from './plugin-runtime.js';
 import { SessionLanes, createMockReasoning, inputRevision } from '@inspr/aithema-core';
 import { ConflictError, NotFoundError } from './storage.js';
 import { exportSession } from './export.js';
@@ -26,7 +27,7 @@ export async function readBody(request, limit = 32_768) {
 }
 
 export function createHandlers({ storage, reasoning = createMockReasoning(), sessionOptions = { demo: true },
-  deadlineMs = 30_000, hostPrompt = '' }) {
+  deadlineMs = 30_000, hostPrompt = '', pluginRuntime = createPluginRuntime({ storage, reasoning }) }) {
   const listeners = new Map(), jobs = new Map(), failures = new Map(), stop = new AbortController();
   const broadcast = (id, event) => {
     for (const listener of listeners.get(id) ?? []) listener(event);
@@ -36,9 +37,9 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     return { inputRevision: revision, running: [...jobs.values()].filter(job => job.id === session.id).map(job => job.lane),
       lastFailure: failure?.inputRevision === revision ? failure : null };
   };
-  const snapshot = id => { const session = storage.get(id); return { ...session, operations: operations(session) }; };
+  const snapshot = async id => { const session = storage.get(id); return { ...session, operations: operations(session), featureMatrix: await pluginRuntime.matrix(session) }; };
   const status = id => broadcast(id, { sessionId: id, type: 'lane.status', data: operations(storage.get(id)) });
-  const lanes = new SessionLanes({ reasoning, getSession: id => storage.get(id), deadlineMs, hostPrompt,
+  const lanes = new SessionLanes({ reasoning, getSession: id => storage.get(id), deadlineMs, hostPrompt, admit: args => pluginRuntime.admit(args),
     publish(id, type, data, revision) {
       if (stop.signal.aborted) return false;
       const event = storage.append(id, type, data, revision);
@@ -138,13 +139,13 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         const bytes = await readBody(request);
         const options = bytes.length ? JSON.parse(Buffer.from(bytes).toString('utf8')) : {};
         if (!options || typeof options !== 'object' || Array.isArray(options)) return json({ error: 'invalid-session' }, 400);
-        const session = storage.create({ ...sessionOptions, locale: options.locale ?? 'en' });
-        return json(snapshot(session.id), 201);
+        const session = storage.create({ ...sessionOptions, locale: options.locale ?? 'en', processingPreset: options.processingPreset ?? sessionOptions.processingPreset ?? 'best' });
+        return json(await snapshot(session.id), 201);
       }
       const match = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})(?:\/(turns|events|export|retry))?$/u.exec(url.pathname);
       if (!match) return json({ error: 'not-found' }, 404);
       const [, id, action] = match;
-      if (!action && request.method === 'GET') return json(snapshot(id));
+      if (!action && request.method === 'GET') return json(await snapshot(id));
       if (action === 'events' && request.method === 'GET') return events(request, id);
       if (action === 'turns' && request.method === 'POST') {
         const bytes = await readBody(request);
@@ -174,6 +175,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   }
   return { handle, lanes,
     resume() {
+      pluginRuntime.budget.recover();
       for (const id of storage.list()) if (storage.get(id).transcript.some(t => t.role === 'user')) schedule(id);
     },
     async idle() { while (jobs.size) await Promise.allSettled([...jobs.values()].map(job => job.promise)); },
