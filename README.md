@@ -205,11 +205,11 @@ plugin, configure `presets[preset].bindings.voice`, and pass
 accepting traffic. See the [voice plugin README](plugins/elevenlabs/README.md)
 for the complete binding and provisioning ports. Agent id, provider-key secret
 reference, public HTTPS facade base URL and exact account qualification are
-required. The live demo additionally requires a private host module; it never
-infers authorization from a provider key in the environment.
-Live provider callbacks need a proxy that rewrites the incoming `Host` header to
-an allowed localhost host: the demo applies its `allowedHosts` check to the facade
-route too. Terminate public HTTPS at that proxy.
+required. The built-in start2 host supplies START's international qualification and separate
+durable consent items. It never treats the mock grant as ElevenLabs consent.
+`AITHEMA_PUBLIC_ORIGIN` selects the public Host and callback origin; pass the
+original Host through the HTTPS reverse proxy. Custom private host modules remain
+optional.
 
 Browser hosts import `createVoiceControl` from `@inspr/aithema-ui/voice-control`,
 and `createElevenLabsClient` from `@inspr/aithema-plugin-elevenlabs/client`.
@@ -942,3 +942,121 @@ Every contribution commit requires a matching `Signed-off-by` trailer under the
 [Developer Certificate of Origin 1.1](DCO), created with `git commit --signoff`.
 External contributions also require an agreement with INSPR permitting relicensing;
 DCO sign-off alone is insufficient. Review, merge and release remain maintainer-controlled.
+
+
+## Test-host deployment (AIT-115)
+
+Run a pinned source commit with Node 24 or the provided `node:24-bookworm-slim`
+Dockerfile: `npm ci --omit=dev`, then `node demo/server.js`. The ElevenLabs SDK
+1.17.0 is a runtime dependency; the host serves its IIFE and worklets locally.
+The image runs as `node`, binds port 3000 and uses its `/data` volume for SQLite.
+Mount `/data` writable by that user, preserve the SQLite database plus WAL on
+restart, and run exactly one writer. Set `AITHEMA_COMMIT` to the deployed full
+source SHA. The container healthcheck supplies the configured public Host while
+connecting over local HTTP. Readiness of voice is separately visible in
+`/demo/config` and the session feature matrix; `/healthz` is a process probe.
+
+| Environment | Meaning / default |
+| --- | --- |
+| `PORT` | Listen port; local/container default `3000` |
+| `AITHEMA_LISTEN_HOST` | Bind address; local `127.0.0.1`, image `0.0.0.0` |
+| `AITHEMA_PUBLIC_ORIGIN` | Canonical origin, e.g. `https://start2.augmentoring.com`, without trailing slash; accepted Host, facade base URL and Secure cookies |
+| `AITHEMA_DB` | Persistent SQLite path; local `.data/session.sqlite`, image `/data/session.sqlite` |
+| `AITHEMA_COMMIT` | Deployed source SHA; `/healthz` reports this or `null` |
+| `AITHEMA_PROVIDER` | `openrouter` for live reasoning; defaults to `mock` |
+| `OPENROUTER_API_KEY` | Account credential supplied by OPS through its secret service |
+| `OPENROUTER_MODEL` | Exact model id; default `openai/gpt-4.1-mini`; only START-consented OpenAI, Anthropic or xAI providers are admitted |
+| `AITHEMA_OPENROUTER_CAP_USD` | Lifetime persisted account cap; decimal USD with up to six fractional digits, default `10` |
+| `AITHEMA_OPENROUTER_RESERVE_USD` | Conservative per-request hold, default `1`; requests exceeding its byte/output price bound are refused before dispatch |
+| `AITHEMA_VOICE_MODE` | `elevenlabs` enables startup ensure; default `fake`; `off` disables voice |
+| `ELEVENLABS_API_KEY` | ElevenLabs account key; reference resolves server-side only |
+| `AITHEMA_ELEVENLABS_TEMPLATE_AGENT_ID` | START agent to GET for selected voice/language/ASR/turn/privacy settings; never a write target |
+| `AITHEMA_VOICE_FACADE_SECRET` | Deployment callback bearer supplied by OPS; startup creates/updates its owned workspace-secret reference |
+| `AITHEMA_IMAGE_MODE` | Use `off` for the first live smoke; default `fake`; `openai` requires a separate host module |
+| `AITHEMA_VOICE_HOST_MODULE` | Optional server-only host override; unset selects built-in start2 host |
+
+Production requires no `ELEVENLABS_AGENT_ID`: the owned agent id comes from ensure
+and is cached in `AITHEMA_DB`. An existing same-name foreign agent or multiple
+exact-name matches disables voice with a value-free reason. Only a creation
+receipt persisted in this database authorizes updates. Losing the ownership
+cache never authorizes taking over an existing agent/secret; restore the database
+or let the operator resolve the conflict. Secrets are not cached in SQLite.
+Template prompts, personas, first messages, knowledge bases and tools are excluded.
+The host's custom LLM has an empty prompt/greeting and no tools or knowledge base;
+Aithema rebuilds the trusted session prompt at each callback.
+
+Caddy must preserve the incoming `Host` header and terminate HTTPS. Protect
+**everything** with `basic_auth`, except **POST**
+`/api/voice/llm/chat/completions` and **GET** `/healthz` (method and path both must
+match). Those exceptions still pass the Host allowlist; the callback additionally
+requires the static bearer. Keep session, consent, SDK/worklet and `/demo/config`
+paths behind basic auth. Forwarded headers never choose the origin or cookie
+security. Browser requests with a foreign Origin are refused; provider callbacks
+use bearer authentication instead of a browser Origin.
+
+The consent panel ports START's English `models-international` and
+`voice-elevenlabs` items, versions and twelve-month lapse. Grant them separately.
+SQLite records the item choices, time, wording and consent revision without
+conversation content. Coverage is checked against the exact configured processing
+scope before admission/dispatch and fails closed on expiry, withdrawal or changed
+binding. The old `{granted:true}` mock request cannot authorize these providers.
+This host makes no EU residency, no-training or zero-retention claim. START's
+self-serve Agents path is US-based; copied privacy flags are not entitlement proof.
+
+`createSpendCap({storage, account, capMicro})`, exported by the server package,
+reserves under a SQLite transaction. A second plugin can share account
+`start2-openrouter` and the same database. Every OpenRouter request asks for
+`usage.include`; final streaming or non-streaming `usage.cost` settles its hold
+in upward-rounded microdollars. Missing usage, cancellation, broken responses and
+process death keep the whole hold, including across restart. The cap counts both
+actual cost and these holds, across all sessions and reasoning lanes. START's
+byte bound plus framing allowance and `provider.max_price` routing caps ensure
+a request fits its reservation; oversized requests are refused before spending.
+Raising the cap does not reset the counter. Do not remove uncertain holds merely
+to make another request fit.
+
+The startup ensure code marks these **UNVERIFIED API SHAPE** assumptions, absent
+from START's source: paginated agent list; agent create/PATCH and detailed
+TTS/ASR/turn/privacy fields; `custom_llm` secret-id authentication; platform
+allowlist/override fields; workspace-secret list/create/PATCH bodies; the
+conversation-details `conversation_id` echo used for closure binding. Local fakes
+exercise the assumed contracts. The coordinator must verify the live shapes
+before enabling this deployment.
+
+Coordinator live smoke, after its Claude approval gate:
+
+1. Before service startup/writes, use OPS's secret-aware tooling for authenticated
+   read-only GETs: `/v1/convai/agents?page_size=100` (follow `next_cursor`),
+   `/v1/convai/agents/<template-id>`, `/v1/convai/workspace/secrets` and
+   `/v1/convai/conversations/<existing-completed-id>`. Inspect only
+   names/ids and the required field shapes. Confirm no ambiguous `aithema-start2`,
+   confirm template voice/language/privacy and platform overrides, and confirm
+   API documentation for create/PATCH and secret-id auth; GETs alone cannot prove
+   write payloads. Never print key, secret or full config bodies.
+2. Start the pinned host with the environment above. Confirm it creates one owned
+   agent and one workspace secret. GET the owned agent, inspecting only its name,
+   id and callback/allowlist/secret-reference fields. Verify template id was never
+   a write target, its prompt was not copied, and the bearer is a secret id reference.
+   Restart with the same database; it must update that same agent without duplicates.
+3. GET public `/healthz` without basic auth or a session; expect
+   `{"ok":true,"commit":"<deployed-sha>"}`. A foreign Host must receive 403. Confirm
+   other methods on that path and all session/asset paths remain basic-auth protected.
+   POST the callback without/wrong bearer: 401, even with malformed JSON. Correct
+   bearer with no/unknown/ended identity: 403. `/api/voice/<call-id>/...` is disabled.
+4. Open the HTTPS page with basic auth. Confirm the ownership cookie has Secure,
+   HttpOnly and SameSite=Strict. Before consent, live voice/reasoning must be denied;
+   the mock grant alone must be refused. Select both separate items and grant them.
+   Start a call, speak, hear an answer, type during voice, pause/resume and close.
+   Observe durable turns and authenticated final provider usage; no per-call agent
+   PATCH occurs. Withdraw consent mid-call and confirm later callbacks cannot reason.
+5. Inspect value-free SQLite `spend_reservations` totals: non-stream analysis and
+   streaming reaction costs sum; missing/uncertain usage retains the hold. Restart
+   and confirm totals persist. On an isolated small-cap test database, once the
+   next reservation would exceed the cap, the next call must be refused with no
+   OpenRouter dispatch. Keep production ownership/cost state intact.
+
+The built-in host has no confirmed server-side hangup endpoint. Browser hangup,
+lease expiry and the owned agent's 600-second platform ceiling remain the
+backstops. Until authenticated final details arrive, closure stays conservative
+and pending reconciliation survives restart. Provider write shapes and real-key
+smoke verification belong to the coordinator; none were run by the builder.

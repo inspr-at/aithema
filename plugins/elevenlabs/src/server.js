@@ -57,6 +57,8 @@ export async function mintConversationCredential(binding, { transport = 'webrtc'
   binding = createVoiceBinding(binding);
   if (!['webrtc', 'websocket'].includes(transport)) throw new TypeError('Invalid voice transport');
   const provider = { fetchImpl: ports.fetchImpl ?? fetch, resolveSecret: ports.resolveSecret ?? (ref => process.env[ref]) };
+  // START src/pages/api/v2/agent-token.ts mintConversationToken/mintSignedUrl:
+  // authenticated GET paths, agent_id, include_conversation_id, token/signed_url/conversation_id.
   const path = transport === 'websocket' ? 'get-signed-url' : 'token';
   const body = await providerJson(binding, `/v1/convai/conversation/${path}?agent_id=${encodeURIComponent(binding.agentId)}${transport === 'websocket' ? '&include_conversation_id=true' : ''}`, provider, options);
   let providerSessionId = body.conversation_id;
@@ -86,6 +88,8 @@ export function reconcileUsage({ call, details, binding, maxMicro, outcome = 'co
   if (!amount(maxMicro) || !['completed', 'cancelled'].includes(outcome)) throw new TypeError('Invalid voice settlement');
   const seconds = details?.metadata?.call_duration_secs;
   const providerStart = details?.metadata?.start_time_unix_secs;
+  // UNVERIFIED API SHAPE: details.conversation_id echo. START call-reconcile.ts
+  // confirms the GET/status/metadata but binds its signed context instead of reading this echo.
   const identityMatches = details?.conversation_id === call.providerSessionId;
   const validDuration = typeof seconds === 'number' && Number.isFinite(seconds) && seconds >= 0;
   let usage = null;
@@ -152,6 +156,7 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
             } catch { /* A failed shutdown request does not invalidate authenticated closure evidence. */ }
             while (Date.now() < closeOptions.deadlineAt) {
               try {
+                // START src/pages/api/v2/call-reconcile.ts fetchConversationDetails: GET path/status/metadata.
                 details = await providerJson(binding, `/v1/convai/conversations/${encodeURIComponent(call.providerSessionId)}`, provider,
                   { deadlineAt: Math.min(closeOptions.deadlineAt, Date.now() + 5000) });
                 if (reconcileUsage({ call, details, binding, maxMicro: options.attempt.maxMicro, outcome }).closureConfirmed) break;
@@ -188,7 +193,7 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
           if (![options.spendDeadlineAt, options.browserLivenessDeadlineAt].every(value => Number.isFinite(value) && value > now())) throw new PluginError('deadline', 'Spend and browser-liveness deadlines required');
           const spendBound = Math.ceil((options.spendDeadlineAt - now()) / 60_000 * binding.upstreamMicroPerMinute);
           if (!amount(spendBound) || spendBound > options.attempt.maxMicro) throw new PluginError('not-admitted', 'Voice spend deadline exceeds admitted maximum');
-          // Host provisions per-call callback authentication through a server-only channel.
+          // Host preflight: legacy provisioning, or startup-established static callback authentication.
           await prepareCall(structuredClone(call), opts); opts.signal.throwIfAborted();
           invocation.dispatch();
           const credential = await mintConversationCredential(binding, request, opts, { ...provider, now });

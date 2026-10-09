@@ -1,0 +1,11 @@
+.git
+node_modules
+.data
+dist
+.agent-status.json
+worker-result.txt
+**/*.env
+**/*.env.*
+**/.env*
+**/*.age
+**/*.sqlite*

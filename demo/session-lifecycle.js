@@ -1,13 +1,14 @@
-export const ownership = {
+export function createOwnership({ publicOrigin } = {}) { return {
   token(request) {
     const value = /(?:^|;\s*)aithema-visitor=([a-zA-Z0-9_-]{1,128})(?:;|$)/u.exec(request.headers.get('cookie') ?? '');
     return value?.[1] ?? null;
   },
   created(response, token, request) {
-    const secure = new URL(request.url).protocol === 'https:' ? '; Secure' : '';
+    const secure = new URL(publicOrigin ?? request.url).protocol === 'https:' ? '; Secure' : '';
     response.headers.set('set-cookie', `aithema-visitor=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000${secure}`);
   },
-};
+}; }
+export const ownership = createOwnership();
 
 export function startExpiry(handlers) {
   const expiry = setInterval(async () => {

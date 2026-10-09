@@ -8,6 +8,7 @@ const json = (value, status = 200) => Response.json(value, { status, headers: { 
 const idPattern = '[a-zA-Z0-9_-]{1,128}';
 const routes = new RegExp(`^/api/sessions/(${idPattern})/voice(?:/(${idPattern})/(pause|resume|heartbeat|close|recover|events))?$`, 'u');
 const facadeRoute = new RegExp(`^/api/voice/(${idPattern})/llm/chat/completions$`, 'u');
+const staticFacadeRoute = '/api/voice/llm/chat/completions';
 
 export function createFacadeSecrets() {
   const values = new Map();
@@ -17,7 +18,7 @@ export function createFacadeSecrets() {
 
 export function createVoiceHandlers({ storage, runtime, ownership, readBody, secrets,
   publish, onTurn, onClose, hostPrompt = '', now = Date.now, browserLeaseMs = 30_000, deadlineMs = 30_000,
-  closeOrphan } = {}) {
+  closeOrphan, staticSecretRef } = {}) {
   if (!secrets?.provision || !secrets.resolve || !secrets.revoke) throw new TypeError('Private facade secret store required');
   const calls = new Map(), sessions = new Map(), settlements = new Set();
   const sessionFor = entry => {
@@ -26,10 +27,11 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     return session;
   };
   const receipt = call => ({ callId: call.callId, providerSessionId: call.providerSessionId, credential: call.credential,
+    ...(staticSecretRef ? { facadeCallId: calls.get(call.callId)?.facadeCallId } : {}),
     spendDeadlineAt: call.spendDeadlineAt, browserLivenessDeadlineAt: call.browserLivenessDeadlineAt,
     ...(call.overrides ? { overrides: call.overrides } : {}) });
   const options = request => ({ signal: request.signal, deadlineAt: Date.now() + deadlineMs });
-  function revoke(entry) { secrets.revoke(entry.facadeSecretRef); }
+  function revoke(entry) { if (!staticSecretRef) secrets.revoke(entry.facadeSecretRef); }
   function close(entry, reason = 'closed', outcome = 'completed') {
     if (entry.closing) return entry.closing;
     // Install the promise before close() aborts the provider signal synchronously.
@@ -69,7 +71,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     if (sessions.has(sessionId)) throw new ConflictError('Voice call already active');
     const controller = new AbortController(), started = Promise.withResolvers(), entry = { callId, sessionId, ownerToken, controller, started: started.promise,
       consentRevision: session.consentRevision, withdrawalRevision: session.withdrawalRevision,
-      facadeSecretRef: 'voice-' + randomUUID() };
+      facadeSecretRef: staticSecretRef ?? 'voice-' + randomUUID(), ...(staticSecretRef ? { facadeCallId: randomUUID() } : {}) };
     sessions.set(sessionId, entry); calls.set(callId, entry);
     const abortStartup = () => controller.abort(request.signal.reason);
     request.signal.addEventListener('abort', abortStartup, { once: true });
@@ -79,10 +81,10 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       const admitted = await runtime.admitVoice({ session, request: { callId }, options: { ...opts, spendDeadlineAt } }); entry.admission = admitted;
       const end = spendDeadlineAt ?? now() + admitted.binding.maxDurationSeconds * 1000;
       if (end <= now()) throw new PluginError('deadline');
-      await secrets.provision(entry.facadeSecretRef);
+      if (!staticSecretRef) await secrets.provision(entry.facadeSecretRef);
       controller.signal.throwIfAborted();
       entry.call = await admitted.plugin.start({ callId, sessionId, ownerToken, facadeSecretRef: entry.facadeSecretRef,
-        facadeUrl: `${admitted.binding.publicFacadeBaseUrl}/api/voice/${callId}/llm/chat/completions` },
+        facadeUrl: `${admitted.binding.publicFacadeBaseUrl}${staticSecretRef ? staticFacadeRoute : `/api/voice/${callId}/llm/chat/completions`}` },
         { ...admitted.options, spendDeadlineAt: end, browserLivenessDeadlineAt: Math.min(end, now() + browserLeaseMs) });
       entry.call.signal.addEventListener('abort', () => {
         void close(entry, entry.call.snapshot().reason ?? 'cancelled', 'cancelled');
@@ -96,11 +98,13 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       throw error;
     } finally { started.resolve(); request.signal.removeEventListener('abort', abortStartup); }
   }
-  const facade = createCompletionsHandler({ resolveSecret: secrets.resolve,
-    getCall(request) {
-      const callId = facadeRoute.exec(new URL(request.url).pathname)?.[1], entry = calls.get(callId);
-      if (!entry?.call) return null;
-      return { ...entry.call.snapshot(), facadeSecretRef: entry.facadeSecretRef, signal: entry.call.signal };
+  const facade = createCompletionsHandler({ resolveSecret: secrets.resolve, staticSecretRef,
+    getCall(request, options, identity) {
+      const entry = staticSecretRef ? [...calls.values()].find(entry => entry.facadeCallId === identity)
+        : calls.get(facadeRoute.exec(new URL(request.url).pathname)?.[1]);
+      if (!entry?.call || entry.closing || sessions.get(entry.sessionId) !== entry) return null;
+      try { sessionFor(entry); } catch { throw new PluginError('not-admitted', 'Call ownership or context revoked'); }
+      return { ...entry.call.snapshot(), facadeSecretRef: entry.facadeSecretRef, facadeCallId: entry.facadeCallId, signal: entry.call.signal };
     },
     buildRequest({ callId, messages }) {
       const session = sessionFor(calls.get(callId)), trusted = reasoningRequest(session, 'reaction', false, hostPrompt);
@@ -156,7 +160,8 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     },
     async handle(request) {
       const path = new URL(request.url).pathname;
-      if (facadeRoute.test(path)) return facade(request);
+      if (staticSecretRef ? path === staticFacadeRoute : facadeRoute.test(path)) return facade(request);
+      if (staticSecretRef && facadeRoute.test(path)) return json({ error: 'not-found' }, 404);
       const match = routes.exec(path); if (!match) return null;
       try {
         const [, sessionId, callId, action] = match, ownerToken = ownership.token(request);
@@ -234,7 +239,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     async resume() {
       // The exclusive writer has already conservatively recovered all open claims.
       for (const record of storage.voiceCalls()) {
-        await secrets.revoke(record.facadeSecretRef);
+        if (!staticSecretRef) await secrets.revoke(record.facadeSecretRef);
         if (record.terminal && !record.reconciliationPending) continue;
         const row = runtime.budget.get(record.attemptId);
         storage.saveVoiceCall(record.sessionId, { ...record, closing: true, endedAt: record.endedAt ?? now(), reason: record.reason ?? 'server-restart',

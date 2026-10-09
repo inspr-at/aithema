@@ -21,9 +21,9 @@ export async function temporaryDb() {
   await mkdir(root, { recursive: true });
   return join(await mkdtemp(join(root, 'test-')), 'session.sqlite');
 }
-export async function startChild(file, db) {
+export async function startChild(file, db, settings = {}) {
   // Explicit environment excludes inherited provider credentials. No live provider calls.
-  const child = fork(file, [], { env: { PATH: process.env.PATH, PORT: '0', AITHEMA_DB: db }, silent: true });
+  const child = fork(file, [], { env: { PATH: process.env.PATH, PORT: '0', AITHEMA_DB: db, ...settings }, silent: true });
   child.stdout.resume(); child.stderr.resume();
   const message = await Promise.race([once(child, 'message').then(([value]) => value),
     once(child, 'exit').then(() => { throw new Error('Server child exited before ready'); })]);

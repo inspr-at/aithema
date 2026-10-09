@@ -4,7 +4,8 @@ import { operationScope } from '../../../packages/core/src/reasoning.js';
 import { voiceOperation } from '../../../packages/core/src/live-voice.js';
 import { readJson } from './server.js';
 
-const json = (error, status) => Response.json({ error }, { status, headers: { 'cache-control': 'no-store' } });
+const spendReason = error => ['OpenRouter spend cap exhausted', 'OpenRouter request exceeds spend reservation'].includes(error?.message) ? error.message : undefined;
+const json = (error, status, reason) => Response.json({ error, ...(reason ? { reason } : {}) }, { status, headers: { 'cache-control': 'no-store' } });
 const digest = value => createHash('sha256').update(value).digest();
 export function bearerMatches(header, secret) {
   if (typeof secret !== 'string' || !secret || !header?.startsWith('Bearer ')) return false;
@@ -15,7 +16,7 @@ const statusFor = error => error?.code === 'auth' ? 401 : error?.code === 'not-a
 
 /** A host resolves this private call object by route identity; body/model never select a binding. */
 export function createCompletionsHandler({ getCall, resolveSecret = ref => process.env[ref],
-  buildRequest, admitReasoning, onCompletion, now = Date.now, timeoutMs = 30_000, maxRequestBytes = 65_536 } = {}) {
+  buildRequest, admitReasoning, onCompletion, staticSecretRef, now = Date.now, timeoutMs = 30_000, maxRequestBytes = 65_536 } = {}) {
   if (![getCall, buildRequest, admitReasoning].every(port => typeof port === 'function')) throw new TypeError('Facade call, context and admission ports required');
   const active = call => call && !call.closing && !call.terminal && !call.paused && !call.signal?.aborted &&
     now() < Math.min(call.spendDeadlineAt, call.browserLivenessDeadlineAt);
@@ -37,19 +38,29 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
     scope.signal.addEventListener('abort', expire, { once: true });
     const next = () => voiceOperation(invocationOptions, () => iterator.next());
     try {
-      const call = await voiceOperation({ signal: scope.signal }, opts => getCall(request, opts));
-      const secret = call && await voiceOperation({ signal: scope.signal }, () => resolveSecret(call.facadeSecretRef));
+      let call, body;
+      if (!staticSecretRef) call = await voiceOperation({ signal: scope.signal }, opts => getCall(request, opts));
+      const secretRef = staticSecretRef ?? call?.facadeSecretRef;
+      const secret = secretRef && await voiceOperation({ signal: scope.signal }, () => resolveSecret(secretRef));
       if (!bearerMatches(request.headers.get('authorization'), secret)) { await cleanup(true); return json('unauthorized', 401); }
+      if (staticSecretRef) {
+        // START src/pages/api/v2/llm/chat/completions.ts: authenticate before any body read.
+        body = await voiceOperation({ signal: scope.signal }, () => readJson(request, maxRequestBytes));
+        const identity = body?.elevenlabs_extra_body?.aithema_call;
+        if (typeof identity !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(identity)) throw new PluginError('not-admitted', 'Call identity required');
+        call = await voiceOperation({ signal: scope.signal }, opts => getCall(request, opts, identity));
+      }
       if (!active(call)) throw new PluginError('not-admitted', 'Call inactive');
       if (call.signal) {
         callSignal = call.signal; callAbort = () => localCancellation.abort();
         callSignal.addEventListener('abort', callAbort, { once: true });
       }
-      const body = await voiceOperation({ signal: scope.signal }, () => readJson(request, maxRequestBytes));
+      body ??= await voiceOperation({ signal: scope.signal }, () => readJson(request, maxRequestBytes));
       const platformIdentity = body?.elevenlabs_extra_body?.aithema_call;
-      if ((body?.aithema_call ?? platformIdentity) !== call.callId ||
-        body?.aithema_call !== undefined && body.aithema_call !== call.callId ||
-        platformIdentity !== undefined && platformIdentity !== call.callId || !Array.isArray(body.messages) || !body.messages.length ||
+      const expectedIdentity = staticSecretRef ? call.facadeCallId : call.callId;
+      if ((body?.aithema_call ?? platformIdentity) !== expectedIdentity ||
+        body?.aithema_call !== undefined && body.aithema_call !== expectedIdentity ||
+        platformIdentity !== undefined && platformIdentity !== expectedIdentity || !Array.isArray(body.messages) || !body.messages.length ||
         body.messages.some(message => !message || typeof message !== 'object' || Array.isArray(message) || typeof message.role !== 'string' ||
           ['system', 'user', 'assistant'].includes(message.role) && message.content != null && typeof message.content !== 'string') ||
         (body.stream !== undefined && typeof body.stream !== 'boolean')) throw new PluginError('invalid-output', 'Invalid completion request');
@@ -60,9 +71,9 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
       const input = await voiceOperation(opts, bounded => buildRequest({ callId: call.callId,
         messages: body.messages.filter(message => ['user', 'assistant'].includes(message.role) && typeof message.content === 'string')
           .map(({ role, content }) => ({ role, content })) }, bounded));
-      const latest = await voiceOperation(opts, bounded => getCall(request, bounded));
+      const latest = await voiceOperation(opts, bounded => getCall(request, bounded, expectedIdentity));
       if (!active(latest) || latest.callId !== call.callId || latest.providerSessionId !== call.providerSessionId ||
-        latest.facadeSecretRef !== call.facadeSecretRef) throw new PluginError('not-admitted', 'Call changed');
+        latest.facadeSecretRef !== call.facadeSecretRef || latest.facadeCallId !== call.facadeCallId) throw new PluginError('not-admitted', 'Call changed');
       admission = await voiceOperation(opts, bounded => admitReasoning({ callId: call.callId, request: input, options: bounded }));
       if (!admission?.plugin?.stream || !admission.options?.attempt || typeof admission.options.report !== 'function' ||
         typeof admission.finish !== 'function') throw new PluginError('not-admitted', 'Reasoning admission required');
@@ -119,7 +130,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
       }), { headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store' } });
     } catch (error) {
       cancelReasoning(); await disposeIterator(iterator); await cleanup(true);
-      return json(error instanceof PluginError ? error.code : 'provider', statusFor(error));
+      return json(error instanceof PluginError ? error.code : 'provider', statusFor(error), spendReason(error));
     }
     function cancelReasoning() { localCancellation.abort(); }
   };

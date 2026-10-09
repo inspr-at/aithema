@@ -11,6 +11,32 @@ The generic behavior comes from Augmentoring's START `agent-token.ts`,
 are excluded. `@elevenlabs/client` is pinned to START's locked **1.17.0**.
 INSPR holds the rights to this port under the approved revised D3 decision.
 
+## AIT-101 callback contract (AIT-115 revision)
+
+The deployment callback uses **one deployment-scoped bearer secret shared across
+calls**, stored as an ElevenLabs workspace secret and referenced by secret id in
+the host-created agent. Its value never enters agent JSON inline or browser data.
+`POST /api/voice/llm/chat/completions` compares the bearer in constant time before
+reading the body. `elevenlabs_extra_body.aithema_call` binds a fresh callback identity
+to an active owned call. START uses the same static-bearer pattern in
+`src/pages/api/v2/llm/chat/completions.ts`.
+
+`voice: {secrets, staticSecretRef}` selects this mode in `createHandlers`;
+`createVoiceProvider({..., staticFacade:true})` disables per-call provisioning.
+`createCompletionsHandler({..., staticSecretRef})` resolves the deployment secret
+before `getCall(request, options, identity)`. The identity is a UUID returned as
+`facadeCallId` in a start/recover receipt, sent by the SDK as `customLlmExtraBody`.
+It rotates on recovery while `callId` stays stable, fencing previous callbacks.
+A body may carry a matching top-level identity as well, but the nested identity
+is mandatory in static mode. No cookie, provider model or body option selects
+authority. Ownership, consent and input revisions, pause, browser liveness,
+spend deadline, call closure and separately admitted reasoning still apply.
+
+Closing a call removes its identity immediately. It leaves the shared deployment
+secret in place for other calls. Static mode disables
+`/api/voice/:callId/llm/chat/completions`; it never mutates the agent per call.
+The legacy route/provisioning ports below remain available to existing hosts.
+
 ## Contract and controls
 
 Core exports the runtime contract at `@inspr/aithema-core/live-voice`.
@@ -73,12 +99,12 @@ may return a promise: startup awaits the host's fresh consent and ownership
 checks before provisioning callback authentication or contacting the provider.
 The host owns settlement on refusal; the plugin does not report it again. Options
 include `signal`, `deadlineAt`, absolute `spendDeadlineAt`, absolute
-`browserLivenessDeadlineAt` and `report(terminal)`. Required `prepareCall` is a
-server-only provisioning port: arrange the configured agent's callback to use
-the distinct per-call bearer secret named by `facadeSecretRef`. Neither that
-secret nor reference belongs in SDK/browser initiation data. A host must prove
-this provisioning path before enabling voice; the adapter does not change
-global agent configuration or silently share callback secrets across calls.
+`browserLivenessDeadlineAt` and `report(terminal)`. `prepareCall` is a server-only preflight port. The static adapter supplies a no-op
+after startup has established deployment authentication. Legacy hosts can use it
+to provision a per-call bearer named by `facadeSecretRef`. Neither that
+secret nor reference belongs in SDK/browser initiation data. A host must establish its selected callback mode before enabling voice.
+The startup ensure module owns global configuration; the call adapter does not
+change it. Shared deployment authentication is explicit in static mode.
 
 The token/signed URL GET uses `xi-api-key`, an injectable HTTPS base URL and no
 redirects. HTTP is allowed only for loopback test endpoints (`localhost`,
@@ -171,7 +197,7 @@ The `control` port has `start(request, options)`, `close(identity, options)`,
 options)` and optional `recover(identity, options)`. Identity is
 `{callId,providerSessionId}`; close also carries `reason`. Start/recover return
 only `{callId,providerSessionId,credential,spendDeadlineAt,
-browserLivenessDeadlineAt,overrides?}`. Language/first-message overrides come
+browserLivenessDeadlineAt,overrides?,facadeCallId?}`. Language/first-message overrides come
 from host configuration. Browsers never supply server authority, API keys or
 facade secrets; joined tests carry authority in-process solely for conformance.
 
@@ -202,7 +228,8 @@ reasoning and recovery admission.
 | `POST /api/sessions/:id/voice/:callId/heartbeat` | Server-derived browser lease; never trust a browser deadline |
 | `POST /api/sessions/:id/voice/:callId/close` | Provider-confirmed reconciliation; one terminal and idempotent receipt |
 | `POST /api/sessions/:id/voice/:callId/recover` | Reconcile previous provider id; new admitted claim/provider id, stable call id |
-| `POST /api/voice/:callId/llm/chat/completions` | Route-bound per-call bearer auth; session prompt and runtime reaction admission |
+| `POST /api/voice/llm/chat/completions` | Static deployment bearer, fresh active-call identity; session prompt and runtime reaction admission |
+| `POST /api/voice/:callId/llm/chat/completions` | Legacy hosts only; disabled in static mode |
 | `POST /api/sessions/:id/voice/:callId/events` | Idempotent durable finals/heard corrections via `persistEvent` |
 
 Extend SQLite budget/storage with duration claims/settlement; the existing
@@ -216,7 +243,7 @@ Extend `pluginRuntime` admission/feature-matrix handling for the private duratio
 binding and the paired server/browser kind; today's token `createBinding` and
 reaction/understanding `admit` path cannot admit a voice start. Apply current
 host-private legal/evidence qualification to this exact voice selection. Pass
-the call's closure signal to the facade and invalidate callback auth on close.
+the call's closure signal to the facade and invalidate its call identity on close.
 
 The audio rail wires Start/Close, input/output switches, acknowledged
 Pause/Resume, composer `sendText`, context `updateContext` and native barge-in.
@@ -239,15 +266,16 @@ Sources: [JavaScript SDK](https://elevenlabs.io/docs/eleven-agents/libraries/jav
 
 `createVoiceProvider` wraps the server half with owned-session SQLite persistence.
 Construct it with `{storage, binding, resolveSecret, provisionFacade, revokeFacade,
-requestProviderClose?, reconcileLater?, closureTimeoutMs?}`. Its provider binding
+requestProviderClose?, reconcileLater?, closureTimeoutMs?, staticFacade?}`. Its provider binding
 is `{agentId, secretRef, apiBaseUrl, upstreamMicroPerMinute, visitorMicroPerMinute}`.
 `provisionFacade({callId, facadeSecretRef, url, ...record}, options)` must provision
 the configured agent's custom-LLM callback with this exact per-call bearer reference
-and public callback URL. Resolve the reference only inside that server channel.
+and public callback URL in legacy mode. Resolve the reference only inside that server channel.
 It must return only after provisioning succeeds; a missing/provenly unsupported
 channel leaves voice disabled. Keys and facade secrets are never client initiation
-options. `revokeFacade(ref)` removes the callback secret on terminal save; the
-route layer also revokes immediately when closure starts.
+options. In legacy mode `revokeFacade(ref)` removes the callback secret on terminal save;
+the route layer also revokes immediately when closure starts. Static mode does
+neither: the shared secret survives, while the call identity is disabled.
 
 Register that plugin in the runtime's `PluginRegistry`. The host-private voice
 selection in `presets.best.bindings.voice` is:
@@ -279,8 +307,8 @@ The demo's local mock consent cannot authorize ElevenLabs. API start accepts
 and events accept `{providerSessionId, event}`. Client-declared deadlines, model,
 keys, cost, pause timestamps and facade configuration are ignored. Heartbeats
 renew a server-derived lease even while paused; they never extend the absolute
-spend deadline. Recover keeps `callId`, rotates the provider identity and facade
-secret, and separately admits each attempt; three failed retries return control.
+spend deadline. Recover keeps `callId`, rotates the provider identity and `facadeCallId`
+(in legacy mode, the facade secret), and separately admits each attempt; three failed retries return control.
 Transport loss during pause waits for acknowledged Resume before retrying.
 
 ```js
@@ -314,12 +342,16 @@ blocked autoplay are retried by Enable sound on a gesture. An optional
 
 The demo defaults to `AITHEMA_VOICE_MODE=fake`. Its deterministic injected SDK and
 provider API use no network; localhost routes still persist and settle the call.
-Live mode is an explicit `AITHEMA_VOICE_MODE=elevenlabs` plus
-`AITHEMA_VOICE_HOST_MODULE=/absolute/path/to/private-host.mjs`. That server-only
+Live mode is explicit `AITHEMA_VOICE_MODE=elevenlabs`. The demo's built-in
+`demo/start2-voice-host.js` ensures `aithema-start2`; see the root deployment
+section. An optional `AITHEMA_VOICE_HOST_MODULE=/absolute/path/to/private-host.mjs`
+replaces that built-in host. That server-only
 module exports `createVoiceHost({storage, facadeSecrets, resolveSecret})`, returning
 `{binding: voiceSelection, policy, consent, provisionFacade, requestProviderClose?,
 closeOrphan?}`. The key is selected by `binding.secretRef` and resolved at runtime.
-The host module is never statically served. No live mode was run or qualified here.
+The host module is never statically served. Provider calls in this change were tested only against localhost fakes.
+Agent write/list and workspace-secret API shapes are explicitly marked
+`UNVERIFIED API SHAPE` in `src/ensure-agent.js` for coordinator verification.
 
 Native: text/context updates, microphone selection, audio barge-in and observed
 heard prefixes. Emulated: output volume selection, engine pause/resume, automatic

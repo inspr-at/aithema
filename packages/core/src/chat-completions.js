@@ -21,14 +21,16 @@ export async function responseText(response, limit = 1_000_000) {
 }
 // Shared wire parser; no retries. It is also used by the browser loopback half.
 export function createChatCompletions({ manifest, binding, resolveSecret, fetchImpl = globalThis.fetch,
-  providerOptions = () => ({}), transportOptions = {}, billable = true }) {
+  providerOptions = () => ({}), transportOptions = {}, billable = true, spendCap, prepareBody = body => body }) {
   const label = manifest.vendor.name;
-  async function dispatch(request, scope, extra, invocation) {
+  async function dispatch(request, scope, extra, invocation, spend) {
     scope.signal.throwIfAborted();
     const key = resolveSecret?.(binding.secretRef);
     if (billable && (typeof key !== 'string' || !key || /[\r\n]/u.test(key))) throw new PluginError('auth');
-    const body = JSON.stringify({ model: binding.model, messages: [{ role: 'system', content: request.system ?? '' }, ...request.messages],
-      max_tokens: binding.maxTokens, ...providerOptions(extra.stream), ...extra });
+    const body = JSON.stringify(prepareBody({ model: binding.model, messages: [{ role: 'system', content: request.system ?? '' }, ...request.messages],
+      max_tokens: binding.maxTokens, ...providerOptions(extra.stream), ...extra }));
+    scope.signal.throwIfAborted();
+    if (spendCap) spend.reservation = spendCap.reserve(binding.maxMicro);
     invocation.dispatch();
     const response = await fetchImpl(binding.endpoint, { ...transportOptions, method: 'POST', signal: scope.signal,
       redirect: 'error', headers: { ...(key ? { authorization: `Bearer ${key}` } : {}), 'content-type': 'application/json' }, body });
@@ -48,9 +50,9 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
     },
     async *stream(request, options) {
       const invocation = await beginInvocation(options, { billable });
-      const scope = operationScope(options); let reader, completed = false;
+      const scope = operationScope(options); let reader, completed = false; const spend = {};
       try {
-        const response = await dispatch(request, scope, { stream: true }, invocation);
+        const response = await dispatch(request, scope, { stream: true }, invocation, spend);
         if (!response.body) throw new PluginError('invalid-output');
         reader = response.body.getReader();
         const decoder = new TextDecoder(); let buffer = '', doneMarker = false, stopped = false, size = 0;
@@ -61,6 +63,7 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
           let value;
           try { value = JSON.parse(data); } catch { throw new PluginError('invalid-output', `Invalid ${label} stream`); }
           invocation.usage(providerUsage(value.usage));
+          if (value.usage) spend.cost = costMicro(value.usage);
           if (value.error) throw new PluginError('provider', `${label} stream failed`);
           const choice = value.choices?.[0];
           if (choice?.delta?.tool_calls || choice?.finish_reason && choice.finish_reason !== 'stop') throw new PluginError('invalid-output', `Incomplete ${label} stream`);
@@ -84,6 +87,7 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
         scope.signal.throwIfAborted();
         if (!doneMarker || !stopped) throw new PluginError('invalid-output', `Incomplete ${label} stream`);
         completed = true;
+        if (spend.cost !== null && spend.cost !== undefined) spend.reservation?.settle(spend.cost);
       } catch (error) { throw normalizedError(error, scope.signal); }
       finally {
         await reader?.cancel().catch(() => {}); reader?.releaseLock(); scope.dispose(); await invocation.finish(completed);
@@ -91,10 +95,10 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
     },
     async structured(request, options) {
       const invocation = await beginInvocation(options, { billable });
-      const scope = operationScope(options); let completed = false;
+      const scope = operationScope(options); let completed = false; const spend = {};
       try {
         const response = await dispatch(request, scope, { stream: false,
-          response_format: { type: 'json_schema', json_schema: { name: 'understanding', strict: true, schema: request.schema } } }, invocation);
+          response_format: { type: 'json_schema', json_schema: { name: 'understanding', strict: true, schema: request.schema } } }, invocation, spend);
         let payload, result;
         try {
           payload = JSON.parse(await responseText(response));
@@ -107,9 +111,18 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
         }
         scope.signal.throwIfAborted();
         if (!matchesSchema(result, request.schema)) throw new PluginError('invalid-output', `Invalid ${label} structured output`);
-        completed = true; return result;
+        completed = true;
+        const cost = costMicro(payload.usage);
+        if (cost !== null) spend.reservation?.settle(cost);
+        return result;
       } catch (error) { throw normalizedError(error, scope.signal); }
       finally { scope.dispose(); await invocation.finish(completed); }
     },
   };
+}
+// USD usage is separate from the token ledger. Round upwards; missing cost keeps the hold.
+function costMicro(usage) {
+  const cost = usage?.cost;
+  const micro = typeof cost === 'number' && Number.isFinite(cost) && cost >= 0 ? Math.ceil(cost * 1_000_000) : NaN;
+  return Number.isSafeInteger(micro) ? micro : null;
 }

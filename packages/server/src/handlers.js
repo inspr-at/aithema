@@ -245,7 +245,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         if (typeof body?.granted !== 'boolean') return json({ error: 'invalid-consent' }, 400);
         if (body.granted) {
           if (!consent?.grant) return json({ error: 'host-consent-required' }, 409);
-          await consent.grant({ sessionId: id, consentRevision: authorized.consentRevision + 1 });
+          const granted = await consent.grant({ sessionId: id, consentRevision: authorized.consentRevision + 1, decision: body.processing });
+          if (granted === false) return json({ error: 'host-consent-required' }, 409);
         }
         const event = storage.reviseConsent(id, body.granted, guard);
         await invalidate(id, event, 'consent-revised');
@@ -253,6 +254,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         else await consent?.withdraw?.({ sessionId: id });
         return json({ granted: body.granted, consentRevision: storage.get(id).consentRevision, event });
       }
+      if (action === 'consent' && request.method === 'GET' && consent.describe) return json(consent.describe(id));
       if (action === 'erase' && request.method === 'POST') {
         const event = storage.erase(id, guard); await invalidate(id, event, 'session-erased');
         return json({ erased: true, event, providerDeletion: 'not-confirmed' });
@@ -275,7 +277,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       if (error instanceof ConflictError) return json({ error: 'idempotency-conflict' }, 409);
       if (error instanceof SyntaxError || error instanceof TypeError) return json({ error: 'invalid-request' }, 400);
       if (error instanceof RangeError) return json({ error: 'size-limit' }, 413);
-      if (error instanceof PluginError) return json({ error: error.code }, error.code === 'not-admitted' ? 403 : 502);
+      if (error instanceof PluginError) return json({ error: error.code,
+        ...(['OpenRouter spend cap exhausted', 'OpenRouter request exceeds spend reservation'].includes(error.message) ? { reason: error.message } : {}) }, error.code === 'not-admitted' ? 403 : 502);
       return json({ error: 'server-error' }, 500);
     }
   }
