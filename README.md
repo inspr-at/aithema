@@ -72,6 +72,7 @@ The private `aithema` root is an ESM npm workspace with one `package-lock.json`.
 | `plugins/openrouter` — `@inspr/aithema-plugin-openrouter` | Streaming reasoning and strict JSON Schema output |
 | `plugins/elevenlabs` — `@inspr/aithema-plugin-elevenlabs` | Live voice server/browser halves, custom-LLM facade and fake-only conformance |
 | `plugins/openai-images` — `@inspr/aithema-plugin-openai-images` | Server-side GPT Image 2 generation/editing, byte artifacts and provenance |
+| `plugins/extract-{pdf,ooxml,text}` — `@inspr/aithema-plugin-extract-{pdf,ooxml,text}` | Offline bounded PDF, DOCX/XLSX/PPTX and literal text extractors |
 | `demo/` | Labelled localhost host and its tests |
 | `test/` | Shared JavaScript test helpers; package tests live beside each package |
 | `tests/`, `scripts/check-dco.py` | DCO history tests and contribution checker |
@@ -155,7 +156,7 @@ takeover is provided.
 Kinds are `reasoning` (`stream`, `structured`), `stt` (`transcribe`, optional
 `stream`), `tts` (`speak`), `live-voice` (`start` → session), `ui-generation`
 (`generate`, `edit`), `extractor` (`extract`) and `exporter` (`export`). Reasoning,
-the isolated ElevenLabs live-voice adapter and standalone UI generation are
+the isolated ElevenLabs live-voice adapter, standalone UI generation and extractors are
 implemented here. Every operation takes `{signal, deadlineAt}`;
 [plugin-contract.d.ts](packages/core/src/plugin-contract.d.ts) documents the later
 ports, including independent voice input/output, acknowledged pause/resume,
@@ -260,6 +261,64 @@ for OpenRouter, Mistral and mock and verifies that deliberately broken and
 preflight-only fixtures fail. The
 browser device half advertises text only and is not a full reasoning-kind
 server implementation. No live provider qualification is claimed.
+
+## Document extractors (AIT-100 part A)
+
+`@inspr/aithema-core/extractor` exports `createExtractor`, `assertExtractor`,
+`isExtraction`, `sniffDocument`, `EXTRACTOR_LIMITS` and `UPLOAD_LIMITS`. Register
+`createPDFExtractor()`, `createOOXMLExtractor()` and `createTextExtractor()` from
+their workspace packages in `PluginRegistry`, then pass the host-admitted
+entries to `createExtractor({plugins, limits})`. Call
+`extract(bytes, {mediaType?, filename?}, {signal, deadlineAt, limits?})` on that
+dispatcher or a plugin. Limits at construction and invocation only decrease.
+The declared type and filename never select a parser; ZIP central-directory
+inspection identifies Office parts, and binary signatures take precedence over
+text. CSV and Markdown detection is heuristic; ambiguous textual content stays
+plain text. Malformed ZIPs and unsupported binaries cannot fall through to text.
+
+Results have `{status, text, segments, mediaType, truncated, limits}`.
+`status: 'accepted'` includes stable local `segment:N` IDs and optional one-based
+`page` (PDF page, spreadsheet sheet or presentation slide). `status: 'unreadable'`
+has empty text/segments and a typed `reason`: `unsupported`, `empty`, `malformed`,
+`encrypted` or `limit`. Scanned PDFs are unreadable without an OCR fallback.
+Cancellation/deadlines reject with `PluginError.code` `cancelled`/`deadline`;
+the child is SIGKILL'd and reaped before acknowledgement. These local, zero-cost
+plugins take no budget claim or billable terminal reporter. Text, XML, Markdown,
+CSV and JSON remain literal untrusted source content, including foreign approval
+claims from Gen-2 handover JSON; XML entities are never resolved.
+
+All three plugins parse in child processes, with one active parser across kinds.
+Queue time counts against the wall-clock deadline. A file is capped at 2 MiB,
+60,000 output UTF-16 code units including segment separators, 100 PDF pages or
+Office sheets/slides, 10 seconds and a 128 MiB V8 old-space heap. The heap setting
+does not represent a total-process RSS limit. Office archives are capped at 512
+entries, 100:1 declared compression ratio, 16 MiB per part and 48 MiB total
+uncompressed data, including skipped parts; inflated sizes and CRCs must match.
+Parser children inherit no credentials and cannot write files, spawn children
+or workers; transport guards deny HTTP, sockets, DNS, UDP, fetch and WebSocket.
+Only trusted plugin modules run in children; this is not an OS sandbox for
+arbitrary third-party executable code. Input/output and expansion ceilings also
+bound parser buffers. No document bytes are persisted by these plugins.
+
+`extractorConformance(plugin, {bytes, mediaType, expectedText?}, options)` is
+re-exported by the core conformance module. Options require local `stallBytes`,
+`unreadableBytes`, `workCount`, `activeCount`, `killedCount`, `requestCount` and
+`waitForWork`; multi-page formats also supply `pageBytes`. The kit checks
+manifest/health, output/segment shape, lying MIME/filename, caps, unreadable
+results, preflight and active cancellation/deadlines, child reaping and no
+network attempts. `test/extractor-fixtures.js` supplies tiny generated documents
+and a trusted CPU-stalling worker that otherwise delegates to the real parsers.
+`workerURL` on plugin factories is a trusted test seam, never upload metadata.
+
+Part B wiring points, still pending:
+
+| Surface | Required integration |
+| --- | --- |
+| `packages/server/src/handlers.js`, HTTP adapter | Owner-authenticated `POST /api/sessions/:id/uploads` using the existing `x-aithema-session-token`/ownership port, and `DELETE /api/sessions/:id/uploads/:uploadId`. Bound streamed request bytes before multipart buffering: 8 MiB/request, 4 files/request, 8 documents/session. Apply one shared `deadlineAt = now + 25_000` to a batch, connected to disconnect, withdrawal and erasure signals. Return sanitized accepted/unreadable records; re-read ownership, consent revision, tombstone and available slots after extraction before durable publication. Byte-bound idempotency must reject reuse with different bytes. |
+| Preset configuration / plugin registration | `best` and `eu` may explicitly admit these host-local plugins with the same maximum 2 MiB/file, 60,000 characters/file and 100 pages/sheets/slides; `custom` selects them and may lower every ceiling. `device` must leave server upload extraction unavailable until a browser extractor is implemented and admitted. No server plugin claims device placement or provider residency. Hosts enforce allowed sniffed formats, request/session quotas and consent before dispatch. |
+| `packages/server/src/storage.js`, core source/lane hydration and export | Persist accepted extracted text/segments as erasable upload sources with a host upload ID, sniffed type, bounded display filename and truncation/limit metadata. Namespace `segment:N` by immutable upload/content revision for citations; never cite unreadable records or import document approval as authority. Treat excerpts as untrusted evidence in reaction/understanding prompts and enforce the 16,000-character provider document context ceiling. Raw document bytes need not be retained. Acknowledge only after persistence and owner/consent revalidation. |
+| `packages/ui/src/*` | Upload affordance and accessible chips for accepted, truncated and unreadable files, with honest reason and paste-text guidance; safe filename/text rendering, page/segment citations and an owner-authenticated remove action. Client limits are hints; server limits remain authoritative. |
+| Withdrawal, consent withdrawal, erasure and expiry | Abort pending upload work and wait for child reaping; persist source tombstones and invalidate dependent understanding, working-spec citations, concept inputs and cached exports before acknowledgement. Erase extracted text, quotes and any retained bytes; replay/restart/export hydrate tombstones without resurrecting sources. Rebuild from remaining inputs through normal lanes. Retain only allowed IDs, hashes, timestamps and tombstone metadata. |
 
 ## UI generation and concept intent (AIT-103 part A)
 
@@ -403,6 +462,7 @@ policy were removed. The table records the port in the current package layout.
 | `src/lib/{generated-ui,generated-ui-idle,generated-ui-policy}.ts`, `src/pages/api/v2/generated-ui/index.ts` | `packages/core/src/concept-intent.js` | pure host policy; recorded intent, arming, cadence, dedupe and source/consent invalidation; historical slow results |
 | `src/lib/providers/openai-image.ts`, `src/lib/provenance.ts` | `plugins/openai-images/src/` | server Images generate/edit with lifetime/claim contract, bounded private bytes, IPTC XMP and digest metadata; no branding or legal/account facts |
 | `tests/generated-ui.test.ts` | `packages/core/test/concept-intent.test.js`, `plugins/openai-images/test/openai-images.test.js` | selected spending, slow-render, removal/withdrawal and private image transport cases with fakes |
+| `src/lib/{extract,ooxml}.ts`, `src/pages/api/upload.ts`; Gen-2 `runtime/{extract,pdf-extract-child}.js`, `lib/{extract-limits,intake}.js` | `packages/core/src/extractor*.js`, `plugins/extract-{pdf,ooxml,text}/` | bounded offline extraction and byte sniffing; child kill/reaping, stricter ZIP bomb/CRC checks, added PPTX and citable segments; foreign approval stays untrusted source text |
 
 ## License and contributions
 

@@ -34,7 +34,7 @@ export interface STT {
 }
 export interface TTS { speak(request: { text: string; voice: string; format: string }, options: OperationOptions): AsyncIterable<Uint8Array> }
 export type { UIGeneration, UISpec, UIFeedback, UIArtifact, UIReference, UIImageMediaType } from './ui-generation.js';
-export interface Extractor { extract(request: { bytes: Uint8Array; mediaType: string }, options: OperationOptions): Promise<{ text: string }> }
+export type { Extractor, Extraction, ExtractionSegment, ExtractionLimits, ExtractionMetadata, ExtractionOptions } from './extractor.js';
 export interface Exporter { export(request: { session: object; format: string }, options: OperationOptions): Promise<{ bytes: Uint8Array; mediaType: string }> }
 export type VoiceCapability = 'native' | 'emulated' | 'unavailable';
 export interface LiveVoiceDeclaration {
