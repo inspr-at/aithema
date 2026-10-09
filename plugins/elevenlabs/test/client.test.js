@@ -11,6 +11,7 @@ test('transport loss while paused waits for acknowledged resume before spending 
   local.control.recover = async () => { retries++; throw new Error('local recovery failure'); };
   const reader = drain(session);
   await session.pause(); local.sdk.starts[0].onDisconnect();
+  await flush();
   assert.equal(retries, 0); assert.equal(local.sdk.closed, false);
   await session.resume();
   const events = await reader; assert.equal(retries, 3); assert.equal(events.at(-1).type, 'ended');

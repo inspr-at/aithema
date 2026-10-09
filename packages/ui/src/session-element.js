@@ -89,6 +89,9 @@ export class AithemaSession extends HTMLElement {
     this.#rail = new AudioRail({ root: root.querySelector('.audio-rail'), copy: this.#copy, client: this.#voiceClient,
       feature: () => this.#feature('voice'), playback: this.#voicePlayback,
       context: () => ({ understanding: this.#session.understanding, focusedQuestion: this.#session.focusedQuestion ?? null }),
+      onEnd: () => {
+        if (this.#pending) { delete this.#pending.voiceCallId; delete this.#pending.providerSessionId; }
+      },
       onPause: paused => {
         this.#session.paused = paused;
         this.#render('features'); this.#render('composer'); this.#render('aside');
@@ -270,13 +273,13 @@ export class AithemaSession extends HTMLElement {
       const event = await response.json();
       if (sessionId !== this.#session.id) return;
       this.receive(event);
-      if (voiceSession) {
-        if (voiceSession !== this.#rail.session) throw new Error('Voice call changed');
+      const voiceText = voiceSession && voiceSession === this.#rail.session && event.data.voiceCallId === voiceSession.callId;
+      if (voiceText) {
         await this.#rail.sendText(content);
         if (sessionId !== this.#session.id) return;
       }
       if (input.value === content) input.value = '';
-      this.#pending = null; this.#status(voiceSession ? this.#copy.voiceTextSent : this.#copy.saved);
+      this.#pending = null; this.#status(voiceText ? this.#copy.voiceTextSent : this.#copy.saved);
     } catch { if (sessionId === this.#session.id) this.#status(this.#copy.failed); }
     finally { if (sessionId === this.#session.id) { this.#sending = false; button.disabled = !this.#feature('text').available; this.#render('composer'); } }
   }
@@ -357,7 +360,9 @@ export class AithemaSession extends HTMLElement {
       if (event.type === 'understanding.updated' && this.#session.operations?.lastFailure?.lane !== 'reaction') this.#failure = false;
       this.dispatchEvent(new CustomEvent('aithema-event', { detail: event, bubbles: true, composed: true }));
     } else if (event.type === 'voice.state') {
-      if (['closing', 'ended'].includes(event.data.state) && this.#rail.session?.callId === event.data.callId) void this.#rail.close(event.data.reason);
+      const voice = this.#rail.session;
+      if (voice && ['closing', 'ended'].includes(event.data.state) && event.data.reason !== 'recovery-failed' &&
+        voice.callId === event.data.callId && voice.providerSessionId === event.data.providerSessionId) void this.#rail.close(event.data.reason);
     } else if (event.type === 'turn.partial' && event.data.inputRevision === inputRevision(this.#session)) {
       const existing = this.#partials.get(event.data.id);
       this.#partials.set(event.data.id, { id: event.data.id, role: 'assistant', partial: true,

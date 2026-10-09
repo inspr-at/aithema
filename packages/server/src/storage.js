@@ -100,6 +100,7 @@ export class SQLiteStorage {
   #hydrateEvent(event) { return { ...event, data: this.#hydrateData(event.sessionId, event.data) }; }
   #metadata(id, type, data, seq) {
     if (type === 'question.focused') {
+      if (data.question === null) return { question: null };
       if (data.contentRef) return { contentRef: data.contentRef, hash: data.hash };
       if (typeof data.question !== 'string' || data.question.length > 8000) throw new TypeError('Invalid focused question');
       const bytes = JSON.stringify({ question: data.question }), contentRef = `${id}:${seq}`, at = new Date().toISOString();
@@ -219,7 +220,14 @@ export class SQLiteStorage {
       let event;
       if (type === 'final') {
         if (turn) throw new ConflictError('Voice turn already exists');
-        const typed = value.role === 'user' && session.transcript.find(t => t.voiceCallId === callId && !t.erased && !t.withdrawn && t.content === value.text);
+        // Echo receipts consume typed turns durably, including across recovery
+        // and process restart. Redelivery was handled above and consumes nothing.
+        const consumed = value.role === 'user' ? new Set(this.db.prepare(
+          "SELECT json_extract(result,'$.data.id') AS turn_id FROM receipts WHERE session_id=? AND client_id LIKE 'voice:%'"
+        ).all(id).map(row => row.turn_id)) : null;
+        const normalize = text => text.trim().replace(/\s+/gu, ' ');
+        const typed = value.role === 'user' && session.transcript.find(t => t.voiceCallId === callId && !t.erased && !t.withdrawn &&
+          !consumed.has(t.id) && normalize(t.content) === normalize(value.text));
         event = typed ? this.read(id).find(e => e.type === 'turn.final' && e.data.id === typed.id)
           : this.#append(session, 'turn.final', { id: turnId, role: value.role, content: value.text,
             at: new Date().toISOString(), ...(value.role === 'assistant' ? { inputRevision: inputRevision(session), provenance: guard.provenance === 'facade-produced' ? 'facade-produced' : 'browser-asserted' } : {}) });

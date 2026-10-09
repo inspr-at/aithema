@@ -2,14 +2,14 @@ import { test as nodeTest } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers, createPluginRuntime, createVoiceProvider, createFacadeSecrets, mockPresets,
   SQLiteBudgetLedger } from '../src/index.js';
-import { PluginRegistry, createMockReasoning, activeTurns, PluginError } from '@inspr/aithema-core';
+import { PluginRegistry, createMockReasoning, activeTurns, PluginError, inputRevision } from '@inspr/aithema-core';
 import { readFile } from 'node:fs/promises';
 import { temporaryDb, unzip } from '../../../test/helpers.js';
 import { eventProbe } from '../../../test/voice-test-events.js';
 
 const test = (name, fn) => nodeTest(name, { timeout: 60_000 }, fn);
 
-export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, path } = {}) {
+export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, path, reasoning = createMockReasoning() } = {}) {
   const storage = new SQLiteStorage(path), secrets = createFacadeSecrets();
   let clock = Date.now(), sequence = 0, covered = true, secretReads = 0, coverageReads = 0, healthReads = 0, releasing = false;
   const opened = new Map(), ended = new Set(), waiting = new Map(), provisioned = [], traffic = [], closeRequests = [];
@@ -43,12 +43,17 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
       return Response.json({ conversation_id: id, status: unknown ? 'processing' : 'done',
         metadata: { start_time_unix_secs: opened.get(id) / 1000, call_duration_secs: (clock - opened.get(id)) / 1000, cost: 7 } });
     } });
-  const reasoning = createMockReasoning(), presets = mockPresets();
+  const presets = mockPresets();
   const health = plugin.health; plugin.health = options => { healthReads++; return health(options); };
   presets.best.plugins.push('elevenlabs'); presets.best.bindings.voice = binding; presets.best.policy = { endpoints: [binding.endpoint] };
   const consent = { async coverage({ scope, consentRevision }) { coverageReads++; return { covered, ...scope, scope, consentRevision, checkedAt: clock, expiresAt: clock + 100_000 }; } };
-  const registry = new PluginRegistry().register(reasoning).register(plugin);
-  const runtime = createPluginRuntime({ storage, reasoning, registry, presets, consent, now });
+  const registry = new PluginRegistry().register(createMockReasoning()).register(plugin);
+  const admittedRuntime = createPluginRuntime({ storage, registry, presets, consent, now });
+  // Instrument reasoning after canonical admission; wrappers never gain mock trust.
+  const runtime = { ...admittedRuntime, async admit(args) {
+    const admitted = await admittedRuntime.admit(args);
+    return args.lane === 'voice' ? admitted : { ...admitted, plugin: reasoning };
+  } };
   const handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent, voice: { secrets, now, browserLeaseMs: leaseMs } });
   t.after(async () => { releasing = true; for (const id of waiting.keys()) endClient(id); await handlers.close(); storage.close(); });
   const token = 'voice-owner', session = storage.create({ ownerToken: token, demo: true });
@@ -406,20 +411,73 @@ test('slow closure: recovery admits immediately while the old provider needs mor
   assert.equal((await h.route(`/voice/${next.callId}/heartbeat`, { providerSessionId: next.providerSessionId })).status, 200, 'old settlement cannot remove the new call');
 });
 
-test('slow closure: typed input is durable on send and provider echoes never add another person turn', async t => {
+test('slow closure: each typed turn absorbs one provider echo and later repeated speech stays durable', async t => {
   const h = voiceFixture(t, { slowClosure: true }), grant = await h.start();
-  const response = await h.route('/turns', { clientEventId: 'typed-1', content: 'Typed during the call', voiceCallId: grant.callId, providerSessionId: grant.providerSessionId });
+  const response = await h.route('/turns', { clientEventId: 'typed-1', content: 'yes', voiceCallId: grant.callId, providerSessionId: grant.providerSessionId });
   assert.equal(response.status, 200); const typed = await response.json();
+  const { rows, waitFor } = await observeVoice(h, t);
   const echo = { type: 'final', callId: grant.callId, turnId: `${grant.providerSessionId}:user:echo`, role: 'user', text: typed.data.content };
-  for (const turnId of [echo.turnId, echo.turnId, `${grant.providerSessionId}:user:echo-again`]) {
+  const spokenId = `${grant.providerSessionId}:user:spoken-again`;
+  for (const turnId of [echo.turnId, echo.turnId, spokenId]) {
     const acknowledged = await h.route(`/voice/${grant.callId}/events`, { providerSessionId: grant.providerSessionId, event: { ...echo, turnId } });
-    assert.equal(acknowledged.status, 200); assert.equal((await acknowledged.json()).data.id, 'typed-1');
+    assert.equal(acknowledged.status, 200); assert.equal((await acknowledged.json()).data.id, turnId === spokenId ? spokenId : 'typed-1');
   }
+  await waitFor(e => e.type === 'turn.final' && e.data.id === spokenId);
   await h.handlers.idle();
-  assert.equal(h.storage.get(h.session.id).transcript.filter(t => t.role === 'user').length, 1);
-  assert.equal(h.storage.read(h.session.id).filter(e => e.type === 'turn.final' && e.data.role === 'user').length, 1);
+  assert.deepEqual(h.storage.get(h.session.id).transcript.filter(t => t.role === 'user').map(t => t.content), ['yes', 'yes']);
+  assert.equal(h.storage.read(h.session.id).filter(e => e.type === 'turn.final' && e.data.role === 'user').length, 2);
+  assert.equal(rows.filter(e => e.type === 'turn.final' && e.data.role === 'user').length, 1, 'only the unabsorbed speech publishes');
+  assert.equal(h.storage.get(h.session.id).understanding.inputRevision, inputRevision(h.storage.get(h.session.id)), 'unabsorbed speech reaches understanding');
   const exported = await h.handlers.handle(new Request(`http://host/api/sessions/${h.session.id}/export`, { headers: { 'x-aithema-session-token': 'voice-owner' } }));
-  assert.equal(JSON.parse(unzip(await exported.arrayBuffer())['transcript.json']).turns.filter(t => t.role === 'user').length, 1);
+  assert.equal(JSON.parse(unzip(await exported.arrayBuffer())['transcript.json']).turns.filter(t => t.role === 'user').length, 2);
+});
+
+test('typed echoes consume the oldest matching turn once, normalize whitespace and survive reopen', async () => {
+  const path = await temporaryDb(); let storage = new SQLiteStorage(path);
+  try {
+    const session = storage.create(), guard = { voiceCallId: 'call', voiceProviderId: 'provider' };
+    for (const clientId of ['oldest', 'newest']) storage.postTurn(session.id, clientId, Buffer.from(clientId), ' yes\t please ', guard);
+    const event = turnId => ({ type: 'final', callId: 'call', turnId: `provider:user:${turnId}`, role: 'user', text: 'yes  please' });
+    const first = storage.postVoiceEvent(session.id, 'call', 'provider', event('1'));
+    assert.equal(first.event.data.id, 'oldest'); assert.equal(first.replayed, true);
+    storage.close(); storage = new SQLiteStorage(path);
+    assert.equal(storage.postVoiceEvent(session.id, 'call', 'provider', event('1')).event.data.id, 'oldest', 'redelivery does not consume another typed turn');
+    assert.equal(storage.postVoiceEvent(session.id, 'call', 'provider', event('2')).event.data.id, 'newest');
+    assert.equal(storage.postVoiceEvent(session.id, 'call', 'provider', event('3')).replayed, false);
+    assert.equal(storage.get(session.id).transcript.filter(t => t.role === 'user').length, 3);
+  } finally { storage.close(); }
+});
+
+test('slow closure: typing falls back to a durable plain turn while its owned call is closing', async t => {
+  const h = voiceFixture(t, { slowClosure: true }), grant = await h.start();
+  const closing = h.route(`/voice/${grant.callId}/close`, { providerSessionId: grant.providerSessionId });
+  await h.waitForClosure(grant.providerSessionId);
+  const body = { clientEventId: 'typed-closing', content: 'Continue in text', voiceCallId: grant.callId, providerSessionId: grant.providerSessionId };
+  assert.equal((await h.route('/turns', { ...body, providerSessionId: 'wrong-provider' })).status, 404);
+  const response = await h.route('/turns', body); assert.equal(response.status, 200);
+  const turn = (await response.json()).data;
+  assert.equal(turn.content, body.content); assert.equal(turn.voiceCallId, undefined);
+  assert.equal(h.storage.get(h.session.id).transcript.filter(t => t.role === 'user').length, 1);
+  h.endClient(grant.providerSessionId); await closing;
+});
+
+test('understanding publishes focused-question changes once, including clearing the last open question', async t => {
+  let questions = ['Which systems?', 'Which data?'], calls = 0;
+  const mock = createMockReasoning(), reasoning = { ...mock, async structured(...args) {
+    calls++; return { ...await mock.structured(...args), openQuestions: questions };
+  } };
+  const h = voiceFixture(t, { reasoning }), { rows, waitFor } = await observeVoice(h, t);
+  for (const [index, next] of [['first', questions], ['same', questions], ['changed', ['Which data?']], ['cleared', []]]) {
+    questions = next;
+    assert.equal((await h.route('/turns', { clientEventId: index, content: index })).status, 200);
+    await h.handlers.idle();
+    const session = h.storage.get(h.session.id);
+    assert.equal(session.focusedQuestion, next[0] ?? null);
+    assert.equal(session.understanding.inputRevision, inputRevision(session), 'derived focus does not invalidate its understanding');
+  }
+  await waitFor(e => e.type === 'question.focused' && e.data.question === null);
+  assert.deepEqual(rows.filter(e => e.type === 'question.focused').map(e => e.data.question), ['Which systems?', 'Which data?', null]);
+  assert.equal(calls, 4, 'focus updates do not spend on redundant understanding calls');
 });
 
 test('slow closure: concurrent closes publish each transition once and prune the active call after settlement', async t => {

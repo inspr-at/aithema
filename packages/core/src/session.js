@@ -23,8 +23,8 @@ export function applyEvent(session, event) {
     next.transcript = next.transcript.map(t => t.id === event.data.id ? { ...t, ...event.data, erased: Boolean(event.data.erased), withdrawn: Boolean(event.data.withdrawn) } : t);
     next.sessionRevision += 1; next.understanding = emptyUnderstanding(next); next.actor = null; next.focusedQuestion = null;
   } else if (event.type === 'question.focused') {
+    // Focus is derived from understanding, so it does not invalidate that input.
     next.focusedQuestion = event.data.erased ? null : event.data.question;
-    next.sessionRevision += 1;
   } else if (event.type === 'understanding.updated') {
     next.understanding = event.data.erased ? emptyUnderstanding(next) : event.data;
     next.actor = event.data.erased ? null : event.data.actor;

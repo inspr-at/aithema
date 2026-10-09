@@ -40,6 +40,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     revoke(entry);
     if (sessions.get(entry.sessionId) === entry) sessions.delete(entry.sessionId);
     publish(entry.sessionId, { type: 'voice.state', data: { callId: entry.callId,
+      providerSessionId: entry.call?.providerSessionId,
       state: reason === 'transport-lost' ? 'recovering' : 'closing', reason } });
     const settle = async () => {
       try {
@@ -54,7 +55,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         entry.admission?.finish();
         // An old recovery's settlement cannot publish over or remove its successor.
         if (terminal && calls.get(entry.callId) === entry) publish(entry.sessionId, { type: 'voice.state', data: {
-          callId: entry.callId, state: reason === 'transport-lost' ? 'recovering' : 'ended', reason,
+          callId: entry.callId, providerSessionId: entry.call.providerSessionId, state: reason === 'transport-lost' ? 'recovering' : 'ended', reason,
           terminal: { outcome: terminal.outcome, closureConfirmed: terminal.closureConfirmed, usage: terminal.usage ?? null } } });
         resolve(terminal);
       } catch (error) { reject(error); }
@@ -139,7 +140,8 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       const entry = calls.get(callId);
       if (!entry?.call || entry.sessionId !== id || entry.ownerToken !== ownerToken || entry.call.providerSessionId !== providerSessionId) throw new NotFoundError('Call not found');
       const session = sessionFor(entry);
-      if (entry.closing || entry.call.signal.aborted || session.paused || session.consentWithdrawn) throw new PluginError('not-admitted');
+      if (session.paused || session.consentWithdrawn) throw new PluginError('not-admitted');
+      if (entry.closing || entry.call.signal.aborted) return {};
       return { voiceCallId: callId, voiceProviderId: providerSessionId };
     },
     stopSession(id, reason = 'session-revoked') {

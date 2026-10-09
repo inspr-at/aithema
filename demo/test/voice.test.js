@@ -51,7 +51,9 @@ test('labelled fake agent exercises speech, voice barge-in, typing, acknowledged
     await act(() => root.querySelector('.voice-start').click(), voice('final', e => e.role === 'assistant'));
     assert.equal(root.querySelector('.audio-rail').dataset.state, 'speaking');
     await act(() => document.querySelector('#fake-say').click(), voice('final', e => e.role === 'user' && e.text.includes('public API')),
+      session('turn.final', e => e.data.role === 'user' && e.data.content.includes('public API')),
       voice('final', e => e.role === 'assistant' && e.text === 'I understand. Which part should we clarify first?'));
+    assert.ok(c.session.transcript.some(t => t.role === 'user' && t.content.includes('public API')));
     await act(() => document.querySelector('#fake-interrupt').click(), session('turn.corrected', e => e.data.content === 'I understand.'),
       voice('heard', e => e.prefix === 'I understand.'), voice('listening'));
     assert.ok(c.session.transcript.some(t => t.content === 'I understand.'));

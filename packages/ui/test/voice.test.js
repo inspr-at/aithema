@@ -8,6 +8,7 @@ import { en } from '../src/i18n/en.js';
 import { manifest } from '../../../plugins/elevenlabs/src/manifest.js';
 import { styles } from '../src/styles.js';
 import { createElevenLabsClient } from '../../../plugins/elevenlabs/src/client.js';
+import { eventProbe } from '../../../test/voice-test-events.js';
 const window = new Window();
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
@@ -81,15 +82,16 @@ test('blocked SDK playback retries on a real user gesture and clears the message
   assert.equal(rail.playbackBlocked, true); assert.equal(root.querySelector('.voice-state').textContent, en.voicePlaybackBlocked);
   rail.button('playback').click(); await retried.promise; assert.equal(tries, 2); assert.equal(rail.playbackBlocked, false); audio.remove();
 });
-test('component sends typed text through active voice and updates context when understanding or focus changes', async t => {
+test('component sends typed text through active voice, updates context and accepts a durable plain fallback', async t => {
   const session = createSession({ demo: true });
   session.featureMatrix = { best: { voice: { available: true }, text: { available: true }, analysis: { available: true } } };
   const commands = [], events = voiceEvents(), originalFetch = globalThis.fetch;
-  let settle; const terminal = new Promise(resolve => { settle = resolve; });
+  let settle, plainReply = false; const terminal = new Promise(resolve => { settle = resolve; });
   globalThis.fetch = async (url, options) => {
     assert.ok(String(url).endsWith('/turns'));
     const body = JSON.parse(options.body); commands.push(['persist', body]);
-    return Response.json({ seq: 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content } });
+    return Response.json({ seq: c.session.seq + 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content,
+      ...(plainReply ? {} : { voiceCallId: body.voiceCallId }) } });
   };
   t.after(() => { globalThis.fetch = originalFetch; });
   const c = document.createElement('aithema-session');
@@ -108,6 +110,12 @@ test('component sends typed text through active voice and updates context when u
   assert.equal(commands.at(-1)[1].focusedQuestion, 'Which systems?');
   c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...c.session.understanding, summary: 'New context', inputRevision: inputRevision(c.session) } }); await tick();
   assert.equal(commands.at(-1)[1].understanding.summary, 'New context');
+  plainReply = true;
+  root.querySelector('textarea').value = 'plain while closing';
+  root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick();
+  assert.equal(c.session.transcript.at(-1).content, 'plain while closing');
+  assert.equal(commands.filter(([name]) => name === 'text').length, 1, 'a plain acknowledgement is not forwarded to the closing SDK');
+  assert.equal(root.querySelector('textarea').value, ''); assert.equal(root.querySelector('.status').textContent, en.saved);
   root.querySelector('.voice-close').click(); await tick();
   settle({ closureConfirmed: true }); await tick();
 });
@@ -132,10 +140,81 @@ test('closing notification ends the browser SDK before slow provider settlement'
   t.after(async () => { settle({ closureConfirmed: true }); c.configure({ copy: en, session }); c.remove(); await tick(); });
   c.shadowRoot.querySelector('.voice-start').click(); await tick();
   assert.equal(c.shadowRoot.querySelector('.audio-rail').dataset.state, 'listening');
-  c.receive({ type: 'voice.state', data: { callId, state: 'closing', reason: 'consent-revised' } }); await tick();
+  c.receive({ type: 'voice.state', data: { callId, providerSessionId: 'previous-provider', state: 'closing', reason: 'consent-revised' } }); await tick();
+  assert.equal(ended, false, 'an old provider cannot close the current SDK');
+  c.receive({ type: 'voice.state', data: { callId, providerSessionId: 'slow-provider', state: 'closing', reason: 'consent-revised' } }); await tick();
   assert.equal(ended, true, 'closing stops capture without waiting for a terminal'); assert.equal(providerClosed, true);
   assert.equal(c.shadowRoot.querySelector('.audio-rail').dataset.state, 'closing');
   settle({ closureConfirmed: true }); await tick();
+});
+
+test('failed recovered SDK connections complete all three attempts and expose Retry despite closing broadcasts', { timeout: 60_000 }, async t => {
+  const session = createSession({ demo: true });
+  session.featureMatrix = { best: { voice: { available: true }, text: { available: true } } };
+  const c = document.createElement('aithema-session'), notices = eventProbe();
+  let callbacks, attempts = 0, connections = 0, callId;
+  const receipt = providerSessionId => ({ callId, providerSessionId,
+    credential: { providerSessionId, connectionType: 'webrtc', conversationToken: 'fixture-token', ttlMs: 60_000 },
+    spendDeadlineAt: Date.now() + 60_000, browserLivenessDeadlineAt: Date.now() + 30_000 });
+  const control = {
+    async start(request) { callId = request.callId; return receipt('initial-provider'); },
+    async recover() { return receipt(`recovered-provider-${++attempts}`); },
+    async close(identity) {
+      c.receive({ type: 'voice.state', data: { ...identity, state: identity.reason === 'transport-lost' ? 'recovering' : 'closing' } });
+      c.receive({ type: 'voice.state', data: { ...identity, state: identity.reason === 'transport-lost' ? 'recovering' : 'ended' } });
+      return { closureConfirmed: true };
+    },
+    async pause() {}, async resume() {}, async heartbeat() {},
+  };
+  const client = createElevenLabsClient({ control, persistEvent: async () => {}, sdk: {
+    async startSession(options) {
+      if (++connections > 1) throw new Error('fixture SDK connect failed');
+      callbacks = options;
+      return { getId: () => 'initial-provider', setMicMuted() {}, setVolume() {}, sendContextualUpdate() {}, async endSession() {} };
+    },
+  } });
+  const render = AudioRail.prototype.render;
+  t.mock.method(AudioRail.prototype, 'render', function () {
+    render.call(this); notices.record(this.state);
+  });
+  c.configure({ copy: en, session, voiceClient: client });
+  t.after(async () => { c.configure({ copy: en, session }); c.remove(); await tick(); });
+  const root = c.shadowRoot;
+  const started = notices.waitFor(state => state === 'listening'); root.querySelector('.voice-start').click(); await started;
+  const after = notices.events.length;
+  const finished = notices.waitFor(state => ['failed', 'idle'].includes(state), after);
+  callbacks.onDisconnect(); await finished;
+  assert.equal(attempts, 3); assert.equal(connections, 4, 'recovery admission succeeds but each SDK connect fails');
+  assert.equal(root.querySelector('.audio-rail').dataset.state, 'failed');
+  assert.equal(root.querySelector('.voice-state').textContent, en.voiceRecoveryFailed);
+  assert.equal(root.querySelector('.voice-retry').disabled, false);
+  assert.equal(root.querySelector('.send').disabled, false);
+});
+
+test('resending failed typed input after voice ends drops its stale call identity', async t => {
+  const session = createSession({ demo: true });
+  session.featureMatrix = { best: { voice: { available: true }, text: { available: true } } };
+  const c = document.createElement('aithema-session'), events = voiceEvents(), requests = [], originalFetch = globalThis.fetch;
+  globalThis.fetch = async (url, options) => {
+    const body = JSON.parse(options.body); requests.push(body);
+    if (requests.length === 1) return Response.json({ error: 'fixture-failure' }, { status: 503 });
+    return Response.json({ seq: 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content } });
+  };
+  c.configure({ copy: en, session, voiceClient: { manifest, async start({ callId }) {
+    return { callId, providerSessionId: 'provider', events, async setInput() {}, async setOutput() {}, async updateContext() {},
+      async close() { events.end(); return { closureConfirmed: true }; } };
+  } } });
+  t.after(() => { globalThis.fetch = originalFetch; c.configure({ copy: en, session }); c.remove(); });
+  const root = c.shadowRoot;
+  root.querySelector('.voice-start').click(); await tick();
+  root.querySelector('textarea').value = 'yes';
+  root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick();
+  assert.ok(requests[0].voiceCallId); assert.equal(root.querySelector('.status').textContent, en.failed);
+  events.push({ type: 'ended', callId: requests[0].voiceCallId, reason: 'closed' }); events.end(); await tick();
+  root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick();
+  assert.equal(requests[1].voiceCallId, undefined); assert.equal(requests[1].providerSessionId, undefined);
+  assert.equal(requests[1].clientEventId, requests[0].clientEventId, 'resend preserves the pending turn identity');
+  assert.equal(c.session.transcript.length, 1); assert.equal(root.querySelector('textarea').value, '');
 });
 test('heard correction truncates the bubble immediately under hover while preserving its occupied height', () => {
   const c = document.createElement('aithema-session'), session = createSession({ demo: true });

@@ -61,6 +61,13 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       if (stop.signal.aborted) return false;
       const event = storage.append(id, type, data, revision);
       if (event) broadcast(id, event);
+      if (event && type === 'understanding.updated') {
+        const session = storage.get(id), question = session.understanding.openQuestions[0] ?? null;
+        if ((session.focusedQuestion ?? null) !== question) {
+          const focused = storage.append(id, 'question.focused', { question }, revision);
+          if (focused) broadcast(id, focused);
+        }
+      }
       return Boolean(event);
     }, transient: (id, event) => broadcast(id, { sessionId: id, ...event }),
   });

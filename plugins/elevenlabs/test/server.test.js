@@ -255,11 +255,14 @@ test('pause persists an engine-wide acknowledgement; failed acknowledgement stay
   assert.equal(call.snapshot().pauses.length, 1); await call.pause(); assert.equal(call.snapshot().pauses.length, 1);
   await call.resume(); assert.ok(call.snapshot().pauses[0].to !== null); await call.close();
 });
-test('spend and browser-liveness expiry each settle one terminal even while paused', async () => {
+test('spend and browser-liveness expiry each settle one terminal even while paused', { timeout: 60_000 }, async () => {
   for (const mode of ['spendDeadlineAt', 'browserLivenessDeadlineAt']) {
-    const local = fixture(), options = invocationOptions({ [mode]: Date.now() + 35 });
+    const settled = Promise.withResolvers();
+    const local = fixture(), options = invocationOptions({ [mode]: Date.now() + 35,
+      report: terminal => { options.reports.push(terminal); settled.resolve(); } });
     const call = await local.server.start({ callId: 'call_expire', facadeSecretRef: 'fixture-ref' }, options);
-    await call.pause(); await new Promise(resolve => setTimeout(resolve, 70));
+    await call.pause(); await settled.promise;
+    assert.equal(call.snapshot().reason, mode === 'spendDeadlineAt' ? 'spend-deadline' : 'browser-liveness-deadline');
     assert.equal(options.reports.length, 1); assert.equal(options.reports[0].outcome, 'uncertain');
     assert.equal(options.reports[0].chargedMicro, options.attempt.maxMicro); await call.close(); assert.equal(options.reports.length, 1);
   }

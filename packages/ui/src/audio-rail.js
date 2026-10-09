@@ -1,8 +1,8 @@
 import { watchVoicePlayback } from './voice-playback.js';
 // START's rail lifecycle, ported to the live-voice session interface (INSPR D3).
 export class AudioRail {
-  constructor({ root, copy, client, feature, context, onPartial, onPause, playback, heartbeatMs = 10_000 }) {
-    Object.assign(this, { root, copy, client, feature, context, onPartial, onPause, playback, heartbeatMs });
+  constructor({ root, copy, client, feature, context, onPartial, onPause, onEnd, playback, heartbeatMs = 10_000 }) {
+    Object.assign(this, { root, copy, client, feature, context, onPartial, onPause, onEnd, playback, heartbeatMs });
     this.state = 'idle'; this.input = true; this.output = true; this.generation = 0;
     root.innerHTML = `<div class="voice-orb" aria-hidden="true"><div class="voice-wave">${'<i></i>'.repeat(9)}</div></div>
       <div class="voice-info"><span class="voice-state" role="status"></span><span class="voice-caption"></span></div>
@@ -108,6 +108,7 @@ export class AudioRail {
         if (event.type === 'recovered') { this.state = 'listening'; this.error = null; void this.updateContext().catch(() => {}); }
         if (event.type === 'ended') {
           clearInterval(this.heartbeat); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.session = null;
+          this.onEnd?.();
           this.state = ['closed', 'cancelled'].includes(event.reason) ? 'idle' : 'failed';
           this.error = event.reason === 'recovery-failed' ? this.copy.voiceRecoveryFailed :
             event.reason === 'closure-uncertain' ? this.copy.voiceClosureUncertain :
@@ -155,6 +156,7 @@ export class AudioRail {
     if (this.closing) return this.closing;
     const session = this.session; ++this.generation; clearInterval(this.heartbeat); clearInterval(this.meter); this.playbackWatcher?.destroy();
     this.session = null; this.state = 'closing'; this.render();
+    this.onEnd?.();
     const controller = this.controller;
     this.closing = (async () => {
       try {
