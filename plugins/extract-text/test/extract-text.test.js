@@ -1,15 +1,15 @@
-import { test } from 'node:test';
+import { test, observeParsers, CONFORMANCE_TIMEOUT_MS } from './extractor-test-helpers.js';
 import assert from 'node:assert/strict';
 import { extractorConformance } from '../../../packages/core/src/extractor-conformance.js';
 import { EXTRACTOR_LIMITS } from '../../../packages/core/src/extractor.js';
 import { createTextExtractor } from '../src/index.js';
-import { bytes, HANG, stallWorkerURL, observeParsers } from '../../../test/extractor-fixtures.js';
+import { bytes, HANG, stallWorkerURL } from '../../../test/extractor-fixtures.js';
 
 test('text extractor passes offline conformance including real active cancellation/deadline kills', async t => {
   const observed = observeParsers(t);
   const result = await extractorConformance(createTextExtractor({ workerURL: stallWorkerURL }), {
     bytes: bytes('Text extraction fixture containing readable source words.'), mediaType: 'text/plain', expectedText: 'source words',
-  }, { ...observed, stallBytes: bytes(HANG), unreadableBytes: Buffer.from([0]) });
+  }, { ...observed, timeoutMs: CONFORMANCE_TIMEOUT_MS, stallBytes: bytes(HANG), unreadableBytes: Buffer.from([0]) });
   assert.deepEqual(result, { ok: true, failures: [] });
 });
 test('literal CSV, Markdown and XML preserve source text without resolving any entities', async () => {

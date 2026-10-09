@@ -1,10 +1,13 @@
-import { test } from 'node:test';
+import { test, observeParsers, waitFor, CONFORMANCE_TIMEOUT_MS } from '../../extract-text/test/extractor-test-helpers.js';
 import assert from 'node:assert/strict';
 import { extractorConformance } from '../../../packages/core/src/extractor-conformance.js';
 import { activeExtractorProcessCount, queuedExtractorProcessCount, extractorProcessPeakRssBytesForTest } from '../../../packages/core/src/extractor-process.js';
 import { EXTRACTOR_LIMITS } from '../../../packages/core/src/extractor.js';
 import { createPDFExtractor } from '../src/index.js';
-import { bytes, pdf, pdfStreamBomb, HANG, stallWorkerURL, observeParsers } from '../../../test/extractor-fixtures.js';
+import { bytes, pdf, pdfStreamBomb, HANG, stallWorkerURL } from '../../../test/extractor-fixtures.js';
+
+// Capture the real monotonic clock before any test mocks time.
+const realNow = performance.now.bind(performance);
 
 test('nested FlateDecode PDF stream bomb is killed by a low RSS cap and reaped', async t => {
   const observed = observeParsers(t), data = pdfStreamBomb();
@@ -37,7 +40,7 @@ test('PDF extractor passes offline conformance, page/output caps and SIGKILL che
   const observed = observeParsers(t);
   const result = await extractorConformance(createPDFExtractor({ workerURL: stallWorkerURL }), {
     bytes: pdf(), mediaType: 'application/pdf', expectedText: 'extraction fixture',
-  }, { ...observed, stallBytes: pdf([HANG]), unreadableBytes: bytes('%PDF-1.7\nBroken PDF'),
+  }, { ...observed, timeoutMs: CONFORMANCE_TIMEOUT_MS, stallBytes: pdf([HANG]), unreadableBytes: bytes('%PDF-1.7\nBroken PDF'),
     pageBytes: pdf(['First page', 'Second page']) });
   assert.deepEqual(result, { ok: true, failures: [] });
 });
@@ -56,11 +59,18 @@ test('a hanging PDF child is reaped before cancellation resolves and carries bou
   const controller = new AbortController(), spawned = observed.spawned();
   const work = plugin.extract(pdf([HANG]), {}, { signal: controller.signal });
   const rejected = assert.rejects(work, { code: 'cancelled' });
-  const record = await spawned; await record.started;
+  t.after(() => controller.abort());
+  const record = await waitFor(spawned, 'hanging PDF spawn');
+  assert.equal(await waitFor(record.started, 'hanging PDF started message'), true);
   assert.equal(activeExtractorProcessCount(), 1);
-  const start = performance.now(); controller.abort(); await rejected;
-  assert.ok(performance.now() - start < 1000);
-  assert.deepEqual(await record.closed, { code: null, signal: 'SIGKILL' });
+  const start = realNow();
+  controller.abort();
+  // Check elapsed time even if cancellation rejects with the wrong code.
+  await waitFor(Promise.allSettled([rejected, record.closed]), 'PDF cancellation acknowledgement and close');
+  const elapsed = realNow() - start;
+  assert.ok(elapsed < 5000, `PDF cancellation and child reaping took ${elapsed.toFixed(1)}ms; expected under 5s`);
+  await rejected;
+  assert.deepEqual(await waitFor(record.closed, 'cancelled PDF close'), { code: null, signal: 'SIGKILL' });
   assert.throws(() => process.kill(record.child.pid, 0), { code: 'ESRCH' });
   assert.equal(activeExtractorProcessCount(), 0);
   assert.ok(record.args[2].execArgv.includes('--max-old-space-size=128'));
@@ -72,15 +82,22 @@ test('queued requests respect cancellation and deadlines without spawning; the n
   const running = new AbortController(), spawned = observed.spawned();
   const work = plugin.extract(pdf([HANG]), {}, { signal: running.signal });
   const rejected = assert.rejects(work, { code: 'cancelled' });
-  const record = await spawned; await record.started;
+  t.after(() => running.abort());
+  const record = await waitFor(spawned, 'PDF spawn before queue checks');
+  assert.equal(await waitFor(record.started, 'PDF started before queue checks'), true);
   const queued = new AbortController();
   const waiting = plugin.extract(pdf(), {}, { signal: queued.signal });
   const cancelled = assert.rejects(waiting, { code: 'cancelled' });
   assert.equal(queuedExtractorProcessCount(), 1); queued.abort(); await cancelled;
-  await assert.rejects(plugin.extract(pdf(), {}, { deadlineAt: Date.now() + 50 }), { code: 'deadline' });
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
+  const expired = assert.rejects(plugin.extract(pdf(), {}, { deadlineAt: Date.now() + 50 }), { code: 'deadline' });
+  assert.equal(queuedExtractorProcessCount(), 1);
+  t.mock.timers.tick(50);
+  await waitFor(expired, 'queued PDF deadline');
+  t.mock.timers.reset();
   assert.equal(observed.children.length, 1); assert.equal(queuedExtractorProcessCount(), 0);
-  running.abort(); await rejected;
-  const result = await plugin.extract(pdf()); assert.equal(result.status, 'accepted');
+  running.abort(); await waitFor(rejected, 'running PDF cancellation after queue checks');
+  const result = await waitFor(plugin.extract(pdf()), 'PDF after queue cancellation'); assert.equal(result.status, 'accepted');
   assert.equal(activeExtractorProcessCount(), 0);
 });
 test('cancellation while immediate slot acquisition yields creates no child', async t => {

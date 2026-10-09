@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test, observeParsers, waitFor, CONFORMANCE_TIMEOUT_MS } from '../../../plugins/extract-text/test/extractor-test-helpers.js';
 import assert from 'node:assert/strict';
 import { PluginRegistry } from '../src/plugins.js';
 import { createExtractor, EXTRACTOR_LIMITS, EXTRACTOR_MEDIA_TYPES, normalizeExtractorLimits, sniffDocument,
@@ -7,7 +7,7 @@ import { extractorConformance } from '../src/extractor-conformance.js';
 import { createPDFExtractor } from '../../../plugins/extract-pdf/src/index.js';
 import { createOOXMLExtractor } from '../../../plugins/extract-ooxml/src/index.js';
 import { createTextExtractor } from '../../../plugins/extract-text/src/index.js';
-import { bytes, pdf, docx, xlsx, pptx, zip, HANG, stallWorkerURL, observeParsers } from '../../../test/extractor-fixtures.js';
+import { bytes, pdf, docx, xlsx, pptx, zip, HANG, stallWorkerURL } from '../../../test/extractor-fixtures.js';
 
 test('conformance rejects trusting any supported declared type and checks every alternate format', async t => {
   const observed = observeParsers(t), plugin = createTextExtractor({ workerURL: stallWorkerURL });
@@ -18,7 +18,7 @@ test('conformance rejects trusting any supported declared type and checks every 
     return result.status === 'accepted' && formats.has(metadata.mediaType) ? { ...result, mediaType: metadata.mediaType } : result;
   } };
   const result = await extractorConformance(broken, { bytes: bytes('Readable text conformance source words'), mediaType: 'text/plain' },
-    { ...observed, stallBytes: bytes(HANG), unreadableBytes: Buffer.from([0]) });
+    { ...observed, timeoutMs: CONFORMANCE_TIMEOUT_MS, stallBytes: bytes(HANG), unreadableBytes: Buffer.from([0]) });
   assert.equal(result.ok, false);
   assert.ok(result.failures.some(message => message.includes('sniffing')));
   for (const type of formats) if (type !== 'text/plain') assert.ok(declarations.includes(type), type);
@@ -28,7 +28,7 @@ test('conformance requires page fixtures for a manifest supporting paginated for
   const observed = observeParsers(t);
   const result = await extractorConformance(createOOXMLExtractor({ workerURL: stallWorkerURL }),
     { bytes: docx('Readable Word source words'), mediaType: EXTRACTOR_MEDIA_TYPES.docx },
-    { ...observed, stallBytes: docx(HANG), unreadableBytes: Buffer.from([0]) });
+    { ...observed, timeoutMs: CONFORMANCE_TIMEOUT_MS, stallBytes: docx(HANG), unreadableBytes: Buffer.from([0]) });
   assert.equal(result.ok, false);
   assert.ok(result.failures.some(message => message.includes('page')));
   assert.equal(observed.workCount(), 0);
@@ -40,15 +40,23 @@ test('conformance checks an optional archive bomb fixture', async t => {
     return plugin.extract(data === archiveBombBytes ? docx('Incorrectly accepted archive bomb') : data, metadata, options);
   } };
   const result = await extractorConformance(broken, { bytes: docx('Readable Word source words'), mediaType: EXTRACTOR_MEDIA_TYPES.docx },
-    { ...observed, stallBytes: docx(HANG), unreadableBytes: Buffer.from([0]), pageBytes: xlsx(['One', 'Two']), archiveBombBytes });
+    { ...observed, timeoutMs: CONFORMANCE_TIMEOUT_MS, stallBytes: docx(HANG), unreadableBytes: Buffer.from([0]), pageBytes: xlsx(['One', 'Two']), archiveBombBytes });
   assert.equal(result.ok, false);
   assert.ok(result.failures.includes('archive bomb cap enforced'));
 });
-test('conformance deadline completes when a child closes before its started message', async t => {
+test('conformance deadline completes when started observation is withheld until child close', async t => {
   const observed = observeParsers(t);
+  let stalls = 0;
   const result = await extractorConformance(createTextExtractor({ workerURL: stallWorkerURL }),
     { bytes: bytes('Readable conformance source words'), mediaType: 'text/plain' },
-    { ...observed, stallBytes: bytes(HANG + '-DELAY-START'), unreadableBytes: Buffer.from([0]) });
+    { ...observed, timeoutMs: CONFORMANCE_TIMEOUT_MS, stallBytes: bytes(HANG), unreadableBytes: Buffer.from([0]),
+      waitForWork: async (before, options) => {
+        if (++stalls === 1) return observed.waitForWork(before, options);
+        const record = observed.children[before] ?? await waitFor(observed.spawned(), 'deadline fixture spawn');
+        // Withhold acknowledgement for the deadline run using close, rather
+        // than a fixture sleep that assumes startup is faster than 1100ms.
+        await waitFor(record.closed, 'deadline fixture close without started acknowledgement');
+      } });
   assert.deepEqual(result, { ok: true, failures: [] });
 });
 
@@ -110,7 +118,7 @@ test('conformance rejects a deliberately broken extractor and missing active fix
     const result = await plugin.extract(data, metadata, options);
     return result.status === 'accepted' ? { ...result, mediaType: metadata.mediaType ?? result.mediaType } : result;
   } };
-  const result = await extractorConformance(broken, fixture, { ...observed,
+  const result = await extractorConformance(broken, fixture, { ...observed, timeoutMs: CONFORMANCE_TIMEOUT_MS,
     stallBytes: bytes(HANG), unreadableBytes: Buffer.from([0]) });
   assert.equal(result.ok, false);
   assert.ok(result.failures.some(message => message.includes('sniffing')));
