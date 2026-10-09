@@ -1,5 +1,6 @@
 import { validateManifest } from './plugins.js';
 import { isUIArtifact } from './ui-generation.js';
+import { HTML_MEDIA_TYPE, verifyHTMLArtifact } from './ui-html.js';
 import { imageInfo } from './image-info.js';
 import { PluginError, PLUGIN_ERROR_CODES, isCancelledZeroReport } from './invocation.js';
 /** Local-fixture kit only. stallSpec/stallFeedback must stall both operations;
@@ -23,7 +24,11 @@ export async function uiGenerationConformance(plugin, { spec, feedback, artifact
       timer = setTimeout(() => { controller.abort(); reject(new Error('conformance timeout')); }, timeoutMs);
     })]); } finally { clearTimeout(timer); }
   }
+  // The artifact kind follows the manifest's declared formats; HTML is checked against its static policy.
+  const formats = Array.isArray(plugin?.manifest?.models) ? plugin.manifest.models.flatMap(m => m.formats ?? []) : [];
   async function matchesBytes(result) {
+    if (!formats.includes(result?.mediaType)) return false;
+    if (result.mediaType === HTML_MEDIA_TYPE) return verifyHTMLArtifact(result);
     if (!isUIArtifact(result)) return false;
     try {
       const info = imageInfo(result.bytes);
