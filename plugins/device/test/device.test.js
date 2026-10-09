@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { localEndpoint, createDeviceReasoning, manifest } from '../src/index.js';
+import { localEndpoint, createDeviceReasoning, manifest, localFailure } from '../src/index.js';
 import { validateManifest } from '@inspr/aithema-core';
 import { chatServer, request } from '../../../test/plugin-fixtures.js';
 test('device accepts literal localhost/127.0.0.1 only before URL normalization', () => {
@@ -26,4 +26,27 @@ test('device handshakes and streams directly with no proxy, credentials or redir
   await assert.rejects(client.structured(request), /unavailable on device/);
   const cancelled = new AbortController(); cancelled.abort();
   await assert.rejects(client.connect({ signal: cancelled.signal }), { code: 'cancelled' });
+});
+test('the connector offers the handshake\'s models for selection and classifies failures for setup help', async t => {
+  const fake = await chatServer(t), origin = new URL(fake.endpoint).origin;
+  const client = createDeviceReasoning({ endpoint: origin });
+  assert.equal(client.model, null); assert.deepEqual(client.models(), []);
+  assert.deepEqual(await client.connect(), ['fixture-model']);
+  assert.equal(client.model, 'fixture-model'); assert.deepEqual(client.models(), ['fixture-model']);
+  assert.throws(() => client.select('not-returned'), error => localFailure(error) === 'models');
+  assert.equal(client.select('fixture-model'), 'fixture-model');
+  client.disconnect(); assert.equal(client.model, null);
+  await assert.rejects(async () => { for await (const _ of client.stream(request, {})) { /* refused */ } }, error => localFailure(error) === 'models');
+  const responding = status => createDeviceReasoning({ endpoint: origin, fetchImpl: async () => new Response('{}', { status }) });
+  for (const [status, code] of [[401, 'auth'], [403, 'access'], [404, 'api'], [500, 'response']]) {
+    await assert.rejects(responding(status).connect(), error => localFailure(error) === code, String(status));
+  }
+  await assert.rejects(createDeviceReasoning({ endpoint: origin, fetchImpl: async () => { throw new TypeError('Failed to fetch'); } }).connect(),
+    error => localFailure(error) === 'cors');
+  await assert.rejects(createDeviceReasoning({ endpoint: origin, fetchImpl: async () => new Response('not json') }).connect(), error => localFailure(error) === 'models');
+  await assert.rejects(createDeviceReasoning({ endpoint: origin, fetchImpl: async () => Response.json({ data: [] }) }).connect(), error => localFailure(error) === 'models');
+  assert.throws(() => createDeviceReasoning({ endpoint: 'http://localhost/v1' }), error => localFailure(error) === 'endpoint');
+  await assert.rejects(createDeviceReasoning({ endpoint: origin, fetchImpl: (url, options) => new Promise((_, reject) => options.signal.addEventListener('abort', () => reject(options.signal.reason))) })
+    .connect({ deadlineAt: Date.now() + 20 }), error => localFailure(error) === 'timeout');
+  assert.equal(localFailure({ code: 'invalid-output' }), 'stream'); assert.equal(localFailure({ code: 'limit' }), 'limit');
 });

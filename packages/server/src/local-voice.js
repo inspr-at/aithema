@@ -26,6 +26,6 @@ export function createLocalVoiceProvider({ storage, now = Date.now, ...ports }) 
         start_time_unix_secs: started / 1000, call_duration_secs: Math.max(0, (now() - started) / 1000), cost: 0 } });
     },
   });
-  const local = { ...plugin, manifest: deepFreeze({ ...manifest, id: 'fake-voice' }) };
+  const local = { ...plugin, manifest: deepFreeze({ ...manifest, id: 'fake-voice', vendor: { name: 'Local simulated agent', url: 'https://example.test' } }) };
   localStarts.add(local.start); return local;
 }

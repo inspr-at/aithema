@@ -93,13 +93,14 @@ export class ConceptLane {
           : admitted.plugin.generate(spec, request.feedback, admitted.options), scope.signal); }
         catch (error) { failed = true; throw error; }
         finally { admitted.finish({ failed }); }
-        if (!await untilCancelled(this.publicationAllowed(session, options), scope.signal)) throw new PluginError('not-admitted');
+        const producer = admitted.visuals ? { visuals: admitted.visuals } : {};
+        if (!await untilCancelled(this.publicationAllowed(session, { ...options, ...producer }), scope.signal)) throw new PluginError('not-admitted');
         const latest = this.getSession(id), latestPrepared = this.prepare(latest), current = syncConceptIntent(latest, latestPrepared.referenceIds, { now: this.now(), policy: this.policy, refreshReferenceIds: latestPrepared.refreshReferenceIds });
         const disposition = conceptResultDisposition(current, job, this.policy);
         if (disposition.kind === 'reject') throw new PluginError('cancelled');
         const artifactId = crypto.randomUUID();
         const finished = reduceConceptIntent(current, { type: 'render-completed', id: requestId, artifactId, now: this.now() }, this.policy);
-        this.complete(id, artifact, { id: artifactId, requestId, createdAt: this.now(), inputRevision: job.inputRevision,
+        this.complete(id, artifact, { id: artifactId, requestId, createdAt: this.now(), inputRevision: job.inputRevision, ...producer,
           turnIds: job.turnIds, referenceIds: job.referenceIds, visualKind, operation: options.operation, disposition: disposition.kind, archived: false },
           { intent: finished, status: { phase: 'ready', requestId } });
         return 'completed';
@@ -124,6 +125,11 @@ export class ConceptLane {
     const session = this.getSession(id), prepared = this.prepare(session), state = syncConceptIntent(session, prepared.referenceIds, { now: this.now(), policy: this.policy, refreshReferenceIds: prepared.refreshReferenceIds });
     if (conceptResultDisposition(state, flight.job, this.policy).kind !== 'reject') return Promise.resolve();
     flight.controller.abort(new DOMException('Concept source revoked', 'AbortError')); return flight.promise;
+  }
+  /** A changed visuals choice stops the in-flight render; its late result is never published. */
+  supersede(id) {
+    const flight = this.#flights.get(id); if (!flight) return Promise.resolve();
+    flight.controller.abort(new DOMException('Processing choice changed', 'AbortError')); return flight.promise;
   }
   idle() { return Promise.allSettled([...this.#flights.values()].map(f => f.promise)); }
   async close() { for (const f of this.#flights.values()) f.controller.abort(); await this.idle(); }

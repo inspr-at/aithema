@@ -50,10 +50,10 @@ export function createConceptHandlers({ storage, runtime, ownership, readBody, p
     const event = storage.append(id, 'concept.state', { intent, status: session.conceptStatus });
     if (event) publish(id, event); return event;
   }
-  async function gate(session, { read = false, operation = 'generate', visualKind = runtime.visualKind(session) } = {}) {
+  async function gate(session, { read = false, operation = 'generate', visualKind = runtime.visualKind(session), visuals } = {}) {
     if (session.tombstone || session.consentWithdrawn || !read && session.paused) throw new PluginError('not-admitted');
     if (read) {
-      if (!await runtime.publicationAllowed(session, { operation, visualKind })) throw new PluginError('not-admitted');
+      if (!await runtime.publicationAllowed(session, { operation, visualKind, ...(visuals ? { visuals } : {}) })) throw new PluginError('not-admitted');
     } else {
       const matrix = await runtime.matrix(session);
       const feature = matrix[session.processingPreset ?? 'best']?.[visualKind];
@@ -100,7 +100,8 @@ export function createConceptHandlers({ storage, runtime, ownership, readBody, p
         const stored = artifactId ? storage.conceptArtifact(id, artifactId) : null;
         if (stored?.erased) throw new NotFoundError();
         const visualKind = stored ? (stored.mediaType === HTML_MEDIA_TYPE ? 'html' : 'images') : runtime.visualKind(session);
-        await gate(session, { read: true, visualKind, operation: stored?.operation ?? (stored?.referenceIds.length ? 'edit' : 'generate') }); storage.authorize(id, ownerToken);
+        await gate(session, { read: true, visualKind, operation: stored?.operation ?? (stored?.referenceIds.length ? 'edit' : 'generate'),
+          visuals: stored?.visuals }); storage.authorize(id, ownerToken);
         if (!artifactId) return json({ items: storage.get(id).concepts ?? [], intent: storage.get(id).conceptIntent,
           status: storage.get(id).conceptStatus, visualKind, cost: runtime.imageQuote(session) });
         const artifact = storage.conceptArtifact(id, artifactId); if (artifact.erased) throw new NotFoundError();

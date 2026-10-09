@@ -99,7 +99,11 @@ export function deepFreeze(value) {
 }
 const deeplyFrozen = value => !value || typeof value !== 'object' ||
   Object.isFrozen(value) && Object.values(value).every(deeplyFrozen);
-export const mockManifest = deepFreeze(publicReasoningManifest('mock', 'Mock reasoning', 'https://example.test'));
+const mockBase = publicReasoningManifest('mock', 'Mock reasoning', 'https://example.test');
+// Deterministic local demo models; their effort ranges are technical facts of the mock.
+export const mockManifest = deepFreeze({ ...mockBase, models: [mockBase.models[0],
+  { ...mockBase.models[0], id: 'mock/swift', efforts: ['none', 'low'] },
+  { ...mockBase.models[0], id: 'mock/deep', efforts: ['low', 'medium', 'high'] }] });
 export class PluginRegistry {
   #entries = new Map();
   #mockInstances = new WeakSet();

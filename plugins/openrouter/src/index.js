@@ -1,6 +1,10 @@
 import { createChatCompletions, createBinding, publicReasoningManifest, deepFreeze, PluginError } from '@inspr/aithema-core';
 import { modelPrice, providerMaxPrice, requestCeilingMicro } from './pricing.js';
-export const manifest = deepFreeze(publicReasoningManifest('openrouter', 'OpenRouter', 'https://openrouter.ai'));
+const base = publicReasoningManifest('openrouter', 'OpenRouter', 'https://openrouter.ai');
+// The adapter forwards reasoning.effort; values follow START's 2026-09-13 check of
+// OpenRouter reasoning.supported_efforts. Which model supports which value is the
+// host's allowlist decision, and require_parameters forbids a silent fallback.
+export const manifest = deepFreeze({ ...base, models: [{ ...base.models[0], efforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'] }] });
 export function createOpenRouterReasoning({ binding, resolveSecret = ref => process.env[ref], fetchImpl, spendCap, prices,
   model, endpoint = 'https://openrouter.ai/api/v1/chat/completions' } = {}) {
   // Legacy model/endpoint convenience stays unqualified; a private binding is required by server admission.

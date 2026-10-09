@@ -2,8 +2,8 @@ import { createConceptHandlers } from './concept-handlers.js';
 import { createVoiceHandlers } from './voice-handlers.js';
 import { createPluginRuntime } from './plugin-runtime.js';
 import { randomUUID } from 'node:crypto';
-import { SessionLanes, createMockReasoning, inputRevision, activeTurns, PluginError } from '@inspr/aithema-core';
-import { ConflictError, NotFoundError } from './storage.js';
+import { SessionLanes, createMockReasoning, createSession, inputRevision, activeTurns, PluginError, FEATURES, isConsentReason } from '@inspr/aithema-core';
+import { ConflictError, NotFoundError, SettingsConflictError } from './storage.js';
 import { exportSession } from './export.js';
 
 const json = (value, status = 200) => new Response(JSON.stringify(value), {
@@ -51,12 +51,16 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       const session = storage.get(id), featureMatrix = await pluginRuntime.matrix(session);
       const current = storage.get(id), { ownerHash, ...publicSession } = current;
       if (current.tombstone || current.ownerHash !== session.ownerHash) throw new NotFoundError('Session not found');
-      if (current.seq === session.seq) return { ...publicSession, operations: operations(current), featureMatrix, conceptVisualKind: pluginRuntime.visualKind(current), conceptCost: pluginRuntime.imageQuote(current) };
+      if (current.seq === session.seq) return { ...publicSession, operations: operations(current), featureMatrix, conceptVisualKind: pluginRuntime.visualKind(current),
+        conceptCost: pluginRuntime.imageQuote(current), ...(pluginRuntime.describe ? { engine: pluginRuntime.describe(current) } : {}) };
     }
     throw new ConflictError('Session changed during snapshot');
   };
   const status = id => broadcast(id, { sessionId: id, type: 'lane.status', data: operations(storage.get(id)) });
-  const lanes = new SessionLanes({ reasoning, getSession: id => storage.get(id), deadlineMs, hostPrompt,
+  // A lane's work identity: its input revision plus the processing choice it runs with.
+  const selection = (session, lane) => pluginRuntime.selectionKey?.(session, lane) ?? '';
+  const laneKey = (session, lane) => `${inputRevision(session)}|${selection(session, lane)}`;
+  const lanes = new SessionLanes({ reasoning, getSession: id => storage.get(id), deadlineMs, hostPrompt, selection,
     admit: args => pluginRuntime.admit(args),
     publish(id, type, data, revision) {
       if (stop.signal.aborted) return false;
@@ -99,7 +103,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     job.promise = Promise.resolve().then(async () => {
       try {
         while (!stop.signal.aborted) {
-          const revision = inputRevision(storage.get(id));
+          const started = storage.get(id), revision = inputRevision(started), work = laneKey(started, lane);
           try {
             await lanes.run(id, lane, { signal: stop.signal });
             const failure = failures.get(id);
@@ -107,13 +111,14 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
               failures.delete(id);
             }
           } catch {
-            if (!stop.signal.aborted && inputRevision(storage.get(id)) === revision) {
+            // Work superseded by new input or a changed processing choice reruns instead of failing.
+            if (!stop.signal.aborted && laneKey(storage.get(id), lane) === work) {
               const failure = { inputRevision: revision, lane, error: 'reasoning-unavailable', retryable: true };
               failures.set(id, failure);
               broadcast(id, { sessionId: id, type: 'lane.failed', data: failure });
             }
           }
-          if (stop.signal.aborted || inputRevision(storage.get(id)) === revision) {
+          if (stop.signal.aborted || laneKey(storage.get(id), lane) === work) {
             // Remove synchronously with the last revision check: a subsequent
             // schedule can start work even before this promise settles.
             jobs.delete(key); status(id); return;
@@ -126,6 +131,29 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     status(id);
     // Failures never include provider text or request content in logs or responses.
     job.promise.catch(() => {});
+  }
+  // New conversations pin concrete settings: an explicit visitor choice, else the owner's
+  // last confirmed choice while the host still offers it, else the host defaults.
+  async function initialSettings(ownerToken, options) {
+    const requested = options.processingPreset ?? sessionOptions.processingPreset;
+    const probe = createSession({ ...sessionOptions, processingPreset: requested ?? 'best' });
+    if (pluginRuntime.offered?.(probe.processingPreset) === false && probe.processingPreset === 'device') {
+      return { status: 409, error: 'setting-not-allowed', field: 'processingPreset', reason: 'preset not configured' };
+    }
+    if (options.settings !== undefined) {
+      if (!options.settings || typeof options.settings !== 'object' || Array.isArray(options.settings)) return { status: 400, error: 'invalid-session' };
+      const chosen = await pluginRuntime.validate(probe, { ...options.settings, processingPreset: probe.processingPreset });
+      if (chosen.error) return chosen;
+      return { processingPreset: chosen.processingPreset, settings: { ...chosen.settings, origin: 'chosen', at: new Date().toISOString() } };
+    }
+    const last = storage.lastSettings?.(ownerToken);
+    if (last && pluginRuntime.validate && (requested === undefined || last.processingPreset === requested)) {
+      const { model, effort, voice, visuals } = last.settings;
+      const offered = await pluginRuntime.validate({ ...probe, processingPreset: last.processingPreset },
+        { processingPreset: last.processingPreset, model, effort, voice, visuals });
+      if (!offered.error) return { processingPreset: offered.processingPreset, settings: { ...offered.settings, origin: 'last' } };
+    }
+    return { processingPreset: probe.processingPreset, settings: { ...pluginRuntime.defaults?.(probe.processingPreset), origin: 'default' } };
   }
   function unfinished(session) {
     const revision = inputRevision(session);
@@ -184,15 +212,16 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         const bytes = await readBody(request);
         const options = bytes.length ? JSON.parse(Buffer.from(bytes).toString('utf8')) : {};
         if (!options || typeof options !== 'object' || Array.isArray(options)) return json({ error: 'invalid-session' }, 400);
-        const ownerToken = ownership.token(request) || randomUUID();
-        const session = storage.create({ ...sessionOptions, locale: options.locale ?? 'en', ownerToken,
-          processingPreset: options.processingPreset ?? sessionOptions.processingPreset ?? 'best' });
+        const presented = ownership.token(request), ownerToken = presented || randomUUID();
+        const initial = await initialSettings(presented, options);
+        if (initial.error) return json({ error: initial.error, field: initial.field, reason: initial.reason }, initial.status);
+        const session = storage.create({ ...sessionOptions, locale: options.locale ?? 'en', ownerToken, ...initial });
         const response = json(await snapshot(session.id), 201);
         if (ownership.created) ownership.created(response, ownerToken, request);
         else response.headers.set('x-aithema-session-token', ownerToken);
         return response;
       }
-      const match = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})(?:\/(turns|events|export|retry|pause|withdraw|consent|erase))?$/u.exec(url.pathname);
+      const match = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})(?:\/(turns|events|export|retry|pause|withdraw|consent|erase|settings))?$/u.exec(url.pathname);
       if (!match) return json({ error: 'not-found' }, 404);
       const [, id, action] = match;
       const ownerToken = ownership.token(request), authorized = storage.authorize(id, ownerToken);
@@ -240,12 +269,43 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         await invalidate(id, event, 'turn-withdrawn'); schedule(id);
         return json({ withdrawn: body.turnId, event });
       }
+      if (action === 'settings' && request.method === 'GET') {
+        return json({ ...await pluginRuntime.catalog(authorized), voiceCallActive: Boolean(voiceHandlers?.active(id)) });
+      }
+      if (action === 'settings' && request.method === 'POST') {
+        const body = JSON.parse(Buffer.from(await readBody(request)).toString('utf8'));
+        // A running call keeps its choice; the visitor ends it explicitly to apply a change.
+        if (voiceHandlers?.active(id)) return json({ error: 'voice-call-active' }, 409);
+        const next = await pluginRuntime.validate(authorized, body);
+        if (next.error) return json({ error: next.error, field: next.field, reason: next.reason }, next.status);
+        if (voiceHandlers?.active(id)) return json({ error: 'voice-call-active' }, 409);
+        let change; const before = storage.get(id);
+        try { change = storage.changeSettings(id, next, { ownerToken, baseRevision: body.baseRevision }); }
+        catch (error) {
+          if (!(error instanceof SettingsConflictError)) throw error;
+          return json({ error: error.code, processingPreset: error.session.processingPreset, settings: error.session.settings }, 409);
+        }
+        if (change.event) {
+          broadcast(id, change.event);
+          // Like new input: in-flight work on the previous choice is superseded and
+          // unanswered input reruns with the new bindings; completed work stays cached.
+          lanes.supersede(id); failures.delete(id);
+          if (selection(before, 'concept') !== selection(storage.get(id), 'concept')) void conceptHandlers.lane.supersede(id);
+          if (unfinished(storage.get(id))) schedule(id); else status(id);
+        }
+        const current = storage.get(id), featureMatrix = await pluginRuntime.matrix(current);
+        const features = FEATURES.filter(feature => isConsentReason(featureMatrix[current.processingPreset]?.[feature]?.reason));
+        return json({ processingPreset: current.processingPreset, settings: current.settings, engine: pluginRuntime.describe(current),
+          event: change.event, unchanged: !change.event, featureMatrix, consent: { required: features.length > 0, features } });
+      }
       if (action === 'consent' && request.method === 'POST') {
         const body = JSON.parse(Buffer.from(await readBody(request)).toString('utf8'));
         if (typeof body?.granted !== 'boolean') return json({ error: 'invalid-consent' }, 400);
         if (body.granted) {
           if (!consent?.grant) return json({ error: 'host-consent-required' }, 409);
-          const granted = await consent.grant({ sessionId: id, consentRevision: authorized.consentRevision + 1, decision: body.processing });
+          // The host ledger learns exactly which processing the current choice needs.
+          const granted = await consent.grant({ sessionId: id, consentRevision: authorized.consentRevision + 1, decision: body.processing,
+            scopes: pluginRuntime.scopes?.(authorized) ?? [] });
           if (granted === false) return json({ error: 'host-consent-required' }, 409);
         }
         const event = storage.reviseConsent(id, body.granted, guard);
@@ -261,11 +321,12 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       }
       if (action === 'export' && request.method === 'GET') {
         const session = storage.get(id);
+        // Each artifact is published under the coverage of the visuals option that produced it.
         const allowed = new Map();
-        const key = c => `${c.mediaType === 'text/html' ? 'html' : 'images'}:${c.operation ?? (c.referenceIds.length ? 'edit' : 'generate')}`;
-        for (const entry of new Set((session.concepts ?? []).map(key))) {
-          const [visualKind, operation] = entry.split(':');
-          allowed.set(entry, await pluginRuntime.publicationAllowed(session, { operation, visualKind }));
+        const key = c => `${c.mediaType === 'text/html' ? 'html' : 'images'}|${c.operation ?? (c.referenceIds.length ? 'edit' : 'generate')}|${c.visuals ?? ''}`;
+        for (const concept of session.concepts ?? []) if (!allowed.has(key(concept))) {
+          const [visualKind, operation, visuals] = key(concept).split('|');
+          allowed.set(key(concept), await pluginRuntime.publicationAllowed(session, { operation, visualKind, ...(visuals ? { visuals } : {}) }));
         }
         const current = storage.authorize(id, ownerToken);
         if (current.seq !== session.seq) throw new ConflictError('Export changed');

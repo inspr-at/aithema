@@ -7,14 +7,17 @@ import { untilCancelled, cancellableStream } from './cancellation.js';
 export class SessionLanes {
   #flights = new Map();
   constructor({ reasoning, draftReasoning = reasoning, getSession, publish, transient = () => {}, deadlineMs = 30_000,
-    hostPrompt = '', admit, beforeDispatch = admit ? undefined : async () => false }) {
+    hostPrompt = '', admit, beforeDispatch = admit ? undefined : async () => false, selection = () => '' }) {
     this.reasoning = assertReasoning(reasoning);
     this.draftReasoning = assertReasoning(draftReasoning);
-    Object.assign(this, { getSession, publish, transient, deadlineMs, hostPrompt, admit, beforeDispatch });
+    Object.assign(this, { getSession, publish, transient, deadlineMs, hostPrompt, admit, beforeDispatch, selection });
   }
+  // A changed processing selection supersedes in-flight work exactly like new input:
+  // its late result is stale and the host reruns the lane with the new binding.
   supersede(id) {
-    const revision = inputRevision(this.getSession(id));
-    for (const flight of this.#flights.values()) if (flight.id === id && flight.revision !== revision) {
+    const session = this.getSession(id), revision = inputRevision(session);
+    for (const flight of this.#flights.values()) if (flight.id === id &&
+      (flight.revision !== revision || flight.selection !== this.selection(session, flight.lane))) {
       flight.controller.abort(new DOMException('Input superseded', 'AbortError'));
     }
   }
@@ -29,9 +32,12 @@ export class SessionLanes {
   run(id, lane, { signal } = {}) {
     if (!['understanding', 'reaction'].includes(lane)) throw new TypeError('Unknown lane');
     const key = `${id}:${lane}`;
+    const session = this.getSession(id), selection = this.selection(session, lane);
     const running = this.#flights.get(key);
-    if (running && !running.controller.signal.aborted) return running.promise;
-    const session = this.getSession(id);
+    if (running && !running.controller.signal.aborted) {
+      if (running.selection === selection) return running.promise;
+      running.controller.abort(new DOMException('Selection superseded', 'AbortError'));
+    }
     const revision = inputRevision(session);
     const controller = new AbortController();
     const abort = () => controller.abort(signal.reason);
@@ -41,7 +47,8 @@ export class SessionLanes {
     const scope = operationScope({ signal: controller.signal, deadlineAt });
     const current = () => {
       const latest = this.getSession(id);
-      return !scope.signal.aborted && !latest.tombstone && latest.ownerHash === session.ownerHash && inputRevision(latest) === revision;
+      return !scope.signal.aborted && !latest.tombstone && latest.ownerHash === session.ownerHash && inputRevision(latest) === revision &&
+        this.selection(latest, lane) === selection;
     };
     const options = { signal: scope.signal, deadlineAt };
     const work = async () => {
@@ -97,12 +104,13 @@ export class SessionLanes {
         finally { admitted?.finish({ failed }); }
         if (!current()) return 'stale';
         if (!content.trim()) throw new TypeError('Empty reasoning stream');
+        // The admitted public choice labels which model and effort produced this reply.
         if (!this.publish(id, 'turn.final', { id: turnId, role: 'assistant', content,
-          at: new Date().toISOString(), inputRevision: revision }, revision)) return 'stale';
+          at: new Date().toISOString(), inputRevision: revision, ...(admitted?.engine ? { engine: admitted.engine } : {}) }, revision)) return 'stale';
       }
       return 'completed';
     };
-    const flight = { id, revision, controller, promise: null };
+    const flight = { id, lane, revision, selection, controller, promise: null };
     const promise = Promise.resolve().then(work).finally(() => {
       scope.dispose(); signal?.removeEventListener('abort', abort);
       if (this.#flights.get(key) === flight) this.#flights.delete(key);

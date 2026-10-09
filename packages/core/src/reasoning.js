@@ -36,9 +36,20 @@ export function operationScope({ signal, deadlineAt = Date.now() + 30_000 } = {}
   if (deadlineAt <= Date.now()) controller.abort(new DOMException('Deadline exceeded', 'TimeoutError'));
   return { signal: controller.signal, dispose() { clearTimeout(timer); signal?.removeEventListener('abort', abort); } };
 }
-export function createMockReasoning() {
+// Each demo model answers with its own deterministic wording, so a changed
+// selection is observable in the transcript without any provider network.
+function mockReply(model, effort, locale) {
+  const de = locale === 'de';
+  if (model === 'mock/swift') return de ? 'Kurz gefragt: Was sollte sich als Erstes verbessern?' : 'Briefly: what should improve first?';
+  if (model === 'mock/deep') return de ? `Gründlich betrachtet (${effort}): Welches Ergebnis zählt am meisten, und was sollte sich als Erstes verbessern?`
+    : `Thinking it through (${effort} effort): which outcome matters most, and what should improve first?`;
+  return de ? 'Was sollte sich als Erstes verbessern?' : 'What should improve first?';
+}
+export function createMockReasoning({ model = 'mock', effort = 'none' } = {}) {
   const plugin = Object.freeze({
-    id: 'mock', billable: false, label: 'Mock reasoning — deterministic demo', manifest: mockManifest,
+    id: 'mock', billable: false, label: 'Mock reasoning — deterministic demo', manifest: mockManifest, model, effort,
+    // A bound instance is again canonical; registry trust still starts at the registered entry.
+    bind: binding => createMockReasoning({ model: binding.model, effort: binding.effort }),
     async health(options) { const scope = operationScope(options); try { scope.signal.throwIfAborted(); return { available: true }; }
       catch (error) { throw normalizedError(error, scope.signal); } finally { scope.dispose(); } },
     async *stream(request, options) {
@@ -47,7 +58,7 @@ export function createMockReasoning() {
       try {
         scope.signal.throwIfAborted();
         invocation.dispatch(); invocation.usage({ inputTokens: 0, outputTokens: 0 });
-        const content = request.locale === 'de' ? 'Was sollte sich als Erstes verbessern?' : 'What should improve first?';
+        const content = mockReply(model, effort, request.locale);
         for (const chunk of content.match(/\S+\s*/gu)) { scope.signal.throwIfAborted(); yield chunk; }
         completed = true;
       } catch (error) { throw normalizedError(error, scope.signal); }

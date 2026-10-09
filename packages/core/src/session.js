@@ -1,15 +1,17 @@
 import { createConceptIntent, reduceConceptIntent } from './concept-intent.js';
 import { PROCESSING_PRESETS } from './presets.js';
 import { START_PRESET, capBuildReadiness, createPreset } from './understanding.js';
+import { normalizeSettings } from './settings.js';
 export const inputRevision = session => `${session.inputRevision}:${session.consentRevision}:${session.withdrawalRevision}:${session.locale}:${session.sessionRevision ?? 0}:${Boolean(session.tombstone)}`;
 export const activeTurns = session => session.transcript.filter(t => !t.erased && !t.withdrawn);
 export const emptyUnderstanding = session => ({ ...capBuildReadiness({}, [], session.preset), version: 1,
   inputRevision: null, locale: session.locale, draft: false, questionHistory: [] });
 export function createSession({ id = crypto.randomUUID(), locale = 'en', identified = false, demo = false,
-  preset = START_PRESET, actor = null, processingPreset = 'best' } = {}) {
+  preset = START_PRESET, actor = null, processingPreset = 'best', settings } = {}) {
   if (!PROCESSING_PRESETS.includes(processingPreset)) throw new TypeError('Unknown processing preset');
   if (!['en', 'de'].includes(locale)) throw new TypeError('Unsupported locale');
   return { id, version: 1, seq: 0, locale, identified, demo, preset: createPreset(preset), actor, processingPreset,
+    settings: normalizeSettings(settings),
     inputRevision: 0, consentRevision: 0, withdrawalRevision: 0, sessionRevision: 0,
     paused: false, consentWithdrawn: false, tombstone: null, transcript: [], concepts: [],
     conceptIntent: createConceptIntent(), conceptStatus: { phase: 'idle' },
@@ -32,6 +34,12 @@ export function applyEvent(session, event) {
     next.actor = event.data.erased ? null : event.data.actor;
   } else if (event.type === 'session.paused') {
     next.paused = event.data.paused;
+  } else if (event.type === 'settings.changed') {
+    // A processing choice is metadata: completed replies and understanding stay
+    // cached for their input revision; in-flight work is superseded by the host.
+    if (!PROCESSING_PRESETS.includes(event.data.processingPreset)) throw new TypeError('Unknown processing preset');
+    next.processingPreset = event.data.processingPreset;
+    next.settings = normalizeSettings(event.data.settings);
   } else if (['turn.withdrawn', 'session.erased', 'consent.revised'].includes(event.type)) {
     next.sessionRevision += 1;
     next.understanding = emptyUnderstanding(next); next.actor = null; next.focusedQuestion = null;

@@ -71,6 +71,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     if (sessions.has(sessionId)) throw new ConflictError('Voice call already active');
     const controller = new AbortController(), started = Promise.withResolvers(), entry = { callId, sessionId, ownerToken, controller, started: started.promise,
       consentRevision: session.consentRevision, withdrawalRevision: session.withdrawalRevision,
+      settingsRevision: session.settings?.revision ?? 0,
       facadeSecretRef: staticSecretRef ?? 'voice-' + randomUUID(), ...(staticSecretRef ? { facadeCallId: randomUUID() } : {}) };
     sessions.set(sessionId, entry); calls.set(callId, entry);
     const abortStartup = () => controller.abort(request.signal.reason);
@@ -84,7 +85,8 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       if (!staticSecretRef) await secrets.provision(entry.facadeSecretRef);
       controller.signal.throwIfAborted();
       entry.call = await admitted.plugin.start({ callId, sessionId, ownerToken, facadeSecretRef: entry.facadeSecretRef,
-        facadeUrl: `${admitted.binding.publicFacadeBaseUrl}${staticSecretRef ? staticFacadeRoute : `/api/voice/${callId}/llm/chat/completions`}` },
+        facadeUrl: `${admitted.binding.publicFacadeBaseUrl}${staticSecretRef ? staticFacadeRoute : `/api/voice/${callId}/llm/chat/completions`}`,
+        settingsRevision: session.settings?.revision ?? 0 },
         { ...admitted.options, spendDeadlineAt: end, browserLivenessDeadlineAt: Math.min(end, now() + browserLeaseMs) });
       entry.call.signal.addEventListener('abort', () => {
         void close(entry, entry.call.snapshot().reason ?? 'cancelled', 'cancelled');
@@ -179,6 +181,10 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         if (!entry && action === 'recover' && previous) {
           const count = storage.voiceCalls(sessionId).filter(c => c.callId === callId).length;
           if (count > 3) throw new PluginError('unavailable', 'Recovery exhausted');
+          // A choice saved while the call was down applies only to an explicitly started call.
+          if (Number.isSafeInteger(previous.settingsRevision) && previous.settingsRevision !== storage.get(sessionId).settings?.revision) {
+            throw new PluginError('not-admitted', 'Processing settings changed');
+          }
           const next = await start(request, sessionId, ownerToken, callId, previous.spendDeadlineAt);
           calls.get(callId).recoveryCount = count; return json(next);
         }
@@ -202,6 +208,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         if (action === 'recover') {
           if (!bound && !entry.closing && !entry.call.signal.aborted) return json(receipt(entry.call));
           if (entry.recovering) throw new ConflictError('Recovery in progress');
+          if (entry.settingsRevision !== session.settings?.revision) throw new PluginError('not-admitted', 'Processing settings changed');
           entry.recovering = true;
           try {
             if ((entry.recoveryCount ?? 0) >= 3) throw new PluginError('unavailable', 'Recovery exhausted');
