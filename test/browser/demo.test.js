@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { fork } from 'node:child_process';
+import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { constants } from 'node:fs';
 import { access, mkdtemp, readFile, rm } from 'node:fs/promises';
@@ -81,15 +82,46 @@ async function injectRegression(page, url, fail) {
       const response = await fetch(request.url());
       assert.equal(response.status, 200);
       const source = await response.text();
-      const faulty = source.replace("await postJson('/api/sessions', { processingPreset })",
-        "await fetch('/api/sessions', { method: 'POST', body: JSON.stringify({ processingPreset }) })");
+      const faulty = source.replace("await postJson('/api/sessions', request)",
+        "await fetch('/api/sessions', { method: 'POST', body: JSON.stringify(request) })");
       assert.notEqual(faulty, source, 'Regression injection must replace the demo session POST');
       await request.respond({ status: 200, contentType: 'text/javascript', body: faulty });
     })().catch(fail);
   });
 }
 
-test('demo works in a real browser: consent, turn, understanding, reload and ZIP export',
+// A loopback OpenAI-compatible server, as a visitor's local model would run it, allowing the demo origin.
+async function loopbackModel(t) {
+  const chats = [];
+  const server = createServer(async (request, response) => {
+    response.setHeader('access-control-allow-origin', request.headers.origin ?? '*');
+    response.setHeader('access-control-allow-headers', 'content-type');
+    response.setHeader('access-control-allow-methods', 'GET, POST');
+    if (request.method === 'OPTIONS') { response.writeHead(204).end(); return; }
+    if (request.url === '/v1/models') { response.end(JSON.stringify({ data: [{ id: 'loopback-small' }, { id: 'loopback-large' }] })); return; }
+    const chunks = []; for await (const chunk of request) chunks.push(chunk);
+    const body = JSON.parse(Buffer.concat(chunks)); chats.push(body);
+    response.writeHead(200, { 'content-type': 'text/event-stream' });
+    for (const content of ['Hello from ', body.model]) response.write(`data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`);
+    response.end(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`);
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
+  return { endpoint: `http://127.0.0.1:${server.address().port}`, chats };
+}
+
+// Shadow-root geometry for layout-stability checks; never deep-compared DOM nodes.
+const shadowRect = (page, selector, { document: absolute = false } = {}) => page.$eval('aithema-session', (component, selector, absolute) => {
+  const rect = component.shadowRoot.querySelector(selector).getBoundingClientRect();
+  return { x: rect.x + (absolute ? scrollX : 0), y: rect.y + (absolute ? scrollY : 0), width: rect.width, height: rect.height };
+}, selector, absolute);
+const shadowRects = (page, selector) => page.$eval('aithema-session', (component, selector) =>
+  [...component.shadowRoot.querySelectorAll(selector)].map(node => { const r = node.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; }), selector);
+const shadowFocus = page => page.$eval('aithema-session', component => {
+  const active = component.shadowRoot.activeElement; return active ? active.className || active.id || active.tagName : null;
+});
+
+test('demo works in a real browser: consent, turn, understanding, settings, reload and ZIP export',
   { timeout: 120_000 }, async t => {
     // Fail before starting the host if the browser is missing.
     const executablePath = await browserPath();
@@ -214,6 +246,40 @@ test('demo works in a real browser: consent, turn, understanding, reload and ZIP
         await waitForShadow(page, 'ol li.user span', { text: content });
         await waitForShadow(page, 'aside .summary-text', { text: content });
         await waitForShadow(page, 'aside .notice', { text: 'Current assessment' });
+        await waitForShadow(page, 'ol li:not(.user) span', { text: 'What should improve first?' });
+
+        // Settings: change preset, model and response style; every change waits for the server.
+        const settingsSaved = () => page.waitForResponse(response => response.url() === `${url}/api/sessions/${id}/settings`
+          && response.request().method() === 'POST', { signal: controller.signal });
+        await page.click('aithema-session >>> .settings-open');
+        await waitForShadow(page, 'dialog.settings[open] [data-select="model"] [role=option]');
+        assert.equal(await shadowFocus(page), 'done', 'focus moves into the settings dialog');
+        const [, presetSaved] = await Promise.all([page.click('aithema-session >>> .preset-option[data-preset="custom"]'), settingsSaved()]);
+        assert.equal(presetSaved.status(), 200, 'the server acknowledges the preset');
+        await waitForShadow(page, '.save-status', { text: 'Changes saved' });
+        await page.click('aithema-session >>> [data-select="model"] .select__button');
+        const swift = await page.waitForFunction(() => [...document.querySelector('aithema-session').shadowRoot
+          .querySelectorAll('[data-select="model"] [role=option]')].find(node => node.querySelector('strong').textContent === 'Swift (mock)'));
+        const [, modelSaved] = await Promise.all([swift.click(), settingsSaved()]);
+        assert.equal(modelSaved.status(), 200, 'the server acknowledges the model');
+        assert.deepEqual(JSON.parse(modelSaved.request().postData()), { processingPreset: 'custom', model: 'mock/swift', effort: 'none', voice: 'off', visuals: 'off', baseRevision: 1 });
+        await waitForShadow(page, '.save-status', { text: 'Changes saved' });
+        const effort = await page.$('aithema-session >>> #settings-effort');
+        await effort.focus();
+        const [, effortSaved] = await Promise.all([page.keyboard.press('ArrowRight'), settingsSaved()]);
+        assert.equal(effortSaved.status(), 200); assert.equal(JSON.parse(effortSaved.request().postData()).effort, 'low');
+        await waitForShadow(page, '#settings-effort-value', { text: 'Low' });
+        await page.click('aithema-session >>> .done');
+        await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
+        assert.equal(await shadowFocus(page), 'settings-open', 'focus returns to the Settings button');
+        await waitForShadow(page, '.engine__value', { text: 'Custom' });
+        await waitForShadow(page, '.engine__detail', { text: 'Swift (mock) · Low · Voice: Off · Visuals: Off' });
+        // The effect: the next reply comes from the newly chosen model.
+        await composer.type('What about our data?');
+        const nextTurn = page.waitForResponse(`${url}/api/sessions/${id}/turns`, { signal: controller.signal });
+        await Promise.all([page.click('aithema-session >>> .send'), nextTurn]);
+        await waitForShadow(page, 'ol li:last-child span', { text: 'Briefly: what should improve first?' });
+        await waitForShadow(page, 'ol li:last-child .engine-tag', { text: 'Swift (mock) · Low' });
 
         const restored = page.waitForResponse(`${url}/api/sessions/${id}`, { signal: controller.signal });
         let snapshot;
@@ -223,8 +289,9 @@ test('demo works in a real browser: consent, turn, understanding, reload and ZIP
         assert.equal(snapshot.status(), 200);
         await waitForShadow(page, 'ol li.user span', { text: content });
         assert.equal(await page.$eval('aithema-session', component => component.session.id), id, 'Reload must restore the same session');
-        await waitForShadow(page, 'aside .summary-text', { text: content });
+        await waitForShadow(page, 'aside .summary-text', { text: `${content} What about our data?` });
         assert.equal(await page.$eval('#error', node => node.textContent), '');
+        await waitForShadow(page, '.engine__detail', { text: 'Swift (mock) · Low · Voice: Off · Visuals: Off' });
 
         const exported = page.waitForResponse(`${url}/api/sessions/${id}/export`, { signal: controller.signal });
         const downloaded = waitForDownload(cdp, AbortSignal.any([controller.signal, AbortSignal.timeout(waitTimeout)]));
@@ -237,7 +304,53 @@ test('demo works in a real browser: consent, turn, understanding, reload and ZIP
         const bytes = await readFile(join(directory, download.guid));
         assert.equal(bytes.readUInt32LE(0), 0x04034b50, 'The completed download must be a ZIP');
         assert.ok(bytes.includes(Buffer.from(content)), 'The downloaded export must contain the person turn');
-        t.diagnostic(`Browser: ${await browser.version()}; session creation, consent grant/regrant (POST 200, "Mock processing allowed.", enabled composer), revocation (POST 200, disabled composer), shortcut, understanding, reload and ZIP download passed.`);
+        exporting = false;
+
+        // At 400 px the dialog fits the viewport, scrolls inside, and hover moves nothing.
+        await page.setViewport({ width: 400, height: 800 });
+        const workspace = await shadowRect(page, '.workspace', { document: true });
+        await page.click('aithema-session >>> .settings-open');
+        await waitForShadow(page, 'dialog.settings[open] [data-select="model"] [role=option]');
+        const box = await shadowRect(page, 'dialog.settings');
+        assert.ok(box.x >= 0 && box.y >= 0 && box.x + box.width <= 400 && box.y + box.height <= 800, `dialog fits 400x800: ${JSON.stringify(box)}`);
+        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= 400), 'no horizontal overflow at 400 px');
+        const done = await shadowRect(page, 'dialog.settings .done');
+        assert.ok(done.y + done.height <= 800 && done.width > 0, 'Done stays reachable');
+        const targets = 'dialog.settings :is(.preset-option, .select__button, .gauge, .done, [role=tab])';
+        for (const selector of ['.preset-option[data-preset="eu"]', '.preset-option[data-preset="device"]', '[data-select="voice"] .select__button', '[data-gauge="privacy"]']) {
+          // Scroll first, so only the hover itself is measured.
+          await page.$eval('aithema-session', (c, selector) => c.shadowRoot.querySelector(`dialog.settings ${selector}`).scrollIntoView({ block: 'center' }), selector);
+          const before = await shadowRects(page, targets);
+          await page.hover(`aithema-session >>> dialog.settings ${selector}`);
+          assert.deepEqual(await shadowRects(page, targets), before, `hovering ${selector} moves no control`);
+        }
+        assert.notEqual(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.context-message').textContent), '', 'hover explains in the help line');
+        assert.deepEqual(await shadowRect(page, '.workspace', { document: true }), workspace, 'the open dialog shifts nothing behind it');
+        await page.keyboard.press('Escape');
+        await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
+        assert.equal(await shadowFocus(page), 'settings-open', 'Escape returns focus to the Settings button');
+
+        // Advanced: the browser connects straight to a loopback model; the host server is never involved.
+        await page.setViewport({ width: 1280, height: 900 });
+        const local = await loopbackModel(t);
+        await page.click('aithema-session >>> .settings-open');
+        await page.click('aithema-session >>> [data-tab="local"]');
+        const endpoint = await page.$('aithema-session >>> #local-endpoint');
+        await endpoint.click({ count: 3 }); await endpoint.type(local.endpoint);
+        await page.click('aithema-session >>> .local-connect');
+        await waitForShadow(page, '.local-status', { text: 'Connected to your device: loopback-small' });
+        await page.$eval('aithema-session', component => {
+          const select = component.shadowRoot.querySelector('#local-model'); select.value = 'loopback-large';
+          select.dispatchEvent(new Event('change'));
+        });
+        await waitForShadow(page, '.local-status', { text: 'Connected to your device: loopback-large' });
+        await page.click('aithema-session >>> .local-test');
+        const message = await page.$('aithema-session >>> #local-message');
+        await message.type('Are you there?'); await page.click('aithema-session >>> .local-send');
+        await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('.local__messages').textContent.includes('Hello from loopback-large'));
+        assert.deepEqual(local.chats.map(chat => [chat.model, chat.stream, chat.messages]), [['loopback-large', true, [{ role: 'system', content: '' }, { role: 'user', content: 'Are you there?' }]]]);
+        await page.keyboard.press('Escape');
+        t.diagnostic(`Browser: ${await browser.version()}; session creation, consent grant/regrant (POST 200, "Mock processing allowed.", enabled composer), revocation (POST 200, disabled composer), shortcut, understanding, settings (preset, model and effort acknowledged; next reply from Swift), reload, ZIP download, 400 px dialog layout/focus and a loopback local model (handshake, model choice, streamed test chat) passed.`);
       })()]);
     } finally {
       controller.abort();

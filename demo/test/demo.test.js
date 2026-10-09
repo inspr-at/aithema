@@ -140,3 +140,28 @@ test('demo ownership marks HTTPS cookies Secure and keeps HTTP localhost cookies
     assert.equal(ownership.token(new Request(request.url, { headers: { cookie: cookie.split(';')[0] } })), 'cookie-owner-fixture');
   }
 });
+
+test('the demo exposes a realistic operator allowlist and serves the settings modules', { timeout: 10_000 }, async t => {
+  const running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb());
+  t.after(() => running.kill());
+  for (const path of ['/packages/ui/src/settings-dialog.js', '/packages/ui/src/local-connector.js', '/packages/ui/src/settings-styles.js', '/packages/core/src/settings.js']) {
+    assert.equal((await fetch(running.url + path)).status, 200, path);
+  }
+  for (const path of ['/demo/choices.js', '/packages/server/src/plugin-runtime.js']) assert.equal((await fetch(running.url + path)).status, 404, path);
+  const created = await post(running.url + '/api/sessions', {}), session = await created.json();
+  const cookie = created.headers.get('set-cookie').split(';')[0], headers = { cookie };
+  assert.deepEqual([session.processingPreset, session.settings.model, session.settings.voice, session.settings.visuals, session.settings.origin],
+    ['best', 'mock', 'fake-voice', 'fake-images', 'default']);
+  const catalog = await fetch(running.url + `/api/sessions/${session.id}/settings`, { headers }).then(r => r.json());
+  const ids = list => list.map(o => [o.id, o.status, o.reason]);
+  assert.deepEqual(ids(catalog.presets.best.models), [['mock', 'consent', 'current processing consent required'],
+    ['mock/deep', 'consent', 'current processing consent required'], ['openrouter/openai/gpt-4.1-mini', 'unavailable', 'not configured']]);
+  assert.deepEqual(catalog.presets.custom.models.map(o => o.id), ['mock', 'mock/swift', 'mock/deep', 'openrouter/openai/gpt-4.1-mini']);
+  assert.deepEqual(ids(catalog.presets.best.voices).map(([id, status]) => [id, status]), [['fake-voice', 'consent'], ['elevenlabs', 'unavailable']]);
+  assert.deepEqual(ids(catalog.presets.best.visuals).map(([id, status]) => [id, status]), [['fake-images', 'consent'], ['openai-images', 'unavailable']]);
+  assert.deepEqual([catalog.presets.eu.status, catalog.presets.eu.reason, catalog.presets.device.status], ['unavailable', 'not configured', 'available']);
+  assert.equal(JSON.stringify(catalog).includes('example.test'), false, 'private endpoints stay on the server');
+  const saved = await post(running.url + `/api/sessions/${session.id}/settings`, { processingPreset: 'custom', model: 'mock/swift', effort: 'low' }, headers);
+  assert.equal(saved.status, 200);
+  assert.deepEqual((await saved.json()).consent, { required: true, features: ['text', 'analysis'] }, 'the demo still waits for mock consent');
+});

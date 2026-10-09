@@ -7,15 +7,15 @@ import { en } from '../packages/ui/src/i18n/en.js';
 import { postJson } from '../packages/ui/src/post-json.js';
 const component = document.querySelector('aithema-session');
 const key = 'aithema-reset-slice-1-session';
-let processingPreset = 'best', fakeVoice, liveVoiceClient;
-async function open(fresh = false) {
+let fakeVoice, liveVoiceClient;
+// Without an explicit request the server offers the owner's last confirmed choice.
+async function open(fresh = false, request = {}) {
   try {
     const saved = fresh ? null : localStorage.getItem(key);
     let response = saved ? await fetch(`/api/sessions/${saved}`) : null;
-    if (!response?.ok) response = await postJson('/api/sessions', { processingPreset });
+    if (!response?.ok) response = await postJson('/api/sessions', request);
     if (!response.ok) throw new Error();
     const session = await response.json(); localStorage.setItem(key, session.id);
-    processingPreset = session.processingPreset ?? 'best';
     if (binding.voiceMode === 'fake') {
       const ports = createVoiceControl({ sessionId: session.id, receive: event => component.receive(event) });
       fakeVoice = createFakeVoice({ ...ports, copy: en });
@@ -29,8 +29,9 @@ async function open(fresh = false) {
         workletPaths: { rawAudioProcessor: '/vendor/elevenlabs/worklets/raw-audio.js', audioConcatProcessor: '/vendor/elevenlabs/worklets/audio-concat.js' },
         persistEvent: event => ports.persistEvent(event, { providerSessionId }) });
     }
-    component.configure({ voiceClient: liveVoiceClient ?? fakeVoice?.client, copy: en, session, deviceReasoning: processingPreset === 'device'
-      ? createDeviceReasoning({ endpoint: document.querySelector('#device-endpoint').value }) : undefined });
+    // The settings Advanced tab connects a local model through this browser-only factory.
+    component.configure({ voiceClient: liveVoiceClient ?? fakeVoice?.client, copy: en, session,
+      deviceConnector: createDeviceReasoning, deviceEndpoint: 'http://127.0.0.1:8000' });
     if (binding.processingConsent) {
       const current = await fetch(`/api/sessions/${session.id}/consent`).then(r => r.json());
       for (const checkbox of document.querySelectorAll('#processing-items input')) checkbox.checked = current.selected.includes(checkbox.value);
@@ -70,7 +71,17 @@ for (const [selector, key, action] of [['#fake-say', 'fakeVoiceSay', () => fakeV
   const button = document.querySelector(selector); button.textContent = en[key]; button.addEventListener('click', action);
 }
 document.querySelector('#fake-label').textContent = en.fakeVoice;
-component.addEventListener('aithema-preset', event => { processingPreset = event.detail.processingPreset; void open(true); });
+// A device conversation lives in its tab, so crossing that boundary starts a new session.
+component.addEventListener('aithema-new-conversation', event => {
+  const { processingPreset, settings } = event.detail;
+  void open(true, { processingPreset, settings });
+});
+// The settings dialog defers consent to this host interface.
+component.addEventListener('aithema-consent', () => {
+  document.querySelector('#consent-status').textContent = 'Your selection needs consent. Allow processing to continue.';
+  document.querySelector('section[aria-labelledby="consent-title"]').scrollIntoView?.({ block: 'nearest' });
+  (document.querySelector('#processing-items input:not(:checked)') ?? document.querySelector('#grant')).focus();
+});
 document.querySelector('#new').addEventListener('click', () => void open(true));
 for (const [selector, granted] of [['#grant', true], ['#revoke', false]]) {
   document.querySelector(selector).addEventListener('click', async () => {

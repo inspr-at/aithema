@@ -177,14 +177,16 @@ test('a withdrawal acknowledgement with an SSE gap clears visible content before
 });
 test.after(async () => window.happyDOM.close());
 
-test('preset choice preserves layout and snapshot feature updates defer under the pointer', async () => {
+test('the engine panel keeps its fixed size, defers snapshot feature updates under the pointer and offers settings', async () => {
   const c = setup();
   const session = c.session;
   session.featureMatrix.best.analysis = { available: false, reason: 'binding evidence expired' };
   c.configure({ copy: en, session });
   const root = c.shadowRoot;
-  assert.equal(root.querySelectorAll('.preset-choice option').length, 4);
-  assert.deepEqual([...root.querySelectorAll('.preset-choice option')].map(o => o.textContent), ['Best', 'EU', 'On my device', 'Custom']);
+  assert.equal(root.querySelector('.engine__value').textContent, 'Best models');
+  assert.equal(root.querySelector('.engine__label').textContent, en.processing);
+  assert.equal(root.querySelector('.settings-open').getAttribute('aria-haspopup'), 'dialog');
+  assert.equal(root.querySelector('.preset-choice'), null, 'presets change through acknowledged settings, never a raw select');
   assert.match(root.querySelector('.features').textContent, /binding evidence expired/);
   assert.ok(!root.querySelector('.features li').classList.contains('unavailable'));
   root.querySelector('.preset-panel').dispatchEvent(new window.Event('pointerenter'));
@@ -198,24 +200,20 @@ test('preset choice preserves layout and snapshot feature updates defer under th
     root.querySelector('.preset-panel').dispatchEvent(new window.Event('pointerleave'));
     assert.ok(!root.querySelector('.features').textContent.includes('binding evidence expired'));
   } finally { globalThis.fetch = originalFetch; }
-  let chosen; c.addEventListener('aithema-preset', e => { chosen = e.detail.processingPreset; });
-  const select = root.querySelector('select'); select.value = 'eu'; select.dispatchEvent(new window.Event('change'));
-  assert.equal(chosen, 'eu'); assert.equal(select.value, 'best', 'host must confirm choice with a new session');
   assert.match(root.querySelector('style').textContent, /height:9rem/);
 });
 
-test('switching Best to EU gates the composer and analysis with their exact reasons and prevents posts', async () => {
+test('an acknowledged switch to EU gates the composer and analysis with their exact reasons and prevents posts', async () => {
   const c = setup(); turn(c, 'first', 'Hello');
   assert.equal(c.shadowRoot.querySelector('textarea').disabled, false);
   assert.equal(c.shadowRoot.querySelector('.retry').hidden, false);
-  let chosen; c.addEventListener('aithema-preset', e => { chosen = e.detail.processingPreset; });
-  const select = c.shadowRoot.querySelector('.preset-choice');
-  select.value = 'eu'; select.dispatchEvent(new window.Event('change'));
-  assert.equal(chosen, 'eu');
-  const session = c.session; session.processingPreset = chosen;
+  const session = c.session;
   session.featureMatrix.eu = { text: { available: false, reason: 'not configured' }, analysis: { available: false, reason: 'consent required' } };
   c.configure({ copy: en, session });
+  c.receive({ seq: c.session.seq + 1, type: 'settings.changed', data: { processingPreset: 'eu',
+    settings: { ...session.settings, revision: 1, origin: 'chosen', at: new Date().toISOString() } } });
   const root = c.shadowRoot;
+  assert.equal(c.session.processingPreset, 'eu'); assert.equal(root.querySelector('.engine__value').textContent, 'In the EU');
   assert.equal(root.querySelector('textarea').disabled, true);
   assert.equal(root.querySelector('.send').disabled, true);
   assert.match(root.querySelector('.composer').textContent, /not configured/);
@@ -318,11 +316,19 @@ test('preset, feature and device copy comes from the host', async () => {
     presets: { best: 'Optimal', eu: 'Europa', device: 'Lokal', custom: 'Eigene' },
     features: { text: 'Text lokal', analysis: 'Analyse', voice: 'Stimme', transcription: 'Transkript', images: 'Bilder' },
     deviceExportUnavailable: 'Kein lokaler Export', deviceConnectFirst: 'Modell verbinden',
-    deviceConversation: 'Bleibt im Tab', deviceUnavailable: 'Modell fehlt' };
+    deviceConversation: 'Bleibt im Tab', deviceUnavailable: 'Modell fehlt', settings: { ...en.settings, open: 'Einstellungen' } };
   c.configure({ copy, session: createSession({ processingPreset: 'device' }) });
   let root = c.shadowRoot;
-  assert.deepEqual([...root.querySelectorAll('option')].map(n => n.textContent), ['Optimal', 'Europa', 'Lokal', 'Eigene']);
-  assert.match(root.querySelector('.preset-panel label').textContent, /Verarbeitung/);
+  assert.equal(root.querySelector('.engine__label').textContent, 'Verarbeitung');
+  assert.equal(root.querySelector('.engine__value').textContent, 'Lokal');
+  assert.equal(root.querySelector('.settings-open').textContent, 'Einstellungen');
+  assert.deepEqual([...root.querySelectorAll('.chooser-card strong')].map(n => n.textContent), ['Optimal', 'Europa', 'Lokal', 'Eigene']);
+  const originalFetch = globalThis.fetch; globalThis.fetch = async () => new Response(null, { status: 503 });
+  try {
+    c.openSettings(); await new Promise(r => setImmediate(r));
+    assert.deepEqual([...root.querySelectorAll('.preset-option .preset-name')].map(n => n.textContent), ['Optimal', 'Europa', 'Lokal', 'Eigene']);
+    root.querySelector('dialog.settings .done').click(); await new Promise(r => setImmediate(r));
+  } finally { globalThis.fetch = originalFetch; }
   assert.match(root.querySelector('.features').textContent, /Text lokal/);
   assert.equal(root.querySelector('.export').title, copy.deviceExportUnavailable);
   root.querySelector('textarea').value = 'Hello'; root.querySelector('form').dispatchEvent(new window.Event('submit'));
