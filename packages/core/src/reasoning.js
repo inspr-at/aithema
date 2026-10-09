@@ -2,6 +2,7 @@ import { mockManifest } from './plugins.js';
 import { beginInvocation, normalizedError } from './invocation.js';
 export { mockManifest } from './plugins.js';
 const canonicalMocks = new WeakSet();
+const MOCK_GERMAN_MARKERS = Object.freeze({ operations: 'betrieb', data: 'daten', systems: 'systeme', reach: 'reichweite', requirements: 'auflagen' });
 export function isCanonicalMockReasoning(plugin) { return canonicalMocks.has(plugin); }
 export function assertReasoning(plugin) {
   if (!plugin || typeof plugin.stream !== 'function' || typeof plugin.structured !== 'function') {
@@ -72,8 +73,13 @@ export function createMockReasoning({ model = 'mock', effort = 'none' } = {}) {
         invocation.dispatch(); invocation.usage({ inputTokens: 0, outputTokens: 0 });
         const turns = request.messages.filter(m => m.role === 'user' && !m.content.startsWith('{"kind":'));
         const constraints = Object.fromEntries(request.preset.slots.map(slot => {
-          const marker = `${slot}:`;
-          const turn = turns.findLast(t => t.content.toLowerCase().includes(marker));
+          // English slot names and START's German slot labels are both accepted markers.
+          const markers = [slot, ...(MOCK_GERMAN_MARKERS[slot] ? [MOCK_GERMAN_MARKERS[slot]] : [])].map(name => `${name}:`);
+          let turn, marker;
+          for (const candidate of turns.toReversed()) {
+            marker = markers.find(m => candidate.content.toLowerCase().includes(m));
+            if (marker) { turn = candidate; break; }
+          }
           if (!turn) return [slot, null];
           const start = turn.content.toLowerCase().indexOf(marker) + marker.length;
           const value = turn.content.slice(start).split(/[;\n]/u)[0].trim();
@@ -82,7 +88,7 @@ export function createMockReasoning({ model = 'mock', effort = 'none' } = {}) {
         completed = true;
         return { summary: turns.map(t => t.content).join(' ').slice(0, 500),
           signals: turns.slice(-3).map(t => t.content),
-          openQuestions: turns.length < 3 ? ['What outcome would make this useful?'] : [], constraints,
+          openQuestions: turns.length < 3 ? [request.locale === 'de' ? 'Welches Ergebnis wäre für Sie nützlich?' : 'What outcome would make this useful?'] : [], constraints,
           progress: { talk: { value: Math.min(1, turns.length / 4), reasoning: 'Mock turn count' },
             build: { value: 1, reasoning: 'Capped by supported slots' } }, actor: null, engagement: null, conceptIntent: null };
       } catch (error) { throw normalizedError(error, scope.signal); }

@@ -82,8 +82,8 @@ async function injectRegression(page, url, fail) {
       const response = await fetch(request.url());
       assert.equal(response.status, 200);
       const source = await response.text();
-      const faulty = source.replace("await postJson('/api/sessions', request)",
-        "await fetch('/api/sessions', { method: 'POST', body: JSON.stringify(request) })");
+      const faulty = source.replace("await postJson('/api/sessions', { ...request, locale: preferredLocale() })",
+        "await fetch('/api/sessions', { method: 'POST', body: JSON.stringify({ ...request, locale: preferredLocale() }) })");
       assert.notEqual(faulty, source, 'Regression injection must replace the demo session POST');
       await request.respond({ status: 200, contentType: 'text/javascript', body: faulty });
     })().catch(fail);
@@ -197,6 +197,8 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
     try {
       await Promise.race([failure.promise, (async () => {
         if (process.env.AITHEMA_BROWSER_REGRESSION === '1') await injectRegression(page, url, fail);
+        // The page language follows the browser; pin English whatever the machine locale is.
+        await page.evaluateOnNewDocument(() => { Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] }); });
         // The demo has no favicon. Avoid Chrome's implicit, unrelated /favicon.ico probe.
         await page.evaluateOnNewDocument(() => {
           document.addEventListener('DOMContentLoaded', () => {
@@ -253,7 +255,6 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
           }
           await waitForShadow(page, '.composer textarea', { enabled });
         }
-        // The UI defers transcript/aside changes while the pointer is over them.
         await page.mouse.move(0, 0);
         assert.equal(await page.$eval('aithema-session', component =>
           component.shadowRoot.querySelector('.summary-text').textContent), '');
@@ -381,4 +382,189 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
       page.off('console', consoleError); page.off('pageerror', fail); page.off('error', fail);
       page.off('response', responseError); page.off('requestfailed', requestError);
     }
+  });
+
+async function startDemo(directory, port = '0') {
+  const child = fork(new URL('../../demo/server.js', import.meta.url), [], {
+    env: { PATH: process.env.PATH, PORT: port, AITHEMA_DB: join(directory, 'session.sqlite'), AITHEMA_PROVIDER: 'mock' }, silent: true,
+  });
+  child.stdout.resume(); child.stderr.resume();
+  const [message] = await Promise.race([once(child, 'message'),
+    once(child, 'exit').then(([code]) => { throw new Error(`Demo host exited before ready (code ${code})`); })]);
+  return { child, url: message.url };
+}
+async function stopDemo(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const exited = once(child, 'exit'), timer = setTimeout(() => child.kill('SIGKILL'), 5_000);
+  try { child.kill('SIGTERM'); await exited; } finally { clearTimeout(timer); }
+}
+async function preparePage(page, languages) {
+  await page.setViewport({ width: 1440, height: 1000 });
+  page.setDefaultTimeout(waitTimeout);
+  await page.evaluateOnNewDocument(languages => {
+    Object.defineProperty(navigator, 'languages', { get: () => languages });
+    Object.defineProperty(navigator, 'language', { get: () => languages[0] });
+    document.addEventListener('DOMContentLoaded', () => {
+      const icon = document.createElement('link'); icon.rel = 'icon'; icon.href = 'data:,'; document.head.append(icon);
+    }, { once: true });
+  }, languages);
+}
+const inShadow = (page, fn, ...args) => page.$eval('aithema-session', fn, ...args);
+const box = (page, selector) => inShadow(page, (c, selector) => {
+  const rect = c.shadowRoot.querySelector(selector).getBoundingClientRect();
+  return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+}, selector);
+function sameBox(before, after, label) {
+  for (const key of ['x', 'y', 'width', 'height']) {
+    assert.ok(Math.abs(before[key] - after[key]) <= .5, `${label} moved under the pointer: ${JSON.stringify(before)} → ${JSON.stringify(after)}`);
+  }
+}
+// Rest the pointer on the visible part of an element and leave it there.
+async function rest(page, selector) {
+  await inShadow(page, (c, selector) => c.shadowRoot.querySelector(selector).scrollIntoView({ block: 'nearest' }), selector);
+  const target = await box(page, selector);
+  await page.mouse.move(target.x + Math.min(target.width / 2, 40), target.y + Math.min(target.height / 2, 10));
+  return target;
+}
+const until = (page, fn, arg) => page.waitForFunction(fn, { polling: 50, timeout: waitTimeout }, arg);
+const sendTurn = (page, text) => inShadow(page, (c, text) => {
+  c.shadowRoot.querySelector('textarea').value = text; c.shadowRoot.querySelector('form').requestSubmit();
+}, text);
+const voiceState = page => inShadow(page, c => c.shadowRoot.querySelector('.audio-rail').dataset.state);
+async function startCall(page) {
+  await inShadow(page, c => c.shadowRoot.querySelector('.voice-start').click());
+  await until(page, () => ['listening', 'speaking'].includes(document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state));
+}
+async function endCall(page) {
+  await inShadow(page, c => c.shadowRoot.querySelector('.voice-close').click());
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'idle');
+}
+
+test('live updates appear under a resting pointer without moving it; blur, reload, restart and German behave (AIT-116)',
+  { timeout: 240_000 }, async t => {
+    const executablePath = await browserPath();
+    const directory = await mkdtemp(join(tmpdir(), 'aithema-browser-live-'));
+    let demo = await startDemo(directory), browser;
+    t.after(async () => {
+      try { await browser?.close(); }
+      finally { await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); }
+    });
+    browser = await puppeteer.launch({ executablePath, headless: true, env: { PATH: process.env.PATH, HOME: homedir() },
+      userDataDir: join(directory, 'chrome'), timeout: waitTimeout,
+      args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    const problems = []; let restarting = false;
+    const watch = page => {
+      page.on('pageerror', error => problems.push(`pageerror ${error.message}`));
+      page.on('response', response => {
+        if (response.status() >= 400 && !(restarting && response.status() === 503)) {
+          problems.push(`${response.status()} ${response.request().method()} ${new URL(response.url()).pathname}`);
+        }
+      });
+    };
+    const page = await browser.newPage(); await preparePage(page, ['en-US', 'en']); watch(page);
+    await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
+    await page.click('#grant'); await waitForShadow(page, '.composer textarea', { enabled: true });
+    await sendTurn(page, 'We are a bakery and want a pre-order app for our customers.');
+    await waitForShadow(page, 'aside .notice', { text: 'Current assessment' });
+
+    // D7: window blur alone never pauses the call or the session.
+    await startCall(page);
+    await page.evaluate(() => window.dispatchEvent(new Event('blur')));
+    await new Promise(resolve => setTimeout(resolve, 400));
+    assert.notEqual(await voiceState(page), 'paused');
+    assert.equal(await inShadow(page, c => c.session.paused), false, 'blur must not pause the session');
+
+    // D2: the transcript under a resting pointer receives new turns at once and the hovered row stays put.
+    const lastRow = await inShadow(page, c => c.shadowRoot.querySelector('ol li:last-child').dataset.id);
+    const rowBefore = await rest(page, `ol li[data-id="${lastRow}"]`);
+    const rowsBefore = await inShadow(page, c => c.shadowRoot.querySelectorAll('ol li').length);
+    await page.evaluate(() => document.querySelector('#fake-say').click());
+    await page.evaluate(() => document.querySelector('#fake-say').click());
+    await until(page, count => {
+      const c = document.querySelector('aithema-session'), rows = c.shadowRoot.querySelectorAll('ol li').length;
+      return rows >= count + 4 && rows === c.session.transcript.filter(turn => !turn.erased || turn.role === 'user').length;
+    }, rowsBefore);
+    sameBox(rowBefore, await box(page, `ol li[data-id="${lastRow}"]`), 'hovered transcript row');
+
+    // D2: the aside under a resting pointer shows new understanding at once; content above grows without moving it.
+    const heading = '.analysis-content section:nth-of-type(2) h3';
+    const headingBefore = await rest(page, heading), summaryBefore = await inShadow(page, c => c.shadowRoot.querySelector('.summary-text').textContent);
+    // A long typed turn makes the summary above the hovered heading several lines taller.
+    await sendTurn(page, 'Customers order bread online the day before, pick it up at a chosen time, and staff see one list per morning sorted by pickup time and branch.');
+    await until(page, before => {
+      const c = document.querySelector('aithema-session'), shown = c.shadowRoot.querySelector('.summary-text').textContent;
+      return shown !== before && shown === c.session.understanding.summary;
+    }, summaryBefore);
+    sameBox(headingBefore, await box(page, heading), 'hovered aside heading');
+    assert.ok(await inShadow(page, c => c.shadowRoot.querySelector('.analysis-content').scrollTop) > 0, 'the summary grew above the pointer');
+    await endCall(page);
+
+    // D2: the concept rail under a resting pointer shows the finished concept at once.
+    const requestBefore = await rest(page, '.concept-request');
+    await page.mouse.down(); await page.mouse.up();
+    await until(page, () => {
+      const r = document.querySelector('aithema-session').shadowRoot;
+      return !r.querySelector('.concept-tab').disabled && r.querySelector('.concept-preview').style.visibility !== 'hidden'
+        && r.querySelector('.concept-activity-text').textContent === 'Your concept is ready.';
+    });
+    sameBox(requestBefore, await box(page, '.concept-request'), 'concept request button');
+
+    // D3: Like, a guidance chip and Regenerate show their effect while the pointer rests on them.
+    await inShadow(page, c => c.shadowRoot.querySelector('.concept-tab').click());
+    await waitForShadow(page, '.concept-count', { text: '1 of 1' });
+    const likeBefore = await rest(page, '.concept-up'); await page.mouse.down(); await page.mouse.up();
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.concept-up').getAttribute('aria-pressed') === 'true');
+    sameBox(likeBefore, await box(page, '.concept-up'), 'Like');
+    const chipBefore = await rest(page, '.concept-guidance-options button'); await page.mouse.down(); await page.mouse.up();
+    await waitForShadow(page, '.concept-guidance-selected button', { text: 'Remove: Simpler layout' });
+    sameBox(chipBefore, await box(page, '.concept-guidance-options button'), 'guidance chip');
+    const regenerateBefore = await rest(page, '.concept-regenerate'); await page.mouse.down(); await page.mouse.up();
+    await waitForShadow(page, '.concept-count', { text: '1 of 2' });
+    await waitForShadow(page, '.concept-next', { enabled: true });
+    sameBox(regenerateBefore, await box(page, '.concept-regenerate'), 'Regenerate');
+    await page.keyboard.press('ArrowRight');
+    await waitForShadow(page, '.concept-count', { text: '2 of 2' });
+    await page.keyboard.press('Escape'); await page.mouse.move(0, 0);
+
+    // D4: reloading during a call ends it cleanly: no pause, no conflict, Start call works at once.
+    await startCall(page);
+    const sessionId = await inShadow(page, c => c.session.id);
+    await page.reload({ waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea', { enabled: true });
+    await until(page, id => sessionStorage.getItem(`aithema-voice-call:${id}`) === null, sessionId);
+    assert.equal(await inShadow(page, c => c.session.paused), false, 'a reload must not leave the session paused');
+    assert.equal(await page.$eval('#consent-status', node => node.textContent), 'Mock processing allowed.', 'D8: the consent line shows the active grant');
+    await startCall(page);
+    await endCall(page);
+
+    // D6: a host restart drops in-memory grants; the open page shows that without a reload.
+    const port = new URL(demo.url).port;
+    restarting = true; await stopDemo(demo.child); demo = await startDemo(directory, port);
+    await waitForShadow(page, '.composer textarea', { enabled: false });
+    await until(page, () => document.querySelector('#consent-status').textContent === 'Grant consent before mock processing.');
+    await waitForShadow(page, '.status', { text: 'Connected' });
+    restarting = false;
+
+    // D1: a German browser gets a German page and German replies; a new choice applies to the next conversation.
+    const context = await browser.createBrowserContext(), german = await context.newPage();
+    await preparePage(german, ['de-DE', 'de']); watch(german);
+    await german.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(german, '.composer textarea');
+    assert.equal(await inShadow(german, c => c.session.locale), 'de');
+    assert.equal(await german.evaluate(() => document.documentElement.lang), 'de');
+    assert.equal(await german.$eval('#new', node => node.textContent), 'Neues Gespräch beginnen');
+    await german.click('#grant'); await waitForShadow(german, '.composer textarea', { enabled: true });
+    assert.equal(await german.$eval('#consent-status', node => node.textContent), 'Mock-Verarbeitung erlaubt.');
+    await sendTurn(german, 'Wir sind eine Tischlerei. Betrieb: wir hosten selbst; Daten: nur intern');
+    await waitForShadow(german, 'aside .notice', { text: 'Aktuelle Einschätzung' });
+    assert.equal(await inShadow(german, c => c.session.transcript.at(-1).content), 'Was sollte sich als Erstes verbessern?');
+    assert.deepEqual(await inShadow(german, c => [...c.shadowRoot.querySelectorAll('.cleared summary')].map(n => n.textContent).sort()), ['Betrieb', 'Daten']);
+    await german.select('#locale', 'en');
+    assert.equal(await german.$eval('#language-note', node => node.textContent),
+      'Neue Gespräche beginnen auf Englisch. Dieses Gespräch bleibt auf Deutsch.');
+    await german.click('#new');
+    await until(german, () => document.querySelector('aithema-session').session.locale === 'en' && document.documentElement.lang === 'en');
+    await waitForShadow(german, '.send', { text: 'Send' });
+    assert.equal(await german.$eval('#language-note', node => node.textContent), '');
+    await context.close();
+    assert.deepEqual(problems, []);
+    t.diagnostic('Under a resting pointer: transcript, aside, concept rail and viewer updated at once with 0 px movement; blur kept the call; reload ended it without pause or 409; restart showed consent required; German page and replies.');
   });

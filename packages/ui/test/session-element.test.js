@@ -41,17 +41,28 @@ test('readiness/aside uses draft truth, five missing rows plus overflow and pres
   root.querySelector('.expand').click(); assert.equal(details.open, true);
   turn(c, 't2', 'More'); assert.equal(root.querySelector('.notice').textContent, en.stale);
 });
-test('automatic aside and transcript changes wait while the pointer is over their region', () => {
-  const c = setup(), root = c.shadowRoot;
-  root.querySelector('.transcript-shell').dispatchEvent(new window.Event('pointerenter'));
-  turn(c, 't1', 'SAP'); assert.equal(root.querySelectorAll('.turn').length, 0);
-  root.querySelector('.transcript-shell').dispatchEvent(new window.Event('pointerleave'));
-  assert.equal(root.querySelectorAll('.turn').length, 1);
+test('automatic aside and transcript changes render at once under the pointer; rows update in place and append below', () => {
+  const c = setup(), root = c.shadowRoot, shell = root.querySelector('.transcript-shell');
+  turn(c, 't0', 'First'); const first = root.querySelector('.turn'), withdraw = first.querySelector('.withdraw');
+  shell.dispatchEvent(new window.Event('pointerenter'));
+  turn(c, 't1', 'SAP'); assert.equal(root.querySelectorAll('.turn').length, 2, 'no deferral while hovered (AIT-116 D2)');
+  assert.equal(root.querySelector('.turn'), first, 'existing rows keep their nodes'); assert.equal(first.querySelector('.withdraw'), withdraw);
+  assert.equal(root.querySelectorAll('.turn')[1].dataset.id, 't1', 'new turns append below');
+  shell.dispatchEvent(new window.Event('pointerleave'));
   root.querySelector('.understanding').dispatchEvent(new window.Event('pointerenter'));
   c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
-  assert.equal(root.querySelector('.summary-text').textContent, '');
+  assert.match(root.querySelector('.summary-text').textContent, /untrusted/);
   root.querySelector('.understanding').dispatchEvent(new window.Event('pointerleave'));
   assert.match(root.querySelector('.summary-text').textContent, /untrusted/);
+});
+test('empty aside lists say so quietly once assessed and stay hidden before', () => {
+  const c = setup(), root = c.shadowRoot;
+  assert.ok([...root.querySelectorAll('.analysis-content section')].every(n => n.hidden), 'nothing to show before the first assessment');
+  turn(c, 't1', 'SAP');
+  const data = understanding(c); data.openQuestions = []; data.signals = [];
+  c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data });
+  assert.ok([...root.querySelectorAll('.analysis-content section')].every(n => !n.hidden));
+  assert.equal(root.querySelector('.questions').textContent, en.noneYet); assert.equal(root.querySelector('.signals').textContent, en.noneYet);
 });
 test('partial assistant turns are replaced by final; stale fragments and duplicate events are ignored', () => {
   const c = setup(); turn(c, 't1', 'Hello'); const revision = inputRevision(c.session);
@@ -194,7 +205,7 @@ test('a withdrawal acknowledgement with an SSE gap clears visible content before
 });
 test.after(async () => window.happyDOM.close());
 
-test('the engine panel keeps its fixed size, defers snapshot feature updates under the pointer and offers settings', async () => {
+test('the engine panel keeps its fixed size, renders snapshot feature updates at once under the pointer and offers settings', async () => {
   const c = setup();
   const session = c.session;
   session.featureMatrix.best.analysis = { available: false, reason: 'binding evidence expired' };
@@ -204,7 +215,8 @@ test('the engine panel keeps its fixed size, defers snapshot feature updates und
   assert.equal(root.querySelector('.engine__label').textContent, en.processing);
   assert.equal(root.querySelector('.settings-open').getAttribute('aria-haspopup'), 'dialog');
   assert.equal(root.querySelector('.preset-choice'), null, 'presets change through acknowledged settings, never a raw select');
-  assert.match(root.querySelector('.features').textContent, /binding evidence expired/);
+  const expired = en.reasons['binding evidence expired'];
+  assert.ok(root.querySelector('.features').textContent.includes(expired), 'machine reasons show in the page language');
   assert.ok(!root.querySelector('.features li').classList.contains('unavailable'));
   root.querySelector('.preset-panel').dispatchEvent(new window.Event('pointerenter'));
   const originalFetch = globalThis.fetch;
@@ -213,9 +225,8 @@ test('the engine panel keeps its fixed size, defers snapshot feature updates und
   try {
     c.receive({ seq: c.session.seq + 2, type: 'turn.final', data: {} });
     await new Promise(r => setImmediate(r));
-    assert.match(root.querySelector('.features').textContent, /binding evidence expired/);
+    assert.ok(!root.querySelector('.features').textContent.includes(expired), 'snapshot features render at once under the pointer');
     root.querySelector('.preset-panel').dispatchEvent(new window.Event('pointerleave'));
-    assert.ok(!root.querySelector('.features').textContent.includes('binding evidence expired'));
   } finally { globalThis.fetch = originalFetch; }
   assert.match(root.querySelector('style').textContent, /height:9rem/);
 });
@@ -233,7 +244,7 @@ test('an acknowledged switch to EU gates the composer and analysis with their ex
   assert.equal(c.session.processingPreset, 'eu'); assert.equal(root.querySelector('.engine__value').textContent, 'In the EU');
   assert.equal(root.querySelector('textarea').disabled, true);
   assert.equal(root.querySelector('.send').disabled, true);
-  assert.match(root.querySelector('.composer').textContent, /not configured/);
+  assert.match(root.querySelector('.composer').textContent, /Not configured/);
   assert.equal(root.querySelector('.understanding').getAttribute('aria-disabled'), 'true');
   assert.equal(root.querySelector('.notice').textContent, 'consent required');
   assert.equal(root.querySelector('.readiness').style.visibility, 'hidden');
@@ -262,9 +273,9 @@ test('composer gates update immediately while hovered and the aside stays in pla
     assert.equal(root.querySelector('.send'), send); assert.equal(root.querySelector('.understanding'), aside);
     assert.equal(send.disabled, true, 'fixed composer controls update while hovered');
     assert.equal(root.querySelector('textarea').disabled, true);
-    assert.equal(root.querySelector('.composer-reason').textContent, 'session paused');
-    assert.equal(root.querySelector('.composer-reason').title, 'session paused');
-    assert.equal(root.querySelector('.retry').hidden, false);
+    assert.equal(root.querySelector('.composer-reason').textContent, en.reasons['session paused']);
+    assert.equal(root.querySelector('.composer-reason').title, en.reasons['session paused']);
+    assert.equal(root.querySelector('.retry').hidden, true, 'the aside renders at once under the pointer');
     composer.dispatchEvent(new window.Event('pointerleave')); aside.dispatchEvent(new window.Event('pointerleave'));
     assert.equal(send.disabled, true); assert.equal(root.querySelector('.retry').hidden, true);
     assert.equal(aside.hidden, false, 'fixed aside remains in the layout');
@@ -372,21 +383,21 @@ test('device sends text in this tab only; browser configure/disconnect aborts lo
     assert.equal(c.shadowRoot.querySelector('.retry').hidden, true);
     assert.equal(c.shadowRoot.querySelector('.export').getAttribute('aria-disabled'), 'true');
     assert.equal(c.shadowRoot.querySelector('.export').hasAttribute('href'), false);
-    assert.match(c.shadowRoot.querySelector('.features').textContent, /unavailable on device/);
+    assert.ok(c.shadowRoot.querySelector('.features').textContent.includes(en.reasons['unavailable on device']));
     c.remove(); assert.equal(signal.aborted, true);
   } finally { c.remove(); globalThis.fetch = originalFetch; }
 });
 
-test('pause and consent gate sends immediately while preset updates defer and cached understanding stays visible', async () => {
+test('pause and consent gate sends and preset rows immediately while cached understanding stays visible', async () => {
   const c = setup(), root = c.shadowRoot;
   turn(c, 'input', 'systems: SAP');
   c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
   const send = root.querySelector('.send'), pause = root.querySelector('.pause'), preset = root.querySelector('.preset-panel');
   preset.dispatchEvent(new window.Event('pointerenter'));
-  const features = root.querySelector('.features').textContent;
   c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
   assert.equal(send.disabled, true); assert.equal(pause.textContent, en.resume);
-  assert.equal(root.querySelector('.features').textContent, features);
+  assert.match(root.querySelector('.features').textContent, /Session paused/);
+  assert.equal(root.querySelector('.status').textContent, en.paused, 'the status line follows the pause');
   assert.equal(root.querySelector('.summary-text').textContent.includes('untrusted'), true);
   assert.equal(root.querySelector('.readiness').style.visibility, '');
   assert.ok([...root.querySelectorAll('.analysis-content section')].every(node => !node.hidden));
@@ -440,7 +451,7 @@ test('device withdrawal aborts the local stream, redacts without moving hovered 
     assert.equal(c.session.transcript[0].erased, true);
     assert.equal(list.textContent.includes('Withdraw this local statement'), false);
     assert.equal(list.textContent.includes('Local private answer'), false);
-    assert.equal(list.querySelector('.user'), row); assert.equal(row.querySelector('.withdraw'), button);
+    assert.ok(list.querySelector('.user') === row, 'the hovered row keeps its node'); assert.ok(button.isConnected === false, 'a withdrawn statement has no withdraw action');
     assert.equal(row.style.minHeight, '96px'); assert.equal(partial.style.minHeight, '48px');
     assert.equal(shell.scrollTop, 17); assert.equal(root.querySelector('.send'), send);
     release(); await new Promise(resolve => setImmediate(resolve));
@@ -516,4 +527,48 @@ test('header-owned export fetches the ZIP with ownership and releases the downlo
     assert.deepEqual(downloaded, [{ href: 'blob:header-owned-fixture', download: 'aithema-session.zip' }]);
     assert.deepEqual(revoked, ['blob:header-owned-fixture']);
   } finally { globalThis.fetch = originalFetch; }
+});
+
+test('a reconnect re-reads feature verdicts, so a host restart that dropped consent shows it (D6)', async () => {
+  const c = setup(), originalFetch = globalThis.fetch; let streams = 0, refreshed = 0;
+  const session = c.session;
+  globalThis.fetch = async (url, options = {}) => {
+    if (url.endsWith('/events')) {
+      streams++;
+      // The first stream ends as if the host stopped; the next one stays open.
+      return new Response(new ReadableStream({ start(controller) {
+        if (streams === 1) controller.close();
+        else options.signal.addEventListener('abort', () => controller.close(), { once: true });
+      } }));
+    }
+    const next = structuredClone(session);
+    next.featureMatrix.best = { text: { available: false, reason: 'current processing consent required' },
+      analysis: { available: false, reason: 'current processing consent required' } };
+    return Response.json(next);
+  };
+  c.addEventListener('aithema-features', () => { refreshed++; });
+  try {
+    document.body.append(c);
+    for (let i = 0; i < 300 && !refreshed; i++) await new Promise(resolve => setTimeout(resolve, 10));
+    const root = c.shadowRoot;
+    assert.equal(refreshed, 1); assert.equal(root.querySelector('.send').disabled, true);
+    assert.equal(root.querySelector('.composer-reason').textContent, en.reasons['current processing consent required']);
+    assert.equal(root.querySelector('.notice').textContent, en.reasons['current processing consent required']);
+    assert.equal(root.querySelector('.status').textContent, en.connected);
+  } finally { c.remove(); await new Promise(resolve => setImmediate(resolve)); globalThis.fetch = originalFetch; }
+});
+test('the German bundle covers every English key and renders the component in German', async () => {
+  const { de } = await import('../src/i18n/de.js');
+  const keys = (value, prefix = '') => Object.entries(value).flatMap(([key, item]) =>
+    item && typeof item === 'object' && !Array.isArray(item) ? keys(item, `${prefix}${key}.`) : [`${prefix}${key}`]);
+  const german = new Set(keys(de));
+  assert.deepEqual(keys(en).filter(key => !german.has(key)), []);
+  assert.equal(de.conceptGuidance.length, en.conceptGuidance.length);
+  const c = document.createElement('aithema-session'), session = createSession({ locale: 'de' });
+  session.featureMatrix = { best: { text: { available: false, reason: 'current processing consent required' } } };
+  c.configure({ copy: de, session });
+  const root = c.shadowRoot;
+  assert.equal(root.querySelector('.send').textContent, 'Senden');
+  assert.equal(root.querySelector('.composer-reason').textContent, de.reasons['current processing consent required']);
+  assert.match(root.querySelector('.features').textContent, /Auswertung/);
 });

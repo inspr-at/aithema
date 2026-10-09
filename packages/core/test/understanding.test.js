@@ -117,3 +117,19 @@ test('input revision includes consent/withdrawal and locale changes', () => {
   s.sessionRevision++; assert.notEqual(inputRevision(s), '0:1:1:en:0:false');
   s.tombstone = 'erased'; assert.match(inputRevision(s), /:true$/u);
 });
+
+test('a German session prompts German replies and the mock reads German slot markers (AIT-116 D1)', async () => {
+  const { createMockReasoning, reasoningRequest, applyEvent } = await import('../src/index.js');
+  let session = createSession({ locale: 'de' });
+  session = applyEvent(session, { seq: 1, type: 'turn.final', data: { id: 'u1', role: 'user',
+    content: 'Wir sind eine Tischlerei. Betrieb: wir hosten selbst; Daten: nur intern; Systeme: SAP; Reichweite: Österreich' } });
+  const request = reasoningRequest(session, 'understanding');
+  assert.match(request.system, /Write in German \(locale de\)/u); assert.equal(request.locale, 'de');
+  const mock = createMockReasoning(), result = await mock.structured(request, {});
+  assert.deepEqual(['operations', 'data', 'systems', 'reach'].map(slot => result.constraints[slot]?.value),
+    ['wir hosten selbst', 'nur intern', 'SAP', 'Österreich']);
+  assert.deepEqual(result.openQuestions, ['Welches Ergebnis wäre für Sie nützlich?']);
+  let reply = ''; for await (const chunk of mock.stream(reasoningRequest(session, 'reaction'), {})) reply += chunk;
+  assert.equal(reply, 'Was sollte sich als Erstes verbessern?');
+  assert.match(reasoningRequest(createSession(), 'reaction').system, /Write in English \(locale en\)/u);
+});

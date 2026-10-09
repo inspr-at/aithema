@@ -44,7 +44,8 @@ test('demo host creates owned sessions through postJson and combines consent, pa
     pause.click();
     await wait(() => component.session.paused && send.disabled);
     assert.equal(pause.textContent, 'Resume');
-    assert.equal(root.querySelector('.features').textContent, features, 'preset rows wait for pointer leave');
+    assert.notEqual(root.querySelector('.features').textContent, features, 'preset rows update at once under the pointer');
+    assert.equal(document.documentElement.lang, 'en'); assert.equal(component.session.locale, 'en');
     assert.equal(root.querySelector('.readiness').style.visibility, '', 'cached analysis stays visible during pause');
     pause.click(); await wait(() => !component.session.paused && !send.disabled);
     document.querySelector('#revoke').click();

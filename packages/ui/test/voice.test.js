@@ -7,6 +7,7 @@ import { AudioRail } from '../src/audio-rail.js';
 import { en } from '../src/i18n/en.js';
 import { manifest } from '../../../plugins/elevenlabs/src/manifest.js';
 import { styles } from '../src/styles.js';
+import { voiceJournal } from '../src/voice-orphan.js';
 import { createElevenLabsClient } from '../../../plugins/elevenlabs/src/client.js';
 import { eventProbe } from '../../../test/voice-test-events.js';
 const window = new Window();
@@ -14,7 +15,7 @@ for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) 
 await import('../src/session-element.js');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
-function fixture(t, { pause, unavailable = false } = {}) {
+function fixture(t, { pause, unavailable = false, journal, ready, start } = {}) {
   const root = document.createElement('div'); document.body.append(root);
   const commands = [], events = voiceEvents(), context = { understanding: 'fixture' };
   const session = { callId: 'local-call', providerSessionId: 'local-provider', events,
@@ -24,8 +25,8 @@ function fixture(t, { pause, unavailable = false } = {}) {
     async resume() { return { acknowledged: true, paused: false }; },
     async close() { commands.push(['close']); events.end(); return { closureConfirmed: true }; },
   };
-  const client = { manifest, async start() { return session; } };
-  const rail = new AudioRail({ root, copy: en, client, feature: () => ({ available: !unavailable, reason: 'preset denies voice' }), context: () => context });
+  const client = { manifest, async start() { if (start) await start(); return session; } };
+  const rail = new AudioRail({ root, copy: en, client, feature: () => ({ available: !unavailable, reason: 'preset denies voice' }), context: () => context, journal, ready });
   t.after(async () => { await rail.close(); rail.destroy(); root.remove(); });
   return { root, rail, commands, events, context };
 }
@@ -51,9 +52,17 @@ test('pause state changes only after server acknowledgement and focus never resu
   acknowledge({ acknowledged: true, paused: true }); await pending; assert.equal(root.dataset.state, 'paused');
   window.dispatchEvent(new window.Event('focus')); await tick(); assert.equal(root.dataset.state, 'paused');
 });
-test('tab blur pauses an active call; unacknowledged pause has distinct failure copy', async t => {
-  const { rail, root } = fixture(t); await rail.start(); window.dispatchEvent(new window.Event('blur')); await tick();
-  assert.equal(root.dataset.state, 'paused'); await rail.pause(false);
+test('window blur keeps the call; a hidden page pauses it as START does; unacknowledged pause has distinct failure copy', async t => {
+  const records = new Map(), storage = { getItem: k => records.get(k) ?? null, setItem: (k, v) => records.set(k, v), removeItem: k => records.delete(k) };
+  const journal = voiceJournal(storage, 's1');
+  const { rail, root } = fixture(t, { journal }); await rail.start(); window.dispatchEvent(new window.Event('blur')); await tick();
+  assert.equal(root.dataset.state, 'listening', 'switching windows never pauses (AIT-116 D7)');
+  assert.deepEqual(journal.read(), { callId: 'local-call', providerSessionId: 'local-provider', autoPaused: false });
+  t.mock.method(document, 'hidden', () => true, { getter: true });
+  document.dispatchEvent(new window.Event('visibilitychange')); await tick();
+  assert.equal(root.dataset.state, 'paused'); assert.equal(journal.read().autoPaused, true, 'the journal knows this pause was automatic');
+  t.mock.restoreAll();
+  await rail.pause(false); assert.equal(journal.read().autoPaused, false);
   rail.session.pause = async () => ({ acknowledged: false, paused: true }); await rail.pause(true);
   assert.equal(root.querySelector('.voice-state').textContent, en.voicePauseFailed); assert.equal(rail.paused, false);
 });
@@ -95,7 +104,9 @@ test('component sends typed text through active voice, updates context and accep
   };
   t.after(() => { globalThis.fetch = originalFetch; });
   const c = document.createElement('aithema-session');
+  let activeCall;
   c.configure({ copy: en, session, voiceClient: { manifest, async start({ callId }) {
+    activeCall = callId;
     return { callId, providerSessionId: 'slow-provider', events, async close() { events.end(); return terminal; },
       async setInput() {}, async setOutput() {}, async sendText(value) { commands.push(['text', value]); },
       async updateContext(value) { commands.push(['context', value]); } };
@@ -106,6 +117,9 @@ test('component sends typed text through active voice, updates context and accep
   assert.ok(commands.some(([name, value]) => name === 'text' && value === 'typed during voice'));
   assert.equal(c.session.transcript.length, 1, 'typed text persists even when the provider never echoes');
   assert.ok(commands.findIndex(([name]) => name === 'persist') < commands.findIndex(([name]) => name === 'text'));
+  assert.equal(root.querySelector('.status').textContent, en.voiceTextSent);
+  events.push({ callId: activeCall, type: 'speaking' }); await tick();
+  assert.notEqual(root.querySelector('.status').textContent, en.voiceTextSent, 'the status line follows the call state (D11)');
   c.receive({ seq: c.session.seq + 1, type: 'question.focused', data: { question: 'Which systems?' } }); await tick();
   assert.equal(commands.at(-1)[1].focusedQuestion, 'Which systems?');
   c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...c.session.understanding, summary: 'New context', inputRevision: inputRevision(c.session) } }); await tick();
@@ -228,4 +242,39 @@ test('heard correction truncates the bubble immediately under hover while preser
   shell.dispatchEvent(new window.Event('pointerleave')); assert.equal(c.session.transcript[0].content, 'Heard.');
   assert.match(styles, /height:8rem/); assert.match(styles, /grid-template-columns:repeat\(7,minmax\(0,1fr\)\)/);
   assert.ok(!/\.voice-controls[^}]*:hover[^}]*\b(?:width|height|padding|margin|transform):/u.test(styles));
+});
+test('Start waits for the orphan cleanup and a 409 conflict gets a precise message', async t => {
+  let release; const ready = new Promise(resolve => { release = resolve; }); let started = 0;
+  const { rail, root } = fixture(t, { ready: () => ready, start: () => { started++; } });
+  const starting = rail.start(); await tick();
+  assert.equal(started, 0, 'no start request while the previous page call is being ended');
+  assert.equal(root.dataset.state, 'connecting'); release(); await starting;
+  assert.equal(started, 1); assert.equal(root.dataset.state, 'listening'); await rail.close();
+  rail.client.start = async () => { throw Object.assign(new Error('Voice control failed'), { code: 'voice-conflict' }); };
+  await rail.start();
+  assert.equal(root.querySelector('.voice-state').textContent, en.voiceConflict);
+  assert.notEqual(en.voiceConflict, en.voiceConnectionFailed); assert.equal(rail.button('retry').disabled, false);
+});
+test('a reloaded page ends its own orphaned call through the close route and lifts only its own automatic pause', async () => {
+  const records = new Map(), storage = { getItem: k => records.get(k) ?? null, setItem: (k, v) => records.set(k, v), removeItem: k => records.delete(k) };
+  const original = globalThis.sessionStorage, nativeFetch = globalThis.fetch, calls = [];
+  for (const [autoPaused, expected] of [[true, false], [false, true]]) {
+    const session = createSession({ demo: true }); session.paused = true; calls.length = 0;
+    voiceJournal(storage, session.id).save({ callId: 'old-call', providerSessionId: 'old-provider', autoPaused });
+    globalThis.sessionStorage = storage;
+    globalThis.fetch = async (url, options) => {
+      calls.push({ url, body: JSON.parse(options.body), keepalive: options.keepalive });
+      if (url.endsWith('/pause')) return Response.json({ event: { sessionId: session.id, seq: session.seq + 1, type: 'session.paused', data: { paused: false } } });
+      return Response.json({ closureConfirmed: true });
+    };
+    try {
+      const c = document.createElement('aithema-session'); c.configure({ copy: en, session });
+      for (let i = 0; i < 5; i++) await tick();
+      assert.deepEqual(calls[0], { url: `/api/sessions/${session.id}/voice/old-call/close`,
+        body: { providerSessionId: 'old-provider', reason: 'page-reloaded' }, keepalive: true });
+      assert.equal(voiceJournal(storage, session.id).read(), null);
+      assert.equal(c.session.paused, expected, autoPaused ? 'an automatic pause is lifted' : 'a deliberate pause stays');
+      assert.equal(calls.length, autoPaused ? 2 : 1);
+    } finally { globalThis.sessionStorage = original; globalThis.fetch = nativeFetch; }
+  }
 });

@@ -105,7 +105,7 @@ test('choosing a model sends ids only and the panel shows the new choice only af
   assert.equal(declared.getAttribute('aria-disabled'), 'true'); assert.equal(declared.querySelector('.option-status').textContent, en.settings.unavailable);
   declared.click(); await tick();
   assert.equal(h.posts.length, 0, 'an unavailable option is never sent');
-  assert.match(h.q('.context-message').textContent, /Unavailable · not configured/);
+  assert.equal(h.q('.context-message').textContent, `Unavailable · ${en.reasons['not configured']}`);
   button.click(); h.option('model', 'Deep (mock)').click(); await tick();
   assert.deepEqual(h.posts, [{ processingPreset: 'best', model: 'mock/deep', effort: 'medium', voice: 'fake-voice', visuals: 'off', baseRevision: 0 }]);
   assert.match(h.root.querySelector('.engine__detail').textContent, /^Mock reasoning/, 'the panel still shows the acknowledged choice');
@@ -242,7 +242,7 @@ test('the conversation starts with the preset chooser, then the acknowledged rea
   assert.deepEqual(cards().map(card => [card.querySelector('strong').textContent, card.getAttribute('aria-pressed'), card.getAttribute('aria-disabled')]),
     [['Best models', 'true', 'false'], ['In the EU', 'false', 'true'], ['On my device', 'false', 'false'], ['Custom', 'false', 'false']]);
   cards()[1].click(); await tick();
-  assert.match(root.querySelector('.chooser__error').textContent, /In the EU: not configured/); assert.equal(h.posts.length, 0);
+  assert.equal(root.querySelector('.chooser__error').textContent, `In the EU: ${en.reasons['not configured']}`); assert.equal(h.posts.length, 0);
   cards()[2].click(); await tick();
   assert.equal(cards()[2].getAttribute('aria-pressed'), 'true');
   assert.equal(root.querySelector('.chooser__summary [role=status]').textContent, en.chooser.summary.device);
@@ -328,7 +328,7 @@ test('a device conversation uses the locally connected model and keeps analysis,
   root.querySelector('dialog.settings .done').click(); await tick();
   assert.match(root.querySelector('.engine__detail').textContent, /local-7b/);
   assert.match(root.querySelector('[data-ready="model"] dd').textContent, /local-7b/);
-  assert.match(root.querySelector('.features').textContent, /unavailable on device/);
+  assert.ok(root.querySelector('.features').textContent.includes(en.reasons['unavailable on device']));
   root.querySelector('textarea').value = 'Hello device'; root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick(6);
   assert.deepEqual(h.c.session.transcript.map(turn => turn.content), ['Hello device', 'From device']);
 });
