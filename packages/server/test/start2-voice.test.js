@@ -24,6 +24,7 @@ async function fixture(t) {
     resolveSecret: () => 'local-fixture-key', log: value => logs.push(value) });
   assert.ok(host.binding);
   const configured = openRouterConfig({ OPENROUTER_MODEL: 'openai/understanding-fixture', OPENROUTER_SPEECH_MODEL: 'anthropic/speech-fixture',
+    OPENROUTER_PROVIDER_ONLY: 'Anthropic,OpenAI',
     AITHEMA_OPENROUTER_PRICES: JSON.stringify({ 'openai/understanding-fixture': { prompt: 1e-7, completion: 1e-7 },
       'anthropic/speech-fixture': { prompt: 1e-7, completion: 1e-7 } }) });
   const rebind = binding => qualifyStartBinding({ ...binding, endpoint: openrouter.url + '/' });
@@ -61,7 +62,11 @@ test('static callback authenticates before body, rejects missing/unknown identit
   assert.equal((await h.handlers.handle(new Request(`https://host/api/voice/${call.callId}/llm/chat/completions`, { method: 'POST', body: '{}' }))).status, 404);
   const result = await h.callback(call.facadeCallId); assert.equal(result.status, 200); assert.equal((await result.json()).choices[0].message.content, 'Local reasoning');
   assert.equal(h.upstream.length, 1); assert.ok(h.upstream[0].usage.include);
-  assert.equal(h.upstream[0].model, 'anthropic/speech-fixture'); assert.equal(h.upstream[0].max_tokens, 600);
+  assert.equal(h.upstream[0].model, 'anthropic/speech-fixture'); assert.equal(h.upstream[0].max_tokens, 1200);
+  assert.equal(h.upstream[0].provider.require_parameters, true);
+  assert.deepEqual(h.upstream[0].provider.only, ['Anthropic', 'OpenAI']);
+  assert.equal(Object.hasOwn(h.upstream[0].provider, 'ignore'), false);
+  assert.deepEqual(h.upstream[0].reasoning, { enabled: false });
   assert.equal(h.eleven.requests.filter(r => r.method !== 'GET').length, writes, 'no per-call agent/secret mutation');
   assert.ok(!JSON.stringify(call).includes('local-callback-fixture'));
   await h.route(`/voice/${call.callId}/close`, { providerSessionId: call.providerSessionId });
@@ -78,7 +83,11 @@ test('typed reaction and understanding bind different configured models with cur
       else assert.deepEqual(await admitted.plugin.structured(request, admitted.options), { summary: 'Local understanding' });
     } finally { admitted.finish(); }
   }
-  assert.deepEqual(h.upstream.map(b => [b.model, b.max_tokens]), [['anthropic/speech-fixture', 600], ['openai/understanding-fixture', 4096]]);
+  assert.deepEqual(h.upstream.map(b => [b.model, b.max_tokens]), [['anthropic/speech-fixture', 1200], ['openai/understanding-fixture', 8000]]);
+  assert.ok(h.upstream.every(body => body.provider.require_parameters === true));
+  assert.deepEqual(h.upstream.map(body => body.provider.only), [['Anthropic', 'OpenAI'], ['Anthropic', 'OpenAI']]);
+  assert.equal(Object.hasOwn(h.upstream[0].provider, 'ignore'), false);
+  assert.deepEqual(h.upstream[1].provider.ignore, ['Azure']);
   assert.equal(h.storage.db.prepare('SELECT SUM(actual_micro) n FROM spend_reservations').get().n, 20);
 });
 test('foreign ownership, paused calls and stale recovery callbacks cannot admit reasoning', async t => {
@@ -120,7 +129,8 @@ test('SQLite consent persists across restart; expires, versions, model/endpoint 
   storage.reviseConsent(session.id, true); storage.close(); storage = new SQLiteStorage(path); port = createProcessingConsent({ storage, bindings, now: () => clock });
   const coverage = change => port.coverage({ sessionId: session.id, consentRevision: revision, scope: { ...scope, ...change } });
   assert.equal(coverage().covered, true);
-  for (const change of [{ model: 'anthropic/foreign' }, { endpoint: 'https://foreign.test' }, { itemVersion: 2 }]) assert.equal(coverage(change).covered, false);
+  for (const change of [{ model: 'anthropic/foreign' }, { endpoint: 'https://foreign.test' }, { itemVersion: 2 },
+    { routing: { only: ['Anthropic'] } }]) assert.equal(coverage(change).covered, false);
   clock += CONSENT_VALIDITY_MS; assert.equal(coverage().covered, false);
   assert.equal(port.grant({ sessionId: session.id, consentRevision: revision + 1, decision: { contract: 'stale', items: ['models-international'] } }), false);
   assert.equal(port.coverage({ sessionId: session.id, consentRevision: revision - 1, scope }).covered, false);

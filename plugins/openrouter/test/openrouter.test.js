@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { createOpenRouterReasoning } from '../src/index.js';
 import { openRouterPrices } from '../../../test/plugin-fixtures.js';
+import { openRouterConfig } from '../../../demo/openrouter-config.js';
 const schema = { type: 'object', additionalProperties: false, properties: { summary: { type: 'string' } }, required: ['summary'] };
 const request = { system: 'Generic policy', messages: [{ role: 'user', content: 'Hello' }], schema };
 const options = (extra = {}) => {
@@ -29,6 +30,8 @@ test('streaming parser handles comments, CRLF, split Unicode and JSON chunks', a
   const deltas = []; for await (const delta of plugin.stream(request, options())) deltas.push(delta);
   assert.equal(deltas.join(''), 'Héllo'); assert.equal(sent.model, 'fixture/model'); assert.equal(sent.stream, true);
   assert.equal(sent.messages[0].role, 'system');
+  assert.equal(sent.provider.require_parameters, true);
+  assert.deepEqual(sent.reasoning, { enabled: false });
 });
 test('structured output uses strict JSON Schema and requires parameter-capable routing', async t => {
   let sent;
@@ -39,6 +42,49 @@ test('structured output uses strict JSON Schema and requires parameter-capable r
   assert.deepEqual(await plugin.structured(request, options()), { summary: 'Known' });
   assert.equal(sent.response_format.type, 'json_schema'); assert.equal(sent.response_format.json_schema.strict, true);
   assert.deepEqual(sent.response_format.json_schema.schema, schema); assert.equal(sent.provider.require_parameters, true);
+  assert.deepEqual(sent.reasoning, { enabled: false });
+});
+
+test('START bindings send lane-specific routing and reserve the configured reply/analysis token ceilings', async () => {
+  const prices = { 'openai/fixture': { prompt: 0.000001, completion: 0.000002 },
+    'anthropic/fixture': { prompt: 0.000003, completion: 0.000004 } };
+  const messageBytes = new TextEncoder().encode(JSON.stringify([{ role: 'system', content: request.system }, ...request.messages])).byteLength;
+  for (const [env, replyCap, analysisCap, only, ignore] of [
+    [{}, 1200, 8000, undefined, ['Azure']],
+    [{ OPENROUTER_MAX_TOKENS: '37', OPENROUTER_ANALYSIS_MAX_TOKENS: '63',
+      OPENROUTER_PROVIDER_ONLY: ' Anthropic, ,OpenAI ', OPENROUTER_ANALYSIS_PROVIDER_IGNORE: 'Azure, Microsoft' },
+    37, 63, ['Anthropic', 'OpenAI'], ['Azure', 'Microsoft']],
+    [{ OPENROUTER_PROVIDER_ONLY: ',', OPENROUTER_ANALYSIS_PROVIDER_IGNORE: ',' }, 1200, 8000, undefined, undefined],
+  ]) {
+    const configured = openRouterConfig({ OPENROUTER_MODEL: 'openai/fixture', OPENROUTER_SPEECH_MODEL: 'anthropic/fixture',
+      AITHEMA_OPENROUTER_PRICES: JSON.stringify(prices), ...env });
+    const bodies = [], ceilings = [];
+    const plugin = createOpenRouterReasoning({ binding: configured.reaction, prices: configured.prices,
+      resolveSecret: () => 'local-fixture',
+      spendCap: { reserve(ceiling) { ceilings.push(ceiling); return Symbol('hold'); }, settle() {} },
+      fetchImpl: async (url, init) => {
+        const sent = JSON.parse(init.body); bodies.push(sent);
+        return sent.stream ? new Response('data: {"choices":[{"delta":{"content":"Hello"},"finish_reason":"stop"}]}\n\n' +
+          'data: {"choices":[],"usage":{"cost":0}}\n\ndata: [DONE]\n\n')
+          : Response.json({ usage: { cost: 0 }, choices: [{ finish_reason: 'stop', message: { content: '{"summary":"Known"}' } }] });
+      } });
+    const deltas = []; for await (const delta of plugin.stream(request, options())) deltas.push(delta);
+    assert.equal(deltas.join(''), 'Hello');
+    assert.deepEqual(await plugin.bind(configured.understanding).structured(request, options()), { summary: 'Known' });
+    assert.deepEqual(bodies.map(body => body.max_tokens), [replyCap, analysisCap]);
+    assert.deepEqual(ceilings, [messageBytes * 3 + replyCap * 4, messageBytes + analysisCap * 2]);
+    assert.deepEqual(bodies.map(body => body.model), ['anthropic/fixture', 'openai/fixture']);
+    for (const sent of bodies) {
+      assert.equal(sent.provider.require_parameters, true);
+      assert.deepEqual(sent.provider.only, only);
+      assert.equal(Object.hasOwn(sent.provider, 'only'), Boolean(only));
+      assert.deepEqual(sent.reasoning, { enabled: false });
+    }
+    assert.equal(Object.hasOwn(bodies[0].provider, 'ignore'), false);
+    assert.deepEqual(bodies[1].provider.ignore, ignore);
+    assert.equal(Object.hasOwn(bodies[1].provider, 'ignore'), Boolean(ignore));
+    assert.deepEqual(bodies.map(body => body.provider.max_price), [{ prompt: 3, completion: 4 }, { prompt: 1, completion: 2 }]);
+  }
 });
 test('AbortSignal cancels an active streaming response', async t => {
   const plugin = await fake(t, async (req, res) => { await body(req); res.writeHead(200, { 'content-type': 'text/event-stream' });

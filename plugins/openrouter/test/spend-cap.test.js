@@ -161,7 +161,7 @@ test('OpenRouter accepts the spend port without coupling to its storage or handl
     resolveSecret: () => 'local-key', fetchImpl: async () => Response.json({ usage: { cost: 0.0000193 },
       choices: [{ finish_reason: 'stop', message: { content: '{"summary":"ok"}' } }] }) });
   await plugin.structured(request, opts());
-  assert.deepEqual(calls, [['reserve', 5768], ['settle', 20]]);
+  assert.deepEqual(calls, [['reserve', 11233], ['settle', 20]]);
 });
 
 test('upgrade preserves existing spend/unknown holds and a free-model charge breaches its zero ceiling', () => {

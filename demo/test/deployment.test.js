@@ -53,16 +53,46 @@ test('unconfigured built-in live voice fails closed with a value-free reason; he
   assert.equal((await fetch(running.url + '/healthz')).status, 200);
 });
 
-test('speech defaults to the required understanding model while retaining a 600-token reply ceiling', () => {
+test('speech defaults to the required understanding model with START token caps and analysis routing', () => {
   const configured = openRouterConfig({ OPENROUTER_MODEL: 'anthropic/fixture',
     AITHEMA_OPENROUTER_PRICES: '{"anthropic/fixture":{"prompt":0.000005,"completion":0.000025}}' });
   assert.equal(configured.reaction.model, 'anthropic/fixture'); assert.equal(configured.understanding.model, 'anthropic/fixture');
-  assert.equal(configured.reaction.maxTokens, 600); assert.equal(configured.understanding.maxTokens, 4096);
+  assert.equal(configured.reaction.maxTokens, 1200); assert.equal(configured.understanding.maxTokens, 8000);
   assert.equal(configured.capMicro, 10_000_000);
   assert.deepEqual(configured.reaction.routing.max_price, { prompt: 5, completion: 25 });
+  assert.equal(configured.reaction.routing.require_parameters, true);
+  assert.equal(configured.understanding.routing.require_parameters, true);
+  assert.equal(Object.hasOwn(configured.reaction.routing, 'only'), false);
+  assert.equal(Object.hasOwn(configured.understanding.routing, 'only'), false);
+  assert.equal(Object.hasOwn(configured.reaction.routing, 'ignore'), false);
+  assert.deepEqual(configured.understanding.routing.ignore, ['Azure']);
+  for (const binding of [configured.reaction, configured.understanding]) {
+    assert.deepEqual(binding.legal.evidence.routing, binding.routing);
+  }
 });
 
-test('invalid live model/prices refuse startup with clear messages before database or voice work', async () => {
+test('START routing parsing trims CSV entries and matching quotes, defaults blanks and permits empty lists', () => {
+  const values = { OPENROUTER_MODEL: 'openai/fixture',
+    AITHEMA_OPENROUTER_PRICES: '{"openai/fixture":{"prompt":0.000001,"completion":0.000002}}' };
+  const configured = openRouterConfig({ ...values, OPENROUTER_MAX_TOKENS: ' "37" ', OPENROUTER_ANALYSIS_MAX_TOKENS: " '63' ",
+    OPENROUTER_PROVIDER_ONLY: ' "Anthropic, , OpenAI" ', OPENROUTER_ANALYSIS_PROVIDER_IGNORE: ' Azure, Microsoft, ' });
+  assert.equal(configured.reaction.maxTokens, 37); assert.equal(configured.understanding.maxTokens, 63);
+  assert.deepEqual(configured.reaction.routing.only, ['Anthropic', 'OpenAI']);
+  assert.deepEqual(configured.understanding.routing.only, ['Anthropic', 'OpenAI']);
+  assert.deepEqual(configured.understanding.routing.ignore, ['Azure', 'Microsoft']);
+  assert.equal(Object.hasOwn(configured.reaction.routing, 'ignore'), false);
+  for (const binding of [configured.reaction, configured.understanding]) assert.deepEqual(binding.legal.evidence.routing, binding.routing);
+  const blank = openRouterConfig({ ...values, OPENROUTER_MAX_TOKENS: ' ', OPENROUTER_ANALYSIS_MAX_TOKENS: '""',
+    OPENROUTER_PROVIDER_ONLY: '', OPENROUTER_ANALYSIS_PROVIDER_IGNORE: ' ' });
+  assert.equal(blank.reaction.maxTokens, 1200); assert.equal(blank.understanding.maxTokens, 8000);
+  assert.equal(Object.hasOwn(blank.reaction.routing, 'only'), false);
+  assert.deepEqual(blank.understanding.routing.ignore, ['Azure']);
+  const empty = openRouterConfig({ ...values, OPENROUTER_PROVIDER_ONLY: ' , ', OPENROUTER_ANALYSIS_PROVIDER_IGNORE: ' , ' });
+  assert.equal(Object.hasOwn(empty.reaction.routing, 'only'), false);
+  assert.equal(Object.hasOwn(empty.understanding.routing, 'ignore'), false);
+});
+
+test('invalid live model/prices/token caps refuse startup before database or voice work', async () => {
   const valid = { AITHEMA_PROVIDER: 'openrouter', AITHEMA_VOICE_MODE: 'elevenlabs', OPENROUTER_MODEL: 'openai/fixture',
     AITHEMA_OPENROUTER_PRICES: '{"openai/fixture":{"prompt":0.000001,"completion":0.000002}}' };
   for (const [change, expected] of [
@@ -72,6 +102,10 @@ test('invalid live model/prices refuse startup with clear messages before databa
     [{ AITHEMA_OPENROUTER_PRICES: '{"openai/fixture":{"prompt":-1,"completion":2}}' }, /requires valid prompt\/completion/],
     [{ AITHEMA_OPENROUTER_PRICES: '{"openai/fixture":{"prompt":1}}' }, /requires valid prompt\/completion/],
     [{ OPENROUTER_SPEECH_MODEL: 'anthropic/missing' }, /for anthropic\/missing/],
+    [{ OPENROUTER_MAX_TOKENS: '0' }, /OPENROUTER_MAX_TOKENS must be a positive integer/],
+    [{ OPENROUTER_MAX_TOKENS: 'NaN' }, /OPENROUTER_MAX_TOKENS must be a positive integer/],
+    [{ OPENROUTER_ANALYSIS_MAX_TOKENS: '-1' }, /OPENROUTER_ANALYSIS_MAX_TOKENS must be a positive integer/],
+    [{ OPENROUTER_ANALYSIS_MAX_TOKENS: 'NaN' }, /OPENROUTER_ANALYSIS_MAX_TOKENS must be a positive integer/],
   ]) {
     const db = await temporaryDb();
     const result = spawnSync(process.execPath, [fileURLToPath(new URL('../server.js', import.meta.url))], {

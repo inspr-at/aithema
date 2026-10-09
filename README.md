@@ -83,7 +83,12 @@ OpenRouter requires `OPENROUTER_MODEL` for understanding and
 refuse startup. `OPENROUTER_SPEECH_MODEL` selects reaction replies (spoken and
 typed, including the voice facade) and defaults to `OPENROUTER_MODEL`.
 Choose a fast speech model for the seven-second platform timeout; replies are
-capped at 600 tokens, while understanding permits 4096.
+capped by `OPENROUTER_MAX_TOKENS` (default `1200`), while understanding uses
+`OPENROUTER_ANALYSIS_MAX_TOKENS` (default `8000`); START found smaller analysis
+ceilings truncated real assessments. Every request requires parameter-capable
+upstreams. `OPENROUTER_PROVIDER_ONLY` is the optional comma-separated upstream
+allow-list and must mirror START exactly as part of the legal profile.
+`OPENROUTER_ANALYSIS_PROVIDER_IGNORE` defaults to `Azure` for understanding only.
 `MISTRAL_MODEL` selects the Mistral model. Live OpenRouter uses the START host
 qualification below and still requires current consent; Mistral remains
 unverified until a host supplies private qualification and current consent.
@@ -975,7 +980,11 @@ connecting over local HTTP. Readiness of voice is separately visible in
 | `AITHEMA_PROVIDER` | `openrouter` for live reasoning; defaults to `mock` |
 | `OPENROUTER_API_KEY` | Account credential supplied by OPS through its secret service |
 | `OPENROUTER_MODEL` | Required understanding model id when `AITHEMA_PROVIDER=openrouter`; no default; only START-consented OpenAI, Anthropic or xAI providers are admitted |
-| `OPENROUTER_SPEECH_MODEL` | Reaction model for spoken and typed replies and the voice facade; defaults to `OPENROUTER_MODEL`; 600-token cap; choose for the seven-second platform timeout |
+| `OPENROUTER_SPEECH_MODEL` | Reaction model for spoken and typed replies and the voice facade; defaults to `OPENROUTER_MODEL`; capped by `OPENROUTER_MAX_TOKENS`; choose for the seven-second platform timeout |
+| `OPENROUTER_MAX_TOKENS` | Reply token ceiling for reaction/speech; default `1200`; used in the per-request spend ceiling |
+| `OPENROUTER_ANALYSIS_MAX_TOKENS` | Understanding token ceiling; default `8000`; START found lower values truncated real analyses; used in the per-request spend ceiling |
+| `OPENROUTER_PROVIDER_ONLY` | Comma-separated upstream allow-list sent as `provider.only` on every request; unset means no restriction; part of the legal profile; must mirror START exactly |
+| `OPENROUTER_ANALYSIS_PROVIDER_IGNORE` | Comma-separated upstream exclusions sent as `provider.ignore` on understanding/analysis only; default `Azure`, whose START workspace rejects `response_format` despite advertised support |
 | `AITHEMA_OPENROUTER_PRICES` | Required JSON for every configured model: `{"<model>":{"prompt":<USD per token>,"completion":<USD per token>}}`; finite nonnegative prices; no catalog defaults |
 | `AITHEMA_OPENROUTER_CAP_USD` | Lifetime persisted account cap; decimal USD with up to six fractional digits, default `10` |
 | `AITHEMA_VOICE_MODE` | `elevenlabs` enables startup ensure; default `fake`; `off` disables voice |
@@ -1019,9 +1028,13 @@ snapshot()}`. A second plugin can inject the same port, or share account
 `start2-openrouter` and the same database. `snapshot()` returns
 `{spentMicro, reservedMicro, capMicro, breached}`. Reservations and settlements
 run under SQLite transactions. Every OpenRouter request sends the binding's
-`max_tokens` (600 for reaction, 4096 for understanding) and `provider.max_price`
-derived from the operator's prices. **UNVERIFIED API SHAPE**: those routing prices
-are expressed in USD per million tokens; the coordinator must verify these units.
+`max_tokens` (default 1200 for reaction, 8000 for understanding),
+`provider.require_parameters: true`, and `provider.max_price` derived from the
+operator's prices. Configured upstream allow-lists apply to both lanes; the
+analysis exclusion applies only to understanding. **verified live 2026-10-09**:
+those routing prices are in USD per MILLION tokens and OpenRouter enforces them
+before dispatch (404, "No endpoints found that satisfy the max price").
+`reasoning: {enabled:false}` is accepted and sent when effort is `none`.
 
 The request ceiling is the UTF-8 byte length of the complete serialized messages
 array, including the system message, multiplied by the configured prompt price,
