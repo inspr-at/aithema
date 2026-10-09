@@ -30,9 +30,9 @@ export function acquireSlot(signal) {
 }
 
 // Minimal environment: no API keys, tokens, NODE_OPTIONS or server secrets inherited.
-export function cliEnvironment(codexHome) {
-  return { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? codexHome, CODEX_HOME: codexHome,
-    TMPDIR: process.env.TMPDIR ?? '/tmp', LANG: 'C.UTF-8' };
+export function cliEnvironment(codexHome, directory) {
+  return { PATH: process.env.PATH ?? '', HOME: directory, CODEX_HOME: codexHome,
+    TMPDIR: directory, LANG: 'C.UTF-8' };
 }
 export async function executablePath(binaryPath, path = process.env.PATH ?? '') {
   const candidates = isAbsolute(binaryPath) ? [binaryPath] : path.split(delimiter).filter(isAbsolute).map(dir => join(dir, binaryPath));
@@ -42,12 +42,12 @@ export async function executablePath(binaryPath, path = process.env.PATH ?? '') 
   throw new PluginError('unavailable');
 }
 
-export function runCodex({ binaryPath, args, directory, env, brief, signal, spawnImpl = spawn }) {
+export function runCodex({ binaryPath, args, directory, env, brief, signal, spawnImpl = spawn, capture = false, onSpawn }) {
   signal.throwIfAborted();
   return new Promise((resolve, reject) => {
-    let child, failure;
+    let child, failure, output = '', outputBytes = 0;
     try { child = spawnImpl(binaryPath, args, { cwd: directory, env, detached: true, shell: false,
-      stdio: ['pipe', 'ignore', 'ignore'] }); }
+      stdio: ['pipe', capture ? 'pipe' : 'ignore', 'ignore'] }); }
     catch { reject(new PluginError('unavailable')); return; }
     // SIGKILL also handles CLI/tool descendants that ignore SIGTERM. Never kill only the leader.
     const killGroup = () => {
@@ -59,13 +59,21 @@ export function runCodex({ binaryPath, args, directory, env, brief, signal, spaw
     const abort = () => { failure ??= signal.reason; killGroup(); };
     signal.addEventListener('abort', abort, { once: true });
     child.once('error', () => { failure ??= new PluginError('unavailable'); killGroup(); });
+    // Only the actual spawned render consumes provider authority; local startup
+    // help/features probes and a synchronous spawn failure are preflight work.
+    child.once('spawn', () => { try { onSpawn?.(); } catch (error) { failure ??= error; killGroup(); } });
+    if (capture) child.stdout.on('data', chunk => {
+      outputBytes += chunk.length;
+      if (outputBytes > 65536) { failure ??= new PluginError('unavailable'); killGroup(); }
+      else output += chunk.toString('utf8');
+    });
     // Kill any surviving descendants even when the leader exits successfully.
     child.once('exit', killGroup);
     child.once('close', (code, exitSignal) => {
       signal.removeEventListener('abort', abort);
       if (failure) reject(failure);
       else if (code !== 0 || exitSignal) reject(new PluginError('provider'));
-      else resolve();
+      else resolve(output);
     });
     child.stdin.on('error', error => {
       // Early exit may close stdin; the exit code/output check remains authoritative.
@@ -89,7 +97,7 @@ export async function producedImage(directory, referencePaths, signal) {
       if (referencePaths.has(path)) continue;
       if (entry.isSymbolicLink()) throw new PluginError('invalid-output');
       if (entry.isDirectory()) await scan(path, depth + 1);
-      else if (/\.(?:png|webp|jpe?g)$/iu.test(entry.name)) {
+      else {
         if (!entry.isFile()) throw new PluginError('invalid-output');
         outputs.push(path);
       }
@@ -100,7 +108,7 @@ export async function producedImage(directory, referencePaths, signal) {
   const handle = await open(join(directory, outputs[0]), constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const info = await handle.stat();
-    if (!info.isFile() || !info.size) throw new PluginError('invalid-output');
+    if (!info.isFile() || !info.size || info.nlink > 1) throw new PluginError('invalid-output');
     if (info.size > MAX_IMAGE_BYTES) throw new PluginError('limit');
     const bytes = Buffer.alloc(info.size + 1);
     let size = 0;

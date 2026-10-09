@@ -6,6 +6,7 @@ import { createBinding, beginInvocation, operationScope, normalizedError, Plugin
 import { manifest } from './manifest.js';
 import { prepareBrief } from './brief.js';
 import { acquireSlot, cliEnvironment, executablePath, runCodex, producedImage } from './process.js';
+import { codexArgs, checkCLI, validateCodexHome } from './cli.js';
 export { manifest };
 
 function configuration(binding) {
@@ -14,17 +15,24 @@ function configuration(binding) {
     !manifest.models[0].efforts.includes(binding.effort) || binding.maxMicro !== 0 ||
     binding.rates.inputMicro !== 0 || binding.rates.outputMicro !== 0 ||
     !config || typeof config !== 'object' || Array.isArray(config) ||
-    Object.keys(config).some(key => !['binaryPath', 'codexHome', 'timeoutMs'].includes(key)) ||
+    Object.keys(config).some(key => !['binaryPath', 'codexHome', 'timeoutMs', 'trustedPromptsOnly'].includes(key)) ||
+    config.trustedPromptsOnly !== true ||
     typeof config.binaryPath !== 'string' || !config.binaryPath || /[\0\r\n]/u.test(config.binaryPath) ||
     !(isAbsolute(config.binaryPath) || /^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(config.binaryPath)) ||
     typeof config.codexHome !== 'string' || !isAbsolute(config.codexHome) || /[\0\r\n]/u.test(config.codexHome) ||
     !Number.isSafeInteger(config.timeoutMs) || config.timeoutMs < 1 || config.timeoutMs > 1800000) {
-    throw new TypeError('Codex imagegen requires a private CLI binding with zero monetary rates');
+    throw new TypeError('Codex imagegen requires a private CLI binding with zero monetary rates and trustedPromptsOnly === true');
   }
   return config;
 }
-function artifactFor(bytes, brief, model, operation) {
+function artifactFor(bytes, brief, model, operation, spec) {
   const { mediaType, width, height } = imageInfo(bytes), edited = operation === 'edit';
+  const [requestedWidth, requestedHeight] = (spec.size ?? '1536x1024').split('x').map(Number);
+  // Header-derived dimensions have a 5% per-axis tolerance, never above 4096.
+  if (width > 4096 || height > 4096) throw new PluginError('limit');
+  if (mediaType !== `image/${spec.format ?? 'png'}` ||
+    Math.abs(width - requestedWidth) > requestedWidth * 0.05 ||
+    Math.abs(height - requestedHeight) > requestedHeight * 0.05) throw new PluginError('invalid-output');
   return { bytes, mediaType, width, height, promptDigest: `sha256:${createHash('sha256').update(brief).digest('hex')}`,
     provenance: { version: 1, origin: edited ? 'ai-manipulated' : 'ai-generated', modality: 'image',
       digitalSourceType: IPTC_DIGITAL_SOURCE[edited ? 'manipulated' : 'generated'], generatedAt: new Date().toISOString(),
@@ -38,6 +46,22 @@ function artifactFor(bytes, brief, model, operation) {
 export function createCodexImagegen({ binding, spawnImpl } = {}) {
   binding = createBinding(binding);
   const config = configuration(binding);
+  let checkedBinary;
+  async function startup(binaryPath, directory, signal) {
+    const info = await stat(binaryPath);
+    const signature = `${binaryPath}:${info.dev}:${info.ino}:${info.size}:${info.mtimeMs}:${info.ctimeMs}`;
+    if (checkedBinary === signature) return;
+    const probeHome = await mkdtemp(join(directory, 'cli-startup-'));
+    try {
+      // Help/features need no auth. Use an empty temporary home so probing can
+      // neither load account config nor create helpers/caches in its auth home.
+      await checkCLI({ binding, binaryPath, directory, env: cliEnvironment(probeHome, directory), signal, spawnImpl });
+    } catch (error) {
+      if (signal.aborted) throw error;
+      throw new PluginError('unavailable');
+    } finally { await rm(probeHome, { recursive: true, force: true }); }
+    checkedBinary = signature;
+  }
   async function run(operation, spec, feedback, options, source) {
     const started = performance.now(), deadlineAt = Math.min(options?.deadlineAt ?? Infinity, Date.now() + config.timeoutMs);
     const scope = operationScope({ signal: options?.signal, deadlineAt });
@@ -48,36 +72,46 @@ export function createCodexImagegen({ binding, spawnImpl } = {}) {
       // Settlement waits for group reaping and filesystem cleanup, rather than the abort event.
       invocation = await beginInvocation({ ...options, signal: undefined, report: terminal => options.report(dispatched ?
         { ...terminal, chargedMicro: 0, durationMs: Math.max(0, Math.round(performance.now() - started)) } : terminal) });
-      invocation.usage({ inputTokens: 0, outputTokens: 0 });
       check();
       if (process.platform === 'win32') throw new PluginError('unavailable');
       const { brief, files } = prepareBrief(operation, spec, feedback, source);
       release = await acquireSlot(scope.signal);
       check();
       const binaryPath = await executablePath(config.binaryPath);
-      const accountDirectory = await stat(config.codexHome).catch(() => null);
-      if (!accountDirectory?.isDirectory()) throw new PluginError('unavailable');
+      await validateCodexHome(config.codexHome).catch(() => { throw new PluginError('unavailable'); });
       directory = await mkdtemp(join(tmpdir(), 'aithema-codex-imagegen-'));
       await mkdir(join(directory, 'references'), { mode: 0o700 });
       await mkdir(join(directory, 'output'), { mode: 0o700 });
       for (const file of files) { check(); await writeFile(join(directory, file.path), file.bytes, { mode: 0o600, flag: 'wx' }); }
-      const args = ['exec', '-m', binding.model, '-c', `model_reasoning_effort=${JSON.stringify(binding.effort)}`,
-        '--sandbox', 'workspace-write', '--skip-git-repo-check', '--ephemeral'];
+      await startup(binaryPath, directory, scope.signal);
+      await validateCodexHome(config.codexHome).catch(() => { throw new PluginError('unavailable'); });
+      const args = codexArgs(binding);
       if (files.length) args.push('-i', ...files.map(file => join(directory, file.path)));
-      check(); invocation.dispatch(); dispatched = true;
-      await runCodex({ binaryPath, args, directory, env: cliEnvironment(config.codexHome), brief, signal: scope.signal, spawnImpl });
+      check();
+      await runCodex({ binaryPath, args, directory, env: cliEnvironment(config.codexHome, directory), brief,
+        signal: scope.signal, spawnImpl, onSpawn: () => { invocation.dispatch(); dispatched = true; } });
       check();
       const bytes = await producedImage(directory, new Set(files.map(file => file.path)), scope.signal);
-      const artifact = artifactFor(bytes, brief, binding.model, operation);
+      const artifact = artifactFor(bytes, brief, binding.model, operation, spec);
       check(); completed = true; return artifact;
     } catch (error) { throw normalizedError(error, scope.signal); }
     finally {
       try {
-        if (directory) await rm(directory, { recursive: true, force: true });
-      } catch { completed = false; throw new PluginError('unavailable'); }
+        try {
+          if (directory) await rm(directory, { recursive: true, force: true });
+        } catch { completed = false; throw new PluginError('unavailable'); }
+        // A deadline/cancellation during cleanup is still a dispatched failure.
+        if (completed) {
+          try { check(); }
+          catch (error) { completed = false; throw normalizedError(error, scope.signal); }
+        }
+      }
       finally {
         release?.();
-        try { if (invocation) await invocation.finish(completed); } finally { scope.dispose(); }
+        try {
+          if (completed) invocation.usage({ inputTokens: 0, outputTokens: 0 });
+          if (invocation) await invocation.finish(completed);
+        } finally { scope.dispose(); }
       }
     }
   }
@@ -87,17 +121,24 @@ export function createCodexImagegen({ binding, spawnImpl } = {}) {
     edit: (artifact, spec, feedback, options) => run('edit', spec, feedback, options, artifact),
     async health(options) {
       const scope = operationScope(options);
+      let directory, release;
       try {
         scope.signal.throwIfAborted();
         if (process.platform === 'win32') return { available: false };
-        await executablePath(config.binaryPath);
-        const available = (await stat(config.codexHome)).isDirectory();
+        const binaryPath = await executablePath(config.binaryPath);
+        await validateCodexHome(config.codexHome);
+        release = await acquireSlot(scope.signal);
+        directory = await mkdtemp(join(tmpdir(), 'aithema-codex-imagegen-'));
+        await startup(binaryPath, directory, scope.signal);
         scope.signal.throwIfAborted();
-        return { available };
+        return { available: true };
       } catch (error) {
         if (scope.signal.aborted) throw normalizedError(error, scope.signal);
         return { available: false };
-      } finally { scope.dispose(); }
+      } finally {
+        try { if (directory) await rm(directory, { recursive: true, force: true }); }
+        finally { release?.(); scope.dispose(); }
+      }
     },
   };
 }

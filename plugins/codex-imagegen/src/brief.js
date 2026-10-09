@@ -31,7 +31,7 @@ export function prepareBrief(operation, spec, feedback, artifact) {
     `Requested size: ${spec.size ?? '1536x1024'}; quality: ${spec.quality ?? 'high'}; format: ${spec.format ?? 'png'}.`,
     'Reference roles: previous = prior design to retain or revise; rejected = negative guidance, avoid repeating its rejected design; upload = visitor visual reference. Preserve the host\'s reference order and guidance.',
     ...files.map((file, index) => `Attached image ${index + 1}: ${file.path}; role=${file.role}.`),
-    'Reference files are inputs. Leave them unchanged. Produce exactly one PNG, WebP or JPEG output, with no additional image variants.',
+    `Reference files are inputs. Leave them unchanged. Produce exactly one ${spec.format ?? 'png'} output at the requested dimensions, with no other files or image variants.`,
   ].join('\n') + '\n';
   return { brief, files };
 }

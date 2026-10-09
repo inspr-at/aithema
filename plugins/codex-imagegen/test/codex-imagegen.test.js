@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, copyFile, chmod, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, mkdir, copyFile, chmod, readFile, writeFile, rm, stat, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, delimiter } from 'node:path';
 import { createCodexImagegen, manifest } from '../src/index.js';
@@ -31,21 +31,25 @@ async function fake(t, extra = {}) {
   await copyFile(new URL('./fixtures/fake-codex.cjs', import.meta.url), binaryPath); await chmod(binaryPath, 0o700);
   const oldPath = process.env.PATH;
   process.env.PATH = `${join(root, 'bin')}${delimiter}${oldPath}`;
-  const records = []; let active = 0, peak = 0;
+  const records = [], probes = []; let active = 0, peak = 0;
   const spawnImpl = (file, args, config) => {
     assert.equal(file, binaryPath, 'tests must only spawn the fake executable');
-    const record = { file, args, config }; records.push(record);
-    const child = spawn(file, args, { ...config, env: { ...config.env, FAKE_TRACE_DIR: trace } });
+    const record = { file, args, config };
+    const probe = args.includes('--help') || args[0] === 'features';
+    (probe ? probes : records).push(record);
+    const child = spawn(process.execPath, [file, ...args], { ...config, env: { ...config.env, FAKE_TRACE_DIR: trace,
+      FAKE_PROBE_MODE: extra.probeMode ?? '' } });
     record.child = child; active++; peak = Math.max(peak, active);
     child.once('close', () => active--);
     return child;
   };
   const binding = { plugin: manifest.id, model: 'fixture-model', effort: 'high', endpoint: 'https://chatgpt.com',
     accountRef: 'fixture-account', secretRef: 'unused-cli-account-ref', maxMicro: 0, maxTokens: 1,
-    rates: { inputMicro: 0, outputMicro: 0 }, routing: { codex: { binaryPath: 'codex', codexHome, timeoutMs: 5000 } }, ...extra };
+    rates: { inputMicro: 0, outputMicro: 0 }, routing: { codex: { binaryPath: 'codex', codexHome, timeoutMs: 5000,
+      trustedPromptsOnly: true } } };
   const plugin = createCodexImagegen({ binding, spawnImpl });
   t.after(async () => {
-    for (const record of records) {
+    for (const record of [...records, ...probes]) {
       if (record.child.exitCode === null && record.child.signalCode === null) {
         try { process.kill(-record.child.pid, 'SIGKILL'); } catch { /* already reaped */ }
         await new Promise(resolve => record.child.once('close', resolve));
@@ -55,7 +59,7 @@ async function fake(t, extra = {}) {
     if (oldPath === undefined) delete process.env.PATH; else process.env.PATH = oldPath;
     await rm(root, { recursive: true, force: true });
   });
-  return { root, binaryPath, codexHome, binding, plugin, records, spawnImpl, peak: () => peak,
+  return { root, binaryPath, codexHome, binding, plugin, records, probes, spawnImpl, peak: () => peak,
     async ready(index = records.length - 1) {
       await until(() => records[index]?.child.pid !== undefined);
       const path = join(trace, `${records[index].child.pid}.json`);
@@ -66,7 +70,8 @@ function terminal(o, outcome, dispatched = true) {
   assert.equal(o.reports.length, 1);
   const report = o.reports[0];
   assert.equal(report.attemptId, o.attempt.attemptId); assert.equal(report.outcome, outcome);
-  assert.deepEqual(report.usage, { inputTokens: 0, outputTokens: 0 });
+  if (outcome === 'uncertain') assert.equal(Object.hasOwn(report, 'usage'), false);
+  else assert.deepEqual(report.usage, { inputTokens: 0, outputTokens: 0 });
   if (dispatched) {
     assert.equal(report.chargedMicro, 0); assert.ok(Number.isSafeInteger(report.durationMs) && report.durationMs >= 0);
   } else assert.deepEqual(report, { attemptId: o.attempt.attemptId, outcome, usage: { inputTokens: 0, outputTokens: 0 } });
@@ -95,14 +100,29 @@ test('generate sends a resolved stdin brief and returns actual bytes, model and 
   const f = await fake(t), o = options();
   o.report = async report => { assert.equal(await exists(f.records[0].config.cwd), false); reaped(f.records[0]); o.reports.push(report); };
   const result = await f.plugin.generate(spec, 'Use a blue action button.', o), record = await f.ready(0);
-  assert.ok(isUIArtifact(result)); assert.deepEqual(Buffer.from(result.bytes), png);
-  assert.equal(result.mediaType, 'image/png'); assert.equal(result.width, 1); assert.equal(result.height, 1);
+  const expected = Buffer.from(png); expected.writeUInt32BE(1536, 16); expected.writeUInt32BE(1024, 20);
+  assert.ok(isUIArtifact(result)); assert.deepEqual(Buffer.from(result.bytes), expected);
+  assert.equal(result.mediaType, 'image/png'); assert.equal(result.width, 1536); assert.equal(result.height, 1024);
   assert.equal(result.provenance.generator.provider, 'codex-imagegen'); assert.equal(result.provenance.generator.model, f.binding.model);
   assert.equal(result.provenance.origin, 'ai-generated'); assert.equal(result.provenance.digitalSourceType, IPTC_DIGITAL_SOURCE.generated);
   assert.equal(result.provenance.subject.contentDigest, `sha-256=:${createHash('sha256').update(result.bytes).digest('base64')}:`);
   assert.equal(result.promptDigest, `sha256:${createHash('sha256').update(record.brief).digest('hex')}`);
-  assert.deepEqual(record.args, ['exec', '-m', 'fixture-model', '-c', 'model_reasoning_effort="high"',
-    '--sandbox', 'workspace-write', '--skip-git-repo-check', '--ephemeral']);
+  assert.deepEqual(record.args.slice(0, 5), ['exec', '-m', 'fixture-model', '-c', 'model_reasoning_effort="high"']);
+  assert.ok(record.args.includes('--ignore-user-config')); assert.ok(record.args.includes('--ignore-rules'));
+  assert.ok(record.args.includes('--ephemeral')); assert.ok(record.args.includes('--strict-config'));
+  for (const override of ['sandbox_mode="workspace-write"', 'sandbox_workspace_write.network_access=false',
+    'sandbox_workspace_write.writable_roots=[]', 'sandbox_workspace_write.exclude_tmpdir_env_var=true',
+    'sandbox_workspace_write.exclude_slash_tmp=true', 'mcp_servers={}', 'web_search="disabled"',
+    'project_doc_max_bytes=0', 'project_doc_fallback_filenames=[]', 'shell_environment_policy.inherit="none"',
+    'shell_environment_policy.include_only=[]', 'shell_environment_policy.exclude=["*"]',
+    'shell_environment_policy.set={}', 'allow_login_shell=false']) assert.ok(record.args.includes(override), override);
+  for (const feature of ['shell_tool', 'unified_exec', 'unified_exec_tty', 'code_mode_host', 'view_image', 'apps',
+    'plugins', 'browser_use', 'computer_use', 'multi_agent', 'hooks']) {
+    const i = record.args.indexOf(feature); assert.ok(i > 0); assert.equal(record.args[i - 1], '--disable');
+  }
+  assert.equal(f.probes.length, 2);
+  assert.equal(f.records[0].config.env.HOME, f.records[0].config.cwd);
+  assert.equal(f.records[0].config.env.TMPDIR, f.records[0].config.cwd);
   assert.match(record.brief, /Never invent metrics, testimonials, prices, durations or capabilities/u);
   assert.ok(record.brief.includes(JSON.stringify(spec.prompt))); assert.match(record.brief, /blue action button/u);
   assert.equal(record.codexHome, f.codexHome); assert.equal(record.mode, 0o700);
@@ -137,18 +157,18 @@ test('edit prepends the artifact as previous, carries host policy and marks mani
   terminal(o, 'completed');
 });
 
-for (const [mode, mediaType, width, height] of [['webp', 'image/webp', 1, 1], ['jpeg', 'image/jpeg', 3, 2]]) {
-  test(`finds a single ${mediaType} outside output and reads dimensions from bytes`, async t => {
-    const f = await fake(t), result = await f.plugin.generate({ prompt: `fixture-mode:${mode}` }, '', options());
-    assert.ok(isUIArtifact(result)); assert.equal(result.mediaType, mediaType); assert.equal(result.width, width); assert.equal(result.height, height);
-  });
-}
+test('finds a single requested WebP outside output and reads dimensions from bytes', async t => {
+  const f = await fake(t), result = await f.plugin.generate({ prompt: 'fixture-mode:webp', format: 'webp' }, '', options());
+  assert.ok(isUIArtifact(result)); assert.equal(result.mediaType, 'image/webp'); assert.equal(result.width, 1536); assert.equal(result.height, 1024);
+});
 for (const [mode, code] of [['none', 'invalid-output'], ['many', 'invalid-output'], ['nonzero', 'provider'],
-  ['bad', 'invalid-output'], ['oversize', 'limit'], ['symlink', 'invalid-output']]) {
+  ['bad', 'invalid-output'], ['oversize', 'limit'], ['symlink', 'invalid-output'], ['hardlink', 'invalid-output'],
+  ['extratext', 'invalid-output'], ['extraextensionless', 'invalid-output'], ['jpeg', 'invalid-output'],
+  ['wrongsize', 'invalid-output'], ['dimensioncap', 'limit'], ['beyondtolerance', 'invalid-output'], ['crash', 'provider']]) {
   test(`fake CLI ${mode} fails with typed ${code}, one zero-cost terminal and cleanup`, async t => {
     const f = await fake(t), o = options();
     await assert.rejects(f.plugin.generate({ prompt: `fixture-mode:${mode}` }, '', o), error => error.code === code && error.message === code);
-    terminal(o, 'cancelled'); reaped(f.records[0]); assert.equal(await exists(f.records[0].config.cwd), false);
+    terminal(o, 'uncertain'); reaped(f.records[0]); assert.equal(await exists(f.records[0].config.cwd), false);
   });
 }
 
@@ -169,7 +189,7 @@ for (const mode of ['hang', 'ignoreterm', 'descendant']) {
     // Observe the rejection immediately, avoiding a timing-dependent unhandled rejection.
     const rejected = assert.rejects(pending, { code: 'cancelled' });
     const record = await f.ready(0); controller.abort(); await rejected;
-    terminal(o, 'cancelled'); reaped(f.records[0]);
+    terminal(o, 'uncertain'); reaped(f.records[0]);
     if (record.descendantPid) await until(() => !alive(record.descendantPid));
     assert.equal(await exists(record.cwd), false);
   });
@@ -184,9 +204,10 @@ test('host deadlines and binding timeouts each kill a CLI that ignores SIGTERM',
   const f = await fake(t);
   for (const ownTimeout of [false, true]) {
     const plugin = ownTimeout ? f.plugin.bind({ ...f.binding, routing: { codex: { ...f.binding.routing.codex, timeoutMs: 200 } } }) : f.plugin;
+    assert.deepEqual(await plugin.health(options()), { available: true });
     const o = options({ deadlineAt: Date.now() + (ownTimeout ? 5000 : 200) });
     await assert.rejects(plugin.generate({ prompt: 'fixture-mode:ignoreterm' }, '', o), { code: 'deadline' });
-    terminal(o, 'cancelled'); reaped(f.records.at(-1)); assert.ok(o.reports[0].durationMs < 2000);
+    terminal(o, 'uncertain'); reaped(f.records.at(-1)); assert.ok(o.reports[0].durationMs < 2000);
   }
 });
 
@@ -259,7 +280,8 @@ test('binding configuration is private, immutable, explicit and has no API-key r
   for (const codex of [undefined, {}, { ...original.routing.codex, codexHome: 'relative' },
     { ...original.routing.codex, binaryPath: 'codex --dangerously-bypass-approvals-and-sandbox' },
     { ...original.routing.codex, timeoutMs: 0 }, { ...original.routing.codex, timeoutMs: 1800001 },
-    { ...original.routing.codex, browserOverride: true }]) {
+    { ...original.routing.codex, browserOverride: true }, { ...original.routing.codex, trustedPromptsOnly: false },
+    { ...original.routing.codex, trustedPromptsOnly: undefined }, { ...original.routing.codex, trustedPromptsOnly: 'true' }]) {
     assert.throws(() => createCodexImagegen({ binding: { ...original, routing: { codex } } }), /private CLI binding/u);
   }
   for (const patch of [{ model: '-flag' }, { effort: 'unknown' }, { maxMicro: 1 }, { rates: { inputMicro: 1, outputMicro: 0 } }]) {
@@ -267,13 +289,93 @@ test('binding configuration is private, immutable, explicit and has no API-key r
   }
 });
 
-test('health only checks local availability; missing binary fails without launching Codex', async t => {
+test('health checks local startup compatibility without rendering; missing binary never launches', async t => {
   const f = await fake(t); assert.deepEqual(await f.plugin.health(options()), { available: true }); assert.equal(f.records.length, 0);
+  assert.equal(f.probes.length, 2);
   const unavailable = f.plugin.bind({ ...f.binding, routing: { codex: { ...f.binding.routing.codex, binaryPath: join(f.root, 'missing') } } });
   assert.deepEqual(await unavailable.health(options()), { available: false });
   const o = options(); await assert.rejects(unavailable.generate(spec, '', o), { code: 'unavailable' }); terminal(o, 'cancelled', false);
   assert.equal(f.records.length, 0);
 });
+
+for (const entry of ['config.toml', 'AGENTS.md', 'other-file', 'sessions']) {
+  test(`dedicated account refuses ${entry} before CLI startup or render`, async t => {
+    const f = await fake(t), o = options();
+    if (entry === 'sessions') await mkdir(join(f.codexHome, entry));
+    else await writeFile(join(f.codexHome, entry), 'fixture only');
+    assert.deepEqual(await f.plugin.health(options()), { available: false });
+    await assert.rejects(f.plugin.generate(spec, '', o), { code: 'unavailable' });
+    terminal(o, 'cancelled', false); assert.equal(f.records.length, 0); assert.equal(f.probes.length, 0);
+  });
+}
+
+test('account directory symlinks are refused without inspecting the target', async t => {
+  const f = await fake(t), path = join(f.root, 'linked-account'); await symlink(f.codexHome, path);
+  const plugin = f.plugin.bind({ ...f.binding, routing: { codex: { ...f.binding.routing.codex, codexHome: path } } });
+  assert.deepEqual(await plugin.health(options()), { available: false });
+  const o = options(); await assert.rejects(plugin.generate(spec, '', o), { code: 'unavailable' });
+  terminal(o, 'cancelled', false); assert.equal(f.probes.length, 0);
+});
+
+test('account safety is rechecked after a cached successful startup', async t => {
+  const f = await fake(t); assert.deepEqual(await f.plugin.health(options()), { available: true });
+  await writeFile(join(f.codexHome, 'config.toml'), 'fixture only');
+  const o = options(); await assert.rejects(f.plugin.generate(spec, '', o), { code: 'unavailable' });
+  terminal(o, 'cancelled', false); assert.equal(f.records.length, 0); assert.equal(f.probes.length, 2);
+});
+
+for (const probeMode of ['rejectflag', 'missingflag', 'rejectfeature', 'missingfeature', 'unsafeshell', 'flood']) {
+  test(`startup self-check ${probeMode} fails closed before rendering`, async t => {
+    const f = await fake(t, { probeMode }), o = options();
+    await assert.rejects(f.plugin.generate(spec, '', o), { code: 'unavailable' });
+    terminal(o, 'cancelled', false); assert.equal(f.records.length, 0);
+    assert.deepEqual(await f.plugin.health(options()), { available: false });
+  });
+}
+
+test('deadline during non-rendering startup retains preflight settlement and kills the probe', async t => {
+  const f = await fake(t, { probeMode: 'hanghelp' }), o = options({ deadlineAt: Date.now() + 200 });
+  await assert.rejects(f.plugin.generate(spec, '', o), { code: 'deadline' });
+  terminal(o, 'cancelled', false); assert.equal(f.records.length, 0); reaped(f.probes[0]);
+});
+
+test('a synchronous render spawn failure has exact preflight zero settlement', async t => {
+  const f = await fake(t), plugin = createCodexImagegen({ binding: f.binding, spawnImpl(file, args, config) {
+    if (args[0] === 'exec' && !args.includes('--help')) throw new Error('fixture spawn failure');
+    return f.spawnImpl(file, args, config);
+  } });
+  const o = options(); await assert.rejects(plugin.generate(spec, '', o), { code: 'unavailable' });
+  terminal(o, 'cancelled', false); assert.equal(f.records.length, 0);
+});
+
+test('an asynchronous render spawn error has exact preflight zero settlement', async t => {
+  const f = await fake(t), plugin = createCodexImagegen({ binding: f.binding, spawnImpl(file, args, config) {
+    if (args[0] === 'exec' && !args.includes('--help')) return spawn(join(f.root, 'nonexistent'), args, config);
+    return f.spawnImpl(file, args, config);
+  } });
+  const o = options(); await assert.rejects(plugin.generate(spec, '', o), { code: 'unavailable' });
+  terminal(o, 'cancelled', false); assert.equal(f.records.length, 0);
+});
+
+test('requested WebP rejects a returned PNG even with matching dimensions', async t => {
+  const f = await fake(t), o = options();
+  await assert.rejects(f.plugin.generate({ prompt: 'fixture-mode:wrongformat', format: 'webp' }, '', o), { code: 'invalid-output' });
+  terminal(o, 'uncertain');
+});
+
+test('requested PNG rejects a returned WebP even with matching dimensions', async t => {
+  const f = await fake(t), o = options();
+  await assert.rejects(f.plugin.generate({ prompt: 'fixture-mode:webp' }, '', o), { code: 'invalid-output' });
+  terminal(o, 'uncertain');
+});
+
+for (const size of ['1024x1024', '1536x1024', '1024x1536']) {
+  test(`dimensions at the 5% tolerance boundary are admitted for ${size}`, async t => {
+    const f = await fake(t), result = await f.plugin.generate({ prompt: 'fixture-mode:tolerance', size }, '', options());
+    const [width, height] = size.split('x').map(Number);
+    assert.equal(result.width, Math.floor(width * 1.05)); assert.equal(result.height, Math.ceil(height * 0.95));
+  });
+}
 
 test('Codex imagegen passes the reusable UI conformance kit with fake executable stalls', async t => {
   const f = await fake(t), source = await f.plugin.generate(spec, '', options());
