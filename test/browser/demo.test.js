@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
 import { constants } from 'node:fs';
-import { access, mkdtempDisposable, readFile } from 'node:fs/promises';
+import { access, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
@@ -15,10 +15,12 @@ async function browserPath() {
   const candidates = process.env.CHROME_PATH ? [process.env.CHROME_PATH] : [
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
     join(homedir(), 'Applications/Google Chrome.app/Contents/MacOS/Google Chrome'),
-    '/opt/google/chrome/chrome', '/snap/bin/chromium',
+    '/opt/google/chrome/chrome',
     ...(process.env.PATH ?? '').split(delimiter).flatMap(dir =>
-      ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser'].map(name => join(dir, name))),
+      ['google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser'].map(name => join(dir, name)))
+      .filter(path => path !== '/snap/bin/chromium'),
     '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser',
+    '/snap/bin/chromium',
   ];
   for (const path of new Set(candidates)) {
     try { await access(path, constants.X_OK); return path; } catch { /* Try the next installed browser. */ }
@@ -41,7 +43,7 @@ async function waitForShadow(page, selector, expected = {}) {
       function check() {
         const node = root.querySelector(selector);
         if (!node || (expected.text !== undefined && node.textContent !== expected.text)
-          || (expected.enabled && node.disabled)) return;
+          || (expected.enabled !== undefined && !node.disabled !== expected.enabled)) return;
         observer.disconnect(); clearTimeout(timer); resolve();
       }
       observer.observe(root, { subtree: true, childList: true, attributes: true, characterData: true });
@@ -91,10 +93,10 @@ test('demo works in a real browser: consent, turn, understanding, reload and ZIP
   { timeout: 120_000 }, async t => {
     // Fail before starting the host if the browser is missing.
     const executablePath = await browserPath();
-    const directory = await mkdtempDisposable(join(tmpdir(), 'aithema-browser-'));
+    const directory = await mkdtemp(join(tmpdir(), 'aithema-browser-'));
     const child = fork(new URL('../../demo/server.js', import.meta.url), [], {
       // No inherited provider selection or credentials can reach the demo.
-      env: { PATH: process.env.PATH, PORT: '0', AITHEMA_DB: join(directory.path, 'session.sqlite'), AITHEMA_PROVIDER: 'mock' },
+      env: { PATH: process.env.PATH, PORT: '0', AITHEMA_DB: join(directory, 'session.sqlite'), AITHEMA_PROVIDER: 'mock' },
       silent: true,
     });
     child.stdout.resume(); child.stderr.resume();
@@ -106,9 +108,12 @@ test('demo works in a real browser: consent, turn, understanding, reload and ZIP
       finally {
         try {
           if (child.exitCode === null && child.signalCode === null) {
-            const exited = once(child, 'exit'); child.kill('SIGTERM'); await exited;
+            const exited = once(child, 'exit');
+            const killTimeout = setTimeout(() => child.kill('SIGKILL'), 5_000);
+            try { child.kill('SIGTERM'); await exited; }
+            finally { clearTimeout(killTimeout); }
           }
-        } finally { await directory.remove(); }
+        } finally { await rm(directory, { recursive: true, force: true }); }
       }
     });
 
@@ -127,7 +132,7 @@ test('demo works in a real browser: consent, turn, understanding, reload and ZIP
 
     browser = await puppeteer.launch({ executablePath, headless: true,
       env: { PATH: process.env.PATH, HOME: homedir() },
-      userDataDir: join(directory.path, 'chrome'),
+      userDataDir: join(directory, 'chrome'),
       // GitHub's Ubuntu runner restricts the Chrome sandbox with AppArmor.
       args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [],
       timeout: waitTimeout,
@@ -169,7 +174,7 @@ test('demo works in a real browser: consent, turn, understanding, reload and ZIP
         });
         const cdp = await browser.target().createCDPSession();
         await cdp.send('Browser.setDownloadBehavior', {
-          behavior: 'allowAndName', downloadPath: directory.path, eventsEnabled: true,
+          behavior: 'allowAndName', downloadPath: directory, eventsEnabled: true,
         });
         const created = page.waitForResponse(response => response.url() === `${url}/api/sessions`
           && response.request().method() === 'POST', { signal: controller.signal });
@@ -181,12 +186,17 @@ test('demo works in a real browser: consent, turn, understanding, reload and ZIP
         assert.equal(await page.$eval('aithema-session', component => component.session.id), id);
         assert.match(await page.$eval('#provider', node => node.textContent), /Mock reasoning/u);
 
-        if (await page.$eval('aithema-session', component => component.shadowRoot.querySelector('textarea').disabled)) {
-          const consent = page.waitForResponse(`${url}/api/sessions/${id}/consent`, { signal: controller.signal });
-          const [, granted] = await Promise.all([page.click('#grant'), consent]);
-          assert.equal(granted.status(), 200, 'Consent must be granted through the demo UI');
+        for (const [selector, enabled] of [['#grant', true], ['#revoke', false], ['#grant', true]]) {
+          const consent = page.waitForResponse(response => response.url() === `${url}/api/sessions/${id}/consent`
+            && response.request().method() === 'POST', { signal: controller.signal });
+          const [, saved] = await Promise.all([page.click(selector), consent]);
+          assert.equal(saved.status(), 200, `${selector} must save consent through the demo UI`);
+          if (enabled) {
+            await page.waitForFunction(() => document.querySelector('#consent-status').textContent === 'Mock processing allowed.',
+              { polling: 'mutation' });
+          }
+          await waitForShadow(page, '.composer textarea', { enabled });
         }
-        await waitForShadow(page, '.composer textarea', { enabled: true });
         // The UI defers transcript/aside changes while the pointer is over them.
         await page.mouse.move(0, 0);
         assert.equal(await page.$eval('aithema-session', component =>
@@ -224,10 +234,10 @@ test('demo works in a real browser: consent, turn, understanding, reload and ZIP
         ]);
         assert.equal(zipResponse.status(), 200);
         assert.match(zipResponse.headers()['content-type'], /^application\/zip(?:;|$)/u);
-        const bytes = await readFile(join(directory.path, download.guid));
+        const bytes = await readFile(join(directory, download.guid));
         assert.equal(bytes.readUInt32LE(0), 0x04034b50, 'The completed download must be a ZIP');
         assert.ok(bytes.includes(Buffer.from(content)), 'The downloaded export must contain the person turn');
-        t.diagnostic(`Browser: ${await browser.version()}; session creation, consent, shortcut, understanding, reload and ZIP download passed.`);
+        t.diagnostic(`Browser: ${await browser.version()}; session creation, consent grant/regrant (POST 200, "Mock processing allowed.", enabled composer), revocation (POST 200, disabled composer), shortcut, understanding, reload and ZIP download passed.`);
       })()]);
     } finally {
       controller.abort();

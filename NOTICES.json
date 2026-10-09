@@ -37,6 +37,12 @@
       "use": "ElevenLabs browser voice SDK or its runtime dependencies."
     },
     {
+      "name": "@puppeteer/browsers",
+      "version": "3.2.4",
+      "license": "Apache-2.0",
+      "use": "Real browser smoke testing with puppeteer-core or its dependencies (tests only)."
+    },
+    {
       "name": "@types/dom-mediacapture-record",
       "version": "1.0.22",
       "license": "MIT",
@@ -61,10 +67,46 @@
       "use": "WebSocket type declarations used by happy-dom (tests only)."
     },
     {
+      "name": "ansi-regex",
+      "version": "6.4.0",
+      "license": "MIT",
+      "use": "Real browser smoke testing with puppeteer-core or its dependencies (tests only)."
+    },
+    {
+      "name": "ansi-styles",
+      "version": "6.2.3",
+      "license": "MIT",
+      "use": "Real browser smoke testing with puppeteer-core or its dependencies (tests only)."
+    },
+    {
       "name": "buffer-image-size",
       "version": "0.6.4",
       "license": "MIT",
       "use": "Image dimension parsing used by happy-dom (tests only)."
+    },
+    {
+      "name": "chromium-bidi",
+      "version": "157.0.8090-0",
+      "license": "Apache-2.0",
+      "use": "Real browser smoke testing with puppeteer-core or its dependencies (tests only)."
+    },
+    {
+      "name": "cliui",
+      "version": "9.0.1",
+      "license": "ISC",
+      "use": "Real browser smoke testing with puppeteer-core or its dependencies (tests only)."
+    },
+    {
+      "name": "devtools-protocol",
+      "version": "0.0.1696802",
+      "license": "BSD-3-Clause",
+      "use": "Real browser smoke testing with puppeteer-core or its dependencies (tests only)."
+    },
+    {
+      "name": "emoji-regex",
+      "version": "10.6.0",
+      "license": "MIT",
+      "use": "Real browser smoke testing with puppeteer-core or its dependencies (tests only)."
     },
     {
       "name": "entities",
@@ -73,10 +115,28 @@
       "use": "HTML entity encoding and decoding used by happy-dom (tests only)."
     },
     {
+      "name": "escalade",
+      "version": "3.2.0",
+      "license": "MIT",
+      "use": "Real browser smoke testing with puppeteer-core or its dependencies (tests only)."
+    },
+    {
       "name": "events",
       "version": "3.3.0",
       "license": "MIT",
       "use": "ElevenLabs browser voice SDK or its runtime dependencies."
+    },
+    {
+      "name": "get-caller-file",
+      "version": "2.0.5",
+      "license": "ISC",
+      "use": "Real browser smoke testing with puppeteer-core or its dependencies (tests only)."
+    },
+    {
+      "name": "get-east-asian-width",
+      "version": "1.7.0",
+      "license": "MIT",
+      "use": "Real browser smoke testing with puppeteer-core or its dependencies (tests only)."
     },
     {
       "name": "happy-dom",
@@ -103,6 +163,24 @@
       "use": "ElevenLabs browser voice SDK or its runtime dependencies."
     },
     {
+      "name": "mitt",
+      "version": "3.0.1",
+      "license": "MIT",
+      "use": "Real browser smoke testing with puppeteer-core or its dependencies (tests only)."
+    },
+    {
+      "name": "modern-tar",
+      "version": "0.8.5",
+      "license": "MIT",
+      "use": "Real browser smoke testing with puppeteer-core or its dependencies (tests only)."
+    },
+    {
+      "name": "puppeteer-core",
+      "version": "25.13.0",
+      "license": "Apache-2.0",
+      "use": "Real browser smoke testing with puppeteer-core or its dependencies (tests only)."
+    },
+    {
       "name": "rxjs",
       "version": "7.8.2",
       "license": "Apache-2.0",
@@ -119,6 +197,24 @@
       "version": "2.15.0",
       "license": "MIT",
       "use": "ElevenLabs browser voice SDK or its runtime dependencies."
+    },
+    {
+      "name": "string-width",
+      "version": "7.2.0",
+      "license": "MIT",
+      "use": "Real browser smoke testing with puppeteer-core or its dependencies (tests only)."
+    },
+    {
+      "name": "string-width",
+      "version": "8.3.0",
+      "license": "MIT",
+      "use": "Real browser smoke testing with puppeteer-core or its dependencies (tests only)."
+    },
+    {
+      "name": "strip-ansi",
+      "version": "7.2.0",
+      "license": "MIT",
+      "use": "Real browser smoke testing with puppeteer-core or its dependencies (tests only)."
     },
     {
       "name": "ts-debounce",
@@ -139,6 +235,12 @@
       "use": "ElevenLabs browser voice SDK or its runtime dependencies."
     },
     {
+      "name": "typed-query-selector",
+      "version": "2.12.3",
+      "license": "MIT",
+      "use": "Real browser smoke testing with puppeteer-core or its dependencies (tests only)."
+    },
+    {
       "name": "undici-types",
       "version": "8.9.0",
       "license": "MIT",
@@ -149,6 +251,12 @@
       "version": "1.8.0",
       "license": "MIT AND Apache-2.0",
       "use": "Offline PDF text extraction in bounded child processes; same pinned dependency as Gen-2. Includes the Apache-2.0 serverless PDF.js 6.1.200 build."
+    },
+    {
+      "name": "webdriver-bidi-protocol",
+      "version": "1.0.1",
+      "license": "Apache-2.0",
+      "use": "Real browser smoke testing with puppeteer-core or its dependencies (tests only)."
     },
     {
       "name": "webrtc-adapter",
@@ -163,10 +271,40 @@
       "use": "MIME type parsing used by happy-dom (tests only)."
     },
     {
+      "name": "wrap-ansi",
+      "version": "9.0.2",
+      "license": "MIT",
+      "use": "Real browser smoke testing with puppeteer-core or its dependencies (tests only)."
+    },
+    {
       "name": "ws",
       "version": "8.22.0",
       "license": "MIT",
-      "use": "WebSocket implementation used by happy-dom (tests only)."
+      "use": "WebSocket implementation used by happy-dom and puppeteer-core (tests only)."
+    },
+    {
+      "name": "y18n",
+      "version": "5.0.8",
+      "license": "ISC",
+      "use": "Real browser smoke testing with puppeteer-core or its dependencies (tests only)."
+    },
+    {
+      "name": "yargs",
+      "version": "18.2.0",
+      "license": "MIT",
+      "use": "Real browser smoke testing with puppeteer-core or its dependencies (tests only)."
+    },
+    {
+      "name": "yargs-parser",
+      "version": "22.0.0",
+      "license": "ISC",
+      "use": "Real browser smoke testing with puppeteer-core or its dependencies (tests only)."
+    },
+    {
+      "name": "zod",
+      "version": "4.6.5",
+      "license": "MIT",
+      "use": "Real browser smoke testing with puppeteer-core or its dependencies (tests only)."
     }
   ],
   "model_assets": [],

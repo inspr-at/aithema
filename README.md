@@ -49,10 +49,15 @@ CHROME_PATH=/absolute/path/to/chrome npm run test:browser
 ```
 
 It uses exactly pinned `puppeteer-core` without downloading a browser, starts the
-mock demo on a free port with a temporary database, and checks consent, keyboard
-submission, transcript/understanding updates, reload and a ZIP download. Console
-errors, page exceptions and failed same-origin requests fail the test. The
-separate PR CI `browser` job runs on Ubuntu with Node 24 and a three-minute limit;
+mock demo on a free port with a temporary database, and always clicks **Allow mock
+processing** (`#grant`), waiting for a 200 consent POST response, `#consent-status`
+to read "Mock processing allowed." and an enabled composer textarea. It then
+clicks **Withdraw consent** (`#revoke`), checks a 200 consent POST response and a
+disabled textarea, and grants again, checking the same response, message and
+enabled textarea. It also checks keyboard submission, transcript/understanding
+updates, reload and a ZIP download. Console errors, page exceptions and failed
+same-origin requests fail the test. The separate PR CI `browser` job runs on
+Ubuntu with Node 24 and a five-minute limit;
 `npm test` does not require a browser. To prove the missing JSON content-type
 regression is detected, run `AITHEMA_BROWSER_REGRESSION=1 npm run test:browser`:
 this serves a test-only faulty `demo/host.js` session POST and must fail with 415,
