@@ -322,9 +322,10 @@ export class SQLiteStorage {
     return this.transaction(() => { const session = this.get(id); this.#check(session, guard);
       return this.#append(session, 'session.paused', { paused }); });
   }
-  conceptArtifactIds(id) {
+  conceptArtifactIndex(id) {
     // Tombstones remain accountable in exports without recovering erased metadata.
-    return this.db.prepare('SELECT id FROM concept_artifacts WHERE session_id=? ORDER BY rowid').all(id).map(row => row.id);
+    return this.db.prepare('SELECT id,tombstone IS NOT NULL AS erased FROM concept_artifacts WHERE session_id=? ORDER BY rowid')
+      .all(id).map(row => ({ id: row.id, erased: Boolean(row.erased) }));
   }
   conceptArtifact(id, artifactId) {
     const row = this.db.prepare('SELECT * FROM concept_artifacts WHERE session_id=? AND id=?').get(id, artifactId);

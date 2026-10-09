@@ -283,7 +283,9 @@ test('ZIP export carries saved images and provenance; expiry removes dependent i
   assert.equal(JSON.parse(files['concepts.json'])[0].feedback.chips[0], 'private export guidance');
   await h.handlers.expire(Date.now() + 1000); await h.handlers.idle();
   const after = unzip(new Uint8Array(await (await h.call('export')).arrayBuffer()));
-  assert.ok(Object.keys(after).every(name => !name.startsWith('concept'))); assert.ok(Object.values(after).every(value => !value.includes('private export guidance')));
+  assert.ok(Object.keys(after).every(name => !name.startsWith('concepts/'))); assert.equal(after['concepts.json'], undefined);
+  assert.deepEqual(JSON.parse(after['concepts-manifest.json']), { version: 1, included: [], withheld: [{ id: item.id, reason: 'erased' }] });
+  assert.ok(Object.values(after).every(value => !value.includes('private export guidance')));
   assert.equal(h.storage.conceptArtifact(h.id, item.id).erased, true);
 });
 test('refinements use exact edit processing scope for admission, claim consumption and publication', async t => {
@@ -373,6 +375,7 @@ test('export retains transcript and understanding when image publication is unav
     const files = unzip(new Uint8Array(await response.arrayBuffer()));
     assert.ok(files['transcript.json'].includes('public API')); assert.ok(files['understanding.json']);
     assert.equal(JSON.parse(files['concepts.json'])[0].id, first.id);
+    assert.deepEqual(JSON.parse(files['concepts-manifest.json']).withheld, [{ id: first.id, reason: 'publication-not-allowed' }]);
     assert.ok(Object.keys(files).every(name => !name.startsWith('concepts/')));
     assert.equal(files['concepts.json'].includes('private image guidance'), false); assert.equal(artifact.mock.callCount(), 0);
     h.presets.best.bindings.images = binding; plugin?.mock.restore(); artifact.mock.restore();
