@@ -5,6 +5,11 @@ import { beginInvocation, normalizedError } from '../packages/core/src/invocatio
 import { operationScope } from '../packages/core/src/reasoning.js';
 export const schema = { type: 'object', additionalProperties: false, properties: { summary: { type: 'string' } }, required: ['summary'] };
 export const request = { system: 'Fixture policy', messages: [{ role: 'user', content: 'Hello' }], schema };
+export const openRouterPrices = {
+  'fixture/model': { prompt: 1e-9, completion: 1e-9 },
+  'fixture/understanding': { prompt: 1e-9, completion: 1e-9 },
+  'other/model': { prompt: 1e-9, completion: 1e-9 },
+};
 export function invocationOptions(extra = {}) {
   const reports = []; let burned = false;
   return { reports, signal: new AbortController().signal, deadlineAt: Date.now() + 2000,

@@ -1,2 +1,2 @@
-// Host configuration, independent of provider credentials. Override with OPENROUTER_MODEL.
-export const config = { model: 'openai/gpt-4.1-mini', port: 3000 };
+// Live OpenRouter model selection is required in demo/openrouter-config.js.
+export const config = { port: 3000 };

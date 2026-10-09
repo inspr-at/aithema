@@ -31,18 +31,39 @@ async function open(fresh = false) {
     }
     component.configure({ voiceClient: liveVoiceClient ?? fakeVoice?.client, copy: en, session, deviceReasoning: processingPreset === 'device'
       ? createDeviceReasoning({ endpoint: document.querySelector('#device-endpoint').value }) : undefined });
-    document.querySelector('#consent-status').textContent = binding.voiceMode === 'elevenlabs' ? en.voiceHostConsent : session.consentWithdrawn ? 'Consent withdrawn.' : 'Grant consent before mock processing.';
+    if (binding.processingConsent) {
+      const current = await fetch(`/api/sessions/${session.id}/consent`).then(r => r.json());
+      for (const checkbox of document.querySelectorAll('#processing-items input')) checkbox.checked = current.selected.includes(checkbox.value);
+    }
+    document.querySelector('#consent-status').textContent = binding.processingConsent ? 'Processing waits for the selected permissions.' : binding.voiceMode === 'elevenlabs' ? en.voiceHostConsent : session.consentWithdrawn ? 'Consent withdrawn.' : 'Grant consent before mock processing.';
     document.querySelector('#error').textContent = '';
   } catch { document.querySelector('#error').textContent = 'Could not restore the demo. Reload to retry.'; }
 }
 const binding = await fetch('/demo/config').then(r => r.json());
+if (binding.processingConsent) {
+  const copy = binding.processingConsent;
+  document.querySelector('#consent-title').textContent = 'Consent for data processing';
+  document.querySelector('section[aria-labelledby="consent-title"] > p').textContent = `${copy.intro} ${copy.withdrawal}`;
+  const container = document.createElement('div'); container.id = 'processing-items';
+  for (const item of copy.items) {
+    const label = document.createElement('label'), checkbox = document.createElement('input'), text = document.createElement('p');
+    checkbox.type = 'checkbox'; checkbox.value = item.id;
+    label.append(checkbox, document.createTextNode(item.title));
+    text.textContent = `${item.recipients} ${item.text}`;
+    container.append(label, text);
+  }
+  document.querySelector('#grant').before(container);
+  document.querySelector('#grant').textContent = 'Grant consent';
+}
 if (binding.voiceMode === 'elevenlabs') {
-  document.querySelector('#consent-title').textContent = en.voiceHostConsentTitle;
-  document.querySelector('section[aria-labelledby="consent-title"] > p').textContent = en.voiceHostConsent;
-  document.querySelector('#grant').disabled = true; document.querySelector('#grant').title = en.voiceHostConsent;
+  if (!binding.processingConsent) {
+    document.querySelector('#consent-title').textContent = en.voiceHostConsentTitle;
+    document.querySelector('section[aria-labelledby="consent-title"] > p').textContent = en.voiceHostConsent;
+    document.querySelector('#grant').disabled = true; document.querySelector('#grant').title = en.voiceHostConsent;
+  }
   await new Promise((resolve, reject) => { const script = document.createElement('script'); script.src = '/vendor/elevenlabs/lib.iife.js'; script.onload = resolve; script.onerror = reject; document.head.append(script); });
 }
-document.querySelector('#provider').textContent = `${binding.label} · ${binding.imageLabel}`;
+document.querySelector('#provider').textContent = `${binding.label} · ${binding.imageLabel}${binding.voiceDisabledReason ? ` · Voice unavailable: ${binding.voiceDisabledReason}` : ''}`;
 const fakeControls = document.querySelector('#fake-voice'); fakeControls.hidden = binding.voiceMode !== 'fake';
 for (const [selector, key, action] of [['#fake-say', 'fakeVoiceSay', () => fakeVoice?.speak()],
   ['#fake-interrupt', 'fakeVoiceInterrupt', () => fakeVoice?.bargeIn()], ['#fake-disconnect', 'fakeVoiceDisconnect', () => fakeVoice?.disconnect()]]) {
@@ -55,12 +76,15 @@ for (const [selector, granted] of [['#grant', true], ['#revoke', false]]) {
   document.querySelector(selector).addEventListener('click', async () => {
     const button = document.querySelector(selector), id = component.session.id; button.disabled = true;
     try {
-      const response = await postJson(`/api/sessions/${id}/consent`, { granted });
+      const processing = binding.processingConsent ? { contract: binding.processingConsent.contract,
+        items: [...document.querySelectorAll('#processing-items input:checked')].map(input => input.value) } : undefined;
+      const response = await postJson(`/api/sessions/${id}/consent`, { granted, ...(processing ? { processing } : {}) });
       if (!response.ok) throw new Error();
       const ack = await response.json();
       if (component.session.id !== id) return;
       component.receive(ack.event);
-      document.querySelector('#consent-status').textContent = granted ? 'Mock processing allowed.' : 'Consent withdrawn. Running work stopped.';
+      document.querySelector('#consent-status').textContent = granted ? binding.processingConsent ? 'Your consent has been saved.' : 'Mock processing allowed.' : 'Consent withdrawn. Running work stopped.';
+      if (!granted) for (const checkbox of document.querySelectorAll('#processing-items input')) checkbox.checked = false;
     } catch { document.querySelector('#consent-status').textContent = 'Could not save consent. Try again.'; }
     finally { button.disabled = false; }
   });

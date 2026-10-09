@@ -4,7 +4,7 @@ import { createHandlers, createPluginRuntime, SQLiteStorage, SQLiteBudgetLedger 
 import { PluginRegistry, createMockReasoning, mockManifest, SessionLanes } from '@inspr/aithema-core';
 import { createOpenRouterReasoning } from '../../../plugins/openrouter/src/index.js';
 import { ownedRequest, testToken, mockConsent } from '../../../test/helpers.js';
-import { binding, chatServer, request, consumeInFinallyReasoning } from '../../../test/plugin-fixtures.js';
+import { binding, chatServer, request, consumeInFinallyReasoning, openRouterPrices } from '../../../test/plugin-fixtures.js';
 function qualify(b) {
   return { ...b, legal: { approved: true, countries: ['FR'], training: false, retention: 'host qualified',
     purpose: 'requirements', recipient: 'fixture-provider', processors: ['fixture-processor'],
@@ -15,7 +15,7 @@ function qualify(b) {
 function setup(t, endpoint = 'http://127.0.0.1:1/chat', extra = {}) {
   const storage = new SQLiteStorage(), session = storage.create({ demo: true, ownerToken: testToken }); t.after(() => storage.close());
   const b = qualify(binding('openrouter', endpoint));
-  const plugin = createOpenRouterReasoning({ binding: b, resolveSecret: () => 'local-fixture' });
+  const plugin = createOpenRouterReasoning({ binding: b, prices: openRouterPrices, resolveSecret: () => 'local-fixture' });
   const registry = new PluginRegistry().register(plugin);
   const presets = Object.fromEntries(['best', 'eu', 'custom'].map(p => [p, { plugins: ['openrouter'],
     bindings: { reaction: b, understanding: b }, policy: { endpoints: [endpoint] } }]));

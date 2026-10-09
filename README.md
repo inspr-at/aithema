@@ -77,9 +77,21 @@ erasing the previous one. `PORT` and `AITHEMA_DB` override the port and database
 The demo accepts only loopback Host headers and JSON POSTs.
 
 The demo stays on the mock even when provider environment variables exist.
-`AITHEMA_PROVIDER=openrouter|mistral` explicitly selects a provider; `OPENROUTER_MODEL`
-and `MISTRAL_MODEL` select its model. These demo bindings remain **unverified** and
-cannot dispatch until a host supplies private qualification and current consent.
+`AITHEMA_PROVIDER=openrouter|mistral` explicitly selects a provider.
+OpenRouter requires `OPENROUTER_MODEL` for understanding and
+`AITHEMA_OPENROUTER_PRICES` for every configured model; missing or invalid values
+refuse startup. `OPENROUTER_SPEECH_MODEL` selects reaction replies (spoken and
+typed, including the voice facade) and defaults to `OPENROUTER_MODEL`.
+Choose a fast speech model for the seven-second platform timeout; replies are
+capped by `OPENROUTER_MAX_TOKENS` (default `1200`), while understanding uses
+`OPENROUTER_ANALYSIS_MAX_TOKENS` (default `8000`); START found smaller analysis
+ceilings truncated real assessments. Every request requires parameter-capable
+upstreams. `OPENROUTER_PROVIDER_ONLY` is the optional comma-separated upstream
+allow-list and must mirror START exactly as part of the legal profile.
+`OPENROUTER_ANALYSIS_PROVIDER_IGNORE` defaults to `Azure` for understanding only.
+`MISTRAL_MODEL` selects the Mistral model. Live OpenRouter uses the START host
+qualification below and still requires current consent; Mistral remains
+unverified until a host supplies private qualification and current consent.
 Keys resolve from `OPENROUTER_API_KEY` or `MISTRAL_API_KEY` only at runtime; they
 never enter manifests, snapshots, UI or logs. Tests never use these environment keys.
 The demo mock consent does not cover live providers.
@@ -205,11 +217,11 @@ plugin, configure `presets[preset].bindings.voice`, and pass
 accepting traffic. See the [voice plugin README](plugins/elevenlabs/README.md)
 for the complete binding and provisioning ports. Agent id, provider-key secret
 reference, public HTTPS facade base URL and exact account qualification are
-required. The live demo additionally requires a private host module; it never
-infers authorization from a provider key in the environment.
-Live provider callbacks need a proxy that rewrites the incoming `Host` header to
-an allowed localhost host: the demo applies its `allowedHosts` check to the facade
-route too. Terminate public HTTPS at that proxy.
+required. The built-in start2 host supplies START's international qualification and separate
+durable consent items. It never treats the mock grant as ElevenLabs consent.
+`AITHEMA_PUBLIC_ORIGIN` selects the public Host and callback origin; pass the
+original Host through the HTTPS reverse proxy. Custom private host modules remain
+optional.
 
 Browser hosts import `createVoiceControl` from `@inspr/aithema-ui/voice-control`,
 and `createElevenLabsClient` from `@inspr/aithema-plugin-elevenlabs/client`.
@@ -281,8 +293,10 @@ account and secret references, token limit, per-token integer micro-unit rates
 and an attempt ceiling. Reaction and understanding have separate bindings.
 `createBinding` validates and freezes them; neither bindings nor keys belong in
 session snapshots. Secret resolvers read their named environment reference at
-runtime. OpenRouter pins routing with `require_parameters` and
-`allow_fallbacks: false`; Mistral sends chat completions and JSON Schema directly.
+runtime. `createOpenRouterReasoning` also requires a private `prices` map with
+prompt/completion USD per token for every model it can bind. OpenRouter pins
+routing with `require_parameters`, `allow_fallbacks: false` and the operator's
+`max_price` ceiling; Mistral sends chat completions and JSON Schema directly.
 Their health operation checks configured credentials locally; it is not a live
 provider availability probe. Wire formats follow the official
 [OpenRouter streaming documentation](https://openrouter.ai/docs/api_reference/streaming)
@@ -942,3 +956,207 @@ Every contribution commit requires a matching `Signed-off-by` trailer under the
 [Developer Certificate of Origin 1.1](DCO), created with `git commit --signoff`.
 External contributions also require an agreement with INSPR permitting relicensing;
 DCO sign-off alone is insufficient. Review, merge and release remain maintainer-controlled.
+
+
+## Test-host deployment (AIT-115)
+
+Run a pinned source commit with Node 24 or the provided `node:24-bookworm-slim`
+Dockerfile: `npm ci --omit=dev`, then `node demo/server.js`. The ElevenLabs SDK
+1.17.0 is a runtime dependency; the host serves its IIFE and worklets locally.
+OPS pins the base image digest at build time with
+`--build-arg NODE_IMAGE=node:24-bookworm-slim@sha256:<approved-digest>`.
+The image runs as `node`, binds port 3000 and uses its `/data` volume for SQLite.
+App files and installed dependencies belong to root and have no write bits.
+Run the container with `--read-only` and a writable `/data` volume, so only
+`/data` is writable by the runtime user.
+Mount `/data` writable by that user, preserve the SQLite database plus WAL on
+restart, and run exactly one writer. Set `AITHEMA_COMMIT` to the deployed full
+source SHA. The container healthcheck uses `node:http` to supply the configured
+public Host while connecting over local HTTP. This keeps the Host gate active
+even for loopback callers and avoids relying on `fetch` to override Host.
+Readiness of voice is separately visible in
+`/demo/config` and the session feature matrix; `/healthz` is a process probe.
+
+| Environment | Meaning / default |
+| --- | --- |
+| `PORT` | Listen port; local/container default `3000` |
+| `AITHEMA_LISTEN_HOST` | Bind address; local `127.0.0.1`, image `0.0.0.0` |
+| `AITHEMA_PUBLIC_ORIGIN` | Canonical origin, e.g. `https://start2.augmentoring.com`, without trailing slash; accepted Host, facade base URL and Secure cookies |
+| `AITHEMA_DB` | Persistent SQLite path; local `.data/session.sqlite`, image `/data/session.sqlite` |
+| `AITHEMA_COMMIT` | Deployed source SHA; `/healthz` reports this or `null` |
+| `AITHEMA_PROVIDER` | `openrouter` for live reasoning; defaults to `mock` |
+| `OPENROUTER_API_KEY` | Account credential supplied by OPS through its secret service |
+| `OPENROUTER_MODEL` | Required understanding model id when `AITHEMA_PROVIDER=openrouter`; no default; only START-consented OpenAI, Anthropic or xAI providers are admitted |
+| `OPENROUTER_SPEECH_MODEL` | Reaction model for spoken and typed replies and the voice facade; defaults to `OPENROUTER_MODEL`; capped by `OPENROUTER_MAX_TOKENS`; choose for the seven-second platform timeout |
+| `OPENROUTER_MAX_TOKENS` | Reply token ceiling for reaction/speech; default `1200`; used in the per-request spend ceiling |
+| `OPENROUTER_ANALYSIS_MAX_TOKENS` | Understanding token ceiling; default `8000`; START found lower values truncated real analyses; used in the per-request spend ceiling |
+| `OPENROUTER_PROVIDER_ONLY` | Comma-separated upstream allow-list sent as `provider.only` on every request; unset means no restriction; part of the legal profile; must mirror START exactly |
+| `OPENROUTER_ANALYSIS_PROVIDER_IGNORE` | Comma-separated upstream exclusions sent as `provider.ignore` on understanding/analysis only; default `Azure`, whose START workspace rejects `response_format` despite advertised support |
+| `AITHEMA_OPENROUTER_PRICES` | Required JSON for every configured model: `{"<model>":{"prompt":<USD per token>,"completion":<USD per token>}}`; finite nonnegative prices; no catalog defaults |
+| `AITHEMA_OPENROUTER_CAP_USD` | Lifetime persisted account cap; decimal USD with up to six fractional digits, default `10` |
+| `AITHEMA_VOICE_MODE` | `elevenlabs` enables startup ensure; default `fake`; `off` disables voice |
+| `ELEVENLABS_API_KEY` | ElevenLabs account key; reference resolves server-side only |
+| `AITHEMA_ELEVENLABS_TEMPLATE_AGENT_ID` | START agent to GET for selected voice/language/ASR/turn/privacy settings; never a write target |
+| `AITHEMA_VOICE_FACADE_SECRET` | Deployment callback bearer supplied by OPS; startup creates/updates its owned workspace-secret reference |
+| `AITHEMA_IMAGE_MODE` | Use `off` for the first live smoke; default `fake`; `openai` requires a separate host module |
+| `AITHEMA_VOICE_HOST_MODULE` | Optional server-only host override; unset selects built-in start2 host |
+
+Production requires no `ELEVENLABS_AGENT_ID`: the owned agent id comes from ensure
+and is cached in `AITHEMA_DB`. An existing same-name foreign agent or multiple
+exact-name matches disables voice with a value-free reason. Only a creation
+receipt persisted in this database authorizes updates. Losing the ownership
+cache never authorizes taking over an existing agent/secret; restore the database
+or let the operator resolve the conflict. Secrets are not cached in SQLite.
+If a workspace-secret POST succeeds remotely but its response has no valid
+`secret_id`, startup reports `secret-create-invalid`; later starts report
+`secret-ownership-unproven`. This conflict is sticky because the host cannot
+prove ownership from the remote name. The value-free log names only
+`aithema-start2-facade`. OPS stops the host, preserves the database/WAL, and uses
+its secret-aware tooling to inspect only secret names, ids and `used_by`.
+After confirming there is no local creation receipt and that the remote secret
+is an unused orphan, delete the orphan secret named **`aithema-start2-facade`**
+by its id, then restart. The host creates a new secret and persists its receipt.
+If the secret is in use or ownership is uncertain, restore the proven receipt
+from backup or resolve that ownership first; do not delete an active secret.
+Template prompts, personas, first messages, knowledge bases and tools are excluded.
+The host's custom LLM has an empty prompt/greeting and no tools or knowledge base;
+Aithema rebuilds the trusted session prompt at each callback.
+After every agent create or PATCH, startup GETs the owned agent and verifies
+its name/id, auth enabled, exactly one allowlist hostname equal to the public
+origin's host (including any port), the extra-body override, `custom-llm`
+selection, callback URL, owned secret id and every copied privacy field.
+Any mismatch disables voice with `agent-readback-mismatch`; logs contain only
+the owned name/id and failing field names. A failed GET also disables voice.
+
+Caddy must preserve the incoming `Host` header and terminate HTTPS. Protect
+**everything** with `basic_auth`, except **POST**
+`/api/voice/llm/chat/completions` and **GET** `/healthz` (method and path both must
+match). Those exceptions still pass the Host allowlist; the callback additionally
+requires the static bearer. Keep session, consent, SDK/worklet and `/demo/config`
+paths behind basic auth. Forwarded headers never choose the origin or cookie
+security. Browser requests with a foreign Origin are refused; provider callbacks
+use bearer authentication instead of a browser Origin.
+
+The consent panel ports START's English `models-international` and
+`voice-elevenlabs` items, versions and twelve-month lapse. Grant them separately.
+SQLite records the item choices, time, wording and consent revision without
+conversation content. Coverage is checked against the exact configured processing
+scope before admission/dispatch and fails closed on expiry, withdrawal or changed
+binding. The old `{granted:true}` mock request cannot authorize these providers.
+This host makes no EU residency, no-training or zero-retention claim. START's
+self-serve Agents path is US-based; copied privacy flags are not entitlement proof.
+
+`createSpendCap({storage, account, capMicro})`, exported by the server package,
+provides the port `{reserve(ceilingMicro) → handle, settle(handle, actualMicro),
+snapshot()}`. A second plugin can inject the same port, or share account
+`start2-openrouter` and the same database. `snapshot()` returns
+`{spentMicro, reservedMicro, capMicro, breached}`. Reservations and settlements
+run under SQLite transactions. Every OpenRouter request sends the binding's
+`max_tokens` (default 1200 for reaction, 8000 for understanding),
+`provider.require_parameters: true`, and `provider.max_price` derived from the
+operator's prices using exact decimal arithmetic before JSON number conversion.
+Configured upstream allow-lists apply to both lanes; the
+analysis exclusion applies only to understanding. **verified live 2026-10-09**:
+those routing prices are in USD per MILLION tokens and OpenRouter enforces them
+before dispatch (404, "No endpoints found that satisfy the max price").
+`reasoning: {enabled:false}` is accepted and sent when effort is `none`.
+
+The request ceiling is the UTF-8 byte length of the complete serialized messages
+array, including the system message, multiplied by the configured prompt price,
+plus `max_tokens` multiplied by the completion price. Decimal arithmetic rounds
+that sum upward to microdollars. The port reserves this ceiling (with a minimum
+one-microdollar hold for free prices), refusing before dispatch when
+`spent + reserved + ceiling > cap`. The existing per-binding USD 1 lane maximum
+also refuses oversized requests. `AITHEMA_OPENROUTER_RESERVE_USD` is removed.
+
+Every request asks for `usage.include`; final streaming or non-streaming
+`usage.cost` settles its hold in upward-rounded microdollars. Known cost remains
+billable even if structured output is invalid or the HTTP status is an error.
+Missing usage, cancellation, incomplete streams and process death retain the
+whole hold across restart. No dispatched hold is released without `usage.cost`.
+An actual cost above its ceiling is recorded in full and permanently marks the
+account breached, refusing all further calls, even if the account cap still has
+room. Streaming stops as soon as it reports such an overrun. For example,
+USD 9.50 spent plus a USD 1.00 ceiling refuses before dispatch; an unexpected
+USD 1.00 charge after a smaller admitted ceiling records USD 10.50 and locks the
+account. Raising the cap does not reset the counter or clear a ceiling breach.
+Do not remove uncertain holds merely to make another request fit.
+**The cap drains through uncertain holds by design**, including barge-in,
+aborted voice streams and crashes; restart does not replenish that budget.
+
+OPS reconciliation of uncertain holds:
+
+1. Stop the sole writer and back up SQLite plus WAL. List unsettled
+   `spend_reservations` for `start2-openrouter` (`actual_micro IS NULL`), keeping
+   their ids and ceilings intact.
+2. If the provider response carried a generation id retained in OPS request
+   records, use authenticated OpenRouter generation lookup
+   `GET /api/v1/generation?id=<generation-id>` through secret-aware tooling.
+   Otherwise obtain the account's OpenRouter activity export. Match each billed
+   generation unambiguously to its reservation using OPS request records; the
+   host does not currently persist generation ids or that correlation itself.
+   A missing export row or interrupted client stream is not proof of zero cost.
+3. Once authoritative provider evidence proves the billed USD cost for that
+   reservation, round it upward to microdollars and call the spend-cap port's
+   `settle({id: <reservation-id>}, actualMicro)` for the same account/database.
+   Keep the evidence reference in the OPS record. Record the full charge even
+   above the original ceiling; this preserves the permanent breach latch.
+   Do not delete reservations or reduce settled charges. If correlation or final
+   cost remains uncertain, leave the full hold in place.
+4. Check `snapshot()` totals against the evidence and confirm any ceiling breach
+   still refuses admission, then restart the sole writer. Reconciliation is an
+   OPS action; startup does not release dispatched holds automatically.
+
+The following shapes are **verified by read-only GET 2026-10-09** in the
+coordinator's AIT-115 comment: paginated agent list and ids/names; agent GET
+`conversation_config` TTS/ASR/turn/language/custom-LLM fields and
+`platform_settings` auth/privacy/overrides; `/v1/convai/secrets` with
+`secrets[] {type, secret_id, name, used_by}`; conversation-details
+`conversation_id` echo and `metadata.call_duration_secs/cost`. The conversation
+cost is provider credits, not USD. `/v1/convai/workspace/secrets` returns 404.
+
+**UNVERIFIED API SHAPE** remains on agent create/PATCH bodies and secret
+write bodies: POST `/v1/convai/secrets`
+`{type:'new', name, value}` and PATCH `/v1/convai/secrets/{secret_id}`
+`{type:'update', name, value}`. The platform allowlist item `{hostname}` follows
+ElevenLabs docs but was empty in the live GET. Local fakes exercise these write
+contracts; the coordinator must verify them before enabling this deployment.
+
+Coordinator live smoke, after its Claude approval gate:
+
+1. Before service startup/writes, use OPS's secret-aware tooling for authenticated
+   read-only GETs: `/v1/convai/agents?page_size=100` (follow `next_cursor`),
+   `/v1/convai/agents/<template-id>`, `/v1/convai/secrets` and
+   `/v1/convai/conversations/<existing-completed-id>`. Inspect only
+   names/ids and the required field shapes. Confirm no ambiguous `aithema-start2`,
+   confirm template voice/language/privacy and platform overrides, and confirm
+   API documentation for create/PATCH and secret-id auth; GETs alone cannot prove
+   write payloads. Also verify OpenRouter `provider.max_price` units against the
+   configured per-token prices. Never print key, secret or full config bodies.
+2. Start the pinned host with the environment above. Confirm it creates one owned
+   agent and one workspace secret. GET the owned agent, inspecting only its name,
+   id and callback/allowlist/secret-reference fields. Verify template id was never
+   a write target, its prompt was not copied, and the bearer is a secret id reference.
+   Restart with the same database; it must update that same agent without duplicates.
+3. GET public `/healthz` without basic auth or a session; expect
+   `{"ok":true,"commit":"<deployed-sha>"}`. A foreign Host must receive 403. Confirm
+   other methods on that path and all session/asset paths remain basic-auth protected.
+   POST the callback without/wrong bearer: 401, even with malformed JSON. Correct
+   bearer with no/unknown/ended identity: 403. `/api/voice/<call-id>/...` is disabled.
+4. Open the HTTPS page with basic auth. Confirm the ownership cookie has Secure,
+   HttpOnly and SameSite=Strict. Before consent, live voice/reasoning must be denied;
+   the mock grant alone must be refused. Select both separate items and grant them.
+   Start a call, speak, hear an answer, type during voice, pause/resume and close.
+   Observe durable turns and authenticated final provider usage; no per-call agent
+   PATCH occurs. Withdraw consent mid-call and confirm later callbacks cannot reason.
+5. Inspect value-free SQLite `spend_reservations` totals: non-stream analysis and
+   streaming reaction costs sum; missing/uncertain usage retains the hold. Restart
+   and confirm totals persist. On an isolated small-cap test database, once the
+   next reservation would exceed the cap, the next call must be refused with no
+   OpenRouter dispatch. Keep production ownership/cost state intact.
+
+The built-in host has no confirmed server-side hangup endpoint. Browser hangup,
+lease expiry and the owned agent's 600-second platform ceiling remain the
+backstops. Until authenticated final details arrive, closure stays conservative
+and pending reconciliation survives restart. Provider write shapes and real-key
+smoke verification belong to the coordinator; none were run by the builder.

@@ -119,7 +119,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           ...(receipt.credential.connectionType === 'websocket'
             ? { signedUrl: receipt.credential.signedUrl, connectionType: 'websocket' }
             : { conversationToken: receipt.credential.conversationToken, connectionType: 'webrtc' }),
-          customLlmExtraBody: { aithema_call: request.callId },
+          customLlmExtraBody: { aithema_call: receipt.facadeCallId ?? request.callId },
           ...(receipt.overrides ? { overrides: voiceOverrides(receipt.overrides) } : {}),
           ...(workletPaths ? { workletPaths } : {}), ...callbacks,
         });
