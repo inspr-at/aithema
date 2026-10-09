@@ -43,7 +43,9 @@ test('demo rejects foreign Hosts and non-JSON POSTs before session creation', { 
 // The server answers non-JSON POST bodies with 415, so every client request that
 // is not a plain GET must go through postJson. Detect any request method set
 // elsewhere, however it is written.
-const sendsMethod = source => /\bmethod\b\s*[:=]|new\s+Request\s*\(|navigator\.sendBeacon|XMLHttpRequest/u.test(source);
+// Any mention of the word "method" outside postJson fails (quoted keys, bracket
+// access and shorthand included); a false alarm in a comment is the safe side.
+const sendsMethod = source => /\bmethod\b|new\s+Request\s*\(|navigator\.sendBeacon|XMLHttpRequest/u.test(source);
 async function clientFiles() {
   const { readdir } = await import('node:fs/promises');
   const files = [new URL('../host.js', import.meta.url)];
@@ -61,6 +63,7 @@ test('the request-method detector catches every way of writing a non-GET request
     "fetch('/x', { method: 'POST', body: '{}' })", 'fetch("/x", { method: "POST" })', 'fetch(`/x?a=)`, { method: `POST` })',
     'const init = { method: verb }; fetch(url, init)', 'init.method = "PUT"', 'fetch(new Request(url, init))',
     'navigator.sendBeacon(url, data)', 'new XMLHttpRequest()',
+    'fetch(\'/x\', { "method": "POST", body: "{}" })', "init['method'] = 'POST'", 'const send = (url, method, body) => fetch(url, { method, body })',
   ]) assert.ok(sendsMethod(fixture), fixture);
   for (const fixture of ["fetch(`${base}/api/sessions/${id}`)", 'const methodology = 1;', "fetch('/x', { signal })"]) assert.ok(!sendsMethod(fixture), fixture);
 });
