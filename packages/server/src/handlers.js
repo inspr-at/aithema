@@ -269,7 +269,16 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         }
         const current = storage.authorize(id, ownerToken);
         if (current.seq !== session.seq) throw new ConflictError('Export changed');
-        return new Response(exportSession(current, (current.concepts ?? []).filter(c => allowed.get(key(c))).map(c => storage.conceptArtifact(id, c.id))), {
+        const concepts = new Map((current.concepts ?? []).map(c => [c.id, c]));
+        const artifacts = [], withheld = [];
+        for (const artifactId of storage.conceptArtifactIds(id)) {
+          const artifact = storage.conceptArtifact(id, artifactId), concept = concepts.get(artifactId);
+          if (artifact.erased) withheld.push({ id: artifactId, reason: 'erased' });
+          else if (!concept || !allowed.get(key(concept))) withheld.push({ id: artifactId,
+            reason: current.consentWithdrawn ? 'consent-withdrawn' : 'publication-not-allowed' });
+          else artifacts.push(artifact);
+        }
+        return new Response(exportSession(current, artifacts, withheld), {
         headers: { 'content-type': 'application/zip', 'content-disposition': 'attachment; filename="aithema-session.zip"', 'cache-control': 'no-store' },
       });
       }

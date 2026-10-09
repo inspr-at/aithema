@@ -87,8 +87,12 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         const reason = consentReason(coverage, scope, now(), session.consentRevision); if (reason) return { reason };
       } catch { return { reason: 'consent port unavailable' }; }
     }
-    try { if (!(await plugin.health(options))?.available) return { reason: 'plugin unhealthy' }; }
-    catch { return { reason: 'plugin unhealthy' }; }
+    // Provider health (including spend headroom) governs new dispatch only.
+    // Paid results still require all binding, consent and session checks above.
+    if (!options.existingCall) {
+      try { if (!(await plugin.health(options))?.available) return { reason: 'plugin unhealthy' }; }
+      catch { return { reason: 'plugin unhealthy' }; }
+    }
     if (scope) { const reason = consentReason(coverage, scope, now(), session.consentRevision); if (reason) return { reason }; }
     if (feature === 'voice' && plugin.manifest.liveVoice?.reasoning === 'delegated') {
       const reaction = await evaluate(session, preset, 'text', { ...options, existingCall: false });

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { inspectHTML, isHTMLArtifact, verifyHTMLArtifact, contentDigest, uiGenerationConformance, beginInvocation, operationScope,
-  normalizedError, deepFreeze, IPTC_DIGITAL_SOURCE, MAX_HTML_BYTES, HTML_PREVIEW_CSP, isUIArtifact } from '@inspr/aithema-core';
+  normalizedError, deepFreeze, IPTC_DIGITAL_SOURCE, MAX_HTML_BYTES, HTML_PREVIEW_CSP, isUIArtifact, frameDocument } from '@inspr/aithema-core';
 const dummy = readFileSync(new URL('../../../test/fixtures/click-dummy.html', import.meta.url), 'utf8');
 const encode = text => new TextEncoder().encode(text);
 const page = body => encode(`<!doctype html><html><head><title>x</title></head><body>${body}</body></html>`);
@@ -21,6 +21,17 @@ test('the sample click-dummy passes the static policy; the preview CSP is strict
     assert.ok(HTML_PREVIEW_CSP.includes(directive), directive);
   }
   assert.doesNotMatch(HTML_PREVIEW_CSP, /https?:|\*|'self'|connect-src/u);
+});
+test('UTF-8 precedes CSP and long revision comments within the first 1024 bytes', () => {
+  const html = dummy.replace('<head>', `<head><!-- ${'Ältere Revision. '.repeat(200)} -->`);
+  for (const standalone of [false, true]) {
+    const document = frameDocument(html, { standalone }), bytes = Buffer.from(document);
+    assert.ok(document.startsWith('<!doctype html><meta charset="utf-8">'));
+    assert.ok(bytes.subarray(0, 1024).includes(Buffer.from('<meta charset="utf-8">')));
+    assert.ok(document.indexOf('charset="utf-8"') < document.indexOf('Content-Security-Policy'));
+    assert.ok(document.indexOf('Content-Security-Policy') < document.indexOf('<!--'));
+    assert.equal(document.match(/<!doctype/giu).length, 1);
+  }
 });
 for (const [name, bytes, problem] of [
   ['an empty body', new Uint8Array(), 'empty'],

@@ -30,9 +30,12 @@ export function zipStore(files) {
   end.writeUInt32LE(central.length, 12); end.writeUInt32LE(offset, 16);
   return Buffer.concat([...locals, central, end]);
 }
-export function exportSession(session, artifacts = []) {
+export function exportSession(session, artifacts = [], withheld = []) {
   const json = value => JSON.stringify(value, null, 2) + '\n';
   const published = new Set(artifacts.map(a => a.id));
+  const accounted = new Set([...published, ...withheld.map(a => a.id)]);
+  const omissions = [...withheld, ...(session.concepts ?? []).filter(c => !accounted.has(c.id))
+    .map(c => ({ id: c.id, reason: 'artifact-unavailable' }))];
   const concepts = (session.concepts ?? []).map(c => published.has(c.id) ? c : Object.fromEntries(
     ['id', 'requestId', 'createdAt', 'inputRevision', 'turnIds', 'referenceIds', 'disposition', 'archived', 'mediaType', 'width', 'height']
       .filter(key => Object.hasOwn(c, key)).map(key => [key, c[key]])));
@@ -41,6 +44,8 @@ export function exportSession(session, artifacts = []) {
     'transcript.md': '# Conversation\n\n' + activeTurns(session).map(t => `## ${t.role}${t.provenance === 'browser-asserted' ? ' (browser-asserted)' : ''}\n\n${t.content}\n`).join('\n'),
     'understanding.json': json(session.understanding),
     ...(concepts.length ? { 'concepts.json': json(concepts) } : {}),
+    ...(artifacts.length || omissions.length ? { 'concepts-manifest.json': json({ version: 1,
+      included: artifacts.map(a => ({ id: a.id, path: `concepts/${a.id}.${a.mediaType.split('/')[1]}` })), withheld: omissions }) } : {}),
     ...Object.fromEntries(artifacts.flatMap(a => [[`concepts/${a.id}.${a.mediaType.split('/')[1]}`, a.mediaType === HTML_MEDIA_TYPE
       ? frameDocument(new TextDecoder().decode(a.bytes), { standalone: true }) : a.bytes], [`concepts/${a.id}.provenance.json`, json(a.provenance)]])),
   });

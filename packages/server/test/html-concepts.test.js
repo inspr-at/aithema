@@ -110,9 +110,12 @@ test('HTML is owner-only uncached data, including download queries; image route 
 test('HTML export prepends the preview CSP and disables standalone scripts before untrusted content', async t => {
   const h = await setup(t); await h.turn('first'); const item = await h.render();
   const files = unzip(new Uint8Array(await (await h.call('export')).arrayBuffer()));
-  const html = files[`concepts/${item.id}.html`]; assert.ok(html.startsWith(`<!doctype html><meta http-equiv="Content-Security-Policy" content="${HTML_PREVIEW_CSP}"`));
+  const html = files[`concepts/${item.id}.html`]; assert.ok(html.startsWith(`<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${HTML_PREVIEW_CSP}"`));
+  assert.ok(Buffer.from(html).subarray(0, 1024).includes(Buffer.from('<meta charset="utf-8">')));
   assert.ok(html.indexOf('content="script-src \'none\'"') < html.indexOf('<html'));
   assert.equal(JSON.parse(files[`concepts/${item.id}.provenance.json`]).subject.contentDigest, item.provenance.subject.contentDigest);
+  assert.deepEqual(JSON.parse(files['concepts-manifest.json']), { version: 1,
+    included: [{ id: item.id, path: `concepts/${item.id}.html` }], withheld: [] });
 });
 
 for (const action of ['withdraw', 'consent', 'erase']) test(`${action} removes HTML bytes and feedback; replay and export cannot resurrect them`, async t => {
@@ -128,7 +131,25 @@ for (const action of ['withdraw', 'consent', 'erase']) test(`${action} removes H
   if (action !== 'erase') {
     const files = unzip(new Uint8Array(await (await h.call('export')).arrayBuffer()));
     assert.ok(Object.keys(files).every(name => !name.startsWith('concepts/')));
+    assert.deepEqual(JSON.parse(files['concepts-manifest.json']).withheld, [{ id: item.id, reason: 'erased' }]);
   }
+});
+
+test('long HTML conversations retain the newest 24k visitor characters and still generate and edit', async t => {
+  const h = await setup(t); await h.turn('first');
+  const older = 'old requirements '.repeat(5000), recent = 'recent requirements '.repeat(500), latest = 'Show the latest open repairs.';
+  h.storage.postTurn(h.id, 'older', Buffer.from(older), older);
+  h.storage.postTurn(h.id, 'recent', Buffer.from(recent), recent);
+  h.storage.postTurn(h.id, 'latest', Buffer.from(latest), latest);
+  const first = await h.render(), spec = h.records[0].spec;
+  assert.deepEqual(spec.visitorWords, [latest, recent, older.slice(-(24000 - latest.length - recent.length))]);
+  assert.equal(spec.visitorWords.join('').length, 24000);
+  const oversized = 'single very long message '.repeat(3000);
+  h.storage.postTurn(h.id, 'oversized', Buffer.from(oversized), oversized);
+  h.readiness(); await h.request('edit-long', first.id); await h.handlers.idle();
+  assert.equal(h.storage.get(h.id).conceptStatus.phase, 'ready');
+  assert.equal(h.records.at(-1).operation, 'edit');
+  assert.deepEqual(h.records.at(-1).spec.visitorWords, [oversized.slice(-24000)]);
 });
 
 test('a slow HTML render keeps superseded paid history but source withdrawal discards dependent edits', async t => {
@@ -209,6 +230,8 @@ test('HTML reads and requests fail closed when host consent is lost and exports 
   const h = await setup(t); await h.turn('first'); const item = await h.render(); await h.consent.withdraw({ sessionId: h.id });
   assert.equal((await h.call(`concepts/${item.id}/html`)).status, 403); assert.equal((await h.request('retry')).status, 403);
   const files = unzip(new Uint8Array(await (await h.call('export')).arrayBuffer())); assert.equal(files[`concepts/${item.id}.html`], undefined);
+  assert.deepEqual(JSON.parse(files['concepts-manifest.json']), { version: 1,
+    included: [], withheld: [{ id: item.id, reason: 'publication-not-allowed' }] });
   await h.call('consent', { granted: true }); assert.equal((await h.call(`concepts/${item.id}/html`)).status, 200);
 });
 

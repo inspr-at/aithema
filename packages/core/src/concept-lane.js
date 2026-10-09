@@ -31,8 +31,14 @@ export function conceptPrompt(session) {
 }
 export function conceptHTMLSpec(session) {
   const u = session.understanding;
+  const visitorWords = []; let remaining = 24000;
+  for (const turn of activeTurns(session).filter(t => t.role === 'user').reverse()) {
+    if (!remaining) break;
+    const words = turn.content.slice(-remaining);
+    visitorWords.push(words); remaining -= words.length;
+  }
   return { prompt: "Create one clickable draft grounded in the current understanding and the person's words. Show open questions without deciding them.",
-    language: session.locale, visitorWords: activeTurns(session).filter(t => t.role === 'user').map(t => t.content),
+    language: session.locale, visitorWords,
     understanding: { summary: u.summary, slots: Object.fromEntries(Object.entries(u.constraints ?? {}).map(([key, slot]) => [key, slot?.value ?? null])),
       openQuestions: u.openQuestions ?? [] } };
 }
