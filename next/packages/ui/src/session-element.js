@@ -2,6 +2,7 @@ import { applyEvent, inputRevision } from '../../core/src/session.js';
 import { readinessScalePercent, readinessListItems, readinessListWindow, newlyClearedFirst } from '../../core/src/readiness.js';
 import { displayedReadinessPercent } from '../../core/src/understanding.js';
 import { styles } from './styles.js';
+import { postJson } from './post-json.js';
 
 export class AithemaSession extends HTMLElement {
   #copy; #session; #abort; #cursor = 0; #base; #partials = new Map(); #pending;
@@ -50,9 +51,7 @@ export class AithemaSession extends HTMLElement {
     });
     root.querySelector('.retry').addEventListener('click', async () => {
       try {
-        const response = await fetch(`${this.#base}/api/sessions/${this.#session.id}/retry`, {
-          method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
-        });
+        const response = await postJson(`${this.#base}/api/sessions/${this.#session.id}/retry`);
         if (!response.ok) throw new Error(); this.#failure = false; this.#render('aside');
       } catch { this.#status(this.#copy.reasoningFailed); }
     });
@@ -140,9 +139,7 @@ export class AithemaSession extends HTMLElement {
     if (!this.#pending || this.#pending.content !== content) this.#pending = { clientEventId: crypto.randomUUID(), content };
     button.disabled = true; this.#status(this.#copy.sending);
     try {
-      const response = await fetch(`${this.#base}/api/sessions/${sessionId}/turns`, {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(this.#pending),
-      });
+      const response = await postJson(`${this.#base}/api/sessions/${sessionId}/turns`, this.#pending);
       if (!response.ok) throw new Error();
       const event = await response.json();
       if (sessionId !== this.#session.id) return;
