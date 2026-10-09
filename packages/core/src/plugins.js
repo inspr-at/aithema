@@ -75,6 +75,9 @@ export function validateManifest(manifest) {
     if (containsPrivateConfig(manifest.configSchema)) errors.push('private config belongs in host binding');
     if (!manifest.entrypoints[manifest.placement]) errors.push('missing placement entrypoint');
     if (manifest.kinds.includes('live-voice') && !manifest.liveVoice) errors.push('missing live voice contract');
+    if (manifest.kinds.includes('live-voice') && (!manifest.entrypoints.server || !manifest.entrypoints.browser)) errors.push('live voice requires both entrypoints');
+    if (manifest.liveVoice && (manifest.liveVoice.capabilities.pause === 'unavailable') !==
+      (manifest.liveVoice.capabilities.resume === 'unavailable')) errors.push('pause/resume availability must agree');
     if (new Set(manifest.models.map(m => m.id)).size !== manifest.models.length) errors.push('duplicate model id');
     const operations = manifest.kinds.flatMap(k => KIND_OPERATIONS[k]);
     if (manifest.models.some(m => m.operations.some(op => !operations.includes(op) && !(op === 'stream' && manifest.kinds.includes('stt'))))) errors.push('unknown model operation');

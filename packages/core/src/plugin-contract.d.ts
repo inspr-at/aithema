@@ -39,24 +39,52 @@ export interface UIGeneration {
 }
 export interface Extractor { extract(request: { bytes: Uint8Array; mediaType: string }, options: OperationOptions): Promise<{ text: string }> }
 export interface Exporter { export(request: { session: object; format: string }, options: OperationOptions): Promise<{ bytes: Uint8Array; mediaType: string }> }
-export type VoiceEvent = { type: 'listening' | 'speaking' | 'partial' | 'final' | 'heard' | 'recovering' | 'recovered' | 'ended';
-  callId: string; turnId?: string; text?: string; prefix?: string; reason?: string };
+export type VoiceCapability = 'native' | 'emulated' | 'unavailable';
+export interface LiveVoiceDeclaration {
+  reasoning: 'delegated' | 'native';
+  transcript: { finality: 'fragments' | 'turns'; persistence: 'durable' | 'memory-only' };
+  capabilities: Record<'sendText' | 'updateContext' | 'setInput' | 'setOutput' | 'pause' | 'resume' | 'interrupt' | 'heard', VoiceCapability>;
+  billing: { visitor: string; upstream: string };
+}
+export type VoiceEvent = { callId: string } & (
+  { type: 'listening' | 'speaking' | 'recovering' | 'recovered' } |
+  { type: 'partial' | 'final'; turnId: string; role: 'user' | 'assistant'; text: string } |
+  { type: 'heard'; turnId: string; prefix: string } |
+  { type: 'ended'; reason: string }
+);
+export interface VoiceUsage {
+  providerSeconds: number; providerMinutes: number; pausedSeconds: number; visitorSeconds: number;
+  upstreamMicro: number; visitorMicro: number; providerCredits?: number;
+}
+export interface VoiceTerminal {
+  attemptId: string; callId: string; providerSessionId?: string;
+  outcome: 'completed' | 'cancelled' | 'uncertain'; closureConfirmed: boolean;
+  chargedMicro: number; usage: VoiceUsage | null; overrun?: boolean;
+}
+export type VoiceCommandOptions = Pick<OperationOptions, 'signal' | 'deadlineAt'>;
+export interface VoiceStartOptions extends VoiceCommandOptions {
+  attempt: OperationOptions['attempt'] & { maxMicro: number };
+  report(terminal: VoiceTerminal): Promise<void> | void;
+  spendDeadlineAt: number;
+  browserLivenessDeadlineAt: number;
+}
 export interface VoiceSession {
   callId: string;
+  readonly providerSessionId: string;
   events: AsyncIterable<VoiceEvent>;
-  close(options: OperationOptions): Promise<void>;
-  pause(options: OperationOptions): Promise<{ acknowledged: true }>;
-  resume(options: OperationOptions): Promise<{ acknowledged: true }>;
-  setInput(on: boolean, options: OperationOptions): Promise<void>;
-  setOutput(on: boolean, options: OperationOptions): Promise<void>;
-  sendText(text: string, options: OperationOptions): Promise<void>;
-  updateContext(context: object, options: OperationOptions): Promise<void>;
-  interrupt(options: OperationOptions): Promise<void>;
+  close(options: VoiceCommandOptions): Promise<Pick<VoiceTerminal, 'outcome' | 'closureConfirmed' | 'usage' | 'chargedMicro'>>;
+  pause(options: VoiceCommandOptions): Promise<{ acknowledged: true; paused: true }>;
+  resume(options: VoiceCommandOptions): Promise<{ acknowledged: true; paused: false }>;
+  setInput(on: boolean, options: VoiceCommandOptions): Promise<void>;
+  setOutput(on: boolean, options: VoiceCommandOptions): Promise<void>;
+  sendText(text: string, options: VoiceCommandOptions): Promise<void>;
+  updateContext(context: object | string, options: VoiceCommandOptions): Promise<void>;
+  interrupt(options: VoiceCommandOptions): Promise<void>;
+  heartbeat(options: VoiceCommandOptions): Promise<{ acknowledged: true; browserLivenessDeadlineAt: number }>;
 }
-// Manifest also declares delegated/native reasoning, transcript policy and per-control capabilities.
-// A future transport must implement durable identity, spend/liveness deadlines, confirmed closure
-// and return control to the UI after three failed reconnects; no controls are admitted in this slice.
-export interface LiveVoice { start(request: { callId: string; context: object }, options: OperationOptions): Promise<VoiceSession> }
+// Joined contract: server consumes authority; browser receives only a short-lived credential.
+// Each delegated reasoning call and reconnect needs its own separately admitted claim.
+export interface LiveVoice { start(request: { callId: string; context?: object }, options: VoiceStartOptions): Promise<VoiceSession> }
 export interface PrivateBinding {
   plugin: string; model: string; effort: string; endpoint: string; routing?: object;
   accountRef: string; secretRef: string; maxMicro: number; maxTokens: number;

@@ -5,7 +5,8 @@
   "exports": {
     ".": "./src/index.js",
     "./understanding": "./src/understanding.js",
-    "./readiness": "./src/readiness.js"
+    "./readiness": "./src/readiness.js",
+    "./live-voice": "./src/live-voice.js"
   },
   "engines": {
     "node": ">=24"
