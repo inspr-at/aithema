@@ -1,10 +1,14 @@
-import { mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { mkdir, mkdtemp } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
 
-export async function temporaryDb() { return join(await mkdtemp(join(tmpdir(), 'aithema-next-')), 'session.sqlite'); }
+export async function temporaryDb() {
+  const root = fileURLToPath(new URL('../.data/', import.meta.url));
+  await mkdir(root, { recursive: true });
+  return join(await mkdtemp(join(root, 'test-')), 'session.sqlite');
+}
 export async function startChild(file, db) {
   // Explicit environment excludes inherited provider credentials. No live provider calls.
   const child = fork(file, [], { env: { PATH: process.env.PATH, PORT: '0', AITHEMA_DB: db }, silent: true });
