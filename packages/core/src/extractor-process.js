@@ -12,21 +12,16 @@ import { normalizeExtractorLimits, extractorLifetime, sniffDocument, unreadable,
 const corePath = dirname(fileURLToPath(import.meta.url));
 const offlineURL = new URL('./extractor-offline.js', import.meta.url);
 const execute = promisify(execFile);
-let pageBytes;
-async function residentBytes(pid) {
-  if (process.platform === 'linux') {
-    // statm uses the host's actual page size (not necessarily 4096).
-    pageBytes ??= execute('getconf', ['PAGESIZE'], { timeout: 1000, maxBuffer: 1024 }).then(({ stdout }) => {
-      const value = Number(stdout.trim());
-      if (!Number.isSafeInteger(value) || value < 1) throw new Error('Invalid page size');
-      return value;
-    });
-    const [statm, size] = await Promise.all([readFile(`/proc/${pid}/statm`, 'utf8'), pageBytes]);
-    const pages = Number(statm.trim().split(/\s+/u)[1]);
-    if (!Number.isSafeInteger(pages) || pages < 0) throw new Error('Invalid RSS');
-    return pages * size;
+export async function residentBytes(pid, { platform = process.platform, readProc = readFile } = {}) {
+  if (platform === 'linux') {
+    // VmRSS is already in kB: no page-size command or cached promise is needed.
+    const status = await readProc(`/proc/${pid}/status`, 'utf8');
+    const match = /^VmRSS:[\t ]+(\d+)[\t ]+kB[\t ]*$/mu.exec(status);
+    const kib = Number(match?.[1]);
+    if (!match || !Number.isSafeInteger(kib) || kib < 0) throw new Error('Invalid RSS');
+    return kib * 1024;
   }
-  if (process.platform === 'darwin') {
+  if (platform === 'darwin') {
     const { stdout } = await execute('/bin/ps', ['-o', 'rss=', '-p', String(pid)], { timeout: 1000, maxBuffer: 1024 });
     const kib = Number(stdout.trim());
     if (!stdout.trim() || !Number.isSafeInteger(kib) || kib < 0) throw new Error('Invalid RSS');
@@ -85,14 +80,15 @@ export async function runExtractorProcess(workerURL, bytes, mediaType, limits, l
   } catch (error) { next(); throw error; }
   live.add(child);
   return new Promise((resolveResult, reject) => {
-    let response, failure, timer, watchdog, settled = false;
+    let response, failure, timer, watchdog, settled = false, sampling = false;
     const kill = () => { if (!child.killed) child.kill('SIGKILL'); };
     const abort = () => { failure = new PluginError('cancelled'); kill(); };
     const deadline = () => { failure = new PluginError('deadline'); kill(); };
     lifetime.signal.addEventListener('abort', abort, { once: true });
     timer = setTimeout(deadline, Math.max(1, lifetime.deadlineAt - Date.now()));
     const sample = async () => {
-      if (settled || child.killed || child.pid === undefined) return;
+      if (settled || child.killed || child.pid === undefined || sampling) return;
+      sampling = true;
       try {
         const rss = await residentBytes(child.pid);
         if (!settled && !response && !failure && rss > limits.maxRssMb * 1024 * 1024) {
@@ -103,7 +99,7 @@ export async function runExtractorProcess(workerURL, bytes, mediaType, limits, l
         if (!settled && !child.killed && child.exitCode === null && child.signalCode === null) {
           failure ??= new PluginError('unavailable'); kill();
         }
-      }
+      } finally { sampling = false; }
     };
     watchdog = setInterval(sample, 25);
     void sample();
@@ -121,7 +117,12 @@ export async function runExtractorProcess(workerURL, bytes, mediaType, limits, l
       clearTimeout(timer); clearInterval(watchdog); lifetime.signal.removeEventListener('abort', abort);
       live.delete(child); next();
       if (failure) reject(failure);
-      else resolveResult(response ?? { reason: signal || code !== 0 ? 'limit' : 'malformed' });
+      else {
+        if (!response && (signal || code !== 0)) {
+          console.warn('Extractor child exited without a result; treating as limit', { code, signal });
+        }
+        resolveResult(response ?? { reason: signal || code !== 0 ? 'limit' : 'malformed' });
+      }
     };
     child.on('error', () => {
       failure ??= new PluginError('unavailable');

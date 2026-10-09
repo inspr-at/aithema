@@ -7,12 +7,16 @@ import { bytes, pdf, pdfStreamBomb, HANG, stallWorkerURL, observeParsers } from 
 
 test('nested FlateDecode PDF stream bomb is killed by a low RSS cap and reaped', async t => {
   const observed = observeParsers(t), data = pdfStreamBomb();
+  const plugin = createPDFExtractor({ limits: { maxRssMb: 64 } });
+  const control = await plugin.extract(pdf());
+  assert.equal(control.status, 'accepted', 'a small PDF is accepted at the same RSS cap');
+  assert.equal(control.limits.maxRssMb, 64);
   assert.ok(data.length < 2048);
   assert.ok(data.includes('/Filter [/FlateDecode /FlateDecode]'));
-  const result = await createPDFExtractor({ limits: { maxRssMb: 64 } }).extract(data);
+  const result = await plugin.extract(data);
   assert.equal(result.status, 'unreadable'); assert.equal(result.reason, 'limit');
   assert.equal(result.limits.maxRssMb, 64);
-  assert.deepEqual(await observed.children[0].closed, { code: null, signal: 'SIGKILL' });
+  assert.deepEqual(await observed.children[1].closed, { code: null, signal: 'SIGKILL' });
   assert.equal(activeExtractorProcessCount(), 0);
   assert.equal((await createPDFExtractor().extract(pdf())).status, 'accepted');
 });
