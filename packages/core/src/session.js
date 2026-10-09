@@ -2,6 +2,8 @@ import { createConceptIntent, reduceConceptIntent } from './concept-intent.js';
 import { PROCESSING_PRESETS } from './presets.js';
 import { START_PRESET, capBuildReadiness, createPreset } from './understanding.js';
 import { normalizeSettings, defaultSettings } from './settings.js';
+// An erased choice falls back to the core default preset, like createSession's default.
+const ERASED_PRESET = 'best';
 export const inputRevision = session => `${session.inputRevision}:${session.consentRevision}:${session.withdrawalRevision}:${session.locale}:${session.sessionRevision ?? 0}:${Boolean(session.tombstone)}`;
 export const activeTurns = session => session.transcript.filter(t => !t.erased && !t.withdrawn);
 /** Durable: withdrawal and expiry mark turns but never remove their transcript entries. */
@@ -40,7 +42,7 @@ export function applyEvent(session, event) {
     // A processing choice is metadata: completed replies and understanding stay
     // cached for their input revision; in-flight work is superseded by the host.
     // An erased choice replays as the host default, like other erased content.
-    if (event.data.erased) next.settings = defaultSettings();
+    if (event.data.erased) { next.settings = defaultSettings(); next.processingPreset = ERASED_PRESET; }
     else {
       if (!PROCESSING_PRESETS.includes(event.data.processingPreset)) throw new TypeError('Unknown processing preset');
       next.processingPreset = event.data.processingPreset;
@@ -58,7 +60,7 @@ export function applyEvent(session, event) {
       next.transcript = next.transcript.map(t => t.id === event.data.turnId || t.role === 'assistant' || event.type === 'session.erased'
         ? { ...Object.fromEntries(Object.entries(t).filter(([key]) => key !== 'content')), erased: true, withdrawn: true } : t);
       // Erasure also forgets the visitor's processing choice, so it never seeds another conversation.
-      if (event.type === 'session.erased') { next.tombstone = event.data.at; next.settings = defaultSettings(); }
+      if (event.type === 'session.erased') { next.tombstone = event.data.at; next.settings = defaultSettings(); next.processingPreset = ERASED_PRESET; }
     }
   } else if (event.type === 'concept.state') {
     next.conceptIntent = event.data.intent;

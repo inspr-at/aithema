@@ -365,6 +365,9 @@ test('erasure removes the stored choice from the owner default, the snapshot and
     'the journal keeps references only');
   assert.equal((await h.call(`/${session.id}/erase`, {})).status, 200);
   assert.equal(raw().includes('mock/deep'), false, 'no trace of the choice remains in snapshot, journal or content');
+  const snapshot = JSON.parse(h.storage.db.prepare('SELECT snapshot FROM sessions WHERE id=?').get(session.id).snapshot);
+  assert.equal(snapshot.processingPreset, 'best', 'the chosen preset is forgotten in the durable snapshot');
+  assert.equal(raw().includes('"processingPreset":"custom"'), false, 'no trace of the chosen preset remains');
   assert.equal(h.storage.lastSettings(owner), null);
   assert.deepEqual([(await h.create()).session.settings.origin], ['default']);
   const replayed = h.storage.read(session.id).find(e => e.type === 'settings.changed');
