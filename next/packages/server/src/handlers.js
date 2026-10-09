@@ -37,7 +37,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       const event = storage.append(id, type, data, revision);
       if (event) broadcast(id, event);
       return Boolean(event);
-    }, transient: broadcast,
+    }, transient: (id, event) => broadcast(id, { sessionId: id, ...event }),
   });
   function schedule(id) {
     if (jobs.has(id) || stop.signal.aborted) return;
@@ -47,8 +47,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         const outcomes = await Promise.allSettled(['reaction', 'understanding'].map(lane =>
           lanes.run(id, lane, { signal: stop.signal })));
         if (stop.signal.aborted) return;
-        for (let i = 0; i < outcomes.length; i++) if (outcomes[i].status === 'rejected') {
-          broadcast(id, { type: 'lane.failed', data: { lane: i === 0 ? 'reaction' : 'understanding',
+        for (let i = 0; i < outcomes.length; i++) if (outcomes[i].status === 'rejected' && inputRevision(storage.get(id)) === revision) {
+          broadcast(id, { sessionId: id, type: 'lane.failed', data: { lane: i === 0 ? 'reaction' : 'understanding',
             error: 'reasoning-unavailable', retryable: true } });
         }
         if (inputRevision(storage.get(id)) === revision) return;

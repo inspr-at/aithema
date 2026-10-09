@@ -1,0 +1,7 @@
+{
+  "name": "@inspr/aithema-next-ui",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/session-element.js", "./i18n/en": "./src/i18n/en.js" },
+  "engines": { "node": ">=24" }
+}

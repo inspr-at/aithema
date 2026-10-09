@@ -41,6 +41,7 @@ export class SessionLanes {
           if (!current() || this.getSession(id).understanding.inputRevision !== revision) return 'stale';
         }
       } else {
+        if (!session.transcript.some(t => t.role === 'user')) return 'deferred';
         if (session.transcript.some(t => t.role === 'assistant' && t.inputRevision === revision)) return 'cached';
         const turnId = crypto.randomUUID();
         let content = '';
