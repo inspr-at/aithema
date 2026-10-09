@@ -3,6 +3,18 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { fork } from 'node:child_process';
 import { once } from 'node:events';
+import { MOCK_PROCESSING_SCOPE } from '@inspr/aithema-core';
+
+export const testToken = 'test-visitor';
+export const mockConsent = { coverage({ consentRevision }) {
+  return { covered: true, ...MOCK_PROCESSING_SCOPE, consentRevision, expiresAt: Date.now() + 60_000 };
+} };
+export function ownedRequest(url, init = {}) {
+  return new Request(url, { ...init, headers: { 'x-aithema-session-token': testToken, ...init.headers } });
+}
+export function sessionFetch(url, init = {}) {
+  return fetch(url, { ...init, headers: { 'x-aithema-session-token': testToken, ...init.headers } });
+}
 
 export async function temporaryDb() {
   const root = fileURLToPath(new URL('../.data/', import.meta.url));
@@ -20,12 +32,12 @@ export async function startChild(file, db) {
     const exited = once(child, 'exit'); child.kill(signal); await exited;
   } };
 }
-export async function post(url, value) {
-  return fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(value) });
+export async function post(url, value, headers = {}) {
+  return sessionFetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(value) });
 }
 export async function waitForSession(url, predicate) {
   for (let i = 0; i < 200; i++) {
-    const session = await fetch(url).then(r => r.json()); if (predicate(session)) return session;
+    const session = await sessionFetch(url).then(r => r.json()); if (predicate(session)) return session;
     await new Promise(r => setTimeout(r, 10));
   }
   throw new Error('Session did not reach expected state');

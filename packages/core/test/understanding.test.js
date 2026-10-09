@@ -113,5 +113,7 @@ test('reasoning schema rejects wrong or extra fields and policy contains only ge
 test('input revision includes consent/withdrawal and locale changes', () => {
   const s = createSession(); const original = inputRevision(s); s.consentRevision++;
   assert.notEqual(inputRevision(s), original); s.withdrawalRevision++;
-  assert.equal(inputRevision(s), '0:1:1:en');
+  assert.equal(inputRevision(s), '0:1:1:en:0:false');
+  s.sessionRevision++; assert.notEqual(inputRevision(s), '0:1:1:en:0:false');
+  s.tombstone = 'erased'; assert.match(inputRevision(s), /:true$/u);
 });

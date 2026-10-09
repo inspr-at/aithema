@@ -13,5 +13,11 @@ a { color:#227c78; } #error { color:#9a4030; } @media(max-width:40rem) { body { 
 <a href="https://github.com/inspr-at/aithema">Source (AGPL-3.0-only)</a></div>
 <p>With mock reasoning, try: operations: hosted; data: public; systems: API; reach: international</p>
 <p><label>Local OpenAI-compatible endpoint <input id="device-endpoint" value="http://127.0.0.1:8000" aria-label="Local endpoint"></label> — used directly by On my device.</p>
-<p id="error" role="alert"></p></header><aithema-session></aithema-session></main>
+<p id="error" role="alert"></p></header>
+<section aria-labelledby="consent-title"><h2 id="consent-title">Mock conversation consent</h2>
+<p>The local mock uses your conversation to reply and build understanding. Recipient: the local mock; no upstream processors.
+This covers conversation data, item version 1, for twelve months. Grants live in memory; grant again after a server restart.</p>
+<button id="grant" type="button">Allow mock processing</button><button id="revoke" type="button">Withdraw consent</button>
+<p id="consent-status" role="status">Processing waits for consent.</p></section>
+<aithema-session></aithema-session></main>
 <script type="module" src="/demo/host.js"></script></body></html>

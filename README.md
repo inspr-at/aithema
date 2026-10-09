@@ -16,8 +16,9 @@ The reset line is **unreleased work in progress**. The first text vertical suppl
 conversation, live understanding, durable events, restart/resume and session ZIP
 export. Requirement approval, files/uploads, voice, concepts and host integration
 remain later work. START cutover and live provider/OIDC proof are also later work;
-handover to PAIMOS is planned. Ownership/authentication, consent enforcement,
-pause, erasure and exclusive-writer safety belong to AIT-97. The demo is for localhost.
+handover to PAIMOS is planned. Sessions now have visitor ownership, authoritative
+consent checks, engine-wide pause, withdrawal/erasure and an exclusive writer.
+The demo is for localhost.
 
 All packages are private with placeholder version `0.0.0`; versioning is decided
 at release preparation (AIT-32). The old release workflow has been removed;
@@ -41,7 +42,10 @@ Tests use deterministic mocks and local HTTP fixtures; they make no live provide
 The demo visibly labels **Mock reasoning** by default. Its deterministic responses
 recognize statements such as `operations: hosted; data: public; systems: API;
 reach: international`; they do not prove model quality. Browser local storage
-keeps the session id. Reload or restart the server to resume from
+keeps the session id; an HttpOnly, SameSite=Strict cookie binds it to the visitor.
+Allow mock processing on the consent screen before reasoning starts. The demo
+ledger expires grants after twelve months and loses them on server restart;
+grant again to continue processing. Reload or restart the server to resume from
 `.data/session.sqlite`; New conversation creates a separate session without
 erasing the previous one. `PORT` and `AITHEMA_DB` override the port and database.
 The demo accepts only loopback Host headers and JSON POSTs.
@@ -52,6 +56,7 @@ and `MISTRAL_MODEL` select its model. These demo bindings remain **unverified** 
 cannot dispatch until a host supplies private qualification and current consent.
 Keys resolve from `OPENROUTER_API_KEY` or `MISTRAL_API_KEY` only at runtime; they
 never enter manifests, snapshots, UI or logs. Tests never use these environment keys.
+The demo mock consent does not cover live providers.
 
 ## Package layout
 
@@ -72,7 +77,8 @@ The private `aithema` root is an ESM npm workspace with one `package-lock.json`.
 The server exports `SQLiteStorage`, `createHandlers` and `exportSession`; its
 `/http` export supplies `listen` and `httpAdapter`. Call handlers' `resume()` on
 startup and `close()` before closing storage. A standalone mock server runs with
-`node packages/server/bin/server.js`; set `AITHEMA_DB` for persistence.
+`node packages/server/bin/server.js`; set `AITHEMA_DB` for persistence. Its mock
+ledger also requires an explicit consent grant and loses grants on restart.
 
 Hosts configure the web component with `{copy, baseUrl, session}` and receive
 `aithema-event` notifications. Serve its native ES modules with their relative
@@ -86,6 +92,44 @@ core imports, as the demo does. Copy and CSS tokens belong to the host.
 | `GET /api/sessions/:id/events` | SSE; resume using `Last-Event-ID` or `?after=<seq>` |
 | `POST /api/sessions/:id/retry` | Retry unfinished reasoning for the current revision |
 | `GET /api/sessions/:id/export` | Transcript JSON/Markdown and understanding JSON in a ZIP |
+| `POST /api/sessions/:id/pause` | `{paused: true/false}`; acknowledged durable state and event |
+| `POST /api/sessions/:id/withdraw` | `{turnId}`; erase a person statement and invalidate dependent understanding/replies atomically |
+| `POST /api/sessions/:id/consent` | `{granted: true/false}`; grants delegate to the host ledger; withdrawal cancels lanes |
+| `POST /api/sessions/:id/erase` | Erase all content, retain metadata and a session tombstone; provider deletion remains `not-confirmed` |
+
+API clients retain the `x-aithema-session-token` response header from creation
+and send it on every session request, including SSE and export. A host may supply
+`ownership.token(request)` and `ownership.created(response, token, request)` to
+bind tokens through cookies, as the demo does. Missing, wrong and erased ownership
+all return 404. Tokens and their stored hashes are excluded from snapshots/export.
+
+Hosts supply `consent.coverage({sessionId, scope, consentRevision})`. A covering
+grant has `covered: true`, the matching purpose and item version, arrays covering
+every recipient, upstream processor and data category, the same consent revision,
+and a future `expiresAt` timestamp. Each binding supplies `processingScope`, or
+the host supplies it to `createHandlers`; only the local mock has a built-in scope.
+Missing/unavailable coverage fails closed before every dispatch. Hosts notify
+external revocation through `handlers.withdrawConsent(id)` to persist the new
+revision and cancel running work immediately. `createMemoryConsentLedger()` is
+the reference mock host ledger, not a durable legal record. Core-only hosts must
+supply an authoritative `beforeDispatch` callback to `SessionLanes`.
+
+Pause permits cached reads and joins to an existing pass; fresh reaction and
+understanding work waits for acknowledged resume. Input/channel controls are
+independent. Withdrawal cancels stale work, clears derived content before ack,
+and rebuilds from remaining person turns. Event rows and receipts contain only
+metadata and SHA-256 byte fingerprints; erasable content lives separately.
+Missing/erased records hydrate as tombstones, including on receipt replay,
+restart and export. SQLite secure deletion and WAL checkpointing run before
+erasure acknowledgement. `storage.expire(id, turnId)` uses the same invalidation;
+hosts schedule `handlers.expire(cutoffTimestamp)` to cancel and rebuild as well.
+The demo applies a twelve-month turn retention cutoff each minute.
+
+A persistent `SQLiteStorage` holds an OS-backed exclusive lock on the canonical
+database's companion `.writer.sqlite` file until close or process death. A second
+writer refuses startup. Legacy unowned sessions migrate to the erasable layout
+but remain inaccessible to visitors; create a new owned session. No ownership
+takeover is provided.
 
 ## Plugins, bindings and admission
 

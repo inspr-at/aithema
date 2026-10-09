@@ -1,4 +1,4 @@
-import { applyEvent, inputRevision } from '../../core/src/session.js';
+import { applyEvent, inputRevision, activeTurns } from '../../core/src/session.js';
 import { readinessScalePercent, readinessListItems, readinessListWindow, newlyClearedFirst } from '../../core/src/readiness.js';
 import { displayedReadinessPercent } from '../../core/src/understanding.js';
 import { PROCESSING_PRESETS, FEATURES, deviceFeatures } from '../../core/src/presets.js';
@@ -6,7 +6,7 @@ import { styles } from './styles.js';
 import { postJson } from './post-json.js';
 
 export class AithemaSession extends HTMLElement {
-  #device; #deviceController; #copy; #session; #abort; #cursor = 0; #base; #partials = new Map(); #pending;
+  #device; #deviceController; #copy; #session; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #pending;
   #hover = new Set(); #dirty = new Set(); #open = []; #cleared = []; #failure = false; #sending = false;
   constructor() { super(); this.attachShadow({ mode: 'open' }); }
   configure({ copy, baseUrl = '', session, deviceReasoning }) {
@@ -14,6 +14,7 @@ export class AithemaSession extends HTMLElement {
     this.#abort?.abort(); this.#deviceController?.abort(); this.#device = deviceReasoning; this.#copy = copy; this.#base = baseUrl.replace(/\/$/u, '');
     this.#session = structuredClone(session); this.#cursor = session.seq; this.#partials.clear();
     this.#restoreFailure(); this.#pending = null; this.#sending = false;
+    this.#invalidatedAt = 0;
     this.#open = []; this.#cleared = []; this.#dirty.clear(); this.#hover.clear();
     this.#mount();
     if (this.isConnected) this.#connect();
@@ -26,7 +27,7 @@ export class AithemaSession extends HTMLElement {
     // Static trusted markup only. All host/model/user copy is assigned through textContent.
     root.innerHTML = `<style>${styles}</style><div class="workspace">
       <section class="preset-panel"><label><span data-copy="processing"></span> <select class="preset-choice"></select></label><ul class="features"></ul></section>
-      <section class="conversation"><header class="head"><h2 data-copy="conversation"></h2><span class="status" role="status"></span></header>
+      <section class="conversation"><header class="head"><h2 data-copy="conversation"></h2><button class="pause" type="button"></button><span class="status" role="status"></span></header>
         <div class="transcript-shell"><ol aria-live="polite"></ol></div>
         <form class="composer"><label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000"></textarea>
           <div class="composer-actions"><small class="composer-reason" role="status" id="composer-reason"></small><button class="send" data-copy="send"></button></div></form></section>
@@ -78,8 +79,19 @@ export class AithemaSession extends HTMLElement {
         if (!response.ok) throw new Error(); this.#failure = false; this.#render('aside');
       } catch { this.#status(this.#copy.reasoningFailed); }
     });
-    // Growing content waits until the pointer leaves the region. The composer has
-    // a fixed, ellipsised reason line, so its controls can update immediately.
+    root.querySelector('.pause').addEventListener('click', async () => {
+      const button = root.querySelector('.pause'), sessionId = this.#session.id;
+      button.disabled = true;
+      try {
+        const response = await postJson(`${this.#base}/api/sessions/${sessionId}/pause`, { paused: !this.#session.paused });
+        if (!response.ok) throw new Error();
+        const ack = await response.json();
+        if (sessionId === this.#session.id) this.receive(ack.event);
+      } catch { if (sessionId === this.#session.id) this.#status(this.#copy.controlFailed); }
+      finally { button.disabled = false; }
+    });
+    // Automatic updates wait until the pointer leaves the region. Fixed outer sizes
+    // and internal scrolling keep composer/export targets stable even during growth.
     for (const [selector, name] of [['.transcript-shell', 'transcript'], ['.understanding', 'aside']]) {
       const pane = root.querySelector(selector);
       pane.addEventListener('pointerenter', () => this.#hover.add(name));
@@ -102,6 +114,8 @@ export class AithemaSession extends HTMLElement {
   #render(part) {
     if (this.#hover.has(part)) { this.#dirty.add(part); return; }
     const root = this.shadowRoot, copy = this.#copy;
+    root.querySelector('.pause').textContent = this.#session.paused ? copy.resume : copy.pause;
+    root.querySelector('.pause').setAttribute('aria-pressed', String(this.#session.paused));
     const element = (tag, value, className) => {
       const node = document.createElement(tag); if (value !== undefined) node.textContent = value;
       if (className) node.className = className; return node;
@@ -125,10 +139,24 @@ export class AithemaSession extends HTMLElement {
     }
     if (part === 'transcript') {
       const list = root.querySelector('ol');
-      list.replaceChildren(...[...this.#session.transcript, ...this.#partials.values()].map(t => {
+      list.replaceChildren(...[...this.#session.transcript.filter(t => !t.erased || t.role === 'user'), ...this.#partials.values()].map(t => {
         const row = element('li', undefined, `turn ${t.role === 'user' ? 'user' : ''} ${t.partial ? 'partial' : ''}`);
         row.dataset.id = t.id;
-        row.append(element('strong', t.role === 'user' ? copy.you : copy.assistant), element('span', t.content)); return row;
+        row.append(element('strong', t.role === 'user' ? copy.you : copy.assistant), element('span', t.erased ? copy.withdrawn : t.content));
+        if (t.role === 'user' && !t.erased) {
+          const button = element('button', copy.withdraw, 'withdraw'); button.type = 'button';
+          button.addEventListener('click', async () => {
+            const sessionId = this.#session.id; button.disabled = true;
+            try {
+              const response = await postJson(`${this.#base}/api/sessions/${sessionId}/withdraw`, { turnId: t.id });
+              if (!response.ok) throw new Error();
+              const ack = await response.json(); if (sessionId === this.#session.id) this.receive(ack.event);
+            } catch { if (sessionId === this.#session.id) this.#status(copy.controlFailed); }
+            finally { button.disabled = false; }
+          });
+          row.append(button);
+        }
+        return row;
       }));
       const shell = root.querySelector('.transcript-shell'); shell.scrollTop = shell.scrollHeight;
       return;
@@ -152,10 +180,10 @@ export class AithemaSession extends HTMLElement {
       : stale ? copy.stale : u.draft ? copy.draft : copy.final;
     const revision = inputRevision(this.#session), operations = this.#session.operations;
     const running = operations?.inputRevision === revision && operations.running.length > 0;
-    const hasPersonTurn = this.#session.transcript.some(t => t.role === 'user');
-    const missingReply = hasPersonTurn && !this.#session.transcript.some(t => t.role === 'assistant' && t.inputRevision === revision);
-    root.querySelector('.retry').hidden = !analysis.available || Boolean(running) || !(this.#failure || hasPersonTurn && (stale || u.draft || missingReply));
+    const hasPersonTurn = activeTurns(this.#session).some(t => t.role === 'user');
+    const missingReply = hasPersonTurn && !activeTurns(this.#session).some(t => t.role === 'assistant' && t.inputRevision === revision);
     root.querySelector('.retry').disabled = !analysis.available;
+    root.querySelector('.retry').hidden = !analysis.available || Boolean(running) || !(this.#failure || hasPersonTurn && (stale || u.draft || missingReply));
     root.querySelector('.summary-text').textContent = u.summary;
     for (const [selector, items] of [['.signals', u.signals], ['.questions', u.openQuestions]]) {
       root.querySelector(selector).replaceChildren(...items.map(v => element('li', v)));
@@ -227,7 +255,18 @@ export class AithemaSession extends HTMLElement {
     if (event.sessionId && event.sessionId !== this.#session.id) return;
     if (event.seq) {
       if (event.seq <= this.#cursor) return;
-      if (event.seq !== this.#cursor + 1) { this.#abort?.abort(); void this.#restore(); return; }
+      const invalidation = ['turn.withdrawn', 'session.erased', 'consent.revised'].includes(event.type);
+      if (invalidation) {
+        this.#invalidatedAt = Math.max(this.#invalidatedAt, event.seq);
+        this.#partials.clear(); this.#failure = false; this.#hover.clear(); this.#dirty.clear();
+      }
+      if (event.seq !== this.#cursor + 1) {
+        if (invalidation) {
+          this.#session = applyEvent(this.#session, event);
+          this.#render('transcript'); this.#render('aside');
+        }
+        this.#abort?.abort(); void this.#restore(); return;
+      }
       this.#session = applyEvent(this.#session, event); this.#cursor = event.seq;
       if (event.type === 'turn.final') {
         this.#partials.delete(event.data.id);
@@ -253,6 +292,8 @@ export class AithemaSession extends HTMLElement {
       if (!response.ok) throw new Error();
       const session = await response.json();
       if (sessionId !== this.#session.id) return;
+      // A snapshot requested before a withdrawal must never restore its content.
+      if (session.seq < this.#invalidatedAt) return;
       this.#session = session; this.#cursor = this.#session.seq; this.#partials.clear();
       this.#restoreFailure();
       this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer');

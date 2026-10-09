@@ -44,7 +44,7 @@ export function constraintAnswer(raw) {
 }
 export const isConstraintAnswered = raw => constraintAnswer(raw) !== null;
 export function corroborateConstraintSlots(slots, transcript, preset = START_PRESET) {
-  const statements = transcript.filter(t => t.role === 'user').map(t => normalize(t.content));
+  const statements = transcript.filter(t => t.role === 'user' && !t.erased && !t.withdrawn).map(t => normalize(t.content));
   return Object.fromEntries(preset.slots.map(slot => {
     const answer = constraintAnswer(slots?.[slot]);
     return [slot, answer && statements.some(s => s.includes(normalize(answer.evidence))) ? answer : null];

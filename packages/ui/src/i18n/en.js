@@ -5,6 +5,8 @@ export const en = {
   deviceConnectFirst: 'Connect a local model first', deviceConversation: 'On my device — this conversation stays in this tab',
   deviceUnavailable: 'Local model unavailable',
   conversation: 'Conversation', understanding: 'Understanding', you: 'You', assistant: 'Assistant',
+  pause: 'Pause', resume: 'Resume', withdraw: 'Withdraw statement', withdrawn: 'Statement withdrawn',
+  controlFailed: 'Could not save this change. Try again.',
   composer: 'Your message', placeholder: 'Describe what you would like to improve…', send: 'Send',
   shortcut: '⌘ / Ctrl + Enter', summary: 'Summary', signals: 'Signals', questions: 'Open questions',
   missing: 'What is still missing', clarified: 'Already clarified', expand: 'Expand all', collapse: 'Collapse all',

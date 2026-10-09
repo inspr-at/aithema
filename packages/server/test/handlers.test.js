@@ -1,11 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers } from '../src/index.js';
+import { mockConsent, testToken, ownedRequest } from '../../../test/helpers.js';
 import { createMockReasoning, inputRevision } from '@inspr/aithema-core';
 import { instrumentedMockRuntime } from '../../../test/server-fixtures.js';
 
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
-const request = (path, body) => new Request(`http://localhost/api/sessions/${path}`, body === undefined ? {} : {
+const request = (path, body) => ownedRequest(`http://localhost/api/sessions/${path}`, body === undefined ? {} : {
   method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
 });
 const turn = (handlers, id, clientEventId, content) => handlers.handle(request(`${id}/turns`, { clientEventId, content }));
@@ -19,20 +20,20 @@ async function waitFor(predicate) {
 
 for (const check of ['abort', 'reply']) test(`superseding a held understanding call: ${check}`, async () => {
   const storage = new SQLiteStorage(), mock = createMockReasoning(), started = deferred(), held = deferred();
-  let oldSignal, calls = 0;
+  let oldSignal, calls = 0, oldReturned = false;
   const reasoning = { ...mock, async structured(...args) {
-    if (++calls === 1) { oldSignal = args[1].signal; started.resolve(); await held.promise; }
+    if (++calls === 1) { oldSignal = args[1].signal; started.resolve(); await held.promise; oldReturned = true; }
     return mock.structured(...args);
   } };
   const handlers = createHandlers({ storage, reasoning, pluginRuntime: instrumentedMockRuntime(storage, reasoning) });
   try {
-    const s = storage.create({ demo: true });
+    const s = storage.create({ demo: true, ownerToken: testToken });
     await turn(handlers, s.id, 'first', 'First'); await started.promise;
     await turn(handlers, s.id, 'second', 'Second');
     if (check === 'abort') assert.equal(oldSignal.aborted, true, 'obsolete paid work must receive cancellation');
     const revision = inputRevision(storage.get(s.id));
     await waitFor(() => storage.get(s.id).transcript.some(t => t.role === 'assistant' && t.inputRevision === revision));
-    assert.equal(calls, 1, 'the reply must publish while understanding remains held');
+    assert.equal(oldReturned, false, 'the reply must publish before the cancelled provider call returns');
     held.resolve(); await handlers.idle();
     assert.equal(storage.get(s.id).understanding.inputRevision, revision);
     assert.equal((await handlers.handle(request(s.id)).then(r => r.json())).operations.lastFailure, null);
@@ -48,14 +49,14 @@ test('GET retains a sanitized current-revision lane failure and SSE reschedules 
   const handlers = createHandlers({ storage, reasoning, pluginRuntime: instrumentedMockRuntime(storage, reasoning) });
   let subscription;
   try {
-    const s = storage.create({ demo: true });
+    const s = storage.create({ demo: true, ownerToken: testToken });
     await turn(handlers, s.id, 'first', 'First'); await handlers.idle();
     const snapshot = await handlers.handle(request(s.id)).then(r => r.json());
     assert.deepEqual(snapshot.operations.lastFailure, { inputRevision: inputRevision(snapshot), lane: 'understanding',
       error: 'reasoning-unavailable', retryable: true });
     assert.deepEqual(snapshot.operations.running, []);
     assert.equal(JSON.stringify(snapshot).includes('private provider diagnostic'), false);
-    const other = storage.create({ demo: true });
+    const other = storage.create({ demo: true, ownerToken: testToken });
     assert.equal((await handlers.handle(request(other.id)).then(r => r.json())).operations.lastFailure, null);
     subscription = await handlers.handle(request(`${s.id}/events?after=${snapshot.seq}`));
     await handlers.idle();
@@ -67,7 +68,7 @@ test('GET retains a sanitized current-revision lane failure and SSE reschedules 
 });
 
 test('a turn queued at scheduler completion is never lost', async () => {
-  const storage = new SQLiteStorage(), handlers = createHandlers({ storage }), runs = [];
+  const storage = new SQLiteStorage(), handlers = createHandlers({ consent: mockConsent, storage }), runs = [];
   const get = storage.get.bind(storage); let queued = false, retry;
   handlers.lanes.run = async (id, lane) => { runs.push({ lane, revision: inputRevision(get(id)) }); return 'completed'; };
   storage.get = id => {
@@ -83,7 +84,7 @@ test('a turn queued at scheduler completion is never lost', async () => {
     return session;
   };
   try {
-    const s = storage.create({ demo: true });
+    const s = storage.create({ demo: true, ownerToken: testToken });
     await turn(handlers, s.id, 'first', 'First'); await handlers.idle(); await retry; await handlers.idle();
     assert.equal(queued, true);
     const revision = inputRevision(get(s.id));
@@ -92,12 +93,12 @@ test('a turn queued at scheduler completion is never lost', async () => {
 });
 
 test('8,000 non-ASCII characters fit the request budget; oversized bytes still fail', async () => {
-  const storage = new SQLiteStorage(), handlers = createHandlers({ storage });
+  const storage = new SQLiteStorage(), handlers = createHandlers({ consent: mockConsent, storage });
   try {
-    const s = storage.create({ demo: true }), content = '界'.repeat(8000);
+    const s = storage.create({ demo: true, ownerToken: testToken }), content = '界'.repeat(8000);
     assert.equal((await turn(handlers, s.id, 'unicode', content)).status, 200);
     assert.equal(storage.get(s.id).transcript[0].content, content);
-    assert.equal((await handlers.handle(new Request(`http://localhost/api/sessions/${s.id}/turns`, {
+    assert.equal((await handlers.handle(ownedRequest(`http://localhost/api/sessions/${s.id}/turns`, {
       method: 'POST', body: ' '.repeat(32_769),
     }))).status, 413);
   } finally { await handlers.close(); storage.close(); }

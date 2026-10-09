@@ -133,6 +133,48 @@ test('an SSE cursor rejected with 400 restores the snapshot and reconnects with 
     assert.equal(c.session.seq, 1);
   } finally { c.remove(); await new Promise(r => setImmediate(r)); globalThis.fetch = originalFetch; }
 });
+test('pause state changes only after server acknowledgement; a failed resume preserves pause', async () => {
+  const c = setup(), original = globalThis.fetch; let release;
+  globalThis.fetch = () => new Promise(r => { release = r; });
+  try {
+    const button = c.shadowRoot.querySelector('.pause'); assert.ok(button);
+    button.click(); assert.equal(c.session.paused, false); assert.equal(button.disabled, true);
+    release(Response.json({ paused: true, event: { seq: 1, type: 'session.paused', data: { paused: true } } }));
+    await new Promise(r => setImmediate(r));
+    assert.equal(c.session.paused, true); assert.equal(button.textContent, en.resume);
+    button.click(); release(new Response(null, { status: 500 })); await new Promise(r => setImmediate(r));
+    assert.equal(c.session.paused, true);
+  } finally { globalThis.fetch = original; }
+});
+test('withdraw a stable statement id and clear visible projections even while hovered', async () => {
+  const c = setup(), root = c.shadowRoot, original = globalThis.fetch; let body;
+  turn(c, 'stable-turn', 'SAP');
+  c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
+  root.querySelector('.understanding').dispatchEvent(new window.Event('pointerenter'));
+  globalThis.fetch = async (url, init) => {
+    assert.ok(url.endsWith('/withdraw')); body = JSON.parse(init.body);
+    return Response.json({ event: { seq: c.session.seq + 1, type: 'turn.withdrawn', data: { turnId: 'stable-turn' } } });
+  };
+  try {
+    const button = root.querySelector('.withdraw'); assert.ok(button); button.click();
+    await new Promise(r => setImmediate(r)); assert.deepEqual(body, { turnId: 'stable-turn' });
+    assert.equal(root.querySelector('ol').textContent.includes('SAP'), false);
+    assert.equal(root.querySelector('.summary-text').textContent, '');
+    assert.equal(c.session.transcript[0].erased, true);
+  } finally { globalThis.fetch = original; }
+});
+test('a withdrawal acknowledgement with an SSE gap clears visible content before snapshot recovery', async () => {
+  const c = setup(), root = c.shadowRoot, original = globalThis.fetch; let release;
+  turn(c, 't', 'SAP'); c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
+  root.querySelector('.transcript-shell').dispatchEvent(new window.Event('pointerenter'));
+  root.querySelector('.understanding').dispatchEvent(new window.Event('pointerenter'));
+  globalThis.fetch = () => new Promise(r => { release = r; });
+  try {
+    c.receive({ seq: c.session.seq + 2, type: 'turn.withdrawn', data: { turnId: 't' } });
+    assert.equal(root.querySelector('ol').textContent.includes('SAP'), false);
+    assert.equal(root.querySelector('.summary-text').textContent, '');
+  } finally { release(Response.json(c.session)); await new Promise(r => setImmediate(r)); globalThis.fetch = original; }
+});
 test.after(async () => window.happyDOM.close());
 
 test('preset choice preserves layout and snapshot feature updates defer under the pointer', async () => {

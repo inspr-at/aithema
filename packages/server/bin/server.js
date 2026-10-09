@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { SQLiteStorage, createHandlers } from '../src/index.js';
+import { SQLiteStorage, createHandlers, createMemoryConsentLedger } from '../src/index.js';
 import { listen } from '../src/http.js';
 const storage = new SQLiteStorage(process.env.AITHEMA_DB ?? ':memory:');
-const handlers = createHandlers({ storage });
+const handlers = createHandlers({ storage, consent: createMemoryConsentLedger() });
 handlers.resume();
 const { server, url } = await listen(handlers.handle, { port: Number(process.env.PORT ?? 3000) });
 console.log(`Aithema reset slice 1 — mock reasoning: ${url}`);

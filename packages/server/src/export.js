@@ -1,3 +1,4 @@
+import { activeTurns } from '@inspr/aithema-core';
 // Dependency-free, store-only ZIP. UTF-8 flags; fixed timestamp for reproducible exports.
 function crc32(bytes) {
   let crc = 0xffffffff;
@@ -32,8 +33,8 @@ export function zipStore(files) {
 export function exportSession(session) {
   const json = value => JSON.stringify(value, null, 2) + '\n';
   return zipStore({
-    'transcript.json': json({ sessionId: session.id, turns: session.transcript }),
-    'transcript.md': '# Conversation\n\n' + session.transcript.map(t => `## ${t.role}\n\n${t.content}\n`).join('\n'),
+    'transcript.json': json({ sessionId: session.id, turns: activeTurns(session) }),
+    'transcript.md': '# Conversation\n\n' + activeTurns(session).map(t => `## ${t.role}\n\n${t.content}\n`).join('\n'),
     'understanding.json': json(session.understanding),
   });
 }
