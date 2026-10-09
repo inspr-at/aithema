@@ -140,9 +140,7 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
         if (closing) return closing;
         lifetime?.dispose();
         options.signal?.removeEventListener('abort', cancelled);
-        call = { ...call, closing: true };
-        callCancellation.abort(['spend-deadline', 'browser-liveness-deadline'].includes(reason)
-          ? new DOMException('Voice call deadline', 'TimeoutError') : undefined);
+        call = { ...call, closing: true, reason };
         closing = serial(async () => {
           finished = true;
           const closeOptions = { deadlineAt: Date.now() + closureTimeoutMs };
@@ -180,6 +178,8 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
           }
           return terminal;
         });
+        callCancellation.abort(['spend-deadline', 'browser-liveness-deadline'].includes(reason)
+          ? new DOMException('Voice call deadline', 'TimeoutError') : undefined);
         return closing;
       };
       try {

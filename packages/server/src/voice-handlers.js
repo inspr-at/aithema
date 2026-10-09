@@ -19,7 +19,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
   publish, onTurn, hostPrompt = '', now = Date.now, browserLeaseMs = 30_000, deadlineMs = 30_000,
   closeOrphan } = {}) {
   if (!secrets?.provision || !secrets.resolve || !secrets.revoke) throw new TypeError('Private facade secret store required');
-  const calls = new Map(), sessions = new Map(), receipts = new Map();
+  const calls = new Map(), sessions = new Map(), settlements = new Set();
   const sessionFor = entry => {
     const session = storage.authorize(entry.sessionId, entry.ownerToken);
     if (session.consentRevision !== entry.consentRevision || session.withdrawalRevision !== entry.withdrawalRevision) throw new PluginError('not-admitted', 'Call context revoked');
@@ -30,59 +30,75 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     ...(call.overrides ? { overrides: call.overrides } : {}) });
   const options = request => ({ signal: request.signal, deadlineAt: Date.now() + deadlineMs });
   function revoke(entry) { secrets.revoke(entry.facadeSecretRef); }
-  async function close(entry, reason = 'closed', outcome = 'completed') {
+  function close(entry, reason = 'closed', outcome = 'completed') {
+    if (entry.closing) return entry.closing;
+    // Install the promise before close() aborts the provider signal synchronously.
+    let resolve, reject;
+    const closing = new Promise((yes, no) => { resolve = yes; reject = no; });
+    entry.closing = closing; settlements.add(closing);
+    closing.catch(() => {}).finally(() => settlements.delete(closing));
     revoke(entry);
-    if (!entry.call) { entry.controller.abort(); entry.admission?.finish();
-      if (sessions.get(entry.sessionId) === entry.callId) sessions.delete(entry.sessionId); return; }
-    const closing = entry.call.close(reason, outcome); entry.controller.abort();
-    const terminal = await closing;
-    entry.admission?.finish();
-    receipts.set(entry.call.providerSessionId, terminal);
-    if (sessions.get(entry.sessionId) === entry.callId) sessions.delete(entry.sessionId);
-    publish(entry.sessionId, { type: 'voice.state', data: { callId: entry.callId, state: reason === 'transport-lost' ? 'recovering' : 'ended', reason,
-      terminal: { outcome: terminal.outcome, closureConfirmed: terminal.closureConfirmed, usage: terminal.usage ?? null } } });
-    return terminal;
+    if (sessions.get(entry.sessionId) === entry) sessions.delete(entry.sessionId);
+    publish(entry.sessionId, { type: 'voice.state', data: { callId: entry.callId,
+      state: reason === 'transport-lost' ? 'recovering' : 'closing', reason } });
+    const settle = async () => {
+      try {
+        let pending;
+        if (entry.call) { pending = entry.call.close(reason, outcome); entry.controller.abort(); }
+        else {
+          entry.controller.abort();
+          await entry.started;
+          pending = entry.call?.close(reason, outcome);
+        }
+        const terminal = await pending;
+        entry.admission?.finish();
+        // An old recovery's settlement cannot publish over or remove its successor.
+        if (terminal && calls.get(entry.callId) === entry) publish(entry.sessionId, { type: 'voice.state', data: {
+          callId: entry.callId, state: reason === 'transport-lost' ? 'recovering' : 'ended', reason,
+          terminal: { outcome: terminal.outcome, closureConfirmed: terminal.closureConfirmed, usage: terminal.usage ?? null } } });
+        resolve(terminal);
+      } catch (error) { reject(error); }
+      finally { if (calls.get(entry.callId) === entry) calls.delete(entry.callId); }
+    };
+    void settle(); return closing;
   }
   async function start(request, sessionId, ownerToken, callId, spendDeadlineAt) {
     const session = storage.authorize(sessionId, ownerToken);
     if (sessions.has(sessionId)) throw new ConflictError('Voice call already active');
-    const controller = new AbortController(), entry = { callId, sessionId, ownerToken, controller,
+    const controller = new AbortController(), started = Promise.withResolvers(), entry = { callId, sessionId, ownerToken, controller, started: started.promise,
       consentRevision: session.consentRevision, withdrawalRevision: session.withdrawalRevision,
       facadeSecretRef: 'voice-' + randomUUID() };
-    sessions.set(sessionId, callId); calls.set(callId, entry);
+    sessions.set(sessionId, entry); calls.set(callId, entry);
     const abortStartup = () => controller.abort(request.signal.reason);
     request.signal.addEventListener('abort', abortStartup, { once: true });
     if (request.signal.aborted) abortStartup();
     try {
       const opts = { ...options(request), signal: controller.signal };
-      const admitted = await runtime.admitVoice({ session, request: { callId }, options: opts }); entry.admission = admitted;
+      const admitted = await runtime.admitVoice({ session, request: { callId }, options: { ...opts, spendDeadlineAt } }); entry.admission = admitted;
       const end = spendDeadlineAt ?? now() + admitted.binding.maxDurationSeconds * 1000;
       if (end <= now()) throw new PluginError('deadline');
       await secrets.provision(entry.facadeSecretRef);
+      controller.signal.throwIfAborted();
       entry.call = await admitted.plugin.start({ callId, sessionId, ownerToken, facadeSecretRef: entry.facadeSecretRef,
         facadeUrl: `${admitted.binding.publicFacadeBaseUrl}/api/voice/${callId}/llm/chat/completions` },
         { ...admitted.options, spendDeadlineAt: end, browserLivenessDeadlineAt: Math.min(end, now() + browserLeaseMs) });
       entry.call.signal.addEventListener('abort', () => {
-        revoke(entry);
-        if (sessions.get(sessionId) === callId) sessions.delete(sessionId);
+        void close(entry, entry.call.snapshot().reason ?? 'cancelled', 'cancelled');
       }, { once: true });
-      if (entry.call.signal.aborted) { await close(entry, 'start-cancelled', 'cancelled'); throw new PluginError('cancelled'); }
+      if (entry.call.signal.aborted) { void close(entry, 'start-cancelled', 'cancelled'); throw new PluginError('cancelled'); }
       return receipt(entry.call);
     } catch (error) {
-      revoke(entry); controller.abort(); entry.admission?.finish();
-      if (sessions.get(sessionId) === callId) sessions.delete(sessionId);
+      revoke(entry); controller.abort(); if (!entry.call) entry.admission?.finish();
+      if (sessions.get(sessionId) === entry) sessions.delete(sessionId);
+      if (calls.get(callId) === entry) calls.delete(callId);
       throw error;
-    } finally { request.signal.removeEventListener('abort', abortStartup); }
+    } finally { started.resolve(); request.signal.removeEventListener('abort', abortStartup); }
   }
   const facade = createCompletionsHandler({ resolveSecret: secrets.resolve,
-    async getCall(request) {
+    getCall(request) {
       const callId = facadeRoute.exec(new URL(request.url).pathname)?.[1], entry = calls.get(callId);
       if (!entry?.call) return null;
-      try {
-        const session = sessionFor(entry);
-        await runtime.checkVoice(session, { ...options(request), allowPaused: true, existingCall: true });
-        return { ...entry.call.snapshot(), signal: entry.call.signal };
-      } catch { void close(entry, 'call-authorization-lost', 'cancelled').catch(() => {}); return null; }
+      return { ...entry.call.snapshot(), facadeSecretRef: entry.facadeSecretRef, signal: entry.call.signal };
     },
     buildRequest({ callId, messages }) {
       const session = sessionFor(calls.get(callId)), trusted = reasoningRequest(session, 'reaction', false, hostPrompt);
@@ -91,23 +107,49 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         ...(session.focusedQuestion ? [{ role: 'user', content: JSON.stringify({ kind: 'untrusted-focused-question', question: session.focusedQuestion }) }] : []),
         ...messages] };
     },
-    admitReasoning({ callId, request, options }) {
+    async admitReasoning({ callId, request, options }) {
       const session = sessionFor(calls.get(callId));
+      await runtime.checkVoice(session, { ...options, existingCall: true });
       return runtime.admit({ session, lane: 'reaction', operation: 'stream', request, options });
     },
+    onCompletion({ callId, providerSessionId, content }) {
+      const entry = calls.get(callId);
+      if (!entry?.call || entry.closing || entry.call.providerSessionId !== providerSessionId) return;
+      entry.produced ??= [];
+      entry.produced.push(content);
+      while (entry.produced.length > 256 || entry.produced.reduce((n, text) => n + text.length, 0) > 1_048_576) entry.produced.shift();
+    },
   });
+  async function changePause(entry, paused, opts = {}) {
+    if (paused) {
+      try {
+        if (entry.closing || !entry.call) throw new PluginError('unavailable');
+        await voiceOperation({ ...opts, deadlineAt: Math.min(opts.deadlineAt ?? Infinity, Date.now() + 1000) }, bounded =>
+          entry.call.pause({ ...bounded, guard: { ownerToken: entry.ownerToken } }));
+      } catch { void close(entry, 'pause-failed', 'cancelled'); }
+      return { acknowledged: true, paused: true };
+    }
+    const session = sessionFor(entry);
+    await runtime.checkVoice(session, { ...opts, allowPaused: true, existingCall: true });
+    return entry.call.resume({ ...opts, guard: { revision: inputRevision(session) } });
+  }
   return {
     active: id => sessions.has(id),
-    async stopSession(id, reason = 'session-revoked') {
-      const entry = calls.get(sessions.get(id));
-      if (entry) await close(entry, reason, 'cancelled');
+    typedContext(id, ownerToken, callId, providerSessionId) {
+      const entry = calls.get(callId);
+      if (!entry?.call || entry.sessionId !== id || entry.ownerToken !== ownerToken || entry.call.providerSessionId !== providerSessionId) throw new NotFoundError('Call not found');
+      const session = sessionFor(entry);
+      if (entry.closing || entry.call.signal.aborted || session.paused || session.consentWithdrawn) throw new PluginError('not-admitted');
+      return { voiceCallId: callId, voiceProviderId: providerSessionId };
+    },
+    stopSession(id, reason = 'session-revoked') {
+      const entry = sessions.get(id);
+      if (entry) void close(entry, reason, 'cancelled');
     },
     async pauseSession(id, paused, opts = {}) {
-      const entry = calls.get(sessions.get(id));
+      const entry = sessions.get(id);
       if (!entry?.call) return null;
-      const session = sessionFor(entry);
-      await runtime.checkVoice(session, { ...opts, allowPaused: true, existingCall: true });
-      return entry.call[paused ? 'pause' : 'resume']({ ...opts, guard: { revision: inputRevision(session) } });
+      return changePause(entry, paused, opts);
     },
     async handle(request) {
       const path = new URL(request.url).pathname;
@@ -120,43 +162,54 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         const bytes = await readBody(request, 65_536), body = bytes.length ? JSON.parse(Buffer.from(bytes).toString('utf8')) : {};
         if (!body || typeof body !== 'object' || Array.isArray(body)) throw new TypeError('Invalid body');
         if (!action) {
-          if (typeof body.callId !== 'string' || !new RegExp(`^${idPattern}$`, 'u').test(body.callId) || calls.has(body.callId)) throw new ConflictError('Call identity reused');
+          if (typeof body.callId !== 'string' || !new RegExp(`^${idPattern}$`, 'u').test(body.callId) || calls.has(body.callId) || storage.voiceCalls(sessionId).some(c => c.callId === body.callId)) throw new ConflictError('Call identity reused');
           return json(await start(request, sessionId, ownerToken, body.callId), 201);
         }
         const previous = storage.voiceCalls(sessionId).find(c => c.callId === callId && c.providerSessionId === body.providerSessionId);
-        if (action === 'close' && previous?.terminal) return json(receipts.get(body.providerSessionId) ?? previous.terminal);
+        if (action === 'close' && previous?.terminal) return json(previous.terminal);
         const entry = calls.get(callId);
+        if (!entry && action === 'recover' && previous) {
+          const count = storage.voiceCalls(sessionId).filter(c => c.callId === callId).length;
+          if (count > 3) throw new PluginError('unavailable', 'Recovery exhausted');
+          const next = await start(request, sessionId, ownerToken, callId, previous.spendDeadlineAt);
+          calls.get(callId).recoveryCount = count; return json(next);
+        }
+        if (!entry && previous && storage.get(sessionId).consentWithdrawn) throw new PluginError('not-admitted');
         if (!entry || entry.sessionId !== sessionId || entry.ownerToken !== ownerToken || !entry.call) throw new NotFoundError('Call not found');
         const bound = entry.call.providerSessionId === body.providerSessionId;
-        if (!bound && !(action === 'recover' && previous?.terminal)) throw new NotFoundError('Provider identity not found');
+        if (!bound && !(action === 'recover' && previous)) throw new NotFoundError('Provider identity not found');
         if (action === 'close') return json(await close(entry, typeof body.reason === 'string' ? body.reason.slice(0, 128) : 'closed'));
+        if (action === 'pause') {
+          const event = storage.pause(sessionId, true, { ownerToken }); publish(sessionId, event);
+          return json(await changePause(entry, true, options(request)));
+        }
         let session = sessionFor(entry);
         // Cleanup is always permitted. Every other command needs current binding coverage.
         try {
-          await runtime.checkVoice(session, { ...options(request), allowPaused: ['pause', 'resume', 'heartbeat'].includes(action), existingCall: true });
+          await runtime.checkVoice(session, { ...options(request), allowPaused: ['resume', 'heartbeat'].includes(action), existingCall: true });
         } catch (error) {
-          if (error.message !== 'session paused') await close(entry, 'call-authorization-lost', 'cancelled');
+          if (error.message !== 'session paused') void close(entry, 'call-authorization-lost', 'cancelled');
           throw error;
         }
         if (action === 'recover') {
+          if (!bound && !entry.closing && !entry.call.signal.aborted) return json(receipt(entry.call));
           if (entry.recovering) throw new ConflictError('Recovery in progress');
           entry.recovering = true;
           try {
             if ((entry.recoveryCount ?? 0) >= 3) throw new PluginError('unavailable', 'Recovery exhausted');
             const count = (entry.recoveryCount ?? 0) + 1, end = entry.call.spendDeadlineAt;
-            await close(entry, 'transport-lost', 'cancelled');
+            void close(entry, 'transport-lost', 'cancelled');
             entry.recoveryCount = count;
-            try {
-              const next = await start(request, sessionId, ownerToken, callId, end);
-              calls.get(callId).recoveryCount = count; return json(next);
-            } catch (error) { calls.set(callId, entry); throw error; }
+            const next = await start(request, sessionId, ownerToken, callId, end);
+            calls.get(callId).recoveryCount = count; return json(next);
           } finally { entry.recovering = false; }
         }
         if (entry.call.signal.aborted) throw new PluginError('unavailable');
         if (action === 'events') {
           const fresh = sessionFor(entry);
+          const provenance = body.event?.role === 'assistant' && entry.produced?.includes(body.event.text) ? 'facade-produced' : 'browser-asserted';
           const result = storage.postVoiceEvent(sessionId, callId, entry.call.providerSessionId, body.event,
-            { ownerToken, revision: inputRevision(fresh) });
+            { ownerToken, revision: inputRevision(fresh), provenance });
           if (!result.replayed) {
             publish(sessionId, result.event); onTurn(sessionId, result.event);
           }
@@ -198,6 +251,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         }
       }
     },
-    async close() { await Promise.allSettled([...sessions.keys()].map(id => this.stopSession(id, 'server-stopping'))); },
+    async idle() { while (settlements.size) await Promise.allSettled([...settlements]); },
+    async close() { for (const id of sessions.keys()) this.stopSession(id, 'server-stopping'); await this.idle(); },
   };
 }

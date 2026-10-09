@@ -5,6 +5,7 @@ import { dirname, basename, resolve, join } from 'node:path';
 import { applyEvent, createSession, inputRevision, emptyUnderstanding } from '@inspr/aithema-core';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+const turnMetadata = ['id', 'role', 'at', 'inputRevision', 'contentRef', 'hash', 'erased', 'withdrawn', 'provenance', 'voiceCallId', 'voiceProviderId'];
 
 export class ConflictError extends Error {}
 export class NotFoundError extends Error {}
@@ -107,14 +108,14 @@ export class SQLiteStorage {
     }
     if (!['turn.final', 'turn.corrected', 'understanding.updated'].includes(type)) return data;
     if (data.contentRef) return Object.fromEntries(Object.entries(data).filter(([key]) =>
-      ['turn.final', 'turn.corrected'].includes(type) ? ['id', 'role', 'at', 'inputRevision', 'contentRef', 'hash', 'erased', 'withdrawn'].includes(key)
+      ['turn.final', 'turn.corrected'].includes(type) ? turnMetadata.includes(key)
         : ['contentRef', 'hash', 'erased'].includes(key)));
     const contentRef = `${id}:${seq}`, at = data.at ?? new Date().toISOString();
     const bytes = JSON.stringify(['turn.final', 'turn.corrected'].includes(type) ? { content: data.content } : data), digest = hash(bytes);
     this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id,
       ['turn.final', 'turn.corrected'].includes(type) ? data.role === 'user' ? 'person' : 'reply' : 'understanding', bytes, digest, at);
     return ['turn.final', 'turn.corrected'].includes(type) ? { id: data.id, role: data.role, at,
-      ...(data.inputRevision === undefined ? {} : { inputRevision: data.inputRevision }), contentRef, hash: digest }
+      ...Object.fromEntries(['inputRevision', 'provenance', 'voiceCallId', 'voiceProviderId'].filter(key => data[key] !== undefined).map(key => [key, data[key]])), contentRef, hash: digest }
       : { contentRef, hash: digest };
   }
   #save(session, understandingRef, focusedQuestionRef) {
@@ -172,6 +173,7 @@ export class SQLiteStorage {
       this.#check(session, guard);
       if (session.transcript.some(turn => turn.id === clientId)) throw new ConflictError('Turn id already exists');
       const event = this.#append(session, 'turn.final', { id: clientId, role: 'user', content,
+        ...(guard.voiceCallId ? { voiceCallId: guard.voiceCallId, voiceProviderId: guard.voiceProviderId } : {}),
         at: new Date().toISOString() });
       const metadata = { ...event, data: this.#metadata(id, 'turn.final', event.data) };
       this.db.prepare('INSERT INTO receipts VALUES (?,?,?,?)').run(id, clientId, hash(bytes), JSON.stringify(metadata));
@@ -197,7 +199,8 @@ export class SQLiteStorage {
       .map(row => ({ sessionId: row.session_id, ...JSON.parse(row.record) }));
   }
   postVoiceEvent(id, callId, providerId, value, guard = {}) {
-    return this.transaction(() => {
+    const transaction = value?.type === 'heard' ? fn => this.#invalidationTransaction(fn) : fn => this.transaction(fn);
+    return transaction(() => {
       const session = this.get(id); this.#check(session, guard);
       if (session.paused || session.consentWithdrawn) throw new ConflictError('Voice publication blocked');
       const { type, turnId } = value;
@@ -216,15 +219,22 @@ export class SQLiteStorage {
       let event;
       if (type === 'final') {
         if (turn) throw new ConflictError('Voice turn already exists');
-        event = this.#append(session, 'turn.final', { id: turnId, role: value.role, content: value.text,
-          at: new Date().toISOString(), ...(value.role === 'assistant' ? { inputRevision: inputRevision(session) } : {}) });
+        const typed = value.role === 'user' && session.transcript.find(t => t.voiceCallId === callId && !t.erased && !t.withdrawn && t.content === value.text);
+        event = typed ? this.read(id).find(e => e.type === 'turn.final' && e.data.id === typed.id)
+          : this.#append(session, 'turn.final', { id: turnId, role: value.role, content: value.text,
+            at: new Date().toISOString(), ...(value.role === 'assistant' ? { inputRevision: inputRevision(session), provenance: guard.provenance === 'facade-produced' ? 'facade-produced' : 'browser-asserted' } : {}) });
+        if (typed) {
+          const metadata = { ...event, data: this.#metadata(id, event.type, event.data) };
+          this.db.prepare('INSERT INTO receipts VALUES (?,?,?,?)').run(id, clientId, bytes, JSON.stringify(metadata));
+          return { event, replayed: true };
+        }
       } else {
         if (!turn || turn.role !== 'assistant' || turn.erased || turn.withdrawn || !turn.content.startsWith(value.prefix)) throw new ConflictError('Invalid heard prefix');
         // Remove superseded assistant content and dependent projections from replay/export too.
         this.db.prepare("UPDATE content SET bytes=NULL,tombstone=? WHERE session_id=? AND (id=? OR kind IN ('understanding','actor'))")
           .run(new Date().toISOString(), id, turn.contentRef);
         event = this.#append(session, 'turn.corrected', { id: turnId, role: turn.role, content: value.prefix,
-          at: turn.at, inputRevision: inputRevision(session) });
+          at: turn.at, inputRevision: inputRevision(session), provenance: turn.provenance });
       }
       const metadata = { ...event, data: this.#metadata(id, event.type, event.data) };
       this.db.prepare('INSERT INTO receipts VALUES (?,?,?,?)').run(id, clientId, bytes, JSON.stringify(metadata));

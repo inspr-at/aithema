@@ -173,6 +173,9 @@ for the complete binding and provisioning ports. Agent id, provider-key secret
 reference, public HTTPS facade base URL and exact account qualification are
 required. The live demo additionally requires a private host module; it never
 infers authorization from a provider key in the environment.
+Live provider callbacks need a proxy that rewrites the incoming `Host` header to
+an allowed localhost host: the demo applies its `allowedHosts` check to the facade
+route too. Terminate public HTTPS at that proxy.
 
 Browser hosts import `createVoiceControl` from `@inspr/aithema-ui/voice-control`,
 and `createElevenLabsClient` from `@inspr/aithema-plugin-elevenlabs/client`.
@@ -189,13 +192,24 @@ Hosts with an additional Web Audio context can supply `voicePlayback` to resume 
 Voice finals are ordinary durable `turn.final` events. A genuine heard prefix is
 an idempotent `turn.corrected`, with the unspoken suffix removed from projection,
 replay and export. Understanding uses the same revision guards and withdrawal
-path as typed input. During a call the composer sends `sendText`; only the
-provider's final echo creates a turn. Understanding/focus changes call
+path as typed input. During a call the composer persists a durable person turn
+before `sendText`; later provider echoes of that text within the call are
+de-duplicated. Assistant finals record whether their text was `facade-produced`
+or `browser-asserted`; exports mark browser assertions explicitly. These labels
+identify text provenance, without confirming playback. Understanding/focus changes call
 `updateContext`. Audio barge-in is native; there is no force-interrupt button.
 Unsupported commands and presets stay disabled with a reason. Automatic updates
 keep the rail, composer and export targets at fixed positions.
 
 Duration holds reserve provider and visitor ceilings separately.
+Set the upstream session cap to at least the voice maximum plus the delegated
+reaction maximum (`cap ≥ voice max + reaction max`), since the open voice hold
+counts toward `used()` while facade reactions and heartbeats check admission.
+Allow further headroom for understanding, settled usage and overlapping recovery
+holds. Recovery reserves the remaining duration and settles the old call in the
+background. Invalidation commits and cancels lanes immediately, revokes callback
+auth and sends `voice.state: closing` so the browser ends its SDK session before
+provider settlement. `handlers.idle()` and `handlers.close()` await settlements.
 `budget.used(sessionId)` tracks upstream spend;
 `budget.visitorUsed(sessionId)` tracks voice visitor credits. Terminal usage
 retains full `providerSeconds`/`providerMinutes`, `pausedSeconds`, `visitorSeconds`,

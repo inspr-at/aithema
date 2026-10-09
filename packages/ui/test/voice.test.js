@@ -7,6 +7,7 @@ import { AudioRail } from '../src/audio-rail.js';
 import { en } from '../src/i18n/en.js';
 import { manifest } from '../../../plugins/elevenlabs/src/manifest.js';
 import { styles } from '../src/styles.js';
+import { createElevenLabsClient } from '../../../plugins/elevenlabs/src/client.js';
 const window = new Window();
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
@@ -79,23 +80,58 @@ test('blocked SDK playback retries on a real user gesture and clears the message
 test('component sends typed text through active voice and updates context when understanding or focus changes', async t => {
   const session = createSession({ demo: true });
   session.featureMatrix = { best: { voice: { available: true }, text: { available: true }, analysis: { available: true } } };
-  const commands = [], events = voiceEvents();
+  const commands = [], events = voiceEvents(), originalFetch = globalThis.fetch;
+  let settle; const terminal = new Promise(resolve => { settle = resolve; });
+  globalThis.fetch = async (url, options) => {
+    assert.ok(String(url).endsWith('/turns'));
+    const body = JSON.parse(options.body); commands.push(['persist', body]);
+    return Response.json({ seq: 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content } });
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
   const c = document.createElement('aithema-session');
   c.configure({ copy: en, session, voiceClient: { manifest, async start({ callId }) {
-    return { callId, events, async close() { events.end(); return { closureConfirmed: true }; },
+    return { callId, providerSessionId: 'slow-provider', events, async close() { events.end(); return terminal; },
       async setInput() {}, async setOutput() {}, async sendText(value) { commands.push(['text', value]); },
       async updateContext(value) { commands.push(['context', value]); } };
   } } });
-  t.after(() => c.remove()); const root = c.shadowRoot;
+  t.after(() => { settle({ closureConfirmed: true }); c.configure({ copy: en, session }); c.remove(); }); const root = c.shadowRoot;
   root.querySelector('.voice-start').click(); await tick();
   root.querySelector('textarea').value = 'typed during voice'; root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick();
   assert.ok(commands.some(([name, value]) => name === 'text' && value === 'typed during voice'));
-  assert.equal(c.session.transcript.length, 0, 'only provider finals persist the typed echo');
+  assert.equal(c.session.transcript.length, 1, 'typed text persists even when the provider never echoes');
+  assert.ok(commands.findIndex(([name]) => name === 'persist') < commands.findIndex(([name]) => name === 'text'));
   c.receive({ seq: c.session.seq + 1, type: 'question.focused', data: { question: 'Which systems?' } }); await tick();
   assert.equal(commands.at(-1)[1].focusedQuestion, 'Which systems?');
   c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...c.session.understanding, summary: 'New context', inputRevision: inputRevision(c.session) } }); await tick();
   assert.equal(commands.at(-1)[1].understanding.summary, 'New context');
   root.querySelector('.voice-close').click(); await tick();
+  settle({ closureConfirmed: true }); await tick();
+});
+
+test('closing notification ends the browser SDK before slow provider settlement', async t => {
+  const session = createSession({ demo: true });
+  session.featureMatrix = { best: { voice: { available: true }, text: { available: true }, analysis: { available: true } } };
+  let ended = false, settle, callId, providerClosed = false;
+  const terminal = new Promise(resolve => { settle = resolve; });
+  const control = {
+    async start(request) { callId = request.callId; return { callId, providerSessionId: 'slow-provider',
+      credential: { providerSessionId: 'slow-provider', connectionType: 'webrtc', conversationToken: 'fixture-token', ttlMs: 60_000 },
+      spendDeadlineAt: Date.now() + 60_000, browserLivenessDeadlineAt: Date.now() + 30_000 }; },
+    async close() { assert.equal(ended, true); providerClosed = true; return terminal; },
+    async pause() {}, async resume() {}, async heartbeat() {},
+  };
+  const client = createElevenLabsClient({ control, persistEvent: async () => {}, sdk: {
+    async startSession() { return { getId: () => 'slow-provider', setMicMuted() {}, setVolume() {}, sendContextualUpdate() {},
+      async endSession() { ended = true; } }; },
+  } });
+  const c = document.createElement('aithema-session'); c.configure({ copy: en, session, voiceClient: client });
+  t.after(async () => { settle({ closureConfirmed: true }); c.configure({ copy: en, session }); c.remove(); await tick(); });
+  c.shadowRoot.querySelector('.voice-start').click(); await tick();
+  assert.equal(c.shadowRoot.querySelector('.audio-rail').dataset.state, 'listening');
+  c.receive({ type: 'voice.state', data: { callId, state: 'closing', reason: 'consent-revised' } }); await tick();
+  assert.equal(ended, true, 'closing stops capture without waiting for a terminal'); assert.equal(providerClosed, true);
+  assert.equal(c.shadowRoot.querySelector('.audio-rail').dataset.state, 'closing');
+  settle({ closureConfirmed: true }); await tick();
 });
 test('heard correction truncates the bubble immediately under hover while preserving its occupied height', () => {
   const c = document.createElement('aithema-session'), session = createSession({ demo: true });

@@ -24,6 +24,12 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   };
   const coverageFor = (session, scope, options) => consent.coverage({ sessionId: session.id,
     scope: structuredClone(scope), consentRevision: session.consentRevision }, options);
+  const voiceAmounts = (binding, options) => {
+    const milliseconds = options.spendDeadlineAt === undefined ? binding.maxDurationSeconds * 1000
+      : Math.min(binding.maxDurationSeconds * 1000, Math.max(0, options.spendDeadlineAt - now()));
+    return { maxMicro: options.spendDeadlineAt === undefined ? binding.maxMicro : Math.ceil(milliseconds / 60_000 * binding.upstreamMicroPerMinute),
+      maxVisitorMicro: Math.ceil(milliseconds / 60_000 * binding.visitorMicroPerMinute) };
+  };
   async function evaluate(session, preset, feature, options) {
     if (!PROCESSING_PRESETS.includes(preset)) return { reason: 'unknown preset' };
     if (preset === 'device') return { reason: feature === 'text' ? 'device browser only' : 'unavailable on device' };
@@ -68,7 +74,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const reaction = await evaluate(session, preset, 'text', { ...options, existingCall: false });
       if (reaction.reason) return { reason: `delegated reasoning: ${reaction.reason}` };
     }
-    if (!options.existingCall && !budget.canAdmit(session.id, binding.maxMicro, feature === 'voice' ? Math.ceil(binding.maxDurationSeconds / 60 * binding.visitorMicroPerMinute) : 0)) return { reason: 'budget denied' };
+    const amounts = feature === 'voice' ? voiceAmounts(binding, options) : { maxMicro: binding.maxMicro, maxVisitorMicro: 0 };
+    if (!options.existingCall && !budget.canAdmit(session.id, amounts.maxMicro, amounts.maxVisitorMicro)) return { reason: 'budget denied' };
     return { binding, plugin, operation, coverage, scope };
   }
   async function boundedEvaluate(session, preset, feature, options = {}) {
@@ -107,8 +114,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const result = await this.checkVoice(session, options);
       if (!unchanged(session)) throw new PluginError('not-admitted');
       const { binding, plugin } = result;
-      const { attemptId } = budget.admit({ sessionId: session.id, lane: 'voice', maxMicro: binding.maxMicro,
-        maxVisitorMicro: Math.ceil(binding.maxDurationSeconds / 60 * binding.visitorMicroPerMinute),
+      const { maxMicro, maxVisitorMicro } = voiceAmounts(binding, options);
+      const { attemptId } = budget.admit({ sessionId: session.id, lane: 'voice', maxMicro, maxVisitorMicro,
         requestSha256: hash(request), bindingSha256: hash(binding) });
       const claim = budget.claim(attemptId); let reported = false, consuming = false;
       const report = terminal => {
@@ -116,7 +123,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       };
       const zero = () => report({ attemptId, outcome: 'cancelled', closureConfirmed: true, chargedMicro: 0,
         usage: { providerSeconds: 0, providerMinutes: 0, pausedSeconds: 0, visitorSeconds: 0, upstreamMicro: 0, visitorMicro: 0 } });
-      const attempt = { ...claim, maxMicro: binding.maxMicro, async consume() {
+      const attempt = { ...claim, maxMicro, async consume() {
         if (reported || consuming) throw new PluginError('already-claimed');
         consuming = true;
         try {
@@ -134,7 +141,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         } catch { zero(); throw new PluginError('not-admitted', 'Voice dispatch refused'); }
       } };
       return { plugin, binding, options: { ...options, attempt, report }, finish() {
-        if (!reported) report({ attemptId, outcome: 'uncertain', closureConfirmed: false, chargedMicro: binding.maxMicro });
+        if (!reported) report({ attemptId, outcome: 'uncertain', closureConfirmed: false, chargedMicro: maxMicro });
       } };
     },
     async admit({ session, lane, operation, request, options = {} }) {

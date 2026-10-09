@@ -34,7 +34,7 @@ export function exportSession(session) {
   const json = value => JSON.stringify(value, null, 2) + '\n';
   return zipStore({
     'transcript.json': json({ sessionId: session.id, turns: activeTurns(session) }),
-    'transcript.md': '# Conversation\n\n' + activeTurns(session).map(t => `## ${t.role}\n\n${t.content}\n`).join('\n'),
+    'transcript.md': '# Conversation\n\n' + activeTurns(session).map(t => `## ${t.role}${t.provenance === 'browser-asserted' ? ' (browser-asserted)' : ''}\n\n${t.content}\n`).join('\n'),
     'understanding.json': json(session.understanding),
   });
 }
