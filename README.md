@@ -111,6 +111,7 @@ The private `aithema` root is an ESM npm workspace with one `package-lock.json`.
 | `plugins/elevenlabs` — `@inspr/aithema-plugin-elevenlabs` | Live voice server/browser halves, custom-LLM facade and fake-only conformance |
 | `plugins/openai-images` — `@inspr/aithema-plugin-openai-images` | Server-side GPT Image 2 generation/editing, byte artifacts and provenance |
 | `plugins/codex-imagegen` — `@inspr/aithema-plugin-codex-imagegen` | Server-side Codex CLI image generation/editing on the operator account, with private references and process-group cancellation |
+| `plugins/claude-html` — `@inspr/aithema-plugin-claude-html` | Server-side Claude click-dummy HTML generation/editing through OpenRouter, with a hard USD spend cap |
 | `plugins/extract-{pdf,ooxml,text}` — `@inspr/aithema-plugin-extract-{pdf,ooxml,text}` | Offline bounded PDF, DOCX/XLSX/PPTX and literal text extractors |
 | `demo/` | Labelled localhost host and its tests |
 | `test/` | Shared JavaScript test helpers; package tests live beside each package |
@@ -757,6 +758,173 @@ preflight plus active cancellation/deadlines. Optional `expectedUsage:
 {inputTokens, outputTokens}` checks exact completed-call totals, including
 under-reporting or unknown usage. Reference fixtures pass `spec.references`;
 CI tests their multipart transport, limits and broken content/usage fixtures.
+
+## HTML click-dummies (AIT-113 part A(b))
+
+The `ui-generation` kind also produces **html artifacts**: one self-contained,
+clickable click-dummy document. A plugin declares `text/html` in its model
+`formats`. The artifact is `{bytes, mediaType: 'text/html', promptDigest,
+provenance}` with exactly these keys. `bytes` is UTF-8 and at most 512 KiB
+(`MAX_HTML_BYTES`). `provenance` has the image record's shape with `modality:
+'html'` and a `text/html` subject digest. The core exports `inspectHTML(bytes)`,
+`isHTMLArtifact`, `verifyHTMLArtifact` (shape, policy and SHA-256 digest) and
+`HTML_PREVIEW_CSP`. Types are in [`ui-html.d.ts`](packages/core/src/ui-html.d.ts).
+`isUIArtifact` stays image-only.
+
+`inspectHTML` returns stable problem codes. It accepts exactly one document:
+`<!doctype html>` first, one `html`/`head`/`body`, `</html>` last, valid UTF-8 and
+no control characters. It rejects:
+
+- absolute URLs anywhere (XML namespace names excepted);
+- `href` values that do not start with `#`;
+- `src`/`poster` values other than `data:image/`, and any script `src`;
+- fetching attributes such as `srcset` or `ping`;
+- CSS `@import` and `url()` values other than `data:` or `#`;
+- `<base>`, `<link>`, frames, `object`/`embed` and `http-equiv`;
+- form `action`, `formaction` and POST forms;
+- module scripts;
+- script network, storage and navigation APIs, and the usual obfuscation
+  primitives.
+
+`uiGenerationConformance` now accepts only artifact media types that the manifest
+declares. It verifies html results with `verifyHTMLArtifact`, so a fixture whose
+document references the network fails.
+
+The static policy is defense in depth. It describes output a well-behaved model
+writes, and it can be bypassed by obfuscation. The enforcement boundary is the
+preview below. Never serve the bytes as a page from the host origin; render them
+only through `<aithema-html-preview>`.
+
+### `<aithema-html-preview>`
+
+`import '@inspr/aithema-ui/html-preview'` defines a standalone element. Set
+`element.artifact = {bytes, mediaType}` (extra fields are ignored; `null` clears
+it). Optionally set `element.copy` (`label`, `title`, `width`, `wide`, `phone`,
+`empty`, `invalid`, `navigated`). The element:
+
+- re-runs `inspectHTML`; it shows `invalid` in place instead of rendering
+  failing bytes;
+- renders the document only in a fresh `<iframe sandbox="allow-scripts">`. There
+  is no `allow-same-origin`, `allow-forms`, `allow-popups`, `allow-modals` or
+  `allow-top-navigation`, so the draft runs in an opaque origin;
+- builds the `srcdoc` as `<!doctype html>`, then a CSP meta (`default-src 'none';
+  style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; font-src
+  data:; form-action 'none'; base-uri 'none'`), then the draft without its own
+  doctype. The page stays in standards mode, and the policy applies before any
+  draft content;
+- sets `referrerpolicy="no-referrer"` and an `allow` list that turns off powerful
+  features;
+- shows a visible **Draft — generated** label. It reserves a fixed stage height
+  (`--aithema-preview-height`, default `min(48rem, 80svh)`). A Wide/Phone switch
+  (arrow keys) changes only the frame's width (`--aithema-preview-phone`, default
+  390 px). Nothing around it moves, and switching never reloads the draft;
+- keeps keyboard focus in the preview when a new draft replaces the one being
+  used. Tab moves from the switch into the draft;
+- exposes `state` (`empty`, `ready`, `invalid`, `navigated`).
+
+`npm run test:browser` also runs `test/browser/html-preview.test.js` in real
+Chrome. A hostile draft that passes the static policy through string splitting
+proves the following:
+
+- its origin is `null`;
+- reading the parent DOM, `document.cookie` and `localStorage` throws
+  `SecurityError`;
+- `fetch` fails and an image beacon is blocked;
+- `window.open` returns `null`;
+- form submission and top navigation make **no** request.
+
+The test then drives the sample click-dummy (`test/fixtures/click-dummy.html`) by
+pointer and keyboard. It checks standards mode, the one-column phone layout and
+a stage that does not move. Set `AITHEMA_EVIDENCE_DIR` to keep screenshots
+(wide/phone, light/dark).
+
+Residual risk, tested and documented: CSP cannot stop a draft from navigating
+its *own* frame (`location.href = …`). That request leaves the browser and
+carries only data the draft already holds, which is its own generated content.
+The draft cannot read the host. The element treats any second frame load as
+navigation: it removes the frame and shows `navigated`. The static policy
+rejects literal `location` navigation, so only deliberately obfuscated output can
+reach this path.
+
+### Claude via OpenRouter
+
+`createClaudeHTML({binding, spendPath | spend, capMicro, resolveSecret,
+fetchImpl, baseUrl})` comes from `@inspr/aithema-plugin-claude-html` (private
+workspace, server placement, manifest model `*` with `text/html`). The private
+binding must name plugin `claude-html` and an `anthropic/claude-*` model. The
+operator chooses the model; `DEFAULT_MODEL` is `anthropic/claude-opus-5.5`. The
+endpoint is the API base (`https://openrouter.ai/api/v1`), and `baseUrl` must
+match it. HTTP is loopback-only. `binding.secretRef` is resolved per call on the
+server. It is never logged, put in an artifact or sent to the browser.
+
+Each call posts one non-streaming chat completion to `/chat/completions`, with
+`usage: {include: true}`, `max_tokens = binding.maxTokens`, and no provider
+fallbacks. `effort` other than `none` maps to `reasoning.effort`. The request
+carries:
+
+- a fixed system prompt. It holds the quality bar (no layout shift, text space,
+  light/dark/phone, keyboard, the GUI-27 antipatterns, plain words in one
+  language) and the sandbox rules. It forbids inventing metrics, testimonials,
+  prices or capabilities, and asks the model to show open questions instead of
+  deciding them;
+- a user message with the host brief (`spec.prompt`, trusted). The visitor data
+  (`spec.understanding {summary, slots, openQuestions}`, `spec.visitorWords`,
+  `feedback`) goes in as escaped JSON marked untrusted. For `edit`, the previous
+  dummy is included.
+
+`spec.language` sets the page language. The revision number comes from the
+previous dummy's head comment (`spec.revision` overrides it). Every dummy carries
+a head comment, a "Revision N" note and a sample-data disclosure. `edit`
+requires feedback and a verified previous html artifact. `references` are not
+supported. Inputs are bounded (brief 32,000, words 60,000, feedback 8,000
+characters) before any spend.
+
+The plugin extracts one document from the model text, then repairs it. Repairs
+only *remove* capability: fences and prose, `<link>`, `http-equiv`, `@import`,
+and external anchors (rewritten to `#`). It then embeds an `aithema-provenance`
+comment after the doctype and re-runs `inspectHTML`. Anything still unsafe,
+truncated (`finish_reason` other than `stop`) or larger than 512 KiB is rejected
+as `invalid-output`/`limit`. Known usage and cost stay charged.
+
+The invocation contract matches the other plugins:
+
+- the claim is consumed before dispatch;
+- exactly one terminal report is made;
+- preflight cancellation or deadline settles at zero;
+- a dispatched call without usage reports `uncertain`;
+- a host-ignored transport is still released by the operation lifetime.
+
+**Spend cap.** `usage.cost` (USD credits), rounded up to micro-dollars, is added
+to a persistent per-deployment ledger (`createSpendLedger({path})`, a JSON file
+with one writer process). Before every request the plugin reserves the binding's
+per-call ceiling `maxMicro`. If spent plus open reservations plus `maxMicro`
+would exceed `capMicro` (default `10_000_000`, USD 10), it **hard-stops with
+`limit` before dispatch**. `health()` then reports `{available: false, reason:
+'spend cap reached'}`. After a call the reservation is replaced by the reported
+cost. When the cost is unknown (cancelled or deadline mid-call, 5xx, missing
+cost), the full `maxMicro` stays charged: uncertain at the claim maximum. A
+401/402/403/429 refusal releases it. A crash leaves the reservation counted. An
+unreadable ledger fails closed (`unavailable`). Reset the cap only by editing or
+replacing the ledger file deliberately.
+
+Tests use only a local fake OpenRouter server: request shape, repair, rejection,
+cap exhaustion and persistence, concurrency, cancellation, deadlines, refusal
+and the reusable conformance kit.
+
+### Wiring for part B
+
+Hosts still need to do the following:
+
+- register `createClaudeHTML` with a `spendPath` under the deployment's data
+  directory, and bind it in `presets[preset].bindings.images` (or a dedicated
+  lane) with `maxMicro`/`maxTokens` sized for one call;
+- build `spec` from the session's understanding, visitor turns and language;
+- persist html artifacts like image artifacts (bytes as erasable content plus
+  `mediaType`, `promptDigest` and provenance), using `verifyHTMLArtifact` before
+  publication;
+- serve the bytes to the owner only as data (`application/octet-stream` or JSON,
+  `no-store`), never as `text/html` from the host origin;
+- render them with `<aithema-html-preview>`.
 
 ## Host ports (AIT-104 part A)
 
