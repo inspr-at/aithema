@@ -1,0 +1,7 @@
+{
+  "name": "@inspr/aithema-next-core",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.js", "./understanding": "./src/understanding.js", "./readiness": "./src/readiness.js" },
+  "engines": { "node": ">=24" }
+}
