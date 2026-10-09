@@ -1,7 +1,0 @@
-SPDX-License-Identifier: AGPL-3.0-only
-
-These independently authored static CSS and HTML fragments currently use the
-repository's AGPL-3.0-only licence (the full text is in ../../../LICENSE).
-This directory is isolated for the separate licensing and publication gate in
-architecture v5 section 9.5. Apache-2.0 publication requires the rights audit
-and release gate; this file does not assert that those gates have passed.
