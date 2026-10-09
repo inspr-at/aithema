@@ -51,6 +51,42 @@ test('sent revisions remain idempotent after delivering a later session revision
   assert.equal(request(s, 'r3').delivery.revision, 'r3');
 });
 
+test('an older failed revision cannot be retried after a newer revision is current', () => {
+  const failed = result(request().state, 'failed').state;
+  const current = request(failed, 'r2').state;
+  for (const s of [current, result(current, 'sent').state, result(current, 'failed').state]) {
+    assert.deepEqual(reduceHandover(s, { type: 'retry', revision: 'r1' }), { state: s, events: [], delivery: null });
+    assert.equal(s.revision, 'r2');
+  }
+});
+
+test('handover history is bounded without allowing an old revision to deliver again', () => {
+  let s = start(), blocked = false;
+  for (let n = 0; n < 200; n += 1) {
+    const prepared = request(s, `revision-${n}`);
+    if (prepared.delivery === null) {
+      assert.equal(prepared.events[0]?.type, 'handover.limit-reached');
+      assert.equal(prepared.events[0]?.data.reason, 'revision-limit');
+      assert.equal(prepared.state, s);
+      blocked = true; break;
+    }
+    s = result(prepared.state, 'sent').state;
+  }
+  assert.equal(blocked, true);
+  assert.ok(s.attempts.length <= 100);
+  assert.equal(request(s, 'revision-0').delivery, null);
+  assert.equal(request(s, s.revision).delivery, null);
+});
+
+test('the current failed revision remains retryable at the handover history bound', () => {
+  let s = start();
+  for (let n = 0; n < 100; n += 1) s = result(request(s, `revision-${n}`).state, n === 99 ? 'failed' : 'sent').state;
+  assert.equal(request(s, 'overflow').delivery, null);
+  const retried = reduceHandover(s, { type: 'retry', revision: s.revision });
+  assert.equal(retried.delivery.attempt, 2);
+  assert.equal(retried.delivery.idempotencyKey, handoverKey(s.sessionId, s.revision));
+});
+
 test('stale results cannot complete a retry or another revision', () => {
   let s = result(request().state, 'failed').state;
   s = reduceHandover(s, { type: 'retry', revision: 'r1' }).state;

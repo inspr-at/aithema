@@ -14,7 +14,8 @@ export function createIdentity({ roles = ACTOR_ROLES, role = null, demoBypass = 
   }
   return { status: 'guest', roles: [...roles], role, address: null, verificationRevision: 0,
     expiresAt: null, resendAt: 0, expired: false, delivery: 'idle', demoBypass,
-    manualPaused: false, visibilityPaused: false, visible: true, lastNow: 0, policy: limits };
+    manualPaused: false, visibilityPaused: false, visible: true, releaseVisibilityOnReturn: false,
+    lastNow: 0, policy: limits };
 }
 
 export function identityView(state, now) {
@@ -25,14 +26,16 @@ export function identityView(state, now) {
   return { status: state.status, role: state.role, roles: [...state.roles], address: state.address,
     verificationRevision: state.verificationRevision, delivery: state.delivery, expired,
     resendAfterMs: Math.max(0, state.resendAt - now),
-    canResend: state.status === 'verification-pending' && now >= state.resendAt && state.delivery !== 'requested',
+    canResend: state.status === 'verification-pending' && now >= state.resendAt,
     pollVerification: state.status === 'verification-pending' && !expired && state.expiresAt !== null,
     assessmentUnlocked: unlocked, conceptsUnlocked: unlocked, canRunAssessment: unlocked && !paused,
     canRunConcepts: unlocked && !paused, paused, manualPaused: state.manualPaused, demoBypass: state.demoBypass };
 }
 
 /** Returns {state, events}. verification.requested is a host effect, not a claim
- * of delivery. revision + address bind all delivery and verification replies. */
+ * of delivery. revision + address bind all delivery and verification replies.
+ * The demo revocation event is host-only; never forward visitor-supplied events
+ * to this reducer. Only trusted construction can grant demo bypass. */
 export function reduceIdentity(state, event) {
   if (!event || !time(event.now) || event.now < state.lastNow) throw new TypeError('Identity events require monotonic host time');
   let next = structuredClone(state);
@@ -43,7 +46,7 @@ export function reduceIdentity(state, event) {
   }
   const events = [];
   const request = () => {
-    if (event.now < next.resendAt || next.delivery === 'requested') {
+    if (event.now < next.resendAt) {
       events.push({ type: 'identity.resend-blocked', data: { resendAfterMs: Math.max(0, next.resendAt - event.now) } });
       return;
     }
@@ -62,6 +65,7 @@ export function reduceIdentity(state, event) {
         // Changing the address always revokes old evidence, including while
         // cooling down. It does not evade the host's resend cooldown.
         next.address = event.address; next.status = 'verification-pending';
+        next.releaseVisibilityOnReturn = false;
         next.verificationRevision += 1; next.expiresAt = null; next.expired = false; next.delivery = 'idle';
       }
       if (next.status !== 'verified') request();
@@ -70,6 +74,7 @@ export function reduceIdentity(state, event) {
       if (!address(event.address)) throw new TypeError('Invalid verification address');
       if (next.address !== event.address) {
         next.address = event.address; next.status = 'verification-pending';
+        next.releaseVisibilityOnReturn = false;
         next.verificationRevision += 1; next.expiresAt = null; next.expired = false; next.delivery = 'idle';
       }
       break;
@@ -86,6 +91,7 @@ export function reduceIdentity(state, event) {
           event.revision === next.verificationRevision && event.address === next.address) {
         next.status = 'verified'; next.expiresAt = null;
         if (next.visible) next.visibilityPaused = false;
+        next.releaseVisibilityOnReturn = !next.visible;
         events.push({ type: 'identity.unlocked', data: { assessment: true, concepts: true, manualPaused: next.manualPaused } });
       }
       break;
@@ -96,11 +102,18 @@ export function reduceIdentity(state, event) {
     case 'pause':
       if (!['manual', 'visibility'].includes(event.origin) || typeof event.paused !== 'boolean') throw new TypeError('Invalid identity pause');
       next[event.origin === 'manual' ? 'manualPaused' : 'visibilityPaused'] = event.paused;
+      if (event.origin === 'visibility') next.releaseVisibilityOnReturn = false;
       break;
     case 'visibility':
       if (typeof event.visible !== 'boolean') throw new TypeError('Invalid identity visibility');
       next.visible = event.visible;
-      if (next.visible && next.status === 'verified') next.visibilityPaused = false;
+      if (next.visible && next.releaseVisibilityOnReturn) {
+        next.visibilityPaused = false; next.releaseVisibilityOnReturn = false;
+      }
+      break;
+    case 'demo':
+      if (event.origin !== 'host' || event.enabled !== false) throw new TypeError('Host demo revocation required');
+      next.demoBypass = false;
       break;
     case 'tick': break;
     default: throw new TypeError('Unknown identity event');

@@ -1,4 +1,5 @@
 import { hostPortKit } from './host-port-kit.js';
+export const HANDOVER_REVISION_LIMIT = 100;
 const textId = value => typeof value === 'string' && value.length > 0 && value.length <= 512;
 export function handoverKey(sessionId, revision) {
   if (!textId(sessionId) || !textId(revision)) throw new TypeError('Invalid handover identity');
@@ -32,10 +33,17 @@ export function reduceHandover(state, event) {
       const key = handoverKey(state.sessionId, event.revision);
       let attempt = next.attempts.find(a => a.revision === event.revision);
       if (next.status === 'preparing' || attempt?.status === 'sent' ||
-          event.type === 'request' && attempt || event.type === 'retry' && attempt?.status !== 'failed') {
+          event.type === 'request' && attempt ||
+          event.type === 'retry' && (attempt?.status !== 'failed' || event.revision !== next.revision)) {
         return { state, events: [], delivery: null };
       }
       if (!attempt) {
+        // Keep all retained keys: evicting an old receipt would make its next
+        // request look new and permit stale delivery. Hosts own archival policy.
+        if (next.attempts.length >= HANDOVER_REVISION_LIMIT) {
+          return { state, events: [{ type: 'handover.limit-reached', data: {
+            reason: 'revision-limit', limit: HANDOVER_REVISION_LIMIT } }], delivery: null };
+        }
         attempt = { revision: event.revision, idempotencyKey: key, attempt: 0, status: 'idle', receiptId: null, error: null };
         next.attempts.push(attempt);
       }

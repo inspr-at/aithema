@@ -51,13 +51,29 @@ test('resend observes exact cooldown boundary and binds a new verification revis
 test('single-flight delivery and failure feedback never claim a mail was sent', () => {
   let s = request().state;
   assert.equal(s.delivery, 'requested');
-  const blocked = step(s, 'resend', {}, 60_000);
+  const blocked = step(s, 'resend', {}, 59_999);
   assert.equal(blocked.events[0].type, 'identity.resend-blocked');
   s = delivery(blocked.state, 'failed', 60_000);
   assert.equal(identityView(s, 60_000).canResend, true);
   assert.equal(s.status, 'verification-pending');
   s = step(s, 'resend', {}, 60_000).state;
   assert.equal(s.delivery, 'requested');
+});
+
+test('a lost delivery result permits resend at resendAt and stale delivery results stay inert', () => {
+  const original = request().state;
+  assert.equal(identityView(original, original.resendAt - 1).canResend, false);
+  assert.equal(identityView(original, original.resendAt).canResend, true);
+  const resent = step(original, 'resend', {}, original.resendAt);
+  assert.equal(resent.events[0].type, 'verification.requested');
+  assert.equal(resent.state.verificationRevision, original.verificationRevision + 1);
+  assert.equal(resent.state.delivery, 'requested');
+  for (const status of ['sent', 'failed']) {
+    const stale = step(resent.state, 'delivery', { address: original.address,
+      revision: original.verificationRevision, status });
+    assert.equal(stale.state.delivery, 'requested');
+  }
+  assert.equal(delivery(resent.state).delivery, 'sent');
 });
 
 test('changing an address revokes verification, preserves role/pause and invalidates old responses', () => {
@@ -130,6 +146,40 @@ test('visible confirmation may release an automatic pause', () => {
   assert.equal(confirm(s).state.visibilityPaused, false);
 });
 
+test('an ordinary blur after verification remains paused on return', () => {
+  let s = confirm(request().state).state;
+  s = step(s, 'pause', { origin: 'visibility', paused: true }).state;
+  s = step(s, 'visibility', { visible: false }).state;
+  s = step(s, 'visibility', { visible: true }).state;
+  assert.equal(s.visibilityPaused, true);
+  assert.equal(identityView(s, 0).canRunAssessment, false);
+  assert.equal(identityView(s, 0).canRunConcepts, false);
+});
+
+test('the verification detour releases visibility only once', () => {
+  let s = step(request().state, 'visibility', { visible: false }).state;
+  s = step(s, 'pause', { origin: 'visibility', paused: true }).state;
+  s = confirm(s).state;
+  assert.equal(s.releaseVisibilityOnReturn, true);
+  s = step(s, 'visibility', { visible: true }).state;
+  assert.equal(s.releaseVisibilityOnReturn, false);
+  assert.equal(s.visibilityPaused, false);
+  s = step(s, 'pause', { origin: 'visibility', paused: true }).state;
+  s = step(s, 'visibility', { visible: false }).state;
+  assert.equal(step(s, 'visibility', { visible: true }).state.visibilityPaused, true);
+});
+
+test('new visibility pauses and address changes cancel a pending detour release', () => {
+  const hidden = step(request().state, 'visibility', { visible: false }).state;
+  const verified = confirm(hidden).state;
+  for (const s of [step(verified, 'pause', { origin: 'visibility', paused: true }).state,
+    step(step(verified, 'pause', { origin: 'visibility', paused: true }).state,
+      'change-address', { address: 'changed@example.test' }).state]) {
+    assert.equal(step(s, 'visibility', { visible: true }).state.visibilityPaused, true);
+    assert.equal(s.releaseVisibilityOnReturn, false);
+  }
+});
+
 test('demo bypass opens surfaces without asserting a verified address', () => {
   const s = createIdentity({ demoBypass: true });
   const view = identityView(s, 0);
@@ -137,6 +187,18 @@ test('demo bypass opens surfaces without asserting a verified address', () => {
   assert.equal(view.assessmentUnlocked, true);
   assert.equal(view.conceptsUnlocked, true);
   assert.equal(view.address, null);
+});
+
+test('only a host demo revocation event can remove bypass; events cannot grant it', () => {
+  const demo = createIdentity({ demoBypass: true });
+  const revoked = step(demo, 'demo', { origin: 'host', enabled: false }).state;
+  assert.equal(identityView(revoked, 0).assessmentUnlocked, false);
+  assert.equal(identityView(revoked, 0).conceptsUnlocked, false);
+  assert.equal(revoked.status, 'guest');
+  for (const data of [{ enabled: false }, { origin: 'visitor', enabled: false },
+    { origin: 'host', enabled: true }]) assert.throws(() => step(demo, 'demo', data));
+  const verified = confirm(request(demo).state).state;
+  assert.equal(identityView(step(verified, 'demo', { origin: 'host', enabled: false }).state, 0).assessmentUnlocked, true);
 });
 
 test('false or stale polling replies are inert and repeated confirmations emit no second unlock', () => {

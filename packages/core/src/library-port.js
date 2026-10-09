@@ -20,7 +20,7 @@ const metadata = entry => ({ id: entry.id, title: entry.title, revision: entry.r
  * The reference's default callback only erases its own in-memory records. */
 export function createMemoryLibrary({ erase = async () => ({ erased: true }), now = () => 0 } = {}) {
   if (typeof erase !== 'function' || typeof now !== 'function') throw new TypeError('Invalid memory library hooks');
-  const entries = new Map(), erasures = new Map(), erasedIds = new Set();
+  const entries = new Map(), erasures = new Map(), resets = new Map(), erasedIds = new Set();
   let counter = 0;
   const timestamp = () => {
     const at = now();
@@ -72,17 +72,25 @@ export function createMemoryLibrary({ erase = async () => ({ erased: true }), no
       return open(entry);
     },
     async reset(id) {
+      if (resets.has(id)) return structuredClone(await resets.get(id));
       const { locale, processingPreset, preset } = get(id).session;
-      await port.delete(id);
-      return port.new({ locale, processingPreset, preset });
+      // Reserve before user code so all concurrent resets share both erasure
+      // and replacement; clear on failure to permit an explicit retry.
+      const pending = Promise.resolve().then(async () => {
+        await port.delete(id);
+        return port.new({ locale, processingPreset, preset });
+      }).finally(() => resets.delete(id));
+      resets.set(id, pending);
+      return structuredClone(await pending);
     }
   };
   return { port, wasErased: id => erasedIds.has(id) };
 }
 
 /** Destructive conformance kit for a fresh owner-bound local fixture. The
- * independently instrumented wasErased hook must observe the storage path. */
-export async function libraryConformance(port, { wasErased, timeoutMs = 1000 } = {}) {
+ * independently instrumented wasErased hook must observe the storage path.
+ * Optional foreignPort is bound to another owner in the same fixture store. */
+export async function libraryConformance(port, { wasErased, foreignPort, timeoutMs = 1000 } = {}) {
   const kit = hostPortKit(timeoutMs), { check, run } = kit;
   try { assertLibraryPort(port); } catch { check(false, 'library operations missing'); return kit.result(); }
   if (typeof wasErased !== 'function') { check(false, 'storage erasure observer missing'); return kit.result(); }
@@ -97,6 +105,39 @@ export async function libraryConformance(port, { wasErased, timeoutMs = 1000 } =
     page.items[0].id !== next.items[0].id, 'search and paging');
   const empty = await run('empty search failed', () => port.list({ search: 'no such kit conversation' }));
   check(empty?.total === 0 && empty.items?.length === 0, 'search filters');
+  for (const literal of ['%', '_']) {
+    const absent = await run(`literal ${literal} absent search failed`, () => port.list({ search: literal }));
+    check(absent?.total === 0 && absent.items?.length === 0, `literal ${literal} absent search`);
+  }
+  const percent = await run('percent title new failed', () => port.new({ title: '50% plan' }));
+  const underscore = await run('underscore title new failed', () => port.new({ title: 'under_score plan' }));
+  for (const [literal, entry] of [['%', percent], ['_', underscore]]) {
+    const matching = await run(`literal ${literal} matching search failed`, () => port.list({ search: literal }));
+    check(entry?.id && matching?.total === 1 && matching.items?.length === 1 &&
+      matching.items[0].id === entry.id && matching.items[0].title === entry.title, `literal ${literal} matching search`);
+  }
+  if (foreignPort !== undefined) {
+    let valid = true;
+    try { assertLibraryPort(foreignPort); } catch { valid = false; check(false, 'foreign library operations missing'); }
+    if (valid && first?.id && second?.id) {
+      const snapshot = () => Promise.all([port.open(first.id), port.open(second.id), port.list()]);
+      const before = await run('owner snapshot failed', snapshot);
+      const foreignList = await run('foreign list failed', () => foreignPort.list({ limit: 100 }));
+      const ownIds = [first.id, second.id, percent?.id, underscore?.id];
+      check(Array.isArray(foreignList?.items) && foreignList.items.every(item => !ownIds.includes(item.id)), 'foreign list owner isolation');
+      for (const operation of ['open', 'rename', 'delete', 'reset']) {
+        await run(`foreign ${operation} check failed`, async () => {
+          try {
+            await foreignPort[operation](first.id, 'foreign mutation');
+            check(false, `foreign ${operation} owner isolation`);
+          } catch (error) { check(error?.code === 'not-found', `foreign ${operation} owner isolation`); }
+        });
+      }
+      const after = await run('owner snapshot after foreign access failed', snapshot);
+      check(before !== undefined && after !== undefined && JSON.stringify(after) === JSON.stringify(before),
+        'owner data unchanged after foreign access');
+    }
+  }
   if (first?.id) {
     const opened = await run('open failed', () => port.open(first.id));
     check(opened?.id === first.id && opened.session?.locale === 'de', 'open identity and content');

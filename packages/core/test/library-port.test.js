@@ -127,6 +127,80 @@ test('reset cannot create a replacement before confirmed erasure', async () => {
   assert.equal((await port.open(a.id)).id, a.id);
 });
 
+test('concurrent resets share one erasure and one replacement per ID', async () => {
+  let release, erasures = 0;
+  const { port } = createMemoryLibrary({ erase: () => {
+    erasures += 1; return new Promise(resolve => { release = resolve; });
+  } });
+  const first = await port.new({ locale: 'de', processingPreset: 'eu' });
+  const resets = Promise.all([port.reset(first.id), port.reset(first.id)]);
+  // Attach a rejection handler before releasing the deliberately slow erasure.
+  const settled = resets.then(value => ({ value }), error => ({ error }));
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(erasures, 1);
+  release({ erased: true });
+  const outcome = await settled;
+  assert.equal(outcome.error, undefined);
+  assert.deepEqual(outcome.value[0], outcome.value[1]);
+  assert.equal((await port.list()).total, 1);
+  assert.equal(outcome.value[0].session.locale, 'de');
+});
+
+test('a failed reset releases its slot and concurrent retry creates one replacement', async () => {
+  let attempts = 0;
+  const { port } = createMemoryLibrary({ erase: async () => {
+    if (++attempts === 1) throw new Error('erase failed');
+    return { erased: true };
+  } });
+  const first = await port.new();
+  const failed = await Promise.allSettled([port.reset(first.id), port.reset(first.id)]);
+  assert.ok(failed.every(r => r.status === 'rejected' && r.reason.message === 'erase failed'));
+  assert.equal((await port.open(first.id)).id, first.id);
+  const replacements = await Promise.all([port.reset(first.id), port.reset(first.id)]);
+  assert.equal(replacements[0].id, replacements[1].id);
+  assert.equal((await port.list()).total, 1);
+  assert.equal(attempts, 2);
+});
+
+test('library kit checks an optional second owner and leaves its empty library unchanged', async () => {
+  const fixture = createMemoryLibrary(), foreign = createMemoryLibrary();
+  // Use an empty second-owner fixture: memory libraries have independent ID counters.
+  assert.deepEqual(await libraryConformance(fixture.port, { ...fixture, foreignPort: foreign.port }), { ok: true, failures: [] });
+  assert.equal((await foreign.port.list()).total, 0);
+});
+
+for (const operation of ['list', 'open', 'rename', 'delete', 'reset']) {
+  test(`library kit rejects cross-owner ${operation} access`, async () => {
+    const fixture = createMemoryLibrary(), foreign = createMemoryLibrary();
+    const foreignPort = { ...foreign.port, [operation]: (...args) => fixture.port[operation](...args) };
+    const outcome = await libraryConformance(fixture.port, { ...fixture, foreignPort });
+    assert.equal(outcome.ok, false);
+    assert.ok(outcome.failures.includes(`foreign ${operation} owner isolation`));
+    if (['rename', 'delete', 'reset'].includes(operation)) {
+      assert.ok(outcome.failures.includes('owner data unchanged after foreign access'));
+    }
+  });
+}
+
+for (const wildcard of ['%', '_']) {
+  test(`library kit rejects a host treating literal ${wildcard} as a search wildcard`, async () => {
+    const fixture = createMemoryLibrary();
+    const broken = { ...fixture.port, list: query => fixture.port.list(query?.search === wildcard ? { ...query, search: '' } : query) };
+    const outcome = await libraryConformance(broken, fixture);
+    assert.equal(outcome.ok, false);
+    assert.ok(outcome.failures.includes(`literal ${wildcard} absent search`));
+    assert.ok(outcome.failures.includes(`literal ${wildcard} matching search`));
+  });
+}
+
+test('library kit rejects foreign errors other than not-found', async () => {
+  const fixture = createMemoryLibrary(), foreign = createMemoryLibrary();
+  const outcome = await libraryConformance(fixture.port, { ...fixture,
+    foreignPort: { ...foreign.port, open: async () => { throw new Error('wrong error'); } } });
+  assert.equal(outcome.ok, false);
+  assert.ok(outcome.failures.includes('foreign open owner isolation'));
+});
+
 test('library validates page bounds, titles, session options, time and missing IDs', async () => {
   const { port } = createMemoryLibrary();
   for (const query of [{ offset: -1 }, { offset: 1.5 }, { limit: 0 }, { limit: 101 }, { search: 5 }]) await assert.rejects(port.list(query));

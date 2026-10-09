@@ -1,5 +1,6 @@
 // Read-only projection of the existing ledger: used() includes outstanding
-// maxima and actual/uncertain settlements. Visitor and provider totals differ.
+// maxima and actual/uncertain settlements. Both ledger caps are per session;
+// the host's separate owner wallet spans conversations and owns its billing.
 export const CONVERSATION_LIMIT_MS = 60 * 60_000;
 const integer = n => Number.isSafeInteger(n) && n >= 0;
 const id = value => typeof value === 'string' && value.length > 0 && value.length <= 512;
@@ -8,25 +9,61 @@ function balancePart(limitMicro, committedMicro) {
   return { limitMicro, committedMicro, availableMicro: Math.max(0, limitMicro - committedMicro),
     overrunMicro: Math.max(0, committedMicro - limitMicro) };
 }
-export function budgetCreditView(ledger, sessionId) {
+/** Host-bound to one owner. balance() returns {limitMicro,committedMicro};
+ * canAdmit(request) is a synchronous preview; admit(request) confirms an atomic
+ * owner reservation with {ok:boolean}, possibly asynchronously. The host owns
+ * reservation recovery, settlement and release if the session ledger rejects. */
+export function assertOwnerWalletPort(port) {
+  if (['balance', 'canAdmit', 'admit'].some(name => typeof port?.[name] !== 'function')) {
+    throw new TypeError('Owner wallet required');
+  }
+  return port;
+}
+export function budgetCreditView(ledger, sessionId, ownerWallet) {
+  assertOwnerWalletPort(ownerWallet);
   if (!id(sessionId) || typeof ledger?.used !== 'function' || typeof ledger?.visitorUsed !== 'function') {
     throw new TypeError('Credit ledger required');
   }
-  return { sessionId, session: balancePart(ledger.sessionCapMicro, ledger.used(sessionId)),
-    visitor: balancePart(ledger.visitorCapMicro, ledger.visitorUsed(sessionId)) };
+  const owner = ownerWallet.balance();
+  return { sessionId, owner: balancePart(owner?.limitMicro, owner?.committedMicro),
+    session: balancePart(ledger.sessionCapMicro, ledger.used(sessionId)),
+    voiceVisitor: balancePart(ledger.visitorCapMicro, ledger.visitorUsed(sessionId)) };
 }
-/** Preview only. The host still performs atomic ledger.admit before dispatch. */
-export function creditAdmission(ledger, sessionId, maxMicro, maxVisitorMicro = 0) {
+/** Preview only. Paid hosts MUST use admitCredits for authoritative owner
+ * admission before the existing atomic ledger.admit, then claim as usual. */
+export function creditAdmission(ledger, sessionId, maxMicro, maxVisitorMicro = 0, ownerWallet) {
   if (!integer(maxMicro) || !integer(maxVisitorMicro) || typeof ledger?.canAdmit !== 'function') throw new TypeError('Invalid credit request');
-  const balance = budgetCreditView(ledger, sessionId);
+  const balance = budgetCreditView(ledger, sessionId, ownerWallet);
+  if (ownerWallet.canAdmit({ sessionId, maxMicro, maxVisitorMicro }) !== true) {
+    return { ok: false, reason: 'host-limit', balance };
+  }
   const ok = ledger.canAdmit(sessionId, maxMicro, maxVisitorMicro) === true;
   return { ok, reason: ok ? null : maxMicro > balance.session.availableMicro || balance.session.overrunMicro ? 'session' :
-    maxVisitorMicro > balance.visitor.availableMicro || balance.visitor.overrunMicro ? 'visitor' : 'host-limit', balance };
+    maxVisitorMicro > balance.voiceVisitor.availableMicro || balance.voiceVisitor.overrunMicro ? 'voiceVisitor' : 'host-limit', balance };
+}
+/** No billing policy lives here. A preview cannot authorize ledger admission;
+ * the owner wallet must confirm first, including when racing another session. */
+export async function admitCredits(ledger, request, ownerWallet) {
+  assertOwnerWalletPort(ownerWallet);
+  if (typeof ledger?.admit !== 'function') throw new TypeError('Credit ledger admission required');
+  const snapshot = structuredClone(request);
+  const preview = creditAdmission(ledger, snapshot?.sessionId, snapshot?.maxMicro, snapshot?.maxVisitorMicro ?? 0, ownerWallet);
+  if (!preview.ok) return preview;
+  const result = await ownerWallet.admit(structuredClone(snapshot));
+  if (typeof result?.ok !== 'boolean') throw new TypeError('Invalid owner wallet admission');
+  if (!result.ok) return { ok: false, reason: 'host-limit', balance: budgetCreditView(ledger, snapshot.sessionId, ownerWallet) };
+  return { ok: true, reason: null, admission: await ledger.admit(snapshot) };
 }
 export function createCredits({ sessionId, durationMs = CONVERSATION_LIMIT_MS } = {}) {
   if (!id(sessionId) || !integer(durationMs) || !durationMs) throw new TypeError('Invalid credit slot configuration');
   return { sessionId, status: 'ready', startedAt: null, endsAt: null, durationMs, lastNow: 0,
     balance: null, endReason: null, paused: false };
+}
+/** Hosts persist one guard state per owner. New/reset attach its existing state
+ * to the new conversation, retaining elapsed time, pause and terminal status. */
+export function rebindCredits(state, sessionId) {
+  if (!id(state?.sessionId) || !id(sessionId)) throw new TypeError('Invalid credit conversation');
+  return { ...structuredClone(state), sessionId, balance: null };
 }
 export function creditsView(state, now) {
   if (!integer(now)) throw new TypeError('Credits view requires host time');
@@ -61,18 +98,19 @@ export function reduceCredits(state, event) {
       break;
     case 'balance': {
       const view = event.balance;
-      if (view?.sessionId !== next.sessionId || !['session', 'visitor'].every(key => {
+      if (view?.sessionId !== next.sessionId || !['owner', 'session', 'voiceVisitor'].every(key => {
         const part = view?.[key];
         if (!part || !integer(part.limitMicro) || !integer(part.committedMicro)) return false;
         const expected = balancePart(part.limitMicro, part.committedMicro);
         return part.availableMicro === expected.availableMicro && part.overrunMicro === expected.overrunMicro;
       })) throw new TypeError('Invalid credit balance event');
-      next.balance = { sessionId: view.sessionId, session: balancePart(view.session.limitMicro, view.session.committedMicro),
-        visitor: balancePart(view.visitor.limitMicro, view.visitor.committedMicro) };
+      next.balance = { sessionId: view.sessionId, owner: balancePart(view.owner.limitMicro, view.owner.committedMicro),
+        session: balancePart(view.session.limitMicro, view.session.committedMicro),
+        voiceVisitor: balancePart(view.voiceVisitor.limitMicro, view.voiceVisitor.committedMicro) };
       break;
     }
     case 'limit':
-      if (!['session', 'visitor', 'host-limit'].includes(event.reason)) throw new TypeError('Invalid credit limit');
+      if (!['session', 'voiceVisitor', 'host-limit'].includes(event.reason)) throw new TypeError('Invalid credit limit');
       end(event.reason);
       break;
     case 'pause':
