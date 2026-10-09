@@ -2,9 +2,10 @@ import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { dirname, basename, resolve, join } from 'node:path';
-import { applyEvent, createSession, inputRevision, emptyUnderstanding } from '@inspr/aithema-core';
+import { applyEvent, createSession, inputRevision, emptyUnderstanding, isUIArtifact, imageInfo, reduceConceptIntent, createConceptIntent, MAX_IMAGE_BYTES } from '@inspr/aithema-core';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+export const MAX_CONCEPT_STORAGE_BYTES = 64 * 1024 * 1024;
 const turnMetadata = ['id', 'role', 'at', 'inputRevision', 'contentRef', 'hash', 'erased', 'withdrawn', 'provenance', 'voiceCallId', 'voiceProviderId'];
 
 export class ConflictError extends Error {}
@@ -32,6 +33,9 @@ export class SQLiteStorage {
         client_id TEXT NOT NULL, bytes BLOB NOT NULL, result TEXT NOT NULL, PRIMARY KEY(session_id,client_id));
       CREATE TABLE IF NOT EXISTS voice_calls (provider_id TEXT PRIMARY KEY, call_id TEXT NOT NULL,
         session_id TEXT NOT NULL REFERENCES sessions(id), record TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS concept_artifacts (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id),
+        bytes BLOB, metadata TEXT NOT NULL, dependencies TEXT NOT NULL, tombstone TEXT);
+      CREATE INDEX IF NOT EXISTS concept_session ON concept_artifacts(session_id);
       CREATE INDEX IF NOT EXISTS voice_session ON voice_calls(session_id);
       CREATE TRIGGER IF NOT EXISTS events_no_update BEFORE UPDATE ON events BEGIN SELECT RAISE(ABORT,'append only'); END;
       CREATE TRIGGER IF NOT EXISTS events_no_delete BEFORE DELETE ON events BEGIN SELECT RAISE(ABORT,'append only'); END;`);
@@ -69,6 +73,8 @@ export class SQLiteStorage {
       const record = this.getRecord(id, session.focusedQuestionRef.contentRef);
       session.focusedQuestion = record.erased ? null : record.data.question;
     }
+    session.concepts = (session.concepts ?? []).filter(c => this.db.prepare('SELECT 1 FROM concept_artifacts WHERE session_id=? AND id=? AND tombstone IS NULL').get(id, c.id))
+      .map(c => ({ ...c, feedback: c.feedback?.contentRef ? this.#hydrateData(id, c.feedback) : c.feedback }));
     return session;
   }
   authorize(id, ownerToken) {
@@ -97,8 +103,20 @@ export class SQLiteStorage {
     const record = this.getRecord(id, data.contentRef);
     return record.erased ? { ...data, erased: true, withdrawn: true } : { ...data, ...record.data };
   }
-  #hydrateEvent(event) { return { ...event, data: this.#hydrateData(event.sessionId, event.data) }; }
+  #hydrateEvent(event) {
+    const data = this.#hydrateData(event.sessionId, event.data);
+    if (event.type === 'concept.state' && data.artifact && !this.db.prepare('SELECT 1 FROM concept_artifacts WHERE session_id=? AND id=? AND tombstone IS NULL').get(event.sessionId, data.artifact.id)) {
+      return { ...event, data: { ...data, artifact: { id: data.artifact.id, erased: true } } };
+    }
+    return { ...event, data };
+  }
   #metadata(id, type, data, seq) {
+    if (type === 'concept.feedback') {
+      if (data.contentRef) return { artifactId: data.artifactId, archived: data.archived, contentRef: data.contentRef, hash: data.hash };
+      const bytes = JSON.stringify({ vote: data.vote, chips: data.chips }), contentRef = `${id}:concept-feedback:${seq}`;
+      this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id, 'concept-feedback', bytes, hash(bytes), new Date().toISOString());
+      return { artifactId: data.artifactId, archived: data.archived, contentRef, hash: hash(bytes) };
+    }
     if (type === 'question.focused') {
       if (data.question === null) return { question: null };
       if (data.contentRef) return { contentRef: data.contentRef, hash: data.hash };
@@ -121,6 +139,8 @@ export class SQLiteStorage {
   }
   #save(session, understandingRef, focusedQuestionRef) {
     const metadata = { ...session, transcript: session.transcript.map(t => this.#metadata(session.id, 'turn.final', t)) };
+    metadata.concepts = (session.concepts ?? []).map(c => ({ ...c, feedback: c.feedback?.contentRef
+      ? { artifactId: c.id, archived: c.archived, contentRef: c.feedback.contentRef, hash: c.feedback.hash } : c.feedback }));
     if (session.focusedQuestion !== undefined) {
       metadata.focusedQuestionRef = session.focusedQuestion === null ? null : focusedQuestionRef ?? session.focusedQuestionRef;
       delete metadata.focusedQuestion;
@@ -249,8 +269,18 @@ export class SQLiteStorage {
       return { event, replayed: false };
     });
   }
-  #invalidate(id, turnId, all = false) {
+  #invalidate(id, turnId, all = false, concepts = true) {
     const at = new Date().toISOString(), target = this.get(id).transcript.find(t => t.id === turnId && t.role === 'user');
+    // Erase only artifacts whose frozen dependency set contains this source.
+    // Metadata and archived history unrelated to the source remain available.
+    if (concepts) for (const row of this.db.prepare('SELECT * FROM concept_artifacts WHERE session_id=? AND tombstone IS NULL').all(id)) {
+      const dependencies = JSON.parse(row.dependencies);
+      if (all || turnId === undefined || dependencies.turnIds.includes(turnId)) {
+        this.db.prepare('UPDATE concept_artifacts SET bytes=NULL,tombstone=? WHERE id=?').run(at, row.id);
+        this.db.prepare("UPDATE content SET bytes=NULL,tombstone=? WHERE session_id=? AND kind='concept-feedback' AND id IN (SELECT json_extract(event,'$.data.contentRef') FROM events WHERE session_id=? AND json_extract(event,'$.data.artifactId')=?)")
+          .run(at, id, id, row.id);
+      }
+    }
     this.db.prepare(`UPDATE content SET bytes=NULL,tombstone=? WHERE session_id=? AND tombstone IS NULL
       AND (? OR id=? OR kind IN ('reply','understanding','actor'))`).run(at, id, all ? 1 : 0, target?.contentRef ?? '');
   }
@@ -284,13 +314,80 @@ export class SQLiteStorage {
   }
   reviseConsent(id, granted, guard = {}) {
     return this.#invalidationTransaction(() => {
-      const session = this.get(id); this.#check(session, guard); this.#invalidate(id);
+      const session = this.get(id); this.#check(session, guard); this.#invalidate(id, undefined, false, !granted);
       return this.#append(session, 'consent.revised', { granted, at: new Date().toISOString() });
     });
   }
   pause(id, paused, guard = {}) {
     return this.transaction(() => { const session = this.get(id); this.#check(session, guard);
       return this.#append(session, 'session.paused', { paused }); });
+  }
+  conceptArtifact(id, artifactId) {
+    const row = this.db.prepare('SELECT * FROM concept_artifacts WHERE session_id=? AND id=?').get(id, artifactId);
+    if (!row || row.tombstone) return { id: artifactId, erased: true, tombstone: row?.tombstone ?? 'missing' };
+    const metadata = JSON.parse(row.metadata);
+    return { ...metadata, bytes: new Uint8Array(row.bytes), dependencies: JSON.parse(row.dependencies) };
+  }
+  canStoreConcept(id, bytes = MAX_IMAGE_BYTES) {
+    return this.db.prepare('SELECT COALESCE(SUM(length(bytes)),0) AS n FROM concept_artifacts WHERE session_id=?').get(id).n + bytes <= MAX_CONCEPT_STORAGE_BYTES;
+  }
+  completeConcept(id, artifact, metadata, state) {
+    if (!isUIArtifact(artifact)) throw new TypeError('Invalid concept artifact');
+    const info = imageInfo(artifact.bytes);
+    if (info.mediaType !== artifact.mediaType || info.width !== artifact.width || info.height !== artifact.height ||
+      artifact.provenance.subject.contentDigest !== `sha-256=:${createHash('sha256').update(artifact.bytes).digest('base64')}:`) throw new TypeError('Invalid concept bytes');
+    return this.transaction(() => {
+      const session = this.get(id); this.#check(session);
+      if (!this.canStoreConcept(id, artifact.bytes.length)) throw new RangeError('Concept storage limit');
+      if (session.consentWithdrawn || session.conceptIntent?.pending?.id !== metadata.requestId ||
+        metadata.turnIds.some(turnId => !session.transcript.some(t => t.id === turnId && !t.erased && !t.withdrawn))) throw new ConflictError('Concept invalidated');
+      const dependencies = { turnIds: [...metadata.turnIds], referenceIds: [...metadata.referenceIds] };
+      for (const referenceId of metadata.referenceIds) {
+        const previous = this.conceptArtifact(id, referenceId);
+        if (!previous.erased) {
+          dependencies.turnIds.push(...previous.dependencies.turnIds); dependencies.referenceIds.push(...previous.dependencies.referenceIds);
+        }
+      }
+      dependencies.turnIds = [...new Set(dependencies.turnIds)]; dependencies.referenceIds = [...new Set(dependencies.referenceIds)];
+      const publicArtifact = { ...metadata, ...dependencies, mediaType: artifact.mediaType, width: artifact.width, height: artifact.height,
+        promptDigest: artifact.promptDigest, provenance: artifact.provenance, feedback: { vote: 'clear', chips: [] } };
+      this.db.prepare('INSERT INTO concept_artifacts VALUES (?,?,?,?,?,NULL)').run(metadata.id, id, artifact.bytes,
+        JSON.stringify(publicArtifact), JSON.stringify(dependencies));
+      return this.#append(session, 'concept.state', { ...state, artifact: publicArtifact });
+    });
+  }
+  conceptAction(id, clientId, bytes, fn, guard = {}) {
+    return this.transaction(() => {
+      const session = this.get(id); this.#check(session, { ...guard, revision: undefined });
+      const key = `concept:${clientId}`, receipt = this.db.prepare('SELECT * FROM receipts WHERE session_id=? AND client_id=?').get(id, key);
+      if (receipt) {
+        if (receipt.bytes !== hash(bytes)) throw new ConflictError('Concept request bytes changed');
+        return { event: this.#hydrateEvent(JSON.parse(receipt.result)), replayed: true };
+      }
+      this.#check(session, guard);
+      const { type, data } = fn(session);
+      const event = this.#append(session, type, data);
+      const row = this.db.prepare('SELECT event FROM events WHERE session_id=? AND seq=?').get(id, event.seq);
+      this.db.prepare('INSERT INTO receipts VALUES (?,?,?,?)').run(id, key, hash(bytes), row.event);
+      return { event, replayed: false };
+    });
+  }
+  // Upload integrations call this after persisting their source tombstone. This
+  // transaction erases dependent bytes/feedback and invalidates pending work.
+  removeConceptReference(id, referenceId, guard = {}) {
+    return this.#invalidationTransaction(() => {
+      const session = this.get(id); this.#check(session, guard); const at = new Date().toISOString();
+      for (const row of this.db.prepare('SELECT * FROM concept_artifacts WHERE session_id=? AND tombstone IS NULL').all(id)) {
+        if (JSON.parse(row.dependencies).referenceIds.includes(referenceId)) {
+          this.db.prepare('UPDATE concept_artifacts SET bytes=NULL,tombstone=? WHERE id=?').run(at, row.id);
+          this.db.prepare("UPDATE content SET bytes=NULL,tombstone=? WHERE session_id=? AND kind='concept-feedback' AND id IN (SELECT json_extract(event,'$.data.contentRef') FROM events WHERE session_id=? AND json_extract(event,'$.data.artifactId')=?)").run(at, id, id, row.id);
+        }
+      }
+      const intent = reduceConceptIntent(session.conceptIntent ?? createConceptIntent(), { type: 'source-removed', source: 'reference', id: referenceId, now: Date.now() });
+      const affected = intent.pending?.referenceIds.includes(referenceId);
+      return this.#append(this.get(id), 'concept.state', { intent: affected ? { ...intent, pending: null } : intent,
+        status: affected ? { phase: 'failed', error: 'source-removed', retryable: false } : session.conceptStatus });
+    });
   }
   #migrate() {
     if (this.db.prepare('PRAGMA user_version').get().user_version >= 1) return;

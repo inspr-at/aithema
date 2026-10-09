@@ -42,7 +42,7 @@ if (binding.voiceMode === 'elevenlabs') {
   document.querySelector('#grant').disabled = true; document.querySelector('#grant').title = en.voiceHostConsent;
   await new Promise((resolve, reject) => { const script = document.createElement('script'); script.src = '/vendor/elevenlabs/lib.iife.js'; script.onload = resolve; script.onerror = reject; document.head.append(script); });
 }
-document.querySelector('#provider').textContent = binding.label;
+document.querySelector('#provider').textContent = `${binding.label} · ${binding.imageLabel}`;
 const fakeControls = document.querySelector('#fake-voice'); fakeControls.hidden = binding.voiceMode !== 'fake';
 for (const [selector, key, action] of [['#fake-say', 'fakeVoiceSay', () => fakeVoice?.speak()],
   ['#fake-interrupt', 'fakeVoiceInterrupt', () => fakeVoice?.bargeIn()], ['#fake-disconnect', 'fakeVoiceDisconnect', () => fakeVoice?.disconnect()]]) {

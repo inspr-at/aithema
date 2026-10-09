@@ -30,11 +30,13 @@ export function zipStore(files) {
   end.writeUInt32LE(central.length, 12); end.writeUInt32LE(offset, 16);
   return Buffer.concat([...locals, central, end]);
 }
-export function exportSession(session) {
+export function exportSession(session, artifacts = []) {
   const json = value => JSON.stringify(value, null, 2) + '\n';
   return zipStore({
     'transcript.json': json({ sessionId: session.id, turns: activeTurns(session) }),
     'transcript.md': '# Conversation\n\n' + activeTurns(session).map(t => `## ${t.role}${t.provenance === 'browser-asserted' ? ' (browser-asserted)' : ''}\n\n${t.content}\n`).join('\n'),
     'understanding.json': json(session.understanding),
+    ...(session.concepts?.length ? { 'concepts.json': json(session.concepts) } : {}),
+    ...Object.fromEntries(artifacts.flatMap(a => [[`concepts/${a.id}.${a.mediaType.split('/')[1]}`, a.bytes], [`concepts/${a.id}.provenance.json`, json(a.provenance)]])),
   });
 }

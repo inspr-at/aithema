@@ -31,7 +31,7 @@ function invalidateRemovedSources(state, next) {
   if (!removed.length) return next;
   // Per-source epochs prevent re-adding a removed dependency from resurrecting
   // its old job, without invalidating jobs that never used that source.
-  return { ...next, visualIntent: null, sourceInvalidations: { ...state.sourceInvalidations,
+  return { ...next, visualIntent: next.visualIntent && next.turnIds.includes(next.visualIntent.sourceTurnId) ? next.visualIntent : null, sourceInvalidations: { ...state.sourceInvalidations,
     ...Object.fromEntries(removed.map(key => [key, sourceVersion(state.sourceInvalidations, key) + 1])) },
     history: state.history.filter(item => containsSources(next, item)) };
 }
@@ -58,17 +58,18 @@ export function planConceptIntent(state, { trigger, now } = {}, policy) {
   const latest = state.lastAttempt ?? state.history.at(-1);
   if (trigger === 'manual' && latest && state.visualIntent.id === latest.intentId) return skip('not-requested');
   if (trigger === 'idle' && now - Math.max(state.lastActivityAt, state.history.at(-1)?.createdAt ?? 0) < p.idleMs) return skip('not-idle');
-  const milestone = trigger === 'manual' ? 'manual' : state.armed ?? (trigger === 'idle' ? 'early' : null);
+  const milestone = trigger === 'manual' ? 'manual' : state.armed;
   if (!milestone) return skip('before-threshold');
   // Time, assistant replies, assessment changes and source removal never earn a refresh.
   const newTurns = latest ? state.turnIds.filter(id => !latest.turnIds.includes(id)).length : state.turnIds.length;
-  const newReference = latest && state.referenceIds.some(id => !latest.referenceIds.includes(id));
+  const newReference = latest && (state.refreshReferenceIds ?? state.referenceIds).some(id => !(latest.refreshReferenceIds ?? latest.referenceIds).includes(id));
   if (trigger === 'idle' && latest && newTurns < 1) return skip('milestone-complete');
   const newVisualIntent = latest && state.visualIntent.id !== latest.intentId;
+  const earnedMilestone = latest && ['early', 'midpoint', 'late'].indexOf(milestone) > ['early', 'midpoint', 'late'].indexOf(latest.milestone ?? latest.trigger);
   if (trigger === 'progress' && latest && (newTurns < 1 && !newReference ||
-    latest.trigger === milestone && !newReference && !newVisualIntent && newTurns < p.refreshTurns)) return skip('milestone-complete');
-  return { kind: 'generate', plan: { inputRevision: state.inputRevision, trigger: milestone,
-    intentId: state.visualIntent.id, turnIds: [...state.turnIds], referenceIds: [...state.referenceIds],
+    !earnedMilestone && !newReference && !newVisualIntent && newTurns < p.refreshTurns)) return skip('milestone-complete');
+  return { kind: 'generate', plan: { inputRevision: state.inputRevision, trigger: milestone, milestone: state.armed,
+    intentId: state.visualIntent.id, refreshReferenceIds: [...(state.refreshReferenceIds ?? state.referenceIds)], turnIds: [...state.turnIds], referenceIds: [...state.referenceIds],
     consentRevision: state.consentRevision, invalidation: state.invalidation,
     sourceInvalidations: Object.fromEntries(sourceKeys(state).map(key => [key, sourceVersion(state.sourceInvalidations, key)])) } };
 }
@@ -104,7 +105,9 @@ export function reduceConceptIntent(state, event, policy) {
         history: changed ? [] : state.history, lastActivityAt: event.now };
     }
     case 'source-removed': {
-      const next = { ...state, turnIds: state.turnIds.filter(id => id !== event.id), referenceIds: state.referenceIds.filter(id => id !== event.id),
+      if (!['turn', 'reference'].includes(event.source)) throw new TypeError('Source removal requires namespace');
+      const next = { ...state, turnIds: state.turnIds.filter(id => event.source !== 'turn' || id !== event.id),
+        referenceIds: state.referenceIds.filter(id => event.source !== 'reference' || id !== event.id),
         lastActivityAt: event.now };
       return invalidateRemovedSources(state, next);
     }

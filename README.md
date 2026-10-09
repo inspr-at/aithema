@@ -15,11 +15,13 @@ later slices port what they need with `git show archive/gen2-2026-10-01:<path>`.
 The reset line is **unreleased work in progress**. The first text vertical supplies
 conversation, live understanding, durable events, restart/resume and session ZIP
 export. The first voice integration supplies a durable ElevenLabs call lifecycle, audio rail
-and local fake agent. Requirement approval, files/uploads, concepts and host
-integration remain later work. START cutover and live provider/OIDC proof are also later work;
+and local fake agent. Concept generation now supplies a spending-intent lane, durable byte history and
+a viewer with feedback. Requirement approval, files/uploads and host integration
+remain later work. START cutover and live provider/OIDC proof are also later work;
 handover to PAIMOS is planned. Sessions now have visitor ownership, authoritative
 consent checks, engine-wide pause, withdrawal/erasure and an exclusive writer.
-The demo is for localhost.
+The demo is for localhost and defaults to labelled deterministic reasoning, voice
+and image fakes.
 
 All packages are private with placeholder version `0.0.0`; versioning is decided
 at release preparation (AIT-32). The old release workflow has been removed;
@@ -123,6 +125,13 @@ core imports, as the demo does. Copy and CSS tokens belong to the host.
 | `POST /api/sessions/:id/pause` | `{paused: true/false}`; acknowledged durable state and event |
 | `POST /api/sessions/:id/withdraw` | `{turnId}`; erase a person statement and invalidate dependent understanding/replies atomically |
 | `POST /api/sessions/:id/consent` | `{granted: true/false}`; grants delegate to the host ledger; withdrawal cancels lanes |
+| `GET /api/sessions/:id/concepts` | Saved concept metadata, progress, intent and cost ceiling |
+| `POST /api/sessions/:id/concepts` | Record `{clientEventId, intent: true, sourceTurnId}` and request a concept once understanding is ready |
+| `GET /api/sessions/:id/concepts/:artifactId/image` | Owner-authenticated bytes; `?download=1` returns an attachment |
+| `GET /api/sessions/:id/concepts/:artifactId/provenance` | Provenance sidecar |
+| `POST /api/sessions/:id/concepts/:artifactId/feedback` | `{clientEventId, vote: up/down/clear, chips: string[]}`; no generation |
+| `POST /api/sessions/:id/concepts/:artifactId/regenerate` | A fresh explicit intent and separately admitted refinement |
+| `POST /api/sessions/:id/concepts/:artifactId/reject` | Archive with negative feedback; no generation |
 | `POST /api/sessions/:id/erase` | Erase all content, retain metadata and a session tombstone; provider deletion remains `not-confirmed` |
 
 API clients retain the `x-aithema-session-token` response header from creation
@@ -442,7 +451,7 @@ Part B wiring points, still pending:
 | `packages/ui/src/*` | Upload affordance and accessible chips for accepted, truncated and unreadable files, with honest reason and paste-text guidance; safe filename/text rendering, page/segment citations and an owner-authenticated remove action. Client limits are hints; server limits remain authoritative. |
 | Withdrawal, consent withdrawal, erasure and expiry | Abort pending upload work and wait for child reaping; persist source tombstones and invalidate dependent understanding, working-spec citations, concept inputs and cached exports before acknowledgement. Erase extracted text, quotes and any retained bytes; replay/restart/export hydrate tombstones without resurrecting sources. Rebuild from remaining inputs through normal lanes. Retain only allowed IDs, hashes, timestamps and tombstone metadata. |
 
-## UI generation and concept intent (AIT-103 part A)
+## UI generation and concepts (AIT-103)
 
 The core exports `assertUIGeneration`, `isUIArtifact` and
 `uiGenerationConformance`. The kind exposes
@@ -497,16 +506,19 @@ The public manifest contains technical capabilities and public model references
 only (D4), with location, quality qualification and rates explicitly unverified.
 The shared two-rate cost schema cannot express separate text and image input
 rates, so prices remain `null`. START's reservation is a product ceiling, not
-a vendor price. Part B must supply researched conservative private rates and
-image input/output bounds before admission; chat UTF-8 token bounds do not
-bound image tokens. No live provider call or qualification was performed.
+a vendor price. The host must supply researched conservative private image rates and
+input/output bounds through `createImageBinding` before live admission; chat
+UTF-8 token bounds do not bound image tokens. No live provider call or qualification was performed.
 
 The artifact embeds XMP using IPTC Digital Source Type
-`trainedAlgorithmicMedia` for generation and
-`compositeWithTrainedAlgorithmicMedia` for edits. Its response metadata includes
+`trainedAlgorithmicMedia` / `ai-generated` for generation without references and
+`compositeWithTrainedAlgorithmicMedia` / `ai-manipulated` for every refinement.
+This single rule applies to both `generate` with previous/rejected/upload
+references (the edit endpoint) and explicit `edit`. Its response metadata includes
 a SHA-256 Content-Digest of the final marked bytes, provider/model and generation
-time. It makes no C2PA signature or local watermark claim. Part B must preserve
-the metadata in persistence and provide owner-authenticated headers/sidecars.
+time. It makes no C2PA signature or local watermark claim. Storage preserves
+the marked bytes and metadata; image GETs provide `Content-Digest`, truthful
+`Content-Type`, `x-aithema-origin` and a provenance sidecar.
 Embedding replaces existing PNG/WebP XMP blocks with one current record.
 
 `createConceptIntent`, `reduceConceptIntent`, `planConceptIntent` and
@@ -516,8 +528,9 @@ refreshTurns: 2, historyMax: 1000}`. Readiness only arms milestones; a durable
 `intent-recorded` event bound to a substantive visitor turn is required.
 Opening a viewer and ending a conversation are inert. Pause blocks fresh work
 for all triggers. Same-milestone progress waits for two new answers unless a
-new reference or recorded visual feedback exists; idle can refresh after one
-answer and 120 seconds of quiet since input or the last render. Hidden/busy
+new uploaded reference or recorded visual intent exists. Generated history
+used for continuity and regressed readiness cannot earn an early refresh; idle
+can refresh after one answer and 120 seconds of quiet since input or the last render. Hidden/busy
 eligibility and pause/resume reset the quiet clock. Automatic failed attempts
 also consume the revision's deduplication slot.
 
@@ -526,7 +539,9 @@ the result as history at its original revision. Removing a source/reference
 (explicitly or in replacement input) invalidates only jobs that used it; adding
 then removing an unrelated source preserves the paid result. Per-source epochs
 prevent re-adding a removed dependency from resurrecting its old render.
-Source removal drops dependent history references. A consent withdrawal clears
+Source removal drops dependent history references and clears intent only when
+its own source turn is removed. `source-removed` requires `{source: "turn" |
+"reference", id}`; identical IDs in the two namespaces stay independent. A consent withdrawal clears
 all history and invalidates pending results even after consent is restored.
 A renewal with unchanged covered processing preserves intent, history and
 pending results while recording the newer consent revision. The host reports
@@ -539,16 +554,93 @@ and a new input revision; repeated delivery of the same revision cannot spend
 again. Planning and request events require an explicit `progress`, `idle` or
 `manual` trigger; a missing or unknown trigger throws.
 
-Part B wiring points, still pending:
+`ConceptLane` runs alongside reaction and understanding. It records durable
+`concept.state` events before dispatch and after success/failure, and
+`concept.feedback` events for thumbs, guidance and archive changes. It consumes
+only current, final understanding on the same readiness scale shown in the UI.
+A first render needs an armed threshold as well as intent; quiet time cannot
+replace enough understanding. The Request control is itself an expressed visual
+wish, bound to an active person turn. A conservative English/German literal
+recognizer also records wishes such as “show a visual concept” from person turns
+(including durable voice finals); assistant and negated wishes are inert.
+Other phrases/languages use the explicit request control or host intent port.
 
-| Surface | Required integration |
-| --- | --- |
-| `packages/core/src/lanes.js`, `session.js` | Add a concept lane and durable concept metadata. Feed `input-recorded {revision, turnIds, referenceIds}`, `intent-recorded {id, sourceTurnId}`, readiness/activity/pause/eligibility/consent events into the reducer. IDs identify immutable source records, including content revision. Exclude assistant turns and opening vocalizations. Include feedback/intent identity and consent revision in the concept input fingerprint. `request {id, trigger}` freezes a job; persist it before calling generate/edit. On restart mark interrupted jobs failed, preserving attempted revisions. |
-| `packages/server/src/plugin-runtime.js`, `budget.js` | Map the concept lane to the existing `images` feature and `presets[preset].bindings.images`; admit both generate and edit scopes. Add `concept` to budget lanes, reserve image-specific ceilings, consume current coverage before dispatch, settle through the invocation contract and recover claims. The current admission path selects text/analysis and chat bounds, so direct image admission is not wired yet. Keep device images unavailable. |
-| `packages/server/src/storage.js` and export | Persist artifact bytes as erasable content/BLOBs plus media type, dimensions, prompt digest and provenance; keep only IDs, hashes and source dependencies in durable events/snapshots/receipts. Persist frozen prompts/feedback in erasable records. Before publication re-read ownership/tombstone, consent coverage/revision and source records; call `conceptResultDisposition` to allow historical results or discard invalid ones. Erase dependent bytes/feedback on source removal, consent withdrawal, session erasure and expiry; tombstone-aware replay/export must never resurrect them. |
-| `packages/server/src/handlers.js` | Owner-authenticated `POST /api/sessions/:id/concepts` (record explicit intent/feedback and enqueue), `GET /api/sessions/:id/concepts/:artifactId` (stored bytes), `GET .../:artifactId/provenance` (sidecar), and `POST .../:artifactId/feedback` (`up`, `down`, `clear`). Reads never enqueue paid work. Use byte-bound idempotency, sanitized errors, no-store responses and provenance/digest headers. Publish durable pending/completed/failed events only after persistence; withdrawal aborts/settles before ack. |
-| `packages/ui/src/session-element.js` and styles/copy | Concept progress/countdown, retained preview/history, owner-authenticated byte loading, one accessible viewer with keyboard/touch controls and a disclosure badge. Estimates reserve completion for a persisted success event. Regenerate/retry records explicit intent with host cost copy. Like/reject chips refer to the exact artifact, persist positive/negative guidance and support clearing it. Viewing, liking, rejecting and clearing do not themselves invoke generation. Render feedback text safely; keep provider URLs/keys out of browser state. |
-| `demo/*` and tests | Register a deterministic byte-producing image fixture by default, configure an images binding/consent scope, and test restart, history, erasure, ownership, pause, deduplication and feedback end-to-end. Live credentials never enable a provider implicitly. |
+`presets[preset].bindings.images` uses `createImageBinding({...common,
+imageCost: {inputMicro, outputMicro, maxInputTokens, maxOutputTokens}})`. The
+common fields are the existing private binding, including `maxMicro`, legal
+qualification, exact account/model/endpoint/routing, and `secretRef`. The
+conservative input rate must cover both text and image-input token prices;
+the token ceilings must cover the admitted image sizes, quality, reference count
+and provider output. Their maximum cost must fit `maxMicro`. These are private
+host facts, never public manifest rates. Only `{maxMicro}` reaches the UI as a
+cost ceiling, formatted by host copy. No live price, qualification or provider
+call is claimed by this implementation.
+
+The runtime admits image attempts into the same `SQLiteBudgetLedger` under
+lane `concept`. Fresh exact `generate` or `edit` processing coverage is checked
+at admission, claim consumption and publication; references select the edit
+scope. Preset, pause, ownership, tombstone, private evidence, health and budget
+checks fail closed. Known usage settles at the private image rates, overruns
+remain visible, and unknown dispatched usage retains the reserved maximum.
+Restart releases undispatched holds, settles dispatched holds conservatively,
+and marks interrupted concepts failed without repeating a provider call.
+Retry and regenerate require fresh intent IDs and byte-bound client receipts.
+Only a new explicit request can retry a failed revision.
+
+SQLite stores PNG/WebP/JPEG bytes in `concept_artifacts` BLOBs, with provenance,
+digests and frozen source dependencies. There is a 64 MiB content ceiling per
+session; admission requires room for a maximum 12 MiB image. Generated reference
+dependencies are expanded transitively. Prompts are reconstructed in memory for
+the invocation and never persisted in journal metadata. Feedback text lives in
+erasable content records; events, receipts and snapshots hold content references.
+Withdrawal/expiry erases dependent image bytes and feedback before acknowledgement,
+while unrelated history remains. Consent withdrawal and full erasure remove all
+concept content, cancel pending work and await budget settlement. Removed reference
+IDs have the same path through `await handlers.removeConceptReference(id, referenceId)`.
+Replay and hydration replace erased artifacts/feedback with tombstones. Export
+includes saved images, `concepts.json` and provenance sidecars; image-containing
+ZIPs require current image coverage and cannot resurrect removed content.
+
+The feature matrix gates requests/refinements and feedback with reasons; device
+images remain unavailable. Pause permits cached images. The UI reserves fixed
+space for the scene/progress/countdown, transcript preview and Concept tab;
+automatic viewer/control updates wait for pointer leave. The countdown is an
+estimate and never reaches completion until durable success. The single modal
+viewer has a title, previous/next/count, keyboard/touch navigation, authenticated
+same-origin download GET, cost-labelled regeneration, thumbs, removable guidance
+and Reject and archive, which returns to the conversation. All concept copy is
+host i18n, and all feedback is rendered as literal text. Opening, navigating,
+downloading, liking, rejecting and ending a call never record spending intent.
+
+The labelled local demo registers `createLocalImages()` and `localImageBinding`
+by default. It draws a small valid deterministic PNG, with fixture provider/model
+provenance; the UI explicitly labels it as fake, with no AI/provider network.
+Allow mock consent, describe needs (the mock recognises `operations: hosted;
+data: public; systems: API; reach: international`), then select Request concept.
+Feedback changes the next fixture's palette and references. Restart retains
+images and feedback but loses the demo host's consent grant; grant again to view.
+`AITHEMA_IMAGE_MODE=off` disables images.
+
+Live OpenAI remains explicitly configured and unverified: select
+`AITHEMA_IMAGE_MODE=openai` and set `AITHEMA_IMAGE_HOST_MODULE` to a private
+server-only module exporting `createImageHost({storage})`. It returns
+`{binding, consent, policy, resolveSecret?}`; the binding is the image binding
+above for `openai-images` / `gpt-image-2` / `none` and API base URL
+`https://api.openai.com/v1`. `policy.endpoints` must admit that exact URL.
+The authoritative consent port must be shared with any live voice host; the
+local mock grant does not cover OpenAI. Only `binding.secretRef` identifies the
+key; the server resolves it at dispatch through `resolveSecret(ref)` (or the
+named environment variable), never the browser. Keys present in the environment
+do not select a provider. No live calls were run.
+
+AIT-100 part B remains separate. Hosts can already provide
+`concepts: {references(session)}` to `createHandlers`: return owner-scoped,
+tombstone-aware `{id, bytes, mediaType, role: 'upload'}` records with immutable
+opaque source IDs, never URLs. At most nine total references are used, each
+at most 12 MiB. After durably removing the upload source, await
+`handlers.removeConceptReference(sessionId, sourceId)` before acknowledgement.
+The included fake tests exercise this port, dependency-scoped removal and an
+upload/turn with the same ID. Upload routes and their UI will arrive on AIT-100.
 
 The reusable conformance call is
 `uiGenerationConformance(plugin, {spec, feedback, artifact},
@@ -745,6 +837,8 @@ policy were removed. The table records the port in the current package layout.
 | `tests/{analyze-route,guided-pass,analysis-incremental,critical-surfaces}.test.ts` | `packages/core/test/`, `packages/ui/test/` | selected reducer/readiness/lane/UI behaviour cases converted to `node:test` |
 | `src/lib/{generated-ui,generated-ui-idle,generated-ui-policy}.ts`, `src/pages/api/v2/generated-ui/index.ts` | `packages/core/src/concept-intent.js` | pure host policy; recorded intent, arming, cadence, dedupe and source/consent invalidation; historical slow results |
 | `src/lib/providers/openai-image.ts`, `src/lib/provenance.ts` | `plugins/openai-images/src/` | server Images generate/edit with lifetime/claim contract, bounded private bytes, IPTC XMP and digest metadata; no branding or legal/account facts |
+| `src/scripts/{concept-viewer,concept-backdrop}.ts`, `src/lib/{generated-ui-view,generated-ui-progress,generated-ui-idle}.ts`, `src/pages/index.astro` (concepts) | `packages/ui/src/{concept-view,session-element,styles}.js` | one immersive viewer, preview, fixed controls, estimated countdown, feedback and cost copy; no START branding |
+| `src/pages/api/v2/generated-ui/index.ts` | `packages/core/src/concept-lane.js`, `packages/server/src/{concept-handlers,image-binding,local-images,storage}.js` | durable intent/progress, private-byte references, exact image scopes, conservative private costs, byte history and erasure |
 | `tests/generated-ui.test.ts` | `packages/core/test/concept-intent.test.js`, `plugins/openai-images/test/openai-images.test.js` | selected spending, slow-render, removal/withdrawal and private image transport cases with fakes |
 | `src/lib/{extract,ooxml}.ts`, `src/pages/api/upload.ts`; Gen-2 `runtime/{extract,pdf-extract-child}.js`, `lib/{extract-limits,intake}.js` | `packages/core/src/extractor*.js`, `plugins/extract-{pdf,ooxml,text}/` | bounded offline extraction and byte sniffing; child kill/reaping, stricter ZIP bomb/CRC checks, added PPTX and citable segments; foreign approval stays untrusted source text |
 

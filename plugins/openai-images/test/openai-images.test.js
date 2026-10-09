@@ -206,7 +206,7 @@ test('generation carries ordered previous, rejected and upload references as pri
   const result = await f.plugin.generate({ ...spec, references: refs }, feedback, options());
   const record = f.records[0]; assert.equal(record.path, '/v1/images/edits');
   assert.equal(record.images.length, refs.length); assert.ok(record.body.prompt.startsWith(spec.prompt));
-  assert.equal(result.provenance.origin, 'ai-generated');
+  assert.equal(result.provenance.origin, 'ai-manipulated');
   for (const [i, reference] of refs.entries()) {
     assert.deepEqual(new Uint8Array(await record.images[i].arrayBuffer()), new Uint8Array(reference.bytes));
     assert.equal(record.images[i].type, reference.mediaType);

@@ -125,22 +125,22 @@ test('explicit retry earns a distinct recorded revision but cannot reuse a faile
 test('source removal and consent withdrawal reject late results even after consent is restored', () => {
   for (const revoke of ['source-removed', 'consent']) {
     let s = reduce(ready({ referenceIds: ['ref1'] }), event('request', { id: 'job1', trigger: 'progress' }));
-    s = reduce(s, event(revoke, revoke === 'consent' ? { covered: false, revision: 2 } : { id: 'ref1' }, 1));
+    s = reduce(s, event(revoke, revoke === 'consent' ? { covered: false, revision: 2 } : { id: 'ref1', source: 'reference' }, 1));
     if (revoke === 'consent') s = reduce(s, event('consent', { covered: true, revision: 3 }, 2));
     assert.deepEqual(conceptResultDisposition(s, s.pending), { kind: 'reject', reason: 'state-changed' });
     s = reduce(s, event('render-completed', { id: 'job1', artifactId: 'discarded' }, 3));
-    assert.deepEqual(s.history, []); assert.equal(s.visualIntent, null);
+    assert.deepEqual(s.history, []); assert.equal(s.visualIntent === null, revoke === 'consent');
   }
 });
 test('implicit removal in recorded input also invalidates; removing and readding a source cannot resurrect a render', () => {
   let s = reduce(ready({ turnIds: ['t1', 't2'] }), event('request', { id: 'job1', trigger: 'progress' }));
   s = input(s, { turnIds: ['t1'] }); s = input(s, { revision: 'r3', turnIds: ['t1', 't2'] });
   assert.equal(conceptResultDisposition(s, s.pending).reason, 'state-changed');
-  assert.equal(s.visualIntent, null);
+  assert.equal(s.visualIntent.id, 'intent1');
 });
 test('source removal drops dependent history; consent withdrawal clears all history references', () => {
   const s = render(ready({ referenceIds: ['ref1'] }));
-  assert.deepEqual(reduce(s, event('source-removed', { id: 'ref1' }, 1)).history, []);
+  assert.deepEqual(reduce(s, event('source-removed', { id: 'ref1', source: 'reference' }, 1)).history, []);
   assert.deepEqual(reduce(s, event('consent', { covered: false, revision: 2 }, 1)).history, []);
 });
 test('hidden or busy idle time cannot earn an immediate return attempt', () => {
@@ -197,13 +197,13 @@ test('removing dependencies added after dispatch preserves the paid render and e
     let s = reduce(ready(), event('request', { id: 'job1', trigger: 'progress' }));
     const job = structuredClone(s.pending);
     s = input(s, { turnIds: source === 'turn' ? ['t1', 't2'] : ['t1'], referenceIds: source === 'reference' ? ['ref2'] : [] });
-    s = removal === 'source-removed' ? reduce(s, event(removal, { id: source === 'turn' ? 't2' : 'ref2' }, 2)) :
+    s = removal === 'source-removed' ? reduce(s, event(removal, { id: source === 'turn' ? 't2' : 'ref2', source }, 2)) :
       input(s, { revision: 'r3', turnIds: ['t1'], referenceIds: [] });
     assert.deepEqual(s.pending, job);
     assert.deepEqual(conceptResultDisposition(s, job), { kind: 'history' });
     s = reduce(s, event('render-completed', { id: 'job1', artifactId: 'image1' }, 3));
     assert.equal(s.history.length, 1);
-    assert.equal(reduce(s, event('source-removed', { id: 'unrelated' }, 4)).history.length, 1);
+    assert.equal(reduce(s, event('source-removed', { id: 'unrelated', source: 'turn' }, 4)).history.length, 1);
   }
 });
 test('removing and readding a used reference permanently rejects that pending job', () => {
@@ -230,4 +230,27 @@ test('pausing after request still records the admitted result', () => {
   s = reduce(s, event('render-completed', { id: 'job1', artifactId: 'image1' }, 2));
   assert.equal(s.paused, true); assert.equal(s.pending, null);
   assert.equal(s.history.length, 1); assert.equal(s.history[0].artifactId, 'image1');
+});
+
+test('source removal preserves unrelated intent and namespaces colliding ids', () => {
+  const s = ready({ turnIds: ['t1', 'same'], referenceIds: ['same'] });
+  const reference = reduce(s, event('source-removed', { id: 'same', source: 'reference' }));
+  assert.deepEqual(reference.turnIds, ['t1', 'same']); assert.deepEqual(reference.referenceIds, []);
+  assert.deepEqual(reference.visualIntent, s.visualIntent);
+  const turn = reduce(s, event('source-removed', { id: 'same', source: 'turn' }));
+  assert.deepEqual(turn.referenceIds, ['same']); assert.deepEqual(turn.turnIds, ['t1']);
+  assert.deepEqual(turn.visualIntent, s.visualIntent);
+  assert.equal(reduce(s, event('source-removed', { id: 't1', source: 'turn' })).visualIntent, null);
+  assert.throws(() => reduce(s, event('source-removed', { id: 'same' })), /namespace/);
+});
+
+test('a regressed assessment cannot earn a new milestone before cadence', () => {
+  let s = input(render(ready({ percent: 72 })));
+  s = reduce(s, event('readiness', { percent: 25 }));
+  assert.equal(plan(s, { trigger: 'progress', now: 1 }).reason, 'milestone-complete');
+});
+
+test('quiet time cannot substitute for enough understanding on the first concept', () => {
+  const s = ready({ percent: 24 });
+  assert.equal(plan(s, { trigger: 'idle', now: 200000 }).reason, 'before-threshold');
 });

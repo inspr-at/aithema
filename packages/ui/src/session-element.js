@@ -1,3 +1,4 @@
+import { ConceptView } from './concept-view.js';
 import { applyEvent, inputRevision, activeTurns } from '../../core/src/session.js';
 import { readinessScalePercent, readinessListItems, readinessListWindow, newlyClearedFirst } from '../../core/src/readiness.js';
 import { displayedReadinessPercent } from '../../core/src/understanding.js';
@@ -7,12 +8,12 @@ import { styles } from './styles.js';
 import { postJson } from './post-json.js';
 
 export class AithemaSession extends HTMLElement {
-  #rail; #voiceClient; #voicePlayback; #device; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #pending;
+  #concept; #rail; #voiceClient; #voicePlayback; #device; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #pending;
   #hover = new Set(); #dirty = new Set(); #open = []; #cleared = []; #failure = false; #sending = false;
   constructor() { super(); this.attachShadow({ mode: 'open' }); }
   configure({ copy, baseUrl = '', session, sessionToken, deviceReasoning, voiceClient, voicePlayback }) {
     if (!copy || !session) throw new TypeError('Host copy and session required');
-    this.#rail?.destroy(); this.#voiceClient = voiceClient; this.#voicePlayback = voicePlayback;
+    this.#concept?.destroy(); this.#rail?.destroy(); this.#voiceClient = voiceClient; this.#voicePlayback = voicePlayback;
     this.#abort?.abort(); this.#deviceController?.abort(); this.#device = deviceReasoning; this.#copy = copy; this.#base = baseUrl.replace(/\/$/u, '');
     this.#session = structuredClone(session); this.#sessionToken = sessionToken; this.#cursor = session.seq; this.#partials.clear();
     this.#restoreFailure(); this.#pending = null; this.#sending = false;
@@ -21,8 +22,8 @@ export class AithemaSession extends HTMLElement {
     this.#mount();
     if (this.isConnected) this.#connect();
   }
-  connectedCallback() { if (this.#session) this.#connect(); }
-  disconnectedCallback() { this.#rail?.destroy(); this.#abort?.abort(); this.#deviceController?.abort(); }
+  connectedCallback() { if (this.#session) { this.#concept?.connect(); this.#connect(); } }
+  disconnectedCallback() { this.#concept?.suspend(); this.#rail?.destroy(); this.#abort?.abort(); this.#deviceController?.abort(); }
   reportVoicePlaybackBlocked() { this.#rail?.reportPlaybackBlocked(); }
   get session() { return structuredClone(this.#session); }
   #mount() {
@@ -31,10 +32,10 @@ export class AithemaSession extends HTMLElement {
     root.innerHTML = `<style>${styles}</style><div class="workspace">
       <section class="preset-panel"><label><span data-copy="processing"></span> <select class="preset-choice"></select></label><ul class="features"></ul></section>
       <section class="conversation"><header class="head"><h2 data-copy="conversation"></h2><button class="pause" type="button"></button><span class="status" role="status"></span></header>
-        <div class="audio-rail"></div><div class="transcript-shell"><ol aria-live="polite"></ol></div>
+        <div class="audio-rail"></div><div class="concept-rail"></div><div class="transcript-shell"><div class="concept-preview-slot"></div><ol aria-live="polite"></ol></div>
         <form class="composer"><label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000"></textarea>
           <div class="composer-actions"><small class="composer-reason" role="status" id="composer-reason"></small><button class="send" data-copy="send"></button></div></form></section>
-      <aside class="understanding"><header class="head"><h2 data-copy="understanding"></h2></header>
+      <aside class="understanding"><header class="head"><h2 data-copy="understanding"></h2><button class="concept-tab" type="button" data-copy="conceptTab"></button></header>
         <section class="readiness"><div class="scale" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span class="fill"></span><span class="marker"></span></div>
           <div class="scale-labels"><span data-copy="talk"></span><span data-copy="build"></span></div><p class="talk-progress"></p><p class="build-progress"></p></section>
         <div class="analysis-content"><p class="notice" role="status"></p><section><h3 data-copy="summary"></h3><p class="summary-text"></p></section>
@@ -56,6 +57,9 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.preset-panel').addEventListener('pointerleave', () => {
       this.#hover.delete('features'); if (this.#dirty.delete('features')) this.#render('features');
     });
+    this.#concept = new ConceptView({ root, copy: this.#copy, baseUrl: this.#base, sessionToken: this.#sessionToken,
+      receive: event => this.receive(event), feature: () => this.#feature('images') });
+    this.#concept.update(this.#session);
     this.#render('features');
     for (const node of root.querySelectorAll('[data-copy]')) node.textContent = this.#copy[node.dataset.copy];
     root.querySelector('textarea').placeholder = this.#copy.placeholder;
@@ -331,11 +335,12 @@ export class AithemaSession extends HTMLElement {
       if (event.seq !== this.#cursor + 1) {
         if (invalidation) {
           this.#session = applyEvent(this.#session, event);
-          this.#render('transcript'); this.#render('aside');
+          this.#concept.update(this.#session); this.#render('transcript'); this.#render('aside');
         }
         this.#abort?.abort(); void this.#restore(); return;
       }
       this.#session = applyEvent(this.#session, event); this.#cursor = event.seq;
+      this.#concept.update(this.#session);
       if (event.type === 'session.paused') {
         this.#invalidatedAt = Math.max(this.#invalidatedAt, event.seq);
         if (event.data.paused) this.#deviceController?.abort();
@@ -382,7 +387,7 @@ export class AithemaSession extends HTMLElement {
       if (!response.ok) return;
       const session = await response.json();
       if (sessionId !== this.#session.id || session.seq !== this.#cursor || session.id !== sessionId) return;
-      this.#session.featureMatrix = session.featureMatrix; this.#rail.render();
+      this.#session.featureMatrix = session.featureMatrix; this.#rail.render(); this.#concept.update(this.#session);
       this.#render('features'); this.#render('aside'); this.#render('composer');
     } catch { /* Existing verdicts stay closed until the host confirms coverage. */ }
   }
@@ -396,7 +401,7 @@ export class AithemaSession extends HTMLElement {
       // A snapshot requested before a withdrawal must never restore its content.
       if (session.seq < this.#invalidatedAt) return;
       this.#session = session; this.#cursor = this.#session.seq; this.#partials.clear();
-      this.#restoreFailure();
+      this.#restoreFailure(); this.#concept.update(this.#session);
       this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer');
       if (this.isConnected) this.#connect();
     } catch {

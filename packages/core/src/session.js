@@ -1,3 +1,4 @@
+import { createConceptIntent, reduceConceptIntent } from './concept-intent.js';
 import { PROCESSING_PRESETS } from './presets.js';
 import { START_PRESET, capBuildReadiness, createPreset } from './understanding.js';
 export const inputRevision = session => `${session.inputRevision}:${session.consentRevision}:${session.withdrawalRevision}:${session.locale}:${session.sessionRevision ?? 0}:${Boolean(session.tombstone)}`;
@@ -10,7 +11,8 @@ export function createSession({ id = crypto.randomUUID(), locale = 'en', identif
   if (!['en', 'de'].includes(locale)) throw new TypeError('Unsupported locale');
   return { id, version: 1, seq: 0, locale, identified, demo, preset: createPreset(preset), actor, processingPreset,
     inputRevision: 0, consentRevision: 0, withdrawalRevision: 0, sessionRevision: 0,
-    paused: false, consentWithdrawn: false, tombstone: null, transcript: [],
+    paused: false, consentWithdrawn: false, tombstone: null, transcript: [], concepts: [],
+    conceptIntent: createConceptIntent(), conceptStatus: { phase: 'idle' },
     understanding: { ...capBuildReadiness({}, [] , preset), version: 1, inputRevision: null,
       locale, draft: false, questionHistory: [] } };
 }
@@ -43,7 +45,29 @@ export function applyEvent(session, event) {
         ? { ...Object.fromEntries(Object.entries(t).filter(([key]) => key !== 'content')), erased: true, withdrawn: true } : t);
       if (event.type === 'session.erased') next.tombstone = event.data.at;
     }
+  } else if (event.type === 'concept.state') {
+    next.conceptIntent = event.data.intent;
+    next.conceptStatus = event.data.status;
+    if (event.data.artifact && !event.data.artifact.erased) next.concepts = [...(next.concepts ?? []), event.data.artifact];
+  } else if (event.type === 'concept.feedback') {
+    next.concepts = (next.concepts ?? []).map(c => c.id === event.data.artifactId ? { ...c, archived: event.data.archived ?? c.archived, feedback: event.data.erased ? null : event.data } : c);
+  } else if (event.type === 'concept.archived') {
+    next.concepts = (next.concepts ?? []).map(c => c.id === event.data.artifactId ? { ...c, archived: true } : c);
   } else if (event.type !== 'session.created') throw new TypeError('Unknown durable event');
+  if (['turn.withdrawn', 'session.erased', 'consent.revised'].includes(event.type)) {
+    const all = event.type === 'session.erased' || event.type === 'consent.revised' && !event.data.granted;
+    next.concepts = (next.concepts ?? []).filter(c => !all && !c.turnIds.includes(event.data.turnId));
+    let intent = next.conceptIntent ?? createConceptIntent();
+    if (all) {
+      intent = reduceConceptIntent(intent, { type: 'consent', covered: false, revision: next.consentRevision, now: Date.parse(event.at ?? event.data.at) || 0 });
+      intent = { ...intent, pending: null, referenceIds: [], turnIds: event.type === 'session.erased' ? [] : intent.turnIds };
+      next.conceptStatus = { phase: 'idle' };
+    } else if (event.type === 'turn.withdrawn') {
+      intent = reduceConceptIntent(intent, { type: 'source-removed', source: 'turn', id: event.data.turnId, now: Date.parse(event.at ?? event.data.at) || 0 });
+      if (intent.pending?.turnIds.includes(event.data.turnId)) { intent = { ...intent, pending: null }; next.conceptStatus = { phase: 'failed', error: 'source-removed', retryable: false }; }
+    }
+    next.conceptIntent = intent;
+  }
   next.seq = event.seq;
   return next;
 }
