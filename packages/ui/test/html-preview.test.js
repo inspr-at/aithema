@@ -9,23 +9,24 @@ for (const key of ['HTMLElement', 'customElements', 'document']) globalThis[key]
 const { frameDocument, PREVIEW_SANDBOX, previewCopy } = await import('../src/html-preview.js');
 const dummy = readFileSync(new URL('../../../test/fixtures/click-dummy.html', import.meta.url), 'utf8');
 const html = text => ({ bytes: new TextEncoder().encode(text), mediaType: 'text/html' });
-function setup() { const element = document.createElement('aithema-html-preview'); document.body.append(element); return element; }
+function setup(owner = document) { const element = owner.createElement('aithema-html-preview'); owner.body.append(element); return element; }
 // Unit tests simulate the browser's policy event; only real Chrome proves CSP.
-const violation = fields => { const event = new window.Event('securitypolicyviolation'); Object.assign(event, fields); document.dispatchEvent(event); };
+const proof = { isTrusted: true, disposition: 'enforce', effectiveDirective: 'frame-src', blockedURI: 'data', originalPolicy: HTML_PREVIEW_HOST_CSP };
+const violation = (fields, owner = document) => { const event = new window.Event('securitypolicyviolation'); Object.assign(event, fields); owner.dispatchEvent(event); };
 async function render(element, value) {
+  const document = element.ownerDocument;
   if (!document.head.querySelector('meta[http-equiv]')) {
     const meta = document.createElement('meta'); meta.httpEquiv = 'Content-Security-Policy'; meta.content = HTML_PREVIEW_HOST_CSP; document.head.append(meta);
   }
   element.artifact = value;
   if (document.querySelector('[data-aithema-html-policy-probe]')) {
-    const proof = { isTrusted: true, disposition: 'enforce', effectiveDirective: 'frame-src', blockedURI: 'data', originalPolicy: HTML_PREVIEW_HOST_CSP };
-    violation({ ...proof, isTrusted: false }); await Promise.resolve();
+    violation({ ...proof, isTrusted: false }, document); await Promise.resolve();
     assert.equal(element.shadowRoot.querySelector('iframe'), null, 'synthetic events cannot authorize rendering');
-    violation({ ...proof, disposition: 'report' }); await Promise.resolve();
+    violation({ ...proof, disposition: 'report' }, document); await Promise.resolve();
     assert.equal(element.shadowRoot.querySelector('iframe'), null, 'report-only cannot authorize rendering');
-    violation({ ...proof, originalPolicy: "frame-src data:; child-src 'none'" }); await Promise.resolve();
+    violation({ ...proof, originalPolicy: "frame-src data:; child-src 'none'" }, document); await Promise.resolve();
     assert.equal(element.shadowRoot.querySelector('iframe'), null, 'a weaker policy cannot authorize rendering');
-    violation(proof);
+    violation(proof, document);
   }
   await Promise.resolve();
 }
@@ -33,6 +34,41 @@ test('missing host policy refuses a draft visibly before it can execute', () => 
   const element = setup(); element.artifact = html(dummy);
   assert.equal(element.state, 'policy'); assert.equal(element.shadowRoot.querySelector('iframe'), null);
   assert.equal(element.shadowRoot.querySelector('.state').textContent, previewCopy.policy);
+});
+test('host policy accepts empty, scheme-only and full data probe URIs only while its sole probe is pending', async () => {
+  for (const blockedURI of ['', 'data', 'data:text/html,%3Ctitle%3Epolicy%20probe%3C/title%3E']) {
+    const owner = document.implementation.createHTMLDocument();
+    const meta = owner.createElement('meta'); meta.httpEquiv = 'Content-Security-Policy'; meta.content = HTML_PREVIEW_HOST_CSP; owner.head.append(meta);
+    const element = setup(owner), event = { ...proof, blockedURI };
+    violation(event, owner); element.artifact = html(dummy); await Promise.resolve();
+    assert.equal(element.state, 'policy', 'a previous event cannot authorize a new probe');
+    const probe = owner.querySelector('[data-aithema-html-policy-probe]'); assert.ok(probe);
+    probe.remove(); violation(event, owner); await Promise.resolve();
+    assert.equal(element.state, 'policy', 'a detached probe cannot authorize rendering');
+    owner.body.append(probe);
+    const other = owner.createElement('iframe'); other.setAttribute('data-aithema-html-policy-probe', ''); owner.body.append(other);
+    violation(event, owner); await Promise.resolve();
+    assert.equal(element.state, 'policy', 'ambiguous pending probes cannot authorize rendering'); other.remove();
+    for (const fields of [{ isTrusted: false }, { disposition: 'report' }, { effectiveDirective: 'default-src' },
+      { originalPolicy: "frame-src data:; child-src 'none'" }, { originalPolicy: "frame-src 'none'; child-src data:" },
+      { blockedURI: 'http://example.invalid/' }, { blockedURI: 'database' }]) {
+      violation({ ...event, ...fields }, owner); await Promise.resolve();
+      assert.equal(element.shadowRoot.querySelector('iframe'), null, 'only an enforced host frame-policy data violation authorizes rendering');
+    }
+    violation({ ...event, effectiveDirective: blockedURI === '' ? 'child-src' : 'frame-src' }, owner); await Promise.resolve();
+    assert.equal(element.state, 'ready'); assert.ok(element.shadowRoot.querySelector('iframe'));
+    assert.equal(owner.querySelector('[data-aithema-html-policy-probe]'), null); element.remove();
+  }
+});
+test('a late violation cannot authorize a timed-out policy probe', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const owner = document.implementation.createHTMLDocument();
+  const meta = owner.createElement('meta'); meta.httpEquiv = 'Content-Security-Policy'; meta.content = HTML_PREVIEW_HOST_CSP; owner.head.append(meta);
+  const element = setup(owner); element.artifact = html(dummy);
+  t.mock.timers.tick(1500); await Promise.resolve();
+  assert.equal(owner.querySelector('[data-aithema-html-policy-probe]'), null);
+  violation({ ...proof, blockedURI: '' }, owner); await Promise.resolve();
+  assert.equal(element.state, 'policy'); assert.equal(element.shadowRoot.querySelector('iframe'), null); element.remove();
 });
 test('renders a draft only in an allow-scripts sandbox with the strict CSP first in its srcdoc', async () => {
   const element = setup(), root = element.shadowRoot;
@@ -109,4 +145,56 @@ test('clearing or rejecting a focused draft restores focus to the selected width
     assert.equal(root.querySelector('iframe'), null);
     assert.equal(root.activeElement, root.querySelector('.seg [data-width="phone"]'));
   }
+});
+function mockChannels(t) {
+  const channels = [];
+  t.mock.method(globalThis, 'MessageChannel', function () {
+    const channel = { port1: { close() { this.closed = true; } }, port2: {} }; channels.push(channel); return channel;
+  });
+  return channels;
+}
+test('only the srcdoc reply port confirms a first load; late probe events cannot retire a draft', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] }); const channels = mockChannels(t);
+  const owner = document.implementation.createHTMLDocument(), element = setup(owner); await render(element, html(dummy));
+  const frame = element.shadowRoot.querySelector('iframe'); let ping;
+  t.mock.method(frame.contentWindow, 'postMessage', (message, target, ports) => {
+    ping = message; assert.equal(target, '*'); assert.deepEqual(ports, [channels[0].port2]);
+  });
+  violation({ ...proof, blockedURI: '' }, owner);
+  frame.dispatchEvent(new window.Event('load'));
+  const reply = channels[0].port1;
+  window.dispatchEvent(new window.MessageEvent('message', { data: ping }));
+  reply.onmessage({ data: 'unrelated' }); t.mock.timers.tick(1499);
+  assert.equal(element.state, 'ready'); assert.equal(reply.closed, undefined, 'unrelated messages cannot confirm the load');
+  reply.onmessage({ data: ping }); t.mock.timers.tick(1);
+  assert.equal(element.state, 'ready'); assert.equal(reply.closed, true);
+  violation({ ...proof, blockedURI: '' }, owner); assert.equal(element.state, 'ready'); element.remove();
+});
+test('blocked navigation is visible both before first load and after load, with focus restored', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] }); const channels = mockChannels(t);
+  for (const loaded of [false, true]) {
+    const owner = document.implementation.createHTMLDocument(), element = setup(owner), root = element.shadowRoot;
+    element.width = 'phone'; await render(element, html(dummy));
+    const frame = root.querySelector('iframe');
+    t.mock.method(frame.contentWindow, 'postMessage', message => {
+      if (loaded) channels.at(-1).port1.onmessage({ data: message });
+    });
+    frame.dispatchEvent(new window.FocusEvent('focus'));
+    frame.dispatchEvent(new window.Event('load'));
+    if (loaded) frame.dispatchEvent(new window.Event('load')); else t.mock.timers.tick(1500);
+    assert.equal(element.state, 'navigated'); assert.equal(root.querySelector('iframe'), null);
+    assert.equal(root.querySelector('.state').hidden, false); assert.equal(root.querySelector('.state').textContent, previewCopy.navigated);
+    assert.equal(root.activeElement, root.querySelector('.seg [data-width="phone"]'));
+    assert.equal(channels.at(-1).port1.closed, true);
+    element.artifact = null; frame.dispatchEvent(new window.Event('load')); t.mock.timers.tick(1500);
+    assert.equal(element.state, 'empty', 'discarded frames cannot change the state'); element.remove();
+  }
+});
+test('clearing a draft during its first-load check cancels the timeout and closes the reply port', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] }); const channels = mockChannels(t);
+  const owner = document.implementation.createHTMLDocument(), element = setup(owner); await render(element, html(dummy));
+  const frame = element.shadowRoot.querySelector('iframe');
+  t.mock.method(frame.contentWindow, 'postMessage', () => {}); frame.dispatchEvent(new window.Event('load'));
+  element.artifact = null; t.mock.timers.tick(1500); channels[0].port1.onmessage({ data: 'aithema-html-preview-ready' });
+  assert.equal(channels[0].port1.closed, true); assert.equal(element.state, 'empty'); element.remove();
 });

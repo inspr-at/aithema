@@ -5,6 +5,9 @@ import { HTML_MEDIA_TYPE, HTML_PREVIEW_CSP, inspectHTML } from '../../core/src/u
 export { HTML_PREVIEW_HOST_CSP } from '../../core/src/ui-html.js';
 export const PREVIEW_SANDBOX = 'allow-scripts';
 const verifiedPolicies = new WeakMap();
+const POLICY_PROBE = '[data-aithema-html-policy-probe]';
+const blockedHostNavigation = event => event.isTrusted && event.disposition === 'enforce' &&
+  ['frame-src', 'child-src'].includes(event.effectiveDirective) && framePolicy(event.originalPolicy);
 // The host declares the enforced policy in its head as well as its HTTP header.
 // Inspect the first occurrence of each directive: CSP ignores later duplicates.
 const declaresHostPolicy = document => [...document.head.querySelectorAll('meta[http-equiv]')].some(meta =>
@@ -22,15 +25,22 @@ function verifyHostPolicy(document) {
   if (verifiedPolicies.has(document)) return verifiedPolicies.get(document);
   const verification = new Promise(resolve => {
     const probe = document.createElement('iframe');
+    let pending = true;
     probe.hidden = true; probe.setAttribute('sandbox', PREVIEW_SANDBOX);
     probe.setAttribute('data-aithema-html-policy-probe', '');
     // A scriptless data destination never touches a socket, even without CSP.
     // The event must prove enforcement by the *host* frame-src/child-src policy;
     // neither a report-only event nor the draft's own default-src can authorize it.
-    const finish = ok => { clearTimeout(timer); document.removeEventListener('securitypolicyviolation', violation); probe.remove(); resolve(ok); };
+    const finish = ok => {
+      if (!pending) return;
+      pending = false; clearTimeout(timer); document.removeEventListener('securitypolicyviolation', violation); probe.remove(); resolve(ok);
+    };
     const violation = event => {
-      if (event.isTrusted && event.disposition === 'enforce' && ['frame-src', 'child-src'].includes(event.effectiveDirective) &&
-        event.blockedURI === 'data' && framePolicy(event.originalPolicy)) finish(true);
+      // Chrome can redact a data destination to an empty string. Such an event
+      // is usable only while this connected probe is the sole pending probe.
+      const probes = document.querySelectorAll(POLICY_PROBE), uri = event.blockedURI;
+      if (pending && probe.isConnected && probes.length === 1 && probes[0] === probe && blockedHostNavigation(event) &&
+        (uri === '' || uri === 'data' || typeof uri === 'string' && uri.startsWith('data:'))) finish(true);
     };
     const timer = setTimeout(() => finish(false), 1500);
     document.addEventListener('securitypolicyviolation', violation);
@@ -46,9 +56,14 @@ export const previewCopy = Object.freeze({ label: 'Draft — generated', title: 
   wide: 'Wide', phone: 'Phone', empty: 'No draft yet.', invalid: 'This draft cannot be shown safely.',
   navigated: 'The draft tried to open another page and was stopped.',
   policy: 'The host page must block frame navigation before drafts can be shown.' });
+const FRAME_READY = 'aithema-html-preview-ready';
+// A private reply port lets the parent distinguish srcdoc from a scriptless
+// browser error document without reading the opaque frame or trusting messages
+// from other frames. This is a display check; the host CSP enforces containment.
+const READY_SCRIPT = `<script>addEventListener('message',event=>{if(event.source===parent&&event.data==='${FRAME_READY}'&&event.ports[0]){event.ports[0].postMessage('${FRAME_READY}');event.ports[0].close();}});</script>`;
 /** The srcdoc: standards mode, then the CSP before any content of the dummy. */
 export function frameDocument(html) {
-  return `<!doctype html><meta http-equiv="Content-Security-Policy" content="${HTML_PREVIEW_CSP}"><meta name="referrer" content="no-referrer">${
+  return `<!doctype html><meta http-equiv="Content-Security-Policy" content="${HTML_PREVIEW_CSP}"><meta name="referrer" content="no-referrer">${READY_SCRIPT}${
     html.replace(/^\s*<!doctype[^>]*>/iu, '')}`;
 }
 const styles = `
@@ -75,6 +90,7 @@ iframe:focus-visible { outline:2px solid var(--aithema-accent,#227c78); outline-
 const DRAFT_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 13l1-3.5L10.5 3 13 5.5 6.5 12z M9.5 4l2.5 2.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>';
 export class AithemaHTMLPreview extends HTMLElement {
   #copy = previewCopy; #artifact = null; #width = 'wide'; #frame = null; #frameFocused = false; #renderId = 0; #refocus = false;
+  #frameCleanup = null;
   constructor() {
     super();
     const root = this.attachShadow({ mode: 'open', delegatesFocus: true });
@@ -119,6 +135,7 @@ export class AithemaHTMLPreview extends HTMLElement {
   }
   #discard() {
     const hadFocus = this.#frameFocused || this.#frame !== null && this.ownerDocument.activeElement === this && this.shadowRoot.activeElement === this.#frame;
+    this.#frameCleanup?.(); this.#frameCleanup = null;
     this.#frame?.remove(); this.#frame = null; this.#frameFocused = false; return hadFocus;
   }
   #render() {
@@ -144,8 +161,26 @@ export class AithemaHTMLPreview extends HTMLElement {
     // The frame element holds focus while the draft's content does; a replacement keeps it.
     frame.addEventListener('focus', () => { if (frame === this.#frame) this.#frameFocused = true; });
     frame.addEventListener('blur', () => { if (frame === this.#frame) this.#frameFocused = false; });
-    // Host CSP blocks navigation before a request or destination script runs;
-    // counting loads cannot establish containment and is no longer needed.
+    let loads = 0, timer = null, port = null;
+    const navigated = () => {
+      if (frame !== this.#frame) return;
+      const focused = this.#discard(); this.#show('navigated');
+      if (focused) this.shadowRoot.querySelector('.seg [aria-checked="true"]').focus();
+    };
+    this.#frameCleanup = () => { clearTimeout(timer); port?.close(); };
+    // Late navigation loads again. An early blocked navigation can make the
+    // *first* load a chrome-error document, which cannot answer the srcdoc ping.
+    frame.addEventListener('load', () => {
+      if (frame !== this.#frame) return;
+      if (++loads > 1) return navigated();
+      const channel = new MessageChannel(), reply = channel.port1; port = reply;
+      reply.onmessage = event => {
+        if (frame !== this.#frame || event.data !== FRAME_READY) return;
+        clearTimeout(timer); reply.close(); port = null;
+      };
+      timer = setTimeout(navigated, 1500);
+      frame.contentWindow.postMessage(FRAME_READY, '*', [channel.port2]);
+    });
     frame.setAttribute('srcdoc', frameDocument(html));
     this.#frame = frame; this.shadowRoot.querySelector('.stage').prepend(frame); this.#show('ready');
     if (hadFocus) frame.focus();

@@ -177,6 +177,9 @@ test('real Chrome isolates the html preview and renders the sample click-dummy',
     await page.evaluate(html => window.show(html), draft);
     const destination = `http://127.0.0.1:${port}/destination/${delayed ? 'after-load' : 'immediate'}`;
     await page.waitForFunction(url => window.violations.some(v => v.directive === 'frame-src' && v.blocked === url && v.disposition === 'enforce'), {}, destination);
+    await page.waitForFunction(() => document.querySelector('aithema-html-preview').state === 'navigated');
+    assert.equal(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('iframe')), null);
+    assert.match(await page.evaluate(() => document.querySelector('aithema-html-preview').shadowRoot.querySelector('.state').textContent), /tried to open another page and was stopped/u);
     assert.equal(page.url(), `http://127.0.0.1:${port}/`);
     assert.deepEqual(hits, [], 'ZERO navigation requests and ZERO requests from destination scripts');
   }
