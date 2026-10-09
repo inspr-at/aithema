@@ -11,10 +11,12 @@
   ],
   "scripts": {
     "test": "node --test packages/*/test/*.test.js plugins/*/test/*.test.js demo/test/*.test.js",
+    "test:browser": "node --test test/browser/demo.test.js",
     "demo": "node demo/server.js"
   },
   "devDependencies": {
-    "happy-dom": "^20.11.2"
+    "happy-dom": "^20.11.2",
+    "puppeteer-core": "25.13.0"
   },
   "version": "0.0.0",
   "description": "Embeddable requirements conversation: core, server, web components and provider plugins",
