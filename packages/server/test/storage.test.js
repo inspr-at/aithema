@@ -73,6 +73,16 @@ test('export ZIP holds exactly transcript JSON/Markdown and understanding, witho
     assert.deepEqual(JSON.parse(files['understanding.json']), s.understanding);
   } finally { store.close(); }
 });
+test('export accounts for concept metadata whose artifact bytes were not supplied', () => {
+  const store = new SQLiteStorage();
+  try {
+    const session = { ...store.create(), concepts: [{ id: 'withheld-concept', mediaType: 'text/html' }] };
+    const files = unzip(exportSession(session));
+    assert.deepEqual(JSON.parse(files['concepts-manifest.json']), { version: 1, included: [],
+      withheld: [{ id: 'withheld-concept', reason: 'artifact-unavailable' }] });
+    assert.equal(files['concepts/withheld-concept.html'], undefined);
+  } finally { store.close(); }
+});
 test('turn acknowledgement happens before reasoning completes and malformed requests are rejected', async () => {
   const store = new SQLiteStorage(), mock = createMockReasoning(); let release;
   const gate = new Promise(r => { release = r; });

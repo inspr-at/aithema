@@ -1,4 +1,5 @@
 import { processingScope, MOCK_PROCESSING_SCOPE } from '@inspr/aithema-core';
+import { matchingHTMLReasoning } from './html-config.js';
 
 // Ported verbatim from START src/lib/consent-items.ts and the English items in
 // src/lib/i18n.ts (consentCopy.en). No EU or zero-retention entitlement is inferred.
@@ -42,7 +43,11 @@ export function qualifyStartBinding(binding, now = Date.now()) {
  * A mock grant has no item selection/contract and can never authorize these scopes.
  */
 export function createProcessingConsent({ storage, bindings, now = Date.now }) {
-  const allowed = bindings.flatMap(binding => (binding.plugin === 'elevenlabs' ? ['start'] : ['stream', 'structured'])
+  // HTML entries must carry the qualification from coverHTMLBinding: a reasoning
+  // grant is not stretched to a different recipient or routing configuration.
+  const coveredBindings = bindings.filter(binding => binding.plugin !== 'claude-html' || binding.legal?.purpose === 'models-international' &&
+    matchingHTMLReasoning(binding, bindings));
+  const allowed = coveredBindings.flatMap(binding => (binding.plugin === 'elevenlabs' ? ['start'] : binding.plugin === 'claude-html' ? ['generate', 'edit'] : ['stream', 'structured'])
     .map(operation => processingScope(binding, operation)));
   const modelProviders = [...new Set(bindings.filter(b => b.plugin === 'openrouter').map(b => b.model.split('/')[0]))];
   const items = CONSENT_ITEMS.filter(item => bindings.some(binding => binding.legal?.purpose === item.id));

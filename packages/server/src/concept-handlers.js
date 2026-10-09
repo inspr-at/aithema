@@ -1,18 +1,29 @@
-import { ConceptLane, syncConceptIntent, corroborateConceptIntent, reduceConceptIntent, inputRevision, PluginError, MAX_UI_REFERENCES } from '@inspr/aithema-core';
+import { ConceptLane, syncConceptIntent, corroborateConceptIntent, reduceConceptIntent, inputRevision, PluginError, MAX_UI_REFERENCES, HTML_MEDIA_TYPE } from '@inspr/aithema-core';
 import { NotFoundError, ConflictError } from './storage.js';
+import { UI_RENDER_SESSION_REASON, UI_RENDER_DAY_REASON } from './ui-render-limits.js';
 
 const json = (body, status = 200) => Response.json(body, { status, headers: { 'cache-control': 'no-store' } });
 const identifier = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(value);
 export function createConceptHandlers({ storage, runtime, ownership, readBody, publish, signal, policy, deadlineMs, estimateMs,
   references = () => [] }) {
   const prepare = session => {
-    const history = session.concepts ?? [];
+    const visualKind = runtime.visualKind(session);
+    const history = (session.concepts ?? []).filter(c => (c.mediaType === HTML_MEDIA_TYPE ? 'html' : 'images') === visualKind);
     // START: prefer the latest liked available concept, then the latest
     // available concept; only the latest archived item is a negative reference.
     const available = history.filter(c => !c.archived);
     const previous = available.filter(c => c.feedback?.vote === 'up').at(-1) ?? available.at(-1);
     const rejected = history.filter(c => c.archived).at(-1);
     const chosen = [...(previous ? [{ item: previous, role: 'previous' }] : []), ...(rejected ? [{ item: rejected, role: 'rejected' }] : [])];
+    const feedback = JSON.stringify(history.filter(c => c.feedback?.vote !== 'clear' || c.feedback?.chips?.length)
+      .slice(-8).map(c => ({ artifactId: c.id, vote: c.feedback?.vote, guidance: c.feedback?.chips ?? [], rejected: c.archived })));
+    if (visualKind === 'html') return { visualKind, previousId: previous?.id, referenceIds: chosen.map(c => c.item.id), refreshReferenceIds: [], feedback,
+      loadPrevious: () => {
+        if (!previous) return undefined;
+        const artifact = storage.conceptArtifact(session.id, previous.id);
+        if (artifact.erased) throw new NotFoundError('Concept reference erased');
+        return { bytes: artifact.bytes, mediaType: artifact.mediaType, promptDigest: artifact.promptDigest, provenance: artifact.provenance };
+      } };
     // Trusted host descriptors contain identities and lazy load() ports. Existing
     // in-memory byte descriptors remain supported, without reading their bytes
     // during planning. This port must not fetch bytes to enumerate identities.
@@ -20,13 +31,12 @@ export function createConceptHandlers({ storage, runtime, ownership, readBody, p
     if (!Array.isArray(extras)) throw new TypeError('Invalid concept reference port');
     const selected = [...chosen.map(({ item, role }) => ({ id: item.id, role, load: () => storage.conceptArtifact(session.id, item.id) })), ...extras].slice(0, MAX_UI_REFERENCES);
     if (selected.some(r => !identifier(r.id))) throw new TypeError('Invalid concept reference identity');
-    return { loadReferences: () => selected.map(reference => {
+    return { visualKind, loadReferences: () => selected.map(reference => {
       const artifact = reference.load ? reference.load() : reference;
       if (artifact.erased) throw new NotFoundError('Concept reference erased');
       return { bytes: artifact.bytes, mediaType: artifact.mediaType, role: reference.role };
     }), referenceIds: selected.map(r => r.id), refreshReferenceIds: selected.filter(r => extras.includes(r)).map(r => r.id),
-      feedback: JSON.stringify(history.filter(c => c.feedback?.vote !== 'clear' || c.feedback?.chips?.length)
-        .slice(-8).map(c => ({ artifactId: c.id, vote: c.feedback?.vote, guidance: c.feedback?.chips ?? [], rejected: c.archived }))) };
+      feedback };
   };
   const lane = new ConceptLane({ getSession: id => storage.get(id), prepare, policy, deadlineMs, estimateMs,
     admit: args => runtime.admit(args), publicationAllowed: (session, options) => runtime.publicationAllowed(session, options),
@@ -40,13 +50,14 @@ export function createConceptHandlers({ storage, runtime, ownership, readBody, p
     const event = storage.append(id, 'concept.state', { intent, status: session.conceptStatus });
     if (event) publish(id, event); return event;
   }
-  async function gate(session, { read = false, operation = 'generate' } = {}) {
+  async function gate(session, { read = false, operation = 'generate', visualKind = runtime.visualKind(session) } = {}) {
     if (session.tombstone || session.consentWithdrawn || !read && session.paused) throw new PluginError('not-admitted');
     if (read) {
-      if (!await runtime.publicationAllowed(session, { operation })) throw new PluginError('not-admitted');
+      if (!await runtime.publicationAllowed(session, { operation, visualKind })) throw new PluginError('not-admitted');
     } else {
       const matrix = await runtime.matrix(session);
-      if (!matrix[session.processingPreset ?? 'best']?.images?.available) throw new PluginError('not-admitted');
+      const feature = matrix[session.processingPreset ?? 'best']?.[visualKind];
+      if (!feature?.available) throw new PluginError([UI_RENDER_SESSION_REASON, UI_RENDER_DAY_REASON].includes(feature?.reason) ? 'rate-limit' : 'not-admitted', feature?.reason);
     }
   }
   return { lane, schedule, ended,
@@ -80,7 +91,7 @@ export function createConceptHandlers({ storage, runtime, ownership, readBody, p
         if (body?.eligible !== false) throw new TypeError('Only ending eligibility may be signalled');
         return json({ event: ended(id) });
       }
-      const match = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})\/concepts(?:\/([a-zA-Z0-9_-]{1,128})(?:\/(image|provenance|feedback|regenerate|reject))?)?$/u.exec(new URL(request.url).pathname);
+      const match = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})\/concepts(?:\/([a-zA-Z0-9_-]{1,128})(?:\/(image|html|provenance|feedback|regenerate|reject))?)?$/u.exec(new URL(request.url).pathname);
       if (!match) return null;
       const [, id, artifactId, action] = match;
       const ownerToken = ownership.token(request), session = storage.authorize(id, ownerToken);
@@ -88,12 +99,18 @@ export function createConceptHandlers({ storage, runtime, ownership, readBody, p
       if (request.method === 'GET') {
         const stored = artifactId ? storage.conceptArtifact(id, artifactId) : null;
         if (stored?.erased) throw new NotFoundError();
-        await gate(session, { read: true, operation: stored?.referenceIds.length ? 'edit' : 'generate' }); storage.authorize(id, ownerToken);
+        const visualKind = stored ? (stored.mediaType === HTML_MEDIA_TYPE ? 'html' : 'images') : runtime.visualKind(session);
+        await gate(session, { read: true, visualKind, operation: stored?.operation ?? (stored?.referenceIds.length ? 'edit' : 'generate') }); storage.authorize(id, ownerToken);
         if (!artifactId) return json({ items: storage.get(id).concepts ?? [], intent: storage.get(id).conceptIntent,
-          status: storage.get(id).conceptStatus, cost: runtime.imageQuote(session) });
+          status: storage.get(id).conceptStatus, visualKind, cost: runtime.imageQuote(session) });
         const artifact = storage.conceptArtifact(id, artifactId); if (artifact.erased) throw new NotFoundError();
         if (action === 'provenance') return json(artifact.provenance);
-        if (action === 'image') return new Response(artifact.bytes, { headers: { 'content-type': artifact.mediaType,
+        if (action === 'html' && artifact.mediaType === HTML_MEDIA_TYPE) return new Response(artifact.bytes, { headers: {
+          'content-type': 'application/octet-stream', 'cache-control': 'private, no-store', 'vary': 'Cookie, x-aithema-session-token',
+          'content-length': String(artifact.bytes.length), 'x-content-type-options': 'nosniff',
+          'content-security-policy': "default-src 'none'; sandbox", 'content-disposition': `attachment; filename="concept-${artifactId}.bin"`,
+          'content-digest': artifact.provenance.subject.contentDigest } });
+        if (action === 'image' && artifact.mediaType.startsWith('image/')) return new Response(artifact.bytes, { headers: { 'content-type': artifact.mediaType,
           'content-length': String(artifact.bytes.length), 'cache-control': 'private, no-store', 'vary': 'Cookie, x-aithema-session-token',
           'x-content-type-options': 'nosniff', 'content-digest': artifact.provenance.subject.contentDigest,
           'x-aithema-origin': artifact.provenance.origin,

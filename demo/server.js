@@ -1,7 +1,7 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve, sep } from 'node:path';
-import { SQLiteStorage, createHandlers, createPluginRuntime, createMemoryConsentLedger, createFacadeSecrets, createVoiceProvider, createDurationBinding, mockPresets, createLocalImages, localImageBinding, createImageBinding, createSpendCap } from '@inspr/aithema-server';
+import { SQLiteStorage, createHandlers, createPluginRuntime, createMemoryConsentLedger, createFacadeSecrets, createVoiceProvider, createDurationBinding, mockPresets, createLocalImages, localImageBinding, createImageBinding, createSpendCap, createLocalHTML, localHTMLBinding, uiRenderLimitConfig } from '@inspr/aithema-server';
 import { createLocalVoiceProvider, localVoiceBinding } from '../packages/server/src/local-voice.js';
 import { listen } from '@inspr/aithema-server/http';
 import { createMockReasoning, PluginRegistry } from '@inspr/aithema-core';
@@ -17,6 +17,8 @@ import { deploymentConfig, deploymentGate } from './deployment.js';
 import { createVoiceHost as createStart2VoiceHost } from './start2-voice-host.js';
 import { createProcessingConsent } from './processing-consent.js';
 import { openRouterConfig } from './openrouter-config.js';
+import { htmlConfig } from './html-config.js';
+import { createClaudeHTML } from '@inspr/aithema-plugin-claude-html';
 
 const deployment = deploymentConfig();
 // The demo is deterministic unless the operator explicitly selects a provider.
@@ -24,6 +26,8 @@ const deployment = deploymentConfig();
 const provider = process.env.AITHEMA_PROVIDER ?? 'mock';
 if (!['mock', 'openrouter', 'mistral'].includes(provider)) throw new TypeError('Unknown demo provider');
 const openrouter = provider === 'openrouter' ? openRouterConfig(process.env) : undefined;
+const html = htmlConfig(process.env, openrouter ? [openrouter.reaction, openrouter.understanding] : []);
+const uiRenderLimits = uiRenderLimitConfig(process.env);
 const ownership = createOwnership(deployment);
 const root = fileURLToPath(new URL('../', import.meta.url));
 const defaultDb = resolve(root, '.data/session.sqlite');
@@ -36,8 +40,11 @@ const privateBinding = openrouter?.reaction ?? { plugin: provider, model: provid
   accountRef: provider === 'openrouter' ? 'start2-openrouter' : 'unverified', secretRef: provider === 'mistral' ? 'MISTRAL_API_KEY' : 'OPENROUTER_API_KEY',
   maxMicro: 1_000_000, maxTokens: 4096, rates: { inputMicro: 0, outputMicro: 0 } };
 const understandingBinding = openrouter?.understanding ?? privateBinding;
-const spendCap = provider === 'openrouter' ? createSpendCap({ storage, account: privateBinding.accountRef,
-  capMicro: openrouter.capMicro }) : undefined;
+const spendCap = provider === 'openrouter' || html.mode === 'claude' ? createSpendCap({ storage, account: 'start2-openrouter',
+  capMicro: openrouter?.capMicro ?? html.capMicro }) : undefined;
+const htmlPlugin = html.mode === 'fake' ? createLocalHTML() : html.mode === 'claude'
+  ? createClaudeHTML({ binding: html.binding, spend: spendCap, capMicro: html.capMicro }) : null;
+const htmlSelection = htmlPlugin ? { html: html.binding ?? localHTMLBinding } : {};
 const reasoning = provider === 'mock' ? createMockReasoning() : provider === 'openrouter'
   ? createOpenRouterReasoning({ binding: privateBinding, spendCap, prices: openrouter.prices }) : createMistralReasoning({ binding: privateBinding });
 const secrets = createFacadeSecrets();
@@ -63,7 +70,7 @@ if (imageMode === 'openai') {
   imageHost.binding = createImageBinding(imageHost.binding);
   if (voiceHost && imageHost.consent !== voiceHost.consent) throw new TypeError('Images and voice require the same authoritative consent port');
 }
-const liveBindings = [...(provider === 'openrouter' ? [privateBinding, understandingBinding] : []), ...(voiceHost?.binding ? [voiceHost.binding] : [])];
+const liveBindings = [...(provider === 'openrouter' ? [privateBinding, understandingBinding] : []), ...(voiceHost?.binding ? [voiceHost.binding] : []), ...(html.binding?.legal ? [html.binding] : [])];
 const consent = imageHost?.consent ?? voiceHost?.consent ?? (liveBindings.length
   ? createProcessingConsent({ storage, bindings: liveBindings }) : createMemoryConsentLedger());
 if (voiceHost?.staticSecretRef) {
@@ -79,14 +86,14 @@ const voicePlugin = voiceMode === 'fake' ? createLocalVoiceProvider({ storage, p
       apiBaseUrl: voiceHost.binding.endpoint, upstreamMicroPerMinute: voiceHost.binding.upstreamMicroPerMinute,
       visitorMicroPerMinute: voiceHost.binding.visitorMicroPerMinute }, resolveSecret: ref => process.env[ref],
     staticFacade: Boolean(voiceHost.staticSecretRef), provisionFacade: voiceHost.provisionFacade, revokeFacade: secrets.revoke, requestProviderClose: voiceHost.requestProviderClose }) : null;
-const registry = new PluginRegistry().register(reasoning); if (voicePlugin) registry.register(voicePlugin); if (imagePlugin) registry.register(imagePlugin);
+const registry = new PluginRegistry().register(reasoning); if (voicePlugin) registry.register(voicePlugin); if (imagePlugin) registry.register(imagePlugin); if (htmlPlugin) registry.register(htmlPlugin);
 const voiceSelection = voicePlugin ? { voice: voiceHost?.binding ?? localVoiceBinding } : {};
-const localPresets = { ...mockPresets(), best: { plugins: ['mock', ...(voicePlugin ? [voicePlugin.manifest.id] : []), ...(imagePlugin ? [imagePlugin.manifest.id] : [])],
-  bindings: { ...mockPresets().best.bindings, ...voiceSelection, ...imageSelection }, policy } };
-const pluginRuntime = provider === 'mock' ? createPluginRuntime({ storage, reasoning, consent, registry, presets: localPresets }) : createPluginRuntime({ storage, consent,
-  registry, presets: {
-    best: { plugins: [provider, ...(voicePlugin ? [voicePlugin.manifest.id] : []), ...(imagePlugin ? [imagePlugin.manifest.id] : [])],
-      bindings: { reaction: privateBinding, understanding: understandingBinding, ...voiceSelection, ...imageSelection }, policy },
+const localPresets = { ...mockPresets(), best: { plugins: ['mock', ...(voicePlugin ? [voicePlugin.manifest.id] : []), ...(imagePlugin ? [imagePlugin.manifest.id] : []), ...(htmlPlugin ? [htmlPlugin.manifest.id] : [])],
+  bindings: { ...mockPresets().best.bindings, ...voiceSelection, ...imageSelection, ...htmlSelection }, policy } };
+const pluginRuntime = provider === 'mock' ? createPluginRuntime({ storage, reasoning, consent, registry, uiRenderLimits, presets: localPresets }) : createPluginRuntime({ storage, consent,
+  registry, uiRenderLimits, presets: {
+    best: { plugins: [provider, ...(voicePlugin ? [voicePlugin.manifest.id] : []), ...(imagePlugin ? [imagePlugin.manifest.id] : []), ...(htmlPlugin ? [htmlPlugin.manifest.id] : [])],
+      bindings: { reaction: privateBinding, understanding: understandingBinding, ...voiceSelection, ...imageSelection, ...htmlSelection }, policy },
     eu: { plugins: [], bindings: {} }, custom: { plugins: [], bindings: {} },
   } });
 const handlers = createHandlers({ storage, reasoning, pluginRuntime, consent, ownership, voice: voicePlugin ? { secrets, closeOrphan: voiceHost?.closeOrphan, staticSecretRef: voiceHost?.staticSecretRef } : undefined }); await handlers.resume();
@@ -102,7 +109,8 @@ async function handle(request) {
   if (url.pathname.startsWith('/api/')) return handlers.handle(request);
   if (!['GET', 'HEAD'].includes(request.method)) return new Response(null, { status: 405 });
   if (url.pathname === '/demo/config') return Response.json({ label: reasoning.label, defaultPreset: 'best', voiceMode: voiceMode === 'elevenlabs' && !voiceHost?.binding ? 'off' : voiceMode,
-    voiceDisabledReason: voiceHost?.disabledReason ?? null, processingConsent: consent.describe?.(), imageMode, imageLabel: imagePlugin?.label ?? 'Images off' });
+    voiceDisabledReason: voiceHost?.disabledReason ?? null, processingConsent: consent.describe?.(), imageMode, imageLabel: imagePlugin?.label ?? 'Images off',
+    htmlMode: html.mode, htmlLabel: htmlPlugin?.label ?? 'HTML off', htmlDisabledReason: html.disabledReason ?? null });
   if (url.pathname.startsWith('/vendor/elevenlabs/worklets/')) {
     const bytes = await voiceAsset(url.pathname.slice('/vendor/elevenlabs/worklets/'.length));
     return bytes ? new Response(request.method === 'HEAD' ? null : bytes, { headers: { 'content-type': 'text/javascript; charset=utf-8', 'x-content-type-options': 'nosniff' } }) : new Response(null, { status: 404 });

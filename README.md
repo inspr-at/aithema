@@ -771,6 +771,65 @@ provenance}` with exactly these keys. `bytes` is UTF-8 and at most 512 KiB
 `HTML_PREVIEW_CSP`. Types are in [`ui-html.d.ts`](packages/core/src/ui-html.d.ts).
 `isUIArtifact` stays image-only.
 
+The continuous concept lane accepts a preset's `bindings.html` as well as
+`bindings.images`. HTML is primary when both are present; `bindings.visuals =
+'html' | 'images'` explicitly selects one. An unavailable HTML binding never
+silently falls back to a different processor. Both kinds use the existing
+person opt-in, spending intent, milestones, input revisions and cancellation
+rules. HTML refreshes call `edit(previousArtifact, spec, feedback)` with the
+current summary, constraint slot values, open questions, active person words
+and session language. HTML bytes, media type, digest and provenance live in the
+same erasable artifact store; source withdrawal, consent withdrawal and full
+erasure remove the dependent content and feedback.
+
+The B2 viewer can use these owner-authenticated routes (session cookie or
+`x-aithema-session-token`; every response is `no-store`):
+
+| Route | Payload / result |
+| --- | --- |
+| `GET /api/sessions/:id` | `conceptVisualKind`, `concepts`, `conceptStatus`, `conceptCost`, `featureMatrix.best.html` |
+| `GET /api/sessions/:id/concepts` | `{items, intent, status, visualKind, cost}`; metadata only, with `mediaType`, `operation`, `provenance`, source IDs and feedback on each item |
+| `POST /api/sessions/:id/concepts` | `{clientEventId, intent:true, sourceTurnId}` records person opt-in; returns `{accepted:true, event, replayed}`, normally HTTP 202 |
+| `GET /api/sessions/:id/concepts/:artifactId/html` | UTF-8 bytes as `application/octet-stream`, `nosniff`, attachment; load as data into `<aithema-html-preview>`, never navigate to this route |
+| `GET /api/sessions/:id/concepts/:artifactId/provenance` | Provenance JSON |
+| `POST /api/sessions/:id/concepts/:artifactId/feedback` | `{clientEventId, vote:'up'|'down'|'clear', chips:[...]}`; does not generate |
+| `POST /api/sessions/:id/concepts/:artifactId/reject` | `{clientEventId}` archives the draft; does not generate |
+| `POST /api/sessions/:id/concepts/:artifactId/regenerate` | `{clientEventId, intent:true, sourceTurnId}` requests an admitted edit |
+| `GET /api/sessions/:id/events` | Existing SSE `concept.state` events: `data.status.phase` is `waiting`, `pending`, `ready` or `failed`; `data.artifact` appears on completion |
+| `GET /api/sessions/:id/export` | ZIP with `concepts/:artifactId.html` and its original `.provenance.json` |
+
+Exports use the core `frameDocument` wrapper: the preview CSP precedes all draft
+content. A second CSP disables scripts in downloaded files. The download does
+not have the preview's opaque-origin frame and host navigation gate, so a
+standalone copy is deliberately a passive document. Network requests and form
+submission are blocked; permitted links stay within the document. The provenance
+digest describes the original stored artifact, before the export wrapper.
+
+`AITHEMA_HTML_MODE` defaults to `fake`, a deterministic local clickable HTML
+generator with escaped summary and open questions. `off` removes its binding.
+`claude` uses `AITHEMA_HTML_MODEL` (default `anthropic/claude-opus-5.5`), requires
+positive operator prices, and injects the same persistent SQLite account spend
+port used by reaction, understanding and delegated voice reasoning. There is no
+second file counter. HTML sends START's `provider.only`, analysis `ignore`,
+`require_parameters`, `allow_fallbacks:false` and decimal-exact `max_price`;
+the output ceiling is 8,000 tokens, with reasoning disabled.
+
+START has no separate HTML consent item. The demo reuses its verbatim
+`models-international` item only when the Anthropic processor, account, secret
+reference, actual endpoint and complete provider routing match an existing
+reasoning binding. Otherwise HTML stays unavailable with `HTML consent scope
+unavailable: START has no matching HTML item` until an authoritative scope covers
+it. Generate and edit have separate exact processing scopes, checked again at
+claim consumption and publication. A host with its own matching consent item
+can provide a qualified HTML binding and the existing consent port.
+
+All UI render attempts share persistent lifetime-session and deployment UTC-day
+limits, default 20 and 200. Counts are recorded atomically at claim consumption;
+failed or crashed attempts remain counted. Reads, feedback and exports do not
+count. Refusals return HTTP 429 with a clear `reason`, also recorded in failed
+concept status for automatic refreshes. The session count survives erasure and
+restart; the daily count resets at UTC midnight.
+
 `inspectHTML` returns stable problem codes. It accepts exactly one document:
 `<!doctype html>` first, one `html`/`head`/`body`, `</html>` last, valid UTF-8 and
 no control characters. It rejects:
@@ -1202,7 +1261,7 @@ Readiness of voice is separately visible in
 | `OPENROUTER_MAX_TOKENS` | Reply token ceiling for reaction/speech; default `1200`; used in the per-request spend ceiling |
 | `OPENROUTER_ANALYSIS_MAX_TOKENS` | Understanding token ceiling; default `8000`; START found lower values truncated real analyses; used in the per-request spend ceiling |
 | `OPENROUTER_PROVIDER_ONLY` | Comma-separated upstream allow-list sent as `provider.only` on every request; unset means no restriction; part of the legal profile; must mirror START exactly |
-| `OPENROUTER_ANALYSIS_PROVIDER_IGNORE` | Comma-separated upstream exclusions sent as `provider.ignore` on understanding/analysis only; default `Azure`, whose START workspace rejects `response_format` despite advertised support |
+| `OPENROUTER_ANALYSIS_PROVIDER_IGNORE` | Comma-separated upstream exclusions sent as `provider.ignore` on understanding/analysis and HTML; default `Azure`, whose START workspace rejects `response_format` despite advertised support |
 | `AITHEMA_OPENROUTER_PRICES` | Required JSON for every configured model: `{"<model>":{"prompt":<USD per token>,"completion":<USD per token>}}`; finite nonnegative prices; no catalog defaults |
 | `AITHEMA_OPENROUTER_CAP_USD` | Lifetime persisted account cap; decimal USD with up to six fractional digits, default `10` |
 | `AITHEMA_VOICE_MODE` | `elevenlabs` enables startup ensure; default `fake`; `off` disables voice |
@@ -1210,6 +1269,10 @@ Readiness of voice is separately visible in
 | `AITHEMA_ELEVENLABS_TEMPLATE_AGENT_ID` | START agent to GET for selected voice/language/ASR/turn/privacy settings; never a write target |
 | `AITHEMA_VOICE_FACADE_SECRET` | Deployment callback bearer supplied by OPS; startup creates/updates its owned workspace-secret reference |
 | `AITHEMA_IMAGE_MODE` | Use `off` for the first live smoke; default `fake`; `openai` requires a separate host module |
+| `AITHEMA_HTML_MODE` | `fake` (default) generates local clickable HTML; `claude` uses the shared SQLite OpenRouter cap and requires current matching consent; `off` disables HTML |
+| `AITHEMA_HTML_MODEL` | `anthropic/claude-opus-5.5` (default); Claude model ID required in `AITHEMA_OPENROUTER_PRICES`; output capped at 8,000 tokens |
+| `AITHEMA_UI_RENDERS_PER_SESSION` | Persistent lifetime limit shared by HTML and images; default `20`; `0` disables generation |
+| `AITHEMA_UI_RENDERS_PER_DAY` | Persistent deployment-wide UTC-day limit shared by HTML and images; default `200`; `0` disables generation |
 | `AITHEMA_VOICE_HOST_MODULE` | Optional server-only host override; unset selects built-in start2 host |
 
 Production requires no `ELEVENLABS_AGENT_ID`: the owned agent id comes from ensure

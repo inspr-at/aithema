@@ -29,6 +29,19 @@ export function conceptPrompt(session) {
     `Use previous references for continuity and rejected references as examples to avoid. Produce one coherent interface, no logos or invented claims.\n` +
     JSON.stringify({ locale: session.locale, requirements: turns, understanding: session.understanding.summary }).slice(0, 24000);
 }
+export function conceptHTMLSpec(session) {
+  const u = session.understanding;
+  const visitorWords = []; let remaining = 24000;
+  for (const turn of activeTurns(session).filter(t => t.role === 'user').reverse()) {
+    if (!remaining) break;
+    const words = turn.content.slice(-remaining);
+    visitorWords.push(words); remaining -= words.length;
+  }
+  return { prompt: "Create one clickable draft grounded in the current understanding and the person's words. Show open questions without deciding them.",
+    language: session.locale, visitorWords,
+    understanding: { summary: u.summary, slots: Object.fromEntries(Object.entries(u.constraints ?? {}).map(([key, slot]) => [key, slot?.value ?? null])),
+      openQuestions: u.openQuestions ?? [] } };
+}
 
 /** A separate single-flight lane: ordinary input advance keeps paid history. */
 export class ConceptLane {
@@ -58,7 +71,9 @@ export class ConceptLane {
     const controller = new AbortController(), abort = () => controller.abort(signal.reason);
     if (signal?.aborted) abort(); else signal?.addEventListener('abort', abort, { once: true });
     const scope = operationScope({ signal: controller.signal, deadlineAt: this.now() + this.deadlineMs });
-    const options = { signal: scope.signal, deadlineAt: this.now() + this.deadlineMs, operation: prepared.referenceIds.length ? 'edit' : 'generate' };
+    const visualKind = prepared.visualKind ?? 'images';
+    const options = { signal: scope.signal, deadlineAt: this.now() + this.deadlineMs, visualKind,
+      operation: (visualKind === 'html' ? prepared.previousId : prepared.referenceIds.length) ? 'edit' : 'generate' };
     this.persist(id, { intent, status: { phase: 'pending', requestId, startedAt: this.now(), estimateMs: this.estimateMs,
       turnIds: job.turnIds, referenceIds: job.referenceIds } });
     const work = async () => {
@@ -66,12 +81,16 @@ export class ConceptLane {
       try {
         scope.signal.throwIfAborted();
         // Planning and invalidation use identities only. Read/validate private
-        // image bytes once a generation has actually been selected.
-        const references = prepared.loadReferences(); validateUIReferences(references);
-        const request = { prompt: conceptPrompt(session), references, feedback: prepared.feedback };
+        // artifact bytes once a generation has actually been selected.
+        const previousArtifact = visualKind === 'html' ? prepared.loadPrevious?.() : undefined;
+        const references = visualKind === 'html' ? [] : prepared.loadReferences(); validateUIReferences(references);
+        const spec = visualKind === 'html' ? conceptHTMLSpec(session) : { prompt: conceptPrompt(session), references };
+        const request = { ...spec, feedback: prepared.feedback, ...(previousArtifact ? { previousArtifact } : {}) };
         admitted = await this.admit({ session: { ...session, conceptIntent: intent }, lane: 'concept', operation: options.operation, request, options });
         let artifact;
-        try { artifact = await untilCancelled(admitted.plugin.generate({ prompt: request.prompt, references: request.references }, request.feedback, admitted.options), scope.signal); }
+        try { artifact = await untilCancelled(visualKind === 'html' && previousArtifact
+          ? admitted.plugin.edit(previousArtifact, spec, request.feedback, admitted.options)
+          : admitted.plugin.generate(spec, request.feedback, admitted.options), scope.signal); }
         catch (error) { failed = true; throw error; }
         finally { admitted.finish({ failed }); }
         if (!await untilCancelled(this.publicationAllowed(session, options), scope.signal)) throw new PluginError('not-admitted');
@@ -81,14 +100,17 @@ export class ConceptLane {
         const artifactId = crypto.randomUUID();
         const finished = reduceConceptIntent(current, { type: 'render-completed', id: requestId, artifactId, now: this.now() }, this.policy);
         this.complete(id, artifact, { id: artifactId, requestId, createdAt: this.now(), inputRevision: job.inputRevision,
-          turnIds: job.turnIds, referenceIds: job.referenceIds, disposition: disposition.kind, archived: false },
+          turnIds: job.turnIds, referenceIds: job.referenceIds, visualKind, operation: options.operation, disposition: disposition.kind, archived: false },
           { intent: finished, status: { phase: 'ready', requestId } });
         return 'completed';
-      } catch {
+      } catch (error) {
         const latest = this.getSession(id);
         if (latest.conceptIntent?.pending?.id === requestId && !latest.tombstone) {
           const intent = reduceConceptIntent(latest.conceptIntent, { type: 'render-failed', id: requestId, now: this.now() }, this.policy);
-          this.persist(id, { intent, status: { phase: 'failed', requestId, error: 'concept-unavailable', retryable: true } });
+          const reason = ['UI render limit reached for this session', 'UI render limit reached for this UTC day',
+            'HTML consent scope unavailable: START has no matching HTML item', 'current processing consent required'].includes(error?.message) ? error.message : undefined;
+          this.persist(id, { intent, status: { phase: 'failed', requestId, error: error?.code === 'rate-limit' ? 'rate-limit' : 'concept-unavailable',
+            ...(reason ? { reason } : {}), retryable: true } });
         }
         return 'failed';
       } finally { scope.dispose(); signal?.removeEventListener('abort', abort); }

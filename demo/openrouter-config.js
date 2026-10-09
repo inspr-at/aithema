@@ -39,7 +39,7 @@ export function openRouterConfig(values) {
     return qualifyStartBinding({ plugin: 'openrouter', model, effort: 'none',
       endpoint: 'https://openrouter.ai/api/v1/chat/completions', accountRef: 'start2-openrouter', secretRef: 'OPENROUTER_API_KEY',
       maxMicro: 1_000_000, maxTokens, rates: { inputMicro: 0, outputMicro: 0 },
-      routing: { require_parameters: true,
+      routing: { require_parameters: true, allow_fallbacks: false,
         ...(providerOnly?.length ? { only: [...providerOnly] } : {}),
         ...(ignore?.length ? { ignore: [...ignore] } : {}),
         // verified live 2026-10-09: USD per MILLION tokens; enforced before dispatch.

@@ -7,6 +7,14 @@ export const HTML_PREVIEW_HOST_CSP = "frame-src 'none'; child-src 'none'";
 export const MAX_HTML_BYTES = 512 * 1024;
 export const HTML_PREVIEW_CSP = "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; " +
   "img-src data:; font-src data:; form-action 'none'; base-uri 'none'";
+/** Charset follows the doctype, then CSP precedes all untrusted content. Standalone exports disable scripts too:
+ * meta CSP cannot supply the preview's opaque-origin sandbox/host navigation gate.
+ * inspectHTML permits only fragment links and rejects refresh/embedded documents.
+ */
+export function frameDocument(html, { standalone = false } = {}) {
+  return `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${HTML_PREVIEW_CSP}"><meta name="referrer" content="no-referrer">${
+    standalone ? '<meta http-equiv="Content-Security-Policy" content="script-src \'none\'">' : ''}${html.replace(/^\s*<!doctype[^>]*>/iu, '')}`;
+}
 export const HTML_PROBLEMS = Object.freeze(['empty', 'size', 'utf-8', 'control-character', 'document', 'external-reference',
   'base', 'http-equiv', 'form', 'embedded-content', 'module-script', 'network-api', 'storage', 'navigation', 'obfuscation']);
 const exactKeys = (value, keys) => value && typeof value === 'object' &&
