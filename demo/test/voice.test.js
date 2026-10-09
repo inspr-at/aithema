@@ -2,13 +2,25 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
 import { startChild, temporaryDb } from '../../test/helpers.js';
+import { AudioRail } from '../../packages/ui/src/audio-rail.js';
+import { eventProbe, observedVoiceEvents } from '../../test/voice-test-events.js';
 
-test('labelled fake agent exercises speech, voice barge-in, typing, acknowledged pause, reconnect and close through the demo', { timeout: 15_000 }, async () => {
+test('labelled fake agent exercises speech, voice barge-in, typing, acknowledged pause, reconnect and close through the demo', { timeout: 60_000 }, async t => {
   const running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb());
   const nativeFetch = globalThis.fetch, window = new Window({ url: running.url });
   const keys = ['HTMLElement', 'customElements', 'document', 'CustomEvent', 'localStorage'];
   const originals = Object.fromEntries(keys.map(key => [key, globalThis[key]]));
   let cookie = '', failRecovery = false; const paths = [], failures = [];
+  const notifications = eventProbe(), render = AudioRail.prototype.render, consume = AudioRail.prototype.consume;
+  t.mock.method(AudioRail.prototype, 'render', function () {
+    render.call(this);
+    notifications.record({ source: 'render', state: this.root.dataset.state, busy: Boolean(this.busy),
+      input: this.input, startDisabled: this.button('start').disabled, retryDisabled: this.button('retry').disabled });
+  });
+  t.mock.method(AudioRail.prototype, 'consume', function (session, generation) {
+    session.events = observedVoiceEvents(session.events, event => notifications.record({ source: 'voice', event }));
+    return consume.call(this, session, generation);
+  });
   try {
     const html = await nativeFetch(running.url).then(r => r.text());
     window.document.write(html.replace(/<script[^>]*>[\s\S]*?<\/script>/gu, ''));
@@ -25,31 +37,48 @@ test('labelled fake agent exercises speech, voice barge-in, typing, acknowledged
     };
     await import('../host.js');
     const c = document.querySelector('aithema-session'), root = c.shadowRoot;
-    const wait = async predicate => {
-      for (let i = 0; i < 800; i++) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 5)); }
-      assert.fail('Fake voice did not reach the expected state: ' + JSON.stringify({ state: root.querySelector('.audio-rail').dataset.state, failures, turns: c.session.transcript.map(t => ({id:t.id,content:t.content})) }));
+    c.addEventListener('aithema-event', ({ detail: event }) => notifications.record({ source: 'session', event }));
+    const act = (action, ...predicates) => {
+      const after = notifications.events.length;
+      const ready = Promise.all(predicates.map(predicate => notifications.waitFor(predicate, after)));
+      action(); return ready;
     };
+    const voice = (type, predicate = () => true) => notice => notice.source === 'voice' && notice.event.type === type && predicate(notice.event);
+    const session = (type, predicate = () => true) => notice => notice.source === 'session' && notice.event.type === type && predicate(notice.event);
+    const rendered = predicate => notice => notice.source === 'render' && predicate(notice);
     assert.match(document.querySelector('#fake-label').textContent, /Fake voice.*no provider network/);
-    document.querySelector('#grant').click(); await wait(() => !root.querySelector('.voice-start').disabled);
-    root.querySelector('.voice-start').click(); await wait(() => root.querySelector('.audio-rail').dataset.state === 'speaking');
-    document.querySelector('#fake-say').click(); await wait(() => c.session.transcript.some(t => t.content?.includes('public API')));
-    document.querySelector('#fake-interrupt').click(); await wait(() => c.session.transcript.some(t => t.content === 'I understand.'));
+    await act(() => document.querySelector('#grant').click(), session('consent.revised'), rendered(n => !n.startDisabled));
+    await act(() => root.querySelector('.voice-start').click(), voice('final', e => e.role === 'assistant'));
+    assert.equal(root.querySelector('.audio-rail').dataset.state, 'speaking');
+    await act(() => document.querySelector('#fake-say').click(), voice('final', e => e.role === 'user' && e.text.includes('public API')),
+      voice('final', e => e.role === 'assistant' && e.text === 'I understand. Which part should we clarify first?'));
+    await act(() => document.querySelector('#fake-interrupt').click(), session('turn.corrected', e => e.data.content === 'I understand.'),
+      voice('heard', e => e.prefix === 'I understand.'), voice('listening'));
+    assert.ok(c.session.transcript.some(t => t.content === 'I understand.'));
     assert.ok(c.session.transcript.every(t => t.content !== 'I understand. Which part should we clarify first?'));
-    root.querySelector('textarea').value = 'Typed during voice'; root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true }));
-    await wait(() => c.session.transcript.some(t => t.content === 'Typed during voice'));
-    root.querySelector('.voice-input').click(); await wait(() => root.querySelector('.voice-input').getAttribute('aria-pressed') === 'false');
-    root.querySelector('.voice-pause').click(); await wait(() => c.session.paused && root.querySelector('.audio-rail').dataset.state === 'paused');
-    root.querySelector('.voice-pause').click(); await wait(() => !c.session.paused && root.querySelector('.audio-rail').dataset.state === 'listening');
+    root.querySelector('textarea').value = 'Typed during voice';
+    await act(() => root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })),
+      session('turn.final', e => e.data.content === 'Typed during voice'), voice('final', e => e.role === 'assistant'));
+    assert.ok(c.session.transcript.some(t => t.content === 'Typed during voice'));
+    await act(() => root.querySelector('.voice-input').click(), rendered(n => !n.input && !n.busy));
+    await act(() => root.querySelector('.voice-pause').click(), session('session.paused', e => e.data.paused), rendered(n => n.state === 'paused' && !n.busy));
+    assert.equal(c.session.paused, true);
+    await act(() => root.querySelector('.voice-pause').click(), session('session.paused', e => !e.data.paused), rendered(n => n.state === 'listening' && !n.busy));
+    assert.equal(c.session.paused, false);
     assert.equal(root.querySelector('.voice-input').getAttribute('aria-pressed'), 'false', 'pause preserves input selection');
-    document.querySelector('#fake-disconnect').click(); await wait(() => paths.some(p => p.endsWith('/recover')));
-    await wait(() => root.querySelector('.audio-rail').dataset.state === 'listening' || root.querySelector('.audio-rail').dataset.state === 'speaking');
+    await act(() => document.querySelector('#fake-disconnect').click(), voice('recovering'), voice('recovered'));
+    assert.ok(paths.some(p => p.endsWith('/recover')));
+    assert.ok(['listening', 'speaking'].includes(root.querySelector('.audio-rail').dataset.state));
     failRecovery = true; const attempts = paths.filter(p => p.endsWith('/recover')).length;
-    document.querySelector('#fake-disconnect').click(); await wait(() => root.querySelector('.voice-retry').disabled === false);
+    await act(() => document.querySelector('#fake-disconnect').click(), voice('ended', e => e.reason === 'recovery-failed'));
+    assert.equal(root.querySelector('.voice-retry').disabled, false);
     assert.equal(paths.filter(p => p.endsWith('/recover')).length - attempts, 3);
     assert.match(root.querySelector('.voice-state').textContent, /Three reconnect attempts failed/);
     assert.equal(root.querySelector('.send').disabled, false, 'typing remains available after exhausted recovery');
-    failRecovery = false; root.querySelector('.voice-retry').click(); await wait(() => root.querySelector('.voice-close').disabled === false);
-    root.querySelector('.voice-close').click(); await wait(() => root.querySelector('.audio-rail').dataset.state === 'idle');
+    failRecovery = false;
+    await act(() => root.querySelector('.voice-retry').click(), voice('final', e => e.role === 'assistant'));
+    assert.equal(root.querySelector('.voice-close').disabled, false);
+    await act(() => root.querySelector('.voice-close').click(), rendered(n => n.state === 'idle'));
     assert.ok(paths.some(p => p.endsWith('/close')));
     for (const path of ['/demo/fake-voice.js', '/plugins/elevenlabs/src/client.js', '/plugins/elevenlabs/src/manifest.js',
       '/plugins/elevenlabs/src/options.js', '/packages/ui/src/audio-rail.js', '/vendor/elevenlabs/lib.iife.js', '/vendor/elevenlabs/worklets/raw-audio.js', '/vendor/elevenlabs/worklets/audio-concat.js']) {
@@ -59,6 +88,7 @@ test('labelled fake agent exercises speech, voice barge-in, typing, acknowledged
     for (const path of ['/plugins/elevenlabs/src/server.js', '/plugins/elevenlabs/src/facade.js']) {
       assert.equal((await nativeFetch(running.url + path)).status, 404);
     }
+    assert.deepEqual(failures, []);
   } finally {
     window.document.querySelector('aithema-session')?.remove(); await running.kill(); await window.happyDOM.close();
     globalThis.fetch = nativeFetch;

@@ -69,13 +69,17 @@ test('three failed reconnects expose recovery and typing controls, with distinct
   rail.failure({ name: 'NotFoundError' }); assert.equal(rail.error, en.voiceMicMissing);
   rail.failure({ code: 'deadline' }); assert.equal(rail.error, en.voiceDeadline);
 });
-test('blocked SDK playback retries on a real user gesture and clears the message only after success', async t => {
+test('blocked SDK playback retries on a real user gesture and clears the message only after success', { timeout: 60_000 }, async t => {
   const { rail, root } = fixture(t); await rail.start(); let tries = 0;
+  const blocked = Promise.withResolvers(), retried = Promise.withResolvers();
+  const report = rail.reportPlaybackBlocked, retry = rail.retryPlayback;
+  t.mock.method(rail, 'reportPlaybackBlocked', function () { report.call(this); blocked.resolve(); });
+  t.mock.method(rail, 'retryPlayback', function () { const pending = retry.call(this); retried.resolve(pending); return pending; });
   const audio = document.createElement('audio'); audio.autoplay = true;
   audio.play = async () => { if (++tries === 1) throw new window.DOMException('policy', 'NotAllowedError'); };
-  document.body.append(audio); await new Promise(resolve => setTimeout(resolve, 15));
+  document.body.append(audio); await blocked.promise;
   assert.equal(rail.playbackBlocked, true); assert.equal(root.querySelector('.voice-state').textContent, en.voicePlaybackBlocked);
-  rail.button('playback').click(); await tick(); assert.equal(tries, 2); assert.equal(rail.playbackBlocked, false); audio.remove();
+  rail.button('playback').click(); await retried.promise; assert.equal(tries, 2); assert.equal(rail.playbackBlocked, false); audio.remove();
 });
 test('component sends typed text through active voice and updates context when understanding or focus changes', async t => {
   const session = createSession({ demo: true });

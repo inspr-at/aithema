@@ -1,15 +1,19 @@
-import { test } from 'node:test';
+import { test as nodeTest } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers, createPluginRuntime, createVoiceProvider, createFacadeSecrets, mockPresets,
   SQLiteBudgetLedger } from '../src/index.js';
 import { PluginRegistry, createMockReasoning, activeTurns, PluginError } from '@inspr/aithema-core';
 import { readFile } from 'node:fs/promises';
 import { temporaryDb, unzip } from '../../../test/helpers.js';
+import { eventProbe } from '../../../test/voice-test-events.js';
+
+const test = (name, fn) => nodeTest(name, { timeout: 60_000 }, fn);
 
 export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, path } = {}) {
   const storage = new SQLiteStorage(path), secrets = createFacadeSecrets();
   let clock = Date.now(), sequence = 0, covered = true, secretReads = 0, coverageReads = 0, healthReads = 0, releasing = false;
   const opened = new Map(), ended = new Set(), waiting = new Map(), provisioned = [], traffic = [], closeRequests = [];
+  const providerEvents = eventProbe();
   const endClient = id => { ended.add(id); waiting.get(id)?.(); waiting.delete(id); };
   const now = () => clock;
   const binding = { plugin: 'elevenlabs', model: 'fixture-agent', agentId: 'fixture-agent', effort: 'none',
@@ -23,8 +27,8 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
   const plugin = createVoiceProvider({ storage, now, binding: { agentId: binding.agentId, secretRef: binding.secretRef,
     apiBaseUrl: binding.endpoint, upstreamMicroPerMinute: binding.upstreamMicroPerMinute, visitorMicroPerMinute: binding.visitorMicroPerMinute },
     resolveSecret: () => { secretReads++; return 'provider-fixture-value'; }, revokeFacade: secrets.revoke,
-    closureTimeoutMs: slowClosure ? 30_000 : 5,
-    requestProviderClose: record => { closeRequests.push(record.providerSessionId); },
+    closureTimeoutMs: slowClosure ? 30_000 : 10_000,
+    requestProviderClose: record => { closeRequests.push(record.providerSessionId); providerEvents.record({ type: 'close', id: record.providerSessionId }); },
     async provisionFacade(record) { assert.ok(secrets.resolve(record.facadeSecretRef)); provisioned.push(record); },
     fetchImpl: async url => {
       traffic.push(String(url));
@@ -33,6 +37,7 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
         return Response.json({ token: 'fixture-credential', conversation_id: id });
       }
       const id = String(url).split('/').at(-1);
+      providerEvents.record({ type: 'details', id });
       // Provider closure is unavailable until the browser ends the SDK session.
       if (slowClosure && !ended.has(id) && !releasing) await new Promise(resolve => waiting.set(id, resolve));
       return Response.json({ conversation_id: id, status: unknown ? 'processing' : 'done',
@@ -45,7 +50,7 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
   const registry = new PluginRegistry().register(reasoning).register(plugin);
   const runtime = createPluginRuntime({ storage, reasoning, registry, presets, consent, now });
   const handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent, voice: { secrets, now, browserLeaseMs: leaseMs } });
-  t.after(async () => { releasing = true; for (const id of waiting.keys()) endClient(id); await handlers.close(); await flush(); storage.close(); });
+  t.after(async () => { releasing = true; for (const id of waiting.keys()) endClient(id); await handlers.close(); storage.close(); });
   const token = 'voice-owner', session = storage.create({ ownerToken: token, demo: true });
   const route = async (suffix, body = {}, owner = token) => handlers.handle(new Request(`http://host/api/sessions/${session.id}${suffix}`, {
     method: 'POST', headers: { 'x-aithema-session-token': owner }, body: JSON.stringify(body) }));
@@ -53,6 +58,7 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
     const response = await route('/voice', { callId }); assert.equal(response.status, 201); return response.json();
   };
   return { storage, secrets, runtime, handlers, session, route, start, presets, provisioned, traffic, now, plugin: registry.get('elevenlabs'), endClient, closeRequests,
+    waitForClosure: id => providerEvents.waitFor(event => event.type === 'details' && event.id === id),
     authChecks: () => ({ secretReads, coverageReads, healthReads }),
     advance: ms => { clock += ms; }, coverage: value => { covered = value; } };
 }
@@ -146,8 +152,11 @@ test('all voice routes hide ownership and foreign call/provider identity with 40
 });
 
 test('unknown provider closure settles at maximum and retains its uncertain terminal', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
   const h = voiceFixture(t, { unknown: true }), grant = await h.start();
-  h.advance(2000); const terminal = await h.route(`/voice/${grant.callId}/close`, { providerSessionId: grant.providerSessionId }).then(r => r.json());
+  h.advance(2000); const closing = h.route(`/voice/${grant.callId}/close`, { providerSessionId: grant.providerSessionId });
+  await h.waitForClosure(grant.providerSessionId); t.mock.timers.tick(10_000);
+  const terminal = await closing.then(r => r.json());
   assert.equal(terminal.closureConfirmed, false); assert.equal(terminal.outcome, 'uncertain'); assert.equal(terminal.chargedMicro, 60_000);
   assert.equal(h.storage.db.prepare("SELECT settled_micro FROM budget_attempts WHERE lane='voice'").get().settled_micro, 60_000);
 });
@@ -234,9 +243,13 @@ test('voice turn conflicts and invalid heard prefixes cannot replace durable con
 });
 
 test('browser lease and spend expiry settle a call even while the engine is paused', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
   const h = voiceFixture(t, { leaseMs: 20 }), grant = await h.start();
+  const { waitFor } = await observeVoice(h, t);
   await h.route(`/voice/${grant.callId}/pause`, { providerSessionId: grant.providerSessionId });
-  await new Promise(resolve => setTimeout(resolve, 35));
+  h.advance(20); t.mock.timers.tick(20);
+  await waitFor(e => e.type === 'voice.state' && e.data.state === 'ended' && e.data.reason === 'browser-liveness-deadline');
+  await h.handlers.idle();
   const row = h.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='voice'").get();
   assert.equal(row.state, 'settled'); assert.equal(row.outcome, 'cancelled');
   assert.equal(h.secrets.resolve(h.provisioned[0].facadeSecretRef), undefined);
@@ -270,9 +283,10 @@ test('withdrawal clears a focused question and tombstones its content in replay 
   } finally { storage.close(); }
 });
 
-const flush = async () => { for (let i = 0; i < 30; i++) await new Promise(resolve => setImmediate(resolve)); };
+// Negative assertions need one event-loop turn, never a timed delay or repeated polling.
+const flush = () => new Promise(resolve => setImmediate(resolve));
 async function observeVoice(h, t) {
-  const controller = new AbortController(), rows = [];
+  const controller = new AbortController(), { events: rows, record, waitFor } = eventProbe();
   const response = await h.handlers.handle(new Request(`http://host/api/sessions/${h.session.id}/events?after=${h.storage.get(h.session.id).seq}`, {
     headers: { 'x-aithema-session-token': 'voice-owner' }, signal: controller.signal }));
   const reader = response.body.getReader();
@@ -284,29 +298,31 @@ async function observeVoice(h, t) {
       while ((boundary = buffer.indexOf('\n\n')) >= 0) {
         const block = buffer.slice(0, boundary); buffer = buffer.slice(boundary + 2);
         const line = block.split('\n').find(line => line.startsWith('data: '));
-        if (line) rows.push(JSON.parse(line.slice(6)));
+        if (line) record(JSON.parse(line.slice(6)));
       }
     }
   })();
   t.after(async () => { controller.abort(); await reading; });
-  return rows;
+  return { rows, waitFor };
 }
 
 for (const action of ['consent', 'host-consent', 'withdraw', 'erase', 'expiry']) {
   test(`slow closure: ${action} commits, cancels and broadcasts before the client ends`, async t => {
     const h = voiceFixture(t, { slowClosure: true }), grant = await h.start();
     h.storage.postTurn(h.session.id, 'private-turn', Buffer.from('private-turn'), 'private input');
-    const rows = await observeVoice(h, t), cancellations = [], cancel = h.handlers.lanes.cancel.bind(h.handlers.lanes);
+    const { rows, waitFor } = await observeVoice(h, t), cancellations = [], cancel = h.handlers.lanes.cancel.bind(h.handlers.lanes);
     h.handlers.lanes.cancel = id => { cancellations.push(h.storage.read(id).at(-1).type); return cancel(id); };
     let response, acknowledged = false;
     const work = action === 'host-consent' ? h.handlers.withdrawConsent(h.session.id)
       : action === 'expiry' ? h.handlers.expire(Date.now() + 1000)
       : h.route('/' + action, action === 'consent' ? { granted: false } : action === 'withdraw' ? { turnId: 'private-turn' } : {});
     work.then(value => { response = value; acknowledged = true; });
-    await flush();
+    await work;
     assert.equal(acknowledged, true, 'privacy acknowledgement cannot wait for provider closure');
     if (response instanceof Response) assert.equal(response.status, 200);
     const type = action.includes('consent') ? 'consent.revised' : action === 'erase' ? 'session.erased' : 'turn.withdrawn';
+    await waitFor(row => row.type === 'voice.state' && row.data.state === 'closing');
+    await h.waitForClosure(grant.providerSessionId);
     assert.deepEqual(cancellations, [type], 'lane cancellation sees the committed invalidation');
     const invalidation = rows.findIndex(row => row.type === type), closing = rows.findIndex(row => row.type === 'voice.state' && row.data.state === 'closing');
     assert.ok(invalidation >= 0 && closing > invalidation, 'invalidation and closing arrive before provider closure');
@@ -324,17 +340,17 @@ for (const route of ['engine', 'rail']) {
   test(`slow closure: ${route} pause needs ownership only even with lost coverage and broken provider pause`, async t => {
     const h = voiceFixture(t, { slowClosure: true }), start = h.plugin.start;
     h.plugin.start = async (...args) => { const call = await start(...args); call.pause = async () => { throw new Error('provider pause failed'); }; return call; };
-    const grant = await h.start(), rows = await observeVoice(h, t); h.coverage(false);
+    const grant = await h.start(), { rows, waitFor } = await observeVoice(h, t); h.coverage(false);
     const before = h.authChecks();
     let response;
     const work = h.route(route === 'engine' ? '/pause' : `/voice/${grant.callId}/pause`,
       route === 'engine' ? { paused: true } : { providerSessionId: grant.providerSessionId });
-    work.then(value => { response = value; }); await flush(); assert.ok(response, 'pause acknowledgement cannot wait for closure');
+    work.then(value => { response = value; }); await work; assert.ok(response, 'pause acknowledgement cannot wait for closure');
     assert.equal(response.status, 200, 'pause must not fail admission');
     assert.equal(h.storage.get(h.session.id).paused, true);
     assert.equal(h.authChecks().coverageReads, before.coverageReads, 'pause must not check coverage');
     assert.equal(h.authChecks().healthReads, before.healthReads, 'pause must not check provider health');
-    await flush();
+    await waitFor(row => row.type === 'voice.state' && row.data.state === 'closing');
     assert.equal(rows.filter(row => row.type === 'session.paused' && row.data.paused).length, 1);
     assert.ok(rows.some(row => row.type === 'voice.state' && row.data.state === 'closing'));
     h.advance(10_001); h.endClient(grant.providerSessionId); await h.handlers.idle();
@@ -344,11 +360,13 @@ for (const route of ['engine', 'rail']) {
 test('slow closure: pause during closing records a fresh event and never re-broadcasts an old pause', async t => {
   const h = voiceFixture(t, { slowClosure: true }), grant = await h.start(), identity = { providerSessionId: grant.providerSessionId };
   await h.route('/pause', { paused: true }); await h.route('/pause', { paused: false });
-  const rows = await observeVoice(h, t), closing = h.route(`/voice/${grant.callId}/close`, identity);
-  await flush(); const before = h.storage.get(h.session.id).seq;
+  const { rows, waitFor } = await observeVoice(h, t), closing = h.route(`/voice/${grant.callId}/close`, identity);
+  await waitFor(row => row.type === 'voice.state' && row.data.state === 'closing');
+  const before = h.storage.get(h.session.id).seq;
   let response; const work = h.route('/pause', { paused: true }); work.then(value => { response = value; });
-  await flush(); assert.ok(response, 'pause cannot await an already closing provider'); assert.equal(response.status, 200);
-  await flush(); const pauses = rows.filter(row => row.type === 'session.paused');
+  await work; assert.ok(response, 'pause cannot await an already closing provider'); assert.equal(response.status, 200);
+  await waitFor(row => row.type === 'session.paused' && row.seq > before);
+  const pauses = rows.filter(row => row.type === 'session.paused');
   assert.equal(pauses.length, 1); assert.ok(pauses[0].seq > before); assert.equal(h.storage.get(h.session.id).paused, true);
   h.advance(10_001); h.endClient(grant.providerSessionId); await closing;
 });
@@ -360,7 +378,7 @@ test('slow closure: unauthenticated facade calls never check authorization or cl
     let response;
     const work = h.handlers.handle(new Request(`https://facade.test/api/voice/${grant.callId}/llm/chat/completions`, {
       method: 'POST', headers: authorization ? { authorization } : {}, body: JSON.stringify({ aithema_call: grant.callId, messages: [{ role: 'user', content: 'hello' }] }) }));
-    work.then(value => { response = value; }); await flush();
+    work.then(value => { response = value; }); await work;
     assert.ok(response); assert.equal(response.status, 401);
     assert.deepEqual(h.authChecks(), before); assert.ok(h.secrets.resolve(ref)); assert.equal(h.closeRequests.length, 0);
   }
@@ -374,7 +392,7 @@ test('slow closure: recovery admits immediately while the old provider needs mor
   const h = voiceFixture(t, { slowClosure: true }), first = await h.start(), ref = h.provisioned[0].facadeSecretRef;
   h.advance(5000); let response;
   const work = h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId });
-  work.then(value => { response = value; }); await flush();
+  work.then(value => { response = value; }); await work;
   assert.ok(response, 'new credential must be available before old closure'); assert.equal(response.status, 200);
   const next = await response.json(); assert.notEqual(next.providerSessionId, first.providerSessionId);
   assert.equal(next.spendDeadlineAt, first.spendDeadlineAt); assert.equal(h.secrets.resolve(ref), undefined);
@@ -382,7 +400,8 @@ test('slow closure: recovery admits immediately while the old provider needs mor
   const claims = h.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='voice'").all();
   assert.equal(claims.length, 2); assert.ok(claims.every(row => row.state === 'dispatched'));
   assert.equal(claims[1].max_visitor_micro, 110_000, 'reserve only the remaining 55 seconds');
-  h.advance(10_001); h.endClient(first.providerSessionId); await work; await flush();
+  await h.waitForClosure(first.providerSessionId);
+  h.advance(10_001); h.endClient(first.providerSessionId); await work; await h.handlers.idle();
   assert.equal(h.storage.db.prepare("SELECT state FROM budget_attempts WHERE attempt_id=?").get(claims[0].attempt_id).state, 'settled');
   assert.equal((await h.route(`/voice/${next.callId}/heartbeat`, { providerSessionId: next.providerSessionId })).status, 200, 'old settlement cannot remove the new call');
 });
@@ -404,11 +423,13 @@ test('slow closure: typed input is durable on send and provider echoes never add
 });
 
 test('slow closure: concurrent closes publish each transition once and prune the active call after settlement', async t => {
-  const h = voiceFixture(t, { slowClosure: true }), grant = await h.start(), rows = await observeVoice(h, t);
+  const h = voiceFixture(t, { slowClosure: true }), grant = await h.start(), { rows, waitFor } = await observeVoice(h, t);
   const identity = { providerSessionId: grant.providerSessionId };
   const closes = [h.route(`/voice/${grant.callId}/close`, identity), h.route(`/voice/${grant.callId}/close`, identity)];
-  await flush(); h.advance(10_001); h.endClient(grant.providerSessionId);
-  const terminals = await Promise.all(closes.map(async work => (await work).json())); assert.deepEqual(terminals[0], terminals[1]); await flush();
+  await waitFor(row => row.type === 'voice.state' && row.data.state === 'closing');
+  h.advance(10_001); h.endClient(grant.providerSessionId);
+  const terminals = await Promise.all(closes.map(async work => (await work).json())); assert.deepEqual(terminals[0], terminals[1]);
+  await waitFor(row => row.type === 'voice.state' && row.data.state === 'ended');
   assert.equal(rows.filter(row => row.type === 'voice.state' && row.data.state === 'closing').length, 1);
   assert.equal(rows.filter(row => row.type === 'voice.state' && row.data.state === 'ended').length, 1);
   assert.equal((await h.route(`/voice/${grant.callId}/heartbeat`, identity)).status, 404, 'settled call is no longer in the active calls map');
@@ -445,7 +466,7 @@ test('slow closure: recovery reserves remaining visitor duration after previousl
   const h = voiceFixture(t, { slowClosure: true }), first = await h.start();
   h.runtime.budget.visitorCapMicro = 121_000;
   const closing = h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId, reason: 'transport-lost' });
-  await flush(); h.advance(15_000); h.endClient(first.providerSessionId); await closing;
+  await h.waitForClosure(first.providerSessionId); h.advance(15_000); h.endClient(first.providerSessionId); await closing;
   const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId });
   assert.equal(response.status, 200, '30k spent plus 90k remaining fits the visitor cap');
   const claims = h.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='voice'").all();
@@ -456,15 +477,18 @@ test('slow closure: engine pause records a new event even when the provider ackn
   const h = voiceFixture(t, { slowClosure: true }), start = h.plugin.start;
   h.plugin.start = async (...args) => { const call = await start(...args); call.pause = async () => ({ acknowledged: true, paused: true }); return call; };
   await h.start(); h.storage.pause(h.session.id, true); h.storage.pause(h.session.id, false);
-  const before = h.storage.get(h.session.id).seq, rows = await observeVoice(h, t);
+  const before = h.storage.get(h.session.id).seq, { rows, waitFor } = await observeVoice(h, t);
   const response = await h.route('/pause', { paused: true }); assert.equal(response.status, 200);
   const ack = await response.json(); assert.equal(ack.paused, true); assert.ok(ack.event.seq > before);
-  await flush(); assert.deepEqual(rows.filter(e => e.type === 'session.paused').map(e => e.seq), [ack.event.seq]);
+  await waitFor(e => e.type === 'session.paused' && e.seq === ack.event.seq);
+  assert.deepEqual(rows.filter(e => e.type === 'session.paused').map(e => e.seq), [ack.event.seq]);
 });
 
 test('slow closure: browser lease expiry publishes closing before the client ends', async t => {
-  const h = voiceFixture(t, { slowClosure: true, leaseMs: 20 }), grant = await h.start(), rows = await observeVoice(h, t);
-  await new Promise(resolve => setTimeout(resolve, 35)); await flush();
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
+  const h = voiceFixture(t, { slowClosure: true, leaseMs: 20 }), grant = await h.start(), { rows, waitFor } = await observeVoice(h, t);
+  h.advance(20); t.mock.timers.tick(20);
+  await waitFor(e => e.type === 'voice.state' && e.data.state === 'closing' && e.data.reason === 'browser-liveness-deadline');
   assert.equal(h.secrets.resolve(h.provisioned[0].facadeSecretRef), undefined);
   assert.ok(rows.some(e => e.type === 'voice.state' && e.data.state === 'closing' && e.data.reason === 'browser-liveness-deadline'));
   assert.equal(h.storage.db.prepare("SELECT state FROM budget_attempts WHERE lane='voice'").get().state, 'dispatched');
@@ -477,9 +501,9 @@ test('public server index does not export the local voice legal-check bypass', a
 
 test('slow closure: invalidation during startup keeps settlement tracked until the late call closes', async t => {
   const h = voiceFixture(t, { slowClosure: true }), start = h.plugin.start;
-  let call, release; const ready = new Promise(resolve => { release = resolve; });
-  h.plugin.start = async (...args) => { call = await start(...args); await ready; return call; };
-  const startup = h.route('/voice', { callId: 'late-start' }); await flush(); assert.ok(call);
+  let call, release; const ready = new Promise(resolve => { release = resolve; }), entered = Promise.withResolvers();
+  h.plugin.start = async (...args) => { call = await start(...args); entered.resolve(); await ready; return call; };
+  const startup = h.route('/voice', { callId: 'late-start' }); await entered.promise; assert.ok(call);
   try {
     assert.equal((await h.route('/consent', { granted: false })).status, 200);
     assert.equal(h.secrets.resolve(h.provisioned[0].facadeSecretRef), undefined);
@@ -497,7 +521,7 @@ test('slow closure: a failed recovery admission can retry before the original pr
   h.plugin.start = (...args) => { if (++starts === 1) throw new PluginError('unavailable'); return start(...args); };
   const identity = { providerSessionId: first.providerSessionId };
   assert.equal((await h.route(`/voice/${first.callId}/recover`, identity)).status, 502);
-  await flush();
+  await h.waitForClosure(first.providerSessionId);
   assert.equal(h.storage.voiceCalls(h.session.id)[0].terminal, undefined, 'original closure is still pending');
   const response = await h.route(`/voice/${first.callId}/recover`, identity);
   assert.equal(response.status, 200, 'retry must not depend on the pending old terminal');
@@ -510,7 +534,7 @@ test('slow closure: recovery retries the original identity after a new SDK conne
   const recover = () => h.route(`/voice/${original.callId}/recover`, { providerSessionId: original.providerSessionId });
   const first = await recover().then(r => r.json());
   const closing = h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId, reason: 'recovery-failed' });
-  await flush();
+  await h.waitForClosure(first.providerSessionId);
   const response = await recover(); assert.equal(response.status, 200);
   const next = await response.json(); assert.notEqual(next.providerSessionId, first.providerSessionId, 'a closing credential cannot be reused');
   assert.equal(h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice' AND state='dispatched'").get().n, 3);
