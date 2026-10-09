@@ -91,7 +91,11 @@ Mock reasoning plus the OpenRouter-style mock models `mock/swift` and `mock/deep
 with their own response styles, fake voice and fake images; ElevenLabs, OpenAI
 GPT Image 2 and an OpenRouter model are declared but not configured, and In the EU
 has no qualified account, so all of them stay visibly unavailable with the server's
-reason. The Advanced tab connects a model running on this computer.
+reason. The Advanced tab connects a model running on this computer. With
+`AITHEMA_PROVIDER` set the demo is a live host: its allowlist offers only the
+configured route (speech and understanding models as one model option, at their
+configured effort) and the configured voice and images, never a mock or an
+unconfigured option.
 
 The demo stays on the mock even when provider environment variables exist.
 `AITHEMA_PROVIDER=openrouter|mistral` explicitly selects a provider.
@@ -202,9 +206,10 @@ and a future `expiresAt` timestamp. The runtime derives the scope from each
 private binding, including the exact plugin, model, endpoint, routing, account
 reference and operation. External grants also echo that exact `scope` with a
 current `checkedAt` timestamp; only the local mock has a built-in scope. A host
-ledger's `grant({sessionId, consentRevision, scopes})` receives the private scopes
-of the session's current processing choice, so it can record exactly what the
-visitor agreed to.
+ledger's `grant({sessionId, consentRevision, decision, scopes})` receives the
+visitor's item `decision` (the body's `processing`) and the private scopes of the
+session's current processing choice, so it can record exactly what the visitor
+agreed to; returning `false` refuses the grant.
 Missing/unavailable coverage fails closed at admission and again at claim consumption. Hosts notify
 external revocation through `await handlers.withdrawConsent(id)` to persist the new
 revision, abort running work immediately and await lane settlement before acknowledgement. `createMemoryConsentLedger()` is

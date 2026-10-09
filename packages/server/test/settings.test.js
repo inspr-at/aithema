@@ -5,9 +5,12 @@ import { createLocalVoiceProvider, localVoiceBinding } from '../src/local-voice.
 import { PluginRegistry, createMockReasoning, inputRevision, reduceUnderstanding } from '@inspr/aithema-core';
 import { createOpenRouterReasoning } from '../../../plugins/openrouter/src/index.js';
 import { mockConsent, temporaryDb, unzip } from '../../../test/helpers.js';
-import { binding, chatServer } from '../../../test/plugin-fixtures.js';
+import { binding, chatServer, openRouterPrices } from '../../../test/plugin-fixtures.js';
 
 const test = (name, fn) => nodeTest(name, { timeout: 20_000 }, fn);
+const price = { prompt: 1e-9, completion: 1e-9 };
+const prices = { ...openRouterPrices, 'fixture/model-a': price, 'fixture/model-b': price, 'fixture/a': price, 'fixture/b': price };
+const openRouter = b => createOpenRouterReasoning({ binding: b, prices, resolveSecret: () => 'local-fixture' });
 const owner = 'settings-owner';
 const mock = (model, effort = 'none') => ({ plugin: 'mock', model, effort, endpoint: 'https://example.test', accountRef: 'demo',
   secretRef: 'none', maxMicro: 0, maxTokens: 4096, rates: { inputMicro: 0, outputMicro: 0 } });
@@ -53,7 +56,7 @@ test('the catalog shows only ids, labels and manifest facts with each option\'s 
   const presets = mockPresetsWithChoices();
   presets.custom.plugins.push('openrouter'); presets.custom.policy = { endpoints: [fixture.endpoint] };
   presets.custom.choices.models.push({ id: 'qualified', label: 'Qualified fixture', binding: fixture, efforts: ['none', 'high'] });
-  const registry = new PluginRegistry().register(createMockReasoning()).register(createOpenRouterReasoning({ binding: fixture, resolveSecret: () => 'local-fixture' }));
+  const registry = new PluginRegistry().register(createMockReasoning()).register(openRouter(fixture));
   const h = host(t, { presets, registry }), { session } = await h.create();
   const { status, body: catalog } = await json(await h.call(`/${session.id}/settings`));
   assert.equal(status, 200); assert.equal(catalog.voiceCallActive, false);
@@ -82,7 +85,7 @@ test('the server admits only the host allowlist: unknown, crafted, unconfigured 
   const presets = mockPresetsWithChoices();
   const usOnly = qualify(binding('openrouter', 'https://provider.test/v1/chat/completions', { maxMicro: 100_000 }), 'fixture-provider', ['US']);
   presets.eu = { plugins: ['openrouter'], policy: { endpoints: [usOnly.endpoint] }, choices: { models: [{ id: 'us-only', binding: usOnly }] } };
-  const registry = new PluginRegistry().register(createMockReasoning()).register(createOpenRouterReasoning({ binding: usOnly, resolveSecret: () => 'local-fixture' }));
+  const registry = new PluginRegistry().register(createMockReasoning()).register(openRouter(usOnly));
   const h = host(t, { presets, registry }), { session } = await h.create(), path = `/${session.id}/settings`;
   for (const [body, status, field, reason] of [
     [{ model: 'not/offered' }, 409, 'model', 'not offered'],
@@ -123,11 +126,11 @@ test('a saved model and effort are the bindings both lanes dispatch with; comple
     models: [{ id: 'a', label: 'Model A', binding: a, efforts: ['none'] }, { id: 'b', label: 'Model B', binding: b, efforts: ['none', 'high'] }] } },
   eu: { plugins: [], bindings: {} }, custom: { plugins: [], bindings: {} } };
   const consent = { coverage({ scope, consentRevision }) { return { covered: true, ...scope, scope, consentRevision, checkedAt: Date.now(), expiresAt: Date.now() + 60_000 }; } };
-  const registry = new PluginRegistry().register(createOpenRouterReasoning({ binding: a, resolveSecret: () => 'local-fixture' }));
+  const registry = new PluginRegistry().register(openRouter(a));
   const h = host(t, { presets, registry, consent }), { session } = await h.create();
   assert.equal((await h.call(`/${session.id}/turns`, { clientEventId: 'first', content: 'Hello' })).status, 200);
   await h.handlers.idle();
-  assert.deepEqual(fake.bodies.map(body => [body.model, body.reasoning ?? null]), [['fixture/model-a', null], ['fixture/model-a', null]]);
+  assert.deepEqual(fake.bodies.map(body => [body.model, body.reasoning]), [['fixture/model-a', { enabled: false }], ['fixture/model-a', { enabled: false }]]);
   const saved = await json(await h.call(`/${session.id}/settings`, { model: 'b', effort: 'high', baseRevision: 0 }));
   assert.equal(saved.status, 200); assert.equal(saved.body.settings.model, 'b'); assert.equal(saved.body.settings.origin, 'chosen');
   assert.equal(saved.body.event.type, 'settings.changed'); assert.deepEqual(saved.body.consent, { required: false, features: [] });
@@ -189,7 +192,7 @@ test('a choice needing consent the visitor has not given is saved, refused at ad
   };
   const presets = { best: { plugins: ['openrouter'], policy: { endpoints: [fake.endpoint] }, choices: { models: [{ id: 'a', binding: a }, { id: 'b', binding: b }] } },
     eu: { plugins: [], bindings: {} }, custom: { plugins: [], bindings: {} } };
-  const registry = new PluginRegistry().register(createOpenRouterReasoning({ binding: a, resolveSecret: () => 'local-fixture' }));
+  const registry = new PluginRegistry().register(openRouter(a));
   const h = host(t, { presets, registry, consent }), { session } = await h.create();
   const catalog = (await json(await h.call(`/${session.id}/settings`))).body;
   assert.deepEqual(catalog.presets.best.models.map(o => o.status), ['available', 'consent']);

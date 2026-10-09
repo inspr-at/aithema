@@ -165,3 +165,23 @@ test('the demo exposes a realistic operator allowlist and serves the settings mo
   assert.equal(saved.status, 200);
   assert.deepEqual((await saved.json()).consent, { required: true, features: ['text', 'analysis'] }, 'the demo still waits for mock consent');
 });
+
+test('a live provider host offers only its configured route: no mock and no unconfigured option', { timeout: 10_000 }, async t => {
+  const price = { prompt: 0.000001, completion: 0.000002 };
+  const running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb(), { AITHEMA_PROVIDER: 'openrouter',
+    OPENROUTER_MODEL: 'openai/fixture', OPENROUTER_SPEECH_MODEL: 'anthropic/fixture', AITHEMA_VOICE_MODE: 'off',
+    AITHEMA_OPENROUTER_PRICES: JSON.stringify({ 'openai/fixture': price, 'anthropic/fixture': price }) });
+  t.after(() => running.kill());
+  const created = await post(running.url + '/api/sessions', {}), session = await created.json();
+  const headers = { cookie: created.headers.get('set-cookie').split(';')[0] };
+  assert.deepEqual([session.settings.model, session.settings.voice, session.settings.visuals], ['openrouter/anthropic/fixture', 'off', 'fake-images']);
+  const catalog = await fetch(running.url + `/api/sessions/${session.id}/settings`, { headers }).then(r => r.json());
+  const best = catalog.presets.best;
+  assert.deepEqual(best.models.map(o => [o.id, o.label, o.status, o.reason]), [['openrouter/anthropic/fixture',
+    'anthropic/fixture and openai/fixture via OpenRouter', 'consent', 'current processing consent required']]);
+  assert.deepEqual(best.voices, []); assert.deepEqual(best.visuals.map(o => o.id), ['fake-images']);
+  assert.deepEqual([catalog.presets.eu.reason, catalog.presets.custom.reason], ['not configured', 'not configured']);
+  assert.equal(JSON.stringify(catalog).includes('openrouter.ai'), false, 'private endpoints stay on the server');
+  const refused = await post(running.url + `/api/sessions/${session.id}/settings`, { model: 'mock' }, headers);
+  assert.equal(refused.status, 409); assert.deepEqual(await refused.json(), { error: 'setting-not-allowed', field: 'model', reason: 'not offered' });
+});
