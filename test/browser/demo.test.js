@@ -721,6 +721,15 @@ test('AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab l
         placeholder: getComputedStyle(textarea, '::placeholder').color };
     });
     assert.deepEqual(dark, { surface: '#1b2223', paper: 'rgb(20, 26, 27)', conversation: 'rgb(27, 34, 35)', placeholder: 'rgb(155, 173, 171)' });
+    // The AIT-112 settings dialog follows the same tokens: its primary button inverts and the gauge panel darkens.
+    const settingsDark = await inShadow(page, c => {
+      c.openSettings(); const r = c.shadowRoot;
+      return { done: getComputedStyle(r.querySelector('dialog.settings .done')).color,
+        gauges: getComputedStyle(r.querySelector('.gauge-panel')).backgroundImage.includes('rgb(27, 34, 35)') };
+    });
+    assert.deepEqual(settingsDark, { done: 'rgb(20, 26, 27)', gauges: true });
+    await page.keyboard.press('Escape');
+    await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
     assert.equal(await inShadow(page, c => getComputedStyle(c).getPropertyValue('--aithema-surface').trim()), '#fffef9');
 

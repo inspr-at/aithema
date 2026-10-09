@@ -4,6 +4,7 @@ import { Window } from 'happy-dom';
 import { createSession, inputRevision, reduceUnderstanding } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { styles } from '../src/styles.js';
+import { settingsStyles } from '../src/settings-styles.js';
 import { contrast, mix, tokens } from '../../../test/contrast.js';
 const window = new Window();
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
@@ -115,6 +116,24 @@ test('a settings change that supersedes the reply clears its partial; old-revisi
   c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'new', role: 'assistant', content: 'Replacement done', inputRevision: revision } });
   assert.deepEqual(partials(), []);
   assert.deepEqual([...c.shadowRoot.querySelectorAll('.turn')].map(n => n.querySelector('span').textContent), ['Hello', 'Replacement done']);
+});
+test('keyed rows: a superseded partial loses its node, a restarted reply under its id starts fresh and keeps its node to the final', () => {
+  const c = setup(); turn(c, 't1', 'Hello'); const revision = inputRevision(c.session), root = c.shadowRoot;
+  c.receive({ type: 'turn.partial', data: { id: 'r', delta: 'Old text', inputRevision: revision, settingsRevision: 0 } });
+  const old = root.querySelector('[data-id="r"]');
+  c.receive({ seq: c.session.seq + 1, type: 'settings.changed', data: { processingPreset: 'best',
+    settings: { ...c.session.settings, model: 'mock/deep', effort: 'high', revision: 1, origin: 'chosen', at: new Date(0).toISOString() } } });
+  assert.equal(old.isConnected, false, 'no stale node stays behind');
+  assert.equal(root.querySelectorAll('.turn').length, 1);
+  c.receive({ type: 'turn.partial', data: { id: 'r', delta: 'New', inputRevision: revision, settingsRevision: 1 } });
+  const restarted = root.querySelector('[data-id="r"]');
+  assert.notEqual(restarted, old); assert.equal(restarted.querySelector('span').textContent, 'New');
+  c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'r', role: 'assistant', content: 'New answer', inputRevision: revision,
+    engine: { label: 'Deep (mock)', effort: 'high' } } });
+  assert.equal(root.querySelector('[data-id="r"]'), restarted, 'the final reply keeps the partial node');
+  assert.equal(restarted.className.includes('partial'), false);
+  assert.equal(restarted.querySelector('.engine-tag')?.textContent, `Deep (mock) · ${en.settings.efforts.high}`);
+  assert.deepEqual([...root.querySelectorAll('.turn')].map(n => n.dataset.id), ['t1', 'r']);
 });
 test('Enter inserts a newline; Ctrl/Cmd+Enter sends; failed acknowledgement retries identical id and bytes', async () => {
   const c = setup(), root = c.shadowRoot, input = root.querySelector('textarea'); input.value = 'Hello\nworld';
@@ -600,7 +619,7 @@ test('the German bundle covers every English key and renders the component in Ge
 });
 test('dark tokens reach WCAG AA text contrast, placeholder and chat bubbles included (AIT-116 D9)', () => {
   const dark = tokens(styles.match(/@media\(prefers-color-scheme:dark\) \{ :host \{([^}]*)\}/u)[1], 'aithema-');
-  assert.deepEqual(Object.keys(dark).sort(), ['accent', 'amber', 'ink', 'line', 'muted', 'on-accent', 'paper', 'surface']);
+  assert.deepEqual(Object.keys(dark).sort(), ['accent', 'amber', 'error', 'ink', 'line', 'muted', 'on-accent', 'paper', 'surface', 'warning']);
   // The placeholder uses the muted token, not the browser default (#757575 measured 3.51:1 on the dark surface).
   assert.match(styles, /textarea::placeholder \{ color:var\(--aithema-muted\); opacity:1; \}/u);
   const bubble = mix(dark.ink, dark.paper, .07), userBubble = mix(dark.accent, dark.paper, .12);
@@ -608,9 +627,17 @@ test('dark tokens reach WCAG AA text contrast, placeholder and chat bubbles incl
     'muted on paper': [dark.muted, dark.paper], 'muted (placeholder, status, reasons) on surface': [dark.muted, dark.surface],
     'accent link on surface': [dark.accent, dark.surface], 'on-accent on accent': [dark['on-accent'], dark.accent],
     'ink on bubble': [dark.ink, bubble], 'muted on bubble': [dark.muted, bubble],
-    'ink on own bubble': [dark.ink, userBubble], 'muted on own bubble': [dark.muted, userBubble] };
+    'ink on own bubble': [dark.ink, userBubble], 'muted on own bubble': [dark.muted, userBubble],
+    // The settings dialog, preset chooser and ready card (AIT-112) on the same tokens.
+    'warning (unavailable, pending) on surface': [dark.warning, dark.surface], 'error on surface': [dark.error, dark.surface],
+    'primary button text on its ink fill': [dark.paper, mix(dark.ink, dark.accent, .85)], 'primary button text on ink': [dark.paper, dark.ink] };
   for (const [pair, [text, background]] of Object.entries(pairs)) {
     assert.ok(contrast(text, background) >= 4.5, `${pair}: ${contrast(text, background).toFixed(2)}:1`);
   }
   assert.ok(contrast('#757575', dark.surface) < 4.5, 'the fixture detects the reported default placeholder');
+  // No settings colour is fixed to the light theme where dark text or a light fill would invert.
+  const darkSettings = settingsStyles.match(/@media\(prefers-color-scheme:dark\) \{([\s\S]*?)\} \}/u)[1];
+  assert.match(darkSettings, /\.done, \.chooser__continue \{ color:var\(--aithema-paper\); \}/u);
+  assert.match(darkSettings, /\.gauge-panel \{ background:linear-gradient\(155deg,var\(--aithema-surface\),var\(--aithema-paper\)\); \}/u);
+  assert.doesNotMatch(settingsStyles, /#89613b|#9a4030|#925125|color:#fff; border-color:var\(--aithema-accent\)/u);
 });

@@ -2,10 +2,11 @@
 export const styles = `
 :host { --aithema-paper: #f7f5ef; --aithema-ink: #243b40; --aithema-muted: #67777a;
   --aithema-accent: #227c78; --aithema-amber: #c5974e; --aithema-line: #d5dfda;
-  --aithema-surface: #fffef9; --aithema-on-accent: #ffffff; --aithema-font: system-ui, sans-serif;
+  --aithema-surface: #fffef9; --aithema-on-accent: #ffffff; --aithema-warning: #89613b; --aithema-error: #9a4030; --aithema-font: system-ui, sans-serif;
   color-scheme:light dark; display:block; color:var(--aithema-ink); font: 1rem/1.5 var(--aithema-font); }
 @media(prefers-color-scheme:dark) { :host { --aithema-paper: #141a1b; --aithema-ink: #e2e9e6; --aithema-muted: #9badab;
-  --aithema-accent: #5db5ae; --aithema-amber: #d6ab63; --aithema-line: #33403f; --aithema-surface: #1b2223; --aithema-on-accent: #0d1716; } }
+  --aithema-accent: #5db5ae; --aithema-amber: #d6ab63; --aithema-line: #33403f; --aithema-surface: #1b2223; --aithema-on-accent: #0d1716;
+  --aithema-warning: #d6ab63; --aithema-error: #e59a87; } }
 * { box-sizing:border-box; } [hidden] { display:none !important; }
 button, textarea, select, a { font:inherit; } button, a { touch-action:manipulation; }
 button { color:inherit; cursor:pointer; background:transparent; border:1px solid var(--aithema-line);
