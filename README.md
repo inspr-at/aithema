@@ -98,6 +98,7 @@ The private `aithema` root is an ESM npm workspace with one `package-lock.json`.
 | `plugins/openrouter` — `@inspr/aithema-plugin-openrouter` | Streaming reasoning and strict JSON Schema output |
 | `plugins/elevenlabs` — `@inspr/aithema-plugin-elevenlabs` | Live voice server/browser halves, custom-LLM facade and fake-only conformance |
 | `plugins/openai-images` — `@inspr/aithema-plugin-openai-images` | Server-side GPT Image 2 generation/editing, byte artifacts and provenance |
+| `plugins/codex-imagegen` — `@inspr/aithema-plugin-codex-imagegen` | Server-side Codex CLI image generation/editing on the operator account, with private references and process-group cancellation |
 | `plugins/extract-{pdf,ooxml,text}` — `@inspr/aithema-plugin-extract-{pdf,ooxml,text}` | Offline bounded PDF, DOCX/XLSX/PPTX and literal text extractors |
 | `demo/` | Labelled localhost host and its tests |
 | `test/` | Shared JavaScript test helpers; package tests live beside each package |
@@ -658,6 +659,77 @@ at most 12 MiB. After durably removing the upload source, await
 `handlers.removeConceptReference(sessionId, sourceId)` before acknowledgement.
 The included fake tests exercise this port, dependency-scoped removal and an
 upload/turn with the same ID. Upload routes and their UI will arrive on AIT-100.
+
+`createCodexImagegen({binding})` from `@inspr/aithema-plugin-codex-imagegen`
+implements the same server-only generate/edit contract. The operator supplies
+`binding.model`, `binding.effort`, and
+`binding.routing.codex = {binaryPath, codexHome, timeoutMs, trustedPromptsOnly: true}`
+(absolute dedicated account directory, executable path or PATH name, timeout
+1–1,800,000 ms). Common binding
+fields remain required; `secretRef` is unused because CODEX_HOME selects the
+operator's authenticated CLI account. Require `maxMicro: 0` and zero rates.
+Provision a dedicated `CODEX_HOME` holding only the operator's `auth.json`;
+never point it at a personal Codex home. Startup and each render inspect only
+directory names and metadata, rejecting `config.toml`, `AGENTS.md`, symlinks
+and every other entry; authentication bytes are never inspected by the adapter.
+The CLI runs with `--ignore-user-config`, `--ignore-rules`, `--ephemeral`, and
+explicit `-c` overrides for workspace-write, network off, no additional writable
+roots or implicit system temp roots, no MCP servers, web search disabled, zero
+project-doc bytes/no fallback docs, and an empty shell environment policy.
+The child receives only PATH, LANG, CODEX_HOME and workspace-local HOME/TMPDIR.
+
+Compatibility is checked locally before rendering with bounded, non-rendering
+`exec ... --help` and `features list` calls in an empty temporary Codex home;
+rejected flags/features, missing
+help evidence or unexpected enabled tools fail closed. Supported shell, code,
+browser, app/plugin, MCP-discovery, file-view, agent and other tool switches are
+disabled; built-in image generation stays enabled. **H2 limitation:** installed
+Codex CLI 0.162.0 still lists `unified_exec stable true` after `--disable
+unified_exec -c features.unified_exec=false`. Its `apply_patch_freeform` switch
+is removed, so it also cannot establish that `apply_patch` is disabled. Shell
+commands can still read files outside the workspace, including authentication
+material, and encode them into an image. The adapter therefore refuses bindings
+unless the operator explicitly sets `trustedPromptsOnly === true`. That setting
+attests that every host prompt, feedback string and reference is trusted; never
+forward raw visitor content under this binding. The prompt instruction remains
+defence in depth. This flag does not make untrusted text safe. See the cited CLI
+help/feature lines in `plugins/codex-imagegen/src/cli.js`.
+
+The adapter passes private references through variadic `-i` and the full host
+brief through stdin, enforces one active CLI across instances, kills/reaps its
+process group and cleans its private workspace before settlement. Descendants
+that call `setsid` or detach into a new process group **can escape** this kill;
+an OS process supervisor/isolation boundary is needed to contain such children.
+`--ephemeral` avoids persisted sessions, but does not promise removal of every
+tool-generated cache or copy; the auth-only home is revalidated on the next call.
+Only one output file is accepted, regardless of extension; symlinks and hard
+links are rejected. Sniffed format must match the request and header-derived
+dimensions must be within 5% on each axis of `spec.size` (default 1536×1024),
+with at most 4096 pixels per side and 12 MiB of encoded bytes.
+
+Dispatched reports add `chargedMicro: 0` (the claim maximum) and `durationMs`.
+Failures, crashes, deadlines and cancellation after the child spawns report
+`outcome: 'uncertain'` without usage, matching shared settlement semantics.
+Successful zero token totals are monetary settlement units, not measured CLI
+consumption. Preflight/refusal keeps the exact shared zero report. Provenance
+identifies `codex-imagegen`, the bound model and byte digest through response
+fields. Health checks executable/account-directory availability and startup
+compatibility without authenticating or rendering. All tests use a fake
+executable; no live Codex render is performed.
+
+AIT-113 part B wiring requirements, still pending:
+
+- Register/bind the plugin in the images lane with current consent and zero
+  monetary admission; enforce the trusted-prompts restriction before selection.
+- **Require per-session and per-day render rate limits before visitors can
+  trigger any renders**, with an atomic operator-account daily quota shared
+  across sessions/instances. Zero monetary rates and the single active slot
+  do not bound subscription usage. Count dispatched failed/uncertain attempts;
+  cancellation must not restore quota. Raw visitor prompts also require a
+  CLI/OS boundary that actually prevents arbitrary file reads.
+- Persist the provenance sidecar, uncertain settlement and elapsed time;
+  propagate cancellation/deadlines and contain detached descendants with a
+  process supervisor when enabling this route.
 
 The reusable conformance call is
 `uiGenerationConformance(plugin, {spec, feedback, artifact},
