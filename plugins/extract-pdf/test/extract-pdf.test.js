@@ -1,22 +1,34 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { extractorConformance } from '../../../packages/core/src/extractor-conformance.js';
-import { activeExtractorProcessCount, queuedExtractorProcessCount } from '../../../packages/core/src/extractor-process.js';
+import { activeExtractorProcessCount, queuedExtractorProcessCount, extractorProcessPeakRssBytesForTest } from '../../../packages/core/src/extractor-process.js';
+import { EXTRACTOR_LIMITS } from '../../../packages/core/src/extractor.js';
 import { createPDFExtractor } from '../src/index.js';
 import { bytes, pdf, pdfStreamBomb, HANG, stallWorkerURL, observeParsers } from '../../../test/extractor-fixtures.js';
 
 test('nested FlateDecode PDF stream bomb is killed by a low RSS cap and reaped', async t => {
   const observed = observeParsers(t), data = pdfStreamBomb();
-  const plugin = createPDFExtractor({ limits: { maxRssMb: 64 } });
+  const baseline = await createPDFExtractor().extract(pdf());
+  assert.equal(baseline.status, 'accepted', 'the default RSS cap accepts a small PDF');
+  const baselineMb = extractorProcessPeakRssBytesForTest(observed.children[0].child) / (1024 * 1024);
+  assert.ok(baselineMb > 0, 'the watchdog sampled the real PDF child RSS');
+  const maxRssMb = Math.ceil(baselineMb) + 48;
+  assert.ok(maxRssMb < EXTRACTOR_LIMITS.maxRssMb, 'the default cap has more than 48 MiB of baseline headroom');
+  t.diagnostic(`${process.version}: small PDF sampled peak RSS ${baselineMb.toFixed(2)} MiB; bomb cap ${maxRssMb} MiB; default headroom ${(EXTRACTOR_LIMITS.maxRssMb - baselineMb).toFixed(2)} MiB`);
+  const plugin = createPDFExtractor({ limits: { maxRssMb } });
   const control = await plugin.extract(pdf());
   assert.equal(control.status, 'accepted', 'a small PDF is accepted at the same RSS cap');
-  assert.equal(control.limits.maxRssMb, 64);
+  assert.equal(control.limits.maxRssMb, maxRssMb);
   assert.ok(data.length < 2048);
   assert.ok(data.includes('/Filter [/FlateDecode /FlateDecode]'));
   const result = await plugin.extract(data);
   assert.equal(result.status, 'unreadable'); assert.equal(result.reason, 'limit');
-  assert.equal(result.limits.maxRssMb, 64);
-  assert.deepEqual(await observed.children[1].closed, { code: null, signal: 'SIGKILL' });
+  assert.equal(result.limits.maxRssMb, maxRssMb);
+  const bomb = observed.children[2];
+  assert.ok(extractorProcessPeakRssBytesForTest(bomb.child) > maxRssMb * 1024 * 1024,
+    'the bomb actually exceeds the calibrated RSS cap');
+  assert.deepEqual(await bomb.closed, { code: null, signal: 'SIGKILL' });
+  assert.throws(() => process.kill(bomb.child.pid, 0), { code: 'ESRCH' });
   assert.equal(activeExtractorProcessCount(), 0);
   assert.equal((await createPDFExtractor().extract(pdf())).status, 'accepted');
 });

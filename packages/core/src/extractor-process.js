@@ -30,11 +30,14 @@ export async function residentBytes(pid, { platform = process.platform, readProc
   throw new Error('RSS monitoring unavailable');
 }
 const live = new Set(), waiting = [];
+const sampledPeakRss = new WeakMap();
 let occupied = false;
 let deniedNetworkAttempts = 0;
 export const activeExtractorProcessCount = () => live.size;
 export const queuedExtractorProcessCount = () => waiting.length;
 export const extractorNetworkAttemptCount = () => deniedNetworkAttempts;
+// Test-only observation of the watchdog's peak, keyed by the real child and retained after reaping.
+export const extractorProcessPeakRssBytesForTest = child => sampledPeakRss.get(child) ?? 0;
 
 function acquire({ signal, deadlineAt }) {
   return new Promise((resolveSlot, reject) => {
@@ -91,6 +94,7 @@ export async function runExtractorProcess(workerURL, bytes, mediaType, limits, l
       sampling = true;
       try {
         const rss = await residentBytes(child.pid);
+        if (!settled) sampledPeakRss.set(child, Math.max(sampledPeakRss.get(child) ?? 0, rss));
         if (!settled && !response && !failure && rss > limits.maxRssMb * 1024 * 1024) {
           response = { reason: 'limit' }; kill();
         }

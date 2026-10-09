@@ -293,13 +293,24 @@ Queue time counts against the wall-clock deadline. A file is capped at 2 MiB,
 Office sheets/slides, 10 seconds and a 128 MiB V8 old-space heap. Separately,
 the parent samples child RSS every 25 ms and SIGKILLs/reaps it above `maxRssMb`
 (default 384 MiB); the result is unreadable with reason `limit`. Linux reads
-`/proc/<pid>/statm` with the host page size from `getconf PAGESIZE`; macOS uses
+`VmRSS` in KiB from `/proc/<pid>/status`; macOS uses
 `ps -o rss=`. Monitoring failures refuse work with `unavailable`. Sampling is
 not an atomic allocation limit: the child can overshoot between observations.
 Hosts needing a hard OS limit may additionally use a delegated cgroup or
 systemd user service with `MemoryMax=384M` on Linux where supported; neither
 requires root when the controller is delegated. No OS limit is required by
 the plugin. Crash/OOM exits without a result also report `limit`.
+
+The nested FlateDecode PDF bomb regression measures a fresh small-PDF child's
+sampled peak RSS with the watchdog, then sets its cap to that peak rounded up
+to MiB plus 48 MiB. A second small PDF must be accepted at that cap, and the
+bomb must exceed it, return `unreadable` with reason `limit`, and be SIGKILL'd
+and reaped. On macOS arm64, two root-suite runs measured **62.63 and 64.25 MiB
+on Node v24.20.0**, and **74.25 and 74.45 MiB on Node v26.10.0**. The production
+384 MiB default therefore had at least **309.55 MiB of headroom** over these
+small-PDF baselines. Sampled peaks vary with scheduling and runtime; the test
+recalibrates on every run rather than assuming a fixed startup RSS.
+
 Office archives are capped at 512 entries, 100:1 declared compression ratio,
 16 MiB per part and 48 MiB total
 uncompressed data, including skipped parts; inflated sizes and CRCs must match.
