@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
 import { createSession, inputRevision, reduceUnderstanding } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
+import { styles } from '../src/styles.js';
+import { settingsStyles } from '../src/settings-styles.js';
+import { contrast, mix, tokens } from '../../../test/contrast.js';
 const window = new Window();
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
@@ -41,17 +44,52 @@ test('readiness/aside uses draft truth, five missing rows plus overflow and pres
   root.querySelector('.expand').click(); assert.equal(details.open, true);
   turn(c, 't2', 'More'); assert.equal(root.querySelector('.notice').textContent, en.stale);
 });
-test('automatic aside and transcript changes wait while the pointer is over their region', () => {
-  const c = setup(), root = c.shadowRoot;
-  root.querySelector('.transcript-shell').dispatchEvent(new window.Event('pointerenter'));
-  turn(c, 't1', 'SAP'); assert.equal(root.querySelectorAll('.turn').length, 0);
-  root.querySelector('.transcript-shell').dispatchEvent(new window.Event('pointerleave'));
-  assert.equal(root.querySelectorAll('.turn').length, 1);
+test('automatic aside and transcript changes render at once under the pointer; rows update in place and append below', () => {
+  const c = setup(), root = c.shadowRoot, shell = root.querySelector('.transcript-shell');
+  turn(c, 't0', 'First'); const first = root.querySelector('.turn'), withdraw = first.querySelector('.withdraw');
+  shell.dispatchEvent(new window.Event('pointerenter'));
+  turn(c, 't1', 'SAP'); assert.equal(root.querySelectorAll('.turn').length, 2, 'no deferral while hovered (AIT-116 D2)');
+  assert.equal(root.querySelector('.turn'), first, 'existing rows keep their nodes'); assert.equal(first.querySelector('.withdraw'), withdraw);
+  assert.equal(root.querySelectorAll('.turn')[1].dataset.id, 't1', 'new turns append below');
+  shell.dispatchEvent(new window.Event('pointerleave'));
   root.querySelector('.understanding').dispatchEvent(new window.Event('pointerenter'));
   c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
-  assert.equal(root.querySelector('.summary-text').textContent, '');
+  assert.match(root.querySelector('.summary-text').textContent, /untrusted/);
   root.querySelector('.understanding').dispatchEvent(new window.Event('pointerleave'));
   assert.match(root.querySelector('.summary-text').textContent, /untrusted/);
+});
+test('unsolicited live renders keep focused summaries and keyed aside items in place (AIT-116 focus, D2)', async t => {
+  // Focus needs a connected element; the event stream stays open and silent.
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => new Response(new ReadableStream({ start(controller) {
+    options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } })));
+  const c = setup(), root = c.shadowRoot; document.body.append(c); t.after(() => c.remove());
+  turn(c, 't1', 'systems: SAP');
+  c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
+  const summary = root.querySelector('.cleared summary'), details = summary.parentNode;
+  const questions = [...root.querySelectorAll('.questions li')], missing = [...root.querySelectorAll('.missing li')];
+  const features = [...root.querySelectorAll('.features li')];
+  summary.focus(); assert.ok(root.activeElement === summary);
+  // An unchanged assessment, then one whose first question grew.
+  c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
+  assert.ok(root.querySelector('.cleared summary') === summary, 'the summary keeps its node');
+  assert.equal(summary.isConnected, true); assert.ok(root.activeElement === summary, 'keyboard focus survives');
+  assert.ok([...root.querySelectorAll('.missing li')].every((row, i) => row === missing[i]) && missing.length > 0, 'missing rows keep their nodes');
+  const grown = understanding(c); grown.openQuestions = ['Deadline, given the seasonal peak in December and the staff rota?', 'Budget?'];
+  c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: grown });
+  assert.ok(root.activeElement === summary); assert.ok(summary.parentNode === details);
+  assert.ok(root.querySelectorAll('.questions li')[1] === questions[1], 'an unchanged item after a grown one keeps its node');
+  c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
+  assert.ok([...root.querySelectorAll('.features li')].every((row, i) => row === features[i]) && features.length > 0, 'feature rows keep their nodes');
+  assert.match(root.querySelector('.features').textContent, /Session paused/);
+});
+test('empty aside lists say so quietly once assessed and stay hidden before', () => {
+  const c = setup(), root = c.shadowRoot;
+  assert.ok([...root.querySelectorAll('.analysis-content section')].every(n => n.hidden), 'nothing to show before the first assessment');
+  turn(c, 't1', 'SAP');
+  const data = understanding(c); data.openQuestions = []; data.signals = [];
+  c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data });
+  assert.ok([...root.querySelectorAll('.analysis-content section')].every(n => !n.hidden));
+  assert.equal(root.querySelector('.questions').textContent, en.noneYet); assert.equal(root.querySelector('.signals').textContent, en.noneYet);
 });
 test('partial assistant turns are replaced by final; stale fragments and duplicate events are ignored', () => {
   const c = setup(); turn(c, 't1', 'Hello'); const revision = inputRevision(c.session);
@@ -78,6 +116,24 @@ test('a settings change that supersedes the reply clears its partial; old-revisi
   c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'new', role: 'assistant', content: 'Replacement done', inputRevision: revision } });
   assert.deepEqual(partials(), []);
   assert.deepEqual([...c.shadowRoot.querySelectorAll('.turn')].map(n => n.querySelector('span').textContent), ['Hello', 'Replacement done']);
+});
+test('keyed rows: a superseded partial loses its node, a restarted reply under its id starts fresh and keeps its node to the final', () => {
+  const c = setup(); turn(c, 't1', 'Hello'); const revision = inputRevision(c.session), root = c.shadowRoot;
+  c.receive({ type: 'turn.partial', data: { id: 'r', delta: 'Old text', inputRevision: revision, settingsRevision: 0 } });
+  const old = root.querySelector('[data-id="r"]');
+  c.receive({ seq: c.session.seq + 1, type: 'settings.changed', data: { processingPreset: 'best',
+    settings: { ...c.session.settings, model: 'mock/deep', effort: 'high', revision: 1, origin: 'chosen', at: new Date(0).toISOString() } } });
+  assert.equal(old.isConnected, false, 'no stale node stays behind');
+  assert.equal(root.querySelectorAll('.turn').length, 1);
+  c.receive({ type: 'turn.partial', data: { id: 'r', delta: 'New', inputRevision: revision, settingsRevision: 1 } });
+  const restarted = root.querySelector('[data-id="r"]');
+  assert.notEqual(restarted, old); assert.equal(restarted.querySelector('span').textContent, 'New');
+  c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'r', role: 'assistant', content: 'New answer', inputRevision: revision,
+    engine: { label: 'Deep (mock)', effort: 'high' } } });
+  assert.equal(root.querySelector('[data-id="r"]'), restarted, 'the final reply keeps the partial node');
+  assert.equal(restarted.className.includes('partial'), false);
+  assert.equal(restarted.querySelector('.engine-tag')?.textContent, `Deep (mock) · ${en.settings.efforts.high}`);
+  assert.deepEqual([...root.querySelectorAll('.turn')].map(n => n.dataset.id), ['t1', 'r']);
 });
 test('Enter inserts a newline; Ctrl/Cmd+Enter sends; failed acknowledgement retries identical id and bytes', async () => {
   const c = setup(), root = c.shadowRoot, input = root.querySelector('textarea'); input.value = 'Hello\nworld';
@@ -194,7 +250,7 @@ test('a withdrawal acknowledgement with an SSE gap clears visible content before
 });
 test.after(async () => window.happyDOM.close());
 
-test('the engine panel keeps its fixed size, defers snapshot feature updates under the pointer and offers settings', async () => {
+test('the engine panel keeps its fixed size, renders snapshot feature updates at once under the pointer and offers settings', async () => {
   const c = setup();
   const session = c.session;
   session.featureMatrix.best.analysis = { available: false, reason: 'binding evidence expired' };
@@ -204,7 +260,8 @@ test('the engine panel keeps its fixed size, defers snapshot feature updates und
   assert.equal(root.querySelector('.engine__label').textContent, en.processing);
   assert.equal(root.querySelector('.settings-open').getAttribute('aria-haspopup'), 'dialog');
   assert.equal(root.querySelector('.preset-choice'), null, 'presets change through acknowledged settings, never a raw select');
-  assert.match(root.querySelector('.features').textContent, /binding evidence expired/);
+  const expired = en.reasons['binding evidence expired'];
+  assert.ok(root.querySelector('.features').textContent.includes(expired), 'machine reasons show in the page language');
   assert.ok(!root.querySelector('.features li').classList.contains('unavailable'));
   root.querySelector('.preset-panel').dispatchEvent(new window.Event('pointerenter'));
   const originalFetch = globalThis.fetch;
@@ -213,9 +270,8 @@ test('the engine panel keeps its fixed size, defers snapshot feature updates und
   try {
     c.receive({ seq: c.session.seq + 2, type: 'turn.final', data: {} });
     await new Promise(r => setImmediate(r));
-    assert.match(root.querySelector('.features').textContent, /binding evidence expired/);
+    assert.ok(!root.querySelector('.features').textContent.includes(expired), 'snapshot features render at once under the pointer');
     root.querySelector('.preset-panel').dispatchEvent(new window.Event('pointerleave'));
-    assert.ok(!root.querySelector('.features').textContent.includes('binding evidence expired'));
   } finally { globalThis.fetch = originalFetch; }
   assert.match(root.querySelector('style').textContent, /height:9rem/);
 });
@@ -233,7 +289,7 @@ test('an acknowledged switch to EU gates the composer and analysis with their ex
   assert.equal(c.session.processingPreset, 'eu'); assert.equal(root.querySelector('.engine__value').textContent, 'In the EU');
   assert.equal(root.querySelector('textarea').disabled, true);
   assert.equal(root.querySelector('.send').disabled, true);
-  assert.match(root.querySelector('.composer').textContent, /not configured/);
+  assert.match(root.querySelector('.composer').textContent, /Not configured/);
   assert.equal(root.querySelector('.understanding').getAttribute('aria-disabled'), 'true');
   assert.equal(root.querySelector('.notice').textContent, 'consent required');
   assert.equal(root.querySelector('.readiness').style.visibility, 'hidden');
@@ -262,9 +318,9 @@ test('composer gates update immediately while hovered and the aside stays in pla
     assert.equal(root.querySelector('.send'), send); assert.equal(root.querySelector('.understanding'), aside);
     assert.equal(send.disabled, true, 'fixed composer controls update while hovered');
     assert.equal(root.querySelector('textarea').disabled, true);
-    assert.equal(root.querySelector('.composer-reason').textContent, 'session paused');
-    assert.equal(root.querySelector('.composer-reason').title, 'session paused');
-    assert.equal(root.querySelector('.retry').hidden, false);
+    assert.equal(root.querySelector('.composer-reason').textContent, en.reasons['session paused']);
+    assert.equal(root.querySelector('.composer-reason').title, en.reasons['session paused']);
+    assert.equal(root.querySelector('.retry').hidden, true, 'the aside renders at once under the pointer');
     composer.dispatchEvent(new window.Event('pointerleave')); aside.dispatchEvent(new window.Event('pointerleave'));
     assert.equal(send.disabled, true); assert.equal(root.querySelector('.retry').hidden, true);
     assert.equal(aside.hidden, false, 'fixed aside remains in the layout');
@@ -372,21 +428,21 @@ test('device sends text in this tab only; browser configure/disconnect aborts lo
     assert.equal(c.shadowRoot.querySelector('.retry').hidden, true);
     assert.equal(c.shadowRoot.querySelector('.export').getAttribute('aria-disabled'), 'true');
     assert.equal(c.shadowRoot.querySelector('.export').hasAttribute('href'), false);
-    assert.match(c.shadowRoot.querySelector('.features').textContent, /unavailable on device/);
+    assert.ok(c.shadowRoot.querySelector('.features').textContent.includes(en.reasons['unavailable on device']));
     c.remove(); assert.equal(signal.aborted, true);
   } finally { c.remove(); globalThis.fetch = originalFetch; }
 });
 
-test('pause and consent gate sends immediately while preset updates defer and cached understanding stays visible', async () => {
+test('pause and consent gate sends and preset rows immediately while cached understanding stays visible', async () => {
   const c = setup(), root = c.shadowRoot;
   turn(c, 'input', 'systems: SAP');
   c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
   const send = root.querySelector('.send'), pause = root.querySelector('.pause'), preset = root.querySelector('.preset-panel');
   preset.dispatchEvent(new window.Event('pointerenter'));
-  const features = root.querySelector('.features').textContent;
   c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
   assert.equal(send.disabled, true); assert.equal(pause.textContent, en.resume);
-  assert.equal(root.querySelector('.features').textContent, features);
+  assert.match(root.querySelector('.features').textContent, /Session paused/);
+  assert.equal(root.querySelector('.status').textContent, en.paused, 'the status line follows the pause');
   assert.equal(root.querySelector('.summary-text').textContent.includes('untrusted'), true);
   assert.equal(root.querySelector('.readiness').style.visibility, '');
   assert.ok([...root.querySelectorAll('.analysis-content section')].every(node => !node.hidden));
@@ -440,7 +496,7 @@ test('device withdrawal aborts the local stream, redacts without moving hovered 
     assert.equal(c.session.transcript[0].erased, true);
     assert.equal(list.textContent.includes('Withdraw this local statement'), false);
     assert.equal(list.textContent.includes('Local private answer'), false);
-    assert.equal(list.querySelector('.user'), row); assert.equal(row.querySelector('.withdraw'), button);
+    assert.ok(list.querySelector('.user') === row, 'the hovered row keeps its node'); assert.ok(button.isConnected === false, 'a withdrawn statement has no withdraw action');
     assert.equal(row.style.minHeight, '96px'); assert.equal(partial.style.minHeight, '48px');
     assert.equal(shell.scrollTop, 17); assert.equal(root.querySelector('.send'), send);
     release(); await new Promise(resolve => setImmediate(resolve));
@@ -516,4 +572,72 @@ test('header-owned export fetches the ZIP with ownership and releases the downlo
     assert.deepEqual(downloaded, [{ href: 'blob:header-owned-fixture', download: 'aithema-session.zip' }]);
     assert.deepEqual(revoked, ['blob:header-owned-fixture']);
   } finally { globalThis.fetch = originalFetch; }
+});
+
+test('a reconnect re-reads feature verdicts, so a host restart that dropped consent shows it (D6)', async () => {
+  const c = setup(), originalFetch = globalThis.fetch; let streams = 0, refreshed = 0;
+  const session = c.session;
+  globalThis.fetch = async (url, options = {}) => {
+    if (url.endsWith('/events')) {
+      streams++;
+      // The first stream ends as if the host stopped; the next one stays open.
+      return new Response(new ReadableStream({ start(controller) {
+        if (streams === 1) controller.close();
+        else options.signal.addEventListener('abort', () => controller.close(), { once: true });
+      } }));
+    }
+    const next = structuredClone(session);
+    next.featureMatrix.best = { text: { available: false, reason: 'current processing consent required' },
+      analysis: { available: false, reason: 'current processing consent required' } };
+    return Response.json(next);
+  };
+  c.addEventListener('aithema-features', () => { refreshed++; });
+  try {
+    document.body.append(c);
+    for (let i = 0; i < 300 && !refreshed; i++) await new Promise(resolve => setTimeout(resolve, 10));
+    const root = c.shadowRoot;
+    assert.equal(refreshed, 1); assert.equal(root.querySelector('.send').disabled, true);
+    assert.equal(root.querySelector('.composer-reason').textContent, en.reasons['current processing consent required']);
+    assert.equal(root.querySelector('.notice').textContent, en.reasons['current processing consent required']);
+    assert.equal(root.querySelector('.status').textContent, en.connected);
+  } finally { c.remove(); await new Promise(resolve => setImmediate(resolve)); globalThis.fetch = originalFetch; }
+});
+test('the German bundle covers every English key and renders the component in German', async () => {
+  const { de } = await import('../src/i18n/de.js');
+  const keys = (value, prefix = '') => Object.entries(value).flatMap(([key, item]) =>
+    item && typeof item === 'object' && !Array.isArray(item) ? keys(item, `${prefix}${key}.`) : [`${prefix}${key}`]);
+  const german = new Set(keys(de));
+  assert.deepEqual(keys(en).filter(key => !german.has(key)), []);
+  assert.equal(de.conceptGuidance.length, en.conceptGuidance.length);
+  const c = document.createElement('aithema-session'), session = createSession({ locale: 'de' });
+  session.featureMatrix = { best: { text: { available: false, reason: 'current processing consent required' } } };
+  c.configure({ copy: de, session });
+  const root = c.shadowRoot;
+  assert.equal(root.querySelector('.send').textContent, 'Senden');
+  assert.equal(root.querySelector('.composer-reason').textContent, de.reasons['current processing consent required']);
+  assert.match(root.querySelector('.features').textContent, /Auswertung/);
+});
+test('dark tokens reach WCAG AA text contrast, placeholder and chat bubbles included (AIT-116 D9)', () => {
+  const dark = tokens(styles.match(/@media\(prefers-color-scheme:dark\) \{ :host \{([^}]*)\}/u)[1], 'aithema-');
+  assert.deepEqual(Object.keys(dark).sort(), ['accent', 'amber', 'error', 'ink', 'line', 'muted', 'on-accent', 'paper', 'surface', 'warning']);
+  // The placeholder uses the muted token, not the browser default (#757575 measured 3.51:1 on the dark surface).
+  assert.match(styles, /textarea::placeholder \{ color:var\(--aithema-muted\); opacity:1; \}/u);
+  const bubble = mix(dark.ink, dark.paper, .07), userBubble = mix(dark.accent, dark.paper, .12);
+  const pairs = { 'ink on paper': [dark.ink, dark.paper], 'ink on surface': [dark.ink, dark.surface],
+    'muted on paper': [dark.muted, dark.paper], 'muted (placeholder, status, reasons) on surface': [dark.muted, dark.surface],
+    'accent link on surface': [dark.accent, dark.surface], 'on-accent on accent': [dark['on-accent'], dark.accent],
+    'ink on bubble': [dark.ink, bubble], 'muted on bubble': [dark.muted, bubble],
+    'ink on own bubble': [dark.ink, userBubble], 'muted on own bubble': [dark.muted, userBubble],
+    // The settings dialog, preset chooser and ready card (AIT-112) on the same tokens.
+    'warning (unavailable, pending) on surface': [dark.warning, dark.surface], 'error on surface': [dark.error, dark.surface],
+    'primary button text on its ink fill': [dark.paper, mix(dark.ink, dark.accent, .85)], 'primary button text on ink': [dark.paper, dark.ink] };
+  for (const [pair, [text, background]] of Object.entries(pairs)) {
+    assert.ok(contrast(text, background) >= 4.5, `${pair}: ${contrast(text, background).toFixed(2)}:1`);
+  }
+  assert.ok(contrast('#757575', dark.surface) < 4.5, 'the fixture detects the reported default placeholder');
+  // No settings colour is fixed to the light theme where dark text or a light fill would invert.
+  const darkSettings = settingsStyles.match(/@media\(prefers-color-scheme:dark\) \{([\s\S]*?)\} \}/u)[1];
+  assert.match(darkSettings, /\.done, \.chooser__continue \{ color:var\(--aithema-paper\); \}/u);
+  assert.match(darkSettings, /\.gauge-panel \{ background:linear-gradient\(155deg,var\(--aithema-surface\),var\(--aithema-paper\)\); \}/u);
+  assert.doesNotMatch(settingsStyles, /#89613b|#9a4030|#925125|color:#fff; border-color:var\(--aithema-accent\)/u);
 });

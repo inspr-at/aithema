@@ -9,7 +9,7 @@ export function conceptProgress(status, now = Date.now()) {
 /** Generic START viewer experience, private owner-authenticated bytes only. */
 export class ConceptView {
   #session; #selected; #seen = new Set(); #urls = new Map(); #loads = new Map(); #epoch = 0;
-  #hover = new Set(); #dirty = false; #busy = false; #trigger; #timer; #touchX;
+  #busy = false; #trigger; #timer; #touchX;
   constructor({ root, copy, baseUrl, sessionToken, receive, feature }) {
     Object.assign(this, { root, copy, baseUrl, sessionToken, receive, feature });
     this.visibility = () => { if (root.ownerDocument.hidden) void this.endEligibility(); };
@@ -62,11 +62,6 @@ export class ConceptView {
     const stage = root.querySelector('.concept-stage');
     stage.addEventListener('touchstart', e => { this.#touchX = e.touches[0]?.clientX; }, { passive: true });
     stage.addEventListener('touchend', e => { const delta = e.changedTouches[0]?.clientX - this.#touchX; if (Math.abs(delta) > 60) this.navigate(delta > 0 ? -1 : 1); }, { passive: true });
-    for (const selector of ['.concept-viewer-controls', '.concept-viewer-head', '.concept-preview-slot', '.concept-rail']) {
-      const node = root.querySelector(selector);
-      node.addEventListener('pointerenter', () => this.#hover.add(node));
-      node.addEventListener('pointerleave', () => { this.#hover.delete(node); if (!this.#hover.size && this.#dirty) this.render(); });
-    }
     this.connect();
   }
   get items() { return (this.#session?.concepts ?? []).filter(c => !c.archived && !c.erased); }
@@ -103,7 +98,7 @@ export class ConceptView {
     const valid = new Set((session.concepts ?? []).filter(c => !c.erased).map(c => c.id));
     if (changedOwner || session.consentWithdrawn || session.tombstone) valid.clear();
     for (const [id, url] of this.#urls) if (!valid.has(id)) { URL.revokeObjectURL(url); this.#urls.delete(id); }
-    // Redact revoked content immediately even while layout updates are deferred.
+    // Redact revoked content immediately.
     if (changedOwner || session.consentWithdrawn || session.tombstone || this.#selected && !valid.has(this.#selected)) {
       this.#epoch++; this.root.querySelector('.concept-image').removeAttribute('src'); this.root.querySelector('.concept-disclosure').textContent = '';
       this.root.querySelector('.concept-guidance-selected').textContent = ''; this.close();
@@ -127,10 +122,9 @@ export class ConceptView {
     }
     this.root.querySelector('.concept-rail').dataset.phase = status.phase;
   }
+  // Every control keeps a fixed slot, so state renders at once, also under the pointer (AIT-116 D3).
   render() {
     this.progress();
-    if (this.#hover.size) { this.#dirty = true; this.gates(); return; }
-    this.#dirty = false;
     const latest = this.items.at(-1), tab = this.root.querySelector('.concept-tab');
     tab.dataset.unread = String(Boolean(latest && !this.#seen.has(latest.id))); tab.disabled = !latest;
     tab.title = latest ? this.copy.conceptView : this.feature().reason ?? this.copy.conceptIntro;
@@ -148,10 +142,21 @@ export class ConceptView {
     const fake = current.provenance?.generator?.provider === 'local-demo-fake';
     this.root.querySelector('.concept-disclosure').textContent = fake ? this.copy.conceptFake : current.provenance?.origin === 'ai-manipulated' ? this.copy.conceptManipulated : this.copy.conceptGenerated;
     for (const vote of ['up', 'down']) this.root.querySelector('.concept-' + vote).setAttribute('aria-pressed', String(current.feedback?.vote === vote));
-    this.root.querySelector('.concept-guidance-selected').replaceChildren(...(current.feedback?.chips ?? []).map(value => {
-      const button = document.createElement('button'); button.type = 'button'; button.textContent = this.copy.conceptRemoveGuidance.replace('{guidance}', value);
-      button.addEventListener('click', () => void this.feedback(current.feedback.vote, current.feedback.chips.filter(c => c !== value))); return button;
-    }));
+    // Selected guidance keeps its buttons by value, so a focused one stays focused across live renders.
+    const selected = this.root.querySelector('.concept-guidance-selected'), chips = current.feedback?.chips ?? [];
+    const buttons = new Map([...selected.children].map(button => [button.dataset.value, button]));
+    for (const [value, button] of buttons) if (!chips.includes(value)) { button.remove(); buttons.delete(value); }
+    let next = selected.firstElementChild;
+    for (const value of chips) {
+      let button = buttons.get(value);
+      if (!button) {
+        button = document.createElement('button'); button.type = 'button'; button.dataset.value = value;
+        button.textContent = this.copy.conceptRemoveGuidance.replace('{guidance}', value);
+        button.addEventListener('click', () => { const shown = this.current()?.feedback;
+          if (shown) void this.feedback(shown.vote, shown.chips.filter(c => c !== value)); });
+      }
+      if (button !== next) selected.insertBefore(button, next); else next = next.nextElementSibling;
+    }
     const image = this.root.querySelector('.concept-image'), imageStatus = this.root.querySelector('.concept-image-status');
     if (image.dataset.id !== current.id) { image.removeAttribute('src'); image.dataset.id = current.id; }
     imageStatus.textContent = this.copy.conceptLoading;
@@ -160,6 +165,7 @@ export class ConceptView {
     } });
   }
   gates() {
+    const active = this.root.activeElement; // captured before any control below is disabled
     const feature = this.feature(), pending = this.#session?.conceptStatus?.phase === 'pending';
     const source = this.#session?.transcript.some(t => t.role === 'user' && !t.erased && !t.withdrawn);
     const cost = this.#session?.conceptCost, costCopy = cost ? cost.maxMicro === 0 ? this.copy.conceptFree : this.copy.conceptCost.replace('{micro}', cost.maxMicro) : this.copy.conceptCostUnknown;
@@ -171,6 +177,15 @@ export class ConceptView {
     for (const node of this.root.querySelectorAll('.concept-feedback button, .concept-guidance-options button, .concept-guidance-selected button')) {
       node.disabled = this.#busy || !feature.available || !this.current(); node.title = !feature.available ? feature.reason : '';
     }
+    // A live update (e.g. SSE "pending" after the POST settled) can disable the focused
+    // control; browsers then drop focus out of the modal and its arrow-key navigation.
+    if (this.dialog.open && active?.disabled && this.dialog.contains(active)) this.root.querySelector('.concept-close').focus();
+  }
+  // A control disabled while busy drops focus out of the modal viewer, and with it the
+  // arrow-key navigation. Return focus to it, or to the close button when it went away.
+  refocus(node) {
+    if (!this.dialog.open || this.dialog.contains(this.root.activeElement)) return;
+    (node?.isConnected && !node.disabled && this.dialog.contains(node) ? node : this.root.querySelector('.concept-close')).focus();
   }
   open(id = this.items.at(-1)?.id) {
     if (!id || !this.items.some(c => c.id === id)) return;
@@ -202,24 +217,24 @@ export class ConceptView {
     if (this.#busy || !this.feature().available || this.#session.conceptStatus?.phase === 'pending') return;
     const sourceTurnId = this.#session.transcript.filter(t => t.role === 'user' && !t.erased && !t.withdrawn).at(-1)?.id;
     if (!sourceTurnId) return;
-    this.#busy = true; this.gates(); const sessionId = this.#session.id;
+    const focused = this.root.activeElement; this.#busy = true; this.gates(); const sessionId = this.#session.id;
     try {
       const response = await postJson(this.path(artifactId ? `/${artifactId}/regenerate` : ''),
         { clientEventId: crypto.randomUUID(), intent: true, sourceTurnId }, { sessionToken: this.sessionToken });
       if (!response.ok) throw new Error(); const ack = await response.json(); if (sessionId === this.#session.id) this.receive(ack.event);
     } catch { this.root.querySelector('.concept-activity-text').textContent = this.copy.conceptFailed; }
-    finally { this.#busy = false; this.gates(); }
+    finally { this.#busy = false; this.gates(); this.refocus(focused); }
   }
   async feedback(vote, chips, reject = false) {
     const current = this.current(); if (this.#busy || !current || !this.feature().available || chips.length > 8) return;
-    this.#busy = true; this.gates(); const sessionId = this.#session.id;
+    const focused = this.root.activeElement; this.#busy = true; this.gates(); const sessionId = this.#session.id;
     try {
       const response = await postJson(this.path(`/${current.id}/${reject ? 'reject' : 'feedback'}`),
         { clientEventId: crypto.randomUUID(), vote, chips }, { sessionToken: this.sessionToken });
       if (!response.ok) throw new Error(); const ack = await response.json();
       if (sessionId === this.#session.id) { this.receive(ack.event); if (reject) this.close(); }
     } catch { this.root.querySelector('.concept-viewer-message').textContent = this.copy.controlFailed; }
-    finally { this.#busy = false; this.gates(); }
+    finally { this.#busy = false; this.gates(); this.refocus(focused); }
   }
   async download() {
     const current = this.current(); if (!current) return;

@@ -3,22 +3,28 @@
 <meta http-equiv="Content-Security-Policy" content="frame-src 'none'; child-src 'none'">
 <title>Demo — Aithema reset slice 1</title>
 <style>
-body { background:#f7f5ef; color:#243b40; font-family:system-ui,sans-serif; margin:0; padding:2rem; }
+:root { --paper:#f7f5ef; --ink:#243b40; --muted:#67777a; --accent:#227c78; --line:#d5dfda; --surface:#fffef9; --error:#9a4030; color-scheme:light dark; }
+@media(prefers-color-scheme:dark) { :root { --paper:#141a1b; --ink:#e2e9e6; --muted:#9badab; --accent:#5db5ae; --line:#33403f; --surface:#1b2223; --error:#e59a87; } }
+body { background:var(--paper); color:var(--ink); font-family:system-ui,sans-serif; margin:0; padding:2rem; }
 main { max-width:78rem; margin:auto; } header { margin-bottom:1.5rem; } h1 { font-size:1.3rem; margin:0; }
-header p { font-size:.85rem; color:#67777a; } .host-actions { display:flex; gap:1rem; align-items:center; font-size:.8rem; }
-button { padding:.5rem .8rem; border:1px solid #d5dfda; background:#fffef9; border-radius:.6rem; cursor:pointer; }
-a { color:#227c78; } #error { color:#9a4030; } @media(max-width:40rem) { body { padding:1rem; } }
-#error { min-height:1.5em; } #consent-status { height:3em; overflow:auto; }
-</style></head><body><main><header><h1>Demo — Aithema reset slice 1</h1>
+header p { font-size:.85rem; color:var(--muted); } .host-actions { display:flex; flex-wrap:wrap; gap:.5rem 1rem; align-items:center; font-size:.8rem; }
+button, select, input { color:inherit; font:inherit; }
+button { padding:.5rem .8rem; border:1px solid var(--line); background:var(--surface); border-radius:.6rem; cursor:pointer; }
+select, input { background:var(--surface); border:1px solid var(--line); border-radius:.4rem; padding:.2rem .4rem; }
+a { color:var(--accent); } #error { color:var(--error); } @media(max-width:40rem) { body { padding:1rem; } }
+#error { min-height:1.5em; } #consent-status { height:3em; overflow:auto; } #language-note { min-height:1.2em; margin:.4rem 0 0; }
+</style></head><body><main><header><h1 id="title">Demo — Aithema reset slice 1</h1>
 <p id="provider">Loading reasoning binding…</p>
-<div class="host-actions"><button id="new" type="button">New conversation</button><span>Reload or restart the server to resume.</span>
-<a href="https://github.com/inspr-at/aithema">Source (AGPL-3.0-only)</a></div>
-<p>With mock reasoning, try: operations: hosted; data: public; systems: API; reach: international</p>
-<p>Settings (in the processing panel below) chooses the preset, model, response style, voice and visual concepts.
+<div class="host-actions"><button id="new" type="button">New conversation</button><span id="resume-hint">Reload or restart the server to resume.</span>
+<label><span id="language-label">Language</span> <select id="locale"><option value="en">English</option><option value="de">German</option></select></label>
+<a id="source" href="https://github.com/inspr-at/aithema">Source (AGPL-3.0-only)</a></div>
+<p id="language-note" role="status"></p>
+<p id="mock-hint">With mock reasoning, try: operations: hosted; data: public; systems: API; reach: international</p>
+<p id="settings-hint">Settings (in the processing panel below) chooses the preset, model, response style, voice and visual concepts.
 Its Advanced tab connects an OpenAI-compatible model running on this device.</p>
 <p id="error" role="alert"></p></header>
 <section aria-labelledby="consent-title"><h2 id="consent-title">Mock conversation consent</h2>
-<p>The local demo models, fake voice and fake images use your conversation to reply, build understanding and draw concepts.
+<p id="consent-text">The local demo models, fake voice and fake images use your conversation to reply, build understanding and draw concepts.
 Recipient: the local mock; no upstream processors. This covers conversation data, item version 1, for twelve months.
 Grants live in memory; grant again after a server restart.</p>
 <button id="grant" type="button">Allow mock processing</button><button id="revoke" type="button">Withdraw consent</button>

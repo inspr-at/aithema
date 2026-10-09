@@ -30,7 +30,15 @@ const WAVES = ['M0 18C30 2 70 2 100 18C130 34 170 34 200 18C230 2 270 2 300 18C3
   'M0 18C30 30 70 30 100 18C130 6 170 6 200 18C230 30 270 30 300 18C330 6 370 6 400 18V36H0Z'];
 export const PRESET_ORDER = Object.freeze(['best', 'eu', 'device', 'custom']);
 export const fill = (template, values = {}) => String(template).replace(/\{(\w+)\}/gu, (_, key) => values[key] ?? '');
-export const reasonText = (copy, reason) => copy.reasons?.[reason] ?? reason;
+const DELEGATED = 'delegated reasoning: ';
+/** Server verdicts are stable machine reasons; this shows them in the page language. */
+export function reasonText(copy, reason) {
+  const reasons = copy.reasons ?? {};
+  if (typeof reason === 'string' && reason.startsWith(DELEGATED) && reasons.delegated) {
+    return reasons.delegated.replace('{reason}', reasonText(copy, reason.slice(DELEGATED.length)));
+  }
+  return reasons[reason] ?? reason;
+}
 const optionId = value => typeof value === 'string' ? value : value?.id ?? null;
 /**
  * The acknowledged selection. Stored ids are authoritative; the server's public
