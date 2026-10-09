@@ -5,6 +5,16 @@ import { unavailableVoiceCommand } from '../../../packages/core/src/live-voice.j
 import { fixture, invocationOptions, flush, fakeSdk } from './fixtures.js';
 
 async function drain(session) { const events = []; for await (const event of session.events) events.push(event); return events; }
+test('transport loss while paused waits for acknowledged resume before spending on recovery', async () => {
+  const local = fixture(), options = invocationOptions(), session = await local.client.start({ callId: 'call_paused_recovery' }, options);
+  let retries = 0;
+  local.control.recover = async () => { retries++; throw new Error('local recovery failure'); };
+  const reader = drain(session);
+  await session.pause(); local.sdk.starts[0].onDisconnect(); await flush();
+  assert.equal(retries, 0); assert.equal(local.sdk.closed, false);
+  await session.resume();
+  const events = await reader; assert.equal(retries, 3); assert.equal(events.at(-1).type, 'ended');
+});
 test('relative credential TTL accepts a receipt even when the server clock is behind the browser', async () => {
   const local = fixture({ now: () => Date.now() - 120_000 });
   try {

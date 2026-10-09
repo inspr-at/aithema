@@ -19,6 +19,12 @@ export function applyEvent(session, event) {
   if (event.type === 'turn.final') {
     next.transcript.push(event.data);
     if (event.data.role === 'user') next.inputRevision += 1;
+  } else if (event.type === 'turn.corrected') {
+    next.transcript = next.transcript.map(t => t.id === event.data.id ? { ...t, ...event.data, erased: Boolean(event.data.erased), withdrawn: Boolean(event.data.withdrawn) } : t);
+    next.sessionRevision += 1; next.understanding = emptyUnderstanding(next); next.actor = null; next.focusedQuestion = null;
+  } else if (event.type === 'question.focused') {
+    next.focusedQuestion = event.data.erased ? null : event.data.question;
+    next.sessionRevision += 1;
   } else if (event.type === 'understanding.updated') {
     next.understanding = event.data.erased ? emptyUnderstanding(next) : event.data;
     next.actor = event.data.erased ? null : event.data.actor;
@@ -26,7 +32,7 @@ export function applyEvent(session, event) {
     next.paused = event.data.paused;
   } else if (['turn.withdrawn', 'session.erased', 'consent.revised'].includes(event.type)) {
     next.sessionRevision += 1;
-    next.understanding = emptyUnderstanding(next); next.actor = null;
+    next.understanding = emptyUnderstanding(next); next.actor = null; next.focusedQuestion = null;
     if (event.type === 'consent.revised') {
       next.consentRevision += 1; next.consentWithdrawn = !event.data.granted;
       next.transcript = next.transcript.map(t => t.role === 'assistant'

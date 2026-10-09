@@ -2,15 +2,17 @@ import { applyEvent, inputRevision, activeTurns } from '../../core/src/session.j
 import { readinessScalePercent, readinessListItems, readinessListWindow, newlyClearedFirst } from '../../core/src/readiness.js';
 import { displayedReadinessPercent } from '../../core/src/understanding.js';
 import { PROCESSING_PRESETS, FEATURES, deviceFeatures } from '../../core/src/presets.js';
+import { AudioRail } from './audio-rail.js';
 import { styles } from './styles.js';
 import { postJson } from './post-json.js';
 
 export class AithemaSession extends HTMLElement {
-  #device; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #pending;
+  #rail; #voiceClient; #voicePlayback; #device; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #pending;
   #hover = new Set(); #dirty = new Set(); #open = []; #cleared = []; #failure = false; #sending = false;
   constructor() { super(); this.attachShadow({ mode: 'open' }); }
-  configure({ copy, baseUrl = '', session, sessionToken, deviceReasoning }) {
+  configure({ copy, baseUrl = '', session, sessionToken, deviceReasoning, voiceClient, voicePlayback }) {
     if (!copy || !session) throw new TypeError('Host copy and session required');
+    this.#rail?.destroy(); this.#voiceClient = voiceClient; this.#voicePlayback = voicePlayback;
     this.#abort?.abort(); this.#deviceController?.abort(); this.#device = deviceReasoning; this.#copy = copy; this.#base = baseUrl.replace(/\/$/u, '');
     this.#session = structuredClone(session); this.#sessionToken = sessionToken; this.#cursor = session.seq; this.#partials.clear();
     this.#restoreFailure(); this.#pending = null; this.#sending = false;
@@ -20,7 +22,8 @@ export class AithemaSession extends HTMLElement {
     if (this.isConnected) this.#connect();
   }
   connectedCallback() { if (this.#session) this.#connect(); }
-  disconnectedCallback() { this.#abort?.abort(); this.#deviceController?.abort(); }
+  disconnectedCallback() { this.#rail?.destroy(); this.#abort?.abort(); this.#deviceController?.abort(); }
+  reportVoicePlaybackBlocked() { this.#rail?.reportPlaybackBlocked(); }
   get session() { return structuredClone(this.#session); }
   #mount() {
     const root = this.shadowRoot;
@@ -28,7 +31,7 @@ export class AithemaSession extends HTMLElement {
     root.innerHTML = `<style>${styles}</style><div class="workspace">
       <section class="preset-panel"><label><span data-copy="processing"></span> <select class="preset-choice"></select></label><ul class="features"></ul></section>
       <section class="conversation"><header class="head"><h2 data-copy="conversation"></h2><button class="pause" type="button"></button><span class="status" role="status"></span></header>
-        <div class="transcript-shell"><ol aria-live="polite"></ol></div>
+        <div class="audio-rail"></div><div class="transcript-shell"><ol aria-live="polite"></ol></div>
         <form class="composer"><label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000"></textarea>
           <div class="composer-actions"><small class="composer-reason" role="status" id="composer-reason"></small><button class="send" data-copy="send"></button></div></form></section>
       <aside class="understanding"><header class="head"><h2 data-copy="understanding"></h2></header>
@@ -83,8 +86,17 @@ export class AithemaSession extends HTMLElement {
         if (!response.ok) throw new Error(); this.#failure = false; this.#render('aside');
       } catch { this.#status(this.#copy.reasoningFailed); }
     });
+    this.#rail = new AudioRail({ root: root.querySelector('.audio-rail'), copy: this.#copy, client: this.#voiceClient,
+      feature: () => this.#feature('voice'), playback: this.#voicePlayback,
+      context: () => ({ understanding: this.#session.understanding, focusedQuestion: this.#session.focusedQuestion ?? null }),
+      onPause: paused => {
+        this.#session.paused = paused;
+        this.#render('features'); this.#render('composer'); this.#render('aside');
+        if (this.isConnected) void this.#refreshFeatures();
+      } });
     root.querySelector('.pause').addEventListener('click', async () => {
       const button = root.querySelector('.pause'), sessionId = this.#session.id;
+      if (this.#rail.session) { await this.#rail.pause(!this.#session.paused); return; }
       button.disabled = true;
       try {
         const response = await postJson(`${this.#base}/api/sessions/${sessionId}/pause`, { paused: !this.#session.paused }, { sessionToken: this.#sessionToken });
@@ -251,6 +263,12 @@ export class AithemaSession extends HTMLElement {
     if (!this.#pending || this.#pending.content !== content) this.#pending = { clientEventId: crypto.randomUUID(), content };
     this.#sending = true; button.disabled = true; this.#status(this.#copy.sending);
     try {
+      if (this.#rail.session) {
+        await this.#rail.sendText(content);
+        if (sessionId !== this.#session.id) return;
+        if (input.value === content) input.value = '';
+        this.#pending = null; this.#status(this.#copy.voiceTextSent); return;
+      }
       const response = await postJson(`${this.#base}/api/sessions/${sessionId}/turns`, this.#pending, { sessionToken: this.#sessionToken });
       if (!response.ok) throw new Error();
       const event = await response.json();
@@ -290,7 +308,7 @@ export class AithemaSession extends HTMLElement {
       const invalidation = ['turn.withdrawn', 'session.erased', 'consent.revised'].includes(event.type);
       if (invalidation) {
         this.#invalidatedAt = Math.max(this.#invalidatedAt, event.seq);
-        this.#deviceController?.abort();
+        this.#deviceController?.abort(); void this.#rail.close();
         this.#partials.clear(); this.#failure = false;
         // Redact sensitive content immediately; keep layout updates deferred.
         for (const row of this.shadowRoot.querySelectorAll('.turn')) {
@@ -317,14 +335,28 @@ export class AithemaSession extends HTMLElement {
       if (event.type === 'session.paused') {
         this.#invalidatedAt = Math.max(this.#invalidatedAt, event.seq);
         if (event.data.paused) this.#deviceController?.abort();
+        this.#rail.syncPause(event.data.paused);
       }
       if ((invalidation || event.type === 'session.paused') && this.isConnected) void this.#refreshFeatures();
       if (event.type === 'turn.final') {
         this.#partials.delete(event.data.id);
         if (event.data.role === 'user') { this.#partials.clear(); this.#failure = false; }
       }
+      if (['understanding.updated', 'question.focused', 'turn.corrected'].includes(event.type)) {
+        void this.#rail.updateContext().catch(() => {});
+      }
+      if (event.type === 'turn.corrected') {
+        for (const selector of ['.summary-text', '.signals', '.questions', '.missing', '.cleared', '.overflow']) {
+          const node = this.shadowRoot.querySelector(selector);
+          node.style.minHeight = `${node.getBoundingClientRect().height}px`; node.dataset.redacted = ''; node.textContent = '';
+        }
+        const row = [...this.shadowRoot.querySelectorAll('.turn')].find(n => n.dataset.id === event.data.id);
+        if (row) { row.style.minHeight = `${row.getBoundingClientRect().height}px`; row.querySelector('span').textContent = event.data.content; }
+      }
       if (event.type === 'understanding.updated' && this.#session.operations?.lastFailure?.lane !== 'reaction') this.#failure = false;
       this.dispatchEvent(new CustomEvent('aithema-event', { detail: event, bubbles: true, composed: true }));
+    } else if (event.type === 'voice.state') {
+      if (event.data.state === 'ended' && this.#rail.session?.callId === event.data.callId && !['closed', 'recovery-failed'].includes(event.data.reason)) void this.#rail.close(event.data.reason);
     } else if (event.type === 'turn.partial' && event.data.inputRevision === inputRevision(this.#session)) {
       const existing = this.#partials.get(event.data.id);
       this.#partials.set(event.data.id, { id: event.data.id, role: 'assistant', partial: true,
@@ -334,7 +366,7 @@ export class AithemaSession extends HTMLElement {
     } else if (event.type === 'lane.failed' && (!event.data.inputRevision || event.data.inputRevision === inputRevision(this.#session))) {
       this.#failure = true; this.#partials.clear();
     }
-    this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer');
+    this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer'); this.#rail.render();
   }
   async #refreshFeatures() {
     if (this.#session.processingPreset === 'device') return;
@@ -344,7 +376,7 @@ export class AithemaSession extends HTMLElement {
       if (!response.ok) return;
       const session = await response.json();
       if (sessionId !== this.#session.id || session.seq !== this.#cursor || session.id !== sessionId) return;
-      this.#session.featureMatrix = session.featureMatrix;
+      this.#session.featureMatrix = session.featureMatrix; this.#rail.render();
       this.#render('features'); this.#render('aside'); this.#render('composer');
     } catch { /* Existing verdicts stay closed until the host confirms coverage. */ }
   }
@@ -381,7 +413,7 @@ export class AithemaSession extends HTMLElement {
         });
         if (signal.aborted) return;
         if (response.status === 400) { await this.#restore(); return; }
-        if (!response.ok) throw new Error();
+        if (!response.ok) { if (response.status === 404) void this.#rail.close(); throw new Error(); }
         this.#status(this.#copy.connected); reader = response.body.getReader();
         let buffer = ''; const decoder = new TextDecoder();
         while (!signal.aborted) {

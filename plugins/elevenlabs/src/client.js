@@ -15,7 +15,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
     async start(request, options = {}) {
       const events = voiceEvents();
       let conversation, grant, generation = 0, ended = false, closing, recovering, delivery = Promise.resolve(), commands = Promise.resolve(), leaseTimer;
-      let inputOn = true, outputOn = true, paused = false, sequence = 0;
+      let inputOn = true, outputOn = true, paused = false, recoveryPending = false, sequence = 0;
       const commandCancellation = new AbortController(), interruptionWaiters = new Set();
       const seen = new Set(), assistants = new Map();
       const identity = () => ({ callId: request.callId, providerSessionId: grant?.providerSessionId });
@@ -75,7 +75,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           },
           onModeChange({ mode }) { if (active() && ['listening', 'speaking'].includes(mode)) emit({ type: mode }); },
           onMessage({ role, message, event_id: eventId }) {
-            if (!active() || !['user', 'agent'].includes(role) || typeof message !== 'string' || !message.trim()) return;
+            if (!active() || paused || !['user', 'agent'].includes(role) || typeof message !== 'string' || !message.trim()) return;
             const speaker = role === 'agent' ? 'assistant' : 'user';
             const turnId = `${receipt.providerSessionId}:${speaker}:${eventId ?? `callback-${++sequence}`}`;
             if (seen.has(turnId)) return;
@@ -97,7 +97,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           },
           onDebug(event) {
             const text = event?.tentative_user_transcription_event?.user_transcript;
-            if (active() && event.type === 'tentative_user_transcript' && typeof text === 'string') {
+            if (active() && !paused && event.type === 'tentative_user_transcript' && typeof text === 'string') {
               emit({ type: 'partial', turnId: `${receipt.providerSessionId}:user:pending`, role: 'user', text });
             }
           },
@@ -133,6 +133,8 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
       };
       const recover = () => {
         if (recovering || ended) return recovering;
+        if (paused) { recoveryPending = true; return Promise.resolve(); }
+        recoveryPending = false;
         generation++; emit({ type: 'recovering' });
         recovering = (async () => {
           const previous = identity();
@@ -144,7 +146,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
               const opts = { signal: options.signal, deadlineAt: Math.min(grant.spendDeadlineAt, Date.now() + 10_000) };
               const receipt = await voiceOperation(opts, bounded => control.recover(previous, bounded));
               await connect(receipt, opts);
-              emit({ type: 'recovered' }); return;
+              return true;
             } catch {
               generation++;
               try { await voiceOperation({ deadlineAt: Date.now() + 1000 }, () => conversation?.endSession()); } catch {}
@@ -154,7 +156,8 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
             }
           }
           await close('recovery-failed', { deadlineAt: Date.now() + 1000 });
-        })().finally(() => { recovering = null; });
+        })().then(recovered => { recovering = null; if (recovered && !ended) emit({ type: 'recovered' }); })
+          .finally(() => { recovering = null; });
         return recovering;
       };
       const command = (name, fn) => commandOptions => {
@@ -175,6 +178,8 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
         options.signal?.addEventListener('abort', cancel, { once: true });
         if (options.signal?.aborted) { cancel(); throw new PluginError('cancelled'); }
         const session = {
+          audioLevels: () => ({ input: paused || !inputOn ? 0 : conversation?.getInputVolume?.() ?? 0,
+            output: paused || !outputOn ? 0 : conversation?.getOutputVolume?.() ?? 0 }),
           callId: request.callId, get providerSessionId() { return grant.providerSessionId; }, events,
           close: commandOptions => close('closed', commandOptions),
           pause: command('pause', async opts => {
@@ -185,7 +190,9 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           resume: command('resume', async opts => {
             const ack = await control.resume(identity(), opts);
             if (ack?.acknowledged !== true || ack.paused !== false) throw new PluginError('invalid-output', 'Resume not acknowledged');
-            paused = false; channels(); return ack;
+            paused = false; channels();
+            if (recoveryPending) queueMicrotask(() => { void recover().catch(() => {}); });
+            return ack;
           }),
           setInput(on, opts) { return command('setInput', () => { if (typeof on !== 'boolean') throw new TypeError('Input boolean required'); inputOn = on; channels(); })(opts); },
           setOutput(on, opts) { return command('setOutput', () => { if (typeof on !== 'boolean') throw new TypeError('Output boolean required'); outputOn = on; channels(); })(opts); },

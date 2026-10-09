@@ -14,8 +14,9 @@ later slices port what they need with `git show archive/gen2-2026-10-01:<path>`.
 
 The reset line is **unreleased work in progress**. The first text vertical supplies
 conversation, live understanding, durable events, restart/resume and session ZIP
-export. Requirement approval, files/uploads, voice, concepts and host integration
-remain later work. START cutover and live provider/OIDC proof are also later work;
+export. The first voice integration supplies a durable ElevenLabs call lifecycle, audio rail
+and local fake agent. Requirement approval, files/uploads, concepts and host
+integration remain later work. START cutover and live provider/OIDC proof are also later work;
 handover to PAIMOS is planned. Sessions now have visitor ownership, authoritative
 consent checks, engine-wide pause, withdrawal/erasure and an exclusive writer.
 The demo is for localhost.
@@ -78,7 +79,7 @@ The private `aithema` root is an ESM npm workspace with one `package-lock.json`.
 | `tests/`, `scripts/check-dco.py` | DCO history tests and contribution checker |
 
 The server exports `SQLiteStorage`, `createHandlers` and `exportSession`; its
-`/http` export supplies `listen` and `httpAdapter`. Call handlers' `resume()` on
+`/http` export supplies `listen` and `httpAdapter`. Await handlers' `resume()` on
 startup and `close()` before closing storage. A standalone mock server runs with
 `node packages/server/bin/server.js`; set `AITHEMA_DB` for persistence. Its mock
 ledger also requires an explicit consent grant and loses grants on restart.
@@ -151,18 +152,72 @@ writer refuses startup. Legacy unowned sessions migrate to the erasable layout
 but remain inaccessible to visitors; create a new owned session. No ownership
 takeover is provided.
 
+
+## Voice host integration
+
+The demo defaults to **Fake voice — local simulated agent, no provider network**.
+Allow local mock consent, select Start call, then use the labelled host controls
+to simulate speech, a spoken interruption or transport loss. Type in the composer
+while the call runs. Pause/Resume waits for the engine acknowledgement; blur
+pauses automatically, and focus never resumes. The agent and provider API are
+in-process fakes; only session persistence/control uses localhost HTTP.
+`AITHEMA_VOICE_MODE=off` disables it. No microphone audio is captured in fake mode.
+
+For a host, register `createVoiceProvider(...)` alongside the selected reasoning
+plugin, configure `presets[preset].bindings.voice`, and pass
+`voice: {secrets, closeOrphan?}` into `createHandlers`. Create `secrets` with
+`createFacadeSecrets()` or supply a server-only vault implementing
+`provision(ref)`, `resolve(ref)` and `revoke(ref)`. Await `handlers.resume()` before
+accepting traffic. See the [voice plugin README](plugins/elevenlabs/README.md)
+for the complete binding and provisioning ports. Agent id, provider-key secret
+reference, public HTTPS facade base URL and exact account qualification are
+required. The live demo additionally requires a private host module; it never
+infers authorization from a provider key in the environment.
+
+Browser hosts import `createVoiceControl` from `@inspr/aithema-ui/voice-control`,
+and `createElevenLabsClient` from `@inspr/aithema-plugin-elevenlabs/client`.
+Use the control's `persistEvent(event, {providerSessionId})` to feed durable
+acknowledgements into `component.receive`, then pass the client as `voiceClient`
+to `component.configure`. The demo is a complete reference. Serve client ESM,
+the SDK IIFE and worklets; never serve the plugin's server or facade modules.
+The localhost demo serves the pinned SDK at `/vendor/elevenlabs/lib.iife.js` and
+standalone worklets at `/vendor/elevenlabs/worklets/{raw-audio,audio-concat}.js`.
+The rail reads optional `audioLevels()` input/output measurements; the orb's
+outer size remains fixed. Blocked SDK audio playback offers a user-gesture retry.
+Hosts with an additional Web Audio context can supply `voicePlayback` to resume it.
+
+Voice finals are ordinary durable `turn.final` events. A genuine heard prefix is
+an idempotent `turn.corrected`, with the unspoken suffix removed from projection,
+replay and export. Understanding uses the same revision guards and withdrawal
+path as typed input. During a call the composer sends `sendText`; only the
+provider's final echo creates a turn. Understanding/focus changes call
+`updateContext`. Audio barge-in is native; there is no force-interrupt button.
+Unsupported commands and presets stay disabled with a reason. Automatic updates
+keep the rail, composer and export targets at fixed positions.
+
+Duration holds reserve provider and visitor ceilings separately.
+`budget.used(sessionId)` tracks upstream spend;
+`budget.visitorUsed(sessionId)` tracks voice visitor credits. Terminal usage
+retains full `providerSeconds`/`providerMinutes`, `pausedSeconds`, `visitorSeconds`,
+provider credits and both micro-unit costs. Confirmed pauses reduce visitor
+seconds and cost while upstream usage still accrues. Unknown dispatched closure
+charges both reserved maxima. Startup releases undispatched holds, conservatively
+settles dispatched holds, revokes callback auth and retains pending orphan
+reconciliation under SQLite's exclusive writer. A host's bounded `closeOrphan`
+port may return authenticated final usage to correct cost without emitting a
+second terminal receipt. Pending records remain durable when that port fails.
+
 ## Plugins, bindings and admission
 
 Kinds are `reasoning` (`stream`, `structured`), `stt` (`transcribe`, optional
 `stream`), `tts` (`speak`), `live-voice` (`start` → session), `ui-generation`
 (`generate`, `edit`), `extractor` (`extract`) and `exporter` (`export`). Reasoning,
-the isolated ElevenLabs live-voice adapter, standalone UI generation and extractors are
+the ElevenLabs live-voice integration, standalone UI generation and extractors are
 implemented here. Every operation takes `{signal, deadlineAt}`;
 [plugin-contract.d.ts](packages/core/src/plugin-contract.d.ts) documents the later
 ports, including independent voice input/output, acknowledged pause/resume,
-turn ids, transcript policy and delegated/native reasoning. The voice adapter has
-no routes or UI integration yet; [its README](plugins/elevenlabs/README.md)
-defines the Part B integration ports after AIT-97.
+turn ids, transcript policy and delegated/native reasoning. The [ElevenLabs README](plugins/elevenlabs/README.md) documents duration bindings,
+Fetch routes, server-only callback provisioning and browser integration.
 
 A static public **manifest** contains id, version, API range, kinds, placement,
 entrypoints, a non-secret config schema and technical model capabilities/public

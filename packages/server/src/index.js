@@ -4,3 +4,7 @@ export * from './export.js';
 export * from './budget.js';
 export * from './plugin-runtime.js';
 export * from './memory-consent.js';
+export * from './voice-binding.js';
+export * from './voice-provider.js';
+export * from './voice-handlers.js';
+export * from './local-voice.js';
