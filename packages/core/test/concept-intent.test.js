@@ -25,7 +25,7 @@ test('25/40/72 percent only arm; milestones, viewing and conversation end never 
     s = input(s, { revision: 'r1', turnIds: ['t1'] }); s = reduce(s, event('readiness', { percent }));
     for (const type of ['viewer-open', 'conversation-ended']) s = reduce(s, event(type));
     assert.equal(s.visualIntent, null);
-    for (const trigger of ['progress', 'idle', 'manual', 'final']) assert.deepEqual(plan(s, { trigger, now: 200000 }), { kind: 'skip', reason: 'not-requested' });
+    for (const trigger of ['progress', 'idle', 'manual']) assert.deepEqual(plan(s, { trigger, now: 200000 }), { kind: 'skip', reason: 'not-requested' });
     assert.equal(s.pending, null);
   }
   for (const invalid of [undefined, null, NaN, Infinity, '72']) assert.equal(progressTrigger(invalid), null);
@@ -38,10 +38,10 @@ test('recorded intent must refer to a stored substantive visitor turn and covere
   assert.equal(reduce(s, event('intent-recorded', { id: 'i', sourceTurnId: 'assistant' })), s);
   s = reduce(s, event('intent-recorded', { id: 'i', sourceTurnId: 't1' }));
   assert.equal(plan(s, { trigger: 'manual', now: 1 }).kind, 'generate');
-  assert.deepEqual(plan(s, { now: 1 }), { kind: 'skip', reason: 'before-threshold' });
+  assert.deepEqual(plan(s, { trigger: 'progress', now: 1 }), { kind: 'skip', reason: 'before-threshold' });
 });
 test('pause blocks every fresh request, including manual, without rejecting an admitted render', () => {
-  let s = ready(); const job = plan(s, { now: 0 }).plan;
+  let s = ready(); const job = plan(s, { trigger: 'progress', now: 0 }).plan;
   s = reduce(s, event('pause', { paused: true }, 500));
   for (const trigger of ['progress', 'idle', 'manual']) assert.deepEqual(plan(s, { trigger, now: 200000 }), { kind: 'skip', reason: 'paused' });
   assert.deepEqual(conceptResultDisposition(s, job), { kind: 'current' });
@@ -62,27 +62,27 @@ test('time, assistant activity and changed assessment alone cannot refresh a rev
   let s = render(ready()); s = reduce(s, event('activity', {}, 1));
   s = reduce(s, event('readiness', { percent: 72 }, 2));
   assert.deepEqual(plan(s, { trigger: 'idle', now: 999999 }), { kind: 'skip', reason: 'duplicate' });
-  assert.deepEqual(plan(s, { now: 999999 }), { kind: 'skip', reason: 'duplicate' });
+  assert.deepEqual(plan(s, { trigger: 'progress', now: 999999 }), { kind: 'skip', reason: 'duplicate' });
   s = input(s, { revision: 'assessment-only', turnIds: ['t1'] });
   assert.equal(plan(s, { trigger: 'idle', now: 999999 }).reason, 'milestone-complete');
-  assert.equal(plan(s, { now: 999999 }).reason, 'milestone-complete');
+  assert.equal(plan(s, { trigger: 'progress', now: 999999 }).reason, 'milestone-complete');
 });
 test('progress cadence requires two new answers in a milestone; idle may refresh after one', () => {
   let s = input(render(ready()));
-  assert.deepEqual(plan(s, { now: 200000 }), { kind: 'skip', reason: 'milestone-complete' });
+  assert.deepEqual(plan(s, { trigger: 'progress', now: 200000 }), { kind: 'skip', reason: 'milestone-complete' });
   assert.equal(plan(s, { trigger: 'idle', now: 200000 }).kind, 'generate');
   s = input(s, { revision: 'r3', turnIds: ['t1', 't2', 't3'] });
-  assert.equal(plan(s, { now: 200000 }).kind, 'generate');
+  assert.equal(plan(s, { trigger: 'progress', now: 200000 }).kind, 'generate');
 });
 test('a new reference or recorded visual feedback earns a progress refresh before two answers', () => {
   let s = render(ready()); s = input(s, { turnIds: ['t1'], referenceIds: ['ref1'] });
-  assert.equal(plan(s, { now: 1 }).kind, 'generate');
+  assert.equal(plan(s, { trigger: 'progress', now: 1 }).kind, 'generate');
   s = input(render(ready())); s = reduce(s, event('intent-recorded', { id: 'intent2', sourceTurnId: 't2' }, 1));
-  assert.equal(plan(s, { now: 1 }).kind, 'generate');
+  assert.equal(plan(s, { trigger: 'progress', now: 1 }).kind, 'generate');
 });
 test('a new earned milestone permits a refresh with a new substantive answer', () => {
   let s = input(render(ready())); s = reduce(s, event('readiness', { percent: 72 }));
-  assert.equal(plan(s, { now: 1 }).plan.trigger, 'late');
+  assert.equal(plan(s, { trigger: 'progress', now: 1 }).plan.trigger, 'late');
 });
 test('deduplicates by revision including failed attempts and freezes a single running job', () => {
   let s = ready(); s = reduce(s, event('request', { id: 'job1', trigger: 'progress' }));
@@ -109,7 +109,7 @@ test('failed attempts still require new substantive input before an automatic re
   s = reduce(s, event('render-failed', { id: 'job1' }, 1));
   s = input(s, { revision: 'assessment-only', turnIds: ['t1'] });
   s = reduce(s, event('readiness', { percent: 72 }));
-  assert.equal(plan(s, { now: 999999 }).reason, 'milestone-complete');
+  assert.equal(plan(s, { trigger: 'progress', now: 999999 }).reason, 'milestone-complete');
   assert.equal(plan(s, { trigger: 'idle', now: 999999 }).reason, 'milestone-complete');
   s = input(s, { revision: 'r3', turnIds: ['t1', 't2'] });
   assert.equal(plan(s, { trigger: 'idle', now: 999999 }).kind, 'generate');
@@ -154,9 +154,9 @@ test('host config changes thresholds/cadence/storage bounds and invalid policy f
   const policy = { thresholds: [10, 30, 60], idleMs: 10, refreshTurns: 1, historyMax: 1 };
   assert.equal(progressTrigger(30, policy), 'midpoint');
   assert.equal(plan(ready(), { trigger: 'idle', now: 10 }, policy).kind, 'generate');
-  assert.equal(plan(input(render(ready())), { now: 2 }, policy).reason, 'limit');
+  assert.equal(plan(input(render(ready())), { trigger: 'progress', now: 2 }, policy).reason, 'limit');
   assert.throws(() => progressTrigger(50, { thresholds: [25, 20, 72] }), /policy/u);
-  assert.throws(() => plan(ready(), { now: NaN }), /time/u);
+  assert.throws(() => plan(ready(), { trigger: 'progress', now: NaN }), /time/u);
 });
 test('duplicate completion and unrelated failure ids cannot overwrite the running job', () => {
   const s = reduce(ready(), event('request', { id: 'job1', trigger: 'progress' }));
@@ -174,4 +174,60 @@ test('reducer is immutable and replayable with host timestamps', () => {
     event('request', { id: 'job1', trigger: 'progress' }), event('render-completed', { id: 'job1', artifactId: 'image1' }, 1)];
   const replay = () => events.reduce((s, e) => reduce(s, e), initial);
   assert.deepEqual(replay(), replay()); assert.deepEqual(initial, copy);
+});
+
+test('manual requests require a fresh intent after success or failure, even at a new revision', () => {
+  for (const outcome of ['render-completed', 'render-failed']) {
+    let s = reduce(ready(), event('request', { id: 'job1', trigger: 'manual' }));
+    s = reduce(s, event(outcome, { id: 'job1', artifactId: 'image1' }, 1));
+    s = input(s, { revision: 'assessment-only', turnIds: ['t1'] });
+    assert.deepEqual(plan(s, { trigger: 'manual', now: 2 }), { kind: 'skip', reason: 'not-requested' });
+    s = reduce(s, event('intent-recorded', { id: 'intent2', sourceTurnId: 't1' }, 2));
+    assert.equal(plan(s, { trigger: 'manual', now: 2 }).kind, 'generate');
+  }
+});
+test('missing or unknown request triggers throw before planning or recording a job', () => {
+  for (const trigger of [undefined, null, '', 'surprise', 'final']) {
+    assert.throws(() => plan(ready(), { trigger, now: 0 }), /trigger/u);
+    assert.throws(() => reduce(ready(), event('request', { id: 'job1', trigger })), /trigger/u);
+  }
+});
+test('removing dependencies added after dispatch preserves the paid render and existing history', () => {
+  for (const source of ['turn', 'reference']) for (const removal of ['source-removed', 'input-recorded']) {
+    let s = reduce(ready(), event('request', { id: 'job1', trigger: 'progress' }));
+    const job = structuredClone(s.pending);
+    s = input(s, { turnIds: source === 'turn' ? ['t1', 't2'] : ['t1'], referenceIds: source === 'reference' ? ['ref2'] : [] });
+    s = removal === 'source-removed' ? reduce(s, event(removal, { id: source === 'turn' ? 't2' : 'ref2' }, 2)) :
+      input(s, { revision: 'r3', turnIds: ['t1'], referenceIds: [] });
+    assert.deepEqual(s.pending, job);
+    assert.deepEqual(conceptResultDisposition(s, job), { kind: 'history' });
+    s = reduce(s, event('render-completed', { id: 'job1', artifactId: 'image1' }, 3));
+    assert.equal(s.history.length, 1);
+    assert.equal(reduce(s, event('source-removed', { id: 'unrelated' }, 4)).history.length, 1);
+  }
+});
+test('removing and readding a used reference permanently rejects that pending job', () => {
+  let s = reduce(ready({ referenceIds: ['ref1'] }), event('request', { id: 'job1', trigger: 'progress' }));
+  s = input(s, { turnIds: ['t1'], referenceIds: [] });
+  s = input(s, { revision: 'r3', turnIds: ['t1'], referenceIds: ['ref1'] });
+  assert.deepEqual(conceptResultDisposition(s, s.pending), { kind: 'reject', reason: 'state-changed' });
+});
+test('unchanged consent and a renewal with unchanged coverage preserve intent, history and pending results', () => {
+  for (const revision of [1, 2]) {
+    const completed = render(ready());
+    const renewed = reduce(completed, event('consent', { covered: true, revision }, 1));
+    assert.deepEqual(renewed.history, completed.history);
+    assert.deepEqual(renewed.visualIntent, completed.visualIntent);
+    let s = reduce(ready(), event('request', { id: 'job1', trigger: 'progress' }));
+    s = reduce(s, event('consent', { covered: true, revision }, 1));
+    s = reduce(s, event('render-completed', { id: 'job1', artifactId: 'image1' }, 2));
+    assert.equal(s.history.length, 1);
+  }
+});
+test('pausing after request still records the admitted result', () => {
+  let s = reduce(ready(), event('request', { id: 'job1', trigger: 'progress' }));
+  s = reduce(s, event('pause', { paused: true }, 1));
+  s = reduce(s, event('render-completed', { id: 'job1', artifactId: 'image1' }, 2));
+  assert.equal(s.paused, true); assert.equal(s.pending, null);
+  assert.equal(s.history.length, 1); assert.equal(s.history[0].artifactId, 'image1');
 });

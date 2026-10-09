@@ -1,5 +1,5 @@
-import { createBinding, deepFreeze, beginInvocation, operationScope, normalizedError, PluginError, isUIArtifact } from '@inspr/aithema-core';
-import { decodeImage, imageArtifact, imageInfo, MAX_IMAGE_BYTES } from './image-artifact.js';
+import { createBinding, deepFreeze, beginInvocation, operationScope, normalizedError, PluginError, isUIArtifact, imageInfo, MAX_IMAGE_BYTES, validateUIReferences } from '@inspr/aithema-core';
+import { decodeImage, imageArtifact } from './image-artifact.js';
 // Wire contract: https://developers.openai.com/api/reference/resources/images/methods/generate
 // Edits use private multipart bytes as in START providers/openai-image.ts.
 // Rates stay unset: the current public cost schema has only one input rate and
@@ -52,7 +52,7 @@ export function createOpenAIImages({ binding, baseUrl, resolveSecret = ref => pr
   if (base.protocol === 'http:' && !['127.0.0.1', 'localhost', '[::1]'].includes(base.hostname)) throw new TypeError('HTTP is for loopback fixtures only');
   const endpoint = operation => `${base.href.replace(/\/$/u, '')}/images/${operation === 'edit' ? 'edits' : 'generations'}`;
   const configured = () => { const key = resolveSecret(binding.secretRef); return typeof key === 'string' && key.length > 0 && !/[\r\n]/u.test(key) ? key : null; };
-  async function run(operation, input, feedback, options) {
+  async function run(operation, spec, feedback, options, artifact) {
     const scope = operationScope(options); let invocation, completed = false, reporting;
     const checkLifetime = () => { scope.signal.throwIfAborted(); if (Date.now() >= options.deadlineAt) throw new PluginError('deadline'); };
     const scoped = { ...options, signal: scope.signal, report: terminal => (reporting = Promise.resolve().then(() => options.report(terminal))) };
@@ -60,21 +60,26 @@ export function createOpenAIImages({ binding, baseUrl, resolveSecret = ref => pr
       invocation = await beginInvocation(scoped);
       checkLifetime();
       const key = configured(); if (!key) throw new PluginError('auth');
-      let spec = input;
+      const references = [...validateUIReferences(spec?.references)];
       if (operation === 'edit') {
-        if (!isUIArtifact(input) || typeof feedback !== 'string' || !feedback.trim()) throw new PluginError('invalid-output');
-        const info = imageInfo(input.bytes); if (info.mediaType !== input.mediaType) throw new PluginError('invalid-output');
-        spec = { prompt: 'Edit this interface concept according to the visitor feedback. Preserve unrelated design details.',
-          size: '1536x1024', quality: 'high', format: input.mediaType === 'image/png' ? 'png' : 'webp' };
+        if (!isUIArtifact(artifact) || typeof feedback !== 'string' || !feedback.trim()) throw new PluginError('invalid-output');
+        const info = imageInfo(artifact.bytes);
+        if (info.mediaType !== artifact.mediaType || info.width !== artifact.width || info.height !== artifact.height) throw new PluginError('invalid-output');
+        references.unshift({ bytes: artifact.bytes, mediaType: artifact.mediaType, role: 'previous' });
+        validateUIReferences(references);
       }
       const fields = { model: binding.model, ...fieldsFor(spec, feedback) };
+      const wireOperation = references.length ? 'edit' : 'generate';
       let body, headers = { authorization: `Bearer ${key}` };
-      if (operation === 'edit') {
+      if (references.length) {
         body = new FormData(); for (const [key, value] of Object.entries(fields)) body.append(key, String(value));
-        body.append('image[]', new Blob([input.bytes], { type: input.mediaType }), `concept.${spec.format}`);
+        for (const [index, reference] of references.entries()) {
+          const extension = reference.mediaType === 'image/jpeg' ? 'jpg' : reference.mediaType.split('/')[1];
+          body.append('image[]', new Blob([reference.bytes], { type: reference.mediaType }), `reference-${index}.${extension}`);
+        }
       } else { headers['content-type'] = 'application/json'; body = JSON.stringify(fields); }
       checkLifetime(); invocation.dispatch();
-      const response = await abortable(Promise.resolve().then(() => fetchImpl(endpoint(operation), { method: 'POST', headers, body,
+      const response = await abortable(Promise.resolve().then(() => fetchImpl(endpoint(wireOperation), { method: 'POST', headers, body,
         signal: scope.signal, redirect: 'error' })), scope.signal);
       checkLifetime();
       if (!response.ok) {
@@ -100,16 +105,16 @@ export function createOpenAIImages({ binding, baseUrl, resolveSecret = ref => pr
         bytes = new Uint8Array(await readBytes(download, scope.signal, MAX_IMAGE_BYTES));
       } else throw new PluginError('invalid-output');
       checkLifetime();
-      const artifact = imageArtifact(bytes, { prompt: fields.prompt, model: binding.model, operation });
+      const result = imageArtifact(bytes, { prompt: fields.prompt, model: binding.model, operation });
       checkLifetime();
-      completed = true; return artifact;
+      completed = true; return result;
     } catch (error) { throw normalizedError(error, scope.signal); }
     finally { try { if (invocation) await invocation.finish(completed); if (reporting) await reporting; } finally { scope.dispose(); } }
   }
   return { id: manifest.id, manifest, binding, billable: true, label: 'OpenAI Images — gpt-image-2',
     bind: next => createOpenAIImages({ binding: next, resolveSecret, fetchImpl }),
     generate: (spec, feedback, options) => run('generate', spec, feedback, options),
-    edit: (artifact, feedback, options) => run('edit', artifact, feedback, options),
+    edit: (artifact, spec, feedback, options) => run('edit', spec, feedback, options, artifact),
     async health(options) {
       const scope = operationScope(options);
       try { scope.signal.throwIfAborted(); return { available: Boolean(configured()) }; }

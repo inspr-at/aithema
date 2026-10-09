@@ -20,21 +20,33 @@ export function progressTrigger(progress, policy) {
 export function createConceptIntent({ now = 0, consentRevision = 0, consented = false } = {}) {
   return { inputRevision: null, turnIds: [], referenceIds: [], visualIntent: null, armed: null,
     lastActivityAt: now, paused: false, eligible: true, consented, consentRevision,
-    invalidation: 0, attemptedRevisions: [], lastAttempt: null, pending: null, history: [] };
+    invalidation: 0, sourceInvalidations: {}, attemptedRevisions: [], lastAttempt: null, pending: null, history: [] };
 }
 const containsSources = (state, job) => job.turnIds.every(id => state.turnIds.includes(id)) &&
   job.referenceIds.every(id => state.referenceIds.includes(id));
+const sourceKeys = state => [...state.turnIds.map(id => `turn:${id}`), ...state.referenceIds.map(id => `reference:${id}`)];
+const sourceVersion = (versions, key) => Object.hasOwn(versions, key) ? versions[key] : 0;
+function invalidateRemovedSources(state, next) {
+  const remaining = new Set(sourceKeys(next)), removed = sourceKeys(state).filter(key => !remaining.has(key));
+  if (!removed.length) return next;
+  // Per-source epochs prevent re-adding a removed dependency from resurrecting
+  // its old job, without invalidating jobs that never used that source.
+  return { ...next, visualIntent: null, sourceInvalidations: { ...state.sourceInvalidations,
+    ...Object.fromEntries(removed.map(key => [key, sourceVersion(state.sourceInvalidations, key) + 1])) },
+    history: state.history.filter(item => containsSources(next, item)) };
+}
 export function conceptResultDisposition(state, job, policy) {
-  if (!state.consented || state.consentRevision !== job.consentRevision || state.invalidation !== job.invalidation ||
+  if (!state.consented || state.invalidation !== job.invalidation || sourceKeys(job).some(key =>
+    sourceVersion(state.sourceInvalidations, key) !== sourceVersion(job.sourceInvalidations, key)) ||
     !containsSources(state, job)) return { kind: 'reject', reason: 'state-changed' };
   if (state.history.some(item => item.inputRevision === job.inputRevision)) return { kind: 'reject', reason: 'duplicate' };
   if (state.history.length >= policyFor(policy).historyMax) return { kind: 'reject', reason: 'limit' };
   return { kind: state.inputRevision === job.inputRevision ? 'current' : 'history' };
 }
-export function planConceptIntent(state, { trigger = 'progress', now } = {}, policy) {
+export function planConceptIntent(state, { trigger, now } = {}, policy) {
   const p = policyFor(policy), skip = reason => ({ kind: 'skip', reason });
   if (!Number.isFinite(now)) throw new TypeError('Concept planning requires host time');
-  if (!['progress', 'idle', 'manual'].includes(trigger)) return skip('not-requested');
+  if (!['progress', 'idle', 'manual'].includes(trigger)) throw new TypeError('Invalid concept request trigger');
   if (!state.visualIntent) return skip('not-requested');
   if (!state.consented) return skip('consent');
   if (state.paused) return skip('paused');
@@ -44,6 +56,7 @@ export function planConceptIntent(state, { trigger = 'progress', now } = {}, pol
   if (state.attemptedRevisions.includes(state.inputRevision)) return skip('duplicate');
   if (state.history.length >= p.historyMax) return skip('limit');
   const latest = state.lastAttempt ?? state.history.at(-1);
+  if (trigger === 'manual' && latest && state.visualIntent.id === latest.intentId) return skip('not-requested');
   if (trigger === 'idle' && now - Math.max(state.lastActivityAt, state.history.at(-1)?.createdAt ?? 0) < p.idleMs) return skip('not-idle');
   const milestone = trigger === 'manual' ? 'manual' : state.armed ?? (trigger === 'idle' ? 'early' : null);
   if (!milestone) return skip('before-threshold');
@@ -56,7 +69,8 @@ export function planConceptIntent(state, { trigger = 'progress', now } = {}, pol
     latest.trigger === milestone && !newReference && !newVisualIntent && newTurns < p.refreshTurns)) return skip('milestone-complete');
   return { kind: 'generate', plan: { inputRevision: state.inputRevision, trigger: milestone,
     intentId: state.visualIntent.id, turnIds: [...state.turnIds], referenceIds: [...state.referenceIds],
-    consentRevision: state.consentRevision, invalidation: state.invalidation } };
+    consentRevision: state.consentRevision, invalidation: state.invalidation,
+    sourceInvalidations: Object.fromEntries(sourceKeys(state).map(key => [key, sourceVersion(state.sourceInvalidations, key)])) } };
 }
 /** Every event is a durable host fact. UI visibility and call termination are inert. */
 export function reduceConceptIntent(state, event, policy) {
@@ -70,9 +84,7 @@ export function reduceConceptIntent(state, event, policy) {
       }
       const next = { ...state, inputRevision: event.revision, turnIds: [...event.turnIds], referenceIds: [...event.referenceIds],
         lastActivityAt: event.now };
-      const removed = !containsSources(next, state);
-      return removed ? { ...next, visualIntent: null, invalidation: state.invalidation + 1,
-        history: state.history.filter(item => containsSources(next, item)) } : next;
+      return invalidateRemovedSources(state, next);
     }
     case 'intent-recorded':
       if (!state.consented || typeof event.id !== 'string' || !event.id || !state.turnIds.includes(event.sourceTurnId)) return state;
@@ -82,16 +94,19 @@ export function reduceConceptIntent(state, event, policy) {
     case 'eligibility': return { ...state, eligible: event.eligible === true, lastActivityAt: event.now };
     case 'pause': return { ...state, paused: event.paused === true, lastActivityAt: event.now };
     case 'consent': {
-      if (!Number.isSafeInteger(event.revision) || event.revision < state.consentRevision) throw new TypeError('Invalid consent revision');
-      const changed = event.revision !== state.consentRevision || event.covered !== state.consented;
+      if (!Number.isSafeInteger(event.revision) || event.revision < state.consentRevision ||
+        typeof event.covered !== 'boolean') throw new TypeError('Invalid consent revision');
+      // The host reports coverage for the job's processing scope. Renewing that
+      // same coverage advances the revision without invalidating paid work.
+      const changed = event.covered !== state.consented;
       return { ...state, consented: event.covered === true, consentRevision: event.revision,
         visualIntent: changed ? null : state.visualIntent, invalidation: state.invalidation + (changed ? 1 : 0),
         history: changed ? [] : state.history, lastActivityAt: event.now };
     }
     case 'source-removed': {
       const next = { ...state, turnIds: state.turnIds.filter(id => id !== event.id), referenceIds: state.referenceIds.filter(id => id !== event.id),
-        visualIntent: null, invalidation: state.invalidation + 1, lastActivityAt: event.now };
-      return { ...next, history: state.history.filter(item => containsSources(next, item)) };
+        lastActivityAt: event.now };
+      return invalidateRemovedSources(state, next);
     }
     case 'request': {
       if (typeof event.id !== 'string' || !event.id) throw new TypeError('Concept request requires id');

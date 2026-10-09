@@ -265,15 +265,21 @@ server implementation. No live provider qualification is claimed.
 
 The core exports `assertUIGeneration`, `isUIArtifact` and
 `uiGenerationConformance`. The kind exposes
-`generate(spec, feedback, options)` and `edit(artifact, feedback, options)`.
-`spec` contains a host-built `prompt` and optional `size`, `quality`, `format`;
+`generate(spec, feedback, options)` and `edit(artifact, spec, feedback, options)`.
+Both operations use the host-built `spec.prompt` and optional `size`, `quality`, `format`.
+`spec.references` may carry up to nine `{bytes, mediaType, role}` records, with
+roles `previous`, `rejected` or `upload`. Each reference contains private
+`Uint8Array` bytes of at most 12 MiB, with PNG/WebP/JPEG headers matching its
+media type. URLs and extra reference fields are rejected. The host prompt owns
+reference order, negative-reference guidance and all product prompt policy;
 `feedback` is a string of untrusted visitor design content. The operation
 options are the same `{signal, deadlineAt, attempt, report}` authority envelope
 as reasoning. An artifact contains `Uint8Array bytes`, truthful `mediaType`,
 actual `width`/`height`, a SHA-256 `promptDigest` and `provenance` metadata.
 It carries no provider URL, secret, binding or raw prompt. Types live in
 [`ui-generation.d.ts`](packages/core/src/ui-generation.d.ts), re-exported from
-the shared plugin contract.
+the shared plugin contract. `isUIArtifact` checks shape and exact metadata keys;
+the async conformance kit additionally checks the content against those fields.
 
 `createOpenAIImages({binding, resolveSecret, fetchImpl, baseUrl})` comes from
 `@inspr/aithema-plugin-openai-images`. It requires an explicit private binding
@@ -284,8 +290,10 @@ resolves `binding.secretRef` at runtime (the default resolver reads the named
 environment variable); the host owns account qualification and consent.
 Local health checks configuration without contacting a provider.
 
-The adapter posts JSON to `/images/generations` and private multipart image
-bytes to `/images/edits`, following the official
+The adapter posts JSON to `/images/generations` without references. With
+references it posts private multipart `image[]` bytes to `/images/edits`, as
+does `edit`, which prepends the artifact as a previous reference (at most eight
+additional references). The request follows the official
 [generation reference](https://developers.openai.com/api/reference/resources/images/methods/generate)
 and [edit reference](https://developers.openai.com/api/reference/python/resources/images/methods/edit).
 Defaults follow START: one image, `1536x1024`, high quality and WebP output;
@@ -302,6 +310,8 @@ token totals. Unknown dispatched usage, including local cancellation, reports
 `uncertain`; known usage is retained on output failure. Preflight cancellation
 and local failures settle at zero; authority refusal uses the authority's
 zero-cost terminal without dispatch. There are no internal retries.
+Known contract limitation (gate Low 6): malformed caller input currently maps
+to `invalid-output`, because the shared error codes have no input-error code.
 The public manifest contains technical capabilities and public model references
 only (D4), with location, quality qualification and rates explicitly unverified.
 The shared two-rate cost schema cannot express separate text and image input
@@ -316,6 +326,7 @@ The artifact embeds XMP using IPTC Digital Source Type
 a SHA-256 Content-Digest of the final marked bytes, provider/model and generation
 time. It makes no C2PA signature or local watermark claim. Part B must preserve
 the metadata in persistence and provide owner-authenticated headers/sidecars.
+Embedding replaces existing PNG/WebP XMP blocks with one current record.
 
 `createConceptIntent`, `reduceConceptIntent`, `planConceptIntent` and
 `conceptResultDisposition` implement the pure spending policy. The host passes
@@ -330,13 +341,22 @@ eligibility and pause/resume reset the quiet clock. Automatic failed attempts
 also consume the revision's deduplication slot.
 
 The reducer records a frozen job before dispatch. A normal input advance keeps
-the result as history at its original revision. Removal (explicit or detected
-in a replacement input) and consent changes invalidate it, even if a removed
-source or consent is later restored. Source removal drops dependent history
-references; consent changes clear history references. The host erases the bytes.
+the result as history at its original revision. Removing a source/reference
+(explicitly or in replacement input) invalidates only jobs that used it; adding
+then removing an unrelated source preserves the paid result. Per-source epochs
+prevent re-adding a removed dependency from resurrecting its old render.
+Source removal drops dependent history references. A consent withdrawal clears
+all history and invalidates pending results even after consent is restored.
+A renewal with unchanged covered processing preserves intent, history and
+pending results while recording the newer consent revision. The host reports
+coverage for the job's processing scope; any loss/change of that scope must
+record uncovered consent before a new grant. The host erases invalidated bytes.
 This port tightens START's final-on-pause exception to the engine-wide pause
-contract. Explicit regeneration/retry must record a new intent/input revision;
-repeated delivery of the same revision cannot spend again.
+contract; pausing after dispatch still records the admitted result. Explicit
+regeneration/retry requires both an intent ID different from the latest attempt
+and a new input revision; repeated delivery of the same revision cannot spend
+again. Planning and request events require an explicit `progress`, `idle` or
+`manual` trigger; a missing or unknown trigger throws.
 
 Part B wiring points, still pending:
 
@@ -351,10 +371,16 @@ Part B wiring points, still pending:
 
 The reusable conformance call is
 `uiGenerationConformance(plugin, {spec, feedback, artifact},
-{stallSpec, stallFeedback, requestCount})`. Local fixtures must stall both
-operations and count outbound calls synchronously. The kit checks byte artifacts,
-provenance, manifest/health, terminal reports, consumption/refusal and preflight
-plus active cancellation/deadlines. CI tests the adapter and broken fixtures.
+{stallSpec, stallFeedback, requestCount, expectedUsage?})`. Local fixtures must
+stall both operations and count outbound calls synchronously. The kit computes
+SHA-256 with `crypto.subtle` over the final artifact bytes and compares it with
+`provenance.subject.contentDigest`. The core `imageInfo` reader checks PNG,
+WebP and JPEG signatures/headers and their actual dimensions (not pixel decoding).
+The kit also checks manifest/health, terminal reports, consumption/refusal and
+preflight plus active cancellation/deadlines. Optional `expectedUsage:
+{inputTokens, outputTokens}` checks exact completed-call totals, including
+under-reporting or unknown usage. Reference fixtures pass `spec.references`;
+CI tests their multipart transport, limits and broken content/usage fixtures.
 
 ## Ported from START
 
