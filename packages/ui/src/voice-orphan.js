@@ -9,6 +9,15 @@ import { postJson } from './post-json.js';
 const key = sessionId => `aithema-voice-call:${sessionId}`;
 const channelName = 'aithema-voice-calls';
 
+/**
+ * This tab's sessionStorage, or null where reading it throws (a sandboxed or opaque-origin
+ * frame raises SecurityError) or it does not exist. A journal without storage keeps
+ * nothing, so a reload simply skips the orphan close and the server lease ends the call.
+ */
+export function tabStorage() {
+  try { return globalThis.sessionStorage ?? null; } catch { return null; }
+}
+
 export function voiceJournal(storage, sessionId) {
   const read = () => {
     try { const record = JSON.parse(storage?.getItem(key(sessionId)) ?? 'null'); return typeof record?.callId === 'string' ? record : null; }

@@ -10,9 +10,9 @@ import { settingsStyles } from './settings-styles.js';
 import { SettingsDialog, ICONS, PRESET_ORDER, reasonText, engineView } from './settings-dialog.js';
 import { LocalConnector } from './local-connector.js';
 import { postJson } from './post-json.js';
-import { voiceJournal, closeVoiceCall, answerVoicePings, voiceCallAbandoned } from './voice-orphan.js';
+import { voiceJournal, tabStorage, closeVoiceCall, answerVoicePings, voiceCallAbandoned } from './voice-orphan.js';
 
-const PANES = '.transcript-shell, .analysis-content, .preset-panel';
+const PANES = '.transcript-shell, .analysis-content, .preset-panel, .intro';
 function clearSlack(pane) { pane.style.removeProperty('--aithema-slack-top'); pane.style.removeProperty('--aithema-slack-bottom'); }
 // Empty space below a pane's content: padding fills it before it adds any scroll room.
 function spareSpace(pane) {
@@ -48,6 +48,10 @@ function reconcile(parent, entries, create, update) {
   }
   for (const node of old.values()) node.remove();
 }
+function node(tag, className, text) {
+  const n = document.createElement(tag); if (className) n.className = className; if (text !== undefined) n.textContent = text; return n;
+}
+function setText(node, value) { if (node.textContent !== value) node.textContent = value; }
 const NONE = '\u0000none';
 // Repeated values get distinct keys by occurrence.
 function textKeys(values) {
@@ -93,7 +97,7 @@ export class AithemaSession extends HTMLElement {
     this.#pausePrompt = Boolean(session.paused);
     // Every conversation keeps a journal: a choice at conversation start can switch it out of
     // On my device in place, and a device conversation never starts a call, so its journal stays empty.
-    this.#journal = voiceJournal(globalThis.sessionStorage, session.id);
+    this.#journal = voiceJournal(tabStorage(), session.id);
     this.#mount();
     this.#pings ??= answerVoicePings(() => this.#rail?.session?.callId ?? null);
     this.#orphan = this.#endOrphanedCall();
@@ -488,7 +492,6 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.retry').disabled = !analysis.available;
     root.querySelector('.retry').hidden = !analysis.available || Boolean(running) || !(this.#failure || hasPersonTurn && (stale || u.draft || missingReply));
     root.querySelector('.summary-text').textContent = u.summary;
-    const setText = (node, value) => { if (node.textContent !== value) node.textContent = value; };
     for (const [selector, items] of [['.signals', u.signals], ['.questions', u.openQuestions]]) {
       reconcile(root.querySelector(selector), items.length ? textKeys(items) : [[NONE, null]],
         value => element('li', undefined, value === null ? 'none-yet' : undefined), (node, value) => setText(node, value ?? copy.noneYet));
@@ -546,56 +549,72 @@ export class AithemaSession extends HTMLElement {
     for (const selector of ['.audio-rail', '.concept-rail']) root.querySelector(selector).inert = mode === 'chooser';
     intro.dataset.mode = mode; intro.hidden = !mode;
     if (!mode) { intro.replaceChildren(); return; }
-    // An unchanged card keeps its nodes, so the pointer target and focus stay put (AIT-116 D2).
-    const card = mode === 'ready' ? this.#readyCard() : this.#chooserCard();
-    if (intro.firstElementChild?.outerHTML === card.outerHTML) return;
-    intro.replaceChildren(card);
-    if (focus) intro.querySelector(`[data-focus-key="${focus}"]`)?.focus();
+    // The card is built once per mode and its controls are keyed and updated in place, so a
+    // live update keeps the hovered and focused nodes, and #anchored keeps them still (AIT-116 D2).
+    if (intro.firstElementChild?.className !== mode) intro.replaceChildren(mode === 'ready' ? this.#readyCard() : this.#chooserCard());
+    if (mode === 'ready') this.#paintReady(intro.firstElementChild); else this.#paintChooser(intro.firstElementChild);
+    if (focus && !intro.contains(root.activeElement)) intro.querySelector(`[data-focus-key="${focus}"]`)?.focus();
+  }
+  // A preset other than the acknowledged one is refused at the start only for host reasons;
+  // Custom always opens settings.
+  #presetRefusal(preset) {
+    const verdict = this.#session.featureMatrix?.[preset]?.text;
+    const refused = preset !== 'custom' && preset !== (this.#session.processingPreset ?? 'best') && verdict && !verdict.available && !isDynamicReason(verdict.reason);
+    return refused ? verdict.reason : null;
   }
   #chooserCard() {
-    const copy = this.#copy, c = copy.chooser, current = this.#session.processingPreset ?? 'best', choice = this.#chooser.choice ?? current;
-    const node = (tag, className, text) => { const n = document.createElement(tag); if (className) n.className = className; if (text !== undefined) n.textContent = text; return n; };
+    const copy = this.#copy, c = copy.chooser;
     const section = node('section', 'chooser'); section.setAttribute('aria-labelledby', 'chooser-title');
     const title = node('h3', '', c.title); title.id = 'chooser-title';
     const cards = node('div', 'chooser__list'); cards.setAttribute('role', 'group'); cards.setAttribute('aria-labelledby', 'chooser-title');
-    for (const preset of PRESET_ORDER) {
-      const verdict = this.#session.featureMatrix?.[preset]?.text;
-      // Custom always opens settings; other presets are refused only for host reasons.
-      const unavailable = preset !== 'custom' && preset !== current && verdict && !verdict.available && !isDynamicReason(verdict.reason);
-      const card = node('button', 'chooser-option'); card.type = 'button'; card.dataset.focusKey = preset; card.dataset.preset = preset;
-      card.setAttribute('aria-pressed', String(choice === preset)); card.setAttribute('aria-disabled', String(Boolean(unavailable)));
-      const detail = node('span', 'chooser-option__detail'); detail.id = `chooser-${preset}-detail`;
-      detail.append(node('span', '', c.lead[preset]), node('span', '', c.detail[preset]));
-      card.setAttribute('aria-describedby', detail.id);
-      const icon = node('span', 'chooser-option__icon'); icon.setAttribute('aria-hidden', 'true'); icon.innerHTML = ICONS[preset];
-      const radio = node('span', 'radio'); radio.setAttribute('aria-hidden', 'true');
-      const note = node('small', 'chooser-option__note', unavailable ? c.unavailable : '');
-      if (unavailable) card.title = reasonText(copy, verdict.reason);
-      const text = node('span', 'chooser-option__text'); text.append(node('strong', '', copy.presets[preset]), detail, note);
-      card.append(radio, icon, text);
-      card.addEventListener('click', () => {
-        if (this.#chooser.busy) return;
-        this.#chooser.error = unavailable ? `${copy.presets[preset]}: ${reasonText(copy, verdict.reason)}` : '';
-        if (!unavailable) this.#chooser.choice = preset;
-        this.#render('transcript');
-      });
-      cards.append(card);
-    }
     const summary = node('div', 'chooser__summary');
-    const live = node('strong', '', this.#chooser.busy ? c.saving : c.summary[choice] ?? c.choose); live.setAttribute('role', 'status');
+    const live = node('strong'); live.setAttribute('role', 'status');
     summary.append(live, ...[c.choose, c.saving, ...PRESET_ORDER.map(p => c.summary[p])].map(text => {
       const measure = node('strong', 'chooser__measure', text); measure.setAttribute('aria-hidden', 'true'); return measure;
     }));
     const hint = node('div', 'chooser__hint');
-    hint.append(summary, node('span', '', (this.#session.settings?.origin === 'last' ? `${c.lastChoice} ` : '') + c.later));
-    const go = node('button', 'chooser__continue'); go.type = 'button'; go.dataset.focusKey = 'continue'; go.disabled = this.#chooser.busy;
+    hint.append(summary, node('span'));
+    const go = node('button', 'chooser__continue'); go.type = 'button'; go.dataset.focusKey = 'continue';
     const arrow = node('span', 'chooser__arrow'); arrow.setAttribute('aria-hidden', 'true'); arrow.innerHTML = ICONS.arrow;
     go.append(node('span', '', c.continue), arrow);
     go.addEventListener('click', () => void this.#confirmChoice(go));
     const action = node('div', 'chooser__action'); action.append(hint, go);
-    const error = node('p', 'chooser__error', this.#chooser.error); error.setAttribute('role', 'alert');
+    const error = node('p', 'chooser__error'); error.setAttribute('role', 'alert');
     section.append(title, cards, action, error);
     return section;
+  }
+  #chooserOption(preset) {
+    const copy = this.#copy, c = copy.chooser;
+    const card = node('button', 'chooser-option'); card.type = 'button'; card.dataset.focusKey = preset; card.dataset.preset = preset;
+    const detail = node('span', 'chooser-option__detail'); detail.id = `chooser-${preset}-detail`;
+    detail.append(node('span', '', c.lead[preset]), node('span', '', c.detail[preset]));
+    card.setAttribute('aria-describedby', detail.id);
+    const icon = node('span', 'chooser-option__icon'); icon.setAttribute('aria-hidden', 'true'); icon.innerHTML = ICONS[preset];
+    const radio = node('span', 'radio'); radio.setAttribute('aria-hidden', 'true');
+    const text = node('span', 'chooser-option__text'); text.append(node('strong', '', copy.presets[preset]), detail, node('small', 'chooser-option__note'));
+    card.append(radio, icon, text);
+    // The verdict is read at click time: it may have changed since the card was built.
+    card.addEventListener('click', () => {
+      if (this.#chooser.busy) return;
+      const refusal = this.#presetRefusal(preset);
+      this.#chooser.error = refusal ? `${copy.presets[preset]}: ${reasonText(copy, refusal)}` : '';
+      if (!refusal) this.#chooser.choice = preset;
+      this.#render('transcript');
+    });
+    return card;
+  }
+  #paintChooser(section) {
+    const copy = this.#copy, c = copy.chooser, choice = this.#chooser.choice ?? this.#session.processingPreset ?? 'best';
+    reconcile(section.querySelector('.chooser__list'), PRESET_ORDER.map(preset => [preset, preset]), preset => this.#chooserOption(preset), (card, preset) => {
+      const refusal = this.#presetRefusal(preset);
+      card.setAttribute('aria-pressed', String(choice === preset)); card.setAttribute('aria-disabled', String(Boolean(refusal)));
+      if (refusal) card.title = reasonText(copy, refusal); else card.removeAttribute('title');
+      setText(card.querySelector('.chooser-option__note'), refusal ? c.unavailable : '');
+    });
+    setText(section.querySelector('.chooser__summary [role=status]'), this.#chooser.busy ? c.saving : c.summary[choice] ?? c.choose);
+    setText(section.querySelector('.chooser__hint > span'), (this.#session.settings?.origin === 'last' ? `${c.lastChoice} ` : '') + c.later);
+    section.querySelector('.chooser__continue').disabled = this.#chooser.busy;
+    setText(section.querySelector('.chooser__error'), this.#chooser.error);
   }
   async #confirmChoice(button) {
     if (this.#chooser.busy) return;
@@ -629,6 +648,13 @@ export class AithemaSession extends HTMLElement {
     } else this.shadowRoot.querySelector('.chooser__continue')?.focus();
   }
   #readyCard() {
+    const section = document.createElement('section'); section.className = 'ready'; section.setAttribute('aria-labelledby', 'ready-title');
+    const title = document.createElement('h3'); title.id = 'ready-title'; title.textContent = this.#copy.ready.title;
+    const actions = document.createElement('div'); actions.className = 'ready__actions';
+    section.append(title, document.createElement('dl'), actions);
+    return section;
+  }
+  #paintReady(section) {
     const copy = this.#copy, r = copy.ready, device = this.#session.processingPreset === 'device', view = engineView(this.#session);
     const consent = this.#consentState(), local = this.#device?.model;
     const voice = device ? SETTINGS_OFF : view.voice, visuals = device ? SETTINGS_OFF : view.visuals;
@@ -641,26 +667,21 @@ export class AithemaSession extends HTMLElement {
       ['speaker', r.speaker, voice !== SETTINGS_OFF ? r.onOnStart : r.off, voice !== SETTINGS_OFF ? 'selected' : 'off'],
       ['visuals', r.visuals, visuals !== SETTINGS_OFF ? r.on : r.off, visuals !== SETTINGS_OFF ? 'selected' : 'off'],
     ];
-    const section = document.createElement('section'); section.className = 'ready'; section.setAttribute('aria-labelledby', 'ready-title');
-    const title = document.createElement('h3'); title.id = 'ready-title'; title.textContent = r.title;
-    const list = document.createElement('dl');
-    list.append(...rows.map(([id, label, value, state]) => {
-      const row = document.createElement('div'); row.className = 'ready__row'; row.dataset.ready = id; row.dataset.state = state;
-      const dt = document.createElement('dt'); dt.textContent = label;
-      const dd = document.createElement('dd'), check = document.createElement('span'), text = document.createElement('span');
-      check.className = 'ready__check'; check.setAttribute('aria-hidden', 'true'); check.textContent = '✓'; text.textContent = value;
-      dd.append(check, text); row.append(dt, dd); return row;
-    }));
-    const change = document.createElement('button'); change.type = 'button'; change.className = 'ready__change'; change.dataset.focusKey = 'change';
-    change.textContent = r.change; change.addEventListener('click', () => this.openSettings(change));
-    const actions = document.createElement('div'); actions.className = 'ready__actions'; actions.append(change);
-    if (['missing', 'withdrawn'].includes(consent)) {
-      const ask = document.createElement('button'); ask.type = 'button'; ask.className = 'ready__consent'; ask.dataset.focusKey = 'consent';
-      ask.textContent = copy.settings.reviewConsent; ask.addEventListener('click', () => this.#requestConsent('ready'));
-      actions.append(ask);
-    }
-    section.append(title, list, actions);
-    return section;
+    reconcile(section.querySelector('dl'), rows.map(row => [row[0], row]), ([id]) => {
+      const row = document.createElement('div'); row.className = 'ready__row'; row.dataset.ready = id;
+      const dd = document.createElement('dd'), check = document.createElement('span');
+      check.className = 'ready__check'; check.setAttribute('aria-hidden', 'true'); check.textContent = '✓';
+      dd.append(check, document.createElement('span')); row.append(document.createElement('dt'), dd); return row;
+    }, (row, [, label, value, state]) => {
+      row.dataset.state = state; setText(row.querySelector('dt'), label); setText(row.querySelector('dd > span:last-child'), value);
+    });
+    const actions = ['change', ...['missing', 'withdrawn'].includes(consent) ? ['consent'] : []];
+    reconcile(section.querySelector('.ready__actions'), actions.map(action => [action, action]), action => {
+      const button = document.createElement('button'); button.type = 'button'; button.className = `ready__${action}`; button.dataset.focusKey = action;
+      button.textContent = action === 'change' ? r.change : copy.settings.reviewConsent;
+      button.addEventListener('click', () => { if (action === 'change') this.openSettings(button); else this.#requestConsent('ready'); });
+      return button;
+    }, () => {});
   }
   #withdrawButton(row) {
     const copy = this.#copy, button = document.createElement('button');

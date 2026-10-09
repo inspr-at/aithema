@@ -10,6 +10,7 @@ for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) 
 await import('../src/session-element.js');
 test.after(async () => window.happyDOM.close());
 const tick = async (n = 3) => { for (let i = 0; i < n; i++) await new Promise(resolve => setImmediate(resolve)); };
+const PRESETS = ['best', 'eu', 'device', 'custom'];
 const available = { available: true, reason: null }, refused = reason => ({ available: false, reason });
 const facts = (extra = {}) => ({ vendor: 'Mock reasoning', plugin: 'mock', model: 'mock', qualification: 'unverified', processingLocations: ['unverified'],
   streaming: true, structured: true, germanQuality: 'unverified', efforts: ['none', 'low', 'medium', 'high'], operations: ['stream', 'structured'],
@@ -276,12 +277,42 @@ test('focus returns to a stable control when saving replaced the card that opene
   h.q('.done').click(); await tick(6);
   assert.equal(h.dialog.open, false);
   assert.ok(h.root.activeElement === h.root.querySelector('.settings-open'), 'focus falls back to the settings button');
-  // Ready card path: its Change button is re-rendered by the save; focus goes to the new twin.
+  // Ready card path: the save updates the card in place, so its Change button keeps its node and focus.
   const change = h.root.querySelector('.ready__change'); change.click(); await tick();
   h.q('[data-select="model"] .select__button').click(); h.option('model', 'Mock reasoning').click(); await tick(6);
-  assert.equal(h.posts.length, 2); assert.equal(change.isConnected, false);
+  assert.equal(h.posts.length, 2); assert.equal(change.isConnected, true, 'the keyed Change button survives the save');
   h.q('.done').click(); await tick(6);
-  assert.ok(h.root.activeElement === h.root.querySelector('.ready__change'), 'focus returns to the re-rendered Change button');
+  assert.ok(h.root.activeElement === change, 'focus returns to the Change button');
+});
+
+test('live refreshes update the chooser and ready card in place: hovered and focused controls keep their nodes (AIT-116 D2)', async t => {
+  const h = fixture(t, { matrix: { eu: { text: available, analysis: available } } }), root = h.root;
+  const option = preset => root.querySelector(`.chooser-option[data-preset="${preset}"]`);
+  const refresh = async matrix => {
+    // A paused-state acknowledgement re-reads the host verdicts, as any live refresh does.
+    Object.assign(h.server.session.featureMatrix, matrix);
+    h.c.receive(h.server.apply({ sessionId: h.c.session.id, seq: h.server.session.seq + 1, type: 'session.paused', data: { paused: false } }));
+    await tick(6);
+  };
+  const before = PRESETS.map(option), device = option('device'), note = device.querySelector('.chooser-option__note');
+  device.focus(); assert.ok(root.activeElement === device);
+  await refresh({ eu: { text: refused('not configured'), analysis: refused('not configured') } });
+  assert.equal(option('eu').getAttribute('aria-disabled'), 'true', 'the refresh reached the chooser');
+  assert.equal(option('eu').querySelector('.chooser-option__note').textContent, en.chooser.unavailable);
+  assert.ok(PRESETS.every((preset, i) => option(preset) === before[i]), 'every option keeps its node');
+  assert.ok(device.querySelector('.chooser-option__note') === note && device.isConnected);
+  assert.ok(root.activeElement === device, 'focus stays on the same Device node');
+  option('eu').click(); await tick();
+  assert.equal(root.querySelector('.chooser__error').textContent, `In the EU: ${en.reasons['not configured']}`, 'a click reads the current verdict');
+  option('best').click(); root.querySelector('.chooser__continue').click(); await tick(6);
+  // The ready card: a consent the host dropped adds Review consent beside the same Change button.
+  const change = root.querySelector('.ready__change'), rows = [...root.querySelectorAll('.ready__row')];
+  change.focus();
+  await refresh({ best: { ...h.server.session.featureMatrix.best, text: refused('current processing consent required') } });
+  assert.ok(root.querySelector('.ready__consent'), 'the refresh reached the ready card');
+  assert.equal(root.querySelector('[data-ready="consent"]').dataset.state, 'pending');
+  assert.ok(root.querySelector('.ready__change') === change && root.activeElement === change, 'Change keeps its node and focus');
+  assert.ok([...root.querySelectorAll('.ready__row')].every((row, i) => row === rows[i]), 'ready rows keep their nodes');
 });
 
 test('Advanced connects a local model through the host factory, with model choice, a test chat and recovery help', async t => {

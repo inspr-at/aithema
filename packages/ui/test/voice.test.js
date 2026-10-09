@@ -331,6 +331,37 @@ test('without BroadcastChannel a reload never closes the journaled call; the lea
   assert.equal(voiceJournal(storage, session.id).read(), null);
   assert.equal(c.session.paused, true); assert.deepEqual(resumes(calls), []);
 });
+test('a sessionStorage that throws on access still mounts device and server conversations; the journal keeps nothing (AIT-116 D4)', async t => {
+  // A sandboxed or opaque-origin frame raises SecurityError on the mere property read.
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage'), nativeFetch = globalThis.fetch, calls = [];
+  Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, get() { throw new window.DOMException('denied', 'SecurityError'); } });
+  t.after(() => { Object.defineProperty(globalThis, 'sessionStorage', descriptor); globalThis.fetch = nativeFetch; });
+  assert.throws(() => globalThis.sessionStorage, { name: 'SecurityError' });
+  const client = { manifest, async start() { return { callId: 'call', providerSessionId: 'provider', events: voiceEvents(),
+    async setInput() {}, async setOutput() {}, async sendText() {}, async updateContext() {}, async close() { return { closureConfirmed: true }; } }; } };
+  for (const preset of ['device', 'best']) {
+    // A confirmed choice: the ready card leaves the call rail usable.
+    const session = createSession({ demo: true }); session.processingPreset = preset; session.settings = { ...session.settings, origin: 'chosen' };
+    session.featureMatrix = { best: { voice: { available: true }, text: { available: true }, analysis: { available: true } } };
+    globalThis.fetch = async (url, options = {}) => {
+      calls.push(url);
+      if (url.endsWith('/events')) return new Response(new ReadableStream({ start(controller) { options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
+      return Response.json(session);
+    };
+    const c = document.createElement('aithema-session'); document.body.append(c);
+    c.configure({ copy: en, session, voiceClient: client });
+    const root = c.shadowRoot;
+    assert.ok(root.querySelector('.composer textarea') && root.querySelector('.intro').dataset.mode === 'ready', `${preset}: the conversation mounts`);
+    if (preset === 'best') {
+      // A call starts and ends without storage; a page hide then has no record to close.
+      await c.shadowRoot.querySelector('.voice-start').click(); await until(() => root.querySelector('.audio-rail').dataset.state === 'listening', 'the call starts');
+      window.dispatchEvent(new window.Event('pagehide')); await tick();
+      await root.querySelector('.voice-close').click(); await until(() => root.querySelector('.audio-rail').dataset.state === 'idle', 'the call ends');
+    }
+    c.remove(); await tick();
+  }
+  assert.deepEqual(calls.filter(url => url.endsWith('/close')), [], 'without storage the orphan close is skipped');
+});
 test('Retry after a 409 waits out the remaining lease the server reports, otherwise retries at once', async t => {
   let attempts = 0; const { rail, root } = fixture(t, { start: () => { attempts++; } });
   const conflict = retryAfterMs => Object.assign(new Error('Voice control failed'), { code: 'voice-conflict', retryAfterMs });

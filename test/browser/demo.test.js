@@ -590,6 +590,30 @@ window.assess = (signals, openQuestions) => {
 };
 window.fixtureReady = true;
 </script>`;
+// The preset chooser before a choice, with EU offered until a host restart drops it (AIT-116 D2).
+const chooserFixture = `<!doctype html><meta charset="utf-8"><link rel="icon" href="data:,"><title>Chooser fixture</title><body style="margin:0;padding:48px">
+<script type="module">
+import '/packages/ui/src/session-element.js';
+import { en } from '/packages/ui/src/i18n/en.js';
+import { createSession } from '/packages/core/src/session.js';
+const offered = { available: true, reason: null }, missing = { available: false, reason: 'not configured' };
+let euOffered = true, endStream = () => {};
+const verdicts = () => ({ best: { text: offered, analysis: offered }, eu: { text: euOffered ? offered : missing, analysis: euOffered ? offered : missing },
+  device: { text: offered }, custom: { text: offered } });
+const c = document.createElement('aithema-session'), session = createSession({ demo: true });
+window.fetch = async (url, options = {}) => {
+  if (String(url).endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+    endStream = () => controller.close(); options.signal?.addEventListener('abort', () => { try { controller.close(); } catch {} }, { once: true });
+  } }), { headers: { 'content-type': 'text/event-stream' } });
+  if (String(url).endsWith(\`/api/sessions/\${session.id}\`)) return Response.json({ ...c.session, featureMatrix: verdicts() });
+  return new Promise(() => {});
+};
+session.featureMatrix = verdicts();
+c.configure({ copy: en, session }); document.body.append(c);
+// The host restarts: the event stream ends and the reconnect re-reads verdicts without EU.
+window.restartHost = () => new Promise(resolve => { euOffered = false; c.addEventListener('aithema-features', resolve, { once: true }); endStream(); });
+window.fixtureReady = true;
+</script>`;
 const grown = `First signal, now grown: ${'several more words of evidence '.repeat(12)}`;
 const questions = Array.from({ length: 16 }, (_, i) => `Open question ${i + 1}: which detail matters most for this part of the plan?`);
 
@@ -663,6 +687,41 @@ test('AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab l
     await fixture.mouse.move(4, 4);
     assert.deepEqual(await pane(), baseline, 'no residual padding after the pointer leaves');
     await fixture.close();
+
+    // D2 at conversation start: with the pointer resting on Device, a live refresh that makes EU unavailable
+    // adds a line above it. The hovered node survives and does not move.
+    const chooser = await browser.newPage(); await chooser.setViewport({ width: 1440, height: 1000 }); watch(chooser);
+    await chooser.setRequestInterception(true);
+    chooser.on('request', request => {
+      if (request.url() === `${demo.url}/chooser-fixture`) void request.respond({ status: 200, contentType: 'text/html; charset=utf-8', body: chooserFixture });
+      else void request.continue();
+    });
+    await chooser.goto(`${demo.url}/chooser-fixture`); await chooser.waitForFunction(() => window.fixtureReady);
+    const device = () => chooser.evaluate(() => {
+      const root = document.querySelector('aithema-session').shadowRoot, option = root.querySelector('.chooser-option[data-preset="device"]');
+      const rect = option.getBoundingClientRect(), intro = root.querySelector('.intro');
+      return { x: rect.x, y: rect.y, same: option === window.deviceBefore, connected: window.hoveredBefore?.isConnected ?? null,
+        euRefused: root.querySelector('.chooser-option[data-preset="eu"]').getAttribute('aria-disabled') === 'true',
+        euNote: root.querySelector('.chooser-option[data-preset="eu"] .chooser-option__note').getBoundingClientRect().height,
+        slack: intro.style.getPropertyValue('--aithema-slack-top') + intro.style.getPropertyValue('--aithema-slack-bottom') };
+    });
+    const resting = await device();
+    assert.equal(resting.euRefused, false, 'EU is offered at first');
+    await chooser.mouse.move(resting.x + 40, resting.y + 10);
+    await chooser.evaluate((x, y) => {
+      const root = document.querySelector('aithema-session').shadowRoot;
+      window.hoveredBefore = root.elementFromPoint(x, y); window.deviceBefore = root.querySelector('.chooser-option[data-preset="device"]');
+    }, resting.x + 40, resting.y + 10);
+    assert.ok(await chooser.evaluate(() => window.deviceBefore.contains(window.hoveredBefore)), 'the pointer rests on Device');
+    await chooser.evaluate(() => window.restartHost());
+    const refreshed = await device();
+    assert.equal(refreshed.euRefused, true, 'the live refresh made EU unavailable');
+    assert.ok(refreshed.euNote > 0, 'an unavailable line was added above Device');
+    assert.equal(refreshed.same, true, 'Device keeps its node'); assert.equal(refreshed.connected, true, 'the hovered node stays connected');
+    assert.ok(Math.abs(refreshed.y - resting.y) <= 1, `the hovered Device option moved ${refreshed.y - resting.y} px`);
+    await chooser.mouse.move(4, 4);
+    assert.equal((await device()).slack, '', 'no residual padding after the pointer leaves');
+    await chooser.close();
 
     const page = await browser.newPage(); await preparePage(page, ['en-US', 'en']); watch(page);
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
@@ -746,5 +805,5 @@ test('AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab l
     assert.equal(phone.statusClipped, false, 'the concept status is not clipped');
     assert.equal(phone.conversationOverflow, 0); assert.equal(phone.pageOverflow, 0, 'no horizontal overflow');
     assert.deepEqual(problems, []);
-    t.diagnostic(`D2 0±1 px with scroll room, spare space and 5 grow/shrink rounds, no residual padding; D4 foreign pause kept, auxiliary window left the call alone; D9 dark tokens; D14 transcript ${phone.transcript} px at 400 px.`);
+    t.diagnostic(`D2 0±1 px with scroll room, spare space and 5 grow/shrink rounds, no residual padding; chooser Device kept its node and 0±1 px across a live EU refusal; D4 foreign pause kept, auxiliary window left the call alone; D9 dark tokens; D14 transcript ${phone.transcript} px at 400 px.`);
   });
