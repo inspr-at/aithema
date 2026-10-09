@@ -64,9 +64,13 @@ export function validateSchema(value, schema, path = '$', errors = []) {
 export function validateManifest(manifest) {
   const errors = validateSchema(manifest, MANIFEST_SCHEMA);
   if (!errors.length) {
-    const privateKeys = /^(?:apiKey|secret|secretRef|accountRef|legal|retention|training|consent)$/iu;
-    const containsPrivateConfig = schema => schema && typeof schema === 'object' && Object.entries(schema).some(([k, v]) =>
-      privateKeys.test(k) || containsPrivateConfig(v));
+    const privateKeys = /^(?:apiKey|apiToken|token|accessToken|refreshToken|password|passphrase|credentials?|clientSecret|authorization|secret|secretRef|accountRef|accountId|legal|retention|training|consent|consentVersion|purpose|processors|recipient|dataCategories)$/iu;
+    const containsPrivateConfig = schema => {
+      if (!schema || typeof schema !== 'object') return false;
+      const stringProperty = schema.type === 'string' || Array.isArray(schema.type) && schema.type.includes('string');
+      return stringProperty && ['default', 'const', 'examples'].some(k => Object.hasOwn(schema, k)) ||
+        Object.entries(schema).some(([k, v]) => privateKeys.test(k) || containsPrivateConfig(v));
+    };
     if (containsPrivateConfig(manifest.configSchema)) errors.push('private config belongs in host binding');
     if (!manifest.entrypoints[manifest.placement]) errors.push('missing placement entrypoint');
     if (manifest.kinds.includes('live-voice') && !manifest.liveVoice) errors.push('missing live voice contract');
@@ -89,6 +93,8 @@ export function deepFreeze(value) {
   if (value && typeof value === 'object') { Object.values(value).forEach(deepFreeze); Object.freeze(value); }
   return value;
 }
+const deeplyFrozen = value => !value || typeof value !== 'object' ||
+  Object.isFrozen(value) && Object.values(value).every(deeplyFrozen);
 export class PluginRegistry {
   #entries = new Map();
   register(plugin) {
@@ -98,7 +104,7 @@ export class PluginRegistry {
     if (typeof plugin.health !== 'function' || plugin.manifest.kinds.flatMap(k => KIND_OPERATIONS[k]).some(k => typeof plugin[k] !== 'function')) {
       throw new TypeError('Missing plugin operation or health');
     }
-    const entry = { ...plugin, manifest: deepFreeze(structuredClone(plugin.manifest)) };
+    const entry = { ...plugin, manifest: deeplyFrozen(plugin.manifest) ? plugin.manifest : deepFreeze(structuredClone(plugin.manifest)) };
     this.#entries.set(entry.manifest.id, entry); return this;
   }
   get(id) { return this.#entries.get(id); }

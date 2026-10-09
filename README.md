@@ -160,28 +160,34 @@ lanes refuse device work, and analysis, voice, transcription and images report
 slice. Hosts pass `deviceReasoning` to `configure` for that browser half.
 
 Every billable call needs a new budget-admitted attempt and a single-use claim.
-A conservative UTF-8 prompt/framing token bound plus the selected output
-limit must fit the binding ceiling before dispatch. Both server lanes reserve and claim in `SQLiteBudgetLedger` in the session's
+A conservative UTF-8 bound on the prompt, schema, provider options and framing,
+plus the selected output limit, must fit the binding ceiling before dispatch.
+Both server lanes reserve and claim in `SQLiteBudgetLedger` in the session's
 SQLite database; no internal provider retry exists. Each invocation reports
 exactly one `completed {usage}`, `cancelled {usage}` or `uncertain`. Known
-usage settles with the binding's rates; uncertain or over-maximum usage charges
-the entire claim maximum. Breaking a stream without final usage is uncertain,
-even if the browser locally cancelled. A retry is a new admission. At startup,
-`handlers.resume()` recovers unfinished claims at their maxima and releases
-unclaimed reservations. It must run before fresh work under the host's
+usage settles with the binding's rates, including actual over-maximum cost with
+an overrun flag; uncertain dispatched usage charges the entire claim maximum.
+Undispatched claims settle cancelled at zero cost. Breaking a stream without
+final usage is uncertain, even if the browser locally cancelled. A retry is a
+new admission. At startup, `handlers.resume()` recovers unfinished dispatched
+claims at their maxima and releases undispatched reservations. It must run
+before fresh work under the host's
 exclusive-writer lifecycle. The slim ledger ports Gen-2
 `runtime/budget/{gate,sqlite}.js`; residency/evidence admission ports
 `runtime/settings/{resolver,capabilities}.js`.
 
 To add a plugin, export a static valid manifest, implement the declared kind
 and cancellable health operation, bind private operator selections, and run
-`reasoningConformance(plugin, fixtureRequest)` with local fixtures. Reasoning
+`reasoningConformance(plugin, fixtureRequest, { stallRequest, requestCount })`
+with local fixtures. Billable adapters must supply a stalled request and a
+synchronous outbound request counter. Reasoning
 must consume the provided claim before dispatch and report terminal usage in
 `finally`, including iterator return, cancellation and deadline. The reusable
-kit checks manifest, health, error codes, claim consumption, schema output and
-terminal counts, with preflight and active stream cancellation/deadlines. CI
-runs it for OpenRouter, Mistral and mock and verifies a deliberately broken
-fixture fails; provider tests also cover stalled structured responses. The
+kit checks manifest, health, error codes, claim consumption before dispatch,
+refused consumes without requests, schema output and terminal counts, with
+preflight and active stream/structured cancellation and deadlines. CI runs it
+for OpenRouter, Mistral and mock and verifies that deliberately broken and
+preflight-only fixtures fail. The
 browser device half advertises text only and is not a full reasoning-kind
 server implementation. No live provider qualification is claimed.
 

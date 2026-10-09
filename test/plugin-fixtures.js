@@ -1,6 +1,8 @@
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { publicReasoningManifest } from '../packages/core/src/plugins.js';
+import { beginInvocation, normalizedError } from '../packages/core/src/invocation.js';
+import { operationScope } from '../packages/core/src/reasoning.js';
 export const schema = { type: 'object', additionalProperties: false, properties: { summary: { type: 'string' } }, required: ['summary'] };
 export const request = { system: 'Fixture policy', messages: [{ role: 'user', content: 'Hello' }], schema };
 export function invocationOptions(extra = {}) {
@@ -16,7 +18,7 @@ export function binding(plugin, endpoint, extra = {}) {
     rates: { inputMicro: 1, outputMicro: 2 }, ...extra };
 }
 export async function chatServer(t, { handler } = {}) {
-  const bodies = [];
+  const bodies = [], requests = [];
   const server = createServer(async (req, res) => {
     if (req.url === '/v1/models') { res.end(JSON.stringify({ data: [{ id: 'fixture-model' }] })); return; }
     const chunks = []; for await (const chunk of req) chunks.push(chunk);
@@ -32,8 +34,27 @@ export async function chatServer(t, { handler } = {}) {
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
-  return { endpoint: `http://127.0.0.1:${server.address().port}/v1/chat/completions`, bodies };
+  return { endpoint: `http://127.0.0.1:${server.address().port}/v1/chat/completions`, bodies, requests,
+    fetchImpl(url, options) { requests.push(JSON.parse(options.body)); return fetch(url, options); } };
 }
 // Deliberately broken: ignores authority/lifetime, lies about health and never reports a terminal.
 export const brokenReasoning = { manifest: publicReasoningManifest('broken', 'Broken', 'https://example.test'),
   async health() { return { available: 'yes' }; }, async *stream() { yield 'oops'; }, async structured() { return { summary: 'oops' }; } };
+
+// Correct stream/authority/reporting, but structured only checks lifetime before opening the fixture.
+export function brokenPreflightReasoning(plugin, { fetchImpl = globalThis.fetch } = {}) {
+  return { ...plugin, async structured(request, options) {
+    const invocation = beginInvocation(options), scope = operationScope(options); let completed = false;
+    try {
+      scope.signal.throwIfAborted();
+      invocation.dispatch();
+      // Independent cleanup deadline limits this deliberately broken fixture's lifetime.
+      const response = await fetchImpl(plugin.binding.endpoint, { method: 'POST', signal: AbortSignal.timeout(250),
+        body: JSON.stringify({ messages: [{ role: 'system', content: request.system }], stream: false }) });
+      const result = await response.json();
+      invocation.usage({ inputTokens: result.usage.prompt_tokens, outputTokens: result.usage.completion_tokens });
+      completed = true; return JSON.parse(result.choices[0].message.content);
+    } catch (error) { throw normalizedError(error, scope.signal); }
+    finally { scope.dispose(); await invocation.finish(completed); }
+  } };
+}

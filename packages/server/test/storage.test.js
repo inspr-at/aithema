@@ -4,6 +4,13 @@ import { SQLiteStorage, ConflictError, createHandlers, exportSession } from '../
 import { inputRevision, createMockReasoning } from '@inspr/aithema-core';
 import { temporaryDb, unzip, readEvents } from '../../../test/helpers.js';
 const bytes = content => Buffer.from(JSON.stringify({ clientEventId: 'turn1', content }));
+test('storage connections wait briefly for another SQLite writer', () => {
+  const store = new SQLiteStorage();
+  try {
+    const timeout = store.db.prepare('PRAGMA busy_timeout').get().timeout;
+    assert.ok(timeout >= 100 && timeout <= 1000);
+  } finally { store.close(); }
+});
 test('acknowledged turn and receipt survive close/reopen; append-only events have monotonic seq', async () => {
   const path = await temporaryDb(); let store = new SQLiteStorage(path);
   const session = store.create(), result = store.postTurn(session.id, 'turn1', bytes('hello'), 'hello'); store.close();

@@ -39,7 +39,7 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
     return response;
   }
   return {
-    id: manifest.id, billable, label: `${label} — ${binding.model}`, manifest, binding,
+    id: manifest.id, billable, label: `${label} — ${binding.model}`, manifest, binding, providerOptions,
     async health(options) {
       const scope = operationScope(options);
       try { scope.signal.throwIfAborted(); return { available: !billable || Boolean(resolveSecret?.(binding.secretRef)) }; }

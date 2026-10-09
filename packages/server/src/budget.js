@@ -7,16 +7,21 @@ export class SQLiteBudgetLedger {
   constructor(storage, { sessionCapMicro = 10_000_000 } = {}) {
     if (!integer(sessionCapMicro)) throw new TypeError('Invalid budget cap');
     this.storage = storage; this.db = storage.db; this.sessionCapMicro = sessionCapMicro;
-    this.db.exec(`CREATE TABLE IF NOT EXISTS budget_attempts (
+    this.db.exec(`PRAGMA busy_timeout=250;
+      CREATE TABLE IF NOT EXISTS budget_attempts (
       attempt_id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id), lane TEXT NOT NULL,
       max_micro INTEGER NOT NULL CHECK(max_micro >= 0), claim_id TEXT UNIQUE,
       state TEXT NOT NULL CHECK(state IN ('admitted','claimed','dispatched','settled')),
       request_sha256 TEXT NOT NULL, binding_sha256 TEXT NOT NULL,
       outcome TEXT CHECK(outcome IN ('completed','cancelled','uncertain')), usage TEXT,
       settled_micro INTEGER CHECK(settled_micro >= 0), terminal_json TEXT,
+      overrun INTEGER NOT NULL DEFAULT 0 CHECK(overrun IN (0,1)),
       CHECK((state='settled' AND outcome IS NOT NULL AND settled_micro IS NOT NULL)
         OR (state!='settled' AND outcome IS NULL AND settled_micro IS NULL)));
       CREATE INDEX IF NOT EXISTS budget_session ON budget_attempts(session_id);`);
+    if (!this.db.prepare('PRAGMA table_info(budget_attempts)').all().some(column => column.name === 'overrun')) {
+      this.db.exec('ALTER TABLE budget_attempts ADD COLUMN overrun INTEGER NOT NULL DEFAULT 0 CHECK(overrun IN (0,1))');
+    }
   }
   used(sessionId) {
     return this.db.prepare(`SELECT COALESCE(SUM(CASE WHEN state='settled' THEN settled_micro ELSE max_micro END),0) AS n
@@ -62,13 +67,15 @@ export class SQLiteBudgetLedger {
         if (row.terminal_json !== bytes) throw new PluginError('already-claimed');
         return this.get(row.attempt_id); // exact terminal retries are idempotent
       }
-      const actual = terminal.outcome === 'uncertain' ? row.max_micro
+      const dispatched = row.state === 'dispatched';
+      const actual = !dispatched ? 0 : terminal.outcome === 'uncertain' ? row.max_micro
         : terminal.usage.inputTokens * rates.inputMicro + terminal.usage.outputTokens * rates.outputMicro;
-      // A malformed or under-reserved provider result never releases reserved money.
-      const uncertain = !integer(actual) || actual > row.max_micro;
-      this.db.prepare("UPDATE budget_attempts SET state='settled',outcome=?,usage=?,settled_micro=?,terminal_json=? WHERE claim_id=?")
-        .run(uncertain ? 'uncertain' : terminal.outcome, terminal.usage ? JSON.stringify(terminal.usage) : null,
-          uncertain ? row.max_micro : actual, bytes, claimId);
+      // Unknown dispatched usage retains the maximum; known overruns remain visible as actual spend.
+      const uncertain = !integer(actual);
+      const usage = dispatched ? terminal.usage : { inputTokens: 0, outputTokens: 0 };
+      this.db.prepare("UPDATE budget_attempts SET state='settled',outcome=?,usage=?,settled_micro=?,terminal_json=?,overrun=? WHERE claim_id=?")
+        .run(!dispatched ? 'cancelled' : uncertain ? 'uncertain' : terminal.outcome, usage ? JSON.stringify(usage) : null,
+          uncertain ? row.max_micro : actual, bytes, actual > row.max_micro ? 1 : 0, claimId);
       return this.get(row.attempt_id);
     });
   }
@@ -77,11 +84,12 @@ export class SQLiteBudgetLedger {
     return this.storage.transaction(() => {
       const rows = this.db.prepare("SELECT * FROM budget_attempts WHERE state!='settled' AND (? IS NULL OR session_id=?)").all(sessionId ?? null, sessionId ?? null);
       for (const row of rows) {
-        const claimed = row.claim_id !== null;
-        const terminal = { attemptId: row.attempt_id, outcome: claimed ? 'uncertain' : 'cancelled',
-          ...(claimed ? {} : { usage: { inputTokens: 0, outputTokens: 0 } }) };
-        this.db.prepare("UPDATE budget_attempts SET state='settled',outcome=?,settled_micro=?,terminal_json=? WHERE attempt_id=?")
-          .run(terminal.outcome, claimed ? row.max_micro : 0, JSON.stringify(terminal), row.attempt_id);
+        const dispatched = row.state === 'dispatched';
+        const terminal = { attemptId: row.attempt_id, outcome: dispatched ? 'uncertain' : 'cancelled',
+          ...(dispatched ? {} : { usage: { inputTokens: 0, outputTokens: 0 } }) };
+        this.db.prepare("UPDATE budget_attempts SET state='settled',outcome=?,settled_micro=?,usage=?,terminal_json=? WHERE attempt_id=?")
+          .run(terminal.outcome, dispatched ? row.max_micro : 0, terminal.usage ? JSON.stringify(terminal.usage) : null,
+            JSON.stringify(terminal), row.attempt_id);
       }
       return rows.length;
     });

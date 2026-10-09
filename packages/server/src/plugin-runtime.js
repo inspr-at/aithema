@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { PluginRegistry, createMockReasoning, createBinding, PluginError, PROCESSING_PRESETS, FEATURES,
+import { PluginRegistry, createMockReasoning, mockManifest, createBinding, PluginError, PROCESSING_PRESETS, FEATURES,
   deviceFeatures, featureUnavailable, bindingReason, processingScope, consentReason, operationScope, inputRevision } from '@inspr/aithema-core';
 import { SQLiteBudgetLedger } from './budget.js';
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -26,14 +26,15 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     let plugin = registry.get(binding.plugin);
     if (!plugin) return { reason: 'plugin not registered' };
     if (plugin.bind) { try { plugin = plugin.bind(binding); } catch { return { reason: 'binding invalid' }; } }
-    else if (binding.plugin !== 'mock' && (!plugin.binding || hash(plugin.binding) !== hash(binding))) return { reason: 'plugin binding mismatch' };
+    const mock = plugin.manifest === mockManifest && plugin.billable === false;
+    if (!plugin.bind && !mock && (!plugin.binding || hash(plugin.binding) !== hash(binding))) return { reason: 'plugin binding mismatch' };
     if (!plugin.manifest.kinds.includes(kind)) return { reason: 'plugin kind unsupported' };
     const model = plugin.manifest.models.find(m => m.id === binding.model) ?? plugin.manifest.models.find(m => m.id === '*');
     if (!model?.operations.includes(operation) || operation === 'stream' && !model.streaming || operation === 'structured' && !model.structured) return { reason: 'operation unsupported' };
     if (session.paused) return { reason: 'session paused' };
     let coverage, scope;
     // The non-billable deterministic demo has no external processing scope.
-    if (binding.plugin !== 'mock') {
+    if (!mock) {
       const reason = bindingReason({ binding, plugin, preset, policy: config.policy, now: now() });
       if (reason) return { reason };
       if (!consent?.coverage) return { reason: 'consent port unavailable' };
@@ -81,7 +82,9 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const { binding, plugin } = result;
       // A byte bound plus message framing conservatively bounds chat input tokens;
       // reasoning tokens share the requested max_tokens output ceiling.
-      const promptBytes = new TextEncoder().encode(JSON.stringify({ system: request.system, messages: request.messages })).byteLength;
+      const promptBytes = new TextEncoder().encode(JSON.stringify({ system: request.system, messages: request.messages,
+        schema: request.schema, providerOptions: request.providerOptions,
+        adapterOptions: plugin.providerOptions?.(operation === 'stream') })).byteLength;
       const ceiling = (promptBytes + 256 + (request.messages?.length ?? 0) * 64) * binding.rates.inputMicro
         + binding.maxTokens * binding.rates.outputMicro;
       if (!Number.isSafeInteger(ceiling) || ceiling > binding.maxMicro) throw new PluginError('not-admitted', 'Request exceeds binding cost ceiling');
@@ -89,22 +92,28 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const { attemptId } = budget.admit({ sessionId: session.id, lane, maxMicro: binding.maxMicro,
         requestSha256: hash(request), bindingSha256: hash(binding) });
       const claim = budget.claim(attemptId); let reported = false;
+      const report = terminal => {
+        if (reported) throw new PluginError('already-claimed');
+        const settlement = budget.settle(claim.claimId, terminal, binding.rates); reported = true; return settlement;
+      };
       const attempt = Object.freeze({ ...claim, consume() {
+        if (reported) throw new PluginError('already-claimed');
         const current = storage.get(session.id);
-        if (current.paused || inputRevision(current) !== inputRevision(session)) throw new PluginError('not-admitted', 'Session changed before dispatch');
-        if (result.scope) {
-          const reason = consentReason(result.coverage, result.scope, now()); if (reason) throw new PluginError('not-admitted', reason);
+        const reason = current.paused || inputRevision(current) !== inputRevision(session) ? 'Session changed before dispatch'
+          : result.scope && consentReason(result.coverage, result.scope, now());
+        if (reason) {
+          report({ attemptId, outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 } });
+          throw new PluginError('not-admitted', reason);
         }
         claim.consume();
       } });
-      return { plugin, options: { ...options, attempt, report: terminal => {
-        if (reported) throw new PluginError('already-claimed');
-        const settlement = budget.settle(attempt.claimId, terminal, binding.rates); reported = true; return settlement;
-      } }, finish() {
-        if (!reported) {
-          budget.settle(attempt.claimId, { attemptId, outcome: 'uncertain' }, binding.rates); reported = true;
-          throw new PluginError('invalid-output', 'Plugin omitted its terminal report');
-        }
+      return { plugin, options: { ...options, attempt, report }, finish({ failed = false } = {}) {
+        try {
+          if (!reported) {
+            report({ attemptId, outcome: 'uncertain' });
+            throw new PluginError('invalid-output', 'Plugin omitted its terminal report');
+          }
+        } catch (error) { if (!failed) throw error; }
       } };
     },
   };

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHandlers, createPluginRuntime, SQLiteStorage, SQLiteBudgetLedger } from '../src/index.js';
-import { PluginRegistry, createMockReasoning } from '@inspr/aithema-core';
+import { PluginRegistry, createMockReasoning, mockManifest, SessionLanes } from '@inspr/aithema-core';
 import { createOpenRouterReasoning } from '../../../plugins/openrouter/src/index.js';
 import { binding, chatServer, request } from '../../../test/plugin-fixtures.js';
 function qualify(b) {
@@ -131,4 +131,62 @@ test('health failures disable features; consent expiring while health runs fails
     consent: { coverage: async (_, scope) => ({ scope, checkedAt: instant, expiresAt: instant + 10 }) }, now: () => clock });
   entry.bind = binding => ({ ...h.plugin.bind(binding), health: async () => { clock = instant + 11; return { available: true }; } });
   assert.equal((await runtime.matrix(h.session)).best.text.reason, 'current processing consent required');
+});
+
+test('pause between admission and consume cancels for zero cost and preserves the refusal in both lanes', async t => {
+  const fake = await chatServer(t), h = setup(t, fake.endpoint);
+  h.presets.best.bindings = { reaction: { ...h.b, maxMicro: 50_000 }, understanding: { ...h.b, maxMicro: 50_000 } };
+  h.storage.postTurn(h.session.id, 'first', Buffer.from('first'), 'Hello');
+  const get = h.storage.get.bind(h.storage); let paused = false;
+  h.storage.get = id => ({ ...get(id), paused });
+  const lanes = new SessionLanes({ reasoning: h.plugin, getSession: h.storage.get,
+    publish() { assert.fail('refused work must not publish'); },
+    async admit(args) { const admitted = await h.runtime.admit(args); paused = true; return admitted; } });
+  for (const lane of ['reaction', 'understanding']) {
+    paused = false;
+    await assert.rejects(lanes.run(h.session.id, lane), { code: 'not-admitted', message: 'Session changed before dispatch' });
+  }
+  assert.equal(fake.bodies.length, 0);
+  const rows = h.storage.db.prepare('SELECT * FROM budget_attempts').all();
+  assert.equal(rows.length, 2);
+  assert.ok(rows.every(r => r.state === 'settled' && r.outcome === 'cancelled' && r.settled_micro === 0));
+  assert.ok(rows.every(r => JSON.parse(r.usage).inputTokens === 0 && JSON.parse(r.usage).outputTokens === 0));
+});
+
+test('missing terminal before consume releases the claim; finish preserves a pending plugin error', async t => {
+  const h = setup(t);
+  const invocation = await h.runtime.admit({ session: h.session, lane: 'reaction', operation: 'stream', request, options: {} });
+  assert.throws(() => invocation.finish(), /omitted its terminal report/);
+  assert.equal(h.runtime.budget.used(h.session.id), 0);
+  h.presets.best.bindings = { reaction: { ...h.b, maxMicro: 50_000 }, understanding: { ...h.b, maxMicro: 50_000 } };
+  h.storage.postTurn(h.session.id, 'first', Buffer.from('first'), 'Hello');
+  const original = new Error('original failure');
+  const plugin = { ...h.plugin, async *stream() { throw original; }, async structured() { throw original; } };
+  const lanes = new SessionLanes({ reasoning: plugin, getSession: id => h.storage.get(id), publish() { assert.fail(); },
+    async admit(args) { const admitted = await h.runtime.admit(args); return { ...admitted, plugin }; } });
+  for (const lane of ['reaction', 'understanding']) await assert.rejects(lanes.run(h.session.id, lane), error => error === original);
+  assert.equal(h.runtime.budget.used(h.session.id), 0);
+});
+
+test('schema and provider option bytes must fit the cost ceiling before reserving', async t => {
+  const h = setup(t);
+  for (const oversized of [{ ...request, schema: { ...request.schema, description: 'x'.repeat(1500) } },
+    { ...request, providerOptions: { hint: 'x'.repeat(1500) } }]) {
+    await assert.rejects(h.runtime.admit({ session: h.session, lane: 'understanding', operation: 'structured', request: oversized, options: {} }), /cost ceiling/);
+  }
+  const routed = qualify({ ...h.b, routing: { order: ['x'.repeat(1500)] } });
+  h.presets.best.bindings.reaction = routed;
+  await assert.rejects(h.runtime.admit({ session: h.session, lane: 'reaction', operation: 'stream', request, options: {} }), /cost ceiling/);
+  assert.equal(h.storage.db.prepare('SELECT COUNT(*) AS n FROM budget_attempts').get().n, 0);
+});
+
+test('only the nonbillable canonical mock identity is exempt from qualification and consent', async t => {
+  const storage = new SQLiteStorage(), session = storage.create(); t.after(() => storage.close());
+  const mock = createMockReasoning(), raw = { ...binding('mock', 'https://example.test'), maxMicro: 0, rates: { inputMicro: 0, outputMicro: 0 } };
+  const presets = { best: { plugins: ['mock'], bindings: { reaction: raw } } };
+  for (const fake of [{ ...mock, billable: true, binding: raw }, { ...mock, manifest: structuredClone(mockManifest), binding: raw }]) {
+    const runtime = createPluginRuntime({ storage, presets, registry: new PluginRegistry().register(fake) });
+    assert.equal((await runtime.matrix(session)).best.text.reason, 'binding evidence unverified');
+  }
+  assert.equal((await createPluginRuntime({ storage }).matrix(session)).best.text.available, true);
 });

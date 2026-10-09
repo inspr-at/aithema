@@ -45,9 +45,10 @@ export class SessionLanes {
           const binding = draft ? this.draftReasoning : this.reasoning;
           const request = { ...reasoningRequest(latest, lane, draft, this.hostPrompt), schema: understandingSchema(session.preset) };
           const admitted = await this.admit?.({ session: this.getSession(id), lane, operation: 'structured', request, options });
-          let raw;
+          let raw, failed = false;
           try { raw = await (admitted?.plugin ?? binding).structured(request, admitted?.options ?? options); }
-          finally { admitted?.finish(); }
+          catch (error) { failed = true; throw error; }
+          finally { admitted?.finish({ failed }); }
           if (!current()) return 'stale';
           if (!matchesSchema(raw, understandingSchema(session.preset))) throw new TypeError('Invalid understanding output');
           const data = reduceUnderstanding(this.getSession(id).understanding, raw, {
@@ -65,12 +66,14 @@ export class SessionLanes {
         let content = '';
         const request = reasoningRequest(session, lane, false, this.hostPrompt);
         const admitted = await this.admit?.({ session: this.getSession(id), lane, operation: 'stream', request, options });
+        let failed = false;
         try { for await (const delta of (admitted?.plugin ?? this.reasoning).stream(request, admitted?.options ?? options)) {
           if (!current()) return 'stale';
           if (typeof delta !== 'string' || content.length + delta.length > 16_000) throw new TypeError('Invalid reasoning stream');
           content += delta;
           this.transient(id, { type: 'turn.partial', data: { id: turnId, delta, inputRevision: revision } });
-        } } finally { admitted?.finish(); }
+        } } catch (error) { failed = true; throw error; }
+        finally { admitted?.finish({ failed }); }
         if (!current()) return 'stale';
         if (!content.trim()) throw new TypeError('Empty reasoning stream');
         if (!this.publish(id, 'turn.final', { id: turnId, role: 'assistant', content,

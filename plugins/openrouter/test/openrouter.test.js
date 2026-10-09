@@ -78,8 +78,8 @@ test('streaming provider error and truncated SSE never pass as completed', async
 test('OpenRouter passes shared conformance with usage and no silent routing fallback', async t => {
   const { chatServer, binding, request } = await import('../../../test/plugin-fixtures.js');
   const { reasoningConformance } = await import('@inspr/aithema-core');
-  const fake = await chatServer(t), plugin = createOpenRouterReasoning({ binding: binding('openrouter', fake.endpoint), resolveSecret: () => 'local-fixture' });
-  assert.deepEqual(await reasoningConformance(plugin, request), { ok: true, failures: [] });
+  const fake = await chatServer(t), plugin = createOpenRouterReasoning({ binding: binding('openrouter', fake.endpoint), fetchImpl: fake.fetchImpl, resolveSecret: () => 'local-fixture' });
+  assert.deepEqual(await reasoningConformance(plugin, request, { stallRequest: { ...request, system: 'stall' }, requestCount: () => fake.requests.length }), { ok: true, failures: [] });
   assert.equal(fake.bodies[0].provider.allow_fallbacks, false);
   assert.equal(fake.bodies[0].max_tokens, 40);
 });

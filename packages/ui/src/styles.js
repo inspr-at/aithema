@@ -39,6 +39,7 @@ ol { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; 
 textarea { resize:none; width:100%; height:5rem; border:0; background:transparent; color:inherit; padding:.3rem 0; }
 .composer-actions { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
 .composer-actions small { font-size:.7rem; color:var(--aithema-muted); } .send { min-width:6rem; background:var(--aithema-accent); color:white; }
+.composer-reason { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .understanding { height:42rem; display:grid; grid-template-rows:3.6rem 7rem minmax(0,1fr) 3.6rem; }
 .readiness { padding:.8rem 1.25rem; } .scale { height:.72rem; border:1px solid var(--aithema-line); border-radius:999px;
   position:relative; background:linear-gradient(90deg,color-mix(in srgb,var(--aithema-accent) 10%,var(--aithema-surface)) 0 30%,
