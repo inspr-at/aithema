@@ -45,7 +45,7 @@ test('demo rejects foreign Hosts and non-JSON POSTs before session creation', { 
 // elsewhere, however it is written.
 // Any mention of the word "method" outside postJson fails (quoted keys, bracket
 // access and shorthand included); a false alarm in a comment is the safe side.
-const sendsMethod = source => /\bmethod\b|\bRequest\b|\bsendBeacon\b|\bXMLHttpRequest\b|\bformmethod\b|\brequestSubmit\b|\.submit\s*\(|\bping\s*=/iu.test(source);
+const sendsMethod = source => /\bmethod\b|\bRequest\b|\bsendBeacon\b|\bXMLHttpRequest\b|\bformmethod\b|\brequestSubmit\b|\.submit\s*\(|\bping\b/iu.test(source);
 async function clientFiles() {
   const { readdir } = await import('node:fs/promises');
   const files = [new URL('../host.js', import.meta.url)];
@@ -63,7 +63,7 @@ test('the request-method detector catches every way of writing a non-GET request
     "fetch('/x', { method: 'POST', body: '{}' })", 'fetch("/x", { method: "POST" })', 'fetch(`/x?a=)`, { method: `POST` })',
     'const init = { method: verb }; fetch(url, init)', 'init.method = "PUT"', 'fetch(new Request(url, init))',
     'navigator.sendBeacon(url, data)', 'new XMLHttpRequest()',
-    "globalThis.navigator?.sendBeacon?.('/api/sessions', '{}')", '<button formmethod="post">Create</button>', 'f.requestSubmit(f.firstElementChild)', 'form.submit()', '<a href="/x" ping="/api/sessions">x</a>', 'navigator["sendBeacon"](url, data)', "new window['XMLHttpRequest']()", 'const R = Request; fetch(new R(url, init))',
+    "globalThis.navigator?.sendBeacon?.('/api/sessions', '{}')", '<button formmethod="post">Create</button>', 'f.requestSubmit(f.firstElementChild)', 'form.submit()', '<a href="/x" ping="/api/sessions">x</a>', "link.setAttribute('ping', '/api/sessions')", 'link.ping = "/api/sessions"', 'navigator["sendBeacon"](url, data)', "new window['XMLHttpRequest']()", 'const R = Request; fetch(new R(url, init))',
     'fetch(\'/x\', { "method": "POST", body: "{}" })', "init['method'] = 'POST'", 'const send = (url, method, body) => fetch(url, { method, body })',
   ]) assert.ok(sendsMethod(fixture), fixture);
   for (const fixture of ["fetch(`${base}/api/sessions/${id}`)", 'const methodology = 1;', "fetch('/x', { signal })"]) assert.ok(!sendsMethod(fixture), fixture);
