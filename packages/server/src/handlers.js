@@ -51,7 +51,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       const session = storage.get(id), featureMatrix = await pluginRuntime.matrix(session);
       const current = storage.get(id), { ownerHash, ...publicSession } = current;
       if (current.tombstone || current.ownerHash !== session.ownerHash) throw new NotFoundError('Session not found');
-      if (current.seq === session.seq) return { ...publicSession, operations: operations(current), featureMatrix, conceptCost: pluginRuntime.imageQuote(current) };
+      if (current.seq === session.seq) return { ...publicSession, operations: operations(current), featureMatrix, conceptVisualKind: pluginRuntime.visualKind(current), conceptCost: pluginRuntime.imageQuote(current) };
     }
     throw new ConflictError('Session changed during snapshot');
   };
@@ -262,12 +262,14 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       if (action === 'export' && request.method === 'GET') {
         const session = storage.get(id);
         const allowed = new Map();
-        for (const operation of new Set((session.concepts ?? []).map(c => c.referenceIds.length ? 'edit' : 'generate'))) {
-          allowed.set(operation, await pluginRuntime.publicationAllowed(session, { operation }));
+        const key = c => `${c.mediaType === 'text/html' ? 'html' : 'images'}:${c.operation ?? (c.referenceIds.length ? 'edit' : 'generate')}`;
+        for (const entry of new Set((session.concepts ?? []).map(key))) {
+          const [visualKind, operation] = entry.split(':');
+          allowed.set(entry, await pluginRuntime.publicationAllowed(session, { operation, visualKind }));
         }
         const current = storage.authorize(id, ownerToken);
         if (current.seq !== session.seq) throw new ConflictError('Export changed');
-        return new Response(exportSession(current, (current.concepts ?? []).filter(c => allowed.get(c.referenceIds.length ? 'edit' : 'generate')).map(c => storage.conceptArtifact(id, c.id))), {
+        return new Response(exportSession(current, (current.concepts ?? []).filter(c => allowed.get(key(c))).map(c => storage.conceptArtifact(id, c.id))), {
         headers: { 'content-type': 'application/zip', 'content-disposition': 'attachment; filename="aithema-session.zip"', 'cache-control': 'no-store' },
       });
       }
@@ -278,7 +280,9 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       if (error instanceof SyntaxError || error instanceof TypeError) return json({ error: 'invalid-request' }, 400);
       if (error instanceof RangeError) return json({ error: 'size-limit' }, 413);
       if (error instanceof PluginError) return json({ error: error.code,
-        ...(['OpenRouter spend cap exhausted', 'OpenRouter request exceeds spend reservation'].includes(error.message) ? { reason: error.message } : {}) }, error.code === 'not-admitted' ? 403 : 502);
+        ...(['OpenRouter spend cap exhausted', 'OpenRouter request exceeds spend reservation', 'UI render limit reached for this session',
+          'UI render limit reached for this UTC day', 'HTML consent scope unavailable: START has no matching HTML item',
+          'current processing consent required'].includes(error.message) ? { reason: error.message } : {}) }, error.code === 'not-admitted' ? 403 : error.code === 'rate-limit' ? 429 : 502);
       return json({ error: 'server-error' }, 500);
     }
   }

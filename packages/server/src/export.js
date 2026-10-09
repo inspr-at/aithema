@@ -1,4 +1,4 @@
-import { activeTurns } from '@inspr/aithema-core';
+import { activeTurns, HTML_MEDIA_TYPE, frameDocument } from '@inspr/aithema-core';
 // Dependency-free, store-only ZIP. UTF-8 flags; fixed timestamp for reproducible exports.
 function crc32(bytes) {
   let crc = 0xffffffff;
@@ -41,6 +41,7 @@ export function exportSession(session, artifacts = []) {
     'transcript.md': '# Conversation\n\n' + activeTurns(session).map(t => `## ${t.role}${t.provenance === 'browser-asserted' ? ' (browser-asserted)' : ''}\n\n${t.content}\n`).join('\n'),
     'understanding.json': json(session.understanding),
     ...(concepts.length ? { 'concepts.json': json(concepts) } : {}),
-    ...Object.fromEntries(artifacts.flatMap(a => [[`concepts/${a.id}.${a.mediaType.split('/')[1]}`, a.bytes], [`concepts/${a.id}.provenance.json`, json(a.provenance)]])),
+    ...Object.fromEntries(artifacts.flatMap(a => [[`concepts/${a.id}.${a.mediaType.split('/')[1]}`, a.mediaType === HTML_MEDIA_TYPE
+      ? frameDocument(new TextDecoder().decode(a.bytes), { standalone: true }) : a.bytes], [`concepts/${a.id}.provenance.json`, json(a.provenance)]])),
   });
 }

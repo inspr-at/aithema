@@ -2,6 +2,7 @@ import { createBinding, deepFreeze, beginInvocation, operationScope, normalizedE
 import { buildMessages } from './prompt.js';
 import { repairHTML, previousDocument, htmlArtifact } from './html-artifact.js';
 import { createSpendLedger, callCeilingMicro, costMicro, DEFAULT_CAP_MICRO } from './spend.js';
+import { providerMaxPrice } from '../../openrouter/src/pricing.js';
 export { SYSTEM_PROMPT, buildMessages, revisionOf } from './prompt.js';
 export { repairHTML, htmlArtifact } from './html-artifact.js';
 export { createSpendLedger, callCeilingMicro, costMicro, DEFAULT_CAP_MICRO } from './spend.js';
@@ -59,7 +60,8 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
     const state = await ledger.snapshot();
     if (!state || !['spentMicro', 'reservedMicro'].every(k => Number.isSafeInteger(state[k]) && state[k] >= 0) ||
       !Number.isSafeInteger(state.spentMicro + state.reservedMicro)) throw new PluginError('unavailable');
-    return { ...state, totalMicro: state.spentMicro + state.reservedMicro };
+    return { ...state, totalMicro: state.spentMicro + state.reservedMicro,
+      costCeilingBreached: Boolean(state.costCeilingBreached || state.breached) };
   };
   const minimumCeiling = callCeilingMicro(buildMessages({ prompt: 'x' }, '').messages, binding);
   const base = new URL(baseUrl ?? binding.endpoint);
@@ -83,12 +85,12 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
       if (ledgerFailures.has(ledger) || current.costCeilingBreached || ceiling > binding.maxMicro || ceiling > capMicro - current.totalMicro) {
         throw new PluginError('limit');
       }
-      // UNVERIFIED API SHAPE: no network verification in this fix round.
-      // OpenRouter provider.max_price uses USD per million tokens (not per token).
+      // Verified live on AIT-113, 2026-10-09: provider.max_price is USD per
+      // million tokens. Shift configured decimals exactly, as on the reasoning route.
       // reasoning.enabled=false explicitly disables billable thinking.
       const body = JSON.stringify({ model: binding.model, messages, max_tokens: binding.maxTokens, stream: false,
         usage: { include: true }, provider: { ...binding.routing, require_parameters: true, allow_fallbacks: false,
-          max_price: { prompt: binding.rates.inputUSD * 1_000_000, completion: binding.rates.outputUSD * 1_000_000 } },
+          max_price: providerMaxPrice({ prompt: binding.rates.inputUSD, completion: binding.rates.outputUSD }) },
         reasoning: { enabled: false } });
       checkLifetime();
       reservation = await ledger.reserve(ceiling); // atomic shared-cap hard stop before any request

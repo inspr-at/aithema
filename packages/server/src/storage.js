@@ -2,7 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { dirname, basename, resolve, join } from 'node:path';
-import { applyEvent, createSession, inputRevision, emptyUnderstanding, isUIArtifact, imageInfo, reduceConceptIntent, createConceptIntent, MAX_IMAGE_BYTES } from '@inspr/aithema-core';
+import { applyEvent, createSession, inputRevision, emptyUnderstanding, isUIArtifact, isHTMLArtifact, inspectHTML, HTML_MEDIA_TYPE, imageInfo, reduceConceptIntent, createConceptIntent, MAX_IMAGE_BYTES } from '@inspr/aithema-core';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 export const MAX_CONCEPT_STORAGE_BYTES = 64 * 1024 * 1024;
@@ -332,10 +332,11 @@ export class SQLiteStorage {
     return this.db.prepare('SELECT COALESCE(SUM(length(bytes)),0) AS n FROM concept_artifacts WHERE session_id=?').get(id).n + bytes <= MAX_CONCEPT_STORAGE_BYTES;
   }
   completeConcept(id, artifact, metadata, state) {
-    if (!isUIArtifact(artifact)) throw new TypeError('Invalid concept artifact');
-    const info = imageInfo(artifact.bytes);
-    if (info.mediaType !== artifact.mediaType || info.width !== artifact.width || info.height !== artifact.height ||
-      artifact.provenance.subject.contentDigest !== `sha-256=:${createHash('sha256').update(artifact.bytes).digest('base64')}:`) throw new TypeError('Invalid concept bytes');
+    const html = artifact.mediaType === HTML_MEDIA_TYPE;
+    if (!(html ? isHTMLArtifact(artifact) : isUIArtifact(artifact))) throw new TypeError('Invalid concept artifact');
+    const info = html ? null : imageInfo(artifact.bytes);
+    if (html ? !inspectHTML(artifact.bytes).ok : info.mediaType !== artifact.mediaType || info.width !== artifact.width || info.height !== artifact.height) throw new TypeError('Invalid concept bytes');
+    if (artifact.provenance.subject.contentDigest !== `sha-256=:${createHash('sha256').update(artifact.bytes).digest('base64')}:`) throw new TypeError('Invalid concept bytes');
     return this.transaction(() => {
       const session = this.get(id); this.#check(session);
       if (!this.canStoreConcept(id, artifact.bytes.length)) throw new RangeError('Concept storage limit');

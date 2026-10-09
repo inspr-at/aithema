@@ -24,11 +24,11 @@ export function previousDocument(artifact) {
     artifact.provenance.subject.contentDigest !== digestOf(artifact.bytes)) return fail();
   return new TextDecoder().decode(artifact.bytes).replace(PROVENANCE, '');
 }
-export function htmlArtifact(html, { prompt, model, operation, now = Date.now() }) {
+export function htmlArtifact(html, { prompt, model, operation, provider = 'openrouter', now = Date.now() }) {
   const origin = operation === 'edit' ? 'ai-manipulated' : 'ai-generated';
   const provenance = { version: 1, origin, modality: 'html',
     digitalSourceType: IPTC_DIGITAL_SOURCE[operation === 'edit' ? 'manipulated' : 'generated'], generatedAt: new Date(now).toISOString(),
-    generator: { provider: 'openrouter', model }, techniques: ['embedded-metadata', 'response-field'],
+    generator: { provider, model }, techniques: ['embedded-metadata', 'response-field'],
     assurances: { digitallySigned: false, imperceptibleWatermark: 'provider-status-unknown' } };
   // The record follows the doctype so the document keeps standards mode.
   const record = Buffer.from(JSON.stringify(provenance)).toString('base64url');

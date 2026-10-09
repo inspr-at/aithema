@@ -4,7 +4,7 @@ import { startChild, temporaryDb, post, readEvents } from '../../test/helpers.js
 import { inputRevision } from '@inspr/aithema-core';
 
 test('labelled local PNG concept flow persists progress, feedback, archive and image bytes across a demo restart', { timeout: 15000 }, async t => {
-  const db = await temporaryDb(); let running = await startChild(new URL('../server.js', import.meta.url), db);
+  const db = await temporaryDb(); let running = await startChild(new URL('../server.js', import.meta.url), db, { AITHEMA_HTML_MODE: 'off' });
   t.after(async () => running.kill());
   const config = await fetch(running.url + '/demo/config').then(r => r.json());
   assert.equal(config.imageMode, 'fake'); assert.match(config.imageLabel, /Fake images.*no provider network/);
@@ -34,7 +34,7 @@ test('labelled local PNG concept flow persists progress, feedback, archive and i
   const refined = await wait(s => s.concepts.length === 2), second = refined.concepts[1];
   assert.equal(second.provenance.origin, 'ai-manipulated');
   await post(path(`concepts/${second.id}/reject`), { clientEventId: 'reject' }, headers);
-  await running.kill(); running = await startChild(new URL('../server.js', import.meta.url), db);
+  await running.kill(); running = await startChild(new URL('../server.js', import.meta.url), db, { AITHEMA_HTML_MODE: 'off' });
   assert.equal((await fetch(path(`concepts/${first.id}/image`), { headers })).status, 403, 'restart loses the host grant');
   await post(path('consent'), { granted: true }, headers);
   const restored = await fetch(path(''), { headers }).then(r => r.json());

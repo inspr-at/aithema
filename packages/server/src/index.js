@@ -10,3 +10,5 @@ export * from './voice-provider.js';
 export * from './voice-handlers.js';
 export * from './image-binding.js';
 export * from './local-images.js';
+export * from './local-html.js';
+export * from './ui-render-limits.js';
