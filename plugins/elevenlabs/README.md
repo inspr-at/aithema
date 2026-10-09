@@ -350,7 +350,9 @@ module exports `createVoiceHost({storage, facadeSecrets, resolveSecret})`, retur
 `{binding: voiceSelection, policy, consent, provisionFacade, requestProviderClose?,
 closeOrphan?}`. The key is selected by `binding.secretRef` and resolved at runtime.
 The host module is never statically served. Provider calls in this change were tested only against localhost fakes.
-Agent write/list and workspace-secret API shapes are explicitly marked
+Agent list/GET, `/v1/convai/secrets` GET and conversation identity/cost fields are
+marked `verified by read-only GET 2026-10-09` from the coordinator's AIT-115 comment.
+Agent/secret write bodies and the allowlist item remain marked
 `UNVERIFIED API SHAPE` in `src/ensure-agent.js` for coordinator verification.
 
 Native: text/context updates, microphone selection, audio barge-in and observed

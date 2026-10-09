@@ -15,8 +15,8 @@ export async function createVoiceHost({ storage, resolveSecret, publicOrigin, te
       upstreamMicroPerMinute: RATE, visitorMicroPerMinute: RATE, publicFacadeBaseUrl: publicOrigin });
     return { binding, staticSecretRef: 'AITHEMA_VOICE_FACADE_SECRET',
       async closeOrphan(call, { signal }) {
-        // Confirmed GET + final duration/status fields: START src/pages/api/v2/call-reconcile.ts.
-        // UNVERIFIED API SHAPE: the conversation_id echo required by reconcileUsage.
+        // verified by read-only GET 2026-10-09: conversation_id echo,
+        // status and metadata.call_duration_secs/cost (provider credits).
         const response = await fetchImpl(`${endpoint}/v1/convai/conversations/${encodeURIComponent(call.providerSessionId)}`,
           { headers: { 'xi-api-key': await resolveSecret(binding.secretRef) }, signal, redirect: 'error' });
         if (!response.ok) { await response.body?.cancel(); return null; }

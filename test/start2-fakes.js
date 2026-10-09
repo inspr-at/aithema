@@ -7,7 +7,7 @@ export async function fakeElevenLabs(t, { agents = [], pageSize = 100 } = {}) {
     tts: { voice_id: 'voice-fixture', model_id: 'eleven_turbo_v2', stability: 0.5, unknown: 'private' },
     asr: { quality: 'high', provider: 'elevenlabs' }, turn: { turn_timeout: 7, silence_end_call_timeout: 20 },
     conversation: { max_duration_seconds: 600 },
-  }, platform_config: { privacy: { retention_days: 30, record_voice: false }, overrides: { custom_llm_extra_body: true, prompt: true } } };
+  }, platform_settings: { privacy: { retention_days: 30, record_voice: false }, overrides: { custom_llm_extra_body: true, prompt: true } } };
   const running = await listen(async request => {
     const url = new URL(request.url), body = request.method === 'GET' ? null : await request.json();
     state.requests.push({ path: url.pathname, search: url.search, method: request.method, body });
@@ -26,14 +26,19 @@ export async function fakeElevenLabs(t, { agents = [], pageSize = 100 } = {}) {
       if (request.method === 'PATCH') Object.assign(existing, body);
       return Response.json(existing);
     }
-    if (url.pathname === '/v1/convai/workspace/secrets') {
-      if (request.method === 'POST') { state.secrets.push({ name: body.name, secret_id: 'owned-secret' }); return Response.json({ secret_id: 'owned-secret' }); }
+    if (url.pathname === '/v1/convai/secrets') {
+      if (request.method === 'POST') { state.secrets.push({ type: 'new', name: body.name, secret_id: 'owned-secret', used_by: [] }); return Response.json({ secret_id: 'owned-secret' }); }
       return Response.json({ secrets: state.secrets });
     }
-    if (url.pathname.startsWith('/v1/convai/workspace/secrets/')) return Response.json({ secret_id: 'owned-secret' });
+    if (url.pathname.startsWith('/v1/convai/secrets/') && request.method === 'PATCH') {
+      const secret = state.secrets.find(s => s.secret_id === url.pathname.split('/').at(-1));
+      if (!secret) return Response.json({}, { status: 404 });
+      secret.name = body.name;
+      return Response.json({ secret_id: secret.secret_id });
+    }
     if (url.pathname.endsWith('/token')) return Response.json({ token: 'local-token-fixture', conversation_id: `provider-${state.requests.length}` });
     if (url.pathname.startsWith('/v1/convai/conversations/')) return Response.json({ conversation_id: url.pathname.split('/').at(-1), status: 'done',
-      metadata: { call_duration_secs: 1, start_time_unix_secs: Date.now() / 1000 } });
+      metadata: { call_duration_secs: 1, start_time_unix_secs: Date.now() / 1000, cost: 12 } });
     return Response.json({}, { status: 404 });
   });
   t.after(async () => { running.server.closeAllConnections(); await new Promise(resolve => running.server.close(resolve)); });

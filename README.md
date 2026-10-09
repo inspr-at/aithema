@@ -77,9 +77,16 @@ erasing the previous one. `PORT` and `AITHEMA_DB` override the port and database
 The demo accepts only loopback Host headers and JSON POSTs.
 
 The demo stays on the mock even when provider environment variables exist.
-`AITHEMA_PROVIDER=openrouter|mistral` explicitly selects a provider; `OPENROUTER_MODEL`
-and `MISTRAL_MODEL` select its model. These demo bindings remain **unverified** and
-cannot dispatch until a host supplies private qualification and current consent.
+`AITHEMA_PROVIDER=openrouter|mistral` explicitly selects a provider.
+OpenRouter requires `OPENROUTER_MODEL` for understanding and
+`AITHEMA_OPENROUTER_PRICES` for every configured model; missing or invalid values
+refuse startup. `OPENROUTER_SPEECH_MODEL` selects reaction replies (spoken and
+typed, including the voice facade) and defaults to `OPENROUTER_MODEL`.
+Choose a fast speech model for the seven-second platform timeout; replies are
+capped at 600 tokens, while understanding permits 4096.
+`MISTRAL_MODEL` selects the Mistral model. Live OpenRouter uses the START host
+qualification below and still requires current consent; Mistral remains
+unverified until a host supplies private qualification and current consent.
 Keys resolve from `OPENROUTER_API_KEY` or `MISTRAL_API_KEY` only at runtime; they
 never enter manifests, snapshots, UI or logs. Tests never use these environment keys.
 The demo mock consent does not cover live providers.
@@ -281,8 +288,10 @@ account and secret references, token limit, per-token integer micro-unit rates
 and an attempt ceiling. Reaction and understanding have separate bindings.
 `createBinding` validates and freezes them; neither bindings nor keys belong in
 session snapshots. Secret resolvers read their named environment reference at
-runtime. OpenRouter pins routing with `require_parameters` and
-`allow_fallbacks: false`; Mistral sends chat completions and JSON Schema directly.
+runtime. `createOpenRouterReasoning` also requires a private `prices` map with
+prompt/completion USD per token for every model it can bind. OpenRouter pins
+routing with `require_parameters`, `allow_fallbacks: false` and the operator's
+`max_price` ceiling; Mistral sends chat completions and JSON Schema directly.
 Their health operation checks configured credentials locally; it is not a live
 provider availability probe. Wire formats follow the official
 [OpenRouter streaming documentation](https://openrouter.ai/docs/api_reference/streaming)
@@ -965,9 +974,10 @@ connecting over local HTTP. Readiness of voice is separately visible in
 | `AITHEMA_COMMIT` | Deployed source SHA; `/healthz` reports this or `null` |
 | `AITHEMA_PROVIDER` | `openrouter` for live reasoning; defaults to `mock` |
 | `OPENROUTER_API_KEY` | Account credential supplied by OPS through its secret service |
-| `OPENROUTER_MODEL` | Exact model id; default `openai/gpt-4.1-mini`; only START-consented OpenAI, Anthropic or xAI providers are admitted |
+| `OPENROUTER_MODEL` | Required understanding model id when `AITHEMA_PROVIDER=openrouter`; no default; only START-consented OpenAI, Anthropic or xAI providers are admitted |
+| `OPENROUTER_SPEECH_MODEL` | Reaction model for spoken and typed replies and the voice facade; defaults to `OPENROUTER_MODEL`; 600-token cap; choose for the seven-second platform timeout |
+| `AITHEMA_OPENROUTER_PRICES` | Required JSON for every configured model: `{"<model>":{"prompt":<USD per token>,"completion":<USD per token>}}`; finite nonnegative prices; no catalog defaults |
 | `AITHEMA_OPENROUTER_CAP_USD` | Lifetime persisted account cap; decimal USD with up to six fractional digits, default `10` |
-| `AITHEMA_OPENROUTER_RESERVE_USD` | Conservative per-request hold, default `1`; requests exceeding its byte/output price bound are refused before dispatch |
 | `AITHEMA_VOICE_MODE` | `elevenlabs` enables startup ensure; default `fake`; `off` disables voice |
 | `ELEVENLABS_API_KEY` | ElevenLabs account key; reference resolves server-side only |
 | `AITHEMA_ELEVENLABS_TEMPLATE_AGENT_ID` | START agent to GET for selected voice/language/ASR/turn/privacy settings; never a write target |
@@ -1004,35 +1014,62 @@ This host makes no EU residency, no-training or zero-retention claim. START's
 self-serve Agents path is US-based; copied privacy flags are not entitlement proof.
 
 `createSpendCap({storage, account, capMicro})`, exported by the server package,
-reserves under a SQLite transaction. A second plugin can share account
-`start2-openrouter` and the same database. Every OpenRouter request asks for
-`usage.include`; final streaming or non-streaming `usage.cost` settles its hold
-in upward-rounded microdollars. Missing usage, cancellation, broken responses and
-process death keep the whole hold, including across restart. The cap counts both
-actual cost and these holds, across all sessions and reasoning lanes. START's
-byte bound plus framing allowance and `provider.max_price` routing caps ensure
-a request fits its reservation; oversized requests are refused before spending.
-Raising the cap does not reset the counter. Do not remove uncertain holds merely
-to make another request fit.
+provides the port `{reserve(ceilingMicro) → handle, settle(handle, actualMicro),
+snapshot()}`. A second plugin can inject the same port, or share account
+`start2-openrouter` and the same database. `snapshot()` returns
+`{spentMicro, reservedMicro, capMicro, breached}`. Reservations and settlements
+run under SQLite transactions. Every OpenRouter request sends the binding's
+`max_tokens` (600 for reaction, 4096 for understanding) and `provider.max_price`
+derived from the operator's prices. **UNVERIFIED API SHAPE**: those routing prices
+are expressed in USD per million tokens; the coordinator must verify these units.
 
-The startup ensure code marks these **UNVERIFIED API SHAPE** assumptions, absent
-from START's source: paginated agent list; agent create/PATCH and detailed
-TTS/ASR/turn/privacy fields; `custom_llm` secret-id authentication; platform
-allowlist/override fields; workspace-secret list/create/PATCH bodies; the
-conversation-details `conversation_id` echo used for closure binding. Local fakes
-exercise the assumed contracts. The coordinator must verify the live shapes
-before enabling this deployment.
+The request ceiling is the UTF-8 byte length of the complete serialized messages
+array, including the system message, multiplied by the configured prompt price,
+plus `max_tokens` multiplied by the completion price. Decimal arithmetic rounds
+that sum upward to microdollars. The port reserves this ceiling (with a minimum
+one-microdollar hold for free prices), refusing before dispatch when
+`spent + reserved + ceiling > cap`. The existing per-binding USD 1 lane maximum
+also refuses oversized requests. `AITHEMA_OPENROUTER_RESERVE_USD` is removed.
+
+Every request asks for `usage.include`; final streaming or non-streaming
+`usage.cost` settles its hold in upward-rounded microdollars. Known cost remains
+billable even if structured output is invalid or the HTTP status is an error.
+Missing usage, cancellation, incomplete streams and process death retain the
+whole hold across restart. No dispatched hold is released without `usage.cost`.
+An actual cost above its ceiling is recorded in full and permanently marks the
+account breached, refusing all further calls, even if the account cap still has
+room. Streaming stops as soon as it reports such an overrun. For example,
+USD 9.50 spent plus a USD 1.00 ceiling refuses before dispatch; an unexpected
+USD 1.00 charge after a smaller admitted ceiling records USD 10.50 and locks the
+account. Raising the cap does not reset the counter or clear a ceiling breach.
+Do not remove uncertain holds merely to make another request fit.
+
+The following shapes are **verified by read-only GET 2026-10-09** in the
+coordinator's AIT-115 comment: paginated agent list and ids/names; agent GET
+`conversation_config` TTS/ASR/turn/language/custom-LLM fields and
+`platform_settings` auth/privacy/overrides; `/v1/convai/secrets` with
+`secrets[] {type, secret_id, name, used_by}`; conversation-details
+`conversation_id` echo and `metadata.call_duration_secs/cost`. The conversation
+cost is provider credits, not USD. `/v1/convai/workspace/secrets` returns 404.
+
+**UNVERIFIED API SHAPE** remains on agent create/PATCH bodies and secret
+write bodies: POST `/v1/convai/secrets`
+`{type:'new', name, value}` and PATCH `/v1/convai/secrets/{secret_id}`
+`{type:'update', name, value}`. The platform allowlist item `{hostname}` follows
+ElevenLabs docs but was empty in the live GET. Local fakes exercise these write
+contracts; the coordinator must verify them before enabling this deployment.
 
 Coordinator live smoke, after its Claude approval gate:
 
 1. Before service startup/writes, use OPS's secret-aware tooling for authenticated
    read-only GETs: `/v1/convai/agents?page_size=100` (follow `next_cursor`),
-   `/v1/convai/agents/<template-id>`, `/v1/convai/workspace/secrets` and
+   `/v1/convai/agents/<template-id>`, `/v1/convai/secrets` and
    `/v1/convai/conversations/<existing-completed-id>`. Inspect only
    names/ids and the required field shapes. Confirm no ambiguous `aithema-start2`,
    confirm template voice/language/privacy and platform overrides, and confirm
    API documentation for create/PATCH and secret-id auth; GETs alone cannot prove
-   write payloads. Never print key, secret or full config bodies.
+   write payloads. Also verify OpenRouter `provider.max_price` units against the
+   configured per-token prices. Never print key, secret or full config bodies.
 2. Start the pinned host with the environment above. Confirm it creates one owned
    agent and one workspace secret. GET the owned agent, inspecting only its name,
    id and callback/allowlist/secret-reference fields. Verify template id was never

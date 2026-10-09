@@ -88,8 +88,8 @@ export function reconcileUsage({ call, details, binding, maxMicro, outcome = 'co
   if (!amount(maxMicro) || !['completed', 'cancelled'].includes(outcome)) throw new TypeError('Invalid voice settlement');
   const seconds = details?.metadata?.call_duration_secs;
   const providerStart = details?.metadata?.start_time_unix_secs;
-  // UNVERIFIED API SHAPE: details.conversation_id echo. START call-reconcile.ts
-  // confirms the GET/status/metadata but binds its signed context instead of reading this echo.
+  // verified by read-only GET 2026-10-09: conversation_id echo,
+  // final status and metadata.call_duration_secs/cost (provider credits, not USD).
   const identityMatches = details?.conversation_id === call.providerSessionId;
   const validDuration = typeof seconds === 'number' && Number.isFinite(seconds) && seconds >= 0;
   let usage = null;

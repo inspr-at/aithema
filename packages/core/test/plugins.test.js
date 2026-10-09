@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { validateManifest, PluginRegistry, createBinding, createMockReasoning, reasoningConformance,
   reasoningRequest, createSession, understandingSchema, PLUGIN_KINDS, KIND_OPERATIONS } from '../src/index.js';
-import { brokenReasoning, brokenPreflightReasoning, consumeInFinallyReasoning, binding, invocationOptions, chatServer, request as fixtureRequest } from '../../../test/plugin-fixtures.js';
+import { brokenReasoning, brokenPreflightReasoning, consumeInFinallyReasoning, binding, invocationOptions, chatServer, openRouterPrices, request as fixtureRequest } from '../../../test/plugin-fixtures.js';
 import { createOpenRouterReasoning } from '../../../plugins/openrouter/src/index.js';
 test('public manifests validate without dependencies and reject private/legal fields and malformed metadata', () => {
   const m = structuredClone(createMockReasoning().manifest);
@@ -108,7 +108,7 @@ test('D4 rejects separated private key names and value keywords regardless of pr
 
 test('conformance rejects structured operations that only check cancellation and deadline at preflight', async t => {
   const fake = await chatServer(t);
-  const good = createOpenRouterReasoning({ binding: binding('openrouter', fake.endpoint), fetchImpl: fake.fetchImpl, resolveSecret: () => 'local-fixture' });
+  const good = createOpenRouterReasoning({ prices: openRouterPrices, binding: binding('openrouter', fake.endpoint), fetchImpl: fake.fetchImpl, resolveSecret: () => 'local-fixture' });
   const result = await reasoningConformance(brokenPreflightReasoning(good, { fetchImpl: fake.fetchImpl }), fixtureRequest,
     { timeoutMs: 100, stallRequest: { ...fixtureRequest, system: 'stall' }, requestCount: () => fake.requests.length });
   assert.equal(result.ok, false);
@@ -119,7 +119,7 @@ test('conformance rejects structured operations that only check cancellation and
 
 test('conformance consume refusal exercises both operations without any fixture dispatch', async t => {
   const fake = await chatServer(t);
-  const plugin = createOpenRouterReasoning({ binding: binding('openrouter', fake.endpoint), fetchImpl: fake.fetchImpl, resolveSecret: () => 'local-fixture' });
+  const plugin = createOpenRouterReasoning({ prices: openRouterPrices, binding: binding('openrouter', fake.endpoint), fetchImpl: fake.fetchImpl, resolveSecret: () => 'local-fixture' });
   const modes = [];
   const observed = { ...plugin,
     async *stream(req, options) { modes.push(['stream', req]); yield* plugin.stream(req, options); },
@@ -133,7 +133,7 @@ test('conformance consume refusal exercises both operations without any fixture 
 
 test('conformance detects dispatch before consume and plugins swallowing a consume refusal', async t => {
   const fake = await chatServer(t);
-  const plugin = createOpenRouterReasoning({ binding: binding('openrouter', fake.endpoint), fetchImpl: fake.fetchImpl, resolveSecret: () => 'local-fixture' });
+  const plugin = createOpenRouterReasoning({ prices: openRouterPrices, binding: binding('openrouter', fake.endpoint), fetchImpl: fake.fetchImpl, resolveSecret: () => 'local-fixture' });
   const kitOptions = { stallRequest: { ...fixtureRequest, system: 'stall' }, requestCount: () => fake.requests.length };
   const early = { ...plugin, async structured(req, options) {
     const opened = fake.fetchImpl(fake.endpoint, { method: 'POST', signal: options.signal,
@@ -152,7 +152,7 @@ test('conformance detects dispatch before consume and plugins swallowing a consu
 
 test('conformance models cancelled-zero authority settlement for plugins consuming inside try/finally', async t => {
   const fake = await chatServer(t);
-  const plugin = createOpenRouterReasoning({ binding: binding('openrouter', fake.endpoint), fetchImpl: fake.fetchImpl, resolveSecret: () => 'local-fixture' });
+  const plugin = createOpenRouterReasoning({ prices: openRouterPrices, binding: binding('openrouter', fake.endpoint), fetchImpl: fake.fetchImpl, resolveSecret: () => 'local-fixture' });
   const kitOptions = { stallRequest: { ...fixtureRequest, system: 'stall' }, requestCount: () => fake.requests.length };
   assert.deepEqual(await reasoningConformance(consumeInFinallyReasoning(plugin), fixtureRequest, kitOptions), { ok: true, failures: [] });
   for (const change of [terminal => ({ ...terminal, outcome: 'uncertain' }), terminal => ({ ...terminal, attemptId: 'wrong' }),

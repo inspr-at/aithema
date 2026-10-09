@@ -7,7 +7,7 @@ import { invocationOptions, flush } from './fixtures.js';
 import { SQLiteStorage, createPluginRuntime } from '../../../packages/server/src/index.js';
 import { PluginRegistry } from '../../../packages/core/src/plugins.js';
 import { createOpenRouterReasoning } from '../../openrouter/src/index.js';
-import { binding } from '../../../test/plugin-fixtures.js';
+import { binding, openRouterPrices } from '../../../test/plugin-fixtures.js';
 import { testToken } from '../../../test/helpers.js';
 
 function runtimeFixture(t, { coverage, consentAvailable = true } = {}) {
@@ -21,7 +21,7 @@ function runtimeFixture(t, { coverage, consentAvailable = true } = {}) {
     dataCategories: ['conversation'], consentVersion: 'v1', evidence: { qualified: true,
       accountRef: raw.accountRef, secretRef: raw.secretRef, model: raw.model, endpoint: raw.endpoint,
       routing: {}, verifiedAt: Date.now() - 1000, expiresAt: Date.now() + 60_000 } } };
-  const plugin = createOpenRouterReasoning({ binding: qualified, resolveSecret: () => 'fixture-reasoning-key',
+  const plugin = createOpenRouterReasoning({ binding: qualified, prices: openRouterPrices, resolveSecret: () => 'fixture-reasoning-key',
     fetchImpl: async (url, options) => {
       assert.equal(url, raw.endpoint); upstream.push(JSON.parse(options.body));
       return new Response('data: {"choices":[{"delta":{"content":"Hello"},"finish_reason":"stop"}]}\n\n' +

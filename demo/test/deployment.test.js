@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 import { request } from 'node:http';
 import { startChild, temporaryDb } from '../../test/helpers.js';
 import { deploymentConfig, deploymentGate } from '../deployment.js';
+import { openRouterConfig } from '../openrouter-config.js';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { access } from 'node:fs/promises';
 
 const raw = (url, headers, method = 'GET') => new Promise((resolve, reject) => {
   const outgoing = request(url, { headers, method }, response => {
@@ -47,4 +51,32 @@ test('unconfigured built-in live voice fails closed with a value-free reason; he
   const config = await fetch(running.url + '/demo/config').then(r => r.json());
   assert.equal(config.voiceMode, 'off'); assert.equal(config.voiceDisabledReason, 'template-agent-required');
   assert.equal((await fetch(running.url + '/healthz')).status, 200);
+});
+
+test('speech defaults to the required understanding model while retaining a 600-token reply ceiling', () => {
+  const configured = openRouterConfig({ OPENROUTER_MODEL: 'anthropic/fixture',
+    AITHEMA_OPENROUTER_PRICES: '{"anthropic/fixture":{"prompt":0.000005,"completion":0.000025}}' });
+  assert.equal(configured.reaction.model, 'anthropic/fixture'); assert.equal(configured.understanding.model, 'anthropic/fixture');
+  assert.equal(configured.reaction.maxTokens, 600); assert.equal(configured.understanding.maxTokens, 4096);
+  assert.equal(configured.capMicro, 10_000_000);
+  assert.deepEqual(configured.reaction.routing.max_price, { prompt: 5, completion: 25 });
+});
+
+test('invalid live model/prices refuse startup with clear messages before database or voice work', async () => {
+  const valid = { AITHEMA_PROVIDER: 'openrouter', AITHEMA_VOICE_MODE: 'elevenlabs', OPENROUTER_MODEL: 'openai/fixture',
+    AITHEMA_OPENROUTER_PRICES: '{"openai/fixture":{"prompt":0.000001,"completion":0.000002}}' };
+  for (const [change, expected] of [
+    [{ OPENROUTER_MODEL: '' }, /OPENROUTER_MODEL is required/],
+    [{ AITHEMA_OPENROUTER_PRICES: '' }, /AITHEMA_OPENROUTER_PRICES is required as JSON/],
+    [{ AITHEMA_OPENROUTER_PRICES: '{}' }, /requires valid prompt\/completion/],
+    [{ AITHEMA_OPENROUTER_PRICES: '{"openai/fixture":{"prompt":-1,"completion":2}}' }, /requires valid prompt\/completion/],
+    [{ AITHEMA_OPENROUTER_PRICES: '{"openai/fixture":{"prompt":1}}' }, /requires valid prompt\/completion/],
+    [{ OPENROUTER_SPEECH_MODEL: 'anthropic/missing' }, /for anthropic\/missing/],
+  ]) {
+    const db = await temporaryDb();
+    const result = spawnSync(process.execPath, [fileURLToPath(new URL('../server.js', import.meta.url))], {
+      env: { PATH: process.env.PATH, PORT: '0', AITHEMA_DB: db, ...valid, ...change }, timeout: 5000, encoding: 'utf8' });
+    assert.equal(result.status, 1); assert.match(result.stderr, expected);
+    await assert.rejects(access(db), { code: 'ENOENT' });
+  }
 });

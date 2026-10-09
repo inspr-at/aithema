@@ -16,6 +16,10 @@ test('startup creates only the owned agent; whitelists template settings and ref
   let storage = new SQLiteStorage(path); t.after(() => storage.close());
   const first = await ensureAgent(options(storage, fake, logs));
   assert.equal(first.agentId, 'owned-agent');
+  assert.deepEqual(writes(fake).find(r => r.path === '/v1/convai/secrets'), {
+    path: '/v1/convai/secrets', search: '', method: 'POST',
+    body: { type: 'new', name: 'aithema-start2-facade', value: 'local-bearer-fixture' },
+  });
   const created = writes(fake).find(r => r.path.endsWith('/agents/create')).body;
   assert.equal(created.conversation_config.tts.voice_id, 'voice-fixture');
   assert.equal(created.conversation_config.agent.language, 'en');
@@ -30,7 +34,12 @@ test('startup creates only the owned agent; whitelists template settings and ref
   await ensureAgent(options(storage, fake, logs));
   assert.equal(writes(fake).filter(r => r.path.endsWith('/agents/create')).length, 1);
   assert.equal(writes(fake).filter(r => r.path.endsWith('/agents/owned-agent')).length, 1);
-  assert.ok(writes(fake).some(r => r.path.endsWith('/secrets/owned-secret') && r.method === 'PATCH'));
+  assert.deepEqual(writes(fake).find(r => r.path === '/v1/convai/secrets/owned-secret'), {
+    path: '/v1/convai/secrets/owned-secret', search: '', method: 'PATCH',
+    body: { type: 'update', name: 'aithema-start2-facade', value: 'local-bearer-fixture' },
+  });
+  assert.ok(fake.requests.some(r => r.path === '/v1/convai/secrets' && r.method === 'GET'));
+  assert.ok(fake.requests.every(r => !r.path.includes('/workspace/secrets')));
   assert.ok(fake.requests.filter(r => r.path.endsWith('/agents/template-agent')).every(r => r.method === 'GET'));
   assert.ok(!JSON.stringify(storage.db.prepare('SELECT * FROM host_agents').all()).includes('local-'));
 });

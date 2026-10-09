@@ -7,6 +7,7 @@ import { createOpenRouterReasoning } from '../../../plugins/openrouter/src/index
 import { createVoiceHost } from '../../../demo/start2-voice-host.js';
 import { createProcessingConsent, qualifyStartBinding, CONSENT_VALIDITY_MS } from '../../../demo/processing-consent.js';
 import { fakeElevenLabs } from '../../../test/start2-fakes.js';
+import { openRouterConfig } from '../../../demo/openrouter-config.js';
 import { temporaryDb } from '../../../test/helpers.js';
 
 async function fixture(t) {
@@ -14,21 +15,27 @@ async function fixture(t) {
   const storage = new SQLiteStorage(), eleven = await fakeElevenLabs(t), logs = [], upstream = [];
   const openrouter = await listen(async req => {
     const body = await req.json(); upstream.push(body);
+    if (!body.stream) return Response.json({ choices: [{ finish_reason: 'stop', message: { content: '{"summary":"Local understanding"}' } }],
+      usage: { prompt_tokens: 1, completion_tokens: 2, cost: 0.00001 } });
     return new Response('data: {"choices":[{"delta":{"content":"Local reasoning"},"finish_reason":"stop"}]}\n\n' +
       'data: {"choices":[],"usage":{"prompt_tokens":1,"completion_tokens":2,"cost":0.00001}}\n\ndata: [DONE]\n\n');
   });
   const host = await createVoiceHost({ storage, templateAgentId: 'template-agent', publicOrigin: 'https://start2.example.test', apiBaseUrl: eleven.endpoint,
     resolveSecret: () => 'local-fixture-key', log: value => logs.push(value) });
   assert.ok(host.binding);
-  const reaction = qualifyStartBinding({ plugin: 'openrouter', model: 'openai/fixture', effort: 'none', endpoint: openrouter.url + '/',
-    accountRef: 'shared', secretRef: 'local-ref', maxMicro: 1_000_000, maxTokens: 100, rates: { inputMicro: 0, outputMicro: 0 } });
-  const reasoning = createOpenRouterReasoning({ binding: reaction, resolveSecret: () => 'local-fixture-key', spendCap: createSpendCap({ storage, account: 'shared', capMicro: 2_000_000 }) });
-  const consent = createProcessingConsent({ storage, bindings: [host.binding, reaction] });
+  const configured = openRouterConfig({ OPENROUTER_MODEL: 'openai/understanding-fixture', OPENROUTER_SPEECH_MODEL: 'anthropic/speech-fixture',
+    AITHEMA_OPENROUTER_PRICES: JSON.stringify({ 'openai/understanding-fixture': { prompt: 1e-7, completion: 1e-7 },
+      'anthropic/speech-fixture': { prompt: 1e-7, completion: 1e-7 } }) });
+  const rebind = binding => qualifyStartBinding({ ...binding, endpoint: openrouter.url + '/' });
+  const reaction = rebind(configured.reaction), understanding = rebind(configured.understanding);
+  const reasoning = createOpenRouterReasoning({ binding: reaction, prices: configured.prices, resolveSecret: () => 'local-fixture-key',
+    spendCap: createSpendCap({ storage, account: reaction.accountRef, capMicro: 2_000_000 }) });
+  const consent = createProcessingConsent({ storage, bindings: [host.binding, reaction, understanding] });
   const voice = createVoiceProvider({ storage, staticFacade: true, binding: { agentId: host.binding.agentId, secretRef: host.binding.secretRef,
     apiBaseUrl: eleven.endpoint, upstreamMicroPerMinute: 100_000, visitorMicroPerMinute: 100_000 }, resolveSecret: () => 'local-fixture-key' });
   const secrets = createFacadeSecrets(); secrets.resolve = ref => ref === host.staticSecretRef ? 'local-callback-fixture' : null;
   const runtime = createPluginRuntime({ storage, consent, registry: new PluginRegistry().register(reasoning).register(voice),
-    presets: { best: { plugins: ['elevenlabs', 'openrouter'], bindings: { voice: host.binding, reaction, understanding: reaction }, policy: { endpoints: [eleven.endpoint, reaction.endpoint] } } } });
+    presets: { best: { plugins: ['elevenlabs', 'openrouter'], bindings: { voice: host.binding, reaction, understanding }, policy: { endpoints: [eleven.endpoint, reaction.endpoint] } } } });
   const handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent, voice: { secrets, staticSecretRef: host.staticSecretRef } });
   cleanup = async () => { await handlers.close(); storage.close(); openrouter.server.closeAllConnections(); await new Promise(resolve => openrouter.server.close(resolve)); };
   const session = storage.create({ ownerToken: 'local-owner' });
@@ -42,7 +49,7 @@ async function fixture(t) {
   const callback = (identity, bearer = 'local-callback-fixture', extra = {}) => handlers.handle(new Request('https://start2.example.test/api/voice/llm/chat/completions', {
     method: 'POST', headers: bearer === null ? {} : { authorization: `Bearer ${bearer}` },
     body: JSON.stringify({ elevenlabs_extra_body: { aithema_call: identity }, messages: [{ role: 'user', content: 'Hello' }], ...extra }) }));
-  return { storage, eleven, handlers, session, route, grant, start, callback, consent, upstream };
+  return { storage, eleven, handlers, runtime, session, route, grant, start, callback, consent, upstream };
 }
 
 test('static callback authenticates before body, rejects missing/unknown identity and disables per-call route/provisioning', async t => {
@@ -54,10 +61,25 @@ test('static callback authenticates before body, rejects missing/unknown identit
   assert.equal((await h.handlers.handle(new Request(`https://host/api/voice/${call.callId}/llm/chat/completions`, { method: 'POST', body: '{}' }))).status, 404);
   const result = await h.callback(call.facadeCallId); assert.equal(result.status, 200); assert.equal((await result.json()).choices[0].message.content, 'Local reasoning');
   assert.equal(h.upstream.length, 1); assert.ok(h.upstream[0].usage.include);
+  assert.equal(h.upstream[0].model, 'anthropic/speech-fixture'); assert.equal(h.upstream[0].max_tokens, 600);
   assert.equal(h.eleven.requests.filter(r => r.method !== 'GET').length, writes, 'no per-call agent/secret mutation');
   assert.ok(!JSON.stringify(call).includes('local-callback-fixture'));
   await h.route(`/voice/${call.callId}/close`, { providerSessionId: call.providerSessionId });
   assert.equal((await h.callback(call.facadeCallId)).status, 403);
+});
+test('typed reaction and understanding bind different configured models with current consent and share the spend cap', async t => {
+  const h = await fixture(t); assert.equal((await h.grant(['models-international'])).status, 200);
+  const request = { system: 'Local policy', messages: [{ role: 'user', content: 'Hello' }],
+    schema: { type: 'object', properties: { summary: { type: 'string' } }, required: ['summary'] } };
+  for (const [lane, operation] of [['reaction', 'stream'], ['understanding', 'structured']]) {
+    const admitted = await h.runtime.admit({ session: h.storage.get(h.session.id), lane, operation, request });
+    try {
+      if (operation === 'stream') { for await (const chunk of admitted.plugin.stream(request, admitted.options)) assert.equal(chunk, 'Local reasoning'); }
+      else assert.deepEqual(await admitted.plugin.structured(request, admitted.options), { summary: 'Local understanding' });
+    } finally { admitted.finish(); }
+  }
+  assert.deepEqual(h.upstream.map(b => [b.model, b.max_tokens]), [['anthropic/speech-fixture', 600], ['openai/understanding-fixture', 4096]]);
+  assert.equal(h.storage.db.prepare('SELECT SUM(actual_micro) n FROM spend_reservations').get().n, 20);
 });
 test('foreign ownership, paused calls and stale recovery callbacks cannot admit reasoning', async t => {
   const h = await fixture(t), call = await h.start();

@@ -28,8 +28,8 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
       return await readJson(response, 1_048_576);
     } catch (error) { throw error instanceof AgentEnsureError ? error : new AgentEnsureError('agent-api-unavailable'); }
   };
-  // UNVERIFIED API SHAPE: START has no list/write agent implementation.
-  // Assumed GET /v1/convai/agents with agents[], has_more, next_cursor and cursor pagination.
+  // verified by read-only GET 2026-10-09: agents[], agent_id/name,
+  // has_more, next_cursor and cursor pagination.
   const matches = new Map(); let cursor, pages = 0; const cursors = new Set();
   do {
     if (++pages > 100) throw new AgentEnsureError('agent-list-incomplete');
@@ -50,9 +50,8 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
   const existing = [...matches.keys()][0];
   if (existing === templateAgentId || owned === templateAgentId) throw new AgentEnsureError('template-agent-write-forbidden');
   if (existing && existing !== owned || owned && existing !== owned) throw new AgentEnsureError('agent-ownership-unproven');
-  // Confirmed GET path/config envelope: START src/pages/api/health.ts remoteAgentCeilingSeconds.
-  // UNVERIFIED API SHAPE: agent GET name/agent_id and detailed TTS/ASR/turn/privacy
-  // fields; START consumes only conversation_config.conversation.max_duration_seconds.
+  // verified by read-only GET 2026-10-09: agent_id/name, conversation_config
+  // TTS/ASR/turn/language/custom_llm and platform_settings privacy/auth/overrides.
   // No request with a method other than GET ever targets templateAgentId.
   const template = await request(`/v1/convai/agents/${encodeURIComponent(templateAgentId)}`);
   if (owned) {
@@ -61,27 +60,27 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
   }
   const config = template.conversation_config;
   if (!id(config?.tts?.voice_id)) throw new AgentEnsureError('template-voice-invalid');
-  // UNVERIFIED API SHAPE: workspace secret list/create/update is absent from START.
-  // Assumed GET/POST /v1/convai/workspace/secrets and PATCH /.../secrets/:secret_id;
-  // list {secrets:[{name,secret_id}]}, create {type:'new',name,value}, update {type:'update',value}.
-  const listed = await request('/v1/convai/workspace/secrets');
+  // verified by read-only GET 2026-10-09: /v1/convai/secrets,
+  // {secrets:[{type,secret_id,name,used_by}]}; /v1/convai/workspace/secrets is 404.
+  const listed = await request('/v1/convai/secrets');
   if (!Array.isArray(listed.secrets)) throw new AgentEnsureError('secret-list-invalid');
   const named = listed.secrets.filter(secret => secret.name === SECRET_NAME);
   if (named.length > 1) throw new AgentEnsureError('secret-name-ambiguous');
   const cachedSecret = db.prepare('SELECT secret_id FROM host_voice_secrets WHERE name=?').get(SECRET_NAME)?.secret_id;
   if (named.length && named[0].secret_id !== cachedSecret || cachedSecret && named[0]?.secret_id !== cachedSecret) throw new AgentEnsureError('secret-ownership-unproven');
   let secretId = cachedSecret;
+  // UNVERIFIED API SHAPE: POST/PATCH secret bodies.
   if (secretId) {
-    await request(`/v1/convai/workspace/secrets/${encodeURIComponent(secretId)}`, 'PATCH', { type: 'update', value: bearer });
+    await request(`/v1/convai/secrets/${encodeURIComponent(secretId)}`, 'PATCH', { type: 'update', name: SECRET_NAME, value: bearer });
   } else {
-    const created = await request('/v1/convai/workspace/secrets', 'POST', { type: 'new', name: SECRET_NAME, value: bearer });
+    const created = await request('/v1/convai/secrets', 'POST', { type: 'new', name: SECRET_NAME, value: bearer });
     if (!id(created.secret_id)) throw new AgentEnsureError('secret-create-invalid');
     secretId = created.secret_id;
     db.prepare('INSERT INTO host_voice_secrets VALUES (?,?)').run(SECRET_NAME, secretId);
   }
   // UNVERIFIED API SHAPE: POST /v1/convai/agents/create and PATCH /v1/convai/agents/:id;
   // custom_llm.api_key {secret_id}, llm 'custom-llm', platform_config.auth/overrides,
-  // TTS/ASR/turn/privacy fields below are not exposed by START's agent GET consumer.
+  // Read-only verification confirms source fields, not acceptance of these write bodies.
   const body = { name: AGENT_NAME, conversation_config: {
     tts: { ...pick(config.tts, ['voice_id', 'model_id', 'stability', 'similarity_boost', 'style', 'use_speaker_boost', 'speed', 'optimize_streaming_latency', 'agent_output_audio_format']),
       ...(config.tts.voice_settings ? { voice_settings: pick(config.tts.voice_settings, ['stability', 'similarity_boost', 'style', 'use_speaker_boost', 'speed']) } : {}) },
@@ -92,7 +91,8 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
       prompt: { prompt: '', llm: 'custom-llm', tools: [], knowledge_base: [],
         custom_llm: { url: `${publicOrigin}/api/voice/llm/chat/completions`, model_id: 'aithema-session', api_key: { secret_id: secretId } } } },
   }, platform_config: {
-    privacy: pick(template.platform_config?.privacy, ['record_voice', 'retention_days', 'delete_audio', 'delete_transcript', 'zero_retention_mode']),
+    privacy: pick(template.platform_settings?.privacy, ['record_voice', 'retention_days', 'delete_audio', 'delete_transcript', 'zero_retention_mode']),
+    // UNVERIFIED API SHAPE: allowlist item {hostname}, per ElevenLabs docs; live list was empty.
     auth: { enable_auth: true, allowlist: [{ hostname: publicOrigin }] },
     overrides: { custom_llm_extra_body: true },
   } };

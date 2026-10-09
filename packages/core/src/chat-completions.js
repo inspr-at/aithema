@@ -21,21 +21,28 @@ export async function responseText(response, limit = 1_000_000) {
 }
 // Shared wire parser; no retries. It is also used by the browser loopback half.
 export function createChatCompletions({ manifest, binding, resolveSecret, fetchImpl = globalThis.fetch,
-  providerOptions = () => ({}), transportOptions = {}, billable = true, spendCap, prepareBody = body => body }) {
+  providerOptions = () => ({}), transportOptions = {}, billable = true, spendCap,
+  spendCeiling = () => binding.maxMicro, prepareBody = body => body }) {
   const label = manifest.vendor.name;
   async function dispatch(request, scope, extra, invocation, spend) {
     scope.signal.throwIfAborted();
     const key = resolveSecret?.(binding.secretRef);
     if (billable && (typeof key !== 'string' || !key || /[\r\n]/u.test(key))) throw new PluginError('auth');
-    const body = JSON.stringify(prepareBody({ model: binding.model, messages: [{ role: 'system', content: request.system ?? '' }, ...request.messages],
-      max_tokens: binding.maxTokens, ...providerOptions(extra.stream), ...extra }));
+    const payload = prepareBody({ model: binding.model, messages: [{ role: 'system', content: request.system ?? '' }, ...request.messages],
+      max_tokens: binding.maxTokens, ...providerOptions(extra.stream), ...extra });
+    const body = JSON.stringify(payload);
+    spend.ceiling = spendCeiling(payload);
     scope.signal.throwIfAborted();
-    if (spendCap) spend.reservation = spendCap.reserve(binding.maxMicro);
+    if (spendCap) spend.reservation = spendCap.reserve(spend.ceiling);
     invocation.dispatch();
     const response = await fetchImpl(binding.endpoint, { ...transportOptions, method: 'POST', signal: scope.signal,
       redirect: 'error', headers: { ...(key ? { authorization: `Bearer ${key}` } : {}), 'content-type': 'application/json' }, body });
     if (!response.ok) {
-      await response.body?.cancel().catch(() => {});
+      spend.httpError = true;
+      // A received HTTP error may still carry billed usage. Otherwise keep the hold.
+      if (spend.reservation) {
+        try { spend.cost = costMicro(JSON.parse(await responseText(response)).usage); } catch { /* unknown cost */ }
+      } else await response.body?.cancel().catch(() => {});
       throw new PluginError(response.status === 401 || response.status === 403 ? 'auth' : response.status === 429 ? 'rate-limit' : 'provider', `${label} request failed`);
     }
     return response;
@@ -63,7 +70,12 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
           let value;
           try { value = JSON.parse(data); } catch { throw new PluginError('invalid-output', `Invalid ${label} stream`); }
           invocation.usage(providerUsage(value.usage));
-          if (value.usage) spend.cost = costMicro(value.usage);
+          const cost = costMicro(value.usage);
+          if (cost !== null) spend.cost = cost;
+          if (spend.reservation && cost > spend.ceiling) {
+            settleSpend(spend, true);
+            throw new PluginError('not-admitted', 'OpenRouter spend cap exhausted');
+          }
           if (value.error) throw new PluginError('provider', `${label} stream failed`);
           const choice = value.choices?.[0];
           if (choice?.delta?.tool_calls || choice?.finish_reason && choice.finish_reason !== 'stop') throw new PluginError('invalid-output', `Incomplete ${label} stream`);
@@ -87,10 +99,11 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
         scope.signal.throwIfAborted();
         if (!doneMarker || !stopped) throw new PluginError('invalid-output', `Incomplete ${label} stream`);
         completed = true;
-        if (spend.cost !== null && spend.cost !== undefined) spend.reservation?.settle(spend.cost);
       } catch (error) { throw normalizedError(error, scope.signal); }
       finally {
-        await reader?.cancel().catch(() => {}); reader?.releaseLock(); scope.dispose(); await invocation.finish(completed);
+        // Incomplete streams retain the ceiling unless known cost already exceeds it.
+        try { settleSpend(spend, completed || spend.httpError || spend.cost > spend.ceiling); }
+        finally { await reader?.cancel().catch(() => {}); reader?.releaseLock(); scope.dispose(); await invocation.finish(completed); }
       }
     },
     async structured(request, options) {
@@ -102,6 +115,7 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
         let payload, result;
         try {
           payload = JSON.parse(await responseText(response));
+          spend.cost = costMicro(payload.usage);
           invocation.usage(providerUsage(payload.usage));
           if (payload.choices?.[0]?.finish_reason !== 'stop') throw new Error();
           result = JSON.parse(payload.choices[0].message.content);
@@ -112,13 +126,17 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
         scope.signal.throwIfAborted();
         if (!matchesSchema(result, request.schema)) throw new PluginError('invalid-output', `Invalid ${label} structured output`);
         completed = true;
-        const cost = costMicro(payload.usage);
-        if (cost !== null) spend.reservation?.settle(cost);
         return result;
       } catch (error) { throw normalizedError(error, scope.signal); }
-      finally { scope.dispose(); await invocation.finish(completed); }
+      finally {
+        try { settleSpend(spend, true); }
+        finally { scope.dispose(); await invocation.finish(completed); }
+      }
     },
   };
+  function settleSpend(spend, known) {
+    if (known && spend.reservation && spend.cost !== null && spend.cost !== undefined) spendCap.settle(spend.reservation, spend.cost);
+  }
 }
 // USD usage is separate from the token ledger. Round upwards; missing cost keeps the hold.
 function costMicro(usage) {
