@@ -7,3 +7,5 @@ export * from './memory-consent.js';
 export * from './voice-binding.js';
 export * from './voice-provider.js';
 export * from './voice-handlers.js';
+export * from './image-binding.js';
+export * from './local-images.js';

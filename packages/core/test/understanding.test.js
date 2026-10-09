@@ -9,7 +9,7 @@ const transcript = ['Hosting permitted', 'Public data', 'SAP', 'International'].
 const raw = (overrides = {}) => ({ summary: 'Known picture', signals: ['SAP is available'], openQuestions: ['What is the deadline?'],
   constraints: { operations: answer('Hosting permitted'), data: answer('Public data'), systems: answer('SAP'),
     reach: answer('International'), requirements: null },
-  progress: { talk: { value: .9, reasoning: '' }, build: { value: .9, reasoning: '' } }, actor: null, engagement: null, ...overrides });
+  progress: { talk: { value: .9, reasoning: '' }, build: { value: .9, reasoning: '' } }, actor: null, engagement: null, conceptIntent: null, ...overrides });
 const reduce = (previous, value, options = {}) => reduceUnderstanding(previous, value, { transcript, inputRevision: '1:0:0:en', ...options });
 
 test('START defaults: four required slots, optional requirements and 0.75 talk threshold', () => {

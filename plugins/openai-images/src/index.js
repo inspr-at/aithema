@@ -105,7 +105,7 @@ export function createOpenAIImages({ binding, baseUrl, resolveSecret = ref => pr
         bytes = new Uint8Array(await readBytes(download, scope.signal, MAX_IMAGE_BYTES));
       } else throw new PluginError('invalid-output');
       checkLifetime();
-      const result = imageArtifact(bytes, { prompt: fields.prompt, model: binding.model, operation });
+      const result = imageArtifact(bytes, { prompt: fields.prompt, model: binding.model, operation: wireOperation });
       checkLifetime();
       completed = true; return result;
     } catch (error) { throw normalizedError(error, scope.signal); }

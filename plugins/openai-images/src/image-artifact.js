@@ -53,12 +53,12 @@ function embed(bytes, info, provenance) {
   }
   output.writeUInt32LE(output.length - 8, 4); return output;
 }
-export function imageArtifact(bytes, { prompt, model, operation, now = Date.now() }) {
+export function imageArtifact(bytes, { prompt, model, operation, provider = 'openai', now = Date.now() }) {
   const info = imageInfo(bytes);
   if (!['image/png', 'image/webp'].includes(info.mediaType)) return fail();
   const provenance = { version: 1, origin: operation === 'edit' ? 'ai-manipulated' : 'ai-generated', modality: 'image',
     digitalSourceType: IPTC_DIGITAL_SOURCE[operation === 'edit' ? 'manipulated' : 'generated'], generatedAt: new Date(now).toISOString(),
-    generator: { provider: 'openai', model }, techniques: ['embedded-metadata', 'response-field'],
+    generator: { provider, model }, techniques: ['embedded-metadata', 'response-field'],
     assurances: { digitallySigned: false, imperceptibleWatermark: 'provider-status-unknown' } };
   const marked = embed(bytes, info, provenance);
   if (marked.length > MAX_IMAGE_BYTES) throw new PluginError('limit');

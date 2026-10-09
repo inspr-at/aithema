@@ -18,3 +18,4 @@ export * from './identity.js';
 export * from './library-port.js';
 export * from './handover-port.js';
 export * from './credits.js';
+export * from './concept-lane.js';

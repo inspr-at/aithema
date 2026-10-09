@@ -1,3 +1,4 @@
+import { createConceptHandlers } from './concept-handlers.js';
 import { createVoiceHandlers } from './voice-handlers.js';
 import { createPluginRuntime } from './plugin-runtime.js';
 import { randomUUID } from 'node:crypto';
@@ -30,7 +31,7 @@ export async function readBody(request, limit = 32_768) {
 
 export function createHandlers({ storage, reasoning = createMockReasoning(), sessionOptions = { demo: true },
   deadlineMs = 30_000, hostPrompt = '', pluginRuntime, consent = pluginRuntime?.consent,
-  ownership = { token: request => request.headers.get('x-aithema-session-token') }, voice }) {
+  ownership = { token: request => request.headers.get('x-aithema-session-token') }, voice, concepts = {} }) {
   pluginRuntime ??= createPluginRuntime({ storage, reasoning, consent: consent ?? { coverage: () => ({ covered: false }) } });
   consent ??= pluginRuntime.consent;
   if (typeof consent?.coverage !== 'function' || consent !== pluginRuntime.consent) {
@@ -50,7 +51,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       const session = storage.get(id), featureMatrix = await pluginRuntime.matrix(session);
       const current = storage.get(id), { ownerHash, ...publicSession } = current;
       if (current.tombstone || current.ownerHash !== session.ownerHash) throw new NotFoundError('Session not found');
-      if (current.seq === session.seq) return { ...publicSession, operations: operations(current), featureMatrix };
+      if (current.seq === session.seq) return { ...publicSession, operations: operations(current), featureMatrix, conceptCost: pluginRuntime.imageQuote(current) };
     }
     throw new ConflictError('Session changed during snapshot');
   };
@@ -62,6 +63,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       const event = storage.append(id, type, data, revision);
       if (event) broadcast(id, event);
       if (event && type === 'understanding.updated') {
+        conceptHandlers.onUnderstanding(id);
         const session = storage.get(id), question = session.understanding.openQuestions[0] ?? null;
         if ((session.focusedQuestion ?? null) !== question) {
           const focused = storage.append(id, 'question.focused', { question }, revision);
@@ -71,10 +73,17 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       return Boolean(event);
     }, transient: (id, event) => broadcast(id, { sessionId: id, ...event }),
   });
+  const conceptHandlers = createConceptHandlers({ storage, runtime: pluginRuntime, ownership, readBody, publish: broadcast, signal: stop.signal, ...concepts });
+  // Idle image generation is disabled: server elapsed time proves no client
+  // presence. There is no periodic session scan or reference-byte polling.
   const voiceHandlers = voice ? createVoiceHandlers({ storage, runtime: pluginRuntime, ownership, readBody, hostPrompt,
-    ...voice, publish: broadcast, onTurn(id) { lanes.supersede(id); scheduleLane(id, 'understanding'); } }) : null;
+    ...voice, publish: broadcast, onClose: id => conceptHandlers.ended(id), onTurn(id, event) {
+      lanes.supersede(id);
+      if (event?.data.role === 'user') conceptHandlers.onTurn(id, event.data.id);
+      scheduleLane(id, 'understanding');
+    } }) : null;
   async function invalidate(id, event, reason) {
-    const cancelled = lanes.cancel(id);
+    const cancelled = Promise.allSettled([lanes.cancel(id), conceptHandlers.lane.invalidate(id)]);
     failures.delete(id); broadcast(id, event);
     voiceHandlers?.stopSession(id, reason);
     await cancelled;
@@ -166,6 +175,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   async function handle(request) {
     if (stop.signal.aborted) return json({ error: 'server-stopping' }, 503);
     try {
+      const conceptResponse = await conceptHandlers.handle(request);
+      if (conceptResponse) return conceptResponse;
       const voiceResponse = await voiceHandlers?.handle(request);
       if (voiceResponse) return voiceResponse;
       const url = new URL(request.url);
@@ -199,6 +210,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
           { ...guard, ...voiceContext, revision: body.inputRevision ?? guard.revision });
         if (!replayed) lanes.supersede(id);
         if (!replayed) broadcast(id, event);
+        if (!replayed) conceptHandlers.onTurn(id, event.data.id);
         schedule(id);
         return json(event, 200);
       }
@@ -218,7 +230,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
           event = voiceAck ? storage.read(id, before).find(e => e.type === 'session.paused') : storage.pause(id, false, guard);
           if (event) broadcast(id, event);
         }
-        if (!body.paused) schedule(id);
+        if (!body.paused) { schedule(id); conceptHandlers.schedule(id); }
         return json({ paused: storage.get(id).paused, event });
       }
       if (action === 'withdraw' && request.method === 'POST') {
@@ -245,9 +257,18 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         const event = storage.erase(id, guard); await invalidate(id, event, 'session-erased');
         return json({ erased: true, event, providerDeletion: 'not-confirmed' });
       }
-      if (action === 'export' && request.method === 'GET') return new Response(exportSession(storage.get(id)), {
+      if (action === 'export' && request.method === 'GET') {
+        const session = storage.get(id);
+        const allowed = new Map();
+        for (const operation of new Set((session.concepts ?? []).map(c => c.referenceIds.length ? 'edit' : 'generate'))) {
+          allowed.set(operation, await pluginRuntime.publicationAllowed(session, { operation }));
+        }
+        const current = storage.authorize(id, ownerToken);
+        if (current.seq !== session.seq) throw new ConflictError('Export changed');
+        return new Response(exportSession(current, (current.concepts ?? []).filter(c => allowed.get(c.referenceIds.length ? 'edit' : 'generate')).map(c => storage.conceptArtifact(id, c.id))), {
         headers: { 'content-type': 'application/zip', 'content-disposition': 'attachment; filename="aithema-session.zip"', 'cache-control': 'no-store' },
       });
+      }
       return json({ error: 'method-not-allowed' }, 405);
     } catch (error) {
       if (error instanceof NotFoundError) return json({ error: 'session-not-found' }, 404);
@@ -258,7 +279,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       return json({ error: 'server-error' }, 500);
     }
   }
-  return { handle, lanes,
+  return { handle, lanes, conceptLane: conceptHandlers.lane, removeConceptReference: conceptHandlers.removeReference,
     async withdrawConsent(id) {
       const event = storage.reviseConsent(id, false); await invalidate(id, event, 'consent-withdrawn');
       return event;
@@ -269,20 +290,23 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         if (session.tombstone) continue;
         for (const turn of activeTurns(session).filter(t => t.role === 'user' && Date.parse(t.at) < before)) {
           const event = storage.expire(id, turn.id); await invalidate(id, event, 'turn-expired'); schedule(id);
+          conceptHandlers.ended(id);
         }
       }
     },
     async resume() {
       pluginRuntime.budget.recover();
+      await conceptHandlers.resume();
       await voiceHandlers?.resume();
       for (const id of storage.list()) if (unfinished(storage.get(id))) schedule(id);
     },
     async idle() {
       do {
         while (jobs.size) await Promise.allSettled([...jobs.values()].map(job => job.promise));
+        await conceptHandlers.lane.idle();
         await voiceHandlers?.idle();
       } while (jobs.size);
     },
-    async close() { stop.abort(); await voiceHandlers?.close(); await Promise.allSettled([...jobs.values()].map(job => job.promise)); },
+    async close() { stop.abort(); await conceptHandlers.lane.close(); await voiceHandlers?.close(); await Promise.allSettled([...jobs.values()].map(job => job.promise)); },
   };
 }

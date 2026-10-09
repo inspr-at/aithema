@@ -16,7 +16,7 @@ export function createFacadeSecrets() {
 }
 
 export function createVoiceHandlers({ storage, runtime, ownership, readBody, secrets,
-  publish, onTurn, hostPrompt = '', now = Date.now, browserLeaseMs = 30_000, deadlineMs = 30_000,
+  publish, onTurn, onClose, hostPrompt = '', now = Date.now, browserLeaseMs = 30_000, deadlineMs = 30_000,
   closeOrphan } = {}) {
   if (!secrets?.provision || !secrets.resolve || !secrets.revoke) throw new TypeError('Private facade secret store required');
   const calls = new Map(), sessions = new Map(), settlements = new Set();
@@ -38,6 +38,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     entry.closing = closing; settlements.add(closing);
     closing.catch(() => {}).finally(() => settlements.delete(closing));
     revoke(entry);
+    onClose?.(entry.sessionId);
     if (sessions.get(entry.sessionId) === entry) sessions.delete(entry.sessionId);
     publish(entry.sessionId, { type: 'voice.state', data: { callId: entry.callId,
       providerSessionId: entry.call?.providerSessionId,
@@ -220,7 +221,6 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         const before = storage.get(sessionId).seq;
         const ack = await entry.call[action]({ ...options(request), guard: { revision: inputRevision(session) } });
         for (const event of storage.read(sessionId, before)) publish(sessionId, event);
-        if (action === 'resume') onTurn(sessionId);
         return json(ack);
       } catch (error) {
         if (error instanceof NotFoundError) return json({ error: 'session-not-found' }, 404);

@@ -18,7 +18,7 @@ export function progressTrigger(progress, policy) {
   return progress >= thresholds[2] ? 'late' : progress >= thresholds[1] ? 'midpoint' : progress >= thresholds[0] ? 'early' : null;
 }
 export function createConceptIntent({ now = 0, consentRevision = 0, consented = false } = {}) {
-  return { inputRevision: null, turnIds: [], referenceIds: [], visualIntent: null, armed: null,
+  return { inputRevision: null, turnIds: [], referenceIds: [], visualIntent: null, modelIntentTurnId: null, armed: null,
     lastActivityAt: now, paused: false, eligible: true, consented, consentRevision,
     invalidation: 0, sourceInvalidations: {}, attemptedRevisions: [], lastAttempt: null, pending: null, history: [] };
 }
@@ -31,7 +31,7 @@ function invalidateRemovedSources(state, next) {
   if (!removed.length) return next;
   // Per-source epochs prevent re-adding a removed dependency from resurrecting
   // its old job, without invalidating jobs that never used that source.
-  return { ...next, visualIntent: null, sourceInvalidations: { ...state.sourceInvalidations,
+  return { ...next, visualIntent: next.visualIntent && next.turnIds.includes(next.visualIntent.sourceTurnId) ? next.visualIntent : null, sourceInvalidations: { ...state.sourceInvalidations,
     ...Object.fromEntries(removed.map(key => [key, sourceVersion(state.sourceInvalidations, key) + 1])) },
     history: state.history.filter(item => containsSources(next, item)) };
 }
@@ -58,21 +58,22 @@ export function planConceptIntent(state, { trigger, now } = {}, policy) {
   const latest = state.lastAttempt ?? state.history.at(-1);
   if (trigger === 'manual' && latest && state.visualIntent.id === latest.intentId) return skip('not-requested');
   if (trigger === 'idle' && now - Math.max(state.lastActivityAt, state.history.at(-1)?.createdAt ?? 0) < p.idleMs) return skip('not-idle');
-  const milestone = trigger === 'manual' ? 'manual' : state.armed ?? (trigger === 'idle' ? 'early' : null);
+  const milestone = trigger === 'manual' ? 'manual' : state.armed;
   if (!milestone) return skip('before-threshold');
   // Time, assistant replies, assessment changes and source removal never earn a refresh.
   const newTurns = latest ? state.turnIds.filter(id => !latest.turnIds.includes(id)).length : state.turnIds.length;
-  const newReference = latest && state.referenceIds.some(id => !latest.referenceIds.includes(id));
+  const newReference = latest && (state.refreshReferenceIds ?? state.referenceIds).some(id => !(latest.refreshReferenceIds ?? latest.referenceIds).includes(id));
   if (trigger === 'idle' && latest && newTurns < 1) return skip('milestone-complete');
   const newVisualIntent = latest && state.visualIntent.id !== latest.intentId;
+  const earnedMilestone = latest && ['early', 'midpoint', 'late'].indexOf(milestone) > ['early', 'midpoint', 'late'].indexOf(latest.milestone ?? latest.trigger);
   if (trigger === 'progress' && latest && (newTurns < 1 && !newReference ||
-    latest.trigger === milestone && !newReference && !newVisualIntent && newTurns < p.refreshTurns)) return skip('milestone-complete');
-  return { kind: 'generate', plan: { inputRevision: state.inputRevision, trigger: milestone,
-    intentId: state.visualIntent.id, turnIds: [...state.turnIds], referenceIds: [...state.referenceIds],
+    !earnedMilestone && !newReference && !newVisualIntent && newTurns < p.refreshTurns)) return skip('milestone-complete');
+  return { kind: 'generate', plan: { inputRevision: state.inputRevision, trigger: milestone, milestone: state.armed,
+    intentId: state.visualIntent.id, refreshReferenceIds: [...(state.refreshReferenceIds ?? state.referenceIds)], turnIds: [...state.turnIds], referenceIds: [...state.referenceIds],
     consentRevision: state.consentRevision, invalidation: state.invalidation,
     sourceInvalidations: Object.fromEntries(sourceKeys(state).map(key => [key, sourceVersion(state.sourceInvalidations, key)])) } };
 }
-/** Every event is a durable host fact. UI visibility and call termination are inert. */
+/** Every event is a durable host fact. Ending never requests a render. */
 export function reduceConceptIntent(state, event, policy) {
   const p = policyFor(policy);
   if (!Number.isFinite(event.now)) throw new TypeError('Concept events require host time');
@@ -90,6 +91,10 @@ export function reduceConceptIntent(state, event, policy) {
       if (!state.consented || typeof event.id !== 'string' || !event.id || !state.turnIds.includes(event.sourceTurnId)) return state;
       return { ...state, visualIntent: { id: event.id, sourceTurnId: event.sourceTurnId }, lastActivityAt: event.now };
     case 'readiness': return { ...state, armed: progressTrigger(event.percent, p) };
+    case 'person-turn':
+      if (!state.consented || !state.turnIds.includes(event.id)) return state;
+      return { ...state, modelIntentTurnId: event.id, eligible: true, lastActivityAt: event.now };
+    case 'model-intent-consumed': return { ...state, modelIntentTurnId: null };
     case 'activity': return { ...state, lastActivityAt: event.now };
     case 'eligibility': return { ...state, eligible: event.eligible === true, lastActivityAt: event.now };
     case 'pause': return { ...state, paused: event.paused === true, lastActivityAt: event.now };
@@ -100,11 +105,13 @@ export function reduceConceptIntent(state, event, policy) {
       // same coverage advances the revision without invalidating paid work.
       const changed = event.covered !== state.consented;
       return { ...state, consented: event.covered === true, consentRevision: event.revision,
-        visualIntent: changed ? null : state.visualIntent, invalidation: state.invalidation + (changed ? 1 : 0),
+        visualIntent: changed ? null : state.visualIntent, modelIntentTurnId: null, invalidation: state.invalidation + (changed ? 1 : 0),
         history: changed ? [] : state.history, lastActivityAt: event.now };
     }
     case 'source-removed': {
-      const next = { ...state, turnIds: state.turnIds.filter(id => id !== event.id), referenceIds: state.referenceIds.filter(id => id !== event.id),
+      if (!['turn', 'reference'].includes(event.source)) throw new TypeError('Source removal requires namespace');
+      const next = { ...state, turnIds: state.turnIds.filter(id => event.source !== 'turn' || id !== event.id),
+        referenceIds: state.referenceIds.filter(id => event.source !== 'reference' || id !== event.id),
         lastActivityAt: event.now };
       return invalidateRemovedSources(state, next);
     }
@@ -123,7 +130,8 @@ export function reduceConceptIntent(state, event, policy) {
       return { ...state, pending: null, lastActivityAt: event.now, history: disposition.kind === 'reject' ? state.history :
         [...state.history, { ...state.pending, artifactId: event.artifactId, createdAt: event.now }] };
     }
-    case 'viewer-open': case 'conversation-ended': return state;
+    case 'conversation-ended': return { ...state, eligible: false, modelIntentTurnId: null, lastActivityAt: event.now };
+    case 'viewer-open': return state;
     default: throw new TypeError('Unknown concept event');
   }
 }
