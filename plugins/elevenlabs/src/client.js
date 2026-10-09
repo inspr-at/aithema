@@ -109,6 +109,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           },
           onDisconnect() { if (active()) void recover().catch(() => {}); },
           onError(message, context) {
+            // SDK 1.17.0 emits tool/server/end-session contexts here; recovery relies on onDisconnect.
             if (active() && (context?.name === 'SessionConnectionError' ||
               ['connection_state_changed', 'socket_error', 'websocket_error', 'transport_error'].includes(context?.type))) void recover().catch(() => {});
           },

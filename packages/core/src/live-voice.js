@@ -44,15 +44,15 @@ export async function voiceOperation(options, operation) {
 }
 
 // Voice has duration usage, separate from a delegated reasoning attempt's token usage.
-export function beginVoiceInvocation(options, callId) {
+export async function beginVoiceInvocation(options, callId) {
   if (!options?.attempt?.attemptId || !options.attempt.claimId || typeof options.attempt.consume !== 'function' ||
     !Number.isSafeInteger(options.attempt.maxMicro) || options.attempt.maxMicro < 0 || typeof options.report !== 'function') {
     throw new PluginError('not-admitted', 'Live voice requires a server-admitted duration claim');
   }
-  options.attempt.consume();
+  await options.attempt.consume(); // Await the host's fresh consent/ownership check before outbound work.
   let dispatched = false, finished = false;
   return {
-    dispatch() { if (finished || dispatched) throw new PluginError('already-claimed'); dispatched = true; },
+    dispatch() { options.signal?.throwIfAborted(); if (finished || dispatched) throw new PluginError('already-claimed'); dispatched = true; },
     async finish(terminal) {
       if (finished) throw new PluginError('already-claimed');
       finished = true;

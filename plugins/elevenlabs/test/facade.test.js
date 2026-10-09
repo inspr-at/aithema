@@ -4,8 +4,56 @@ import { createCompletionsHandler, bearerMatches } from '../src/facade.js';
 import { beginInvocation, PluginError } from '../../../packages/core/src/invocation.js';
 import { operationScope } from '../../../packages/core/src/reasoning.js';
 import { invocationOptions, flush } from './fixtures.js';
+import { SQLiteStorage, createPluginRuntime } from '../../../packages/server/src/index.js';
+import { PluginRegistry } from '../../../packages/core/src/plugins.js';
+import { createOpenRouterReasoning } from '../../openrouter/src/index.js';
+import { binding } from '../../../test/plugin-fixtures.js';
+import { testToken } from '../../../test/helpers.js';
 
-function facadeFixture({ mode = 'normal', paused = false, deadlineAt = Date.now() + 5000, timeoutMs = 1000 } = {}) {
+function runtimeFixture(t, { coverage, consentAvailable = true } = {}) {
+  const storage = new SQLiteStorage(); t.after(() => storage.close());
+  const created = storage.create({ demo: true, ownerToken: testToken });
+  storage.postTurn(created.id, 'fixture_turn', Buffer.from('hello'), 'hello');
+  const session = storage.get(created.id), upstream = [], queries = [];
+  const raw = binding('openrouter', 'https://reasoning.example.test/chat', { maxMicro: 10_000 });
+  const qualified = { ...raw, legal: { approved: true, countries: ['AT'], training: false, retention: 'fixture',
+    purpose: 'requirements', recipient: 'fixture-provider', processors: ['fixture-processor'],
+    dataCategories: ['conversation'], consentVersion: 'v1', evidence: { qualified: true,
+      accountRef: raw.accountRef, secretRef: raw.secretRef, model: raw.model, endpoint: raw.endpoint,
+      routing: {}, verifiedAt: Date.now() - 1000, expiresAt: Date.now() + 60_000 } } };
+  const plugin = createOpenRouterReasoning({ binding: qualified, resolveSecret: () => 'fixture-reasoning-key',
+    fetchImpl: async (url, options) => {
+      assert.equal(url, raw.endpoint); upstream.push(JSON.parse(options.body));
+      return new Response('data: {"choices":[{"delta":{"content":"Hello"},"finish_reason":"stop"}]}\n\n' +
+        'data: {"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":4}}\n\ndata: [DONE]\n\n');
+    } });
+  const consent = { async coverage(query, options) {
+    queries.push(query);
+    if (coverage) return coverage(query, options, queries.length);
+    return grantFor(query);
+  } };
+  const runtime = createPluginRuntime({ storage, registry: new PluginRegistry().register(plugin),
+    presets: { best: { plugins: ['openrouter'], bindings: { reaction: qualified }, policy: { endpoints: [raw.endpoint] } } },
+    consent: consentAvailable ? consent : undefined });
+  const call = { callId: 'call_runtime', providerSessionId: 'conv_runtime', facadeSecretRef: 'fixture-facade-ref',
+    spendDeadlineAt: Date.now() + 5000, browserLivenessDeadlineAt: Date.now() + 5000 };
+  const handler = createCompletionsHandler({ getCall: async () => call, resolveSecret: () => 'fixture-callback-key',
+    buildRequest: async ({ messages }) => ({ system: 'Trusted session prompt', messages }),
+    admitReasoning: ({ request, options }) => runtime.admit({ session: storage.get(session.id),
+      lane: 'reaction', operation: 'stream', request, options }) });
+  const request = () => new Request('https://host.example.test/voice/call_runtime/completions', {
+    method: 'POST', headers: { authorization: 'Bearer fixture-callback-key' },
+    body: JSON.stringify({ elevenlabs_extra_body: { aithema_call: call.callId }, stream: true,
+      messages: [{ role: 'user', content: 'hello' }] }),
+  });
+  const rows = () => storage.db.prepare('SELECT * FROM budget_attempts').all();
+  return { storage, session, runtime, upstream, queries, handler, request, rows };
+}
+const grantFor = ({ scope, consentRevision }) => ({ covered: true, ...scope, scope, consentRevision,
+  checkedAt: Date.now(), expiresAt: Date.now() + 10_000 });
+
+function facadeFixture({ mode = 'normal', paused = false, deadlineAt = Date.now() + 5000, timeoutMs = 1000,
+  admissionOptions = {} } = {}) {
   const call = { callId: 'call_facade', providerSessionId: 'conv_facade', facadeSecretRef: 'fixture-per-call-ref', paused,
     spendDeadlineAt: deadlineAt, browserLivenessDeadlineAt: deadlineAt };
   const admissions = [], upstream = [], optionsList = [];
@@ -15,9 +63,9 @@ function facadeFixture({ mode = 'normal', paused = false, deadlineAt = Date.now(
     buildRequest: async ({ messages }) => ({ system: 'Trusted session prompt', messages }),
     async admitReasoning({ callId, request, options }) {
       assert.equal(callId, call.callId); admissions.push(request);
-      const invocation = invocationOptions({ ...options }); optionsList.push(invocation);
+      const invocation = invocationOptions({ ...options, ...admissionOptions }); optionsList.push(invocation);
       const plugin = { async *stream(input, opts) {
-        const accounting = beginInvocation(opts); const scope = operationScope(opts); let completed = false;
+        const accounting = await beginInvocation(opts); const scope = operationScope(opts); let completed = false;
         try {
           scope.signal.throwIfAborted(); accounting.dispatch(); upstream.push(input);
           yield 'Hello';
@@ -26,7 +74,10 @@ function facadeFixture({ mode = 'normal', paused = false, deadlineAt = Date.now(
             scope.signal.addEventListener('abort', abort, { once: true }); if (scope.signal.aborted) abort();
           });
           if (mode === 'broken') throw new Error('private error must not escape');
-          yield ' world'; accounting.usage({ inputTokens: 13, outputTokens: 2 }); completed = true;
+          yield ' world';
+          // The broken fixture withholds usage too: AIT-97 cancels known usage, retaining uncertainty only without usage.
+          if (mode !== 'omit-report') accounting.usage({ inputTokens: 13, outputTokens: 2 });
+          completed = true;
         } finally { scope.dispose(); if (mode !== 'omit-report') await accounting.finish(completed); }
       } };
       return { plugin, options: invocation, finish() {
@@ -141,4 +192,62 @@ test('broken stream and missing terminal never fabricate successful completion',
     await assert.rejects(response.text()); assert.equal(local.optionsList[0].reports.length, 1);
     assert.equal(local.optionsList[0].reports[0].outcome, 'uncertain');
   }
+});
+test('facade awaits fresh runtime consent before dispatch and settles the owned session token claim', async t => {
+  const entered = Promise.withResolvers(), gate = Promise.withResolvers();
+  const local = runtimeFixture(t, { coverage: async (query, options, count) => {
+    if (count === 2) { entered.resolve(); await gate.promise; }
+    return grantFor(query);
+  } });
+  const pending = local.handler(local.request()); await entered.promise;
+  assert.equal(local.upstream.length, 0); assert.equal(local.rows().length, 1); assert.equal(local.rows()[0].state, 'claimed');
+  gate.resolve(); const response = await pending; assert.equal(response.status, 200); assert.ok((await response.text()).includes('[DONE]'));
+  assert.equal(local.upstream.length, 1); assert.equal(local.queries.length, 2); assert.deepEqual(local.queries[0], local.queries[1]);
+  assert.equal(local.queries[0].sessionId, local.session.id); assert.deepEqual(local.queries[0].scope.recipients, ['fixture-provider']);
+  assert.equal(local.rows()[0].state, 'settled'); assert.equal(local.rows()[0].outcome, 'completed'); assert.equal(local.rows()[0].settled_micro, 11);
+});
+for (const action of ['consent', 'pause', 'revision', 'withdraw', 'erase', 'ownership']) {
+  test(`facade refuses ${action} changes during async runtime consume without dispatch or duplicate settlement`, async t => {
+    const entered = Promise.withResolvers(), gate = Promise.withResolvers(); let granted = true;
+    const local = runtimeFixture(t, { coverage: async (query, options, count) => {
+      if (count === 2) { entered.resolve(); await gate.promise; }
+      return { ...grantFor(query), covered: granted };
+    } });
+    const pending = local.handler(local.request()); await entered.promise;
+    assert.equal(local.upstream.length, 0);
+    if (action === 'consent') granted = false;
+    if (action === 'pause') local.storage.pause(local.session.id, true);
+    if (action === 'revision') local.storage.reviseConsent(local.session.id, true);
+    if (action === 'withdraw') local.storage.withdraw(local.session.id, 'fixture_turn');
+    if (action === 'erase') local.storage.erase(local.session.id);
+    if (action === 'ownership') {
+      const get = local.storage.get.bind(local.storage);
+      local.storage.get = id => ({ ...get(id), ownerHash: 'another-owner' });
+    }
+    gate.resolve(); const response = await pending;
+    assert.equal(response.status, 403); assert.deepEqual(await response.json(), { error: 'not-admitted' });
+    assert.equal(local.upstream.length, 0); assert.equal(local.queries.length, 2); assert.equal(local.rows().length, 1);
+    assert.equal(local.rows()[0].state, 'settled'); assert.equal(local.rows()[0].outcome, 'cancelled');
+    assert.equal(local.rows()[0].settled_micro, 0); assert.deepEqual(JSON.parse(local.rows()[0].usage), { inputTokens: 0, outputTokens: 0 });
+  });
+}
+test('facade runtime admission requires authoritative consent and an owned session', async t => {
+  for (const missing of ['consent', 'ownership']) {
+    const local = runtimeFixture(t, { consentAvailable: missing !== 'consent' });
+    if (missing === 'ownership') {
+      const get = local.storage.get.bind(local.storage);
+      local.storage.get = id => ({ ...get(id), ownerHash: undefined });
+    }
+    assert.equal((await local.handler(local.request())).status, 403);
+    assert.equal(local.upstream.length, 0); assert.equal(local.queries.length, 0); assert.equal(local.rows().length, 0);
+  }
+});
+test('facade preserves the admission cancellation signal and earlier deadline', async () => {
+  const controller = new AbortController(), cancelled = facadeFixture({ mode: 'stall', admissionOptions: { signal: controller.signal } });
+  const response = await cancelled.handler(cancelled.request()), pending = response.text(); await flush(); controller.abort();
+  await assert.rejects(pending); assert.equal(cancelled.optionsList[0].reports.length, 1);
+  assert.equal(cancelled.optionsList[0].reports[0].outcome, 'uncertain');
+  const expired = facadeFixture({ mode: 'stall', admissionOptions: { deadlineAt: Date.now() + 40 } });
+  const bounded = await expired.handler(expired.request()); await assert.rejects(bounded.text());
+  assert.equal(expired.optionsList[0].reports.length, 1); assert.equal(expired.optionsList[0].reports[0].outcome, 'uncertain');
 });

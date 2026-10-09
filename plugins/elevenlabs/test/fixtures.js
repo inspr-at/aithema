@@ -9,7 +9,7 @@ export function invocationOptions(overrides = {}) {
   const reports = []; let consumed = false;
   return { deadlineAt: Date.now() + 1000, spendDeadlineAt: Date.now() + 5000, browserLivenessDeadlineAt: Date.now() + 1000,
     attempt: { attemptId: crypto.randomUUID(), claimId: crypto.randomUUID(), maxMicro: 10_000,
-      consume() { if (consumed) throw new PluginError('already-claimed'); consumed = true; } },
+      async consume() { await Promise.resolve(); if (consumed) throw new PluginError('already-claimed'); consumed = true; } },
     reports, report: terminal => { reports.push(terminal); }, ...overrides };
 }
 export function fakeSdk() {
@@ -47,7 +47,7 @@ export function fixture({ saveCall, sdk = fakeSdk(), providerDetails, prepareCal
       return Response.json({ signed_url: `wss://socket.example.test/call?conversation_id=${id}`, conversation_id: id });
     }
     const id = url.pathname.split('/').at(-1), call = [...calls.values()].find(c => c.providerSessionId === id);
-    return Response.json((typeof providerDetails === 'function' ? await providerDetails(id, call) : providerDetails) ?? { conversation_id: id, status: sdk.closed ? 'done' : 'processing',
+    return Response.json((typeof providerDetails === 'function' ? await providerDetails(id, call, options) : providerDetails) ?? { conversation_id: id, status: sdk.closed ? 'done' : 'processing',
       metadata: { call_duration_secs: 120, start_time_unix_secs: (call?.startedAt ?? Date.now()) / 1000, cost: 17 } });
   };
   const server = createElevenLabsServer({ binding, fetchImpl, resolveSecret: () => 'fixture-api-key', prepareCall,

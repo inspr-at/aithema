@@ -69,7 +69,10 @@ capabilities and public vendor facts/source URLs; account/legal qualification,
 rates and secret references stay host-private.
 
 `start({callId, transport?, facadeSecretRef, overrides?}, options)` consumes a server-admitted
-single-use `{attemptId, claimId, maxMicro, consume}` before minting. Options
+single-use `{attemptId, claimId, maxMicro, consume}` before minting. `consume()`
+may return a promise: startup awaits the host's fresh consent and ownership
+checks before provisioning callback authentication or contacting the provider.
+The host owns settlement on refusal; the plugin does not report it again. Options
 include `signal`, `deadlineAt`, absolute `spendDeadlineAt`, absolute
 `browserLivenessDeadlineAt` and `report(terminal)`. Required `prepareCall` is a
 server-only provisioning port: arrange the configured agent's callback to use
@@ -110,11 +113,15 @@ SDK hangup is not upstream closure evidence: authenticated details must match th
 provider id, have `done`/`failed` status and valid duration. Close polls within
 `closureTimeoutMs` (default 30 seconds), starting at `closurePollIntervalMs`
 (default 250 ms) and doubling the delay up to two seconds. `processing` records
-and lookup failures are retryable. Only exhaustion of that window yields an
+and lookup failures are retryable. Each details request is bounded to five
+seconds or the remaining closure window, allowing retries after a stalled GET.
+Only exhaustion of that window yields an
 `uncertain` dispatched report, charged at `maxMicro`. Terminal journal writes
 have a separate one-second deadline so window exhaustion can still be persisted.
 Optional `reconcileLater(record, options)` schedules durable host reconciliation
-after an uncertain report, with a separate one-second deadline. The record
+after an uncertain report, with a separate one-second deadline, even when
+terminal reporting fails. Invalid `close` outcomes reject before any state
+change; only `completed` and `cancelled` are accepted. The record
 contains the provider id and conservative terminal, without credentials. The
 host can later fetch final usage and correct its ledger; this hook never reports
 the admitted attempt again, and memoized close keeps its original receipt.
@@ -140,7 +147,10 @@ are dropped safely; only text from those two roles enters session reasoning.
 Provider model/system/options cannot select the host binding.
 `buildRequest({callId,messages}, options)` rebuilds trusted session context.
 `admitReasoning({callId,request,options})` returns the runtime's
-`{plugin, options, finish}`. `plugin.stream` settles its own token claim once;
+`{plugin, options, finish}`. Supply the runtime's current owned session and
+authoritative consent port; async claim consumption rechecks coverage, ownership,
+pause, tombstones and revisions before dispatch. The handler preserves the
+admission's cancellation signal and earlier deadline. `plugin.stream` settles its own token claim once;
 the handler sends OpenAI SSE deltas, a stop frame and `[DONE]`.
 Cancellation, deadlines, broken streams and omitted usage cannot fabricate
 success. `stream:false` or omitted `stream` uses the same admission for a normal
@@ -170,9 +180,10 @@ facade secrets; joined tests carry authority in-process solely for conformance.
 Persistence failure ends the call rather than claiming a durable turn.
 Consume `session.events`; SDK activity signals are not transcript evidence.
 After transport loss, fence old callbacks and reconcile the old attempt.
-SDK `onError` starts recovery only for explicit transport errors; tool errors
-and other provider errors preserve the active connection. Disconnect callbacks
-continue to drive transport recovery.
+SDK 1.17.0 `onError` supplies tool (`clientToolName`), server (`errorType`) or
+end-session error contexts; these preserve the active connection. It does not
+emit the transport contexts recognized by the adapter, so recovery with this
+SDK version relies on `onDisconnect`.
 `recover` must admit a new claim for every retry. Three failures end the stream
 and return control to the host. Channel selections survive recovery; there is
 no provider/model fallback.

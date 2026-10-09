@@ -126,7 +126,7 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
     },
     async start(request, options) {
       if (!identifier(request?.callId) || typeof request.facadeSecretRef !== 'string' || !request.facadeSecretRef) throw new TypeError('Private call identity and facade secret reference required');
-      const invocation = beginVoiceInvocation(options, request.callId);
+      const invocation = await beginVoiceInvocation(options, request.callId);
       let call = { callId: request.callId, startedAt: now(), pauses: [], paused: false,
         attemptId: options.attempt.attemptId, claimId: options.attempt.claimId, maxMicro: options.attempt.maxMicro,
         spendDeadlineAt: options.spendDeadlineAt, browserLivenessDeadlineAt: options.browserLivenessDeadlineAt,
@@ -136,6 +136,7 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
       const cancelled = () => { void close('cancelled', 'cancelled').catch(() => {}); };
       const serial = fn => { const next = mutation.then(fn); mutation = next.catch(() => {}); return next; };
       const close = (reason = 'closed', outcome = 'completed') => {
+        if (!['completed', 'cancelled'].includes(outcome)) return Promise.reject(new TypeError('Invalid voice settlement'));
         if (closing) return closing;
         lifetime?.dispose();
         options.signal?.removeEventListener('abort', cancelled);
@@ -153,7 +154,8 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
             } catch { /* A failed shutdown request does not invalidate authenticated closure evidence. */ }
             while (Date.now() < closeOptions.deadlineAt) {
               try {
-                details = await providerJson(binding, `/v1/convai/conversations/${encodeURIComponent(call.providerSessionId)}`, provider, closeOptions);
+                details = await providerJson(binding, `/v1/convai/conversations/${encodeURIComponent(call.providerSessionId)}`, provider,
+                  { deadlineAt: Math.min(closeOptions.deadlineAt, Date.now() + 5000) });
                 if (reconcileUsage({ call, details, binding, maxMicro: options.attempt.maxMicro, outcome }).closureConfirmed) break;
               } catch { /* Processing records and transient lookup failures are retryable within the window. */ }
               const remainingMs = closeOptions.deadlineAt - Date.now();
@@ -168,10 +170,12 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
           // Even a journal failure must settle the admitted attempt exactly once.
           try { await voiceOperation({ deadlineAt: Date.now() + 1000 }, opts => saveCall(structuredClone(call), opts)); }
           finally {
-            await invocation.finish(terminal);
-            if (terminal.outcome === 'uncertain' && call.providerSessionId && reconcileLater) {
-              try { await voiceOperation({ deadlineAt: Date.now() + 1000 }, opts => reconcileLater(structuredClone(call), opts)); }
-              catch { /* The host owns durable retry scheduling; the conservative report remains settled. */ }
+            try { await invocation.finish(terminal); }
+            finally {
+              if (terminal.outcome === 'uncertain' && call.providerSessionId && reconcileLater) {
+                try { await voiceOperation({ deadlineAt: Date.now() + 1000 }, opts => reconcileLater(structuredClone(call), opts)); }
+                catch { /* The host owns durable retry scheduling; the conservative report remains settled. */ }
+              }
             }
           }
           return terminal;

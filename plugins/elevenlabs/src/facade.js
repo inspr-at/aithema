@@ -23,18 +23,19 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
     if (request.method !== 'POST') return json('method-not-allowed', 405);
     const localCancellation = new AbortController();
     const scope = operationScope({ signal: AbortSignal.any([request.signal, localCancellation.signal]), deadlineAt: Date.now() + timeoutMs });
-    let admission, iterator, reports = 0, finishPromise, callTimer, callSignal, callAbort;
+    let admission, iterator, invocationOptions, reports = 0, finishPromise, callTimer, callSignal, callAbort;
     const cleanup = async failed => {
       finishPromise ??= Promise.resolve().then(async () => {
         try { await admission?.finish?.({ failed }); }
         finally { clearTimeout(callTimer); callSignal?.removeEventListener('abort', callAbort);
+          invocationOptions?.signal.removeEventListener('abort', expire);
           scope.signal.removeEventListener('abort', expire); scope.dispose(); }
       });
       return finishPromise;
     };
     const expire = () => { if (iterator) void disposeIterator(iterator).then(() => cleanup(true)).catch(() => {}); };
     scope.signal.addEventListener('abort', expire, { once: true });
-    const next = () => voiceOperation({ signal: scope.signal, deadlineAt: Date.now() + timeoutMs }, () => iterator.next());
+    const next = () => voiceOperation(invocationOptions, () => iterator.next());
     try {
       const call = await voiceOperation({ signal: scope.signal }, opts => getCall(request, opts));
       const secret = call && await voiceOperation({ signal: scope.signal }, () => resolveSecret(call.facadeSecretRef));
@@ -66,9 +67,11 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
       if (!admission?.plugin?.stream || !admission.options?.attempt || typeof admission.options.report !== 'function' ||
         typeof admission.finish !== 'function') throw new PluginError('not-admitted', 'Reasoning admission required');
       const report = admission.options.report;
-      const invocationOptions = { ...admission.options, signal: scope.signal,
+      invocationOptions = { ...admission.options,
+        signal: admission.options.signal ? AbortSignal.any([scope.signal, admission.options.signal]) : scope.signal,
         deadlineAt: Math.min(deadlineAt, admission.options.deadlineAt ?? deadlineAt),
         report(terminal) { if (++reports !== 1) throw new PluginError('already-claimed'); return report(terminal); } };
+      invocationOptions.signal.addEventListener('abort', expire, { once: true });
       iterator = admission.plugin.stream(input, invocationOptions)[Symbol.asyncIterator]();
       let first = await next(); // Dispatch/auth failures can still be returned as HTTP errors.
       const id = `chatcmpl-${crypto.randomUUID()}`;

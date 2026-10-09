@@ -24,16 +24,17 @@ test('close without options has a configurable default timeout for a stalled con
     release?.(await originalClose({ providerSessionId: session.providerSessionId, reason: 'closed' })); await pending;
   }
 });
-test('SDK tool and provider errors preserve the active call; only transport errors recover', async () => {
+test('SDK 1.17.0 onError contexts preserve the active call; onDisconnect drives recovery', async () => {
   const local = fixture(); let recoveries = 0;
   local.control.recover = async () => { recoveries++; throw new Error('fixture transport unavailable'); };
   const options = invocationOptions(), session = await local.client.start({ callId: 'call_error_scope' }, options);
   const callbacks = local.sdk.starts[0];
-  callbacks.onError('Client tool failed', { clientToolName: 'fixture_tool' });
+  callbacks.onError('Client tool failed', { clientToolName: 'fixture_tool', toolCallId: 'fixture_tool_call' });
   callbacks.onError('Server error', { errorType: 'agent_error' });
+  callbacks.onError('Failed to end session after agent end_call', new Error('fixture endSession failure'));
   await flush(); assert.equal(recoveries, 0); assert.equal(local.sdk.closed, false); assert.equal(options.reports.length, 0);
   await session.sendText('still active');
-  const reader = drain(session); callbacks.onError('Transport disconnected', { type: 'connection_state_changed' });
+  const reader = drain(session); callbacks.onDisconnect({ reason: 'error' });
   const events = await reader; assert.equal(recoveries, 3); assert.equal(events[0].type, 'recovering');
   assert.equal(events.at(-1).type, 'ended');
 });

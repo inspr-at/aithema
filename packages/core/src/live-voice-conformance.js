@@ -21,8 +21,10 @@ export async function liveVoiceConformance(plugin, request, { requestCount, prob
     const options = { signal: controller.signal, deadlineAt: Date.now() + (mode === 'deadline' ? -1 : timeoutMs),
       spendDeadlineAt: Date.now() + (mode === 'spend-deadline' ? 40 : timeoutMs),
       browserLivenessDeadlineAt: Date.now() + (mode === 'browser-liveness-deadline' ? 40 : timeoutMs),
-      attempt: { attemptId, claimId, maxMicro: 1_000_000, consume() {
+      attempt: { attemptId, claimId, maxMicro: 1_000_000, async consume() {
         check(requestCount() === before, 'dispatched before consume');
+        await Promise.resolve();
+        check(requestCount() === before, 'dispatched while consume pending');
         if (mode === 'consume-refused') {
           reports.push({ attemptId, outcome: 'cancelled', closureConfirmed: true, chargedMicro: 0 }); throw new PluginError('not-admitted');
         }

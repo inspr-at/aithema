@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { mintConversationCredential, reconcileUsage, createVoiceBinding } from '../src/server.js';
 import { validateManifest, PluginRegistry } from '../../../packages/core/src/plugins.js';
 import { manifest } from '../src/manifest.js';
-import { fixture, binding, invocationOptions } from './fixtures.js';
+import { PluginError } from '../../../packages/core/src/invocation.js';
+import { fixture, binding, invocationOptions, flush } from './fixtures.js';
 
 test('token and signed URL minting use configured agent, runtime secret and a fake API', async () => {
   const local = fixture();
@@ -68,6 +69,53 @@ test('requestProviderClose failure still polls authenticated details and settles
   const terminal = await session.close('cancelled', 'cancelled');
   assert.equal(terminal.outcome, 'cancelled'); assert.equal(terminal.closureConfirmed, true); assert.equal(terminal.chargedMicro, 120);
   await session.close(); assert.equal(shutdowns, 1); assert.equal(options.reports.length, 1);
+});
+for (const windowMs of [10_000, 3000]) {
+  test(`stalled closure GET is bounded to min(window ${windowMs}ms, five seconds)`, async t => {
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
+    let observations = 0, firstSignal; const entered = Promise.withResolvers();
+    const local = fixture({ closureTimeoutMs: windowMs, closurePollIntervalMs: 10,
+      providerDetails: (id, call, { signal }) => {
+        observations++;
+        if (observations === 1) { firstSignal = signal; entered.resolve(); return new Promise(() => {}); }
+        return { conversation_id: id, status: 'done', metadata: { call_duration_secs: 1 } };
+      } });
+    const options = invocationOptions(), session = await local.server.start({ callId: 'call_hung_get', facadeSecretRef: 'fixture-ref' }, options);
+    const pending = session.close(); await entered.promise;
+    const requestMs = Math.min(windowMs, 5000);
+    t.mock.timers.tick(requestMs - 1); await flush(); assert.equal(firstSignal.aborted, false); assert.equal(observations, 1);
+    t.mock.timers.tick(1); await flush(); assert.equal(firstSignal.aborted, true);
+    assert.equal(firstSignal.reason.name, 'TimeoutError');
+    if (windowMs > requestMs) { t.mock.timers.tick(10); await flush(); }
+    const terminal = await pending;
+    assert.equal(observations, windowMs > requestMs ? 2 : 1);
+    assert.equal(terminal.outcome, windowMs > requestMs ? 'completed' : 'uncertain');
+    assert.equal(terminal.closureConfirmed, windowMs > requestMs); assert.equal(options.reports.length, 1);
+  });
+}
+test('uncertain closure schedules reconciliation once even when terminal reporting fails', async () => {
+  const later = [], failure = new Error('fixture ledger unavailable');
+  const local = fixture({ providerDetails: id => ({ conversation_id: id, status: 'processing' }),
+    reconcileLater: call => { later.push(call); } });
+  const options = invocationOptions(); options.report = terminal => { options.reports.push(terminal); throw failure; };
+  const session = await local.server.start({ callId: 'call_report_failure', facadeSecretRef: 'fixture-ref' }, options);
+  await assert.rejects(session.close(), error => error === failure);
+  assert.equal(options.reports.length, 1); assert.equal(options.reports[0].outcome, 'uncertain'); assert.equal(later.length, 1);
+  assert.equal(later[0].providerSessionId, session.providerSessionId); assert.equal(JSON.stringify(later).includes('fixture-token'), false);
+  await assert.rejects(session.close(), error => error === failure); assert.equal(later.length, 1); assert.equal(options.reports.length, 1);
+});
+test('invalid close outcome rejects before changing call state or looking up closure', async () => {
+  const local = fixture({ providerDetails: id => ({ conversation_id: id, status: 'done', metadata: { call_duration_secs: 1 } }) });
+  const options = invocationOptions(), session = await local.server.start({ callId: 'call_invalid_close', facadeSecretRef: 'fixture-ref' }, options);
+  const before = session.snapshot(), requestsBefore = local.requests.length;
+  for (const outcome of ['uncertain', 'invalid', null]) {
+    await assert.rejects(session.close('closed', outcome), /Invalid voice settlement/);
+    assert.deepEqual(session.snapshot(), before); assert.equal(session.signal.aborted, false);
+    assert.equal(local.requests.length, requestsBefore); assert.equal(options.reports.length, 0);
+  }
+  const terminal = await session.close(); assert.equal(terminal.outcome, 'completed'); assert.equal(options.reports.length, 1);
+  await assert.rejects(session.close('closed', 'invalid'), /Invalid voice settlement/);
+  assert.equal(await session.close(), terminal); assert.equal(options.reports.length, 1);
 });
 test('close aborts stalled pause and heartbeat operations before serialized closure', async () => {
   for (const command of ['pause', 'heartbeat']) {
@@ -142,7 +190,7 @@ test('uncertain closure uses claim maximum, never browser elapsed time; known ov
 test('start consumes before mint, persists identity before receipt, closes once and never journals credentials', async () => {
   const local = fixture(), options = invocationOptions(); let consumed = false;
   const consume = options.attempt.consume;
-  options.attempt.consume = () => { assert.equal(local.requests.length, 0); consumed = true; consume(); };
+  options.attempt.consume = async () => { assert.equal(local.requests.length, 0); await consume(); consumed = true; };
   const session = await local.control.start({ callId: 'call_fixture' }, options);
   assert.equal(consumed, true); assert.equal(local.saved[0].providerSessionId, session.providerSessionId);
   assert.equal(JSON.stringify(local.saved).includes('fixture-token'), false); assert.equal(options.reports.length, 0);
@@ -162,6 +210,41 @@ test('authority refusal, preflight cancel and expired spend prevent outbound wor
     assert.equal(local.requests.length, 0);
     if (mode !== 'refused') { assert.equal(options.reports.length, 1); assert.equal(options.reports[0].chargedMicro, 0); }
   }
+});
+test('start waits for async authority before callback provisioning, minting or journal writes', async () => {
+  let preparations = 0; const entered = Promise.withResolvers(), gate = Promise.withResolvers();
+  const local = fixture({ prepareCall: async () => { preparations++; } }), options = invocationOptions();
+  const consume = options.attempt.consume;
+  options.attempt.consume = async () => { entered.resolve(); await gate.promise; await consume(); };
+  const pending = local.server.start({ callId: 'call_async_consume', facadeSecretRef: 'fixture-ref' }, options);
+  await entered.promise; assert.equal(preparations, 0); assert.equal(local.requests.length, 0); assert.equal(local.saved.length, 0);
+  gate.resolve(); const session = await pending;
+  assert.equal(preparations, 1); assert.equal(local.requests.length, 1); assert.equal(local.saved.length, 1);
+  await session.close(); assert.equal(options.reports.length, 1);
+});
+test('async authority refusal retains host zero-cost settlement without provisioning, minting or a second report', async () => {
+  let preparations = 0; const entered = Promise.withResolvers(), gate = Promise.withResolvers();
+  const local = fixture({ prepareCall: async () => { preparations++; } }), options = invocationOptions();
+  options.attempt.consume = async () => {
+    entered.resolve(); await gate.promise;
+    options.report({ attemptId: options.attempt.attemptId, outcome: 'cancelled', closureConfirmed: true, chargedMicro: 0 });
+    throw new PluginError('not-admitted', 'Session changed before dispatch');
+  };
+  const rejected = assert.rejects(local.server.start({ callId: 'call_async_refusal', facadeSecretRef: 'fixture-ref' }, options),
+    { code: 'not-admitted', message: 'Session changed before dispatch' });
+  await entered.promise; assert.equal(local.requests.length, 0); gate.resolve(); await rejected;
+  assert.equal(preparations, 0); assert.equal(local.requests.length, 0); assert.equal(local.saved.length, 0);
+  assert.equal(options.reports.length, 1); assert.equal(options.reports[0].chargedMicro, 0);
+});
+test('cancellation while async authority is pending prevents callback provisioning and settles zero once', async () => {
+  let preparations = 0; const entered = Promise.withResolvers(), gate = Promise.withResolvers(), controller = new AbortController();
+  const local = fixture({ prepareCall: async () => { preparations++; } }), options = invocationOptions({ signal: controller.signal });
+  const consume = options.attempt.consume;
+  options.attempt.consume = async () => { entered.resolve(); await gate.promise; await consume(); };
+  const rejected = assert.rejects(local.server.start({ callId: 'call_cancel_consume', facadeSecretRef: 'fixture-ref' }, options), { code: 'cancelled' });
+  await entered.promise; controller.abort(); gate.resolve(); await rejected;
+  assert.equal(preparations, 0); assert.equal(local.requests.length, 0); assert.equal(options.reports.length, 1);
+  assert.equal(options.reports[0].outcome, 'cancelled'); assert.equal(options.reports[0].chargedMicro, 0);
 });
 test('pause persists an engine-wide acknowledgement; failed acknowledgement stays closed', async () => {
   let acknowledge = false;
