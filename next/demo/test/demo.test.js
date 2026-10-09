@@ -40,3 +40,22 @@ test('demo rejects foreign Hosts and non-JSON POSTs before session creation', { 
   assert.equal((await fetch(running.url + '/api/sessions', { method: 'POST',
     headers: { 'content-type': 'application/json; charset=utf-8' }, body: '{}' })).status, 201);
 });
+test('every client POST declares the JSON content type the server requires', async () => {
+  const { readFile, readdir } = await import('node:fs/promises');
+  const files = [new URL('../host.js', import.meta.url)];
+  const uiDir = new URL('../../packages/ui/src/', import.meta.url);
+  for (const name of await readdir(uiDir)) if (name.endsWith('.js')) files.push(new URL(name, uiDir));
+  let posts = 0;
+  for (const file of files) {
+    const source = await readFile(file, 'utf8');
+    for (let at = source.indexOf('fetch('); at !== -1; at = source.indexOf('fetch(', at + 6)) {
+      let depth = 0, end = at + 5;
+      for (; end < source.length; end++) { if (source[end] === '(') depth++; else if (source[end] === ')' && --depth === 0) break; }
+      const call = source.slice(at, end + 1);
+      if (!/method:\s*'POST'/.test(call)) continue;
+      posts++;
+      assert.match(call, /'content-type':\s*'application\/json'/, `${file.pathname}: POST without JSON content type: ${call}`);
+    }
+  }
+  assert.ok(posts >= 3, `expected the create, turn and retry POSTs, found ${posts}`);
+});

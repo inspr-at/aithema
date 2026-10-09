@@ -6,7 +6,9 @@ async function open(fresh = false) {
   try {
     const saved = fresh ? null : localStorage.getItem(key);
     let response = saved ? await fetch(`/api/sessions/${saved}`) : null;
-    if (!response?.ok) response = await fetch('/api/sessions', { method: 'POST', body: '{}' });
+    if (!response?.ok) response = await fetch('/api/sessions', {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+    });
     if (!response.ok) throw new Error();
     const session = await response.json(); localStorage.setItem(key, session.id);
     component.configure({ copy: en, session });
