@@ -1,4 +1,4 @@
-import { deflateRawSync, crc32 } from 'node:zlib';
+import { deflateRawSync, deflateSync, crc32 } from 'node:zlib';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
 import { activeExtractorProcessCount, extractorNetworkAttemptCount } from '../packages/core/src/extractor-process.js';
@@ -7,27 +7,29 @@ export const HANG = 'AIT-100-HANG';
 export const stallWorkerURL = new URL('./fixtures/extractor-stall-child.js', import.meta.url);
 
 // Small valid PDF with actual xref offsets. More pages exercise citation/page caps.
-export function pdf(pages = ['A tiny valid PDF containing document extraction fixture text.']) {
+export function pdf(pages = ['A tiny valid PDF containing document extraction fixture text.'], { stream } = {}) {
   const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '', '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
   const pageRefs = [];
   for (const text of pages) {
     const pageId = objects.length + 1, contentId = pageId + 1;
     pageRefs.push(`${pageId} 0 R`);
     const escaped = text.replace(/([\\()])/gu, '\\$1');
-    const content = `BT /F1 12 Tf 20 100 Td (${escaped}) Tj ET`;
+    const content = stream ?? bytes(`BT /F1 12 Tf 20 100 Td (${escaped}) Tj ET`);
     objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 600 200] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentId} 0 R >>`,
-      `<< /Length ${Buffer.byteLength(content)} >>\nstream\n${content}\nendstream`);
+      Buffer.concat([bytes(`<< /Length ${content.length}${stream ? ' /Filter [/FlateDecode /FlateDecode]' : ''} >>\nstream\n`), content, bytes('\nendstream')]));
   }
   objects[1] = `<< /Type /Pages /Kids [${pageRefs.join(' ')}] /Count ${pages.length} >>`;
-  let out = '%PDF-1.4\n';
+  let out = bytes('%PDF-1.4\n');
   const offsets = [0];
-  objects.forEach((object, index) => { offsets.push(Buffer.byteLength(out)); out += `${index + 1} 0 obj\n${object}\nendobj\n`; });
-  const xref = Buffer.byteLength(out);
-  out += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  out += offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('');
-  out += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
-  return bytes(out);
+  objects.forEach((object, index) => { offsets.push(out.length); out = Buffer.concat([out, bytes(`${index + 1} 0 obj\n`),
+    typeof object === 'string' ? bytes(object) : object, bytes('\nendobj\n')]); });
+  const xref = out.length;
+  return Buffer.concat([out, bytes(`xref\n0 ${objects.length + 1}\n0000000000 65535 f \n` +
+    offsets.slice(1).map(offset => `${String(offset).padStart(10, '0')} 00000 n \n`).join('') +
+    `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`)]);
 }
+// Fixed 32 MiB expansion, even if the watchdog regresses; only hundreds of bytes on disk.
+export const pdfStreamBomb = () => pdf([''], { stream: deflateSync(deflateSync(Buffer.alloc(32 * 1024 * 1024, 32))) });
 export function zip(parts, { compress = false } = {}) {
   const local = [], central = [];
   let offset = 0;
@@ -79,9 +81,10 @@ export function observeParsers(t) {
   t.mock.method(childProcess, 'fork', (...args) => {
     const child = original(...args);
     const closed = new Promise(resolve => child.once('close', (code, signal) => resolve({ code, signal })));
-    const record = { child, args, closed, started: new Promise(resolve => child.on('message', message => {
-      if (message?.type === 'started') resolve();
-    })) };
+    const record = { child, args, closed, started: new Promise(resolve => {
+      child.on('message', message => { if (message?.type === 'started') resolve(true); });
+      child.once('close', () => resolve(false));
+    }) };
     children.push(record); notify?.(record); notify = undefined;
     return child;
   });
@@ -93,7 +96,10 @@ export function observeParsers(t) {
     waitForWork: async (before, { signal } = {}) => {
       while (children.length <= before && !signal?.aborted) await new Promise(resolve => setTimeout(resolve, 1));
       if (signal?.aborted) return;
-      await children[before].started;
+      await Promise.race([children[before].started, new Promise(resolve => {
+        if (signal?.aborted) { resolve(); return; }
+        signal?.addEventListener('abort', resolve, { once: true });
+      })]);
     },
     killedCount: () => children.filter(({ child }) => child.signalCode === 'SIGKILL').length };
 }

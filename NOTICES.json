@@ -147,8 +147,8 @@
     {
       "name": "unpdf",
       "version": "1.8.0",
-      "license": "MIT",
-      "use": "Offline PDF text extraction in bounded child processes; same pinned dependency as Gen-2. Includes a serverless PDF.js build."
+      "license": "MIT AND Apache-2.0",
+      "use": "Offline PDF text extraction in bounded child processes; same pinned dependency as Gen-2. Includes the Apache-2.0 serverless PDF.js 6.1.200 build."
     },
     {
       "name": "webrtc-adapter",

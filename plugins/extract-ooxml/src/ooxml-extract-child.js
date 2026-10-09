@@ -27,7 +27,13 @@ function* elements(xml, open, close) {
     pattern.lastIndex = from;
     const match = pattern.exec(xml);
     if (!match) return;
-    const bodyAt = match.index + match[0].length, closeAt = xml.indexOf(close, bodyAt);
+    const bodyAt = match.index + match[0].length;
+    if (match[0].endsWith('/>')) {
+      yield { attrs: match[1] ?? '', body: '' };
+      from = bodyAt;
+      continue;
+    }
+    const closeAt = xml.indexOf(close, bodyAt);
     if (closeAt < 0) throw new ArchiveError();
     yield { attrs: match[1] ?? '', body: xml.slice(bodyAt, closeAt) };
     from = closeAt + close.length;
@@ -43,7 +49,7 @@ function entities(text) {
 }
 function runs(xml, prefix, maxChars) {
   let text = '';
-  const open = new RegExp(`<${prefix}t(?:\\s[^>]{0,512})?>`, 'u');
+  const open = new RegExp(`<${prefix}t(?:\\s[^>]{0,512})?/?>`, 'u');
   for (const run of elements(xml, open, `</${prefix}t>`)) {
     text += entities(run.body);
     if (text.length > maxChars) break;
@@ -52,11 +58,12 @@ function runs(xml, prefix, maxChars) {
 }
 function docxText(xml, maxChars) {
   let text = '';
-  const token = /<w:t(?:\s[^>]{0,512})?>|<\/w:p>|<w:tab\b[^>]{0,512}\/?>|<w:br\b[^>]{0,512}\/?>/gu;
+  const token = /<w:t(?:\s[^>]{0,512})?\/?>|<\/w:p>|<w:tab\b[^>]{0,512}\/?>|<w:br\b[^>]{0,512}\/?>/gu;
   for (let match = token.exec(xml); match; match = token.exec(xml)) {
     const tag = match[0];
     if (tag.startsWith('</w:p>') || tag.startsWith('<w:br')) text += '\n';
     else if (tag.startsWith('<w:tab')) text += '\t';
+    else if (tag.endsWith('/>')) continue;
     else {
       const bodyAt = match.index + tag.length, closeAt = xml.indexOf('</w:t>', bodyAt);
       if (closeAt < 0) throw new ArchiveError();
@@ -74,7 +81,7 @@ function sheetText(xml, strings, maxChars) {
     const cells = [];
     for (const cell of elements(row.body, /<c\b([^>]{0,512})>/u, '</c>')) {
       const type = /\bt="([^"\n]{0,64})"/u.exec(cell.attrs)?.[1];
-      const value = [...elements(cell.body, /<v(?:\s[^>]{0,512})?>/u, '</v>')][0]?.body;
+      const value = [...elements(cell.body, /<v(?:\s[^>]{0,512})?\/?>/u, '</v>')][0]?.body;
       const decoded = value === undefined ? '' : entities(value);
       cells.push(type === 'inlineStr' ? runs(cell.body, '', maxChars) :
         type === 's' ? (/^\d{1,9}$/u.test(decoded) ? strings[Number(decoded)] ?? '' : '') : decoded);
@@ -95,11 +102,16 @@ function orderedParts(document, rels, element, base, allowed) {
     const id = attribute(rel[1], 'Id'), target = attribute(rel[1], 'Target');
     if (id && target) targets.set(id, target.replace(new RegExp(`^/?(?:${base}/)?`, 'u'), ''));
   }
-  return [...document.matchAll(new RegExp(`<${element}\\b([^>]{0,512})/?>`, 'gu'))].map(sheet => {
+  const seen = new Set(), ordered = [];
+  for (const sheet of document.matchAll(new RegExp(`<${element}\\b([^>]{0,512})/?>`, 'gu'))) {
     const target = targets.get(attribute(sheet[1], 'r:id'));
     if (!target || !allowed.test(target)) throw new ArchiveError();
-    return { part: `${base}/${target}`, label: entities(attribute(sheet[1], 'name') ?? '') };
-  });
+    const part = `${base}/${target}`;
+    if (seen.has(part)) continue;
+    seen.add(part);
+    ordered.push({ part, label: entities(attribute(sheet[1], 'name') ?? '') });
+  }
+  return ordered;
 }
 function collectParts(ordered, limits, render) {
   if (!ordered.length) throw new ArchiveError();
@@ -146,7 +158,7 @@ export function parseOOXML(bytes, mediaType, limits) {
     return collectParts(slides, limits, ({ part }, allowance) => {
       if (!parts.has(part)) throw new ArchiveError();
       let text = '';
-      for (const paragraph of elements(parts.get(part), /<a:p(?:\s[^>]{0,512})?>/u, '</a:p>')) {
+      for (const paragraph of elements(parts.get(part), /<a:p(?:\s[^>]{0,512})?\/?>/u, '</a:p>')) {
         text += runs(paragraph.body, 'a:', allowance) + '\n';
         if (text.length > allowance) break;
       }

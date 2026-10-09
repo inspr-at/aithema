@@ -17,6 +17,8 @@ for (const [module, keys] of [[net, ['connect', 'createConnection', 'createServe
   [https, ['request', 'get', 'createServer']], [http2, ['connect', 'createServer', 'createSecureServer']],
   [dgram, ['createSocket']]]) for (const key of keys) module[key] = denied;
 net.Socket.prototype.connect = denied;
+dgram.Socket.prototype.send = denied;
+dgram.Socket.prototype.bind = denied;
 for (const module of [dns, dns.promises]) {
   for (const key of Object.keys(module)) if (/^(?:lookup|resolve|reverse)/u.test(key)) module[key] = denied;
   for (const key of Object.getOwnPropertyNames(module.Resolver.prototype)) {

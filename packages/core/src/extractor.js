@@ -5,7 +5,7 @@ import { inspectZip } from './extractor-zip.js';
 // Slim port of Gen-2 lib/extract-limits.js; hosts may only lower these ceilings.
 export const EXTRACTOR_LIMITS = Object.freeze({ maxBytes: 2 * 1024 * 1024, maxChars: 60_000,
   maxPages: 100, deadlineMs: 10_000, maxEntries: 512, maxPartBytes: 16 * 1024 * 1024,
-  maxUncompressedBytes: 48 * 1024 * 1024, maxCompressionRatio: 100, maxHeapMb: 128 });
+  maxUncompressedBytes: 48 * 1024 * 1024, maxCompressionRatio: 100, maxHeapMb: 128, maxRssMb: 384 });
 export const UPLOAD_LIMITS = Object.freeze({ maxRequestBytes: 8 * 1024 * 1024, maxFilesPerRequest: 4,
   maxDocumentsPerSession: 8, requestBudgetMs: 25_000, providerDocumentChars: 16_000 });
 export const EXTRACTOR_MEDIA_TYPES = Object.freeze({ pdf: 'application/pdf',

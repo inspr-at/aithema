@@ -5,14 +5,58 @@ import { EXTRACTOR_MEDIA_TYPES } from '../../../packages/core/src/extractor.js';
 import { createOOXMLExtractor } from '../src/index.js';
 import { docx, xlsx, pptx, zip, HANG, stallWorkerURL, observeParsers } from '../../../test/extractor-fixtures.js';
 
+function workbook(sheet, strings = '<si><t>First</t></si>') {
+  return zip({
+    'xl/workbook.xml': '<workbook><sheet name="Sheet" r:id="one"/></workbook>',
+    'xl/_rels/workbook.xml.rels': '<Relationships><Relationship Id="one" Target="worksheets/sheet.xml"/></Relationships>',
+    'xl/sharedStrings.xml': `<sst>${strings}</sst>`,
+    'xl/worksheets/sheet.xml': `<worksheet><sheetData>${sheet}</sheetData></worksheet>`,
+  });
+}
+test('styled blank cells and self-closing rows retain subsequent cell positions', async () => {
+  const plugin = createOOXMLExtractor();
+  const data = workbook('<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" s="1"/></row>' +
+    '<row r="2" customHeight="1"/><row r="3"><c r="A3"/><c r="B3"><v>42</v></c><c r="C3" s="1"/></row><row r="4"/>');
+  const result = await plugin.extract(data);
+  assert.equal(result.status, 'accepted');
+  assert.equal(result.text, '## Sheet\nFirst\n\n\t42');
+});
+test('self-closing shared strings and text runs are empty without consuming later text', async () => {
+  const plugin = createOOXMLExtractor();
+  const sheet = await plugin.extract(workbook('<row><c t="s"><v>0</v></c><c t="s"><v>1</v></c>' +
+    '<c t="inlineStr"><is><t/><t>Inline</t><t /></is></c></row>', '<si/><si><t>Second</t></si><si />'));
+  assert.equal(sheet.text, '## Sheet\n\tSecond\tInline');
+  const word = await plugin.extract(zip({ 'word/document.xml': '<w:document><w:p><w:t/><w:t>Word</w:t>' +
+    '<w:t xml:space="preserve"/><w:t /></w:p></w:document>' }));
+  assert.equal(word.text, 'Word');
+  const slides = await plugin.extract(zip({
+    'ppt/presentation.xml': '<p:presentation><p:sldId r:id="one"/></p:presentation>',
+    'ppt/_rels/presentation.xml.rels': '<Relationships><Relationship Id="one" Target="slides/slide1.xml"/></Relationships>',
+    'ppt/slides/slide1.xml': '<p:sld><a:p/><a:p><a:t/><a:t>Slide</a:t><a:t /></a:p><a:p /></p:sld>',
+  }));
+  assert.equal(slides.text, 'Slide');
+});
+test('duplicate worksheet targets are scanned once and preserve the first label', async () => {
+  const plugin = createOOXMLExtractor();
+  const result = await plugin.extract(zip({
+    'xl/workbook.xml': '<workbook><sheet name="First" r:id="one"/><sheet name="Alias" r:id="two"/></workbook>',
+    'xl/_rels/workbook.xml.rels': '<Relationships><Relationship Id="one" Target="worksheets/sheet.xml"/>' +
+      '<Relationship Id="two" Target="/xl/worksheets/sheet.xml"/></Relationships>',
+    'xl/worksheets/sheet.xml': '<worksheet><row><c><v>42</v></c></row></worksheet>',
+  }), {}, { limits: { maxPages: 1 } });
+  assert.equal(result.status, 'accepted');
+  assert.deepEqual(result.segments, [{ id: 'segment:1', page: 1, text: '## First\n42' }]);
+});
+
 for (const [kind, fixture] of [['docx', docx], ['xlsx', xlsx], ['pptx', text => pptx([text])]]) {
   test(`${kind.toUpperCase()} passes extractor conformance with active process cancellation and deadlines`, async t => {
     const observed = observeParsers(t);
     const result = await extractorConformance(createOOXMLExtractor({ workerURL: stallWorkerURL }), {
       bytes: fixture('Readable Office extraction fixture source words'), mediaType: EXTRACTOR_MEDIA_TYPES[kind], expectedText: 'source words',
     }, { ...observed, stallBytes: fixture(HANG), unreadableBytes: zip({ 'word/document.xml': '<w:document><w:t>unterminated' }),
+      archiveBombBytes: zip({ 'word/document.xml': '<w:document>' + 'A'.repeat(200_000) + '</w:document>' }, { compress: true }),
       ...(kind === 'pptx' ? { pageBytes: pptx(['First slide', 'Second slide']) } :
-        kind === 'xlsx' ? { pageBytes: xlsx(['First sheet', 'Second sheet']) } : {}) });
+        { pageBytes: xlsx(['First sheet', 'Second sheet']) }) });
     assert.deepEqual(result, { ok: true, failures: [] });
   });
 }

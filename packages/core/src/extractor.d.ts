@@ -1,7 +1,7 @@
 export interface ExtractionLimits {
   maxBytes: number; maxChars: number; maxPages: number; deadlineMs: number;
   maxEntries: number; maxPartBytes: number; maxUncompressedBytes: number;
-  maxCompressionRatio: number; maxHeapMb: number;
+  maxCompressionRatio: number; maxHeapMb: number; maxRssMb: number;
 }
 export interface ExtractionMetadata { mediaType?: string; filename?: string }
 export interface ExtractionOptions { signal?: AbortSignal; deadlineAt?: number; limits?: Partial<ExtractionLimits> }

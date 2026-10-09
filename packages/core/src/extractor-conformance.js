@@ -1,10 +1,10 @@
 import { validateManifest } from './plugins.js';
-import { isExtraction } from './extractor.js';
+import { isExtraction, EXTRACTOR_MEDIA_TYPES } from './extractor.js';
 
 // Portable offline kit. Adapters supply a normal and unreadable document, a
 // non-cooperative parser fixture, and observations of actual process lifetime.
 export async function extractorConformance(plugin, fixture, { timeoutMs = 3000, stallBytes, unreadableBytes,
-  pageBytes, workCount, activeCount, killedCount, requestCount, waitForWork } = {}) {
+  pageBytes, archiveBombBytes, workCount, activeCount, killedCount, requestCount, waitForWork } = {}) {
   const failures = [], check = (condition, message) => { if (!condition) failures.push(message); };
   if (!validateManifest(plugin?.manifest).ok || !plugin.manifest.kinds.includes('extractor') ||
     typeof plugin.extract !== 'function' || typeof plugin.health !== 'function') return { ok: false, failures: ['extractor manifest/operations'] };
@@ -12,6 +12,13 @@ export async function extractorConformance(plugin, fixture, { timeoutMs = 3000, 
     !(stallBytes instanceof Uint8Array) || !(unreadableBytes instanceof Uint8Array) ||
     [workCount, activeCount, killedCount, requestCount, waitForWork].some(value => typeof value !== 'function')) {
     return { ok: false, failures: ['local active/caps/unreadable/network fixtures required'] };
+  }
+  const formats = new Set(plugin.manifest.models.flatMap(model => model.formats));
+  if ([EXTRACTOR_MEDIA_TYPES.pdf, EXTRACTOR_MEDIA_TYPES.xlsx, EXTRACTOR_MEDIA_TYPES.pptx].some(type => formats.has(type)) &&
+    !(pageBytes instanceof Uint8Array)) return { ok: false, failures: ['page cap fixture required for paginated formats'] };
+  if (pageBytes !== undefined && !(pageBytes instanceof Uint8Array) ||
+    archiveBombBytes !== undefined && !(archiveBombBytes instanceof Uint8Array)) {
+    return { ok: false, failures: ['invalid page/archive cap fixtures'] };
   }
   const requestsBefore = requestCount();
   const options = (extra = {}) => ({ signal: new AbortController().signal, deadlineAt: Date.now() + timeoutMs, ...extra });
@@ -34,8 +41,11 @@ export async function extractorConformance(plugin, fixture, { timeoutMs = 3000, 
     const result = await bounded(extract());
     check(isExtraction(result) && result.status === 'accepted' && result.mediaType === fixture.mediaType, 'valid text and citable segments');
     check(result?.text.includes(fixture.expectedText ?? ''), 'fixture text retained');
-    const lied = await bounded(extract(fixture.bytes, { mediaType: 'image/png', filename: 'lie.png' }));
-    check(isExtraction(lied) && lied.mediaType === fixture.mediaType && lied.text === result?.text, 'sniffing beats declared type/filename');
+    for (const mediaType of new Set(['image/png', ...[...formats].filter(type => type !== fixture.mediaType), 'text/plain'])) {
+      const lied = await bounded(extract(fixture.bytes, { mediaType, filename: 'lie.png' }));
+      check(isExtraction(lied) && lied.mediaType === fixture.mediaType && lied.text === result?.text,
+        `sniffing beats declared type/filename: ${mediaType}`);
+    }
     const broken = await bounded(extract(unreadableBytes));
     check(isExtraction(broken) && broken.status === 'unreadable', 'unreadable input is a typed result');
     const beforeCap = workCount();
@@ -50,6 +60,10 @@ export async function extractorConformance(plugin, fixture, { timeoutMs = 3000, 
       const pages = await bounded(extract(pageBytes, {}, { limits: { maxPages: 1 } }));
       check(isExtraction(pages) && pages.status === 'unreadable' && pages.reason === 'limit', 'page cap enforced');
     }
+    if (archiveBombBytes) {
+      const bomb = await bounded(extract(archiveBombBytes));
+      check(isExtraction(bomb) && bomb.status === 'unreadable' && bomb.reason === 'limit', 'archive bomb cap enforced');
+    }
     const beforePreflight = workCount(), controller = new AbortController(); controller.abort();
     await rejects(extract(fixture.bytes, {}, { signal: controller.signal }), 'cancelled', 'preflight cancellation');
     await rejects(extract(fixture.bytes, {}, { deadlineAt: Date.now() - 1 }), 'deadline', 'preflight deadline');
@@ -63,8 +77,12 @@ export async function extractorConformance(plugin, fixture, { timeoutMs = 3000, 
       // Attach the rejection handler immediately, including while waiting for work.
       const outcome = work.then(() => null, error => error);
       try {
-        await bounded(waitForWork(before, { signal: abort.signal }));
-        check(workCount() > before && activeCount() > 0, 'active parser fixture started');
+        // A short deadline can kill the process before its started message on slow hosts.
+        // Race against settlement so waiting for that message cannot strand the kit.
+        const started = await bounded(Promise.race([
+          Promise.resolve(waitForWork(before, { signal: abort.signal })).then(() => true), outcome.then(() => false),
+        ]));
+        check(workCount() > before && (deadline || started && activeCount() > 0), 'active parser fixture started');
         if (!deadline) abort.abort();
         const error = await bounded(outcome);
         check(error?.code === (deadline ? 'deadline' : 'cancelled'), 'active typed cancellation/deadline');

@@ -4,6 +4,7 @@ import { serveExtractor } from '../../packages/core/src/extractor-process.js';
 import { EXTRACTOR_MEDIA_TYPES } from '../../packages/core/src/extractor.js';
 serveExtractor(async (bytes, mediaType, limits) => {
   if (Buffer.from(bytes).includes('AIT-100-HANG')) {
+    if (Buffer.from(bytes).includes('-DELAY-START')) await new Promise(resolve => setTimeout(resolve, 1100));
     process.send?.({ type: 'started' });
     for (;;) { /* deterministic non-cooperative CPU work */ }
   }

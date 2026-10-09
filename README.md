@@ -290,24 +290,43 @@ claims from Gen-2 handover JSON; XML entities are never resolved.
 All three plugins parse in child processes, with one active parser across kinds.
 Queue time counts against the wall-clock deadline. A file is capped at 2 MiB,
 60,000 output UTF-16 code units including segment separators, 100 PDF pages or
-Office sheets/slides, 10 seconds and a 128 MiB V8 old-space heap. The heap setting
-does not represent a total-process RSS limit. Office archives are capped at 512
-entries, 100:1 declared compression ratio, 16 MiB per part and 48 MiB total
+Office sheets/slides, 10 seconds and a 128 MiB V8 old-space heap. Separately,
+the parent samples child RSS every 25 ms and SIGKILLs/reaps it above `maxRssMb`
+(default 384 MiB); the result is unreadable with reason `limit`. Linux reads
+`/proc/<pid>/statm` with the host page size from `getconf PAGESIZE`; macOS uses
+`ps -o rss=`. Monitoring failures refuse work with `unavailable`. Sampling is
+not an atomic allocation limit: the child can overshoot between observations.
+Hosts needing a hard OS limit may additionally use a delegated cgroup or
+systemd user service with `MemoryMax=384M` on Linux where supported; neither
+requires root when the controller is delegated. No OS limit is required by
+the plugin. Crash/OOM exits without a result also report `limit`.
+Office archives are capped at 512 entries, 100:1 declared compression ratio,
+16 MiB per part and 48 MiB total
 uncompressed data, including skipped parts; inflated sizes and CRCs must match.
+Office part targets are de-duplicated before scanning, and self-closing XML
+elements contribute empty values without consuming subsequent cells or runs.
 Parser children inherit no credentials and cannot write files, spawn children
 or workers; transport guards deny HTTP, sockets, DNS, UDP, fetch and WebSocket.
 Only trusted plugin modules run in children; this is not an OS sandbox for
 arbitrary third-party executable code. Input/output and expansion ceilings also
 bound parser buffers. No document bytes are persisted by these plugins.
+Async children exit on IPC disconnect. A CPU-bound parser cannot service that
+event, so deployments must terminate the whole process group on parent loss
+(for example systemd `KillMode=control-group`), rather than only the parent.
+PDF dependency permissions follow `import.meta.resolve('unpdf')`, including
+its bundled PDF.js 6.1.200; they do not assume a workspace node_modules path.
 
 `extractorConformance(plugin, {bytes, mediaType, expectedText?}, options)` is
 re-exported by the core conformance module. Options require local `stallBytes`,
 `unreadableBytes`, `workCount`, `activeCount`, `killedCount`, `requestCount` and
-`waitForWork`; multi-page formats also supply `pageBytes`. The kit checks
-manifest/health, output/segment shape, lying MIME/filename, caps, unreadable
+`waitForWork`; manifests supporting PDF, XLSX or PPTX must also supply
+`pageBytes`. An optional `archiveBombBytes` fixture must return unreadable
+`limit`. The kit checks manifest/health, output/segment shape, lying MIME/filename
+with every other supported format and text/plain, caps, unreadable
 results, preflight and active cancellation/deadlines, child reaping and no
 network attempts. `test/extractor-fixtures.js` supplies tiny generated documents
 and a trusted CPU-stalling worker that otherwise delegates to the real parsers.
+Deadline checks also settle when a child is killed before its `started` message.
 `workerURL` on plugin factories is a trusted test seam, never upload metadata.
 
 Part B wiring points, still pending:

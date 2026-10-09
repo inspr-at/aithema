@@ -9,6 +9,49 @@ import { createOOXMLExtractor } from '../../../plugins/extract-ooxml/src/index.j
 import { createTextExtractor } from '../../../plugins/extract-text/src/index.js';
 import { bytes, pdf, docx, xlsx, pptx, zip, HANG, stallWorkerURL, observeParsers } from '../../../test/extractor-fixtures.js';
 
+test('conformance rejects trusting any supported declared type and checks every alternate format', async t => {
+  const observed = observeParsers(t), plugin = createTextExtractor({ workerURL: stallWorkerURL });
+  const formats = new Set(plugin.manifest.models.flatMap(model => model.formats)), declarations = [];
+  const broken = { ...plugin, async extract(data, metadata, options) {
+    const result = await plugin.extract(data, metadata, options);
+    if (metadata.mediaType) declarations.push(metadata.mediaType);
+    return result.status === 'accepted' && formats.has(metadata.mediaType) ? { ...result, mediaType: metadata.mediaType } : result;
+  } };
+  const result = await extractorConformance(broken, { bytes: bytes('Readable text conformance source words'), mediaType: 'text/plain' },
+    { ...observed, stallBytes: bytes(HANG), unreadableBytes: Buffer.from([0]) });
+  assert.equal(result.ok, false);
+  assert.ok(result.failures.some(message => message.includes('sniffing')));
+  for (const type of formats) if (type !== 'text/plain') assert.ok(declarations.includes(type), type);
+  assert.ok(declarations.includes('text/plain'));
+});
+test('conformance requires page fixtures for a manifest supporting paginated formats', async t => {
+  const observed = observeParsers(t);
+  const result = await extractorConformance(createOOXMLExtractor({ workerURL: stallWorkerURL }),
+    { bytes: docx('Readable Word source words'), mediaType: EXTRACTOR_MEDIA_TYPES.docx },
+    { ...observed, stallBytes: docx(HANG), unreadableBytes: Buffer.from([0]) });
+  assert.equal(result.ok, false);
+  assert.ok(result.failures.some(message => message.includes('page')));
+  assert.equal(observed.workCount(), 0);
+});
+test('conformance checks an optional archive bomb fixture', async t => {
+  const observed = observeParsers(t), plugin = createOOXMLExtractor({ workerURL: stallWorkerURL });
+  const archiveBombBytes = zip({ 'word/document.xml': '<w:document>' + 'A'.repeat(200_000) + '</w:document>' }, { compress: true });
+  const broken = { ...plugin, async extract(data, metadata, options) {
+    return plugin.extract(data === archiveBombBytes ? docx('Incorrectly accepted archive bomb') : data, metadata, options);
+  } };
+  const result = await extractorConformance(broken, { bytes: docx('Readable Word source words'), mediaType: EXTRACTOR_MEDIA_TYPES.docx },
+    { ...observed, stallBytes: docx(HANG), unreadableBytes: Buffer.from([0]), pageBytes: xlsx(['One', 'Two']), archiveBombBytes });
+  assert.equal(result.ok, false);
+  assert.ok(result.failures.includes('archive bomb cap enforced'));
+});
+test('conformance deadline completes when a child closes before its started message', async t => {
+  const observed = observeParsers(t);
+  const result = await extractorConformance(createTextExtractor({ workerURL: stallWorkerURL }),
+    { bytes: bytes('Readable conformance source words'), mediaType: 'text/plain' },
+    { ...observed, stallBytes: bytes(HANG + '-DELAY-START'), unreadableBytes: Buffer.from([0]) });
+  assert.deepEqual(result, { ok: true, failures: [] });
+});
+
 test('registers all extractor plugins and dispatches exclusively from actual bytes', async () => {
   const registry = new PluginRegistry();
   [createPDFExtractor(), createOOXMLExtractor(), createTextExtractor()].forEach(plugin => registry.register(plugin));
@@ -77,6 +120,6 @@ test('child transport guards deny every network probe before an outbound request
   const observed = observeParsers(t), before = observed.requestCount();
   const plugin = createTextExtractor({ workerURL: new URL('../../../test/fixtures/extractor-network-child.js', import.meta.url) });
   const result = await plugin.extract(bytes('Trusted transport probe fixture'));
-  assert.equal(result.status, 'accepted'); assert.equal(result.text, 'Denied 11/11 transports');
-  assert.equal(observed.requestCount() - before, 11);
+  assert.equal(result.status, 'accepted'); assert.equal(result.text, 'Denied 13/13 transports');
+  assert.equal(observed.requestCount() - before, 13);
 });
