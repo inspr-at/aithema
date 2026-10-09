@@ -47,7 +47,9 @@ function host(t, { presets = mockPresetsWithChoices(), consent = mockConsent, re
     method: body === undefined ? 'GET' : 'POST', headers: { 'content-type': 'application/json', 'x-aithema-session-token': token },
     ...(body === undefined ? {} : { body: typeof body === 'string' ? body : JSON.stringify(body) }) }));
   const create = async (body = {}, token = owner) => { const response = await call('', body, token); return { response, session: await response.json() }; };
-  return { storage, handlers, runtime: base, presets, registry, call, create, close };
+  // A save on the current revision, as the settings dialog sends it.
+  const save = (id, body, token = owner) => call(`/${id}/settings`, { baseRevision: storage.get(id).settings.revision, ...body }, token);
+  return { storage, handlers, runtime: base, presets, registry, call, create, save, close };
 }
 const json = async response => ({ status: response.status, body: await response.json() });
 
@@ -99,7 +101,7 @@ test('the server admits only the host allowlist: unknown, crafted, unconfigured 
     [{ processingPreset: 'fallback' }, 400], [{ model: 'mock', binding: mock('mock') }, 400], [{ model: '../escape' }, 400],
     [{ processingPreset: 'device', model: 'mock' }, 409, 'model', 'unavailable on device'], ['[]', 400],
   ]) {
-    const { status: actual, body: result } = await json(await h.call(path, body));
+    const { status: actual, body: result } = await json(await h.call(path, typeof body === 'string' ? body : { baseRevision: 0, ...body }));
     assert.equal(actual, status, JSON.stringify(body));
     if (field) assert.deepEqual(result, { error: 'setting-not-allowed', field, reason }, JSON.stringify(body));
   }
@@ -131,7 +133,7 @@ test('a saved model and effort are the bindings both lanes dispatch with; comple
   assert.equal((await h.call(`/${session.id}/turns`, { clientEventId: 'first', content: 'Hello' })).status, 200);
   await h.handlers.idle();
   assert.deepEqual(fake.bodies.map(body => [body.model, body.reasoning]), [['fixture/model-a', { enabled: false }], ['fixture/model-a', { enabled: false }]]);
-  const saved = await json(await h.call(`/${session.id}/settings`, { model: 'b', effort: 'high', baseRevision: 0 }));
+  const saved = await json(await h.save(session.id, { model: 'b', effort: 'high', baseRevision: 0 }));
   assert.equal(saved.status, 200); assert.equal(saved.body.settings.model, 'b'); assert.equal(saved.body.settings.origin, 'chosen');
   assert.equal(saved.body.event.type, 'settings.changed'); assert.deepEqual(saved.body.consent, { required: false, features: [] });
   await h.handlers.idle();
@@ -166,7 +168,7 @@ test('a choice saved while a lane runs supersedes it like new input and reruns i
   })().catch(() => {});
   t.after(() => reader.cancel().catch(() => {}));
   await h.call(`/${session.id}/turns`, { clientEventId: 'first', content: 'Hello' }); await started.promise;
-  const saved = await h.call(`/${session.id}/settings`, { model: 'mock/deep', effort: 'high' });
+  const saved = await h.save(session.id, { model: 'mock/deep', effort: 'high' });
   assert.equal(saved.status, 200);
   assert.equal(calls[0].signal.aborted, true, 'work on the previous choice is cancelled');
   held.resolve(); await h.handlers.idle();
@@ -196,7 +198,7 @@ test('a choice needing consent the visitor has not given is saved, refused at ad
   const h = host(t, { presets, registry, consent }), { session } = await h.create();
   const catalog = (await json(await h.call(`/${session.id}/settings`))).body;
   assert.deepEqual(catalog.presets.best.models.map(o => o.status), ['available', 'consent']);
-  const saved = await json(await h.call(`/${session.id}/settings`, { model: 'b' }));
+  const saved = await json(await h.save(session.id, { model: 'b' }));
   assert.equal(saved.status, 200); assert.deepEqual(saved.body.consent, { required: true, features: ['text', 'analysis'] });
   assert.equal(saved.body.featureMatrix.best.text.reason, 'current processing consent required');
   await h.call(`/${session.id}/turns`, { clientEventId: 'first', content: 'Hello' }); await h.handlers.idle();
@@ -213,12 +215,12 @@ test('a voice call keeps its choice: changes wait for the call to end and a reco
   const voice = (suffix, body) => h.call(`/${session.id}/voice${suffix}`, body);
   const call = await json(await voice('', { callId: 'call-1' }));
   assert.equal(call.status, 201);
-  const refused = await json(await h.call(`/${session.id}/settings`, { model: 'mock/deep' }));
+  const refused = await json(await h.save(session.id, { model: 'mock/deep' }));
   assert.deepEqual(refused, { status: 409, body: { error: 'voice-call-active' } });
   assert.equal((await json(await h.call(`/${session.id}/settings`))).body.voiceCallActive, true);
   assert.equal((await voice('/call-1/close', { providerSessionId: call.body.providerSessionId })).status, 200);
   await h.handlers.idle();
-  assert.equal((await h.call(`/${session.id}/settings`, { model: 'mock/deep' })).status, 200);
+  assert.equal((await h.save(session.id, { model: 'mock/deep' })).status, 200);
   const recovered = await voice('/call-1/recover', { providerSessionId: call.body.providerSessionId });
   assert.equal(recovered.status, 403, 'a call started under the old choice is not continued');
   assert.equal(h.storage.voiceCalls(session.id)[0].settingsRevision, 0);
@@ -227,7 +229,7 @@ test('a voice call keeps its choice: changes wait for the call to end and a reco
   assert.equal(h.storage.voiceCalls(session.id).find(c => c.callId === 'call-2').settingsRevision, 1);
   assert.equal((await voice('/call-2/close', { providerSessionId: next.body.providerSessionId })).status, 200);
   await h.handlers.idle();
-  assert.equal((await h.call(`/${session.id}/settings`, { voice: 'off' })).status, 200);
+  assert.equal((await h.save(session.id, { voice: 'off' })).status, 200);
   assert.equal((await voice('', { callId: 'call-3' })).status, 403, 'voice off refuses new calls server-side');
   assert.equal((await json(await h.call(`/${session.id}`))).body.featureMatrix.best.voice.reason, 'voice off');
 });
@@ -237,7 +239,7 @@ test('choices persist, the owner\'s last confirmed choice is the next default, a
   let h = host(t, { path });
   const first = (await h.create()).session;
   assert.equal(first.settings.origin, 'default'); assert.equal(first.settings.model, 'mock');
-  assert.equal((await h.call(`/${first.id}/settings`, { processingPreset: 'custom', model: 'mock/deep', effort: 'low' })).status, 200);
+  assert.equal((await h.save(first.id, { processingPreset: 'custom', model: 'mock/deep', effort: 'low' })).status, 200);
   await h.close();
   h = host(t, { path });
   assert.deepEqual(h.storage.get(first.id).settings, { ...h.storage.get(first.id).settings, model: 'mock/deep', effort: 'low', origin: 'chosen', revision: 1 });
@@ -255,22 +257,113 @@ test('choices persist, the owner\'s last confirmed choice is the next default, a
   assert.deepEqual([third.processingPreset, third.settings.origin], ['best', 'default'], 'an erased conversation no longer supplies defaults');
 });
 
-test('stale revisions conflict, identical resends are idempotent and a started conversation cannot cross the device boundary in place', async t => {
+test('every save names its base revision: A then B then a replay of A is refused with the current revision', async t => {
   const h = host(t), { session } = await h.create(), path = `/${session.id}/settings`;
-  const first = await json(await h.call(path, { model: 'mock/deep', effort: 'high', baseRevision: 0 }));
+  const a = { model: 'mock/deep', effort: 'high', baseRevision: 0 };
+  const first = await json(await h.call(path, a));
   assert.equal(first.status, 200); assert.equal(first.body.settings.revision, 1);
-  const replay = await json(await h.call(path, { model: 'mock/deep', effort: 'high', baseRevision: 0 }));
-  assert.equal(replay.status, 200); assert.equal(replay.body.unchanged, true); assert.equal(replay.body.event, null);
-  const stale = await json(await h.call(path, { model: 'mock', baseRevision: 0 }));
-  assert.equal(stale.status, 409); assert.equal(stale.body.error, 'settings-conflict'); assert.equal(stale.body.settings.model, 'mock/deep');
-  assert.equal(h.storage.read(session.id).filter(e => e.type === 'settings.changed').length, 1);
+  const second = await json(await h.call(path, { model: 'mock', baseRevision: 1 }));
+  assert.equal(second.status, 200); assert.equal(second.body.settings.revision, 2);
+  const replay = await json(await h.call(path, a));
+  assert.equal(replay.status, 409); assert.equal(replay.body.error, 'settings-conflict');
+  assert.deepEqual([replay.body.settings.model, replay.body.settings.revision], ['mock', 2], 'the refusal carries the current revision');
+  for (const body of [{ model: 'mock/deep', effort: 'high' }, { model: 'mock/deep', effort: 'high', baseRevision: null }, { model: 'mock/deep', baseRevision: -1 }]) {
+    const missing = await json(await h.call(path, body));
+    assert.equal(missing.status, 400, JSON.stringify(body)); assert.equal(missing.body.error, 'base-revision-required');
+    assert.equal(missing.body.settings.revision, 2);
+  }
+  assert.throws(() => h.storage.changeSettings(session.id, { processingPreset: 'best', settings: { model: 'mock/deep', effort: 'high', voice: 'off', visuals: 'off' } },
+    { ownerToken: owner }), /base revision required/, 'storage has no optional path either');
+  assert.throws(() => h.storage.changeSettings(session.id, { processingPreset: 'best', settings: { model: 'mock/deep', effort: 'high', voice: 'off', visuals: 'off' } },
+    { ownerToken: owner, baseRevision: 1 }), /settings-conflict/);
+  assert.deepEqual(h.storage.get(session.id).settings.model, 'mock', 'the stale writes left B in force');
+  const resend = await json(await h.call(path, { model: 'mock', baseRevision: 2 }));
+  assert.equal(resend.status, 200); assert.equal(resend.body.unchanged, true, 'resending the current choice on the current revision is idempotent');
+  assert.equal(h.storage.read(session.id).filter(e => e.type === 'settings.changed').length, 2);
+});
+
+test('a started conversation cannot cross the device boundary in place, even after every turn is withdrawn', async t => {
+  const h = host(t), { session } = await h.create(), path = `/${session.id}/settings`;
   const empty = (await h.create()).session;
-  const device = await json(await h.call(`/${empty.id}/settings`, { processingPreset: 'device' }));
+  const device = await json(await h.save(empty.id, { processingPreset: 'device' }));
   assert.equal(device.status, 200, 'an unstarted conversation may become a device conversation');
   assert.deepEqual(device.body.featureMatrix.device.analysis, { available: false, reason: 'unavailable on device' });
   assert.equal((await h.call(`/${session.id}/turns`, { clientEventId: 'started', content: 'Hello' })).status, 200);
-  const crossing = await json(await h.call(path, { processingPreset: 'device' }));
+  const crossing = await json(await h.save(session.id, { processingPreset: 'device' }));
   assert.equal(crossing.status, 409); assert.equal(crossing.body.error, 'new-conversation-required');
+  await h.handlers.idle();
+  assert.equal((await h.call(`/${session.id}/withdraw`, { turnId: 'started' })).status, 200);
+  assert.equal(h.storage.get(session.id).transcript.filter(t => !t.withdrawn).length, 0, 'no active turn remains');
+  const afterWithdrawal = await json(await h.save(session.id, { processingPreset: 'device' }));
+  assert.equal(afterWithdrawal.status, 409, 'withdrawal does not erase the evidence that the conversation started');
+  assert.equal(afterWithdrawal.body.error, 'new-conversation-required');
+  assert.equal(h.storage.get(session.id).processingPreset, 'best');
+});
+
+test('creation validates the requested preset like a save: a preset the host does not offer is refused, never created', async t => {
+  const presets = mockPresetsWithChoices(); presets.custom = { plugins: [], bindings: {} }; delete presets.eu;
+  const h = host(t, { presets });
+  for (const processingPreset of ['custom', 'eu']) {
+    const { response, session } = await h.create({ processingPreset });
+    assert.equal(response.status, 409, processingPreset);
+    assert.deepEqual(session, { error: 'setting-not-allowed', field: 'processingPreset',
+      reason: processingPreset === 'eu' ? 'preset not configured' : 'not configured' }, processingPreset);
+  }
+  assert.equal((await h.create({ processingPreset: 'unknown' })).response.status, 400);
+  const created = await h.create({ processingPreset: 'best' });
+  assert.equal(created.response.status, 201); assert.deepEqual([created.session.settings.model, created.session.settings.origin], ['mock', 'default']);
+  assert.equal(h.storage.list().length, 1, 'refused creations leave no conversation behind');
+});
+
+test('static validation covers the understanding lane too: a split binding refuses an effort only reaction supports', async t => {
+  const presets = mockPresetsWithChoices();
+  presets.best.choices.models.push({ id: 'split', label: 'Split', bindings: { reaction: mock('mock/deep', 'medium'), understanding: mock('mock/swift', 'low') },
+    efforts: ['low', 'medium', 'high'], effort: 'low' });
+  const h = host(t, { presets }), { session } = await h.create();
+  const catalog = (await json(await h.call(`/${session.id}/settings`))).body;
+  assert.deepEqual(catalog.presets.best.models.find(o => o.id === 'split').efforts, ['low'], 'only efforts both lanes support are offered');
+  const refused = await json(await h.save(session.id, { model: 'split', effort: 'high' }));
+  assert.deepEqual(refused, { status: 409, body: { error: 'setting-not-allowed', field: 'model', reason: 'effort not supported' } });
+  assert.equal(h.storage.get(session.id).settings.revision, 0);
+  presets.best.choices.models.push({ id: 'split-ops', label: 'No structured', bindings: { reaction: mock('mock'), understanding: { ...mock('mock'), plugin: 'absent' } } });
+  const absent = await json(await h.save(session.id, { model: 'split-ops' }));
+  assert.deepEqual(absent.body, { error: 'setting-not-allowed', field: 'model', reason: 'plugin not in preset' });
+  assert.equal((await h.save(session.id, { model: 'split', effort: 'low' })).status, 200);
+});
+
+test('consent scopes cover only operations the selected manifest supports and the host admits', async t => {
+  const paid = { ...localImageBinding, maxMicro: 400300, imageCost: { inputMicro: 2, outputMicro: 3, maxInputTokens: 200000, maxOutputTokens: 100 } };
+  const qualified = { ...paid, legal: qualify(paid).legal };
+  const images = createLocalImages({ delayMs: 1 }), manifest = { ...images.manifest, models: images.manifest.models.map(m => ({ ...m, operations: ['generate'] })) };
+  const { imageCost, ...common } = qualified;
+  const generateOnly = { ...images, manifest, binding: common, generate: (...args) => images.generate(...args) };
+  const presets = mockPresetsWithChoices();
+  presets.best.plugins.push('fake-images'); presets.best.policy = { endpoints: [qualified.endpoint] };
+  presets.best.choices.visuals = [{ id: 'generate-only', label: 'Generate only', binding: qualified }];
+  const registry = new PluginRegistry().register(createMockReasoning()).register(generateOnly);
+  const h = host(t, { presets, registry }), { session } = await h.create({ settings: { visuals: 'generate-only' } });
+  const scopes = h.runtime.scopes(h.storage.get(session.id));
+  assert.deepEqual(scopes.filter(scope => scope.operation).map(scope => scope.operation), ['generate'], 'no image edit scope for a generate-only manifest');
+  presets.best.plugins = presets.best.plugins.filter(id => id !== 'fake-images');
+  assert.equal(h.runtime.scopes(h.storage.get(session.id)).some(scope => scope.operation === 'generate'), false, 'a plugin outside the preset is not admitted');
+});
+
+test('erasure removes the stored choice from the owner default, the snapshot and the journal', async t => {
+  const h = host(t), { session } = await h.create();
+  assert.equal((await h.save(session.id, { processingPreset: 'custom', model: 'mock/deep', effort: 'low' })).status, 200);
+  assert.equal((await h.call(`/${session.id}/turns`, { clientEventId: 'first', content: 'Hello' })).status, 200); await h.handlers.idle();
+  const raw = () => JSON.stringify([h.storage.db.prepare('SELECT snapshot FROM sessions WHERE id=?').get(session.id),
+    h.storage.db.prepare('SELECT event FROM events WHERE session_id=?').all(session.id),
+    h.storage.db.prepare('SELECT bytes FROM content WHERE session_id=?').all(session.id)]);
+  assert.ok(raw().includes('mock/deep'), 'the choice is stored before erasure');
+  assert.equal(JSON.stringify(h.storage.db.prepare('SELECT event FROM events WHERE session_id=?').all(session.id)).includes('mock/deep'), false,
+    'the journal keeps references only');
+  assert.equal((await h.call(`/${session.id}/erase`, {})).status, 200);
+  assert.equal(raw().includes('mock/deep'), false, 'no trace of the choice remains in snapshot, journal or content');
+  assert.equal(h.storage.lastSettings(owner), null);
+  assert.deepEqual([(await h.create()).session.settings.origin], ['default']);
+  const replayed = h.storage.read(session.id).find(e => e.type === 'settings.changed');
+  assert.equal(replayed.data.erased, true, 'the journal entry replays as an erased tombstone');
 });
 
 test('visuals and voice choices drive the image and live-voice features; creation validates an explicit choice', async t => {
@@ -282,7 +375,7 @@ test('visuals and voice choices drive the image and live-voice features; creatio
   assert.equal(created.session.conceptCost.maxMicro, 0, 'the image quote follows the visitor\'s visuals choice');
   const id = created.session.id;
   assert.equal((await json(await h.call(`/${id}`))).body.featureMatrix.custom.images.available, true);
-  const off = await json(await h.call(`/${id}/settings`, { visuals: 'off' })); assert.equal(off.status, 200, JSON.stringify(off.body));
+  const off = await json(await h.save(id, { visuals: 'off' })); assert.equal(off.status, 200, JSON.stringify(off.body));
   const snapshot = (await json(await h.call(`/${id}`))).body;
   assert.equal(snapshot.featureMatrix.custom.images.reason, 'visuals off'); assert.equal(snapshot.conceptCost, null);
   const concept = await h.call(`/${id}/concepts`, { clientEventId: 'wish', intent: true, sourceTurnId: 'none' });
@@ -308,12 +401,12 @@ test('visuals off stops new concept renders without hiding earlier ones; each ar
   await h.handlers.idle();
   const concept = h.storage.get(id).concepts.at(-1);
   assert.ok(concept, JSON.stringify(h.storage.get(id).conceptStatus)); assert.equal(concept.visuals, 'fake-images', 'the artifact records its producer');
-  assert.equal((await h.call(`/${id}/settings`, { visuals: 'off' })).status, 200);
+  assert.equal((await h.save(id, { visuals: 'off' })).status, 200);
   assert.equal((await h.call(`/${id}/concepts/${concept.id}/image`)).status, 200, 'turning visuals off keeps earlier concepts readable');
   assert.equal((await h.call(`/${id}/concepts`, { clientEventId: 'again', intent: true, sourceTurnId: 'first' })).status, 403, 'but starts no new render');
   assert.ok(Object.keys(unzip(await (await h.call(`/${id}/export`)).arrayBuffer())).some(name => name.startsWith(`concepts/${concept.id}.`)));
   h.presets.custom.choices.visuals = h.presets.custom.choices.visuals.filter(option => option.id !== 'fake-images');
-  assert.equal((await h.call(`/${id}/settings`, { visuals: 'other-images' })).status, 200);
+  assert.equal((await h.save(id, { visuals: 'other-images' })).status, 200);
   assert.equal((await h.call(`/${id}/concepts/${concept.id}/image`)).status, 403, 'another provider never vouches for this artifact');
   assert.equal(Object.keys(unzip(await (await h.call(`/${id}/export`)).arrayBuffer())).some(name => name.startsWith(`concepts/${concept.id}.`)), false);
 });
@@ -321,10 +414,10 @@ test('visuals off stops new concept renders without hiding earlier ones; each ar
 test('a conversation keeps a bounded history of choices', async t => {
   const h = host(t), { session } = await h.create();
   for (let i = 0; i < 1000; i++) h.storage.changeSettings(session.id, { processingPreset: 'best', settings: { model: i % 2 ? 'mock' : 'mock/deep',
-    effort: i % 2 ? 'none' : 'low', voice: 'off', visuals: 'off' } }, { ownerToken: owner });
+    effort: i % 2 ? 'none' : 'low', voice: 'off', visuals: 'off' } }, { ownerToken: owner, baseRevision: i });
   assert.equal(h.storage.get(session.id).settings.revision, 1000);
-  assert.equal((await h.call(`/${session.id}/settings`, { model: 'mock/deep', effort: 'high' })).status, 413);
-  assert.equal((await h.call(`/${session.id}/settings`, { model: 'mock' })).status, 200, 'resending the current choice stays idempotent');
+  assert.equal((await h.save(session.id, { model: 'mock/deep', effort: 'high' })).status, 413);
+  assert.equal((await h.save(session.id, { model: 'mock' })).status, 200, 'resending the current choice stays idempotent');
 });
 
 test('a host can withhold On my device; it is then refused everywhere with a reason', async t => {
@@ -332,7 +425,7 @@ test('a host can withhold On my device; it is then refused everywhere with a rea
   assert.deepEqual(session.featureMatrix.device.text, { available: false, reason: 'preset not configured' });
   const catalog = (await json(await h.call(`/${session.id}/settings`))).body;
   assert.deepEqual([catalog.presets.device.offered, catalog.presets.device.status], [false, 'unavailable']);
-  assert.deepEqual((await json(await h.call(`/${session.id}/settings`, { processingPreset: 'device' }))).body,
+  assert.deepEqual((await json(await h.save(session.id, { processingPreset: 'device' }))).body,
     { error: 'setting-not-allowed', field: 'processingPreset', reason: 'preset not configured' });
   assert.equal((await h.create({ processingPreset: 'device' })).response.status, 409);
 });

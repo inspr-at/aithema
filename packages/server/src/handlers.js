@@ -153,7 +153,11 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         { processingPreset: last.processingPreset, model, effort, voice, visuals });
       if (!offered.error) return { processingPreset: offered.processingPreset, settings: { ...offered.settings, origin: 'last' } };
     }
-    return { processingPreset: probe.processingPreset, settings: { ...pluginRuntime.defaults?.(probe.processingPreset), origin: 'default' } };
+    if (!pluginRuntime.validate) return { processingPreset: probe.processingPreset, settings: { ...pluginRuntime.defaults?.(probe.processingPreset), origin: 'default' } };
+    // The host defaults pass the same static validation as a save; an unoffered preset is refused.
+    const defaults = await pluginRuntime.validate(probe, { processingPreset: probe.processingPreset });
+    if (defaults.error) return defaults;
+    return { processingPreset: defaults.processingPreset, settings: { ...defaults.settings, origin: 'default' } };
   }
   function unfinished(session) {
     const revision = inputRevision(session);
@@ -274,6 +278,10 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       }
       if (action === 'settings' && request.method === 'POST') {
         const body = JSON.parse(Buffer.from(await readBody(request)).toString('utf8'));
+        const acknowledged = { processingPreset: authorized.processingPreset, settings: authorized.settings };
+        // Every save names its base revision; a stale base or a replay gets the current one back.
+        if (!Number.isSafeInteger(body?.baseRevision) || body.baseRevision < 0) return json({ error: 'base-revision-required', ...acknowledged }, 400);
+        if (body.baseRevision !== authorized.settings.revision) return json({ error: 'settings-conflict', ...acknowledged }, 409);
         // A running call keeps its choice; the visitor ends it explicitly to apply a change.
         if (voiceHandlers?.active(id)) return json({ error: 'voice-call-active' }, 409);
         const next = await pluginRuntime.validate(authorized, body);

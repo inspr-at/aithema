@@ -3,12 +3,12 @@ import { createHash, randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { dirname, basename, resolve, join } from 'node:path';
 import { applyEvent, createSession, inputRevision, emptyUnderstanding, isUIArtifact, isHTMLArtifact, inspectHTML, HTML_MEDIA_TYPE, imageInfo, reduceConceptIntent, createConceptIntent, MAX_IMAGE_BYTES,
-  defaultSettings, normalizeSettings, sameSelection, activeTurns } from '@inspr/aithema-core';
+  defaultSettings, normalizeSettings, sameSelection, conversationStarted } from '@inspr/aithema-core';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 export const MAX_CONCEPT_STORAGE_BYTES = 64 * 1024 * 1024;
 export const MAX_SETTINGS_REVISIONS = 1000;
-const turnMetadata = ['id', 'role', 'at', 'inputRevision', 'contentRef', 'hash', 'erased', 'withdrawn', 'provenance', 'voiceCallId', 'voiceProviderId', 'engine'];
+const turnMetadata = ['id', 'role', 'at', 'inputRevision', 'contentRef', 'hash', 'erased', 'withdrawn', 'provenance', 'voiceCallId', 'voiceProviderId'];
 
 export class ConflictError extends Error {}
 export class NotFoundError extends Error {}
@@ -133,16 +133,24 @@ export class SQLiteStorage {
       this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id, 'understanding', bytes, hash(bytes), at);
       return { contentRef, hash: hash(bytes) };
     }
+    if (type === 'settings.changed') {
+      // A visitor's choice is erasable content: the journal keeps only its reference.
+      if (data.contentRef) return { contentRef: data.contentRef, hash: data.hash };
+      const bytes = JSON.stringify({ processingPreset: data.processingPreset, settings: data.settings }), contentRef = `${id}:settings:${seq}`;
+      this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id, 'settings', bytes, hash(bytes), new Date().toISOString());
+      return { contentRef, hash: hash(bytes) };
+    }
     if (!['turn.final', 'turn.corrected', 'understanding.updated'].includes(type)) return data;
     if (data.contentRef) return Object.fromEntries(Object.entries(data).filter(([key]) =>
       ['turn.final', 'turn.corrected'].includes(type) ? turnMetadata.includes(key)
         : ['contentRef', 'hash', 'erased'].includes(key)));
     const contentRef = `${id}:${seq}`, at = data.at ?? new Date().toISOString();
-    const bytes = JSON.stringify(['turn.final', 'turn.corrected'].includes(type) ? { content: data.content } : data), digest = hash(bytes);
+    // A reply's engine label reveals the visitor's choice, so it is erased with the reply.
+    const bytes = JSON.stringify(['turn.final', 'turn.corrected'].includes(type) ? { content: data.content, ...(data.engine ? { engine: data.engine } : {}) } : data), digest = hash(bytes);
     this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id,
       ['turn.final', 'turn.corrected'].includes(type) ? data.role === 'user' ? 'person' : 'reply' : 'understanding', bytes, digest, at);
     return ['turn.final', 'turn.corrected'].includes(type) ? { id: data.id, role: data.role, at,
-      ...Object.fromEntries(['inputRevision', 'provenance', 'voiceCallId', 'voiceProviderId', 'engine'].filter(key => data[key] !== undefined).map(key => [key, data[key]])), contentRef, hash: digest }
+      ...Object.fromEntries(['inputRevision', 'provenance', 'voiceCallId', 'voiceProviderId'].filter(key => data[key] !== undefined).map(key => [key, data[key]])), contentRef, hash: digest }
       : { contentRef, hash: digest };
   }
   #save(session, understandingRef, focusedQuestionRef) {
@@ -404,19 +412,22 @@ export class SQLiteStorage {
     });
   }
   /**
-   * Durable visitor choice. Identical confirmed choices are idempotent; a write based on
-   * an older revision conflicts. Device conversations stay in their tab, so a started
-   * conversation cannot switch into or out of device processing.
+   * Durable visitor choice. A write based on any revision but the current one conflicts;
+   * resending the current choice on the current revision is idempotent. Device
+   * conversations stay in their tab, so a started conversation (even with every turn
+   * withdrawn) cannot switch into or out of device processing.
    */
   changeSettings(id, { processingPreset, settings }, { ownerToken, baseRevision, at = new Date().toISOString() } = {}) {
+    if (!Number.isSafeInteger(baseRevision) || baseRevision < 0) throw new TypeError('Settings base revision required');
     return this.transaction(() => {
       const session = this.get(id); this.#check(session, { ownerToken });
       const current = session.settings, preset = session.processingPreset ?? 'best';
+      // Every write names the revision it was based on, so a stale write or a replay never lands.
+      if (baseRevision !== current.revision) throw new SettingsConflictError('settings-conflict', session);
       if (preset === processingPreset && sameSelection(current, settings) && current.origin === 'chosen') return { event: null, session };
-      if (baseRevision !== undefined && baseRevision !== current.revision) throw new SettingsConflictError('settings-conflict', session);
       // Each change is a durable event; a conversation's history of choices stays bounded.
       if (current.revision >= MAX_SETTINGS_REVISIONS) throw new RangeError('Settings limit');
-      if ((preset === 'device') !== (processingPreset === 'device') && activeTurns(session).length) {
+      if ((preset === 'device') !== (processingPreset === 'device') && conversationStarted(session)) {
         throw new SettingsConflictError('new-conversation-required', session);
       }
       const next = normalizeSettings({ ...settings, revision: current.revision + 1, origin: 'chosen', at });

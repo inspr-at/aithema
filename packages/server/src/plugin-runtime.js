@@ -257,8 +257,10 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   async function check(session, preset, settings) {
     const candidate = { ...session, paused: false, processingPreset: preset, settings: { ...session.settings, ...settings } };
     const selection = selectionFor(candidate, preset);
-    for (const [field, feature, active] of [['model', 'text', true], ['voice', 'voice', settings.voice !== SETTINGS_OFF],
-      ['visuals', visualKind(candidate), settings.visuals !== SETTINGS_OFF]]) {
+    // Both reasoning lanes run the chosen model and effort; each passes on its own
+    // (effort, operation and evidence), so a split binding cannot hide a refusal.
+    for (const [field, feature, active] of [['model', 'text', true], ['model', 'analysis', Boolean(selection.model?.bindings.understanding)],
+      ['voice', 'voice', settings.voice !== SETTINGS_OFF], ['visuals', visualKind(candidate), settings.visuals !== SETTINGS_OFF]]) {
       if (!active) continue;
       const result = await boundedEvaluate(candidate, preset, feature);
       if (result.reason && !isDynamicReason(result.reason)) return { field, reason: result.reason, selection };
@@ -311,10 +313,11 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         const models = await Promise.all(choices.models.map(async option => {
           const reaction = option.bindings.reaction, understanding = option.bindings.understanding, raw = reaction ?? understanding;
           const f = facts(raw, option), effort = option.efforts ? option.effort : null;
+          const supported = [reaction, understanding].filter(Boolean).map(b => facts(b).efforts);
           const withEffort = b => b && effort ? { ...b, effort } : b;
           const [textReason, analysisReason] = await Promise.all([verdict('text', withEffort(reaction)), verdict('analysis', withEffort(understanding))]);
           return { id: option.id, label: label(option, raw), configured: Boolean(raw),
-            efforts: option.efforts ? option.efforts.filter(e => f.efforts.includes(e) || !raw) : [], effort,
+            efforts: option.efforts ? option.efforts.filter(e => supported.every(list => list.includes(e))) : [], effort,
             facts: f, status: status(textReason), reason: textReason, features: { text: textReason, analysis: analysisReason } };
         }));
         const optional = (list, feature) => Promise.all(list.map(async option => {
@@ -387,9 +390,13 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const result = [], kind = visualKind(session);
       for (const [feature, operation] of [['text', 'stream'], ['analysis', 'structured'], ['voice', 'start'], [kind, 'generate'], [kind, 'edit']]) {
         const { raw } = selectedBinding(session, preset, map[feature][0]);
-        if (!raw) continue;
+        if (!raw || !presets[preset]?.plugins?.includes(raw.plugin)) continue;
         let binding; try { binding = feature === 'voice' ? createDurationBinding(raw) : feature === 'images' ? createImageBinding(raw) : createBinding(raw); } catch { continue; }
         const plugin = registry.get(binding.plugin);
+        // Only operations the manifest supports and admission would run need consent.
+        const model = plugin?.manifest.models.find(m => m.id === binding.model) ?? plugin?.manifest.models.find(m => m.id === '*');
+        if (!model?.operations.includes(operation) || operation === 'stream' && !model.streaming || operation === 'structured' && !model.structured ||
+          feature === 'html' && !model.formats.includes('text/html')) continue;
         const scope = registry.isCanonicalMock(plugin) || feature === 'voice' && isLocalVoice(plugin) || feature === 'images' && isLocalImages(plugin) ||
           feature === 'html' && isLocalHTML(plugin) ? MOCK_PROCESSING_SCOPE : binding.legal ? processingScope(binding, operation) : null;
         if (scope && !result.some(s => hash(s) === hash(scope))) result.push(structuredClone(scope));
