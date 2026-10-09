@@ -162,7 +162,7 @@ interface answers it outside the modal dialog.
 | `POST /api/sessions` | New session snapshot; accepts `processingPreset: best|eu|device|custom` and an explicit `settings: {model, effort, voice, visuals}` choice |
 | `GET /api/sessions/:id` | Durable snapshot, current operational flags and the public `engine` description of the processing choice |
 | `GET /api/sessions/:id/settings` | Public settings catalog: every offered preset, model, effort, voice and visual option with manifest facts and its current verdict |
-| `POST /api/sessions/:id/settings` | `{processingPreset, model?, effort?, voice?, visuals?, baseRevision?}` option ids; acknowledged `settings.changed`, updated feature matrix and consent need |
+| `POST /api/sessions/:id/settings` | `{processingPreset, model?, effort?, voice?, visuals?, baseRevision}` option ids; `baseRevision` is required; acknowledged `settings.changed`, updated feature matrix and consent need |
 | `POST /api/sessions/:id/turns` | Durable turn; identical client id and request bytes replay the receipt, differing bytes conflict |
 | `GET /api/sessions/:id/events` | SSE; resume using `Last-Event-ID` or `?after=<seq>` |
 | `POST /api/sessions/:id/retry` | Retry unfinished reasoning for the current revision |
@@ -244,6 +244,9 @@ while the call runs. Pause/Resume waits for the engine acknowledgement; blur
 pauses automatically, and focus never resumes. The agent and provider API are
 in-process fakes; only session persistence/control uses localhost HTTP.
 `AITHEMA_VOICE_MODE=off` disables it. No microphone audio is captured in fake mode.
+With `AITHEMA_PROVIDER` set the demo is a live host: voice and image modes default to
+`off`, a `fake` value is treated as `off`, and visitors are offered only configured
+live providers.
 
 For a host, register `createVoiceProvider(...)` alongside the selected reasoning
 plugin, configure `presets[preset].bindings.voice`, and pass
@@ -431,8 +434,11 @@ concept rails until a choice is confirmed, and then a ready card
 
 Hosts list visitor choices per preset as `presets[p].choices = {models, voices,
 visuals, defaults}`. A model option is `{id, label?, binding | bindings: {reaction,
-understanding}, efforts?, effort?, quality?}`; voice and visual options are
-`{id, label?, binding?}`. An option without a binding is declared but not configured
+understanding}, efforts?, effort?, quality?}`; voice options are `{id, label?, binding?}`
+and visual options `{id, label?, kind?, binding?}`. One Visuals control governs both
+visual kinds: `kind` is `images` (default) or `html`, and the selected option's kind
+decides whether a concept is an image or an HTML click-dummy (legacy presets keep the
+`bindings.visuals` rule below). An option without a binding is declared but not configured
 and shows that reason. `efforts` lists the response styles the host permits; the
 chosen effort replaces the binding's effort, and the manifest must support it.
 `quality` is an optional public rating `{score, source: {name, url, asOf}}`.
@@ -442,15 +448,21 @@ offered unless the host sets `presets.device = false`.
 
 The browser only ever sends option ids. `POST /settings` checks the request shape,
 the preset's allowlist, the effort list and every static admission rule (plugin,
-manifest operation and effort, evidence, residency and endpoint policy) and refuses
+manifest operation and effort, evidence, residency and endpoint policy) on each lane
+the choice runs, reaction and understanding alike, and refuses
 anything else with `409 {error: 'setting-not-allowed', field, reason}`; a crafted
 binding or unknown key returns 400. Dynamic refusals (consent, pause, health,
 budget) do not block saving: the choice is stored and admission keeps refusing
 dispatch until they clear. The acknowledgement reports `consent.required` with the
 affected features; the dialog, chooser and ready card then emit `aithema-consent`.
-A `baseRevision` older than the stored revision returns `settings-conflict` with the
-saved choice; resending the current choice is idempotent. A conversation keeps at
-most 1000 choices.
+Every save names the revision it was based on: a missing `baseRevision` returns 400
+`base-revision-required`, and any base other than the stored revision (a stale write
+or a replay) returns 409 `settings-conflict`; both carry the current choice and
+revision. Resending the current choice on the current revision is idempotent. Session
+creation runs the same static validation on the requested preset and its defaults,
+so an unoffered preset is refused rather than created. Consent grants receive only
+the scopes of operations the selected manifests support and the preset admits.
+A conversation keeps at most 1000 choices.
 
 Every admission takes its binding from the stored choice: reaction and understanding
 use the model option with the chosen effort, live voice uses the voice option,
@@ -468,9 +480,14 @@ recovered under a newer one.
 Settings are durable per conversation (`settings.changed` events and the snapshot).
 Creation pins concrete defaults, so later host default changes never mix into a
 running conversation. A new conversation for the same owner offers the owner's last
-confirmed choice while the host still offers it; an erased conversation no longer
-supplies it. A started conversation cannot switch into or out of On my device in
-place (`new-conversation-required`); the dialog offers a separate conversation.
+confirmed choice while the host still offers it. A choice is erasable content: the
+journal keeps only a reference, and erasure tombstones it, resets the snapshot choice
+and drops reply engine labels with their replies, so an erased conversation no longer
+supplies it. A started conversation (even with every turn withdrawn) cannot switch
+into or out of On my device in place (`new-conversation-required`); the dialog offers
+a separate conversation. Streaming reply fragments carry the settings revision they
+started under; when a change supersedes a reply, the client clears its partial text
+and ignores older fragments.
 
 The six gauges (AI quality, speed, cost, privacy, voice, images) come from core
 `settingsGauges` over the catalog's public facts: manifest qualification, efforts,
@@ -907,7 +924,9 @@ submission are blocked; permitted links stay within the document. The provenance
 digest describes the original stored artifact, before the export wrapper.
 
 `AITHEMA_HTML_MODE` defaults to `fake`, a deterministic local clickable HTML
-generator with escaped summary and open questions. `off` removes its binding.
+generator with escaped summary and open questions. `off` removes its binding. On a
+live host (`AITHEMA_PROVIDER` set) it defaults to `off`; an explicit `fake` is offered
+only as a visuals option labelled as a demo.
 `claude` uses `AITHEMA_HTML_MODEL` (default `anthropic/claude-opus-5.5`), requires
 positive operator prices, and injects the same persistent SQLite account spend
 port used by reaction, understanding and delegated voice reasoning. There is no
@@ -1371,12 +1390,12 @@ Readiness of voice is separately visible in
 | `OPENROUTER_ANALYSIS_PROVIDER_IGNORE` | Comma-separated upstream exclusions sent as `provider.ignore` on understanding/analysis and HTML; default `Azure`, whose START workspace rejects `response_format` despite advertised support |
 | `AITHEMA_OPENROUTER_PRICES` | Required JSON for every configured model: `{"<model>":{"prompt":<USD per token>,"completion":<USD per token>}}`; finite nonnegative prices; no catalog defaults |
 | `AITHEMA_OPENROUTER_CAP_USD` | Lifetime persisted account cap; decimal USD with up to six fractional digits, default `10` |
-| `AITHEMA_VOICE_MODE` | `elevenlabs` enables startup ensure; default `fake`; `off` disables voice |
+| `AITHEMA_VOICE_MODE` | `elevenlabs` enables startup ensure; default `fake` locally and `off` on a live host, where `fake` is refused; `off` disables voice |
 | `ELEVENLABS_API_KEY` | ElevenLabs account key; reference resolves server-side only |
 | `AITHEMA_ELEVENLABS_TEMPLATE_AGENT_ID` | START agent to GET for selected voice/language/ASR/turn/privacy settings; never a write target |
 | `AITHEMA_VOICE_FACADE_SECRET` | Deployment callback bearer supplied by OPS; startup creates/updates its owned workspace-secret reference |
-| `AITHEMA_IMAGE_MODE` | Use `off` for the first live smoke; default `fake`; `openai` requires a separate host module |
-| `AITHEMA_HTML_MODE` | `fake` (default) generates local clickable HTML; `claude` uses the shared SQLite OpenRouter cap and requires current matching consent; `off` disables HTML |
+| `AITHEMA_IMAGE_MODE` | Default `fake` locally and `off` on a live host, where `fake` is refused; `openai` requires a separate host module |
+| `AITHEMA_HTML_MODE` | `fake` (local default) generates local clickable HTML, offered on a live host only when set explicitly and labelled as a demo; `claude` uses the shared SQLite OpenRouter cap and requires current matching consent; `off` (live default) disables HTML |
 | `AITHEMA_HTML_MODEL` | `anthropic/claude-opus-5.5` (default); Claude model ID required in `AITHEMA_OPENROUTER_PRICES`; output capped at 8,000 tokens |
 | `AITHEMA_UI_RENDERS_PER_SESSION` | Persistent lifetime limit shared by HTML and images; default `20`; `0` disables generation |
 | `AITHEMA_UI_RENDERS_PER_DAY` | Persistent deployment-wide UTC-day limit shared by HTML and images; default `200`; `0` disables generation |
