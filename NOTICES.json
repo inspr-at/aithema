@@ -1,89 +1,112 @@
 {
   "package": {
-    "name": "@inspr/aithema-core",
-    "version": "0.10.1",
+    "name": "aithema",
+    "version": "0.0.0",
     "license": "AGPL-3.0-only",
     "private": true
   },
   "dependencies": [
     {
-      "name": "@fontsource/noto-sans",
-      "version": "5.2.5",
-      "license": "SIL-OFL-1.1",
-      "use": "Embedded Latin, Latin-Extended, Greek, and Cyrillic WOFF subsets for printable PDF export."
-    },
-    {
-      "name": "fontkit",
-      "version": "2.0.4",
+      "name": "@types/node",
+      "version": "26.6.4",
       "license": "MIT",
-      "use": "Opens pinned Noto Sans WOFF subsets to verify glyph coverage before PDF export."
+      "use": "Node.js type declarations used by happy-dom and its dependencies (tests only)."
     },
     {
-      "name": "pdfkit",
-      "version": "0.17.2",
+      "name": "@types/whatwg-mimetype",
+      "version": "3.0.2",
       "license": "MIT",
-      "use": "Printable PDF generation for reviewed handover export."
+      "use": "MIME type declarations used by happy-dom (tests only)."
     },
     {
-      "name": "unpdf",
-      "version": "1.8.0",
+      "name": "@types/ws",
+      "version": "8.18.2",
       "license": "MIT",
-      "use": "PDF text extraction for document intake (pdf.js family)."
+      "use": "WebSocket type declarations used by happy-dom (tests only)."
     },
     {
-      "name": "openid-client",
-      "version": "6.8.8",
+      "name": "buffer-image-size",
+      "version": "0.6.4",
       "license": "MIT",
-      "use": "Certified OpenID Connect Authorization Code + PKCE client for optional production browser login. Transitive jose and oauth4webapi stay at the versions locked by this package."
+      "use": "Image dimension parsing used by happy-dom (tests only)."
     },
     {
-      "name": "@inspr/flow-shell",
-      "version": "0.2.1",
-      "license": "AGPL-3.0-only",
-      "use": "Pinned public Flow Shell runtime tarball (GitHub Release v0.2.1). Compact header/footer Web Component consumed by the Aithema workspace host. Not a source fork and not an npm namespace claim."
+      "name": "entities",
+      "version": "7.0.1",
+      "license": "BSD-2-Clause",
+      "use": "HTML entity encoding and decoding used by happy-dom (tests only)."
+    },
+    {
+      "name": "happy-dom",
+      "version": "20.11.2",
+      "license": "MIT",
+      "use": "Browser DOM implementation for web component tests."
+    },
+    {
+      "name": "undici-types",
+      "version": "8.9.0",
+      "license": "MIT",
+      "use": "HTTP type declarations required by @types/node (tests only)."
+    },
+    {
+      "name": "whatwg-mimetype",
+      "version": "3.0.0",
+      "license": "MIT",
+      "use": "MIME type parsing used by happy-dom (tests only)."
+    },
+    {
+      "name": "ws",
+      "version": "8.22.0",
+      "license": "MIT",
+      "use": "WebSocket implementation used by happy-dom (tests only)."
     }
   ],
   "model_assets": [],
   "extraction_provenance": [
     {
-      "aithema_module": "lib/csv.js",
-      "start_source": "start-agm-com src/lib/understanding-csv.ts",
-      "notes": "neutraliseSpreadsheetFormula, semicolon CSV + BOM encoding pattern"
+      "aithema_module": "packages/core/src/understanding.js",
+      "start_source": "start-agm-com src/lib/qualification.ts, src/pages/api/analyze.ts",
+      "notes": "User-only evidence, normalization, build cap, selected actor preservation; host preset and English slot ids; authoritative final and non-destructive draft."
     },
     {
-      "aithema_module": "domain model naming",
-      "start_source": "start-agm-com delivery-stream.schema.json",
-      "notes": "requirement_ref, baseline_ref, content_digest, constraint_ref, party roles"
+      "aithema_module": "packages/core/src/readiness.js",
+      "start_source": "start-agm-com src/lib/guided-pass.ts, src/lib/readiness-view.ts",
+      "notes": "Bounded question history, rewording matches, open/settled grouping, threshold scale, five-row window and stable newly-cleared ordering."
     },
     {
-      "aithema_module": "runtime/transcript.js",
-      "start_source": "start-agm-com src/lib/transcript-limits.ts, dedupe in src/lib/v2-transcript.ts",
-      "notes": "Transcript bounds and duplicate-turn suppression"
+      "aithema_module": "packages/core/src/lanes.js, packages/ui/src/session-element.js",
+      "start_source": "start-agm-com src/pages/api/analyze.ts, src/lib/analysis-incremental.ts",
+      "notes": "Cache, single flight, latest-input guard, stale result rejection, persisted verification; Fetch/storage injection."
     },
     {
-      "aithema_module": "runtime/understanding.js",
-      "start_source": "start-agm-com src/lib/guided-pass.ts (algorithm only)",
-      "notes": "Focused next question; no agency slots or offer copy"
+      "aithema_module": "packages/server/src/handlers.js, packages/ui/src/session-element.js",
+      "start_source": "start-agm-com src/lib/analysis-recovery.ts, src/lib/analysis-retry.ts",
+      "notes": "Retain prior understanding, sanitized failure, manual retry and reconnect."
     },
     {
-      "aithema_module": "runtime/provider.js",
-      "start_source": "start-agm-com src/lib/providers/types.ts (LLM request/stream shape)",
-      "notes": "Generic streamChat contract; mock is a labelled test double"
+      "aithema_module": "packages/core/src/prompts.js",
+      "start_source": "start-agm-com src/lib/prompts.ts (generic policy only)",
+      "notes": "Evidence-only reasoning, untrusted data, one-question pacing and honest draft/stale state."
     },
     {
-      "aithema_module": "lib/extract-limits.js, runtime/extract.js, runtime/pdf-extract-child.js",
-      "start_source": "start-agm-com src/lib/extract.ts, src/pages/api/upload.ts",
-      "notes": "unpdf text-bearing PDF extract with bounded child-process parsing"
+      "aithema_module": "packages/ui/src/session-element.js, packages/ui/src/styles.js",
+      "start_source": "start-agm-com src/pages/index.astro, src/scripts/v2.ts (conversation/aside)",
+      "notes": "Transcript bubbles, composer shortcuts, readiness/aside, expansion and responsive layout; host copy/tokens. INSPR holds rights to the ported generic code under approved decision D3 (revised, 2026-10-09)."
+    },
+    {
+      "aithema_module": "packages/core/test/, packages/ui/test/",
+      "start_source": "start-agm-com tests/{analyze-route,guided-pass,analysis-incremental,critical-surfaces}.test.ts",
+      "notes": "Selected reducer/readiness/lane/UI behaviour cases converted to node:test."
     }
   ],
   "not_copied": [
     "agency prompts",
-    "branding/i18n",
+    "Augmentoring identity and branding",
+    "funnel and offer policy",
     "mail/handoff",
     "credits",
     "voice SDK",
     "customer records",
-    "env/secret files",
-    "START UI chrome"
+    "env/secret files"
   ]
 }
