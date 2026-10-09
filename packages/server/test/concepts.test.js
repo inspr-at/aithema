@@ -4,28 +4,32 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { inflateSync } from 'node:zlib';
 import { SQLiteStorage, createHandlers, createPluginRuntime, mockPresets, createLocalImages, localImageBinding,
-  createMemoryConsentLedger, createImageBinding, SQLiteBudgetLedger } from '../src/index.js';
+  createMemoryConsentLedger, createImageBinding, SQLiteBudgetLedger, createFacadeSecrets } from '../src/index.js';
 import { PluginRegistry, createMockReasoning, inputRevision, reduceUnderstanding, beginInvocation } from '@inspr/aithema-core';
 import { ownedRequest, testToken, temporaryDb, unzip } from '../../../test/helpers.js';
+import { createLocalVoiceProvider, localVoiceBinding } from '../src/local-voice.js';
 const tick = () => new Promise(resolve => setImmediate(resolve));
-async function setup(t, { path = ':memory:', intercept, references, budgetOptions, consent: supplied, imageBinding = localImageBinding } = {}) {
+async function setup(t, { path = ':memory:', intercept, references, budgetOptions, consent: supplied, imageBinding = localImageBinding, voice = false, understanding } = {}) {
   const storage = new SQLiteStorage(path), reasoning = createMockReasoning(), images = createLocalImages({ delayMs: 1 });
   const consent = supplied ?? createMemoryConsentLedger(), presets = mockPresets();
   presets.best.plugins.push(images.manifest.id); presets.best.bindings.images = imageBinding; presets.best.policy = { endpoints: [imageBinding.endpoint] };
   const { imageCost, ...common } = imageBinding;
   const selectedImages = imageBinding.maxMicro === 0 ? images : { ...images, binding: common };
   const registry = new PluginRegistry().register(reasoning).register(selectedImages), budget = new SQLiteBudgetLedger(storage, budgetOptions);
+  const secrets = createFacadeSecrets();
+  if (voice) { registry.register(createLocalVoiceProvider({ storage, revokeFacade: secrets.revoke, provisionFacade: () => {} })); presets.best.plugins.push('fake-voice'); presets.best.bindings.voice = localVoiceBinding; }
   const runtime = createPluginRuntime({ storage, reasoning, registry, presets, consent, budget });
   const records = [], admit = runtime.admit;
   runtime.admit = async function (args) {
     const result = await admit.call(this, args);
+    if (args.lane === 'understanding' && understanding) return { ...result, plugin: { ...result.plugin, async structured(...args) { return understanding(await reasoning.structured(...args)); } } };
     if (args.lane !== 'concept') return result;
     return { ...result, plugin: { ...result.plugin, generate(spec, feedback, options) {
       records.push({ spec, feedback, options });
       return intercept ? intercept(spec, feedback, options, images) : images.generate(spec, feedback, options);
     } } };
   };
-  const handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent, concepts: { references } });
+  const handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent, concepts: { references }, ...(voice ? { voice: { secrets } } : {}) });
   t.after(async () => { await handlers.close(); storage.close(); });
   const created = await handlers.handle(ownedRequest('http://localhost/api/sessions', { method: 'POST', body: '{}' }));
   const session = await created.json(), id = session.id;
@@ -47,7 +51,7 @@ async function setup(t, { path = ':memory:', intercept, references, budgetOption
   async function request(clientEventId = crypto.randomUUID(), suffix = '', sourceTurnId = storage.get(id).transcript.filter(t => t.role === 'user' && !t.erased).at(-1)?.id) {
     return call('concepts' + suffix, { clientEventId, intent: true, sourceTurnId });
   }
-  return { storage, handlers, runtime, consent, session, id, records, call, turn, readiness, request, images };
+  return { storage, handlers, runtime, consent, session, id, records, call, turn, readiness, request, images, presets, registry };
 }
 async function rendered(h) {
   h.readiness(); const response = await h.request(); assert.equal(response.status, 202, JSON.stringify((await h.runtime.matrix(h.storage.get(h.id))).best.images)); await h.handlers.idle();
@@ -62,16 +66,27 @@ test('intent is required; thresholds arm only; initial explicit wish waits for u
   h.readiness(25); await h.handlers.conceptLane.run(h.id); await h.handlers.idle(); assert.equal(h.records.length, 1);
   assert.equal(h.storage.get(h.id).concepts.length, 1);
 });
-test('expressed visitor visual wishes are recorded; assistant text and negated wishes are inert', async t => {
+test('ordinary requirements talk never records intent; the Request control does', async t => {
   const h = await setup(t);
-  await h.turn('not-wanted', 'Do not generate a visual concept.'); assert.equal(h.storage.get(h.id).conceptIntent.visualIntent, null);
-  h.storage.append(h.id, 'turn.final', { id: 'assistant', role: 'assistant', content: 'Show a visual concept', at: new Date().toISOString() });
-  await h.handlers.conceptLane.run(h.id); assert.equal(h.records.length, 0);
-  await h.turn('wish', 'I would like a visual concept for our API dashboard.');
-  assert.equal(h.storage.get(h.id).conceptIntent.visualIntent.id, 'wish');
-  h.readiness(); await h.handlers.conceptLane.run(h.id); await h.handlers.idle(); assert.equal(h.records.length, 1);
+  for (const [id, content] of [['validate', 'We want to validate the concept with users'], ['explain', 'Ich will das Konzept erklären']]) {
+    await h.turn(id, content); assert.equal(h.storage.get(h.id).conceptIntent.visualIntent, null);
+  }
+  h.readiness(); assert.equal((await h.request('explicit')).status, 202); await h.handlers.idle();
+  assert.equal(h.storage.get(h.id).conceptIntent.visualIntent.id, 'explicit'); assert.equal(h.records.length, 1);
 });
-test('viewer/list/provenance/download reads and conversation-end do not spend; bytes are owner-bound and uncached', async t => {
+test('model-selected intent requires an exact quote from the current person turn', async t => {
+  let quote = 'please show a concept';
+  const h = await setup(t, { understanding: raw => ({ ...raw, conceptIntent: { request_quote: quote } }) });
+  await h.turn('wish', 'For our API, please show a concept.');
+  assert.deepEqual(h.storage.get(h.id).understanding.conceptIntent, { request_quote: quote });
+  assert.equal(h.storage.get(h.id).conceptIntent.visualIntent?.sourceTurnId, 'wish');
+  quote = 'invented unmatched quote';
+  await h.call('consent', { granted: false }); await h.call('consent', { granted: true });
+  await h.turn('unmatched', 'The assistant suggested a layout.');
+  assert.equal(h.storage.get(h.id).conceptIntent.visualIntent, null);
+  assert.equal(h.storage.get(h.id).understanding.conceptIntent, null);
+});
+test('viewer/list/provenance/download reads do not spend; bytes are owner-bound and uncached', async t => {
   const h = await setup(t); await h.turn('first'); const item = await rendered(h);
   for (const route of ['concepts', `concepts/${item.id}/image`, `concepts/${item.id}/image?download=1`, `concepts/${item.id}/provenance`]) {
     const response = await h.call(route); assert.equal(response.status, 200); assert.match(response.headers.get('cache-control'), /no-store/);
@@ -83,7 +98,6 @@ test('viewer/list/provenance/download reads and conversation-end do not spend; b
   for (const token of ['', 'another-owner']) assert.equal((await h.call(`concepts/${item.id}/image`, undefined, token)).status, 404);
   assert.equal((await h.call('concepts/nonexistent/image')).status, 404);
   await h.handlers.conceptLane.run(h.id); await h.handlers.idle(); assert.equal(h.records.length, 1);
-  assert.equal((await h.call('end', {})).status, 404); assert.equal(h.records.length, 1);
   assert.equal(h.storage.db.prepare("SELECT COUNT(*) AS n FROM budget_attempts WHERE lane='concept'").get().n, 1);
 });
 test('feedback and removable guidance change next request private references; reject archives without generating', async t => {
@@ -277,4 +291,96 @@ test('startup conservatively recovers a dispatched image hold and marks its pend
   assert.equal(h.runtime.budget.get(admitted.attemptId).outcome, 'uncertain'); assert.equal(h.runtime.budget.get(admitted.attemptId).settled_micro, 100);
   assert.equal(h.storage.get(h.id).conceptStatus.error, 'restart'); assert.equal(h.storage.get(h.id).conceptIntent.pending, null);
   assert.equal(h.records.length, 1);
+});
+
+const conceptAttempts = h => h.storage.db.prepare("SELECT COUNT(*) AS n FROM budget_attempts WHERE lane='concept'").get().n;
+for (const end of ['voice-close', 'erase', 'expiry', 'page-hidden']) test(`${end} records durable ineligibility and cannot spend after idleMs`, async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setInterval'], now: Date.now() });
+  const h = await setup(t, { voice: end === 'voice-close' });
+  let grant;
+  if (end === 'voice-close') { const start = await h.call('voice', { callId: 'call' }); assert.equal(start.status, 201); grant = await start.json(); }
+  await h.turn('first'); h.readiness(25); await h.request('wish'); await h.handlers.idle();
+  await h.turn('later'); h.readiness(25);
+  const before = conceptAttempts(h);
+  if (end === 'voice-close') assert.equal((await h.call(`voice/${grant.callId}/close`, { providerSessionId: grant.providerSessionId })).status, 200);
+  else if (end === 'erase') assert.equal((await h.call('erase', {})).status, 200);
+  else if (end === 'expiry') await h.handlers.expire(Date.now() + 1);
+  else assert.equal((await h.call('concepts/eligibility', { eligible: false })).status, 200);
+  await h.handlers.idle();
+  // Keep this assertion first: the old server timer must fail on actual spending.
+  t.mock.timers.tick(121000); await h.handlers.idle();
+  assert.equal(conceptAttempts(h), before);
+  assert.equal(h.storage.get(h.id).conceptIntent.eligible, false);
+  const durable = JSON.parse(h.storage.db.prepare('SELECT snapshot FROM sessions WHERE id=?').get(h.id).snapshot);
+  assert.equal(durable.conceptIntent.eligible, false);
+});
+test('assistant voice events and resume cannot revive intent cleared by consent', async t => {
+  const h = await setup(t, { voice: true, understanding: raw => ({ ...raw, conceptIntent: { request_quote: 'I would like a visual concept' } }) });
+  let response = await h.call('voice', { callId: 'before' }), grant = await response.json(); assert.equal(response.status, 201);
+  const event = async (role, text, turnId) => {
+    const response = await h.call(`voice/${grant.callId}/events`, { providerSessionId: grant.providerSessionId,
+      event: { type: 'final', callId: grant.callId, turnId: `${grant.providerSessionId}:${turnId}`, role, text } }); assert.equal(response.status, 200); await h.handlers.idle();
+  };
+  await event('user', 'I would like a visual concept', 'wish');
+  assert.equal(h.storage.get(h.id).conceptIntent.visualIntent?.sourceTurnId, `${grant.providerSessionId}:wish`);
+  await h.call('consent', { granted: false }); await h.call('consent', { granted: true }); await h.handlers.idle();
+  assert.equal(h.storage.get(h.id).conceptIntent.visualIntent, null);
+  response = await h.call('voice', { callId: 'after' }); grant = await response.json(); assert.equal(response.status, 201);
+  await event('assistant', 'I can help you explain the project.', 'reply');
+  assert.equal(h.storage.get(h.id).conceptIntent.visualIntent, null);
+  await h.call(`voice/${grant.callId}/pause`, { providerSessionId: grant.providerSessionId });
+  await h.call(`voice/${grant.callId}/resume`, { providerSessionId: grant.providerSessionId }); await h.handlers.idle();
+  assert.equal(h.storage.get(h.id).conceptIntent.visualIntent, null);
+});
+test('skipped planning reads no reference bytes and elapsed time scans no sessions', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setInterval'], now: Date.now() });
+  let byteReads = 0, extras = [];
+  const h = await setup(t, { references: () => extras }); await h.turn('first'); const first = await rendered(h);
+  const artifact = h.storage.conceptArtifact(h.id, first.id);
+  extras = [{ id: 'upload', role: 'upload', mediaType: artifact.mediaType, get bytes() { byteReads++; return artifact.bytes; } }];
+  h.readiness(0);
+  const read = t.mock.method(h.storage, 'conceptArtifact');
+  await h.handlers.conceptLane.run(h.id); assert.equal(read.mock.callCount(), 0); assert.equal(byteReads, 0);
+  const get = t.mock.method(h.storage, 'get'), list = t.mock.method(h.storage, 'list');
+  t.mock.timers.tick(121000); await tick(); await h.handlers.idle();
+  assert.equal(list.mock.callCount(), 0); assert.equal(get.mock.callCount(), 0);
+  h.readiness(); await h.request('again'); await h.handlers.idle(); assert.equal(h.records.length, 2); assert.equal(byteReads, 1);
+});
+test('export retains transcript and understanding when image publication is unavailable', async t => {
+  const h = await setup(t); await h.turn('first'); const first = await rendered(h);
+  await h.call(`concepts/${first.id}/feedback`, { clientEventId: 'feedback', vote: 'up', chips: ['private image guidance'] });
+  for (const unavailable of ['off', 'plugin', 'consent']) {
+    const binding = h.presets.best.bindings.images;
+    let plugin;
+    if (unavailable === 'off') delete h.presets.best.bindings.images;
+    else if (unavailable === 'plugin') plugin = t.mock.method(h.registry, 'get', id => id === binding.plugin ? undefined : h.images);
+    else await h.consent.withdraw({ sessionId: h.id });
+    const artifact = t.mock.method(h.storage, 'conceptArtifact');
+    const response = await h.call('export'); assert.equal(response.status, 200, unavailable);
+    const files = unzip(new Uint8Array(await response.arrayBuffer()));
+    assert.ok(files['transcript.json'].includes('public API')); assert.ok(files['understanding.json']);
+    assert.equal(JSON.parse(files['concepts.json'])[0].id, first.id);
+    assert.ok(Object.keys(files).every(name => !name.startsWith('concepts/')));
+    assert.equal(files['concepts.json'].includes('private image guidance'), false); assert.equal(artifact.mock.callCount(), 0);
+    h.presets.best.bindings.images = binding; plugin?.mock.restore(); artifact.mock.restore();
+  }
+});
+test('a fresh Request control after a concept renders immediately without new person turns', async t => {
+  const h = await setup(t); await h.turn('first'); await rendered(h);
+  assert.equal((await h.request('second-request')).status, 202); await h.handlers.idle();
+  assert.equal(h.records.length, 2); assert.equal(h.storage.get(h.id).conceptIntent.lastAttempt.trigger, 'manual');
+});
+test('references prefer latest liked base and exactly one archived rejection', async t => {
+  const h = await setup(t); await h.turn('first'); const first = await rendered(h);
+  const feedback = (id, vote, clientEventId) => h.call(`concepts/${id}/feedback`, { clientEventId, vote });
+  await feedback(first.id, 'up', 'liked');
+  await h.request('second', `/${first.id}/regenerate`); await h.handlers.idle(); const second = h.storage.get(h.id).concepts.at(-1);
+  await feedback(second.id, 'down', 'disliked');
+  await h.request('third', `/${second.id}/regenerate`); await h.handlers.idle(); const third = h.storage.get(h.id).concepts.at(-1);
+  assert.deepEqual(h.records[2].spec.references.map(r => r.role), ['previous']);
+  assert.deepEqual(h.records[2].spec.references[0].bytes, h.storage.conceptArtifact(h.id, first.id).bytes);
+  for (const [item, eventId] of [[second, 'reject-second'], [third, 'reject-third']]) await h.call(`concepts/${item.id}/reject`, { clientEventId: eventId });
+  await h.request('fourth', `/${first.id}/regenerate`); await h.handlers.idle();
+  assert.deepEqual(h.records[3].spec.references.map(r => r.role), ['previous', 'rejected']);
+  assert.deepEqual(h.records[3].spec.references[1].bytes, h.storage.conceptArtifact(h.id, third.id).bytes);
 });

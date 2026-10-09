@@ -73,7 +73,7 @@ export function createMockReasoning() {
           signals: turns.slice(-3).map(t => t.content),
           openQuestions: turns.length < 3 ? ['What outcome would make this useful?'] : [], constraints,
           progress: { talk: { value: Math.min(1, turns.length / 4), reasoning: 'Mock turn count' },
-            build: { value: 1, reasoning: 'Capped by supported slots' } }, actor: null, engagement: null };
+            build: { value: 1, reasoning: 'Capped by supported slots' } }, actor: null, engagement: null, conceptIntent: null };
       } catch (error) { throw normalizedError(error, scope.signal); }
       finally { scope.dispose(); await invocation.finish(completed); }
     },

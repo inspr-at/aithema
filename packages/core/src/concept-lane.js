@@ -6,12 +6,6 @@ import { operationScope } from './reasoning.js';
 import { untilCancelled } from './cancellation.js';
 import { validateUIReferences } from './ui-generation.js';
 
-// Conservative literal recognition, never assistant text or inferred interest.
-// Other languages/phrasing use the explicit host intent port or Request control.
-export function expressedVisualWish(text) {
-  return typeof text === 'string' && !/\b(?:do not|don't|no|not|kein|keine|nicht)\b/iu.test(text) &&
-    /(?:\b(?:show|make|create|generate|draw|want|would like)\b.{0,60}\b(?:concept|mockup|visual|design image|ui image)\b|\b(?:zeig|zeige|erstelle|erzeuge|möchte|will)\b.{0,60}\b(?:entwurf|konzept|bild|visualisierung)\b)/iu.test(text);
-}
 export function syncConceptIntent(session, referenceIds = [], { now = Date.now(), policy, refreshReferenceIds = referenceIds } = {}) {
   let state = session.conceptIntent ?? createConceptIntent({ now });
   const reduce = event => { state = reduceConceptIntent(state, { now, ...event }, policy); };
@@ -64,14 +58,17 @@ export class ConceptLane {
     const controller = new AbortController(), abort = () => controller.abort(signal.reason);
     if (signal?.aborted) abort(); else signal?.addEventListener('abort', abort, { once: true });
     const scope = operationScope({ signal: controller.signal, deadlineAt: this.now() + this.deadlineMs });
-    const options = { signal: scope.signal, deadlineAt: this.now() + this.deadlineMs, operation: prepared.references.length ? 'edit' : 'generate' };
+    const options = { signal: scope.signal, deadlineAt: this.now() + this.deadlineMs, operation: prepared.referenceIds.length ? 'edit' : 'generate' };
     this.persist(id, { intent, status: { phase: 'pending', requestId, startedAt: this.now(), estimateMs: this.estimateMs,
       turnIds: job.turnIds, referenceIds: job.referenceIds } });
     const work = async () => {
       let admitted, failed = false;
       try {
-        scope.signal.throwIfAborted(); validateUIReferences(prepared.references);
-        const request = { prompt: conceptPrompt(session), references: prepared.references, feedback: prepared.feedback };
+        scope.signal.throwIfAborted();
+        // Planning and invalidation use identities only. Read/validate private
+        // image bytes once a generation has actually been selected.
+        const references = prepared.loadReferences(); validateUIReferences(references);
+        const request = { prompt: conceptPrompt(session), references, feedback: prepared.feedback };
         admitted = await this.admit({ session: { ...session, conceptIntent: intent }, lane: 'concept', operation: options.operation, request, options });
         let artifact;
         try { artifact = await untilCancelled(admitted.plugin.generate({ prompt: request.prompt, references: request.references }, request.feedback, admitted.options), scope.signal); }

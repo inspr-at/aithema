@@ -63,7 +63,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       const event = storage.append(id, type, data, revision);
       if (event) broadcast(id, event);
       if (event && type === 'understanding.updated') {
-        conceptHandlers.schedule(id);
+        conceptHandlers.onUnderstanding(id);
         const session = storage.get(id), question = session.understanding.openQuestions[0] ?? null;
         if ((session.focusedQuestion ?? null) !== question) {
           const focused = storage.append(id, 'question.focused', { question }, revision);
@@ -74,10 +74,14 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     }, transient: (id, event) => broadcast(id, { sessionId: id, ...event }),
   });
   const conceptHandlers = createConceptHandlers({ storage, runtime: pluginRuntime, ownership, readBody, publish: broadcast, signal: stop.signal, ...concepts });
-  const conceptTimer = setInterval(() => { for (const id of storage.list()) { const session = storage.get(id); if (!session.tombstone && session.conceptIntent?.visualIntent) conceptHandlers.schedule(id, 'idle'); } }, 1000);
-  conceptTimer.unref?.();
+  // Idle image generation is disabled: server elapsed time proves no client
+  // presence. There is no periodic session scan or reference-byte polling.
   const voiceHandlers = voice ? createVoiceHandlers({ storage, runtime: pluginRuntime, ownership, readBody, hostPrompt,
-    ...voice, publish: broadcast, onTurn(id) { lanes.supersede(id); const session = storage.get(id); conceptHandlers.onTurn(id, session.transcript.filter(t => t.role === 'user' && !t.erased).at(-1)?.id); scheduleLane(id, 'understanding'); } }) : null;
+    ...voice, publish: broadcast, onClose: id => conceptHandlers.ended(id), onTurn(id, event) {
+      lanes.supersede(id);
+      if (event?.data.role === 'user') conceptHandlers.onTurn(id, event.data.id);
+      scheduleLane(id, 'understanding');
+    } }) : null;
   async function invalidate(id, event, reason) {
     const cancelled = Promise.allSettled([lanes.cancel(id), conceptHandlers.lane.invalidate(id)]);
     failures.delete(id); broadcast(id, event);
@@ -255,12 +259,13 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       }
       if (action === 'export' && request.method === 'GET') {
         const session = storage.get(id);
+        const allowed = new Map();
         for (const operation of new Set((session.concepts ?? []).map(c => c.referenceIds.length ? 'edit' : 'generate'))) {
-          if (!await pluginRuntime.publicationAllowed(session, { operation })) throw new PluginError('not-admitted');
+          allowed.set(operation, await pluginRuntime.publicationAllowed(session, { operation }));
         }
         const current = storage.authorize(id, ownerToken);
         if (current.seq !== session.seq) throw new ConflictError('Export changed');
-        return new Response(exportSession(current, (current.concepts ?? []).map(c => storage.conceptArtifact(id, c.id))), {
+        return new Response(exportSession(current, (current.concepts ?? []).filter(c => allowed.get(c.referenceIds.length ? 'edit' : 'generate')).map(c => storage.conceptArtifact(id, c.id))), {
         headers: { 'content-type': 'application/zip', 'content-disposition': 'attachment; filename="aithema-session.zip"', 'cache-control': 'no-store' },
       });
       }
@@ -285,6 +290,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         if (session.tombstone) continue;
         for (const turn of activeTurns(session).filter(t => t.role === 'user' && Date.parse(t.at) < before)) {
           const event = storage.expire(id, turn.id); await invalidate(id, event, 'turn-expired'); schedule(id);
+          conceptHandlers.ended(id);
         }
       }
     },
@@ -301,6 +307,6 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         await voiceHandlers?.idle();
       } while (jobs.size);
     },
-    async close() { clearInterval(conceptTimer); stop.abort(); await conceptHandlers.lane.close(); await voiceHandlers?.close(); await Promise.allSettled([...jobs.values()].map(job => job.promise)); },
+    async close() { stop.abort(); await conceptHandlers.lane.close(); await voiceHandlers?.close(); await Promise.allSettled([...jobs.values()].map(job => job.promise)); },
   };
 }

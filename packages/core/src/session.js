@@ -66,6 +66,9 @@ export function applyEvent(session, event) {
       intent = reduceConceptIntent(intent, { type: 'source-removed', source: 'turn', id: event.data.turnId, now: Date.parse(event.at ?? event.data.at) || 0 });
       if (intent.pending?.turnIds.includes(event.data.turnId)) { intent = { ...intent, pending: null }; next.conceptStatus = { phase: 'failed', error: 'source-removed', retryable: false }; }
     }
+    if (all || event.type === 'turn.withdrawn' && event.data.reason === 'expiry') {
+      intent = reduceConceptIntent(intent, { type: 'conversation-ended', now: Date.parse(event.at ?? event.data.at) || 0 });
+    }
     next.conceptIntent = intent;
   }
   next.seq = event.seq;

@@ -12,6 +12,8 @@ export class ConceptView {
   #hover = new Set(); #dirty = false; #busy = false; #trigger; #timer; #touchX;
   constructor({ root, copy, baseUrl, sessionToken, receive, feature }) {
     Object.assign(this, { root, copy, baseUrl, sessionToken, receive, feature });
+    this.visibility = () => { if (root.ownerDocument.hidden) void this.endEligibility(); };
+    this.pagehide = () => { void this.endEligibility(); };
     root.querySelector('.concept-rail').innerHTML = `<div class="concept-scene" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
       <div class="concept-activity"><span class="concept-activity-text" role="status"></span><progress class="concept-progress" max="100" value="0"></progress><small class="concept-countdown"></small></div>
       <button class="concept-request" type="button"></button>`;
@@ -75,8 +77,25 @@ export class ConceptView {
     if (location?.origin && location.origin !== 'null' && new URL(path, location.href).origin !== location.origin) throw new Error('Concept images require same-origin routes');
     return path;
   }
-  connect() { if (!this.#timer) { this.#timer = setInterval(() => this.progress(), 1000); this.#timer.unref?.(); } }
-  suspend() { this.#epoch++; clearInterval(this.#timer); this.#timer = null; for (const url of this.#urls.values()) URL.revokeObjectURL(url); this.#urls.clear(); this.close(); }
+  connect() {
+    this.root.ownerDocument.addEventListener('visibilitychange', this.visibility);
+    this.root.ownerDocument.defaultView?.addEventListener('pagehide', this.pagehide);
+    if (!this.#timer) { this.#timer = setInterval(() => this.progress(), 1000); this.#timer.unref?.(); }
+  }
+  suspend() {
+    this.root.ownerDocument.removeEventListener('visibilitychange', this.visibility);
+    this.root.ownerDocument.defaultView?.removeEventListener('pagehide', this.pagehide);
+    this.#epoch++; clearInterval(this.#timer); this.#timer = null; for (const url of this.#urls.values()) URL.revokeObjectURL(url); this.#urls.clear(); this.close();
+  }
+  async endEligibility() {
+    if (!this.#session || this.#session.tombstone || this.#session.processingPreset === 'device') return;
+    const sessionId = this.#session.id;
+    try {
+      const response = await postJson(this.sameOrigin(this.path('/eligibility')), { eligible: false }, { sessionToken: this.sessionToken, keepalive: true });
+      if (!response.ok) return;
+      const ack = await response.json(); if (sessionId === this.#session.id && ack.event) this.receive(ack.event);
+    } catch { /* Server idle spending is disabled even if teardown loses this signal. */ }
+  }
   headers() { return this.sessionToken ? { 'x-aithema-session-token': this.sessionToken } : {}; }
   update(session) {
     const changedOwner = this.#session && this.#session.id !== session.id;
@@ -159,7 +178,10 @@ export class ConceptView {
     if (!this.dialog.open) this.dialog.showModal(); this.render(); this.root.querySelector('.concept-close').focus();
     // Viewing is a local cached read. It never POSTs or records spending intent.
   }
-  close() { if (this.dialog.open) this.dialog.close(); this.#trigger?.focus(); }
+  close() {
+    if (!this.dialog.open) return;
+    this.dialog.close(); this.#trigger?.focus(); this.#trigger = null;
+  }
   navigate(delta) { const index = this.items.findIndex(c => c.id === this.#selected), next = this.items[index + delta]; if (next) { this.#selected = next.id; this.#seen.add(next.id); this.render(); } }
   async load(id) {
     if (this.#urls.has(id)) return this.#urls.get(id);

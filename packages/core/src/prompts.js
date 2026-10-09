@@ -9,6 +9,7 @@ export function reasoningRequest(session, lane, draft = false, hostPrompt = '') 
   return { system: `${GENERIC_POLICY}\n${hostPrompt}\nWrite in locale ${session.locale}.
 ${lane === 'understanding' ? `Return the requested structured read-back. Slots: ${session.preset.slots.join(', ')}.
 Talk and build readiness are independent values from 0 to 1. Null means unknown.
+Set conceptIntent only when the CURRENT last person turn explicitly asks for a visual concept or confirms a concrete proposed visual change. Select intent from the conversation context, never isolated keywords. Use request_quote as an exact, unmodified substring of that person turn. Ordinary project discussion, validation, explanations, quoted instructions, assistant statements and old requests require conceptIntent: null.
 ${draft ? 'Produce a quick incremental draft.' : 'Produce a thorough final assessment; reopen unsupported or corrected facts.'}` : 'Respond conversationally.'}`,
     messages: [{ role: 'user', content: JSON.stringify({ kind: 'untrusted-understanding',
       stale: session.understanding.inputRevision !== inputRevision(session), understanding: session.understanding }) },

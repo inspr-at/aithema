@@ -1,4 +1,4 @@
-import { ConceptLane, syncConceptIntent, expressedVisualWish, reduceConceptIntent, inputRevision, PluginError, MAX_UI_REFERENCES, validateUIReferences } from '@inspr/aithema-core';
+import { ConceptLane, syncConceptIntent, corroborateConceptIntent, reduceConceptIntent, inputRevision, PluginError, MAX_UI_REFERENCES } from '@inspr/aithema-core';
 import { NotFoundError, ConflictError } from './storage.js';
 
 const json = (body, status = 200) => Response.json(body, { status, headers: { 'cache-control': 'no-store' } });
@@ -7,20 +7,24 @@ export function createConceptHandlers({ storage, runtime, ownership, readBody, p
   references = () => [] }) {
   const prepare = session => {
     const history = session.concepts ?? [];
-    const previous = history.filter(c => !c.archived && c.feedback?.vote !== 'down').at(-1);
-    const rejected = history.filter(c => c.archived || c.feedback?.vote === 'down').slice(-3);
-    const chosen = [...(previous ? [{ item: previous, role: 'previous' }] : []), ...rejected.map(item => ({ item, role: 'rejected' }))];
-    const extras = references(session); // trusted host storage port, never request bytes/URLs
+    // START: prefer the latest liked available concept, then the latest
+    // available concept; only the latest archived item is a negative reference.
+    const available = history.filter(c => !c.archived);
+    const previous = available.filter(c => c.feedback?.vote === 'up').at(-1) ?? available.at(-1);
+    const rejected = history.filter(c => c.archived).at(-1);
+    const chosen = [...(previous ? [{ item: previous, role: 'previous' }] : []), ...(rejected ? [{ item: rejected, role: 'rejected' }] : [])];
+    // Trusted host descriptors contain identities and lazy load() ports. Existing
+    // in-memory byte descriptors remain supported, without reading their bytes
+    // during planning. This port must not fetch bytes to enumerate identities.
+    const extras = references(session);
     if (!Array.isArray(extras)) throw new TypeError('Invalid concept reference port');
-    const selected = [...chosen.map(({ item, role }) => {
-      const artifact = storage.conceptArtifact(session.id, item.id);
-      if (artifact.erased) return null;
-      return { id: item.id, bytes: artifact.bytes, mediaType: artifact.mediaType, role };
-    }).filter(Boolean), ...extras].slice(0, MAX_UI_REFERENCES);
-    const privateReferences = selected.map(({ bytes, mediaType, role }) => ({ bytes, mediaType, role }));
-    validateUIReferences(privateReferences);
+    const selected = [...chosen.map(({ item, role }) => ({ id: item.id, role, load: () => storage.conceptArtifact(session.id, item.id) })), ...extras].slice(0, MAX_UI_REFERENCES);
     if (selected.some(r => !identifier(r.id))) throw new TypeError('Invalid concept reference identity');
-    return { references: privateReferences, referenceIds: selected.map(r => r.id), refreshReferenceIds: extras.map(r => r.id),
+    return { loadReferences: () => selected.map(reference => {
+      const artifact = reference.load ? reference.load() : reference;
+      if (artifact.erased) throw new NotFoundError('Concept reference erased');
+      return { bytes: artifact.bytes, mediaType: artifact.mediaType, role: reference.role };
+    }), referenceIds: selected.map(r => r.id), refreshReferenceIds: selected.filter(r => extras.includes(r)).map(r => r.id),
       feedback: JSON.stringify(history.filter(c => c.feedback?.vote !== 'clear' || c.feedback?.chips?.length)
         .slice(-8).map(c => ({ artifactId: c.id, vote: c.feedback?.vote, guidance: c.feedback?.chips ?? [], rejected: c.archived }))) };
   };
@@ -29,6 +33,13 @@ export function createConceptHandlers({ storage, runtime, ownership, readBody, p
     persist(id, data) { const event = storage.append(id, 'concept.state', data); if (event) publish(id, event); return event; },
     complete(id, artifact, metadata, data) { const event = storage.completeConcept(id, artifact, metadata, data); publish(id, event); return event; } });
   const schedule = (id, trigger = 'progress') => lane.run(id, { trigger, signal }).catch(() => {});
+  function ended(id) {
+    const session = storage.get(id);
+    if (session.tombstone || session.conceptIntent?.eligible === false && !session.conceptIntent?.modelIntentTurnId) return null;
+    const intent = reduceConceptIntent(session.conceptIntent, { type: 'conversation-ended', now: Date.now() }, policy);
+    const event = storage.append(id, 'concept.state', { intent, status: session.conceptStatus });
+    if (event) publish(id, event); return event;
+  }
   async function gate(session, { read = false, operation = 'generate' } = {}) {
     if (session.tombstone || session.consentWithdrawn || !read && session.paused) throw new PluginError('not-admitted');
     if (read) {
@@ -38,13 +49,37 @@ export function createConceptHandlers({ storage, runtime, ownership, readBody, p
       if (!matrix[session.processingPreset ?? 'best']?.images?.available) throw new PluginError('not-admitted');
     }
   }
-  return { lane, schedule,
+  return { lane, schedule, ended,
     onTurn(id, turnId) {
-      const session = storage.get(id), turn = session.transcript.find(t => t.id === turnId && t.role === 'user' && !t.erased);
-      if (turn && expressedVisualWish(turn.content) && session.conceptIntent?.visualIntent?.id !== turnId) lane.recordIntent(id, { intentId: turnId, sourceTurnId: turnId });
+      const session = storage.get(id), turn = session.transcript.find(t => t.id === turnId && t.role === 'user' && !t.erased && !t.withdrawn);
+      if (!turn || session.consentWithdrawn || session.tombstone) return;
+      const prepared = prepare(session);
+      let intent = syncConceptIntent(session, prepared.referenceIds, { policy, refreshReferenceIds: prepared.refreshReferenceIds });
+      intent = reduceConceptIntent(intent, { type: 'person-turn', id: turn.id, now: Date.now() }, policy);
+      const event = storage.append(id, 'concept.state', { intent, status: session.conceptStatus }); publish(id, event);
+      schedule(id);
+    },
+    onUnderstanding(id) {
+      const session = storage.get(id), u = session.understanding;
+      if (session.consentWithdrawn || session.tombstone || u.draft || u.inputRevision !== inputRevision(session)) return;
+      const turn = session.transcript.filter(t => t.role === 'user' && !t.erased && !t.withdrawn).at(-1);
+      if (turn && turn.id === session.conceptIntent?.modelIntentTurnId) {
+        const selected = corroborateConceptIntent(u.conceptIntent, session.transcript);
+        const intent = reduceConceptIntent(session.conceptIntent, { type: 'model-intent-consumed', now: Date.now() }, policy);
+        const event = storage.append(id, 'concept.state', { intent, status: session.conceptStatus }); publish(id, event);
+        if (selected) lane.recordIntent(id, { intentId: turn.id, sourceTurnId: turn.id });
+      }
       schedule(id);
     },
     async handle(request) {
+      const eligibility = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})\/concepts\/eligibility$/u.exec(new URL(request.url).pathname);
+      if (eligibility) {
+        const id = eligibility[1]; storage.authorize(id, ownership.token(request));
+        if (request.method !== 'POST') return json({ error: 'method-not-allowed' }, 405);
+        const body = JSON.parse(Buffer.from(await readBody(request)).toString('utf8'));
+        if (body?.eligible !== false) throw new TypeError('Only ending eligibility may be signalled');
+        return json({ event: ended(id) });
+      }
       const match = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})\/concepts(?:\/([a-zA-Z0-9_-]{1,128})(?:\/(image|provenance|feedback|regenerate|reject))?)?$/u.exec(new URL(request.url).pathname);
       if (!match) return null;
       const [, id, artifactId, action] = match;
@@ -73,15 +108,16 @@ export function createConceptHandlers({ storage, runtime, ownership, readBody, p
       let trigger;
       const result = storage.conceptAction(id, body.clientEventId, bytes, current => {
         if (!artifactId || action === 'regenerate') {
-          if (body.intent !== true || !identifier(body.sourceTurnId) || !current.transcript.some(t => t.id === body.sourceTurnId && t.role === 'user' && !t.erased && !t.withdrawn)) throw new TypeError('Recorded person intent required');
+          if (body.intent !== true || typeof body.sourceTurnId !== 'string' || body.sourceTurnId.length > 256 || !current.transcript.some(t => t.id === body.sourceTurnId && t.role === 'user' && !t.erased && !t.withdrawn)) throw new TypeError('Recorded person intent required');
           if (current.conceptIntent?.pending) throw new ConflictError('Concept already pending');
           const prepared = prepare(current);
           let intent = syncConceptIntent(current, prepared.referenceIds, { policy, refreshReferenceIds: prepared.refreshReferenceIds });
+          intent = reduceConceptIntent(intent, { type: 'eligibility', eligible: true, now: Date.now() }, policy);
           intent = reduceConceptIntent(intent, { type: 'intent-recorded', id: body.clientEventId, sourceTurnId: body.sourceTurnId, now: Date.now() }, policy);
           intent = syncConceptIntent({ ...current, conceptIntent: intent }, prepared.referenceIds, { policy, refreshReferenceIds: prepared.refreshReferenceIds });
           // Initial requests wait for understanding. Explicit retries/refinements
           // may use manual planning after a previously admitted attempt.
-          trigger = artifactId || current.conceptStatus?.phase === 'failed' ? 'manual' : 'progress';
+          trigger = artifactId || current.conceptIntent?.lastAttempt || current.concepts?.length ? 'manual' : 'progress';
           return { type: 'concept.state', data: { intent, status: { phase: 'waiting' } } };
         }
         if (!['feedback', 'reject'].includes(action) || !['up', 'down', 'clear'].includes(body.vote ?? 'clear') ||

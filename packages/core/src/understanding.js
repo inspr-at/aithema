@@ -43,6 +43,15 @@ export function constraintAnswer(raw) {
     ? null : { value, evidence };
 }
 export const isConstraintAnswered = raw => constraintAnswer(raw) !== null;
+// START concept-action: the model selects intent; exact person text bounds it.
+// Only the latest person turn can supply a fresh wish. No normalization or
+// keyword recognition can manufacture spending permission.
+export function corroborateConceptIntent(raw, transcript = []) {
+  const quote = raw?.request_quote;
+  const turn = transcript.filter(t => t.role === 'user' && !t.erased && !t.withdrawn).at(-1);
+  return typeof quote === 'string' && quote.trim() && quote.length <= 8000 && typeof turn?.content === 'string' && turn.content.includes(quote)
+    ? { request_quote: quote } : null;
+}
 export function corroborateConstraintSlots(slots, transcript, preset = START_PRESET) {
   const statements = transcript.filter(t => t.role === 'user' && !t.erased && !t.withdrawn).map(t => normalize(t.content));
   return Object.fromEntries(preset.slots.map(slot => {
@@ -66,6 +75,7 @@ export function capBuildReadiness(raw, transcript, preset = START_PRESET) {
     },
     actor: reading(raw.actor, 'type', preset.actors),
     engagement: reading(raw.engagement, 'kind', preset.engagements),
+    conceptIntent: corroborateConceptIntent(raw.conceptIntent, transcript),
     readinessAssessed: raw.readinessAssessed ?? (raw.progress !== undefined && raw.constraints !== undefined),
   };
 }
@@ -84,7 +94,7 @@ export function reduceUnderstanding(previous, raw, { transcript, inputRevision, 
     }, transcript, preset);
   }
   if (actor?.evidence === 'selected') next.actor = structuredClone(actor);
-  return { ...next, version: 1, inputRevision, locale, draft,
+  return { ...next, conceptIntent: draft ? null : corroborateConceptIntent(raw.conceptIntent, transcript), version: 1, inputRevision, locale, draft,
     questionHistory: cleanQuestions([...next.openQuestions, ...(previous?.questionHistory ?? [])]) };
 }
 
@@ -98,5 +108,6 @@ export function understandingSchema(preset = START_PRESET) {
   return object({ summary: string, signals: { type: 'array', items: string }, openQuestions: { type: 'array', items: string },
     constraints: object(Object.fromEntries(preset.slots.map(s => [s, answer]))),
     progress: object({ talk: readiness, build: readiness }), actor: reading('type', preset.actors),
-    engagement: reading('kind', preset.engagements) });
+    engagement: reading('kind', preset.engagements),
+    conceptIntent: { anyOf: [object({ request_quote: string }), { type: 'null' }] } });
 }

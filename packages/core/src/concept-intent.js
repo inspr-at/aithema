@@ -18,7 +18,7 @@ export function progressTrigger(progress, policy) {
   return progress >= thresholds[2] ? 'late' : progress >= thresholds[1] ? 'midpoint' : progress >= thresholds[0] ? 'early' : null;
 }
 export function createConceptIntent({ now = 0, consentRevision = 0, consented = false } = {}) {
-  return { inputRevision: null, turnIds: [], referenceIds: [], visualIntent: null, armed: null,
+  return { inputRevision: null, turnIds: [], referenceIds: [], visualIntent: null, modelIntentTurnId: null, armed: null,
     lastActivityAt: now, paused: false, eligible: true, consented, consentRevision,
     invalidation: 0, sourceInvalidations: {}, attemptedRevisions: [], lastAttempt: null, pending: null, history: [] };
 }
@@ -73,7 +73,7 @@ export function planConceptIntent(state, { trigger, now } = {}, policy) {
     consentRevision: state.consentRevision, invalidation: state.invalidation,
     sourceInvalidations: Object.fromEntries(sourceKeys(state).map(key => [key, sourceVersion(state.sourceInvalidations, key)])) } };
 }
-/** Every event is a durable host fact. UI visibility and call termination are inert. */
+/** Every event is a durable host fact. Ending never requests a render. */
 export function reduceConceptIntent(state, event, policy) {
   const p = policyFor(policy);
   if (!Number.isFinite(event.now)) throw new TypeError('Concept events require host time');
@@ -91,6 +91,10 @@ export function reduceConceptIntent(state, event, policy) {
       if (!state.consented || typeof event.id !== 'string' || !event.id || !state.turnIds.includes(event.sourceTurnId)) return state;
       return { ...state, visualIntent: { id: event.id, sourceTurnId: event.sourceTurnId }, lastActivityAt: event.now };
     case 'readiness': return { ...state, armed: progressTrigger(event.percent, p) };
+    case 'person-turn':
+      if (!state.consented || !state.turnIds.includes(event.id)) return state;
+      return { ...state, modelIntentTurnId: event.id, eligible: true, lastActivityAt: event.now };
+    case 'model-intent-consumed': return { ...state, modelIntentTurnId: null };
     case 'activity': return { ...state, lastActivityAt: event.now };
     case 'eligibility': return { ...state, eligible: event.eligible === true, lastActivityAt: event.now };
     case 'pause': return { ...state, paused: event.paused === true, lastActivityAt: event.now };
@@ -101,7 +105,7 @@ export function reduceConceptIntent(state, event, policy) {
       // same coverage advances the revision without invalidating paid work.
       const changed = event.covered !== state.consented;
       return { ...state, consented: event.covered === true, consentRevision: event.revision,
-        visualIntent: changed ? null : state.visualIntent, invalidation: state.invalidation + (changed ? 1 : 0),
+        visualIntent: changed ? null : state.visualIntent, modelIntentTurnId: null, invalidation: state.invalidation + (changed ? 1 : 0),
         history: changed ? [] : state.history, lastActivityAt: event.now };
     }
     case 'source-removed': {
@@ -126,7 +130,8 @@ export function reduceConceptIntent(state, event, policy) {
       return { ...state, pending: null, lastActivityAt: event.now, history: disposition.kind === 'reject' ? state.history :
         [...state.history, { ...state.pending, artifactId: event.artifactId, createdAt: event.now }] };
     }
-    case 'viewer-open': case 'conversation-ended': return state;
+    case 'conversation-ended': return { ...state, eligible: false, modelIntentTurnId: null, lastActivityAt: event.now };
+    case 'viewer-open': return state;
     default: throw new TypeError('Unknown concept event');
   }
 }

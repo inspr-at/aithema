@@ -127,6 +127,7 @@ core imports, as the demo does. Copy and CSS tokens belong to the host.
 | `POST /api/sessions/:id/consent` | `{granted: true/false}`; grants delegate to the host ledger; withdrawal cancels lanes |
 | `GET /api/sessions/:id/concepts` | Saved concept metadata, progress, intent and cost ceiling |
 | `POST /api/sessions/:id/concepts` | Record `{clientEventId, intent: true, sourceTurnId}` and request a concept once understanding is ready |
+| `POST /api/sessions/:id/concepts/eligibility` | Record `{eligible: false}` on page hide/end; never request a render |
 | `GET /api/sessions/:id/concepts/:artifactId/image` | Owner-authenticated bytes; `?download=1` returns an attachment |
 | `GET /api/sessions/:id/concepts/:artifactId/provenance` | Provenance sidecar |
 | `POST /api/sessions/:id/concepts/:artifactId/feedback` | `{clientEventId, vote: up/down/clear, chips: string[]}`; no generation |
@@ -526,12 +527,16 @@ Embedding replaces existing PNG/WebP XMP blocks with one current record.
 timestamps and may override `{thresholds: [25,40,72], idleMs: 120000,
 refreshTurns: 2, historyMax: 1000}`. Readiness only arms milestones; a durable
 `intent-recorded` event bound to a substantive visitor turn is required.
-Opening a viewer and ending a conversation are inert. Pause blocks fresh work
+Opening a viewer never records intent; ending records durable ineligibility. Pause blocks fresh work
 for all triggers. Same-milestone progress waits for two new answers unless a
 new uploaded reference or recorded visual intent exists. Generated history
 used for continuity and regressed readiness cannot earn an early refresh; idle
-can refresh after one answer and 120 seconds of quiet since input or the last render. Hidden/busy
-eligibility and pause/resume reset the quiet clock. Automatic failed attempts
+can refresh after one answer and 120 seconds of quiet since input or the last render
+in the pure policy. The server has no idle timer or periodic session scan and never
+schedules idle generation: elapsed server time provides no client presence.
+Voice close, expiry/erasure and page hide record `eligible: false`; a new person
+turn or explicit request restores eligibility. Hidden/busy eligibility and
+pause/resume reset the pure policy's quiet clock. Automatic failed attempts
 also consume the revision's deduplication slot.
 
 The reducer records a frozen job before dispatch. A normal input advance keeps
@@ -560,10 +565,15 @@ again. Planning and request events require an explicit `progress`, `idle` or
 only current, final understanding on the same readiness scale shown in the UI.
 A first render needs an armed threshold as well as intent; quiet time cannot
 replace enough understanding. The Request control is itself an expressed visual
-wish, bound to an active person turn. A conservative English/German literal
-recognizer also records wishes such as “show a visual concept” from person turns
-(including durable voice finals); assistant and negated wishes are inert.
-Other phrases/languages use the explicit request control or host intent port.
+wish, bound to an active person turn. After an earlier admitted attempt, that
+control uses the manual trigger, even with no additional turns. Conversational
+intent comes only from the model's structured understanding output:
+`conceptIntent: {request_quote: "exact person excerpt"}` or `null`. The quote must
+be an exact substring of the latest active person turn; assistant text and
+unmatched quotes are rejected. A durable current-turn marker is consumed once
+and cleared on consent changes/end, preventing old turns from reviving intent
+on assistant voice events, resume or a new consent grant. No keyword matcher
+records spending intent. The deterministic mock always returns `null`.
 
 `presets[preset].bindings.images` uses `createImageBinding({...common,
 imageCost: {inputMicro, outputMicro, maxInputTokens, maxOutputTokens}})`. The
@@ -598,8 +608,10 @@ while unrelated history remains. Consent withdrawal and full erasure remove all
 concept content, cancel pending work and await budget settlement. Removed reference
 IDs have the same path through `await handlers.removeConceptReference(id, referenceId)`.
 Replay and hydration replace erased artifacts/feedback with tombstones. Export
-includes saved images, `concepts.json` and provenance sidecars; image-containing
-ZIPs require current image coverage and cannot resurrect removed content.
+includes saved images, `concepts.json` and provenance sidecars when current image
+coverage permits publication. Otherwise it omits image bytes, provenance and
+feedback content, retains non-content concept metadata, and still exports the
+transcript and understanding. Removed content cannot return through export.
 
 The feature matrix gates requests/refinements and feedback with reasons; device
 images remain unavailable. Pause permits cached images. The UI reserves fixed
@@ -635,8 +647,13 @@ do not select a provider. No live calls were run.
 
 AIT-100 part B remains separate. Hosts can already provide
 `concepts: {references(session)}` to `createHandlers`: return owner-scoped,
-tombstone-aware `{id, bytes, mediaType, role: 'upload'}` records with immutable
-opaque source IDs, never URLs. At most nine total references are used, each
+tombstone-aware `{id, role: 'upload', load: () => ({bytes, mediaType})}` descriptors
+with immutable opaque source IDs, never URLs. Enumerate metadata without reading
+bytes; `load()` runs only after planning selects generation. Existing in-memory
+`{id, bytes, mediaType, role: 'upload'}` descriptors also work. The base reference
+is the latest liked available item, falling back to the latest available item;
+one latest archived rejection is sent as a negative reference, matching START.
+At most nine total references are used, each
 at most 12 MiB. After durably removing the upload source, await
 `handlers.removeConceptReference(sessionId, sourceId)` before acknowledgement.
 The included fake tests exercise this port, dependency-scoped removal and an

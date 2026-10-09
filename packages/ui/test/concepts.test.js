@@ -115,3 +115,20 @@ test('withdrawal revokes dependent images immediately while hovered; host copy r
   c.configure({ copy, session: createSession({ processingPreset: 'device' }) });
   assert.equal(root.querySelector('.concept-request').disabled, true); assert.match(root.querySelector('.concept-request').title, /unavailable on device/);
 });
+
+test('closing an already closed viewer during withdrawal leaves composer focus in place', async t => {
+  const { c, root } = setup(t); t.mock.method(c, 'connectedCallback', () => {}); document.body.append(c); await tick();
+  const trigger = root.querySelector('.concept-tab'); trigger.focus(); trigger.click(); await tick();
+  root.querySelector('.concept-close').click(); assert.equal(root.activeElement === trigger, true);
+  const composer = root.querySelector('textarea'); composer.focus();
+  c.receive({ seq: c.session.seq + 1, type: 'turn.withdrawn', data: { turnId: 'first', at: new Date().toISOString() } });
+  assert.equal(root.activeElement === composer, true);
+});
+test('hiding the page sends durable ineligibility without requesting a concept', async t => {
+  const { c, calls } = setup(t); await tick();
+  t.mock.method(document, 'hidden', () => true, { getter: true });
+  document.dispatchEvent(new window.Event('visibilitychange')); await tick();
+  const signal = calls.find(c => c.url.endsWith('/concepts/eligibility'));
+  assert.ok(signal); assert.deepEqual(JSON.parse(signal.options.body), { eligible: false });
+  assert.equal(calls.filter(c => c.options.body && !c.url.endsWith('/concepts/eligibility')).length, 0);
+});
