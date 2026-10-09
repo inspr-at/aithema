@@ -255,26 +255,100 @@ test('Start waits for the orphan cleanup and a 409 conflict gets a precise messa
   assert.equal(root.querySelector('.voice-state').textContent, en.voiceConflict);
   assert.notEqual(en.voiceConflict, en.voiceConnectionFailed); assert.equal(rail.button('retry').disabled, false);
 });
+const memoryStorage = () => { const records = new Map();
+  return { getItem: k => records.get(k) ?? null, setItem: (k, v) => records.set(k, v), removeItem: k => records.delete(k) }; };
+const until = async (predicate, message) => {
+  for (let i = 0; i < 300; i++) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 10)); }
+  assert.fail(message);
+};
+const sse = events => new Response(new ReadableStream({ start(controller) {
+  for (const event of events) controller.enqueue(new TextEncoder().encode(`id: ${event.seq}\ndata: ${JSON.stringify(event)}\n\n`));
+} }), { headers: { 'content-type': 'text/event-stream' } });
+// Reload an orphaned call: `history` is what the server replays after the journal's cursor.
+async function reloadOrphan({ record, seq, history }) {
+  const storage = memoryStorage(), original = globalThis.sessionStorage, nativeFetch = globalThis.fetch, calls = [];
+  const session = createSession({ demo: true }); session.paused = true; session.seq = seq;
+  voiceJournal(storage, session.id).save(record);
+  globalThis.sessionStorage = storage;
+  globalThis.fetch = async (url, options = {}) => {
+    calls.push({ url, body: options.body && JSON.parse(options.body), keepalive: options.keepalive, after: new Headers(options.headers).get('last-event-id') });
+    if (url.endsWith('/events')) return sse(history.filter(event => event.seq > Number(new Headers(options.headers).get('last-event-id'))));
+    if (url.endsWith('/pause')) return Response.json({ event: { sessionId: session.id, seq: session.seq + 1, type: 'session.paused', data: { paused: false } } });
+    return Response.json({ closureConfirmed: true });
+  };
+  try {
+    const c = document.createElement('aithema-session'); c.configure({ copy: en, session });
+    await until(() => voiceJournal(storage, session.id).read() === null && calls.length > 0, 'the orphan was not ended');
+    for (let i = 0; i < 20; i++) await tick();
+    return { c, calls, session };
+  } finally { globalThis.sessionStorage = original; globalThis.fetch = nativeFetch; }
+}
+const pauseEvent = (seq, paused) => ({ seq, type: 'session.paused', data: { paused } });
 test('a reloaded page ends its own orphaned call through the close route and lifts only its own automatic pause', async () => {
-  const records = new Map(), storage = { getItem: k => records.get(k) ?? null, setItem: (k, v) => records.set(k, v), removeItem: k => records.delete(k) };
-  const original = globalThis.sessionStorage, nativeFetch = globalThis.fetch, calls = [];
-  for (const [autoPaused, expected] of [[true, false], [false, true]]) {
-    const session = createSession({ demo: true }); session.paused = true; calls.length = 0;
-    voiceJournal(storage, session.id).save({ callId: 'old-call', providerSessionId: 'old-provider', autoPaused });
-    globalThis.sessionStorage = storage;
-    globalThis.fetch = async (url, options) => {
-      calls.push({ url, body: JSON.parse(options.body), keepalive: options.keepalive });
-      if (url.endsWith('/pause')) return Response.json({ event: { sessionId: session.id, seq: session.seq + 1, type: 'session.paused', data: { paused: false } } });
-      return Response.json({ closureConfirmed: true });
-    };
-    try {
-      const c = document.createElement('aithema-session'); c.configure({ copy: en, session });
-      for (let i = 0; i < 5; i++) await tick();
-      assert.deepEqual(calls[0], { url: `/api/sessions/${session.id}/voice/old-call/close`,
-        body: { providerSessionId: 'old-provider', reason: 'page-reloaded' }, keepalive: true });
-      assert.equal(voiceJournal(storage, session.id).read(), null);
-      assert.equal(c.session.paused, expected, autoPaused ? 'an automatic pause is lifted' : 'a deliberate pause stays');
-      assert.equal(calls.length, autoPaused ? 2 : 1);
-    } finally { globalThis.sessionStorage = original; globalThis.fetch = nativeFetch; }
-  }
+  const record = { callId: 'old-call', providerSessionId: 'old-provider' };
+  const own = await reloadOrphan({ record: { ...record, autoPaused: true, pausedAfter: 4 }, seq: 5, history: [pauseEvent(5, true)] });
+  assert.deepEqual(own.calls[0], { url: `/api/sessions/${own.session.id}/voice/old-call/close`,
+    body: { providerSessionId: 'old-provider', reason: 'page-reloaded' }, keepalive: true, after: null });
+  assert.equal(own.calls[1].after, '4', 'the replay starts at the cursor recorded with the automatic pause');
+  assert.equal(own.c.session.paused, false, 'exactly its own automatic pause is lifted');
+  const deliberate = await reloadOrphan({ record: { ...record, autoPaused: false }, seq: 5, history: [pauseEvent(5, true)] });
+  assert.equal(deliberate.c.session.paused, true, 'a deliberate pause stays'); assert.equal(deliberate.calls.length, 1);
+});
+test('a reload never lifts a foreign pause: another tab resumed, called and paused by hand (AIT-116 D4)', async () => {
+  const record = { callId: 'old-call', providerSessionId: 'old-provider', autoPaused: true, pausedAfter: 4 };
+  // Own automatic pause, then another tab: resume, a new call, a manual pause.
+  const foreign = await reloadOrphan({ record, seq: 7, history: [pauseEvent(5, true), pauseEvent(6, false), pauseEvent(7, true)] });
+  assert.equal(foreign.c.session.paused, true, 'a manual pause from another tab stays');
+  assert.ok(!foreign.calls.some(call => call.url.endsWith('/pause')), 'no resume request');
+  assert.equal(foreign.c.shadowRoot.querySelector('.status').textContent, en.pausedResume, 'a clear Resume prompt');
+  // Without a recorded cursor the origin of the pause is unknown: stay paused and prompt.
+  const unknown = await reloadOrphan({ record: { ...record, pausedAfter: undefined }, seq: 5, history: [pauseEvent(5, true)] });
+  assert.equal(unknown.c.session.paused, true); assert.equal(unknown.calls.length, 1);
+  assert.equal(unknown.c.shadowRoot.querySelector('.status').textContent, en.pausedResume);
+  unknown.c.receive({ seq: 6, type: 'session.paused', data: { paused: false } });
+  unknown.c.receive({ seq: 7, type: 'session.paused', data: { paused: true } });
+  assert.equal(unknown.c.shadowRoot.querySelector('.status').textContent, en.paused, 'the prompt ends with that pause');
+});
+test('a copied journal never ends a call another live tab still drives (AIT-116 D4 cross-tab)', async t => {
+  const storage = memoryStorage(), original = globalThis.sessionStorage, nativeFetch = globalThis.fetch, closes = [];
+  const session = createSession({ demo: true });
+  session.featureMatrix = { best: { voice: { available: true }, text: { available: true }, analysis: { available: true } } };
+  globalThis.sessionStorage = storage;
+  globalThis.fetch = async url => { closes.push(url); return Response.json({ closureConfirmed: true }); };
+  const events = voiceEvents(), driver = document.createElement('aithema-session');
+  // configure() tears the rail down, heartbeat included, even when an assertion fails first.
+  t.after(() => { events.end(); driver.configure({ copy: en, session: createSession({ demo: true }) }); globalThis.sessionStorage = original; globalThis.fetch = nativeFetch; });
+  driver.configure({ copy: en, session, voiceClient: { manifest, async start({ callId }) {
+    return { callId, providerSessionId: 'driver-provider', events, async close() { events.end(); return { closureConfirmed: true }; },
+      async setInput() {}, async setOutput() {}, async updateContext() {} };
+  } } });
+  driver.shadowRoot.querySelector('.voice-start').click();
+  await until(() => voiceJournal(storage, session.id).read(), 'the driving tab journals its call');
+  const copied = memoryStorage(); voiceJournal(copied, session.id).save(voiceJournal(storage, session.id).read());
+  // An auxiliary window inherits the opener's sessionStorage, journal included.
+  globalThis.sessionStorage = copied;
+  const auxiliary = document.createElement('aithema-session'); auxiliary.configure({ copy: en, session });
+  t.after(() => auxiliary.remove());
+  await until(() => voiceJournal(copied, session.id).read() === null, 'the copy is dropped once the owner answers');
+  assert.deepEqual(closes, [], 'no close request for a call another tab drives');
+  assert.equal(driver.shadowRoot.querySelector('.audio-rail').dataset.state, 'listening');
+  // Once nothing answers for the call, a reload ends it as before.
+  globalThis.sessionStorage = storage; await driver.shadowRoot.querySelector('.voice-close').click();
+  voiceJournal(storage, session.id).save({ callId: 'gone-call', providerSessionId: 'gone-provider', autoPaused: false });
+  const reloaded = document.createElement('aithema-session'); reloaded.configure({ copy: en, session });
+  await until(() => closes.length === 1, 'an unanswered journal is closed');
+  assert.match(closes[0], /voice\/gone-call\/close$/u);
+});
+test('a hidden page during a pending microphone toggle pauses once the toggle settles (AIT-116 D7)', async t => {
+  let release; const journal = voiceJournal(memoryStorage(), 's1');
+  const { rail, root } = fixture(t, { journal }); await rail.start();
+  rail.session.setInput = () => new Promise(resolve => { release = resolve; });
+  rail.button('input').click(); await tick(); assert.equal(rail.busy, true);
+  t.mock.method(document, 'hidden', () => true, { getter: true });
+  document.dispatchEvent(new window.Event('visibilitychange')); await tick();
+  assert.equal(root.dataset.state, 'listening', 'nothing interrupts the pending command');
+  release(); for (let i = 0; i < 5; i++) await tick();
+  assert.equal(root.dataset.state, 'paused', 'the queued visibility pause applies afterwards');
+  assert.equal(rail.input, false); assert.equal(journal.read().autoPaused, true);
+  t.mock.restoreAll();
 });

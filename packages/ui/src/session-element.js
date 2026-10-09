@@ -10,12 +10,55 @@ import { settingsStyles } from './settings-styles.js';
 import { SettingsDialog, ICONS, PRESET_ORDER, reasonText, engineView } from './settings-dialog.js';
 import { LocalConnector } from './local-connector.js';
 import { postJson } from './post-json.js';
-import { voiceJournal, closeVoiceCall } from './voice-orphan.js';
+import { voiceJournal, closeVoiceCall, answerVoicePings, voiceCallDrivenElsewhere } from './voice-orphan.js';
+
+const PANES = '.transcript-shell, .analysis-content, .preset-panel';
+function clearSlack(pane) { pane.style.removeProperty('--aithema-slack-top'); pane.style.removeProperty('--aithema-slack-bottom'); }
+// Empty space below a pane's content: padding fills it before it adds any scroll room.
+function spareSpace(pane) {
+  const last = pane.lastElementChild; if (!last) return 0;
+  const end = last.getBoundingClientRect().bottom + parseFloat(getComputedStyle(last).marginBottom) + parseFloat(getComputedStyle(pane).paddingBottom);
+  return Math.max(0, pane.getBoundingClientRect().top + pane.clientTop + pane.clientHeight - end);
+}
+// Server-sent events from a fetch body, one parsed event at a time.
+async function* serverEvents(reader) {
+  let buffer = ''; const decoder = new TextDecoder();
+  while (true) {
+    const { done, value } = await reader.read(); if (done) return;
+    buffer += decoder.decode(value, { stream: true });
+    if (buffer.length > 2_000_000) throw new Error('Event stream too large');
+    let boundary;
+    while ((boundary = buffer.indexOf('\n\n')) >= 0) {
+      const block = buffer.slice(0, boundary); buffer = buffer.slice(boundary + 2);
+      const data = block.split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5)).join('\n');
+      if (data) yield JSON.parse(data);
+    }
+  }
+}
+// Keyed children: an item whose key survives keeps its node (and with it focus and the
+// pointer anchor); nodes move only when the order changed.
+function reconcile(parent, entries, create, update) {
+  const old = new Map([...parent.children].map(node => [node.dataset.key, node]));
+  let next = parent.firstElementChild;
+  for (const [key, value] of entries) {
+    let node = old.get(key); old.delete(key);
+    if (!node) { node = create(value); node.dataset.key = key; }
+    update(node, value);
+    if (node !== next) parent.insertBefore(node, next); else next = next.nextElementSibling;
+  }
+  for (const node of old.values()) node.remove();
+}
+const NONE = '\u0000none';
+// Repeated values get distinct keys by occurrence.
+function textKeys(values) {
+  const seen = new Map();
+  return values.map(value => { const n = seen.get(value) ?? 0; seen.set(value, n + 1); return [`${value}\u0000${n}`, value]; });
+}
 
 export class AithemaSession extends HTMLElement {
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
   #open = []; #cleared = []; #failure = false; #sending = false;
-  #pointer = null; #onTranscript = false; #follow = true; #connection = ''; #notice = ''; #journal; #orphan;
+  #pointer = null; #onTranscript = false; #follow = true; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false;
   #dialog; #connector; #createDevice; #deviceEndpoint; #chooser = { choice: null, busy: false, error: '' };
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
@@ -23,9 +66,7 @@ export class AithemaSession extends HTMLElement {
     this.addEventListener('pointermove', e => { this.#pointer = { x: e.clientX, y: e.clientY }; }, { passive: true });
     this.addEventListener('pointerleave', () => {
       this.#pointer = null;
-      for (const pane of this.shadowRoot.querySelectorAll('[style*="--aithema-slack"]')) {
-        pane.style.removeProperty('--aithema-slack-top'); pane.style.removeProperty('--aithema-slack-bottom');
-      }
+      for (const pane of this.shadowRoot.querySelectorAll(PANES)) clearSlack(pane);
     });
   }
   /**
@@ -47,17 +88,25 @@ export class AithemaSession extends HTMLElement {
     this.#session = structuredClone(session); this.#sessionToken = sessionToken; this.#cursor = session.seq; this.#partials.clear(); this.#reasoningRevision = 0;
     this.#restoreFailure(); this.#pending = null; this.#sending = false;
     this.#invalidatedAt = 0; this.#chooser = { choice: null, busy: false, error: '' };
-    this.#open = []; this.#cleared = []; this.#follow = true; this.#onTranscript = false; this.#notice = ''; this.#connection = '';
+    this.#open = []; this.#cleared = []; this.#follow = true; this.#onTranscript = false; this.#notice = ''; this.#connection = ''; this.#pausePrompt = false;
     // Every conversation keeps a journal: a choice at conversation start can switch it out of
     // On my device in place, and a device conversation never starts a call, so its journal stays empty.
     this.#journal = voiceJournal(globalThis.sessionStorage, session.id);
     this.#mount();
+    this.#pings ??= answerVoicePings(() => this.#rail?.session?.callId ?? null);
     this.#orphan = this.#endOrphanedCall();
     if (this.isConnected) { this.#connect(); this.#watchPage(true); }
     if (reopen) this.shadowRoot.querySelector('.settings-open').focus();
   }
-  connectedCallback() { if (this.#session) { this.#concept?.connect(); this.#connect(); this.#watchPage(true); } }
-  disconnectedCallback() { this.#watchPage(false); this.#concept?.suspend(); this.#rail?.destroy(); this.#abort?.abort(); this.#deviceController?.abort(); }
+  connectedCallback() {
+    if (!this.#session) return;
+    this.#pings ??= answerVoicePings(() => this.#rail?.session?.callId ?? null);
+    this.#concept?.connect(); this.#connect(); this.#watchPage(true);
+  }
+  disconnectedCallback() {
+    this.#watchPage(false); this.#concept?.suspend(); this.#rail?.destroy(); this.#abort?.abort(); this.#deviceController?.abort();
+    this.#pings?.close(); this.#pings = null;
+  }
   reportVoicePlaybackBlocked() { this.#rail?.reportPlaybackBlocked(); }
   get session() { return structuredClone(this.#session); }
   // A visitor-connected local model takes precedence over a host-supplied device client.
@@ -136,7 +185,7 @@ export class AithemaSession extends HTMLElement {
     });
     this.#rail = new AudioRail({ root: root.querySelector('.audio-rail'), copy: this.#copy, client: this.#voiceClientFor(),
       feature: () => this.#feature('voice', true), playback: this.#voicePlayback, journal: this.#journal ?? undefined,
-      ready: () => this.#orphan, onState: () => this.#clearNotice(),
+      ready: () => this.#orphan, cursor: () => this.#cursor, onState: () => this.#clearNotice(),
       context: () => ({ understanding: this.#session.understanding, focusedQuestion: this.#session.focusedQuestion ?? null }),
       onEnd: () => {
         if (this.#pending) { delete this.#pending.voiceCallId; delete this.#pending.providerSessionId; }
@@ -162,6 +211,7 @@ export class AithemaSession extends HTMLElement {
     }, { passive: true });
     shell.addEventListener('pointerenter', () => { this.#onTranscript = true; });
     shell.addEventListener('pointerleave', () => { this.#onTranscript = false; if (this.#follow) this.#scrollToLatest(); });
+    for (const pane of root.querySelectorAll(PANES)) pane.addEventListener('pointerleave', () => clearSlack(pane));
     this.#render('transcript'); this.#render('aside'); this.#render('composer');
   }
   async #setPaused(paused) {
@@ -174,17 +224,43 @@ export class AithemaSession extends HTMLElement {
     } catch { if (sessionId === this.#session.id) this.#status(this.#copy.controlFailed); }
   }
   // A reload cannot drive the call the previous page started. End it through the
-  // owner-authenticated close route, and undo only a pause the hidden page made itself.
+  // owner-authenticated close route, unless another live tab still drives it (a copied
+  // journal), and undo only the exact pause the hidden page made itself.
   async #endOrphanedCall() {
     const record = this.#journal?.read(), sessionId = this.#session.id;
     if (!record) return;
     try {
+      if (await voiceCallDrivenElsewhere(record.callId)) { if (sessionId === this.#session.id) this.#journal.clear(); return; }
+      if (sessionId !== this.#session.id) return;
       const response = await closeVoiceCall({ baseUrl: this.#base, sessionId, sessionToken: this.#sessionToken, record, reason: 'page-reloaded' });
       if (!response.ok && response.status !== 404) return;
       if (sessionId !== this.#session.id) return;
       this.#journal.clear();
-      if (record.autoPaused && this.#session.paused && !this.#rail?.session) await this.#setPaused(false);
+      if (!record.autoPaused || !this.#session.paused || this.#rail?.session) return;
+      if (await this.#pauseIsOwn(record.pausedAfter, sessionId)) { await this.#setPaused(false); return; }
+      // Unsure whose pause this is: stay paused and say how to continue.
+      if (sessionId === this.#session.id && this.#session.paused) { this.#pausePrompt = true; this.#paintStatus(); }
     } catch { /* The server lease still ends the call; Start reports a conflict precisely. */ }
+  }
+  // The pause is still ours only when the history since the cursor recorded with the
+  // automatic pause holds exactly one pause change, a pause. Anything else (a resume and
+  // a later manual pause from another tab, say) is someone else's decision.
+  async #pauseIsOwn(after, sessionId) {
+    const until = this.#cursor;
+    if (!Number.isSafeInteger(after) || after < 0 || after >= until) return false;
+    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 5000);
+    try {
+      const response = await fetch(`${this.#base}/api/sessions/${sessionId}/events`,
+        { signal: controller.signal, headers: this.#headers({ 'Last-Event-ID': String(after) }) });
+      if (!response.ok) return false;
+      const changes = [];
+      for await (const event of serverEvents(response.body.getReader())) {
+        if (event.type === 'session.paused') changes.push(event.data.paused);
+        if (event.seq >= until) break;
+      }
+      return changes.length === 1 && changes[0] === true && sessionId === this.#session.id && this.#session.paused;
+    } catch { return false; }
+    finally { clearTimeout(timer); controller.abort(); }
   }
   #pagehide = () => {
     const record = this.#journal?.read();
@@ -203,7 +279,7 @@ export class AithemaSession extends HTMLElement {
   #clearNotice() { this.#notice = ''; this.#paintStatus(); }
   #paintStatus() {
     const node = this.shadowRoot?.querySelector('.status'); if (!node) return;
-    node.textContent = this.#notice || (this.#session.paused ? this.#copy.paused : this.#connection);
+    node.textContent = this.#notice || (this.#session.paused ? this.#pausePrompt ? this.#copy.pausedResume : this.#copy.paused : this.#connection);
   }
   #scrollToLatest() {
     const shell = this.shadowRoot.querySelector('.transcript-shell');
@@ -215,8 +291,10 @@ export class AithemaSession extends HTMLElement {
     return point ? this.shadowRoot.elementFromPoint?.(point.x, point.y) ?? null : null;
   }
   // Scroll anchoring done by hand (panes set overflow-anchor:none): keep the element under
-  // a resting pointer at the same viewport position while content above it changes. When a
-  // pane cannot scroll far enough, temporary padding (slack) makes room until the pointer leaves.
+  // a resting pointer at the same viewport position while content above it changes. Keyed
+  // nodes survive updates, so this is the hovered element itself, not a surviving parent.
+  // When a pane cannot scroll far enough, temporary padding (slack) makes room until the
+  // pointer leaves. Slack is derived afresh on every update, so it never accumulates.
   #anchored(update) {
     const hovered = this.#hovered();
     if (!hovered) { update(); return; }
@@ -224,17 +302,25 @@ export class AithemaSession extends HTMLElement {
     for (let node = hovered; node && node !== this.shadowRoot; node = node.parentNode) chain.push([node, node.getBoundingClientRect().top]);
     update();
     const [node, top] = chain.find(([n]) => n.isConnected && n.getRootNode() === this.shadowRoot) ?? [];
-    const pane = node?.closest?.('.transcript-shell, .analysis-content, .preset-panel');
+    const pane = node?.closest?.(PANES);
     if (!pane) return;
-    const shift = () => node.getBoundingClientRect().top - top;
-    const slack = (side, px) => pane.style.setProperty(`--aithema-slack-${side}`,
-      `${(parseFloat(pane.style.getPropertyValue(`--aithema-slack-${side}`)) || 0) + px}px`);
-    let delta = shift();
-    if (Math.abs(delta) < .5) return;
-    const max = pane.scrollHeight - pane.clientHeight;
-    if (pane.scrollTop + delta > max) slack('bottom', pane.scrollTop + delta - max);
-    if (pane.scrollTop + delta < 0) { slack('top', -(pane.scrollTop + delta)); delta = shift(); }
-    pane.scrollTop += delta;
+    const slack = { top: 0, bottom: 0 };
+    const apply = () => {
+      for (const side of ['top', 'bottom']) {
+        if (slack[side] > 0) pane.style.setProperty(`--aithema-slack-${side}`, `${slack[side]}px`);
+        else pane.style.removeProperty(`--aithema-slack-${side}`);
+      }
+    };
+    apply();
+    // Bottom slack first fills any spare space, then adds scroll room; measure until it holds.
+    for (let round = 0; round < 4; round++) {
+      const delta = node.getBoundingClientRect().top - top;
+      if (Math.abs(delta) < .5) return;
+      const target = pane.scrollTop + delta, max = pane.scrollHeight - pane.clientHeight;
+      if (target < 0) slack.top += -target;
+      else if (target > max) slack.bottom += target - max + (max < 1 ? spareSpace(pane) : 0);
+      apply(); pane.scrollTop = Math.max(0, target);
+    }
   }
   #headers(headers = {}) {
     return { ...headers, ...(this.#sessionToken ? { 'x-aithema-session-token': this.#sessionToken } : {}) };
@@ -347,11 +433,14 @@ export class AithemaSession extends HTMLElement {
     }
     if (part === 'features') {
       this.#renderEngine();
-      root.querySelector('.features').replaceChildren(...FEATURES.map(feature => {
+      reconcile(root.querySelector('.features'), FEATURES.map(feature => [feature, feature]), () => {
+        const row = element('li'); row.append(document.createTextNode('')); return row;
+      }, (row, feature) => {
         const value = this.#feature(feature, true);
-        const row = element('li', copy.features[feature], value.available ? '' : 'unavailable');
-        if (!value.available) row.append(element('span', value.reason)); return row;
-      }));
+        row.className = value.available ? '' : 'unavailable'; row.firstChild.nodeValue = copy.features[feature];
+        const reason = row.querySelector('span');
+        if (value.available) reason?.remove(); else (reason ?? row.appendChild(element('span'))).textContent = value.reason;
+      });
       return;
     }
     if (part === 'transcript') {
@@ -418,26 +507,37 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.retry').disabled = !analysis.available;
     root.querySelector('.retry').hidden = !analysis.available || Boolean(running) || !(this.#failure || hasPersonTurn && (stale || u.draft || missingReply));
     root.querySelector('.summary-text').textContent = u.summary;
-    const noneYet = () => element('li', copy.noneYet, 'none-yet');
+    const setText = (node, value) => { if (node.textContent !== value) node.textContent = value; };
     for (const [selector, items] of [['.signals', u.signals], ['.questions', u.openQuestions]]) {
-      root.querySelector(selector).replaceChildren(...items.length ? items.map(v => element('li', v)) : [noneYet()]);
+      reconcile(root.querySelector(selector), items.length ? textKeys(items) : [[NONE, null]],
+        value => element('li', undefined, value === null ? 'none-yet' : undefined), (node, value) => setText(node, value ?? copy.noneYet));
     }
     const items = readinessListItems(u.constraints, u.questionHistory, u.openQuestions, copy.constraints, this.#session.preset);
     const cleared = newlyClearedFirst(this.#open, this.#cleared, items.cleared);
     this.#open = items.open.map(i => i.key); this.#cleared = cleared.map(i => i.key);
     const window = readinessListWindow(items.open);
-    root.querySelector('.missing').replaceChildren(...window.rows.length ? window.rows.map(i => {
-      const row = element('li'); if (i.label) row.append(element('strong', i.label)); row.append(element('span', i.detail)); return row;
-    }) : [noneYet()]);
+    reconcile(root.querySelector('.missing'), window.rows.length ? window.rows.map(i => [i.key, i]) : [[NONE, null]],
+      i => i ? element('li') : element('li', copy.noneYet, 'none-yet'), (row, i) => {
+        if (!i) { setText(row, copy.noneYet); return; }
+        const label = row.querySelector('strong');
+        if (i.label) setText(label ?? row.insertBefore(element('strong'), row.firstChild), i.label); else label?.remove();
+        setText(row.querySelector('span') ?? row.appendChild(element('span')), i.detail);
+      });
     root.querySelector('.overflow').textContent = window.remainder ? copy.more.replace('{count}', window.remainder) : '';
-    const old = new Map([...root.querySelectorAll('.cleared details')].map(d => [d.dataset.key, d]));
-    root.querySelector('.cleared').replaceChildren(...cleared.map(i => {
-      const details = old.get(i.key) ?? element('details'); details.dataset.key = i.key;
-      const label = element('summary', i.label ?? i.detail), value = element('p', i.label ? i.detail : copy.none);
-      if (i.evidence) { const evidence = element('blockquote', i.evidence); evidence.setAttribute('aria-label', copy.evidence); value.append(evidence); }
-      details.replaceChildren(label, value); details.addEventListener('toggle', () => this.#expandLabel(), { once: true }); return details;
-    }));
-    if (!cleared.length) root.querySelector('.cleared').replaceChildren(element('p', copy.noneYet, 'none-yet'));
+    // Summaries keep their nodes, so keyboard focus survives unsolicited updates.
+    reconcile(root.querySelector('.cleared'), cleared.length ? cleared.map(i => [i.key, i]) : [[NONE, null]], i => {
+      if (!i) return element('p', copy.noneYet, 'none-yet');
+      const details = element('details'); details.append(element('summary'), element('p'));
+      details.addEventListener('toggle', () => this.#expandLabel()); return details;
+    }, (details, i) => {
+      if (!i) { setText(details, copy.noneYet); return; }
+      setText(details.querySelector('summary'), i.label ?? i.detail);
+      const value = details.querySelector('p'), evidence = i.evidence ? element('blockquote', i.evidence) : null;
+      evidence?.setAttribute('aria-label', copy.evidence);
+      if (value.firstChild?.nodeValue !== (i.label ? i.detail : copy.none) || value.querySelector('blockquote')?.textContent !== i.evidence) {
+        value.replaceChildren(i.label ? i.detail : copy.none, ...evidence ? [evidence] : []);
+      }
+    });
     this.#expandLabel();
   }
   #engineDetail() {
@@ -701,7 +801,7 @@ export class AithemaSession extends HTMLElement {
       }
       if (event.type === 'session.paused') {
         this.#invalidatedAt = Math.max(this.#invalidatedAt, event.seq); this.#notice = '';
-        if (event.data.paused) this.#deviceController?.abort();
+        if (event.data.paused) this.#deviceController?.abort(); else this.#pausePrompt = false;
         this.#rail.syncPause(event.data.paused);
       }
       if ((invalidation || event.type === 'session.paused') && this.isConnected) void this.#refreshFeatures();
@@ -791,18 +891,7 @@ export class AithemaSession extends HTMLElement {
         this.#connectionStatus(this.#copy.connected); reader = response.body.getReader();
         // A reconnect may follow a host restart: grants held in memory may be gone (D6).
         if (attempt++ > 0) void this.#refreshFeatures();
-        let buffer = ''; const decoder = new TextDecoder();
-        while (!signal.aborted) {
-          const { done, value } = await reader.read(); if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          if (buffer.length > 2_000_000) throw new Error();
-          let boundary;
-          while ((boundary = buffer.indexOf('\n\n')) >= 0) {
-            const block = buffer.slice(0, boundary); buffer = buffer.slice(boundary + 2);
-            const data = block.split('\n').filter(l => l.startsWith('data:')).map(l => l.slice(5)).join('\n');
-            if (data) this.receive(JSON.parse(data));
-          }
-        }
+        for await (const event of serverEvents(reader)) { if (signal.aborted) break; this.receive(event); }
       } catch { if (signal.aborted) return; }
       finally { await reader?.cancel().catch(() => {}); }
       if (signal.aborted) return;

@@ -73,8 +73,8 @@ export function createMockReasoning({ model = 'mock', effort = 'none' } = {}) {
         invocation.dispatch(); invocation.usage({ inputTokens: 0, outputTokens: 0 });
         const turns = request.messages.filter(m => m.role === 'user' && !m.content.startsWith('{"kind":'));
         const constraints = Object.fromEntries(request.preset.slots.map(slot => {
-          // English slot names and START's German slot labels are both accepted markers.
-          const markers = [slot, ...(MOCK_GERMAN_MARKERS[slot] ? [MOCK_GERMAN_MARKERS[slot]] : [])].map(name => `${name}:`);
+          // English slot names always; START's German slot labels in German sessions only.
+          const markers = [slot, ...(request.locale === 'de' && MOCK_GERMAN_MARKERS[slot] ? [MOCK_GERMAN_MARKERS[slot]] : [])].map(name => `${name}:`);
           let turn, marker;
           for (const candidate of turns.toReversed()) {
             marker = markers.find(m => candidate.content.toLowerCase().includes(m));

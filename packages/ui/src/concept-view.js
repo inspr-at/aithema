@@ -142,10 +142,21 @@ export class ConceptView {
     const fake = current.provenance?.generator?.provider === 'local-demo-fake';
     this.root.querySelector('.concept-disclosure').textContent = fake ? this.copy.conceptFake : current.provenance?.origin === 'ai-manipulated' ? this.copy.conceptManipulated : this.copy.conceptGenerated;
     for (const vote of ['up', 'down']) this.root.querySelector('.concept-' + vote).setAttribute('aria-pressed', String(current.feedback?.vote === vote));
-    this.root.querySelector('.concept-guidance-selected').replaceChildren(...(current.feedback?.chips ?? []).map(value => {
-      const button = document.createElement('button'); button.type = 'button'; button.textContent = this.copy.conceptRemoveGuidance.replace('{guidance}', value);
-      button.addEventListener('click', () => void this.feedback(current.feedback.vote, current.feedback.chips.filter(c => c !== value))); return button;
-    }));
+    // Selected guidance keeps its buttons by value, so a focused one stays focused across live renders.
+    const selected = this.root.querySelector('.concept-guidance-selected'), chips = current.feedback?.chips ?? [];
+    const buttons = new Map([...selected.children].map(button => [button.dataset.value, button]));
+    for (const [value, button] of buttons) if (!chips.includes(value)) { button.remove(); buttons.delete(value); }
+    let next = selected.firstElementChild;
+    for (const value of chips) {
+      let button = buttons.get(value);
+      if (!button) {
+        button = document.createElement('button'); button.type = 'button'; button.dataset.value = value;
+        button.textContent = this.copy.conceptRemoveGuidance.replace('{guidance}', value);
+        button.addEventListener('click', () => { const shown = this.current()?.feedback;
+          if (shown) void this.feedback(shown.vote, shown.chips.filter(c => c !== value)); });
+      }
+      if (button !== next) selected.insertBefore(button, next); else next = next.nextElementSibling;
+    }
     const image = this.root.querySelector('.concept-image'), imageStatus = this.root.querySelector('.concept-image-status');
     if (image.dataset.id !== current.id) { image.removeAttribute('src'); image.dataset.id = current.id; }
     imageStatus.textContent = this.copy.conceptLoading;

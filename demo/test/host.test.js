@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { Window } from 'happy-dom';
 import { startChild, temporaryDb } from '../../test/helpers.js';
+import { contrast, tokens } from '../../test/contrast.js';
 
 test('demo host creates owned sessions through postJson and combines consent, pause and settings controls', { timeout: 15_000 }, async () => {
   const running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb());
@@ -91,5 +93,13 @@ test('demo host creates owned sessions through postJson and combines consent, pa
     await running.kill(); await window.happyDOM.close();
     globalThis.fetch = nativeFetch;
     for (const key of keys) { if (originals[key] === undefined) delete globalThis[key]; else globalThis[key] = originals[key]; }
+  }
+});
+
+test('demo page dark tokens reach WCAG AA text contrast (AIT-116 D9)', async () => {
+  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  const dark = tokens(html.match(/@media\(prefers-color-scheme:dark\) \{ :root \{([^}]*)\}/u)[1], '');
+  for (const [text, background] of [['ink', 'paper'], ['muted', 'paper'], ['accent', 'paper'], ['error', 'paper'], ['ink', 'surface']]) {
+    assert.ok(contrast(dark[text], dark[background]) >= 4.5, `${text} on ${background}: ${contrast(dark[text], dark[background]).toFixed(2)}:1`);
   }
 });

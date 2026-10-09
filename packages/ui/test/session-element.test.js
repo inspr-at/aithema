@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
 import { createSession, inputRevision, reduceUnderstanding } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
+import { styles } from '../src/styles.js';
+import { contrast, mix, tokens } from '../../../test/contrast.js';
 const window = new Window();
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
@@ -54,6 +56,30 @@ test('automatic aside and transcript changes render at once under the pointer; r
   assert.match(root.querySelector('.summary-text').textContent, /untrusted/);
   root.querySelector('.understanding').dispatchEvent(new window.Event('pointerleave'));
   assert.match(root.querySelector('.summary-text').textContent, /untrusted/);
+});
+test('unsolicited live renders keep focused summaries and keyed aside items in place (AIT-116 focus, D2)', async t => {
+  // Focus needs a connected element; the event stream stays open and silent.
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => new Response(new ReadableStream({ start(controller) {
+    options.signal?.addEventListener('abort', () => controller.close(), { once: true }); } })));
+  const c = setup(), root = c.shadowRoot; document.body.append(c); t.after(() => c.remove());
+  turn(c, 't1', 'systems: SAP');
+  c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
+  const summary = root.querySelector('.cleared summary'), details = summary.parentNode;
+  const questions = [...root.querySelectorAll('.questions li')], missing = [...root.querySelectorAll('.missing li')];
+  const features = [...root.querySelectorAll('.features li')];
+  summary.focus(); assert.ok(root.activeElement === summary);
+  // An unchanged assessment, then one whose first question grew.
+  c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
+  assert.ok(root.querySelector('.cleared summary') === summary, 'the summary keeps its node');
+  assert.equal(summary.isConnected, true); assert.ok(root.activeElement === summary, 'keyboard focus survives');
+  assert.ok([...root.querySelectorAll('.missing li')].every((row, i) => row === missing[i]) && missing.length > 0, 'missing rows keep their nodes');
+  const grown = understanding(c); grown.openQuestions = ['Deadline, given the seasonal peak in December and the staff rota?', 'Budget?'];
+  c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: grown });
+  assert.ok(root.activeElement === summary); assert.ok(summary.parentNode === details);
+  assert.ok(root.querySelectorAll('.questions li')[1] === questions[1], 'an unchanged item after a grown one keeps its node');
+  c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
+  assert.ok([...root.querySelectorAll('.features li')].every((row, i) => row === features[i]) && features.length > 0, 'feature rows keep their nodes');
+  assert.match(root.querySelector('.features').textContent, /Session paused/);
 });
 test('empty aside lists say so quietly once assessed and stay hidden before', () => {
   const c = setup(), root = c.shadowRoot;
@@ -571,4 +597,20 @@ test('the German bundle covers every English key and renders the component in Ge
   assert.equal(root.querySelector('.send').textContent, 'Senden');
   assert.equal(root.querySelector('.composer-reason').textContent, de.reasons['current processing consent required']);
   assert.match(root.querySelector('.features').textContent, /Auswertung/);
+});
+test('dark tokens reach WCAG AA text contrast, placeholder and chat bubbles included (AIT-116 D9)', () => {
+  const dark = tokens(styles.match(/@media\(prefers-color-scheme:dark\) \{ :host \{([^}]*)\}/u)[1], 'aithema-');
+  assert.deepEqual(Object.keys(dark).sort(), ['accent', 'amber', 'ink', 'line', 'muted', 'on-accent', 'paper', 'surface']);
+  // The placeholder uses the muted token, not the browser default (#757575 measured 3.51:1 on the dark surface).
+  assert.match(styles, /textarea::placeholder \{ color:var\(--aithema-muted\); opacity:1; \}/u);
+  const bubble = mix(dark.ink, dark.paper, .07), userBubble = mix(dark.accent, dark.paper, .12);
+  const pairs = { 'ink on paper': [dark.ink, dark.paper], 'ink on surface': [dark.ink, dark.surface],
+    'muted on paper': [dark.muted, dark.paper], 'muted (placeholder, status, reasons) on surface': [dark.muted, dark.surface],
+    'accent link on surface': [dark.accent, dark.surface], 'on-accent on accent': [dark['on-accent'], dark.accent],
+    'ink on bubble': [dark.ink, bubble], 'muted on bubble': [dark.muted, bubble],
+    'ink on own bubble': [dark.ink, userBubble], 'muted on own bubble': [dark.muted, userBubble] };
+  for (const [pair, [text, background]] of Object.entries(pairs)) {
+    assert.ok(contrast(text, background) >= 4.5, `${pair}: ${contrast(text, background).toFixed(2)}:1`);
+  }
+  assert.ok(contrast('#757575', dark.surface) < 4.5, 'the fixture detects the reported default placeholder');
 });

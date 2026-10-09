@@ -44,6 +44,7 @@ ol { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; 
 .composer { border-top:1px solid var(--aithema-line); padding:.8rem 1.2rem; display:grid; gap:.5rem; }
 .composer label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
 textarea { resize:none; width:100%; height:5rem; border:0; background:transparent; color:inherit; padding:.3rem 0; }
+textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .composer-actions { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
 .composer-actions small { font-size:.7rem; color:var(--aithema-muted); } .send { min-width:6rem; background:var(--aithema-accent); color:var(--aithema-on-accent); }
 .composer-reason { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }

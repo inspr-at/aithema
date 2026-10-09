@@ -57,6 +57,20 @@ test('thumbs and removable guidance persist on their artifact; regenerate shows 
   assert.deepEqual(JSON.parse(spending[0].options.body), { clientEventId: JSON.parse(spending[0].options.body).clientEventId, intent: true, sourceTurnId: 'first' });
   assert.equal(calls.filter(c => c.options.body).length, 4, 'feedback never generates implicitly');
 });
+test('a focused guidance button keeps its node and focus through unsolicited live renders (AIT-116 focus)', async t => {
+  const { c, root } = setup(t, { concepts: [item('image1', { feedback: { vote: 'up', chips: ['Simpler layout'] } })] });
+  document.body.append(c); root.querySelector('.concept-tab').click(); await tick();
+  const chip = root.querySelector('.concept-guidance-selected button'); chip.focus();
+  assert.ok(root.activeElement === chip);
+  c.receive({ seq: c.session.seq + 1, type: 'concept.state', data: { intent: c.session.conceptIntent, status: { phase: 'ready' }, artifact: item('image2') } });
+  c.receive({ seq: c.session.seq + 1, type: 'concept.feedback', data: { artifactId: 'image1', vote: 'up', chips: ['Simpler layout', 'More contrast'], archived: false } });
+  assert.ok(root.querySelector('.concept-guidance-selected button') === chip, 'the selected guidance button survives');
+  assert.equal(chip.isConnected, true); assert.ok(root.activeElement === chip, 'keyboard focus stays on it');
+  assert.deepEqual([...root.querySelectorAll('.concept-guidance-selected button')].map(b => b.textContent),
+    ['Remove: Simpler layout', 'Remove: More contrast']);
+  root.querySelector('.concept-guidance-selected button:last-child').click(); await tick();
+  assert.deepEqual(c.session.concepts[0].feedback.chips, ['Simpler layout'], 'removal uses the current chips');
+});
 test('reject archives the exact item and returns to conversation without a paid request', async t => {
   const { c, root, calls } = setup(t); root.querySelector('.concept-tab').click(); await tick();
   root.querySelector('.concept-reject').click(); await tick();

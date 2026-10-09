@@ -188,7 +188,7 @@ export const de = {
   deviceUnavailable: 'Lokales Modell nicht verfügbar',
   conversation: 'Gespräch', understanding: 'So verstehen wir es', you: 'Sie', assistant: 'Assistent',
   pause: 'Pausieren', resume: 'Fortsetzen', withdraw: 'Aussage zurückziehen', withdrawn: 'Aussage zurückgezogen',
-  paused: 'Gespräch pausiert', consentRequired: 'Aktuelle Einwilligung zur Verarbeitung erforderlich',
+  paused: 'Gespräch pausiert', pausedResume: 'Weiterhin pausiert. Wählen Sie „Fortsetzen“, um weiterzumachen.', consentRequired: 'Aktuelle Einwilligung zur Verarbeitung erforderlich',
   controlFailed: 'Die Änderung konnte nicht gespeichert werden. Versuchen Sie es erneut.',
   composer: 'Ihre Nachricht', placeholder: 'Schreiben Sie hier, was Sie verbessern möchten …', send: 'Senden',
   shortcut: '{key} + Enter zum Senden', shortcutKeys: { mac: '⌘', other: 'Strg' }, summary: 'Zusammenfassung', signals: 'Was wir konkret gesehen haben', questions: 'Was noch offen ist',

@@ -1,8 +1,8 @@
 import { watchVoicePlayback } from './voice-playback.js';
 // START's rail lifecycle, ported to the live-voice session interface (INSPR D3).
 export class AudioRail {
-  constructor({ root, copy, client, feature, context, onPartial, onPause, onEnd, onState, playback, journal, ready, heartbeatMs = 10_000 }) {
-    Object.assign(this, { root, copy, client, feature, context, onPartial, onPause, onEnd, onState, playback, journal, ready, heartbeatMs });
+  constructor({ root, copy, client, feature, context, onPartial, onPause, onEnd, onState, playback, journal, ready, cursor, heartbeatMs = 10_000 }) {
+    Object.assign(this, { root, copy, client, feature, context, onPartial, onPause, onEnd, onState, playback, journal, ready, cursor, heartbeatMs });
     this.state = 'idle'; this.input = true; this.output = true; this.generation = 0;
     root.innerHTML = `<div class="voice-orb" aria-hidden="true"><div class="voice-wave">${'<i></i>'.repeat(9)}</div></div>
       <div class="voice-info"><span class="voice-state" role="status"></span><span class="voice-caption"></span></div>
@@ -19,7 +19,7 @@ export class AudioRail {
         this.busy = true; this.render();
         try { await this.session[channel](!this[name]); this[name] = !this[name]; }
         catch (error) { this.failure(error); }
-        finally { this.busy = false; this.render(); }
+        finally { this.busy = false; this.render(); this.settle(); }
       });
     }
     this.button('retry').addEventListener('click', () => void this.start());
@@ -27,15 +27,23 @@ export class AudioRail {
     // START pauses a voice call when the page is hidden (src/scripts/v2.ts handleVisibilityLoss,
     // pauseOrigin "visibility"; server hold in src/pages/api/v2/pause.ts). START also binds
     // window blur to it; AIT-116 D7 deliberately does not: switching to another window while
-    // the tab stays visible keeps the call running.
+    // the tab stays visible keeps the call running. A hide during another command
+    // (a microphone toggle, say) is queued and applied when that command settles.
     this.hide = () => {
       if (this.paused || this.unloading) return;
-      if (this.session) { this.journal?.update({ autoPaused: true }); void this.pause(true, { automatic: true }); }
-      else if (this.state === 'connecting') this.hidePending = true;
+      if (this.session && !this.busy) {
+        // The cursor binds a later reload's recovery to exactly this pause (AIT-116 D4).
+        this.journal?.update({ autoPaused: true, pausedAfter: this.cursor?.() });
+        void this.pause(true, { automatic: true });
+      } else if (this.session || this.state === 'connecting') this.hidePending = true;
     };
     this.visibility = () => { if (root.ownerDocument.hidden) this.hide(); };
     root.ownerDocument.addEventListener('visibilitychange', this.visibility);
     this.render();
+  }
+  settle() {
+    if (!this.hidePending || !this.session || this.busy) return;
+    this.hidePending = false; this.hide();
   }
   button(name) { return this.root.querySelector(`.voice-${name}`); }
   capability(name) { return this.client?.manifest?.liveVoice?.capabilities?.[name] !== 'unavailable'; }
@@ -151,7 +159,7 @@ export class AudioRail {
       this.paused = paused; this.error = null; this.onPause?.(paused);
       if (!paused) { this.state = 'listening'; void this.updateContext().catch(() => {}); }
     } catch { this.error = this.copy.voicePauseFailed; }
-    finally { this.busy = false; this.render(); }
+    finally { this.busy = false; this.render(); this.settle(); }
   }
   syncPause(paused) {
     if (this.session && this.paused !== paused && !this.busy) void this.pause(paused);
@@ -173,7 +181,7 @@ export class AudioRail {
   close(reason) {
     if (this.closing) return this.closing;
     const session = this.session; ++this.generation; clearInterval(this.heartbeat); clearInterval(this.meter); this.playbackWatcher?.destroy();
-    this.session = null; this.state = 'closing'; this.render();
+    this.session = null; this.hidePending = false; this.state = 'closing'; this.render();
     this.onEnd?.();
     const controller = this.controller;
     this.closing = (async () => {

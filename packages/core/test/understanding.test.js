@@ -133,3 +133,17 @@ test('a German session prompts German replies and the mock reads German slot mar
   assert.equal(reply, 'Was sollte sich als Erstes verbessern?');
   assert.match(reasoningRequest(createSession(), 'reaction').system, /Write in English \(locale en\)/u);
 });
+
+test('German slot markers apply to German sessions only; English mock behaviour is unchanged (AIT-116 D1)', async () => {
+  const { createMockReasoning, reasoningRequest, applyEvent } = await import('../src/index.js');
+  const mock = createMockReasoning();
+  const say = (session, seq, content) => applyEvent(session, { seq, type: 'turn.final', data: { id: `u${seq}`, role: 'user', content } });
+  let english = say(createSession(), 1, 'data: public; systems: API');
+  english = say(english, 2, 'Daten: confidential; Systeme: SAP; Betrieb: hosted');
+  const result = await mock.structured(reasoningRequest(english, 'understanding'), {});
+  assert.equal(result.constraints.data.value, 'public', 'an English session ignores German labels');
+  assert.equal(result.constraints.systems.value, 'API'); assert.equal(result.constraints.operations, null);
+  let german = say(createSession({ locale: 'de' }), 1, 'data: public');
+  german = say(german, 2, 'Daten: vertraulich');
+  assert.equal((await mock.structured(reasoningRequest(german, 'understanding'), {})).constraints.data.value, 'vertraulich');
+});

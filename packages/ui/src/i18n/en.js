@@ -187,7 +187,7 @@ export const en = {
   deviceUnavailable: 'Local model unavailable',
   conversation: 'Conversation', understanding: 'Understanding', you: 'You', assistant: 'Assistant',
   pause: 'Pause', resume: 'Resume', withdraw: 'Withdraw statement', withdrawn: 'Statement withdrawn',
-  paused: 'Session paused', consentRequired: 'Current processing consent required',
+  paused: 'Session paused', pausedResume: 'Still paused. Select Resume to continue.', consentRequired: 'Current processing consent required',
   controlFailed: 'Could not save this change. Try again.',
   composer: 'Your message', placeholder: 'Describe what you would like to improve…', send: 'Send',
   shortcut: '{key} + Enter to send', shortcutKeys: { mac: '⌘', other: 'Ctrl' }, summary: 'Summary', signals: 'Signals', questions: 'Open questions',
