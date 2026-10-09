@@ -8,7 +8,9 @@ for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) 
 await import('../src/session-element.js');
 function setup() {
   const component = document.createElement('aithema-session');
-  component.configure({ copy: structuredClone(en), session: createSession({ demo: true }) });
+  const session = createSession({ demo: true });
+  session.featureMatrix = { best: { text: { available: true, reason: null }, analysis: { available: true, reason: null } } };
+  component.configure({ copy: structuredClone(en), session });
   return component;
 }
 function turn(component, id, content) { component.receive({ seq: component.session.seq + 1, type: 'turn.final',
@@ -132,3 +134,180 @@ test('an SSE cursor rejected with 400 restores the snapshot and reconnects with 
   } finally { c.remove(); await new Promise(r => setImmediate(r)); globalThis.fetch = originalFetch; }
 });
 test.after(async () => window.happyDOM.close());
+
+test('preset choice preserves layout and snapshot feature updates defer under the pointer', async () => {
+  const c = setup();
+  const session = c.session;
+  session.featureMatrix.best.analysis = { available: false, reason: 'binding evidence expired' };
+  c.configure({ copy: en, session });
+  const root = c.shadowRoot;
+  assert.equal(root.querySelectorAll('.preset-choice option').length, 4);
+  assert.deepEqual([...root.querySelectorAll('.preset-choice option')].map(o => o.textContent), ['Best', 'EU', 'On my device', 'Custom']);
+  assert.match(root.querySelector('.features').textContent, /binding evidence expired/);
+  assert.ok(!root.querySelector('.features li').classList.contains('unavailable'));
+  root.querySelector('.preset-panel').dispatchEvent(new window.Event('pointerenter'));
+  const originalFetch = globalThis.fetch;
+  const next = c.session; next.featureMatrix.best = {};
+  globalThis.fetch = async () => Response.json(next);
+  try {
+    c.receive({ seq: c.session.seq + 2, type: 'turn.final', data: {} });
+    await new Promise(r => setImmediate(r));
+    assert.match(root.querySelector('.features').textContent, /binding evidence expired/);
+    root.querySelector('.preset-panel').dispatchEvent(new window.Event('pointerleave'));
+    assert.ok(!root.querySelector('.features').textContent.includes('binding evidence expired'));
+  } finally { globalThis.fetch = originalFetch; }
+  let chosen; c.addEventListener('aithema-preset', e => { chosen = e.detail.processingPreset; });
+  const select = root.querySelector('select'); select.value = 'eu'; select.dispatchEvent(new window.Event('change'));
+  assert.equal(chosen, 'eu'); assert.equal(select.value, 'best', 'host must confirm choice with a new session');
+  assert.match(root.querySelector('style').textContent, /height:9rem/);
+});
+
+test('switching Best to EU gates the composer and analysis with their exact reasons and prevents posts', async () => {
+  const c = setup(); turn(c, 'first', 'Hello');
+  assert.equal(c.shadowRoot.querySelector('textarea').disabled, false);
+  assert.equal(c.shadowRoot.querySelector('.retry').hidden, false);
+  let chosen; c.addEventListener('aithema-preset', e => { chosen = e.detail.processingPreset; });
+  const select = c.shadowRoot.querySelector('.preset-choice');
+  select.value = 'eu'; select.dispatchEvent(new window.Event('change'));
+  assert.equal(chosen, 'eu');
+  const session = c.session; session.processingPreset = chosen;
+  session.featureMatrix.eu = { text: { available: false, reason: 'not configured' }, analysis: { available: false, reason: 'consent required' } };
+  c.configure({ copy: en, session });
+  const root = c.shadowRoot;
+  assert.equal(root.querySelector('textarea').disabled, true);
+  assert.equal(root.querySelector('.send').disabled, true);
+  assert.match(root.querySelector('.composer').textContent, /not configured/);
+  assert.equal(root.querySelector('.understanding').getAttribute('aria-disabled'), 'true');
+  assert.equal(root.querySelector('.notice').textContent, 'consent required');
+  assert.equal(root.querySelector('.readiness').style.visibility, 'hidden');
+  assert.ok([...root.querySelectorAll('.analysis-content section')].every(n => n.hidden));
+  assert.equal(root.querySelector('.retry').hidden, true);
+  const originalFetch = globalThis.fetch; let posts = 0;
+  globalThis.fetch = async () => { posts++; return new Response(null, { status: 503 }); };
+  try {
+    root.querySelector('textarea').value = 'Blocked';
+    root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true }));
+    root.querySelector('.retry').dispatchEvent(new window.Event('click'));
+    await new Promise(r => setImmediate(r)); assert.equal(posts, 0);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('composer gates update immediately while hovered and the aside stays in place across a restored snapshot', async () => {
+  const c = setup(); turn(c, 'first', 'Hello');
+  const root = c.shadowRoot, composer = root.querySelector('.composer'), send = root.querySelector('.send'), aside = root.querySelector('.understanding');
+  composer.dispatchEvent(new window.Event('pointerenter')); aside.dispatchEvent(new window.Event('pointerenter'));
+  const next = c.session;
+  next.featureMatrix.best = { text: { available: false, reason: 'session paused' }, analysis: { available: false, reason: 'session paused' } };
+  const originalFetch = globalThis.fetch; globalThis.fetch = async () => Response.json(next);
+  try {
+    c.receive({ seq: c.session.seq + 2, type: 'turn.final', data: {} });
+    await new Promise(r => setImmediate(r));
+    assert.equal(root.querySelector('.send'), send); assert.equal(root.querySelector('.understanding'), aside);
+    assert.equal(send.disabled, true, 'fixed composer controls update while hovered');
+    assert.equal(root.querySelector('textarea').disabled, true);
+    assert.equal(root.querySelector('.composer-reason').textContent, 'session paused');
+    assert.equal(root.querySelector('.composer-reason').title, 'session paused');
+    assert.equal(root.querySelector('.retry').hidden, false);
+    composer.dispatchEvent(new window.Event('pointerleave')); aside.dispatchEvent(new window.Event('pointerleave'));
+    assert.equal(send.disabled, true); assert.equal(root.querySelector('.retry').hidden, true);
+    assert.equal(aside.hidden, false, 'fixed aside remains in the layout');
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+for (const preset of ['best', 'device']) for (const trigger of ['click', 'ctrlKey', 'metaKey']) {
+  test(`hovered ${preset} composer permits consecutive sends using ${trigger} and blocks overlapping sends`, async () => {
+    const c = setup(), originalFetch = globalThis.fetch; let calls = 0, release;
+    const held = () => new Promise(resolve => { release = resolve; });
+    const device = { async connect() { calls++; await held(); }, async *stream() { yield 'Local answer'; } };
+    if (preset === 'device') c.configure({ copy: en, session: createSession({ processingPreset: 'device' }), deviceReasoning: device });
+    const root = c.shadowRoot, input = root.querySelector('textarea'), send = root.querySelector('.send');
+    globalThis.fetch = async (url, options) => {
+      if (url.endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+        options.signal.addEventListener('abort', () => controller.close(), { once: true });
+      } }), { headers: { 'content-type': 'text/event-stream' } });
+      calls++; await held();
+      const body = JSON.parse(options.body);
+      return Response.json({ seq: c.session.seq + 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content } });
+    };
+    const submit = () => trigger === 'click' ? send.click()
+      : input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', [trigger]: true, bubbles: true, cancelable: true }));
+    root.querySelector('.composer').dispatchEvent(new window.Event('pointerenter'));
+    try {
+      document.body.append(c);
+      for (const content of ['First', 'Second']) {
+        input.value = content; submit();
+        assert.equal(calls, content === 'First' ? 1 : 2);
+        assert.equal(send.disabled, true, 'pending send disables the button immediately');
+        send.click();
+        input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true }));
+        input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', metaKey: true }));
+        assert.equal(calls, content === 'First' ? 1 : 2, 'sending guard prevents overlapping dispatch');
+        release(); await new Promise(resolve => setImmediate(resolve));
+        assert.equal(send.disabled, false, 'completion re-enables Send without leaving the composer');
+        assert.equal(input.value, '');
+      }
+      assert.deepEqual(c.session.transcript.filter(t => t.role === 'user').map(t => t.content), ['First', 'Second']);
+    } finally { release?.(); c.remove(); await new Promise(resolve => setImmediate(resolve)); globalThis.fetch = originalFetch; }
+  });
+}
+
+test('shortcut send uses sending and feature state even when the button has a stale disabled value', async () => {
+  const c = setup(), root = c.shadowRoot, originalFetch = globalThis.fetch; let calls = 0;
+  globalThis.fetch = async (_, options) => {
+    calls++; const body = JSON.parse(options.body);
+    return Response.json({ seq: c.session.seq + 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content } });
+  };
+  try {
+    root.querySelector('.send').disabled = true;
+    root.querySelector('textarea').value = 'Allowed';
+    root.querySelector('textarea').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', metaKey: true }));
+    await new Promise(resolve => setImmediate(resolve)); assert.equal(calls, 1);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('unsupported features.updated events cannot mutate snapshot feature verdicts', () => {
+  const c = setup(), matrix = c.session.featureMatrix;
+  c.receive({ type: 'features.updated', data: { best: {} } });
+  assert.deepEqual(c.session.featureMatrix, matrix);
+});
+
+test('preset, feature and device copy comes from the host', async () => {
+  const c = setup(), copy = { ...en, processing: 'Verarbeitung',
+    presets: { best: 'Optimal', eu: 'Europa', device: 'Lokal', custom: 'Eigene' },
+    features: { text: 'Text lokal', analysis: 'Analyse', voice: 'Stimme', transcription: 'Transkript', images: 'Bilder' },
+    deviceExportUnavailable: 'Kein lokaler Export', deviceConnectFirst: 'Modell verbinden',
+    deviceConversation: 'Bleibt im Tab', deviceUnavailable: 'Modell fehlt' };
+  c.configure({ copy, session: createSession({ processingPreset: 'device' }) });
+  let root = c.shadowRoot;
+  assert.deepEqual([...root.querySelectorAll('option')].map(n => n.textContent), ['Optimal', 'Europa', 'Lokal', 'Eigene']);
+  assert.match(root.querySelector('.preset-panel label').textContent, /Verarbeitung/);
+  assert.match(root.querySelector('.features').textContent, /Text lokal/);
+  assert.equal(root.querySelector('.export').title, copy.deviceExportUnavailable);
+  root.querySelector('textarea').value = 'Hello'; root.querySelector('form').dispatchEvent(new window.Event('submit'));
+  await new Promise(r => setImmediate(r)); assert.equal(root.querySelector('.status').textContent, copy.deviceConnectFirst);
+  const device = { async connect() {}, async *stream() { yield 'Hi'; } };
+  c.configure({ copy, session: createSession({ processingPreset: 'device' }), deviceReasoning: device });
+  root = c.shadowRoot; root.querySelector('textarea').value = 'Hello'; root.querySelector('form').dispatchEvent(new window.Event('submit'));
+  await new Promise(r => setImmediate(r)); assert.equal(root.querySelector('.status').textContent, copy.deviceConversation);
+  c.configure({ copy, session: createSession({ processingPreset: 'device' }), deviceReasoning: { async connect() { throw new Error(); } } });
+  root = c.shadowRoot; root.querySelector('textarea').value = 'Hello'; root.querySelector('form').dispatchEvent(new window.Event('submit'));
+  await new Promise(r => setImmediate(r)); assert.equal(root.querySelector('.status').textContent, copy.deviceUnavailable);
+});
+test('device sends text in this tab only; browser configure/disconnect aborts local work', async () => {
+  const c = setup(), originalFetch = globalThis.fetch; let calls = 0, signal;
+  const device = { async connect(options) { signal = options.signal; }, async *stream() { yield 'Local answer'; } };
+  globalThis.fetch = async () => { calls++; throw new Error('No server call permitted'); };
+  try {
+    c.configure({ copy: en, session: createSession({ processingPreset: 'device' }), deviceReasoning: device });
+    document.body.append(c);
+    const input = c.shadowRoot.querySelector('textarea'); input.value = 'Local question';
+    c.shadowRoot.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true }));
+    await new Promise(r => setImmediate(r));
+    assert.equal(calls, 0); assert.deepEqual(c.session.transcript.map(t => t.content), ['Local question', 'Local answer']);
+    assert.equal(c.shadowRoot.querySelector('.retry').hidden, true);
+    assert.equal(c.shadowRoot.querySelector('.export').getAttribute('aria-disabled'), 'true');
+    assert.equal(c.shadowRoot.querySelector('.export').hasAttribute('href'), false);
+    assert.match(c.shadowRoot.querySelector('.features').textContent, /unavailable on device/);
+    c.remove(); assert.equal(signal.aborted, true);
+  } finally { c.remove(); globalThis.fetch = originalFetch; }
+});

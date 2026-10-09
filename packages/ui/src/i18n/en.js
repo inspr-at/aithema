@@ -1,4 +1,9 @@
 export const en = {
+  processing: 'Processing', presets: { best: 'Best', eu: 'EU', device: 'On my device', custom: 'Custom' },
+  features: { text: 'Text', analysis: 'Analysis', voice: 'Voice', transcription: 'Transcription', images: 'Images' },
+  notConfigured: 'Not configured', deviceExportUnavailable: 'Device export is unavailable',
+  deviceConnectFirst: 'Connect a local model first', deviceConversation: 'On my device — this conversation stays in this tab',
+  deviceUnavailable: 'Local model unavailable',
   conversation: 'Conversation', understanding: 'Understanding', you: 'You', assistant: 'Assistant',
   composer: 'Your message', placeholder: 'Describe what you would like to improve…', send: 'Send',
   shortcut: '⌘ / Ctrl + Enter', summary: 'Summary', signals: 'Signals', questions: 'Open questions',

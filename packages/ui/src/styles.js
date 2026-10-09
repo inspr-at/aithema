@@ -5,11 +5,16 @@ export const styles = `
   --aithema-surface: #fffef9; --aithema-font: system-ui, sans-serif;
   display:block; color:var(--aithema-ink); font: 1rem/1.5 var(--aithema-font); }
 * { box-sizing:border-box; } [hidden] { display:none !important; }
-button, textarea, a { font:inherit; } button, a { touch-action:manipulation; }
+button, textarea, select, a { font:inherit; } button, a { touch-action:manipulation; }
 button { color:inherit; cursor:pointer; background:transparent; border:1px solid var(--aithema-line);
   border-radius:.6rem; padding:.5rem .85rem; } button:hover { background:color-mix(in srgb,var(--aithema-accent) 7%,transparent); }
 button:disabled { opacity:.5; cursor:wait; } :focus-visible { outline:2px solid var(--aithema-accent); outline-offset:3px; }
-.workspace { display:grid; gap:1rem; } .conversation, .understanding { min-width:0; border:1px solid var(--aithema-line);
+.workspace { display:grid; gap:1rem; }
+.preset-panel { grid-column:1/-1; height:9rem; overflow:auto; border:1px solid var(--aithema-line); border-radius:.6rem; padding:.5rem 1rem; scrollbar-gutter:stable; }
+.preset-choice { margin-left:.5rem; color:inherit; background:var(--aithema-surface); border:1px solid var(--aithema-line); border-radius:.4rem; }
+.features { display:flex; flex-wrap:wrap; list-style:none; padding:0; gap:.3rem 1rem; margin:.5rem 0; }
+.features li { font-size:.75rem; } .features .unavailable { color:var(--aithema-muted); }
+.features span { display:block; font-size:.65rem; max-width:12rem; } .conversation, .understanding { min-width:0; border:1px solid var(--aithema-line);
   background:var(--aithema-surface); border-radius:1rem; overflow:hidden; }
 .conversation { height:42rem; max-height:85dvh; display:grid; grid-template-rows:3.6rem minmax(0,1fr) 10rem; }
 .head { display:flex; align-items:center; justify-content:space-between; padding:0 1.25rem; border-bottom:1px solid var(--aithema-line); }
@@ -34,6 +39,7 @@ ol { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; 
 textarea { resize:none; width:100%; height:5rem; border:0; background:transparent; color:inherit; padding:.3rem 0; }
 .composer-actions { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
 .composer-actions small { font-size:.7rem; color:var(--aithema-muted); } .send { min-width:6rem; background:var(--aithema-accent); color:white; }
+.composer-reason { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .understanding { height:42rem; display:grid; grid-template-rows:3.6rem 7rem minmax(0,1fr) 3.6rem; }
 .readiness { padding:.8rem 1.25rem; } .scale { height:.72rem; border:1px solid var(--aithema-line); border-radius:999px;
   position:relative; background:linear-gradient(90deg,color-mix(in srgb,var(--aithema-accent) 10%,var(--aithema-surface)) 0 30%,

@@ -46,10 +46,12 @@ keeps the session id. Reload or restart the server to resume from
 erasing the previous one. `PORT` and `AITHEMA_DB` override the port and database.
 The demo accepts only loopback Host headers and JSON POSTs.
 
-An `OPENROUTER_API_KEY` supplied at runtime selects the OpenRouter plugin;
-`demo/config.js` supplies the model, overridden by `OPENROUTER_MODEL`.
-Credentials stay on the server. Streaming and structured-output paths are tested
-against fixtures; a live binding still needs qualification.
+The demo stays on the mock even when provider environment variables exist.
+`AITHEMA_PROVIDER=openrouter|mistral` explicitly selects a provider; `OPENROUTER_MODEL`
+and `MISTRAL_MODEL` select its model. These demo bindings remain **unverified** and
+cannot dispatch until a host supplies private qualification and current consent.
+Keys resolve from `OPENROUTER_API_KEY` or `MISTRAL_API_KEY` only at runtime; they
+never enter manifests, snapshots, UI or logs. Tests never use these environment keys.
 
 ## Package layout
 
@@ -60,6 +62,8 @@ The private `aithema` root is an ESM npm workspace with one `package-lock.json`.
 | `packages/core` — `@inspr/aithema-core` | Session/event and understanding reducers, readiness, prompts, cancellable engine lanes |
 | `packages/server` — `@inspr/aithema-server` | Fetch handlers, SSE, SQLite storage, session export, mock server bin |
 | `packages/ui` — `@inspr/aithema-ui` | Framework-neutral `<aithema-session>` web component and English host copy |
+| `plugins/mistral` — `@inspr/aithema-plugin-mistral` | Mistral streaming and JSON Schema reasoning |
+| `plugins/device` — `@inspr/aithema-plugin-device` | Browser-only literal loopback text connector |
 | `plugins/openrouter` — `@inspr/aithema-plugin-openrouter` | Streaming reasoning and strict JSON Schema output |
 | `demo/` | Labelled localhost host and its tests |
 | `test/` | Shared JavaScript test helpers; package tests live beside each package |
@@ -76,12 +80,116 @@ core imports, as the demo does. Copy and CSS tokens belong to the host.
 
 | Request | Result |
 | --- | --- |
-| `POST /api/sessions` | New session snapshot |
+| `POST /api/sessions` | New session snapshot; accepts `processingPreset: best|eu|device|custom` |
 | `GET /api/sessions/:id` | Durable snapshot and current operational flags |
 | `POST /api/sessions/:id/turns` | Durable turn; identical client id and request bytes replay the receipt, differing bytes conflict |
 | `GET /api/sessions/:id/events` | SSE; resume using `Last-Event-ID` or `?after=<seq>` |
 | `POST /api/sessions/:id/retry` | Retry unfinished reasoning for the current revision |
 | `GET /api/sessions/:id/export` | Transcript JSON/Markdown and understanding JSON in a ZIP |
+
+## Plugins, bindings and admission
+
+Kinds are `reasoning` (`stream`, `structured`), `stt` (`transcribe`, optional
+`stream`), `tts` (`speak`), `live-voice` (`start` → session), `ui-generation`
+(`generate`, `edit`), `extractor` (`extract`) and `exporter` (`export`). Only
+reasoning is implemented here. Every operation takes `{signal, deadlineAt}`;
+[plugin-contract.d.ts](packages/core/src/plugin-contract.d.ts) documents the later
+ports, including independent voice input/output, acknowledged pause/resume,
+turn ids, transcript policy and delegated/native reasoning.
+
+A static public **manifest** contains id, version, API range, kinds, placement,
+entrypoints, a non-secret config schema and technical model capabilities/public
+vendor facts. `MANIFEST_SCHEMA` and `validateManifest` are dependency-free.
+Capabilities, German quality, locations, rates and evidence stay explicitly
+unverified when they have not been qualified. Vendor nationality proves no
+processing residency. Under D4, account references, legal profiles, consent
+purposes, training/retention terms and account evidence belong exclusively in
+private host configuration.
+
+A private **binding** selects plugin, exact model, effort, endpoint/routing,
+account and secret references, token limit, per-token integer micro-unit rates
+and an attempt ceiling. Reaction and understanding have separate bindings.
+`createBinding` validates and freezes them; neither bindings nor keys belong in
+session snapshots. Secret resolvers read their named environment reference at
+runtime. OpenRouter pins routing with `require_parameters` and
+`allow_fallbacks: false`; Mistral sends chat completions and JSON Schema directly.
+Their health operation checks configured credentials locally; it is not a live
+provider availability probe. Wire formats follow the official
+[OpenRouter streaming documentation](https://openrouter.ai/docs/api_reference/streaming)
+and [Mistral chat API](https://docs.mistral.ai/api/endpoint/chat).
+
+The host creates a `PluginRegistry`, registers reasoning instances, then passes
+`createPluginRuntime({storage, registry, presets, consent, budget})` into
+`createHandlers({storage, pluginRuntime})`. `presets` has `best`, `eu` and
+`custom` entries shaped as `{plugins: [id], bindings: {reaction, understanding},
+policy: {endpoints: [exactUrl], countries?, noTraining?}}`. The host's private
+binding `legal` profile carries `approved`, countries, training, retention,
+purpose, recipient, processors, data categories, consent item version and
+qualified account evidence with `verifiedAt`/`expiresAt` epoch milliseconds.
+Evidence must match the effective account, secret reference, model, endpoint
+and routing; no family-wide qualification or silent fallback exists.
+
+Admission runs on the server before **every** dispatch: preset membership,
+placement/operation support, pause, evidence identity and expiry, residency,
+endpoint policy, current consent, health and budget. EU requires all processing
+countries within the EU and no training. Hosts implementing the consent port
+provide `coverage(session, processingScope, {signal, deadlineAt})`; the result
+must contain the exact requested `scope`, a current `checkedAt`, a future
+`expiresAt`, and no withdrawal. Missing/unavailable coverage fails closed.
+The deterministic non-billable mock has no external processing and is exempt
+from external legal/consent qualification. AIT-97 owns the broader session
+safety contract; its consent adapter should expose this coverage port.
+
+Snapshots expose `featureMatrix[preset][feature] = {available, reason}` for
+text, analysis, voice, transcription and images. Each unavailable feature
+carries its reason. Best permits host-qualified international bindings; EU
+restricts residency; Custom uses only the host's explicit choices. Features
+whose later plugin slice is absent stay unavailable. The web component emits
+`aithema-preset` with `{processingPreset}`; the demo confirms the choice by
+creating a new session, preserving the previous conversation. It stays on the
+mock by default. The fixed preset panel and deferred pointer updates keep
+controls stable.
+
+Device is an explicit browser carve-out: text connects directly to an
+OpenAI-compatible server at literal `localhost` or `127.0.0.1`, with a models
+handshake, cancellation/deadlines, response limits, no redirects, credentials
+or server proxy. Set the loopback endpoint in the demo before choosing On my
+device. The UI keeps device turns in this tab; reload discards them. The server
+lanes refuse device work, and analysis, voice, transcription and images report
+“unavailable on device”. Local export/persistence is not implemented in this
+slice. Hosts pass `deviceReasoning` to `configure` for that browser half.
+
+Every billable call needs a new budget-admitted attempt and a single-use claim.
+A conservative UTF-8 bound on the prompt, schema, provider options and framing,
+plus the selected output limit, must fit the binding ceiling before dispatch.
+Both server lanes reserve and claim in `SQLiteBudgetLedger` in the session's
+SQLite database; no internal provider retry exists. Each invocation reports
+exactly one `completed {usage}`, `cancelled {usage}` or `uncertain`. Known
+usage settles with the binding's rates, including actual over-maximum cost with
+an overrun flag; uncertain dispatched usage charges the entire claim maximum.
+Undispatched claims settle cancelled at zero cost. Breaking a stream without
+final usage is uncertain, even if the browser locally cancelled. A retry is a
+new admission. At startup, `handlers.resume()` recovers unfinished dispatched
+claims at their maxima and releases undispatched reservations. It must run
+before fresh work under the host's
+exclusive-writer lifecycle. The slim ledger ports Gen-2
+`runtime/budget/{gate,sqlite}.js`; residency/evidence admission ports
+`runtime/settings/{resolver,capabilities}.js`.
+
+To add a plugin, export a static valid manifest, implement the declared kind
+and cancellable health operation, bind private operator selections, and run
+`reasoningConformance(plugin, fixtureRequest, { stallRequest, requestCount })`
+with local fixtures. Billable adapters must supply a stalled request and a
+synchronous outbound request counter. Reasoning
+must consume the provided claim before dispatch and report terminal usage in
+`finally`, including iterator return, cancellation and deadline. The reusable
+kit checks manifest, health, error codes, claim consumption before dispatch,
+refused consumes without requests, schema output and terminal counts, with
+preflight and active stream/structured cancellation and deadlines. CI runs it
+for OpenRouter, Mistral and mock and verifies that deliberately broken and
+preflight-only fixtures fail. The
+browser device half advertises text only and is not a full reasoning-kind
+server implementation. No live provider qualification is claimed.
 
 ## Ported from START
 

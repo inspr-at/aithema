@@ -1,3 +1,8 @@
+import { mockManifest } from './plugins.js';
+import { beginInvocation, normalizedError } from './invocation.js';
+export { mockManifest } from './plugins.js';
+const canonicalMocks = new WeakSet();
+export function isCanonicalMockReasoning(plugin) { return canonicalMocks.has(plugin); }
 export function assertReasoning(plugin) {
   if (!plugin || typeof plugin.stream !== 'function' || typeof plugin.structured !== 'function') {
     throw new TypeError('Reasoning requires stream and structured');
@@ -32,18 +37,26 @@ export function operationScope({ signal, deadlineAt = Date.now() + 30_000 } = {}
   return { signal: controller.signal, dispose() { clearTimeout(timer); signal?.removeEventListener('abort', abort); } };
 }
 export function createMockReasoning() {
-  return {
-    id: 'mock', label: 'Mock reasoning — deterministic demo',
+  const plugin = Object.freeze({
+    id: 'mock', billable: false, label: 'Mock reasoning — deterministic demo', manifest: mockManifest,
+    async health(options) { const scope = operationScope(options); try { scope.signal.throwIfAborted(); return { available: true }; }
+      catch (error) { throw normalizedError(error, scope.signal); } finally { scope.dispose(); } },
     async *stream(request, options) {
-      const scope = operationScope(options);
+      const invocation = beginInvocation(options, { billable: false });
+      const scope = operationScope(options); let completed = false;
+      invocation.dispatch(); invocation.usage({ inputTokens: 0, outputTokens: 0 });
       try {
         scope.signal.throwIfAborted();
         const content = request.locale === 'de' ? 'Was sollte sich als Erstes verbessern?' : 'What should improve first?';
         for (const chunk of content.match(/\S+\s*/gu)) { scope.signal.throwIfAborted(); yield chunk; }
-      } finally { scope.dispose(); }
+        completed = true;
+      } catch (error) { throw normalizedError(error, scope.signal); }
+      finally { scope.dispose(); await invocation.finish(completed); }
     },
     async structured(request, options) {
-      const scope = operationScope(options);
+      const invocation = beginInvocation(options, { billable: false });
+      const scope = operationScope(options); let completed = false;
+      invocation.dispatch(); invocation.usage({ inputTokens: 0, outputTokens: 0 });
       try {
         scope.signal.throwIfAborted();
         const turns = request.messages.filter(m => m.role === 'user' && !m.content.startsWith('{"kind":'));
@@ -55,12 +68,15 @@ export function createMockReasoning() {
           const value = turn.content.slice(start).split(/[;\n]/u)[0].trim();
           return [slot, value ? { value, evidence: turn.content.slice(0, 500) } : null];
         }));
+        completed = true;
         return { summary: turns.map(t => t.content).join(' ').slice(0, 500),
           signals: turns.slice(-3).map(t => t.content),
           openQuestions: turns.length < 3 ? ['What outcome would make this useful?'] : [], constraints,
           progress: { talk: { value: Math.min(1, turns.length / 4), reasoning: 'Mock turn count' },
             build: { value: 1, reasoning: 'Capped by supported slots' } }, actor: null, engagement: null };
-      } finally { scope.dispose(); }
+      } catch (error) { throw normalizedError(error, scope.signal); }
+      finally { scope.dispose(); await invocation.finish(completed); }
     },
-  };
+  });
+  canonicalMocks.add(plugin); return plugin;
 }

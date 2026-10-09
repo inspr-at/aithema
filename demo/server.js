@@ -1,20 +1,34 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve, sep } from 'node:path';
-import { SQLiteStorage, createHandlers } from '@inspr/aithema-server';
+import { SQLiteStorage, createHandlers, createPluginRuntime } from '@inspr/aithema-server';
 import { listen } from '@inspr/aithema-server/http';
-import { createMockReasoning } from '@inspr/aithema-core';
+import { createMockReasoning, PluginRegistry } from '@inspr/aithema-core';
 import { createOpenRouterReasoning } from '@inspr/aithema-plugin-openrouter';
+import { createMistralReasoning } from '@inspr/aithema-plugin-mistral';
 import { config } from './config.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const defaultDb = resolve(root, '.data/session.sqlite');
 if (!process.env.AITHEMA_DB) await mkdir(resolve(root, '.data'), { recursive: true });
 const storage = new SQLiteStorage(process.env.AITHEMA_DB ?? defaultDb);
-// The sole credential read is at runtime. Never send the binding/key to the browser.
-const apiKey = process.env.OPENROUTER_API_KEY;
-const reasoning = apiKey ? createOpenRouterReasoning({ apiKey, model: process.env.OPENROUTER_MODEL ?? config.model }) : createMockReasoning();
-const handlers = createHandlers({ storage, reasoning }); handlers.resume();
+// The demo is deterministic unless the operator explicitly selects a provider.
+// Private references resolve from the environment at dispatch, never into public config.
+const provider = process.env.AITHEMA_PROVIDER ?? 'mock';
+if (!['mock', 'openrouter', 'mistral'].includes(provider)) throw new TypeError('Unknown demo provider');
+const privateBinding = { plugin: provider, model: provider === 'mistral' ? (process.env.MISTRAL_MODEL ?? 'mistral-small-latest')
+  : (process.env.OPENROUTER_MODEL ?? config.model), effort: 'none',
+  endpoint: provider === 'mistral' ? 'https://api.mistral.ai/v1/chat/completions' : 'https://openrouter.ai/api/v1/chat/completions',
+  accountRef: 'unverified', secretRef: provider === 'mistral' ? 'MISTRAL_API_KEY' : 'OPENROUTER_API_KEY',
+  maxMicro: 1_000_000, maxTokens: 4096, rates: { inputMicro: 0, outputMicro: 0 } };
+const reasoning = provider === 'mock' ? createMockReasoning() : provider === 'openrouter'
+  ? createOpenRouterReasoning({ binding: privateBinding }) : createMistralReasoning({ binding: privateBinding });
+const pluginRuntime = provider === 'mock' ? createPluginRuntime({ storage, reasoning }) : createPluginRuntime({ storage,
+  registry: new PluginRegistry().register(reasoning), presets: {
+    best: { plugins: [provider], bindings: { reaction: privateBinding, understanding: privateBinding } },
+    eu: { plugins: [], bindings: {} }, custom: { plugins: [], bindings: {} },
+  } });
+const handlers = createHandlers({ storage, reasoning, pluginRuntime }); handlers.resume();
 let allowedHosts = new Set();
 async function handle(request) {
   if (!allowedHosts.has(request.headers.get('host'))) return new Response(null, { status: 403 });
@@ -24,10 +38,10 @@ async function handle(request) {
   const url = new URL(request.url);
   if (url.pathname.startsWith('/api/')) return handlers.handle(request);
   if (!['GET', 'HEAD'].includes(request.method)) return new Response(null, { status: 405 });
-  if (url.pathname === '/demo/config') return Response.json({ label: reasoning.label });
+  if (url.pathname === '/demo/config') return Response.json({ label: reasoning.label, defaultPreset: 'best' });
   const path = url.pathname === '/' ? '/demo/index.html' : url.pathname;
   // Explicit source/static allowlist; no arbitrary files, lockfiles or credentials.
-  if (!/^\/(?:demo\/(?:index\.html|host\.js)|packages\/(?:ui|core)\/src\/[a-z0-9/-]+\.js)$/u.test(path)) return new Response(null, { status: 404 });
+  if (!/^\/(?:demo\/(?:index\.html|host\.js)|plugins\/device\/src\/index\.js|packages\/(?:ui|core)\/src\/[a-z0-9/-]+\.js)$/u.test(path)) return new Response(null, { status: 404 });
   const file = resolve(root, `.${path}`);
   if (!file.startsWith(root + (root.endsWith(sep) ? '' : sep))) return new Response(null, { status: 404 });
   try {
