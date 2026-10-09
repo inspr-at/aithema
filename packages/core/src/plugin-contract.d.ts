@@ -34,6 +34,7 @@ export interface STT {
 }
 export interface TTS { speak(request: { text: string; voice: string; format: string }, options: OperationOptions): AsyncIterable<Uint8Array> }
 export type { UIGeneration, UISpec, UIFeedback, UIArtifact, UIReference, UIImageMediaType } from './ui-generation.js';
+export type { HTMLGeneration, UIHTMLSpec, UIHTMLArtifact, HTMLProblem } from './ui-html.js';
 export type { Extractor, Extraction, ExtractionSegment, ExtractionLimits, ExtractionMetadata, ExtractionOptions } from './extractor.js';
 export interface Exporter { export(request: { session: object; format: string }, options: OperationOptions): Promise<{ bytes: Uint8Array; mediaType: string }> }
 export type VoiceCapability = 'native' | 'emulated' | 'unavailable';
@@ -85,7 +86,7 @@ export interface LiveVoice { start(request: { callId: string; context?: object }
 export interface PrivateBinding {
   plugin: string; model: string; effort: string; endpoint: string; routing?: object;
   accountRef: string; secretRef: string; maxMicro: number; maxTokens: number;
-  rates: { inputMicro: number; outputMicro: number };
+  rates: { inputMicro: number; outputMicro: number; inputUSD?: number; outputUSD?: number };
   legal: { purpose: string; recipient: string; processors: string[]; dataCategories: string[];
     consentVersion: string; countries: string[]; training: boolean; retention: string; approved: boolean;
     evidence: { accountRef: string; secretRef: string; model: string; endpoint: string; routing: object;

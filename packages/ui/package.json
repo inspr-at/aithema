@@ -5,7 +5,8 @@
   "exports": {
     ".": "./src/session-element.js",
     "./i18n/en": "./src/i18n/en.js",
-    "./voice-control": "./src/voice-control.js"
+    "./voice-control": "./src/voice-control.js",
+    "./html-preview": "./src/html-preview.js"
   },
   "engines": {
     "node": ">=24"
