@@ -1,0 +1,8 @@
+{
+  "name": "@inspr/aithema-next-plugin-openrouter",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.js",
+  "dependencies": { "@inspr/aithema-next-core": "*" },
+  "engines": { "node": ">=24" }
+}
