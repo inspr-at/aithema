@@ -98,6 +98,7 @@ The private `aithema` root is an ESM npm workspace with one `package-lock.json`.
 | `plugins/openrouter` — `@inspr/aithema-plugin-openrouter` | Streaming reasoning and strict JSON Schema output |
 | `plugins/elevenlabs` — `@inspr/aithema-plugin-elevenlabs` | Live voice server/browser halves, custom-LLM facade and fake-only conformance |
 | `plugins/openai-images` — `@inspr/aithema-plugin-openai-images` | Server-side GPT Image 2 generation/editing, byte artifacts and provenance |
+| `plugins/codex-imagegen` — `@inspr/aithema-plugin-codex-imagegen` | Server-side Codex CLI image generation/editing on the operator account, with private references and process-group cancellation |
 | `plugins/extract-{pdf,ooxml,text}` — `@inspr/aithema-plugin-extract-{pdf,ooxml,text}` | Offline bounded PDF, DOCX/XLSX/PPTX and literal text extractors |
 | `demo/` | Labelled localhost host and its tests |
 | `test/` | Shared JavaScript test helpers; package tests live beside each package |
@@ -658,6 +659,25 @@ at most 12 MiB. After durably removing the upload source, await
 `handlers.removeConceptReference(sessionId, sourceId)` before acknowledgement.
 The included fake tests exercise this port, dependency-scoped removal and an
 upload/turn with the same ID. Upload routes and their UI will arrive on AIT-100.
+
+`createCodexImagegen({binding})` from `@inspr/aithema-plugin-codex-imagegen`
+implements the same server-only generate/edit contract. The operator supplies
+`binding.model`, `binding.effort`, and
+`binding.routing.codex = {binaryPath, codexHome, timeoutMs}` (absolute account
+directory, executable path or PATH name, timeout 1–1,800,000 ms). Common binding
+fields remain required; `secretRef` is unused because CODEX_HOME selects the
+operator's authenticated CLI account. Require `maxMicro: 0` and zero rates.
+The adapter passes private references through variadic `-i` and the full host
+brief through stdin, enforces one active CLI across instances, kills/reaps its
+process group and cleans its private workspace before settlement. Dispatched
+reports add `chargedMicro: 0` and `durationMs`; zero token totals are settlement
+units, not measured CLI consumption. Preflight/refusal keeps the exact shared
+zero report. Provenance identifies `codex-imagegen`, the bound model and byte
+digest through response fields; part B must persist the sidecar and elapsed
+time, register/bind the plugin in the images lane with current consent and
+zero monetary admission, and propagate cancellation/deadlines. Health checks
+local executable/account-directory availability, not authentication or model
+access. All tests use a fake executable; no live Codex render is performed.
 
 The reusable conformance call is
 `uiGenerationConformance(plugin, {spec, feedback, artifact},
