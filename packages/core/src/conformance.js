@@ -1,6 +1,7 @@
 import { validateManifest } from './plugins.js';
 import { matchesSchema, operationScope } from './reasoning.js';
 import { PLUGIN_ERROR_CODES, PluginError, isCancelledZeroReport } from './invocation.js';
+export { liveVoiceConformance } from './live-voice-conformance.js';
 // Portable executable reasoning kit. No provider calls are built into the kit;
 // adapters supply their local fixtures and a request valid for their schema.
 export async function reasoningConformance(plugin, request, { timeoutMs = 1000, stallRequest, requestCount } = {}) {

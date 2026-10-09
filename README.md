@@ -70,6 +70,7 @@ The private `aithema` root is an ESM npm workspace with one `package-lock.json`.
 | `plugins/mistral` — `@inspr/aithema-plugin-mistral` | Mistral streaming and JSON Schema reasoning |
 | `plugins/device` — `@inspr/aithema-plugin-device` | Browser-only literal loopback text connector |
 | `plugins/openrouter` — `@inspr/aithema-plugin-openrouter` | Streaming reasoning and strict JSON Schema output |
+| `plugins/elevenlabs` — `@inspr/aithema-plugin-elevenlabs` | Live voice server/browser halves, custom-LLM facade and fake-only conformance |
 | `demo/` | Labelled localhost host and its tests |
 | `test/` | Shared JavaScript test helpers; package tests live beside each package |
 | `tests/`, `scripts/check-dco.py` | DCO history tests and contribution checker |
@@ -152,11 +153,14 @@ takeover is provided.
 
 Kinds are `reasoning` (`stream`, `structured`), `stt` (`transcribe`, optional
 `stream`), `tts` (`speak`), `live-voice` (`start` → session), `ui-generation`
-(`generate`, `edit`), `extractor` (`extract`) and `exporter` (`export`). Only
-reasoning is implemented here. Every operation takes `{signal, deadlineAt}`;
+(`generate`, `edit`), `extractor` (`extract`) and `exporter` (`export`). Reasoning
+and the isolated ElevenLabs live-voice adapter are implemented here. Every
+operation takes `{signal, deadlineAt}`;
 [plugin-contract.d.ts](packages/core/src/plugin-contract.d.ts) documents the later
 ports, including independent voice input/output, acknowledged pause/resume,
-turn ids, transcript policy and delegated/native reasoning.
+turn ids, transcript policy and delegated/native reasoning. The voice adapter has
+no routes or UI integration yet; [its README](plugins/elevenlabs/README.md)
+defines the Part B integration ports after AIT-97.
 
 A static public **manifest** contains id, version, API range, kinds, placement,
 entrypoints, a non-secret config schema and technical model capabilities/public

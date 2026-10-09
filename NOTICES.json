@@ -7,6 +7,42 @@
   },
   "dependencies": [
     {
+      "name": "@bufbuild/protobuf",
+      "version": "1.10.1",
+      "license": "(Apache-2.0 AND BSD-3-Clause)",
+      "use": "ElevenLabs browser voice SDK or its runtime dependencies."
+    },
+    {
+      "name": "@elevenlabs/client",
+      "version": "1.17.0",
+      "license": "MIT",
+      "use": "ElevenLabs browser voice SDK or its runtime dependencies."
+    },
+    {
+      "name": "@elevenlabs/types",
+      "version": "0.19.0",
+      "license": "MIT",
+      "use": "ElevenLabs browser voice SDK or its runtime dependencies."
+    },
+    {
+      "name": "@livekit/mutex",
+      "version": "1.1.1",
+      "license": "Apache-2.0",
+      "use": "ElevenLabs browser voice SDK or its runtime dependencies."
+    },
+    {
+      "name": "@livekit/protocol",
+      "version": "1.42.2",
+      "license": "Apache-2.0",
+      "use": "ElevenLabs browser voice SDK or its runtime dependencies."
+    },
+    {
+      "name": "@types/dom-mediacapture-record",
+      "version": "1.0.22",
+      "license": "MIT",
+      "use": "ElevenLabs browser voice SDK or its runtime dependencies."
+    },
+    {
       "name": "@types/node",
       "version": "26.6.4",
       "license": "MIT",
@@ -37,16 +73,82 @@
       "use": "HTML entity encoding and decoding used by happy-dom (tests only)."
     },
     {
+      "name": "events",
+      "version": "3.3.0",
+      "license": "MIT",
+      "use": "ElevenLabs browser voice SDK or its runtime dependencies."
+    },
+    {
       "name": "happy-dom",
       "version": "20.11.2",
       "license": "MIT",
       "use": "Browser DOM implementation for web component tests."
     },
     {
+      "name": "jose",
+      "version": "6.2.12",
+      "license": "MIT",
+      "use": "ElevenLabs browser voice SDK or its runtime dependencies."
+    },
+    {
+      "name": "livekit-client",
+      "version": "2.16.1",
+      "license": "Apache-2.0",
+      "use": "ElevenLabs browser voice SDK or its runtime dependencies."
+    },
+    {
+      "name": "loglevel",
+      "version": "1.9.2",
+      "license": "MIT",
+      "use": "ElevenLabs browser voice SDK or its runtime dependencies."
+    },
+    {
+      "name": "rxjs",
+      "version": "7.8.2",
+      "license": "Apache-2.0",
+      "use": "ElevenLabs browser voice SDK or its runtime dependencies."
+    },
+    {
+      "name": "sdp",
+      "version": "3.2.2",
+      "license": "MIT",
+      "use": "ElevenLabs browser voice SDK or its runtime dependencies."
+    },
+    {
+      "name": "sdp-transform",
+      "version": "2.15.0",
+      "license": "MIT",
+      "use": "ElevenLabs browser voice SDK or its runtime dependencies."
+    },
+    {
+      "name": "ts-debounce",
+      "version": "4.0.0",
+      "license": "MIT",
+      "use": "ElevenLabs browser voice SDK or its runtime dependencies."
+    },
+    {
+      "name": "tslib",
+      "version": "2.8.1",
+      "license": "0BSD",
+      "use": "ElevenLabs browser voice SDK or its runtime dependencies."
+    },
+    {
+      "name": "typed-emitter",
+      "version": "2.1.0",
+      "license": "MIT",
+      "use": "ElevenLabs browser voice SDK or its runtime dependencies."
+    },
+    {
       "name": "undici-types",
       "version": "8.9.0",
       "license": "MIT",
       "use": "HTTP type declarations required by @types/node (tests only)."
+    },
+    {
+      "name": "webrtc-adapter",
+      "version": "9.0.6",
+      "license": "BSD-3-Clause",
+      "use": "ElevenLabs browser voice SDK or its runtime dependencies."
     },
     {
       "name": "whatwg-mimetype",
@@ -97,6 +199,11 @@
       "aithema_module": "packages/core/test/, packages/ui/test/",
       "start_source": "start-agm-com tests/{analyze-route,guided-pass,analysis-incremental,critical-surfaces}.test.ts",
       "notes": "Selected reducer/readiness/lane/UI behaviour cases converted to node:test."
+    },
+    {
+      "aithema_module": "plugins/elevenlabs/, packages/core/src/live-voice.js",
+      "start_source": "start-agm-com src/pages/api/v2/{agent-token,call-reconcile,pause}.ts, src/pages/api/v2/llm/chat/completions.ts, src/scripts/v2.ts, src/lib/providers/elevenlabs.ts",
+      "notes": "Generic authenticated token minting, session reasoning facade, acknowledged pause and separate visitor/upstream accounting, SDK final/correction events and bounded recovery. SDK dependency pinned to START lockfile 1.17.0. INSPR holds port rights under approved revised D3."
     }
   ],
   "not_copied": [
@@ -105,7 +212,6 @@
     "funnel and offer policy",
     "mail/handoff",
     "credits",
-    "voice SDK",
     "customer records",
     "env/secret files"
   ]
