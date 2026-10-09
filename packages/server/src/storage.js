@@ -5,6 +5,7 @@ import { dirname, basename, resolve, join } from 'node:path';
 import { applyEvent, createSession, inputRevision, emptyUnderstanding } from '@inspr/aithema-core';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
+const turnMetadata = ['id', 'role', 'at', 'inputRevision', 'contentRef', 'hash', 'erased', 'withdrawn', 'provenance', 'voiceCallId', 'voiceProviderId'];
 
 export class ConflictError extends Error {}
 export class NotFoundError extends Error {}
@@ -29,6 +30,9 @@ export class SQLiteStorage {
         seq INTEGER NOT NULL, event TEXT NOT NULL, PRIMARY KEY(session_id,seq));
       CREATE TABLE IF NOT EXISTS receipts (session_id TEXT NOT NULL REFERENCES sessions(id),
         client_id TEXT NOT NULL, bytes BLOB NOT NULL, result TEXT NOT NULL, PRIMARY KEY(session_id,client_id));
+      CREATE TABLE IF NOT EXISTS voice_calls (provider_id TEXT PRIMARY KEY, call_id TEXT NOT NULL,
+        session_id TEXT NOT NULL REFERENCES sessions(id), record TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS voice_session ON voice_calls(session_id);
       CREATE TRIGGER IF NOT EXISTS events_no_update BEFORE UPDATE ON events BEGIN SELECT RAISE(ABORT,'append only'); END;
       CREATE TRIGGER IF NOT EXISTS events_no_delete BEFORE DELETE ON events BEGIN SELECT RAISE(ABORT,'append only'); END;`);
     this.#migrate();
@@ -60,6 +64,11 @@ export class SQLiteStorage {
     if (session.actor?.contentRef) {
       const record = this.getRecord(id, session.actor.contentRef); session.actor = record.erased ? null : record.data;
     } else if (!session.actor) session.actor = session.understanding.actor ?? null;
+    if ('focusedQuestionRef' in session) session.focusedQuestion = null;
+    if (session.focusedQuestionRef) {
+      const record = this.getRecord(id, session.focusedQuestionRef.contentRef);
+      session.focusedQuestion = record.erased ? null : record.data.question;
+    }
     return session;
   }
   authorize(id, ownerToken) {
@@ -90,20 +99,32 @@ export class SQLiteStorage {
   }
   #hydrateEvent(event) { return { ...event, data: this.#hydrateData(event.sessionId, event.data) }; }
   #metadata(id, type, data, seq) {
-    if (!['turn.final', 'understanding.updated'].includes(type)) return data;
+    if (type === 'question.focused') {
+      if (data.question === null) return { question: null };
+      if (data.contentRef) return { contentRef: data.contentRef, hash: data.hash };
+      if (typeof data.question !== 'string' || data.question.length > 8000) throw new TypeError('Invalid focused question');
+      const bytes = JSON.stringify({ question: data.question }), contentRef = `${id}:${seq}`, at = new Date().toISOString();
+      this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id, 'understanding', bytes, hash(bytes), at);
+      return { contentRef, hash: hash(bytes) };
+    }
+    if (!['turn.final', 'turn.corrected', 'understanding.updated'].includes(type)) return data;
     if (data.contentRef) return Object.fromEntries(Object.entries(data).filter(([key]) =>
-      type === 'turn.final' ? ['id', 'role', 'at', 'inputRevision', 'contentRef', 'hash', 'erased', 'withdrawn'].includes(key)
+      ['turn.final', 'turn.corrected'].includes(type) ? turnMetadata.includes(key)
         : ['contentRef', 'hash', 'erased'].includes(key)));
     const contentRef = `${id}:${seq}`, at = data.at ?? new Date().toISOString();
-    const bytes = JSON.stringify(type === 'turn.final' ? { content: data.content } : data), digest = hash(bytes);
+    const bytes = JSON.stringify(['turn.final', 'turn.corrected'].includes(type) ? { content: data.content } : data), digest = hash(bytes);
     this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id,
-      type === 'turn.final' ? data.role === 'user' ? 'person' : 'reply' : 'understanding', bytes, digest, at);
-    return type === 'turn.final' ? { id: data.id, role: data.role, at,
-      ...(data.inputRevision === undefined ? {} : { inputRevision: data.inputRevision }), contentRef, hash: digest }
+      ['turn.final', 'turn.corrected'].includes(type) ? data.role === 'user' ? 'person' : 'reply' : 'understanding', bytes, digest, at);
+    return ['turn.final', 'turn.corrected'].includes(type) ? { id: data.id, role: data.role, at,
+      ...Object.fromEntries(['inputRevision', 'provenance', 'voiceCallId', 'voiceProviderId'].filter(key => data[key] !== undefined).map(key => [key, data[key]])), contentRef, hash: digest }
       : { contentRef, hash: digest };
   }
-  #save(session, understandingRef) {
+  #save(session, understandingRef, focusedQuestionRef) {
     const metadata = { ...session, transcript: session.transcript.map(t => this.#metadata(session.id, 'turn.final', t)) };
+    if (session.focusedQuestion !== undefined) {
+      metadata.focusedQuestionRef = session.focusedQuestion === null ? null : focusedQuestionRef ?? session.focusedQuestionRef;
+      delete metadata.focusedQuestion;
+    }
     if (understandingRef) metadata.understanding = understandingRef;
     else {
       const old = JSON.parse(this.db.prepare('SELECT snapshot FROM sessions WHERE id=?').get(session.id).snapshot);
@@ -130,7 +151,7 @@ export class SQLiteStorage {
       at: new Date().toISOString(), data: this.#metadata(session.id, type, data, session.seq + 1) };
     this.db.prepare('INSERT INTO events VALUES (?,?,?)').run(session.id, event.seq, JSON.stringify(event));
     const hydrated = this.#hydrateEvent(event), next = applyEvent(session, hydrated);
-    this.#save(next, type === 'understanding.updated' ? event.data : undefined);
+    this.#save(next, type === 'understanding.updated' ? event.data : undefined, type === 'question.focused' ? event.data : undefined);
     return hydrated;
   }
   append(id, type, data, expectedRevision) {
@@ -153,9 +174,78 @@ export class SQLiteStorage {
       this.#check(session, guard);
       if (session.transcript.some(turn => turn.id === clientId)) throw new ConflictError('Turn id already exists');
       const event = this.#append(session, 'turn.final', { id: clientId, role: 'user', content,
+        ...(guard.voiceCallId ? { voiceCallId: guard.voiceCallId, voiceProviderId: guard.voiceProviderId } : {}),
         at: new Date().toISOString() });
       const metadata = { ...event, data: this.#metadata(id, 'turn.final', event.data) };
       this.db.prepare('INSERT INTO receipts VALUES (?,?,?,?)').run(id, clientId, hash(bytes), JSON.stringify(metadata));
+      return { event, replayed: false };
+    });
+  }
+  saveVoiceCall(id, record, { paused, guard = {} } = {}) {
+    return this.transaction(() => {
+      const session = this.get(id);
+      // Terminal reconciliation must survive withdrawal and erasure.
+      if (!record.terminal) { this.#check(session, guard);
+        if (session.consentWithdrawn) throw new ConflictError('Voice consent withdrawn'); }
+      const existing = this.db.prepare('SELECT * FROM voice_calls WHERE provider_id=?').get(record.providerSessionId);
+      if (existing && (existing.call_id !== record.callId || existing.session_id !== id)) throw new ConflictError('Voice identity mismatch');
+      this.db.prepare('INSERT INTO voice_calls VALUES (?,?,?,?) ON CONFLICT(provider_id) DO UPDATE SET record=excluded.record')
+        .run(record.providerSessionId, record.callId, id, JSON.stringify(record));
+      const event = paused === undefined || session.paused === paused ? null : this.#append(session, 'session.paused', { paused });
+      return { acknowledged: true, ...(paused === undefined ? {} : { paused }), event };
+    });
+  }
+  voiceCalls(id) {
+    return this.db.prepare('SELECT * FROM voice_calls WHERE (? IS NULL OR session_id=?)').all(id ?? null, id ?? null)
+      .map(row => ({ sessionId: row.session_id, ...JSON.parse(row.record) }));
+  }
+  postVoiceEvent(id, callId, providerId, value, guard = {}) {
+    const transaction = value?.type === 'heard' ? fn => this.#invalidationTransaction(fn) : fn => this.transaction(fn);
+    return transaction(() => {
+      const session = this.get(id); this.#check(session, guard);
+      if (session.paused || session.consentWithdrawn) throw new ConflictError('Voice publication blocked');
+      const { type, turnId } = value;
+      if (!['final', 'heard'].includes(type) || typeof turnId !== 'string' || turnId.length > 256 ||
+        !turnId.startsWith(providerId + ':') || value.callId !== callId ||
+        (type === 'final' && (!['user', 'assistant'].includes(value.role) || typeof value.text !== 'string' || !value.text.trim() || value.text.length > 16000)) ||
+        (type === 'heard' && (typeof value.prefix !== 'string' || value.prefix.length > 16000))) throw new TypeError('Invalid voice event');
+      const clientId = 'voice:' + hash(JSON.stringify({ callId, turnId, type, ...(type === 'heard' ? { prefix: value.prefix } : {}) }));
+      const bytes = hash(JSON.stringify(value));
+      const receipt = this.db.prepare('SELECT bytes,result FROM receipts WHERE session_id=? AND client_id=?').get(id, clientId);
+      if (receipt) {
+        if (receipt.bytes !== bytes) throw new ConflictError('Voice event id has different bytes');
+        return { event: this.#hydrateEvent(JSON.parse(receipt.result)), replayed: true };
+      }
+      const turn = session.transcript.find(t => t.id === turnId);
+      let event;
+      if (type === 'final') {
+        if (turn) throw new ConflictError('Voice turn already exists');
+        // Echo receipts consume typed turns durably, including across recovery
+        // and process restart. Redelivery was handled above and consumes nothing.
+        const consumed = value.role === 'user' ? new Set(this.db.prepare(
+          "SELECT json_extract(result,'$.data.id') AS turn_id FROM receipts WHERE session_id=? AND client_id LIKE 'voice:%'"
+        ).all(id).map(row => row.turn_id)) : null;
+        const normalize = text => text.trim().replace(/\s+/gu, ' ');
+        const typed = value.role === 'user' && session.transcript.find(t => t.voiceCallId === callId && !t.erased && !t.withdrawn &&
+          !consumed.has(t.id) && normalize(t.content) === normalize(value.text));
+        event = typed ? this.read(id).find(e => e.type === 'turn.final' && e.data.id === typed.id)
+          : this.#append(session, 'turn.final', { id: turnId, role: value.role, content: value.text,
+            at: new Date().toISOString(), ...(value.role === 'assistant' ? { inputRevision: inputRevision(session), provenance: guard.provenance === 'facade-produced' ? 'facade-produced' : 'browser-asserted' } : {}) });
+        if (typed) {
+          const metadata = { ...event, data: this.#metadata(id, event.type, event.data) };
+          this.db.prepare('INSERT INTO receipts VALUES (?,?,?,?)').run(id, clientId, bytes, JSON.stringify(metadata));
+          return { event, replayed: true };
+        }
+      } else {
+        if (!turn || turn.role !== 'assistant' || turn.erased || turn.withdrawn || !turn.content.startsWith(value.prefix)) throw new ConflictError('Invalid heard prefix');
+        // Remove superseded assistant content and dependent projections from replay/export too.
+        this.db.prepare("UPDATE content SET bytes=NULL,tombstone=? WHERE session_id=? AND (id=? OR kind IN ('understanding','actor'))")
+          .run(new Date().toISOString(), id, turn.contentRef);
+        event = this.#append(session, 'turn.corrected', { id: turnId, role: turn.role, content: value.prefix,
+          at: turn.at, inputRevision: inputRevision(session), provenance: turn.provenance });
+      }
+      const metadata = { ...event, data: this.#metadata(id, event.type, event.data) };
+      this.db.prepare('INSERT INTO receipts VALUES (?,?,?,?)').run(id, clientId, bytes, JSON.stringify(metadata));
       return { event, replayed: false };
     });
   }

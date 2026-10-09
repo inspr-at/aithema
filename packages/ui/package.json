@@ -4,7 +4,8 @@
   "type": "module",
   "exports": {
     ".": "./src/session-element.js",
-    "./i18n/en": "./src/i18n/en.js"
+    "./i18n/en": "./src/i18n/en.js",
+    "./voice-control": "./src/voice-control.js"
   },
   "engines": {
     "node": ">=24"

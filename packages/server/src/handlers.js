@@ -1,6 +1,7 @@
+import { createVoiceHandlers } from './voice-handlers.js';
 import { createPluginRuntime } from './plugin-runtime.js';
 import { randomUUID } from 'node:crypto';
-import { SessionLanes, createMockReasoning, inputRevision, activeTurns } from '@inspr/aithema-core';
+import { SessionLanes, createMockReasoning, inputRevision, activeTurns, PluginError } from '@inspr/aithema-core';
 import { ConflictError, NotFoundError } from './storage.js';
 import { exportSession } from './export.js';
 
@@ -29,7 +30,7 @@ export async function readBody(request, limit = 32_768) {
 
 export function createHandlers({ storage, reasoning = createMockReasoning(), sessionOptions = { demo: true },
   deadlineMs = 30_000, hostPrompt = '', pluginRuntime, consent = pluginRuntime?.consent,
-  ownership = { token: request => request.headers.get('x-aithema-session-token') } }) {
+  ownership = { token: request => request.headers.get('x-aithema-session-token') }, voice }) {
   pluginRuntime ??= createPluginRuntime({ storage, reasoning, consent: consent ?? { coverage: () => ({ covered: false }) } });
   consent ??= pluginRuntime.consent;
   if (typeof consent?.coverage !== 'function' || consent !== pluginRuntime.consent) {
@@ -60,11 +61,26 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       if (stop.signal.aborted) return false;
       const event = storage.append(id, type, data, revision);
       if (event) broadcast(id, event);
+      if (event && type === 'understanding.updated') {
+        const session = storage.get(id), question = session.understanding.openQuestions[0] ?? null;
+        if ((session.focusedQuestion ?? null) !== question) {
+          const focused = storage.append(id, 'question.focused', { question }, revision);
+          if (focused) broadcast(id, focused);
+        }
+      }
       return Boolean(event);
     }, transient: (id, event) => broadcast(id, { sessionId: id, ...event }),
   });
+  const voiceHandlers = voice ? createVoiceHandlers({ storage, runtime: pluginRuntime, ownership, readBody, hostPrompt,
+    ...voice, publish: broadcast, onTurn(id) { lanes.supersede(id); scheduleLane(id, 'understanding'); } }) : null;
+  async function invalidate(id, event, reason) {
+    const cancelled = lanes.cancel(id);
+    failures.delete(id); broadcast(id, event);
+    voiceHandlers?.stopSession(id, reason);
+    await cancelled;
+  }
   function schedule(id) {
-    for (const lane of ['reaction', 'understanding']) scheduleLane(id, lane);
+    for (const lane of voiceHandlers?.active(id) ? ['understanding'] : ['reaction', 'understanding']) scheduleLane(id, lane);
   }
   function scheduleLane(id, lane) {
     const key = `${id}:${lane}`;
@@ -150,6 +166,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   async function handle(request) {
     if (stop.signal.aborted) return json({ error: 'server-stopping' }, 503);
     try {
+      const voiceResponse = await voiceHandlers?.handle(request);
+      if (voiceResponse) return voiceResponse;
       const url = new URL(request.url);
       if (url.pathname === '/api/sessions' && request.method === 'POST') {
         const bytes = await readBody(request);
@@ -175,8 +193,10 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         const body = JSON.parse(Buffer.from(bytes).toString('utf8'));
         if (!body || typeof body.clientEventId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(body.clientEventId) ||
           typeof body.content !== 'string' || !body.content.trim() || body.content.length > 8000) return json({ error: 'invalid-turn' }, 400);
+        const voiceContext = body.voiceCallId === undefined ? {} : voiceHandlers?.typedContext(id, ownerToken, body.voiceCallId, body.providerSessionId);
+        if (body.voiceCallId !== undefined && !voiceContext) return json({ error: 'voice-unavailable' }, 403);
         const { event, replayed } = storage.postTurn(id, body.clientEventId, bytes, body.content,
-          { ...guard, revision: body.inputRevision ?? guard.revision });
+          { ...guard, ...voiceContext, revision: body.inputRevision ?? guard.revision });
         if (!replayed) lanes.supersede(id);
         if (!replayed) broadcast(id, event);
         schedule(id);
@@ -188,7 +208,16 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       if (action === 'pause' && request.method === 'POST') {
         const body = JSON.parse(Buffer.from(await readBody(request)).toString('utf8'));
         if (typeof body?.paused !== 'boolean') return json({ error: 'invalid-pause' }, 400);
-        const event = storage.pause(id, body.paused, guard); broadcast(id, event);
+        let event;
+        if (body.paused) {
+          event = storage.pause(id, true, { ownerToken }); broadcast(id, event);
+          await voiceHandlers?.pauseSession(id, true, { deadlineAt: Date.now() + deadlineMs });
+        } else {
+          const before = storage.get(id).seq;
+          const voiceAck = await voiceHandlers?.pauseSession(id, false, { deadlineAt: Date.now() + deadlineMs });
+          event = voiceAck ? storage.read(id, before).find(e => e.type === 'session.paused') : storage.pause(id, false, guard);
+          if (event) broadcast(id, event);
+        }
         if (!body.paused) schedule(id);
         return json({ paused: storage.get(id).paused, event });
       }
@@ -196,7 +225,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         const body = JSON.parse(Buffer.from(await readBody(request)).toString('utf8'));
         if (typeof body?.turnId !== 'string') return json({ error: 'invalid-withdrawal' }, 400);
         const event = storage.withdraw(id, body.turnId, 'withdrawal', guard);
-        await lanes.cancel(id); failures.delete(id); broadcast(id, event); schedule(id);
+        await invalidate(id, event, 'turn-withdrawn'); schedule(id);
         return json({ withdrawn: body.turnId, event });
       }
       if (action === 'consent' && request.method === 'POST') {
@@ -207,13 +236,13 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
           await consent.grant({ sessionId: id, consentRevision: authorized.consentRevision + 1 });
         }
         const event = storage.reviseConsent(id, body.granted, guard);
-        await lanes.cancel(id); failures.delete(id); broadcast(id, event);
+        await invalidate(id, event, 'consent-revised');
         if (body.granted) schedule(id);
         else await consent?.withdraw?.({ sessionId: id });
         return json({ granted: body.granted, consentRevision: storage.get(id).consentRevision, event });
       }
       if (action === 'erase' && request.method === 'POST') {
-        const event = storage.erase(id, guard); await lanes.cancel(id); failures.delete(id); broadcast(id, event);
+        const event = storage.erase(id, guard); await invalidate(id, event, 'session-erased');
         return json({ erased: true, event, providerDeletion: 'not-confirmed' });
       }
       if (action === 'export' && request.method === 'GET') return new Response(exportSession(storage.get(id)), {
@@ -225,12 +254,13 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       if (error instanceof ConflictError) return json({ error: 'idempotency-conflict' }, 409);
       if (error instanceof SyntaxError || error instanceof TypeError) return json({ error: 'invalid-request' }, 400);
       if (error instanceof RangeError) return json({ error: 'size-limit' }, 413);
+      if (error instanceof PluginError) return json({ error: error.code }, error.code === 'not-admitted' ? 403 : 502);
       return json({ error: 'server-error' }, 500);
     }
   }
   return { handle, lanes,
     async withdrawConsent(id) {
-      const event = storage.reviseConsent(id, false); await lanes.cancel(id); failures.delete(id); broadcast(id, event);
+      const event = storage.reviseConsent(id, false); await invalidate(id, event, 'consent-withdrawn');
       return event;
     },
     async expire(before) {
@@ -238,15 +268,21 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         const session = storage.get(id);
         if (session.tombstone) continue;
         for (const turn of activeTurns(session).filter(t => t.role === 'user' && Date.parse(t.at) < before)) {
-          const event = storage.expire(id, turn.id); await lanes.cancel(id); failures.delete(id); broadcast(id, event); schedule(id);
+          const event = storage.expire(id, turn.id); await invalidate(id, event, 'turn-expired'); schedule(id);
         }
       }
     },
-    resume() {
+    async resume() {
       pluginRuntime.budget.recover();
+      await voiceHandlers?.resume();
       for (const id of storage.list()) if (unfinished(storage.get(id))) schedule(id);
     },
-    async idle() { while (jobs.size) await Promise.allSettled([...jobs.values()].map(job => job.promise)); },
-    async close() { stop.abort(); await Promise.allSettled([...jobs.values()].map(job => job.promise)); },
+    async idle() {
+      do {
+        while (jobs.size) await Promise.allSettled([...jobs.values()].map(job => job.promise));
+        await voiceHandlers?.idle();
+      } while (jobs.size);
+    },
+    async close() { stop.abort(); await voiceHandlers?.close(); await Promise.allSettled([...jobs.values()].map(job => job.promise)); },
   };
 }

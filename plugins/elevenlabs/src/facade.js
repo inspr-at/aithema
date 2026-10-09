@@ -15,7 +15,7 @@ const statusFor = error => error?.code === 'auth' ? 401 : error?.code === 'not-a
 
 /** A host resolves this private call object by route identity; body/model never select a binding. */
 export function createCompletionsHandler({ getCall, resolveSecret = ref => process.env[ref],
-  buildRequest, admitReasoning, now = Date.now, timeoutMs = 30_000, maxRequestBytes = 65_536 } = {}) {
+  buildRequest, admitReasoning, onCompletion, now = Date.now, timeoutMs = 30_000, maxRequestBytes = 65_536 } = {}) {
   if (![getCall, buildRequest, admitReasoning].every(port => typeof port === 'function')) throw new TypeError('Facade call, context and admission ports required');
   const active = call => call && !call.closing && !call.terminal && !call.paused && !call.signal?.aborted &&
     now() < Math.min(call.spendDeadlineAt, call.browserLivenessDeadlineAt);
@@ -84,11 +84,12 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
           content += first.value; if (content.length > 1_048_576) throw new PluginError('limit'); first = await next();
         }
         if (reports !== 1) throw new PluginError('invalid-output', 'Reasoning omitted terminal report');
+        await onCompletion?.({ callId: call.callId, providerSessionId: call.providerSessionId, content });
         await cleanup(false);
         return Response.json({ id, object: 'chat.completion', created: Math.floor(now() / 1000), model: 'session-reasoning',
           choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }] }, { headers: { 'cache-control': 'no-store' } });
       }
-      const encoder = new TextEncoder(); let roleSent = false, size = 0;
+      const encoder = new TextEncoder(); let roleSent = false, size = 0, content = '';
       return new Response(new ReadableStream({
         async pull(controller) {
           try {
@@ -97,12 +98,14 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
             const item = part ?? await next();
             if (item.done) {
               if (reports !== 1) throw new PluginError('invalid-output', 'Reasoning omitted terminal report');
+              await onCompletion?.({ callId: call.callId, providerSessionId: call.providerSessionId, content });
               await cleanup(false);
               const stop = frame({}); stop.choices[0].finish_reason = 'stop';
               controller.enqueue(encoder.encode(`data: ${JSON.stringify(stop)}\n\ndata: [DONE]\n\n`)); controller.close(); return;
             }
             if (typeof item.value !== 'string') throw new PluginError('invalid-output');
             size += item.value.length; if (size > 1_048_576) throw new PluginError('limit');
+            content += item.value;
             controller.enqueue(encoder.encode(`data: ${JSON.stringify(frame({ content: item.value }))}\n\n`));
           } catch (error) {
             cancelReasoning(); await disposeIterator(iterator); await cleanup(true);

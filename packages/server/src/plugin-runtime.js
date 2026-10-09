@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { PluginRegistry, createMockReasoning, createBinding, PluginError, isCancelledZeroReport, PROCESSING_PRESETS, FEATURES,
   deviceFeatures, featureUnavailable, bindingReason, processingScope, consentReason, MOCK_PROCESSING_SCOPE,
   operationScope, inputRevision, untilCancelled } from '@inspr/aithema-core';
+import { createDurationBinding, durationPluginMatches } from './voice-binding.js';
+import { isLocalVoice } from './local-voice.js';
 import { SQLiteBudgetLedger } from './budget.js';
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const map = { text: ['reaction', 'reasoning', 'stream'], analysis: ['understanding', 'reasoning', 'structured'],
@@ -22,6 +24,12 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   };
   const coverageFor = (session, scope, options) => consent.coverage({ sessionId: session.id,
     scope: structuredClone(scope), consentRevision: session.consentRevision }, options);
+  const voiceAmounts = (binding, options) => {
+    const milliseconds = options.spendDeadlineAt === undefined ? binding.maxDurationSeconds * 1000
+      : Math.min(binding.maxDurationSeconds * 1000, Math.max(0, options.spendDeadlineAt - now()));
+    return { maxMicro: options.spendDeadlineAt === undefined ? binding.maxMicro : Math.ceil(milliseconds / 60_000 * binding.upstreamMicroPerMinute),
+      maxVisitorMicro: Math.ceil(milliseconds / 60_000 * binding.visitorMicroPerMinute) };
+  };
   async function evaluate(session, preset, feature, options) {
     if (!PROCESSING_PRESETS.includes(preset)) return { reason: 'unknown preset' };
     if (preset === 'device') return { reason: feature === 'text' ? 'device browser only' : 'unavailable on device' };
@@ -30,12 +38,13 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     const raw = config.bindings?.[lane];
     if (!raw) return { reason: 'not configured' };
     if (!config.plugins?.includes(raw.plugin)) return { reason: 'plugin not in preset' };
-    let binding; try { binding = createBinding(raw); } catch { return { reason: 'binding invalid' }; }
+    let binding; try { binding = feature === 'voice' ? createDurationBinding(raw) : createBinding(raw); } catch { return { reason: 'binding invalid' }; }
     let plugin = registry.get(binding.plugin);
     if (!plugin) return { reason: 'plugin not registered' };
     if (plugin.bind) { try { plugin = plugin.bind(binding); } catch { return { reason: 'binding invalid' }; } }
-    const mock = registry.isCanonicalMock(plugin);
-    if (!plugin.bind && !mock && (!plugin.binding || hash(plugin.binding) !== hash(binding))) return { reason: 'plugin binding mismatch' };
+    const mock = registry.isCanonicalMock(plugin) || feature === 'voice' && isLocalVoice(plugin) &&
+      binding.maxMicro === 0 && binding.upstreamMicroPerMinute === 0 && binding.visitorMicroPerMinute === 0;
+    if (!plugin.bind && !mock && (feature === 'voice' ? !durationPluginMatches(plugin, binding) : !plugin.binding || hash(plugin.binding) !== hash(binding))) return { reason: 'plugin binding mismatch' };
     if (!plugin.manifest.kinds.includes(kind)) return { reason: 'plugin kind unsupported' };
     const model = plugin.manifest.models.find(m => m.id === binding.model) ?? plugin.manifest.models.find(m => m.id === '*');
     if (!model?.operations.includes(operation) || operation === 'stream' && !model.streaming || operation === 'structured' && !model.structured) return { reason: 'operation unsupported' };
@@ -61,7 +70,12 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     try { if (!(await plugin.health(options))?.available) return { reason: 'plugin unhealthy' }; }
     catch { return { reason: 'plugin unhealthy' }; }
     if (scope) { const reason = consentReason(coverage, scope, now(), session.consentRevision); if (reason) return { reason }; }
-    if (!budget.canAdmit(session.id, binding.maxMicro)) return { reason: 'budget denied' };
+    if (feature === 'voice' && plugin.manifest.liveVoice?.reasoning === 'delegated') {
+      const reaction = await evaluate(session, preset, 'text', { ...options, existingCall: false });
+      if (reaction.reason) return { reason: `delegated reasoning: ${reaction.reason}` };
+    }
+    const amounts = feature === 'voice' ? voiceAmounts(binding, options) : { maxMicro: binding.maxMicro, maxVisitorMicro: 0 };
+    if (!options.existingCall && !budget.canAdmit(session.id, amounts.maxMicro, amounts.maxVisitorMicro)) return { reason: 'budget denied' };
     return { binding, plugin, operation, coverage, scope };
   }
   async function boundedEvaluate(session, preset, feature, options = {}) {
@@ -86,6 +100,49 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         }
       }
       return matrix;
+    },
+    async checkVoice(session, { allowPaused = false, ...options } = {}) {
+      const result = await boundedEvaluate(allowPaused ? { ...session, paused: false } : session,
+        session.processingPreset ?? 'best', 'voice', options);
+      const current = storage.get(session.id);
+      if (result.reason || current.ownerHash !== session.ownerHash || current.tombstone || current.consentWithdrawn ||
+        (!allowPaused && current.paused) || inputRevision(current) !== inputRevision(session)) throw new PluginError('not-admitted', result.reason ?? 'Session changed');
+      return result;
+    },
+    async admitVoice({ session, request, options = {} }) {
+      if (!unchanged(session)) throw new PluginError('not-admitted');
+      const result = await this.checkVoice(session, options);
+      if (!unchanged(session)) throw new PluginError('not-admitted');
+      const { binding, plugin } = result;
+      const { maxMicro, maxVisitorMicro } = voiceAmounts(binding, options);
+      const { attemptId } = budget.admit({ sessionId: session.id, lane: 'voice', maxMicro, maxVisitorMicro,
+        requestSha256: hash(request), bindingSha256: hash(binding) });
+      const claim = budget.claim(attemptId); let reported = false, consuming = false;
+      const report = terminal => {
+        const receipt = budget.settleVoice(claim.claimId, terminal); reported = true; return receipt;
+      };
+      const zero = () => report({ attemptId, outcome: 'cancelled', closureConfirmed: true, chargedMicro: 0,
+        usage: { providerSeconds: 0, providerMinutes: 0, pausedSeconds: 0, visitorSeconds: 0, upstreamMicro: 0, visitorMicro: 0 } });
+      const attempt = { ...claim, maxMicro, async consume() {
+        if (reported || consuming) throw new PluginError('already-claimed');
+        consuming = true;
+        try {
+          if (!unchanged(session)) throw new PluginError('not-admitted');
+          if (result.scope) {
+            const scope = operationScope(options);
+            try {
+              const coverage = await untilCancelled(coverageFor(session, result.scope, { ...options, signal: scope.signal }), scope.signal);
+              if (consentReason(coverage, result.scope, now(), session.consentRevision)) throw new PluginError('not-admitted');
+            } finally { scope.dispose(); }
+          }
+          options.signal?.throwIfAborted();
+          if (!unchanged(session)) throw new PluginError('not-admitted');
+          claim.consume();
+        } catch { zero(); throw new PluginError('not-admitted', 'Voice dispatch refused'); }
+      } };
+      return { plugin, binding, options: { ...options, attempt, report }, finish() {
+        if (!reported) report({ attemptId, outcome: 'uncertain', closureConfirmed: false, chargedMicro: maxMicro });
+      } };
     },
     async admit({ session, lane, operation, request, options = {} }) {
       // Ownership, revision and tombstone precede health, consent and budget work.

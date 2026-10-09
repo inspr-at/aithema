@@ -1,9 +1,8 @@
 # ElevenLabs live voice
 
 `@inspr/aithema-plugin-elevenlabs` is a private `0.0.0` workspace package under
-AGPL-3.0-only. Part A implements the adapter in isolation. Part B connects it to
-routes, the durable session journal, audio rail and localhost demo after AIT-97
-merges. Tests use injected local fakes; no live calling or provider qualification
+AGPL-3.0-only. Part A supplies the adapter. Part B connects it to Fetch routes, the durable
+session journal, duration ledger, audio rail and localhost fake demo under AIT-97. Tests use injected local fakes; no live calling or provider qualification
 is claimed.
 
 The generic behavior comes from Augmentoring's START `agent-token.ts`,
@@ -190,7 +189,8 @@ no provider/model fallback.
 
 ## Exact Part B wiring
 
-These are proposed route names; Part A mounts none. Enforce AIT-97 ownership,
+These routes are mounted by `createHandlers({..., voice: {secrets}})` in
+`@inspr/aithema-server`; Part A itself mounts none. Enforce AIT-97 ownership,
 current consent, tombstones/revisions and pause before every new voice,
 reasoning and recovery admission.
 
@@ -234,3 +234,95 @@ Sources: [JavaScript SDK](https://elevenlabs.io/docs/eleven-agents/libraries/jav
 [client-to-server events](https://elevenlabs.io/docs/eleven-agents/customization/events/client-to-server-events),
 [custom LLM](https://elevenlabs.io/docs/eleven-agents/customization/llm/custom-llm),
 [authentication](https://elevenlabs.io/docs/eleven-agents/customization/authentication).
+
+## Enabling voice in a host (Part B)
+
+`createVoiceProvider` wraps the server half with owned-session SQLite persistence.
+Construct it with `{storage, binding, resolveSecret, provisionFacade, revokeFacade,
+requestProviderClose?, reconcileLater?, closureTimeoutMs?}`. Its provider binding
+is `{agentId, secretRef, apiBaseUrl, upstreamMicroPerMinute, visitorMicroPerMinute}`.
+`provisionFacade({callId, facadeSecretRef, url, ...record}, options)` must provision
+the configured agent's custom-LLM callback with this exact per-call bearer reference
+and public callback URL. Resolve the reference only inside that server channel.
+It must return only after provisioning succeeds; a missing/provenly unsupported
+channel leaves voice disabled. Keys and facade secrets are never client initiation
+options. `revokeFacade(ref)` removes the callback secret on terminal save; the
+route layer also revokes immediately when closure starts.
+
+Register that plugin in the runtime's `PluginRegistry`. The host-private voice
+selection in `presets.best.bindings.voice` is:
+
+```js
+const voiceSelection = {
+  plugin: 'elevenlabs', model: agentId, agentId, effort: 'none',
+  endpoint: 'https://api.elevenlabs.io', accountRef, secretRef,
+  maxMicro, maxDurationSeconds, upstreamMicroPerMinute, visitorMicroPerMinute,
+  publicFacadeBaseUrl: 'https://your-public-host.example',
+  maxTokens: 1, rates: {inputMicro: 0, outputMicro: 0},
+  legal: qualifiedAccountProfile,
+};
+```
+
+`createDurationBinding` validates it. `model` must equal the exact agent id, so
+account evidence cannot qualify another agent accidentally. `maxDurationSeconds`
+is 1–3600 and its upstream cost must fit `maxMicro`; visitor holds are computed
+from their separate rate. The token fields are common binding compatibility fields;
+voice duration never uses them as token rates. `legal.evidence` must match account,
+secret reference, agent/model, endpoint and routing, with current qualification,
+consent scope and the preset's endpoint/residency policy. Delegated reaction
+reasoning must also be available. Native provider reasoning remains unavailable.
+
+Use the same authoritative consent port for handlers and runtime; a grant must
+cover `processingScope(voiceSelection, 'start')` and the chosen reaction binding.
+The demo's local mock consent cannot authorize ElevenLabs. API start accepts
+`{callId}`; controls accept `{providerSessionId}`, close also accepts `reason`,
+and events accept `{providerSessionId, event}`. Client-declared deadlines, model,
+keys, cost, pause timestamps and facade configuration are ignored. Heartbeats
+renew a server-derived lease even while paused; they never extend the absolute
+spend deadline. Recover keeps `callId`, rotates the provider identity and facade
+secret, and separately admits each attempt; three failed retries return control.
+Transport loss during pause waits for acknowledged Resume before retrying.
+
+```js
+const secrets = createFacadeSecrets(); // server-only, reference memory vault
+// provisionFacade resolves secrets.resolve(record.facadeSecretRef) internally
+const handlers = createHandlers({storage, pluginRuntime, consent, ownership,
+  voice: {secrets, closeOrphan}});
+await handlers.resume();
+```
+
+For durable hosts, `closeOrphan(record, {signal, deadlineAt})` requests supported
+server shutdown and/or reads authenticated provider closure details. Return
+`{providerSessionId, closureConfirmed:true, usage}` only with genuine final evidence.
+The host must process `storage.voiceCalls()` records with `reconciliationPending`
+on its durable scheduler, including across repeated restarts. The reference startup
+retries this port within one second per pending call; failure keeps the pending
+record and conservative charges. A confirmed reconciliation adjusts upstream and
+visitor costs while preserving the original terminal receipt. Withdrawn/erased
+sessions still permit this server-only cost reconciliation without restoring text.
+The in-memory vault loses secrets at process death, thereby failing callback auth
+closed; a production vault must revoke surviving external references too.
+
+Browser setup uses `createVoiceControl({baseUrl, sessionId, sessionToken?, receive})`
+and `createElevenLabsClient({sdk, control, persistEvent})`; pass that client as
+`voiceClient` to `<aithema-session>.configure`. Track the public provider identity
+from control start/recover and pass it to `persistEvent(event, {providerSessionId})`.
+All rail strings are in the host's i18n bundle (`packages/ui/src/i18n/en.js`).
+Pause/Resume and channel selections keep fixed targets. SDK audio elements with
+blocked autoplay are retried by Enable sound on a gesture. An optional
+`voicePlayback` callback handles a host-owned suspended audio context.
+
+The demo defaults to `AITHEMA_VOICE_MODE=fake`. Its deterministic injected SDK and
+provider API use no network; localhost routes still persist and settle the call.
+Live mode is an explicit `AITHEMA_VOICE_MODE=elevenlabs` plus
+`AITHEMA_VOICE_HOST_MODULE=/absolute/path/to/private-host.mjs`. That server-only
+module exports `createVoiceHost({storage, facadeSecrets, resolveSecret})`, returning
+`{binding: voiceSelection, policy, consent, provisionFacade, requestProviderClose?,
+closeOrphan?}`. The key is selected by `binding.secretRef` and resolved at runtime.
+The host module is never statically served. No live mode was run or qualified here.
+
+Native: text/context updates, microphone selection, audio barge-in and observed
+heard prefixes. Emulated: output volume selection, engine pause/resume, automatic
+recovery and visitor pause billing. Unavailable: force-interrupt control, native
+provider reasoning, unconfigured/unqualified preset features. The SDK remains
+pinned to 1.17.0; availability is demonstrated with local fakes, not live evidence.
