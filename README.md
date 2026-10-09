@@ -568,9 +568,9 @@ replace enough understanding. The Request control is itself an expressed visual
 wish, bound to an active person turn. After an earlier admitted attempt, that
 control uses the manual trigger, even with no additional turns. Conversational
 intent comes only from the model's structured understanding output:
-`conceptIntent: {request_quote: "exact person excerpt"}` or `null`. The quote must
-be an exact substring of the latest active person turn; assistant text and
-unmatched quotes are rejected. A durable current-turn marker is consumed once
+`conceptIntent: {request_quote: "exact full current person message"}` or `null`.
+The trimmed quote must equal the latest active person turn's trimmed content;
+assistant text, partial quotes and unmatched quotes are rejected. A durable current-turn marker is consumed once
 and cleared on consent changes/end, preventing old turns from reviving intent
 on assistant voice events, resume or a new consent grant. No keyword matcher
 records spending intent. The deterministic mock always returns `null`.

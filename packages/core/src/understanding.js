@@ -43,13 +43,14 @@ export function constraintAnswer(raw) {
     ? null : { value, evidence };
 }
 export const isConstraintAnswered = raw => constraintAnswer(raw) !== null;
-// START concept-action: the model selects intent; exact person text bounds it.
+// START concept-action: the model selects intent; the full current person message bounds it.
 // Only the latest person turn can supply a fresh wish. No normalization or
 // keyword recognition can manufacture spending permission.
 export function corroborateConceptIntent(raw, transcript = []) {
   const quote = raw?.request_quote;
   const turn = transcript.filter(t => t.role === 'user' && !t.erased && !t.withdrawn).at(-1);
-  return typeof quote === 'string' && quote.trim() && quote.length <= 8000 && typeof turn?.content === 'string' && turn.content.includes(quote)
+  return typeof quote === 'string' && quote.trim() && quote.length <= 8000 &&
+    typeof turn?.content === 'string' && quote.trim() === turn.content.trim()
     ? { request_quote: quote } : null;
 }
 export function corroborateConstraintSlots(slots, transcript, preset = START_PRESET) {
@@ -109,5 +110,6 @@ export function understandingSchema(preset = START_PRESET) {
     constraints: object(Object.fromEntries(preset.slots.map(s => [s, answer]))),
     progress: object({ talk: readiness, build: readiness }), actor: reading('type', preset.actors),
     engagement: reading('kind', preset.engagements),
-    conceptIntent: { anyOf: [object({ request_quote: string }), { type: 'null' }] } });
+    conceptIntent: { anyOf: [object({ request_quote: { ...string,
+      description: 'Exact full current person message, without rewriting or interpreting it.' } }), { type: 'null' }] } });
 }

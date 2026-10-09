@@ -74,10 +74,10 @@ test('ordinary requirements talk never records intent; the Request control does'
   h.readiness(); assert.equal((await h.request('explicit')).status, 202); await h.handlers.idle();
   assert.equal(h.storage.get(h.id).conceptIntent.visualIntent.id, 'explicit'); assert.equal(h.records.length, 1);
 });
-test('model-selected intent requires an exact quote from the current person turn', async t => {
-  let quote = 'please show a concept';
+test('model-selected intent requires the exact full current person message', async t => {
+  let quote = 'For our API, please show a concept.';
   const h = await setup(t, { understanding: raw => ({ ...raw, conceptIntent: { request_quote: quote } }) });
-  await h.turn('wish', 'For our API, please show a concept.');
+  await h.turn('wish', quote);
   assert.deepEqual(h.storage.get(h.id).understanding.conceptIntent, { request_quote: quote });
   assert.equal(h.storage.get(h.id).conceptIntent.visualIntent?.sourceTurnId, 'wish');
   quote = 'invented unmatched quote';
@@ -85,6 +85,19 @@ test('model-selected intent requires an exact quote from the current person turn
   await h.turn('unmatched', 'The assistant suggested a layout.');
   assert.equal(h.storage.get(h.id).conceptIntent.visualIntent, null);
   assert.equal(h.storage.get(h.id).understanding.conceptIntent, null);
+});
+for (const [name, content, quote] of [
+  ['a partial quote', 'For our API, please show a concept.', 'please show a concept'],
+  ['a one-character quote', 'For our API, please show a concept.', 'a'],
+  ['an embedded quoted phrase', 'My colleague said "please show a concept" but not yet', 'please show a concept'],
+]) test(`model-selected intent rejects ${name} without spending`, async t => {
+  const h = await setup(t, { understanding: raw => ({ ...raw, conceptIntent: { request_quote: quote } }) });
+  await h.turn('wish', content);
+  assert.equal(h.storage.get(h.id).understanding.conceptIntent, null);
+  assert.equal(h.storage.get(h.id).conceptIntent.visualIntent, null);
+  h.readiness(); await h.handlers.conceptLane.run(h.id); await h.handlers.idle();
+  assert.equal(h.records.length, 0);
+  assert.equal(h.storage.db.prepare("SELECT COUNT(*) AS n FROM budget_attempts WHERE lane='concept'").get().n, 0);
 });
 test('viewer/list/provenance/download reads do not spend; bytes are owner-bound and uncached', async t => {
   const h = await setup(t); await h.turn('first'); const item = await rendered(h);
