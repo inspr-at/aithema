@@ -154,7 +154,7 @@ takeover is provided.
 
 Kinds are `reasoning` (`stream`, `structured`), `stt` (`transcribe`, optional
 `stream`), `tts` (`speak`), `live-voice` (`start` → session), `ui-generation`
-(`generate`, `edit`), `extractor` (`extract`) and `exporter` (`export`). Reasoning
+(`generate`, `edit`), `extractor` (`extract`) and `exporter` (`export`). Reasoning,
 the isolated ElevenLabs live-voice adapter and standalone UI generation are
 implemented here. Every operation takes `{signal, deadlineAt}`;
 [plugin-contract.d.ts](packages/core/src/plugin-contract.d.ts) documents the later
