@@ -39,9 +39,13 @@ export function exportSession(session, artifacts = [], withheld = []) {
   const concepts = (session.concepts ?? []).map(c => published.has(c.id) ? c : Object.fromEntries(
     ['id', 'requestId', 'createdAt', 'inputRevision', 'turnIds', 'referenceIds', 'disposition', 'archived', 'mediaType', 'width', 'height']
       .filter(key => Object.hasOwn(c, key)).map(key => [key, c[key]])));
+  // Replies name the acknowledged model and response style that produced them.
+  const engine = t => t.engine?.label ? ` · ${[t.engine.label, t.engine.effort && t.engine.effort !== 'none' ? t.engine.effort : null].filter(Boolean).join(' · ')}` : '';
+  const { model = null, effort = null, voice = null, visuals = null } = session.settings ?? {};
   return zipStore({
-    'transcript.json': json({ sessionId: session.id, turns: activeTurns(session) }),
-    'transcript.md': '# Conversation\n\n' + activeTurns(session).map(t => `## ${t.role}${t.provenance === 'browser-asserted' ? ' (browser-asserted)' : ''}\n\n${t.content}\n`).join('\n'),
+    'transcript.json': json({ sessionId: session.id, processing: { preset: session.processingPreset ?? 'best', model, effort, voice, visuals },
+      turns: activeTurns(session) }),
+    'transcript.md': '# Conversation\n\n' + activeTurns(session).map(t => `## ${t.role}${engine(t)}${t.provenance === 'browser-asserted' ? ' (browser-asserted)' : ''}\n\n${t.content}\n`).join('\n'),
     'understanding.json': json(session.understanding),
     ...(concepts.length ? { 'concepts.json': json(concepts) } : {}),
     ...(artifacts.length || omissions.length ? { 'concepts-manifest.json': json({ version: 1,

@@ -62,6 +62,23 @@ test('partial assistant turns are replaced by final; stale fragments and duplica
   turn(c, 't2', 'new'); c.receive({ type: 'turn.partial', data: { id: 'stale', delta: 'stale', inputRevision: revision } });
   assert.equal(c.shadowRoot.querySelectorAll('.turn').length, 3); assert.equal(c.shadowRoot.querySelectorAll('.partial').length, 0);
 });
+test('a settings change that supersedes the reply clears its partial; old-revision fragments never render beside the replacement', () => {
+  const c = setup(); turn(c, 't1', 'Hello'); const revision = inputRevision(c.session), partials = () => [...c.shadowRoot.querySelectorAll('.partial')].map(n => n.querySelector('span').textContent);
+  const settings = (patch, at = c.session.settings.revision + 1) => c.receive({ seq: c.session.seq + 1, type: 'settings.changed',
+    data: { processingPreset: 'best', settings: { ...c.session.settings, ...patch, revision: at, origin: 'chosen', at: new Date(0).toISOString() } } });
+  c.receive({ type: 'turn.partial', data: { id: 'old', delta: 'Unfinished old', inputRevision: revision, settingsRevision: 0 } });
+  settings({ voice: 'off' });
+  c.receive({ type: 'turn.partial', data: { id: 'old', delta: ' answer', inputRevision: revision, settingsRevision: 0 } });
+  assert.deepEqual(partials(), ['Unfinished old answer'], 'a change that keeps the model and effort keeps the running reply');
+  settings({ model: 'mock/deep', effort: 'high' });
+  assert.deepEqual(partials(), [], 'the superseded partial reply is cleared at once');
+  c.receive({ type: 'turn.partial', data: { id: 'old', delta: ' late', inputRevision: revision, settingsRevision: 1 } });
+  c.receive({ type: 'turn.partial', data: { id: 'new', delta: 'Replacement', inputRevision: revision, settingsRevision: 2 } });
+  assert.deepEqual(partials(), ['Replacement'], 'fragments tagged with an older settings revision are ignored');
+  c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'new', role: 'assistant', content: 'Replacement done', inputRevision: revision } });
+  assert.deepEqual(partials(), []);
+  assert.deepEqual([...c.shadowRoot.querySelectorAll('.turn')].map(n => n.querySelector('span').textContent), ['Hello', 'Replacement done']);
+});
 test('Enter inserts a newline; Ctrl/Cmd+Enter sends; failed acknowledgement retries identical id and bytes', async () => {
   const c = setup(), root = c.shadowRoot, input = root.querySelector('textarea'); input.value = 'Hello\nworld';
   const originalFetch = globalThis.fetch, calls = []; let fail = true;
@@ -177,14 +194,16 @@ test('a withdrawal acknowledgement with an SSE gap clears visible content before
 });
 test.after(async () => window.happyDOM.close());
 
-test('preset choice preserves layout and snapshot feature updates defer under the pointer', async () => {
+test('the engine panel keeps its fixed size, defers snapshot feature updates under the pointer and offers settings', async () => {
   const c = setup();
   const session = c.session;
   session.featureMatrix.best.analysis = { available: false, reason: 'binding evidence expired' };
   c.configure({ copy: en, session });
   const root = c.shadowRoot;
-  assert.equal(root.querySelectorAll('.preset-choice option').length, 4);
-  assert.deepEqual([...root.querySelectorAll('.preset-choice option')].map(o => o.textContent), ['Best', 'EU', 'On my device', 'Custom']);
+  assert.equal(root.querySelector('.engine__value').textContent, 'Best models');
+  assert.equal(root.querySelector('.engine__label').textContent, en.processing);
+  assert.equal(root.querySelector('.settings-open').getAttribute('aria-haspopup'), 'dialog');
+  assert.equal(root.querySelector('.preset-choice'), null, 'presets change through acknowledged settings, never a raw select');
   assert.match(root.querySelector('.features').textContent, /binding evidence expired/);
   assert.ok(!root.querySelector('.features li').classList.contains('unavailable'));
   root.querySelector('.preset-panel').dispatchEvent(new window.Event('pointerenter'));
@@ -198,24 +217,20 @@ test('preset choice preserves layout and snapshot feature updates defer under th
     root.querySelector('.preset-panel').dispatchEvent(new window.Event('pointerleave'));
     assert.ok(!root.querySelector('.features').textContent.includes('binding evidence expired'));
   } finally { globalThis.fetch = originalFetch; }
-  let chosen; c.addEventListener('aithema-preset', e => { chosen = e.detail.processingPreset; });
-  const select = root.querySelector('select'); select.value = 'eu'; select.dispatchEvent(new window.Event('change'));
-  assert.equal(chosen, 'eu'); assert.equal(select.value, 'best', 'host must confirm choice with a new session');
   assert.match(root.querySelector('style').textContent, /height:9rem/);
 });
 
-test('switching Best to EU gates the composer and analysis with their exact reasons and prevents posts', async () => {
+test('an acknowledged switch to EU gates the composer and analysis with their exact reasons and prevents posts', async () => {
   const c = setup(); turn(c, 'first', 'Hello');
   assert.equal(c.shadowRoot.querySelector('textarea').disabled, false);
   assert.equal(c.shadowRoot.querySelector('.retry').hidden, false);
-  let chosen; c.addEventListener('aithema-preset', e => { chosen = e.detail.processingPreset; });
-  const select = c.shadowRoot.querySelector('.preset-choice');
-  select.value = 'eu'; select.dispatchEvent(new window.Event('change'));
-  assert.equal(chosen, 'eu');
-  const session = c.session; session.processingPreset = chosen;
+  const session = c.session;
   session.featureMatrix.eu = { text: { available: false, reason: 'not configured' }, analysis: { available: false, reason: 'consent required' } };
   c.configure({ copy: en, session });
+  c.receive({ seq: c.session.seq + 1, type: 'settings.changed', data: { processingPreset: 'eu',
+    settings: { ...session.settings, revision: 1, origin: 'chosen', at: new Date().toISOString() } } });
   const root = c.shadowRoot;
+  assert.equal(c.session.processingPreset, 'eu'); assert.equal(root.querySelector('.engine__value').textContent, 'In the EU');
   assert.equal(root.querySelector('textarea').disabled, true);
   assert.equal(root.querySelector('.send').disabled, true);
   assert.match(root.querySelector('.composer').textContent, /not configured/);
@@ -318,11 +333,19 @@ test('preset, feature and device copy comes from the host', async () => {
     presets: { best: 'Optimal', eu: 'Europa', device: 'Lokal', custom: 'Eigene' },
     features: { text: 'Text lokal', analysis: 'Analyse', voice: 'Stimme', transcription: 'Transkript', images: 'Bilder' },
     deviceExportUnavailable: 'Kein lokaler Export', deviceConnectFirst: 'Modell verbinden',
-    deviceConversation: 'Bleibt im Tab', deviceUnavailable: 'Modell fehlt' };
+    deviceConversation: 'Bleibt im Tab', deviceUnavailable: 'Modell fehlt', settings: { ...en.settings, open: 'Einstellungen' } };
   c.configure({ copy, session: createSession({ processingPreset: 'device' }) });
   let root = c.shadowRoot;
-  assert.deepEqual([...root.querySelectorAll('option')].map(n => n.textContent), ['Optimal', 'Europa', 'Lokal', 'Eigene']);
-  assert.match(root.querySelector('.preset-panel label').textContent, /Verarbeitung/);
+  assert.equal(root.querySelector('.engine__label').textContent, 'Verarbeitung');
+  assert.equal(root.querySelector('.engine__value').textContent, 'Lokal');
+  assert.equal(root.querySelector('.settings-open').textContent, 'Einstellungen');
+  assert.deepEqual([...root.querySelectorAll('.chooser-option strong')].map(n => n.textContent), ['Optimal', 'Europa', 'Lokal', 'Eigene']);
+  const originalFetch = globalThis.fetch; globalThis.fetch = async () => new Response(null, { status: 503 });
+  try {
+    c.openSettings(); await new Promise(r => setImmediate(r));
+    assert.deepEqual([...root.querySelectorAll('.preset-option .preset-name')].map(n => n.textContent), ['Optimal', 'Europa', 'Lokal', 'Eigene']);
+    root.querySelector('dialog.settings .done').click(); await new Promise(r => setImmediate(r));
+  } finally { globalThis.fetch = originalFetch; }
   assert.match(root.querySelector('.features').textContent, /Text lokal/);
   assert.equal(root.querySelector('.export').title, copy.deviceExportUnavailable);
   root.querySelector('textarea').value = 'Hello'; root.querySelector('form').dispatchEvent(new window.Event('submit'));

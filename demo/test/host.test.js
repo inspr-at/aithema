@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
 import { startChild, temporaryDb } from '../../test/helpers.js';
 
-test('demo host creates owned sessions through postJson and combines consent, pause and preset controls', { timeout: 10_000 }, async () => {
+test('demo host creates owned sessions through postJson and combines consent, pause and settings controls', { timeout: 15_000 }, async () => {
   const running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb());
   const nativeFetch = globalThis.fetch, window = new Window({ url: running.url });
   const keys = ['HTMLElement', 'customElements', 'document', 'CustomEvent', 'localStorage'];
@@ -30,7 +30,8 @@ test('demo host creates owned sessions through postJson and combines consent, pa
     };
     assert.ok(component.session.id);
     assert.equal(document.querySelector('#error').textContent, '');
-    assert.equal(root.querySelectorAll('.preset-choice option').length, 4);
+    assert.equal(root.querySelector('.intro').dataset.mode, 'chooser', 'a new conversation starts with the preset chooser');
+    assert.equal(root.querySelector('.engine__value').textContent, 'Best models');
     assert.equal(root.querySelector('.send').disabled, true, 'initial mock admission waits for consent');
     document.querySelector('#grant').click();
     await wait(() => !root.querySelector('.send').disabled);
@@ -53,17 +54,35 @@ test('demo host creates owned sessions through postJson and combines consent, pa
     document.querySelector('#grant').click();
     await wait(() => !component.session.consentWithdrawn && !send.disabled);
     root.querySelector('.preset-panel').dispatchEvent(new window.Event('pointerleave'));
-    const previousId = component.session.id, choice = root.querySelector('.preset-choice');
-    choice.value = 'eu'; choice.dispatchEvent(new window.Event('change'));
-    await wait(() => component.session.processingPreset === 'eu');
-    assert.notEqual(component.session.id, previousId);
-    assert.equal(component.shadowRoot.querySelector('.send').disabled, true);
-    const currentChoice = component.shadowRoot.querySelector('.preset-choice');
-    currentChoice.value = 'device'; currentChoice.dispatchEvent(new window.Event('change'));
-    await wait(() => component.session.processingPreset === 'device');
-    assert.equal(component.shadowRoot.querySelectorAll('.preset-choice option').length, 4);
+    // Settings: the demo operator allowlist, enforced and acknowledged by the server.
+    const previousId = component.session.id, dialog = root.querySelector('dialog.settings');
+    const option = (name, label) => [...dialog.querySelectorAll(`[data-select="${name}"] [role=option]`)].find(node => node.querySelector('strong').textContent === label);
+    root.querySelector('.settings-open').click();
+    await wait(() => dialog.open && option('model', 'Deep (mock)'));
+    const eu = dialog.querySelector('.preset-option[data-preset="eu"]'), before = posts.length;
+    assert.equal(eu.getAttribute('aria-disabled'), 'true'); eu.click();
+    assert.equal(posts.length, before, 'an unavailable preset is never sent');
+    assert.equal(option('model', 'GPT-4.1 mini via OpenRouter').getAttribute('aria-disabled'), 'true', 'declared providers stay disabled with a reason');
+    option('model', 'Deep (mock)').click();
+    await wait(() => component.session.settings.model === 'mock/deep');
+    assert.equal(component.session.id, previousId, 'model changes apply to this conversation');
+    assert.match(root.querySelector('.engine__detail').textContent, /Deep \(mock\)/u);
+    dialog.querySelector('.preset-option[data-preset="custom"]').click();
+    await wait(() => component.session.processingPreset === 'custom' && dialog.querySelector('.save-status').textContent === 'Changes saved');
+    assert.equal(component.session.id, previousId);
+    dialog.querySelector('.preset-option[data-preset="device"]').click();
+    await wait(() => dialog.querySelector('.notice-action:not([hidden])'));
+    assert.equal(component.session.processingPreset, 'custom', 'a started conversation never becomes a device conversation in place');
+    dialog.querySelector('.notice-action').click();
+    await wait(() => component.session.processingPreset === 'device' && component.session.id !== previousId);
+    assert.equal(component.shadowRoot.querySelector('.intro').dataset.mode, 'ready', 'the explicit device choice is confirmed');
     assert.equal(document.querySelector('#error').textContent, '');
-    assert.ok(posts.length >= 7);
+    assert.ok(posts.some(post => post.path.endsWith('/settings')));
+    // The settings dialog defers consent to the host; its message comes from the i18n bundle.
+    const { en } = await import('../../packages/ui/src/i18n/en.js');
+    component.dispatchEvent(new CustomEvent('aithema-consent', { detail: { reason: 'settings', features: ['text'] } }));
+    assert.equal(document.querySelector('#consent-status').textContent, en.consentForSelection);
+    assert.ok(posts.length >= 9);
     assert.ok(posts.every(post => post.contentType === 'application/json'));
     assert.equal(posts[0].path, '/api/sessions', 'browser creation uses the guarded JSON request');
   } finally {

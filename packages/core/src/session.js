@@ -1,15 +1,21 @@
 import { createConceptIntent, reduceConceptIntent } from './concept-intent.js';
 import { PROCESSING_PRESETS } from './presets.js';
 import { START_PRESET, capBuildReadiness, createPreset } from './understanding.js';
+import { normalizeSettings, defaultSettings } from './settings.js';
+// An erased choice falls back to the core default preset, like createSession's default.
+const ERASED_PRESET = 'best';
 export const inputRevision = session => `${session.inputRevision}:${session.consentRevision}:${session.withdrawalRevision}:${session.locale}:${session.sessionRevision ?? 0}:${Boolean(session.tombstone)}`;
 export const activeTurns = session => session.transcript.filter(t => !t.erased && !t.withdrawn);
+/** Durable: withdrawal and expiry mark turns but never remove their transcript entries. */
+export const conversationStarted = session => session.transcript.length > 0;
 export const emptyUnderstanding = session => ({ ...capBuildReadiness({}, [], session.preset), version: 1,
   inputRevision: null, locale: session.locale, draft: false, questionHistory: [] });
 export function createSession({ id = crypto.randomUUID(), locale = 'en', identified = false, demo = false,
-  preset = START_PRESET, actor = null, processingPreset = 'best' } = {}) {
+  preset = START_PRESET, actor = null, processingPreset = 'best', settings } = {}) {
   if (!PROCESSING_PRESETS.includes(processingPreset)) throw new TypeError('Unknown processing preset');
   if (!['en', 'de'].includes(locale)) throw new TypeError('Unsupported locale');
   return { id, version: 1, seq: 0, locale, identified, demo, preset: createPreset(preset), actor, processingPreset,
+    settings: normalizeSettings(settings),
     inputRevision: 0, consentRevision: 0, withdrawalRevision: 0, sessionRevision: 0,
     paused: false, consentWithdrawn: false, tombstone: null, transcript: [], concepts: [],
     conceptIntent: createConceptIntent(), conceptStatus: { phase: 'idle' },
@@ -32,6 +38,16 @@ export function applyEvent(session, event) {
     next.actor = event.data.erased ? null : event.data.actor;
   } else if (event.type === 'session.paused') {
     next.paused = event.data.paused;
+  } else if (event.type === 'settings.changed') {
+    // A processing choice is metadata: completed replies and understanding stay
+    // cached for their input revision; in-flight work is superseded by the host.
+    // An erased choice replays as the host default, like other erased content.
+    if (event.data.erased) { next.settings = defaultSettings(); next.processingPreset = ERASED_PRESET; }
+    else {
+      if (!PROCESSING_PRESETS.includes(event.data.processingPreset)) throw new TypeError('Unknown processing preset');
+      next.processingPreset = event.data.processingPreset;
+      next.settings = normalizeSettings(event.data.settings);
+    }
   } else if (['turn.withdrawn', 'session.erased', 'consent.revised'].includes(event.type)) {
     next.sessionRevision += 1;
     next.understanding = emptyUnderstanding(next); next.actor = null; next.focusedQuestion = null;
@@ -43,7 +59,8 @@ export function applyEvent(session, event) {
       next.withdrawalRevision += 1;
       next.transcript = next.transcript.map(t => t.id === event.data.turnId || t.role === 'assistant' || event.type === 'session.erased'
         ? { ...Object.fromEntries(Object.entries(t).filter(([key]) => key !== 'content')), erased: true, withdrawn: true } : t);
-      if (event.type === 'session.erased') next.tombstone = event.data.at;
+      // Erasure also forgets the visitor's processing choice, so it never seeds another conversation.
+      if (event.type === 'session.erased') { next.tombstone = event.data.at; next.settings = defaultSettings(); next.processingPreset = ERASED_PRESET; }
     }
   } else if (event.type === 'concept.state') {
     next.conceptIntent = event.data.intent;

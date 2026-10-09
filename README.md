@@ -20,6 +20,8 @@ a viewer with feedback. Requirement approval, files/uploads and host integration
 remain later work. START cutover and live provider/OIDC proof are also later work;
 handover to PAIMOS is planned. Sessions now have visitor ownership, authoritative
 consent checks, engine-wide pause, withdrawal/erasure and an exclusive writer.
+Visitors choose the processing preset, model, response style, voice and visual
+concepts within the host's allowlist, enforced and acknowledged by the server.
 The demo is for localhost and defaults to labelled deterministic reasoning, voice
 and image fakes.
 
@@ -57,7 +59,13 @@ to read "Mock processing allowed." and an enabled composer textarea. It then
 clicks **Withdraw consent** (`#revoke`), checks a 200 consent POST response and a
 disabled textarea, and grants again, checking the same response, message and
 enabled textarea. It also checks keyboard submission, transcript/understanding
-updates, reload and a ZIP download. Console errors, page exceptions and failed
+updates, the settings dialog (focus moves in and returns, Custom preset, Swift model
+and Low response style each acknowledged by a 200 settings POST, the next reply
+coming from Swift and labelled with it), persistence of that choice across reload,
+a ZIP download, the dialog at a 400 × 800 viewport (inside the viewport, no
+horizontal overflow, hovering presets, selects and gauges moves no control, Escape
+returns focus) and the Advanced tab against a loopback OpenAI-compatible fixture
+(handshake, model choice and a streamed test chat). Console errors, page exceptions and failed
 same-origin requests fail the test. The separate PR CI `browser` job runs on
 Ubuntu with Node 24 and a five-minute limit;
 `npm test` does not require a browser. To prove the missing JSON content-type
@@ -75,6 +83,19 @@ grant again to continue processing. Reload or restart the server to resume from
 `.data/session.sqlite`; New conversation creates a separate session without
 erasing the previous one. `PORT` and `AITHEMA_DB` override the port and database.
 The demo accepts only loopback Host headers and JSON POSTs.
+
+**Settings** in the processing panel opens the visitor settings dialog; a new
+conversation first offers the preset chooser (Best models, In the EU, On my device,
+Custom) and then a ready card. The demo operator allowlist (`demo/choices.js`) offers
+Mock reasoning plus the OpenRouter-style mock models `mock/swift` and `mock/deep`
+with their own response styles, fake voice and fake images; ElevenLabs, OpenAI
+GPT Image 2 and an OpenRouter model are declared but not configured, and In the EU
+has no qualified account, so all of them stay visibly unavailable with the server's
+reason. The Advanced tab connects a model running on this computer. With
+`AITHEMA_PROVIDER` set the demo is a live host: its allowlist offers only the
+configured route (speech and understanding models as one model option, at their
+configured effort) and the configured voice and images, never a mock or an
+unconfigured option.
 
 The demo stays on the mock even when provider environment variables exist.
 `AITHEMA_PROVIDER=openrouter|mistral` explicitly selects a provider.
@@ -126,12 +147,22 @@ ledger also requires an explicit consent grant and loses grants on restart.
 Hosts configure the web component with `{copy, baseUrl, session, sessionToken}`
 (the token is optional) and receive
 `aithema-event` notifications. Serve its native ES modules with their relative
-core imports, as the demo does. Copy and CSS tokens belong to the host.
+core imports, as the demo does. Copy and CSS tokens belong to the host. Optional
+`deviceConnector` (the browser device plugin factory, `createDeviceReasoning`) and
+`deviceEndpoint` enable the settings Advanced tab; `voiceClients` maps host voice
+option ids to browser voice clients, falling back to `voiceClient`. The component
+emits `aithema-new-conversation` with `{processingPreset, settings, previousSessionId}`
+when the visitor starts a separate conversation (General tab, or crossing into or
+out of On my device once a conversation has started), and `aithema-consent` with
+`{sessionId, reason, features}` when a choice needs consent; the host's consent
+interface answers it outside the modal dialog.
 
 | Request | Result |
 | --- | --- |
-| `POST /api/sessions` | New session snapshot; accepts `processingPreset: best|eu|device|custom` |
-| `GET /api/sessions/:id` | Durable snapshot and current operational flags |
+| `POST /api/sessions` | New session snapshot; accepts `processingPreset: best|eu|device|custom` and an explicit `settings: {model, effort, voice, visuals}` choice |
+| `GET /api/sessions/:id` | Durable snapshot, current operational flags and the public `engine` description of the processing choice |
+| `GET /api/sessions/:id/settings` | Public settings catalog: every offered preset, model, effort, voice and visual option with manifest facts and its current verdict |
+| `POST /api/sessions/:id/settings` | `{processingPreset, model?, effort?, voice?, visuals?, baseRevision}` option ids; `baseRevision` is required; acknowledged `settings.changed`, updated feature matrix and consent need |
 | `POST /api/sessions/:id/turns` | Durable turn; identical client id and request bytes replay the receipt, differing bytes conflict |
 | `GET /api/sessions/:id/events` | SSE; resume using `Last-Event-ID` or `?after=<seq>` |
 | `POST /api/sessions/:id/retry` | Retry unfinished reasoning for the current revision |
@@ -174,7 +205,11 @@ every recipient, upstream processor and data category, the same consent revision
 and a future `expiresAt` timestamp. The runtime derives the scope from each
 private binding, including the exact plugin, model, endpoint, routing, account
 reference and operation. External grants also echo that exact `scope` with a
-current `checkedAt` timestamp; only the local mock has a built-in scope.
+current `checkedAt` timestamp; only the local mock has a built-in scope. A host
+ledger's `grant({sessionId, consentRevision, decision, scopes})` receives the
+visitor's item `decision` (the body's `processing`) and the private scopes of the
+session's current processing choice, so it can record exactly what the visitor
+agreed to; returning `false` refuses the grant.
 Missing/unavailable coverage fails closed at admission and again at claim consumption. Hosts notify
 external revocation through `await handlers.withdrawConsent(id)` to persist the new
 revision, abort running work immediately and await lane settlement before acknowledgement. `createMemoryConsentLedger()` is
@@ -209,6 +244,9 @@ while the call runs. Pause/Resume waits for the engine acknowledgement; blur
 pauses automatically, and focus never resumes. The agent and provider API are
 in-process fakes; only session persistence/control uses localhost HTTP.
 `AITHEMA_VOICE_MODE=off` disables it. No microphone audio is captured in fake mode.
+With `AITHEMA_PROVIDER` set the demo is a live host: voice and image modes default to
+`off`, a `fake` value is treated as `off`, and visitors are offered only configured
+live providers.
 
 For a host, register `createVoiceProvider(...)` alongside the selected reasoning
 plugin, configure `presets[preset].bindings.voice`, and pass
@@ -330,20 +368,19 @@ Snapshots expose `featureMatrix[preset][feature] = {available, reason}` for
 text, analysis, voice, transcription and images. Each unavailable feature
 carries its reason. Best permits host-qualified international bindings; EU
 restricts residency; Custom uses only the host's explicit choices. Features
-whose later plugin slice is absent stay unavailable. The web component emits
-`aithema-preset` with `{processingPreset}`; the demo confirms the choice by
-creating a new session, preserving the previous conversation. It stays on the
-mock by default. The fixed preset panel and deferred pointer updates keep
-controls stable.
+whose later plugin slice is absent stay unavailable. The session's own preset
+uses its stored choice; the other presets show their host defaults. The fixed
+engine panel and deferred pointer updates keep controls stable.
 
 Device is an explicit browser carve-out: text connects directly to an
 OpenAI-compatible server at literal `localhost` or `127.0.0.1`, with a models
 handshake, cancellation/deadlines, response limits, no redirects, credentials
-or server proxy. Set the loopback endpoint in the demo before choosing On my
-device. The UI keeps device turns in this tab; reload discards them. The server
+or server proxy. The settings Advanced tab connects it, lists the handshake's
+models and offers a test chat. The UI keeps device turns in this tab; reload discards them. The server
 lanes refuse device work, and analysis, voice, transcription and images report
 “unavailable on device”. Local export/persistence is not implemented in this
-slice. Hosts pass `deviceReasoning` to `configure` for that browser half.
+slice. Hosts pass `deviceConnector` (or a ready `deviceReasoning`) to `configure`
+for that browser half; a visitor-connected model takes precedence.
 
 Every billable call needs a new budget-admitted attempt and a single-use claim.
 A conservative UTF-8 bound on the prompt, schema, provider options and framing,
@@ -379,6 +416,87 @@ for OpenRouter, Mistral and mock and verifies that deliberately broken and
 preflight-only fixtures fail. The
 browser device half advertises text only and is not a full reasoning-kind
 server implementation. No live provider qualification is claimed.
+
+## Processing settings (AIT-112)
+
+The settings dialog (START `AiSettings`) has three tabs: **General** (new
+conversation, consent position, recommended defaults), **AI model** (data processing
+preset, model, response style, speaking and listening, visual concepts, six gauges,
+a contextual help line, a providers disclosure and an acknowledged save state with
+Try again) and **Advanced** (the local connector with START's setup and recovery
+help). It is a native modal `<dialog>`: focus moves to Done and returns to its
+opener, Escape closes menus first, and tabs, radios and listboxes support the
+keyboard. Up to 40rem wide it fills the viewport. Every changing value sits in a
+fixed box, so hover, saves and gauge updates never move a control. A conversation
+starts with the preset chooser (START `LandingPresets`), covering the call and
+concept rails until a choice is confirmed, and then a ready card
+(START `ConversationReadiness`) until the first message. Custom opens the dialog.
+
+Hosts list visitor choices per preset as `presets[p].choices = {models, voices,
+visuals, defaults}`. A model option is `{id, label?, binding | bindings: {reaction,
+understanding}, efforts?, effort?, quality?}`; voice options are `{id, label?, binding?}`
+and visual options `{id, label?, kind?, binding?}`. One Visuals control governs both
+visual kinds: `kind` is `images` (default) or `html`, and the selected option's kind
+decides whether a concept is an image or an HTML click-dummy (legacy presets keep the
+`bindings.visuals` rule below). An option without a binding is declared but not configured
+and shows that reason. `efforts` lists the response styles the host permits; the
+chosen effort replaces the binding's effort, and the manifest must support it.
+`quality` is an optional public rating `{score, source: {name, url, asOf}}`.
+Presets without `choices` keep working: their single bindings form one implicit
+`default` option per lane. Invalid choices fail at runtime creation. On my device is
+offered unless the host sets `presets.device = false`.
+
+The browser only ever sends option ids. `POST /settings` checks the request shape,
+the preset's allowlist, the effort list and every static admission rule (plugin,
+manifest operation and effort, evidence, residency and endpoint policy) on each lane
+the choice runs, reaction and understanding alike, and refuses
+anything else with `409 {error: 'setting-not-allowed', field, reason}`; a crafted
+binding or unknown key returns 400. Dynamic refusals (consent, pause, health,
+budget) do not block saving: the choice is stored and admission keeps refusing
+dispatch until they clear. The acknowledgement reports `consent.required` with the
+affected features; the dialog, chooser and ready card then emit `aithema-consent`.
+Every save names the revision it was based on: a missing `baseRevision` returns 400
+`base-revision-required`, and any base other than the stored revision (a stale write
+or a replay) returns 409 `settings-conflict`; both carry the current choice and
+revision. Resending the current choice on the current revision is idempotent. Session
+creation runs the same static validation on the requested preset and its defaults,
+so an unoffered preset is refused rather than created. Consent grants receive only
+the scopes of operations the selected manifests support and the preset admits.
+A conversation keeps at most 1000 choices.
+
+Every admission takes its binding from the stored choice: reaction and understanding
+use the model option with the chosen effort, live voice uses the voice option,
+concept images use the visuals option, and `off` makes the feature unavailable.
+Assistant turns and exports name the model and response style that produced them.
+Each concept records the visuals option that produced it and is read and exported
+only while that option is still admitted, so switching visuals off stops new renders
+without hiding earlier ones. A changed choice supersedes in-flight lane work exactly
+like new input and reruns unanswered input with the new binding; completed replies
+and understanding stay cached. A visuals change also supersedes a running concept
+render. While a voice call runs, changes return `voice-call-active` and the dialog
+offers **End call and apply**; a call started under an older choice is never
+recovered under a newer one.
+
+Settings are durable per conversation (`settings.changed` events and the snapshot).
+Creation pins concrete defaults, so later host default changes never mix into a
+running conversation. A new conversation for the same owner offers the owner's last
+confirmed choice while the host still offers it. A choice is erasable content: the
+journal keeps only a reference, and erasure tombstones it, resets the snapshot choice
+and drops reply engine labels with their replies, so an erased conversation no longer
+supplies it. A started conversation (even with every turn withdrawn) cannot switch
+into or out of On my device in place (`new-conversation-required`); the dialog offers
+a separate conversation. Streaming reply fragments carry the settings revision they
+started under; when a change supersedes a reply, the client clears its partial text
+and ignores older fragments.
+
+The six gauges (AI quality, speed, cost, privacy, voice, images) come from core
+`settingsGauges` over the catalog's public facts: manifest qualification, efforts,
+streaming, cost, processing locations, live-voice capabilities and image operations,
+plus the host's public policy and whether a binding charges nothing. Unverified
+manifests show **Unverified**; speed is a preference index from the response style,
+not a measurement. The OpenRouter manifest now lists the efforts its adapter
+forwards (`none`, `low`, `medium`, `high`, `xhigh`, `max`, as checked by START on
+2026-09-13); which model supports which effort remains the host's allowlist decision.
 
 ## Document extractors (AIT-100 part A)
 
@@ -806,7 +924,9 @@ submission are blocked; permitted links stay within the document. The provenance
 digest describes the original stored artifact, before the export wrapper.
 
 `AITHEMA_HTML_MODE` defaults to `fake`, a deterministic local clickable HTML
-generator with escaped summary and open questions. `off` removes its binding.
+generator with escaped summary and open questions. `off` removes its binding. On a
+live host (`AITHEMA_PROVIDER` set) it defaults to `off`; an explicit `fake` is offered
+only as a visuals option labelled as a demo.
 `claude` uses `AITHEMA_HTML_MODEL` (default `anthropic/claude-opus-5.5`), requires
 positive operator prices, and injects the same persistent SQLite account spend
 port used by reaction, understanding and delegated voice reasoning. There is no
@@ -1213,6 +1333,12 @@ policy were removed. The table records the port in the current package layout.
 | `src/scripts/{concept-viewer,concept-backdrop}.ts`, `src/lib/{generated-ui-view,generated-ui-progress,generated-ui-idle}.ts`, `src/pages/index.astro` (concepts) | `packages/ui/src/{concept-view,session-element,styles}.js` | one immersive viewer, preview, fixed controls, estimated countdown, feedback and cost copy; no START branding |
 | `src/pages/api/v2/generated-ui/index.ts` | `packages/core/src/concept-lane.js`, `packages/server/src/{concept-handlers,image-binding,local-images,storage}.js` | durable intent/progress, private-byte references, exact image scopes, conservative private costs, byte history and erasure |
 | `tests/generated-ui.test.ts` | `packages/core/test/concept-intent.test.js`, `plugins/openai-images/test/openai-images.test.js` | selected spending, slow-render, removal/withdrawal and private image transport cases with fakes |
+| `src/components/AiSettings.astro`, `src/scripts/{ai-settings,settings-controls}.ts`, `src/styles/{ai-settings,settings-compact}.css` | `packages/ui/src/{settings-dialog,settings-styles}.js` | tabbed dialog, processing radios, listbox selects, response-style slider, six liquid gauges, fixed help line, autosave with acknowledgement and retry, Done/Continue; native modal, host tokens and copy |
+| `src/lib/{engine-settings,engine-runtime}.ts`, `src/pages/api/v2/engine.ts` | `packages/core/src/settings.js`, `packages/server/src/{plugin-runtime,handlers,storage}.js` | id-only selections against a host allowlist, static refusals vs dynamic admission, effort preference, durable revisions, busy-call refusal, uncovered choices saved and gated by consent |
+| `src/components/LandingPresets.astro`, `src/scripts/landing-presets.ts`, `src/styles/landing-presets.css` | `packages/ui/src/session-element.js` | in-component preset chooser with measured summary and Custom-opens-settings; acknowledged confirmation instead of navigation |
+| `src/components/ConversationReadiness.astro`, `src/content/conversation-readiness.ts` | `packages/ui/src/session-element.js` | ready card rows for model, consent, microphone, voice output and visual concepts |
+| `src/pages/local.astro`, `src/scripts/local.ts`, `src/lib/local-openai.ts` | `packages/ui/src/local-connector.js`, `plugins/device/src/index.js` | Advanced tab: handshake, model choice, test chat, quick and detailed setup, error-specific recovery; no API key, cookies or iframe |
+| `src/lib/i18n.ts` (settings, landing, local and help copy) | `packages/ui/src/i18n/en.js` | English-only host copy without START branding or offer wording |
 | `src/lib/{extract,ooxml}.ts`, `src/pages/api/upload.ts`; Gen-2 `runtime/{extract,pdf-extract-child}.js`, `lib/{extract-limits,intake}.js` | `packages/core/src/extractor*.js`, `plugins/extract-{pdf,ooxml,text}/` | bounded offline extraction and byte sniffing; child kill/reaping, stricter ZIP bomb/CRC checks, added PPTX and citable segments; foreign approval stays untrusted source text |
 
 ## License and contributions
@@ -1264,12 +1390,12 @@ Readiness of voice is separately visible in
 | `OPENROUTER_ANALYSIS_PROVIDER_IGNORE` | Comma-separated upstream exclusions sent as `provider.ignore` on understanding/analysis and HTML; default `Azure`, whose START workspace rejects `response_format` despite advertised support |
 | `AITHEMA_OPENROUTER_PRICES` | Required JSON for every configured model: `{"<model>":{"prompt":<USD per token>,"completion":<USD per token>}}`; finite nonnegative prices; no catalog defaults |
 | `AITHEMA_OPENROUTER_CAP_USD` | Lifetime persisted account cap; decimal USD with up to six fractional digits, default `10` |
-| `AITHEMA_VOICE_MODE` | `elevenlabs` enables startup ensure; default `fake`; `off` disables voice |
+| `AITHEMA_VOICE_MODE` | `elevenlabs` enables startup ensure; default `fake` locally and `off` on a live host, where `fake` is refused; `off` disables voice |
 | `ELEVENLABS_API_KEY` | ElevenLabs account key; reference resolves server-side only |
 | `AITHEMA_ELEVENLABS_TEMPLATE_AGENT_ID` | START agent to GET for selected voice/language/ASR/turn/privacy settings; never a write target |
 | `AITHEMA_VOICE_FACADE_SECRET` | Deployment callback bearer supplied by OPS; startup creates/updates its owned workspace-secret reference |
-| `AITHEMA_IMAGE_MODE` | Use `off` for the first live smoke; default `fake`; `openai` requires a separate host module |
-| `AITHEMA_HTML_MODE` | `fake` (default) generates local clickable HTML; `claude` uses the shared SQLite OpenRouter cap and requires current matching consent; `off` disables HTML |
+| `AITHEMA_IMAGE_MODE` | Default `fake` locally and `off` on a live host, where `fake` is refused; `openai` requires a separate host module |
+| `AITHEMA_HTML_MODE` | `fake` (local default) generates local clickable HTML, offered on a live host only when set explicitly and labelled as a demo; `claude` uses the shared SQLite OpenRouter cap and requires current matching consent; `off` (live default) disables HTML |
 | `AITHEMA_HTML_MODEL` | `anthropic/claude-opus-5.5` (default); Claude model ID required in `AITHEMA_OPENROUTER_PRICES`; output capped at 8,000 tokens |
 | `AITHEMA_UI_RENDERS_PER_SESSION` | Persistent lifetime limit shared by HTML and images; default `20`; `0` disables generation |
 | `AITHEMA_UI_RENDERS_PER_DAY` | Persistent deployment-wide UTC-day limit shared by HTML and images; default `200`; `0` disables generation |

@@ -2,14 +2,20 @@ import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { dirname, basename, resolve, join } from 'node:path';
-import { applyEvent, createSession, inputRevision, emptyUnderstanding, isUIArtifact, isHTMLArtifact, inspectHTML, HTML_MEDIA_TYPE, imageInfo, reduceConceptIntent, createConceptIntent, MAX_IMAGE_BYTES } from '@inspr/aithema-core';
+import { applyEvent, createSession, inputRevision, emptyUnderstanding, isUIArtifact, isHTMLArtifact, inspectHTML, HTML_MEDIA_TYPE, imageInfo, reduceConceptIntent, createConceptIntent, MAX_IMAGE_BYTES,
+  defaultSettings, normalizeSettings, sameSelection, conversationStarted } from '@inspr/aithema-core';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 export const MAX_CONCEPT_STORAGE_BYTES = 64 * 1024 * 1024;
+export const MAX_SETTINGS_REVISIONS = 1000;
 const turnMetadata = ['id', 'role', 'at', 'inputRevision', 'contentRef', 'hash', 'erased', 'withdrawn', 'provenance', 'voiceCallId', 'voiceProviderId'];
 
 export class ConflictError extends Error {}
 export class NotFoundError extends Error {}
+/** A settings write based on an older revision; carries the acknowledged state. */
+export class SettingsConflictError extends ConflictError {
+  constructor(code, session) { super(code); this.code = code; this.session = session; }
+}
 export class SQLiteStorage {
   constructor(path = ':memory:') {
     // An OS-backed SQLite lock also releases on process death. It is separate
@@ -37,6 +43,7 @@ export class SQLiteStorage {
         bytes BLOB, metadata TEXT NOT NULL, dependencies TEXT NOT NULL, tombstone TEXT);
       CREATE INDEX IF NOT EXISTS concept_session ON concept_artifacts(session_id);
       CREATE INDEX IF NOT EXISTS voice_session ON voice_calls(session_id);
+      CREATE INDEX IF NOT EXISTS sessions_owner ON sessions(json_extract(snapshot, '$.ownerHash'));
       CREATE TRIGGER IF NOT EXISTS events_no_update BEFORE UPDATE ON events BEGIN SELECT RAISE(ABORT,'append only'); END;
       CREATE TRIGGER IF NOT EXISTS events_no_delete BEFORE DELETE ON events BEGIN SELECT RAISE(ABORT,'append only'); END;`);
     this.#migrate();
@@ -60,6 +67,7 @@ export class SQLiteStorage {
     const row = this.db.prepare('SELECT snapshot FROM sessions WHERE id=?').get(id);
     if (!row) throw new NotFoundError('Session not found');
     const session = JSON.parse(row.snapshot);
+    session.settings ??= defaultSettings(); // sessions stored before visitor settings follow host defaults
     session.transcript = session.transcript.map(t => this.#hydrateData(id, t));
     if (session.understanding.contentRef) {
       const data = this.#hydrateData(id, session.understanding);
@@ -125,12 +133,20 @@ export class SQLiteStorage {
       this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id, 'understanding', bytes, hash(bytes), at);
       return { contentRef, hash: hash(bytes) };
     }
+    if (type === 'settings.changed') {
+      // A visitor's choice is erasable content: the journal keeps only its reference.
+      if (data.contentRef) return { contentRef: data.contentRef, hash: data.hash };
+      const bytes = JSON.stringify({ processingPreset: data.processingPreset, settings: data.settings }), contentRef = `${id}:settings:${seq}`;
+      this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id, 'settings', bytes, hash(bytes), new Date().toISOString());
+      return { contentRef, hash: hash(bytes) };
+    }
     if (!['turn.final', 'turn.corrected', 'understanding.updated'].includes(type)) return data;
     if (data.contentRef) return Object.fromEntries(Object.entries(data).filter(([key]) =>
       ['turn.final', 'turn.corrected'].includes(type) ? turnMetadata.includes(key)
         : ['contentRef', 'hash', 'erased'].includes(key)));
     const contentRef = `${id}:${seq}`, at = data.at ?? new Date().toISOString();
-    const bytes = JSON.stringify(['turn.final', 'turn.corrected'].includes(type) ? { content: data.content } : data), digest = hash(bytes);
+    // A reply's engine label reveals the visitor's choice, so it is erased with the reply.
+    const bytes = JSON.stringify(['turn.final', 'turn.corrected'].includes(type) ? { content: data.content, ...(data.engine ? { engine: data.engine } : {}) } : data), digest = hash(bytes);
     this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id,
       ['turn.final', 'turn.corrected'].includes(type) ? data.role === 'user' ? 'person' : 'reply' : 'understanding', bytes, digest, at);
     return ['turn.final', 'turn.corrected'].includes(type) ? { id: data.id, role: data.role, at,
@@ -394,6 +410,40 @@ export class SQLiteStorage {
       return this.#append(this.get(id), 'concept.state', { intent: affected ? { ...intent, pending: null } : intent,
         status: affected ? { phase: 'failed', error: 'source-removed', retryable: false } : session.conceptStatus });
     });
+  }
+  /**
+   * Durable visitor choice. A write based on any revision but the current one conflicts;
+   * resending the current choice on the current revision is idempotent. Device
+   * conversations stay in their tab, so a started conversation (even with every turn
+   * withdrawn) cannot switch into or out of device processing.
+   */
+  changeSettings(id, { processingPreset, settings }, { ownerToken, baseRevision, at = new Date().toISOString() } = {}) {
+    if (!Number.isSafeInteger(baseRevision) || baseRevision < 0) throw new TypeError('Settings base revision required');
+    return this.transaction(() => {
+      const session = this.get(id); this.#check(session, { ownerToken });
+      const current = session.settings, preset = session.processingPreset ?? 'best';
+      // Every write names the revision it was based on, so a stale write or a replay never lands.
+      if (baseRevision !== current.revision) throw new SettingsConflictError('settings-conflict', session);
+      if (preset === processingPreset && sameSelection(current, settings) && current.origin === 'chosen') return { event: null, session };
+      // Each change is a durable event; a conversation's history of choices stays bounded.
+      if (current.revision >= MAX_SETTINGS_REVISIONS) throw new RangeError('Settings limit');
+      if ((preset === 'device') !== (processingPreset === 'device') && conversationStarted(session)) {
+        throw new SettingsConflictError('new-conversation-required', session);
+      }
+      const next = normalizeSettings({ ...settings, revision: current.revision + 1, origin: 'chosen', at });
+      const event = this.#append(session, 'settings.changed', { processingPreset, settings: next });
+      return { event, session: this.get(id) };
+    });
+  }
+  /** The owner's most recent confirmed choice in a conversation that still exists. */
+  lastSettings(ownerToken) {
+    if (!ownerToken) return null;
+    const row = this.db.prepare(`SELECT snapshot FROM sessions WHERE json_extract(snapshot, '$.ownerHash')=?
+      AND json_extract(snapshot, '$.tombstone') IS NULL AND json_extract(snapshot, '$.settings.origin')='chosen'
+      ORDER BY json_extract(snapshot, '$.settings.at') DESC LIMIT 1`).get(hash(ownerToken));
+    if (!row) return null;
+    const { processingPreset, settings } = JSON.parse(row.snapshot);
+    return { processingPreset: processingPreset ?? 'best', settings: normalizeSettings(settings) };
   }
   #migrate() {
     if (this.db.prepare('PRAGMA user_version').get().user_version >= 1) return;

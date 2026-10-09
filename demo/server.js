@@ -1,7 +1,7 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve, sep } from 'node:path';
-import { SQLiteStorage, createHandlers, createPluginRuntime, createMemoryConsentLedger, createFacadeSecrets, createVoiceProvider, createDurationBinding, mockPresets, createLocalImages, localImageBinding, createImageBinding, createSpendCap, createLocalHTML, localHTMLBinding, uiRenderLimitConfig } from '@inspr/aithema-server';
+import { SQLiteStorage, createHandlers, createPluginRuntime, createMemoryConsentLedger, createFacadeSecrets, createVoiceProvider, createDurationBinding, createLocalImages, localImageBinding, createImageBinding, createSpendCap, createLocalHTML, localHTMLBinding, uiRenderLimitConfig } from '@inspr/aithema-server';
 import { createLocalVoiceProvider, localVoiceBinding } from '../packages/server/src/local-voice.js';
 import { listen } from '@inspr/aithema-server/http';
 import { createMockReasoning, PluginRegistry } from '@inspr/aithema-core';
@@ -9,6 +9,7 @@ import { createOpenRouterReasoning } from '@inspr/aithema-plugin-openrouter';
 import { createMistralReasoning } from '@inspr/aithema-plugin-mistral';
 import { createOpenAIImages } from '@inspr/aithema-plugin-openai-images';
 import { imagePluginBinding } from '../packages/server/src/image-binding.js';
+import { demoPresets, providerMode } from './choices.js';
 import { voiceAsset } from './voice-assets.js';
 import { HTML_PREVIEW_HOST_CSP } from '../packages/core/src/ui-html.js';
 import { createOwnership, startExpiry } from './session-lifecycle.js';
@@ -26,7 +27,9 @@ const deployment = deploymentConfig();
 const provider = process.env.AITHEMA_PROVIDER ?? 'mock';
 if (!['mock', 'openrouter', 'mistral'].includes(provider)) throw new TypeError('Unknown demo provider');
 const openrouter = provider === 'openrouter' ? openRouterConfig(process.env) : undefined;
-const html = htmlConfig(process.env, openrouter ? [openrouter.reaction, openrouter.understanding] : []);
+// A live provider host never runs fake voice or images; fake HTML only as an explicit demo.
+const live = provider !== 'mock';
+const html = htmlConfig(process.env, openrouter ? [openrouter.reaction, openrouter.understanding] : [], { live });
 const uiRenderLimits = uiRenderLimitConfig(process.env);
 const ownership = createOwnership(deployment);
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -48,7 +51,7 @@ const htmlSelection = htmlPlugin ? { html: html.binding ?? localHTMLBinding } : 
 const reasoning = provider === 'mock' ? createMockReasoning() : provider === 'openrouter'
   ? createOpenRouterReasoning({ binding: privateBinding, spendCap, prices: openrouter.prices }) : createMistralReasoning({ binding: privateBinding });
 const secrets = createFacadeSecrets();
-const voiceMode = process.env.AITHEMA_VOICE_MODE ?? 'fake';
+const voiceMode = providerMode(process.env.AITHEMA_VOICE_MODE, live);
 if (!['fake', 'off', 'elevenlabs'].includes(voiceMode)) throw new TypeError('Unknown voice mode');
 let voiceHost;
 if (voiceMode === 'elevenlabs') {
@@ -60,7 +63,7 @@ if (voiceMode === 'elevenlabs') {
     resolveSecret: ref => secrets.resolve(ref) ?? process.env[ref] }) };
   if (voiceHost.binding) voiceHost.binding = createDurationBinding(voiceHost.binding);
 }
-const imageMode = process.env.AITHEMA_IMAGE_MODE ?? 'fake';
+const imageMode = providerMode(process.env.AITHEMA_IMAGE_MODE, live);
 if (!['fake', 'off', 'openai'].includes(imageMode)) throw new TypeError('Unknown image mode');
 let imageHost;
 if (imageMode === 'openai') {
@@ -87,15 +90,10 @@ const voicePlugin = voiceMode === 'fake' ? createLocalVoiceProvider({ storage, p
       visitorMicroPerMinute: voiceHost.binding.visitorMicroPerMinute }, resolveSecret: ref => process.env[ref],
     staticFacade: Boolean(voiceHost.staticSecretRef), provisionFacade: voiceHost.provisionFacade, revokeFacade: secrets.revoke, requestProviderClose: voiceHost.requestProviderClose }) : null;
 const registry = new PluginRegistry().register(reasoning); if (voicePlugin) registry.register(voicePlugin); if (imagePlugin) registry.register(imagePlugin); if (htmlPlugin) registry.register(htmlPlugin);
-const voiceSelection = voicePlugin ? { voice: voiceHost?.binding ?? localVoiceBinding } : {};
-const localPresets = { ...mockPresets(), best: { plugins: ['mock', ...(voicePlugin ? [voicePlugin.manifest.id] : []), ...(imagePlugin ? [imagePlugin.manifest.id] : []), ...(htmlPlugin ? [htmlPlugin.manifest.id] : [])],
-  bindings: { ...mockPresets().best.bindings, ...voiceSelection, ...imageSelection, ...htmlSelection }, policy } };
-const pluginRuntime = provider === 'mock' ? createPluginRuntime({ storage, reasoning, consent, registry, uiRenderLimits, presets: localPresets }) : createPluginRuntime({ storage, consent,
-  registry, uiRenderLimits, presets: {
-    best: { plugins: [provider, ...(voicePlugin ? [voicePlugin.manifest.id] : []), ...(imagePlugin ? [imagePlugin.manifest.id] : []), ...(htmlPlugin ? [htmlPlugin.manifest.id] : [])],
-      bindings: { reaction: privateBinding, understanding: understandingBinding, ...voiceSelection, ...imageSelection, ...htmlSelection }, policy },
-    eu: { plugins: [], bindings: {} }, custom: { plugins: [], bindings: {} },
-  } });
+// The operator allowlist visitors choose from in settings (demo/choices.js).
+const presets = demoPresets({ provider, reaction: privateBinding, understanding: understandingBinding, voicePlugin,
+  voiceBinding: voiceHost?.binding ?? localVoiceBinding, imagePlugin, imageBinding: imageSelection.images, htmlPlugin, htmlBinding: htmlSelection.html, htmlDemo: Boolean(html.demo), policy });
+const pluginRuntime = createPluginRuntime({ storage, reasoning, consent, registry, uiRenderLimits, presets });
 const handlers = createHandlers({ storage, reasoning, pluginRuntime, consent, ownership, voice: voicePlugin ? { secrets, closeOrphan: voiceHost?.closeOrphan, staticSecretRef: voiceHost?.staticSecretRef } : undefined }); await handlers.resume();
 const expiry = startExpiry(handlers);
 let allowedHosts = new Set();

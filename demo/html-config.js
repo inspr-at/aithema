@@ -23,9 +23,11 @@ export function coverHTMLBinding(binding, reasoningBindings) {
   return createBinding({ ...binding, legal: { ...reasoning.legal,
     evidence: { ...reasoning.legal.evidence, model: binding.model, endpoint: binding.endpoint, routing: binding.routing } } });
 }
-export function htmlConfig(values, reasoningBindings = []) {
-  const mode = values.AITHEMA_HTML_MODE ?? 'fake';
+/** A live host (`live`) defaults to no HTML; fake HTML there is an explicit, labelled demo. */
+export function htmlConfig(values, reasoningBindings = [], { live = false } = {}) {
+  const mode = values.AITHEMA_HTML_MODE ?? (live ? 'off' : 'fake');
   if (!['fake', 'claude', 'off'].includes(mode)) throw new TypeError('Unknown HTML mode');
+  if (mode === 'fake' && live) return { mode, demo: true };
   if (mode !== 'claude') return { mode };
   const model = values.AITHEMA_HTML_MODEL?.trim() || 'anthropic/claude-opus-5.5';
   if (!/^anthropic\/claude-[a-z0-9.:-]+$/u.test(model)) throw new TypeError('AITHEMA_HTML_MODEL must be an anthropic/claude-* model');
