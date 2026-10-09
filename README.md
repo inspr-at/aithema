@@ -963,11 +963,18 @@ DCO sign-off alone is insufficient. Review, merge and release remain maintainer-
 Run a pinned source commit with Node 24 or the provided `node:24-bookworm-slim`
 Dockerfile: `npm ci --omit=dev`, then `node demo/server.js`. The ElevenLabs SDK
 1.17.0 is a runtime dependency; the host serves its IIFE and worklets locally.
+OPS pins the base image digest at build time with
+`--build-arg NODE_IMAGE=node:24-bookworm-slim@sha256:<approved-digest>`.
 The image runs as `node`, binds port 3000 and uses its `/data` volume for SQLite.
+App files and installed dependencies belong to root and have no write bits.
+Run the container with `--read-only` and a writable `/data` volume, so only
+`/data` is writable by the runtime user.
 Mount `/data` writable by that user, preserve the SQLite database plus WAL on
 restart, and run exactly one writer. Set `AITHEMA_COMMIT` to the deployed full
-source SHA. The container healthcheck supplies the configured public Host while
-connecting over local HTTP. Readiness of voice is separately visible in
+source SHA. The container healthcheck uses `node:http` to supply the configured
+public Host while connecting over local HTTP. This keeps the Host gate active
+even for loopback callers and avoids relying on `fetch` to override Host.
+Readiness of voice is separately visible in
 `/demo/config` and the session feature matrix; `/healthz` is a process probe.
 
 | Environment | Meaning / default |
@@ -1000,9 +1007,26 @@ exact-name matches disables voice with a value-free reason. Only a creation
 receipt persisted in this database authorizes updates. Losing the ownership
 cache never authorizes taking over an existing agent/secret; restore the database
 or let the operator resolve the conflict. Secrets are not cached in SQLite.
+If a workspace-secret POST succeeds remotely but its response has no valid
+`secret_id`, startup reports `secret-create-invalid`; later starts report
+`secret-ownership-unproven`. This conflict is sticky because the host cannot
+prove ownership from the remote name. The value-free log names only
+`aithema-start2-facade`. OPS stops the host, preserves the database/WAL, and uses
+its secret-aware tooling to inspect only secret names, ids and `used_by`.
+After confirming there is no local creation receipt and that the remote secret
+is an unused orphan, delete the orphan secret named **`aithema-start2-facade`**
+by its id, then restart. The host creates a new secret and persists its receipt.
+If the secret is in use or ownership is uncertain, restore the proven receipt
+from backup or resolve that ownership first; do not delete an active secret.
 Template prompts, personas, first messages, knowledge bases and tools are excluded.
 The host's custom LLM has an empty prompt/greeting and no tools or knowledge base;
 Aithema rebuilds the trusted session prompt at each callback.
+After every agent create or PATCH, startup GETs the owned agent and verifies
+its name/id, auth enabled, exactly one allowlist hostname equal to the public
+origin's host (including any port), the extra-body override, `custom-llm`
+selection, callback URL, owned secret id and every copied privacy field.
+Any mismatch disables voice with `agent-readback-mismatch`; logs contain only
+the owned name/id and failing field names. A failed GET also disables voice.
 
 Caddy must preserve the incoming `Host` header and terminate HTTPS. Protect
 **everything** with `basic_auth`, except **POST**
@@ -1030,7 +1054,8 @@ snapshot()}`. A second plugin can inject the same port, or share account
 run under SQLite transactions. Every OpenRouter request sends the binding's
 `max_tokens` (default 1200 for reaction, 8000 for understanding),
 `provider.require_parameters: true`, and `provider.max_price` derived from the
-operator's prices. Configured upstream allow-lists apply to both lanes; the
+operator's prices using exact decimal arithmetic before JSON number conversion.
+Configured upstream allow-lists apply to both lanes; the
 analysis exclusion applies only to understanding. **verified live 2026-10-09**:
 those routing prices are in USD per MILLION tokens and OpenRouter enforces them
 before dispatch (404, "No endpoints found that satisfy the max price").
@@ -1056,6 +1081,31 @@ USD 9.50 spent plus a USD 1.00 ceiling refuses before dispatch; an unexpected
 USD 1.00 charge after a smaller admitted ceiling records USD 10.50 and locks the
 account. Raising the cap does not reset the counter or clear a ceiling breach.
 Do not remove uncertain holds merely to make another request fit.
+**The cap drains through uncertain holds by design**, including barge-in,
+aborted voice streams and crashes; restart does not replenish that budget.
+
+OPS reconciliation of uncertain holds:
+
+1. Stop the sole writer and back up SQLite plus WAL. List unsettled
+   `spend_reservations` for `start2-openrouter` (`actual_micro IS NULL`), keeping
+   their ids and ceilings intact.
+2. If the provider response carried a generation id retained in OPS request
+   records, use authenticated OpenRouter generation lookup
+   `GET /api/v1/generation?id=<generation-id>` through secret-aware tooling.
+   Otherwise obtain the account's OpenRouter activity export. Match each billed
+   generation unambiguously to its reservation using OPS request records; the
+   host does not currently persist generation ids or that correlation itself.
+   A missing export row or interrupted client stream is not proof of zero cost.
+3. Once authoritative provider evidence proves the billed USD cost for that
+   reservation, round it upward to microdollars and call the spend-cap port's
+   `settle({id: <reservation-id>}, actualMicro)` for the same account/database.
+   Keep the evidence reference in the OPS record. Record the full charge even
+   above the original ceiling; this preserves the permanent breach latch.
+   Do not delete reservations or reduce settled charges. If correlation or final
+   cost remains uncertain, leave the full hold in place.
+4. Check `snapshot()` totals against the evidence and confirm any ceiling breach
+   still refuses admission, then restart the sole writer. Reconciliation is an
+   OPS action; startup does not release dispatched holds automatically.
 
 The following shapes are **verified by read-only GET 2026-10-09** in the
 coordinator's AIT-115 comment: paginated agent list and ids/names; agent GET

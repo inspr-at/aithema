@@ -1,4 +1,5 @@
 import { readJson } from './server.js';
+import { isDeepStrictEqual } from 'node:util';
 
 export const AGENT_NAME = 'aithema-start2';
 const SECRET_NAME = 'aithema-start2-facade';
@@ -67,20 +68,26 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
   const named = listed.secrets.filter(secret => secret.name === SECRET_NAME);
   if (named.length > 1) throw new AgentEnsureError('secret-name-ambiguous');
   const cachedSecret = db.prepare('SELECT secret_id FROM host_voice_secrets WHERE name=?').get(SECRET_NAME)?.secret_id;
-  if (named.length && named[0].secret_id !== cachedSecret || cachedSecret && named[0]?.secret_id !== cachedSecret) throw new AgentEnsureError('secret-ownership-unproven');
+  if (named.length && named[0].secret_id !== cachedSecret || cachedSecret && named[0]?.secret_id !== cachedSecret) {
+    log({ name: SECRET_NAME });
+    throw new AgentEnsureError('secret-ownership-unproven');
+  }
   let secretId = cachedSecret;
   // UNVERIFIED API SHAPE: POST/PATCH secret bodies.
   if (secretId) {
     await request(`/v1/convai/secrets/${encodeURIComponent(secretId)}`, 'PATCH', { type: 'update', name: SECRET_NAME, value: bearer });
   } else {
     const created = await request('/v1/convai/secrets', 'POST', { type: 'new', name: SECRET_NAME, value: bearer });
-    if (!id(created.secret_id)) throw new AgentEnsureError('secret-create-invalid');
+    if (!id(created.secret_id)) {
+      log({ name: SECRET_NAME });
+      throw new AgentEnsureError('secret-create-invalid');
+    }
     secretId = created.secret_id;
     db.prepare('INSERT INTO host_voice_secrets VALUES (?,?)').run(SECRET_NAME, secretId);
   }
   // UNVERIFIED API SHAPE: POST /v1/convai/agents/create and PATCH /v1/convai/agents/:id;
-  // custom_llm.api_key {secret_id}, llm 'custom-llm', platform_config.auth/overrides,
-  // Read-only verification confirms source fields, not acceptance of these write bodies.
+  // custom_llm.api_key {secret_id}, llm 'custom-llm', platform_settings.auth/overrides.
+  // Require a matching owned-agent GET after every write before enabling voice.
   const body = { name: AGENT_NAME, conversation_config: {
     tts: { ...pick(config.tts, ['voice_id', 'model_id', 'stability', 'similarity_boost', 'style', 'use_speaker_boost', 'speed', 'optimize_streaming_latency', 'agent_output_audio_format']),
       ...(config.tts.voice_settings ? { voice_settings: pick(config.tts.voice_settings, ['stability', 'similarity_boost', 'style', 'use_speaker_boost', 'speed']) } : {}) },
@@ -90,10 +97,10 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
     agent: { language: config.agent?.language ?? 'en', first_message: '',
       prompt: { prompt: '', llm: 'custom-llm', tools: [], knowledge_base: [],
         custom_llm: { url: `${publicOrigin}/api/voice/llm/chat/completions`, model_id: 'aithema-session', api_key: { secret_id: secretId } } } },
-  }, platform_config: {
+  }, platform_settings: {
     privacy: pick(template.platform_settings?.privacy, ['record_voice', 'retention_days', 'delete_audio', 'delete_transcript', 'zero_retention_mode']),
     // UNVERIFIED API SHAPE: allowlist item {hostname}, per ElevenLabs docs; live list was empty.
-    auth: { enable_auth: true, allowlist: [{ hostname: publicOrigin }] },
+    auth: { enable_auth: true, allowlist: [{ hostname: origin.host }] },
     overrides: { custom_llm_extra_body: true },
   } };
   let agentId = owned;
@@ -103,6 +110,31 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
     if (!id(created.agent_id) || created.agent_id === templateAgentId) throw new AgentEnsureError('agent-create-invalid');
     agentId = created.agent_id;
     db.prepare('INSERT INTO host_agents VALUES (?,?)').run(AGENT_NAME, agentId);
+  }
+  let remote;
+  try { remote = await request(`/v1/convai/agents/${encodeURIComponent(agentId)}`); }
+  catch (error) {
+    log({ name: AGENT_NAME, id: agentId, fields: ['agent-readback'] });
+    throw error;
+  }
+  const platform = remote?.platform_settings, prompt = remote?.conversation_config?.agent?.prompt;
+  const allowlist = platform?.auth?.allowlist;
+  const checks = {
+    agent_id: remote?.agent_id === agentId,
+    name: remote?.name === AGENT_NAME,
+    'platform_settings.auth.enable_auth': platform?.auth?.enable_auth === true,
+    'platform_settings.auth.allowlist': Array.isArray(allowlist) && allowlist.length === 1 && allowlist[0]?.hostname === origin.host,
+    'platform_settings.overrides.custom_llm_extra_body': platform?.overrides?.custom_llm_extra_body === true,
+    'conversation_config.agent.prompt.llm': prompt?.llm === 'custom-llm',
+    'conversation_config.agent.prompt.custom_llm.url': prompt?.custom_llm?.url === body.conversation_config.agent.prompt.custom_llm.url,
+    'conversation_config.agent.prompt.custom_llm.api_key.secret_id': prompt?.custom_llm?.api_key?.secret_id === secretId,
+    ...Object.fromEntries(Object.entries(body.platform_settings.privacy).map(([field, expected]) =>
+      [`platform_settings.privacy.${field}`, isDeepStrictEqual(platform?.privacy?.[field], expected)])),
+  };
+  const fields = Object.keys(checks).filter(field => !checks[field]);
+  if (fields.length) {
+    log({ name: AGENT_NAME, id: agentId, fields });
+    throw new AgentEnsureError('agent-readback-mismatch');
   }
   log({ name: AGENT_NAME, id: agentId }); // Never log bodies, errors from fetch, secrets, or template data.
   return { agentId, apiBaseUrl: base.href.replace(/\/$/u, '') };

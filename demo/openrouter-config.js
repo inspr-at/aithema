@@ -1,4 +1,4 @@
-import { modelPrice } from '../plugins/openrouter/src/pricing.js';
+import { modelPrice, providerMaxPrice } from '../plugins/openrouter/src/pricing.js';
 import { usdMicro } from '../packages/server/src/spend-cap.js';
 import { qualifyStartBinding } from './processing-consent.js';
 
@@ -43,7 +43,7 @@ export function openRouterConfig(values) {
         ...(providerOnly?.length ? { only: [...providerOnly] } : {}),
         ...(ignore?.length ? { ignore: [...ignore] } : {}),
         // verified live 2026-10-09: USD per MILLION tokens; enforced before dispatch.
-        max_price: { prompt: price.prompt * 1_000_000, completion: price.completion * 1_000_000 } } });
+        max_price: providerMaxPrice(price) } });
   };
   return { prices, capMicro, reaction: binding(speechModel, maxTokens),
     understanding: binding(understandingModel, analysisMaxTokens, analysisProviderIgnore) };

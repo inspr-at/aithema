@@ -1,5 +1,5 @@
 const valid = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 &&
-  Number.isFinite(value * 1_000_000);
+  Number.isFinite(perMillion(value));
 
 /** Operator ceilings in USD per token; never substitute catalog/seed prices. */
 export function modelPrice(prices, model) {
@@ -18,6 +18,18 @@ function decimal(value) {
   const scale = fraction.length - Number(exponent);
   return scale >= 0 ? [BigInt(whole + fraction), 10n ** BigInt(scale)]
     : [BigInt(whole + fraction) * 10n ** BigInt(-scale), 1n];
+}
+
+function perMillion(value) {
+  const [amount, scale] = decimal(value), numerator = amount * 1_000_000n;
+  const fraction = (numerator % scale).toString().padStart(scale.toString().length - 1, '0');
+  // Shift the configured decimal exactly; convert to a JSON number only at the boundary.
+  return Number(`${numerator / scale}.${fraction}`);
+}
+
+/** OpenRouter max_price is USD per million tokens, not per token. */
+export function providerMaxPrice(price) {
+  return { prompt: perMillion(price.prompt), completion: perMillion(price.completion) };
 }
 
 export function requestCeilingMicro(body, price) {

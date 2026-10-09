@@ -1,5 +1,5 @@
 import { createChatCompletions, createBinding, publicReasoningManifest, deepFreeze, PluginError } from '@inspr/aithema-core';
-import { modelPrice, requestCeilingMicro } from './pricing.js';
+import { modelPrice, providerMaxPrice, requestCeilingMicro } from './pricing.js';
 export const manifest = deepFreeze(publicReasoningManifest('openrouter', 'OpenRouter', 'https://openrouter.ai'));
 export function createOpenRouterReasoning({ binding, resolveSecret = ref => process.env[ref], fetchImpl, spendCap, prices,
   model, endpoint = 'https://openrouter.ai/api/v1/chat/completions' } = {}) {
@@ -19,6 +19,6 @@ export function createOpenRouterReasoning({ binding, resolveSecret = ref => proc
       usage: { include: true },
       provider: { ...binding.routing, require_parameters: true, allow_fallbacks: false,
         // verified live 2026-10-09: USD per MILLION tokens; enforced before dispatch.
-        max_price: { prompt: price.prompt * 1_000_000, completion: price.completion * 1_000_000 } },
+        max_price: providerMaxPrice(price) },
       ...(stream ? { stream_options: { include_usage: true } } : {}) }) }) };
 }

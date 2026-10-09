@@ -86,6 +86,21 @@ test('START bindings send lane-specific routing and reserve the configured reply
     assert.deepEqual(bodies.map(body => body.provider.max_price), [{ prompt: 3, completion: 4 }, { prompt: 1, completion: 2 }]);
   }
 });
+test('decimal per-million ceilings stay exact in bindings and serialized provider requests', async () => {
+  const configured = openRouterConfig({ OPENROUTER_MODEL: 'openai/fixture',
+    AITHEMA_OPENROUTER_PRICES: '{"openai/fixture":{"prompt":0.0000042,"completion":2.3e-7}}' });
+  const expected = { prompt: 4.2, completion: 0.23 };
+  assert.deepEqual(configured.reaction.routing.max_price, expected);
+  assert.deepEqual(configured.understanding.routing.max_price, expected);
+  let sent;
+  const plugin = createOpenRouterReasoning({ binding: configured.reaction, prices: configured.prices,
+    resolveSecret: () => 'local-fixture', fetchImpl: async (url, init) => {
+      sent = JSON.parse(init.body);
+      return Response.json({ usage: { cost: 0 }, choices: [{ finish_reason: 'stop', message: { content: '{"summary":"Known"}' } }] });
+    } });
+  await plugin.structured(request, options());
+  assert.deepEqual(sent.provider.max_price, expected);
+});
 test('AbortSignal cancels an active streaming response', async t => {
   const plugin = await fake(t, async (req, res) => { await body(req); res.writeHead(200, { 'content-type': 'text/event-stream' });
     res.write('data: {"choices":[{"delta":{"content":"first"}}]}\n\n'); });

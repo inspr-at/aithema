@@ -14,11 +14,16 @@ const raw = (url, headers, method = 'GET') => new Promise((resolve, reject) => {
     response.on('end', () => resolve({ status: response.statusCode, headers: response.headers, body: Buffer.concat(chunks).toString() }));
   }); outgoing.on('error', reject); outgoing.end(method === 'POST' ? '{}' : undefined);
 });
+const healthcheck = (url, origin) => spawnSync(process.execPath, [fileURLToPath(new URL('../../scripts/healthcheck.js', import.meta.url))], {
+  env: { PATH: process.env.PATH, PORT: new URL(url).port, ...(origin ? { AITHEMA_PUBLIC_ORIGIN: origin } : {}) },
+  timeout: 5000, encoding: 'utf8',
+});
 test('healthz has no session, commit defaults null, and local Host allowlist still applies', async t => {
   const running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb()); t.after(() => running.kill());
   const response = await fetch(running.url + '/healthz'); assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { ok: true, commit: null }); assert.equal(response.headers.get('set-cookie'), null);
   assert.equal((await raw(running.url + '/healthz', { host: 'foreign.test' })).status, 403);
+  assert.equal(healthcheck(running.url).status, 0);
 });
 test('public origin controls accepted Host, origin checking and Secure cookies behind HTTP proxy; health only checks Host', async t => {
   const running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb(), {
@@ -28,6 +33,9 @@ test('public origin controls accepted Host, origin checking and Secure cookies b
   const health = await raw(running.url + '/healthz', { ...headers, origin: 'https://foreign.test' });
   assert.equal(health.status, 200); assert.deepEqual(JSON.parse(health.body), { ok: true, commit: 'local-commit-fixture' });
   assert.equal((await fetch(running.url + '/healthz')).status, 403);
+  assert.equal(healthcheck(running.url, 'https://start2.example.test').status, 0);
+  assert.equal(healthcheck(running.url, 'https://foreign.test').status, 1);
+  assert.equal(healthcheck(running.url).status, 1);
   assert.equal((await raw(running.url + '/api/sessions', { ...headers, origin: 'https://foreign.test' }, 'POST')).status, 403);
   const created = await raw(running.url + '/api/sessions', headers, 'POST'); assert.equal(created.status, 201);
   assert.match(created.headers['set-cookie'][0], /; Secure$/); assert.ok(JSON.parse(created.body).id);
