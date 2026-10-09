@@ -7,6 +7,7 @@ import { instrumentedMockRuntime } from '../../../test/server-fixtures.js';
 import { readFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { coversProcessingScope } from '@inspr/aithema-core';
+import { listen } from '../src/http.js';
 
 const token = 'fixture-owner';
 const scope = { purpose: 'mock-conversation', recipients: ['mock'], upstreamProcessors: [], dataCategories: ['conversation'], itemVersion: 1 };
@@ -102,14 +103,14 @@ test('a second server process refuses the same database; a crashed writer releas
   await first.kill('SIGKILL'); first = await startChild(file, db);
 });
 
-test('ownership, tombstone and revision checks precede byte-bound idempotency', () => {
+test('ownership and tombstone precede dedup; stale revisions reject only new turns', () => {
   const storage = new SQLiteStorage();
   try {
     const s = storage.create({ ownerToken: token }), body = Buffer.from('original');
     storage.postTurn(s.id, 'first', body, 'original');
     const guard = { ownerToken: token, revision: inputRevision(storage.get(s.id)) };
     storage.postTurn(s.id, 'second', Buffer.from('second'), 'second');
-    assert.throws(() => storage.postTurn(s.id, 'first', body, 'original', guard), ConflictError);
+    assert.equal(storage.postTurn(s.id, 'first', body, 'original', guard).replayed, true);
     assert.throws(() => storage.postTurn(s.id, 'new', body, 'original', guard), ConflictError);
     assert.throws(() => storage.postTurn(s.id, 'first', body, 'original', { ownerToken: 'wrong' }));
     storage.erase(s.id);
@@ -198,7 +199,7 @@ test('invalidation during a pending consent check prevents paid dispatch', async
   try {
     const s = storage.create({ ownerToken: token, demo: true }); storage.postTurn(s.id, 't', Buffer.from('Hello'), 'Hello');
     const run = handlers.lanes.run(s.id, 'understanding'); await started.promise;
-    handlers.withdrawConsent(s.id); gate.resolve(); await run.catch(() => {}); assert.equal(calls, 0);
+    await handlers.withdrawConsent(s.id); gate.resolve(); await run.catch(() => {}); assert.equal(calls, 0);
   } finally { gate.resolve(); await handlers.close(); storage.close(); }
 });
 
@@ -262,4 +263,157 @@ test('coverage expiry is checked after the host returns its asynchronous grant',
     return { covered: true, ...scope, consentRevision: session.consentRevision, expiresAt };
   } };
   assert.equal(await consentCoverage(port, session, scope), false);
+});
+
+test('identical HTTP resend replays its receipt after success even with the original inputRevision', async () => {
+  const storage = new SQLiteStorage(), handlers = handlersWith({ storage, consent });
+  try {
+    const s = storage.create({ ownerToken: token, demo: true });
+    const body = { clientEventId: 'revision-retry', content: 'Hello', inputRevision: inputRevision(s) };
+    const first = await handlers.handle(request(s.id, 'turns', body));
+    assert.equal(first.status, 200);
+    const event = await first.json(); await handlers.idle();
+    const seq = storage.get(s.id).seq;
+    const replay = await handlers.handle(request(s.id, 'turns', body));
+    assert.equal(replay.status, 200); assert.deepEqual(await replay.json(), event);
+    await handlers.idle(); assert.equal(storage.get(s.id).seq, seq);
+    assert.equal((await handlers.handle(request(s.id, 'turns', { ...body, clientEventId: 'new-turn' }))).status, 409);
+    assert.equal((await handlers.handle(request(s.id, 'turns', { ...body, content: 'Changed' }))).status, 409);
+    assert.equal((await handlers.handle(request(s.id, 'turns', body, 'wrong'))).status, 404);
+    await handlers.handle(request(s.id, 'erase', {}));
+    assert.equal((await handlers.handle(request(s.id, 'turns', body))).status, 404);
+  } finally { await handlers.close(); storage.close(); }
+});
+
+for (const action of ['withdrawConsent', 'expire']) {
+  test(`host ${action} waits for lane cancellation to settle before acknowledgement`, async () => {
+    const storage = new SQLiteStorage(), gate = deferred();
+    const mock = createMockReasoning(), started = deferred(), provider = deferred(); let signal;
+    const handlers = handlersWith({ storage, consent, reasoning: { ...mock, async structured(req, options) {
+      signal = options.signal; started.resolve(); await provider.promise; return mock.structured(req, options);
+    } } });
+    let pending;
+    try {
+      const s = storage.create({ ownerToken: token, demo: true });
+      storage.postTurn(s.id, 't', Buffer.from('Hello'), 'Hello');
+      const run = handlers.lanes.run(s.id, 'understanding'); run.catch(() => {}); await started.promise;
+      const cancel = handlers.lanes.cancel.bind(handlers.lanes);
+      handlers.lanes.cancel = async id => { await cancel(id); await gate.promise; };
+      let acknowledged = false;
+      pending = Promise.resolve(action === 'expire' ? handlers.expire(Date.now() + 1000)
+        : handlers.withdrawConsent(s.id)).then(value => { acknowledged = true; return value; });
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(signal.aborted, true);
+      assert.equal(acknowledged, false, 'the host must await the cancellation promise');
+      gate.resolve(); await pending;
+      assert.equal(acknowledged, true); await run.catch(() => {});
+    } finally {
+      gate.resolve(); provider.resolve(); await pending; await handlers.close(); storage.close();
+    }
+  });
+}
+
+test('snapshot retries are bounded while events keep arriving during the feature check', { timeout: 1000 }, async () => {
+  const storage = new SQLiteStorage(), runtime = instrumentedMockRuntime(storage, createMockReasoning(), consent);
+  let checks = 0;
+  const handlers = createHandlers({ storage, consent, pluginRuntime: { ...runtime, async matrix(session) {
+    checks++;
+    if (checks <= 10) storage.pause(session.id, Boolean(checks % 2));
+    return runtime.matrix(session);
+  } } });
+  try {
+    const s = storage.create({ ownerToken: token });
+    const response = await handlers.handle(request(s.id));
+    assert.equal(response.status, 409, 'a busy session yields a retryable conflict');
+    assert.equal(checks, 3);
+    assert.equal(JSON.stringify(await response.json()).includes('ownerHash'), false);
+    checks = 10;
+    assert.equal((await handlers.handle(request(s.id))).status, 200, 'later stable snapshots succeed');
+  } finally { await handlers.close(); storage.close(); }
+});
+
+test('consent withdrawal stops reaction deltas and ignores a stream that returns late', async () => {
+  const storage = new SQLiteStorage(), mock = createMockReasoning(), held = deferred(), started = deferred();
+  let signal;
+  const handlers = handlersWith({ storage, consent, reasoning: { ...mock, async *stream(req, options) {
+    signal = options.signal; yield 'Before revocation'; started.resolve(); await held.promise; yield 'Late private delta';
+  } } });
+  let subscription, collected = '';
+  try {
+    const s = storage.create({ ownerToken: token, demo: true });
+    subscription = await handlers.handle(request(s.id, 'events'));
+    const reader = subscription.body.getReader();
+    const reading = (async () => { while (true) {
+      const { done, value } = await reader.read(); if (done) return;
+      collected += new TextDecoder().decode(value);
+    } })();
+    await handlers.handle(request(s.id, 'turns', { clientEventId: 'reaction', content: 'Hello' }));
+    await started.promise;
+    assert.match(collected, /Before revocation/);
+    assert.equal((await handlers.handle(request(s.id, 'consent', { granted: false }))).status, 200);
+    assert.equal(signal.aborted, true);
+    const seq = storage.get(s.id).seq; held.resolve(); await handlers.idle();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(storage.get(s.id).seq, seq);
+    assert.equal(collected.includes('Late private delta'), false);
+    assert.equal(storage.get(s.id).transcript.some(turn => turn.role === 'assistant' && !turn.erased), false);
+    await reader.cancel(); await reading;
+  } finally { held.resolve(); await handlers.close(); storage.close(); }
+});
+
+test('erase handler removes content before acknowledgement and closes every visitor route across restart', async () => {
+  const path = await temporaryDb(); let storage = new SQLiteStorage(path), handlers = handlersWith({ storage, consent });
+  const { server, url } = await listen(request => handlers.handle(request));
+  const call = (id, action = '', body) => fetch(`${url}/api/sessions/${id}${action ? '/' + action : ''}`, {
+    headers: { 'x-aithema-session-token': token, 'content-type': 'application/json' },
+    ...(body === undefined ? {} : { method: 'POST', body: JSON.stringify(body) }),
+  });
+  try {
+    const created = await fetch(url + '/api/sessions', { method: 'POST', body: '{}',
+      headers: { 'x-aithema-session-token': token, 'content-type': 'application/json' } });
+    assert.equal(created.status, 201); const s = await created.json();
+    assert.equal((await call(s.id, 'turns', { clientEventId: 'erase-handler', content: 'systems: erase-handler-private' })).status, 200);
+    await handlers.idle();
+    const response = await call(s.id, 'erase', {});
+    assert.equal(response.status, 200);
+    const ack = await response.json(); assert.equal(ack.erased, true); assert.equal(ack.providerDeletion, 'not-confirmed');
+    assert.equal(ack.event.type, 'session.erased'); assert.ok(storage.get(s.id).tombstone);
+    assert.equal(JSON.stringify(storage.get(s.id)).includes('erase-handler-private'), false);
+    assert.equal(storage.db.prepare('SELECT count(*) AS n FROM content WHERE bytes IS NOT NULL').get().n, 0);
+    for (const file of [path, path + '-wal']) {
+      const bytes = await readFile(file).catch(error => { if (error.code === 'ENOENT') return Buffer.alloc(0); throw error; });
+      assert.equal(bytes.includes(Buffer.from('erase-handler-private')), false);
+    }
+    await handlers.close(); storage.close(); storage = new SQLiteStorage(path); handlers = handlersWith({ storage, consent });
+    for (const [action, body] of [['', undefined], ['events', undefined], ['export', undefined], ['retry', {}], ['pause', { paused: false }],
+      ['withdraw', { turnId: 'erase-handler' }], ['consent', { granted: true }], ['erase', {}],
+      ['turns', { clientEventId: 'erase-handler', content: 'systems: erase-handler-private' }]]) {
+      assert.equal((await call(s.id, action, body)).status, 404, action);
+    }
+    assert.equal(JSON.stringify(unzip(exportSession(storage.get(s.id)))).includes('erase-handler-private'), false);
+  } finally {
+    await handlers.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); storage.close();
+  }
+});
+
+test('missing content rows load as tombstones in snapshots, events, receipts, export and after restart', async () => {
+  const path = await temporaryDb(); let storage = new SQLiteStorage(path), handlers = handlersWith({ storage, consent });
+  try {
+    const s = storage.create({ ownerToken: token, demo: true, actor: { evidence: 'selected', name: 'missing-actor-private' } });
+    const body = Buffer.from(JSON.stringify({ clientEventId: 'missing', content: 'systems: missing-content-private' }));
+    storage.postTurn(s.id, 'missing', body, 'systems: missing-content-private');
+    await handlers.lanes.run(s.id, 'reaction'); await handlers.lanes.run(s.id, 'understanding');
+    storage.db.prepare('DELETE FROM content WHERE session_id=?').run(s.id);
+    await handlers.close(); storage.close(); storage = new SQLiteStorage(path); handlers = handlersWith({ storage, consent });
+    const restored = storage.get(s.id);
+    assert.ok(restored.transcript.every(turn => turn.erased && turn.withdrawn && turn.content === undefined));
+    assert.equal(restored.understanding.inputRevision, null); assert.equal(restored.actor, null);
+    assert.equal(storage.getRecord(s.id, restored.transcript[0].contentRef).tombstone, 'missing');
+    assert.equal(storage.postTurn(s.id, 'missing', body, 'systems: missing-content-private').event.data.erased, true);
+    assert.ok(storage.read(s.id).filter(event => ['turn.final', 'understanding.updated'].includes(event.type)).every(event => event.data.erased));
+    assert.equal(JSON.stringify(reasoningRequest(restored, 'reaction')).includes('missing-content-private'), false);
+    assert.equal(JSON.stringify(unzip(exportSession(restored))).includes('missing-content-private'), false);
+    const response = await handlers.handle(request(s.id)); assert.equal(response.status, 200);
+    assert.equal(JSON.stringify(await response.json()).includes('missing-content-private'), false);
+  } finally { await handlers.close(); storage.close(); }
 });

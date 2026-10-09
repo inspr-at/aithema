@@ -80,7 +80,8 @@ startup and `close()` before closing storage. A standalone mock server runs with
 `node packages/server/bin/server.js`; set `AITHEMA_DB` for persistence. Its mock
 ledger also requires an explicit consent grant and loses grants on restart.
 
-Hosts configure the web component with `{copy, baseUrl, session}` and receive
+Hosts configure the web component with `{copy, baseUrl, session, sessionToken}`
+(the token is optional) and receive
 `aithema-event` notifications. Serve its native ES modules with their relative
 core imports, as the demo does. Copy and CSS tokens belong to the host.
 
@@ -103,6 +104,18 @@ and send it on every session request, including SSE and export. A host may suppl
 bind tokens through cookies, as the demo does. Missing, wrong and erased ownership
 all return 404. Tokens and their stored hashes are excluded from snapshots/export.
 
+With the default header ownership, pass the creation response header as
+`sessionToken` to `configure()`. The component sends it on every request, including
+snapshot recovery, feature refresh, SSE, control POSTs and fetched ZIP downloads.
+Host POSTs can use `postJson(url, body, {sessionToken})`. Keep the token out of
+URLs, markup and stored session content. For cookie ownership, omit `sessionToken`
+and serve the component and API on the same origin; the browser sends the host's
+HttpOnly cookie. Set `Secure` for HTTPS requests, as the demo ownership hook does;
+localhost HTTP remains usable. Hosts behind TLS termination must supply an
+ownership hook that reflects their trusted transport configuration.
+Snapshots make at most three attempts to obtain matching features and state;
+continuous updates return 409 so the client can retry.
+
 Hosts supply one `consent.coverage({sessionId, scope, consentRevision}, {signal, deadlineAt})` port
 for admission and withdrawal; a supplied runtime and handlers share that same port. A covering
 grant has `covered: true`, the matching purpose and item version, arrays covering
@@ -112,8 +125,8 @@ private binding, including the exact plugin, model, endpoint, routing, account
 reference and operation. External grants also echo that exact `scope` with a
 current `checkedAt` timestamp; only the local mock has a built-in scope.
 Missing/unavailable coverage fails closed at admission and again at claim consumption. Hosts notify
-external revocation through `handlers.withdrawConsent(id)` to persist the new
-revision and cancel running work immediately. `createMemoryConsentLedger()` is
+external revocation through `await handlers.withdrawConsent(id)` to persist the new
+revision, abort running work immediately and await lane settlement before acknowledgement. `createMemoryConsentLedger()` is
 the reference mock host ledger, not a durable legal record. Core-only hosts supply
 an authoritative `admit` callback to `SessionLanes`; the legacy `beforeDispatch`
 callback remains available for nonbillable bindings and defaults to refusal.
@@ -126,7 +139,7 @@ metadata and SHA-256 byte fingerprints; erasable content lives separately.
 Missing/erased records hydrate as tombstones, including on receipt replay,
 restart and export. SQLite secure deletion and WAL checkpointing run before
 erasure acknowledgement. `storage.expire(id, turnId)` uses the same invalidation;
-hosts schedule `handlers.expire(cutoffTimestamp)` to cancel and rebuild as well.
+hosts await `handlers.expire(cutoffTimestamp)` to cancel and rebuild as well.
 The demo applies a twelve-month turn retention cutoff each minute.
 
 A persistent `SQLiteStorage` holds an OS-backed exclusive lock on the canonical

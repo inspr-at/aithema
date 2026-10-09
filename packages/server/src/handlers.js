@@ -45,11 +45,13 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       lastFailure: failure?.inputRevision === revision ? failure : null };
   };
   const snapshot = async id => {
-    const session = storage.get(id), featureMatrix = await pluginRuntime.matrix(session);
-    const current = storage.get(id), { ownerHash, ...publicSession } = current;
-    if (current.tombstone || current.ownerHash !== session.ownerHash) throw new NotFoundError('Session not found');
-    if (current.seq !== session.seq) return snapshot(id);
-    return { ...publicSession, operations: operations(current), featureMatrix };
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const session = storage.get(id), featureMatrix = await pluginRuntime.matrix(session);
+      const current = storage.get(id), { ownerHash, ...publicSession } = current;
+      if (current.tombstone || current.ownerHash !== session.ownerHash) throw new NotFoundError('Session not found');
+      if (current.seq === session.seq) return { ...publicSession, operations: operations(current), featureMatrix };
+    }
+    throw new ConflictError('Session changed during snapshot');
   };
   const status = id => broadcast(id, { sessionId: id, type: 'lane.status', data: operations(storage.get(id)) });
   const lanes = new SessionLanes({ reasoning, getSession: id => storage.get(id), deadlineMs, hostPrompt,
@@ -227,16 +229,16 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     }
   }
   return { handle, lanes,
-    withdrawConsent(id) {
-      const event = storage.reviseConsent(id, false); lanes.cancel(id); failures.delete(id); broadcast(id, event);
+    async withdrawConsent(id) {
+      const event = storage.reviseConsent(id, false); await lanes.cancel(id); failures.delete(id); broadcast(id, event);
       return event;
     },
-    expire(before) {
+    async expire(before) {
       for (const id of storage.list()) {
         const session = storage.get(id);
         if (session.tombstone) continue;
         for (const turn of activeTurns(session).filter(t => t.role === 'user' && Date.parse(t.at) < before)) {
-          const event = storage.expire(id, turn.id); lanes.cancel(id); failures.delete(id); broadcast(id, event); schedule(id);
+          const event = storage.expire(id, turn.id); await lanes.cancel(id); failures.delete(id); broadcast(id, event); schedule(id);
         }
       }
     },

@@ -6,13 +6,13 @@ import { styles } from './styles.js';
 import { postJson } from './post-json.js';
 
 export class AithemaSession extends HTMLElement {
-  #device; #deviceController; #copy; #session; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #pending;
+  #device; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #pending;
   #hover = new Set(); #dirty = new Set(); #open = []; #cleared = []; #failure = false; #sending = false;
   constructor() { super(); this.attachShadow({ mode: 'open' }); }
-  configure({ copy, baseUrl = '', session, deviceReasoning }) {
+  configure({ copy, baseUrl = '', session, sessionToken, deviceReasoning }) {
     if (!copy || !session) throw new TypeError('Host copy and session required');
     this.#abort?.abort(); this.#deviceController?.abort(); this.#device = deviceReasoning; this.#copy = copy; this.#base = baseUrl.replace(/\/$/u, '');
-    this.#session = structuredClone(session); this.#cursor = session.seq; this.#partials.clear();
+    this.#session = structuredClone(session); this.#sessionToken = sessionToken; this.#cursor = session.seq; this.#partials.clear();
     this.#restoreFailure(); this.#pending = null; this.#sending = false;
     this.#invalidatedAt = 0;
     this.#open = []; this.#cleared = []; this.#dirty.clear(); this.#hover.clear();
@@ -63,6 +63,10 @@ export class AithemaSession extends HTMLElement {
       root.querySelector('.export').removeAttribute('href'); root.querySelector('.export').setAttribute('aria-disabled', 'true');
       root.querySelector('.export').title = this.#copy.deviceExportUnavailable;
     }
+    root.querySelector('.export').addEventListener('click', e => {
+      if (!this.#sessionToken || this.#session.processingPreset === 'device') return;
+      e.preventDefault(); void this.#export();
+    });
     root.querySelector('form').addEventListener('submit', e => { e.preventDefault(); void this.#send(); });
     root.querySelector('textarea').addEventListener('keydown', e => {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.isComposing) { e.preventDefault(); void this.#send(); }
@@ -75,7 +79,7 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.retry').addEventListener('click', async () => {
       if (!this.#feature('analysis').available) return;
       try {
-        const response = await postJson(`${this.#base}/api/sessions/${this.#session.id}/retry`);
+        const response = await postJson(`${this.#base}/api/sessions/${this.#session.id}/retry`, {}, { sessionToken: this.#sessionToken });
         if (!response.ok) throw new Error(); this.#failure = false; this.#render('aside');
       } catch { this.#status(this.#copy.reasoningFailed); }
     });
@@ -83,7 +87,7 @@ export class AithemaSession extends HTMLElement {
       const button = root.querySelector('.pause'), sessionId = this.#session.id;
       button.disabled = true;
       try {
-        const response = await postJson(`${this.#base}/api/sessions/${sessionId}/pause`, { paused: !this.#session.paused });
+        const response = await postJson(`${this.#base}/api/sessions/${sessionId}/pause`, { paused: !this.#session.paused }, { sessionToken: this.#sessionToken });
         if (!response.ok) throw new Error();
         const ack = await response.json();
         if (sessionId === this.#session.id) this.receive(ack.event);
@@ -102,6 +106,22 @@ export class AithemaSession extends HTMLElement {
     this.#render('transcript'); this.#render('aside'); this.#render('composer');
   }
   #status(value) { this.shadowRoot.querySelector('.status').textContent = value; }
+  #headers(headers = {}) {
+    return { ...headers, ...(this.#sessionToken ? { 'x-aithema-session-token': this.#sessionToken } : {}) };
+  }
+  async #export() {
+    const sessionId = this.#session.id;
+    let url;
+    try {
+      const response = await fetch(`${this.#base}/api/sessions/${sessionId}/export`, { headers: this.#headers() });
+      if (!response.ok) throw new Error();
+      const blob = await response.blob();
+      if (sessionId !== this.#session.id) return;
+      url = URL.createObjectURL(blob);
+      const link = document.createElement('a'); link.href = url; link.download = 'aithema-session.zip'; link.click();
+    } catch { if (sessionId === this.#session.id) this.#status(this.#copy.controlFailed); }
+    finally { if (url) URL.revokeObjectURL(url); }
+  }
   #feature(feature) {
     const preset = this.#session.processingPreset ?? 'best';
     if (this.#session.paused) return { available: false, reason: this.#copy.paused };
@@ -150,7 +170,13 @@ export class AithemaSession extends HTMLElement {
           button.addEventListener('click', async () => {
             const sessionId = this.#session.id; button.disabled = true;
             try {
-              const response = await postJson(`${this.#base}/api/sessions/${sessionId}/withdraw`, { turnId: t.id });
+              if (this.#session.processingPreset === 'device') {
+                this.#deviceController?.abort();
+                this.receive({ sessionId, seq: this.#cursor + 1, type: 'turn.withdrawn',
+                  data: { turnId: t.id, reason: 'withdrawal', at: new Date().toISOString() } });
+                return;
+              }
+              const response = await postJson(`${this.#base}/api/sessions/${sessionId}/withdraw`, { turnId: t.id }, { sessionToken: this.#sessionToken });
               if (!response.ok) throw new Error();
               const ack = await response.json(); if (sessionId === this.#session.id) this.receive(ack.event);
             } catch { if (sessionId === this.#session.id) this.#status(copy.controlFailed); }
@@ -225,7 +251,7 @@ export class AithemaSession extends HTMLElement {
     if (!this.#pending || this.#pending.content !== content) this.#pending = { clientEventId: crypto.randomUUID(), content };
     this.#sending = true; button.disabled = true; this.#status(this.#copy.sending);
     try {
-      const response = await postJson(`${this.#base}/api/sessions/${sessionId}/turns`, this.#pending);
+      const response = await postJson(`${this.#base}/api/sessions/${sessionId}/turns`, this.#pending, { sessionToken: this.#sessionToken });
       if (!response.ok) throw new Error();
       const event = await response.json();
       if (sessionId !== this.#session.id) return;
@@ -247,7 +273,7 @@ export class AithemaSession extends HTMLElement {
       this.receive({ seq: this.#cursor + 1, type: 'turn.final', data: { id: crypto.randomUUID(), role: 'user', content } });
       input.value = '';
       const id = crypto.randomUUID(), revision = inputRevision(this.#session); let answer = '';
-      for await (const delta of this.#device.stream({ messages: this.#session.transcript.map(({ role, content }) => ({ role, content })) },
+      for await (const delta of this.#device.stream({ messages: activeTurns(this.#session).map(({ role, content }) => ({ role, content })) },
         { signal: controller.signal, deadlineAt })) {
         if (!current()) return; answer += delta;
         this.receive({ type: 'turn.partial', data: { id, delta, inputRevision: revision } });
@@ -311,9 +337,10 @@ export class AithemaSession extends HTMLElement {
     this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer');
   }
   async #refreshFeatures() {
+    if (this.#session.processingPreset === 'device') return;
     const sessionId = this.#session.id;
     try {
-      const response = await fetch(`${this.#base}/api/sessions/${sessionId}`);
+      const response = await fetch(`${this.#base}/api/sessions/${sessionId}`, { headers: this.#headers() });
       if (!response.ok) return;
       const session = await response.json();
       if (sessionId !== this.#session.id || session.seq !== this.#cursor || session.id !== sessionId) return;
@@ -324,7 +351,7 @@ export class AithemaSession extends HTMLElement {
   async #restore() {
     const sessionId = this.#session.id;
     try {
-      const response = await fetch(`${this.#base}/api/sessions/${sessionId}`);
+      const response = await fetch(`${this.#base}/api/sessions/${sessionId}`, { headers: this.#headers() });
       if (!response.ok) throw new Error();
       const session = await response.json();
       if (sessionId !== this.#session.id) return;
@@ -350,7 +377,7 @@ export class AithemaSession extends HTMLElement {
       try {
         this.#status(this.#copy.connecting);
         const response = await fetch(`${this.#base}/api/sessions/${this.#session.id}/events`, {
-          signal, headers: { 'Last-Event-ID': String(this.#cursor) },
+          signal, headers: this.#headers({ 'Last-Event-ID': String(this.#cursor) }),
         });
         if (signal.aborted) return;
         if (response.status === 400) { await this.#restore(); return; }

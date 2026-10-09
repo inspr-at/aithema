@@ -90,3 +90,46 @@ test('no client file sends a non-GET request except through postJson', async () 
     assert.ok(!sendsMethod(await readFile(file, 'utf8')), `${file.pathname} sets a request method; use postJson`);
   }
 });
+
+test('postJson carries explicit header ownership without changing JSON or cookie defaults', async t => {
+  const { postJson } = await import('../../packages/ui/src/post-json.js');
+  const calls = []; t.mock.method(globalThis, 'fetch', async (url, init) => { calls.push(init); return Response.json({}); });
+  await postJson('/api/sessions', {}, { sessionToken: 'post-owner-fixture' });
+  await postJson('/api/sessions');
+  assert.equal(new Headers(calls[0].headers).get('x-aithema-session-token'), 'post-owner-fixture');
+  assert.equal(new Headers(calls[1].headers).has('x-aithema-session-token'), false);
+  assert.ok(calls.every(call => new Headers(call.headers).get('content-type') === 'application/json'));
+});
+
+for (const asynchronous of [false, true]) {
+  test(`demo expiry contains ${asynchronous ? 'asynchronous' : 'synchronous'} failures, logs metadata and runs again`, async t => {
+    const { startExpiry } = await import('../session-lifecycle.js');
+    let tick, calls = 0; const logs = [];
+    t.mock.method(globalThis, 'setInterval', callback => { tick = callback; return { unref() {} }; });
+    t.mock.method(console, 'error', (...values) => logs.push(values));
+    const handlers = { expire(before) {
+      assert.ok(before < Date.now()); calls++;
+      if (calls > 1) return;
+      const error = new Error('private expiry content must never reach a log');
+      if (asynchronous) return Promise.reject(error);
+      throw error;
+    } };
+    startExpiry(handlers);
+    await assert.doesNotReject(async () => tick());
+    assert.equal(logs.length, 1); assert.equal(JSON.stringify(logs).includes('private expiry content'), false);
+    assert.deepEqual(logs[0], [{ event: 'session-expiry-failed' }]);
+    await tick(); assert.equal(calls, 2);
+  });
+}
+
+test('demo ownership marks HTTPS cookies Secure and keeps HTTP localhost cookies usable', async () => {
+  const { ownership } = await import('../session-lifecycle.js');
+  for (const protocol of ['https', 'http']) {
+    const request = new Request(`${protocol}://localhost/api/sessions`), response = new Response();
+    ownership.created(response, 'cookie-owner-fixture', request);
+    const cookie = response.headers.get('set-cookie');
+    assert.equal(/; Secure(?:;|$)/u.test(cookie), protocol === 'https');
+    assert.match(cookie, /HttpOnly; SameSite=Strict/);
+    assert.equal(ownership.token(new Request(request.url, { headers: { cookie: cookie.split(';')[0] } })), 'cookie-owner-fixture');
+  }
+});

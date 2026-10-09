@@ -7,6 +7,7 @@ import { createMockReasoning, PluginRegistry } from '@inspr/aithema-core';
 import { createOpenRouterReasoning } from '@inspr/aithema-plugin-openrouter';
 import { createMistralReasoning } from '@inspr/aithema-plugin-mistral';
 import { config } from './config.js';
+import { ownership, startExpiry } from './session-lifecycle.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const defaultDb = resolve(root, '.data/session.sqlite');
@@ -29,18 +30,8 @@ const pluginRuntime = provider === 'mock' ? createPluginRuntime({ storage, reaso
     best: { plugins: [provider], bindings: { reaction: privateBinding, understanding: privateBinding } },
     eu: { plugins: [], bindings: {} }, custom: { plugins: [], bindings: {} },
   } });
-const ownership = {
-  token(request) {
-    const value = /(?:^|;\s*)aithema-visitor=([a-zA-Z0-9_-]{1,128})(?:;|$)/u.exec(request.headers.get('cookie') ?? '');
-    return value?.[1] ?? null;
-  },
-  created(response, token) {
-    response.headers.set('set-cookie', `aithema-visitor=${token}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000`);
-  },
-};
 const handlers = createHandlers({ storage, reasoning, pluginRuntime, consent, ownership }); handlers.resume();
-const expiry = setInterval(() => handlers.expire(Date.now() - 365 * 24 * 60 * 60 * 1000), 60_000);
-expiry.unref();
+const expiry = startExpiry(handlers);
 let allowedHosts = new Set();
 async function handle(request) {
   if (!allowedHosts.has(request.headers.get('host'))) return new Response(null, { status: 403 });

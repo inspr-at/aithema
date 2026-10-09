@@ -68,7 +68,7 @@ export class SQLiteStorage {
     return session;
   }
   #check(session, guard = {}) {
-    // These checks must precede receipt lookup, including identical-byte retries.
+    // Ownership and tombstone checks also apply to identical-byte retries.
     if (session.tombstone) throw new NotFoundError('Session erased');
     if (guard.ownerToken !== undefined && session.ownerHash !== hash(guard.ownerToken)) throw new NotFoundError('Session not found');
     if (guard.revision !== undefined && inputRevision(session) !== guard.revision) throw new ConflictError('Stale session revision');
@@ -144,12 +144,13 @@ export class SQLiteStorage {
   postTurn(id, clientId, bytes, content, guard = {}) {
     return this.transaction(() => {
       const session = this.get(id);
-      this.#check(session, guard);
+      this.#check(session, { ...guard, revision: undefined });
       const receipt = this.db.prepare('SELECT bytes,result FROM receipts WHERE session_id=? AND client_id=?').get(id, clientId);
       if (receipt) {
         if (Buffer.from(receipt.bytes).toString() !== hash(bytes)) throw new ConflictError('Client event id has different bytes');
         return { event: this.#hydrateEvent(JSON.parse(receipt.result)), replayed: true };
       }
+      this.#check(session, guard);
       if (session.transcript.some(turn => turn.id === clientId)) throw new ConflictError('Turn id already exists');
       const event = this.#append(session, 'turn.final', { id: clientId, role: 'user', content,
         at: new Date().toISOString() });
