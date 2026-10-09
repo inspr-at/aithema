@@ -386,7 +386,8 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
 
 async function startDemo(directory, port = '0') {
   const child = fork(new URL('../../demo/server.js', import.meta.url), [], {
-    env: { PATH: process.env.PATH, PORT: port, AITHEMA_DB: join(directory, 'session.sqlite'), AITHEMA_PROVIDER: 'mock' }, silent: true,
+    // These steps drive the image concept viewer; HTML concepts (the demo default since AIT-113 B1) have their own viewer.
+    env: { PATH: process.env.PATH, PORT: port, AITHEMA_DB: join(directory, 'session.sqlite'), AITHEMA_PROVIDER: 'mock', AITHEMA_HTML_MODE: 'off' }, silent: true,
   });
   child.stdout.resume(); child.stderr.resume();
   const [message] = await Promise.race([once(child, 'message'),
