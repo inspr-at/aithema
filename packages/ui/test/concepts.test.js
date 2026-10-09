@@ -71,6 +71,23 @@ test('a focused guidance button keeps its node and focus through unsolicited liv
   root.querySelector('.concept-guidance-selected button:last-child').click(); await tick();
   assert.deepEqual(c.session.concepts[0].feedback.chips, ['Simpler layout'], 'removal uses the current chips');
 });
+test('a live pending update that disables the focused Regenerate keeps focus in the viewer, in both POST/SSE orders (AIT-116 gate 3)', async t => {
+  for (const order of ['ack-first', 'sse-first']) {
+    const { c, root } = setup(t); document.body.append(c); root.querySelector('.concept-tab').click(); await tick();
+    const dialog = root.querySelector('.concept-viewer'), regenerate = root.querySelector('.concept-regenerate');
+    const pending = () => c.receive({ seq: c.session.seq + 1, type: 'concept.state', data: { intent: c.session.conceptIntent, status: { phase: 'pending', startedAt: Date.now(), estimateMs: 45000 } } });
+    regenerate.focus(); assert.ok(root.activeElement === regenerate, order);
+    if (order === 'sse-first') pending();
+    regenerate.click(); await tick();
+    if (order === 'ack-first') pending();
+    const active = root.activeElement;
+    assert.ok(active && dialog.contains(active), `${order}: focus stays inside the viewer`);
+    assert.equal(active.disabled, false, `${order}: focus is on an enabled control, so arrow keys still reach the viewer`);
+    c.receive({ seq: c.session.seq + 1, type: 'concept.state', data: { intent: c.session.conceptIntent, status: { phase: 'ready' }, artifact: item('image2') } });
+    assert.ok(dialog.contains(root.activeElement), `${order}: focus is still inside after the new concept arrives`);
+    c.remove();
+  }
+});
 test('reject archives the exact item and returns to conversation without a paid request', async t => {
   const { c, root, calls } = setup(t); root.querySelector('.concept-tab').click(); await tick();
   root.querySelector('.concept-reject').click(); await tick();

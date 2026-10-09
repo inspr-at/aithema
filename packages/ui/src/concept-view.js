@@ -165,6 +165,7 @@ export class ConceptView {
     } });
   }
   gates() {
+    const active = this.root.activeElement; // captured before any control below is disabled
     const feature = this.feature(), pending = this.#session?.conceptStatus?.phase === 'pending';
     const source = this.#session?.transcript.some(t => t.role === 'user' && !t.erased && !t.withdrawn);
     const cost = this.#session?.conceptCost, costCopy = cost ? cost.maxMicro === 0 ? this.copy.conceptFree : this.copy.conceptCost.replace('{micro}', cost.maxMicro) : this.copy.conceptCostUnknown;
@@ -176,6 +177,9 @@ export class ConceptView {
     for (const node of this.root.querySelectorAll('.concept-feedback button, .concept-guidance-options button, .concept-guidance-selected button')) {
       node.disabled = this.#busy || !feature.available || !this.current(); node.title = !feature.available ? feature.reason : '';
     }
+    // A live update (e.g. SSE "pending" after the POST settled) can disable the focused
+    // control; browsers then drop focus out of the modal and its arrow-key navigation.
+    if (this.dialog.open && active?.disabled && this.dialog.contains(active)) this.root.querySelector('.concept-close').focus();
   }
   // A control disabled while busy drops focus out of the modal viewer, and with it the
   // arrow-key navigation. Return focus to it, or to the close button when it went away.
