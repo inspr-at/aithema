@@ -2,6 +2,15 @@
 // provider network, and real providers are declared so the settings screen shows how
 // a host lists them. An explicitly selected provider makes the demo a live host: it
 // then offers only its configured routes, so visitors never meet a mock there.
+
+/**
+ * Voice or image mode for this host. Fake providers are local-demo only: a live host
+ * defaults to off and never runs them, even when the variable says fake.
+ */
+export function providerMode(value, live) {
+  const mode = value ?? (live ? 'off' : 'fake');
+  return live && mode === 'fake' ? 'off' : mode;
+}
 const mock = (model, effort) => ({ plugin: 'mock', model, effort, endpoint: 'https://example.test', accountRef: 'demo',
   secretRef: 'none', maxMicro: 0, maxTokens: 4096, rates: { inputMicro: 0, outputMicro: 0 } });
 export const demoModels = Object.freeze({
@@ -17,7 +26,7 @@ export const demoModels = Object.freeze({
  * sized its token ceilings for reasoning.
  */
 export function demoPresets({ provider = 'mock', reaction, understanding = reaction, voicePlugin, voiceBinding, imagePlugin, imageBinding,
-  htmlPlugin, htmlBinding, policy }) {
+  htmlPlugin, htmlBinding, htmlDemo = false, policy }) {
   const option = (id, label, plugin, binding, kind) => ({ id, label, ...(kind ? { kind } : {}), ...(plugin?.manifest.id === id ? { binding } : {}) });
   let voices = [option('fake-voice', 'Fake voice (local agent)', voicePlugin, voiceBinding), option('elevenlabs', 'ElevenLabs', voicePlugin, voiceBinding)];
   // One Visuals control: HTML click-dummies and image concepts are alternatives of one choice.
@@ -29,9 +38,13 @@ export function demoPresets({ provider = 'mock', reaction, understanding = react
     const vendor = provider === 'mistral' ? 'Mistral' : 'OpenRouter';
     const route = { id: `${provider}/${reaction.model}`, bindings: { reaction, understanding },
       label: reaction.model === understanding.model ? `${reaction.model} via ${vendor}` : `${reaction.model} and ${understanding.model} via ${vendor}` };
-    voices = voices.filter(o => o.binding); visuals = visuals.filter(o => o.binding);
+    // Only configured live providers; the operator's explicit fake HTML is labelled a demo.
+    const live = o => o.binding && (!o.id.startsWith('fake-') || htmlDemo && o.id === 'fake-html');
+    voices = voices.filter(live);
+    visuals = visuals.filter(live).map(o => o.id === 'fake-html' ? { ...o, label: 'Demo only: fake HTML click-dummy (no provider)' } : o);
+    const offered = new Set([...voices, ...visuals].map(o => o.binding.plugin));
     return {
-      best: { plugins: [provider, ...extras], policy, choices: { models: [route], voices, visuals,
+      best: { plugins: [provider, ...extras.filter(id => offered.has(id))], policy, choices: { models: [route], voices, visuals,
         defaults: { model: route.id, voice: voices[0]?.id ?? 'off', visuals: visuals[0]?.id ?? 'off' } } },
       eu: { plugins: [], bindings: {} }, custom: { plugins: [], bindings: {} },
     };

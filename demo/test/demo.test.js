@@ -151,37 +151,52 @@ test('the demo exposes a realistic operator allowlist and serves the settings mo
   const created = await post(running.url + '/api/sessions', {}), session = await created.json();
   const cookie = created.headers.get('set-cookie').split(';')[0], headers = { cookie };
   assert.deepEqual([session.processingPreset, session.settings.model, session.settings.voice, session.settings.visuals, session.settings.origin],
-    ['best', 'mock', 'fake-voice', 'fake-images', 'default']);
+    ['best', 'mock', 'fake-voice', 'fake-html', 'default'], 'the HTML click-dummy leads when both visual kinds are bound');
   const catalog = await fetch(running.url + `/api/sessions/${session.id}/settings`, { headers }).then(r => r.json());
   const ids = list => list.map(o => [o.id, o.status, o.reason]);
   assert.deepEqual(ids(catalog.presets.best.models), [['mock', 'consent', 'current processing consent required'],
     ['mock/deep', 'consent', 'current processing consent required'], ['openrouter/openai/gpt-4.1-mini', 'unavailable', 'not configured']]);
   assert.deepEqual(catalog.presets.custom.models.map(o => o.id), ['mock', 'mock/swift', 'mock/deep', 'openrouter/openai/gpt-4.1-mini']);
   assert.deepEqual(ids(catalog.presets.best.voices).map(([id, status]) => [id, status]), [['fake-voice', 'consent'], ['elevenlabs', 'unavailable']]);
-  assert.deepEqual(ids(catalog.presets.best.visuals).map(([id, status]) => [id, status]), [['fake-images', 'consent'], ['openai-images', 'unavailable']]);
+  assert.deepEqual(catalog.presets.best.visuals.map(o => [o.id, o.kind, o.status]), [['fake-html', 'html', 'consent'], ['claude-html', 'html', 'unavailable'],
+    ['fake-images', 'images', 'consent'], ['openai-images', 'images', 'unavailable']], 'one Visuals control governs HTML and images');
   assert.deepEqual([catalog.presets.eu.status, catalog.presets.eu.reason, catalog.presets.device.status], ['unavailable', 'not configured', 'available']);
   assert.equal(JSON.stringify(catalog).includes('example.test'), false, 'private endpoints stay on the server');
-  const saved = await post(running.url + `/api/sessions/${session.id}/settings`, { processingPreset: 'custom', model: 'mock/swift', effort: 'low' }, headers);
+  const saved = await post(running.url + `/api/sessions/${session.id}/settings`, { processingPreset: 'custom', model: 'mock/swift', effort: 'low', baseRevision: 0 }, headers);
   assert.equal(saved.status, 200);
   assert.deepEqual((await saved.json()).consent, { required: true, features: ['text', 'analysis'] }, 'the demo still waits for mock consent');
 });
 
-test('a live provider host offers only its configured route: no mock and no unconfigured option', { timeout: 10_000 }, async t => {
+test('a live provider host offers only its configured route: no mock, no fake voice, images or HTML, and no unconfigured option', { timeout: 15_000 }, async t => {
   const price = { prompt: 0.000001, completion: 0.000002 };
-  const running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb(), { AITHEMA_PROVIDER: 'openrouter',
-    OPENROUTER_MODEL: 'openai/fixture', OPENROUTER_SPEECH_MODEL: 'anthropic/fixture', AITHEMA_VOICE_MODE: 'off',
-    AITHEMA_OPENROUTER_PRICES: JSON.stringify({ 'openai/fixture': price, 'anthropic/fixture': price }) });
+  const live = { AITHEMA_PROVIDER: 'openrouter', OPENROUTER_MODEL: 'openai/fixture', OPENROUTER_SPEECH_MODEL: 'anthropic/fixture',
+    AITHEMA_OPENROUTER_PRICES: JSON.stringify({ 'openai/fixture': price, 'anthropic/fixture': price }) };
+  // Explicit fake voice and images are still refused on a live host; HTML defaults to off.
+  let running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb(), { ...live, AITHEMA_VOICE_MODE: 'fake', AITHEMA_IMAGE_MODE: 'fake' });
   t.after(() => running.kill());
+  const config = await fetch(running.url + '/demo/config').then(r => r.json());
+  assert.deepEqual([config.voiceMode, config.imageMode, config.htmlMode], ['off', 'off', 'off']);
   const created = await post(running.url + '/api/sessions', {}), session = await created.json();
   const headers = { cookie: created.headers.get('set-cookie').split(';')[0] };
-  assert.deepEqual([session.settings.model, session.settings.voice, session.settings.visuals], ['openrouter/anthropic/fixture', 'off', 'fake-images']);
+  assert.deepEqual([session.settings.model, session.settings.voice, session.settings.visuals], ['openrouter/anthropic/fixture', 'off', 'off']);
   const catalog = await fetch(running.url + `/api/sessions/${session.id}/settings`, { headers }).then(r => r.json());
   const best = catalog.presets.best;
   assert.deepEqual(best.models.map(o => [o.id, o.label, o.status, o.reason]), [['openrouter/anthropic/fixture',
     'anthropic/fixture and openai/fixture via OpenRouter', 'consent', 'current processing consent required']]);
-  assert.deepEqual(best.voices, []); assert.deepEqual(best.visuals.map(o => o.id), ['fake-images']);
+  assert.deepEqual([best.voices, best.visuals], [[], []], 'no fake or mock voice or visual provider is offered');
+  assert.equal(/fake|mock/u.test(JSON.stringify(best)), false);
   assert.deepEqual([catalog.presets.eu.reason, catalog.presets.custom.reason], ['not configured', 'not configured']);
   assert.equal(JSON.stringify(catalog).includes('openrouter.ai'), false, 'private endpoints stay on the server');
-  const refused = await post(running.url + `/api/sessions/${session.id}/settings`, { model: 'mock' }, headers);
-  assert.equal(refused.status, 409); assert.deepEqual(await refused.json(), { error: 'setting-not-allowed', field: 'model', reason: 'not offered' });
+  for (const body of [{ model: 'mock' }, { visuals: 'fake-images' }, { voice: 'fake-voice' }, { visuals: 'fake-html' }]) {
+    const refused = await post(running.url + `/api/sessions/${session.id}/settings`, { ...body, baseRevision: 0 }, headers);
+    assert.equal(refused.status, 409, JSON.stringify(body));
+    assert.equal((await refused.json()).reason, 'not offered', JSON.stringify(body));
+  }
+  await running.kill();
+  // Only an operator's explicit AITHEMA_HTML_MODE=fake offers fake HTML on a live host, labelled as a demo.
+  running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb(), { ...live, AITHEMA_HTML_MODE: 'fake' });
+  const demo = await post(running.url + '/api/sessions', {}), demoSession = await demo.json();
+  const demoCatalog = await fetch(running.url + `/api/sessions/${demoSession.id}/settings`, { headers: { cookie: demo.headers.get('set-cookie').split(';')[0] } }).then(r => r.json());
+  assert.deepEqual(demoCatalog.presets.best.visuals.map(o => [o.id, o.kind, o.label]), [['fake-html', 'html', 'Demo only: fake HTML click-dummy (no provider)']]);
+  assert.deepEqual(demoCatalog.presets.best.voices, []);
 });

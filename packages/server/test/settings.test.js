@@ -1,6 +1,7 @@
 import { test as nodeTest } from 'node:test';
 import assert from 'node:assert/strict';
-import { SQLiteStorage, createHandlers, createPluginRuntime, createFacadeSecrets, createLocalImages, localImageBinding, normalizeChoices } from '../src/index.js';
+import { SQLiteStorage, createHandlers, createPluginRuntime, createFacadeSecrets, createLocalImages, localImageBinding, createLocalHTML, localHTMLBinding,
+  normalizeChoices, mockPresets } from '../src/index.js';
 import { createLocalVoiceProvider, localVoiceBinding } from '../src/local-voice.js';
 import { PluginRegistry, createMockReasoning, inputRevision, reduceUnderstanding } from '@inspr/aithema-core';
 import { createOpenRouterReasoning } from '../../../plugins/openrouter/src/index.js';
@@ -428,4 +429,31 @@ test('a host can withhold On my device; it is then refused everywhere with a rea
   assert.deepEqual((await json(await h.save(session.id, { processingPreset: 'device' }))).body,
     { error: 'setting-not-allowed', field: 'processingPreset', reason: 'preset not configured' });
   assert.equal((await h.create({ processingPreset: 'device' })).response.status, 409);
+});
+
+test('one Visuals choice governs HTML and images: the selected option names the kind, and the B1 preset preference still applies', async t => {
+  const presets = mockPresetsWithChoices({ images: true });
+  presets.best.plugins.push('fake-html');
+  presets.best.choices.visuals = [{ id: 'html', label: 'HTML click-dummy', kind: 'html', binding: localHTMLBinding },
+    { id: 'images', label: 'Image concepts', binding: localImageBinding }];
+  presets.best.choices.defaults.visuals = 'html';
+  const registry = new PluginRegistry().register(createMockReasoning()).register(createLocalHTML());
+  const h = host(t, { presets, registry, images: true }), { session } = await h.create();
+  const kinds = body => [body.conceptVisualKind, body.featureMatrix.best.html.available, body.featureMatrix.best.images.reason];
+  assert.deepEqual(kinds(session), ['html', true, 'visual kind not selected']);
+  assert.deepEqual(h.runtime.scopes(h.storage.get(session.id)).length, 1, 'the local demo needs only the mock grant');
+  assert.equal((await h.save(session.id, { visuals: 'images' })).status, 200);
+  const images = (await json(await h.call(`/${session.id}`))).body;
+  assert.deepEqual([images.conceptVisualKind, images.featureMatrix.best.images.available, images.featureMatrix.best.html.reason], ['images', true, 'visual kind not selected']);
+  assert.equal((await h.save(session.id, { visuals: 'off' })).status, 200);
+  const off = (await json(await h.call(`/${session.id}`))).body;
+  assert.deepEqual([off.featureMatrix.best.html.reason, off.featureMatrix.best.images.reason], ['visuals off', 'visuals off']);
+  assert.throws(() => normalizeChoices({ choices: { visuals: [{ id: 'x', kind: 'video' }] } }), /Invalid visual choice/);
+  assert.throws(() => normalizeChoices({ choices: { voices: [{ id: 'x', kind: 'html' }] } }), /Invalid voice choice/);
+  // Legacy single bindings keep the B1 contract: HTML leads, `bindings.visuals` picks images explicitly.
+  const legacy = mockPresets(); legacy.best.plugins.push('fake-html', 'fake-images');
+  Object.assign(legacy.best.bindings, { html: localHTMLBinding, images: localImageBinding });
+  assert.deepEqual(normalizeChoices(legacy.best).visuals.map(o => [o.id, o.kind]), [['default', 'html']]);
+  legacy.best.bindings.visuals = 'images';
+  assert.deepEqual(normalizeChoices(legacy.best).visuals.map(o => [o.id, o.kind, o.binding.plugin]), [['default', 'images', 'fake-images']]);
 });

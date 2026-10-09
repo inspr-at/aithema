@@ -9,7 +9,7 @@ import { createOpenRouterReasoning } from '@inspr/aithema-plugin-openrouter';
 import { createMistralReasoning } from '@inspr/aithema-plugin-mistral';
 import { createOpenAIImages } from '@inspr/aithema-plugin-openai-images';
 import { imagePluginBinding } from '../packages/server/src/image-binding.js';
-import { demoPresets } from './choices.js';
+import { demoPresets, providerMode } from './choices.js';
 import { voiceAsset } from './voice-assets.js';
 import { HTML_PREVIEW_HOST_CSP } from '../packages/core/src/ui-html.js';
 import { createOwnership, startExpiry } from './session-lifecycle.js';
@@ -27,7 +27,9 @@ const deployment = deploymentConfig();
 const provider = process.env.AITHEMA_PROVIDER ?? 'mock';
 if (!['mock', 'openrouter', 'mistral'].includes(provider)) throw new TypeError('Unknown demo provider');
 const openrouter = provider === 'openrouter' ? openRouterConfig(process.env) : undefined;
-const html = htmlConfig(process.env, openrouter ? [openrouter.reaction, openrouter.understanding] : []);
+// A live provider host never runs fake voice or images; fake HTML only as an explicit demo.
+const live = provider !== 'mock';
+const html = htmlConfig(process.env, openrouter ? [openrouter.reaction, openrouter.understanding] : [], { live });
 const uiRenderLimits = uiRenderLimitConfig(process.env);
 const ownership = createOwnership(deployment);
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -49,7 +51,7 @@ const htmlSelection = htmlPlugin ? { html: html.binding ?? localHTMLBinding } : 
 const reasoning = provider === 'mock' ? createMockReasoning() : provider === 'openrouter'
   ? createOpenRouterReasoning({ binding: privateBinding, spendCap, prices: openrouter.prices }) : createMistralReasoning({ binding: privateBinding });
 const secrets = createFacadeSecrets();
-const voiceMode = process.env.AITHEMA_VOICE_MODE ?? 'fake';
+const voiceMode = providerMode(process.env.AITHEMA_VOICE_MODE, live);
 if (!['fake', 'off', 'elevenlabs'].includes(voiceMode)) throw new TypeError('Unknown voice mode');
 let voiceHost;
 if (voiceMode === 'elevenlabs') {
@@ -61,7 +63,7 @@ if (voiceMode === 'elevenlabs') {
     resolveSecret: ref => secrets.resolve(ref) ?? process.env[ref] }) };
   if (voiceHost.binding) voiceHost.binding = createDurationBinding(voiceHost.binding);
 }
-const imageMode = process.env.AITHEMA_IMAGE_MODE ?? 'fake';
+const imageMode = providerMode(process.env.AITHEMA_IMAGE_MODE, live);
 if (!['fake', 'off', 'openai'].includes(imageMode)) throw new TypeError('Unknown image mode');
 let imageHost;
 if (imageMode === 'openai') {
@@ -90,7 +92,7 @@ const voicePlugin = voiceMode === 'fake' ? createLocalVoiceProvider({ storage, p
 const registry = new PluginRegistry().register(reasoning); if (voicePlugin) registry.register(voicePlugin); if (imagePlugin) registry.register(imagePlugin); if (htmlPlugin) registry.register(htmlPlugin);
 // The operator allowlist visitors choose from in settings (demo/choices.js).
 const presets = demoPresets({ provider, reaction: privateBinding, understanding: understandingBinding, voicePlugin,
-  voiceBinding: voiceHost?.binding ?? localVoiceBinding, imagePlugin, imageBinding: imageSelection.images, htmlPlugin, htmlBinding: htmlSelection.html, policy });
+  voiceBinding: voiceHost?.binding ?? localVoiceBinding, imagePlugin, imageBinding: imageSelection.images, htmlPlugin, htmlBinding: htmlSelection.html, htmlDemo: Boolean(html.demo), policy });
 const pluginRuntime = createPluginRuntime({ storage, reasoning, consent, registry, uiRenderLimits, presets });
 const handlers = createHandlers({ storage, reasoning, pluginRuntime, consent, ownership, voice: voicePlugin ? { secrets, closeOrphan: voiceHost?.closeOrphan, staticSecretRef: voiceHost?.staticSecretRef } : undefined }); await handlers.resume();
 const expiry = startExpiry(handlers);
