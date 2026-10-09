@@ -8,6 +8,7 @@ import { en } from '../src/i18n/en.js';
 import { manifest } from '../../../plugins/elevenlabs/src/manifest.js';
 import { styles } from '../src/styles.js';
 import { voiceJournal } from '../src/voice-orphan.js';
+import { createVoiceControl } from '../src/voice-control.js';
 import { createElevenLabsClient } from '../../../plugins/elevenlabs/src/client.js';
 import { eventProbe } from '../../../test/voice-test-events.js';
 const window = new Window();
@@ -57,12 +58,12 @@ test('window blur keeps the call; a hidden page pauses it as START does; unackno
   const journal = voiceJournal(storage, 's1');
   const { rail, root } = fixture(t, { journal }); await rail.start(); window.dispatchEvent(new window.Event('blur')); await tick();
   assert.equal(root.dataset.state, 'listening', 'switching windows never pauses (AIT-116 D7)');
-  assert.deepEqual(journal.read(), { callId: 'local-call', providerSessionId: 'local-provider', autoPaused: false });
+  assert.deepEqual(journal.read(), { callId: 'local-call', providerSessionId: 'local-provider' }, 'the journal holds call identity only');
   t.mock.method(document, 'hidden', () => true, { getter: true });
   document.dispatchEvent(new window.Event('visibilitychange')); await tick();
-  assert.equal(root.dataset.state, 'paused'); assert.equal(journal.read().autoPaused, true, 'the journal knows this pause was automatic');
+  assert.equal(root.dataset.state, 'paused');
   t.mock.restoreAll();
-  await rail.pause(false); assert.equal(journal.read().autoPaused, false);
+  await rail.pause(false); assert.equal(root.dataset.state, 'listening');
   rail.session.pause = async () => ({ acknowledged: false, paused: true }); await rail.pause(true);
   assert.equal(root.querySelector('.voice-state').textContent, en.voicePauseFailed); assert.equal(rail.paused, false);
 });
@@ -262,52 +263,94 @@ const until = async (predicate, message) => {
   assert.fail(message);
 };
 const sse = events => new Response(new ReadableStream({ start(controller) {
-  for (const event of events) controller.enqueue(new TextEncoder().encode(`id: ${event.seq}\ndata: ${JSON.stringify(event)}\n\n`));
+  for (const event of events) controller.enqueue(new TextEncoder().encode(`${event.seq ? `id: ${event.seq}\n` : ''}data: ${JSON.stringify(event)}\n\n`));
 } }), { headers: { 'content-type': 'text/event-stream' } });
-// Reload an orphaned call: `history` is what the server replays after the journal's cursor.
-async function reloadOrphan({ record, seq, history }) {
-  const storage = memoryStorage(), original = globalThis.sessionStorage, nativeFetch = globalThis.fetch, calls = [];
+// Reload a page that had a call. `history` is what the server streams after the page's
+// cursor; `record` is the journal the previous page left (older builds also stored pause
+// ownership in it).
+async function reloadOrphan(t, { record, seq = 5, history = [], channel = true }) {
+  const storage = memoryStorage(), nativeFetch = globalThis.fetch, nativeChannel = globalThis.BroadcastChannel, calls = [];
   const session = createSession({ demo: true }); session.paused = true; session.seq = seq;
+  session.featureMatrix = { best: { voice: { available: true }, text: { available: true }, analysis: { available: true } } };
   voiceJournal(storage, session.id).save(record);
-  globalThis.sessionStorage = storage;
+  const nativeStorage = globalThis.sessionStorage; globalThis.sessionStorage = storage;
+  if (!channel) delete globalThis.BroadcastChannel;
   globalThis.fetch = async (url, options = {}) => {
-    calls.push({ url, body: options.body && JSON.parse(options.body), keepalive: options.keepalive, after: new Headers(options.headers).get('last-event-id') });
-    if (url.endsWith('/events')) return sse(history.filter(event => event.seq > Number(new Headers(options.headers).get('last-event-id'))));
-    if (url.endsWith('/pause')) return Response.json({ event: { sessionId: session.id, seq: session.seq + 1, type: 'session.paused', data: { paused: false } } });
-    return Response.json({ closureConfirmed: true });
+    const after = new Headers(options.headers).get('last-event-id');
+    calls.push({ url, body: options.body && JSON.parse(options.body), keepalive: options.keepalive, after });
+    if (url.endsWith('/events')) return sse(history.filter(event => !event.seq || event.seq > Number(after)));
+    if (url.endsWith('/pause')) return Response.json({ event: { sessionId: session.id, seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } } });
+    if (url.endsWith('/close')) return Response.json({ closureConfirmed: true });
+    return Response.json(session);
   };
-  try {
-    const c = document.createElement('aithema-session'); c.configure({ copy: en, session });
-    await until(() => voiceJournal(storage, session.id).read() === null && calls.length > 0, 'the orphan was not ended');
-    for (let i = 0; i < 20; i++) await tick();
-    return { c, calls, session };
-  } finally { globalThis.sessionStorage = original; globalThis.fetch = nativeFetch; }
+  const c = document.createElement('aithema-session');
+  t.after(() => {
+    c.remove(); globalThis.fetch = nativeFetch; globalThis.sessionStorage = nativeStorage;
+    if (!channel) globalThis.BroadcastChannel = nativeChannel;
+  });
+  document.body.append(c); c.configure({ copy: en, session });
+  await until(() => voiceJournal(storage, session.id).read() === null, 'the journal was not settled');
+  for (let i = 0; i < 20; i++) await tick();
+  return { c, calls, session, storage };
 }
 const pauseEvent = (seq, paused) => ({ seq, type: 'session.paused', data: { paused } });
-test('a reloaded page ends its own orphaned call through the close route and lifts only its own automatic pause', async () => {
-  const record = { callId: 'old-call', providerSessionId: 'old-provider' };
-  const own = await reloadOrphan({ record: { ...record, autoPaused: true, pausedAfter: 4 }, seq: 5, history: [pauseEvent(5, true)] });
-  assert.deepEqual(own.calls[0], { url: `/api/sessions/${own.session.id}/voice/old-call/close`,
-    body: { providerSessionId: 'old-provider', reason: 'page-reloaded' }, keepalive: true, after: null });
-  assert.equal(own.calls[1].after, '4', 'the replay starts at the cursor recorded with the automatic pause');
-  assert.equal(own.c.session.paused, false, 'exactly its own automatic pause is lifted');
-  const deliberate = await reloadOrphan({ record: { ...record, autoPaused: false }, seq: 5, history: [pauseEvent(5, true)] });
-  assert.equal(deliberate.c.session.paused, true, 'a deliberate pause stays'); assert.equal(deliberate.calls.length, 1);
+const resumes = calls => calls.filter(call => call.url.endsWith('/pause'));
+test('a reload never sends paused:false by itself: it stays paused behind one focused Resume (AIT-116 D4)', async t => {
+  const legacy = { callId: 'old-call', providerSessionId: 'old-provider', autoPaused: true, pausedAfter: 4 };
+  const probes = {
+    'own automatic pause, complete history': { record: legacy, history: [pauseEvent(5, true)] },
+    'truncated replay': { record: legacy, seq: 4, history: [pauseEvent(5, true)] },
+    'a gap in the event numbers': { record: legacy, seq: 4, history: [pauseEvent(5, true), pauseEvent(7, true)] },
+    'missing event numbers': { record: legacy, history: [{ type: 'session.paused', data: { paused: false } }, { type: 'lane.status', data: {} }] },
+    // Another tab resumes and pauses by hand meanwhile: its pause is the person's, not a reload prompt.
+    'concurrent foreign pause': { record: legacy, seq: 4, history: [pauseEvent(5, true), pauseEvent(6, false), pauseEvent(7, true)], status: en.paused },
+    'failed automatic pause, then a foreign manual pause': { record: { ...legacy, pausedAfter: 3 }, history: [pauseEvent(5, true)] },
+    'no pause ownership recorded': { record: { callId: 'old-call', providerSessionId: 'old-provider' }, history: [] },
+  };
+  for (const [name, probe] of Object.entries(probes)) {
+    const { c, calls, session } = await reloadOrphan(t, probe);
+    const closes = calls.filter(call => call.url.endsWith('/close'));
+    assert.deepEqual(closes, [{ url: `/api/sessions/${session.id}/voice/old-call/close`,
+      body: { providerSessionId: 'old-provider', reason: 'page-reloaded' }, keepalive: true, after: null }], `${name}: the abandoned call is ended`);
+    assert.deepEqual(resumes(calls), [], `${name}: no pause change without the person`);
+    assert.equal(c.session.paused, true, `${name}: still paused`);
+    const root = c.shadowRoot, resume = root.querySelector('.pause');
+    assert.equal(root.querySelector('.status').textContent, probe.status ?? en.pausedResume, `${name}: a clear Resume prompt`);
+    assert.equal(resume.textContent, en.resume); assert.equal(root.activeElement, resume, `${name}: Resume has focus`);
+    c.remove();
+  }
+  const { c, calls } = await reloadOrphan(t, probes['own automatic pause, complete history']);
+  c.shadowRoot.querySelector('.pause').click(); await until(() => !c.session.paused, 'one click resumes');
+  assert.deepEqual(resumes(calls).map(call => call.body), [{ paused: false }]);
+  c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
+  assert.equal(c.shadowRoot.querySelector('.status').textContent, en.paused, 'the prompt ends with that pause');
 });
-test('a reload never lifts a foreign pause: another tab resumed, called and paused by hand (AIT-116 D4)', async () => {
-  const record = { callId: 'old-call', providerSessionId: 'old-provider', autoPaused: true, pausedAfter: 4 };
-  // Own automatic pause, then another tab: resume, a new call, a manual pause.
-  const foreign = await reloadOrphan({ record, seq: 7, history: [pauseEvent(5, true), pauseEvent(6, false), pauseEvent(7, true)] });
-  assert.equal(foreign.c.session.paused, true, 'a manual pause from another tab stays');
-  assert.ok(!foreign.calls.some(call => call.url.endsWith('/pause')), 'no resume request');
-  assert.equal(foreign.c.shadowRoot.querySelector('.status').textContent, en.pausedResume, 'a clear Resume prompt');
-  // Without a recorded cursor the origin of the pause is unknown: stay paused and prompt.
-  const unknown = await reloadOrphan({ record: { ...record, pausedAfter: undefined }, seq: 5, history: [pauseEvent(5, true)] });
-  assert.equal(unknown.c.session.paused, true); assert.equal(unknown.calls.length, 1);
-  assert.equal(unknown.c.shadowRoot.querySelector('.status').textContent, en.pausedResume);
-  unknown.c.receive({ seq: 6, type: 'session.paused', data: { paused: false } });
-  unknown.c.receive({ seq: 7, type: 'session.paused', data: { paused: true } });
-  assert.equal(unknown.c.shadowRoot.querySelector('.status').textContent, en.paused, 'the prompt ends with that pause');
+test('without BroadcastChannel a reload never closes the journaled call; the lease ends it (AIT-116 D4)', async t => {
+  const { c, calls, storage, session } = await reloadOrphan(t, { record: { callId: 'old-call', providerSessionId: 'old-provider' }, channel: false });
+  assert.deepEqual(calls.filter(call => call.url.endsWith('/close')), [], 'no /close without proof of abandonment');
+  assert.equal(voiceJournal(storage, session.id).read(), null);
+  assert.equal(c.session.paused, true); assert.deepEqual(resumes(calls), []);
+});
+test('Retry after a 409 waits out the remaining lease the server reports, otherwise retries at once', async t => {
+  let attempts = 0; const { rail, root } = fixture(t, { start: () => { attempts++; } });
+  const conflict = retryAfterMs => Object.assign(new Error('Voice control failed'), { code: 'voice-conflict', retryAfterMs });
+  const start = rail.client.start; rail.client.start = async () => { throw conflict(120); };
+  await rail.start(); assert.equal(root.querySelector('.voice-state').textContent, en.voiceConflict);
+  rail.client.start = start; const clicked = Date.now();
+  rail.button('retry').click(); await tick(); assert.equal(root.dataset.state, 'connecting'); assert.equal(attempts, 0, 'Retry waits for the lease');
+  await until(() => root.dataset.state === 'listening', 'Retry starts after the lease');
+  assert.ok(Date.now() - clicked >= 100); assert.equal(attempts, 1); await rail.close();
+  rail.client.start = async () => { throw conflict(undefined); };
+  await rail.start(); rail.client.start = start;
+  rail.button('retry').click(); await tick(); await tick(); assert.equal(attempts, 2, 'a plain Retry without a reported lease');
+});
+test('a 409 carries the remaining lease only when the server reports Retry-After', async t => {
+  const nativeFetch = globalThis.fetch; t.after(() => { globalThis.fetch = nativeFetch; });
+  const { control } = createVoiceControl({ sessionId: 's1' });
+  for (const [headers, expected] of [[{ 'retry-after': '7' }, 7000], [{}, undefined]]) {
+    globalThis.fetch = async () => Response.json({ error: 'voice-conflict' }, { status: 409, headers });
+    await assert.rejects(control.start({ callId: 'c1' }), error => error.code === 'voice-conflict' && error.retryAfterMs === expected);
+  }
 });
 test('a copied journal never ends a call another live tab still drives (AIT-116 D4 cross-tab)', async t => {
   const storage = memoryStorage(), original = globalThis.sessionStorage, nativeFetch = globalThis.fetch, closes = [];
@@ -334,7 +377,7 @@ test('a copied journal never ends a call another live tab still drives (AIT-116 
   assert.equal(driver.shadowRoot.querySelector('.audio-rail').dataset.state, 'listening');
   // Once nothing answers for the call, a reload ends it as before.
   globalThis.sessionStorage = storage; await driver.shadowRoot.querySelector('.voice-close').click();
-  voiceJournal(storage, session.id).save({ callId: 'gone-call', providerSessionId: 'gone-provider', autoPaused: false });
+  voiceJournal(storage, session.id).save({ callId: 'gone-call', providerSessionId: 'gone-provider' });
   const reloaded = document.createElement('aithema-session'); reloaded.configure({ copy: en, session });
   await until(() => closes.length === 1, 'an unanswered journal is closed');
   assert.match(closes[0], /voice\/gone-call\/close$/u);
@@ -349,6 +392,17 @@ test('a hidden page during a pending microphone toggle pauses once the toggle se
   assert.equal(root.dataset.state, 'listening', 'nothing interrupts the pending command');
   release(); for (let i = 0; i < 5; i++) await tick();
   assert.equal(root.dataset.state, 'paused', 'the queued visibility pause applies afterwards');
-  assert.equal(rail.input, false); assert.equal(journal.read().autoPaused, true);
+  assert.equal(rail.input, false); assert.ok(journal.read());
+  t.mock.restoreAll();
+});
+test('a hidden page during a pending resume pauses again once the resume is acknowledged (AIT-116 D7)', async t => {
+  const { rail, root } = fixture(t); await rail.start(); await rail.pause(true);
+  let acknowledge; rail.session.resume = () => new Promise(resolve => { acknowledge = resolve; });
+  const resuming = rail.pause(false); await tick(); assert.equal(rail.busy, true); assert.equal(rail.paused, true);
+  t.mock.method(document, 'hidden', () => true, { getter: true });
+  document.dispatchEvent(new window.Event('visibilitychange')); await tick();
+  acknowledge({ acknowledged: true, paused: false }); await resuming; for (let i = 0; i < 5; i++) await tick();
+  assert.equal(rail.paused, true, 'a hidden rail never stays listening after the acknowledgement');
+  assert.equal(root.dataset.state, 'paused');
   t.mock.restoreAll();
 });

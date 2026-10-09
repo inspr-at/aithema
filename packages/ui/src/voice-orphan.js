@@ -4,7 +4,8 @@ import { postJson } from './post-json.js';
 // that tab, so a reloaded page ends exactly its own orphaned call (AIT-116 D4). The
 // record holds public call identity only. Browsers also copy sessionStorage into
 // auxiliary windows, so a record alone never proves the call is orphaned: the tab
-// still driving it answers a liveness ping first.
+// still driving it answers a liveness ping first. Without that proof the server lease
+// ends the call instead.
 const key = sessionId => `aithema-voice-call:${sessionId}`;
 const channelName = 'aithema-voice-calls';
 
@@ -38,14 +39,23 @@ export function answerVoicePings(current) {
   return channel;
 }
 
-/** True when another live same-origin tab answers for the call within the timeout. */
-export function voiceCallDrivenElsewhere(callId, { timeoutMs = 400 } = {}) {
-  if (typeof BroadcastChannel !== 'function') return Promise.resolve(false);
-  const channel = new BroadcastChannel(channelName), nonce = crypto.randomUUID();
-  return new Promise(resolve => {
-    const finish = live => { clearTimeout(timer); channel.close(); resolve(live); };
-    const timer = setTimeout(() => finish(false), timeoutMs);
-    channel.onmessage = ({ data }) => { if (data?.type === 'pong' && data.nonce === nonce && data.callId === callId) finish(true); };
-    channel.postMessage({ type: 'ping', callId, nonce });
-  });
+/**
+ * True only when abandonment is provable: the channel works and no live same-origin tab
+ * answers for the call within the timeout. An answer, a missing channel or any failure
+ * is no proof.
+ */
+export async function voiceCallAbandoned(callId, { timeoutMs = 400 } = {}) {
+  if (typeof BroadcastChannel !== 'function') return false;
+  let channel;
+  try {
+    channel = new BroadcastChannel(channelName); const nonce = crypto.randomUUID();
+    return await new Promise(resolve => {
+      const timer = setTimeout(() => resolve(true), timeoutMs);
+      channel.onmessage = ({ data }) => {
+        if (data?.type === 'pong' && data.nonce === nonce && data.callId === callId) { clearTimeout(timer); resolve(false); }
+      };
+      channel.postMessage({ type: 'ping', callId, nonce });
+    });
+  } catch { return false; }
+  finally { channel?.close(); }
 }

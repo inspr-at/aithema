@@ -6,7 +6,10 @@ export function createVoiceControl({ baseUrl = '', sessionId, sessionToken, rece
   const post = async (url, body, options = {}) => {
     const response = await postJson(url, body, { sessionToken, signal: options.signal });
     const value = await response.json();
-    if (!response.ok) { const error = new Error('Voice control failed'); error.code = value.error; throw error; }
+    if (!response.ok) {
+      const error = new Error('Voice control failed'), seconds = Number(response.headers.get('retry-after'));
+      error.code = value.error; if (seconds > 0) error.retryAfterMs = seconds * 1000; throw error;
+    }
     return value;
   };
   const control = { start: (request, options) => post(base, { callId: request.callId }, options) };

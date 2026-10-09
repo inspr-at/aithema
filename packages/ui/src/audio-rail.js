@@ -1,8 +1,8 @@
 import { watchVoicePlayback } from './voice-playback.js';
 // START's rail lifecycle, ported to the live-voice session interface (INSPR D3).
 export class AudioRail {
-  constructor({ root, copy, client, feature, context, onPartial, onPause, onEnd, onState, playback, journal, ready, cursor, heartbeatMs = 10_000 }) {
-    Object.assign(this, { root, copy, client, feature, context, onPartial, onPause, onEnd, onState, playback, journal, ready, cursor, heartbeatMs });
+  constructor({ root, copy, client, feature, context, onPartial, onPause, onEnd, onState, playback, journal, ready, heartbeatMs = 10_000 }) {
+    Object.assign(this, { root, copy, client, feature, context, onPartial, onPause, onEnd, onState, playback, journal, ready, heartbeatMs });
     this.state = 'idle'; this.input = true; this.output = true; this.generation = 0;
     root.innerHTML = `<div class="voice-orb" aria-hidden="true"><div class="voice-wave">${'<i></i>'.repeat(9)}</div></div>
       <div class="voice-info"><span class="voice-state" role="status"></span><span class="voice-caption"></span></div>
@@ -28,14 +28,12 @@ export class AudioRail {
     // pauseOrigin "visibility"; server hold in src/pages/api/v2/pause.ts). START also binds
     // window blur to it; AIT-116 D7 deliberately does not: switching to another window while
     // the tab stays visible keeps the call running. A hide during another command
-    // (a microphone toggle, say) is queued and applied when that command settles.
+    // (a microphone toggle or a pending resume, say) is queued and applied when that
+    // command settles, so a hidden rail never keeps listening.
     this.hide = () => {
-      if (this.paused || this.unloading) return;
-      if (this.session && !this.busy) {
-        // The cursor binds a later reload's recovery to exactly this pause (AIT-116 D4).
-        this.journal?.update({ autoPaused: true, pausedAfter: this.cursor?.() });
-        void this.pause(true, { automatic: true });
-      } else if (this.session || this.state === 'connecting') this.hidePending = true;
+      if (this.unloading) return;
+      if (this.session && !this.busy) { if (!this.paused) void this.pause(true); }
+      else if (this.session || this.state === 'connecting') this.hidePending = true;
     };
     this.visibility = () => { if (root.ownerDocument.hidden) this.hide(); };
     root.ownerDocument.addEventListener('visibilitychange', this.visibility);
@@ -78,6 +76,8 @@ export class AudioRail {
       error?.code === 'not-admitted' ? this.copy.voiceAdmissionDenied :
       error?.code === 'voice-conflict' ? this.copy.voiceConflict :
       error?.code === 'deadline' ? this.copy.voiceDeadline : this.copy.voiceConnectionFailed;
+    // A conflict may say when the earlier call's lease ends; Retry then waits it out.
+    this.retryAt = error?.code === 'voice-conflict' && error.retryAfterMs > 0 ? Date.now() + Math.min(error.retryAfterMs, 60_000) : 0;
     this.render();
   }
   async start() {
@@ -87,12 +87,14 @@ export class AudioRail {
     try {
       // A reloaded page first ends the call its predecessor left behind.
       await this.ready?.();
+      const wait = (this.retryAt ?? 0) - Date.now(); this.retryAt = 0;
+      if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
       if (generation !== this.generation) return;
       this.playbackWatcher = watchVoicePlayback(this.root.ownerDocument, () => this.reportPlaybackBlocked());
       const session = await this.client.start({ callId: crypto.randomUUID() }, { signal: controller.signal, deadlineAt: Date.now() + 30_000 });
       if (generation !== this.generation) { await session.close(); return; }
       this.session = session; this.paused = false; this.state = 'listening';
-      this.journal?.save({ callId: session.callId, providerSessionId: session.providerSessionId, autoPaused: false });
+      this.journal?.save({ callId: session.callId, providerSessionId: session.providerSessionId });
       await session.setInput(this.input); await session.setOutput(this.output);
       await this.updateContext();
       this.render();
@@ -144,12 +146,11 @@ export class AudioRail {
       }
     } catch (error) { if (generation === this.generation) { this.failure(error); await this.close(); } }
   }
-  async pause(paused, { automatic = false } = {}) {
+  async pause(paused) {
     if (!this.session || this.busy || this.paused === paused) {
       if (paused && this.state === 'connecting') this.hidePending = true;
       return;
     }
-    if (!automatic) this.journal?.update({ autoPaused: false });
     const session = this.session, generation = this.generation;
     this.busy = true; this.render();
     try {

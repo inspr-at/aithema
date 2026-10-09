@@ -593,7 +593,7 @@ window.fixtureReady = true;
 const grown = `First signal, now grown: ${'several more words of evidence '.repeat(12)}`;
 const questions = Array.from({ length: 16 }, (_, i) => `Open question ${i + 1}: which detail matters most for this part of the plan?`);
 
-test('AIT-116 gate: exact pointer anchoring, pause ownership, cross-tab liveness, dark tokens and phone layout',
+test('AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab liveness, dark tokens and phone layout',
   { timeout: 240_000 }, async t => {
     const executablePath = await browserPath();
     const directory = await mkdtemp(join(tmpdir(), 'aithema-browser-gate-'));
@@ -674,29 +674,27 @@ test('AIT-116 gate: exact pointer anchoring, pause ownership, cross-tab liveness
       document.dispatchEvent(new Event('visibilitychange')); delete document.hidden;
     });
 
-    // D4: another tab resumes, calls and pauses by hand; reloading the original tab keeps that pause.
+    // D4: a reload after an automatic pause never resumes by itself: it stays paused behind one focused Resume.
     await startCall(page); await hide(page);
     await until(page, () => document.querySelector('aithema-session').session.paused);
-    const automatic = await journal(page);
-    assert.equal(automatic.autoPaused, true); assert.ok(Number.isSafeInteger(automatic.pausedAfter), 'the pause records its cursor');
-    await endCall(page);
-    // The original page never learned the call ended (frozen, say): its journal survives.
-    await page.evaluate((key, value) => sessionStorage.setItem(key, value), journalKey, JSON.stringify(automatic));
-    const other = await browser.newPage(); await preparePage(other, ['en-US', 'en']); watch(other);
-    await other.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(other, '.pause', { text: 'Resume' });
-    await inShadow(other, c => c.shadowRoot.querySelector('.pause').click());
-    await until(other, () => !document.querySelector('aithema-session').session.paused);
-    await startCall(other);
-    await inShadow(other, c => c.shadowRoot.querySelector('.voice-pause').click());
-    await until(other, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'paused');
+    assert.deepEqual(Object.keys(await journal(page)).sort(), ['callId', 'providerSessionId'], 'the journal holds call identity only');
+    const pauses = [];
+    const recordPause = request => { if (request.method() === 'POST' && request.url().endsWith('/pause')) pauses.push(request.postData()); };
+    page.on('request', recordPause);
     await page.reload({ waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
     await until(page, key => sessionStorage.getItem(key) === null, journalKey);
     await waitForShadow(page, '.status', { text: 'Still paused. Select Resume to continue.' });
-    assert.equal(await inShadow(page, c => c.session.paused), true, 'a reload never lifts another tab\'s manual pause');
-    assert.equal(await voiceState(other), 'paused', 'the other tab\'s call is untouched');
-    await endCall(other); await other.close();
-    await inShadow(page, c => c.shadowRoot.querySelector('.pause').click());
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    assert.equal(await inShadow(page, c => c.session.paused), true, 'a reload never lifts the pause');
+    assert.deepEqual(pauses, [], 'no pause change without the person');
+    assert.deepEqual(await inShadow(page, c => {
+      const resume = c.shadowRoot.querySelector('.pause'), box = resume.getBoundingClientRect();
+      return { focused: c.shadowRoot.activeElement === resume, visible: resume.matches(':focus-visible') && box.width > 0 && box.height > 0, text: resume.textContent };
+    }), { focused: true, visible: true, text: 'Resume' }, 'Resume is focused and visible');
+    await page.keyboard.press('Enter');
     await until(page, () => !document.querySelector('aithema-session').session.paused);
+    assert.deepEqual(pauses.map(body => JSON.parse(body)), [{ paused: false }], 'one action resumes');
+    page.off('request', recordPause);
 
     // D4 cross-tab: an auxiliary window inherits the journal but never ends the call its opener drives.
     await startCall(page);

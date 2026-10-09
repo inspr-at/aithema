@@ -10,7 +10,7 @@ import { settingsStyles } from './settings-styles.js';
 import { SettingsDialog, ICONS, PRESET_ORDER, reasonText, engineView } from './settings-dialog.js';
 import { LocalConnector } from './local-connector.js';
 import { postJson } from './post-json.js';
-import { voiceJournal, closeVoiceCall, answerVoicePings, voiceCallDrivenElsewhere } from './voice-orphan.js';
+import { voiceJournal, closeVoiceCall, answerVoicePings, voiceCallAbandoned } from './voice-orphan.js';
 
 const PANES = '.transcript-shell, .analysis-content, .preset-panel';
 function clearSlack(pane) { pane.style.removeProperty('--aithema-slack-top'); pane.style.removeProperty('--aithema-slack-bottom'); }
@@ -88,20 +88,22 @@ export class AithemaSession extends HTMLElement {
     this.#session = structuredClone(session); this.#sessionToken = sessionToken; this.#cursor = session.seq; this.#partials.clear(); this.#reasoningRevision = 0;
     this.#restoreFailure(); this.#pending = null; this.#sending = false;
     this.#invalidatedAt = 0; this.#chooser = { choice: null, busy: false, error: '' };
-    this.#open = []; this.#cleared = []; this.#follow = true; this.#onTranscript = false; this.#notice = ''; this.#connection = ''; this.#pausePrompt = false;
+    this.#open = []; this.#cleared = []; this.#follow = true; this.#onTranscript = false; this.#notice = ''; this.#connection = '';
+    // A page that loads paused stays paused until the person resumes it (AIT-116 D4).
+    this.#pausePrompt = Boolean(session.paused);
     // Every conversation keeps a journal: a choice at conversation start can switch it out of
     // On my device in place, and a device conversation never starts a call, so its journal stays empty.
     this.#journal = voiceJournal(globalThis.sessionStorage, session.id);
     this.#mount();
     this.#pings ??= answerVoicePings(() => this.#rail?.session?.callId ?? null);
     this.#orphan = this.#endOrphanedCall();
-    if (this.isConnected) { this.#connect(); this.#watchPage(true); }
+    if (this.isConnected) { this.#connect(); this.#watchPage(true); this.#offerResume(); }
     if (reopen) this.shadowRoot.querySelector('.settings-open').focus();
   }
   connectedCallback() {
     if (!this.#session) return;
     this.#pings ??= answerVoicePings(() => this.#rail?.session?.callId ?? null);
-    this.#concept?.connect(); this.#connect(); this.#watchPage(true);
+    this.#concept?.connect(); this.#connect(); this.#watchPage(true); this.#offerResume();
   }
   disconnectedCallback() {
     this.#watchPage(false); this.#concept?.suspend(); this.#rail?.destroy(); this.#abort?.abort(); this.#deviceController?.abort();
@@ -185,7 +187,7 @@ export class AithemaSession extends HTMLElement {
     });
     this.#rail = new AudioRail({ root: root.querySelector('.audio-rail'), copy: this.#copy, client: this.#voiceClientFor(),
       feature: () => this.#feature('voice', true), playback: this.#voicePlayback, journal: this.#journal ?? undefined,
-      ready: () => this.#orphan, cursor: () => this.#cursor, onState: () => this.#clearNotice(),
+      ready: () => this.#orphan, onState: () => this.#clearNotice(),
       context: () => ({ understanding: this.#session.understanding, focusedQuestion: this.#session.focusedQuestion ?? null }),
       onEnd: () => {
         if (this.#pending) { delete this.#pending.voiceCallId; delete this.#pending.providerSessionId; }
@@ -224,43 +226,22 @@ export class AithemaSession extends HTMLElement {
     } catch { if (sessionId === this.#session.id) this.#status(this.#copy.controlFailed); }
   }
   // A reload cannot drive the call the previous page started. End it through the
-  // owner-authenticated close route, unless another live tab still drives it (a copied
-  // journal), and undo only the exact pause the hidden page made itself.
+  // owner-authenticated close route only when it is provably abandoned; otherwise (another
+  // live tab answers, or there is no BroadcastChannel) the server lease ends it. A pause
+  // is never lifted here: the person resumes with one click on the focused Resume.
   async #endOrphanedCall() {
     const record = this.#journal?.read(), sessionId = this.#session.id;
     if (!record) return;
     try {
-      if (await voiceCallDrivenElsewhere(record.callId)) { if (sessionId === this.#session.id) this.#journal.clear(); return; }
+      const abandoned = await voiceCallAbandoned(record.callId);
       if (sessionId !== this.#session.id) return;
+      if (!abandoned) { this.#journal.clear(); return; }
       const response = await closeVoiceCall({ baseUrl: this.#base, sessionId, sessionToken: this.#sessionToken, record, reason: 'page-reloaded' });
-      if (!response.ok && response.status !== 404) return;
-      if (sessionId !== this.#session.id) return;
-      this.#journal.clear();
-      if (!record.autoPaused || !this.#session.paused || this.#rail?.session) return;
-      if (await this.#pauseIsOwn(record.pausedAfter, sessionId)) { await this.#setPaused(false); return; }
-      // Unsure whose pause this is: stay paused and say how to continue.
-      if (sessionId === this.#session.id && this.#session.paused) { this.#pausePrompt = true; this.#paintStatus(); }
+      if ((response.ok || response.status === 404) && sessionId === this.#session.id) this.#journal.clear();
     } catch { /* The server lease still ends the call; Start reports a conflict precisely. */ }
   }
-  // The pause is still ours only when the history since the cursor recorded with the
-  // automatic pause holds exactly one pause change, a pause. Anything else (a resume and
-  // a later manual pause from another tab, say) is someone else's decision.
-  async #pauseIsOwn(after, sessionId) {
-    const until = this.#cursor;
-    if (!Number.isSafeInteger(after) || after < 0 || after >= until) return false;
-    const controller = new AbortController(), timer = setTimeout(() => controller.abort(), 5000);
-    try {
-      const response = await fetch(`${this.#base}/api/sessions/${sessionId}/events`,
-        { signal: controller.signal, headers: this.#headers({ 'Last-Event-ID': String(after) }) });
-      if (!response.ok) return false;
-      const changes = [];
-      for await (const event of serverEvents(response.body.getReader())) {
-        if (event.type === 'session.paused') changes.push(event.data.paused);
-        if (event.seq >= until) break;
-      }
-      return changes.length === 1 && changes[0] === true && sessionId === this.#session.id && this.#session.paused;
-    } catch { return false; }
-    finally { clearTimeout(timer); controller.abort(); }
+  #offerResume() {
+    if (this.#pausePrompt && this.#session.paused) this.shadowRoot.querySelector('.pause')?.focus();
   }
   #pagehide = () => {
     const record = this.#journal?.read();
