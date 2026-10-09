@@ -654,18 +654,45 @@ settlement. A required host wallet is bound to the authenticated owner across
 all their conversations. It supplies synchronous `balance()` returning
 `{limitMicro, committedMicro}`, synchronous `canAdmit({sessionId, maxMicro,
 maxVisitorMicro})` returning a boolean preview, and `admit(request)` returning
-`{ok: boolean}` (possibly asynchronously) after atomic owner admission.
-The host owns wallet billing, reservations, settlement, recovery and release
-when session ledger admission fails; core adds no billing policy.
+`{ok: boolean}` (possibly asynchronously) after atomic owner admission. Admission
+must be idempotent for concurrent and serial retries of the same `attemptId` and
+request. Store the fingerprint (`sessionId`, `lane`, `maxMicro`, `maxVisitorMicro`
+with default `0`, `requestSha256`, `bindingSha256`) with that ID. Reuse with a
+different fingerprint must return `{ok: false, reason: 'attempt-conflict'}` and
+must neither return the old hold nor change it. Retain the fingerprint after
+release. The required `release({attemptId})` hook must await removal of only
+that hold; repeated and unknown releases are harmless. The host owns wallet
+billing, reservations, settlement and recovery; core adds no billing policy.
 
 `creditAdmission(ledger, sessionId, maxMicro, maxVisitorMicro, ownerWallet)` is a
 preview. Paid hosts must call `await admitCredits(ledger, request, ownerWallet)`:
 it requires confirmed owner admission before the existing atomic `ledger.admit`.
+Both ports receive the same frozen request snapshot with the caller's `attemptId`
+or a generated ID. Use that ID for admission, settlement and recovery; the ledger
+must preserve it in its admission result. Core holds an in-flight set through
+wallet admission, ledger admission and any release. Concurrent duplicates throw
+`code: 'already-claimed'` before either port is called. Multi-process hosts must
+implement the same exclusion at the wallet or ledger across their processes.
 Owner denial maps to `host-limit` and never admits the ledger; an unavailable or
 malformed wallet fails closed. Success returns `{ok: true, reason: null, admission}`;
-denial returns `{ok: false, reason, balance}`. Continue the existing claim and
-settlement path only after success. `maxVisitorMicro` keeps the ledger's parameter
-name and remains a per-conversation voice maximum.
+preview and ordinary owner denials return `{ok: false, reason, balance}`. Wallet
+conflicts return `{ok: false, reason: 'attempt-conflict', attemptId}`. A definitive
+ledger refusal must reject with `code: 'not-admitted'` and guarantee that no
+reservation was created. Core then awaits owner release and returns
+`{ok: false, reason, attemptId}` without `balance`. Ledger `already-claimed`
+errors retain the existing owner hold. An unknown ledger outcome (for example
+a remote timeout after a possible reservation) must be an error, not a definitive
+refusal: propagate it without releasing the hold and reconcile by `attemptId`.
+Wallet errors and release failures also propagate, with `attemptId` attached to
+thrown errors for recovery, including generated IDs. Continue the existing claim
+and settlement path only after success. `maxVisitorMicro` keeps the ledger's
+parameter name and remains a per-conversation voice maximum.
+
+`ownerWalletConformance(port, request, {timeoutMs?})` runs destructive checks on
+a fresh, owner-bound local fixture with an affordable positive `maxMicro` and
+the complete fingerprint fields. It checks concurrent/serial admission
+idempotency, mismatches of every fingerprint field with unchanged holds,
+idempotent release and conflicts after release. Never run the kit on a live wallet.
 
 `createCredits({sessionId, durationMs?})`
 and `reduceCredits` accept `start`, `balance {balance}`, `pause {paused}`, `tick`,

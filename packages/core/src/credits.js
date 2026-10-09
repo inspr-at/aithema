@@ -2,10 +2,19 @@
 // maxima and actual/uncertain settlements. Both ledger caps are per session;
 // the host's separate owner wallet spans conversations and owns its billing.
 import { hostPortKit } from './host-port-kit.js';
+import { PluginError } from './invocation.js';
 
 export const CONVERSATION_LIMIT_MS = 60 * 60_000;
 const integer = n => Number.isSafeInteger(n) && n >= 0;
 const id = value => typeof value === 'string' && value.length > 0 && value.length <= 512;
+const inFlightAttempts = new Set();
+function attemptError(error, attemptId) {
+  try { error.attemptId = attemptId; return error; } catch {
+    const wrapped = new Error('Credit admission failed', { cause: error });
+    if (typeof error?.code === 'string') wrapped.code = error.code;
+    wrapped.attemptId = attemptId; return wrapped;
+  }
+}
 function balancePart(limitMicro, committedMicro) {
   if (!integer(limitMicro) || !integer(committedMicro)) throw new TypeError('Invalid credit balance');
   return { limitMicro, committedMicro, availableMicro: Math.max(0, limitMicro - committedMicro),
@@ -17,7 +26,11 @@ const admissionReason = (balance, maxMicro, maxVisitorMicro) =>
 /** Host-bound to one owner. balance() returns {limitMicro,committedMicro};
  * canAdmit(request) is a synchronous preview; admit(request) confirms an atomic
  * owner reservation with {ok:boolean}, possibly asynchronously. Admission MUST
- * be idempotent per attemptId, including concurrent calls. release({attemptId})
+ * be idempotent per attemptId, including concurrent calls, and store its request
+ * fingerprint: sessionId, lane, maxMicro, maxVisitorMicro (default 0),
+ * requestSha256 and bindingSha256. Different fingerprints MUST return
+ * {ok:false,reason:'attempt-conflict'} without returning or changing the old
+ * hold, even after release. release({attemptId})
  * MUST await removal of only that reservation and be idempotent; unknown IDs
  * are harmless. Rejections leave reservations unchanged. The host owns billing,
  * settlement and crash recovery under the same attemptId. */
@@ -51,40 +64,55 @@ export function creditAdmission(ledger, sessionId, maxMicro, maxVisitorMicro = 0
 /** No billing policy lives here. A preview cannot authorize ledger admission;
  * the owner wallet must confirm first, including when racing another session.
  * Both ports receive the same frozen snapshot with a caller or generated
- * attemptId. ledger.admit(request) MUST preserve it in the admission result and
- * atomically reject without creating a reservation. An already-claimed error
- * identifies an existing ledger attempt and MUST leave its owner hold intact.
- * Other ledger refusals await owner release, then return {ok:false,reason,
- * attemptId}; release failures propagate for host recovery.
+ * attemptId. Concurrent duplicates throw already-claimed before either port.
+ * ledger.admit(request) MUST preserve the ID in its admission result. Only a
+ * definitive not-admitted rejection guarantees no reservation and permits
+ * owner release, then {ok:false,reason,attemptId}. already-claimed and unknown
+ * outcomes (e.g. remote timeouts) propagate without releasing the owner hold.
+ * Thrown errors include attemptId for recovery, including wallet/release errors.
  * Part B wiring: bind the required release hook to the owner's reservation
  * store; use this attemptId for ledger admission, settlement and recovery.
+ * Multi-process hosts MUST implement the same in-flight exclusion at the wallet
+ * or ledger; this module's set only guards calls in the current process.
  * SQLiteBudgetLedger already accepts caller IDs, so no ledger change is needed. */
 export async function admitCredits(ledger, request, ownerWallet) {
   assertOwnerWalletPort(ownerWallet);
   if (typeof ledger?.admit !== 'function') throw new TypeError('Credit ledger admission required');
   const snapshot = structuredClone(request);
-  const preview = creditAdmission(ledger, snapshot?.sessionId, snapshot?.maxMicro, snapshot?.maxVisitorMicro ?? 0, ownerWallet);
-  if (!preview.ok) return preview;
+  if (!snapshot || typeof snapshot !== 'object') throw new TypeError('Invalid credit request');
   snapshot.attemptId ??= crypto.randomUUID();
   if (!id(snapshot.attemptId)) throw new TypeError('Invalid credit attempt');
   Object.freeze(snapshot);
-  const result = await ownerWallet.admit(snapshot);
-  if (typeof result?.ok !== 'boolean') throw new TypeError('Invalid owner wallet admission');
-  if (!result.ok) return { ok: false, reason: 'host-limit', balance: budgetCreditView(ledger, snapshot.sessionId, ownerWallet) };
+  if (inFlightAttempts.has(snapshot.attemptId)) throw attemptError(new PluginError('already-claimed'), snapshot.attemptId);
+  inFlightAttempts.add(snapshot.attemptId);
   try {
-    return { ok: true, reason: null, admission: await ledger.admit(snapshot) };
+    const preview = creditAdmission(ledger, snapshot.sessionId, snapshot.maxMicro, snapshot.maxVisitorMicro ?? 0, ownerWallet);
+    if (!preview.ok) return preview;
+    const result = await ownerWallet.admit(snapshot);
+    if (typeof result?.ok !== 'boolean') throw new TypeError('Invalid owner wallet admission');
+    if (!result.ok) {
+      if (result.reason === 'attempt-conflict') return { ok: false, reason: 'attempt-conflict', attemptId: snapshot.attemptId };
+      return { ok: false, reason: 'host-limit', balance: budgetCreditView(ledger, snapshot.sessionId, ownerWallet) };
+    }
+    try {
+      return { ok: true, reason: null, admission: await ledger.admit(snapshot) };
+    } catch (error) {
+      if (error?.code !== 'not-admitted') throw error;
+      await ownerWallet.release({ attemptId: snapshot.attemptId });
+      const balance = budgetCreditView(ledger, snapshot.sessionId, ownerWallet);
+      return { ok: false, reason: admissionReason(balance, snapshot.maxMicro, snapshot.maxVisitorMicro ?? 0), attemptId: snapshot.attemptId };
+    }
   } catch (error) {
-    if (error?.code === 'already-claimed') throw error;
-    await ownerWallet.release({ attemptId: snapshot.attemptId });
-    const balance = budgetCreditView(ledger, snapshot.sessionId, ownerWallet);
-    return { ok: false, reason: admissionReason(balance, snapshot.maxMicro, snapshot.maxVisitorMicro ?? 0), attemptId: snapshot.attemptId };
-  }
+    throw attemptError(error, snapshot.attemptId);
+  } finally { inFlightAttempts.delete(snapshot.attemptId); }
 }
 
 /** Destructive kit for an owner-bound local fixture with an affordable request
- * ({sessionId,maxMicro,...hostFields}); maxMicro must be positive. The kit uses
+ * (sessionId, lane, maxima and request/binding sha256); maxMicro must be positive.
+ * The kit uses
  * a fresh attemptId, checks concurrent/serial retries against balance(), then
- * checks release and unknown/repeated release without disturbing other holds. */
+ * checks each fingerprint field for conflicts and unchanged holds. It checks
+ * release and unknown/repeated release without disturbing other holds. */
 export async function ownerWalletConformance(port, request, { timeoutMs = 1000 } = {}) {
   const kit = hostPortKit(timeoutMs), { check, run } = kit;
   try { assertOwnerWalletPort(port); } catch { check(false, 'owner wallet operations missing'); return kit.result(); }
@@ -108,6 +136,17 @@ export async function ownerWalletConformance(port, request, { timeoutMs = 1000 }
   check(retried?.ok === true, 'owner wallet retry response');
   const admitted = await run('owner wallet admitted balance failed', readBalance);
   check(admitted?.committedMicro === before.committedMicro + snapshot.maxMicro, 'owner admission idempotency');
+  const mismatches = { sessionId: crypto.randomUUID(), lane: snapshot.lane === 'voice' ? 'reaction' : 'voice',
+    maxMicro: snapshot.maxMicro === 1 ? 2 : snapshot.maxMicro - 1,
+    maxVisitorMicro: (snapshot.maxVisitorMicro ?? 0) === 0 ? 1 : 0,
+    requestSha256: (snapshot.requestSha256 === 'a'.repeat(64) ? 'b' : 'a').repeat(64),
+    bindingSha256: (snapshot.bindingSha256 === 'a'.repeat(64) ? 'b' : 'a').repeat(64) };
+  for (const [field, value] of Object.entries(mismatches)) {
+    const conflict = await run(`owner conflicting admission ${field} failed`, () => port.admit(Object.freeze({ ...snapshot, [field]: value })));
+    check(conflict?.ok === false && conflict.reason === 'attempt-conflict', `owner attempt conflict ${field}`);
+    const unchanged = await run(`owner conflict balance ${field} failed`, readBalance);
+    check(unchanged?.committedMicro === admitted?.committedMicro, `owner conflict changed hold ${field}`);
+  }
   await run('owner reservation release failed', () => port.release({ attemptId: snapshot.attemptId }));
   const released = await run('owner wallet released balance failed', readBalance);
   check(released?.committedMicro === before.committedMicro, 'owner reservation release');
@@ -115,6 +154,10 @@ export async function ownerWalletConformance(port, request, { timeoutMs = 1000 }
   await run('owner unknown release failed', () => port.release({ attemptId: crypto.randomUUID() }));
   const repeated = await run('owner wallet repeated release balance failed', readBalance);
   check(repeated?.committedMicro === before.committedMicro, 'owner release idempotency');
+  const conflict = await run('owner released attempt conflict failed', () => port.admit(Object.freeze({ ...snapshot, maxMicro: mismatches.maxMicro })));
+  check(conflict?.ok === false && conflict.reason === 'attempt-conflict', 'owner released attempt conflict');
+  const afterConflict = await run('owner released conflict balance failed', readBalance);
+  check(afterConflict?.committedMicro === before.committedMicro, 'owner released conflict changed hold');
   return kit.result();
 }
 export function createCredits({ sessionId, durationMs = CONVERSATION_LIMIT_MS } = {}) {

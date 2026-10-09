@@ -6,18 +6,27 @@ import { SQLiteStorage } from '../../server/src/storage.js';
 import { SQLiteBudgetLedger } from '../../server/src/budget.js';
 import * as creditContracts from '../src/credits.js';
 import { createMemoryLibrary } from '../src/library-port.js';
+import { PluginError } from '../src/invocation.js';
+
+const walletRequest = { sessionId: 'wallet-session', lane: 'reaction', maxMicro: 10, maxVisitorMicro: 0,
+  requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64) };
+const fingerprintChanges = { sessionId: 'other-session', lane: 'voice', maxMicro: 60, maxVisitorMicro: 5,
+  requestSha256: 'c'.repeat(64), bindingSha256: 'd'.repeat(64) };
 
 const ownerWallet = { balance: () => ({ limitMicro: 1000, committedMicro: 0 }),
   canAdmit: () => true, admit: async () => ({ ok: true }), release: async () => {} };
 function walletFixture(limitMicro = 1000) {
-  const reservations = new Map();
+  const reservations = new Map(), fingerprints = new Map();
   const committed = () => [...reservations.values()].reduce((sum, amount) => sum + amount, 0);
   const port = {
     balance: () => ({ limitMicro, committedMicro: committed() }),
     canAdmit: ({ maxMicro }) => maxMicro <= limitMicro - committed(),
-    async admit({ attemptId, maxMicro }) {
+    async admit({ attemptId, sessionId, lane, maxMicro, maxVisitorMicro = 0, requestSha256, bindingSha256 }) {
+      const fingerprint = JSON.stringify([sessionId, lane, maxMicro, maxVisitorMicro, requestSha256, bindingSha256]);
+      if (fingerprints.has(attemptId) && fingerprints.get(attemptId) !== fingerprint) return { ok: false, reason: 'attempt-conflict' };
       if (reservations.has(attemptId)) return { ok: true };
       if (maxMicro > limitMicro - committed()) return { ok: false };
+      fingerprints.set(attemptId, fingerprint);
       reservations.set(attemptId, maxMicro); return { ok: true };
     },
     async release({ attemptId }) { reservations.delete(attemptId); }
@@ -353,8 +362,8 @@ for (const asynchronous of [false, true]) {
     const ledger = { sessionCapMicro: 100, visitorCapMicro: 50, used: () => 0, visitorUsed: () => 0,
       canAdmit: () => true, admit() {
         calls.push('ledger');
-        if (asynchronous) return Promise.reject(new Error('private ledger diagnostic'));
-        throw new Error('private ledger diagnostic');
+        if (asynchronous) return Promise.reject(new PluginError('not-admitted', 'private ledger diagnostic'));
+        throw new PluginError('not-admitted', 'private ledger diagnostic');
       } };
     const host = { ...ownerWallet, release(received) {
       assert.deepEqual(received, { attemptId: 'refused' }); calls.push('release');
@@ -382,10 +391,16 @@ test('credit admission requires owner release before making either reservation',
 });
 
 test('owner release failure propagates without reporting a completed denial', async () => {
+  const fixture = walletFixture(), failure = new Error('release unavailable');
+  let attemptId;
   const ledger = { sessionCapMicro: 100, visitorCapMicro: 50, used: () => 0, visitorUsed: () => 0,
-    canAdmit: () => true, admit: () => { throw new Error('ledger refused'); } };
-  const host = { ...ownerWallet, release: async () => { throw new Error('release unavailable'); } };
-  await assert.rejects(creditContracts.admitCredits(ledger, { sessionId: 's1', maxMicro: 1 }, host), /release unavailable/);
+    canAdmit: () => true, admit: () => { throw new PluginError('not-admitted', 'ledger refused'); } };
+  const host = { ...fixture.port, release: async request => { attemptId = request.attemptId; throw failure; } };
+  await assert.rejects(creditContracts.admitCredits(ledger, walletRequest, host), error => {
+    assert.equal(error, failure); assert.equal(error.attemptId, attemptId);
+    assert.match(error.attemptId, /^[a-f0-9-]{36}$/u); return true;
+  });
+  assert.equal(fixture.reservations.get(attemptId), walletRequest.maxMicro);
 });
 
 test('a repeated ledger attempt cannot release the already admitted owner reservation', async () => {
@@ -407,7 +422,7 @@ test('a repeated ledger attempt cannot release the already admitted owner reserv
 
 test('owner wallet kit checks concurrent and repeated admission plus idempotent release', async () => {
   const fixture = walletFixture();
-  assert.deepEqual(await creditContracts.ownerWalletConformance(fixture.port, { sessionId: 'kit-session', maxMicro: 10 }),
+  assert.deepEqual(await creditContracts.ownerWalletConformance(fixture.port, walletRequest),
     { ok: true, failures: [] });
   assert.equal(fixture.port.balance().committedMicro, 0);
 });
@@ -417,16 +432,115 @@ test('owner wallet kit rejects a host reserving twice for the same attempt', asy
   const host = { ...ownerWallet, balance: () => ({ limitMicro: 1000, committedMicro }),
     admit: async ({ maxMicro }) => { committedMicro += maxMicro; return { ok: true }; },
     release: async () => { committedMicro = 0; } };
-  const result = await creditContracts.ownerWalletConformance(host, { sessionId: 'kit-session', maxMicro: 10 });
+  const result = await creditContracts.ownerWalletConformance(host, walletRequest);
   assert.equal(result.ok, false);
   assert.ok(result.failures.includes('owner admission idempotency'));
 });
 
 test('owner wallet kit requires release and detects an unreleased reservation', async () => {
-  const fixture = walletFixture(), request = { sessionId: 'kit-session', maxMicro: 10 };
+  const fixture = walletFixture(), request = walletRequest;
   const missing = await creditContracts.ownerWalletConformance({ ...fixture.port, release: undefined }, request);
   assert.deepEqual(missing, { ok: false, failures: ['owner wallet operations missing'] });
   const broken = await creditContracts.ownerWalletConformance({ ...fixture.port, release: async () => {} }, request);
   assert.equal(broken.ok, false);
   assert.ok(broken.failures.includes('owner reservation release'));
+});
+
+for (const [field, value] of Object.entries(fingerprintChanges)) {
+  test(`owner wallet rejects attempt reuse with a different ${field} without changing its hold`, async () => {
+    const fixture = walletFixture(), request = { ...walletRequest, attemptId: `conflict-${field}` };
+    assert.deepEqual(await fixture.port.admit(request), { ok: true });
+    assert.deepEqual(await fixture.port.admit({ ...request, [field]: value }), { ok: false, reason: 'attempt-conflict' });
+    assert.equal(fixture.reservations.get(request.attemptId), request.maxMicro);
+    assert.deepEqual(await fixture.port.admit({ ...request }), { ok: true });
+    assert.equal(fixture.port.balance().committedMicro, request.maxMicro);
+  });
+
+  test(`credit admission preserves a wallet conflict for a different ${field}`, async () => {
+    const storage = new SQLiteStorage(), session = storage.create(), other = storage.create();
+    const ledger = new SQLiteBudgetLedger(storage, { sessionCapMicro: 100, visitorCapMicro: 50 });
+    const fixture = walletFixture(), request = { ...walletRequest, sessionId: session.id, attemptId: `conflict-${field}` };
+    let ledgerCalls = 0, releases = 0;
+    const trackedLedger = Object.assign(Object.create(ledger), { admit(received) { ledgerCalls += 1; return ledger.admit(received); } });
+    const host = { ...fixture.port, release(received) { releases += 1; return fixture.port.release(received); } };
+    try {
+      assert.equal((await creditContracts.admitCredits(trackedLedger, request, host)).ok, true);
+      const changed = { ...request, [field]: field === 'sessionId' ? other.id : value };
+      assert.deepEqual(await creditContracts.admitCredits(trackedLedger, changed, host),
+        { ok: false, reason: 'attempt-conflict', attemptId: request.attemptId });
+      assert.equal(ledgerCalls, 1); assert.equal(releases, 0);
+      assert.equal(fixture.reservations.get(request.attemptId), request.maxMicro);
+      assert.equal(ledger.used(session.id), request.maxMicro);
+      assert.equal(ledger.used(other.id), 0);
+    } finally { storage.close(); }
+  });
+}
+
+test('a concurrent duplicate cannot proceed after the first attempt ledger refusal releases its hold', async () => {
+  const fixture = walletFixture(), request = { ...walletRequest, attemptId: 'refusal-first' };
+  let refuseFirst, allowDuplicate, started, walletCalls = 0, ledgerCalls = 0, releases = 0;
+  const ledgerStarted = new Promise(resolve => { started = resolve; });
+  const ledger = { sessionCapMicro: 100, visitorCapMicro: 50, used: () => 0, visitorUsed: () => 0,
+    canAdmit: () => true, admit(received) {
+      ledgerCalls += 1;
+      if (ledgerCalls === 1) { started(); return new Promise((_, reject) => { refuseFirst = reject; }); }
+      return new Promise(resolve => { allowDuplicate = () => resolve({ attemptId: received.attemptId }); });
+    } };
+  const host = { ...fixture.port, admit(received) { walletCalls += 1; return fixture.port.admit(received); },
+    release(received) { releases += 1; return fixture.port.release(received); } };
+  const first = creditContracts.admitCredits(ledger, request, host);
+  await ledgerStarted;
+  const duplicate = creditContracts.admitCredits(ledger, { ...request }, host)
+    .then(value => ({ value }), error => ({ error }));
+  await Promise.resolve(); await Promise.resolve();
+  refuseFirst(new PluginError('not-admitted'));
+  assert.deepEqual(await first, { ok: false, reason: 'host-limit', attemptId: request.attemptId });
+  allowDuplicate?.();
+  const outcome = await duplicate;
+  assert.equal(outcome.error?.code, 'already-claimed');
+  assert.equal(outcome.error?.attemptId, request.attemptId);
+  assert.equal(walletCalls, 1); assert.equal(ledgerCalls, 1); assert.equal(releases, 1);
+  assert.equal(fixture.port.balance().committedMicro, 0);
+});
+
+test('a generated attempt key is attached to a wallet error for recovery', async () => {
+  const fixture = walletFixture(), failure = new Error('wallet unavailable');
+  let walletSnapshot, ledgerCalls = 0;
+  const ledger = { sessionCapMicro: 100, visitorCapMicro: 50, used: () => 0, visitorUsed: () => 0,
+    canAdmit: () => true, admit: () => { ledgerCalls += 1; } };
+  const host = { ...fixture.port, async admit(request) {
+    walletSnapshot = request; await fixture.port.admit(request); throw failure;
+  } };
+  await assert.rejects(creditContracts.admitCredits(ledger, walletRequest, host), error => {
+    assert.equal(error, failure); assert.equal(error.attemptId, walletSnapshot.attemptId);
+    assert.match(error.attemptId, /^[a-f0-9-]{36}$/u); return true;
+  });
+  assert.equal(ledgerCalls, 0);
+  assert.equal(fixture.reservations.get(walletSnapshot.attemptId), walletRequest.maxMicro);
+});
+
+test('an unknown ledger outcome retains the owner hold and throws with the generated attempt key', async () => {
+  const fixture = walletFixture(), failure = new Error('ledger timeout');
+  let reservedAttempt, releases = 0;
+  const ledger = { sessionCapMicro: 100, visitorCapMicro: 50, used: () => 0, visitorUsed: () => 0,
+    canAdmit: () => true, async admit(request) { reservedAttempt = request; throw failure; } };
+  const host = { ...fixture.port, release(request) { releases += 1; return fixture.port.release(request); } };
+  await assert.rejects(creditContracts.admitCredits(ledger, walletRequest, host), error => {
+    assert.equal(error, failure); assert.equal(error.attemptId, reservedAttempt.attemptId); return true;
+  });
+  assert.equal(releases, 0);
+  assert.equal(fixture.reservations.get(reservedAttempt.attemptId), walletRequest.maxMicro);
+});
+
+test('owner wallet kit rejects a wallet accepting mismatched request fingerprints', async () => {
+  const fixture = walletFixture();
+  const host = { ...fixture.port, admit(request) {
+    if (fixture.reservations.has(request.attemptId)) return { ok: true };
+    return fixture.port.admit(request);
+  } };
+  const result = await creditContracts.ownerWalletConformance(host, walletRequest);
+  assert.equal(result.ok, false);
+  for (const field of Object.keys(fingerprintChanges)) {
+    assert.ok(result.failures.includes(`owner attempt conflict ${field}`), field);
+  }
 });
