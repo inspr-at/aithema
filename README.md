@@ -71,6 +71,7 @@ The private `aithema` root is an ESM npm workspace with one `package-lock.json`.
 | `plugins/device` — `@inspr/aithema-plugin-device` | Browser-only literal loopback text connector |
 | `plugins/openrouter` — `@inspr/aithema-plugin-openrouter` | Streaming reasoning and strict JSON Schema output |
 | `plugins/elevenlabs` — `@inspr/aithema-plugin-elevenlabs` | Live voice server/browser halves, custom-LLM facade and fake-only conformance |
+| `plugins/openai-images` — `@inspr/aithema-plugin-openai-images` | Server-side GPT Image 2 generation/editing, byte artifacts and provenance |
 | `demo/` | Labelled localhost host and its tests |
 | `test/` | Shared JavaScript test helpers; package tests live beside each package |
 | `tests/`, `scripts/check-dco.py` | DCO history tests and contribution checker |
@@ -154,8 +155,8 @@ takeover is provided.
 Kinds are `reasoning` (`stream`, `structured`), `stt` (`transcribe`, optional
 `stream`), `tts` (`speak`), `live-voice` (`start` → session), `ui-generation`
 (`generate`, `edit`), `extractor` (`extract`) and `exporter` (`export`). Reasoning
-and the isolated ElevenLabs live-voice adapter are implemented here. Every
-operation takes `{signal, deadlineAt}`;
+the isolated ElevenLabs live-voice adapter and standalone UI generation are
+implemented here. Every operation takes `{signal, deadlineAt}`;
 [plugin-contract.d.ts](packages/core/src/plugin-contract.d.ts) documents the later
 ports, including independent voice input/output, acknowledged pause/resume,
 turn ids, transcript policy and delegated/native reasoning. The voice adapter has
@@ -260,6 +261,101 @@ preflight-only fixtures fail. The
 browser device half advertises text only and is not a full reasoning-kind
 server implementation. No live provider qualification is claimed.
 
+## UI generation and concept intent (AIT-103 part A)
+
+The core exports `assertUIGeneration`, `isUIArtifact` and
+`uiGenerationConformance`. The kind exposes
+`generate(spec, feedback, options)` and `edit(artifact, feedback, options)`.
+`spec` contains a host-built `prompt` and optional `size`, `quality`, `format`;
+`feedback` is a string of untrusted visitor design content. The operation
+options are the same `{signal, deadlineAt, attempt, report}` authority envelope
+as reasoning. An artifact contains `Uint8Array bytes`, truthful `mediaType`,
+actual `width`/`height`, a SHA-256 `promptDigest` and `provenance` metadata.
+It carries no provider URL, secret, binding or raw prompt. Types live in
+[`ui-generation.d.ts`](packages/core/src/ui-generation.d.ts), re-exported from
+the shared plugin contract.
+
+`createOpenAIImages({binding, resolveSecret, fetchImpl, baseUrl})` comes from
+`@inspr/aithema-plugin-openai-images`. It requires an explicit private binding
+for `openai-images` / `gpt-image-2` / effort `none`, with the endpoint set to
+the API base URL (normally `https://api.openai.com/v1`). An optional `baseUrl`
+must match that binding. HTTP is restricted to loopback fixtures. The server
+resolves `binding.secretRef` at runtime (the default resolver reads the named
+environment variable); the host owns account qualification and consent.
+Local health checks configuration without contacting a provider.
+
+The adapter posts JSON to `/images/generations` and private multipart image
+bytes to `/images/edits`, following the official
+[generation reference](https://developers.openai.com/api/reference/resources/images/methods/generate)
+and [edit reference](https://developers.openai.com/api/reference/python/resources/images/methods/edit).
+Defaults follow START: one image, `1536x1024`, high quality and WebP output;
+PNG fallback is identified from the returned bytes. PNG/WebP dimensions come
+from the image headers. The response is bounded at 18 MiB and each image,
+including embedded metadata, at 12 MiB. A URL response is downloaded inside
+the server only when its exact origin appears in the private
+`binding.routing.imageOrigins` allowlist; downloads carry no authorization or
+cookies and reject redirects. Base64 is decoded locally.
+
+Every call consumes its claim before dispatch and persists one terminal report.
+Images API `usage.input_tokens` / `output_tokens` map to the shared terminal
+token totals. Unknown dispatched usage, including local cancellation, reports
+`uncertain`; known usage is retained on output failure. Preflight cancellation
+and local failures settle at zero; authority refusal uses the authority's
+zero-cost terminal without dispatch. There are no internal retries.
+The public manifest contains technical capabilities and public model references
+only (D4), with location, quality qualification and rates explicitly unverified.
+The shared two-rate cost schema cannot express separate text and image input
+rates, so prices remain `null`. START's reservation is a product ceiling, not
+a vendor price. Part B must supply researched conservative private rates and
+image input/output bounds before admission; chat UTF-8 token bounds do not
+bound image tokens. No live provider call or qualification was performed.
+
+The artifact embeds XMP using IPTC Digital Source Type
+`trainedAlgorithmicMedia` for generation and
+`compositeWithTrainedAlgorithmicMedia` for edits. Its response metadata includes
+a SHA-256 Content-Digest of the final marked bytes, provider/model and generation
+time. It makes no C2PA signature or local watermark claim. Part B must preserve
+the metadata in persistence and provide owner-authenticated headers/sidecars.
+
+`createConceptIntent`, `reduceConceptIntent`, `planConceptIntent` and
+`conceptResultDisposition` implement the pure spending policy. The host passes
+timestamps and may override `{thresholds: [25,40,72], idleMs: 120000,
+refreshTurns: 2, historyMax: 1000}`. Readiness only arms milestones; a durable
+`intent-recorded` event bound to a substantive visitor turn is required.
+Opening a viewer and ending a conversation are inert. Pause blocks fresh work
+for all triggers. Same-milestone progress waits for two new answers unless a
+new reference or recorded visual feedback exists; idle can refresh after one
+answer and 120 seconds of quiet since input or the last render. Hidden/busy
+eligibility and pause/resume reset the quiet clock. Automatic failed attempts
+also consume the revision's deduplication slot.
+
+The reducer records a frozen job before dispatch. A normal input advance keeps
+the result as history at its original revision. Removal (explicit or detected
+in a replacement input) and consent changes invalidate it, even if a removed
+source or consent is later restored. Source removal drops dependent history
+references; consent changes clear history references. The host erases the bytes.
+This port tightens START's final-on-pause exception to the engine-wide pause
+contract. Explicit regeneration/retry must record a new intent/input revision;
+repeated delivery of the same revision cannot spend again.
+
+Part B wiring points, still pending:
+
+| Surface | Required integration |
+| --- | --- |
+| `packages/core/src/lanes.js`, `session.js` | Add a concept lane and durable concept metadata. Feed `input-recorded {revision, turnIds, referenceIds}`, `intent-recorded {id, sourceTurnId}`, readiness/activity/pause/eligibility/consent events into the reducer. IDs identify immutable source records, including content revision. Exclude assistant turns and opening vocalizations. Include feedback/intent identity and consent revision in the concept input fingerprint. `request {id, trigger}` freezes a job; persist it before calling generate/edit. On restart mark interrupted jobs failed, preserving attempted revisions. |
+| `packages/server/src/plugin-runtime.js`, `budget.js` | Map the concept lane to the existing `images` feature and `presets[preset].bindings.images`; admit both generate and edit scopes. Add `concept` to budget lanes, reserve image-specific ceilings, consume current coverage before dispatch, settle through the invocation contract and recover claims. The current admission path selects text/analysis and chat bounds, so direct image admission is not wired yet. Keep device images unavailable. |
+| `packages/server/src/storage.js` and export | Persist artifact bytes as erasable content/BLOBs plus media type, dimensions, prompt digest and provenance; keep only IDs, hashes and source dependencies in durable events/snapshots/receipts. Persist frozen prompts/feedback in erasable records. Before publication re-read ownership/tombstone, consent coverage/revision and source records; call `conceptResultDisposition` to allow historical results or discard invalid ones. Erase dependent bytes/feedback on source removal, consent withdrawal, session erasure and expiry; tombstone-aware replay/export must never resurrect them. |
+| `packages/server/src/handlers.js` | Owner-authenticated `POST /api/sessions/:id/concepts` (record explicit intent/feedback and enqueue), `GET /api/sessions/:id/concepts/:artifactId` (stored bytes), `GET .../:artifactId/provenance` (sidecar), and `POST .../:artifactId/feedback` (`up`, `down`, `clear`). Reads never enqueue paid work. Use byte-bound idempotency, sanitized errors, no-store responses and provenance/digest headers. Publish durable pending/completed/failed events only after persistence; withdrawal aborts/settles before ack. |
+| `packages/ui/src/session-element.js` and styles/copy | Concept progress/countdown, retained preview/history, owner-authenticated byte loading, one accessible viewer with keyboard/touch controls and a disclosure badge. Estimates reserve completion for a persisted success event. Regenerate/retry records explicit intent with host cost copy. Like/reject chips refer to the exact artifact, persist positive/negative guidance and support clearing it. Viewing, liking, rejecting and clearing do not themselves invoke generation. Render feedback text safely; keep provider URLs/keys out of browser state. |
+| `demo/*` and tests | Register a deterministic byte-producing image fixture by default, configure an images binding/consent scope, and test restart, history, erasure, ownership, pause, deduplication and feedback end-to-end. Live credentials never enable a provider implicitly. |
+
+The reusable conformance call is
+`uiGenerationConformance(plugin, {spec, feedback, artifact},
+{stallSpec, stallFeedback, requestCount})`. Local fixtures must stall both
+operations and count outbound calls synchronously. The kit checks byte artifacts,
+provenance, manifest/health, terminal reports, consumption/refusal and preflight
+plus active cancellation/deadlines. CI tests the adapter and broken fixtures.
+
 ## Ported from START
 
 Source reference: `start-agm-com` main `1d4078c`, the read-only port oracle.
@@ -278,6 +374,9 @@ policy were removed. The table records the port in the current package layout.
 | `src/lib/prompts.ts` (generic policy only) | `packages/core/src/prompts.js` | evidence-only reasoning, untrusted data, one-question pacing, honest draft/stale state |
 | `src/pages/index.astro`, `src/scripts/v2.ts` (conversation/aside) | `packages/ui/src/{session-element,styles}.js` | transcript bubbles, composer shortcuts, readiness/aside, expansion and responsive layout; host copy/tokens |
 | `tests/{analyze-route,guided-pass,analysis-incremental,critical-surfaces}.test.ts` | `packages/core/test/`, `packages/ui/test/` | selected reducer/readiness/lane/UI behaviour cases converted to `node:test` |
+| `src/lib/{generated-ui,generated-ui-idle,generated-ui-policy}.ts`, `src/pages/api/v2/generated-ui/index.ts` | `packages/core/src/concept-intent.js` | pure host policy; recorded intent, arming, cadence, dedupe and source/consent invalidation; historical slow results |
+| `src/lib/providers/openai-image.ts`, `src/lib/provenance.ts` | `plugins/openai-images/src/` | server Images generate/edit with lifetime/claim contract, bounded private bytes, IPTC XMP and digest metadata; no branding or legal/account facts |
+| `tests/generated-ui.test.ts` | `packages/core/test/concept-intent.test.js`, `plugins/openai-images/test/openai-images.test.js` | selected spending, slow-render, removal/withdrawal and private image transport cases with fakes |
 
 ## License and contributions
 

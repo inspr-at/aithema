@@ -1,4 +1,5 @@
 import { validateManifest } from './plugins.js';
+export { uiGenerationConformance } from './ui-generation-conformance.js';
 import { matchesSchema, operationScope } from './reasoning.js';
 import { PLUGIN_ERROR_CODES, PluginError, isCancelledZeroReport } from './invocation.js';
 export { liveVoiceConformance } from './live-voice-conformance.js';
