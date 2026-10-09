@@ -70,6 +70,27 @@ test('a late violation cannot authorize a timed-out policy probe', async t => {
   violation({ ...proof, blockedURI: '' }, owner); await Promise.resolve();
   assert.equal(element.state, 'policy'); assert.equal(element.shadowRoot.querySelector('iframe'), null); element.remove();
 });
+test('the policy probe rejects report-only and wrong-directive event-like objects', async t => {
+  const owner = document.implementation.createHTMLDocument();
+  const meta = owner.createElement('meta'); meta.httpEquiv = 'Content-Security-Policy'; meta.content = HTML_PREVIEW_HOST_CSP; owner.head.append(meta);
+  let handler;
+  const addEventListener = owner.addEventListener;
+  t.mock.method(owner, 'addEventListener', function (type, listener, ...options) {
+    if (type === 'securitypolicyviolation') handler = listener;
+    return addEventListener.call(this, type, listener, ...options);
+  });
+  const element = setup(owner); element.artifact = html(dummy);
+  const probe = owner.querySelector('[data-aithema-html-policy-probe]'); assert.ok(probe); assert.equal(typeof handler, 'function');
+  // Call the captured listener directly; production still requires isTrusted.
+  for (const fields of [{ disposition: 'report' }, { effectiveDirective: 'default-src' }]) {
+    handler({ ...proof, ...fields }); await Promise.resolve();
+    assert.equal(element.state, 'policy'); assert.equal(element.shadowRoot.querySelector('iframe'), null);
+    assert.equal(owner.querySelector('[data-aithema-html-policy-probe]'), probe, 'rejected evidence leaves the probe pending');
+  }
+  handler(proof); await Promise.resolve();
+  assert.equal(element.state, 'ready'); assert.ok(element.shadowRoot.querySelector('iframe'));
+  assert.equal(owner.querySelector('[data-aithema-html-policy-probe]'), null); element.remove();
+});
 test('renders a draft only in an allow-scripts sandbox with the strict CSP first in its srcdoc', async () => {
   const element = setup(), root = element.shadowRoot;
   assert.equal(element.state, 'empty'); assert.equal(root.querySelector('iframe'), null);
