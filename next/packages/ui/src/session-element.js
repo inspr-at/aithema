@@ -11,7 +11,7 @@ export class AithemaSession extends HTMLElement {
     if (!copy || !session) throw new TypeError('Host copy and session required');
     this.#abort?.abort(); this.#copy = copy; this.#base = baseUrl.replace(/\/$/u, '');
     this.#session = structuredClone(session); this.#cursor = session.seq; this.#partials.clear();
-    this.#failure = false; this.#pending = null;
+    this.#restoreFailure(); this.#pending = null;
     this.#open = []; this.#cleared = []; this.#dirty.clear(); this.#hover.clear();
     this.#mount();
     if (this.isConnected) this.#connect();
@@ -50,7 +50,9 @@ export class AithemaSession extends HTMLElement {
     });
     root.querySelector('.retry').addEventListener('click', async () => {
       try {
-        const response = await fetch(`${this.#base}/api/sessions/${this.#session.id}/retry`, { method: 'POST' });
+        const response = await fetch(`${this.#base}/api/sessions/${this.#session.id}/retry`, {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+        });
         if (!response.ok) throw new Error(); this.#failure = false; this.#render('aside');
       } catch { this.#status(this.#copy.reasoningFailed); }
     });
@@ -66,6 +68,10 @@ export class AithemaSession extends HTMLElement {
     this.#render('transcript'); this.#render('aside');
   }
   #status(value) { this.shadowRoot.querySelector('.status').textContent = value; }
+  #restoreFailure() {
+    const operations = this.#session.operations;
+    this.#failure = operations?.inputRevision === inputRevision(this.#session) && Boolean(operations.lastFailure);
+  }
   #render(part) {
     if (this.#hover.has(part)) { this.#dirty.add(part); return; }
     const root = this.shadowRoot, copy = this.#copy;
@@ -95,7 +101,11 @@ export class AithemaSession extends HTMLElement {
       ? copy.buildProgress.replace('{percent}', displayedReadinessPercent(u.progress.build.value)) : '';
     root.querySelector('.notice').textContent = this.#failure ? copy.reasoningFailed : !u.readinessAssessed ? copy.empty
       : stale ? copy.stale : u.draft ? copy.draft : copy.final;
-    root.querySelector('.retry').hidden = !this.#failure;
+    const revision = inputRevision(this.#session), operations = this.#session.operations;
+    const running = operations?.inputRevision === revision && operations.running.length > 0;
+    const hasPersonTurn = this.#session.transcript.some(t => t.role === 'user');
+    const missingReply = hasPersonTurn && !this.#session.transcript.some(t => t.role === 'assistant' && t.inputRevision === revision);
+    root.querySelector('.retry').hidden = Boolean(running) || !(this.#failure || hasPersonTurn && (stale || u.draft || missingReply));
     root.querySelector('.summary-text').textContent = u.summary;
     for (const [selector, items] of [['.signals', u.signals], ['.questions', u.openQuestions]]) {
       root.querySelector(selector).replaceChildren(...items.map(v => element('li', v)));
@@ -150,15 +160,17 @@ export class AithemaSession extends HTMLElement {
       this.#session = applyEvent(this.#session, event); this.#cursor = event.seq;
       if (event.type === 'turn.final') {
         this.#partials.delete(event.data.id);
-        if (event.data.role === 'user') this.#partials.clear();
+        if (event.data.role === 'user') { this.#partials.clear(); this.#failure = false; }
       }
-      if (event.type === 'understanding.updated') this.#failure = false;
+      if (event.type === 'understanding.updated' && this.#session.operations?.lastFailure?.lane !== 'reaction') this.#failure = false;
       this.dispatchEvent(new CustomEvent('aithema-event', { detail: event, bubbles: true, composed: true }));
     } else if (event.type === 'turn.partial' && event.data.inputRevision === inputRevision(this.#session)) {
       const existing = this.#partials.get(event.data.id);
       this.#partials.set(event.data.id, { id: event.data.id, role: 'assistant', partial: true,
         content: (existing?.content ?? '') + event.data.delta });
-    } else if (event.type === 'lane.failed') {
+    } else if (event.type === 'lane.status' && event.data.inputRevision === inputRevision(this.#session)) {
+      this.#session.operations = event.data; this.#restoreFailure();
+    } else if (event.type === 'lane.failed' && (!event.data.inputRevision || event.data.inputRevision === inputRevision(this.#session))) {
       this.#failure = true; this.#partials.clear();
     }
     this.#render('transcript'); this.#render('aside');
@@ -171,6 +183,7 @@ export class AithemaSession extends HTMLElement {
       const session = await response.json();
       if (sessionId !== this.#session.id) return;
       this.#session = session; this.#cursor = this.#session.seq; this.#partials.clear();
+      this.#restoreFailure();
       this.#render('transcript'); this.#render('aside');
       if (this.isConnected) this.#connect();
     } catch {
@@ -190,6 +203,8 @@ export class AithemaSession extends HTMLElement {
         const response = await fetch(`${this.#base}/api/sessions/${this.#session.id}/events`, {
           signal, headers: { 'Last-Event-ID': String(this.#cursor) },
         });
+        if (signal.aborted) return;
+        if (response.status === 400) { await this.#restore(); return; }
         if (!response.ok) throw new Error();
         this.#status(this.#copy.connected); reader = response.body.getReader();
         let buffer = ''; const decoder = new TextDecoder();
@@ -207,7 +222,8 @@ export class AithemaSession extends HTMLElement {
       } catch { if (signal.aborted) return; }
       finally { await reader?.cancel().catch(() => {}); }
       if (signal.aborted) return;
-      this.#partials.clear(); this.#render('transcript'); this.#status(this.#copy.reconnecting);
+      if (this.#session.operations) this.#session.operations.running = [];
+      this.#partials.clear(); this.#render('transcript'); this.#render('aside'); this.#status(this.#copy.reconnecting);
       await new Promise(resolve => {
         const finish = () => { clearTimeout(timer); signal.removeEventListener('abort', finish); resolve(); };
         const timer = setTimeout(finish, 1000); signal.addEventListener('abort', finish, { once: true });

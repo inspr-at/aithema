@@ -12,6 +12,8 @@ npm run demo
 ```
 
 Open http://127.0.0.1:3000. The heading is **Demo — Aithema reset slice 1**.
+The demo accepts only `127.0.0.1:<port>` and `localhost:<port>` Host headers;
+all POSTs require `Content-Type: application/json` (optional charset accepted).
 Mock reasoning is the default and is visibly labelled. It recognizes explicit
 `operations: hosted; data: public; systems: API; reach: international` statements;
 it does not simulate a real model's understanding quality. The session id is
@@ -41,7 +43,10 @@ characters and must match a user statement after normalization. Drafts preserve
 corroborated slots, narrative and readiness; finals can correct/reopen them.
 Selected human actors survive model readings. Input revision includes human
 turn revision, consent revision, withdrawal revision and locale. Every lane is
-single-flight per session and discards results with an obsolete revision.
+single-flight per session and aborts flights with an obsolete revision. Reaction
+and understanding run independently, so an obsolete assessment cannot delay
+the latest reply. `SessionLanes` accepts an optional distinct `draftReasoning`
+binding; the shared default binding runs only the final understanding pass.
 
 `@inspr/aithema-next-server` exports `SQLiteStorage`, `createHandlers`,
 `exportSession` and `zipStore`; its `/http` export supplies `listen` and
@@ -54,7 +59,7 @@ Call `resume()` on startup to finish outstanding current-revision work and
 | Request | Result |
 | --- | --- |
 | `POST /api/sessions`, body `{ "locale": "en" }` | `201` session snapshot |
-| `GET /api/sessions/:id` | latest durable session snapshot including `seq` |
+| `GET /api/sessions/:id` | latest durable session snapshot including `seq`, plus current operational flags |
 | `POST /api/sessions/:id/turns`, body `{ "clientEventId": "unique-id", "content": "…" }` | durable `turn.final` event |
 | `GET /api/sessions/:id/events`, header `Last-Event-ID: <seq>` | missed durable events, then live SSE |
 | `POST /api/sessions/:id/retry` | retry unfinished reasoning for current revision |
@@ -62,7 +67,15 @@ Call `resume()` on startup to finish outstanding current-revision work and
 
 SSE also accepts `?after=<seq>`; the header takes precedence. Every durable
 event has `{sessionId, seq, type, data}`. SSE `id` is `seq`; transient
-`turn.partial` and `lane.failed` have no id and are never persisted. The default
+`turn.partial`, `lane.failed` and `lane.status` have no id and are never persisted.
+GET snapshots include `operations: {inputRevision, running, lastFailure}`.
+`running` lists the active lanes; `lastFailure` is a sanitized lane failure for
+the current input revision, retained by the server until that lane succeeds.
+These operational flags are separate from the durable session/events. Opening
+an SSE subscription reschedules unfinished work; snapshots and lane-status
+messages let a freshly configured UI show Retry when work is unfinished and
+no job is running. A rejected cursor (`400`) makes the client restore the
+snapshot and reconnect with its sequence. The default
 host authorizes immediate demo analysis; pass `{demo:false}` in `sessionOptions`
 for START's three-person-turn admission, or `{identified:true}` for immediate
 analysis. Host configuration, including actor/preset and demo admission, cannot
@@ -75,7 +88,8 @@ bytes conflict (`409`), including different JSON whitespace/key order. Event
 rows reject update/delete. Projection writes compare the expected input
 revision inside the transaction. Resume reads only durable events after the
 cursor; transient deltas are dropped. A slow SSE consumer is disconnected and
-can replay. Requests are limited to 16 KiB; person messages to 8,000 characters;
+can replay. Requests are limited to 32 KiB, enough for 8,000 non-ASCII characters
+plus JSON overhead; person messages to 8,000 characters;
 transcripts to 500 entries/250,000 characters; reaction output to 16,000 chars.
 Errors use fixed operational messages and never log content or credentials.
 
@@ -110,7 +124,7 @@ policy were removed. Root `LICENSE` and `NOTICES` are untouched.
 | START source | New source | Adaptation |
 | --- | --- | --- |
 | `src/lib/qualification.ts` | `packages/core/src/understanding.js` | user-only evidence, normalization, build cap, selected actor preservation; host preset and English slot ids |
-| `src/pages/api/analyze.ts` | `packages/core/src/{understanding,lanes}.js` | non-destructive draft then authoritative final, cache, single flight, revision checks and persisted verification; Fetch/storage injection |
+| `src/pages/api/analyze.ts` | `packages/core/src/{understanding,lanes}.js` | authoritative final; non-destructive draft with a distinct binding; cache, single flight, revision checks and persisted verification; Fetch/storage injection |
 | `src/lib/guided-pass.ts` | `packages/core/src/readiness.js` | bounded question history, rewording matches, open/settled grouping |
 | `src/lib/readiness-view.ts` | `packages/core/src/readiness.js` | threshold scale, five-row window, stable newly-cleared ordering |
 | `src/lib/analysis-incremental.ts` | `packages/core/src/lanes.js`, `packages/ui/src/session-element.js` | latest-input guard, stale result rejection, current-input checking |
@@ -130,11 +144,11 @@ Working-spec confirmation/baselines, sources/uploads, concepts, voice,
 library/account/settings/credits/handover UI, manifest/budget/health/terminal
 report conformance and release packaging remain in their planned later slices.
 
-The final understanding pass follows the draft automatically in this demo;
-START's page explicitly requested its paid refinement. There is one reasoning
-binding for both lanes and passes; separate draft/analysis model bindings and
-budget admission belong to the plugin-contract slice. Both lanes share a hard
-30-second deadline per flight, configurable by the host. Multiple quick user
+The demo uses one reasoning binding for both lanes and skips the separate draft
+call, matching START's same-model optimization. The core retains draft/final
+passes for distinct bindings; host configuration of separate draft/analysis
+models and budget admission belong to the plugin-contract slice. Each lane has
+a hard 30-second deadline per flight, configurable by the host. Multiple quick user
 turns coalesce to a reply/assessment for the latest revision; superseded replies
 are never published. Manual retry replaces START's one automatic analysis retry;
 SSE reconnect retries every second. “Clarify now”/guided question focus is not

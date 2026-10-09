@@ -15,7 +15,12 @@ const storage = new SQLiteStorage(process.env.AITHEMA_DB ?? defaultDb);
 const apiKey = process.env.OPENROUTER_API_KEY;
 const reasoning = apiKey ? createOpenRouterReasoning({ apiKey, model: process.env.OPENROUTER_MODEL ?? config.model }) : createMockReasoning();
 const handlers = createHandlers({ storage, reasoning }); handlers.resume();
+let allowedHosts = new Set();
 async function handle(request) {
+  if (!allowedHosts.has(request.headers.get('host'))) return new Response(null, { status: 403 });
+  if (request.method === 'POST' && request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') {
+    return new Response(null, { status: 415 });
+  }
   const url = new URL(request.url);
   if (url.pathname.startsWith('/api/')) return handlers.handle(request);
   if (!['GET', 'HEAD'].includes(request.method)) return new Response(null, { status: 405 });
@@ -34,6 +39,8 @@ async function handle(request) {
   } catch { return new Response(null, { status: 404 }); }
 }
 const { server, url } = await listen(handle, { port: Number(process.env.PORT ?? config.port) });
+const port = server.address().port;
+allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
 console.log(`Demo — Aithema reset slice 1: ${url} (${reasoning.label})`);
 process.send?.({ url });
 async function close() {

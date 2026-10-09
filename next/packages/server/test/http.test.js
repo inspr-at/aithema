@@ -13,7 +13,7 @@ test('HTTP vertical: create, turns, understanding events, kill/restart, resume e
   assert.equal(response.status, 200); const receipt = await response.json(), cursor = receipt.seq;
   const settled = await waitForSession(running.url + path, s => s.understanding.readinessAssessed && !s.understanding.draft && s.transcript.length === 2);
   const events = await readEvents(await fetch(running.url + path + '/events', { headers: { 'Last-Event-ID': String(cursor) } }), settled.seq - cursor);
-  assert.deepEqual(events.filter(e => e.type === 'understanding.updated').map(e => e.data.draft), [true, false]);
+  assert.deepEqual(events.filter(e => e.type === 'understanding.updated').map(e => e.data.draft), [false]);
   const second = { clientEventId: 'second', content: 'operations: hosted; data: public; reach: international' };
   response = await post(running.url + path + '/turns', second); assert.equal(response.status, 200); const acknowledged = await response.json();
   await running.kill('SIGKILL'); running = await startChild(new URL('../bin/server.js', import.meta.url), db);
@@ -23,7 +23,7 @@ test('HTTP vertical: create, turns, understanding events, kill/restart, resume e
   const retry = await post(running.url + path + '/turns', second); assert.deepEqual(await retry.json(), acknowledged);
   const conflict = await post(running.url + path + '/turns', { ...second, content: 'different' }); assert.equal(conflict.status, 409);
   const missed = await readEvents(await fetch(running.url + path + '/events', { headers: { 'Last-Event-ID': String(settled.seq) } }), restored.seq - settled.seq);
-  assert.deepEqual(missed.map(e => e.seq), Array.from({ length: restored.seq - settled.seq }, (_, i) => settled.seq + i + 1));
+  assert.deepEqual(missed.filter(e => e.seq).map(e => e.seq), Array.from({ length: restored.seq - settled.seq }, (_, i) => settled.seq + i + 1));
   assert.equal(missed.filter(e => e.type === 'turn.final' && e.data.role === 'user').length, 1);
   const zip = await fetch(running.url + path + '/export'); assert.equal(zip.headers.get('content-type'), 'application/zip');
   const files = unzip(await zip.arrayBuffer()); assert.equal(JSON.parse(files['transcript.json']).turns.length, 4);

@@ -89,4 +89,46 @@ test('late acknowledgements and events from a previous conversation cannot alter
     assert.equal(c.session.id, next.id); assert.equal(c.session.transcript.length, 0);
   } finally { globalThis.fetch = originalFetch; }
 });
+test('fresh configure after lane failure exposes Retry for unfinished understanding or a missing reply', () => {
+  const c = setup(); turn(c, 'first', 'First');
+  c.receive({ type: 'lane.failed', data: { lane: 'understanding', error: 'reasoning-unavailable' } });
+  c.configure({ copy: en, session: c.session });
+  assert.equal(c.shadowRoot.querySelector('.retry').hidden, false);
+  c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
+  c.configure({ copy: en, session: c.session });
+  assert.equal(c.shadowRoot.querySelector('.retry').hidden, false, 'the latest person turn still has no reply');
+  const session = c.session;
+  session.operations = { inputRevision: inputRevision(session), running: ['reaction'], lastFailure: null };
+  c.configure({ copy: en, session });
+  assert.equal(c.shadowRoot.querySelector('.retry').hidden, true, 'known running work hides Retry');
+});
+test('fresh configure restores operational failure and draft retry state', () => {
+  const c = setup(); turn(c, 'first', 'First');
+  c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c, true) });
+  const session = c.session;
+  session.operations = { inputRevision: inputRevision(session), running: [], lastFailure: {
+    inputRevision: inputRevision(session), lane: 'reaction', error: 'reasoning-unavailable', retryable: true,
+  } };
+  c.configure({ copy: en, session });
+  assert.equal(c.shadowRoot.querySelector('.notice').textContent, en.reasoningFailed);
+  assert.equal(c.shadowRoot.querySelector('.retry').hidden, false);
+});
+test('an SSE cursor rejected with 400 restores the snapshot and reconnects with its cursor', async () => {
+  const c = setup(), originalFetch = globalThis.fetch, calls = [], restored = createSession({ demo: true });
+  restored.id = c.session.id; restored.seq = 1;
+  const outdated = c.session; outdated.seq = 99; c.configure({ copy: en, session: outdated });
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, cursor: options?.headers?.['Last-Event-ID'] });
+    if (!url.endsWith('/events')) return Response.json(restored);
+    if (calls.length === 1) return Response.json({ error: 'invalid-cursor' }, { status: 400 });
+    return new Response(new ReadableStream({ start(controller) {
+      options.signal.addEventListener('abort', () => controller.close(), { once: true });
+    } }), { headers: { 'content-type': 'text/event-stream' } });
+  };
+  try {
+    document.body.append(c); await new Promise(r => setImmediate(r));
+    assert.deepEqual(calls.map(r => r.cursor), ['99', undefined, '1']);
+    assert.equal(c.session.seq, 1);
+  } finally { c.remove(); await new Promise(r => setImmediate(r)); globalThis.fetch = originalFetch; }
+});
 test.after(async () => window.happyDOM.close());

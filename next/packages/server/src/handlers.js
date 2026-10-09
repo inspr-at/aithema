@@ -9,7 +9,7 @@ const encoder = new TextEncoder();
 function sse(event) {
   return encoder.encode(`${event.seq ? `id: ${event.seq}\n` : ''}event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
 }
-export async function readBody(request, limit = 16_384) {
+export async function readBody(request, limit = 32_768) {
   if (!request.body) return new Uint8Array();
   const reader = request.body.getReader();
   const chunks = []; let size = 0;
@@ -27,10 +27,17 @@ export async function readBody(request, limit = 16_384) {
 
 export function createHandlers({ storage, reasoning = createMockReasoning(), sessionOptions = { demo: true },
   deadlineMs = 30_000, hostPrompt = '' }) {
-  const listeners = new Map(), jobs = new Map(), stop = new AbortController();
+  const listeners = new Map(), jobs = new Map(), failures = new Map(), stop = new AbortController();
   const broadcast = (id, event) => {
     for (const listener of listeners.get(id) ?? []) listener(event);
   };
+  const operations = session => {
+    const revision = inputRevision(session), failure = failures.get(session.id);
+    return { inputRevision: revision, running: [...jobs.values()].filter(job => job.id === session.id).map(job => job.lane),
+      lastFailure: failure?.inputRevision === revision ? failure : null };
+  };
+  const snapshot = id => { const session = storage.get(id); return { ...session, operations: operations(session) }; };
+  const status = id => broadcast(id, { sessionId: id, type: 'lane.status', data: operations(storage.get(id)) });
   const lanes = new SessionLanes({ reasoning, getSession: id => storage.get(id), deadlineMs, hostPrompt,
     publish(id, type, data, revision) {
       if (stop.signal.aborted) return false;
@@ -40,23 +47,49 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     }, transient: (id, event) => broadcast(id, { sessionId: id, ...event }),
   });
   function schedule(id) {
-    if (jobs.has(id) || stop.signal.aborted) return;
-    const job = (async () => {
-      while (!stop.signal.aborted) {
-        const revision = inputRevision(storage.get(id));
-        const outcomes = await Promise.allSettled(['reaction', 'understanding'].map(lane =>
-          lanes.run(id, lane, { signal: stop.signal })));
-        if (stop.signal.aborted) return;
-        for (let i = 0; i < outcomes.length; i++) if (outcomes[i].status === 'rejected' && inputRevision(storage.get(id)) === revision) {
-          broadcast(id, { sessionId: id, type: 'lane.failed', data: { lane: i === 0 ? 'reaction' : 'understanding',
-            error: 'reasoning-unavailable', retryable: true } });
+    for (const lane of ['reaction', 'understanding']) scheduleLane(id, lane);
+  }
+  function scheduleLane(id, lane) {
+    const key = `${id}:${lane}`;
+    if (jobs.has(key) || stop.signal.aborted) return;
+    const job = { id, lane, promise: null };
+    jobs.set(key, job);
+    job.promise = Promise.resolve().then(async () => {
+      try {
+        while (!stop.signal.aborted) {
+          const revision = inputRevision(storage.get(id));
+          try {
+            await lanes.run(id, lane, { signal: stop.signal });
+            const failure = failures.get(id);
+            if (inputRevision(storage.get(id)) === revision && failure?.inputRevision === revision && failure.lane === lane) {
+              failures.delete(id);
+            }
+          } catch {
+            if (!stop.signal.aborted && inputRevision(storage.get(id)) === revision) {
+              const failure = { inputRevision: revision, lane, error: 'reasoning-unavailable', retryable: true };
+              failures.set(id, failure);
+              broadcast(id, { sessionId: id, type: 'lane.failed', data: failure });
+            }
+          }
+          if (stop.signal.aborted || inputRevision(storage.get(id)) === revision) {
+            // Remove synchronously with the last revision check: a subsequent
+            // schedule can start work even before this promise settles.
+            jobs.delete(key); status(id); return;
+          }
         }
-        if (inputRevision(storage.get(id)) === revision) return;
+      } finally {
+        if (jobs.get(key) === job) { jobs.delete(key); status(id); }
       }
-    })().finally(() => jobs.delete(id));
-    jobs.set(id, job);
+    });
+    status(id);
     // Failures never include provider text or request content in logs or responses.
-    job.catch(() => {});
+    job.promise.catch(() => {});
+  }
+  function unfinished(session) {
+    const revision = inputRevision(session);
+    return session.transcript.some(t => t.role === 'user') &&
+      (!session.transcript.some(t => t.role === 'assistant' && t.inputRevision === revision) ||
+        session.understanding.inputRevision !== revision || session.understanding.draft);
   }
   function events(request, id) {
     const session = storage.get(id);
@@ -87,6 +120,10 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         for (const event of storage.read(id, Number(raw))) send(event);
         if (!closed) set.add(send);
         if (request.signal.aborted || stop.signal.aborted) abort();
+        else if (!closed) {
+          if (unfinished(session)) schedule(id);
+          status(id);
+        }
       },
       cancel() { cleanup?.(); },
     });
@@ -102,12 +139,12 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         const options = bytes.length ? JSON.parse(Buffer.from(bytes).toString('utf8')) : {};
         if (!options || typeof options !== 'object' || Array.isArray(options)) return json({ error: 'invalid-session' }, 400);
         const session = storage.create({ ...sessionOptions, locale: options.locale ?? 'en' });
-        return json(session, 201);
+        return json(snapshot(session.id), 201);
       }
       const match = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})(?:\/(turns|events|export|retry))?$/u.exec(url.pathname);
       if (!match) return json({ error: 'not-found' }, 404);
       const [, id, action] = match;
-      if (!action && request.method === 'GET') return json(storage.get(id));
+      if (!action && request.method === 'GET') return json(snapshot(id));
       if (action === 'events' && request.method === 'GET') return events(request, id);
       if (action === 'turns' && request.method === 'POST') {
         const bytes = await readBody(request);
@@ -115,6 +152,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         if (!body || typeof body.clientEventId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(body.clientEventId) ||
           typeof body.content !== 'string' || !body.content.trim() || body.content.length > 8000) return json({ error: 'invalid-turn' }, 400);
         const { event, replayed } = storage.postTurn(id, body.clientEventId, bytes, body.content);
+        lanes.supersede(id);
         if (!replayed) broadcast(id, event);
         schedule(id);
         return json(event, 200);
@@ -138,7 +176,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     resume() {
       for (const id of storage.list()) if (storage.get(id).transcript.some(t => t.role === 'user')) schedule(id);
     },
-    async idle() { while (jobs.size) await Promise.allSettled([...jobs.values()]); },
-    async close() { stop.abort(); await Promise.allSettled([...jobs.values()]); },
+    async idle() { while (jobs.size) await Promise.allSettled([...jobs.values()].map(job => job.promise)); },
+    async close() { stop.abort(); await Promise.allSettled([...jobs.values()].map(job => job.promise)); },
   };
 }
