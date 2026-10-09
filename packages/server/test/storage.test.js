@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, ConflictError, createHandlers, exportSession } from '../src/index.js';
-import { inputRevision, createMockReasoning } from '@inspr/aithema-next-core';
+import { inputRevision, createMockReasoning } from '@inspr/aithema-core';
 import { temporaryDb, unzip, readEvents } from '../../../test/helpers.js';
 const bytes = content => Buffer.from(JSON.stringify({ clientEventId: 'turn1', content }));
 test('acknowledged turn and receipt survive close/reopen; append-only events have monotonic seq', async () => {

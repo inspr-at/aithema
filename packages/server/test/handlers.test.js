@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers } from '../src/index.js';
-import { createMockReasoning, inputRevision } from '@inspr/aithema-next-core';
+import { createMockReasoning, inputRevision } from '@inspr/aithema-core';
 
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 const request = (path, body) => new Request(`http://localhost/api/sessions/${path}`, body === undefined ? {} : {

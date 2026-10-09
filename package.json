@@ -1,41 +1,22 @@
 {
-  "name": "@inspr/aithema-core",
-  "version": "0.10.1",
+  "name": "aithema",
   "private": true,
   "type": "module",
-  "description": "Reusable requirements assistant: stable IDs, revision digests, baseline approval, and proposal boundaries",
-  "license": "AGPL-3.0-only",
   "engines": {
     "node": ">=24"
   },
-  "bin": {
-    "aithema-workspace": "./bin/aithema-workspace.js"
-  },
-  "exports": {
-    ".": "./lib/index.js",
-    "./runtime": "./runtime/index.js",
-    "./workspace": "./workspace/index.js"
-  },
+  "workspaces": [
+    "packages/*",
+    "plugins/*"
+  ],
   "scripts": {
-    "test": "node --test test/*.test.js",
-    "test:fast": "node scripts/test-fast.mjs",
-    "test:release": "node --test test/packaging.test.js test/source-export.test.js",
-    "test:packaging": "node --test test/packaging.test.js",
-    "test:source-export": "node --test test/source-export.test.js",
-    "release:build": "node release/build-release.mjs",
-    "source:export": "node release/build-source.mjs",
-    "cache:prime-consumer": "node release/prime-consumer-cache.mjs --build",
-    "cache:prime": "npm run cache:prime-consumer",
-    "verify:license": "node release/verify-license.mjs",
-    "example": "node examples/consumer.js",
-    "workspace": "node examples/workspace.js"
+    "test": "node --test packages/*/test/*.test.js plugins/*/test/*.test.js demo/test/*.test.js",
+    "demo": "node demo/server.js"
   },
-  "dependencies": {
-    "@fontsource/noto-sans": "5.2.5",
-    "@inspr/flow-shell": "https://github.com/inspr-at/flow-shell/releases/download/v0.2.1/inspr-flow-shell-0.2.1.tgz",
-    "fontkit": "2.0.4",
-    "openid-client": "6.8.8",
-    "pdfkit": "0.17.2",
-    "unpdf": "1.8.0"
-  }
+  "devDependencies": {
+    "happy-dom": "^20.11.2"
+  },
+  "version": "0.0.0",
+  "description": "Embeddable requirements conversation: core, server, web components and provider plugins",
+  "license": "AGPL-3.0-only"
 }

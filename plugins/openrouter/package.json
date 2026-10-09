@@ -1,0 +1,14 @@
+{
+  "name": "@inspr/aithema-plugin-openrouter",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.js",
+  "dependencies": {
+    "@inspr/aithema-core": "*"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "version": "0.0.0",
+  "license": "AGPL-3.0-only"
+}

@@ -1,4 +1,4 @@
-import { SessionLanes, createMockReasoning, inputRevision } from '@inspr/aithema-next-core';
+import { SessionLanes, createMockReasoning, inputRevision } from '@inspr/aithema-core';
 import { ConflictError, NotFoundError } from './storage.js';
 import { exportSession } from './export.js';
 

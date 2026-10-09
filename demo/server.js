@@ -1,10 +1,10 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve, sep } from 'node:path';
-import { SQLiteStorage, createHandlers } from '@inspr/aithema-next-server';
-import { listen } from '@inspr/aithema-next-server/http';
-import { createMockReasoning } from '@inspr/aithema-next-core';
-import { createOpenRouterReasoning } from '@inspr/aithema-next-plugin-openrouter';
+import { SQLiteStorage, createHandlers } from '@inspr/aithema-server';
+import { listen } from '@inspr/aithema-server/http';
+import { createMockReasoning } from '@inspr/aithema-core';
+import { createOpenRouterReasoning } from '@inspr/aithema-plugin-openrouter';
 import { config } from './config.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));

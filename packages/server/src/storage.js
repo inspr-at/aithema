@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { applyEvent, createSession, inputRevision } from '@inspr/aithema-next-core';
+import { applyEvent, createSession, inputRevision } from '@inspr/aithema-core';
 
 export class ConflictError extends Error {}
 export class NotFoundError extends Error {}

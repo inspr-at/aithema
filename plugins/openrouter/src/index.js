@@ -1,4 +1,4 @@
-import { operationScope, matchesSchema } from '@inspr/aithema-next-core';
+import { operationScope, matchesSchema } from '@inspr/aithema-core';
 
 export function createOpenRouterReasoning({ apiKey, model, endpoint = 'https://openrouter.ai/api/v1/chat/completions' }) {
   if (!apiKey || typeof model !== 'string' || !model.includes('/')) throw new TypeError('OpenRouter binding requires key and model id');

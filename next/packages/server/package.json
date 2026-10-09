@@ -1,9 +1,0 @@
-{
-  "name": "@inspr/aithema-next-server",
-  "private": true,
-  "type": "module",
-  "exports": { ".": "./src/index.js", "./http": "./src/http.js" },
-  "bin": { "aithema-next-server": "./bin/server.js" },
-  "dependencies": { "@inspr/aithema-next-core": "*" },
-  "engines": { "node": ">=24" }
-}

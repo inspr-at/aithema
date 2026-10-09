@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
-import { createSession, inputRevision, reduceUnderstanding } from '@inspr/aithema-next-core';
+import { createSession, inputRevision, reduceUnderstanding } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 const window = new Window();
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
