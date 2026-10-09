@@ -47,7 +47,7 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
       finally { scope.dispose(); }
     },
     async *stream(request, options) {
-      const invocation = beginInvocation(options, { billable });
+      const invocation = await beginInvocation(options, { billable });
       const scope = operationScope(options); let reader, completed = false;
       try {
         const response = await dispatch(request, scope, { stream: true }, invocation);
@@ -90,7 +90,7 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
       }
     },
     async structured(request, options) {
-      const invocation = beginInvocation(options, { billable });
+      const invocation = await beginInvocation(options, { billable });
       const scope = operationScope(options); let completed = false;
       try {
         const response = await dispatch(request, scope, { stream: false,

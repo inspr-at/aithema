@@ -49,12 +49,12 @@ export function consumeInFinallyReasoning(plugin, { refusedReport = terminal => 
   return { ...plugin,
     async *stream(request, options) {
       let consumed = false;
-      try { options.attempt.consume(); consumed = true; yield* plugin.stream(request, consumedOptions(options)); }
+      try { await options.attempt.consume(); consumed = true; yield* plugin.stream(request, consumedOptions(options)); }
       finally { if (!consumed) await options.report(terminal(options)); }
     },
     async structured(request, options) {
       let consumed = false;
-      try { options.attempt.consume(); consumed = true; return await plugin.structured(request, consumedOptions(options)); }
+      try { await options.attempt.consume(); consumed = true; return await plugin.structured(request, consumedOptions(options)); }
       finally { if (!consumed) await options.report(terminal(options)); }
     },
   };
@@ -63,7 +63,7 @@ export function consumeInFinallyReasoning(plugin, { refusedReport = terminal => 
 // Correct stream/authority/reporting, but structured only checks lifetime before opening the fixture.
 export function brokenPreflightReasoning(plugin, { fetchImpl = globalThis.fetch } = {}) {
   return { ...plugin, async structured(request, options) {
-    const invocation = beginInvocation(options), scope = operationScope(options); let completed = false;
+    const invocation = await beginInvocation(options), scope = operationScope(options); let completed = false;
     try {
       scope.signal.throwIfAborted();
       invocation.dispatch();

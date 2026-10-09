@@ -104,6 +104,8 @@ export class AithemaSession extends HTMLElement {
   #status(value) { this.shadowRoot.querySelector('.status').textContent = value; }
   #feature(feature) {
     const preset = this.#session.processingPreset ?? 'best';
+    if (this.#session.paused) return { available: false, reason: this.#copy.paused };
+    if (this.#session.consentWithdrawn || this.#session.tombstone) return { available: false, reason: this.#copy.consentRequired };
     const matrix = this.#session.featureMatrix?.[preset] ?? (preset === 'device' ? deviceFeatures() : {});
     return matrix[feature] ?? { available: false, reason: this.#copy.notConfigured };
   }
@@ -162,10 +164,14 @@ export class AithemaSession extends HTMLElement {
       return;
     }
     const analysis = this.#feature('analysis');
+    const cached = this.#session.paused && this.#session.understanding.inputRevision !== null;
+    for (const node of root.querySelectorAll('.analysis-content [data-redacted]')) {
+      node.style.minHeight = ''; delete node.dataset.redacted;
+    }
     root.querySelector('.understanding').setAttribute('aria-disabled', String(!analysis.available));
     // Keep the outer pane and readiness row in the grid when analysis is unavailable.
-    root.querySelector('.readiness').style.visibility = analysis.available ? '' : 'hidden';
-    for (const section of root.querySelectorAll('.analysis-content section')) section.hidden = !analysis.available;
+    root.querySelector('.readiness').style.visibility = analysis.available || cached ? '' : 'hidden';
+    for (const section of root.querySelectorAll('.analysis-content section')) section.hidden = !analysis.available && !cached;
     const u = this.#session.understanding, stale = u.inputRevision !== inputRevision(this.#session);
     const percent = u.readinessAssessed ? readinessScalePercent(u.progress, this.#session.preset) : 0;
     root.querySelector('.scale').setAttribute('aria-valuenow', percent);
@@ -249,7 +255,7 @@ export class AithemaSession extends HTMLElement {
       if (current()) this.receive({ seq: this.#cursor + 1, type: 'turn.final', data: { id, role: 'assistant', content: answer, inputRevision: revision } });
       if (current()) this.#status(this.#copy.deviceConversation);
     } catch { if (current()) { this.#partials.clear(); this.#render('transcript'); this.#status(this.#copy.deviceUnavailable); } }
-    finally { if (current()) { this.#sending = false; button.disabled = !this.#feature('text').available; this.#render('composer'); } }
+    finally { if (sessionId === this.#session.id) { this.#sending = false; button.disabled = !this.#feature('text').available; this.#render('composer'); } }
   }
   receive(event) {
     if (event.sessionId && event.sessionId !== this.#session.id) return;
@@ -258,7 +264,21 @@ export class AithemaSession extends HTMLElement {
       const invalidation = ['turn.withdrawn', 'session.erased', 'consent.revised'].includes(event.type);
       if (invalidation) {
         this.#invalidatedAt = Math.max(this.#invalidatedAt, event.seq);
-        this.#partials.clear(); this.#failure = false; this.#hover.clear(); this.#dirty.clear();
+        this.#deviceController?.abort();
+        this.#partials.clear(); this.#failure = false;
+        // Redact sensitive content immediately; keep layout updates deferred.
+        for (const row of this.shadowRoot.querySelectorAll('.turn')) {
+          const turn = this.#session.transcript.find(t => t.id === row.dataset.id);
+          if (event.type === 'session.erased' || turn?.role === 'assistant' || row.dataset.id === event.data.turnId || row.classList.contains('partial')) {
+            row.style.minHeight = `${row.getBoundingClientRect().height}px`;
+            row.querySelector('span').textContent = this.#copy.withdrawn;
+          }
+        }
+        for (const selector of ['.summary-text', '.signals', '.questions', '.missing', '.cleared', '.overflow']) {
+          const node = this.shadowRoot.querySelector(selector);
+          node.style.minHeight = `${node.getBoundingClientRect().height}px`; node.dataset.redacted = '';
+          node.textContent = '';
+        }
       }
       if (event.seq !== this.#cursor + 1) {
         if (invalidation) {
@@ -268,6 +288,11 @@ export class AithemaSession extends HTMLElement {
         this.#abort?.abort(); void this.#restore(); return;
       }
       this.#session = applyEvent(this.#session, event); this.#cursor = event.seq;
+      if (event.type === 'session.paused') {
+        this.#invalidatedAt = Math.max(this.#invalidatedAt, event.seq);
+        if (event.data.paused) this.#deviceController?.abort();
+      }
+      if ((invalidation || event.type === 'session.paused') && this.isConnected) void this.#refreshFeatures();
       if (event.type === 'turn.final') {
         this.#partials.delete(event.data.id);
         if (event.data.role === 'user') { this.#partials.clear(); this.#failure = false; }
@@ -283,7 +308,18 @@ export class AithemaSession extends HTMLElement {
     } else if (event.type === 'lane.failed' && (!event.data.inputRevision || event.data.inputRevision === inputRevision(this.#session))) {
       this.#failure = true; this.#partials.clear();
     }
-    this.#render('transcript'); this.#render('aside');
+    this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer');
+  }
+  async #refreshFeatures() {
+    const sessionId = this.#session.id;
+    try {
+      const response = await fetch(`${this.#base}/api/sessions/${sessionId}`);
+      if (!response.ok) return;
+      const session = await response.json();
+      if (sessionId !== this.#session.id || session.seq !== this.#cursor || session.id !== sessionId) return;
+      this.#session.featureMatrix = session.featureMatrix;
+      this.#render('features'); this.#render('aside'); this.#render('composer');
+    } catch { /* Existing verdicts stay closed until the host confirms coverage. */ }
   }
   async #restore() {
     const sessionId = this.#session.id;

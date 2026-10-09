@@ -31,6 +31,10 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   deadlineMs = 30_000, hostPrompt = '', pluginRuntime, consent = pluginRuntime?.consent,
   ownership = { token: request => request.headers.get('x-aithema-session-token') } }) {
   pluginRuntime ??= createPluginRuntime({ storage, reasoning, consent: consent ?? { coverage: () => ({ covered: false }) } });
+  consent ??= pluginRuntime.consent;
+  if (typeof consent?.coverage !== 'function' || consent !== pluginRuntime.consent) {
+    throw new TypeError('Admission and revocation require the same consent port');
+  }
   const listeners = new Map(), jobs = new Map(), failures = new Map(), stop = new AbortController();
   const broadcast = (id, event) => {
     for (const listener of listeners.get(id) ?? []) listener(event);
@@ -40,7 +44,13 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     return { inputRevision: revision, running: [...jobs.values()].filter(job => job.id === session.id).map(job => job.lane),
       lastFailure: failure?.inputRevision === revision ? failure : null };
   };
-  const snapshot = async id => { const { ownerHash, ...session } = storage.get(id); return { ...session, operations: operations(session), featureMatrix: await pluginRuntime.matrix(session) }; };
+  const snapshot = async id => {
+    const session = storage.get(id), featureMatrix = await pluginRuntime.matrix(session);
+    const current = storage.get(id), { ownerHash, ...publicSession } = current;
+    if (current.tombstone || current.ownerHash !== session.ownerHash) throw new NotFoundError('Session not found');
+    if (current.seq !== session.seq) return snapshot(id);
+    return { ...publicSession, operations: operations(current), featureMatrix };
+  };
   const status = id => broadcast(id, { sessionId: id, type: 'lane.status', data: operations(storage.get(id)) });
   const lanes = new SessionLanes({ reasoning, getSession: id => storage.get(id), deadlineMs, hostPrompt,
     admit: args => pluginRuntime.admit(args),
@@ -184,7 +194,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         const body = JSON.parse(Buffer.from(await readBody(request)).toString('utf8'));
         if (typeof body?.turnId !== 'string') return json({ error: 'invalid-withdrawal' }, 400);
         const event = storage.withdraw(id, body.turnId, 'withdrawal', guard);
-        lanes.cancel(id); failures.delete(id); broadcast(id, event); schedule(id);
+        await lanes.cancel(id); failures.delete(id); broadcast(id, event); schedule(id);
         return json({ withdrawn: body.turnId, event });
       }
       if (action === 'consent' && request.method === 'POST') {
@@ -195,13 +205,13 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
           await consent.grant({ sessionId: id, consentRevision: authorized.consentRevision + 1 });
         }
         const event = storage.reviseConsent(id, body.granted, guard);
-        lanes.cancel(id); failures.delete(id); broadcast(id, event);
+        await lanes.cancel(id); failures.delete(id); broadcast(id, event);
         if (body.granted) schedule(id);
         else await consent?.withdraw?.({ sessionId: id });
         return json({ granted: body.granted, consentRevision: storage.get(id).consentRevision, event });
       }
       if (action === 'erase' && request.method === 'POST') {
-        const event = storage.erase(id, guard); lanes.cancel(id); failures.delete(id); broadcast(id, event);
+        const event = storage.erase(id, guard); await lanes.cancel(id); failures.delete(id); broadcast(id, event);
         return json({ erased: true, event, providerDeletion: 'not-confirmed' });
       }
       if (action === 'export' && request.method === 'GET') return new Response(exportSession(storage.get(id)), {

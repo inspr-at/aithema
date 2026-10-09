@@ -103,16 +103,20 @@ and send it on every session request, including SSE and export. A host may suppl
 bind tokens through cookies, as the demo does. Missing, wrong and erased ownership
 all return 404. Tokens and their stored hashes are excluded from snapshots/export.
 
-Hosts supply `consent.coverage({sessionId, scope, consentRevision})`. A covering
+Hosts supply one `consent.coverage({sessionId, scope, consentRevision}, {signal, deadlineAt})` port
+for admission and withdrawal; a supplied runtime and handlers share that same port. A covering
 grant has `covered: true`, the matching purpose and item version, arrays covering
 every recipient, upstream processor and data category, the same consent revision,
-and a future `expiresAt` timestamp. Each binding supplies `processingScope`, or
-the host supplies it to `createHandlers`; only the local mock has a built-in scope.
-Missing/unavailable coverage fails closed before every dispatch. Hosts notify
+and a future `expiresAt` timestamp. The runtime derives the scope from each
+private binding, including the exact plugin, model, endpoint, routing, account
+reference and operation. External grants also echo that exact `scope` with a
+current `checkedAt` timestamp; only the local mock has a built-in scope.
+Missing/unavailable coverage fails closed at admission and again at claim consumption. Hosts notify
 external revocation through `handlers.withdrawConsent(id)` to persist the new
 revision and cancel running work immediately. `createMemoryConsentLedger()` is
-the reference mock host ledger, not a durable legal record. Core-only hosts must
-supply an authoritative `beforeDispatch` callback to `SessionLanes`.
+the reference mock host ledger, not a durable legal record. Core-only hosts supply
+an authoritative `admit` callback to `SessionLanes`; the legacy `beforeDispatch`
+callback remains available for nonbillable bindings and defaults to refusal.
 
 Pause permits cached reads and joins to an existing pass; fresh reaction and
 understanding work waits for acknowledged resume. Input/channel controls are
@@ -176,13 +180,14 @@ and routing; no family-wide qualification or silent fallback exists.
 Admission runs on the server before **every** dispatch: preset membership,
 placement/operation support, pause, evidence identity and expiry, residency,
 endpoint policy, current consent, health and budget. EU requires all processing
-countries within the EU and no training. Hosts implementing the consent port
-provide `coverage(session, processingScope, {signal, deadlineAt})`; the result
-must contain the exact requested `scope`, a current `checkedAt`, a future
-`expiresAt`, and no withdrawal. Missing/unavailable coverage fails closed.
-The deterministic non-billable mock has no external processing and is exempt
-from external legal/consent qualification. AIT-97 owns the broader session
-safety contract; its consent adapter should expose this coverage port.
+countries within the EU and no training. The unified consent port above checks
+purpose, recipients, upstream processors, data categories, item version, revision,
+expiry and exact binding coverage. `await attempt.consume()` queries it again and
+rechecks durable ownership, revision, tombstone and pause before burning the claim.
+The deterministic non-billable mock has no external legal qualification; a host
+consent ledger still governs its local processing. The server and demo fail closed
+without a current mock grant. A standalone canonical mock runtime may omit external
+consent, as it has no external processing scope.
 
 Snapshots expose `featureMatrix[preset][feature] = {available, reason}` for
 text, analysis, voice, transcription and images. Each unavailable feature
@@ -213,7 +218,10 @@ usage settles with the binding's rates, including actual over-maximum cost with
 an overrun flag; uncertain dispatched usage charges the entire claim maximum.
 Undispatched claims settle cancelled at zero cost. Breaking a stream without
 final usage is uncertain, even if the browser locally cancelled. A retry is a
-new admission. At startup, `handlers.resume()` recovers unfinished dispatched
+new admission. Withdrawal and erasure abort the invocation and settle it before
+acknowledgement. Cancellation retains known usage; an unresponsive dispatched
+plugin without a terminal report settles uncertain, and its late results are ignored.
+At startup, `handlers.resume()` recovers unfinished dispatched
 claims at their maxima and releases undispatched reservations. It must run
 before fresh work under the host's
 exclusive-writer lifecycle. The slim ledger ports Gen-2
@@ -225,7 +233,7 @@ and cancellable health operation, bind private operator selections, and run
 `reasoningConformance(plugin, fixtureRequest, { stallRequest, requestCount })`
 with local fixtures. Billable adapters must supply a stalled request and a
 synchronous outbound request counter. Reasoning
-must consume the provided claim before dispatch and report terminal usage in
+must await consumption of the provided claim before dispatch and report terminal usage in
 `finally`, including iterator return, cancellation and deadline. The reusable
 kit checks manifest, health, error codes, claim consumption before dispatch,
 refused consumes without requests, schema output and terminal counts, with

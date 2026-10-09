@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers, exportSession, ConflictError } from '../src/index.js';
 import { createMockReasoning, inputRevision, reasoningRequest, applyEvent, createSession } from '@inspr/aithema-core';
 import { temporaryDb, startChild, unzip } from '../../../test/helpers.js';
+import { instrumentedMockRuntime } from '../../../test/server-fixtures.js';
 import { readFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { coversProcessingScope } from '@inspr/aithema-core';
@@ -10,6 +11,7 @@ import { coversProcessingScope } from '@inspr/aithema-core';
 const token = 'fixture-owner';
 const scope = { purpose: 'mock-conversation', recipients: ['mock'], upstreamProcessors: [], dataCategories: ['conversation'], itemVersion: 1 };
 const consent = { async coverage({ consentRevision }) { return { covered: true, ...scope, consentRevision, expiresAt: Date.now() + 10000 }; } };
+const handlersWith = options => createHandlers({ ...options, pluginRuntime: instrumentedMockRuntime(options.storage, options.reasoning ?? createMockReasoning(), options.consent ?? { coverage: () => ({ covered: false }) }) });
 const request = (id, action = '', body, owner = token) => new Request(`http://localhost/api/sessions/${id}${action ? '/' + action : ''}`, {
   headers: { 'x-aithema-session-token': owner, 'content-type': 'application/json' },
   ...(body === undefined ? {} : { method: 'POST', body: JSON.stringify(body) }),
@@ -17,7 +19,7 @@ const request = (id, action = '', body, owner = token) => new Request(`http://lo
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 
 test('every session handler hides another visitor session with 404', async () => {
-  const storage = new SQLiteStorage(), handlers = createHandlers({ storage, consent });
+  const storage = new SQLiteStorage(), handlers = handlersWith({ storage, consent });
   try {
     const s = storage.create({ ownerToken: token, demo: true });
     for (const [action, body] of [['', undefined], ['events', undefined], ['export', undefined], ['turns', { clientEventId: 'x', content: 'x' }],
@@ -33,7 +35,7 @@ test('withdrawal erases understanding, assistant context, receipts and journal c
   const s = storage.create({ ownerToken: token, demo: true });
   const body = Buffer.from(JSON.stringify({ clientEventId: 'secret-turn', content: 'systems: secret-SAP' }));
   storage.postTurn(s.id, 'secret-turn', body, 'systems: secret-SAP');
-  const handlers = createHandlers({ storage, consent });
+  const handlers = handlersWith({ storage, consent });
   await handlers.lanes.run(s.id, 'reaction'); await handlers.lanes.run(s.id, 'understanding');
   assert.match(JSON.stringify(storage.get(s.id).understanding), /secret-SAP/);
   const response = await handlers.handle(request(s.id, 'withdraw', { turnId: 'secret-turn' }));
@@ -60,7 +62,7 @@ test('withdrawal erases understanding, assistant context, receipts and journal c
 test('consent withdrawal aborts held calls immediately and ignores a provider late result', async () => {
   const storage = new SQLiteStorage(), mock = createMockReasoning(), gate = deferred(), started = deferred();
   let signal;
-  const handlers = createHandlers({ storage, consent, reasoning: { ...mock, async structured(request, options) {
+  const handlers = handlersWith({ storage, consent, reasoning: { ...mock, async structured(request, options) {
     const result = await mock.structured(request, options); signal = options.signal; started.resolve(); await gate.promise; return result;
   } } });
   try {
@@ -76,7 +78,7 @@ test('consent withdrawal aborts held calls immediately and ignores a provider la
 
 test('pause persists, serves cached state and allows joining but starts no new paid call', async () => {
   const storage = new SQLiteStorage(), mock = createMockReasoning(); let calls = 0;
-  const handlers = createHandlers({ storage, consent, reasoning: { ...mock, async structured(...args) { calls++; return mock.structured(...args); },
+  const handlers = handlersWith({ storage, consent, reasoning: { ...mock, async structured(...args) { calls++; return mock.structured(...args); },
     async *stream(...args) { calls++; yield* mock.stream(...args); } } });
   try {
     const s = storage.create({ ownerToken: token, demo: true });
@@ -121,7 +123,7 @@ test('missing or expired consent and incomplete processor coverage fail closed b
     { coverage() { return { covered: true, ...scope, expiresAt: Date.now() - 1 }; } },
     { coverage() { return { covered: true, ...scope, recipients: [], expiresAt: Date.now() + 10000 }; } }]) {
     const storage = new SQLiteStorage(), mock = createMockReasoning(); let calls = 0;
-    const handlers = createHandlers({ storage, consent: port, reasoning: { ...mock, async structured(...args) { calls++; return mock.structured(...args); },
+    const handlers = handlersWith({ storage, consent: port, reasoning: { ...mock, async structured(...args) { calls++; return mock.structured(...args); },
       async *stream(...args) { calls++; yield* mock.stream(...args); } } });
     try {
       const s = storage.create({ ownerToken: token, demo: true });
@@ -145,8 +147,8 @@ test('pause survives restart and an existing pass can be joined while paused', a
   const path = await temporaryDb(), mock = createMockReasoning(), started = deferred(), gate = deferred();
   let storage = new SQLiteStorage(path), calls = 0;
   const s = storage.create({ ownerToken: token, demo: true }); storage.postTurn(s.id, 't', Buffer.from('Hello'), 'Hello');
-  let handlers = createHandlers({ storage, consent, reasoning: { ...mock, async structured(...args) {
-    calls++; started.resolve(); await gate.promise; return mock.structured(...args);
+  let handlers = handlersWith({ storage, consent, reasoning: { ...mock, async structured(...args) {
+    calls++; const value = await mock.structured(...args); started.resolve(); await gate.promise; return value;
   } } });
   try {
     const first = handlers.lanes.run(s.id, 'understanding'); await started.promise;
@@ -154,7 +156,7 @@ test('pause survives restart and an existing pass can be joined while paused', a
     assert.equal(handlers.lanes.run(s.id, 'understanding'), first);
     gate.resolve(); assert.equal(await first, 'completed'); assert.equal(calls, 1);
     await handlers.close(); storage.close(); storage = new SQLiteStorage(path);
-    handlers = createHandlers({ storage, consent }); handlers.resume(); await handlers.idle();
+    handlers = handlersWith({ storage, consent }); handlers.resume(); await handlers.idle();
     assert.equal(storage.get(s.id).paused, true);
     assert.equal(await handlers.lanes.run(s.id, 'understanding'), 'cached');
     assert.equal(await handlers.lanes.run(s.id, 'reaction'), 'paused');
@@ -162,7 +164,7 @@ test('pause survives restart and an existing pass can be joined while paused', a
 });
 
 test('withdrawal rolls back content erasure and projection invalidation if the durable event fails', async () => {
-  const storage = new SQLiteStorage(), handlers = createHandlers({ storage, consent });
+  const storage = new SQLiteStorage(), handlers = handlersWith({ storage, consent });
   try {
     const s = storage.create({ ownerToken: token, demo: true }); storage.postTurn(s.id, 't', Buffer.from('systems: SAP'), 'systems: SAP');
     await handlers.lanes.run(s.id, 'understanding'); const before = storage.get(s.id);
@@ -174,7 +176,7 @@ test('withdrawal rolls back content erasure and projection invalidation if the d
 });
 
 test('expiry uses withdrawal invalidation and rebuilds understanding only from remaining turns', async () => {
-  const storage = new SQLiteStorage(), handlers = createHandlers({ storage, consent });
+  const storage = new SQLiteStorage(), handlers = handlersWith({ storage, consent });
   try {
     const s = storage.create({ ownerToken: token, demo: true });
     storage.postTurn(s.id, 'old', Buffer.from('systems: old-secret'), 'systems: old-secret');
@@ -191,7 +193,7 @@ test('expiry uses withdrawal invalidation and rebuilds understanding only from r
 
 test('invalidation during a pending consent check prevents paid dispatch', async () => {
   const storage = new SQLiteStorage(), gate = deferred(), started = deferred(), mock = createMockReasoning(); let calls = 0;
-  const handlers = createHandlers({ storage, consent: { async coverage(query) { started.resolve(); await gate.promise; return consent.coverage(query); } },
+  const handlers = handlersWith({ storage, consent: { async coverage(query) { started.resolve(); await gate.promise; return consent.coverage(query); } },
     reasoning: { ...mock, async structured(...args) { calls++; return mock.structured(...args); } } });
   try {
     const s = storage.create({ ownerToken: token, demo: true }); storage.postTurn(s.id, 't', Buffer.from('Hello'), 'Hello');
@@ -232,7 +234,7 @@ test('legacy databases migrate to metadata-only events and receipts without losi
 
 test('withdrawal rebuilds remaining input without waiting for a provider that ignores cancellation', async () => {
   const storage = new SQLiteStorage(), mock = createMockReasoning(), started = deferred(), gate = deferred(); let calls = 0, oldSignal;
-  const handlers = createHandlers({ storage, consent, reasoning: { ...mock, async structured(request, options) {
+  const handlers = handlersWith({ storage, consent, reasoning: { ...mock, async structured(request, options) {
     const value = await mock.structured(request, options);
     if (++calls === 1) { oldSignal = options.signal; started.resolve(); await gate.promise; }
     return value;
@@ -250,4 +252,14 @@ test('withdrawal rebuilds remaining input without waiting for a provider that ig
     assert.equal(storage.get(s.id).seq, seq);
     assert.equal(JSON.stringify(storage.get(s.id)).includes('old-input'), false);
   } finally { gate.resolve(); await handlers.close(); storage.close(); }
+});
+
+test('coverage expiry is checked after the host returns its asynchronous grant', async () => {
+  const { consentCoverage } = await import('@inspr/aithema-core');
+  const session = createSession(), expiresAt = Date.now() + 5;
+  const port = { async coverage() {
+    await new Promise(resolve => setTimeout(resolve, 15));
+    return { covered: true, ...scope, consentRevision: session.consentRevision, expiresAt };
+  } };
+  assert.equal(await consentCoverage(port, session, scope), false);
 });

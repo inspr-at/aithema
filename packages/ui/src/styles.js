@@ -34,7 +34,7 @@ ol { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; 
   border-right:1px solid var(--aithema-line); clip-path:polygon(100% 0,0 0,100% 100%); }
 .turn strong { display:block; font-size:.68rem; color:var(--aithema-muted); margin-bottom:.2rem; }
 .turn span { white-space:pre-wrap; } .turn.partial { color:var(--aithema-muted); }
-.withdraw { display:block; margin-top:.5rem; font-size:.7rem; padding:.2rem .4rem; } .pause { font-size:.75rem; }
+.withdraw { display:block; margin-top:.5rem; font-size:.7rem; padding:.2rem .4rem; } .pause { font-size:.75rem; min-width:5.5rem; flex-shrink:0; }
 .composer { border-top:1px solid var(--aithema-line); padding:.8rem 1.2rem; display:grid; gap:.5rem; }
 .composer label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
 textarea { resize:none; width:100%; height:5rem; border:0; background:transparent; color:inherit; padding:.3rem 0; }

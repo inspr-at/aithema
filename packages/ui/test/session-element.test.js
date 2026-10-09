@@ -353,3 +353,39 @@ test('device sends text in this tab only; browser configure/disconnect aborts lo
     c.remove(); assert.equal(signal.aborted, true);
   } finally { c.remove(); globalThis.fetch = originalFetch; }
 });
+
+test('pause and consent gate sends immediately while preset updates defer and cached understanding stays visible', async () => {
+  const c = setup(), root = c.shadowRoot;
+  turn(c, 'input', 'systems: SAP');
+  c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
+  const send = root.querySelector('.send'), pause = root.querySelector('.pause'), preset = root.querySelector('.preset-panel');
+  preset.dispatchEvent(new window.Event('pointerenter'));
+  const features = root.querySelector('.features').textContent;
+  c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
+  assert.equal(send.disabled, true); assert.equal(pause.textContent, en.resume);
+  assert.equal(root.querySelector('.features').textContent, features);
+  assert.equal(root.querySelector('.summary-text').textContent.includes('untrusted'), true);
+  assert.equal(root.querySelector('.readiness').style.visibility, '');
+  assert.ok([...root.querySelectorAll('.analysis-content section')].every(node => !node.hidden));
+  preset.dispatchEvent(new window.Event('pointerleave'));
+  assert.match(root.querySelector('.features').textContent, /Session paused/);
+  root.querySelector('.transcript-shell').dispatchEvent(new window.Event('pointerenter'));
+  root.querySelector('.understanding').dispatchEvent(new window.Event('pointerenter'));
+  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: false } });
+  assert.equal(send.disabled, true); assert.equal(root.querySelector('.summary-text').textContent, '');
+  assert.equal(root.querySelector('.send'), send); assert.equal(root.querySelector('.pause'), pause);
+  assert.match(root.querySelector('style').textContent, /min-width:5.5rem/);
+});
+
+test('an old snapshot cannot undo acknowledged pause during recovery', async () => {
+  const c = setup(), beforePause = c.session, original = globalThis.fetch;
+  let release;
+  globalThis.fetch = () => new Promise(resolve => { release = resolve; });
+  try {
+    c.receive({ seq: c.session.seq + 2, type: 'turn.final', data: {} });
+    c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
+    release(Response.json(beforePause)); await new Promise(resolve => setImmediate(resolve));
+    assert.equal(c.session.paused, true);
+    assert.equal(c.shadowRoot.querySelector('.send').disabled, true);
+  } finally { globalThis.fetch = original; }
+});

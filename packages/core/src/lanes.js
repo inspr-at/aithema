@@ -6,7 +6,8 @@ import { untilCancelled, cancellableStream } from './cancellation.js';
 
 export class SessionLanes {
   #flights = new Map();
-  constructor({ reasoning, draftReasoning = reasoning, getSession, publish, transient = () => {}, deadlineMs = 30_000, hostPrompt = '', admit, beforeDispatch }) {
+  constructor({ reasoning, draftReasoning = reasoning, getSession, publish, transient = () => {}, deadlineMs = 30_000,
+    hostPrompt = '', admit, beforeDispatch = admit ? undefined : async () => false }) {
     this.reasoning = assertReasoning(reasoning);
     this.draftReasoning = assertReasoning(draftReasoning);
     Object.assign(this, { getSession, publish, transient, deadlineMs, hostPrompt, admit, beforeDispatch });
@@ -18,9 +19,12 @@ export class SessionLanes {
     }
   }
   cancel(id) {
+    const pending = [];
     for (const flight of this.#flights.values()) if (flight.id === id) {
       flight.controller.abort(new DOMException('Session revoked', 'AbortError'));
+      pending.push(flight.promise);
     }
+    return Promise.allSettled(pending);
   }
   run(id, lane, { signal } = {}) {
     if (!['understanding', 'reaction'].includes(lane)) throw new TypeError('Unknown lane');
