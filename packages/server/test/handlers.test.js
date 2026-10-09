@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers } from '../src/index.js';
 import { createMockReasoning, inputRevision } from '@inspr/aithema-core';
+import { instrumentedMockRuntime } from '../../../test/server-fixtures.js';
 
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 const request = (path, body) => new Request(`http://localhost/api/sessions/${path}`, body === undefined ? {} : {
@@ -19,10 +20,11 @@ async function waitFor(predicate) {
 for (const check of ['abort', 'reply']) test(`superseding a held understanding call: ${check}`, async () => {
   const storage = new SQLiteStorage(), mock = createMockReasoning(), started = deferred(), held = deferred();
   let oldSignal, calls = 0;
-  const handlers = createHandlers({ storage, reasoning: { ...mock, async structured(...args) {
+  const reasoning = { ...mock, async structured(...args) {
     if (++calls === 1) { oldSignal = args[1].signal; started.resolve(); await held.promise; }
     return mock.structured(...args);
-  } } });
+  } };
+  const handlers = createHandlers({ storage, reasoning, pluginRuntime: instrumentedMockRuntime(storage, reasoning) });
   try {
     const s = storage.create({ demo: true });
     await turn(handlers, s.id, 'first', 'First'); await started.promise;
@@ -39,10 +41,11 @@ for (const check of ['abort', 'reply']) test(`superseding a held understanding c
 
 test('GET retains a sanitized current-revision lane failure and SSE reschedules unfinished work', async () => {
   const storage = new SQLiteStorage(), mock = createMockReasoning(); let calls = 0;
-  const handlers = createHandlers({ storage, reasoning: { ...mock, async structured(...args) {
+  const reasoning = { ...mock, async structured(...args) {
     if (++calls === 1) throw new Error('private provider diagnostic');
     return mock.structured(...args);
-  } } });
+  } };
+  const handlers = createHandlers({ storage, reasoning, pluginRuntime: instrumentedMockRuntime(storage, reasoning) });
   let subscription;
   try {
     const s = storage.create({ demo: true });

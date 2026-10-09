@@ -192,7 +192,7 @@ test('switching Best to EU gates the composer and analysis with their exact reas
   } finally { globalThis.fetch = originalFetch; }
 });
 
-test('feature gates keep hovered controls in place across a restored snapshot', async () => {
+test('composer gates update immediately while hovered and the aside stays in place across a restored snapshot', async () => {
   const c = setup(); turn(c, 'first', 'Hello');
   const root = c.shadowRoot, composer = root.querySelector('.composer'), send = root.querySelector('.send'), aside = root.querySelector('.understanding');
   composer.dispatchEvent(new window.Event('pointerenter')); aside.dispatchEvent(new window.Event('pointerenter'));
@@ -203,11 +203,65 @@ test('feature gates keep hovered controls in place across a restored snapshot', 
     c.receive({ seq: c.session.seq + 2, type: 'turn.final', data: {} });
     await new Promise(r => setImmediate(r));
     assert.equal(root.querySelector('.send'), send); assert.equal(root.querySelector('.understanding'), aside);
-    assert.equal(send.disabled, false, 'visual gate waits for the pointer to leave');
+    assert.equal(send.disabled, true, 'fixed composer controls update while hovered');
+    assert.equal(root.querySelector('textarea').disabled, true);
+    assert.equal(root.querySelector('.composer-reason').textContent, 'session paused');
+    assert.equal(root.querySelector('.composer-reason').title, 'session paused');
     assert.equal(root.querySelector('.retry').hidden, false);
     composer.dispatchEvent(new window.Event('pointerleave')); aside.dispatchEvent(new window.Event('pointerleave'));
     assert.equal(send.disabled, true); assert.equal(root.querySelector('.retry').hidden, true);
     assert.equal(aside.hidden, false, 'fixed aside remains in the layout');
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+for (const preset of ['best', 'device']) for (const trigger of ['click', 'ctrlKey', 'metaKey']) {
+  test(`hovered ${preset} composer permits consecutive sends using ${trigger} and blocks overlapping sends`, async () => {
+    const c = setup(), originalFetch = globalThis.fetch; let calls = 0, release;
+    const held = () => new Promise(resolve => { release = resolve; });
+    const device = { async connect() { calls++; await held(); }, async *stream() { yield 'Local answer'; } };
+    if (preset === 'device') c.configure({ copy: en, session: createSession({ processingPreset: 'device' }), deviceReasoning: device });
+    const root = c.shadowRoot, input = root.querySelector('textarea'), send = root.querySelector('.send');
+    globalThis.fetch = async (url, options) => {
+      if (url.endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+        options.signal.addEventListener('abort', () => controller.close(), { once: true });
+      } }), { headers: { 'content-type': 'text/event-stream' } });
+      calls++; await held();
+      const body = JSON.parse(options.body);
+      return Response.json({ seq: c.session.seq + 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content } });
+    };
+    const submit = () => trigger === 'click' ? send.click()
+      : input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', [trigger]: true, bubbles: true, cancelable: true }));
+    root.querySelector('.composer').dispatchEvent(new window.Event('pointerenter'));
+    try {
+      document.body.append(c);
+      for (const content of ['First', 'Second']) {
+        input.value = content; submit();
+        assert.equal(calls, content === 'First' ? 1 : 2);
+        assert.equal(send.disabled, true, 'pending send disables the button immediately');
+        send.click();
+        input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true }));
+        input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', metaKey: true }));
+        assert.equal(calls, content === 'First' ? 1 : 2, 'sending guard prevents overlapping dispatch');
+        release(); await new Promise(resolve => setImmediate(resolve));
+        assert.equal(send.disabled, false, 'completion re-enables Send without leaving the composer');
+        assert.equal(input.value, '');
+      }
+      assert.deepEqual(c.session.transcript.filter(t => t.role === 'user').map(t => t.content), ['First', 'Second']);
+    } finally { release?.(); c.remove(); await new Promise(resolve => setImmediate(resolve)); globalThis.fetch = originalFetch; }
+  });
+}
+
+test('shortcut send uses sending and feature state even when the button has a stale disabled value', async () => {
+  const c = setup(), root = c.shadowRoot, originalFetch = globalThis.fetch; let calls = 0;
+  globalThis.fetch = async (_, options) => {
+    calls++; const body = JSON.parse(options.body);
+    return Response.json({ seq: c.session.seq + 1, type: 'turn.final', data: { id: body.clientEventId, role: 'user', content: body.content } });
+  };
+  try {
+    root.querySelector('.send').disabled = true;
+    root.querySelector('textarea').value = 'Allowed';
+    root.querySelector('textarea').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', metaKey: true }));
+    await new Promise(resolve => setImmediate(resolve)); assert.equal(calls, 1);
   } finally { globalThis.fetch = originalFetch; }
 });
 

@@ -1,6 +1,6 @@
 import { validateManifest } from './plugins.js';
 import { matchesSchema, operationScope } from './reasoning.js';
-import { PLUGIN_ERROR_CODES, PluginError } from './invocation.js';
+import { PLUGIN_ERROR_CODES, PluginError, isCancelledZeroReport } from './invocation.js';
 // Portable executable reasoning kit. No provider calls are built into the kit;
 // adapters supply their local fixtures and a request valid for their schema.
 export async function reasoningConformance(plugin, request, { timeoutMs = 1000, stallRequest, requestCount } = {}) {
@@ -26,18 +26,29 @@ export async function reasoningConformance(plugin, request, { timeoutMs = 1000, 
       ...(operation === 'stream' || stallRequest ? ['active-cancelled', 'active-deadline'] : []), 'consume-refused']) {
       const controller = new AbortController(), reports = [];
       if (mode === 'cancelled') controller.abort();
-      let burned = false, refused = false;
+      let burned = false, refused = false, conflictingReport = false;
       const beforeRequests = requestCount?.();
       const active = mode.startsWith('active-'), input = active && stallRequest ? stallRequest : request;
       let cancelTimer;
       const attemptId = crypto.randomUUID();
+      const report = terminal => {
+        if (reports.length) {
+          if (refused && isCancelledZeroReport(terminal, attemptId)) return;
+          conflictingReport = true; throw new PluginError('already-claimed');
+        }
+        reports.push(terminal);
+      };
       const options = { signal: controller.signal, deadlineAt: Date.now() + (mode === 'deadline' ? -1 : mode === 'active-deadline' ? 30 : timeoutMs),
         attempt: { attemptId, claimId: crypto.randomUUID(), consume() {
           if (requestCount) check(requestCount() === beforeRequests, `${operation} dispatched before consume`);
-          if (mode === 'consume-refused') { refused = true; throw new PluginError('not-admitted'); }
+          if (mode === 'consume-refused') {
+            refused = true;
+            report({ attemptId, outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 } });
+            throw new PluginError('not-admitted');
+          }
           if (burned) throw new Error('claim reused'); burned = true;
         } },
-        report: terminal => reports.push(terminal) };
+        report };
       try {
         await within(async () => {
           if (operation === 'stream') {
@@ -64,18 +75,18 @@ export async function reasoningConformance(plugin, request, { timeoutMs = 1000, 
       finally { clearTimeout(cancelTimer); controller.abort(); }
       if (mode === 'consume-refused') {
         check(refused && !burned, `${operation} consume refusal missing`);
-        check(reports.length <= 1 && reports.every(r => ['cancelled', 'uncertain'].includes(r.outcome)), `${operation} consume refusal false completion`);
+        check(!conflictingReport && reports.length === 1 && isCancelledZeroReport(reports[0], attemptId), `${operation} consume refusal false completion`);
         if (requestCount) check(requestCount() === beforeRequests, `${operation} dispatched after consume refusal`);
-        continue; // The authority can refuse before the plugin has an invocation to report.
+        continue; // The authority settles before throwing, even when the plugin has no invocation to report.
       }
       check(burned, `${operation} claim not consumed`);
       check(reports.length === 1, `${operation} ${mode} terminal count`);
-      const report = reports[0];
-      check(report?.attemptId === attemptId, `${operation} terminal attempt`);
-      check(['completed', 'cancelled', 'uncertain'].includes(report?.outcome), `${operation} terminal outcome`);
-      if (report?.outcome !== 'uncertain') check(report?.usage && Number.isSafeInteger(report.usage.inputTokens) &&
-        report.usage.inputTokens >= 0 && Number.isSafeInteger(report.usage.outputTokens) && report.usage.outputTokens >= 0, `${operation} terminal usage`);
-      if (mode !== 'completed') check(report?.outcome !== 'completed', `${operation} false completion`);
+      const terminal = reports[0];
+      check(terminal?.attemptId === attemptId, `${operation} terminal attempt`);
+      check(['completed', 'cancelled', 'uncertain'].includes(terminal?.outcome), `${operation} terminal outcome`);
+      if (terminal?.outcome !== 'uncertain') check(terminal?.usage && Number.isSafeInteger(terminal.usage.inputTokens) &&
+        terminal.usage.inputTokens >= 0 && Number.isSafeInteger(terminal.usage.outputTokens) && terminal.usage.outputTokens >= 0, `${operation} terminal usage`);
+      if (mode !== 'completed') check(terminal?.outcome !== 'completed', `${operation} false completion`);
     }
   }
   return { ok: failures.length === 0, failures };

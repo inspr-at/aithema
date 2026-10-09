@@ -1,3 +1,4 @@
+import { isCanonicalMockReasoning } from './reasoning.js';
 // Public technical metadata only. Legal qualification and account evidence are host-private (D4).
 export const PLUGIN_KINDS = Object.freeze(['reasoning', 'stt', 'tts', 'live-voice', 'ui-generation', 'extractor', 'exporter']);
 export const KIND_OPERATIONS = Object.freeze({ reasoning: ['stream', 'structured'], stt: ['transcribe'], tts: ['speak'],
@@ -64,12 +65,12 @@ export function validateSchema(value, schema, path = '$', errors = []) {
 export function validateManifest(manifest) {
   const errors = validateSchema(manifest, MANIFEST_SCHEMA);
   if (!errors.length) {
-    const privateKeys = /^(?:apiKey|apiToken|token|accessToken|refreshToken|password|passphrase|credentials?|clientSecret|authorization|secret|secretRef|accountRef|accountId|legal|retention|training|consent|consentVersion|purpose|processors|recipient|dataCategories)$/iu;
+    const privateKeys = /^(?:apiKey|apiToken|token|accessToken|refreshToken|password|passphrase|credentials?|clientSecret|privateKey|authorization|secret|secretRef|accountRef|accountId|legal|retention|training|consent|consentVersion|purpose|processors|recipient|dataCategories)$/iu;
     const containsPrivateConfig = schema => {
       if (!schema || typeof schema !== 'object') return false;
-      const stringProperty = schema.type === 'string' || Array.isArray(schema.type) && schema.type.includes('string');
-      return stringProperty && ['default', 'const', 'examples'].some(k => Object.hasOwn(schema, k)) ||
-        Object.entries(schema).some(([k, v]) => privateKeys.test(k) || containsPrivateConfig(v));
+      return ['default', 'const', 'examples'].some(k => Object.hasOwn(schema, k)) ||
+        Array.isArray(schema.enum) && schema.enum.some(value => typeof value === 'string') ||
+        Object.entries(schema).some(([k, v]) => privateKeys.test(k.replace(/[_-]/gu, '')) || containsPrivateConfig(v));
     };
     if (containsPrivateConfig(manifest.configSchema)) errors.push('private config belongs in host binding');
     if (!manifest.entrypoints[manifest.placement]) errors.push('missing placement entrypoint');
@@ -95,8 +96,10 @@ export function deepFreeze(value) {
 }
 const deeplyFrozen = value => !value || typeof value !== 'object' ||
   Object.isFrozen(value) && Object.values(value).every(deeplyFrozen);
+export const mockManifest = deepFreeze(publicReasoningManifest('mock', 'Mock reasoning', 'https://example.test'));
 export class PluginRegistry {
   #entries = new Map();
+  #mockInstances = new WeakSet();
   register(plugin) {
     const result = validateManifest(plugin?.manifest);
     if (!result.ok) throw new TypeError(`Invalid plugin manifest: ${result.errors.join('; ')}`);
@@ -105,8 +108,10 @@ export class PluginRegistry {
       throw new TypeError('Missing plugin operation or health');
     }
     const entry = { ...plugin, manifest: deeplyFrozen(plugin.manifest) ? plugin.manifest : deepFreeze(structuredClone(plugin.manifest)) };
+    if (isCanonicalMockReasoning(plugin)) { Object.freeze(entry); this.#mockInstances.add(entry); }
     this.#entries.set(entry.manifest.id, entry); return this;
   }
+  isCanonicalMock(plugin) { return this.#mockInstances.has(plugin); }
   get(id) { return this.#entries.get(id); }
   list() { return [...this.#entries.values()]; }
 }

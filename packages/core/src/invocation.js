@@ -3,6 +3,13 @@ export const PLUGIN_ERROR_CODES = Object.freeze(['cancelled', 'deadline', 'not-a
 export class PluginError extends Error {
   constructor(code, message = code) { super(message); this.name = 'PluginError'; this.code = code; }
 }
+// A refused authority claim permits only an exact replay of its zero-cost cancellation.
+export function isCancelledZeroReport(terminal, attemptId) {
+  return terminal?.attemptId === attemptId && terminal.outcome === 'cancelled' &&
+    Object.keys(terminal).length === 3 && ['attemptId', 'outcome', 'usage'].every(key => Object.hasOwn(terminal, key)) &&
+    terminal.usage?.inputTokens === 0 && terminal.usage.outputTokens === 0 && Object.keys(terminal.usage).length === 2 &&
+    ['inputTokens', 'outputTokens'].every(key => Object.hasOwn(terminal.usage, key));
+}
 export function normalizedError(error, signal) {
   if (signal?.aborted) return new PluginError(signal.reason?.name === 'TimeoutError' ? 'deadline' : 'cancelled', signal.reason?.message ?? 'Cancelled');
   return error instanceof PluginError ? error : new PluginError('provider', 'Provider request failed');

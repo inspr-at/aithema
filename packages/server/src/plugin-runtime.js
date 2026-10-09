@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { PluginRegistry, createMockReasoning, mockManifest, createBinding, PluginError, PROCESSING_PRESETS, FEATURES,
+import { PluginRegistry, createMockReasoning, createBinding, PluginError, isCancelledZeroReport, PROCESSING_PRESETS, FEATURES,
   deviceFeatures, featureUnavailable, bindingReason, processingScope, consentReason, operationScope, inputRevision } from '@inspr/aithema-core';
 import { SQLiteBudgetLedger } from './budget.js';
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
@@ -26,7 +26,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     let plugin = registry.get(binding.plugin);
     if (!plugin) return { reason: 'plugin not registered' };
     if (plugin.bind) { try { plugin = plugin.bind(binding); } catch { return { reason: 'binding invalid' }; } }
-    const mock = plugin.manifest === mockManifest && plugin.billable === false;
+    const mock = registry.isCanonicalMock(plugin);
     if (!plugin.bind && !mock && (!plugin.binding || hash(plugin.binding) !== hash(binding))) return { reason: 'plugin binding mismatch' };
     if (!plugin.manifest.kinds.includes(kind)) return { reason: 'plugin kind unsupported' };
     const model = plugin.manifest.models.find(m => m.id === binding.model) ?? plugin.manifest.models.find(m => m.id === '*');
@@ -91,9 +91,12 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       if (operation !== result.operation) throw new PluginError('not-admitted');
       const { attemptId } = budget.admit({ sessionId: session.id, lane, maxMicro: binding.maxMicro,
         requestSha256: hash(request), bindingSha256: hash(binding) });
-      const claim = budget.claim(attemptId); let reported = false;
+      const claim = budget.claim(attemptId); let reported = false, refused = false;
       const report = terminal => {
-        if (reported) throw new PluginError('already-claimed');
+        if (reported) {
+          if (refused && isCancelledZeroReport(terminal, attemptId)) return;
+          throw new PluginError('already-claimed');
+        }
         const settlement = budget.settle(claim.claimId, terminal, binding.rates); reported = true; return settlement;
       };
       const attempt = Object.freeze({ ...claim, consume() {
@@ -103,6 +106,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
           : result.scope && consentReason(result.coverage, result.scope, now());
         if (reason) {
           report({ attemptId, outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 } });
+          refused = true;
           throw new PluginError('not-admitted', reason);
         }
         claim.consume();

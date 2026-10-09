@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { validateManifest, PluginRegistry, createBinding, createMockReasoning, reasoningConformance,
   reasoningRequest, createSession, understandingSchema, PLUGIN_KINDS, KIND_OPERATIONS } from '../src/index.js';
-import { brokenReasoning, brokenPreflightReasoning, binding, invocationOptions, chatServer, request as fixtureRequest } from '../../../test/plugin-fixtures.js';
+import { brokenReasoning, brokenPreflightReasoning, consumeInFinallyReasoning, binding, invocationOptions, chatServer, request as fixtureRequest } from '../../../test/plugin-fixtures.js';
 import { createOpenRouterReasoning } from '../../../plugins/openrouter/src/index.js';
 test('public manifests validate without dependencies and reject private/legal fields and malformed metadata', () => {
   const m = structuredClone(createMockReasoning().manifest);
@@ -66,10 +66,44 @@ test('D4 excludes private config keys and string property defaults, constants an
 });
 
 test('registry preserves immutable canonical mock identity but detaches mutable manifests', () => {
-  const plugin = createMockReasoning();
-  assert.equal(new PluginRegistry().register(plugin).get('mock').manifest, plugin.manifest);
+  const plugin = createMockReasoning(), registry = new PluginRegistry().register(plugin), entry = registry.get('mock');
+  assert.equal(entry.manifest, plugin.manifest);
+  assert.equal(registry.isCanonicalMock(entry), true);
+  assert.equal(registry.isCanonicalMock(plugin), false, 'only registered canonical entries carry the exemption');
+  assert.equal(new PluginRegistry().isCanonicalMock(entry), false, 'exemptions belong to the registering registry');
+  assert.ok(Object.isFrozen(plugin)); assert.ok(Object.isFrozen(entry));
+  assert.throws(() => entry.stream = async function* () {}, TypeError);
+  const copied = new PluginRegistry().register({ ...entry });
+  assert.equal(copied.isCanonicalMock(copied.get('mock')), false, 'copying a canonical entry cannot copy its authority');
   const mutable = { ...plugin, manifest: structuredClone(plugin.manifest) };
   assert.notEqual(new PluginRegistry().register(mutable).get('mock').manifest, mutable.manifest);
+});
+
+test('D4 rejects separated private key names and value keywords regardless of property type', async t => {
+  const manifest = createMockReasoning().manifest;
+  for (const key of ['api_key', 'api-key', 'access_token', 'access-token', 'client_secret', 'client-secret', 'private_key', 'private-key']) {
+    await t.test(key, () => {
+      const invalid = structuredClone(manifest);
+      invalid.configSchema = { properties: { nested: { properties: { [key]: { type: 'string' } } } } };
+      assert.equal(validateManifest(invalid).ok, false);
+    });
+  }
+  for (const type of [undefined, 'number', 'object', 'array', 'boolean', 'null']) for (const keyword of ['default', 'const', 'examples']) {
+    await t.test(`${type ?? 'untyped'} ${keyword}`, () => {
+      const invalid = structuredClone(manifest);
+      const value = type === 'object' ? { label: 'private' } : type === 'array' ? ['private'] : 'private';
+      invalid.configSchema = { properties: { label: { ...(type ? { type } : {}), [keyword]: keyword === 'examples' ? [value] : value } } };
+      assert.equal(validateManifest(invalid).ok, false);
+    });
+  }
+  for (const type of [undefined, 'string', 'number']) await t.test(`${type ?? 'untyped'} string enum`, () => {
+    const invalid = structuredClone(manifest);
+    invalid.configSchema = { properties: { label: { ...(type ? { type } : {}), enum: [1, 'private'] } } };
+    assert.equal(validateManifest(invalid).ok, false);
+  });
+  const valid = structuredClone(manifest);
+  valid.configSchema = { properties: { size: { type: 'number', enum: [1, 2] }, enabled: { type: 'boolean', enum: [true, false] } } };
+  assert.equal(validateManifest(valid).ok, true);
 });
 
 test('conformance rejects structured operations that only check cancellation and deadline at preflight', async t => {
@@ -114,4 +148,18 @@ test('conformance detects dispatch before consume and plugins swallowing a consu
   const result = await reasoningConformance(ignoresRefusal, fixtureRequest, kitOptions);
   assert.ok(result.failures.includes('structured consume refusal false completion'));
   assert.ok(result.failures.includes('structured dispatched after consume refusal'));
+});
+
+test('conformance models cancelled-zero authority settlement for plugins consuming inside try/finally', async t => {
+  const fake = await chatServer(t);
+  const plugin = createOpenRouterReasoning({ binding: binding('openrouter', fake.endpoint), fetchImpl: fake.fetchImpl, resolveSecret: () => 'local-fixture' });
+  const kitOptions = { stallRequest: { ...fixtureRequest, system: 'stall' }, requestCount: () => fake.requests.length };
+  assert.deepEqual(await reasoningConformance(consumeInFinallyReasoning(plugin), fixtureRequest, kitOptions), { ok: true, failures: [] });
+  for (const change of [terminal => ({ ...terminal, outcome: 'uncertain' }), terminal => ({ ...terminal, attemptId: 'wrong' }),
+    terminal => ({ ...terminal, usage: { inputTokens: 1, outputTokens: 0 } })]) {
+    const result = await reasoningConformance(consumeInFinallyReasoning(plugin, { refusedReport: change }), fixtureRequest, kitOptions);
+    assert.equal(result.ok, false, 'a conflicting final report must fail conformance');
+    assert.ok(result.failures.includes('stream consume-refused error code'));
+    assert.ok(result.failures.includes('structured consume-refused error code'));
+  }
 });

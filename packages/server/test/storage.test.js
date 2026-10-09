@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, ConflictError, createHandlers, exportSession } from '../src/index.js';
 import { inputRevision, createMockReasoning } from '@inspr/aithema-core';
+import { instrumentedMockRuntime } from '../../../test/server-fixtures.js';
 import { temporaryDb, unzip, readEvents } from '../../../test/helpers.js';
 const bytes = content => Buffer.from(JSON.stringify({ clientEventId: 'turn1', content }));
 test('storage connections wait briefly for another SQLite writer', () => {
@@ -75,8 +76,9 @@ test('export ZIP holds exactly transcript JSON/Markdown and understanding, witho
 test('turn acknowledgement happens before reasoning completes and malformed requests are rejected', async () => {
   const store = new SQLiteStorage(), mock = createMockReasoning(); let release;
   const gate = new Promise(r => { release = r; });
-  const handlers = createHandlers({ storage: store, reasoning: { ...mock, async structured(...args) { await gate; return mock.structured(...args); },
-    async *stream(...args) { await gate; yield* mock.stream(...args); } } });
+  const reasoning = { ...mock, async structured(...args) { await gate; return mock.structured(...args); },
+    async *stream(...args) { await gate; yield* mock.stream(...args); } };
+  const handlers = createHandlers({ storage: store, reasoning, pluginRuntime: instrumentedMockRuntime(store, reasoning) });
   try {
     const s = store.create({ demo: true });
     const response = await handlers.handle(new Request(`http://localhost/api/sessions/${s.id}/turns`, { method: 'POST', body: bytes('hello') }));

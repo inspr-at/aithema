@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHandlers, createPluginRuntime, SQLiteStorage, SQLiteBudgetLedger } from '../src/index.js';
 import { PluginRegistry, createMockReasoning, mockManifest, SessionLanes } from '@inspr/aithema-core';
 import { createOpenRouterReasoning } from '../../../plugins/openrouter/src/index.js';
-import { binding, chatServer, request } from '../../../test/plugin-fixtures.js';
+import { binding, chatServer, request, consumeInFinallyReasoning } from '../../../test/plugin-fixtures.js';
 function qualify(b) {
   return { ...b, legal: { approved: true, countries: ['FR'], training: false, retention: 'host qualified',
     purpose: 'requirements', recipient: 'fixture-provider', processors: ['fixture-processor'],
@@ -184,9 +184,42 @@ test('only the nonbillable canonical mock identity is exempt from qualification 
   const storage = new SQLiteStorage(), session = storage.create(); t.after(() => storage.close());
   const mock = createMockReasoning(), raw = { ...binding('mock', 'https://example.test'), maxMicro: 0, rates: { inputMicro: 0, outputMicro: 0 } };
   const presets = { best: { plugins: ['mock'], bindings: { reaction: raw } } };
-  for (const fake of [{ ...mock, billable: true, binding: raw }, { ...mock, manifest: structuredClone(mockManifest), binding: raw }]) {
+  for (const fake of [{ ...mock, billable: true, binding: raw }, { ...mock, manifest: structuredClone(mockManifest), binding: raw },
+    { ...mock, manifest: mockManifest, billable: false, binding: raw }]) {
     const runtime = createPluginRuntime({ storage, presets, registry: new PluginRegistry().register(fake) });
     assert.equal((await runtime.matrix(session)).best.text.reason, 'binding evidence unverified');
   }
   assert.equal((await createPluginRuntime({ storage }).matrix(session)).best.text.available, true);
+});
+
+test('consume inside plugin try/finally preserves runtime refusal and only identical cancelled-zero repeats are no-ops', async t => {
+  const fake = await chatServer(t), h = setup(t, fake.endpoint);
+  const get = h.storage.get.bind(h.storage); let paused = false;
+  h.storage.get = id => ({ ...get(id), paused });
+  const plugin = consumeInFinallyReasoning(h.plugin);
+  for (const [lane, operation] of [['reaction', 'stream'], ['understanding', 'structured']]) {
+    paused = false;
+    const invocation = await h.runtime.admit({ session: h.session, lane, operation, request, options: {} });
+    paused = true;
+    const run = operation === 'stream' ? plugin.stream(request, invocation.options).next() : plugin.structured(request, invocation.options);
+    await assert.rejects(run, { code: 'not-admitted', message: 'Session changed before dispatch' });
+    invocation.finish({ failed: true });
+    const terminal = { usage: { outputTokens: 0, inputTokens: 0 }, outcome: 'cancelled', attemptId: invocation.options.attempt.attemptId };
+    assert.doesNotThrow(() => invocation.options.report(terminal));
+    for (const conflicting of [{ ...terminal, attemptId: 'wrong' }, { ...terminal, outcome: 'uncertain' },
+      { ...terminal, usage: { inputTokens: 1, outputTokens: 0 } }, { ...terminal, extra: true }]) {
+      assert.throws(() => invocation.options.report(conflicting), { code: 'already-claimed' });
+    }
+    assert.throws(() => invocation.options.attempt.consume(), { code: 'already-claimed' });
+  }
+  paused = false;
+  const dispatched = await h.runtime.admit({ session: h.session, lane: 'reaction', operation: 'stream', request, options: {} });
+  dispatched.options.attempt.consume();
+  const terminal = { attemptId: dispatched.options.attempt.attemptId, outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 } };
+  dispatched.options.report(terminal);
+  assert.throws(() => dispatched.options.report(terminal), { code: 'already-claimed' }, 'ordinary plugin reports retain the one-terminal guard');
+  assert.equal(fake.bodies.length, 0);
+  const rows = h.storage.db.prepare('SELECT * FROM budget_attempts').all();
+  assert.equal(rows.length, 3);
+  assert.ok(rows.every(row => row.state === 'settled' && row.outcome === 'cancelled' && row.settled_micro === 0));
 });

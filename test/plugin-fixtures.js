@@ -41,6 +41,25 @@ export async function chatServer(t, { handler } = {}) {
 export const brokenReasoning = { manifest: publicReasoningManifest('broken', 'Broken', 'https://example.test'),
   async health() { return { available: 'yes' }; }, async *stream() { yield 'oops'; }, async structured() { return { summary: 'oops' }; } };
 
+// Third-party shape: consume happens inside try, so finally also runs on authority refusal.
+export function consumeInFinallyReasoning(plugin, { refusedReport = terminal => terminal } = {}) {
+  const terminal = options => refusedReport({ attemptId: options.attempt.attemptId,
+    outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 } });
+  const consumedOptions = options => ({ ...options, attempt: { ...options.attempt, consume() {} } });
+  return { ...plugin,
+    async *stream(request, options) {
+      let consumed = false;
+      try { options.attempt.consume(); consumed = true; yield* plugin.stream(request, consumedOptions(options)); }
+      finally { if (!consumed) await options.report(terminal(options)); }
+    },
+    async structured(request, options) {
+      let consumed = false;
+      try { options.attempt.consume(); consumed = true; return await plugin.structured(request, consumedOptions(options)); }
+      finally { if (!consumed) await options.report(terminal(options)); }
+    },
+  };
+}
+
 // Correct stream/authority/reporting, but structured only checks lifetime before opening the fixture.
 export function brokenPreflightReasoning(plugin, { fetchImpl = globalThis.fetch } = {}) {
   return { ...plugin, async structured(request, options) {

@@ -78,9 +78,9 @@ export class AithemaSession extends HTMLElement {
         if (!response.ok) throw new Error(); this.#failure = false; this.#render('aside');
       } catch { this.#status(this.#copy.reasoningFailed); }
     });
-    // Automatic updates wait until the pointer leaves the region. Fixed outer sizes
-    // and internal scrolling keep composer/export targets stable even during growth.
-    for (const [selector, name] of [['.transcript-shell', 'transcript'], ['.understanding', 'aside'], ['.composer', 'composer']]) {
+    // Growing content waits until the pointer leaves the region. The composer has
+    // a fixed, ellipsised reason line, so its controls can update immediately.
+    for (const [selector, name] of [['.transcript-shell', 'transcript'], ['.understanding', 'aside']]) {
       const pane = root.querySelector(selector);
       pane.addEventListener('pointerenter', () => this.#hover.add(name));
       pane.addEventListener('pointerleave', () => {
@@ -184,7 +184,7 @@ export class AithemaSession extends HTMLElement {
   }
   async #send() {
     const root = this.shadowRoot, input = root.querySelector('textarea'), button = root.querySelector('.send');
-    if (this.#sending || !this.#feature('text').available || button.disabled || !input.value.trim()) return;
+    if (this.#sending || !this.#feature('text').available || !input.value.trim()) return;
     const content = input.value;
     if (this.#session.processingPreset === 'device') { await this.#sendDevice(content); return; }
     const sessionId = this.#session.id;
@@ -199,7 +199,7 @@ export class AithemaSession extends HTMLElement {
       if (input.value === content) input.value = '';
       this.#pending = null; this.#status(this.#copy.saved);
     } catch { if (sessionId === this.#session.id) this.#status(this.#copy.failed); }
-    finally { if (sessionId === this.#session.id) { this.#sending = false; this.#render('composer'); } }
+    finally { if (sessionId === this.#session.id) { this.#sending = false; button.disabled = !this.#feature('text').available; this.#render('composer'); } }
   }
   async #sendDevice(content) {
     const root = this.shadowRoot, button = root.querySelector('.send'), input = root.querySelector('textarea');
@@ -221,7 +221,7 @@ export class AithemaSession extends HTMLElement {
       if (current()) this.receive({ seq: this.#cursor + 1, type: 'turn.final', data: { id, role: 'assistant', content: answer, inputRevision: revision } });
       if (current()) this.#status(this.#copy.deviceConversation);
     } catch { if (current()) { this.#partials.clear(); this.#render('transcript'); this.#status(this.#copy.deviceUnavailable); } }
-    finally { if (current()) { this.#sending = false; this.#render('composer'); } }
+    finally { if (current()) { this.#sending = false; button.disabled = !this.#feature('text').available; this.#render('composer'); } }
   }
   receive(event) {
     if (event.sessionId && event.sessionId !== this.#session.id) return;

@@ -1,5 +1,8 @@
-import { publicReasoningManifest, deepFreeze } from './plugins.js';
+import { mockManifest } from './plugins.js';
 import { beginInvocation, normalizedError } from './invocation.js';
+export { mockManifest } from './plugins.js';
+const canonicalMocks = new WeakSet();
+export function isCanonicalMockReasoning(plugin) { return canonicalMocks.has(plugin); }
 export function assertReasoning(plugin) {
   if (!plugin || typeof plugin.stream !== 'function' || typeof plugin.structured !== 'function') {
     throw new TypeError('Reasoning requires stream and structured');
@@ -33,9 +36,8 @@ export function operationScope({ signal, deadlineAt = Date.now() + 30_000 } = {}
   if (deadlineAt <= Date.now()) controller.abort(new DOMException('Deadline exceeded', 'TimeoutError'));
   return { signal: controller.signal, dispose() { clearTimeout(timer); signal?.removeEventListener('abort', abort); } };
 }
-export const mockManifest = deepFreeze(publicReasoningManifest('mock', 'Mock reasoning', 'https://example.test'));
 export function createMockReasoning() {
-  return {
+  const plugin = Object.freeze({
     id: 'mock', billable: false, label: 'Mock reasoning — deterministic demo', manifest: mockManifest,
     async health(options) { const scope = operationScope(options); try { scope.signal.throwIfAborted(); return { available: true }; }
       catch (error) { throw normalizedError(error, scope.signal); } finally { scope.dispose(); } },
@@ -75,5 +77,6 @@ export function createMockReasoning() {
       } catch (error) { throw normalizedError(error, scope.signal); }
       finally { scope.dispose(); await invocation.finish(completed); }
     },
-  };
+  });
+  canonicalMocks.add(plugin); return plugin;
 }
