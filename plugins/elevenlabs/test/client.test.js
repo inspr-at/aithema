@@ -5,6 +5,38 @@ import { unavailableVoiceCommand } from '../../../packages/core/src/live-voice.j
 import { fixture, invocationOptions, flush, fakeSdk } from './fixtures.js';
 
 async function drain(session) { const events = []; for await (const event of session.events) events.push(event); return events; }
+test('relative credential TTL accepts a receipt even when the server clock is behind the browser', async () => {
+  const local = fixture({ now: () => Date.now() - 120_000 });
+  try {
+    const session = await local.client.start({ callId: 'call_clock_skew' }, invocationOptions());
+    assert.equal(local.sdk.starts.length, 1); await session.close();
+  } finally { for (const session of local.sessions.values()) await session.close(); }
+});
+test('close without options has a configurable default timeout for a stalled control port', async () => {
+  const local = fixture({ closeTimeoutMs: 40 }), originalClose = local.control.close;
+  const options = invocationOptions(), session = await local.client.start({ callId: 'call_close_timeout' }, options);
+  let release; local.control.close = () => new Promise(resolve => { release = resolve; });
+  const pending = session.close().then(() => 'resolved', error => error.code);
+  try {
+    assert.equal(await Promise.race([pending, new Promise(resolve => setTimeout(() => resolve('stalled'), 100))]), 'deadline');
+    assert.equal((await drain(session)).at(-1).reason, 'closure-uncertain');
+  } finally {
+    release?.(await originalClose({ providerSessionId: session.providerSessionId, reason: 'closed' })); await pending;
+  }
+});
+test('SDK tool and provider errors preserve the active call; only transport errors recover', async () => {
+  const local = fixture(); let recoveries = 0;
+  local.control.recover = async () => { recoveries++; throw new Error('fixture transport unavailable'); };
+  const options = invocationOptions(), session = await local.client.start({ callId: 'call_error_scope' }, options);
+  const callbacks = local.sdk.starts[0];
+  callbacks.onError('Client tool failed', { clientToolName: 'fixture_tool' });
+  callbacks.onError('Server error', { errorType: 'agent_error' });
+  await flush(); assert.equal(recoveries, 0); assert.equal(local.sdk.closed, false); assert.equal(options.reports.length, 0);
+  await session.sendText('still active');
+  const reader = drain(session); callbacks.onError('Transport disconnected', { type: 'connection_state_changed' });
+  const events = await reader; assert.equal(recoveries, 3); assert.equal(events[0].type, 'recovering');
+  assert.equal(events.at(-1).type, 'ended');
+});
 test('SDK commands preserve independent channels; pause/resume change them only after server acknowledgement', async () => {
   let release; const local = fixture();
   const pause = local.control.pause;
@@ -109,12 +141,12 @@ test('late SDK success after cancellation is closed and the server attempt is se
   const late = await real.startSession(pendingOptions); resolve(late); await flush();
   assert.equal(real.closed, true); assert.equal(options.reports.length, 1);
 });
-test('live-voice conformance passes joined ElevenLabs halves and rejects broken behaviour and capability claims', async () => {
-  const local = fixture();
-  const kit = {
+function conformanceFixture(local) {
+  return {
     requestCount: () => local.requests.length + local.sdk.starts.length,
     persistedEvents: () => local.persisted,
     probe(command, session, { phase, before } = {}) {
+      if (command === 'close') return { providerOpen: !local.sdk.closed };
       if (phase === 'before') return { effects: local.sdk.effects.length, saved: local.saved.length };
       const sdkMethod = { sendText: 'sendUserMessage', updateContext: 'sendContextualUpdate', setInput: 'setMicMuted',
         setOutput: 'setVolume', interrupt: 'nativeInterruption' }[command];
@@ -137,6 +169,35 @@ test('live-voice conformance passes joined ElevenLabs halves and rejects broken 
       ];
     },
   };
+}
+test('live-voice conformance rejects a plugin that lies about closure in every dispatched mode', async () => {
+  const realSdk = fakeSdk(), sdk = { ...realSdk, get closed() { return realSdk.closed; },
+    async startSession(options) { const session = await realSdk.startSession(options); return { ...session, endSession: async () => {} }; } };
+  const local = fixture({ sdk, providerDetails: id => ({ conversation_id: id, status: 'done', metadata: { call_duration_secs: 1 } }) });
+  const result = await liveVoiceConformance(local.plugin, { callId: 'call_lying' }, conformanceFixture(local));
+  assert.equal(result.ok, false);
+  for (const mode of ['completed', 'active-cancelled', 'spend-deadline', 'browser-liveness-deadline']) {
+    assert.ok(result.failures.includes(`${mode} provider still open or closure observation missing`), `${mode}: ${result.failures}`);
+  }
+});
+test('live-voice conformance requires true closure confirmation for every non-uncertain terminal', async () => {
+  const local = fixture(), kit = conformanceFixture(local);
+  const plugin = { ...local.plugin, start: (request, options) => local.plugin.start(request, {
+    ...options, report: terminal => options.report({ ...terminal, closureConfirmed: false }),
+  }) };
+  const result = await liveVoiceConformance(plugin, { callId: 'call_unconfirmed' }, kit);
+  for (const mode of ['completed', 'cancelled', 'deadline', 'active-cancelled', 'spend-deadline', 'browser-liveness-deadline']) {
+    assert.ok(result.failures.includes(`${mode} terminal did not confirm provider closure`), `${mode}: ${result.failures}`);
+  }
+});
+test('live-voice conformance fails closed without an independent closure observation', async () => {
+  const local = fixture(), kit = conformanceFixture(local), probe = kit.probe;
+  kit.probe = (...args) => args[0] === 'close' ? {} : probe(...args);
+  const result = await liveVoiceConformance(local.plugin, { callId: 'call_unobserved' }, kit);
+  assert.equal(result.ok, false); assert.ok(result.failures.includes('completed provider still open or closure observation missing'));
+});
+test('live-voice conformance passes joined ElevenLabs halves and rejects broken behaviour and capability claims', async () => {
+  const local = fixture(), kit = conformanceFixture(local);
   assert.deepEqual(await liveVoiceConformance(local.plugin, { callId: 'call_conformance' }, kit), { ok: true, failures: [] });
   assert.deepEqual(await liveVoiceConformance({ ...local.plugin, manifest: {} }, { callId: 'call_invalid' }, kit),
     { ok: false, failures: ['manifest validity'] });

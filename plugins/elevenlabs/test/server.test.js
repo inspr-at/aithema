@@ -14,10 +14,86 @@ test('token and signed URL minting use configured agent, runtime secret and a fa
     assert.equal(request.url.searchParams.get('agent_id'), binding.agentId);
     assert.equal(request.options.headers['xi-api-key'], 'fake-runtime-key');
     assert.equal(request.options.redirect, 'error');
-    assert.equal(credential.connectionType, transport); assert.ok(credential.providerSessionId); assert.ok(credential.expiresAt > Date.now());
+    assert.equal(credential.connectionType, transport); assert.ok(credential.providerSessionId);
+    assert.equal(credential.ttlMs, 60_000); assert.equal(Object.hasOwn(credential, 'expiresAt'), false);
     assert.equal(JSON.stringify(credential).includes('fake-runtime-key'), false);
     if (transport === 'websocket') assert.equal(request.url.searchParams.get('include_conversation_id'), 'true');
   }
+});
+test('API binding requires HTTPS except literal loopback HTTP test endpoints', () => {
+  for (const apiBaseUrl of ['http://api.example.test', 'http://127.0.0.1.example.test', 'http://192.168.1.1', 'http://0.0.0.0']) {
+    assert.throws(() => createVoiceBinding({ ...binding, apiBaseUrl }), /Invalid ElevenLabs API base URL/);
+  }
+  for (const apiBaseUrl of ['https://api.example.test', 'http://localhost:3000', 'http://127.0.0.1:3000', 'http://[::1]:3000']) {
+    assert.equal(createVoiceBinding({ ...binding, apiBaseUrl }).apiBaseUrl, apiBaseUrl);
+  }
+});
+test('closure polls processing with backoff until done and excludes acknowledged pauses from visitor usage', async () => {
+  const startedAt = Date.now(); let clock = startedAt, observations = 0; const observedAt = [];
+  const local = fixture({ now: () => clock, closureTimeoutMs: 200, closurePollIntervalMs: 5,
+    providerDetails: id => {
+      observations++; observedAt.push(Date.now());
+      return { conversation_id: id, status: observations < 3 ? 'processing' : 'done',
+        metadata: { call_duration_secs: 120, start_time_unix_secs: startedAt / 1000, cost: 17 } };
+    } });
+  const options = invocationOptions({ spendDeadlineAt: startedAt + 180_000, browserLivenessDeadlineAt: startedAt + 180_000 });
+  const session = await local.server.start({ callId: 'call_poll', facadeSecretRef: 'fixture-ref' }, options);
+  clock = startedAt + 10_000; await session.pause(); clock = startedAt + 50_000; await session.resume();
+  const terminal = await session.close();
+  assert.equal(observations, 3); assert.ok(observedAt[2] - observedAt[1] >= 8);
+  assert.equal(terminal.outcome, 'completed'); assert.equal(terminal.closureConfirmed, true);
+  assert.deepEqual(terminal.usage, { providerSeconds: 120, providerMinutes: 2, pausedSeconds: 40, visitorSeconds: 80,
+    upstreamMicro: 1200, visitorMicro: 400, providerCredits: 17 });
+  assert.equal(options.reports.length, 1); assert.equal(options.reports[0].chargedMicro, 1200);
+  assert.equal(await session.close(), terminal); assert.equal(observations, 3);
+});
+test('only exhaustion of the closure window reports uncertain and schedules optional host reconciliation once', async () => {
+  const later = [], observedAt = [], windowMs = 40;
+  const local = fixture({ closureTimeoutMs: windowMs, closurePollIntervalMs: 3,
+    providerDetails: id => { observedAt.push(Date.now()); return { conversation_id: id, status: 'processing' }; },
+    reconcileLater: call => { later.push(call); } });
+  const options = invocationOptions(), session = await local.server.start({ callId: 'call_later', facadeSecretRef: 'fixture-ref' }, options);
+  const started = Date.now(), terminal = await session.close();
+  assert.equal(terminal.outcome, 'uncertain'); assert.ok(Date.now() - started >= windowMs - 2);
+  assert.ok(observedAt.length > 1); assert.equal(options.reports.length, 1); assert.equal(later.length, 1);
+  assert.equal(later[0].terminal.outcome, 'uncertain'); assert.equal(later[0].providerSessionId, session.providerSessionId);
+  assert.equal(JSON.stringify(later).includes('fixture-token'), false);
+  await session.close(); assert.equal(later.length, 1); assert.equal(options.reports.length, 1);
+});
+test('requestProviderClose failure still polls authenticated details and settles exactly once', async () => {
+  let shutdowns = 0;
+  const local = fixture({ requestProviderClose: () => { shutdowns++; throw new Error('fixture shutdown failure'); },
+    providerDetails: id => ({ conversation_id: id, status: 'failed', metadata: { call_duration_secs: 12 } }) });
+  const options = invocationOptions(), session = await local.server.start({ callId: 'call_close_failure', facadeSecretRef: 'fixture-ref' }, options);
+  const terminal = await session.close('cancelled', 'cancelled');
+  assert.equal(terminal.outcome, 'cancelled'); assert.equal(terminal.closureConfirmed, true); assert.equal(terminal.chargedMicro, 120);
+  await session.close(); assert.equal(shutdowns, 1); assert.equal(options.reports.length, 1);
+});
+test('close aborts stalled pause and heartbeat operations before serialized closure', async () => {
+  for (const command of ['pause', 'heartbeat']) {
+    let commandSignal, commandStarted;
+    const started = new Promise(resolve => { commandStarted = resolve; });
+    const local = fixture({ saveCall: (call, opts) => {
+      if (!call.closing && (opts?.paused === true || call.browserLivenessDeadlineAt !== options.browserLivenessDeadlineAt)) {
+        commandSignal = opts.signal; commandStarted(); return new Promise(() => {});
+      }
+      return { acknowledged: true, paused: call.paused };
+    }, providerDetails: id => ({ conversation_id: id, status: 'done', metadata: { call_duration_secs: 1 } }) });
+    const options = invocationOptions(), session = await local.server.start({ callId: `call_stall_${command}`, facadeSecretRef: 'fixture-ref' }, options);
+    await new Promise(resolve => setTimeout(resolve, 5));
+    const pending = session[command](), rejected = assert.rejects(pending, { code: 'cancelled' }); await started;
+    const terminal = await session.close(); await rejected;
+    assert.equal(commandSignal.aborted, true); assert.equal(terminal.closureConfirmed, true); assert.equal(options.reports.length, 1);
+  }
+});
+test('heartbeat after the spend deadline cannot write or extend the lease', async () => {
+  let clock = Date.now(); const local = fixture({ now: () => clock });
+  const options = invocationOptions(), session = await local.server.start({ callId: 'call_late_heartbeat', facadeSecretRef: 'fixture-ref' }, options);
+  const savedBefore = local.saved.length, leaseBefore = session.snapshot().browserLivenessDeadlineAt;
+  clock = options.spendDeadlineAt + 1;
+  await assert.rejects(session.heartbeat(), { code: 'deadline' });
+  assert.equal(local.saved.length, savedBefore); assert.equal(session.snapshot().browserLivenessDeadlineAt, leaseBefore);
+  await session.close();
 });
 test('minting rejects missing identity, malformed credentials, denied API and cancellation', async () => {
   for (const payload of [{ token: 'fake' }, { conversation_id: 'conv_valid' }, { token: 'fake', conversation_id: '../bad' }]) {
@@ -120,12 +196,12 @@ test('START presentation overrides stay allowlisted and never carry provider con
     overrides: { agent: { prompt: { customLlm: { apiKey: 'fake-not-allowed' } } } } }, denied), { code: 'provider' });
   assert.equal(denied.reports.length, 1); assert.equal(denied.reports[0].chargedMicro, 0);
 });
-test('in-flight pause cannot hold terminal settlement past the spend deadline', async () => {
+test('spend expiry aborts an in-flight pause and closure polling settles exactly once', async () => {
   const local = fixture({ saveCall: (call, opts) => opts?.paused === true ? new Promise(() => {}) : { acknowledged: true, paused: call.paused } });
   const options = invocationOptions({ spendDeadlineAt: Date.now() + 45 });
   const session = await local.server.start({ callId: 'call_pause_stall', facadeSecretRef: 'fixture-ref' }, options);
   await assert.rejects(session.pause(), { code: 'deadline' });
-  await new Promise(resolve => setTimeout(resolve, 20)); assert.equal(options.reports.length, 1);
+  await session.close('spend-deadline', 'cancelled'); assert.equal(options.reports.length, 1);
   assert.equal(options.reports[0].outcome, 'uncertain'); await session.close();
 });
 test('server cancellation invalidates the call signal immediately and settles once without a browser', async () => {

@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import { PluginError, normalizedError } from '../../../packages/core/src/invocation.js';
 import { beginVoiceInvocation, voiceLifetime, voiceOperation } from '../../../packages/core/src/live-voice.js';
 import { deepFreeze } from '../../../packages/core/src/plugins.js';
@@ -12,7 +13,8 @@ export function createVoiceBinding(value) {
   if (!value || !identifier(value.agentId) || typeof value.secretRef !== 'string' || !value.secretRef ||
     !['upstreamMicroPerMinute', 'visitorMicroPerMinute'].every(key => amount(value[key]))) throw new TypeError('Invalid private voice binding');
   const apiBaseUrl = new URL(value.apiBaseUrl ?? 'https://api.elevenlabs.io');
-  if (!['https:', 'http:'].includes(apiBaseUrl.protocol) || apiBaseUrl.username || apiBaseUrl.password ||
+  const loopbackHttp = apiBaseUrl.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(apiBaseUrl.hostname);
+  if (apiBaseUrl.protocol !== 'https:' && !loopbackHttp || apiBaseUrl.username || apiBaseUrl.password ||
     apiBaseUrl.search || apiBaseUrl.hash) throw new TypeError('Invalid ElevenLabs API base URL');
   return deepFreeze({ agentId: value.agentId, secretRef: value.secretRef, apiBaseUrl: apiBaseUrl.href.replace(/\/$/u, ''),
     upstreamMicroPerMinute: value.upstreamMicroPerMinute, visitorMicroPerMinute: value.visitorMicroPerMinute });
@@ -69,7 +71,7 @@ export async function mintConversationCredential(binding, { transport = 'webrtc'
   return { providerSessionId, connectionType: transport,
     ...(transport === 'websocket' ? { signedUrl: body.signed_url } : { conversationToken: body.token }),
     // Application freshness window. Provider signed URLs have their own 15-minute initiation TTL.
-    expiresAt: (ports.now ?? Date.now)() + 60_000 };
+    ttlMs: 60_000 };
 }
 
 function pausedMilliseconds(pauses, start, end) {
@@ -107,9 +109,12 @@ export function reconcileUsage({ call, details, binding, maxMicro, outcome = 'co
 
 /** Private host ports persist call state and acknowledge an atomic engine-wide pause transition. */
 export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecret = ref => process.env[ref],
-  saveCall, prepareCall, requestProviderClose, now = Date.now, closureTimeoutMs = 1000 } = {}) {
+  saveCall, prepareCall, requestProviderClose, reconcileLater, now = Date.now, closureTimeoutMs = 30_000,
+  closurePollIntervalMs = 250 } = {}) {
   binding = createVoiceBinding(binding);
-  if (typeof saveCall !== 'function' || typeof prepareCall !== 'function' || !(closureTimeoutMs > 0)) throw new TypeError('Durable saveCall and server-only prepareCall ports required');
+  if (typeof saveCall !== 'function' || typeof prepareCall !== 'function' ||
+    ![closureTimeoutMs, closurePollIntervalMs].every(value => Number.isFinite(value) && value > 0) ||
+    reconcileLater !== undefined && typeof reconcileLater !== 'function') throw new TypeError('Durable saveCall, prepareCall and valid closure options required');
   const provider = { fetchImpl, resolveSecret };
   return {
     manifest, binding,
@@ -135,22 +140,40 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
         lifetime?.dispose();
         options.signal?.removeEventListener('abort', cancelled);
         call = { ...call, closing: true };
-        callCancellation.abort();
+        callCancellation.abort(['spend-deadline', 'browser-liveness-deadline'].includes(reason)
+          ? new DOMException('Voice call deadline', 'TimeoutError') : undefined);
         closing = serial(async () => {
           finished = true;
           const closeOptions = { deadlineAt: Date.now() + closureTimeoutMs };
-          let details;
-          try {
-            if (call.providerSessionId) {
-              if (requestProviderClose) await voiceOperation(closeOptions, opts => requestProviderClose(structuredClone(call), opts));
-              details = await providerJson(binding, `/v1/convai/conversations/${encodeURIComponent(call.providerSessionId)}`, provider, closeOptions);
+          let details, backoffMs = closurePollIntervalMs;
+          if (call.providerSessionId) {
+            try {
+              if (requestProviderClose) await voiceOperation({ deadlineAt: Math.min(closeOptions.deadlineAt, Date.now() + 1000) },
+                opts => requestProviderClose(structuredClone(call), opts));
+            } catch { /* A failed shutdown request does not invalidate authenticated closure evidence. */ }
+            while (Date.now() < closeOptions.deadlineAt) {
+              try {
+                details = await providerJson(binding, `/v1/convai/conversations/${encodeURIComponent(call.providerSessionId)}`, provider, closeOptions);
+                if (reconcileUsage({ call, details, binding, maxMicro: options.attempt.maxMicro, outcome }).closureConfirmed) break;
+              } catch { /* Processing records and transient lookup failures are retryable within the window. */ }
+              const remainingMs = closeOptions.deadlineAt - Date.now();
+              if (remainingMs <= 0) break;
+              try { await voiceOperation(closeOptions, ({ signal }) => delay(Math.min(backoffMs, remainingMs), undefined, { signal })); }
+              catch { break; }
+              backoffMs = Math.min(backoffMs * 2, 2000);
             }
-          } catch { /* Uncertain closure retains the entire admitted maximum. */ }
+          }
           const terminal = reconcileUsage({ call, details, binding, maxMicro: options.attempt.maxMicro, outcome });
           call = { ...call, endedAt: now(), reason, terminal };
           // Even a journal failure must settle the admitted attempt exactly once.
-          try { await voiceOperation(closeOptions, opts => saveCall(structuredClone(call), opts)); }
-          finally { await invocation.finish(terminal); }
+          try { await voiceOperation({ deadlineAt: Date.now() + 1000 }, opts => saveCall(structuredClone(call), opts)); }
+          finally {
+            await invocation.finish(terminal);
+            if (terminal.outcome === 'uncertain' && call.providerSessionId && reconcileLater) {
+              try { await voiceOperation({ deadlineAt: Date.now() + 1000 }, opts => reconcileLater(structuredClone(call), opts)); }
+              catch { /* The host owns durable retry scheduling; the conservative report remains settled. */ }
+            }
+          }
           return terminal;
         });
         return closing;
@@ -175,6 +198,7 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
         if (options.signal?.aborted) cancelled();
         const leaseMs = options.browserLivenessDeadlineAt - now();
         const boundedCommand = commandOptions => ({ ...commandOptions,
+          signal: commandOptions?.signal ? AbortSignal.any([commandOptions.signal, callCancellation.signal]) : callCancellation.signal,
           deadlineAt: Math.min(commandOptions?.deadlineAt ?? Infinity, call.spendDeadlineAt, call.browserLivenessDeadlineAt) });
         const changePause = (paused, commandOptions) => serial(() => voiceOperation(boundedCommand(commandOptions), async opts => {
           if (closing || finished) throw new PluginError('unavailable', 'Voice call ended');
@@ -198,6 +222,7 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
           pause: opts => changePause(true, opts), resume: opts => changePause(false, opts),
           heartbeat: commandOptions => serial(() => voiceOperation(boundedCommand(commandOptions), async opts => {
             if (closing || finished) throw new PluginError('unavailable', 'Voice call ended');
+            if (now() >= Math.min(call.spendDeadlineAt, call.browserLivenessDeadlineAt)) throw new PluginError('deadline', 'Voice lease expired');
             const deadline = Math.min(now() + leaseMs, call.spendDeadlineAt);
             const next = { ...call, browserLivenessDeadlineAt: deadline };
             await saveCall(structuredClone(next), opts); opts.signal.throwIfAborted();

@@ -45,16 +45,20 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
         callSignal.addEventListener('abort', callAbort, { once: true });
       }
       const body = await voiceOperation({ signal: scope.signal }, () => readJson(request, maxRequestBytes));
-      if ((body?.aithema_call ?? body?.extra_body?.aithema_call) !== call.callId ||
-        body?.extra_body?.aithema_call !== undefined && body.extra_body.aithema_call !== call.callId || !Array.isArray(body.messages) || !body.messages.length ||
-        body.messages.some(message => !['system', 'user', 'assistant'].includes(message?.role) || typeof message.content !== 'string') ||
+      const platformIdentity = body?.elevenlabs_extra_body?.aithema_call;
+      if ((body?.aithema_call ?? platformIdentity) !== call.callId ||
+        body?.aithema_call !== undefined && body.aithema_call !== call.callId ||
+        platformIdentity !== undefined && platformIdentity !== call.callId || !Array.isArray(body.messages) || !body.messages.length ||
+        body.messages.some(message => !message || typeof message !== 'object' || Array.isArray(message) || typeof message.role !== 'string' ||
+          ['system', 'user', 'assistant'].includes(message.role) && message.content != null && typeof message.content !== 'string') ||
         (body.stream !== undefined && typeof body.stream !== 'boolean')) throw new PluginError('invalid-output', 'Invalid completion request');
       const deadlineAt = Math.min(Date.now() + timeoutMs, call.spendDeadlineAt, call.browserLivenessDeadlineAt);
       callTimer = setTimeout(() => localCancellation.abort(new DOMException('Voice call deadline', 'TimeoutError')), Math.max(0, deadlineAt - now()));
       const opts = { signal: scope.signal, deadlineAt };
       // Rebuild the trusted session prompt. Discard provider system/model/options and private callback fields.
       const input = await voiceOperation(opts, bounded => buildRequest({ callId: call.callId,
-        messages: body.messages.filter(message => message.role !== 'system').map(({ role, content }) => ({ role, content })) }, bounded));
+        messages: body.messages.filter(message => ['user', 'assistant'].includes(message.role) && typeof message.content === 'string')
+          .map(({ role, content }) => ({ role, content })) }, bounded));
       const latest = await voiceOperation(opts, bounded => getCall(request, bounded));
       if (!active(latest) || latest.callId !== call.callId || latest.providerSessionId !== call.providerSessionId ||
         latest.facadeSecretRef !== call.facadeSecretRef) throw new PluginError('not-admitted', 'Call changed');
@@ -70,7 +74,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
       const id = `chatcmpl-${crypto.randomUUID()}`;
       const frame = delta => ({ id, object: 'chat.completion.chunk', created: Math.floor(now() / 1000),
         model: 'session-reasoning', choices: [{ index: 0, delta, finish_reason: null }] });
-      if (body.stream === false) {
+      if (body.stream !== true) {
         let content = '';
         while (!first.done) {
           if (typeof first.value !== 'string') throw new PluginError('invalid-output');

@@ -32,7 +32,8 @@ export function fakeSdk() {
   };
   return sdk;
 }
-export function fixture({ saveCall, sdk = fakeSdk(), providerDetails, prepareCall = async () => {} } = {}) {
+export function fixture({ saveCall, sdk = fakeSdk(), providerDetails, prepareCall = async () => {}, requestProviderClose,
+  now = Date.now, closureTimeoutMs = 20, closurePollIntervalMs = 2, reconcileLater, closeTimeoutMs } = {}) {
   const requests = [], saved = [], persisted = [], calls = new Map(); let mints = 0;
   const fetchImpl = async (input, options) => {
     const url = new URL(input); requests.push({ url, options });
@@ -46,10 +47,11 @@ export function fixture({ saveCall, sdk = fakeSdk(), providerDetails, prepareCal
       return Response.json({ signed_url: `wss://socket.example.test/call?conversation_id=${id}`, conversation_id: id });
     }
     const id = url.pathname.split('/').at(-1), call = [...calls.values()].find(c => c.providerSessionId === id);
-    return Response.json(providerDetails ?? { conversation_id: id, status: sdk.closed ? 'done' : 'processing',
+    return Response.json((typeof providerDetails === 'function' ? await providerDetails(id, call) : providerDetails) ?? { conversation_id: id, status: sdk.closed ? 'done' : 'processing',
       metadata: { call_duration_secs: 120, start_time_unix_secs: (call?.startedAt ?? Date.now()) / 1000, cost: 17 } });
   };
   const server = createElevenLabsServer({ binding, fetchImpl, resolveSecret: () => 'fixture-api-key', prepareCall,
+    requestProviderClose, now, closureTimeoutMs, closurePollIntervalMs, reconcileLater,
     async saveCall(call, options) {
       saved.push(structuredClone(call)); calls.set(`${call.callId}:${call.providerSessionId}`, structuredClone(call));
       if (saveCall) return saveCall(call, options);
@@ -66,7 +68,7 @@ export function fixture({ saveCall, sdk = fakeSdk(), providerDetails, prepareCal
     resume: ({ providerSessionId }, options) => sessions.get(providerSessionId).resume(options),
     heartbeat: ({ providerSessionId }, options) => sessions.get(providerSessionId).heartbeat(options),
   };
-  const client = createElevenLabsClient({ sdk, control, persistEvent: async event => { persisted.push(event); } });
+  const client = createElevenLabsClient({ sdk, control, closeTimeoutMs, persistEvent: async event => { persisted.push(event); } });
   // Joined fixture burns the SERVER authority even for a preflight-cancelled browser start.
   const plugin = { manifest, health: opts => server.health(opts), async start(request, options) {
     const ready = await server.start({ ...request, facadeSecretRef: 'fixture-facade-ref' }, options);

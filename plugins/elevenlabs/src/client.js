@@ -5,9 +5,9 @@ import { voiceOverrides } from './options.js';
 export { manifest } from './manifest.js';
 
 /** Browser ESM; inject Conversation, or resolve @elevenlabs/client with a host import map. */
-export function createElevenLabsClient({ sdk, control, persistEvent, workletPaths } = {}) {
+export function createElevenLabsClient({ sdk, control, persistEvent, workletPaths, closeTimeoutMs = 45_000 } = {}) {
   if (!control?.start || !control?.close || !control?.pause || !control?.resume || !control?.heartbeat ||
-    typeof persistEvent !== 'function') throw new TypeError('Voice control and durable persistence ports required');
+    typeof persistEvent !== 'function' || !Number.isFinite(closeTimeoutMs) || closeTimeoutMs <= 0) throw new TypeError('Voice control, durable persistence and valid close timeout required');
   const getSdk = async () => sdk ?? (await import('@elevenlabs/client')).Conversation;
   return {
     manifest,
@@ -40,14 +40,16 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
       };
       const close = (reason = 'closed', commandOptions = {}) => {
         if (closing) return closing;
+        const closeOptions = { ...commandOptions, deadlineAt: Math.min(commandOptions.deadlineAt ?? Infinity, Date.now() + closeTimeoutMs) };
         ended = true; generation++; clearTimeout(leaseTimer); options.signal?.removeEventListener('abort', cancel);
         commandCancellation.abort();
         closing = (async () => {
-          try { await voiceOperation(commandOptions, () => conversation?.endSession()); } catch { /* Server closure remains authoritative. */ }
+          try { await voiceOperation({ ...closeOptions, deadlineAt: Math.min(closeOptions.deadlineAt, Date.now() + 1000) }, () => conversation?.endSession()); }
+          catch { /* Server closure remains authoritative. */ }
           let terminal;
-          try { if (grant) terminal = await voiceOperation(commandOptions, opts => control.close({ ...identity(), reason }, opts)); }
+          try { if (grant) terminal = await voiceOperation(closeOptions, opts => control.close({ ...identity(), reason }, opts)); }
           finally {
-            await delivery.catch(() => {});
+            await voiceOperation(closeOptions, () => delivery).catch(() => {});
             events.push({ type: 'ended', callId: request.callId,
               reason: terminal?.closureConfirmed ? reason : 'closure-uncertain' }); events.end();
           }
@@ -58,8 +60,10 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
       const cancel = () => { void close('cancelled', { deadlineAt: Date.now() + 1000 }).catch(() => {}); };
       const connect = async (receipt, connectOptions) => {
         const current = ++generation;
-        if (receipt?.callId !== request.callId || !receipt.providerSessionId || !receipt.credential || !Number.isFinite(receipt.credential.expiresAt) || receipt.credential.expiresAt <= Date.now() ||
+        if (receipt?.callId !== request.callId || !receipt.providerSessionId || !receipt.credential ||
+          !Number.isFinite(receipt.credential.ttlMs) || receipt.credential.ttlMs <= 0 || receipt.credential.ttlMs > 60_000 ||
           receipt.credential.providerSessionId !== receipt.providerSessionId) throw new PluginError('invalid-output', 'Invalid voice credential receipt');
+        const credentialDeadlineAt = Date.now() + receipt.credential.ttlMs;
         const { connectionType, signedUrl, conversationToken } = receipt.credential;
         if (connectionType === 'websocket' ? typeof signedUrl !== 'string' || !signedUrl || conversationToken !== undefined
           : connectionType !== 'webrtc' || typeof conversationToken !== 'string' || !conversationToken || signedUrl !== undefined) throw new PluginError('invalid-output', 'Invalid voice credential transport');
@@ -104,7 +108,10 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
             // Only the correction callback supplies heard text; interruption never invents it.
           },
           onDisconnect() { if (active()) void recover().catch(() => {}); },
-          onError() { if (active()) void recover().catch(() => {}); },
+          onError(message, context) {
+            if (active() && (context?.name === 'SessionConnectionError' ||
+              ['connection_state_changed', 'socket_error', 'websocket_error', 'transport_error'].includes(context?.type))) void recover().catch(() => {});
+          },
         };
         const implementation = await getSdk();
         const pending = implementation.startSession({
@@ -117,7 +124,8 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
         });
         // A late successful SDK connection after a deadline must still be torn down.
         Promise.resolve(pending).then(late => { if (!active()) void late.endSession().catch(() => {}); }, () => {});
-        conversation = await voiceOperation(connectOptions, () => pending);
+        conversation = await voiceOperation({ ...connectOptions,
+          deadlineAt: Math.min(connectOptions?.deadlineAt ?? Infinity, credentialDeadlineAt) }, () => pending);
         if (!active()) throw new PluginError('cancelled');
         if (conversation.getId() !== receipt.providerSessionId) throw new PluginError('invalid-output', 'Provider identity mismatch');
         channels();

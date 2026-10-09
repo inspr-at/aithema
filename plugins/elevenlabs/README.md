@@ -17,7 +17,13 @@ INSPR holds the rights to this port under the approved revised D3 decision.
 Core exports the runtime contract at `@inspr/aithema-core/live-voice`.
 `liveVoiceConformance` is re-exported by core's existing conformance export.
 A joined local fixture supplies a dispatch counter, command-effect probes,
-provider events and durable persistence observations. The kit checks single-use
+provider events and durable persistence observations. After closing every
+dispatched mode, the fixture must independently observe a stopped provider:
+`providerOpen(session, {mode})` returns `false`, or
+`probe('close', session, {phase:'after', mode})` returns `{providerOpen:false}`.
+This observation comes from fixture-owned SDK/provider state, outside the plugin.
+Every non-uncertain terminal must also report `closureConfirmed:true`.
+The kit checks single-use
 claims, preflight/active cancellation, both lifetime deadlines, acknowledged
 commands, exact capability behavior, transcript/heard provenance and one terminal.
 
@@ -55,7 +61,8 @@ The `/server` export provides `createElevenLabsServer`,
 `mintConversationCredential`, `reconcileUsage` and `createCompletionsHandler`.
 
 `createElevenLabsServer({binding, resolveSecret, fetchImpl, saveCall, prepareCall,
-requestProviderClose?, now?, closureTimeoutMs?})` accepts private configuration
+requestProviderClose?, reconcileLater?, now?, closureTimeoutMs?,
+closurePollIntervalMs?})` accepts private configuration
 `{agentId, secretRef, apiBaseUrl?, upstreamMicroPerMinute, visitorMicroPerMinute}`.
 Keys resolve only on the server at runtime. The manifest has technical
 capabilities and public vendor facts/source URLs; account/legal qualification,
@@ -71,10 +78,13 @@ secret nor reference belongs in SDK/browser initiation data. A host must prove
 this provisioning path before enabling voice; the adapter does not change
 global agent configuration or silently share callback secrets across calls.
 
-The token/signed URL GET uses `xi-api-key`, an injectable base URL and no
-redirects. A provider conversation id is required. Signed URL minting asks for
+The token/signed URL GET uses `xi-api-key`, an injectable HTTPS base URL and no
+redirects. HTTP is allowed only for loopback test endpoints (`localhost`,
+`127.0.0.1`, `[::1]`). A provider conversation id is required. Signed URL minting asks for
 single-use identity and also accepts an identity embedded in its URL. Receipts
-have a conservative 60-second application freshness window. ElevenLabs' signed
+carry a relative `credential.ttlMs:60000` application freshness window, measured
+by the browser from receipt rather than against the server clock. SDK connection
+is bounded by this window and the caller's deadline. ElevenLabs' signed
 URL initiation TTL is 15 minutes; application freshness does not change it.
 
 `saveCall(record, options)` persists private provider identity, admitted attempt,
@@ -91,35 +101,58 @@ The start result exposes public identities/deadlines, `credential`, `pause`,
 `resume`, `heartbeat`, `close(reason?, outcome?)`, private `snapshot()` and a
 server-only call `signal` aborted at closure. Pass that signal alongside the
 private record from the facade's `getCall` so active reasoning stops on closure.
-Close, cancellation and expired leases converge on one terminal.
+Close immediately aborts pending pause/heartbeat operations through the call
+signal. Close, cancellation and expired leases converge on one terminal.
 Optional `requestProviderClose(call, options)` requests shutdown through a host's
-supported server channel. SDK hangup is not upstream closure evidence:
-authenticated details must match the provider id, have `done`/`failed` status
-and valid duration. Otherwise the report is `uncertain`, charged at `maxMicro`.
+supported server channel, bounded to one second or the remaining closure window.
+Failure of that request still allows authenticated details to confirm closure.
+SDK hangup is not upstream closure evidence: authenticated details must match the
+provider id, have `done`/`failed` status and valid duration. Close polls within
+`closureTimeoutMs` (default 30 seconds), starting at `closurePollIntervalMs`
+(default 250 ms) and doubling the delay up to two seconds. `processing` records
+and lookup failures are retryable. Only exhaustion of that window yields an
+`uncertain` dispatched report, charged at `maxMicro`. Terminal journal writes
+have a separate one-second deadline so window exhaustion can still be persisted.
+Optional `reconcileLater(record, options)` schedules durable host reconciliation
+after an uncertain report, with a separate one-second deadline. The record
+contains the provider id and conservative terminal, without credentials. The
+host can later fetch final usage and correct its ledger; this hook never reports
+the admitted attempt again, and memoized close keeps its original receipt.
 Known usage records full provider seconds/minutes/credits, separate paused and
 visitor seconds, and both costs. Per-minute rates are prorated by seconds and
 rounded upward to integer micro-units, without START's commercial minimum-minute
 charge. Known upstream overruns record actual cost and an overrun flag.
 
+Known limitation: pause timestamps use the host clock while provider usage may
+use `start_time_unix_secs` from the provider clock. Clock skew can shift pause
+intervals into or out of the measured call window and affect visitor seconds.
+This adapter does not compensate for that skew; hosts should synchronize clocks.
+
 The facade is a Fetch-standard `(Request) => Promise<Response>` handler:
 `createCompletionsHandler({getCall, resolveSecret, buildRequest, admitReasoning})`.
 `getCall(request, options)` resolves a private route-bound call; its per-call
 bearer secret is compared in constant time before parsing/admission.
-Requests contain `aithema_call` (top-level or START-compatible `extra_body`),
-text `messages` and optional `stream`; conflicting identities are rejected.
+ElevenLabs callbacks contain `elevenlabs_extra_body.aithema_call`, reflecting
+the SDK's `customLlmExtraBody`. Direct callers may send top-level `aithema_call`;
+when both are present they must agree. Requests contain `messages` and optional
+boolean `stream`. Null-content messages and roles other than `user`/`assistant`
+are dropped safely; only text from those two roles enters session reasoning.
 Provider model/system/options cannot select the host binding.
 `buildRequest({callId,messages}, options)` rebuilds trusted session context.
 `admitReasoning({callId,request,options})` returns the runtime's
 `{plugin, options, finish}`. `plugin.stream` settles its own token claim once;
 the handler sends OpenAI SSE deltas, a stop frame and `[DONE]`.
 Cancellation, deadlines, broken streams and omitted usage cannot fabricate
-success. `stream:false` uses the same admission for a normal chat completion.
+success. `stream:false` or omitted `stream` uses the same admission for a normal
+chat completion; only `stream:true` selects SSE.
 
 ## Browser half
 
 Import `createElevenLabsClient` from `/client`. Native browser ESM needs no
 wrapper build. Inject `{sdk: Conversation, control, persistEvent}` or map the
 exact SDK browser distribution and its dependencies with a host import map.
+`closeTimeoutMs` defaults to 45 seconds; `session.close()` also honors an earlier
+explicit deadline. Configure it to cover any longer server closure window.
 The SDK's self-hosted official IIFE `ElevenLabsClient.Conversation` is also
 injectable. `workletPaths` supports self-hosted SDK worklets under restrictive
 CSP. Do not serve server modules to browsers.
@@ -137,6 +170,9 @@ facade secrets; joined tests carry authority in-process solely for conformance.
 Persistence failure ends the call rather than claiming a durable turn.
 Consume `session.events`; SDK activity signals are not transcript evidence.
 After transport loss, fence old callbacks and reconcile the old attempt.
+SDK `onError` starts recovery only for explicit transport errors; tool errors
+and other provider errors preserve the active connection. Disconnect callbacks
+continue to drive transport recovery.
 `recover` must admit a new claim for every retry. Three failures end the stream
 and return control to the host. Channel selections survive recovery; there is
 no provider/model fallback.

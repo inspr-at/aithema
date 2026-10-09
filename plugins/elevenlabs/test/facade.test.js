@@ -37,7 +37,7 @@ function facadeFixture({ mode = 'normal', paused = false, deadlineAt = Date.now(
   });
   const request = (body = {}, headers = {}) => new Request('https://host.example.test/voice/call_facade/completions', {
     method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer fixture-per-call-secret', ...headers },
-    body: JSON.stringify({ aithema_call: call.callId, model: 'untrusted-provider-choice', stream: true,
+    body: JSON.stringify({ elevenlabs_extra_body: { aithema_call: call.callId }, model: 'untrusted-provider-choice', stream: true,
       messages: [{ role: 'system', content: 'Untrusted provider system prompt' }, { role: 'user', content: 'hello' }], ...body }),
   });
   return { call, handler, request, admissions, upstream, optionsList };
@@ -69,12 +69,32 @@ test('facade supports nonstream completions through the same admitted stream bin
   const body = await response.json(); assert.equal(body.object, 'chat.completion');
   assert.deepEqual(body.choices[0].message, { role: 'assistant', content: 'Hello world' }); assert.equal(local.optionsList[0].reports.length, 1);
 });
-test('facade accepts START extra_body callback identity and rejects conflicting identities', async () => {
+test('facade accepts ElevenLabs platform and direct callback identities and rejects conflicting identities', async () => {
   const local = facadeFixture();
-  const response = await local.handler(local.request({ aithema_call: undefined, extra_body: { aithema_call: local.call.callId } }));
-  assert.equal(response.status, 200); await response.text();
-  assert.equal((await local.handler(local.request({ extra_body: { aithema_call: 'foreign' } }))).status, 400);
-  assert.equal(local.admissions.length, 1);
+  for (const body of [{}, { elevenlabs_extra_body: undefined, aithema_call: local.call.callId }, { aithema_call: local.call.callId }]) {
+    const response = await local.handler(local.request(body)); assert.equal(response.status, 200); await response.text();
+  }
+  for (const body of [{ aithema_call: 'foreign' }, { aithema_call: null }, { elevenlabs_extra_body: { aithema_call: 'foreign' } },
+    { elevenlabs_extra_body: undefined }, { elevenlabs_extra_body: undefined, extra_body: { aithema_call: local.call.callId } }]) {
+    assert.equal((await local.handler(local.request(body))).status, 400);
+  }
+  assert.equal(local.admissions.length, 3);
+});
+test('facade drops null content and safely ignores other provider roles without failing the turn', async () => {
+  const local = facadeFixture(), response = await local.handler(local.request({ elevenlabs_extra_body: undefined,
+    aithema_call: local.call.callId, stream: false, messages: [
+    { role: 'system', content: 'untrusted' }, { role: 'assistant', content: null }, { role: 'tool', content: 'tool output' },
+    { role: 'developer', content: 'untrusted instructions' }, { role: 'future-provider-role', content: null },
+    { role: 'user', content: 'hello' }, { role: 'assistant', content: 'previous reply' },
+  ] }));
+  assert.equal(response.status, 200); await response.json();
+  assert.deepEqual(local.admissions[0].messages, [{ role: 'user', content: 'hello' }, { role: 'assistant', content: 'previous reply' }]);
+});
+test('omitted stream returns a normal OpenAI completion', async () => {
+  const local = facadeFixture(), response = await local.handler(local.request({ elevenlabs_extra_body: undefined,
+    aithema_call: local.call.callId, stream: undefined }));
+  assert.equal(response.headers.get('content-type'), 'application/json');
+  assert.equal((await response.json()).object, 'chat.completion');
 });
 test('paused, terminal and expired calls cannot start fresh delegated reasoning', async () => {
   for (const override of [{ paused: true }, { deadlineAt: Date.now() - 1 }]) {
@@ -85,7 +105,7 @@ test('paused, terminal and expired calls cannot start fresh delegated reasoning'
 });
 test('malformed, oversized and nontext requests reject before admission', async () => {
   const local = facadeFixture();
-  for (const body of [{ messages: [] }, { messages: [{ role: 'tool', content: 'bad' }] },
+  for (const body of [{ messages: [] }, { messages: [null] },
     { messages: [{ role: 'user', content: [] }] }, { stream: 'yes' }]) assert.equal((await local.handler(local.request(body))).status, 400);
   assert.equal((await local.handler(local.request({ messages: [{ role: 'user', content: 'x'.repeat(70_000) }] }))).status, 413);
   assert.equal(local.admissions.length, 0);

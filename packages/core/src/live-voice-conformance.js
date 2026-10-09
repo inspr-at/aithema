@@ -2,8 +2,8 @@ import { validateManifest } from './plugins.js';
 import { PluginError, PLUGIN_ERROR_CODES } from './invocation.js';
 import { LIVE_VOICE_COMMANDS, assertVoiceSession, assertVoiceEvent, voiceOperation } from './live-voice.js';
 
-/** Local joined server/browser fixture. probe observes SDK/host effects; drive supplies real fixture events. */
-export async function liveVoiceConformance(plugin, request, { requestCount, probe, drive, persistedEvents, timeoutMs = 1000 } = {}) {
+/** Local joined fixture. probe/providerOpen independently observe closure; drive supplies fixture events. */
+export async function liveVoiceConformance(plugin, request, { requestCount, probe, providerOpen, drive, persistedEvents, timeoutMs = 1000 } = {}) {
   const failures = [], check = (condition, message) => { if (!condition) failures.push(message); };
   const valid = validateManifest(plugin?.manifest).ok && plugin?.manifest?.kinds?.includes('live-voice');
   check(valid, 'manifest validity');
@@ -24,7 +24,7 @@ export async function liveVoiceConformance(plugin, request, { requestCount, prob
       attempt: { attemptId, claimId, maxMicro: 1_000_000, consume() {
         check(requestCount() === before, 'dispatched before consume');
         if (mode === 'consume-refused') {
-          reports.push({ attemptId, outcome: 'cancelled', chargedMicro: 0 }); throw new PluginError('not-admitted');
+          reports.push({ attemptId, outcome: 'cancelled', closureConfirmed: true, chargedMicro: 0 }); throw new PluginError('not-admitted');
         }
         if (consumed) throw new PluginError('already-claimed'); consumed = true;
       } }, report: terminal => { reports.push(terminal); } };
@@ -82,6 +82,15 @@ export async function liveVoiceConformance(plugin, request, { requestCount, prob
       if (session) { try { await session.close({ deadlineAt: Date.now() + timeoutMs }); } catch {} }
       controller.abort();
     }
+    if (requestCount() > before) {
+      let observedClosed = false;
+      try {
+        observedClosed = await voiceOperation({ deadlineAt: Date.now() + timeoutMs }, async () => typeof providerOpen === 'function'
+          ? await providerOpen(session, { mode }) === false
+          : (await probe('close', session, { phase: 'after', mode }))?.providerOpen === false);
+      } catch { /* Missing, failed or timed-out fixture observations must fail closed. */ }
+      check(observedClosed, `${mode} provider still open or closure observation missing`);
+    }
     check(consumed === (mode !== 'consume-refused'), `${mode} claim consumption`);
     check(reports.length === 1 && reports[0]?.attemptId === attemptId, `${mode} terminal count/identity`);
     check(['completed', 'cancelled', 'uncertain'].includes(reports[0]?.outcome), `${mode} terminal outcome`);
@@ -94,7 +103,7 @@ export async function liveVoiceConformance(plugin, request, { requestCount, prob
       check(requestCount() === before, `${mode} dispatched`);
       check(reports[0]?.outcome === 'cancelled' && reports[0]?.chargedMicro === 0, `${mode} preflight charge`);
     }
-    if (reports[0]?.outcome !== 'uncertain' && mode === 'completed') check(reports[0]?.closureConfirmed === true, 'terminal did not confirm provider closure');
+    if (reports[0]?.outcome !== 'uncertain') check(reports[0]?.closureConfirmed === true, `${mode} terminal did not confirm provider closure`);
     if (mode !== 'completed') check(reports[0]?.outcome !== 'completed', `${mode} false completion`);
     if (reports[0]?.outcome === 'uncertain') check(reports[0]?.chargedMicro === options.attempt.maxMicro, 'uncertain not charged at claim maximum');
   }
