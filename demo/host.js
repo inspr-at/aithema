@@ -7,6 +7,7 @@ import { en } from '../packages/ui/src/i18n/en.js';
 import { de } from '../packages/ui/src/i18n/de.js';
 import { postJson } from '../packages/ui/src/post-json.js';
 import { reasonText } from '../packages/ui/src/settings-dialog.js';
+import { aiNotice } from '../packages/core/src/ai-notice.js';
 const component = document.querySelector('aithema-session');
 const key = 'aithema-reset-slice-1-session', localeKey = 'aithema-demo-locale', bundles = { en, de };
 let fakeVoice, liveVoiceClient, copy = en, consentState = null;
@@ -25,6 +26,14 @@ function paintPage() {
     ['#language-label', h.language], ['#mock-hint', h.mockHint], ['#settings-hint', h.settingsHint],
     ['#grant', binding.processingConsent ? h.processingGrant : h.grant], ['#revoke', h.revoke], ['#fake-label', copy.fakeVoice],
     ['#fake-say', copy.fakeVoiceSay], ['#fake-interrupt', copy.fakeVoiceInterrupt], ['#fake-disconnect', copy.fakeVoiceDisconnect]]) text(selector, value);
+  // The component's host slots (AIT-104 B2), filled with labelled demo content only while the demo host runs.
+  if (binding.demoHost === true) {
+    for (const [selector, value] of [['#demo-account-label', h.slots.account], ['#demo-account-note', h.slots.accountNote], ['#demo-account-source', h.slots.source],
+      ['#demo-handover-offer', h.slots.handoverOffer], ['#demo-credits-limit', h.slots.creditsLimit], ['#demo-license', h.slots.license],
+      ['#demo-legal-source', h.slots.legalSource], ['#demo-footer', h.slots.footer], ['#outbox-open', h.outbox.open], ['#outbox-title', h.outbox.title],
+      ['#outbox-note', h.outbox.note], ['#ai-notice', aiNotice(component.session?.locale).text], ['#outbox-close', h.outbox.close]]) text(selector, value);
+    document.querySelector('#demo-legal').setAttribute('aria-label', h.slots.legal);
+  }
   if (binding.processingConsent) {
     text('#consent-title', h.processingTitle);
     const consent = copy.processingConsent ?? {}, fallback = binding.processingConsent;
@@ -80,7 +89,16 @@ async function open(fresh = false, request = {}) {
     let response = saved ? await fetch(`/api/sessions/${saved}`) : null;
     if (!response?.ok) response = await postJson('/api/sessions', { ...request, locale: preferredLocale() });
     if (!response.ok) throw new Error();
-    const session = await response.json(); localStorage.setItem(key, session.id);
+    await adopt(await response.json());
+  } catch { document.querySelector('#error').textContent = copy.host.restoreFailed; }
+}
+// The demo handover reaches a local fake recipient, so its success line says nobody calls back.
+const componentCopy = () => binding.demoHost !== true ? copy
+  : { ...copy, hostSurface: { ...copy.hostSurface, handover: { ...copy.hostSurface.handover, ...copy.host.handover } } };
+// Shows a conversation: one from storage or a new one, or one the library opened, created or reset.
+async function adopt(session) {
+  try {
+    localStorage.setItem(key, session.id);
     copy = bundles[session.locale] ?? en;
     if (binding.voiceMode === 'fake') {
       const ports = createVoiceControl({ sessionId: session.id, receive: event => component.receive(event) });
@@ -96,8 +114,11 @@ async function open(fresh = false, request = {}) {
         persistEvent: event => ports.persistEvent(event, { providerSessionId }) });
     }
     // The settings Advanced tab connects a local model through this browser-only factory.
-    component.configure({ voiceClient: liveVoiceClient ?? fakeVoice?.client, copy, session,
-      deviceConnector: createDeviceReasoning, deviceEndpoint: 'http://127.0.0.1:8000' });
+    component.configure({ voiceClient: liveVoiceClient ?? fakeVoice?.client, copy: componentCopy(), session,
+      deviceConnector: createDeviceReasoning, deviceEndpoint: 'http://127.0.0.1:8000',
+      // The host surface (AIT-104 B2): library, handover and credits from the demo ports; verification
+      // only where the fake mail outbox can confirm it (the mock demo).
+      host: { library: true, verification: binding.demoHost === true, handover: true, credits: true, locale: preferredLocale } });
     if (binding.processingConsent) {
       const current = await fetch(`/api/sessions/${session.id}/consent`).then(r => r.json());
       for (const checkbox of document.querySelectorAll('#processing-items input')) checkbox.checked = current.selected.includes(checkbox.value);
@@ -107,6 +128,45 @@ async function open(fresh = false, request = {}) {
   } catch { document.querySelector('#error').textContent = copy.host.restoreFailed; }
 }
 const binding = await fetch('/demo/config').then(r => r.json());
+// Demo slot fills and the fake outbox speak for the local demo host only: a live provider host shows none of them.
+if (binding.demoHost !== true) for (const demoOnly of document.querySelectorAll('[data-demo-only]')) demoOnly.remove();
+// Demo only: the fake mail outbox stands in for the visitor's inbox (GET S/demo/outbox).
+const outbox = document.querySelector('#outbox');
+async function paintOutbox(status = '') {
+  const o = copy.host.outbox, list = document.querySelector('#outbox-list'), id = component.session.id;
+  document.querySelector('#outbox-status').textContent = status;
+  try {
+    const response = await fetch(`/api/sessions/${id}/demo/outbox`);
+    if (!response.ok) throw new Error();
+    const { messages } = await response.json();
+    if (component.session.id !== id) return;
+    list.replaceChildren(...messages.toReversed().map(message => {
+      const item = document.createElement('li'), to = document.createElement('span');
+      to.textContent = o.to.replace('{address}', message.address);
+      if (!message.token) { const used = document.createElement('span'); used.textContent = o.used; item.append(to, used); return item; }
+      const confirm = document.createElement('button'); confirm.type = 'button'; confirm.textContent = o.confirm;
+      // Confirming unlocks the AI assessment, so the outbox's own notice line describes it (AIT-119).
+      confirm.setAttribute('aria-describedby', 'ai-notice');
+      confirm.addEventListener('click', async () => {
+        confirm.disabled = true;
+        const result = await postJson(`/api/sessions/${id}/identity/confirm`, { token: message.token }).catch(() => null);
+        const body = await result?.json().catch(() => null);
+        await paintOutbox(result?.ok && body?.identity?.status === 'verified' ? o.confirmed : o.failed);
+      });
+      item.append(to, confirm); return item;
+    }));
+    if (!messages.length) document.querySelector('#outbox-status').textContent = status || o.empty;
+  } catch { document.querySelector('#outbox-status').textContent = o.failed; }
+}
+if (binding.demoHost === true) {
+  document.querySelector('#outbox-open').hidden = false;
+  document.querySelector('#outbox-open').addEventListener('click', () => { outbox.showModal(); void paintOutbox(); });
+  document.querySelector('#outbox-close').addEventListener('click', () => outbox.close());
+  // The demo account menu closes on Escape or a click elsewhere.
+  const account = document.querySelector('#demo-account');
+  document.addEventListener('click', event => { if (account.open && !event.composedPath().includes(account)) account.open = false; });
+  account.addEventListener('keydown', event => { if (event.key === 'Escape' && account.open) { account.open = false; account.querySelector('summary').focus(); } });
+}
 if (binding.processingConsent) {
   const container = document.createElement('div'); container.id = 'processing-items';
   for (const item of binding.processingConsent.items) {
@@ -134,6 +194,8 @@ component.addEventListener('aithema-new-conversation', event => {
   void open(true, { processingPreset, settings });
 });
 // The settings dialog defers consent to this host interface.
+// The library opened, created or reset a conversation: this host owns its voice clients, so it switches.
+component.addEventListener('aithema-open-conversation', event => { event.preventDefault(); void adopt(event.detail.session); });
 component.addEventListener('aithema-consent', () => {
   document.querySelector('#consent-status').textContent = copy.consentForSelection;
   document.querySelector('section[aria-labelledby="consent-title"]').scrollIntoView?.({ block: 'nearest' });

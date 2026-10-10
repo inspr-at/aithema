@@ -18,11 +18,22 @@ button { margin:0 .8rem 0 -.8rem; } #grant { margin:0 1.2rem 0 0; } :focus-visib
 select, input { background:var(--surface); border:1px solid var(--line); border-radius:.4rem; padding:.2rem .4rem; }
 a { color:var(--accent); } #error { color:var(--error); } @media(max-width:40rem) { body { padding:1rem; } }
 #error { min-height:1.5em; } #consent-status { height:3em; overflow:auto; } #language-note { min-height:1.2em; margin:.4rem 0 0; }
+/* Demo fills for the component's host slots (AIT-104 B2), each labelled demo. */
+#demo-account { position:relative; } #demo-account summary { cursor:pointer; color:var(--accent); font-weight:600; padding:.5rem .6rem; border-radius:.45rem; list-style:none; }
+#demo-account summary::-webkit-details-marker { display:none; } #demo-account summary:hover { background:color-mix(in srgb,var(--accent) 8%,transparent); }
+#demo-account > div { position:absolute; right:0; top:calc(100% + .25rem); z-index:5; width:min(18rem,80vw); padding:.75rem 1rem; background:var(--surface);
+  border:1px solid var(--line); border-radius:.6rem; box-shadow:0 12px 32px #10233526; font-size:.8rem; }
+#demo-account p { margin:0 0 .4rem; } #demo-account a { font-size:.8rem; }
+#demo-legal { display:flex; flex-wrap:wrap; gap:.25rem 1rem; } #demo-legal a { color:var(--accent); } #demo-footer { margin:0; color:var(--muted); }
+#outbox { width:min(34rem,calc(100vw - 1rem)); border:1px solid var(--line); border-radius:1rem; background:var(--surface); color:var(--ink); padding:1rem 1.25rem; }
+#outbox::backdrop { background:rgb(12 28 39 / .36); } #outbox h2 { font-size:1.05rem; margin:0 0 .3rem; } #outbox ul { list-style:none; padding:0; margin:.5rem 0; }
+#outbox li { border-top:1px solid var(--line); padding:.5rem 0; display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.25rem 1rem; }
+#outbox li span { overflow-wrap:anywhere; } #outbox-status { min-height:2.6em; margin:.3rem 0; font-size:.85rem; } #outbox-note, #ai-notice { font-size:.8rem; color:var(--muted); margin:0; }
 </style></head><body><main><header><h1 id="title">Demo — Aithema reset slice 1</h1>
 <p id="provider">Loading reasoning binding…</p>
 <div class="host-actions"><button id="new" type="button">New conversation</button><span id="resume-hint">Reload or restart the server to resume.</span>
 <label><span id="language-label">Language</span> <select id="locale"><option value="en">English</option><option value="de">German</option></select></label>
-<a id="source" href="https://github.com/inspr-at/aithema">Source (AGPL-3.0-only)</a></div>
+<a id="source" href="https://github.com/inspr-at/aithema">Source (AGPL-3.0-only)</a><button id="outbox-open" type="button" aria-haspopup="dialog" data-demo-only hidden>Fake mail (demo only)</button></div>
 <p id="language-note" role="status"></p>
 <p id="mock-hint">With mock reasoning, try: operations: hosted; data: public; systems: API; reach: international</p>
 <p id="settings-hint">Settings (in the processing panel below) chooses the preset, model, response style, voice and visual concepts.
@@ -36,5 +47,11 @@ Grants live in memory; grant again after a server restart.</p>
 <p id="consent-status" role="status">Processing waits for consent.</p></section>
 <section id="fake-voice" hidden><p id="fake-label"></p><button id="fake-say" type="button"></button>
 <button id="fake-interrupt" type="button"></button><button id="fake-disconnect" type="button"></button></section>
-<aithema-session></aithema-session></main>
+<aithema-session>
+<details slot="account" id="demo-account" data-demo-only><summary id="demo-account-label">Account (demo)</summary><div><p id="demo-account-note"></p><a id="demo-account-source" href="https://github.com/inspr-at/aithema"></a></div></details>
+<span slot="handover-offer" id="demo-handover-offer" data-demo-only></span><span slot="credits-limit" id="demo-credits-limit" data-demo-only></span>
+<nav slot="legal" id="demo-legal" aria-label="Legal (demo)" data-demo-only><a id="demo-license" href="https://github.com/inspr-at/aithema/blob/main/LICENSE"></a><a id="demo-legal-source" href="https://github.com/inspr-at/aithema"></a></nav>
+<p slot="footer" id="demo-footer" data-demo-only></p></aithema-session></main>
+<dialog id="outbox" aria-labelledby="outbox-title" data-demo-only><h2 id="outbox-title">Demo only: fake mail outbox</h2><p id="outbox-note"></p><p id="ai-notice"></p><ul id="outbox-list"></ul>
+<p id="outbox-status" role="status"></p><button id="outbox-close" type="button">Close</button></dialog>
 <script type="module" src="/demo/host.js"></script></body></html>

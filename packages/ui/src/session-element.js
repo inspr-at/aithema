@@ -15,6 +15,9 @@ import { LocalConnector } from './local-connector.js';
 import { postJson, postForm, sameOrigin } from './post-json.js';
 import { UPLOAD_LIMITS, UPLOAD_ACCEPT, UPLOAD_ICONS, uploadLimits, planUploads, refusalText, uploadStateText, uploadStateTexts, uploadsPossible, formatBytes, plural, limitsText, dropText } from './uploads.js';
 import { voiceJournal, tabStorage, closeVoiceCall, answerVoicePings, voiceCallAbandoned } from './voice-orphan.js';
+import { node, setText, reconcile } from './dom.js';
+import { HostSurface } from './host-surface.js';
+import { hostStyles } from './host-styles.js';
 
 const PANES = '.transcript-shell, .analysis-content, .preset-panel, .intro';
 function clearSlack(pane) { pane.style.removeProperty('--aithema-slack-top'); pane.style.removeProperty('--aithema-slack-bottom'); }
@@ -39,23 +42,6 @@ async function* serverEvents(reader) {
     }
   }
 }
-// Keyed children: an item whose key survives keeps its node (and with it focus and the
-// pointer anchor); nodes move only when the order changed.
-function reconcile(parent, entries, create, update) {
-  const old = new Map([...parent.children].map(node => [node.dataset.key, node]));
-  let next = parent.firstElementChild;
-  for (const [key, value] of entries) {
-    let node = old.get(key); old.delete(key);
-    if (!node) { node = create(value); node.dataset.key = key; }
-    update(node, value);
-    if (node !== next) parent.insertBefore(node, next); else next = next.nextElementSibling;
-  }
-  for (const node of old.values()) node.remove();
-}
-function node(tag, className, text) {
-  const n = document.createElement(tag); if (className) n.className = className; if (text !== undefined) n.textContent = text; return n;
-}
-function setText(node, value) { if (node.textContent !== value) node.textContent = value; }
 const NONE = '\u0000none';
 // Repeated values get distinct keys by occurrence.
 function textKeys(values) {
@@ -67,7 +53,7 @@ export class AithemaSession extends HTMLElement {
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
   #open = []; #cleared = []; #failure = false; #sending = false;
   #pointer = null; #onTranscript = false; #follow = true; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false;
-  #dialog; #connector; #createDevice; #deviceEndpoint; #chooser = { choice: null, busy: false, error: '' }; #aiNotice;
+  #dialog; #connector; #createDevice; #deviceEndpoint; #chooser = { choice: null, busy: false, error: '' }; #aiNotice; #host; #options; #refocus = null;
   #uploadAt = new Map(); #uploading = false; #uploadNotice = ''; #reading = ''; #limits = UPLOAD_LIMITS; #limitsLoad = null; #dragDepth = 0;
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
@@ -82,10 +68,14 @@ export class AithemaSession extends HTMLElement {
    * `deviceConnector` is the browser device plugin factory for the settings Advanced tab;
    * `voiceClients` maps host voice option ids to browser clients (else `voiceClient`).
    * `aiNotice` ({text?, voice?}) rewords the AI notice ahead of `copy.aiNotice`; it cannot remove it.
+   * `host` ({library, verification, handover, credits, locale}) turns on the host surface (AIT-104 B2):
+   * the conversation library, email verification, handover and credits; see the README.
    */
-  configure({ copy, baseUrl = '', session, sessionToken, deviceReasoning, deviceConnector, deviceEndpoint, voiceClient, voiceClients, voicePlayback, aiNotice }) {
+  configure(options) {
+    const { copy, baseUrl = '', session, sessionToken, deviceReasoning, deviceConnector, deviceEndpoint, voiceClient, voiceClients, voicePlayback, aiNotice } = options ?? {};
     if (!copy || !session) throw new TypeError('Host copy and session required');
-    this.#aiNotice = aiNotice;
+    this.#aiNotice = aiNotice; this.#options = { ...options }; delete this.#options.session;
+    this.#host?.destroy(); this.#host = null;
     const reopen = this.#dialog?.open;
     this.#concept?.destroy(); this.#rail?.destroy(); this.#voiceClient = voiceClient; this.#voiceClients = voiceClients; this.#voicePlayback = voicePlayback;
     this.#abort?.abort(); this.#deviceController?.abort(); this.#deviceReasoning = deviceReasoning; this.#copy = copy; this.#base = baseUrl.replace(/\/$/u, '');
@@ -109,16 +99,17 @@ export class AithemaSession extends HTMLElement {
     this.#mount();
     this.#pings ??= answerVoicePings(() => this.#rail?.session?.callId ?? null);
     this.#orphan = this.#endOrphanedCall();
-    if (this.isConnected) { this.#connect(); this.#watchPage(true); this.#offerResume(); }
+    if (this.isConnected) { this.#connect(); this.#watchPage(true); this.#offerResume(); this.#host?.connect(); }
     if (reopen) this.shadowRoot.querySelector('.settings-open').focus();
+    if (this.#refocus) { this.shadowRoot.querySelector(this.#refocus)?.focus(); this.#refocus = null; }
   }
   connectedCallback() {
     if (!this.#session) return;
     this.#pings ??= answerVoicePings(() => this.#rail?.session?.callId ?? null);
-    this.#concept?.connect(); this.#connect(); this.#watchPage(true); this.#offerResume();
+    this.#concept?.connect(); this.#connect(); this.#watchPage(true); this.#offerResume(); this.#host?.connect();
   }
   disconnectedCallback() {
-    this.#watchPage(false); this.#concept?.suspend(); this.#rail?.destroy(); this.#abort?.abort(); this.#deviceController?.abort();
+    this.#host?.disconnect(); this.#watchPage(false); this.#concept?.suspend(); this.#rail?.destroy(); this.#abort?.abort(); this.#deviceController?.abort();
     this.#pings?.close(); this.#pings = null;
   }
   reportVoicePlaybackBlocked() { this.#rail?.reportPlaybackBlocked(); }
@@ -136,10 +127,13 @@ export class AithemaSession extends HTMLElement {
   #mount() {
     const root = this.shadowRoot;
     // Static trusted markup only. All host/model/user copy is assigned through textContent.
-    root.innerHTML = `<style>${styles}${settingsStyles}</style><div class="workspace">
+    root.innerHTML = `<style>${styles}${settingsStyles}${hostStyles}</style><div class="workspace">
       <section class="preset-panel"><div class="engine"><div class="engine__text"><span class="engine__label" data-copy="processing"></span>
           <strong class="engine__value"></strong><span class="engine__detail"></span></div>
         <button class="settings-open" type="button" aria-haspopup="dialog">${ICONS.gear}<span></span></button></div><ul class="features"></ul></section>
+      <div class="host-bar" role="group" hidden><button class="library-open-dialog" type="button" aria-haspopup="dialog" hidden></button>
+        <div class="host-verify"></div><div class="host-account"><slot name="account"></slot></div>
+        <p class="host-credits" hidden><span class="host-credits__text"></span> <span class="host-credits__limit" hidden><slot name="credits-limit"></slot></span></p></div>
       <section class="conversation"><header class="head"><h2 data-copy="conversation"></h2><button class="pause" type="button"></button><span class="status" role="status"></span></header>
         <p class="ai-notice"><span id="ai-notice"></span><span class="ai-notice__sizer" aria-hidden="true"></span></p>
         <div class="audio-rail"></div><div class="concept-rail"></div><div class="transcript-shell"><div class="concept-preview-slot"></div><ol aria-live="polite"></ol><button class="transcript-latest" type="button" data-copy="transcriptLatest" style="visibility:hidden"></button></div><div class="intro" hidden></div>
@@ -151,12 +145,15 @@ export class AithemaSession extends HTMLElement {
       <aside class="understanding"><header class="head"><h2 data-copy="understanding"></h2><button class="concept-tab" type="button" data-copy="conceptTab"></button></header>
         <section class="readiness"><div class="scale" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span class="fill"></span><span class="marker"></span></div>
           <div class="scale-labels"><span data-copy="talk"></span><span data-copy="build"></span></div><p class="talk-progress"></p><p class="build-progress"></p></section>
-        <div class="analysis-content"><p class="notice" role="status"></p><section><h3 data-copy="summary"></h3><p class="summary-text"></p></section>
+        <div class="analysis-content"><p class="notice" role="status"></p><div class="verify-lock" hidden></div><section><h3 data-copy="summary"></h3><p class="summary-text"></p></section>
           <section><h3 data-copy="signals"></h3><ul class="signals"></ul></section><section><h3 data-copy="questions"></h3><ul class="questions"></ul></section>
           <section><h3 data-copy="missing"></h3><ul class="missing"></ul><p class="overflow"></p></section>
           <section><div class="cleared-head"><h3 data-copy="clarified"></h3><button class="expand" type="button"></button></div><div class="cleared"></div></section></div>
-        <footer class="foot"><a class="export" data-copy="export"></a><button class="retry" type="button" data-copy="retry" hidden></button></footer></aside></div>
-      <dialog class="settings"></dialog>`;
+        <section class="handover" aria-labelledby="handover-title" hidden><h3 id="handover-title"></h3><p class="handover__offer"><slot name="handover-offer"></slot></p>
+          <div class="handover__row"><button class="handover-request" type="button" aria-describedby="handover-state"></button><p class="handover__state" id="handover-state" role="status"></p></div></section>
+        <footer class="foot"><a class="export" data-copy="export"></a><button class="retry" type="button" data-copy="retry" hidden></button></footer></aside>
+      <footer class="host-foot" hidden><slot name="legal"></slot><slot name="footer"></slot></footer></div>
+      <dialog class="settings"></dialog><dialog class="library"></dialog><dialog class="verify-dialog"></dialog>`;
     root.querySelector('.settings-open span').textContent = this.#copy.settings.open;
     root.querySelector('.settings-open').addEventListener('click', event => this.openSettings(event.currentTarget));
     this.#dialog = new SettingsDialog({ dialog: root.querySelector('dialog.settings'), copy: this.#copy, ports: {
@@ -240,7 +237,20 @@ export class AithemaSession extends HTMLElement {
       if (this.#follow) this.#scrollToLatest();
     });
     for (const pane of root.querySelectorAll(PANES)) pane.addEventListener('pointerleave', () => clearSlack(pane));
+    if (this.#options.host) this.#host = new HostSurface({ root, copy: this.#copy, options: this.#options.host, baseUrl: this.#base, sessionToken: this.#sessionToken,
+      session: () => this.#session, status: text => this.#status(text), adopt: (session, reason) => this.#adopt(session, reason),
+      onLock: () => this.#render('aside'),
+      // Unlocking keeps a deliberate pause: Resume is offered, else the composer takes focus.
+      focusAfterUnlock: () => { const input = root.querySelector('textarea'); (this.#session.paused || input.disabled ? root.querySelector('.pause') : input).focus(); } });
     this.#render('transcript'); this.#render('aside'); this.#render('composer');
+  }
+  // A conversation from the library (open, new, reset, or the replacement of a deleted one). The host
+  // usually handles it (its voice clients belong to one conversation); otherwise this element switches.
+  #adopt(session, reason) {
+    const event = new CustomEvent('aithema-open-conversation', { detail: { session: structuredClone(session), reason, previousSessionId: this.#session.id },
+      bubbles: true, composed: true, cancelable: true });
+    this.#refocus = '.library-open-dialog';
+    if (this.dispatchEvent(event)) this.configure({ ...this.#options, session });
   }
   async #setPaused(paused) {
     const sessionId = this.#session.id;
@@ -305,8 +315,9 @@ export class AithemaSession extends HTMLElement {
   #anchored(update) {
     const hovered = this.#hovered();
     if (!hovered) { update(); return; }
+    // Host content in a slot belongs to the page: its chain ends at the document, never at this root.
     const chain = [];
-    for (let node = hovered; node && node !== this.shadowRoot; node = node.parentNode) chain.push([node, node.getBoundingClientRect().top]);
+    for (let node = hovered; node?.nodeType === 1; node = node.parentNode) chain.push([node, node.getBoundingClientRect().top]);
     update();
     const [node, top] = chain.find(([n]) => n.isConnected && n.getRootNode() === this.shadowRoot) ?? [];
     const pane = node?.closest?.(PANES);
@@ -495,17 +506,23 @@ export class AithemaSession extends HTMLElement {
       else if (this.#follow && grew && shell.scrollHeight > shell.clientHeight) root.querySelector('.transcript-latest').style.visibility = '';
       return;
     }
-    const analysis = this.#feature('analysis', true);
+    const analysis = this.#feature('analysis', true), locked = this.#host?.locked ?? false;
     const cached = this.#session.paused && this.#session.understanding.inputRevision !== null;
     for (const node of root.querySelectorAll('.analysis-content [data-redacted]')) {
       node.style.minHeight = ''; delete node.dataset.redacted;
     }
-    root.querySelector('.understanding').setAttribute('aria-disabled', String(!analysis.available));
+    // A pane that holds the host's own controls (the verification form, handover) is never marked
+    // disabled as a whole: only its unavailable parts are, through the notice and the hidden, inert content.
+    const aside = root.querySelector('.understanding');
+    if (this.#host?.holdsControls) aside.removeAttribute('aria-disabled'); else aside.setAttribute('aria-disabled', String(!analysis.available));
     // Keep the outer pane and readiness row in the grid when analysis is unavailable.
-    root.querySelector('.readiness').style.visibility = analysis.available || cached ? '' : 'hidden';
+    // A host verification lock (AIT-104 B2) replaces the assessment in place with the email form.
+    root.querySelector('.readiness').style.visibility = !locked && (analysis.available || cached) ? '' : 'hidden';
+    root.querySelector('.readiness').toggleAttribute('inert', locked);
+    root.querySelector('.notice').hidden = locked;
     const u = this.#session.understanding, stale = u.inputRevision !== inputRevision(this.#session);
     // Sections appear with the first assessment; empty lists then say so quietly (D15).
-    for (const section of root.querySelectorAll('.analysis-content section')) section.hidden = !analysis.available && !cached || !u.readinessAssessed;
+    for (const section of root.querySelectorAll('.analysis-content section')) section.hidden = locked || !analysis.available && !cached || !u.readinessAssessed;
     const percent = u.readinessAssessed ? readinessScalePercent(u.progress, this.#session.preset) : 0;
     root.querySelector('.scale').setAttribute('aria-valuenow', percent);
     root.querySelector('.scale').setAttribute('aria-valuetext', u.readinessAssessed ? `${percent}%` : copy.notAssessed);
@@ -522,7 +539,7 @@ export class AithemaSession extends HTMLElement {
     const hasPersonTurn = activeTurns(this.#session).some(t => t.role === 'user');
     const missingReply = hasPersonTurn && !activeTurns(this.#session).some(t => t.role === 'assistant' && t.inputRevision === revision);
     root.querySelector('.retry').disabled = !analysis.available;
-    root.querySelector('.retry').hidden = !analysis.available || Boolean(running) || !(this.#failure || hasPersonTurn && (stale || u.draft || missingReply));
+    root.querySelector('.retry').hidden = locked || !analysis.available || Boolean(running) || !(this.#failure || hasPersonTurn && (stale || u.draft || missingReply));
     root.querySelector('.summary-text').textContent = u.summary;
     for (const [selector, items] of [['.signals', u.signals], ['.questions', u.openQuestions]]) {
       reconcile(root.querySelector(selector), items.length ? textKeys(items) : [[NONE, null]],
@@ -627,7 +644,9 @@ export class AithemaSession extends HTMLElement {
     go.addEventListener('click', () => void this.#confirmChoice(go));
     const action = node('div', 'chooser__action'); action.append(hint, go);
     const error = node('p', 'chooser__error'); error.setAttribute('role', 'alert');
-    section.append(title, cards, action, error);
+    // The action row and its error line stay pinned at the card's bottom edge (AIT-104 B2).
+    const footer = node('div', 'chooser__footer'); footer.append(action, error);
+    section.append(title, cards, footer);
     return section;
   }
   #chooserOption(preset) {
@@ -1073,6 +1092,7 @@ export class AithemaSession extends HTMLElement {
         if (row) { row.style.minHeight = `${row.getBoundingClientRect().height}px`; row.querySelector('span').textContent = event.data.content; }
       }
       if (event.type === 'understanding.updated' && this.#session.operations?.lastFailure?.lane !== 'reaction') this.#failure = false;
+      this.#host?.receive(event);
       this.dispatchEvent(new CustomEvent('aithema-event', { detail: event, bubbles: true, composed: true }));
     } else if (event.type === 'voice.state') {
       const voice = this.#rail.session;
@@ -1118,7 +1138,7 @@ export class AithemaSession extends HTMLElement {
       // A snapshot requested before a withdrawal must never restore its content.
       if (session.seq < this.#invalidatedAt) return;
       this.#session = session; this.#cursor = this.#session.seq; this.#partials.clear();
-      this.#restoreFailure(); this.#concept.update(this.#session); this.#renderMode(); this.#dialog?.sync();
+      this.#restoreFailure(); this.#concept.update(this.#session); this.#renderMode(); this.#dialog?.sync(); this.#host?.resync();
       this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer');
       if (this.isConnected) this.#connect();
     } catch {
