@@ -104,6 +104,26 @@ test('8,000 non-ASCII characters fit the request budget; oversized bytes still f
   } finally { await handlers.close(); storage.close(); }
 });
 
+test('AIT-109 L6: escaped Unicode and control-heavy turns fit decoded limits; metadata and wire limits remain', async () => {
+  const storage = new SQLiteStorage(), handlers = createHandlers({ storage, consent: mockConsent });
+  const session = storage.create({ demo: true, ownerToken: testToken });
+  const send = body => handlers.handle(ownedRequest(`http://localhost/api/sessions/${session.id}/turns`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body,
+  }));
+  try {
+    const content = '界'.repeat(8000);
+    const escaped = JSON.stringify({ clientEventId: 'escaped', content }).replaceAll('界', '\\u754c');
+    assert.ok(Buffer.byteLength(escaped) > 32_768);
+    assert.equal((await send(escaped)).status, 200, 'JSON escaping must not consume the decoded content budget');
+    assert.equal(storage.get(session.id).transcript[0].content, content);
+    const controls = '\u0001'.repeat(7999) + 'x';
+    assert.equal((await turn(handlers, session.id, 'controls', controls)).status, 200);
+    assert.equal(storage.get(session.id).transcript.filter(t => t.role === 'user').at(-1).content, controls);
+    assert.equal((await send(JSON.stringify({ clientEventId: 'metadata', content: 'x', padding: 'p'.repeat(32_768) }))).status, 413);
+    assert.equal((await send(' '.repeat(65_537))).status, 413);
+  } finally { await handlers.close(); storage.close(); }
+});
+
 test('AIT-109 L2: boot recovery starts only one session at a time and drains the backlog', async () => {
   const storage = new SQLiteStorage(), held = deferred(), started = [];
   const handlers = createHandlers({ storage, consent: mockConsent });
