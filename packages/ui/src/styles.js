@@ -91,8 +91,10 @@ summary { cursor:pointer; } details p { padding:.5rem 0; } blockquote { margin:.
   radial-gradient(circle at 35% 30%,var(--aithema-surface),transparent 60%),
   radial-gradient(circle at 65% 60%,var(--aithema-amber),var(--aithema-accent)); opacity:.6; }
 .voice-info { min-width:0; display:grid; align-content:center; font-size:.75rem; line-height:1.3; }
-/* The state wraps to two lines; the live caption keeps its newest words in view (the full turn lands in the transcript). */
-.voice-state { max-height:2.6em; overflow:hidden; overflow-wrap:anywhere; }
+/* The state wraps into reserved lines (two here, four on phones) that fit the longest English and German
+   message, so nothing is cut off and no control moves. A narrower host scrolls the rest rather than hiding it.
+   The live caption keeps its newest words in view (the full turn lands in the transcript). */
+.voice-state { max-height:2.6em; overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; overflow-wrap:anywhere; }
 .voice-caption { min-height:1.3em; display:flex; justify-content:flex-end; overflow:hidden; white-space:nowrap; color:var(--aithema-muted); }
 .voice-controls { grid-column:1/-1; display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:.3rem; }
 .voice-controls button { min-width:0; width:100%; height:2.7rem; padding:.15rem; font-size:.65rem; overflow:hidden; }
@@ -155,10 +157,10 @@ summary { cursor:pointer; } details p { padding:.5rem 0; } blockquote { margin:.
 @media(min-width:60rem) { .workspace { grid-template-columns:minmax(0,1.65fr) minmax(20rem,1fr); } }
 /* Phones: fixed rail heights keep targets still; the transcript gets most of a small viewport (D14). */
 @media(max-width:40rem) {
-  .conversation { height:auto; max-height:none; grid-template-rows:3.6rem 9.6rem 9.4rem clamp(20rem,60svh,36rem) 9rem; }
+  .conversation { height:auto; max-height:none; grid-template-rows:3.6rem 12rem 9.4rem clamp(20rem,60svh,36rem) 9rem; }
   textarea { height:3.8rem; }
-  .audio-rail { height:9.6rem; grid-template-columns:2.5rem minmax(0,1fr); grid-template-rows:2.5rem auto; }
-  .voice-orb { width:2.5rem; height:2.5rem; }
+  .audio-rail { height:12rem; grid-template-columns:2.5rem minmax(0,1fr); grid-template-rows:4.9rem auto; }
+  .voice-orb { width:2.5rem; height:2.5rem; align-self:center; } .voice-state { max-height:5.2em; }
   .voice-controls { grid-template-columns:repeat(4,minmax(0,1fr)); grid-auto-rows:2.7rem; }
   .voice-controls button { line-height:1.2; }
   .concept-rail { height:9.4rem; grid-template-columns:2.5rem minmax(0,1fr); grid-template-rows:minmax(0,1fr) 2.7rem; align-items:start; }

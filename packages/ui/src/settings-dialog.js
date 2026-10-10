@@ -90,7 +90,7 @@ export class SettingsDialog {
     this.#dialog.innerHTML = `<div class="settings__frame">
       <header class="settings__header"><h2 class="settings__title" id="settings-title"></h2>
         <div class="settings__tabs" role="tablist">${['general', 'model', 'local'].map(tab => `<button type="button" role="tab" id="settings-tab-${tab}"
-          aria-controls="settings-panel-${tab}" data-tab="${tab}" data-help="${tab === 'model' ? 'processing' : tab}"><span class="tab-icon">${ICONS[tab]}</span><span class="tab-label"></span></button>`).join('')}</div></header>
+          aria-controls="settings-panel-${tab}" data-tab="${tab}" data-help="${tab === 'model' ? 'processing' : tab}"><span class="tab-icon">${ICONS[tab]}</span><span class="tab-label"></span><span class="tab-check" aria-hidden="true">${ICONS.check}</span></button>`).join('')}</div></header>
       <div class="settings__body">
         <section class="settings-panel" role="tabpanel" id="settings-panel-model" aria-labelledby="settings-tab-model" data-panel="model">
           <div class="settings-column">

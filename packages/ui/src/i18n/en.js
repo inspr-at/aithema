@@ -327,7 +327,11 @@ export const en = {
     settingsHint: 'Settings (in the processing panel below) chooses the preset, model, response style, voice and visual concepts. Its Advanced tab connects an OpenAI-compatible model running on this device.',
     language: 'Language', languages: { en: 'English', de: 'German' }, languageNext: 'New conversations will be in {language}. This conversation stays in English.',
     consentTitle: 'Mock conversation consent',
-    consentText: 'The local demo models, fake voice and fake images use your conversation to reply, build understanding and draw concepts. Recipient: the local mock; no upstream processors. This covers conversation data, item version 1, for twelve months. Grants live in memory; grant again after a server restart.',
+    // The mock consent names the visual kind the conversation uses (AIT-118); the terms are shared.
+    consentUse: { html: 'The local demo models, fake voice and test drafts (local click-dummy) use your conversation to reply, build understanding and draft clickable concepts.',
+      images: 'The local demo models, fake voice and test images (local PNG) use your conversation to reply, build understanding and draw concepts.',
+      off: 'The local demo models and fake voice use your conversation to reply and build understanding.' },
+    consentTerms: 'Recipient: the local mock; no upstream processors. This covers conversation data, item version 1, for twelve months. Grants live in memory; grant again after a server restart.',
     grant: 'Allow mock processing', revoke: 'Withdraw consent', consentWaiting: 'Processing waits for consent.',
     consentRequired: 'Grant consent before mock processing.', consentAllowed: 'Mock processing allowed.',
     consentWithdrawn: 'Consent withdrawn.', consentStopped: 'Consent withdrawn. Running work stopped.',
@@ -335,6 +339,8 @@ export const en = {
     processingWaiting: 'Processing waits for the selected permissions.', processingSaved: 'Your consent has been saved.',
     voiceUnavailable: 'Voice unavailable: {reason}',
     consentFailed: 'Could not save consent. Try again.', restoreFailed: 'Could not restore the demo. Reload to retry.',
-    labels: {},
+    visualsOff: 'No visual concepts',
+    labels: { 'Fake HTML — local deterministic click-dummy, no provider network': 'Test drafts (local click-dummy)',
+      'Fake images — local deterministic PNG, no provider network': 'Test images (local PNG)' },
   },
 };

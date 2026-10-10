@@ -624,11 +624,22 @@ test('every text pair reaches WCAG AA in light and dark, placeholder, bubbles an
   assert.deepEqual(Object.keys(light).sort(), names); assert.deepEqual(Object.keys(dark).sort(), names);
   // The placeholder uses the muted token, not the browser default (#757575 measured 3.51:1 on the dark surface).
   assert.match(styles, /textarea::placeholder \{ color:var\(--aithema-muted\); opacity:1; \}/u);
-  // The light gauge panel's palest stop is fixed in the settings styles; dark follows the tokens.
-  const themes = { light: textPairs(light, { primaryText: '#ffffff', backgrounds: { 'light gauge panel': '#e6f0ef' } }), dark: textPairs(dark, { primaryText: dark.paper }) };
-  assert.match(settingsStyles, /#e6f0ef\); \}/u);
+  // The light gauge panel's stops are fixed in the settings styles; dark follows the tokens.
+  const lightPanel = ['#fffefd', '#faf8f3', '#f7f9f6', '#e6f0ef'];
+  const themes = { light: textPairs(light, { primaryText: '#ffffff', gaugePanel: lightPanel }), dark: textPairs(dark, { primaryText: dark.paper }) };
+  assert.match(settingsStyles, /\.gauge-panel \{[^}]*radial-gradient\(ellipse at 25% 0%,#fffefd,transparent 65%\),linear-gradient\(155deg,#faf8f3,#f7f9f6 55%,#e6f0ef\); \}/u);
+  // The composited layers textPairs models are the ones the styles draw (AIT-118 gate).
+  assert.match(styles, /button:where\(:hover:not\(:disabled\)\) \{ background:color-mix\(in srgb,var\(--aithema-accent\) 8%,transparent\); \}/u);
+  assert.match(settingsStyles, /\.notice-area\[data-kind\]:not\(\[data-kind=""\]\) \{ background:color-mix\(in srgb,var\(--aithema-amber\) 9%,transparent\); \}/u);
+  assert.match(settingsStyles, /\.recovery \{[^}]*background:color-mix\(in srgb,var\(--aithema-amber\) 9%,transparent\); \}/u);
+  assert.match(settingsStyles, /\.settings-field legend \{[^}]*color:color-mix\(in oklab,var\(--aithema-ink\) 85%,transparent\); \}/u);
+  assert.match(settingsStyles, /\.gauge__value \{[^}]*opacity:\.85; \}/u);
+  assert.match(settingsStyles, /\.select__option:hover, \.select__option:focus-visible \{ background:color-mix\(in srgb,var\(--aithema-accent\) 10%,transparent\); \}/u);
+  assert.match(settingsStyles, /\.local pre \{[^}]*background:color-mix\(in srgb,var\(--aithema-ink\) 7%,transparent\);/u);
   for (const [theme, pairs] of Object.entries(themes)) {
-    assert.ok(Object.keys(pairs).length >= 49, `${theme}: ${Object.keys(pairs).length} pairs`);
+    for (const pair of ['accent on hover tint over notice tint on surface', 'ink on hover tint over notice tint on paper', 'legend (ink 85 %) on ' + (theme === 'light' ? light : dark).surface,
+      `gauge value (ink at 0.85 opacity) on ${theme === 'light' ? '#e6f0ef' : dark.paper}`]) assert.ok(pairs[pair], `${theme}: ${pair} is checked`);
+    assert.ok(Object.keys(pairs).length >= 88, `${theme}: ${Object.keys(pairs).length} pairs`);
     for (const [pair, [text, background]] of Object.entries(pairs)) {
       assert.ok(contrast(text, background) >= 4.5, `${theme} ${pair}: ${contrast(text, background).toFixed(2)}:1`);
     }

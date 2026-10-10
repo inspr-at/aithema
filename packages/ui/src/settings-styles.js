@@ -28,13 +28,16 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .settings__header { flex:none; display:grid; grid-template-columns:auto minmax(0,1fr); align-items:end; gap:0 2rem; padding:.6rem 1.6rem 0; }
 .settings__title { font:400 1.9rem/1.15 Georgia,serif; letter-spacing:-.02em; padding-bottom:.45rem; }
 .settings__tabs { display:flex; gap:.4rem; border-bottom:1px solid var(--aithema-line); }
-/* GUI-27: the selected tab is marked by ink text and an accent icon, never by a line only it has. Weight never changes. */
+/* GUI-27: the selected tab is marked by a check in a slot every tab keeps, ink text and an accent icon,
+   never by a line only it has and never by colour alone. Weight never changes. */
 .settings__tabs button { flex:1; display:flex; align-items:center; justify-content:center; gap:.45rem; border:0; border-radius:.45rem .45rem 0 0;
   background:transparent; padding:.55rem .3rem; white-space:nowrap; font-weight:600; color:var(--aithema-muted); }
 .settings__tabs button[aria-selected=true] { color:var(--aithema-ink); }
-.tab-icon { display:grid; place-items:center; width:1.15rem; height:1.15rem; color:var(--aithema-muted); }
+.tab-icon, .tab-check { flex:none; display:grid; place-items:center; width:1.15rem; height:1.15rem; color:var(--aithema-muted); }
 .settings__tabs button[aria-selected=true] .tab-icon { color:var(--aithema-accent); }
-.tab-icon svg { display:block; width:100%; height:100%; }
+.tab-check { width:.9rem; height:.9rem; color:var(--aithema-accent); visibility:hidden; }
+.settings__tabs button[aria-selected=true] .tab-check { visibility:visible; }
+.tab-icon svg, .tab-check svg { display:block; width:100%; height:100%; }
 .settings__body { flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding:1.2rem 1.6rem; }
 .settings-panel { display:grid; gap:1.4rem; min-width:0; }
 .settings-panel[data-panel=model] { grid-template-columns:minmax(0,1.08fr) minmax(0,1fr) minmax(0,.95fr); align-items:start; }

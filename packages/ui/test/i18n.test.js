@@ -56,3 +56,16 @@ test('a German page names the demo catalog in German; product names stay (AIT-11
   assert.equal(catalogLabel(en, 'Fake voice (local agent)'), 'Fake voice (local agent)'); assert.equal(catalogLabel(de, 'ElevenLabs'), 'ElevenLabs');
   assert.deepEqual(Object.keys(de.gauges.operations), Object.keys(en.gauges.operations));
 });
+
+test('the demo header and mock consent name each visual kind in both languages; the local plugin labels are translated (AIT-118)', async () => {
+  const { createLocalHTML } = await import('../../server/src/local-html.js'), { createLocalImages } = await import('../../server/src/local-images.js');
+  const labels = { html: createLocalHTML().label, images: createLocalImages().label };
+  assert.deepEqual([en.host.labels[labels.html], en.host.labels[labels.images], en.host.visualsOff], ['Test drafts (local click-dummy)', 'Test images (local PNG)', 'No visual concepts']);
+  assert.deepEqual([de.host.labels[labels.html], de.host.labels[labels.images], de.host.visualsOff], ['Testentwürfe (lokaler Klick-Entwurf)', 'Testbilder (lokales PNG)', 'Keine visuellen Entwürfe']);
+  for (const copy of [en, de]) {
+    assert.deepEqual(Object.keys(copy.host.consentUse).sort(), ['html', 'images', 'off']);
+    assert.match(copy.host.consentUse.html, /test drafts \(local click-dummy\)|Testentwürfe \(lokaler Klick-Entwurf\)/u);
+    assert.match(copy.host.consentUse.images, /test images \(local PNG\)|Testbilder \(lokales PNG\)/u);
+    assert.doesNotMatch(copy.host.consentUse.html, /image|bild/iu); assert.doesNotMatch(copy.host.consentUse.off, /image|bild|draft|entw/iu);
+  }
+});

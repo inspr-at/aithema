@@ -70,6 +70,21 @@ test('demo host creates owned sessions through postJson and combines consent, pa
     await wait(() => component.session.settings.model === 'mock/deep');
     assert.equal(component.session.id, previousId, 'model changes apply to this conversation');
     assert.match(root.querySelector('.engine__detail').textContent, /Deep \(mock\)/u);
+    // AIT-118: the header and the mock consent name the active visual kind from the server's binding, never always the image label.
+    const { en: copy } = await import('../../packages/ui/src/i18n/en.js'), h = copy.host;
+    const header = () => document.querySelector('#provider').textContent, consentText = () => document.querySelector('#consent-text').textContent;
+    assert.equal(component.session.conceptVisualKind, 'html');
+    assert.equal(header(), `Mock reasoning — deterministic demo · ${h.labels['Fake HTML — local deterministic click-dummy, no provider network']}`);
+    assert.equal(header(), 'Mock reasoning — deterministic demo · Test drafts (local click-dummy)');
+    assert.equal(consentText(), `${h.consentUse.html} ${h.consentTerms}`); assert.doesNotMatch(consentText(), /image/u);
+    option('visuals', 'Fake images (local PNG)').click();
+    await wait(() => component.session.conceptVisualKind === 'images' && header().endsWith('Test images (local PNG)'));
+    assert.equal(consentText(), `${h.consentUse.images} ${h.consentTerms}`);
+    option('visuals', 'Off').click();
+    await wait(() => header().endsWith(h.visualsOff));
+    assert.equal(consentText(), `${h.consentUse.off} ${h.consentTerms}`); assert.doesNotMatch(consentText(), /draft|image/u);
+    option('visuals', 'Fake HTML (local click-dummy)').click();
+    await wait(() => header().endsWith('Test drafts (local click-dummy)'));
     dialog.querySelector('.preset-option[data-preset="custom"]').click();
     await wait(() => component.session.processingPreset === 'custom' && dialog.querySelector('.save-status').textContent === 'Changes saved');
     assert.equal(component.session.id, previousId);

@@ -355,6 +355,21 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         }
         assert.notEqual(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.context-message').textContent), '', 'hover explains in the help line');
         assert.deepEqual(await shadowRect(page, '.workspace', { document: true }), workspace, 'the open dialog shifts nothing behind it');
+        // AIT-118: the selected tab shows a check in a slot every tab keeps, so selection never rests on colour alone,
+        // it is no edge accent, and selecting another tab moves no tab, icon or label.
+        const tabMarks = () => page.$eval('aithema-session', c => [...c.shadowRoot.querySelectorAll('.settings__tabs [role=tab]')].map(tab => {
+          const check = tab.querySelector('.tab-check'), style = getComputedStyle(tab), mark = check.getBoundingClientRect();
+          return { tab: tab.dataset.tab, selected: tab.getAttribute('aria-selected') === 'true', checkVisible: getComputedStyle(check).visibility === 'visible' && mark.width > 0 && mark.height > 0,
+            edge: [style.borderBottomWidth, style.borderTopWidth, style.borderLeftWidth, style.borderRightWidth].some(width => width !== '0px') || style.boxShadow !== 'none' || style.textDecorationLine !== 'none',
+            boxes: [tab, tab.querySelector('.tab-icon'), tab.querySelector('.tab-label'), check].map(node => JSON.stringify(node.getBoundingClientRect())) };
+        }));
+        const firstTab = (await tabMarks()).find(tab => tab.selected).tab, tabLayout = (await tabMarks()).map(tab => tab.boxes);
+        for (const name of ['general', 'local', 'model', firstTab]) {
+          await page.click(`aithema-session >>> .settings__tabs [data-tab="${name}"]`);
+          const marks = await tabMarks();
+          assert.deepEqual(marks.map(tab => [tab.tab, tab.selected, tab.checkVisible, tab.edge]), marks.map(tab => [tab.tab, tab.tab === name, tab.tab === name, false]), `only the ${name} tab shows its check`);
+          assert.deepEqual(marks.map(tab => tab.boxes), tabLayout, `selecting ${name} moves no tab, icon, label or check slot`);
+        }
         await page.keyboard.press('Escape');
         await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
         assert.equal(await shadowFocus(page), 'settings-open', 'Escape returns focus to the Settings button');
@@ -651,6 +666,30 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
     await waitForShadow(german, 'aside .notice', { text: 'Aktuelle Einschätzung' });
     assert.equal(await inShadow(german, c => c.session.transcript.at(-1).content), 'Was sollte sich als Erstes verbessern?');
     assert.deepEqual(await inShadow(german, c => [...c.shadowRoot.querySelectorAll('.cleared summary')].map(n => n.textContent).sort()), ['Betrieb', 'Daten']);
+    // AIT-118: the header names the active visual kind (clickable drafts by default), never the image label.
+    assert.equal(await german.$eval('#provider', node => node.textContent), 'Mock-Auswertung: deterministische Demo · Testentwürfe (lokaler Klick-Entwurf)');
+    assert.equal(await german.$eval('#consent-text', node => node.textContent), `${de.host.consentUse.html} ${de.host.consentTerms}`);
+    // AIT-118: at 400 px every English and German voice message, the longest German recovery and closure
+    // messages included, is whole in the rail's reserved lines and moves no control.
+    const voiceMessages = [en, de].flatMap(copy => Object.entries(copy).filter(([key, value]) => /^voice[A-Z]/u.test(key) && typeof value === 'string'
+      && !['voiceRail', 'voiceStart', 'voiceClose', 'voiceMicOn', 'voiceMicOff', 'voiceSpeakerOn', 'voiceSpeakerOff', 'voiceRetry', 'voicePlaybackRetry', 'voiceHostConsentTitle', 'voiceHostConsent'].includes(key))
+      .map(([, value]) => value)).sort((a, b) => b.length - a.length);
+    assert.ok([de.voiceRecoveryFailed, de.voiceClosureUncertain, de.voiceConflict].every(message => voiceMessages.includes(message)));
+    await german.setViewport({ width: 400, height: 800 });
+    const voiceFit = await inShadow(german, (c, messages) => {
+      const r = c.shadowRoot, state = r.querySelector('.voice-state'), info = r.querySelector('.voice-info'), rail = r.querySelector('.audio-rail'), original = state.textContent;
+      const boxes = () => [...r.querySelectorAll('.voice-orb, .voice-controls button, .concept-rail, .transcript-shell')].map(node => JSON.stringify(node.getBoundingClientRect()));
+      const before = boxes(), result = messages.map(message => {
+        state.textContent = message;
+        const lines = Math.round(state.scrollHeight / parseFloat(getComputedStyle(state).lineHeight));
+        return { message: message.slice(0, 40), lines, clipped: state.scrollHeight > state.clientHeight + 1 || info.scrollHeight > info.clientHeight + 1 || rail.scrollHeight > rail.clientHeight + 1,
+          moved: boxes().some((box, index) => box !== before[index]) };
+      });
+      state.textContent = original; return result;
+    }, voiceMessages);
+    assert.ok(voiceFit[0].lines >= 3, `the longest message wraps (${voiceFit[0].lines} lines)`);
+    assert.deepEqual(voiceFit.filter(fit => fit.clipped || fit.moved), [], 'no voice message is clipped or moves a control at 400 px');
+    await german.setViewport({ width: 1440, height: 1000 });
     await german.select('#locale', 'en');
     assert.equal(await german.$eval('#language-note', node => node.textContent),
       'Neue Gespräche beginnen auf Englisch. Dieses Gespräch bleibt auf Deutsch.');
