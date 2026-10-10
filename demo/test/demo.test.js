@@ -98,7 +98,7 @@ test('demo rejects foreign Hosts and non-JSON POSTs before session creation', { 
 const sendsMethod = source => /\bmethod\b|new\s+Request\s*\(|navigator\.sendBeacon|XMLHttpRequest/u.test(source);
 async function clientFiles() {
   const { readdir } = await import('node:fs/promises');
-  const files = [new URL('../host.js', import.meta.url)];
+  const files = ['host.js', 'consent-page.js', 'consent.js', 'page-preferences.js'].map(file => new URL('../' + file, import.meta.url));
   const walk = async dir => {
     for (const entry of await readdir(dir, { withFileTypes: true })) {
       const url = new URL(entry.name + (entry.isDirectory() ? '/' : ''), dir);
@@ -244,4 +244,20 @@ test('a live provider host offers only its configured route: no mock, no fake vo
   const demoCatalog = await fetch(running.url + `/api/sessions/${demoSession.id}/settings`, { headers: { cookie: demo.headers.get('set-cookie').split(';')[0] } }).then(r => r.json());
   assert.deepEqual(demoCatalog.presets.best.visuals.map(o => [o.id, o.kind, o.label]), [['fake-html', 'html', 'Demo only: fake HTML click-dummy (no provider)']]);
   assert.deepEqual(demoCatalog.presets.best.voices, []);
+});
+
+test('dedicated consent page and its assets are served explicitly; mock readback tracks the server grant', async t => {
+  const running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb()); t.after(() => running.kill());
+  for (const [path, type] of [['/consent/', 'text/html'], ['/demo/consent.js', 'text/javascript'], ['/demo/consent-page.js', 'text/javascript'], ['/demo/host.css', 'text/css'], ['/demo/page-preferences.js', 'text/javascript']]) {
+    const response = await fetch(running.url + path); assert.equal(response.status, 200);
+    assert.ok(response.headers.get('content-type').startsWith(type));
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+  }
+  const html = await fetch(running.url + '/consent/').then(r => r.text());
+  assert.match(html, /https:\/\/github.com\/inspr-at\/aithema/u);
+  assert.equal((await fetch(running.url + '/demo/mock-consent.js')).status, 404, 'server-only ledger is not a static asset');
+  const session = await post(running.url + '/api/sessions', {}).then(r => r.json()), url = `${running.url}/api/sessions/${session.id}/consent`;
+  assert.deepEqual((await sessionFetch(url).then(r => r.json())).selected, []);
+  await post(url, { granted: true }); assert.deepEqual((await sessionFetch(url).then(r => r.json())).selected, ['mock-processing']);
+  await post(url, { granted: false }); assert.deepEqual((await sessionFetch(url).then(r => r.json())).selected, []);
 });

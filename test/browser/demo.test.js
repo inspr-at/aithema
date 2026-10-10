@@ -1,3 +1,4 @@
+import { mockConsent } from './consent-helpers.js';
 import assert from 'node:assert/strict';
 import { fork } from 'node:child_process';
 import { createServer } from 'node:http';
@@ -136,7 +137,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
     const directory = await mkdtemp(join(tmpdir(), 'aithema-browser-'));
     const child = fork(new URL('../../demo/server.js', import.meta.url), [], {
       // No inherited provider selection or credentials can reach the demo.
-      env: { PATH: process.env.PATH, PORT: '0', AITHEMA_DB: join(directory, 'session.sqlite'), AITHEMA_PROVIDER: 'mock' },
+      env: { PATH: process.env.PATH, PORT: '0', AITHEMA_DB: join(directory, 'session.sqlite') },
       silent: true,
     });
     child.stdout.resume(); child.stderr.resume();
@@ -206,7 +207,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
       await Promise.race([failure.promise, (async () => {
         if (process.env.AITHEMA_BROWSER_REGRESSION === '1') await injectRegression(page, url, fail);
         // The page language follows the browser; pin English whatever the machine locale is.
-        await page.evaluateOnNewDocument(() => { Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] }); });
+        await page.evaluateOnNewDocument(() => { Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] }); localStorage.setItem('aithema-demo-locale', 'en'); });
         // The demo has no favicon. Avoid Chrome's implicit, unrelated /favicon.ico probe.
         await page.evaluateOnNewDocument(() => {
           document.addEventListener('DOMContentLoaded', () => {
@@ -255,12 +256,8 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         for (const [selector, enabled] of [['#grant', true], ['#revoke', false], ['#grant', true]]) {
           const consent = page.waitForResponse(response => response.url() === `${url}/api/sessions/${id}/consent`
             && response.request().method() === 'POST', { signal: controller.signal });
-          const [, saved] = await Promise.all([page.click(selector), consent]);
+          const [, saved] = await Promise.all([mockConsent(page, selector === '#grant'), consent]);
           assert.equal(saved.status(), 200, `${selector} must save consent through the demo UI`);
-          if (enabled) {
-            await page.waitForFunction(() => document.querySelector('#consent-status').textContent === 'Mock processing allowed.',
-              { polling: 'mutation' });
-          }
           await waitForShadow(page, '.composer textarea', { enabled });
         }
         await page.mouse.move(0, 0);
@@ -410,7 +407,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
 async function startDemo(directory, port = '0') {
   const child = fork(new URL('../../demo/server.js', import.meta.url), [], {
     // The demo default: fake clickable HTML drafts (AIT-113), shown in the concept viewer.
-    env: { PATH: process.env.PATH, PORT: port, AITHEMA_DB: join(directory, 'session.sqlite'), AITHEMA_PROVIDER: 'mock' }, silent: true,
+    env: { PATH: process.env.PATH, PORT: port, AITHEMA_DB: join(directory, 'session.sqlite') }, silent: true,
   });
   child.stdout.resume(); child.stderr.resume();
   const [message] = await Promise.race([once(child, 'message'),
@@ -454,16 +451,18 @@ test('AIT-117: a German processing-consent page contains START German copy and n
       } else void request.continue();
     });
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
-    await until(page, () => document.documentElement.lang === 'de' && document.querySelector('#processing-items span')?.textContent === 'KI-Modelle international');
+    await waitForShadow(page, '.composer textarea');
+    assert.equal(await inShadow(page, c => c.session.locale), 'de');
+    const consentSessionId = await inShadow(page, c => c.session.id);
+    await page.goto(`${demo.url}/consent/?session=${consentSessionId}&return=/`, { waitUntil: 'domcontentloaded' });
+    await until(page, () => document.querySelector('#processing-items span')?.textContent === 'KI-Modelle international');
     const consent = await page.evaluate(() => ({
       intro: document.querySelector('#consent-text').textContent,
       items: [...document.querySelectorAll('#processing-items input')].map(input => ({ id: input.value,
-        title: input.parentElement.querySelector('span').textContent, text: input.parentElement.nextElementSibling.textContent, checked: input.checked })),
-      visible: document.querySelector('section[aria-labelledby="consent-title"]').innerText,
-      provider: document.querySelector('#provider').textContent,
+        title: input.parentElement.querySelector('span').textContent, text: [...input.closest('.consent-item').querySelectorAll('p')].map(p => p.textContent).join(' '), checked: input.checked })),
+      visible: document.querySelector('main.consent-page').innerText,
     }));
-    assert.equal(await inShadow(page, c => c.session.locale), 'de');
-    assert.equal(consent.intro, `${START_GERMAN_CONSENT.intro} ${START_GERMAN_CONSENT.withdrawal}`);
+    assert.equal(consent.intro, de.host.consentPage.intro);
     for (const item of consent.items) {
       const expected = START_GERMAN_CONSENT.items[item.id];
       assert.equal(item.title, expected.title);
@@ -473,8 +472,9 @@ test('AIT-117: a German processing-consent page contains START German copy and n
     for (const english of [CONSENT_INTRO, CONSENT_WITHDRAWAL, ...CONSENT_ITEMS.flatMap(item => [item.title, item.recipients, item.text])]) {
       assert.equal(consent.visible.includes(english), false, english);
     }
-    assert.ok(consent.provider.includes(de.reasons['agent-api'].replace('{status}', '403')));
-    assert.equal(consent.provider.includes('agent-api-get-403'), false);
+    await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+    await waitForShadow(page, '.composer textarea');
+    assert.ok((await page.$eval('#provider', node => node.textContent)).includes(de.reasons['agent-api'].replace('{status}', '403')));
     await waitForShadow(page, '.composer-reason', { text: de.reasons['current processing consent required'] });
     // Exercise every grepped reason through actual feature rows, including HTML and uploads,
     // delegated voice reasons and the bounded agent API status-code family.
@@ -513,6 +513,7 @@ async function preparePage(page, languages) {
   await page.evaluateOnNewDocument(languages => {
     Object.defineProperty(navigator, 'languages', { get: () => languages });
     Object.defineProperty(navigator, 'language', { get: () => languages[0] });
+    localStorage.setItem('aithema-demo-locale', languages[0].startsWith('de') ? 'de' : 'en');
     document.addEventListener('DOMContentLoaded', () => {
       const icon = document.createElement('link'); icon.rel = 'icon'; icon.href = 'data:,'; document.head.append(icon);
     }, { once: true });
@@ -621,7 +622,7 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
     };
     const page = await browser.newPage(); await preparePage(page, ['en-US', 'en']); watch(page);
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
-    await page.click('#grant'); await waitForShadow(page, '.composer textarea', { enabled: true });
+    await mockConsent(page); await waitForShadow(page, '.composer textarea', { enabled: true });
     await sendTurn(page, 'We are a bakery and want a pre-order app for our customers.');
     await waitForShadow(page, 'aside .notice', { text: 'Current assessment' });
 
@@ -697,7 +698,7 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
     await page.reload({ waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea', { enabled: true });
     await until(page, id => sessionStorage.getItem(`aithema-voice-call:${id}`) === null, sessionId);
     assert.equal(await inShadow(page, c => c.session.paused), false, 'a reload must not leave the session paused');
-    assert.equal(await page.$eval('#consent-status', node => node.textContent), 'Mock processing allowed.', 'D8: the consent line shows the active grant');
+    assert.equal(await inShadow(page, c => c.session.featureMatrix.best.text.available), true, 'D8: the server verdict shows the active grant');
     await startCall(page);
     await endCall(page);
 
@@ -705,7 +706,7 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
     const port = new URL(demo.url).port;
     restarting = true; await stopDemo(demo.child); demo = await startDemo(directory, port);
     await waitForShadow(page, '.composer textarea', { enabled: false });
-    await until(page, () => document.querySelector('#consent-status').textContent === 'Grant consent before mock processing.');
+    await until(page, () => !document.querySelector('aithema-session').session.featureMatrix.best.text.available);
     await waitForShadow(page, '.status', { text: 'Connected' });
     restarting = false;
 
@@ -716,15 +717,14 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
     assert.equal(await inShadow(german, c => c.session.locale), 'de');
     assert.equal(await german.evaluate(() => document.documentElement.lang), 'de');
     assert.equal(await german.$eval('#new', node => node.textContent), 'Neues Gespräch beginnen');
-    await german.click('#grant'); await waitForShadow(german, '.composer textarea', { enabled: true });
-    assert.equal(await german.$eval('#consent-status', node => node.textContent), 'Mock-Verarbeitung erlaubt.');
+    await mockConsent(german); await waitForShadow(german, '.composer textarea', { enabled: true });
+    assert.equal(await inShadow(german, c => c.session.featureMatrix.best.text.available), true);
     await sendTurn(german, 'Wir sind eine Tischlerei. Betrieb: wir hosten selbst; Daten: nur intern');
     await waitForShadow(german, 'aside .notice', { text: 'Aktuelle Einschätzung' });
     assert.equal(await inShadow(german, c => c.session.transcript.at(-1).content), 'Was sollte sich als Erstes verbessern?');
     assert.deepEqual(await inShadow(german, c => [...c.shadowRoot.querySelectorAll('.cleared summary')].map(n => n.textContent).sort()), ['Betrieb', 'Daten']);
     // AIT-118: the header names the active visual kind (clickable drafts by default), never the image label.
     assert.equal(await german.$eval('#provider', node => node.textContent), 'Mock-Auswertung: deterministische Demo · Testentwürfe (lokaler Klick-Entwurf)');
-    assert.equal(await german.$eval('#consent-text', node => node.textContent), `${de.host.consentUse.html} ${de.host.consentTerms}`);
     // AIT-118: at 400 px every English and German voice message, the longest German recovery and closure
     // messages included, is whole in the rail's reserved lines and moves no control.
     const voiceMessages = [en, de].flatMap(copy => Object.entries(copy).filter(([key, value]) => /^voice[A-Z]/u.test(key) && typeof value === 'string'
@@ -913,7 +913,7 @@ test('AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab l
 
     const page = await browser.newPage(); await preparePage(page, ['en-US', 'en']); watch(page);
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
-    await page.click('#grant'); await waitForShadow(page, '.composer textarea', { enabled: true });
+    await mockConsent(page); await waitForShadow(page, '.composer textarea', { enabled: true });
     const sessionId = await inShadow(page, c => c.session.id), journalKey = `aithema-voice-call:${sessionId}`;
     const journal = target => target.evaluate(key => JSON.parse(sessionStorage.getItem(key)), journalKey);
     const hide = target => target.evaluate(() => {
@@ -1063,7 +1063,7 @@ test('clickable html drafts: request, sandboxed preview, a refresh revision in p
     const draftRequests = [];
     page.on('request', request => { if (/\/concepts\/[^/]+\/(?:html|image)/u.test(request.url())) draftRequests.push([request.resourceType(), new URL(request.url()).pathname.split('/').at(-1)]); });
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
-    await page.click('#grant'); await waitForShadow(page, '.composer textarea', { enabled: true });
+    await mockConsent(page); await waitForShadow(page, '.composer textarea', { enabled: true });
     // The mock's slot-filling turn earns the first milestone, so the request renders at once.
     await sendTurn(page, `We are a bakery and want a pre-order app. ${content}`);
     await waitForShadow(page, 'aside .notice', { text: 'Current assessment' });
@@ -1185,7 +1185,7 @@ test('clickable html drafts: request, sandboxed preview, a refresh revision in p
     await preparePage(german, ['de-DE', 'de']); watch(german);
     await german.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
     await german.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(german, '.composer textarea');
-    await german.click('#grant'); await waitForShadow(german, '.composer textarea', { enabled: true });
+    await mockConsent(german); await waitForShadow(german, '.composer textarea', { enabled: true });
     await sendTurn(german, 'Wir sind eine Tischlerei. Betrieb: gehostet; Daten: öffentlich; Systeme: API; Reichweite: international');
     await waitForShadow(german, 'aside .notice', { text: 'Aktuelle Einschätzung' });
     assert.equal(await inShadow(german, c => c.shadowRoot.querySelector('.concept-request').textContent), 'Entwurf anfordern · Kostenlos (lokaler Test)');
@@ -1257,7 +1257,7 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     // Its own description first, then the AI notice (AIT-119).
     assert.deepEqual(await attach(), { label: 'Dateien anhängen', disabled: 'true', title: 'Dateien können nicht angehängt werden: Einwilligung zur Verarbeitung erforderlich',
       described: ['Dateien können nicht angehängt werden: Einwilligung zur Verarbeitung erforderlich', `${AI_NOTICE.de.text} ${AI_NOTICE.de.voice}`] });
-    await page.click('#grant'); await waitForShadow(page, '.composer textarea', { enabled: true });
+    await mockConsent(page); await waitForShadow(page, '.composer textarea', { enabled: true });
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.attach').getAttribute('aria-disabled') === 'false');
     assert.equal((await attach()).title, 'Bis zu 8 Dateien, je höchstens 20 MB: PDF, Word, Excel, PowerPoint, Text, Markdown, CSV, JSON oder XML. Die Originaldatei wird nicht aufbewahrt.');
 
@@ -1556,7 +1556,7 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
       before = { line: await box(page, '.ai-notice'), composer: await box(page, '.composer') };
       await page.mouse.move(before.line.x + 40, before.line.y + before.line.height / 2);
-      await page.evaluate(() => document.querySelector('#grant').click());
+      await mockConsent(page);
       await waitForShadow(page, '.composer textarea', { enabled: true });
       await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.ready__consent'));
       await waitForShadow(page, '.ready__change');
