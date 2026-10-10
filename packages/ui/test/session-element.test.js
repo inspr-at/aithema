@@ -7,7 +7,8 @@ import { de } from '../src/i18n/de.js';
 import { AI_NOTICE } from '../../core/src/ai-notice.js';
 import { styles, palette } from '../src/styles.js';
 import { settingsStyles } from '../src/settings-styles.js';
-import { contrast, mix, textPairs } from '../../../test/contrast.js';
+import { entranceStyles } from '../src/entrance-styles.js';
+import { contrast, glassCard, mix, textPairs } from '../../../test/contrast.js';
 const window = new Window();
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
@@ -738,18 +739,51 @@ test('every text pair reaches WCAG AA in light and dark, placeholder, bubbles, c
   // The light gauge panel's stops are fixed in its token; dark follows the surface and paper.
   const lightPanel = ['#fffefd', '#faf8f3', '#f7f9f6', '#e6f0ef'];
   assert.match(styles, /--aithema-gauge-panel:radial-gradient\(ellipse at 25% 0%,#fffefd,transparent 65%\),linear-gradient\(155deg,#faf8f3,#f7f9f6 55%,#e6f0ef\);/u);
-  // START's selected processing card tint over paper, per theme (entrance-styles light-dark()).
-  const themes = { light: textPairs(light, { primaryText: light['on-ink'], gaugePanel: lightPanel, backgrounds: { 'selected card': mix('#d6eeea', light.paper, .46) } }),
-    dark: textPairs(dark, { primaryText: dark['on-ink'], backgrounds: { 'selected card': mix('#31716b', dark.paper, .31) } }) };
+  const themes = { light: textPairs(light, { primaryText: light['on-ink'], gaugePanel: lightPanel }), dark: textPairs(dark, { primaryText: dark['on-ink'] }) };
   for (const [theme, pairs] of Object.entries(themes)) {
     const tokens = palette[theme];
     for (const pair of ['accent on hover tint over notice tint on surface', 'ink on hover tint over notice tint on paper', 'legend (ink 85 %) on ' + tokens.surface,
-      'muted on selected card', `gauge value (ink at 0.85 opacity) on ${theme === 'light' ? '#e6f0ef' : tokens.paper}`]) assert.ok(pairs[pair], `${theme}: ${pair} is checked`);
+      `gauge value (ink at 0.85 opacity) on ${theme === 'light' ? '#e6f0ef' : tokens.paper}`]) assert.ok(pairs[pair], `${theme}: ${pair} is checked`);
     assert.ok(Object.keys(pairs).length >= 88, `${theme}: ${Object.keys(pairs).length} pairs`);
     for (const [pair, [text, background]] of Object.entries(pairs)) {
       assert.ok(contrast(text, background) >= 4.5, `${theme} ${pair}: ${contrast(text, background).toFixed(2)}:1`);
     }
   }
+  // START's glass cards as the styles draw them (Codex gate, AIT-128): every point of the content box over paper and
+  // under each of the page's three lights at its peak (the peaks lie apart), plain and selected, with the glass, both
+  // corner glows and the inner highlight. The layers are read from the styles; the geometry glassCard models is pinned here.
+  assert.match(entranceStyles, /\.chooser-option \{[^}]*background:radial-gradient\(ellipse at 100% 110%,light-dark\([^)]+\),transparent 55%\),radial-gradient\(ellipse at 0 105%,light-dark\([^)]+\),transparent 45%\),\s*linear-gradient\(125deg,light-dark\([^)]+\),light-dark\([^)]+\) 50%,light-dark\([^)]+\)\);/u);
+  assert.match(entranceStyles, /\.chooser-option::before \{[^}]*inset:5px;[^}]*background:linear-gradient\(135deg,light-dark\([^)]+\),transparent 12%,transparent 75%,light-dark\([^)]+\)\);/u);
+  // The card's text is ink or the card's muted; the icon colour is a graphic, not text.
+  const cardColours = [...entranceStyles.matchAll(/(?<=^|\}\s*)\.chooser-option[^{]*\{([^}]*)\}/gmu)].flatMap(([, body]) => [...body.matchAll(/(?<![-\w])color:([^;]+);/gu)].map(m => m[1]));
+  assert.deepEqual([...new Set(cardColours)].sort(), ['light-dark(#173c53,#bddfdf)', 'var(--aithema-ink)', 'var(--chooser-muted)']);
+  assert.match(entranceStyles, /--chooser-muted:light-dark\(var\(--aithema-muted\),color-mix\(in srgb,var\(--aithema-muted\) 60%,var\(--aithema-ink\)\)\);/u);
+  const lights = [...styles.match(/--aithema-lighting:([^;]+);/u)[1].matchAll(/rgba\((\d+),(\d+),(\d+),([\d.]+)\)/gu)]
+    .map(([, ...rgba]) => [`#${rgba.slice(0, 3).map(v => Number(v).toString(16).padStart(2, '0')).join('')}`, Number(rgba[3])]);
+  assert.equal(lights.length, 3);
+  const declared = (selector, theme) => {
+    const start = entranceStyles.indexOf(`${selector} {`), value = entranceStyles.slice(start, entranceStyles.indexOf('}', start)).match(/background(?:-color)?:([^;]+);/u)[1];
+    return [...value.matchAll(/light-dark\((#[0-9a-f]{8}),(#[0-9a-f]{8})\)/gu)].map(m => m[theme === 'light' ? 1 : 2]).map(hex => [hex.slice(0, 7), parseInt(hex.slice(7), 16) / 255]);
+  };
+  const worstOnCards = (theme, muted) => {
+    const t = palette[theme], [teal, apricot, ...glass] = declared('.chooser-option', theme), [first, last] = declared('.chooser-option::before', theme);
+    const card = { teal, apricot, glass: glass.map((stop, i) => [i / 2, ...stop]), highlight: [[0, ...first], [.12, first[0], 0], [.75, last[0], 0], [1, ...last]],
+      selected: declared('.chooser-option[aria-pressed="true"], .chooser-option[aria-pressed="true"]:hover', theme)[0] };
+    const worst = { ink: [Infinity], muted: [Infinity] };
+    for (const page of [t.paper, ...lights.map(([hex, alpha]) => mix(hex, t.paper, alpha))]) for (const selected of [false, true]) {
+      for (const background of glassCard(card, page, { selected })) for (const [name, text] of [['ink', t.ink], ['muted', muted]]) {
+        const ratio = contrast(text, background); if (ratio < worst[name][0]) worst[name] = [ratio, background, page, selected];
+      }
+    }
+    return worst;
+  };
+  for (const [theme, muted] of [['light', light.muted], ['dark', mix(dark.muted, dark.ink, .6)]]) {
+    for (const [name, [ratio, background, page, selected]] of Object.entries(worstOnCards(theme, muted))) {
+      assert.ok(ratio >= 4.5, `${theme} ${name} on a ${selected ? 'selected ' : ''}card at ${background} over ${page}: ${ratio.toFixed(2)}:1`);
+    }
+  }
+  // START's own dark muted on these cards fails the same check: the model detects it.
+  assert.ok(worstOnCards('dark', dark.muted).muted[0] < 4.5);
   // The values AIT-109 reported fail the same check: the test detects them.
   assert.ok(contrast('#67777a', mix(light.accent, light.paper, .12)) < 4.5 && contrast('#67777a', light.paper) < 4.5);
   assert.ok(contrast('#757575', dark.surface) < 4.5, 'the fixture detects the reported default placeholder');

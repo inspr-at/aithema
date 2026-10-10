@@ -41,3 +41,33 @@ export function textPairs(t, { primaryText, backgrounds: extra = {}, gaugePanel 
   return { ...pairs, 'on-accent on accent': [t['on-accent'], t.accent], 'on-accent on hovered accent': [t['on-accent'], mix(t.accent, t.ink, .84)],
     'primary text on ink': [primaryText, t.ink], 'primary text on its ink fill': [primaryText, mix(t.ink, t.accent, .85)] };
 }
+/**
+ * The backgrounds under the text of START's glass processing cards (entrance-styles .chooser-option, AIT-128),
+ * sampled every 4 px over the content box of three card shapes (four columns, two wide, two narrow). Over `page`
+ * lie the selected tint when `selected`, the 125° glass, the two corner glows (farthest-corner ellipses at 0 105 %
+ * and 100 % 110 %, gone at 45 % and 55 %) and the 135° highlight of the inner edge (inset 5px), composited
+ * source-over in sRGB. `card` holds one theme's [hex, alpha] layers: { glass: [[at, hex, alpha] × 3], apricot,
+ * teal, selected, highlight: [[at, hex, alpha] × 4] }.
+ */
+export function glassCard(card, page, { selected = false } = {}) {
+  const glow = (x, y, w, h, cx, cy, end) => Math.max(0, 1 - Math.hypot((x - cx) / (Math.max(cx, w - cx) * Math.SQRT2), (y - cy) / (Math.max(cy, h - cy) * Math.SQRT2)) / end);
+  const along = (x, y, w, h, deg) => {
+    const a = deg * Math.PI / 180, dx = Math.sin(a), dy = -Math.cos(a);
+    return Math.min(1, Math.max(0, ((x - w / 2) * dx + (y - h / 2) * dy) / (Math.abs(w * dx) + Math.abs(h * dy)) + .5));
+  };
+  // A transparent stop keeps its neighbour's colour (premultiplied interpolation); only the alpha fades.
+  const between = (stops, t) => {
+    const i = Math.max(1, stops.findIndex(([at]) => at >= t)), [[p0, c0, a0], [p1, c1, a1]] = [stops[i - 1], stops[i]], k = (t - p0) / (p1 - p0);
+    return [a0 && a1 ? mix(c1, c0, k) : a0 ? c0 : c1, a0 + (a1 - a0) * k];
+  };
+  const over = (base, layers) => layers.reduce((under, [hex, alpha]) => alpha > 0 ? mix(hex, under, alpha) : under, base);
+  const samples = new Set();
+  for (const [w, h] of [[284, 230], [330, 200], [170, 300]]) {
+    for (let x = 27; x <= w - 27; x += 4) for (let y = 26; y <= h - 25; y += 4) {
+      samples.add(over(page, [...selected ? [card.selected] : [], between(card.glass, along(x, y, w, h, 125)),
+        [card.apricot[0], card.apricot[1] * glow(x, y, w, h, 0, 1.05 * h, .45)], [card.teal[0], card.teal[1] * glow(x, y, w, h, w, 1.1 * h, .55)],
+        between(card.highlight, along(x - 5, y - 5, w - 10, h - 10, 135))]));
+    }
+  }
+  return [...samples];
+}
