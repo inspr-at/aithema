@@ -1489,9 +1489,6 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
       finally { await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); }
     });
     if (evidence) await mkdir(evidence, { recursive: true });
-    browser = await puppeteer.launch({ executablePath, headless: true, env: { PATH: process.env.PATH, HOME: homedir() },
-      userDataDir: join(directory, 'chrome'), timeout: waitTimeout,
-      args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
     const style = page => inShadow(page, c => {
       const r = c.shadowRoot, line = r.querySelector('.ai-notice'), text = r.querySelector('#ai-notice'), s = getComputedStyle(line);
       return { clipped: line.scrollHeight > line.clientHeight + 1 || text.scrollWidth > line.clientWidth + 1, color: s.color,
@@ -1509,8 +1506,11 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
     const sizes = [[1440, 1000], [400, 800]], tally = {};
     for (const [locale, languages] of [['en', ['en-GB', 'en']], ['de', ['de-AT', 'de']]]) {
       const full = `${AI_NOTICE[locale].text} ${AI_NOTICE[locale].voice}`;
-      // Its own browser context: a fresh session, never the other language's saved one.
-      const context = await browser.createBrowserContext(), page = await context.newPage(); await preparePage(page, languages);
+      // Its own browser and profile: a fresh session, never the other language's saved one.
+      browser = await puppeteer.launch({ executablePath, headless: true, env: { PATH: process.env.PATH, HOME: homedir() },
+        userDataDir: join(directory, `chrome-${locale}`), timeout: waitTimeout,
+        args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+      const page = await browser.newPage(); await preparePage(page, languages);
       const problems = []; page.on('pageerror', error => problems.push(error.message));
       await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
       await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '#ai-notice', { text: full });
@@ -1618,7 +1618,7 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
       await page.setViewport({ width: 1440, height: 1000 }); await page.evaluate(() => window.scrollTo(0, 0));
       await quiet(page, `${locale} dark 1440 px`); await shot(page, `${locale}-dark-1440`);
       assert.deepEqual(problems, []);
-      await context.close();
+      await browser.close(); browser = null;
     }
     t.diagnostic(`AI notice in view without scrolling to it, en and de, at the viewport's bottom and top edge and on keyboard focus: ${
       Object.entries(tally).map(([state, selectors]) => `${state} px: ${selectors.length} entry points`).join('; ')}; first paint at 1440 px; nothing moves under the pointer.`);
