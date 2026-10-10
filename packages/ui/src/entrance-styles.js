@@ -14,8 +14,11 @@ export const entranceStyles = `
    viewport breaks, less the gutters), also when a host lock column stands beside the entrance. */
 .intro__card { display:grid; justify-items:center; width:100%; container-type:inline-size; }
 
-/* START LandingPresets: four glass choices, a summary that reserves its longest text, Continue in a fixed column. */
-.chooser { --glass-edge:light-dark(#fffdf9e6,#bdede238); --preset-columns:4; --preset-gap:1rem; width:100%; max-width:74rem; min-width:0; color:var(--aithema-ink); }
+/* START LandingPresets: four glass choices, a summary that reserves its longest text, Continue in a fixed column.
+   The dark glass, its selected tint and the page's lights brighten what lies under the card's quiet text below 4.5:1
+   for muted (3.8:1 at worst), so the cards lift it towards ink in dark; light keeps START's muted. */
+.chooser { --glass-edge:light-dark(#fffdf9e6,#bdede238); --chooser-muted:light-dark(var(--aithema-muted),color-mix(in srgb,var(--aithema-muted) 60%,var(--aithema-ink)));
+  --preset-columns:4; --preset-gap:1rem; width:100%; max-width:74rem; min-width:0; color:var(--aithema-ink); }
 .chooser h3 { margin:0 0 1rem; font:600 clamp(1.15rem,2vw,1.5rem)/1.3 var(--aithema-display); letter-spacing:-.02em; text-align:center; }
 .chooser__list { display:grid; grid-template-columns:repeat(var(--preset-columns),minmax(0,1fr)); gap:var(--preset-gap); }
 .chooser-option { position:relative; isolation:isolate; overflow:hidden; display:flex; flex-direction:column; align-items:flex-start; gap:.65rem; min-width:0;
@@ -38,9 +41,9 @@ export const entranceStyles = `
 .chooser-option .radio::after { content:''; width:.5rem; height:.5rem; border-radius:50%; background:var(--aithema-accent); transform:scale(0); transition:transform .18s ease; }
 .chooser-option[aria-pressed="true"] .radio { border:1.25px solid var(--aithema-accent); } .chooser-option[aria-pressed="true"] .radio::after { transform:scale(1); }
 .chooser-option strong { font:600 clamp(1rem,1.65vw,1.35rem)/1.2 var(--aithema-display); letter-spacing:-.025em; }
-.chooser-option__detail { display:grid; font-size:.9rem; line-height:1.5; color:var(--aithema-muted); }
-.chooser-option__note { font-size:.72rem; line-height:1.3; color:var(--aithema-muted); } .chooser-option__note:empty { display:none; }
-.chooser-option[aria-disabled="true"] { cursor:help; } .chooser-option[aria-disabled="true"] :is(strong, .chooser-option__icon) { color:var(--aithema-muted); }
+.chooser-option__detail { display:grid; font-size:.9rem; line-height:1.5; color:var(--chooser-muted); }
+.chooser-option__note { font-size:.72rem; line-height:1.3; color:var(--chooser-muted); } .chooser-option__note:empty { display:none; }
+.chooser-option[aria-disabled="true"] { cursor:help; } .chooser-option[aria-disabled="true"] :is(strong, .chooser-option__icon) { color:var(--chooser-muted); }
 .chooser__action { display:grid; grid-template-columns:repeat(var(--preset-columns),minmax(0,1fr)); align-items:start; gap:var(--preset-gap); margin:2.75rem 0 0; }
 .chooser__hint { grid-column:1/-2; display:grid; gap:.35rem; min-width:0; text-align:left; }
 .chooser__summary { display:grid; } .chooser__summary > strong { grid-area:1/1; align-self:start; font:600 1.05rem/1.4 var(--aithema-display); }
