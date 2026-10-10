@@ -18,7 +18,7 @@ export function createOpenRouterReasoning({ binding, resolveSecret = ref => proc
       if (ceiling > binding.maxMicro) throw new PluginError('not-admitted', 'OpenRouter request exceeds spend reservation');
       return ceiling;
     },
-    // verified live 2026-10-09: reasoning {enabled:false} is accepted.
+    // Mandatory-reasoning models require a supported effort instead of none.
     providerOptions: stream => ({ reasoning: binding.effort === 'none' ? { enabled: false } : { effort: binding.effort },
       usage: { include: true },
       provider: { ...binding.routing, require_parameters: true, allow_fallbacks: false,

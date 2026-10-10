@@ -16,7 +16,7 @@ export function normalizedError(error, signal) {
 }
 // The claim authority is an in-process closure, never a browser-supplied id.
 export async function beginInvocation(options, { billable = true } = {}) {
-  let terminal = false, dispatched = false, usage = null, cancelled = false;
+  let terminal = false, dispatched = false, usage = null, cancelled = false, servedModel;
   if (billable && (!options?.attempt?.attemptId || !options.attempt.claimId || typeof options.attempt.consume !== 'function' || typeof options.report !== 'function')) {
     throw new PluginError('not-admitted');
   }
@@ -30,13 +30,17 @@ export async function beginInvocation(options, { billable = true } = {}) {
     usage(value) {
       if (value && Number.isSafeInteger(value.inputTokens) && value.inputTokens >= 0 && Number.isSafeInteger(value.outputTokens) && value.outputTokens >= 0) usage = value;
     },
+    servedModel(value) {
+      if (typeof value === 'string' && value.trim()) servedModel = value;
+    },
     async finish(completed = false) {
       if (terminal) { if (cancelled) return; throw new PluginError('already-claimed'); }
       terminal = true;
       options?.signal?.removeEventListener('abort', abort);
       const report = !dispatched ? { outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 } }
         : usage ? { outcome: completed ? 'completed' : 'cancelled', usage } : { outcome: 'uncertain' };
-      await options?.report?.({ attemptId: options.attempt?.attemptId, ...report });
+      await options?.report?.({ attemptId: options.attempt?.attemptId, ...report,
+        ...(dispatched && servedModel ? { servedModel } : {}) });
     },
   };
   // Settle on the operation lifetime even when a transport ignores cancellation.

@@ -47,7 +47,9 @@ test('structured output uses strict JSON Schema and requires parameter-capable r
 
 test('START bindings send lane-specific routing and reserve the configured reply/analysis token ceilings', async () => {
   const prices = { 'openai/fixture': { prompt: 0.000001, completion: 0.000002 },
-    'anthropic/fixture': { prompt: 0.000003, completion: 0.000004 } };
+    'anthropic/fixture': { prompt: 0.000003, completion: 0.000004 },
+    '~anthropic/claude-opus-latest': { prompt: 0.000001, completion: 0.000002 },
+    '~anthropic/claude-haiku-latest': { prompt: 0.000003, completion: 0.000004 } };
   const messageBytes = new TextEncoder().encode(JSON.stringify([{ role: 'system', content: request.system }, ...request.messages])).byteLength;
   for (const [env, replyCap, analysisCap, only, ignore] of [
     [{}, 1200, 8000, undefined, ['Azure']],
@@ -55,30 +57,40 @@ test('START bindings send lane-specific routing and reserve the configured reply
       OPENROUTER_PROVIDER_ONLY: ' Anthropic, ,OpenAI ', OPENROUTER_ANALYSIS_PROVIDER_IGNORE: 'Azure, Microsoft' },
     37, 63, ['Anthropic', 'OpenAI'], ['Azure', 'Microsoft']],
     [{ OPENROUTER_PROVIDER_ONLY: ',', OPENROUTER_ANALYSIS_PROVIDER_IGNORE: ',' }, 1200, 8000, undefined, undefined],
+    [{ OPENROUTER_MODEL: '~anthropic/claude-opus-latest', OPENROUTER_SPEECH_MODEL: '~anthropic/claude-haiku-latest',
+      OPENROUTER_ANALYSIS_EFFORT: 'low', OPENROUTER_PROVIDER_ONLY: 'Anthropic' }, 1200, 8000, ['Anthropic'], ['Azure']],
   ]) {
     const configured = openRouterConfig({ OPENROUTER_MODEL: 'openai/fixture', OPENROUTER_SPEECH_MODEL: 'anthropic/fixture',
       AITHEMA_OPENROUTER_PRICES: JSON.stringify(prices), ...env });
-    const bodies = [], ceilings = [];
+    const bodies = [], ceilings = [], reports = [];
     const plugin = createOpenRouterReasoning({ binding: configured.reaction, prices: configured.prices,
       resolveSecret: () => 'local-fixture',
       spendCap: { reserve(ceiling) { ceilings.push(ceiling); return Symbol('hold'); }, settle() {} },
       fetchImpl: async (url, init) => {
         const sent = JSON.parse(init.body); bodies.push(sent);
-        return sent.stream ? new Response('data: {"choices":[{"delta":{"content":"Hello"},"finish_reason":"stop"}]}\n\n' +
-          'data: {"choices":[],"usage":{"cost":0}}\n\ndata: [DONE]\n\n')
-          : Response.json({ usage: { cost: 0 }, choices: [{ finish_reason: 'stop', message: { content: '{"summary":"Known"}' } }] });
+        return sent.stream ? new Response(`data: ${JSON.stringify({ model: 'anthropic/claude-haiku-5.5',
+          choices: [{ delta: { content: 'Hello' }, finish_reason: 'stop' }] })}\n\n` +
+          'data: {"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":4,"cost":0}}\n\ndata: [DONE]\n\n')
+          : Response.json({ model: 'anthropic/claude-opus-5.5', usage: { prompt_tokens: 3, completion_tokens: 4, cost: 0 },
+            choices: [{ finish_reason: 'stop', message: { content: '{"summary":"Known"}' } }] });
       } });
-    const deltas = []; for await (const delta of plugin.stream(request, options())) deltas.push(delta);
+    const deltas = []; for await (const delta of plugin.stream(request, options({ report: terminal => reports.push(terminal) }))) deltas.push(delta);
     assert.equal(deltas.join(''), 'Hello');
-    assert.deepEqual(await plugin.bind(configured.understanding).structured(request, options()), { summary: 'Known' });
+    assert.deepEqual(await plugin.bind(configured.understanding).structured(request,
+      options({ report: terminal => reports.push(terminal) })), { summary: 'Known' });
     assert.deepEqual(bodies.map(body => body.max_tokens), [replyCap, analysisCap]);
     assert.deepEqual(ceilings, [messageBytes * 3 + replyCap * 4, messageBytes + analysisCap * 2]);
-    assert.deepEqual(bodies.map(body => body.model), ['anthropic/fixture', 'openai/fixture']);
+    assert.deepEqual(bodies.map(body => body.model), [configured.reaction.model, configured.understanding.model]);
+    assert.deepEqual(reports.map(report => [report.outcome, report.servedModel, report.usage]), [
+      ['completed', 'anthropic/claude-haiku-5.5', { inputTokens: 3, outputTokens: 4 }],
+      ['completed', 'anthropic/claude-opus-5.5', { inputTokens: 3, outputTokens: 4 }],
+    ]);
+    assert.deepEqual(bodies.map(body => body.reasoning), [{ enabled: false },
+      env.OPENROUTER_ANALYSIS_EFFORT ? { effort: 'low' } : { enabled: false }]);
     for (const sent of bodies) {
       assert.equal(sent.provider.require_parameters, true);
       assert.deepEqual(sent.provider.only, only);
       assert.equal(Object.hasOwn(sent.provider, 'only'), Boolean(only));
-      assert.deepEqual(sent.reasoning, { enabled: false });
     }
     assert.equal(Object.hasOwn(bodies[0].provider, 'ignore'), false);
     assert.deepEqual(bodies[1].provider.ignore, ignore);
@@ -100,6 +112,28 @@ test('decimal per-million ceilings stay exact in bindings and serialized provide
     } });
   await plugin.structured(request, options());
   assert.deepEqual(sent.provider.max_price, expected);
+});
+test('served model remains per call when usage is missing, and absent model metadata is not guessed', async () => {
+  const model = '~anthropic/claude-opus-latest', reports = [];
+  let servedModel = 'anthropic/claude-opus-5.5';
+  const plugin = createOpenRouterReasoning({ model, prices: { [model]: { prompt: 1e-9, completion: 1e-9 } },
+    resolveSecret: () => 'local-fixture', fetchImpl: async (url, init) => {
+      const body = JSON.parse(init.body), payload = { model: servedModel, choices: body.stream
+        ? [{ delta: { content: 'Hello' }, finish_reason: 'stop' }]
+        : [{ finish_reason: 'stop', message: { content: '{"summary":"Known"}' } }] };
+      return body.stream ? new Response(`data: ${JSON.stringify(payload)}\n\ndata: [DONE]\n\n`) : Response.json(payload);
+    } });
+  for (const stream of [true, false]) {
+    const opts = options({ report: terminal => reports.push(terminal) });
+    if (stream) for await (const delta of plugin.stream(request, opts)) assert.equal(delta, 'Hello');
+    else await plugin.structured(request, opts);
+  }
+  assert.deepEqual(reports.map(report => [report.outcome, report.servedModel]), [
+    ['uncertain', 'anthropic/claude-opus-5.5'], ['uncertain', 'anthropic/claude-opus-5.5'],
+  ]);
+  servedModel = undefined;
+  await plugin.structured(request, options({ report: terminal => reports.push(terminal) }));
+  assert.equal(Object.hasOwn(reports[2], 'servedModel'), false);
 });
 test('AbortSignal cancels an active streaming response', async t => {
   const plugin = await fake(t, async (req, res) => { await body(req); res.writeHead(200, { 'content-type': 'text/event-stream' });

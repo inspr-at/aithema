@@ -600,6 +600,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         requestSha256: hash(html ? { ...request, previousArtifact: request.previousArtifact?.provenance.subject.contentDigest } : lane === 'concept' ? { prompt: request.prompt, feedback: request.feedback, references: request.references?.map(r => ({
           mediaType: r.mediaType, role: r.role, sha256: createHash('sha256').update(r.bytes).digest('hex') })) } : request), bindingSha256: hash(binding) });
       const claim = budget.claim(attemptId); let reported = false, refused = false, consuming = false, detached = false;
+      const producer = { model: binding.model, plugin: binding.plugin };
       const report = terminal => {
         if (reported) {
           // A lane released on cancellation owns settlement; late provider usage
@@ -608,7 +609,9 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
           if (refused && isCancelledZeroReport(terminal, attemptId)) return;
           throw new PluginError('already-claimed');
         }
-        const settlement = budget.settle(claim.claimId, terminal, rates); reported = true; return settlement;
+        const settlement = budget.settle(claim.claimId, terminal, rates); reported = true;
+        if (typeof terminal.servedModel === 'string' && terminal.servedModel.trim()) producer.model = terminal.servedModel;
+        return settlement;
       };
       const refuse = reason => {
         report({ attemptId, outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 } });
@@ -640,7 +643,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         })();
       } });
       const described = runtime.describe(session);
-      return { plugin, ...(lane === 'concept' ? { visuals: described.visuals?.id ?? null } : { producer: { model: binding.model, plugin: binding.plugin }, engine: { preset: described.preset, model: described.model?.id ?? null,
+      return { plugin, ...(lane === 'concept' ? { visuals: described.visuals?.id ?? null } : { producer, engine: { preset: described.preset, model: described.model?.id ?? null,
         label: described.model?.label ?? null, effort: binding.effort } }), options: { ...options, attempt, report }, finish({ failed = false } = {}) {
         try {
           if (!reported) {

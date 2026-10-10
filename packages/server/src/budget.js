@@ -74,7 +74,8 @@ export class SQLiteBudgetLedger {
       const row = this.db.prepare('SELECT * FROM budget_attempts WHERE claim_id=?').get(claimId);
       if (!row || terminal.attemptId !== row.attempt_id) throw new PluginError('not-admitted');
       const bytes = JSON.stringify({ attemptId: terminal.attemptId, outcome: terminal.outcome,
-        ...(terminal.outcome === 'uncertain' ? {} : { usage: terminal.usage }) });
+        ...(terminal.outcome === 'uncertain' ? {} : { usage: terminal.usage }),
+        ...(typeof terminal.servedModel === 'string' && terminal.servedModel.trim() ? { servedModel: terminal.servedModel } : {}) });
       if (row.state === 'settled') {
         if (row.terminal_json !== bytes) throw new PluginError('already-claimed');
         return this.get(row.attempt_id); // exact terminal retries are idempotent

@@ -41,7 +41,11 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
       spend.httpError = true;
       // A received HTTP error may still carry billed usage. Otherwise keep the hold.
       if (spend.reservation) {
-        try { spend.cost = costMicro(JSON.parse(await responseText(response)).usage); } catch { /* unknown cost */ }
+        try {
+          const payload = JSON.parse(await responseText(response));
+          invocation.servedModel(payload.model);
+          spend.cost = costMicro(payload.usage);
+        } catch { /* unknown cost */ }
       } else await response.body?.cancel().catch(() => {});
       throw new PluginError(response.status === 401 || response.status === 403 ? 'auth' : response.status === 429 ? 'rate-limit' : 'provider', `${label} request failed`);
     }
@@ -69,6 +73,7 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
           if (data === '[DONE]') { doneMarker = true; return null; }
           let value;
           try { value = JSON.parse(data); } catch { throw new PluginError('invalid-output', `Invalid ${label} stream`); }
+          invocation.servedModel(value.model);
           invocation.usage(providerUsage(value.usage));
           const cost = costMicro(value.usage);
           if (cost !== null) spend.cost = cost;
@@ -115,6 +120,7 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
         let payload, result;
         try {
           payload = JSON.parse(await responseText(response));
+          invocation.servedModel(payload.model);
           spend.cost = costMicro(payload.usage);
           invocation.usage(providerUsage(payload.usage));
           if (payload.choices?.[0]?.finish_reason !== 'stop') throw new Error();

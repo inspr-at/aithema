@@ -108,6 +108,10 @@ OpenRouter requires `OPENROUTER_MODEL` for understanding and
 `AITHEMA_OPENROUTER_PRICES` for every configured model; missing or invalid values
 refuse startup. `OPENROUTER_SPEECH_MODEL` selects reaction replies (spoken and
 typed, including the voice facade) and defaults to `OPENROUTER_MODEL`.
+`OPENROUTER_ANALYSIS_EFFORT` selects understanding reasoning effort and defaults
+to `none`; reaction always uses `none`. Both model settings also accept OpenRouter
+family aliases such as `~anthropic/claude-opus-latest` and
+`~anthropic/claude-haiku-latest`, with prices keyed by the exact configured alias.
 Choose a fast speech model for the seven-second platform timeout; replies are
 capped by `OPENROUTER_MAX_TOKENS` (default `1200`), while understanding uses
 `OPENROUTER_ANALYSIS_MAX_TOKENS` (default `8000`); START found smaller analysis
@@ -1802,13 +1806,14 @@ Readiness of voice is separately visible in
 | `AITHEMA_COMMIT` | Deployed source SHA; `/healthz` reports this or `null` |
 | `AITHEMA_PROVIDER` | `openrouter` for live reasoning; defaults to `mock` |
 | `OPENROUTER_API_KEY` | Account credential supplied by OPS through its secret service |
-| `OPENROUTER_MODEL` | Required understanding model id when `AITHEMA_PROVIDER=openrouter`; no default; only START-consented OpenAI, Anthropic or xAI providers are admitted |
-| `OPENROUTER_SPEECH_MODEL` | Reaction model for spoken and typed replies and the voice facade; defaults to `OPENROUTER_MODEL`; capped by `OPENROUTER_MAX_TOKENS`; choose for the seven-second platform timeout |
+| `OPENROUTER_MODEL` | Required understanding model id or `~<provider>/<family>-latest` alias when `AITHEMA_PROVIDER=openrouter`; no default; only START-consented OpenAI, Anthropic or xAI providers are admitted |
+| `OPENROUTER_SPEECH_MODEL` | Reaction model id or latest alias for spoken and typed replies and the voice facade; defaults to `OPENROUTER_MODEL`; capped by `OPENROUTER_MAX_TOKENS`; choose for the seven-second platform timeout |
 | `OPENROUTER_MAX_TOKENS` | Reply token ceiling for reaction/speech; default `1200`; used in the per-request spend ceiling |
 | `OPENROUTER_ANALYSIS_MAX_TOKENS` | Understanding token ceiling; default `8000`; START found lower values truncated real analyses; used in the per-request spend ceiling |
+| `OPENROUTER_ANALYSIS_EFFORT` | Understanding reasoning effort: `none` (default), `low`, `medium`, `high`, `xhigh`, `max`; invalid values refuse startup; reaction always uses `none` |
 | `OPENROUTER_PROVIDER_ONLY` | Comma-separated upstream allow-list sent as `provider.only` on every request; unset means no restriction; part of the legal profile; must mirror START exactly |
 | `OPENROUTER_ANALYSIS_PROVIDER_IGNORE` | Comma-separated upstream exclusions sent as `provider.ignore` on understanding/analysis and HTML; default `Azure`, whose START workspace rejects `response_format` despite advertised support |
-| `AITHEMA_OPENROUTER_PRICES` | Required JSON for every configured model: `{"<model>":{"prompt":<USD per token>,"completion":<USD per token>}}`; finite nonnegative prices; no catalog defaults |
+| `AITHEMA_OPENROUTER_PRICES` | Required JSON for every exact configured model id, including aliases: `{"<model>":{"prompt":<USD per token>,"completion":<USD per token>}}`; finite nonnegative prices; no catalog defaults |
 | `AITHEMA_OPENROUTER_CAP_USD` | Lifetime persisted account cap; decimal USD with up to six fractional digits, default `10` |
 | `AITHEMA_VOICE_MODE` | `elevenlabs` enables startup ensure; default `fake` locally and `off` on a live host, where `fake` is refused; `off` disables voice |
 | `AITHEMA_VOICE_CAP_MINUTES` | Optional deployment lifetime voice-minute budget in `AITHEMA_DB`; nonnegative decimal minutes (up to six fractional digits); unset means no aggregate total cap; `0` refuses new calls |
@@ -1906,7 +1911,40 @@ Configured upstream allow-lists apply to both lanes; the
 analysis exclusion applies only to understanding. **verified live 2026-10-09**:
 those routing prices are in USD per MILLION tokens and OpenRouter enforces them
 before dispatch (404, "No endpoints found that satisfy the max price").
-`reasoning: {enabled:false}` is accepted and sent when effort is `none`.
+Effort `none` sends `reasoning: {enabled:false}`. Mandatory-reasoning models
+reject it: the coordinator's 2026-10-10 probe received HTTP 400 from Claude
+Opus 5.5. Set `OPENROUTER_ANALYSIS_EFFORT=low` to send
+`reasoning: {effort:"low"}` for understanding; the same probe verified this
+request shape with Opus 5.5. Reaction keeps reasoning disabled, so its selected
+model must support that. Model-specific effort support remains an OPS decision.
+
+For example, OPS can configure `OPENROUTER_MODEL=~anthropic/claude-opus-latest`,
+`OPENROUTER_SPEECH_MODEL=~anthropic/claude-haiku-latest`,
+`OPENROUTER_ANALYSIS_EFFORT=low` and `OPENROUTER_PROVIDER_ONLY=Anthropic`, with
+`AITHEMA_OPENROUTER_PRICES` entries under both exact aliases. Consent uses
+Anthropic as their provider and still checks the exact configured scope.
+Aliases silently follow model upgrades and can change output or reasoning
+requirements. Their configured prices remain the request spend ceiling and
+`provider.max_price` limit: an upgrade above those prices fails closed until OPS
+reviews the prices. Use explicit versioned model ids when upgrades must be manual.
+
+Each parsed response's `model` is retained as `servedModel` beside usage in the
+call's terminal report, including when token usage is missing. The host persists
+it in `budget_attempts.terminal_json`; final replies and assessments record that
+served model as their producer. The configured binding/alias remains the basis
+for pricing and consent. OPS can inspect recent resolutions without conversation
+content:
+
+```sql
+SELECT attempt_id, lane, outcome,
+       json_extract(terminal_json, '$.servedModel') AS served_model
+FROM budget_attempts
+WHERE lane IN ('reaction', 'understanding')
+ORDER BY rowid DESC LIMIT 20;
+```
+
+An absent response model leaves `servedModel` absent; final producer identity then
+falls back to the configured id, which is not evidence of an alias resolution.
 
 The request ceiling is the UTF-8 byte length of the complete serialized messages
 array, including the system message, multiplied by the configured prompt price,

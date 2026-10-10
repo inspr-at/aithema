@@ -91,6 +91,7 @@ test('speech defaults to the required understanding model with START token caps 
   assert.equal(Object.hasOwn(configured.reaction.routing, 'ignore'), false);
   assert.deepEqual(configured.understanding.routing.ignore, ['Azure']);
   for (const binding of [configured.reaction, configured.understanding]) {
+    assert.equal(binding.effort, 'none');
     assert.deepEqual(binding.legal.evidence.routing, binding.routing);
   }
 });
@@ -116,7 +117,18 @@ test('START routing parsing trims CSV entries and matching quotes, defaults blan
   assert.equal(Object.hasOwn(empty.understanding.routing, 'ignore'), false);
 });
 
-test('invalid live model/prices/token caps refuse startup before database or voice work', async () => {
+test('analysis effort accepts the plugin efforts and leaves reaction effort at none', () => {
+  const values = { OPENROUTER_MODEL: 'anthropic/fixture',
+    AITHEMA_OPENROUTER_PRICES: '{"anthropic/fixture":{"prompt":0.000005,"completion":0.000025}}' };
+  for (const effort of ['none', 'low', 'medium', 'high', 'xhigh', 'max']) {
+    const configured = openRouterConfig({ ...values, OPENROUTER_ANALYSIS_EFFORT: ` "${effort}" ` });
+    assert.equal(configured.understanding.effort, effort);
+    assert.equal(configured.reaction.effort, 'none');
+  }
+  assert.equal(openRouterConfig({ ...values, OPENROUTER_ANALYSIS_EFFORT: ' ' }).understanding.effort, 'none');
+});
+
+test('invalid live model/prices/token caps/effort refuse startup before database or voice work', async () => {
   const valid = { AITHEMA_PROVIDER: 'openrouter', AITHEMA_VOICE_MODE: 'elevenlabs', OPENROUTER_MODEL: 'openai/fixture',
     AITHEMA_OPENROUTER_PRICES: '{"openai/fixture":{"prompt":0.000001,"completion":0.000002}}' };
   for (const [change, expected] of [
@@ -130,6 +142,8 @@ test('invalid live model/prices/token caps refuse startup before database or voi
     [{ OPENROUTER_MAX_TOKENS: 'NaN' }, /OPENROUTER_MAX_TOKENS must be a positive integer/],
     [{ OPENROUTER_ANALYSIS_MAX_TOKENS: '-1' }, /OPENROUTER_ANALYSIS_MAX_TOKENS must be a positive integer/],
     [{ OPENROUTER_ANALYSIS_MAX_TOKENS: 'NaN' }, /OPENROUTER_ANALYSIS_MAX_TOKENS must be a positive integer/],
+    [{ OPENROUTER_ANALYSIS_EFFORT: 'minimal' }, /OPENROUTER_ANALYSIS_EFFORT must be one of/],
+    [{ OPENROUTER_ANALYSIS_EFFORT: 'LOW' }, /OPENROUTER_ANALYSIS_EFFORT must be one of/],
   ]) {
     const db = await temporaryDb();
     const result = spawnSync(process.execPath, [fileURLToPath(new URL('../server.js', import.meta.url))], {
