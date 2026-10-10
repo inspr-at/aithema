@@ -29,10 +29,11 @@ function paintPage() {
     text('#consent-title', h.processingTitle);
     const consent = copy.processingConsent ?? {}, fallback = binding.processingConsent;
     text('#consent-text', `${consent.intro ?? fallback.intro} ${consent.withdrawal ?? fallback.withdrawal}`);
-    for (const item of fallback.items) {
-      // Unknown host items retain their supplied legal text; never infer a translation.
-      const translated = Object.hasOwn(consent.items ?? {}, item.id) ? consent.items[item.id] : {};
-      const checkbox = [...document.querySelectorAll('#processing-items input')].find(input => input.value === item.id);
+    const checkboxes = document.querySelectorAll('#processing-items input');
+    for (const [index, item] of fallback.items.entries()) {
+      // Only the matching legal version can be translated; all others keep the server text.
+      const translated = Object.hasOwn(consent.items ?? {}, item.id) && consent.items[item.id].version === item.version ? consent.items[item.id] : {};
+      const checkbox = checkboxes[index];
       checkbox.parentElement.querySelector('span').textContent = translated.title ?? item.title;
       checkbox.parentElement.nextElementSibling.textContent = `${translated.recipients ?? item.recipients} ${translated.text ?? item.text}`;
     }
@@ -96,10 +97,11 @@ const binding = await fetch('/demo/config').then(r => r.json());
 if (binding.processingConsent) {
   const container = document.createElement('div'); container.id = 'processing-items';
   for (const item of binding.processingConsent.items) {
-    const label = document.createElement('label'), checkbox = document.createElement('input'), text = document.createElement('p');
+    const label = document.createElement('label'), checkbox = document.createElement('input'), title = document.createElement('span'), text = document.createElement('p');
     checkbox.type = 'checkbox'; checkbox.value = item.id;
-    // Paint after the conversation chooses its bundle, including after a language change.
-    label.append(checkbox, document.createElement('span'));
+    // Keep the server copy visible while opening; paintPage replaces matching versions later.
+    title.textContent = item.title; text.textContent = `${item.recipients} ${item.text}`;
+    label.append(checkbox, title);
     container.append(label, text);
   }
   document.querySelector('#grant').before(container);

@@ -7,14 +7,16 @@ import { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL } from '../../../demo/
 import { START_GERMAN_CONSENT, FEATURE_REASON_CODES, VOICE_REASON_CODES } from '../../../test/fixtures/german-server-texts.js';
 
 test('German processing consent is verbatim START legal copy; English equals the server fallback', () => {
-  assert.deepEqual(de.processingConsent, START_GERMAN_CONSENT);
+  const { items, ...legal } = de.processingConsent;
+  assert.deepEqual({ ...legal, items: Object.fromEntries(Object.entries(items).map(([id, { version, ...copy }]) => [id, copy])) }, START_GERMAN_CONSENT);
   assert.equal(en.processingConsent.intro, CONSENT_INTRO);
   assert.equal(en.processingConsent.withdrawal, CONSENT_WITHDRAWAL);
   assert.deepEqual(CONSENT_ITEMS.map(item => item.id).sort(), Object.keys(START_GERMAN_CONSENT.items).sort());
   assert.equal(new Set(CONSENT_ITEMS.map(item => item.id)).size, CONSENT_ITEMS.length);
   for (const { id, version, ...item } of CONSENT_ITEMS) {
     assert.ok(id && version > 0);
-    assert.deepEqual(en.processingConsent.items[id], item, id);
+    assert.equal(de.processingConsent.items[id].version, version, id);
+    assert.deepEqual(en.processingConsent.items[id], { version, ...item }, id);
   }
 });
 

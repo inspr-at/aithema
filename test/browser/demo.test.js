@@ -478,7 +478,9 @@ test('AIT-117: a German processing-consent page contains START German copy and n
         : inner !== code ? de.reasons.delegated.replace('{reason}', de.reasons[inner]) : de.reasons[code];
       assert.ok(rendered[index].length > 0, code);
       assert.ok(rendered[index].every(text => text === expected), code);
-      assert.ok(rendered[index].every(text => text !== (en.reasons[inner] ?? code)), `English reason leaked: ${code}`);
+      const english = status ? en.reasons['agent-api'].replace('{status}', status[1])
+        : inner !== code ? en.reasons.delegated.replace('{reason}', en.reasons[inner]) : en.reasons[code];
+      assert.ok(rendered[index].every(text => text !== english), `English reason leaked: ${code}`);
     }
     assert.deepEqual(problems, []); assert.deepEqual(external, []);
     t.diagnostic(`START German consent: 2 items plus intro/withdrawal; ${codes.length} reason cases rendered in German, no provider requests.`);
