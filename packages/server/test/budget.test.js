@@ -13,8 +13,9 @@ test('budget atomically reserves maxima across both lanes and burns durable sing
     assert.throws(() => admit(ledger, s.id, { lane: 'understanding' }), /Budget denied/);
     claim.consume(); assert.throws(() => claim.consume(), { code: 'already-claimed' });
     assert.throws(() => ledger.claim(a.attemptId), { code: 'already-claimed' });
-    const report = { attemptId: a.attemptId, outcome: 'completed', usage: { inputTokens: 3, outputTokens: 4 } };
+    const report = { attemptId: a.attemptId, outcome: 'completed', usage: { inputTokens: 3, outputTokens: 4 }, servedModel: 'provider/served-model' };
     assert.equal(ledger.settle(claim.claimId, report, { inputMicro: 1, outputMicro: 2 }).settled_micro, 11);
+    assert.deepEqual(JSON.parse(ledger.get(a.attemptId).terminal_json), report);
     assert.equal(ledger.settle(claim.claimId, report, { inputMicro: 1, outputMicro: 2 }).settled_micro, 11);
     assert.throws(() => ledger.settle(claim.claimId, { ...report, outcome: 'uncertain' }), { code: 'already-claimed' });
     assert.throws(() => admit(ledger, s.id, { attemptId: a.attemptId }), { code: 'already-claimed' });
@@ -24,14 +25,17 @@ test('budget atomically reserves maxima across both lanes and burns durable sing
 test('dispatched uncertain settlement charges the maximum; known overruns record actual cost and flag', () => {
   const storage = new SQLiteStorage(), s = storage.create(), ledger = new SQLiteBudgetLedger(storage, { sessionCapMicro: 200 });
   try {
-    for (const [terminal, cost] of [[{ outcome: 'uncertain' }, 40],
+    for (const [terminal, cost] of [[{ outcome: 'uncertain', servedModel: 'provider/served-model' }, 40],
       [{ outcome: 'cancelled', usage: { inputTokens: 2, outputTokens: 1 } }, 4],
       [{ outcome: 'completed', usage: { inputTokens: 200, outputTokens: 0 } }, 200]]) {
       const a = admit(ledger, s.id), claim = ledger.claim(a.attemptId); claim.consume();
       const result = ledger.settle(claim.claimId, { attemptId: a.attemptId, ...terminal }, { inputMicro: 1, outputMicro: 2 });
       assert.equal(result.settled_micro, cost);
       assert.equal(result.overrun, cost > 40 ? 1 : 0);
-      if (cost === 40) assert.equal(result.outcome, 'uncertain');
+      if (cost === 40) {
+        assert.equal(result.outcome, 'uncertain');
+        assert.equal(JSON.parse(result.terminal_json).servedModel, 'provider/served-model');
+      }
       else assert.equal(result.outcome, terminal.outcome);
     }
     assert.equal(ledger.used(s.id), 244); assert.equal(ledger.canAdmit(s.id, 0), false);

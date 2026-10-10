@@ -1,4 +1,5 @@
 import { modelPrice, providerMaxPrice } from '../plugins/openrouter/src/pricing.js';
+import { manifest as openRouterManifest } from '../plugins/openrouter/src/index.js';
 import { usdMicro } from '../packages/server/src/spend-cap.js';
 import { qualifyStartBinding } from './processing-consent.js';
 
@@ -29,14 +30,17 @@ export function openRouterConfig(values) {
   const maxTokens = integer(values, 'OPENROUTER_MAX_TOKENS', 1200);
   // START found smaller ceilings truncated real analyses, including reasoning tokens.
   const analysisMaxTokens = integer(values, 'OPENROUTER_ANALYSIS_MAX_TOKENS', 8000);
+  const analysisEffort = read(values, 'OPENROUTER_ANALYSIS_EFFORT') ?? 'none';
+  const analysisEfforts = openRouterManifest.models[0].efforts;
+  if (!analysisEfforts.includes(analysisEffort)) throw new TypeError(`OPENROUTER_ANALYSIS_EFFORT must be one of ${analysisEfforts.join(', ')}`);
   const providerOnly = read(values, 'OPENROUTER_PROVIDER_ONLY')?.split(',').map(entry => entry.trim()).filter(Boolean);
   // START's Azure workspace rejects response_format despite advertised support,
   // making roughly half of structured analyses fail; exclude it only for analysis.
   const analysisProviderIgnore = (read(values, 'OPENROUTER_ANALYSIS_PROVIDER_IGNORE') ?? 'Azure')
     .split(',').map(entry => entry.trim()).filter(Boolean);
-  const binding = (model, maxTokens, ignore) => {
+  const binding = (model, maxTokens, effort, ignore) => {
     const price = modelPrice(prices, model);
-    return qualifyStartBinding({ plugin: 'openrouter', model, effort: 'none',
+    return qualifyStartBinding({ plugin: 'openrouter', model, effort,
       endpoint: 'https://openrouter.ai/api/v1/chat/completions', accountRef: 'start2-openrouter', secretRef: 'OPENROUTER_API_KEY',
       maxMicro: 1_000_000, maxTokens, rates: { inputMicro: 0, outputMicro: 0 },
       routing: { require_parameters: true, allow_fallbacks: false,
@@ -45,6 +49,6 @@ export function openRouterConfig(values) {
         // verified live 2026-10-09: USD per MILLION tokens; enforced before dispatch.
         max_price: providerMaxPrice(price) } });
   };
-  return { prices, capMicro, reaction: binding(speechModel, maxTokens),
-    understanding: binding(understandingModel, analysisMaxTokens, analysisProviderIgnore) };
+  return { prices, capMicro, reaction: binding(speechModel, maxTokens, 'none'),
+    understanding: binding(understandingModel, analysisMaxTokens, analysisEffort, analysisProviderIgnore) };
 }

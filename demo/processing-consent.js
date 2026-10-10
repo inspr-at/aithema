@@ -1,5 +1,6 @@
 import { processingScope, MOCK_PROCESSING_SCOPE } from '@inspr/aithema-core';
 import { matchingHTMLReasoning } from './html-config.js';
+import { modelProvider } from './model-provider.js';
 
 // Ported verbatim from START src/lib/consent-items.ts and the English items in
 // src/lib/i18n.ts (consentCopy.en). No EU or zero-retention entitlement is inferred.
@@ -27,8 +28,8 @@ export const CONSENT_WITHDRAWAL = 'You can withdraw consent here at any time. Wi
 export function qualifyStartBinding(binding, now = Date.now()) {
   const voice = binding.plugin === 'elevenlabs';
   const providers = { openai: 'OpenAI', anthropic: 'Anthropic', 'x-ai': 'xAI' };
-  const provider = binding.model.split('/')[0];
-  if (!voice && (binding.plugin !== 'openrouter' || !providers[provider])) throw new TypeError('Model provider not covered by START consent');
+  const provider = modelProvider(binding.model);
+  if (!voice && (binding.plugin !== 'openrouter' || !Object.hasOwn(providers, provider))) throw new TypeError('Model provider not covered by START consent');
   return { ...binding, legal: { approved: true, countries: ['US'], training: true, retention: 'retained',
     purpose: voice ? 'voice-elevenlabs' : 'models-international',
     recipient: voice ? 'ElevenLabs, Inc.' : 'OpenRouter, Inc.', processors: voice ? [] : [providers[provider]],
@@ -49,7 +50,7 @@ export function createProcessingConsent({ storage, bindings, now = Date.now }) {
     matchingHTMLReasoning(binding, bindings));
   const allowed = coveredBindings.flatMap(binding => (binding.plugin === 'elevenlabs' ? ['start'] : binding.plugin === 'claude-html' ? ['generate', 'edit'] : ['stream', 'structured'])
     .map(operation => processingScope(binding, operation)));
-  const modelProviders = [...new Set(bindings.filter(b => b.plugin === 'openrouter').map(b => b.model.split('/')[0]))];
+  const modelProviders = [...new Set(bindings.filter(b => b.plugin === 'openrouter').map(b => modelProvider(b.model)))];
   const items = CONSENT_ITEMS.filter(item => bindings.some(binding => binding.legal?.purpose === item.id));
   const contract = [CONSENT_COPY_VERSION, items.map(item => `${item.id}:${item.version}`).join(','), modelProviders.join(',')].join('|');
   const db = storage.db;
@@ -93,7 +94,7 @@ export function createProcessingConsent({ storage, bindings, now = Date.now }) {
       if (!allowed.some(entry => JSON.stringify(entry) === JSON.stringify(scope))) return { covered: false };
       const grant = grants[scope.purpose], at = now();
       if (!grant || grant.version !== scope.itemVersion || grant.at > at || at - grant.at >= CONSENT_VALIDITY_MS ||
-        scope.plugin === 'openrouter' && !grant.providers?.includes(scope.model.split('/')[0])) return { covered: false };
+        scope.plugin === 'openrouter' && !grant.providers?.includes(modelProvider(scope.model))) return { covered: false };
       return { covered: true, ...scope, scope: structuredClone(scope), consentRevision, checkedAt: at,
         expiresAt: grant.at + CONSENT_VALIDITY_MS };
     },

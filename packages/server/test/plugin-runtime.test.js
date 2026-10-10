@@ -84,6 +84,46 @@ test('both lanes settle a distinct attempt, recheck consent and charge tokens us
   assert.equal(h.storage.db.prepare('SELECT COUNT(*) AS n FROM budget_attempts').get().n, 2);
 });
 
+for (const invalidModel of [false, true]) test(`alias resolutions ${invalidModel ? 'fall back for invalid served models' : 'reach durable lane producer identity and OPS terminal receipts'}`, async t => {
+  const h = setup(t), analysis = '~anthropic/claude-opus-latest', speech = '~anthropic/claude-haiku-latest';
+  const reactionModel = invalidModel ? 'anthropic/claude-haiku-5.5\n' : 'anthropic/claude-haiku-5.5';
+  const analysisModel = invalidModel ? 'a'.repeat(129) : 'anthropic/claude-opus-5.5';
+  // Full lane prompts need the same reservation as the other integration fixtures.
+  h.presets.best.bindings = { reaction: qualify({ ...h.b, model: speech, maxMicro: 50_000 }),
+    understanding: qualify({ ...h.b, model: analysis, maxMicro: 50_000 }) };
+  const raw = { summary: 'Fixture assessment', signals: [], openQuestions: [],
+    constraints: { operations: null, data: null, systems: null, reach: null, requirements: null },
+    progress: { talk: { value: 0.25, reasoning: 'Fixture' }, build: { value: 0, reasoning: 'Fixture' } },
+    actor: null, engagement: null, conceptIntent: null };
+  const bodies = [];
+  h.registry.get('openrouter').bind = binding => createOpenRouterReasoning({ binding,
+    prices: { [analysis]: { prompt: 1e-9, completion: 1e-9 }, [speech]: { prompt: 1e-9, completion: 1e-9 } },
+    resolveSecret: () => 'local-fixture', fetchImpl: async (url, init) => {
+      const body = JSON.parse(init.body); bodies.push(body);
+      // Streaming supplies the model before its separate, model-less usage frame.
+      if (body.stream) return new Response(`data: ${JSON.stringify({ model: reactionModel,
+        choices: [{ delta: { content: 'Hello' }, finish_reason: 'stop' }] })}\n\n` +
+        'data: {"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":4}}\n\ndata: [DONE]\n\n');
+      return Response.json({ model: analysisModel, usage: { prompt_tokens: 3, completion_tokens: 4 },
+        choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(raw) } }] });
+    } });
+  for (let i = 0; i < 3; i++) h.storage.append(h.session.id, 'turn.final', { id: `user-${i}`, role: 'user', content: 'systems: API' });
+  const partials = [], lanes = new SessionLanes({ reasoning: h.plugin, getSession: id => h.storage.get(id),
+    transient: (id, event) => partials.push(event),
+    publish: (id, type, data, revision) => h.storage.append(id, type, data, revision),
+    admit: args => h.runtime.admit(args) });
+  for (const lane of ['reaction', 'understanding']) assert.equal(await lanes.run(h.session.id, lane), 'completed');
+  const session = h.storage.get(h.session.id);
+  assert.equal(session.transcript.at(-1).model, invalidModel ? speech : reactionModel);
+  assert.equal(session.understanding.model, invalidModel ? analysis : analysisModel);
+  assert.equal(partials.length, 1); assert.equal(partials[0].data.model, speech);
+  const rows = h.storage.db.prepare('SELECT * FROM budget_attempts ORDER BY rowid').all();
+  assert.deepEqual(rows.map(row => JSON.parse(row.terminal_json).servedModel), invalidModel ? [undefined, undefined] : [reactionModel, analysisModel]);
+  assert.ok(rows.every(row => row.outcome === 'completed' && row.settled_micro === 11));
+  assert.deepEqual(bodies.map(body => body.model), [speech, analysis]);
+  assert.deepEqual([h.presets.best.bindings.reaction.model, h.presets.best.bindings.understanding.model], [speech, analysis]);
+});
+
 for (const anonymousTurns of [3, 4]) test(`unlocked guests defer live assessment for ${anonymousTurns} turns until real verification`, async t => {
   const storage = new SQLiteStorage(), endpoint = 'https://provider.example.test/chat', bodies = [];
   const b = qualify(binding('openrouter', endpoint, { maxMicro: 50_000, maxTokens: 4096 }));

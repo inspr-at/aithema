@@ -1,6 +1,6 @@
 // Public contracts for later slices. Every operation takes this same authority/lifetime envelope.
 export type Usage = { inputTokens: number; outputTokens: number };
-export type Terminal = { attemptId: string } & ({ outcome: 'completed' | 'cancelled'; usage: Usage } | { outcome: 'uncertain' });
+export type Terminal = { attemptId: string; servedModel?: string } & ({ outcome: 'completed' | 'cancelled'; usage: Usage } | { outcome: 'uncertain' });
 export interface OperationOptions {
   signal: AbortSignal;
   deadlineAt: number;

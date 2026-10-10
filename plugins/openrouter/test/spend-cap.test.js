@@ -5,6 +5,7 @@ import { listen } from '../../../packages/server/src/http.js';
 import { createOpenRouterReasoning } from '../src/index.js';
 import { requestCeilingMicro } from '../src/pricing.js';
 import { temporaryDb } from '../../../test/helpers.js';
+import { openRouterConfig } from '../../../demo/openrouter-config.js';
 
 const schema = { type: 'object', additionalProperties: false, properties: { summary: { type: 'string' } }, required: ['summary'] };
 const request = { system: '', messages: [{ role: 'user', content: 'Hello' }], schema };
@@ -30,6 +31,32 @@ async function provider(t, { path, capMicro = 100, maxTokens = 5 } = {}) {
     restart() { storage.close(); storage = new SQLiteStorage(path); cap = createSpendCap({ storage, account: 'shared', capMicro }); } };
 }
 const collect = async plugin => { let text = ''; for await (const part of plugin.stream(request, opts())) text += part; return text; };
+
+test('latest alias uses its configured price ceiling and the same account cap, regardless of served model', async () => {
+  const model = '~anthropic/claude-opus-latest', storage = new SQLiteStorage(), bodies = [];
+  try {
+    const configured = openRouterConfig({ OPENROUTER_MODEL: model, OPENROUTER_ANALYSIS_EFFORT: 'low',
+      OPENROUTER_ANALYSIS_MAX_TOKENS: '5', AITHEMA_OPENROUTER_CAP_USD: '0.0001',
+      AITHEMA_OPENROUTER_PRICES: JSON.stringify({ [model]: price }) });
+    const cap = createSpendCap({ storage, account: 'shared', capMicro: configured.capMicro });
+    const plugin = createOpenRouterReasoning({ binding: configured.understanding, prices: configured.prices, spendCap: cap,
+      resolveSecret: () => 'local-fixture', fetchImpl: async (url, init) => {
+        bodies.push(JSON.parse(init.body));
+        return Response.json({ model: 'anthropic/claude-opus-5.5', usage: { prompt_tokens: 1, completion_tokens: 1, cost: 0.00003 },
+          choices: [{ finish_reason: 'stop', message: { content: '{"summary":"ok"}' } }] });
+      } });
+    for (let i = 0; i < 3; i++) await plugin.structured(request, opts());
+    assert.deepEqual(cap.snapshot(), { spentMicro: 90, reservedMicro: 0, capMicro: 100, breached: false });
+    await assert.rejects(plugin.structured(request, opts()), /spend cap exhausted/);
+    assert.equal(bodies.length, 3);
+    assert.equal(requestCeilingMicro(bodies[0], price), 40);
+    for (const body of bodies) {
+      assert.equal(body.model, model);
+      assert.deepEqual(body.provider.max_price, { prompt: 0.5, completion: 1.4 });
+      assert.equal(body.provider.require_parameters, true); assert.equal(body.provider.allow_fallbacks, false);
+    }
+  } finally { storage.close(); }
+});
 
 test('sums non-stream usage.cost; all dispatches ask for usage; refuses before provider dispatch', async t => {
   const h = await provider(t); h.state.cost = 0.00003;
