@@ -1,7 +1,7 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve, sep } from 'node:path';
-import { SQLiteStorage, createHandlers, createPluginRuntime, createMemoryConsentLedger, createFacadeSecrets, createVoiceProvider, createDurationBinding, createLocalImages, localImageBinding, createImageBinding, createSpendCap, createVoiceCap, voiceCapConfig, createLocalHTML, localHTMLBinding, uiRenderLimitConfig, uploadLimitConfig } from '@inspr/aithema-server';
+import { SQLiteStorage, createHandlers, createPluginRuntime, createFacadeSecrets, createVoiceProvider, createDurationBinding, createLocalImages, localImageBinding, createImageBinding, createSpendCap, createVoiceCap, voiceCapConfig, createLocalHTML, localHTMLBinding, uiRenderLimitConfig, uploadLimitConfig } from '@inspr/aithema-server';
 import { createLocalVoiceProvider, localVoiceBinding } from '../packages/server/src/local-voice.js';
 import { listen } from '@inspr/aithema-server/http';
 import { createMockReasoning, PluginRegistry } from '@inspr/aithema-core';
@@ -16,6 +16,7 @@ import { createOwnership, startExpiry } from './session-lifecycle.js';
 
 import { deploymentConfig, deploymentGate } from './deployment.js';
 import { createVoiceHost as createStart2VoiceHost } from './start2-voice-host.js';
+import { createMockConsent } from './mock-consent.js';
 import { createProcessingConsent } from './processing-consent.js';
 import { openRouterConfig } from './openrouter-config.js';
 import { htmlConfig } from './html-config.js';
@@ -80,7 +81,7 @@ if (imageMode === 'openai') {
 }
 const liveBindings = [...(provider === 'openrouter' ? [privateBinding, understandingBinding] : []), ...(voiceHost?.binding ? [voiceHost.binding] : []), ...(html.binding?.legal ? [html.binding] : [])];
 const consent = imageHost?.consent ?? voiceHost?.consent ?? (liveBindings.length
-  ? createProcessingConsent({ storage, bindings: liveBindings }) : createMemoryConsentLedger());
+  ? createProcessingConsent({ storage, bindings: liveBindings }) : createMockConsent(storage));
 if (voiceHost?.staticSecretRef) {
   const resolve = secrets.resolve;
   secrets.resolve = ref => ref === voiceHost.staticSecretRef ? process.env[ref] : resolve(ref);
@@ -120,7 +121,7 @@ async function handle(request) {
   if (url.pathname.startsWith('/api/')) return handlers.handle(request);
   if (!['GET', 'HEAD'].includes(request.method)) return new Response(null, { status: 405 });
   if (url.pathname === '/demo/config') return Response.json({ label: reasoning.label, defaultPreset: 'best', voiceMode: voiceMode === 'elevenlabs' && !voiceHost?.binding ? 'off' : voiceMode,
-    voiceDisabledReason: voiceHost?.disabledReason ?? null, processingConsent: consent.describe?.(), imageMode, imageLabel: imagePlugin?.label ?? 'Images off',
+    voiceDisabledReason: voiceHost?.disabledReason ?? null, processingConsent: consent.describe?.().contract ? consent.describe() : undefined, imageMode, imageLabel: imagePlugin?.label ?? 'Images off',
     htmlMode: html.mode, htmlLabel: htmlPlugin?.label ?? 'HTML off', htmlDisabledReason: html.disabledReason ?? null, hostLabel: host.label, demoHost: host.demo,
     verificationRequired: host.policy.verificationRequired });
   if (url.pathname.startsWith('/vendor/elevenlabs/worklets/')) {
@@ -131,15 +132,15 @@ async function handle(request) {
     const bytes = await readFile(resolve(root, 'node_modules/@elevenlabs/client/dist/lib.iife.js'));
     return new Response(request.method === 'HEAD' ? null : bytes, { headers: { 'content-type': 'text/javascript; charset=utf-8', 'x-content-type-options': 'nosniff' } });
   }
-  const path = url.pathname === '/' ? '/demo/index.html' : url.pathname;
+  const path = url.pathname === '/' ? '/demo/index.html' : ['/consent', '/consent/'].includes(url.pathname) ? '/demo/consent.html' : url.pathname;
   // Explicit source/static allowlist; no arbitrary files, lockfiles or credentials.
-  if (!/^\/(?:demo\/(?:index\.html|host\.js|fake-voice\.js)|plugins\/device\/src\/index\.js|plugins\/elevenlabs\/src\/(?:client|manifest|options)\.js|packages\/(?:ui|core)\/src\/[a-z0-9/-]+\.js)$/u.test(path)) return new Response(null, { status: 404 });
+  if (!/^\/(?:demo\/(?:index\.html|consent\.html|host\.css|host\.js|consent\.js|consent-page\.js|page-preferences\.js|theme-init\.js|fake-voice\.js)|plugins\/device\/src\/index\.js|plugins\/elevenlabs\/src\/(?:client|manifest|options)\.js|packages\/(?:ui|core)\/src\/[a-z0-9/-]+\.js)$/u.test(path)) return new Response(null, { status: 404 });
   const file = resolve(root, `.${path}`);
   if (!file.startsWith(root + (root.endsWith(sep) ? '' : sep))) return new Response(null, { status: 404 });
   try {
     const bytes = await readFile(file);
     return new Response(request.method === 'HEAD' ? null : bytes, { headers: {
-      'content-type': file.endsWith('.html') ? 'text/html; charset=utf-8' : 'text/javascript; charset=utf-8',
+      'content-type': file.endsWith('.html') ? 'text/html; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8',
       'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
       ...(file.endsWith('.html') ? { 'content-security-policy': HTML_PREVIEW_HOST_CSP } : {}),
     } });

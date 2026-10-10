@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="de"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="frame-src 'none'; child-src 'none'">
+<link rel="icon" href="data:,"><title>Aithema</title>
+<script src="/demo/theme-init.js"></script><link rel="stylesheet" href="/demo/host.css">
+</head><body><header class="masthead"><a class="wordmark" href="/">Aithema</a>
+<div class="host-actions">
+<label><span id="language-label">Sprache</span> <select id="locale"><option value="de">DE</option><option value="en">EN</option></select></label>
+<label><span id="theme-label">Darstellung</span> <select id="theme"><option value="light">Hell</option><option value="dark">Dunkel</option><option value="system">System</option></select></label>
+<button id="new" type="button">Neues Gespräch beginnen</button></div></header>
+<div class="host-status"><p id="language-note" role="status"></p><p id="error" role="alert"></p></div><main class="consent-page"><article><header class="consent-header"><div><h1 id="consent-title">Einwilligung zur Datenverarbeitung</h1><p id="consent-text" class="consent-page__intro"></p></div><div class="consent-actions consent-actions--top"><a class="consent-back" href="/" data-back>Zurück</a><button type="button" data-revoke disabled>Einwilligung widerrufen</button><button type="button" data-select-all disabled>Alle auswählen</button><button type="button" data-grant disabled>Einwilligung erteilen</button></div></header>
+<div class="consent-status" id="consent-status" role="status" aria-live="polite"><span id="status-text"></span> <button id="retry" type="button" hidden>Erneut versuchen</button></div>
+<fieldset id="processing-items" class="consent-items" disabled><legend class="visually-hidden" id="consent-legend">Verarbeitung auswählen</legend></fieldset>
+<p id="consent-info" class="consent-info"></p><div class="consent-actions consent-actions--bottom"><a class="consent-back" href="/" data-back>Zurück</a><button type="button" data-revoke disabled>Einwilligung widerrufen</button><button type="button" data-select-all disabled>Alle auswählen</button><button type="button" data-grant disabled>Einwilligung erteilen</button></div></article></main><footer class="colophon"><a id="source" href="https://github.com/inspr-at/aithema">Quellcode</a><a id="license" href="https://github.com/inspr-at/aithema/blob/main/LICENSE">AGPL-3.0-only</a></footer><script type="module" src="/demo/consent.js"></script></body></html>
