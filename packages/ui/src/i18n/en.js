@@ -12,7 +12,8 @@ export const en = {
   conceptFake: 'Fake image — local deterministic PNG, no AI or provider network',
   conceptFree: 'No cost (local fake)', conceptCost: 'Up to {micro} micro-units', conceptCostUnknown: 'Cost unavailable',
   conceptGuidance: ['Simpler layout', 'More contrast', 'More whitespace', 'Warmer colours', 'Clearer hierarchy', 'Keep this direction'],
-  conceptRemoveGuidance: 'Remove: {guidance}',
+  // Host catalog names (models, voices, visuals, vendors) in this language; a name without an entry shows as the host wrote it.
+  catalogLabels: {},
   // Clickable HTML drafts (AIT-113): the same rail and viewer, revised as the conversation goes on.
   conceptDraftView: 'Open clickable draft', conceptDraftTitle: 'Draft revision {number}', conceptDraftDownload: 'Download draft',
   conceptDraftRendering: 'Creating your clickable draft…', conceptDraftUpdating: 'Updating your draft with your latest answers…',
@@ -98,6 +99,7 @@ export const en = {
     local: 'Advanced · Connect an AI model running on this device. Availability depends on your browser and hardware.',
   },
   gauges: {
+    operations: { generate: 'generate', edit: 'edit' },
     labels: { quality: 'AI quality', speed: 'Speed', cost: 'Cost', privacy: 'Privacy', voice: 'Voice', images: 'Images' },
     values: { rated: '{score}%', index: '{index}/5', unverified: 'Unverified', qualified: 'Qualified', none: 'n/a', local: 'Local',
       free: 'None', reviewed: 'Reviewed', off: 'Off', device: 'Device', eu: 'EU', restricted: 'Restricted', declared: 'Declared' },

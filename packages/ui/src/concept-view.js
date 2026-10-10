@@ -46,7 +46,7 @@ export class ConceptView {
       <div class="concept-stage"><img class="concept-image" decoding="async"><aithema-html-preview class="concept-html" fill hidden></aithema-html-preview><p class="concept-image-status" role="status"></p></div>
       <footer class="concept-viewer-controls"><div class="concept-navigation"><button class="concept-previous" type="button"></button><button class="concept-next" type="button"></button><button class="concept-download" type="button"></button><button class="concept-regenerate" type="button"></button></div>
         <p class="concept-disclosure"></p><div class="concept-feedback"><button class="concept-up" type="button"></button><button class="concept-down" type="button"></button><button class="concept-reject" type="button"></button></div>
-        <div class="concept-guidance-options"></div><div class="concept-guidance-selected" aria-live="polite"></div><p class="concept-viewer-message" role="status"></p></footer>`;
+        <div class="concept-guidance-options"></div><p class="concept-viewer-message" role="status"></p></footer>`;
     root.append(dialog); this.dialog = dialog;
     const labels = { '.concept-close': 'conceptClose', '.concept-previous': 'conceptPrevious', '.concept-next': 'conceptNext',
       '.concept-download': 'conceptDownload', '.concept-up': 'conceptUp', '.concept-down': 'conceptDown', '.concept-reject': 'conceptReject', '.concept-preview-label': 'conceptView' };
@@ -65,12 +65,8 @@ export class ConceptView {
       const current = this.current(); void this.feedback(current?.feedback?.vote === vote ? 'clear' : vote, current?.feedback?.chips ?? []);
     });
     root.querySelector('.concept-reject').addEventListener('click', () => void this.feedback('down', this.current()?.feedback?.chips ?? [], true));
-    for (const value of copy.conceptGuidance) {
-      const button = document.createElement('button'); button.type = 'button'; button.textContent = value;
-      button.addEventListener('click', () => { const current = this.current(), chips = current?.feedback?.chips ?? [];
-        if (!chips.includes(value)) void this.feedback(current?.feedback?.vote ?? 'clear', [...chips, value]); });
-      root.querySelector('.concept-guidance-options').append(button);
-    }
+    // Guidance choices are toggles (GUI-27, not pills): pressing adds the guidance, pressing again removes it.
+    for (const value of copy.conceptGuidance) root.querySelector('.concept-guidance-options').append(this.guidanceToggle(value));
     dialog.addEventListener('cancel', e => { e.preventDefault(); this.close(); });
     dialog.addEventListener('keydown', e => {
       if (e.key === 'Escape') { e.preventDefault(); this.close(); }
@@ -137,7 +133,7 @@ export class ConceptView {
     if (changedOwner || session.consentWithdrawn || session.tombstone || this.#selected && !valid.has(this.#selected)) {
       this.#epoch++; this.root.querySelector('.concept-image').removeAttribute('src'); this.root.querySelector('.concept-disclosure').textContent = '';
       this.root.querySelector('.concept-html').artifact = null;
-      this.root.querySelector('.concept-guidance-selected').textContent = ''; this.close();
+      this.paintGuidance([]); this.close();
     }
     // A request error stands until the generation state moves on.
     const statusKey = JSON.stringify(session.conceptStatus ?? null);
@@ -205,21 +201,7 @@ export class ConceptView {
       : fake ? this.copy.conceptFake : manipulated ? this.copy.conceptManipulated : this.copy.conceptGenerated;
     this.root.querySelector('.concept-download').textContent = html ? this.copy.conceptDraftDownload : this.copy.conceptDownload;
     for (const vote of ['up', 'down']) this.root.querySelector('.concept-' + vote).setAttribute('aria-pressed', String(current.feedback?.vote === vote));
-    // Selected guidance keeps its buttons by value, so a focused one stays focused across live renders.
-    const selected = this.root.querySelector('.concept-guidance-selected'), chips = current.feedback?.chips ?? [];
-    const buttons = new Map([...selected.children].map(button => [button.dataset.value, button]));
-    for (const [value, button] of buttons) if (!chips.includes(value)) { button.remove(); buttons.delete(value); }
-    let next = selected.firstElementChild;
-    for (const value of chips) {
-      let button = buttons.get(value);
-      if (!button) {
-        button = document.createElement('button'); button.type = 'button'; button.dataset.value = value;
-        button.textContent = this.copy.conceptRemoveGuidance.replace('{guidance}', value);
-        button.addEventListener('click', () => { const shown = this.current()?.feedback;
-          if (shown) void this.feedback(shown.vote, shown.chips.filter(c => c !== value)); });
-      }
-      if (button !== next) selected.insertBefore(button, next); else next = next.nextElementSibling;
-    }
+    this.paintGuidance(current.feedback?.chips ?? []);
     const image = this.root.querySelector('.concept-image'), draft = this.root.querySelector('.concept-html'), imageStatus = this.root.querySelector('.concept-image-status');
     image.hidden = html; draft.hidden = !html;
     if (html) { this.renderDraft(current, draft, imageStatus); image.removeAttribute('src'); delete image.dataset.id; return; }
@@ -243,6 +225,24 @@ export class ConceptView {
       if (bytes) show(bytes); status.textContent = bytes ? '' : this.copy.conceptDraftFailed;
     } });
   }
+  guidanceToggle(value) {
+    const button = document.createElement('button'); button.type = 'button'; button.textContent = value; button.dataset.value = value;
+    button.setAttribute('aria-pressed', 'false');
+    button.addEventListener('click', () => { const current = this.current(), chips = current?.feedback?.chips ?? [];
+      void this.feedback(current?.feedback?.vote ?? 'clear', chips.includes(value) ? chips.filter(c => c !== value) : [...chips, value]); });
+    return button;
+  }
+  // Every toggle keeps its node, so a focused one stays focused across live renders. Guidance that
+  // is not one of the fixed choices (e.g. saved in another language) shows as an extra pressed toggle
+  // after them, removable the same way.
+  paintGuidance(chips) {
+    const options = this.root.querySelector('.concept-guidance-options'), fixed = new Set(this.copy.conceptGuidance);
+    for (const button of [...options.children]) if (!fixed.has(button.dataset.value) && !chips.includes(button.dataset.value)) button.remove();
+    const extra = chips.filter(value => !fixed.has(value) && ![...options.children].some(b => b.dataset.value === value));
+    options.append(...extra.map(value => this.guidanceToggle(value)));
+    for (const button of options.children) button.setAttribute('aria-pressed', String(chips.includes(button.dataset.value)));
+    if (extra.length) this.gates();
+  }
   gates() {
     const active = this.root.activeElement; // captured before any control below is disabled
     const feature = this.feature(), pending = this.#session?.conceptStatus?.phase === 'pending';
@@ -253,7 +253,7 @@ export class ConceptView {
     request.disabled = this.#busy || pending || !feature.available || !source; request.title = !feature.available ? feature.reason : !source ? this.copy.conceptNeedsInput : '';
     const regenerate = this.root.querySelector('.concept-regenerate'); regenerate.textContent = `${this.copy.conceptRegenerate} · ${costCopy}`;
     regenerate.disabled = request.disabled || !this.current(); regenerate.title = request.title;
-    for (const node of this.root.querySelectorAll('.concept-feedback button, .concept-guidance-options button, .concept-guidance-selected button')) {
+    for (const node of this.root.querySelectorAll('.concept-feedback button, .concept-guidance-options button')) {
       node.disabled = this.#busy || !feature.available || !this.current(); node.title = !feature.available ? feature.reason : '';
     }
     // A live update (e.g. SSE "pending" after the POST settled) can disable the focused

@@ -73,18 +73,21 @@ const styles = `
 .bar { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:.5rem 1rem; min-height:2.75rem; padding-bottom:.5rem; }
 .label { display:flex; align-items:center; gap:.4rem; font-weight:600; font-size:.85rem; }
 .label svg { width:1rem; height:1rem; flex:none; }
-.seg { display:inline-flex; border:1px solid var(--aithema-line,#d5dfda); border-radius:.5rem; overflow:hidden; }
-.seg button { font:inherit; font-size:.85rem; color:inherit; background:transparent; border:0; min-height:2.25rem; padding:0 .85rem; cursor:pointer; }
-.seg button + button { border-left:1px solid var(--aithema-line,#d5dfda); }
-.seg button:hover { background:color-mix(in srgb,var(--aithema-accent,#227c78) 6%,transparent); }
-.seg button[aria-checked="true"] { background:color-mix(in srgb,var(--aithema-accent,#227c78) 12%,transparent); color:var(--aithema-accent,#227c78); font-weight:600; }
-:focus-visible { outline:2px solid var(--aithema-accent,#227c78); outline-offset:2px; } .seg button:focus-visible { outline-offset:-3px; }
+/* GUI-27: two plain choices, not a boxed segment. The checked one shows a check in the slot both keep
+   and turns accent; weight and size never change. */
+.seg { display:inline-flex; gap:.15rem; }
+.seg button { font:inherit; font-size:.85rem; font-weight:600; color:inherit; background:transparent; border:0; border-radius:.45rem;
+  min-height:2.25rem; padding:0 .7rem; cursor:pointer; }
+.seg button::before { content:'✓' / ''; display:inline-block; width:1.1em; visibility:hidden; }
+.seg button:hover { background:color-mix(in srgb,var(--aithema-accent,#1d6e6a) 8%,transparent); }
+.seg button[aria-checked="true"] { color:var(--aithema-accent,#1d6e6a); } .seg button[aria-checked="true"]::before { visibility:visible; }
+:focus-visible { outline:2px solid var(--aithema-accent,#1d6e6a); outline-offset:2px; } .seg button:focus-visible { outline-offset:-3px; }
 .stage { position:relative; height:var(--preview-height); border:1px solid var(--aithema-line,#d5dfda); border-radius:.5rem; overflow:hidden;
   background:var(--aithema-paper,#f7f5ef); contain:strict; }
 iframe { position:absolute; top:0; bottom:0; left:50%; transform:translateX(-50%); width:100%; height:100%; border:0; background:#fff; display:block; }
 .stage[data-width="phone"] iframe { width:min(var(--preview-phone),100%); box-shadow:0 0 0 1px var(--aithema-line,#d5dfda); }
-iframe:focus-visible { outline:2px solid var(--aithema-accent,#227c78); outline-offset:-2px; }
-.state { position:absolute; inset:0; margin:0; display:grid; place-items:center; padding:1.5rem; text-align:center; color:var(--aithema-muted,#5d6e71); }
+iframe:focus-visible { outline:2px solid var(--aithema-accent,#1d6e6a); outline-offset:-2px; }
+.state { position:absolute; inset:0; margin:0; display:grid; place-items:center; padding:1.5rem; text-align:center; color:var(--aithema-muted,#566669); }
 /* fill: the stage takes whatever height the host gives the element, e.g. a viewer row. */
 :host([fill]) { display:grid; grid-template-rows:auto minmax(0,1fr); height:100%; min-height:0; }
 :host([fill]) .stage { height:auto; min-height:0; }

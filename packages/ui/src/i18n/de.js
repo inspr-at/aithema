@@ -13,7 +13,12 @@ export const de = {
   conceptFake: 'Testbild: lokal erzeugtes PNG, ohne KI und ohne Anbieter',
   conceptFree: 'Kostenlos (lokaler Test)', conceptCost: 'Bis zu {micro} Mikro-Einheiten', conceptCostUnknown: 'Kosten unbekannt',
   conceptGuidance: ['Einfacheres Layout', 'Mehr Kontrast', 'Mehr Weißraum', 'Wärmere Farben', 'Klarere Hierarchie', 'Diese Richtung beibehalten'],
-  conceptRemoveGuidance: 'Entfernen: {guidance}',
+  // The demo host's catalog names in German (AIT-118: one language per page); product names stay as they are.
+  catalogLabels: { 'Mock reasoning': 'Mock-Auswertung', 'Swift (mock)': 'Swift (Mock)', 'Deep (mock)': 'Deep (Mock)',
+    'GPT-4.1 mini via OpenRouter': 'GPT-4.1 mini über OpenRouter', 'Fake voice (local agent)': 'Test-Sprache (lokaler Agent)',
+    'Fake HTML (local click-dummy)': 'Test-Entwurf (lokaler Klick-Dummy)', 'Claude HTML click-dummy': 'Claude-Klick-Dummy',
+    'Fake images (local PNG)': 'Testbilder (lokales PNG)', 'Demo only: fake HTML click-dummy (no provider)': 'Nur Demo: Test-Klick-Dummy (ohne Anbieter)',
+    'Anthropic via OpenRouter': 'Anthropic über OpenRouter' },
   conceptDraftView: 'Klickbaren Entwurf öffnen', conceptDraftTitle: 'Entwurf, Fassung {number}', conceptDraftDownload: 'Entwurf herunterladen',
   conceptDraftRendering: 'Ihr klickbarer Entwurf entsteht …', conceptDraftUpdating: 'Ihr Entwurf wird mit Ihren neuesten Antworten aktualisiert …',
   conceptDraftReady: 'Fassung {number} des Entwurfs ist fertig.', conceptDraftNewer: 'Eine neuere Fassung ist fertig. Wählen Sie „Nächster“, um sie zu sehen.',
@@ -100,6 +105,7 @@ export const de = {
     local: 'Erweitert · Verbinden Sie ein KI-Modell, das auf diesem Gerät läuft. Ob das geht, hängt von Ihrem Browser und Ihrer Hardware ab.',
   },
   gauges: {
+    operations: { generate: 'erzeugen', edit: 'bearbeiten' },
     labels: { quality: 'KI-Qualität', speed: 'Tempo', cost: 'Kosten', privacy: 'Datenschutz', voice: 'Sprache', images: 'Bilder' },
     values: { rated: '{score} %', index: '{index}/5', unverified: 'Ungeprüft', qualified: 'Qualifiziert', none: 'k. A.', local: 'Lokal',
       free: 'Keine', reviewed: 'Geprüft', off: 'Aus', device: 'Gerät', eu: 'EU', restricted: 'Eingeschränkt', declared: 'Angegeben' },

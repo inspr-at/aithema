@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
-import { reasonText } from '../src/settings-dialog.js';
+import { reasonText, catalogLabel } from '../src/settings-dialog.js';
+import { demoPresets } from '../../../demo/choices.js';
 import { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL } from '../../../demo/processing-consent.js';
 import { START_GERMAN_CONSENT, FEATURE_REASON_CODES, VOICE_REASON_CODES } from '../../../test/fixtures/german-server-texts.js';
 
@@ -46,4 +47,12 @@ test('compound voice reasons translate known codes and preserve unknown server t
     assert.equal(reasonText(bundle, 'delegated reasoning: future host reason'), bundle.reasons.delegated.replace('{reason}', 'future host reason'));
   }
   assert.equal(reasonText({}, 'not configured'), 'not configured');
+});
+
+test('a German page names the demo catalog in German; product names stay (AIT-118, GUI-27 one language)', () => {
+  const { models, voices, visuals } = demoPresets({}).best.choices, products = new Set(['ElevenLabs', 'OpenAI GPT Image 2']);
+  for (const { label } of [...models, ...voices, ...visuals]) assert.ok(products.has(label) || Object.hasOwn(de.catalogLabels, label), label);
+  assert.equal(catalogLabel(de, 'Fake voice (local agent)'), 'Test-Sprache (lokaler Agent)');
+  assert.equal(catalogLabel(en, 'Fake voice (local agent)'), 'Fake voice (local agent)'); assert.equal(catalogLabel(de, 'ElevenLabs'), 'ElevenLabs');
+  assert.deepEqual(Object.keys(de.gauges.operations), Object.keys(en.gauges.operations));
 });

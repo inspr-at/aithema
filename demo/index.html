@@ -3,13 +3,18 @@
 <meta http-equiv="Content-Security-Policy" content="frame-src 'none'; child-src 'none'">
 <title>Demo — Aithema reset slice 1</title>
 <style>
-:root { --paper:#f7f5ef; --ink:#243b40; --muted:#67777a; --accent:#227c78; --line:#d5dfda; --surface:#fffef9; --error:#9a4030; color-scheme:light dark; }
+:root { --paper:#f7f5ef; --ink:#243b40; --muted:#566669; --accent:#1d6e6a; --line:#d5dfda; --surface:#fffef9; --error:#9a4030; color-scheme:light dark; }
 @media(prefers-color-scheme:dark) { :root { --paper:#141a1b; --ink:#e2e9e6; --muted:#9badab; --accent:#5db5ae; --line:#33403f; --surface:#1b2223; --error:#e59a87; } }
 body { background:var(--paper); color:var(--ink); font-family:system-ui,sans-serif; margin:0; padding:2rem; }
 main { max-width:78rem; margin:auto; } header { margin-bottom:1.5rem; } h1 { font-size:1.3rem; margin:0; }
 header p { font-size:.85rem; color:var(--muted); } .host-actions { display:flex; flex-wrap:wrap; gap:.5rem 1rem; align-items:center; font-size:.8rem; }
 button, select, input { color:inherit; font:inherit; }
-button { padding:.5rem .8rem; border:1px solid var(--line); background:var(--surface); border-radius:.6rem; cursor:pointer; }
+/* GUI-27: quiet accent text actions; Allow is the page's one filled primary. Hover only tints. */
+button { padding:.5rem .8rem; border:0; background:transparent; border-radius:.45rem; cursor:pointer; color:var(--accent); font-weight:600; }
+button:hover:not(:disabled) { background:color-mix(in srgb,var(--accent) 8%,transparent); }
+#grant { background:var(--accent); color:var(--surface); } #grant:hover:not(:disabled) { background:color-mix(in srgb,var(--accent) 84%,var(--ink)); }
+/* Text actions align with the text column, also when a row wraps; the filled one keeps its edge. */
+button { margin:0 .8rem 0 -.8rem; } #grant { margin:0 1.2rem 0 0; } :focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
 select, input { background:var(--surface); border:1px solid var(--line); border-radius:.4rem; padding:.2rem .4rem; }
 a { color:var(--accent); } #error { color:var(--error); } @media(max-width:40rem) { body { padding:1rem; } }
 #error { min-height:1.5em; } #consent-status { height:3em; overflow:auto; } #language-note { min-height:1.2em; margin:.4rem 0 0; }

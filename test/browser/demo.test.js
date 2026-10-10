@@ -602,9 +602,14 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
     const likeBefore = await rest(page, '.concept-up'); await page.mouse.down(); await page.mouse.up();
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.concept-up').getAttribute('aria-pressed') === 'true');
     sameBox(likeBefore, await box(page, '.concept-up'), 'Like');
+    // GUI-27 (AIT-118): guidance choices are plain toggles; pressing one marks it with a check in its own slot and moves nothing.
+    const guidanceBefore = await inShadow(page, c => [...c.shadowRoot.querySelectorAll('.concept-guidance-options button')].map(b => JSON.stringify(b.getBoundingClientRect())));
     const chipBefore = await rest(page, '.concept-guidance-options button'); await page.mouse.down(); await page.mouse.up();
-    await waitForShadow(page, '.concept-guidance-selected button', { text: 'Remove: Simpler layout' });
-    sameBox(chipBefore, await box(page, '.concept-guidance-options button'), 'guidance chip');
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.concept-guidance-options button').getAttribute('aria-pressed') === 'true');
+    sameBox(chipBefore, await box(page, '.concept-guidance-options button'), 'guidance toggle');
+    assert.deepEqual(await inShadow(page, c => [...c.shadowRoot.querySelectorAll('.concept-guidance-options button')].map(b => JSON.stringify(b.getBoundingClientRect()))), guidanceBefore, 'no guidance toggle moved');
+    assert.deepEqual(await inShadow(page, c => [...c.shadowRoot.querySelectorAll('.concept-viewer button')].map(b => getComputedStyle(b))
+      .filter(style => style.borderTopWidth !== '0px' || parseFloat(style.borderTopLeftRadius) > 8).length), 0, 'no bordered boxes or pills among the viewer controls');
     // The new revision waits while the pointer rests on the controls: the count, Next and a notice update at once.
     const regenerateBefore = await rest(page, '.concept-regenerate'); await page.mouse.down(); await page.mouse.up();
     await waitForShadow(page, '.concept-count', { text: '1 of 2' });
