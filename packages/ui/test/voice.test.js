@@ -259,8 +259,9 @@ test('heard correction truncates the bubble immediately under hover while preser
   assert.equal(row.querySelector('span').textContent, 'Heard.'); assert.equal(row.style.minHeight, '80px');
   assert.equal(shell.querySelector('.turn'), row);
   shell.dispatchEvent(new window.Event('pointerleave')); assert.equal(c.session.transcript[0].content, 'Heard.');
-  assert.match(styles, /height:8rem/); assert.match(styles, /grid-template-columns:repeat\(7,minmax\(0,1fr\)\)/);
-  assert.ok(!/\.voice-controls[^}]*:hover[^}]*\b(?:width|height|padding|margin|transform):/u.test(styles));
+  // START's conversation rail: orb dock, then 44 px controls in fixed cells around the waveform.
+  assert.match(styles, /\.audio-rail \{[^}]*grid-template-columns:48px 44px minmax\(0,1fr\) 44px 44px 44px;/u);
+  assert.ok(!/\.audio-rail[^{}]*:hover[^{}]*\{[^}]*\b(?:width|height|padding|margin|transform):/u.test(styles));
 });
 test('Start waits for the orphan cleanup and a 409 conflict gets a precise message', async t => {
   let release; const ready = new Promise(resolve => { release = resolve; }); let started = 0;

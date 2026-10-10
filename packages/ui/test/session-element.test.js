@@ -5,9 +5,9 @@ import { applyEvent, createSession, inputRevision, reduceUnderstanding } from '@
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 import { AI_NOTICE } from '../../core/src/ai-notice.js';
-import { styles } from '../src/styles.js';
+import { styles, palette } from '../src/styles.js';
 import { settingsStyles } from '../src/settings-styles.js';
-import { contrast, mix, textPairs, tokens } from '../../../test/contrast.js';
+import { contrast, mix, textPairs } from '../../../test/contrast.js';
 const window = new Window();
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
@@ -367,7 +367,8 @@ test('the engine panel keeps its fixed size, renders snapshot feature updates at
     assert.ok(!root.querySelector('.features').textContent.includes(expired), 'snapshot features render at once under the pointer');
     root.querySelector('.preset-panel').dispatchEvent(new window.Event('pointerleave'));
   } finally { globalThis.fetch = originalFetch; }
-  assert.match(root.querySelector('style').textContent, /height:9rem/);
+  // START has no processing band: the processing line sits quietly in the top row, the features stay readable to assistive technology.
+  assert.ok(root.querySelector('.toolbar').contains(root.querySelector('.preset-panel')));
 });
 
 test('an acknowledged switch to EU gates the composer and analysis with their exact reasons and prevents posts', async () => {
@@ -547,7 +548,9 @@ test('pause and consent gate sends and preset rows immediately while cached unde
   c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: false } });
   assert.equal(send.disabled, true); assert.equal(root.querySelector('.summary-text').textContent, '');
   assert.equal(root.querySelector('.send'), send); assert.equal(root.querySelector('.pause'), pause);
-  assert.match(root.querySelector('style').textContent, /min-width:5.5rem/);
+  // The one pause lives in the rail's fixed 44 px cell (START's single capsule), so its label can change without moving it.
+  assert.ok(root.querySelector('.audio-rail .voice-cell--pause').contains(pause));
+  assert.match(root.querySelector('style').textContent, /\.audio-rail button \{[^}]*width:44px; height:44px;/u);
 });
 
 test('an old snapshot cannot undo acknowledged pause during recovery', async () => {
@@ -711,28 +714,37 @@ test('the German bundle covers every English key and renders the component in Ge
   assert.equal(root.querySelector('.composer-reason').textContent, de.reasons['current processing consent required']);
   assert.match(root.querySelector('.features').textContent, /Auswertung/);
 });
-test('every text pair reaches WCAG AA in light and dark, placeholder, bubbles and tints included (AIT-116 D9, AIT-118)', () => {
-  const light = tokens(styles.match(/^:host \{([^}]*)\}/mu)[1], 'aithema-');
-  const dark = tokens(styles.match(/@media\(prefers-color-scheme:dark\) \{ :host \{([^}]*)\}/u)[1], 'aithema-');
-  const names = ['accent', 'amber', 'error', 'ink', 'line', 'muted', 'on-accent', 'paper', 'surface', 'warning'];
+test('every text pair reaches WCAG AA in light and dark, placeholder, bubbles, cards and tints included (AIT-116 D9, AIT-118)', () => {
+  const { light, dark } = palette;
+  const names = ['accent', 'accent-bright', 'accent-soft', 'amber', 'apricot', 'coral', 'error', 'ink', 'muted', 'on-accent', 'on-ink', 'paper', 'paper-deep', 'surface', 'warning'];
   assert.deepEqual(Object.keys(light).sort(), names); assert.deepEqual(Object.keys(dark).sort(), names);
+  // START's palettes (src/styles/app.css): paper, surface, navy ink, muted, teal; navy paper in dark.
+  assert.deepEqual([light.paper, light['paper-deep'], light.surface, light.ink, light.muted, light.accent, light['accent-bright'], light['accent-soft']],
+    ['#fbf7ef', '#f4eee4', '#fffcf8', '#102b42', '#496477', '#0e6f6c', '#12908c', '#ddedea']);
+  assert.deepEqual([dark.paper, dark.surface, dark.ink, dark.muted], ['#0b1a26', '#102433', '#eaf1f6', '#9db4c4']);
   // The placeholder uses the muted token, not the browser default (#757575 measured 3.51:1 on the dark surface).
   assert.match(styles, /textarea::placeholder \{ color:var\(--aithema-muted\); opacity:1; \}/u);
-  // The light gauge panel's stops are fixed in the settings styles; dark follows the tokens.
-  const lightPanel = ['#fffefd', '#faf8f3', '#f7f9f6', '#e6f0ef'];
-  const themes = { light: textPairs(light, { primaryText: '#ffffff', gaugePanel: lightPanel }), dark: textPairs(dark, { primaryText: dark.paper }) };
-  assert.match(settingsStyles, /\.gauge-panel \{[^}]*radial-gradient\(ellipse at 25% 0%,#fffefd,transparent 65%\),linear-gradient\(155deg,#faf8f3,#f7f9f6 55%,#e6f0ef\); \}/u);
   // The composited layers textPairs models are the ones the styles draw (AIT-118 gate).
   assert.match(styles, /button:where\(:hover:not\(:disabled\)\) \{ background:color-mix\(in srgb,var\(--aithema-accent\) 8%,transparent\); \}/u);
+  assert.match(styles, /\.turn \{[^}]*background:color-mix\(in srgb,var\(--aithema-ink\) 7%,var\(--aithema-paper\)\);/u);
+  assert.match(styles, /\.turn\.user \{[^}]*background:color-mix\(in srgb,var\(--aithema-accent\) 12%,var\(--aithema-paper\)\);/u);
   assert.match(settingsStyles, /\.notice-area\[data-kind\]:not\(\[data-kind=""\]\) \{ background:color-mix\(in srgb,var\(--aithema-amber\) 9%,transparent\); \}/u);
   assert.match(settingsStyles, /\.recovery \{[^}]*background:color-mix\(in srgb,var\(--aithema-amber\) 9%,transparent\); \}/u);
   assert.match(settingsStyles, /\.settings-field legend \{[^}]*color:color-mix\(in oklab,var\(--aithema-ink\) 85%,transparent\); \}/u);
   assert.match(settingsStyles, /\.gauge__value \{[^}]*opacity:\.85; \}/u);
   assert.match(settingsStyles, /\.select__option:hover, \.select__option:focus-visible \{ background:color-mix\(in srgb,var\(--aithema-accent\) 10%,transparent\); \}/u);
   assert.match(settingsStyles, /\.local pre \{[^}]*background:color-mix\(in srgb,var\(--aithema-ink\) 7%,transparent\);/u);
+  assert.match(settingsStyles, /\.gauge-panel \{[^}]*background:var\(--aithema-gauge-panel\); \}/u);
+  // The light gauge panel's stops are fixed in its token; dark follows the surface and paper.
+  const lightPanel = ['#fffefd', '#faf8f3', '#f7f9f6', '#e6f0ef'];
+  assert.match(styles, /--aithema-gauge-panel:radial-gradient\(ellipse at 25% 0%,#fffefd,transparent 65%\),linear-gradient\(155deg,#faf8f3,#f7f9f6 55%,#e6f0ef\);/u);
+  // START's selected processing card tint over paper, per theme (entrance-styles light-dark()).
+  const themes = { light: textPairs(light, { primaryText: light['on-ink'], gaugePanel: lightPanel, backgrounds: { 'selected card': mix('#d6eeea', light.paper, .46) } }),
+    dark: textPairs(dark, { primaryText: dark['on-ink'], backgrounds: { 'selected card': mix('#31716b', dark.paper, .31) } }) };
   for (const [theme, pairs] of Object.entries(themes)) {
-    for (const pair of ['accent on hover tint over notice tint on surface', 'ink on hover tint over notice tint on paper', 'legend (ink 85 %) on ' + (theme === 'light' ? light : dark).surface,
-      `gauge value (ink at 0.85 opacity) on ${theme === 'light' ? '#e6f0ef' : dark.paper}`]) assert.ok(pairs[pair], `${theme}: ${pair} is checked`);
+    const tokens = palette[theme];
+    for (const pair of ['accent on hover tint over notice tint on surface', 'ink on hover tint over notice tint on paper', 'legend (ink 85 %) on ' + tokens.surface,
+      'muted on selected card', `gauge value (ink at 0.85 opacity) on ${theme === 'light' ? '#e6f0ef' : tokens.paper}`]) assert.ok(pairs[pair], `${theme}: ${pair} is checked`);
     assert.ok(Object.keys(pairs).length >= 88, `${theme}: ${Object.keys(pairs).length} pairs`);
     for (const [pair, [text, background]] of Object.entries(pairs)) {
       assert.ok(contrast(text, background) >= 4.5, `${theme} ${pair}: ${contrast(text, background).toFixed(2)}:1`);
@@ -741,10 +753,9 @@ test('every text pair reaches WCAG AA in light and dark, placeholder, bubbles an
   // The values AIT-109 reported fail the same check: the test detects them.
   assert.ok(contrast('#67777a', mix(light.accent, light.paper, .12)) < 4.5 && contrast('#67777a', light.paper) < 4.5);
   assert.ok(contrast('#757575', dark.surface) < 4.5, 'the fixture detects the reported default placeholder');
-  // No settings colour is fixed to the light theme where dark text or a light fill would invert.
-  const darkSettings = settingsStyles.match(/@media\(prefers-color-scheme:dark\) \{([\s\S]*?)\} \}/u)[1];
-  assert.match(darkSettings, /\.done, \.chooser__continue \{ color:var\(--aithema-paper\); \}/u);
-  assert.match(darkSettings, /\.gauge-panel \{ background:linear-gradient\(155deg,var\(--aithema-surface\),var\(--aithema-paper\)\); \}/u);
+  // No settings colour is fixed to the light theme where dark text or a light fill would invert: the tokens carry both themes.
+  assert.doesNotMatch(settingsStyles, /prefers-color-scheme/u);
+  assert.match(settingsStyles, /\.done \{[^}]*color:var\(--aithema-on-ink\);/u);
   assert.doesNotMatch(settingsStyles, /#89613b|#9a4030|#925125|color:#fff; border-color:var\(--aithema-accent\)/u);
 });
 
@@ -759,11 +770,11 @@ test('the AI notice is painted with the first render, ahead of the composer, in 
     assert.equal(notice.textContent, AI_NOTICE[locale].text);
     assert.equal(root.querySelector('.ai-notice__sizer').textContent, `${AI_NOTICE[locale].text} ${AI_NOTICE[locale].voice}`);
     assert.equal(root.querySelector('textarea').disabled, true, 'the composer is still closed while the notice already stands');
-    // It sits directly under the conversation header, outside the start card, so neither the chooser nor the
+    // It is the conversation's first line, outside the start card, so neither the chooser nor the
     // ready card covers it, and it comes before every control of the pane.
     const line = notice.parentElement;
-    assert.equal(line.parentElement, root.querySelector('section.conversation'));
-    assert.equal(line.previousElementSibling, root.querySelector('.conversation > header.head'));
+    assert.equal(line.parentElement, root.querySelector('section.conversation > header.head'));
+    assert.equal(root.querySelector('section.conversation').firstElementChild, line.parentElement);
     assert.equal(root.querySelector('.intro').contains(line), false);
     session.featureMatrix.best.text = { available: true, reason: null };
     c.configure({ copy: structuredClone(copy), session });
@@ -807,7 +818,7 @@ test('a host rewords the AI notice through the bundle or configure, but an empty
 test('screen readers get the AI notice once, as the last description of every control that begins an interaction (AIT-119)', () => {
   const c = setup(), root = c.shadowRoot, notice = root.querySelector('#ai-notice');
   const described = node => (node.getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean);
-  const entries = () => [...root.querySelectorAll('.chooser-option, .chooser__continue, .ready__actions button, .voice-start, .voice-retry, textarea, .attach, .send')];
+  const entries = () => [...root.querySelectorAll('.chooser-option, .chooser__continue, .ready__actions button, .ready__start, .voice-start, .voice-retry, textarea, .attach, .send')];
   // Chooser state: the four options keep their own detail first, Continue and the composer theirs.
   assert.equal(root.querySelector('.intro').dataset.mode, 'chooser');
   assert.deepEqual([...root.querySelectorAll('.chooser-option')].map(described),
@@ -829,17 +840,18 @@ test('screen readers get the AI notice once, as the last description of every co
   const actions = [...root.querySelectorAll('.ready__actions button')];
   assert.deepEqual(actions.map(button => button.className), ['ready__change', 'ready__consent']);
   for (const button of actions) assert.deepEqual(described(button), ['ai-notice'], button.className);
+  assert.deepEqual(described(root.querySelector('.ready__start')), ['ready-route', 'ai-notice'], 'Start names the processing route, then the notice');
   for (const node of entries()) assert.equal(described(node).at(-1), 'ai-notice', node.className || node.tagName);
   // Not a live region: it is read with those controls, not re-announced on every render.
   for (let node = notice; node && node !== root; node = node.parentNode) {
     assert.equal(node.getAttribute('aria-live'), null); assert.equal(node.getAttribute('role'), null); assert.equal(node.getAttribute('aria-hidden'), null);
   }
   assert.equal(root.querySelector('.ai-notice__sizer').getAttribute('aria-hidden'), 'true');
-  // GUI-27: a plain line, no box, pill or edge accent; its fill is the pane's own surface, so while it stays
-  // in view over scrolled content it reads as part of the pane, not as a tinted box.
+  // GUI-27: a plain line, no box, pill or edge accent; the line it heads is filled with the page's own paper, so
+  // while it stays in view over scrolled content it reads as part of the page, not as a tinted box.
   const css = root.querySelector('style').textContent, rule = css.slice(css.indexOf('.ai-notice {'), css.indexOf('}', css.indexOf('.ai-notice {')));
-  for (const banned of ['border-radius', 'border-left', 'border-top', 'box-shadow', 'outline', 'color-mix']) assert.ok(!rule.includes(banned), banned);
-  assert.match(rule, /background:var\(--aithema-surface\);/u);
-  assert.match(rule, /position:sticky; top:0;/u);
-  assert.match(css, /\.conversation \{[^}]*overflow:clip;/u, 'the pane is no scroll container, so the notice sticks to the viewport');
+  for (const banned of ['border', 'box-shadow', 'outline', 'color-mix', 'background']) assert.ok(!rule.includes(banned), banned);
+  const head = css.slice(css.indexOf('.conversation > .head {'), css.indexOf('}', css.indexOf('.conversation > .head {')));
+  assert.match(head, /position:sticky; top:0;/u); assert.match(head, /background:var\(--aithema-paper\);/u);
+  for (const banned of ['border', 'box-shadow', 'radius']) assert.ok(!head.includes(banned), banned);
 });
