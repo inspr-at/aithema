@@ -398,17 +398,26 @@ takeover is provided.
 ## AI notice (AIT-119, EU AI Act Art. 50(1))
 
 `<aithema-session>` tells people that they are talking to an AI system before the
-first interaction, and keeps telling them. One quiet line heads the composer from
-the component's first paint: before the start card is answered, before consent,
-typing or a call, and for the whole conversation. It reads "You are talking to an
+first interaction, and keeps telling them. One quiet line sits directly under the
+conversation header from the component's first paint: before the start card is
+answered, before consent, typing or a call, and for the whole conversation. It is
+sticky: while the page scrolls, it stays at the top of the viewport for as long as
+any part of the conversation pane is in view, so it shows with every place an
+interaction can begin (chooser options and Continue, the ready card, Start and
+Retry call, the composer) at any width, without anyone scrolling to it. Keyboard
+focus stops controls below it, never under it. It reads "You are talking to an
 AI assistant. Spoken replies use a synthetic voice." (German: "Sie sprechen mit
 einem KI-Assistenten. Gesprochene Antworten verwenden eine synthetische Stimme.").
 The second sentence shows only while this conversation can speak: a voice client
 is configured and voice is available or waits only for consent, a resume or the
 provider. A hidden copy of the full notice holds the line's height, so the
-sentence appearing or going never moves the composer. The line is described to
-screen readers through `aria-describedby` on the composer and on Start call and
-Retry call; it is not a live region, so it is not re-announced on every update.
+sentence appearing or going never moves anything. Screen readers hear it through
+`aria-describedby`, after each control's own description, on every one of those
+entry points (each chooser option, Continue, the ready card's actions, Start and
+Retry call, the message field, Attach files and Send); it is not a live region, so
+it is not re-announced on every update. The conversation pane clips with
+`overflow: clip` rather than `hidden`, so it is no scroll container and the line
+can stick.
 
 Hosts may reword the notice but cannot remove it. Set `aiNotice: {text, voice}`
 in the copy bundle or pass `configure({..., aiNotice: {text, voice}})`, which wins
@@ -416,13 +425,19 @@ over the bundle. Each part that is missing, empty or only whitespace falls back,
 first to the bundle, then to the default for the session language. The defaults
 live in `packages/core/src/ai-notice.js` (`AI_NOTICE`, `aiNotice`, `aiNoticeText`).
 
-The start2 voice host speaks the same notice as the agent's first message.
-`ensureAgent({..., notice})` and `createVoiceHost({..., notice})` take an optional
-`{[locale]: {text?, voice?}}` rewording with the same fallback. The agent's own
-first message uses the template's language; each call then overrides the
-language and first message with the conversation's (`presentation(locale)`,
-passed as `voice.presentation` to `createHandlers`). A first-message override may
-never be empty.
+The start2 voice host speaks the notice as the agent's first message, set
+server-side at startup and fixed: "Sie sprechen mit einem KI-Assistenten;
+Antworten sind synthetisch gesprochen. You are talking to an AI assistant with a
+synthetic voice." (`SPOKEN_AI_NOTICE`). It is bilingual, German first, because a
+call's language may differ from the agent's, and it is not host- or
+browser-configurable: the agent refuses a `first_message` conversation override,
+the plugin rejects a `firstMessage` override on the server and in the browser,
+and the agent has no language presets, the only other way a language could pick
+a greeting. Each call overrides only the language (`presentation(locale)`,
+passed as `voice.presentation` to `createHandlers`), which changes speech
+recognition and voice, not the greeting text. **Unverified live:** that a call
+speaks this greeting first, and that the language override leaves it unchanged,
+rests on the read-back and provider documentation; see the live smoke below.
 
 ## Voice host integration
 
@@ -1732,15 +1747,17 @@ from backup or resolve that ownership first; do not delete an active secret.
 Template prompts, personas, first messages, knowledge bases and tools are excluded.
 The host's custom LLM has an empty prompt and no tools or knowledge base;
 Aithema rebuilds the trusted session prompt at each callback. Its greeting is
-Aithema's own spoken AI notice (see "AI notice" above), never START's. The agent
-allows per-conversation `first_message` and `language` overrides
+Aithema's own fixed spoken AI notice (see "AI notice" above), never START's, and
+its language presets are cleared. The agent allows only a per-conversation
+`language` override; `first_message` is explicitly disabled
 (`platform_settings.overrides.conversation_config_override.agent`, the shape
 verified on START's agent by read-only GET 2026-10-09).
 After every agent create or PATCH, startup GETs the owned agent and verifies
 its name/id, auth enabled, exactly one allowlist hostname equal to the public
-origin's host (including any port), the extra-body override, both
-first-message/language override flags, a non-empty first message equal to the
-notice, `custom-llm` selection, callback URL, owned secret id and every copied
+origin's host (including any port), the extra-body override, that the language
+override is the only enabled conversation override (the first-message override
+is disabled), a first message equal to the notice, no language presets,
+`custom-llm` selection, callback URL, owned secret id and every copied
 privacy field.
 Any mismatch disables voice with `agent-readback-mismatch`; logs contain only
 the owned name/id and failing field names. A failed GET also disables voice.
@@ -1866,6 +1883,10 @@ Coordinator live smoke, after its Claude approval gate:
    Start a call, speak, hear an answer, type during voice, pause/resume and close.
    Observe durable turns and authenticated final provider usage; no per-call agent
    PATCH occurs. Withdraw consent mid-call and confirm later callbacks cannot reason.
+   **AI notice (AIT-119, unverified until this step):** in an English and a German
+   conversation, verify live that the spoken greeting is the notice, word for
+   word, before anything else is said; the agent GET shows the first-message
+   override disabled and no language presets.
 5. Inspect value-free SQLite `spend_reservations` totals: non-stream analysis and
    streaming reaction costs sum; missing/uncertain usage retains the hold. Restart
    and confirm totals persist. On an isolated small-cap test database, once the

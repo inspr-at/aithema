@@ -276,16 +276,32 @@ test('post-mint journal failure withholds credential and settles conservatively'
 test('START presentation overrides stay allowlisted and never carry provider configuration', async () => {
   const local = fixture(), options = invocationOptions();
   const session = await local.server.start({ callId: 'call_overrides', facadeSecretRef: 'fixture-ref',
-    overrides: { agent: { language: 'de', firstMessage: 'Sie sprechen mit einem KI-Assistenten.' } } }, options);
-  assert.deepEqual(session.overrides, { agent: { language: 'de', firstMessage: 'Sie sprechen mit einem KI-Assistenten.' } }); await session.close();
+    overrides: { agent: { language: 'de' } } }, options);
+  assert.deepEqual(session.overrides, { agent: { language: 'de' } }); await session.close();
   const denied = invocationOptions();
   await assert.rejects(local.server.start({ callId: 'call_overrides_bad', facadeSecretRef: 'fixture-ref',
     overrides: { agent: { prompt: { customLlm: { apiKey: 'fake-not-allowed' } } } } }, denied), { code: 'provider' });
   assert.equal(denied.reports.length, 1); assert.equal(denied.reports[0].chargedMicro, 0);
 });
-test('a first-message override may reword the spoken AI notice but never blank it (AIT-119)', () => {
-  for (const firstMessage of ['', '   ', '\n']) assert.throws(() => voiceOverrides({ agent: { language: 'en', firstMessage } }), TypeError);
+test('no first-message override can replace the spoken AI notice: server and client refuse it, the SDK receives none (AIT-119)', async () => {
+  const crafted = { agent: { language: 'en', firstMessage: 'I am a human assistant.' } };
+  for (const firstMessage of ['I am a human assistant.', '', ' ']) assert.throws(() => voiceOverrides({ agent: { firstMessage } }), TypeError);
+  for (const language of [1, '', 'english']) assert.throws(() => voiceOverrides({ agent: { language } }), TypeError);
   assert.deepEqual(voiceOverrides({ agent: { language: 'en' } }), { agent: { language: 'en' } });
+  const local = fixture(), refused = invocationOptions();
+  await assert.rejects(local.server.start({ callId: 'call_greeting_server', facadeSecretRef: 'fixture-ref', overrides: crafted }, refused), { code: 'provider' });
+  assert.equal(refused.reports.length, 1); assert.equal(refused.reports[0].chargedMicro, 0);
+  // A tampered receipt cannot smuggle a greeting into the SDK either.
+  const start = local.control.start;
+  local.control.start = async (request, options) => ({ ...await start(request, options), overrides: crafted });
+  await assert.rejects(local.client.start({ callId: 'call_greeting_client' }, invocationOptions()));
+  assert.equal(local.sdk.starts.length, 0);
+  for (const session of local.sessions.values()) await session.close();
+  local.control.start = async (request, options) => ({ ...await start(request, options), overrides: { agent: { language: 'de' } } });
+  const session = await local.client.start({ callId: 'call_language_client' }, invocationOptions());
+  assert.deepEqual(local.sdk.starts[0].overrides, { agent: { language: 'de' } });
+  assert.equal(JSON.stringify(local.sdk.starts).includes('firstMessage'), false);
+  await session.close();
 });
 test('spend expiry aborts an in-flight pause and closure polling settles exactly once', async () => {
   const local = fixture({ saveCall: (call, opts) => opts?.paused === true ? new Promise(() => {}) : { acknowledged: true, paused: call.paused } });

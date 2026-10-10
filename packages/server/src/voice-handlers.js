@@ -85,7 +85,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       if (end <= now()) throw new PluginError('deadline');
       if (!staticSecretRef) await secrets.provision(entry.facadeSecretRef);
       controller.signal.throwIfAborted();
-      // The host's per-conversation language and spoken AI notice (AIT-119), if its agent allows them.
+      // The host's per-conversation language, if its agent allows it; never the greeting (AIT-119).
       const overrides = presentation?.(session.locale);
       entry.call = await admitted.plugin.start({ callId, sessionId, ownerToken, facadeSecretRef: entry.facadeSecretRef,
         facadeUrl: `${admitted.binding.publicFacadeBaseUrl}${staticSecretRef ? staticFacadeRoute : `/api/voice/${callId}/llm/chat/completions`}`,

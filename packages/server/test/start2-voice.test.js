@@ -9,7 +9,6 @@ import { createProcessingConsent, qualifyStartBinding, CONSENT_VALIDITY_MS } fro
 import { fakeElevenLabs } from '../../../test/start2-fakes.js';
 import { openRouterConfig } from '../../../demo/openrouter-config.js';
 import { temporaryDb } from '../../../test/helpers.js';
-import { aiNoticeText } from '../../../packages/core/src/ai-notice.js';
 
 async function fixture(t, { locale = 'en' } = {}) {
   let cleanup; t.after(() => cleanup?.());
@@ -73,10 +72,10 @@ test('static callback authenticates before body, rejects missing/unknown identit
   await h.route(`/voice/${call.callId}/close`, { providerSessionId: call.providerSessionId });
   assert.equal((await h.callback(call.facadeCallId)).status, 403);
 });
-test('each call speaks the AI notice first, in the conversation language (AIT-119)', async t => {
+test('each call carries only the conversation language; the greeting stays the agent\'s AI notice (AIT-119)', async t => {
   for (const locale of ['en', 'de']) {
     const h = await fixture(t, { locale }), call = await h.start();
-    assert.deepEqual(call.overrides, { agent: { language: locale, firstMessage: aiNoticeText(locale) } });
+    assert.deepEqual(call.overrides, { agent: { language: locale } });
     await h.route(`/voice/${call.callId}/close`, { providerSessionId: call.providerSessionId });
   }
 });

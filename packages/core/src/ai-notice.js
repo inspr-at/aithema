@@ -17,3 +17,9 @@ export function aiNoticeText(locale, override, { voice = true } = {}) {
   const notice = aiNotice(locale, override);
   return voice ? `${notice.text} ${notice.voice}` : notice.text;
 }
+
+/**
+ * What the voice agent says first, server-side and fixed: German, then English, because a call's language
+ * may differ from the agent's and no browser may choose or replace the greeting.
+ */
+export const SPOKEN_AI_NOTICE = 'Sie sprechen mit einem KI-Assistenten; Antworten sind synthetisch gesprochen. You are talking to an AI assistant with a synthetic voice.';

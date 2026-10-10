@@ -182,9 +182,9 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .local__composer { display:grid; gap:.4rem; } .local__composer .actions { display:flex; justify-content:flex-end; gap:.5rem; }
 
 .conversation { position:relative; }
-.intro { position:absolute; inset:0; z-index:2; grid-column:1/-1; grid-row:4/5; overflow:auto; overflow-anchor:none; overscroll-behavior:contain;
+.intro { position:absolute; inset:0; z-index:2; grid-column:1/-1; grid-row:5/6; overflow:auto; overflow-anchor:none; overscroll-behavior:contain;
   scrollbar-gutter:stable; padding:calc(1rem + var(--aithema-slack-top,0px)) 1.25rem calc(1rem + var(--aithema-slack-bottom,0px)); background:var(--aithema-surface); display:grid; align-content:start; }
-.intro[data-mode=chooser] { grid-row:2/5; }
+.intro[data-mode=chooser] { grid-row:3/6; }
 .chooser { display:grid; gap:.9rem; }
 .chooser h3, .ready h3 { font:600 1.05rem/1.3 Georgia,serif; margin:0; }
 .chooser__list { display:grid; max-width:44rem; border-bottom:1px solid var(--aithema-line); }

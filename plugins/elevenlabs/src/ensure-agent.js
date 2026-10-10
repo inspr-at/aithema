@@ -1,19 +1,19 @@
 import { readJson } from './server.js';
 import { isDeepStrictEqual } from 'node:util';
-import { aiNoticeText } from '../../../packages/core/src/ai-notice.js';
+import { SPOKEN_AI_NOTICE } from '../../../packages/core/src/ai-notice.js';
 
 export const AGENT_NAME = 'aithema-start2';
 const SECRET_NAME = 'aithema-start2-facade';
 const id = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(value);
+// Dotted paths of every enabled (true) flag in a provider overrides tree.
+const enabled = (value, path = []) => value === true ? [path.join('.')] : value && typeof value === 'object'
+  ? Object.entries(value).flatMap(([key, item]) => enabled(item, [...path, key])) : [];
 const pick = (value, keys) => Object.fromEntries(keys.filter(key => value?.[key] !== undefined).map(key => [key, structuredClone(value[key])]));
 export class AgentEnsureError extends Error {}
 
-/**
- * Only the local creation receipt authorizes future writes. Remote names confer no ownership.
- * `notice` ({[locale]: {text?, voice?}}) rewords the spoken AI notice; an empty part keeps the default.
- */
+/** Only the local creation receipt authorizes future writes. Remote names confer no ownership. */
 export async function ensureAgent({ storage, templateAgentId, publicOrigin, resolveSecret,
-  apiBaseUrl = 'https://api.elevenlabs.io', fetchImpl = fetch, log = console.log, maxDurationSeconds = 600, notice } = {}) {
+  apiBaseUrl = 'https://api.elevenlabs.io', fetchImpl = fetch, log = console.log, maxDurationSeconds = 600 } = {}) {
   if (!id(templateAgentId)) throw new AgentEnsureError('template-agent-required');
   const origin = new URL(publicOrigin);
   if (origin.origin !== publicOrigin || origin.protocol !== 'https:' && !(origin.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname))) throw new AgentEnsureError('public-origin-invalid');
@@ -92,15 +92,18 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
   // UNVERIFIED API SHAPE: POST /v1/convai/agents/create and PATCH /v1/convai/agents/:id;
   // custom_llm.api_key {secret_id}, llm 'custom-llm', platform_settings.auth/overrides.
   // Require a matching owned-agent GET after every write before enabling voice.
-  // The first message is our own spoken AI notice (Art. 50(1), AIT-119), never START's greeting.
-  const language = config.agent?.language ?? 'en', firstMessage = aiNoticeText(language, notice?.[language]);
+  // The first message is our own spoken AI notice (Art. 50(1), AIT-119), never START's greeting. It is
+  // fixed here, server-side and bilingual, because no browser may choose it: the agent refuses a
+  // first-message override, and no language preset exists through which a language could pick another.
   const body = { name: AGENT_NAME, conversation_config: {
     tts: { ...pick(config.tts, ['voice_id', 'model_id', 'stability', 'similarity_boost', 'style', 'use_speaker_boost', 'speed', 'optimize_streaming_latency', 'agent_output_audio_format']),
       ...(config.tts.voice_settings ? { voice_settings: pick(config.tts.voice_settings, ['stability', 'similarity_boost', 'style', 'use_speaker_boost', 'speed']) } : {}) },
     asr: pick(config.asr, ['quality', 'provider', 'user_input_audio_format', 'keywords']),
     turn: pick(config.turn, ['turn_timeout', 'silence_end_call_timeout', 'mode']),
     conversation: { max_duration_seconds: maxDurationSeconds },
-    agent: { language, first_message: firstMessage,
+    // UNVERIFIED API SHAPE: conversation_config.language_presets {[language]: {overrides, ...}}; empty clears them.
+    language_presets: {},
+    agent: { language: config.agent?.language ?? 'en', first_message: SPOKEN_AI_NOTICE,
       prompt: { prompt: '', llm: 'custom-llm', tools: [], knowledge_base: [],
         custom_llm: { url: `${publicOrigin}/api/voice/llm/chat/completions`, model_id: 'aithema-session', api_key: { secret_id: secretId } } } },
   }, platform_settings: {
@@ -108,8 +111,9 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
     // UNVERIFIED API SHAPE: allowlist item {hostname}, per ElevenLabs docs; live list was empty.
     auth: { enable_auth: true, allowlist: [{ hostname: origin.host }] },
     // verified by read-only GET 2026-10-09 on START's agent: conversation_config_override.agent
-    // {first_message, language}. They let each conversation speak the notice in its own language.
-    overrides: { custom_llm_extra_body: true, conversation_config_override: { agent: { first_message: true, language: true } } },
+    // {first_message, language}. Only the language may change per conversation (speech recognition and
+    // voice); it cannot change the greeting text, which only first_message or a language preset sets.
+    overrides: { custom_llm_extra_body: true, conversation_config_override: { agent: { first_message: false, language: true } } },
   } };
   let agentId = owned;
   if (agentId) await request(`/v1/convai/agents/${encodeURIComponent(agentId)}`, 'PATCH', body);
@@ -126,7 +130,8 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
     throw error;
   }
   const platform = remote?.platform_settings, prompt = remote?.conversation_config?.agent?.prompt;
-  const spoken = remote?.conversation_config?.agent?.first_message, allowed = platform?.overrides?.conversation_config_override?.agent;
+  const spoken = remote?.conversation_config?.agent?.first_message, presets = remote?.conversation_config?.language_presets;
+  const allowed = platform?.overrides?.conversation_config_override;
   const allowlist = platform?.auth?.allowlist;
   const checks = {
     agent_id: remote?.agent_id === agentId,
@@ -134,9 +139,12 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
     'platform_settings.auth.enable_auth': platform?.auth?.enable_auth === true,
     'platform_settings.auth.allowlist': Array.isArray(allowlist) && allowlist.length === 1 && allowlist[0]?.hostname === origin.host,
     'platform_settings.overrides.custom_llm_extra_body': platform?.overrides?.custom_llm_extra_body === true,
-    'platform_settings.overrides.conversation_config_override.agent.first_message': allowed?.first_message === true,
-    'platform_settings.overrides.conversation_config_override.agent.language': allowed?.language === true,
-    'conversation_config.agent.first_message': typeof spoken === 'string' && spoken.trim() !== '' && spoken === firstMessage,
+    'platform_settings.overrides.conversation_config_override.agent.first_message': allowed?.agent?.first_message !== true,
+    'platform_settings.overrides.conversation_config_override.agent.language': allowed?.agent?.language === true,
+    'platform_settings.overrides.conversation_config_override': isDeepStrictEqual(enabled(allowed), ['agent.language']),
+    'conversation_config.agent.first_message': spoken === SPOKEN_AI_NOTICE,
+    'conversation_config.language_presets': presets === undefined || presets === null ||
+      typeof presets === 'object' && !Array.isArray(presets) && Object.keys(presets).length === 0,
     'conversation_config.agent.prompt.llm': prompt?.llm === 'custom-llm',
     'conversation_config.agent.prompt.custom_llm.url': prompt?.custom_llm?.url === body.conversation_config.agent.prompt.custom_llm.url,
     'conversation_config.agent.prompt.custom_llm.api_key.secret_id': prompt?.custom_llm?.api_key?.secret_id === secretId,
