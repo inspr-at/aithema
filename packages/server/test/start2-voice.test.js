@@ -56,7 +56,13 @@ async function fixture(t, { locale = 'en', capMilliseconds, closureTimeoutMs, re
     assert.equal((await grant(['models-international', 'voice-elevenlabs'])).status, 200);
     const response = await route('/voice', { callId }); assert.equal(response.status, 201); return response.json();
   };
-  const callback = (identity, bearer = 'local-callback-fixture', extra = {}) => handlers.handle(new Request('https://start2.example.test/api/voice/llm/chat/completions', {
+  // Call the callback exactly as the platform does: its OpenAI client appends /chat/completions to the custom-LLM base URL
+  // the host configured on the agent (AIT-126; the full path was doubled live and fell outside the host's exact-path bypass).
+  const agentUrl = eleven.requests.find(r => r.method !== 'GET' && /\/v1\/convai\/agents\/(?:create|[^/]+)$/u.test(r.path) && r.body?.conversation_config)
+    ?.body.conversation_config.agent.prompt.custom_llm.url;
+  assert.equal(agentUrl, 'https://start2.example.test/api/voice/llm', 'the agent gets the base URL, not the full callback path');
+  const platformUrl = `${agentUrl}/chat/completions`;
+  const callback = (identity, bearer = 'local-callback-fixture', extra = {}) => handlers.handle(new Request(platformUrl, {
     method: 'POST', headers: bearer === null ? {} : { authorization: `Bearer ${bearer}` },
     body: JSON.stringify({ elevenlabs_extra_body: { aithema_call: identity }, messages: [{ role: 'user', content: 'Hello' }], ...extra }) }));
   return { storage, eleven, handlers, runtime, session, route, grant, start, callback, consent, upstream, voiceCap,

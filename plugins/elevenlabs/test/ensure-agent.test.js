@@ -24,7 +24,9 @@ test('startup creates only the owned agent; whitelists template settings and ref
   const created = writes(fake).find(r => r.path.endsWith('/agents/create')).body;
   assert.equal(created.conversation_config.tts.voice_id, 'voice-fixture');
   assert.equal(created.conversation_config.agent.language, 'en');
-  assert.equal(created.conversation_config.agent.prompt.custom_llm.url, 'https://start2.example.test/api/voice/llm/chat/completions');
+  // A base URL: the platform's OpenAI client appends /chat/completions, which must land on the static callback route (AIT-126).
+  assert.equal(created.conversation_config.agent.prompt.custom_llm.url, 'https://start2.example.test/api/voice/llm');
+  assert.equal(new URL(`${created.conversation_config.agent.prompt.custom_llm.url}/chat/completions`).pathname, '/api/voice/llm/chat/completions');
   assert.deepEqual(created.conversation_config.agent.prompt.custom_llm.api_key, { secret_id: 'owned-secret' });
   assert.deepEqual(created.platform_settings.auth.allowlist, [{ hostname: 'start2.example.test' }]);
   assert.equal(created.platform_settings.auth.enable_auth, true);

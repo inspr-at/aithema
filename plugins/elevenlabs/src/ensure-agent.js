@@ -2,6 +2,9 @@ import { readJson } from './server.js';
 import { isDeepStrictEqual } from 'node:util';
 import { SPOKEN_AI_NOTICE } from '../../../packages/core/src/ai-notice.js';
 
+/** Base URL path of the voice callback; the platform appends /chat/completions (static route: /api/voice/llm/chat/completions). */
+export const CUSTOM_LLM_BASE_PATH = '/api/voice/llm';
+
 export const AGENT_NAME = 'aithema-start2';
 const SECRET_NAME = 'aithema-start2-facade';
 const id = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(value);
@@ -106,7 +109,10 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
     language_presets: {},
     agent: { language: config.agent?.language ?? 'en', first_message: SPOKEN_AI_NOTICE,
       prompt: { prompt: '', llm: 'custom-llm', tools: [], knowledge_base: [],
-        custom_llm: { url: `${publicOrigin}/api/voice/llm/chat/completions`, model_id: 'aithema-session', api_key: { secret_id: secretId } } } },
+        // A base URL: ElevenLabs' custom-LLM client (AsyncOpenAI) appends /chat/completions itself, as START's agent
+        // (https://start.augmentoring.com/api/v2/llm) shows. The full path was doubled live on 2026-10-10 and fell outside
+        // the host's exact-path callback bypass (AIT-126). The server route stays /api/voice/llm/chat/completions.
+        custom_llm: { url: `${publicOrigin}${CUSTOM_LLM_BASE_PATH}`, model_id: 'aithema-session', api_key: { secret_id: secretId } } } },
   }, platform_settings: {
     privacy: pick(template.platform_settings?.privacy, ['record_voice', 'retention_days', 'delete_audio', 'delete_transcript', 'zero_retention_mode']),
     // UNVERIFIED API SHAPE: allowlist item {hostname}, per ElevenLabs docs; live list was empty.

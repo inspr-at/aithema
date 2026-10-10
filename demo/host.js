@@ -202,7 +202,14 @@ component.addEventListener('aithema-consent', () => {
   (document.querySelector('#processing-items input:not(:checked)') ?? document.querySelector('#grant')).focus();
 });
 component.addEventListener('aithema-features', () => { paintVisuals(); paintConsent(); });
-document.querySelector('#locale').addEventListener('change', event => { localStorage.setItem(localeKey, event.target.value); paintPage(); });
+document.querySelector('#locale').addEventListener('change', event => {
+  localStorage.setItem(localeKey, event.target.value);
+  // A conversation with no turn yet restarts in the chosen language at once (AIT-126: the first live test kept
+  // speaking English after a switch to German, because the choice only applied to the next conversation).
+  const session = component.session;
+  if (session && session.locale !== event.target.value && !(session.transcript ?? []).length) void open(true);
+  else paintPage();
+});
 document.querySelector('#new').addEventListener('click', () => void open(true));
 for (const [selector, granted] of [['#grant', true], ['#revoke', false]]) {
   document.querySelector(selector).addEventListener('click', async () => {

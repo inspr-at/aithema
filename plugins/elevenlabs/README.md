@@ -21,6 +21,13 @@ reading the body. `elevenlabs_extra_body.aithema_call` binds a fresh callback id
 to an active owned call. START uses the same static-bearer pattern in
 `src/pages/api/v2/llm/chat/completions.ts`.
 
+The agent's custom-LLM URL is the **base** `${origin}/api/voice/llm`. ElevenLabs'
+custom-LLM client (an OpenAI SDK) appends `/chat/completions` itself, as START's
+agent URL `…/api/v2/llm` shows. Configuring the full path made the platform call
+`…/chat/completions/chat/completions`. That path fell outside a host's exact-path
+basic-auth bypass, so every reply got a 401 (first live test, 2026-10-10, AIT-126).
+Keep a reverse proxy's bypass on the exact callback path.
+
 `voice: {secrets, staticSecretRef}` selects this mode in `createHandlers`;
 `createVoiceProvider({..., staticFacade:true})` disables per-call provisioning.
 `createCompletionsHandler({..., staticSecretRef})` resolves the deployment secret
