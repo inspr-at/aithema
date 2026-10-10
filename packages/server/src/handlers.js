@@ -4,7 +4,7 @@ import { createUploadHandlers } from './upload-handlers.js';
 import { createHostHandlers } from './host-handlers.js';
 import { createPluginRuntime } from './plugin-runtime.js';
 import { randomUUID } from 'node:crypto';
-import { SessionLanes, createMockReasoning, createSession, inputRevision, activeTurns, hasConversationInput, PluginError, FEATURES, isConsentReason } from '@inspr/aithema-core';
+import { SessionLanes, createMockReasoning, createSession, inputRevision, activeTurns, hasConversationInput, understandingDeferred, PluginError, FEATURES, isConsentReason } from '@inspr/aithema-core';
 import { ConflictError, NotFoundError, SettingsConflictError } from './storage.js';
 import { exportSession } from './export.js';
 
@@ -12,10 +12,11 @@ const json = (value, status = 200) => new Response(JSON.stringify(value), {
   status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
 });
 const encoder = new TextEncoder();
+const REQUEST_LIMIT = 32_768;
 function sse(event) {
   return encoder.encode(`${event.seq ? `id: ${event.seq}\n` : ''}event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
 }
-export async function readBody(request, limit = 32_768) {
+export async function readBody(request, limit = REQUEST_LIMIT) {
   if (!request.body) return new Uint8Array();
   const length = request.headers.get('content-length');
   const declared = length && /^\d+$/u.test(length) ? Number(length) : null;
@@ -63,11 +64,13 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     throw new TypeError('Admission and revocation require the same consent port');
   }
   const listeners = new Map(), jobs = new Map(), failures = new Map(), stop = new AbortController();
+  let recovery = null;
   const broadcast = (id, event) => {
     for (const listener of listeners.get(id) ?? []) listener(event);
   };
   const operations = session => {
     const revision = inputRevision(session), failure = failures.get(session.id);
+    if (failure && failure.inputRevision !== revision) failures.delete(session.id);
     return { inputRevision: revision, running: [...jobs.values()].filter(job => job.id === session.id).map(job => job.lane),
       lastFailure: failure?.inputRevision === revision ? failure : null };
   };
@@ -109,7 +112,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     ...voice, publish: broadcast, onClose: id => conceptHandlers.ended(id), onTurn(id, event) {
       lanes.supersede(id);
       if (event?.data.role === 'user') conceptHandlers.onTurn(id, event.data.id);
-      scheduleLane(id, 'understanding');
+      scheduleLane(id, 'understanding'); status(id);
     } }) : null;
   const uploadHandlers = createUploadHandlers({ storage, runtime: pluginRuntime, ownership, readBody, publish: broadcast, signal: stop.signal,
     ...uploads, onInput(id, { pending = false } = {}) { lanes.supersede(id); if (!pending) schedule(id); },
@@ -142,6 +145,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   }
   function schedule(id) {
     for (const lane of voiceHandlers?.active(id) ? ['understanding'] : ['reaction', 'understanding']) scheduleLane(id, lane);
+    status(id);
   }
   function scheduleLane(id, lane) {
     const key = `${id}:${lane}`;
@@ -176,7 +180,6 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         if (jobs.get(key) === job) { jobs.delete(key); status(id); }
       }
     });
-    status(id);
     // Failures never include provider text or request content in logs or responses.
     job.promise.catch(() => {});
   }
@@ -211,7 +214,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     const revision = inputRevision(session);
     return !session.tombstone && hasConversationInput(session) &&
       (!activeTurns(session).some(t => t.role === 'assistant' && t.inputRevision === revision) ||
-        session.understanding.inputRevision !== revision || session.understanding.draft);
+        !understandingDeferred(session) && (session.understanding.inputRevision !== revision || session.understanding.draft));
   }
   function events(request, id) {
     const session = storage.get(id);
@@ -297,10 +300,15 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       if (!action && request.method === 'GET') return json(await snapshot(id));
       if (action === 'events' && request.method === 'GET') return events(request, id);
       if (action === 'turns' && request.method === 'POST') {
-        const bytes = await readBody(request);
-        const body = JSON.parse(Buffer.from(bytes).toString('utf8'));
+        // Bound the wire separately so JSON escapes do not consume the content budget.
+        const bytes = await readBody(request, REQUEST_LIMIT * 2);
+        let body;
+        try { body = JSON.parse(Buffer.from(bytes).toString('utf8')); }
+        catch (error) { if (bytes.length > REQUEST_LIMIT) throw new RangeError('Request limit'); throw error; }
         if (!body || typeof body.clientEventId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(body.clientEventId) ||
           typeof body.content !== 'string' || !body.content.trim() || body.content.length > 8000) return json({ error: 'invalid-turn' }, 400);
+        const decodedBytes = Buffer.byteLength(body.content) + Buffer.byteLength(JSON.stringify({ ...body, content: '' }));
+        if (decodedBytes > REQUEST_LIMIT) throw new RangeError('Request limit');
         const voiceContext = body.voiceCallId === undefined ? {} : voiceHandlers?.typedContext(id, ownerToken, body.voiceCallId, body.providerSessionId);
         if (body.voiceCallId !== undefined && !voiceContext) return json({ error: 'voice-unavailable' }, 403);
         const { event, replayed } = storage.postTurn(id, body.clientEventId, bytes, body.content,
@@ -459,17 +467,30 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       uploadHandlers.resume();
       await conceptHandlers.resume();
       await voiceHandlers?.resume();
-      for (const id of storage.list()) if (unfinished(storage.get(id))) schedule(id);
+      // Recover one session (at most two reasoning lanes) at a time. Live visitor
+      // work remains independent; idle/close also wait for this boot backlog.
+      if (!recovery && !stop.signal.aborted) {
+        recovery = (async () => {
+          for (const id of storage.list()) {
+            if (stop.signal.aborted) break;
+            if (!unfinished(storage.get(id))) continue;
+            schedule(id);
+            await Promise.allSettled([...jobs.values()].filter(job => job.id === id).map(job => job.promise));
+          }
+        })().finally(() => { recovery = null; });
+        recovery.catch(() => {});
+      }
     },
     async idle() {
       do {
         await uploadHandlers.idle();
+        await recovery;
         while (jobs.size) await Promise.allSettled([...jobs.values()].map(job => job.promise));
         await conceptHandlers.lane.idle();
         await voiceHandlers?.idle();
         await hostHandlers.idle();
       } while (jobs.size);
     },
-    async close() { stop.abort(); await uploadHandlers.close(); await conceptHandlers.lane.close(); await voiceHandlers?.close(); await hostHandlers.idle(); await Promise.allSettled([...jobs.values()].map(job => job.promise)); },
+    async close() { stop.abort(); await uploadHandlers.close(); await conceptHandlers.lane.close(); await voiceHandlers?.close(); await hostHandlers.idle(); await Promise.allSettled([recovery, ...[...jobs.values()].map(job => job.promise)]); },
   };
 }

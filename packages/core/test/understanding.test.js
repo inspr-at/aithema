@@ -81,6 +81,16 @@ test('START human-selected actor wins over model; engagement remains separate', 
     engagement: { kind: 'both', evidence: 'stated', reasoning: 'Both' } }), { actor });
   assert.deepEqual(result.actor, actor); assert.equal(result.engagement.kind, 'both');
 });
+test('AIT-109 L10: a final null actor retains the previous inference; a new inference can replace it', () => {
+  const actor = { type: 'company', evidence: 'inferred', reasoning: 'Works for a company' };
+  const previous = reduce(null, raw({ actor }));
+  const final = reduce(previous, raw(), { actor: previous.actor });
+  assert.deepEqual(final.actor, actor);
+  assert.notEqual(final.actor, previous.actor, 'retained readings are copied');
+  const replacement = { type: 'private', evidence: 'stated', reasoning: 'Personal project' };
+  assert.deepEqual(reduce(final, raw({ actor: replacement }), { actor }).actor, replacement);
+  assert.equal(reduce(null, raw()).actor, null, 'empty or invalidated understanding has no actor to retain');
+});
 test('START readiness never rounds incomplete values to 100 and talk maps to the 30% marker', () => {
   assert.equal(displayedReadinessPercent(.9999), 99);
   for (const [talk, build, scale, stage] of [[.74, 0, 29, 'continue'], [.75, 0, 30, 'talk'], [.9, .5, 65, 'talk'], [.9, .999, 99, 'talk'], [0, 1, 100, 'build']]) {

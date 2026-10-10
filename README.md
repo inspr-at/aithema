@@ -334,6 +334,14 @@ startup and `close()` before closing storage. A standalone mock server runs with
 `node packages/server/bin/server.js`; set `AITHEMA_DB` for persistence. Its mock
 ledger also requires an explicit consent grant and loses grants on restart.
 
+Boot reasoning recovery processes one saved session at a time, with its reaction
+and understanding lanes running together (at most two boot reasoning calls).
+`resume()` starts that queue without waiting for it to drain; `idle()` waits for
+queued recovery as well as active work, and `close()` cancels the remaining queue.
+Work triggered by visitors is independent of this boot limit. Existing consent,
+pause, admission and spend limits still govern every call; recovery can incur
+provider costs when those gates admit it.
+
 Hosts configure the web component with `{copy, baseUrl, session, sessionToken}`
 (the token is optional) and receive
 `aithema-event` notifications. Serve its native ES modules with their relative
@@ -369,6 +377,13 @@ interface answers it outside the modal dialog.
 | `POST /api/sessions/:id/concepts/:artifactId/regenerate` | A fresh explicit intent and separately admitted refinement |
 | `POST /api/sessions/:id/concepts/:artifactId/reject` | Archive with negative feedback; no generation |
 | `POST /api/sessions/:id/erase` | Erase all content, retain metadata and a session tombstone; provider deletion remains `not-confirmed` |
+
+Turn content is capped at 8,000 UTF-16 code units. Turn POSTs allow up to 64 KiB
+on the wire for JSON escaping and up to 32 KiB for decoded UTF-8 content plus
+serialized metadata (with the content value omitted from that metadata count).
+Escaped Unicode and control characters therefore do not consume extra content
+budget. `readBody()` retains its 32 KiB default for routes without an explicit
+wire limit; oversized requests return 413.
 
 API clients retain the `x-aithema-session-token` response header from creation
 and send it on every session request, including SSE and export. A host may supply
@@ -433,7 +448,11 @@ records receive the origin label on read; unknown producers remain omitted.
 
 `transcript.json` carries these fields per assistant turn, `transcript.md` visibly
 marks each assistant turn `(AI-generated)`, and `understanding.json` carries the
-generated understanding's fields. Robust text watermarking depends on upstream
+generated understanding's fields. Markdown message bodies are literal `text`
+code blocks whose backtick fence exceeds every backtick run in the message, so
+content cannot forge role headings or AI-origin labels. JSON retains the original
+message text, and the manifest hashes the resulting fenced Markdown bytes.
+Robust text watermarking depends on upstream
 providers and what is "technically feasible"; these provenance labels do not
 implement a text watermark.
 

@@ -3,6 +3,12 @@ import { createHash } from 'node:crypto';
 import serverPackage from '../package.json' with { type: 'json' };
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+// Literal message text cannot close its fence or manufacture a role/AI label.
+function messageText(content) {
+  const length = (content.match(/`+/gu) ?? []).reduce((max, run) => Math.max(max, run.length + 1), 3);
+  const fence = '`'.repeat(length);
+  return `${fence}text\n${content}\n${fence}\n`;
+}
 // Dependency-free, store-only ZIP. UTF-8 flags; fixed timestamp for reproducible exports.
 function crc32(bytes) {
   let crc = 0xffffffff;
@@ -51,7 +57,7 @@ export function exportSession(session, artifacts = [], withheld = [], {
   const files = {
     'transcript.json': json({ sessionId: session.id, processing: { preset: session.processingPreset ?? 'best', model, effort, voice, visuals },
       turns: activeTurns(session).map(withAITextOrigin) }),
-    'transcript.md': '# Conversation\n\n' + activeTurns(session).map(t => `## ${t.role}${engine(t)}${t.provenance === 'browser-asserted' ? ' (browser-asserted)' : ''}${t.role === 'assistant' ? ' (AI-generated)' : ''}\n\n${t.content}\n`).join('\n'),
+    'transcript.md': '# Conversation\n\n' + activeTurns(session).map(t => `## ${t.role}${engine(t)}${t.provenance === 'browser-asserted' ? ' (browser-asserted)' : ''}${t.role === 'assistant' ? ' (AI-generated)' : ''}\n\n${messageText(t.content)}`).join('\n'),
     'understanding.json': json(session.understanding.inputRevision === null ? session.understanding : withAITextOrigin(session.understanding)),
     ...((session.uploads ?? []).length ? { 'uploads.json': json(session.uploads.map(u => u.state === 'withdrawn' || u.erased || u.withdrawn
       ? { id: u.id } : Object.fromEntries(['id', 'state', 'filename', 'mediaType', 'bytes', 'at', 'text', 'reason', 'truncated', 'extractor']

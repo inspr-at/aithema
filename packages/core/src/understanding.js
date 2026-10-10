@@ -95,6 +95,7 @@ export function reduceUnderstanding(previous, raw, { transcript, inputRevision, 
     }, transcript, preset);
   }
   if (actor?.evidence === 'selected') next.actor = structuredClone(actor);
+  else if (!next.actor && previous?.actor) next.actor = structuredClone(previous.actor);
   return { ...next, origin: 'ai-generated', conceptIntent: draft ? null : corroborateConceptIntent(raw.conceptIntent, transcript), version: 1, inputRevision, locale, draft,
     questionHistory: cleanQuestions([...next.openQuestions, ...(previous?.questionHistory ?? [])]) };
 }
