@@ -53,8 +53,9 @@ function journey(t, { copy = en, origin = 'default', matrix = {}, voice = true, 
     c.remove(); await tick(); globalThis.fetch = original;
     if (nativeMedia) Object.defineProperty(globalThis.navigator, 'mediaDevices', nativeMedia); else delete globalThis.navigator.mediaDevices;
   });
-  const root = c.shadowRoot, workspace = root.querySelector('.workspace');
-  return { c, root, workspace, starts, media, posts, events, stage: () => workspace.dataset.stage };
+  // configure() rebuilds the shadow tree: read the workspace afresh each time.
+  const root = c.shadowRoot, workspace = () => root.querySelector('.workspace');
+  return { c, root, workspace, starts, media, posts, events, stage: () => workspace().dataset.stage };
 }
 
 test('the entrance shows START\'s promise by default in English and German, and the promise slot replaces it', async t => {
@@ -144,10 +145,14 @@ test('voice that this selection cannot offer leaves typing as the only start, wi
 
 test('understanding is absent before the first input and opens with it', async t => {
   const j = journey(t, { origin: 'chosen' }), aside = j.root.querySelector('.understanding');
-  assert.equal(j.workspace.dataset.understanding, 'absent'); assert.equal(aside.inert, true, 'nothing in it can take focus');
+  assert.equal(j.workspace().dataset.understanding, 'absent'); assert.equal(aside.inert, true, 'nothing in it can take focus');
   j.c.receive({ seq: j.c.session.seq + 1, type: 'turn.final', data: { id: 'first', role: 'user', content: 'Hello' } });
-  assert.equal(j.workspace.dataset.understanding, 'present'); assert.equal(aside.inert, false); assert.equal(j.stage(), 'live');
+  assert.equal(j.workspace().dataset.understanding, 'present'); assert.equal(aside.inert, false); assert.equal(j.stage(), 'live');
   assert.equal(aside.hidden, false);
+  assert.equal(j.workspace().hasAttribute('data-reveal'), true, 'the opening runs START\'s reveal');
+  assert.match(styles, /\.workspace\[data-reveal\] \{ transition:grid-template-columns 560ms/u, 'only the reveal animates the columns');
+  await new Promise(resolve => setTimeout(resolve, 750));
+  assert.equal(j.workspace().hasAttribute('data-reveal'), false, 'then a resize or theme change moves nothing on its own');
 });
 
 test('a reload of a conversation with input opens live with the orb docked in the rail', async t => {
@@ -157,6 +162,7 @@ test('a reload of a conversation with input opens live with the orb docked in th
   const c = document.createElement('aithema-session'); c.configure({ copy: en, session }); t.after(() => c.remove());
   const root = c.shadowRoot;
   assert.equal(root.querySelector('.workspace').dataset.stage, 'live');
+  assert.equal(root.querySelector('.workspace').hasAttribute('data-reveal'), false, 'a reload opens the understanding without animating it');
   assert.ok(root.querySelector('.audio-rail .voice-orb .orb'), 'the entrance orb is the voice avatar');
   assert.equal(root.querySelector('.intro__orb .orb'), null);
 });

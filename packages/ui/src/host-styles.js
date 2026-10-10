@@ -2,10 +2,11 @@
 // quiet accent text actions and at most one filled primary per area. Every changing value sits in
 // a reserved slot (stacked states share one grid cell), so nothing moves under the pointer.
 export const hostStyles = `
-/* The host bar sits in the top row beside the processing line (START's masthead controls): Conversations,
-   the verification entry, the account slot, and the credits line under them. */
-.host-bar { display:grid; grid-template-columns:repeat(3,auto); grid-template-areas:"library verify account" "credits credits credits";
+/* The host bar sits in the top row beside the processing line (START's masthead controls): the credits line,
+   Conversations, the verification entry and the account slot on one line; on phones the credits go under them. */
+.host-bar { display:grid; grid-template-columns:minmax(0,auto) repeat(3,auto); grid-template-areas:"credits library verify account";
   justify-content:end; align-items:center; column-gap:.5rem; min-width:0; }
+@media(max-width:44rem) { .host-bar { grid-template-columns:repeat(3,auto); grid-template-areas:"library verify account" "credits credits credits"; } }
 .library-open-dialog { grid-area:library; display:inline-flex; align-items:center; gap:.45rem; min-height:2.75rem; padding:.4rem .75rem;
   font-size:.8125rem; font-weight:600; color:var(--aithema-accent); white-space:nowrap; border-radius:999px; }
 .library-open-dialog svg { display:block; flex:none; }
@@ -14,7 +15,7 @@ export const hostStyles = `
 .verify-done { display:inline-flex; align-items:center; gap:.35rem; font-size:.8rem; color:var(--aithema-muted); }
 .verify-done svg, .verify__done svg { flex:none; color:var(--aithema-accent); }
 .host-account { grid-area:account; justify-self:end; display:flex; align-items:center; min-height:2.75rem; font-size:.8125rem; }
-.host-credits { grid-area:credits; justify-self:end; max-width:34rem; margin:0; font-size:.72rem; line-height:1.3; color:var(--aithema-muted); text-align:right; max-height:2.6em;
+.host-credits { grid-area:credits; justify-self:end; max-width:28rem; margin:0; font-size:.72rem; line-height:1.3; color:var(--aithema-muted); text-align:right; max-height:2.6em;
   overflow-y:auto; overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
 .host-credits[data-ended="true"] .host-credits__text { color:var(--aithema-warning); }
 .host-foot { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.5rem 1.5rem;

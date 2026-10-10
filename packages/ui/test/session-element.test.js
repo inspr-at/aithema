@@ -852,6 +852,8 @@ test('screen readers get the AI notice once, as the last description of every co
   const css = root.querySelector('style').textContent, rule = css.slice(css.indexOf('.ai-notice {'), css.indexOf('}', css.indexOf('.ai-notice {')));
   for (const banned of ['border', 'box-shadow', 'outline', 'color-mix', 'background']) assert.ok(!rule.includes(banned), banned);
   const head = css.slice(css.indexOf('.conversation > .head {'), css.indexOf('}', css.indexOf('.conversation > .head {')));
-  assert.match(head, /position:sticky; top:0;/u); assert.match(head, /background-color:var\(--aithema-paper\); background-image:var\(--aithema-backdrop\); background-attachment:fixed;/u);
+  assert.match(head, /position:sticky; top:0;/u); assert.match(head, /background-color:var\(--aithema-paper\); background-image:var\(--aithema-lighting\); background-attachment:fixed;/u);
+  // START's fixed lighting is the page's own: the same layers the component (or a host page) paints behind it.
+  assert.match(css, /--aithema-backdrop:var\(--aithema-lighting\) var\(--aithema-paper\);/u);
   for (const banned of ['border', 'box-shadow', 'radius']) assert.ok(!head.includes(banned), banned);
 });

@@ -42,10 +42,13 @@ export const styles = `${themeStyles}
   /* The live workspace's height on wide screens; a host with a masthead above subtracts it, e.g. calc(100dvh - 4rem). */
   --aithema-height:100dvh;
   --aithema-ease:cubic-bezier(.22,.61,.36,1);
-  /* START's three offset light sources, none aligned to the grid. A host that paints them on its page sets this to none. */
-  --aithema-backdrop:radial-gradient(ellipse 60% 50% at 88% 4%,rgba(18,144,140,.14),transparent 70%),
+  /* START's three offset light sources (app.css body), none aligned to the grid, fixed to the viewport. */
+  --aithema-lighting:radial-gradient(ellipse 60% 50% at 88% 4%,rgba(18,144,140,.14),transparent 70%),
     radial-gradient(ellipse 50% 45% at 6% 18%,rgba(255,180,94,.16),transparent 70%),radial-gradient(ellipse 70% 60% at 40% 100%,rgba(244,124,91,.07),transparent 70%);
-  display:block; color:var(--aithema-ink); background-color:var(--aithema-paper); background-image:var(--aithema-backdrop); background-attachment:fixed;
+  /* What the component paints behind itself: the lighting over paper. A host whose page already paints START's
+     paper and lighting sets this to none, so page and component are one canvas without a seam. */
+  --aithema-backdrop:var(--aithema-lighting) var(--aithema-paper);
+  display:block; color:var(--aithema-ink); background:var(--aithema-backdrop); background-attachment:fixed;
   font:clamp(1rem,.97rem + .15vw,1.0625rem)/1.6 var(--aithema-font); -webkit-font-smoothing:antialiased; }
 * { box-sizing:border-box; } [hidden] { display:none !important; }
 button, textarea, select, a { font:inherit; } button, a { touch-action:manipulation; }
@@ -69,12 +72,13 @@ svg { display:block; flex:none; }
 
 /* The shell (START .shell, .v2__workspace): centred, START's gutters, stacked on phones. */
 .workspace { display:grid; grid-template-columns:minmax(0,1fr); grid-template-areas:"top" "conversation" "understanding" "foot";
-  gap:clamp(1rem,2.5vw,2rem); width:100%; max-width:var(--aithema-shell-max); margin-inline:auto; padding:0 var(--aithema-gutter) 1rem; }
+  gap:.75rem clamp(1rem,2.5vw,2rem); width:100%; max-width:var(--aithema-shell-max); margin-inline:auto; padding:0 var(--aithema-gutter) 1rem; }
 .toolbar { grid-area:top; display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:.5rem 1rem; min-height:3.5rem; padding-top:.75rem; }
 .conversation { grid-area:conversation; } .understanding { grid-area:understanding; } .host-foot { grid-area:foot; }
 .preset-panel { grid-column:1; } .host-bar { grid-column:2; } .settings-open { grid-column:3; }
-/* Before the conversation starts there is nothing to understand: the column is not there (START data-entry). */
-.workspace:not([data-stage="live"]) .understanding { display:none; }
+/* Before the conversation starts there is nothing to understand: the column is not there (START data-entry),
+   unless a host verification lock needs it for its form. */
+.workspace[data-understanding="absent"]:not([data-stage="live"]) .understanding { display:none; }
 /* The processing line: what processes this conversation, quiet, on the page itself. */
 .preset-panel { min-width:0; overflow-anchor:none; padding-top:var(--aithema-slack-top,0px); padding-bottom:var(--aithema-slack-bottom,0px); }
 .workspace:not([data-stage="live"]) .engine { visibility:hidden; }
@@ -88,7 +92,7 @@ svg { display:block; flex:none; }
 .head { display:flex; align-items:baseline; justify-content:space-between; gap:.15rem 1.5rem; }
 /* The AI notice (AIT-119, GUI-27): one quiet line, no box, from the first paint on. Sticky, so it stays in view
    wherever an interaction can begin; the hidden full notice holds its height, so it never resizes. */
-.conversation > .head { position:sticky; top:0; z-index:3; padding:.35rem 0; background-color:var(--aithema-paper); background-image:var(--aithema-backdrop); background-attachment:fixed; }
+.conversation > .head { position:sticky; top:0; z-index:3; padding:.35rem 0; background-color:var(--aithema-paper); background-image:var(--aithema-lighting); background-attachment:fixed; }
 .ai-notice { display:grid; flex:1; min-width:0; margin:0; font-size:.75rem; line-height:1.35; color:var(--aithema-muted); overflow-wrap:anywhere; }
 .ai-notice > span { grid-area:1/1; } .ai-notice__sizer { visibility:hidden; }
 .status { flex:none; max-width:45%; font-size:.75rem; line-height:1.35; color:var(--aithema-muted); text-align:right; overflow-wrap:anywhere; }
@@ -155,6 +159,7 @@ svg { display:block; flex:none; }
 .concept-preview img { width:3.6rem; height:2.3rem; object-fit:cover; border:1px solid var(--aithema-line); border-radius:6px; }
 .concept-preview-glyph { width:3.6rem; height:2.3rem; flex:none; display:grid; place-items:center; color:var(--aithema-accent); }
 .concept-preview-glyph svg { width:2.4rem; height:auto; }
+.concept-preview-text { display:grid; } .concept-preview-text > * { grid-area:1/1; } .concept-preview-sizer { visibility:hidden; }
 
 /* The transcript (START .v2__transcript): tailed bubbles on the page, reading position kept by hand. */
 .transcript-shell { position:relative; min-height:0; overflow:auto; overflow-anchor:none; overscroll-behavior-y:contain; scrollbar-gutter:stable;
@@ -279,7 +284,7 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 
 /* The concept viewer: START's immersive surface on the page's own paper. */
 .concept-viewer { position:fixed; inset:0; margin:0; width:100vw; max-width:none; height:100dvh; max-height:none; padding:0; border:0;
-  color:var(--aithema-ink); background:var(--aithema-paper); background-image:var(--aithema-backdrop); overflow:hidden; font:1rem/1.5 var(--aithema-font); }
+  color:var(--aithema-ink); background:var(--aithema-paper); background-image:var(--aithema-lighting); overflow:hidden; font:1rem/1.5 var(--aithema-font); }
 .concept-viewer[open] { display:grid; grid-template-rows:4rem minmax(0,1fr) 12.5rem; }
 .concept-viewer::backdrop { background:var(--aithema-ink); }
 .concept-viewer-head { display:grid; grid-template-columns:minmax(0,1fr) 5rem minmax(9rem,13rem); align-items:center; gap:1rem; padding:.5rem 1rem; }
@@ -312,10 +317,11 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 /* Wide screens (START ≥ 60rem): conversation and understanding side by side, each pane fits the viewport and
    scrolls on its own. Before the first input the second column is not there; it arrives from the right. */
 @media(min-width:60rem) {
-  .workspace { grid-template-columns:minmax(0,1.55fr) minmax(22rem,.88fr); grid-template-areas:"top top" "conversation understanding" "foot foot";
-    transition:grid-template-columns 560ms var(--aithema-ease),column-gap 560ms var(--aithema-ease); }
+  .workspace { grid-template-columns:minmax(0,1.55fr) minmax(22rem,.88fr); grid-template-areas:"top top" "conversation understanding" "foot foot"; }
   .workspace[data-understanding="absent"] { grid-template-columns:minmax(0,1fr) minmax(0,0fr); column-gap:0; }
-  .understanding { transition:opacity 420ms ease 120ms,transform 520ms var(--aithema-ease) 100ms,padding 480ms ease,border-width 300ms ease; }
+  /* START's reveal runs only while the column opens (data-reveal): a resize, a reload or a theme change never animates. */
+  .workspace[data-reveal] { transition:grid-template-columns 560ms var(--aithema-ease),column-gap 560ms var(--aithema-ease); }
+  .workspace[data-reveal] .understanding { transition:opacity 420ms ease 120ms,transform 520ms var(--aithema-ease) 100ms,padding 480ms ease,border-width 300ms ease; }
   .workspace[data-understanding="absent"] .understanding { min-width:0; padding-inline:0; border-width:0; opacity:0; transform:translateX(1.75rem); }
   .workspace[data-stage="live"] { height:var(--aithema-height); min-height:34rem; grid-template-rows:auto minmax(0,1fr) auto; }
   .workspace[data-stage="live"]:not(:has(> .host-foot:not([hidden]))) { grid-template-rows:auto minmax(0,1fr); grid-template-areas:"top top" "conversation understanding"; }
@@ -325,7 +331,7 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 /* Narrow screens: stacked, the page scrolls; the transcript keeps a bounded reading area. */
 @media(max-width:59.99rem) {
   .workspace[data-understanding="absent"] .understanding { display:none; }
-  .workspace[data-understanding="present"] .understanding { animation:rise-in 420ms ease-out; }
+  .workspace[data-reveal] .understanding { animation:rise-in 420ms ease-out; }
   .transcript-shell { height:clamp(20rem,60svh,36rem); }
   .understanding { max-height:none; } .analysis-content { overflow:visible; }
 }

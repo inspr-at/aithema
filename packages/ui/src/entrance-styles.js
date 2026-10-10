@@ -10,7 +10,9 @@ export const entranceStyles = `
 .promise, .intro__promise ::slotted(*) { margin:0; max-width:40rem; font:400 clamp(2.25rem,4.2vw,3.8rem)/1.02 var(--aithema-display); letter-spacing:-.028em; color:var(--aithema-ink); }
 .promise span { display:block; text-wrap:balance; }
 .promise__lead { max-width:34rem; margin:.55rem 0 0; font-size:1rem; line-height:1.45; color:var(--aithema-muted); text-wrap:balance; }
-.intro__card { display:grid; justify-items:center; width:100%; }
+/* The card is a size container: the choices follow the room the column gives them (START's 70rem and 52rem
+   viewport breaks, less the gutters), also when a host lock column stands beside the entrance. */
+.intro__card { display:grid; justify-items:center; width:100%; container-type:inline-size; }
 
 /* START LandingPresets: four glass choices, a summary that reserves its longest text, Continue in a fixed column. */
 .chooser { --glass-edge:light-dark(#fffdf9e6,#bdede238); --preset-columns:4; --preset-gap:1rem; width:100%; max-width:74rem; min-width:0; color:var(--aithema-ink); }
@@ -97,11 +99,11 @@ export const entranceStyles = `
   .intro[data-mode="ready"] :is(.promise, .intro__promise ::slotted(*)) { font-size:clamp(2.6rem,3.9vw,3.75rem); line-height:1.04; }
   .intro[data-mode="ready"] .intro__card { justify-items:stretch; } .intro[data-mode="ready"] .ready { width:100%; }
 }
-@media(max-width:70rem) {
+@container(max-width:64rem) {
   .chooser { --preset-gap:.75rem; } .chooser-option { padding:1.35rem 1.15rem; }
   .chooser__continue { padding-left:1rem; font-size:1.1rem; } .chooser__arrow { width:2.25rem; height:2.25rem; }
 }
-@media(max-width:52rem) { .chooser { --preset-columns:2; } .chooser-option { padding:1.15rem 1.25rem; } }
+@container(max-width:47rem) { .chooser { --preset-columns:2; } .chooser-option { padding:1.15rem 1.25rem; } }
 @media(max-width:40rem) {
   .intro[data-mode="ready"] { row-gap:1.25rem; padding-top:1rem; }
   .intro[data-mode="ready"] :is(.promise, .intro__promise ::slotted(*)) { font-size:clamp(1.8rem,7.5vw,2.6rem); line-height:1.05; }

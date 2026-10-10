@@ -758,11 +758,16 @@ with the conversation; the understanding column opens with the first input.
 
 The look is START's (palettes, Georgia display serif, radii 10/18/28 px, offset
 lighting) on the public `--aithema-*` tokens. `theme="light|dark|system"` on the
-element picks the palette (default system). Hosts may override any token; two are
-layout: `--aithema-height` (the live workspace's height on wide screens, default
-`100dvh`; subtract a host masthead) and `--aithema-backdrop` (START's lighting;
-`none` when the host page paints it). `prefers-reduced-motion` stops every
-animation, the understanding reveal included.
+element picks the palette (default system). Hosts may override any token; three
+shape the page: `--aithema-height` (the live workspace's height on wide screens,
+default `100dvh`; subtract a host masthead), `--aithema-lighting` (START's three
+offset light sources, fixed to the viewport; the sticky AI-notice line and the
+concept viewer use it) and `--aithema-backdrop` (what the element paints behind
+itself, the lighting over paper; set it to `none` when the host page paints START's
+paper and lighting, as the reference host does, so page and component are one
+canvas). The understanding column opens with START's 560 ms reveal only when the
+first input arrives on screen; `prefers-reduced-motion` stops every animation, the
+reveal included.
 
 Hosts list visitor choices per preset as `presets[p].choices = {models, voices,
 visuals, defaults}`. A model option is `{id, label?, binding | bindings: {reaction,

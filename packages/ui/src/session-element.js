@@ -24,6 +24,8 @@ import { orbStyles, createOrb } from './orb.js';
 import { icon } from './icons.js';
 
 const PANES = '.transcript-shell, .analysis-content, .preset-panel';
+// START's understanding reveal: 560 ms of column, 100–620 ms of the pane fading in (styles.js), with a margin.
+const REVEAL_MS = 700;
 function clearSlack(pane) { pane.style.removeProperty('--aithema-slack-top'); pane.style.removeProperty('--aithema-slack-bottom'); }
 // Empty space below a pane's content: padding fills it before it adds any scroll room.
 function spareSpace(pane) {
@@ -272,7 +274,7 @@ export class AithemaSession extends HTMLElement {
     for (const pane of root.querySelectorAll(PANES)) pane.addEventListener('pointerleave', () => clearSlack(pane));
     if (this.#options.host) this.#host = new HostSurface({ root, copy: this.#copy, options: this.#options.host, baseUrl: this.#base, sessionToken: this.#sessionToken,
       session: () => this.#session, status: text => this.#status(text), adopt: (session, reason) => this.#adopt(session, reason),
-      onLock: () => this.#render('aside'),
+      onLock: () => { this.#render('aside'); this.#render('transcript'); },
       // Unlocking keeps a deliberate pause: Resume is offered, else the composer takes focus.
       focusAfterUnlock: () => { const input = root.querySelector('textarea'); (this.#session.paused || input.disabled ? root.querySelector('.pause') : input).focus(); } });
     this.#render('transcript'); this.#render('aside'); this.#render('composer');
@@ -658,7 +660,12 @@ export class AithemaSession extends HTMLElement {
     const stage = this.#stage(), mode = { entrance: 'chooser', ready: 'ready' }[stage] ?? '';
     workspace.dataset.stage = stage;
     // Understanding is absent before the first input, then opens beside the conversation (START, ~560 ms).
-    const understanding = this.#hasInput() ? 'present' : 'absent';
+    // A host verification lock holds its email form there, so the pane is present while it is locked.
+    const understanding = this.#hasInput() || this.#host?.locked ? 'present' : 'absent';
+    // Only an opening on screen animates (data-reveal): the first paint of a conversation that already has input does not.
+    if (understanding === 'present' && workspace.dataset.understanding === 'absent' && intro.hasAttribute('data-mode')) {
+      workspace.dataset.reveal = ''; setTimeout(() => workspace.removeAttribute('data-reveal'), REVEAL_MS);
+    }
     workspace.dataset.understanding = understanding; root.querySelector('.understanding').inert = understanding === 'absent';
     // Before the start only the entrance is operable: the call and concept rails wait for it.
     for (const selector of ['.audio-rail', '.concept-bar']) root.querySelector(selector).inert = stage !== 'live';
