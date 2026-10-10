@@ -440,7 +440,7 @@ export const de = {
       source: 'Quellcode', handoverOffer: 'Nur Demo: Die Anfrage geht an einen lokalen Testempfänger. Niemand meldet sich bei Ihnen.',
       creditsLimit: 'Nur Demo: Hier gibt es kein Aufladen. Die Grenze gilt für alle Ihre Gespräche in diesem Browser; ein neues Gespräch hebt sie nicht auf.',
       legal: 'Rechtliches (Demo)', license: 'Lizenz: AGPL-3.0-only', legalSource: 'Quellcode und Hinweise',
-      footer: 'Nur Demo: ein lokaler Host mit Test-E-Mails, Testübergabe und Test-Credits. Nichts verlässt diesen Computer.' },
+      footer: 'Nur Demo: Dieser lokale Host simuliert E-Mail, Übergabe und Credits. Es wird keine echte E-Mail versendet und niemand kontaktiert Sie.' },
     // Die Demo-Übergabe erreicht einen lokalen Testempfänger: Die Erfolgsmeldung verspricht keinen Kontakt.
     handover: { sent: 'Anfrage an den lokalen Testempfänger gesendet. Dies ist eine Demo: Niemand wird sich bei Ihnen melden.' },
     outbox: { open: 'Test-E-Mails (nur Demo)', title: 'Nur Demo: Postausgang für Test-E-Mails', note: 'Bestätigungs-E-Mails bleiben auf diesem Computer. Ein Link, den Sie hier öffnen, bestätigt die Adresse wie in einem echten Postfach.',

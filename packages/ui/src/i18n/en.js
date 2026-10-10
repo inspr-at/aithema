@@ -431,7 +431,7 @@ export const en = {
       source: 'Source code', handoverOffer: 'Demo only: the request goes to a local fake recipient. Nobody contacts you.',
       creditsLimit: 'Demo only: there is no top-up here. The limit applies to all your conversations in this browser, so a new conversation does not lift it.',
       legal: 'Legal (demo)', license: 'Licence: AGPL-3.0-only', legalSource: 'Source and notices',
-      footer: 'Demo only: a local host with fake email, handover and credits. Nothing leaves this computer.' },
+      footer: 'Demo only: this local host simulates email, handover and credits. No real email is sent and nobody is contacted.' },
     // The demo handover reaches a local fake recipient: its success line promises no contact.
     handover: { sent: 'Request sent to the local test recipient. This is a demo: nobody will contact you.' },
     outbox: { open: 'Fake mail (demo only)', title: 'Demo only: fake mail outbox', note: 'Confirmation mail stays on this computer. Opening a link here confirms the address, as a real inbox would.',

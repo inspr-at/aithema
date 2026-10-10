@@ -24,7 +24,7 @@ test('demo slot fills, the fake outbox and the demo handover wording appear only
     const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
     const body = html.match(/<body>([\s\S]*?)<\/body>/u)[1].replace(/<script[^>]*>[\s\S]*?<\/script>/gu, '');
     // The page with a stubbed component: configure() records what the host passes.
-    function prepare(demoHost, locale) {
+    function prepare(demoHost, locale, providers = { imageLabel: 'Images off', voiceMode: 'off' }) {
       document.body.innerHTML = body;
       localStorage.clear(); localStorage.setItem('aithema-demo-locale', locale);
       const session = { id: `slots-${locale}`, locale, processingPreset: 'best', featureMatrix: {} };
@@ -32,7 +32,7 @@ test('demo slot fills, the fake outbox and the demo handover wording appear only
       component.configure = options => { configured.push(options); };
       Object.defineProperty(component, 'session', { get: () => configured.at(-1)?.session });
       globalThis.fetch = async url => {
-        if (url === '/demo/config') return Response.json({ label: 'Mock reasoning — deterministic demo', imageLabel: 'Images off', voiceMode: 'off', demoHost });
+        if (url === '/demo/config') return Response.json({ label: 'Mock reasoning — deterministic demo', ...providers, demoHost });
         if (url === '/api/sessions') return Response.json(session);
         if (url === `/api/sessions/${session.id}/demo/outbox`) return Response.json({ messages: [{ address: 'visitor@example.com', token: 'token' }] });
         assert.fail(`Unexpected host request: ${url}`);
@@ -70,6 +70,18 @@ test('demo slot fills, the fake outbox and the demo handover wording appear only
         assert.deepEqual(confirm.getAttribute('aria-describedby').split(' '), ['ai-notice']);
         assert.ok(document.querySelector('#outbox').contains(notice), 'the notice is in view inside the modal outbox');
         assert.equal(notice.textContent, aiNotice(locale).text);
+      });
+      // Gate round 2: demoHost depends on the text provider alone, so live voice or images can run beside the
+      // simulated email, handover and credits. The demo copy claims only what the demo host itself simulates.
+      await t.test(`demo host beside live images or voice (${locale}): no copy claims that nothing leaves this computer`, async () => {
+        // Live images render here; the ElevenLabs voice SDK cannot load in happy-dom, so the copy check below covers voice.
+        prepare(true, locale, { imageMode: 'openai', imageLabel: 'OpenAI images', voiceMode: 'off' });
+        await import(`../host.js?slots-mixed-${locale}`);
+        assert.equal(document.querySelector('#error').textContent, '');
+        assert.equal(document.querySelector('#demo-footer').textContent, copy.host.slots.footer);
+        const page = document.body.textContent;
+        assert.doesNotMatch(page, /leaves this computer|verlässt diesen Computer|stays local|bleibt lokal|nothing leaves|nichts verlässt/iu);
+        for (const text of demoTexts(copy)) assert.doesNotMatch(text, /leaves this computer|verlässt diesen Computer|nothing leaves|nichts verlässt/iu, text);
       });
     }
   } finally {
