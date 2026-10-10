@@ -416,7 +416,7 @@ export const de = {
   },
   host: {
     title: 'Demo: Aithema, Ausbaustufe 1', loadingBinding: 'Auswertung wird geladen …',
-    newConversation: 'Neues Gespräch beginnen', resumeHint: 'Nach einem Neuladen oder Serverneustart geht es hier weiter.', source: 'Quellcode (AGPL-3.0-only)',
+    newConversation: 'Neues Gespräch beginnen', resumeHint: 'Nach einem Neuladen oder Serverneustart geht es hier weiter.',
     mockHint: 'Mit der Mock-Auswertung zum Beispiel: Betrieb: gehostet; Daten: öffentlich; Systeme: API; Reichweite: international',
     settingsHint: 'Die Einstellungen (im Verarbeitungsbereich unten) wählen Verarbeitung, Modell, Antwortstil, Stimme und visuelle Entwürfe. Der Reiter „Erweitert“ verbindet ein OpenAI-kompatibles Modell, das auf diesem Gerät läuft.',
     language: 'Sprache', languages: { en: 'Englisch', de: 'Deutsch' }, languageNext: 'Neue Gespräche beginnen auf {language}. Dieses Gespräch bleibt auf Deutsch.',
@@ -424,7 +424,6 @@ export const de = {
     consentUse: { html: 'Die lokalen Demo-Modelle, die Test-Sprache und die Testentwürfe (lokaler Klick-Entwurf) verwenden Ihr Gespräch, um zu antworten, ein Verständnis aufzubauen und klickbare Entwürfe zu erstellen.',
       images: 'Die lokalen Demo-Modelle, die Test-Sprache und die Testbilder (lokales PNG) verwenden Ihr Gespräch, um zu antworten, ein Verständnis aufzubauen und Entwürfe zu zeichnen.',
       off: 'Die lokalen Demo-Modelle und die Test-Sprache verwenden Ihr Gespräch, um zu antworten und ein Verständnis aufzubauen.' },
-    consentTerms: 'Empfänger: der lokale Mock; keine weiteren Auftragsverarbeiter. Das umfasst Gesprächsdaten, Fassung 1, für zwölf Monate. Einwilligungen liegen nur im Arbeitsspeicher; erteilen Sie sie nach einem Serverneustart erneut.',
     grant: 'Mock-Verarbeitung erlauben', revoke: 'Einwilligung widerrufen', consentWaiting: 'Die Verarbeitung wartet auf Ihre Einwilligung.',
     consentRequired: 'Erteilen Sie die Einwilligung, bevor der Mock verarbeitet.', consentAllowed: 'Mock-Verarbeitung erlaubt.',
     consentWithdrawn: 'Einwilligung widerrufen.', consentStopped: 'Einwilligung widerrufen. Laufende Arbeit wurde gestoppt.',

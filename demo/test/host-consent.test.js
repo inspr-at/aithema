@@ -173,6 +173,17 @@ test('processing document remains readable when its server verdict cannot be loa
   pending.reject(new Error('Read failed')); await p.mounting;
   assert.equal(p.document.querySelector('#consent-status').dataset.state, 'failed');
   assert.equal(p.document.querySelectorAll('input:checked').length, 0);
+  // An unreadable verdict never hides withdrawal of a grant the session records.
+  const granted = Promise.withResolvers(), q = await page(t, { pending: granted, session: { id: 's', locale: 'de', engine: { visuals: 'off' }, consentRevision: 2, consentWithdrawn: false } });
+  granted.reject(new Error('Read failed')); await q.mounting;
+  assert.equal(q.document.querySelector('[data-revoke]').hidden, false);
+  assert.equal(q.document.querySelector('[data-revoke]').disabled, false);
+});
+
+test('the status line grows with its retry action instead of clipping it', async () => {
+  const css = await readFile(new URL('../host.css', import.meta.url), 'utf8'), rule = css.match(/\.consent-status \{([^}]*)\}/u)[1];
+  assert.match(rule, /min-height:3em/u);
+  assert.doesNotMatch(rule, /(?:^|[;\s])(?:height|overflow):/u);
 });
 
 test('mock and uncontracted ElevenLabs use the same page without a voice or microphone client', async t => {
@@ -190,6 +201,7 @@ test('mock and uncontracted ElevenLabs use the same page without a voice or micr
   assert.equal(voice.document.querySelector('[data-revoke]').hidden, true);
   const voiceGrant = await page(t, { binding: { voiceMode: 'elevenlabs' }, session: { id: 's', locale: 'de', consentRevision: 1, consentWithdrawn: false } });
   assert.equal(voiceGrant.document.querySelector('[data-revoke]').hidden, false);
+  assert.notEqual(voiceGrant.document.querySelector('[data-grant]').textContent, de.host.revoke, 'one withdrawal label only');
   const source = await readFile(new URL('../consent-page.js', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /getUserMedia|createVoiceControl|createElevenLabsClient|session-element/u);
   for (const p of [mock, voice]) assert.equal(p.document.querySelector('#source').getAttribute('href'), 'https://github.com/inspr-at/aithema');

@@ -42,7 +42,7 @@ export async function mountConsentPage({ document = globalThis.document, locatio
   }
   function updateActions() {
     const c = copy.host.consentPage, boxes = [...fieldset.querySelectorAll('input')], count = boxes.filter(box => box.checked).length;
-    const label = count === 0 ? hasGrant ? copy.host.revoke : c.none : count === boxes.length ? c.all : count === 1 ? c.one : c.count;
+    const label = count === 0 ? hasGrant && usable ? copy.host.revoke : c.none : count === boxes.length ? c.all : count === 1 ? c.one : c.count;
     for (const button of document.querySelectorAll('[data-grant]')) { button.textContent = label.replace('{count}', String(count)); button.disabled = busy || !usable; }
     for (const button of document.querySelectorAll('[data-select-all]')) { button.textContent = c.selectAll; button.disabled = busy || !usable || count === boxes.length; }
     // Keep withdrawal available even with stale terms or unavailable granting.
@@ -96,8 +96,9 @@ export async function mountConsentPage({ document = globalThis.document, locatio
       copy = { de, en }[session.locale] ?? copy;
       rendered = binding.processingConsent ?? {};
       // Paint the server's document before the grant request finishes. If the
-      // verdict cannot be read the controls remain closed and no boxes are ticked.
-      selected = []; hasGrant = false; renderItems(); paint();
+      // verdict cannot be read the controls remain closed and no boxes are ticked;
+      // withdrawal follows the session's own record until the verdict arrives.
+      selected = []; hasGrant = session.consentRevision > 0 && !session.consentWithdrawn; renderItems(); paint();
       if (binding.voiceMode === 'elevenlabs' && !binding.processingConsent) {
         text('#consent-text', copy.voiceHostConsent); text('#consent-info', '');
         fieldset.querySelectorAll('.consent-item').forEach(row => row.remove());
