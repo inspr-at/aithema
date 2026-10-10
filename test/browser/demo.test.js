@@ -8,6 +8,7 @@ import { homedir, tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
 import puppeteer from 'puppeteer-core';
+import { FEATURES } from '../../packages/core/src/presets.js';
 import { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL } from '../../demo/processing-consent.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
@@ -472,18 +473,20 @@ test('AIT-117: a German processing-consent page contains START German copy and n
     assert.ok(consent.provider.includes(de.reasons['agent-api'].replace('{status}', '403')));
     assert.equal(consent.provider.includes('agent-api-get-403'), false);
     await waitForShadow(page, '.composer-reason', { text: de.reasons['current processing consent required'] });
-    // Exercise every grepped reason through actual feature rows, including HTML,
+    // Exercise every grepped reason through actual feature rows, including HTML and uploads,
     // delegated voice reasons and the bounded agent API status-code family.
     const codes = [...FEATURE_REASON_CODES, ...VOICE_REASON_CODES,
       ...FEATURE_REASON_CODES.map(code => `delegated reasoning: ${code}`), 'agent-api-get-401', 'agent-api-post-403', 'agent-api-patch-503'];
     const rendered = await page.evaluate(async codes => {
       const { de } = await import('/packages/ui/src/i18n/de.js');
+      const { FEATURES } = await import('/packages/core/src/presets.js');
       const c = document.querySelector('aithema-session'), session = c.session, rows = [];
       for (const reason of codes) {
-        session.featureMatrix.best = Object.fromEntries(['text', 'analysis', 'voice', 'transcription', 'images', 'html']
+        session.featureMatrix.best = Object.fromEntries(FEATURES
           .map(feature => [feature, { available: false, reason }]));
         c.configure({ copy: de, session });
-        rows.push([...c.shadowRoot.querySelectorAll('.features span')].map(node => node.textContent));
+        rows.push({ labels: [...c.shadowRoot.querySelectorAll('.features li')].map(node => node.firstChild.nodeValue),
+          reasons: [...c.shadowRoot.querySelectorAll('.features span')].map(node => node.textContent) });
       }
       return rows;
     }, codes);
@@ -491,11 +494,12 @@ test('AIT-117: a German processing-consent page contains START German copy and n
       const inner = code.replace(/^delegated reasoning: /u, ''), status = /^agent-api-(?:get|post|patch)-(\d{3})$/u.exec(code);
       const expected = status ? de.reasons['agent-api'].replace('{status}', status[1])
         : inner !== code ? de.reasons.delegated.replace('{reason}', de.reasons[inner]) : de.reasons[code];
-      assert.ok(rendered[index].length > 0, code);
-      assert.ok(rendered[index].every(text => text === expected), code);
+      assert.deepEqual(rendered[index].labels, FEATURES.map(feature => de.features[feature]), code);
+      assert.equal(rendered[index].reasons.length, FEATURES.length, code);
+      assert.ok(rendered[index].reasons.every(text => text === expected), code);
       const english = status ? en.reasons['agent-api'].replace('{status}', status[1])
         : inner !== code ? en.reasons.delegated.replace('{reason}', en.reasons[inner]) : en.reasons[code];
-      assert.ok(rendered[index].every(text => text !== english), `English reason leaked: ${code}`);
+      assert.ok(rendered[index].reasons.every(text => text !== english), `English reason leaked: ${code}`);
     }
     assert.deepEqual(problems, []); assert.deepEqual(external, []);
     t.diagnostic(`START German consent: 2 items plus intro/withdrawal; ${codes.length} reason cases rendered in German, no provider requests.`);

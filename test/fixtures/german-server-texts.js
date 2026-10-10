@@ -45,6 +45,9 @@ export const FEATURE_REASON_CODES = [
   'OpenRouter spend cap exhausted', 'OpenRouter request exceeds spend reservation',
   // claude-html health and ElevenLabs health.
   'cost ceiling breached', 'spend cap reached', 'spend ledger unreadable', 'credential unavailable',
+  // server document upload availability.
+  'extractors not configured', 'document text not covered by reasoning scope', 'extractor not in preset',
+  'extractor binding invalid', 'extractor must be local and free', 'extractor unhealthy',
 ];
 
 // Server voice-handlers, handlers invalidation, core live-voice and ElevenLabs
