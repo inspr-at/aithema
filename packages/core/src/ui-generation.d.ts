@@ -7,13 +7,19 @@ export interface UISpec {
   references?: UIReference[];
 }
 export type UIFeedback = string;
+export interface ImageCredentials {
+  c2pa: 'present' | 'absent'; manifestByteLength: number; verification: 'not-verified';
+}
 export interface UIArtifact {
   bytes: Uint8Array; mediaType: UIImageMediaType; width: number; height: number;
   promptDigest: string;
   provenance: {
     version: 1; origin: 'ai-generated' | 'ai-manipulated'; modality: 'image'; digitalSourceType: string;
     generatedAt: string; generator: { provider: string; model: string }; techniques: string[];
-    assurances: { digitallySigned: false; imperceptibleWatermark: 'provider-status-unknown' };
+    /** Absent only on legacy stored artifacts. Presence never means signature verification. */
+    promptDigest?: string; credentials?: ImageCredentials;
+    assurances: { digitallySigned: false; imperceptibleWatermark: 'provider-status-unknown' } |
+      { digitallySigned: false; imperceptibleWatermark: 'provider-declared' | 'unknown'; watermarkSource: string | null };
     subject: { contentDigest: string; mediaType: string };
   };
 }

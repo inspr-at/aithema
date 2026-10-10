@@ -8,6 +8,8 @@ import { SQLiteStorage, createHandlers, createPluginRuntime, mockPresets, create
 import { PluginRegistry, createMockReasoning, inputRevision, reduceUnderstanding, beginInvocation } from '@inspr/aithema-core';
 import { ownedRequest, testToken, temporaryDb, unzip } from '../../../test/helpers.js';
 import { createLocalVoiceProvider, localVoiceBinding } from '../src/local-voice.js';
+import { imageArtifact } from '../../../plugins/openai-images/src/image-artifact.js';
+import { png, withCredential, credentialFixtures } from '../../../test/image-fixtures.js';
 const tick = () => new Promise(resolve => setImmediate(resolve));
 async function setup(t, { path = ':memory:', intercept, references, budgetOptions, consent: supplied, imageBinding = localImageBinding, voice = false, understanding } = {}) {
   const storage = new SQLiteStorage(path), reasoning = createMockReasoning(), images = createLocalImages({ delayMs: 1 });
@@ -139,8 +141,16 @@ test('request idempotency is byte-bound and never repeats a paid image; pause bl
   await h.call('pause', { paused: true }); assert.equal((await h.request('paused', `/${first.id}/regenerate`)).status, 403);
   assert.equal((await h.call(`concepts/${first.id}/image`)).status, 200); assert.equal(h.records.length, 1);
 });
-test('images and provenance restore after process restart; lost host consent fails closed until renewed', async t => {
-  const path = await temporaryDb(), h = await setup(t, { path }); await h.turn('first'); const item = await rendered(h);
+test('legacy embedded images and provenance restore after restart; lost host consent fails closed until renewed', async t => {
+  const path = await temporaryDb(), h = await setup(t, { path, intercept: async (spec, feedback, options, images) => {
+    await images.generate(spec, feedback, options);
+    const bytes = withCredential(png, { type: 'iTXt', payload: Buffer.from('XML:com.adobe.xmp\0\0\0\0\0<x:xmpmeta>legacy metadata</x:xmpmeta>') });
+    const artifact = imageArtifact(bytes, { prompt: spec.prompt, provider: 'local-demo-fake', model: 'deterministic-ui', operation: 'generate' });
+    delete artifact.provenance.credentials; delete artifact.provenance.promptDigest;
+    artifact.provenance.techniques = ['embedded-metadata', 'response-field'];
+    artifact.provenance.assurances = { digitallySigned: false, imperceptibleWatermark: 'provider-status-unknown' };
+    return artifact;
+  } }); await h.turn('first'); const item = await rendered(h);
   const bytes = h.storage.conceptArtifact(h.id, item.id).bytes;
   await h.handlers.close(); h.storage.close();
   // The original fixture's cleanup is replaced after this explicit restart.
@@ -228,6 +238,8 @@ test('private image cost binding rejects missing or underfunded ceilings; determ
     if (bytes.toString('ascii', offset + 4, offset + 8) === 'IDAT') idat.push(bytes.subarray(offset + 8, offset + 8 + size)); offset += size + 12; }
   assert.equal(inflateSync(Buffer.concat(idat)).length, (480 * 3 + 1) * 320);
   assert.equal(item.provenance.generator.provider, 'local-demo-fake');
+  assert.deepEqual(item.provenance.credentials, { c2pa: 'absent', manifestByteLength: 0, verification: 'not-verified' });
+  assert.equal(item.provenance.assurances.imperceptibleWatermark, 'unknown');
 });
 
 function paidBinding() {
@@ -280,6 +292,8 @@ test('ZIP export carries saved images and provenance; expiry removes dependent i
   const exported = await h.call('export'); assert.equal(exported.status, 200);
   const files = unzip(new Uint8Array(await exported.arrayBuffer()));
   assert.ok(files[`concepts/${item.id}.png`]); assert.equal(JSON.parse(files[`concepts/${item.id}.provenance.json`]).subject.contentDigest, item.provenance.subject.contentDigest);
+  assert.deepEqual(JSON.parse(files['concepts-manifest.json']).included, [{ id: item.id, path: `concepts/${item.id}.png`,
+    promptDigest: item.promptDigest, provenance: item.provenance }]);
   assert.equal(JSON.parse(files['concepts.json'])[0].feedback.chips[0], 'private export guidance');
   await h.handlers.expire(Date.now() + 1000); await h.handlers.idle();
   const after = unzip(new Uint8Array(await (await h.call('export')).arrayBuffer()));
@@ -287,6 +301,29 @@ test('ZIP export carries saved images and provenance; expiry removes dependent i
   assert.deepEqual(JSON.parse(after['concepts-manifest.json']), { version: 1, included: [], withheld: [{ id: item.id, reason: 'erased' }] });
   assert.ok(Object.values(after).every(value => !value.includes('private export guidance')));
   assert.equal(h.storage.conceptArtifact(h.id, item.id).erased, true);
+});
+for (const [name, providerBytes] of credentialFixtures) test(`${name} stored, served, downloaded and exported bytes equal provider bytes`, async t => {
+  const h = await setup(t, { intercept: async (spec, feedback, options, images) => {
+    await images.generate(spec, feedback, options);
+    return imageArtifact(providerBytes, { prompt: spec.prompt, model: 'gpt-image-2', operation: 'generate' });
+  } });
+  await h.turn('first'); const item = await rendered(h);
+  const digest = bytes => createHash('sha256').update(bytes).digest('hex'), expected = digest(providerBytes);
+  const stored = h.storage.conceptArtifact(h.id, item.id); assert.equal(digest(stored.bytes), expected);
+  for (const suffix of ['', '?download=1']) {
+    const response = await h.call(`concepts/${item.id}/image${suffix}`); assert.equal(response.status, 200);
+    assert.equal(digest(new Uint8Array(await response.arrayBuffer())), expected);
+    assert.equal(response.headers.get('content-digest'), item.provenance.subject.contentDigest);
+  }
+  const files = unzip(new Uint8Array(await (await h.call('export')).arrayBuffer()), { binary: true });
+  const path = `concepts/${item.id}.${item.mediaType.split('/')[1]}`;
+  assert.equal(digest(files[path]), expected); assert.deepEqual(files[path], providerBytes);
+  assert.deepEqual(JSON.parse(files[`concepts/${item.id}.provenance.json`]), item.provenance);
+  assert.deepEqual(await (await h.call(`concepts/${item.id}/provenance`)).json(), item.provenance);
+  const entry = JSON.parse(files['concepts-manifest.json']).included[0];
+  assert.deepEqual(entry, { id: item.id, path, promptDigest: item.promptDigest, provenance: item.provenance });
+  assert.equal(entry.provenance.credentials.c2pa, 'present'); assert.equal(entry.provenance.credentials.verification, 'not-verified');
+  assert.equal(entry.provenance.assurances.imperceptibleWatermark, 'provider-declared');
 });
 test('refinements use exact edit processing scope for admission, claim consumption and publication', async t => {
   const scopes = [], consent = { grant() {}, coverage(args) { scopes.push(args.scope.operation); return exactConsent.coverage(args); } };

@@ -57,12 +57,13 @@ export async function readEvents(response, count) {
     return events;
   } finally { await reader.cancel(); }
 }
-export function unzip(bytes) {
+export function unzip(bytes, { binary = false } = {}) {
   const data = Buffer.from(bytes), files = {}; let offset = 0;
   while (data.readUInt32LE(offset) === 0x04034b50) {
     const size = data.readUInt32LE(offset + 18), nameSize = data.readUInt16LE(offset + 26), extra = data.readUInt16LE(offset + 28);
     const name = data.subarray(offset + 30, offset + 30 + nameSize).toString(); const start = offset + 30 + nameSize + extra;
-    files[name] = data.subarray(start, start + size).toString(); offset = start + size;
+    const value = data.subarray(start, start + size);
+    files[name] = binary ? value : value.toString(); offset = start + size;
   }
   if (data.readUInt32LE(offset) !== 0x02014b50 || data.readUInt32LE(data.length - 22) !== 0x06054b50) throw new Error('Invalid ZIP directory');
   return files;

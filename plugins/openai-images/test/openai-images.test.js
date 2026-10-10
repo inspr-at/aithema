@@ -5,6 +5,7 @@ import { once } from 'node:events';
 import { createHash } from 'node:crypto';
 import { createOpenAIImages, manifest } from '../src/index.js';
 import { imageArtifact } from '../src/image-artifact.js';
+import { jumbf, withCredential, credentialFixtures } from '../../../test/image-fixtures.js';
 import { PluginError, PluginRegistry, validateManifest, isUIArtifact, uiGenerationConformance, IPTC_DIGITAL_SOURCE, imageInfo } from '@inspr/aithema-core';
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO/aK0kAAAAASUVORK5CYII=', 'base64');
 const webp = Buffer.from('UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA', 'base64');
@@ -47,11 +48,15 @@ test('D4 manifest registers the exact image kind with no private or invented pri
   assert.equal(manifest.models[0].qualification, 'unverified'); assert.ok(Object.isFrozen(manifest.models[0]));
   assert.deepEqual(await f.plugin.health(options()), { available: true }); assert.equal(f.requests.length, 0);
 });
-test('generate sends Images JSON, returns real dimensions, bytes, digest and embedded IPTC provenance', async t => {
+test('generate sends Images JSON, returns real dimensions, bytes, digest and sidecar IPTC provenance', async t => {
   const f = await fake(t), o = options(), result = await f.plugin.generate(spec, feedback, o);
   assert.equal(isUIArtifact(result), true); assert.equal(result.width, 1); assert.equal(result.height, 1);
   assert.equal(result.mediaType, 'image/png'); assert.equal(result.provenance.digitalSourceType, IPTC_DIGITAL_SOURCE.generated);
-  assert.ok(Buffer.from(result.bytes).includes(Buffer.from('Iptc4xmpExt:DigitalSourceType')));
+  assert.deepEqual(Buffer.from(result.bytes), png);
+  assert.equal(result.provenance.promptDigest, result.promptDigest);
+  assert.deepEqual(result.provenance.credentials, { c2pa: 'absent', manifestByteLength: 0, verification: 'not-verified' });
+  assert.equal(result.provenance.assurances.imperceptibleWatermark, 'provider-declared');
+  assert.match(result.provenance.assurances.watermarkSource, /OpenAI.*SynthID.*https:\/\/help.openai.com\/en\/articles\/8912793/u);
   assert.equal(result.provenance.subject.contentDigest, `sha-256=:${createHash('sha256').update(result.bytes).digest('base64')}:`);
   const record = f.records[0]; assert.equal(record.path, '/v1/images/generations');
   assert.equal(record.body.model, 'gpt-image-2'); assert.equal(record.body.output_format, 'webp');
@@ -69,12 +74,12 @@ test('edit sends the private artifact as multipart bytes and marks manipulation'
   assert.equal(body.n, '1'); assert.equal(result.provenance.digitalSourceType, IPTC_DIGITAL_SOURCE.manipulated);
   assert.equal(o.reports.length, 1); assert.equal(o.reports[0].outcome, 'completed');
 });
-test('WebP dimensions and embedded XMP survive byte parsing', async t => {
+test('WebP dimensions survive without modifying the container', async t => {
   const f = await fake(t); f.respond((_req, res) => res.end(JSON.stringify({ data: [{ b64_json: webp.toString('base64') }] })));
   const o = options(), result = await f.plugin.generate(spec, '', o);
   assert.equal(result.mediaType, 'image/webp'); assert.deepEqual(imageInfo(result.bytes), {
-    mediaType: 'image/webp', width: 1, height: 1, end: -1, extended: 12, alpha: false });
-  assert.equal(isUIArtifact(result), true); assert.ok(Buffer.from(result.bytes).includes(Buffer.from('XMP ')));
+    mediaType: 'image/webp', width: 1, height: 1, end: -1, extended: -1, alpha: false });
+  assert.equal(isUIArtifact(result), true); assert.deepEqual(Buffer.from(result.bytes), webp);
   assert.equal(o.reports[0].outcome, 'uncertain', 'missing usage cannot imply a free image');
 });
 test('URL results are downloaded only on the server through the private origin allowlist', async t => {
@@ -274,7 +279,7 @@ test('downloads over 12 MiB fail for declared and streamed lengths while retaini
 });
 for (const [name, mutation] of [
   ['stale digest', result => ({ ...result, provenance: { ...result.provenance, subject: { ...result.provenance.subject,
-    contentDigest: `sha-256=:${createHash('sha256').update(png).digest('base64')}:` } } })],
+    contentDigest: `sha-256=:${createHash('sha256').update('different bytes').digest('base64')}:` } } })],
   ['wrong media type', result => ({ ...result, mediaType: 'image/webp', provenance: { ...result.provenance,
     subject: { ...result.provenance.subject, mediaType: 'image/webp' } } })],
   ['fabricated dimensions', result => ({ ...result, width: 1536, height: 1024 })],
@@ -285,7 +290,7 @@ for (const [name, mutation] of [
   assert.equal(result.ok, false); assert.ok(result.failures.includes(`${operation} bytes/provenance artifact`));
 });
 test('artifact provenance and generator reject extra fields including provider URLs', () => {
-  for (const nested of ['provenance', 'generator', 'subject', 'assurances']) {
+  for (const nested of ['provenance', 'generator', 'subject', 'assurances', 'credentials']) {
     const result = artifact();
     const target = nested === 'provenance' ? result.provenance : result.provenance[nested];
     target.url = 'https://example.invalid/provider'; assert.equal(isUIArtifact(result), false, nested);
@@ -307,14 +312,52 @@ test('conformance compares optional expected usage and exercises reference gener
   assert.equal(result.ok, false); assert.ok(result.failures.includes('generate expected usage'));
   assert.ok(result.failures.includes('edit expected usage'));
 });
-for (const [name, bytes] of [['PNG', png], ['WebP', webp]]) test(`existing ${name} XMP is replaced on repeated embedding`, () => {
-  const first = imageArtifact(bytes, { prompt: 'first', model: 'first-model', operation: 'generate', now: 0 });
-  const second = imageArtifact(first.bytes, { prompt: 'second', model: 'second-model', operation: 'edit', now: 1 });
-  const text = Buffer.from(second.bytes).toString();
-  assert.equal(text.split('<x:xmpmeta').length - 1, 1);
-  assert.equal(text.split('XML:com.adobe.xmp').length - 1, name === 'PNG' ? 1 : 0);
-  assert.equal(text.split('XMP ').length - 1, name === 'WebP' ? 1 : 0);
-  const record = JSON.parse(Buffer.from(text.match(/aithema:Record="([^"]+)"/u)[1], 'base64url').toString());
-  assert.equal(record.generator.model, 'second-model'); assert.equal(record.origin, 'ai-manipulated');
-  assert.equal(second.provenance.subject.contentDigest, `sha-256=:${createHash('sha256').update(second.bytes).digest('base64')}:`);
+for (const [name, bytes] of credentialFixtures) test(`${name} provider bytes and credential payload remain byte-identical`, async t => {
+  const f = await fake(t); f.respond((_req, res) => res.end(JSON.stringify({ data: [{ b64_json: bytes.toString('base64') }] })));
+  const result = await f.plugin.generate(spec, '', options());
+  assert.equal(isUIArtifact(result), true); assert.deepEqual(Buffer.from(result.bytes), bytes);
+  assert.equal(createHash('sha256').update(result.bytes).digest('hex'), createHash('sha256').update(bytes).digest('hex'));
+  assert.deepEqual(result.provenance.credentials, { c2pa: 'present', manifestByteLength: jumbf().length, verification: 'not-verified' });
+  assert.equal(result.provenance.assurances.digitallySigned, false);
+});
+test('sidecar contains AI origin, generator, prompt digest, timestamp and original-byte digest', () => {
+  const result = artifact();
+  assert.deepEqual(result.provenance, { version: 1, origin: 'ai-generated', modality: 'image',
+    digitalSourceType: IPTC_DIGITAL_SOURCE.generated, generatedAt: '1970-01-01T00:00:00.000Z',
+    generator: { provider: 'openai', model: 'gpt-image-2' }, promptDigest: result.promptDigest,
+    techniques: ['response-field', 'sidecar'],
+    credentials: { c2pa: 'absent', manifestByteLength: 0, verification: 'not-verified' },
+    assurances: { digitallySigned: false, imperceptibleWatermark: 'provider-declared',
+      watermarkSource: 'OpenAI declares SynthID on API images: https://help.openai.com/en/articles/8912793' },
+    subject: { contentDigest: `sha-256=:${createHash('sha256').update(png).digest('base64')}:`, mediaType: 'image/png' } });
+});
+test('fake/local sidecars report absent credentials and unknown watermarks', () => {
+  const result = imageArtifact(png, { prompt: 'fake', model: 'deterministic-ui', provider: 'local-demo-fake', operation: 'generate' });
+  assert.equal(isUIArtifact(result), true); assert.equal(result.provenance.generator.provider, 'local-demo-fake');
+  assert.deepEqual(result.provenance.credentials, { c2pa: 'absent', manifestByteLength: 0, verification: 'not-verified' });
+  assert.deepEqual(result.provenance.assurances, { digitallySigned: false, imperceptibleWatermark: 'unknown', watermarkSource: null });
+});
+for (const [name, bytes, type] of [['PNG', png, 'iTXt'], ['WebP', webp, 'XMP ']]) test(`existing ${name} XMP remains intact through refinement`, () => {
+  const source = withCredential(bytes, { type, payload: Buffer.from('XML:com.adobe.xmp\0<x:xmpmeta>legacy</x:xmpmeta>') });
+  const result = imageArtifact(source, { prompt: 'refine', model: 'gpt-image-2', operation: 'edit' });
+  assert.deepEqual(Buffer.from(result.bytes), source); assert.equal(result.provenance.origin, 'ai-manipulated');
+  assert.deepEqual(result.provenance.credentials, { c2pa: 'absent', manifestByteLength: 0, verification: 'not-verified' });
+});
+test('legacy embedded-metadata sidecars remain accepted as private edit references', async t => {
+  const f = await fake(t), source = artifact();
+  delete source.provenance.credentials; delete source.provenance.promptDigest;
+  source.provenance.techniques = ['embedded-metadata', 'response-field'];
+  source.provenance.assurances = { digitallySigned: false, imperceptibleWatermark: 'provider-status-unknown' };
+  assert.equal(isUIArtifact(source), true);
+  const result = await f.plugin.edit(source, spec, feedback, options());
+  assert.deepEqual(new Uint8Array(await f.records[0].images[0].arrayBuffer()), source.bytes);
+  assert.equal(result.provenance.origin, 'ai-manipulated');
+});
+test('credential and watermark records reject invented verification or inconsistent presence', () => {
+  for (const change of [r => { r.provenance.credentials.verification = 'verified'; },
+    r => { r.provenance.credentials.c2pa = 'present'; }, r => { r.provenance.credentials.manifestByteLength = -1; },
+    r => { r.provenance.assurances.imperceptibleWatermark = 'verified'; },
+    r => { r.provenance.assurances.watermarkSource = null; }, r => { r.provenance.promptDigest = 'sha256:' + '0'.repeat(64); }]) {
+    const result = artifact(); change(result); assert.equal(isUIArtifact(result), false);
+  }
 });

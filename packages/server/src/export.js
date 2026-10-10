@@ -52,7 +52,8 @@ export function exportSession(session, artifacts = [], withheld = []) {
         .filter(key => u[key] !== undefined).map(key => [key, u[key]])))) } : {}),
     ...(concepts.length ? { 'concepts.json': json(concepts) } : {}),
     ...(artifacts.length || omissions.length ? { 'concepts-manifest.json': json({ version: 1,
-      included: artifacts.map(a => ({ id: a.id, path: `concepts/${a.id}.${a.mediaType.split('/')[1]}` })), withheld: omissions }) } : {}),
+      included: artifacts.map(a => ({ id: a.id, path: `concepts/${a.id}.${a.mediaType.split('/')[1]}`,
+        ...(a.mediaType.startsWith('image/') ? { promptDigest: a.promptDigest, provenance: a.provenance } : {}) })), withheld: omissions }) } : {}),
     ...Object.fromEntries(artifacts.flatMap(a => [[`concepts/${a.id}.${a.mediaType.split('/')[1]}`, a.mediaType === HTML_MEDIA_TYPE
       ? frameDocument(new TextDecoder().decode(a.bytes), { standalone: true }) : a.bytes], [`concepts/${a.id}.provenance.json`, json(a.provenance)]])),
   });

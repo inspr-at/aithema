@@ -105,6 +105,9 @@ test('generate sends a resolved stdin brief and returns actual bytes, model and 
   assert.equal(result.mediaType, 'image/png'); assert.equal(result.width, 1536); assert.equal(result.height, 1024);
   assert.equal(result.provenance.generator.provider, 'codex-imagegen'); assert.equal(result.provenance.generator.model, f.binding.model);
   assert.equal(result.provenance.origin, 'ai-generated'); assert.equal(result.provenance.digitalSourceType, IPTC_DIGITAL_SOURCE.generated);
+  assert.deepEqual(result.provenance.credentials, { c2pa: 'absent', manifestByteLength: 0, verification: 'not-verified' });
+  assert.equal(result.provenance.promptDigest, result.promptDigest);
+  assert.deepEqual(result.provenance.assurances, { digitallySigned: false, imperceptibleWatermark: 'unknown', watermarkSource: null });
   assert.equal(result.provenance.subject.contentDigest, `sha-256=:${createHash('sha256').update(result.bytes).digest('base64')}:`);
   assert.equal(result.promptDigest, `sha256:${createHash('sha256').update(record.brief).digest('hex')}`);
   assert.deepEqual(record.args.slice(0, 5), ['exec', '-m', 'fixture-model', '-c', 'model_reasoning_effort="high"']);

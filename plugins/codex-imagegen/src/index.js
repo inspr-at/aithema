@@ -33,11 +33,13 @@ function artifactFor(bytes, brief, model, operation, spec) {
   if (mediaType !== `image/${spec.format ?? 'png'}` ||
     Math.abs(width - requestedWidth) > requestedWidth * 0.05 ||
     Math.abs(height - requestedHeight) > requestedHeight * 0.05) throw new PluginError('invalid-output');
-  return { bytes, mediaType, width, height, promptDigest: `sha256:${createHash('sha256').update(brief).digest('hex')}`,
+  const promptDigest = `sha256:${createHash('sha256').update(brief).digest('hex')}`;
+  return { bytes, mediaType, width, height, promptDigest,
     provenance: { version: 1, origin: edited ? 'ai-manipulated' : 'ai-generated', modality: 'image',
       digitalSourceType: IPTC_DIGITAL_SOURCE[edited ? 'manipulated' : 'generated'], generatedAt: new Date().toISOString(),
-      generator: { provider: 'codex-imagegen', model }, techniques: ['response-field'],
-      assurances: { digitallySigned: false, imperceptibleWatermark: 'provider-status-unknown' },
+      generator: { provider: 'codex-imagegen', model }, promptDigest, techniques: ['response-field', 'sidecar'],
+      credentials: { c2pa: 'absent', manifestByteLength: 0, verification: 'not-verified' },
+      assurances: { digitallySigned: false, imperceptibleWatermark: 'unknown', watermarkSource: null },
       subject: { contentDigest: `sha-256=:${createHash('sha256').update(bytes).digest('base64')}:`, mediaType } } };
 }
 
