@@ -54,30 +54,37 @@ test('viewer opens cached bytes without spending and has accessible title, count
   assert.ok(calls.every(c => new Headers(c.options.headers).get('x-aithema-session-token') === 'owner-fixture'));
   assert.equal(root.innerHTML.includes('owner-fixture'), false); assert.equal(c.session.conceptIntent.visualIntent, null);
 });
-test('thumbs and removable guidance persist on their artifact; regenerate shows cost and records explicit intent', async t => {
+test('thumbs and guidance toggles persist on their artifact; regenerate shows cost and records explicit intent', async t => {
   const { c, root, calls } = setup(t); root.querySelector('.concept-tab').click(); await tick();
   assert.match(root.querySelector('.concept-regenerate').textContent, /1234/);
   root.querySelector('.concept-up').click(); await tick(); assert.equal(c.session.concepts[0].feedback.vote, 'up');
-  root.querySelector('.concept-guidance-options button').click(); await tick();
-  assert.deepEqual(c.session.concepts[0].feedback.chips, ['Simpler layout']);
-  root.querySelector('.concept-guidance-selected button').click(); await tick(); assert.deepEqual(c.session.concepts[0].feedback.chips, []);
+  assert.equal(root.querySelector('.concept-up').getAttribute('aria-pressed'), 'true');
+  const toggle = root.querySelector('.concept-guidance-options button'); assert.equal(toggle.getAttribute('aria-pressed'), 'false');
+  toggle.click(); await tick();
+  assert.deepEqual(c.session.concepts[0].feedback.chips, ['Simpler layout']); assert.equal(toggle.getAttribute('aria-pressed'), 'true');
+  // Pressing the same toggle again removes the guidance (GUI-27: toggles, not pills with a separate remove row).
+  toggle.click(); await tick(); assert.deepEqual(c.session.concepts[0].feedback.chips, []); assert.equal(toggle.getAttribute('aria-pressed'), 'false');
+  assert.equal(root.querySelector('.concept-guidance-selected'), null);
   root.querySelector('.concept-regenerate').click(); await tick();
   const spending = calls.filter(c => c.url.endsWith('/regenerate')); assert.equal(spending.length, 1);
   assert.deepEqual(JSON.parse(spending[0].options.body), { clientEventId: JSON.parse(spending[0].options.body).clientEventId, intent: true, sourceTurnId: 'first' });
   assert.equal(calls.filter(c => c.options.body).length, 4, 'feedback never generates implicitly');
 });
-test('a focused guidance button keeps its node and focus through unsolicited live renders (AIT-116 focus)', async t => {
-  const { c, root } = setup(t, { concepts: [item('image1', { feedback: { vote: 'up', chips: ['Simpler layout'] } })] });
+test('a focused guidance toggle keeps its node and focus through unsolicited live renders (AIT-116 focus)', async t => {
+  const { c, root } = setup(t, { concepts: [item('image1', { feedback: { vote: 'up', chips: ['Simpler layout', 'Older guidance'] } })] });
   document.body.append(c); root.querySelector('.concept-tab').click(); await tick();
-  const chip = root.querySelector('.concept-guidance-selected button'); chip.focus();
+  const pressed = () => [...root.querySelectorAll('.concept-guidance-options button[aria-pressed="true"]')].map(b => b.textContent);
+  // Guidance outside the fixed choices (e.g. saved in another language) is an extra pressed toggle after them.
+  assert.deepEqual(pressed(), ['Simpler layout', 'Older guidance']);
+  const chip = root.querySelector('.concept-guidance-options button[data-value="Simpler layout"]'); chip.focus();
   assert.ok(root.activeElement === chip);
   c.receive({ seq: c.session.seq + 1, type: 'concept.state', data: { intent: c.session.conceptIntent, status: { phase: 'ready' }, artifact: item('image2') } });
   c.receive({ seq: c.session.seq + 1, type: 'concept.feedback', data: { artifactId: 'image1', vote: 'up', chips: ['Simpler layout', 'More contrast'], archived: false } });
-  assert.ok(root.querySelector('.concept-guidance-selected button') === chip, 'the selected guidance button survives');
+  assert.ok(root.querySelector('.concept-guidance-options button[data-value="Simpler layout"]') === chip, 'the pressed guidance toggle survives');
   assert.equal(chip.isConnected, true); assert.ok(root.activeElement === chip, 'keyboard focus stays on it');
-  assert.deepEqual([...root.querySelectorAll('.concept-guidance-selected button')].map(b => b.textContent),
-    ['Remove: Simpler layout', 'Remove: More contrast']);
-  root.querySelector('.concept-guidance-selected button:last-child').click(); await tick();
+  assert.deepEqual(pressed(), ['Simpler layout', 'More contrast'], 'the extra toggle went with its guidance');
+  assert.equal(root.querySelectorAll('.concept-guidance-options button').length, en.conceptGuidance.length);
+  root.querySelector('.concept-guidance-options button[data-value="More contrast"]').click(); await tick();
   assert.deepEqual(c.session.concepts[0].feedback.chips, ['Simpler layout'], 'removal uses the current chips');
 });
 test('a live pending update that disables the focused Regenerate keeps focus in the viewer, in both POST/SSE orders (AIT-116 gate 3)', async t => {
@@ -130,7 +137,7 @@ test('a foreign baseUrl receives no owner-authenticated concept request: request
       'Like': () => root.querySelector('.concept-up').click(),
       'Dislike': () => root.querySelector('.concept-down').click(),
       'add guidance': () => root.querySelector('.concept-guidance-options button:nth-child(2)').click(),
-      'remove guidance': () => root.querySelector('.concept-guidance-selected button').click(),
+      'remove guidance': () => root.querySelector('.concept-guidance-options button[aria-pressed="true"]').click(),
       'download': () => root.querySelector('.concept-download').click(),
       'Reject': () => root.querySelector('.concept-reject').click(),
       'eligibility': () => { t.mock.method(document, 'hidden', () => true, { getter: true }); document.dispatchEvent(new window.Event('visibilitychange')); },
@@ -161,8 +168,8 @@ test('automatic concept arrivals render under the pointer; composer, tabs and vi
   controls.dispatchEvent(new window.Event('pointerleave')); assert.equal(count.textContent, '2 of 2');
   const css = root.querySelector('style').textContent;
   assert.match(css, /grid-template-rows:3.6rem 8rem 5.4rem minmax\(0,1fr\) 10rem/);
-  assert.match(css, /grid-template-rows:4rem minmax\(0,1fr\) 17rem/);
-  assert.match(css, /concept-guidance-selected \{ height:2.3rem/);
+  assert.match(css, /grid-template-rows:4rem minmax\(0,1fr\) 12.5rem/);
+  assert.match(css, /concept-navigation, \.concept-feedback \{ display:flex; align-items:center; gap:\.25rem; height:2\.75rem; \}/);
 });
 test('progress never reports estimated completion; failure offers an explicit retry; pause disables spending without hiding cached viewer', async t => {
   assert.deepEqual(conceptProgress({ startedAt: 0, estimateMs: 45000 }, 50000), { percent: 99, seconds: 0, overdue: true });
@@ -288,12 +295,12 @@ test('a revision waits while a viewer control holds focus or the pointer rests o
     const view = previous = setup(t, { concepts: [draft('html1', { feedback: { vote: 'up', chips: ['Simpler layout'] } })], session: { conceptVisualKind: 'html' } });
     document.body.append(view.c); view.root.querySelector('.concept-tab').click(); await tick(); await tick(); return view;
   };
-  // "Remove: <chip>" on the latest draft holds focus while a revision arrives.
+  // A pressed guidance toggle on the latest draft holds focus while a revision arrives.
   const { c, root } = await viewer(), preview = root.querySelector('.concept-html'), shown = preview.artifact;
-  const chip = root.querySelector('.concept-guidance-selected button'); chip.focus(); assert.ok(root.activeElement === chip);
+  const chip = root.querySelector('.concept-guidance-options button[aria-pressed="true"]'); chip.focus(); assert.ok(root.activeElement === chip);
   arrive(c, 'html2'); await tick(); await tick();
-  assert.ok(root.activeElement === chip, 'focus stays on Remove: Simpler layout'); assert.equal(chip.isConnected, true);
-  assert.deepEqual([...root.querySelectorAll('.concept-guidance-selected button')].map(b => b.textContent), ['Remove: Simpler layout'], 'nothing is removed');
+  assert.ok(root.activeElement === chip, 'focus stays on the pressed Simpler layout toggle'); assert.equal(chip.isConnected, true);
+  assert.deepEqual([...root.querySelectorAll('.concept-guidance-options button[aria-pressed="true"]')].map(b => b.textContent), ['Simpler layout'], 'nothing is removed');
   assert.equal(root.querySelector('.concept-viewer-message').textContent, en.conceptDraftNewer, 'the newer-revision notice appears');
   assert.equal(root.querySelector('.concept-count').textContent, '1 of 2'); assert.equal(root.querySelector('#concept-title').textContent, 'Draft revision 1');
   assert.equal(preview.artifact, shown, 'the shown draft keeps its frame'); assert.equal(root.querySelector('.concept-next').disabled, false);

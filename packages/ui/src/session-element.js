@@ -8,7 +8,7 @@ import { SETTINGS_OFF, isDynamicReason, isConsentReason } from '../../core/src/s
 import { AudioRail } from './audio-rail.js';
 import { styles } from './styles.js';
 import { settingsStyles } from './settings-styles.js';
-import { SettingsDialog, ICONS, PRESET_ORDER, reasonText, engineView } from './settings-dialog.js';
+import { SettingsDialog, ICONS, PRESET_ORDER, reasonText, engineView, catalogLabel } from './settings-dialog.js';
 import { LocalConnector } from './local-connector.js';
 import { postJson } from './post-json.js';
 import { voiceJournal, tabStorage, closeVoiceCall, answerVoicePings, voiceCallAbandoned } from './voice-orphan.js';
@@ -450,7 +450,7 @@ export class AithemaSession extends HTMLElement {
         row.querySelector('strong').textContent = t.role === 'user' ? copy.you : copy.assistant;
         row.querySelector('span').textContent = t.erased ? copy.withdrawn : t.content;
         // Which acknowledged model and response style produced a reply.
-        const engine = t.role === 'assistant' && !t.erased && t.engine?.label ? [t.engine.label,
+        const engine = t.role === 'assistant' && !t.erased && t.engine?.label ? [catalogLabel(copy, t.engine.label),
           t.engine.effort && t.engine.effort !== 'none' ? copy.settings.efforts[t.engine.effort] ?? t.engine.effort : null].filter(Boolean).join(' · ') : '';
         const tag = row.querySelector('.engine-tag');
         if (engine) (tag ?? row.appendChild(element('small', undefined, 'engine-tag'))).textContent = engine; else tag?.remove();
@@ -529,7 +529,7 @@ export class AithemaSession extends HTMLElement {
   #engineDetail() {
     const copy = this.#copy, preset = this.#session.processingPreset ?? 'best', view = engineView(this.#session);
     if (preset === 'device') return `${copy.engine.localModel}: ${this.#device?.model ?? copy.engine.notConnected}`;
-    const name = value => value === SETTINGS_OFF ? copy.engine.off : value.label ?? value.id;
+    const name = value => value === SETTINGS_OFF ? copy.engine.off : catalogLabel(copy, value.label ?? value.id);
     return [view.model && [name(view.model), view.effort && view.effort !== 'none' ? copy.settings.efforts[view.effort] ?? view.effort : null].filter(Boolean).join(' · '),
       `${copy.engine.voice}: ${name(view.voice)}`, `${copy.engine.visuals}: ${name(view.visuals)}`].filter(Boolean).join(' · ');
   }
@@ -660,7 +660,7 @@ export class AithemaSession extends HTMLElement {
     const copy = this.#copy, r = copy.ready, device = this.#session.processingPreset === 'device', view = engineView(this.#session);
     const consent = this.#consentState(), local = this.#device?.model;
     const voice = device ? SETTINGS_OFF : view.voice, visuals = device ? SETTINGS_OFF : view.visuals;
-    const effort = view.effort, model = view.model?.label ?? view.model?.id;
+    const effort = view.effort, model = catalogLabel(copy, view.model?.label ?? view.model?.id);
     const rows = [
       ['model', r.model, device ? local ? `${copy.engine.localModel}: ${local}` : r.notConnected
         : [model, effort && effort !== 'none' ? copy.settings.efforts[effort] ?? effort : null].filter(Boolean).join(' · '), device && !local ? 'pending' : 'selected'],

@@ -8,8 +8,9 @@ export const settingsStyles = `
 .engine { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:.2rem 1rem; }
 .engine__text { min-width:0; display:grid; gap:.1rem; }
 .engine__label { font-size:.7rem; color:var(--aithema-muted); }
-.engine__value { font-size:.92rem; font-weight:650; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.engine__detail { font-size:.72rem; color:var(--aithema-muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* The choice wraps rather than ending in "…"; the band scrolls if a long one needs it. */
+.engine__value { font-size:.92rem; font-weight:650; overflow-wrap:anywhere; }
+.engine__detail { font-size:.72rem; color:var(--aithema-muted); overflow-wrap:anywhere; }
 .settings-open { display:inline-flex; align-items:center; gap:.4rem; min-height:2.75rem; font-size:.8rem; white-space:nowrap; }
 .settings-open svg, .chooser__continue svg, .done svg { display:block; flex:none; }
 
@@ -27,11 +28,16 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .settings__header { flex:none; display:grid; grid-template-columns:auto minmax(0,1fr); align-items:end; gap:0 2rem; padding:.6rem 1.6rem 0; }
 .settings__title { font:400 1.9rem/1.15 Georgia,serif; letter-spacing:-.02em; padding-bottom:.45rem; }
 .settings__tabs { display:flex; gap:.4rem; border-bottom:1px solid var(--aithema-line); }
-.settings__tabs button { flex:1; display:flex; align-items:center; justify-content:center; gap:.45rem; border:0; border-radius:0;
-  border-bottom:3px solid transparent; background:transparent; padding:.55rem .3rem; white-space:nowrap; }
-.settings__tabs button[aria-selected=true] { border-bottom-color:var(--aithema-accent); font-weight:650; }
-.tab-icon { display:grid; place-items:center; width:1.15rem; height:1.15rem; color:var(--aithema-accent); }
-.tab-icon svg { display:block; width:100%; height:100%; }
+/* GUI-27: the selected tab is marked by a check in a slot every tab keeps, ink text and an accent icon,
+   never by a line only it has and never by colour alone. Weight never changes. */
+.settings__tabs button { flex:1; display:flex; align-items:center; justify-content:center; gap:.45rem; border:0; border-radius:.45rem .45rem 0 0;
+  background:transparent; padding:.55rem .3rem; white-space:nowrap; font-weight:600; color:var(--aithema-muted); }
+.settings__tabs button[aria-selected=true] { color:var(--aithema-ink); }
+.tab-icon, .tab-check { flex:none; display:grid; place-items:center; width:1.15rem; height:1.15rem; color:var(--aithema-muted); }
+.settings__tabs button[aria-selected=true] .tab-icon { color:var(--aithema-accent); }
+.tab-check { width:.9rem; height:.9rem; color:var(--aithema-accent); visibility:hidden; }
+.settings__tabs button[aria-selected=true] .tab-check { visibility:visible; }
+.tab-icon svg, .tab-check svg { display:block; width:100%; height:100%; }
 .settings__body { flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding:1.2rem 1.6rem; }
 .settings-panel { display:grid; gap:1.4rem; min-width:0; }
 .settings-panel[data-panel=model] { grid-template-columns:minmax(0,1.08fr) minmax(0,1fr) minmax(0,.95fr); align-items:start; }
@@ -74,14 +80,14 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .effort__track input { flex:1; min-width:0; height:2.75rem; margin:0; accent-color:var(--aithema-accent); }
 .effort output { justify-self:center; font-size:.75rem; color:var(--aithema-muted); min-height:1.1rem; }
 .note { font-size:.75rem; color:var(--aithema-muted); line-height:1.5; }
-.notice-area { display:grid; border:1px solid transparent; border-radius:.65rem; padding:.55rem .7rem; }
+.notice-area { display:grid; border-radius:.45rem; padding:.55rem .7rem; }
 .notice-area>* { grid-area:1/1; min-width:0; }
-.notice-area[data-kind]:not([data-kind=""]) { border-color:var(--aithema-line); background:color-mix(in srgb,var(--aithema-amber) 9%,transparent); }
+.notice-area[data-kind]:not([data-kind=""]) { background:color-mix(in srgb,var(--aithema-amber) 9%,transparent); }
 .notice-body { display:grid; gap:.45rem; align-content:start; }
 .notice-measure { visibility:hidden; pointer-events:none; user-select:none; display:grid; gap:.45rem; }
 .notice-text { font-size:.78rem; line-height:1.45; }
 .notice-action { justify-self:start; font-size:.78rem; }
-.gauge-panel { position:relative; overflow:hidden; padding:1rem .7rem; border:1px solid var(--aithema-line); border-radius:.85rem;
+.gauge-panel { position:relative; overflow:hidden; padding:1rem .7rem; border-radius:.85rem;
   background:radial-gradient(ellipse at 25% 0%,#fffefd,transparent 65%),linear-gradient(155deg,#faf8f3,#f7f9f6 55%,#e6f0ef); }
 .gauges { position:relative; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1rem .5rem; }
 .gauge { min-width:0; text-align:center; --liquid:var(--aithema-gauge-quality); }
@@ -110,12 +116,14 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .gauge__etch { position:absolute; inset:0; display:grid; place-items:center; pointer-events:none; color:var(--aithema-ink); opacity:.35; }
 .gauge__etch svg { display:block; width:1.6rem; height:1.6rem; }
 .gauge figcaption { margin-top:.35rem; font-size:.8rem; line-height:1.2; }
-.gauge__detail { display:block; margin-top:.15rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:.64rem; line-height:1.3; color:var(--aithema-muted); }
+/* Two reserved lines: a long (German) detail wraps instead of ending in "…", and no gauge moves. */
+.gauge__detail { display:block; margin-top:.15rem; min-height:2.6em; overflow-wrap:anywhere; font-size:.64rem; line-height:1.3; color:var(--aithema-muted); }
 @keyframes gauge-flow { to { transform:translateX(50%); } }
 @keyframes gauge-flow-back { from { transform:translateX(50%); } to { transform:translateX(0); } }
 @keyframes gauge-drift { to { transform:translateY(-12px); } }
-.settings-context { flex:none; display:flex; align-items:center; gap:.85rem; margin:0 1.6rem .5rem; padding:.6rem 1rem; border:1px solid var(--aithema-line);
-  border-radius:.65rem; color:var(--aithema-muted); font-size:.75rem; line-height:1.5; background:linear-gradient(110deg,color-mix(in srgb,var(--aithema-accent) 5%,transparent),transparent); }
+/* The help line sits on one hairline above the footer, not in a box. */
+.settings-context { flex:none; display:flex; align-items:center; gap:.85rem; margin:0 1.6rem .5rem; padding:.6rem 0 0; border-top:1px solid var(--aithema-line);
+  color:var(--aithema-muted); font-size:.75rem; line-height:1.5; }
 .context-icon { flex:none; display:grid; place-items:center; width:1.2rem; height:1.2rem; border-radius:50%; border:1.5px solid var(--aithema-accent); color:var(--aithema-accent); font:700 .7rem/1 Georgia,serif; }
 .context-text { flex:1; min-width:0; display:grid; align-items:center; }
 .context-text>p { grid-area:1/1; overflow-wrap:anywhere; }
@@ -143,7 +151,7 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .general { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1.6rem; align-items:start; }
 .general section { display:grid; gap:.6rem; align-content:start; }
 .general h3 { font:400 1.25rem/1.2 Georgia,serif; }
-.general button { justify-self:start; }
+.general button { justify-self:start; margin-left:-.85rem; }
 .status-line { font-size:.85rem; }
 .local { display:grid; gap:1.1rem; }
 .local__heading { display:flex; gap:.8rem; align-items:center; }
@@ -158,21 +166,19 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .hint { font-size:.72rem; color:var(--aithema-muted); line-height:1.45; }
 .local__actions { display:flex; flex-wrap:wrap; align-items:center; gap:.6rem; }
 .local-status { flex-basis:100%; min-height:1.4em; font-size:.75rem; color:var(--aithema-muted); }
-.local-error { color:var(--aithema-error); font-size:.8rem; } .local-connect { background:var(--aithema-accent); color:var(--aithema-on-accent); border-color:var(--aithema-accent); }
-.local-connect:hover:not(:disabled) { background:color-mix(in srgb,var(--aithema-accent) 82%,black); }
+.local-error { color:var(--aithema-error); font-size:.8rem; }
 .local__model { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:.4rem .6rem; align-items:end; } .local__model label { grid-column:1/-1; }
 .local ol { margin:0; padding-left:1.2rem; display:grid; gap:.5rem; font-size:.8rem; list-style:decimal; }
 .local ol li::marker { color:var(--aithema-accent); font-weight:600; }
 .local pre { margin:.3rem 0; padding:.6rem; overflow:auto; border-radius:.5rem; background:color-mix(in srgb,var(--aithema-ink) 7%,transparent); font-size:.72rem; }
 .local code.origin { display:inline-block; font-size:.75rem; overflow-wrap:anywhere; }
-.recovery { display:grid; gap:.4rem; padding:.7rem; border:1px solid color-mix(in srgb,var(--aithema-amber) 60%,transparent); border-radius:.6rem;
-  background:color-mix(in srgb,var(--aithema-amber) 8%,transparent); }
+.recovery { display:grid; gap:.4rem; padding:.7rem; border-radius:.45rem; background:color-mix(in srgb,var(--aithema-amber) 9%,transparent); }
 .setup-details { display:grid; gap:.6rem; } .setup-details summary { cursor:pointer; font-weight:600; }
 .local__messages { height:12rem; overflow:auto; display:grid; align-content:start; gap:.5rem; padding:.6rem; border:1px solid var(--aithema-line); border-radius:.6rem; }
 .local__messages .message { display:grid; gap:.1rem; font-size:.82rem; white-space:pre-wrap; overflow-wrap:anywhere; }
 .local__messages strong { font-size:.68rem; color:var(--aithema-muted); }
 .local__chat-head { display:flex; align-items:center; gap:.6rem; } .local__chat-head h4 { flex:1; }
-.badge { font-size:.62rem; letter-spacing:.06em; padding:.1rem .4rem; border:1px solid var(--aithema-line); border-radius:.3rem; color:var(--aithema-muted); }
+.badge { font-size:.75rem; color:var(--aithema-muted); }
 .local__composer { display:grid; gap:.4rem; } .local__composer .actions { display:flex; justify-content:flex-end; gap:.5rem; }
 
 .conversation { position:relative; }
@@ -204,11 +210,11 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .chooser__summary strong { font:600 .86rem/1.4 Georgia,serif; }
 .chooser__measure { visibility:hidden; pointer-events:none; user-select:none; }
 .chooser__hint>span { font-size:.72rem; color:var(--aithema-muted); }
-.chooser__continue { display:inline-flex; align-items:center; gap:.6rem; min-height:2.9rem; padding:.45rem .5rem .45rem 1.1rem; color:#fff; font-weight:650;
+.chooser__continue { display:inline-flex; align-items:center; gap:.5rem; min-height:2.9rem; padding:.45rem .8rem .45rem 1.1rem; color:#fff; font-weight:650;
   border:1px solid color-mix(in srgb,var(--aithema-ink) 70%,transparent); border-radius:.8rem;
   background:linear-gradient(135deg,color-mix(in srgb,var(--aithema-ink) 85%,var(--aithema-accent)),var(--aithema-ink)); }
 .chooser__continue:hover:not(:disabled) { background:var(--aithema-ink); }
-.chooser__arrow { display:grid; place-items:center; width:2rem; height:2rem; border-radius:.6rem; background:var(--aithema-accent); }
+.chooser__arrow { display:grid; place-items:center; width:1.4rem; height:2rem; }
 .chooser__error { min-height:1.3em; font-size:.75rem; color:var(--aithema-error); }
 .ready { display:grid; gap:.6rem; max-width:34rem; }
 .ready dl { display:grid; gap:.45rem; margin:0; }
@@ -219,7 +225,7 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
   color:var(--aithema-accent); background:color-mix(in srgb,var(--aithema-accent) 12%,transparent); font-size:.65rem; }
 .ready__row[data-state=confirmed] .ready__check, .ready__row[data-state=selected] .ready__check { visibility:visible; }
 .ready__row[data-state=off] dd { color:var(--aithema-muted); } .ready__row[data-state=pending] dd { color:var(--aithema-warning); }
-.ready__actions { display:flex; flex-wrap:wrap; gap:.5rem; } .ready__actions button { font-size:.78rem; }
+.ready__actions { display:flex; flex-wrap:wrap; gap:.25rem; margin-left:-.85rem; } .ready__actions button { font-size:.8rem; }
 .turn small.engine-tag { display:block; margin-top:.35rem; font-size:.64rem; color:var(--aithema-muted); }
 
 @media(max-width:75rem) { .settings-panel[data-panel=model] { grid-template-columns:minmax(0,1.1fr) minmax(0,1fr); }

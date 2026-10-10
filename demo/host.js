@@ -39,13 +39,26 @@ function paintPage() {
     }
   }
   else if (binding.voiceMode === 'elevenlabs') { text('#consent-title', copy.voiceHostConsentTitle); text('#consent-text', copy.voiceHostConsent); document.querySelector('#grant').title = copy.voiceHostConsent; }
-  else { text('#consent-title', h.consentTitle); text('#consent-text', h.consentText); }
-  text('#provider', [binding.label, binding.imageLabel].map(label => h.labels[label] ?? label).join(' · ')
-    + (binding.voiceDisabledReason ? ` · ${h.voiceUnavailable.replace('{reason}', reasonText(copy, binding.voiceDisabledReason))}` : ''));
+  else text('#consent-title', h.consentTitle);
+  paintVisuals();
   const choice = document.querySelector('#locale');
   for (const option of choice.options) option.textContent = h.languages[option.value];
   choice.value = preferredLocale();
   text('#language-note', choice.value === component.session?.locale ? '' : h.languageNext.replace('{language}', h.languages[choice.value]));
+}
+// The header and the mock consent name the visual kind this conversation uses (AIT-118): the
+// server's selected visuals and kind pick the HTML or image binding; visuals off name none.
+function visualKind() {
+  const session = component.session, visuals = session?.engine?.visuals;
+  if (!visuals || visuals === 'off' || session.processingPreset === 'device') return 'off';
+  return session.conceptVisualKind === 'html' ? 'html' : 'images';
+}
+function paintVisuals() {
+  const h = copy.host, kind = visualKind(), raw = { html: binding.htmlLabel, images: binding.imageLabel }[kind];
+  const visuals = kind === 'off' ? h.visualsOff : h.labels[raw] ?? raw;
+  document.querySelector('#provider').textContent = [h.labels[binding.label] ?? binding.label, visuals].join(' · ')
+    + (binding.voiceDisabledReason ? ` · ${h.voiceUnavailable.replace('{reason}', reasonText(copy, binding.voiceDisabledReason))}` : '');
+  if (!binding.processingConsent && binding.voiceMode !== 'elevenlabs') document.querySelector('#consent-text').textContent = `${h.consentUse[kind]} ${h.consentTerms}`;
 }
 // The consent line follows the server's feature verdicts, never a remembered click (D8, D6).
 function paintConsent(force = false) {
@@ -126,7 +139,7 @@ component.addEventListener('aithema-consent', () => {
   document.querySelector('section[aria-labelledby="consent-title"]').scrollIntoView?.({ block: 'nearest' });
   (document.querySelector('#processing-items input:not(:checked)') ?? document.querySelector('#grant')).focus();
 });
-component.addEventListener('aithema-features', () => paintConsent());
+component.addEventListener('aithema-features', () => { paintVisuals(); paintConsent(); });
 document.querySelector('#locale').addEventListener('change', event => { localStorage.setItem(localeKey, event.target.value); paintPage(); });
 document.querySelector('#new').addEventListener('click', () => void open(true));
 for (const [selector, granted] of [['#grant', true], ['#revoke', false]]) {

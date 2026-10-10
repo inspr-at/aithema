@@ -5,7 +5,7 @@ import { createSession, inputRevision, reduceUnderstanding } from '@inspr/aithem
 import { en } from '../src/i18n/en.js';
 import { styles } from '../src/styles.js';
 import { settingsStyles } from '../src/settings-styles.js';
-import { contrast, mix, tokens } from '../../../test/contrast.js';
+import { contrast, mix, textPairs, tokens } from '../../../test/contrast.js';
 const window = new Window();
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
@@ -617,23 +617,35 @@ test('the German bundle covers every English key and renders the component in Ge
   assert.equal(root.querySelector('.composer-reason').textContent, de.reasons['current processing consent required']);
   assert.match(root.querySelector('.features').textContent, /Auswertung/);
 });
-test('dark tokens reach WCAG AA text contrast, placeholder and chat bubbles included (AIT-116 D9)', () => {
+test('every text pair reaches WCAG AA in light and dark, placeholder, bubbles and tints included (AIT-116 D9, AIT-118)', () => {
+  const light = tokens(styles.match(/^:host \{([^}]*)\}/mu)[1], 'aithema-');
   const dark = tokens(styles.match(/@media\(prefers-color-scheme:dark\) \{ :host \{([^}]*)\}/u)[1], 'aithema-');
-  assert.deepEqual(Object.keys(dark).sort(), ['accent', 'amber', 'error', 'ink', 'line', 'muted', 'on-accent', 'paper', 'surface', 'warning']);
+  const names = ['accent', 'amber', 'error', 'ink', 'line', 'muted', 'on-accent', 'paper', 'surface', 'warning'];
+  assert.deepEqual(Object.keys(light).sort(), names); assert.deepEqual(Object.keys(dark).sort(), names);
   // The placeholder uses the muted token, not the browser default (#757575 measured 3.51:1 on the dark surface).
   assert.match(styles, /textarea::placeholder \{ color:var\(--aithema-muted\); opacity:1; \}/u);
-  const bubble = mix(dark.ink, dark.paper, .07), userBubble = mix(dark.accent, dark.paper, .12);
-  const pairs = { 'ink on paper': [dark.ink, dark.paper], 'ink on surface': [dark.ink, dark.surface],
-    'muted on paper': [dark.muted, dark.paper], 'muted (placeholder, status, reasons) on surface': [dark.muted, dark.surface],
-    'accent link on surface': [dark.accent, dark.surface], 'on-accent on accent': [dark['on-accent'], dark.accent],
-    'ink on bubble': [dark.ink, bubble], 'muted on bubble': [dark.muted, bubble],
-    'ink on own bubble': [dark.ink, userBubble], 'muted on own bubble': [dark.muted, userBubble],
-    // The settings dialog, preset chooser and ready card (AIT-112) on the same tokens.
-    'warning (unavailable, pending) on surface': [dark.warning, dark.surface], 'error on surface': [dark.error, dark.surface],
-    'primary button text on its ink fill': [dark.paper, mix(dark.ink, dark.accent, .85)], 'primary button text on ink': [dark.paper, dark.ink] };
-  for (const [pair, [text, background]] of Object.entries(pairs)) {
-    assert.ok(contrast(text, background) >= 4.5, `${pair}: ${contrast(text, background).toFixed(2)}:1`);
+  // The light gauge panel's stops are fixed in the settings styles; dark follows the tokens.
+  const lightPanel = ['#fffefd', '#faf8f3', '#f7f9f6', '#e6f0ef'];
+  const themes = { light: textPairs(light, { primaryText: '#ffffff', gaugePanel: lightPanel }), dark: textPairs(dark, { primaryText: dark.paper }) };
+  assert.match(settingsStyles, /\.gauge-panel \{[^}]*radial-gradient\(ellipse at 25% 0%,#fffefd,transparent 65%\),linear-gradient\(155deg,#faf8f3,#f7f9f6 55%,#e6f0ef\); \}/u);
+  // The composited layers textPairs models are the ones the styles draw (AIT-118 gate).
+  assert.match(styles, /button:where\(:hover:not\(:disabled\)\) \{ background:color-mix\(in srgb,var\(--aithema-accent\) 8%,transparent\); \}/u);
+  assert.match(settingsStyles, /\.notice-area\[data-kind\]:not\(\[data-kind=""\]\) \{ background:color-mix\(in srgb,var\(--aithema-amber\) 9%,transparent\); \}/u);
+  assert.match(settingsStyles, /\.recovery \{[^}]*background:color-mix\(in srgb,var\(--aithema-amber\) 9%,transparent\); \}/u);
+  assert.match(settingsStyles, /\.settings-field legend \{[^}]*color:color-mix\(in oklab,var\(--aithema-ink\) 85%,transparent\); \}/u);
+  assert.match(settingsStyles, /\.gauge__value \{[^}]*opacity:\.85; \}/u);
+  assert.match(settingsStyles, /\.select__option:hover, \.select__option:focus-visible \{ background:color-mix\(in srgb,var\(--aithema-accent\) 10%,transparent\); \}/u);
+  assert.match(settingsStyles, /\.local pre \{[^}]*background:color-mix\(in srgb,var\(--aithema-ink\) 7%,transparent\);/u);
+  for (const [theme, pairs] of Object.entries(themes)) {
+    for (const pair of ['accent on hover tint over notice tint on surface', 'ink on hover tint over notice tint on paper', 'legend (ink 85 %) on ' + (theme === 'light' ? light : dark).surface,
+      `gauge value (ink at 0.85 opacity) on ${theme === 'light' ? '#e6f0ef' : dark.paper}`]) assert.ok(pairs[pair], `${theme}: ${pair} is checked`);
+    assert.ok(Object.keys(pairs).length >= 88, `${theme}: ${Object.keys(pairs).length} pairs`);
+    for (const [pair, [text, background]] of Object.entries(pairs)) {
+      assert.ok(contrast(text, background) >= 4.5, `${theme} ${pair}: ${contrast(text, background).toFixed(2)}:1`);
+    }
   }
+  // The values AIT-109 reported fail the same check: the test detects them.
+  assert.ok(contrast('#67777a', mix(light.accent, light.paper, .12)) < 4.5 && contrast('#67777a', light.paper) < 4.5);
   assert.ok(contrast('#757575', dark.surface) < 4.5, 'the fixture detects the reported default placeholder');
   // No settings colour is fixed to the light theme where dark text or a light fill would invert.
   const darkSettings = settingsStyles.match(/@media\(prefers-color-scheme:dark\) \{([\s\S]*?)\} \}/u)[1];

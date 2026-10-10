@@ -54,6 +54,8 @@ export function activeSelection(session) {
     visuals: settings.visuals ?? optionId(engine.visuals) ?? SETTINGS_OFF, revision: settings.revision ?? 0 };
 }
 /** Public labels for the acknowledged choice; a description older than the stored ids yields to them. */
+/** A host catalog label in the page language: the bundle's `catalogLabels` translate the host's names (AIT-118). */
+export const catalogLabel = (copy, label) => copy.catalogLabels?.[label] ?? label;
 export function engineView(session) {
   const engine = session.engine ?? {}, settings = session.settings ?? {}, fresh = engine.preset === undefined || engine.preset === session.processingPreset;
   const pick = (stored, described) => stored === null || stored === undefined ? (fresh ? described : null)
@@ -88,7 +90,7 @@ export class SettingsDialog {
     this.#dialog.innerHTML = `<div class="settings__frame">
       <header class="settings__header"><h2 class="settings__title" id="settings-title"></h2>
         <div class="settings__tabs" role="tablist">${['general', 'model', 'local'].map(tab => `<button type="button" role="tab" id="settings-tab-${tab}"
-          aria-controls="settings-panel-${tab}" data-tab="${tab}" data-help="${tab === 'model' ? 'processing' : tab}"><span class="tab-icon">${ICONS[tab]}</span><span class="tab-label"></span></button>`).join('')}</div></header>
+          aria-controls="settings-panel-${tab}" data-tab="${tab}" data-help="${tab === 'model' ? 'processing' : tab}"><span class="tab-icon">${ICONS[tab]}</span><span class="tab-label"></span><span class="tab-check" aria-hidden="true">${ICONS.check}</span></button>`).join('')}</div></header>
       <div class="settings__body">
         <section class="settings-panel" role="tabpanel" id="settings-panel-model" aria-labelledby="settings-tab-model" data-panel="model">
           <div class="settings-column">
@@ -472,7 +474,7 @@ export class SettingsDialog {
     const g = this.#copy.gauges, node = this.#q(`[data-gauge="${kind}"]`), level = node.querySelector('.gauge__level');
     const value = fill(g.values[gauge.state] ?? gauge.state, gauge);
     const details = { ...gauge, source: gauge.source?.name, asOf: gauge.source?.asOf, countries: gauge.countries?.join(', '),
-      operations: gauge.operations?.join(', ') || g.values.none };
+      operations: gauge.operations?.map(operation => g.operations?.[operation] ?? operation).join(', ') || g.values.none };
     const detail = fill(g.details[kind]?.[gauge.state] ?? '', details);
     node.querySelector('.gauge__value').textContent = value;
     node.querySelector('.gauge__detail').textContent = fill(g.short?.[kind]?.[gauge.state] ?? detail, details);
@@ -503,9 +505,10 @@ export class SettingsDialog {
       status.dataset.kind = kind; status.textContent = kind === 'unavailable' ? c.unavailable : kind === 'consent' ? c.consentNeeded : kind === 'limited' ? c.limited : '';
     }
     const models = device ? [] : info?.models ?? [];
-    const modelOptions = models.map(option => ({ value: option.id, label: option.label, vendor: option.facts?.vendor,
+    const named = label => catalogLabel(this.#copy, label);
+    const modelOptions = models.map(option => ({ value: option.id, label: named(option.label), vendor: named(option.facts?.vendor),
       status: this.#optionStatus(option), kind: option.status === 'available' ? '' : option.status, reason: option.status === 'available' ? '' : option.reason, help: 'model' }));
-    if (!device && draft.model && !models.some(o => o.id === draft.model)) modelOptions.push({ value: draft.model, label: state.session.engine?.model?.label ?? draft.model,
+    if (!device && draft.model && !models.some(o => o.id === draft.model)) modelOptions.push({ value: draft.model, label: named(state.session.engine?.model?.label) ?? draft.model,
       status: c.notOffered, kind: 'unavailable', reason: 'model not offered', help: 'model' });
     const localModel = this.#ports.connector?.model;
     if (device) this.#renderSelect('model', [{ value: 'local', label: localModel ?? this.#copy.ready.notConnected, help: 'localModel' }], 'local', { disabled: true });
@@ -520,7 +523,7 @@ export class SettingsDialog {
     this.#q('.effort-note').style.visibility = adjustable ? 'hidden' : '';
     this.#q('.effort-note').textContent = !catalog ? (this.#loadFailed ? c.loadFailed : c.loading) : device ? c.deviceNote : c.fixedEffort;
     const optional = (name, list, off, offLabel, help) => [{ value: SETTINGS_OFF, label: offLabel, icon: name === 'voice' ? ICONS.text : ICONS.off, help: off },
-      ...list.map(o => ({ value: o.id, label: o.label, vendor: o.facts?.vendor, status: this.#optionStatus(o), kind: o.status === 'available' ? '' : o.status,
+      ...list.map(o => ({ value: o.id, label: named(o.label), vendor: named(o.facts?.vendor), status: this.#optionStatus(o), kind: o.status === 'available' ? '' : o.status,
         reason: o.status === 'available' ? '' : o.reason, help }))];
     this.#renderSelect('voice', optional('voice', device ? [] : info?.voices ?? [], 'voiceOff', c.voiceOff, 'voice'), draft.voice ?? SETTINGS_OFF,
       { disabled: device || !catalog, reason: device ? 'unavailable on device' : '' });

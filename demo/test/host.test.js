@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Window } from 'happy-dom';
 import { startChild, temporaryDb } from '../../test/helpers.js';
-import { contrast, tokens } from '../../test/contrast.js';
+import { contrast, mix, tokens } from '../../test/contrast.js';
 
 test('demo host creates owned sessions through postJson and combines consent, pause and settings controls', { timeout: 15_000 }, async () => {
   const running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb());
@@ -70,6 +70,21 @@ test('demo host creates owned sessions through postJson and combines consent, pa
     await wait(() => component.session.settings.model === 'mock/deep');
     assert.equal(component.session.id, previousId, 'model changes apply to this conversation');
     assert.match(root.querySelector('.engine__detail').textContent, /Deep \(mock\)/u);
+    // AIT-118: the header and the mock consent name the active visual kind from the server's binding, never always the image label.
+    const { en: copy } = await import('../../packages/ui/src/i18n/en.js'), h = copy.host;
+    const header = () => document.querySelector('#provider').textContent, consentText = () => document.querySelector('#consent-text').textContent;
+    assert.equal(component.session.conceptVisualKind, 'html');
+    assert.equal(header(), `Mock reasoning — deterministic demo · ${h.labels['Fake HTML — local deterministic click-dummy, no provider network']}`);
+    assert.equal(header(), 'Mock reasoning — deterministic demo · Test drafts (local click-dummy)');
+    assert.equal(consentText(), `${h.consentUse.html} ${h.consentTerms}`); assert.doesNotMatch(consentText(), /image/u);
+    option('visuals', 'Fake images (local PNG)').click();
+    await wait(() => component.session.conceptVisualKind === 'images' && header().endsWith('Test images (local PNG)'));
+    assert.equal(consentText(), `${h.consentUse.images} ${h.consentTerms}`);
+    option('visuals', 'Off').click();
+    await wait(() => header().endsWith(h.visualsOff));
+    assert.equal(consentText(), `${h.consentUse.off} ${h.consentTerms}`); assert.doesNotMatch(consentText(), /draft|image/u);
+    option('visuals', 'Fake HTML (local click-dummy)').click();
+    await wait(() => header().endsWith('Test drafts (local click-dummy)'));
     dialog.querySelector('.preset-option[data-preset="custom"]').click();
     await wait(() => component.session.processingPreset === 'custom' && dialog.querySelector('.save-status').textContent === 'Changes saved');
     assert.equal(component.session.id, previousId);
@@ -96,10 +111,15 @@ test('demo host creates owned sessions through postJson and combines consent, pa
   }
 });
 
-test('demo page dark tokens reach WCAG AA text contrast (AIT-116 D9)', async () => {
+test('demo page tokens reach WCAG AA text contrast in light and dark (AIT-116 D9, AIT-118)', async () => {
   const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  const light = tokens(html.match(/^:root \{([^}]*)\}/mu)[1], '');
   const dark = tokens(html.match(/@media\(prefers-color-scheme:dark\) \{ :root \{([^}]*)\}/u)[1], '');
-  for (const [text, background] of [['ink', 'paper'], ['muted', 'paper'], ['accent', 'paper'], ['error', 'paper'], ['ink', 'surface']]) {
-    assert.ok(contrast(dark[text], dark[background]) >= 4.5, `${text} on ${background}: ${contrast(dark[text], dark[background]).toFixed(2)}:1`);
+  assert.match(html, /#grant \{ background:var\(--accent\); color:var\(--surface\); \}/u);
+  for (const [theme, t] of Object.entries({ light, dark })) {
+    const backgrounds = { paper: t.paper, surface: t.surface, 'hover tint': mix(t.accent, t.paper, .08) };
+    const pairs = [['surface on accent (Allow)', t.surface, t.accent], ['surface on hovered accent', t.surface, mix(t.accent, t.ink, .84)]];
+    for (const text of ['ink', 'muted', 'accent', 'error']) for (const [name, background] of Object.entries(backgrounds)) pairs.push([`${text} on ${name}`, t[text], background]);
+    for (const [pair, text, background] of pairs) assert.ok(contrast(text, background) >= 4.5, `${theme} ${pair}: ${contrast(text, background).toFixed(2)}:1`);
   }
 });
