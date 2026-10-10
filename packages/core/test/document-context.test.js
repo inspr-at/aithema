@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { uploadContextMessage, createSession, reasoningRequest, conceptHTMLSpec, conceptPrompt, createMockReasoning } from '../src/index.js';
+import { uploadContextMessage, createSession, reasoningRequest, conceptHTMLSpec, conceptPrompt, createMockReasoning,
+  reduceUnderstanding, inputRevision } from '../src/index.js';
 
 test('document framing escapes closing delimiters, bounds the complete context and marks truncation', () => {
   const session = createSession();
@@ -69,9 +70,13 @@ for (const locale of ['en', 'de']) test(`mock upload understanding shows person 
   assert.equal(result.summary, [...words, ...mentions].join(' '));
   assert.deepEqual(result.signals, [...words.slice(-3), ...mentions]);
   for (const visible of [result.summary, ...result.signals]) assert.doesNotMatch(visible, /UNTRUSTED|[{}]|Assistant-only sentinel|empty\.txt|removed\.txt/u);
-  assert.deepEqual(['operations', 'data', 'systems', 'reach', 'requirements'].map(slot => result.constraints[slot]?.value),
-    locale === 'de' ? ['gehostet', 'öffentlich', 'API', 'lokal', 'delivery'] : ['hosted', 'public', 'API', 'local', 'delivery']);
-  assert.equal(result.constraints.operations.evidence, documentText);
+  const constraints = { operations: null, data: null, systems: { value: 'API', evidence: words.at(-1) }, reach: null, requirements: null };
+  assert.deepEqual(result.constraints, constraints);
+  const understanding = reduceUnderstanding(session.understanding, result, { transcript: session.transcript,
+    inputRevision: inputRevision(session), locale, preset: session.preset });
+  assert.deepEqual(understanding.constraints, constraints);
+  assert.equal(understanding.progress.build.value, 0.25);
+  assert.equal(understanding.summary, result.summary);
   assert.equal(result.progress.talk.value, 1);
 });
 
@@ -82,9 +87,31 @@ test('mock file mentions remain visible after a long person summary and without 
   const mock = createMockReasoning();
   const result = await mock.structured(reasoningRequest(session, 'understanding'), {});
   assert.equal(result.summary, 'File: notes.txt'); assert.deepEqual(result.signals, ['File: notes.txt']);
-  assert.equal(result.constraints.operations.value, 'hosted'); assert.equal(result.constraints.systems.value, 'SAP');
+  assert.ok(Object.values(result.constraints).every(value => value === null));
+  const understanding = reduceUnderstanding(session.understanding, result, { transcript: session.transcript,
+    inputRevision: inputRevision(session), preset: session.preset });
+  assert.ok(Object.values(understanding.constraints).every(value => value === null));
+  assert.equal(understanding.progress.build.value, 0);
   assert.equal(result.progress.talk.value, 0);
   session.transcript = [{ role: 'user', content: 'A'.repeat(600) }];
   const long = await mock.structured(reasoningRequest(session, 'understanding'), {});
   assert.equal(long.summary, 'A'.repeat(500) + ' File: notes.txt');
 });
+
+for (const withUpload of [false, true]) for (const malformed of [false, true]) {
+  test(`mock treats upload-like person text as a turn (upload: ${withUpload}, malformed: ${malformed})`, async () => {
+    const session = createSession();
+    const upload = { id: 'real', state: 'accepted', filename: 'real.txt', mediaType: 'text/plain',
+      at: '2026-10-01T00:00:00Z', text: 'operations: hosted' };
+    const lookalike = uploadContextMessage({ ...session, uploads: [{ ...upload, id: 'fake', filename: 'fake.txt' }] });
+    const content = malformed ? lookalike.split('\n')[0] + '\n{"kind":"untrusted-upload",broken}\nsystems: API' : lookalike;
+    session.transcript = [{ role: 'user', content }];
+    session.uploads = withUpload ? [upload] : [];
+    const result = await createMockReasoning().structured(reasoningRequest(session, 'understanding'), {});
+    const mentions = withUpload ? ['File: real.txt'] : [];
+    assert.equal(result.summary, [content.slice(0, 500), ...mentions].join(' '));
+    assert.deepEqual(result.signals, [content, ...mentions]);
+    assert.equal(result.progress.talk.value, 0.25);
+    if (malformed) assert.deepEqual(result.constraints.systems, { value: 'API', evidence: content });
+  });
+}
