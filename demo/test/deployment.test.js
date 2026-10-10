@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { request } from 'node:http';
-import { startChild, temporaryDb } from '../../test/helpers.js';
+import { startChild, temporaryDb, post } from '../../test/helpers.js';
 import { deploymentConfig, deploymentGate } from '../deployment.js';
 import { openRouterConfig } from '../openrouter-config.js';
 import { spawnSync } from 'node:child_process';
@@ -59,6 +59,22 @@ test('unconfigured built-in live voice fails closed with a value-free reason; he
   const config = await fetch(running.url + '/demo/config').then(r => r.json());
   assert.equal(config.voiceMode, 'off'); assert.equal(config.voiceDisabledReason, 'template-agent-required');
   assert.equal((await fetch(running.url + '/healthz')).status, 200);
+});
+
+test('demo reads either voice-minute cap from env and exposes a feature and admission reason', async t => {
+  for (const [key, reason] of [['AITHEMA_VOICE_CAP_MINUTES', 'Voice minute cap reached for this deployment'],
+    ['AITHEMA_VOICE_CAP_MINUTES_PER_DAY', 'Voice minute cap reached for this UTC day']]) {
+    const running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb(), { [key]: '0' });
+    t.after(() => running.kill());
+    const created = await post(running.url + '/api/sessions', {}), session = await created.json();
+    const headers = { cookie: created.headers.get('set-cookie').split(';')[0] };
+    await post(running.url + `/api/sessions/${session.id}/consent`, { granted: true }, headers);
+    const granted = await fetch(running.url + `/api/sessions/${session.id}`, { headers }).then(r => r.json());
+    assert.equal(granted.featureMatrix.best.voice.reason, reason);
+    const response = await post(running.url + `/api/sessions/${session.id}/voice`, { callId: 'denied' }, headers);
+    assert.equal(response.status, 403); assert.deepEqual(await response.json(), { error: 'not-admitted', reason });
+    await running.kill();
+  }
 });
 
 test('speech defaults to the required understanding model with START token caps and analysis routing', () => {

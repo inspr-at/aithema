@@ -1,7 +1,7 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve, sep } from 'node:path';
-import { SQLiteStorage, createHandlers, createPluginRuntime, createMemoryConsentLedger, createFacadeSecrets, createVoiceProvider, createDurationBinding, createLocalImages, localImageBinding, createImageBinding, createSpendCap, createLocalHTML, localHTMLBinding, uiRenderLimitConfig, uploadLimitConfig } from '@inspr/aithema-server';
+import { SQLiteStorage, createHandlers, createPluginRuntime, createMemoryConsentLedger, createFacadeSecrets, createVoiceProvider, createDurationBinding, createLocalImages, localImageBinding, createImageBinding, createSpendCap, createVoiceCap, voiceCapConfig, createLocalHTML, localHTMLBinding, uiRenderLimitConfig, uploadLimitConfig } from '@inspr/aithema-server';
 import { createLocalVoiceProvider, localVoiceBinding } from '../packages/server/src/local-voice.js';
 import { listen } from '@inspr/aithema-server/http';
 import { createMockReasoning, PluginRegistry } from '@inspr/aithema-core';
@@ -34,11 +34,13 @@ const live = provider !== 'mock';
 const html = htmlConfig(process.env, openrouter ? [openrouter.reaction, openrouter.understanding] : [], { live });
 const uiRenderLimits = uiRenderLimitConfig(process.env);
 const uploadLimits = uploadLimitConfig(process.env);
+const voiceCaps = voiceCapConfig(process.env);
 const ownership = createOwnership(deployment);
 const root = fileURLToPath(new URL('../', import.meta.url));
 const defaultDb = resolve(root, '.data/session.sqlite');
 if (!process.env.AITHEMA_DB) await mkdir(resolve(root, '.data'), { recursive: true });
 const storage = new SQLiteStorage(process.env.AITHEMA_DB ?? defaultDb);
+const voiceCap = createVoiceCap({ storage, ...voiceCaps });
 // Private references resolve from the environment at dispatch, never into public config.
 const privateBinding = openrouter?.reaction ?? { plugin: provider, model: provider === 'mistral' ? (process.env.MISTRAL_MODEL ?? 'mistral-small-latest')
   : 'mock', effort: 'none',
@@ -97,7 +99,7 @@ const registry = new PluginRegistry().register(reasoning); if (voicePlugin) regi
 const presets = demoPresets({ provider, reaction: privateBinding, understanding: understandingBinding, voicePlugin,
   voiceBinding: voiceHost?.binding ?? localVoiceBinding, imagePlugin, imageBinding: imageSelection.images, htmlPlugin, htmlBinding: htmlSelection.html, htmlDemo: Boolean(html.demo), policy });
 registerDemoExtractors(registry, presets);
-const pluginRuntime = createPluginRuntime({ storage, reasoning, consent, registry, uiRenderLimits, presets });
+const pluginRuntime = createPluginRuntime({ storage, reasoning, consent, registry, uiRenderLimits, presets, voiceCap });
 const host = createDemoHost({ storage, demo: process.env.AITHEMA_PROVIDER === undefined,
   verificationRequired: process.env.AITHEMA_DEMO_VERIFY === '1' });
 const handlers = createHandlers({ storage, reasoning, pluginRuntime, consent, ownership, host, uploads: { limits: uploadLimits }, voice: voicePlugin ? { secrets, closeOrphan: voiceHost?.closeOrphan, staticSecretRef: voiceHost?.staticSecretRef, presentation: voiceHost?.presentation } : undefined }); await handlers.resume();

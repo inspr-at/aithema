@@ -499,6 +499,23 @@ holds. Recovery reserves the remaining duration and settles the old call in the
 background. Invalidation commits and cancels lanes immediately, revokes callback
 auth and sends `voice.state: closing` so the browser ends its SDK session before
 provider settlement. `handlers.idle()` and `handlers.close()` await settlements.
+Aggregate voice limits are optional: when `AITHEMA_VOICE_CAP_MINUTES` and
+`AITHEMA_VOICE_CAP_MINUTES_PER_DAY` are unset there is **no aggregate voice cap**.
+The demo reads both settings and persists its duration ledger in `AITHEMA_DB`.
+OPS must set both for start2 before wider exposure. Each admission reserves the
+call's maximum provider duration before facade provisioning or credential minting;
+insufficient deployment or UTC-day headroom refuses voice with a translated reason.
+Daily accounting uses the UTC date of admission, including each recovery attempt;
+rollover opens a new daily bucket without deleting old holds or lifetime usage.
+Confirmed closure settles to provider seconds (rounded up to milliseconds), including
+paused time. Uncertain and unreconciled attempts retain their entire hold until
+authenticated reconciliation. Recovery keeps the logical call identity and original
+deadline and reserves only the remaining duration: confirmed predecessors release
+headroom, while an overlapping unconfirmed predecessor still holds its reservation,
+so recovery can require additional headroom. Replayed commands do not reserve twice.
+Library hosts pass `createVoiceCap({storage, ...voiceCapConfig(values)})` as
+`voiceCap` to `createPluginRuntime`, await `handlers.resume()` at startup, and use
+`runtime.reconcileVoice(attemptId, confirmedTerminal)` for later authenticated usage.
 `budget.used(sessionId)` tracks upstream spend;
 `budget.visitorUsed(sessionId)` tracks voice visitor credits. Terminal usage
 retains full `providerSeconds`/`providerMinutes`, `pausedSeconds`, `visitorSeconds`,
@@ -1702,6 +1719,8 @@ Readiness of voice is separately visible in
 | `AITHEMA_OPENROUTER_PRICES` | Required JSON for every configured model: `{"<model>":{"prompt":<USD per token>,"completion":<USD per token>}}`; finite nonnegative prices; no catalog defaults |
 | `AITHEMA_OPENROUTER_CAP_USD` | Lifetime persisted account cap; decimal USD with up to six fractional digits, default `10` |
 | `AITHEMA_VOICE_MODE` | `elevenlabs` enables startup ensure; default `fake` locally and `off` on a live host, where `fake` is refused; `off` disables voice |
+| `AITHEMA_VOICE_CAP_MINUTES` | Optional deployment lifetime voice-minute budget in `AITHEMA_DB`; nonnegative decimal minutes (up to six fractional digits); unset means no aggregate total cap; `0` refuses new calls |
+| `AITHEMA_VOICE_CAP_MINUTES_PER_DAY` | Optional deployment voice-minute budget per UTC admission day in `AITHEMA_DB`; same decimal format; unset means no aggregate daily cap; OPS sets this and the total cap for start2 |
 | `ELEVENLABS_API_KEY` | ElevenLabs account key; reference resolves server-side only |
 | `AITHEMA_ELEVENLABS_TEMPLATE_AGENT_ID` | START agent to GET for selected voice/language/ASR/turn/privacy settings; never a write target |
 | `AITHEMA_VOICE_FACADE_SECRET` | Deployment callback bearer supplied by OPS; startup creates/updates its owned workspace-secret reference |

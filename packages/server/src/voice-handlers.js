@@ -3,6 +3,7 @@ import { PluginError, inputRevision, reasoningRequest, aiTextOrigin } from '@ins
 import { createCompletionsHandler } from '../../../plugins/elevenlabs/src/facade.js';
 import { voiceOperation } from '../../core/src/live-voice.js';
 import { ConflictError, NotFoundError } from './storage.js';
+import { VOICE_CAP_REASONS } from './voice-cap.js';
 
 const json = (value, status = 200) => Response.json(value, { status, headers: { 'cache-control': 'no-store' } });
 const idPattern = '[a-zA-Z0-9_-]{1,128}';
@@ -244,11 +245,13 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         if (error instanceof ConflictError) return json({ error: 'voice-conflict' }, 409);
         if (error instanceof SyntaxError || error instanceof TypeError) return json({ error: 'invalid-request' }, 400);
         if (error instanceof RangeError) return json({ error: 'size-limit' }, 413);
-        if (error instanceof PluginError) return json({ error: error.code }, error.code === 'not-admitted' ? 403 : error.code === 'deadline' ? 504 : 502);
+        if (error instanceof PluginError) return json({ error: error.code,
+          ...(VOICE_CAP_REASONS.has(error.message) ? { reason: error.message } : {}) }, error.code === 'not-admitted' ? 403 : error.code === 'deadline' ? 504 : 502);
         return json({ error: 'voice-unavailable' }, 503);
       }
     },
     async resume() {
+      runtime.recoverVoiceCap?.();
       // The exclusive writer has already conservatively recovered all open claims.
       for (const record of storage.voiceCalls()) {
         if (!staticSecretRef) await secrets.revoke(record.facadeSecretRef);
@@ -261,7 +264,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           try {
             const result = await voiceOperation({ deadlineAt: Date.now() + 1000 }, opts => closeOrphan(record, opts));
             if (result?.closureConfirmed === true && result.providerSessionId === record.providerSessionId) {
-              runtime.budget.reconcileVoice(record.attemptId, result);
+              runtime.reconcileVoice(record.attemptId, result);
               const saved = storage.voiceCalls(record.sessionId).find(c => c.providerSessionId === record.providerSessionId);
               storage.saveVoiceCall(record.sessionId, { ...saved, reconciliation: result, reconciliationPending: false });
             }

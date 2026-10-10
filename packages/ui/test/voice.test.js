@@ -5,6 +5,7 @@ import { createSession, inputRevision } from '@inspr/aithema-core';
 import { voiceEvents } from '../../core/src/live-voice.js';
 import { AudioRail } from '../src/audio-rail.js';
 import { en } from '../src/i18n/en.js';
+import { de } from '../src/i18n/de.js';
 import { manifest } from '../../../plugins/elevenlabs/src/manifest.js';
 import { styles } from '../src/styles.js';
 import { voiceJournal } from '../src/voice-orphan.js';
@@ -80,6 +81,23 @@ test('three failed reconnects expose recovery and typing controls, with distinct
   rail.failure({ name: 'NotFoundError' }); assert.equal(rail.error, en.voiceMicMissing);
   rail.failure({ code: 'deadline' }); assert.equal(rail.error, en.voiceDeadline);
 });
+test('voice admission cap races carry the reason through control and render plain English or formal German', async t => {
+  const { rail, root } = fixture(t);
+  const reasons = ['Voice minute cap reached for this deployment', 'Voice minute cap reached for this UTC day'];
+  for (const reason of reasons) {
+    t.mock.method(globalThis, 'fetch', async () => Response.json({ error: 'not-admitted', reason }, { status: 403 }));
+    const { control } = createVoiceControl({ sessionId: 'session' });
+    let error;
+    try { await control.start({ callId: 'call' }); } catch (failure) { error = failure; }
+    assert.equal(error.code, 'not-admitted'); assert.equal(error.reason, reason);
+    for (const copy of [en, de]) {
+      rail.copy = copy; rail.failure(error);
+      assert.equal(root.querySelector('.voice-state').textContent, copy.reasons[reason]);
+      assert.doesNotMatch(de.reasons[reason], /\b(?:du|dein|deine|dich|dir)\b/iu);
+    }
+  }
+});
+
 test('blocked SDK playback retries on a real user gesture and clears the message only after success', { timeout: 60_000 }, async t => {
   const { rail, root } = fixture(t); await rail.start(); let tries = 0;
   const blocked = Promise.withResolvers(), retried = Promise.withResolvers();

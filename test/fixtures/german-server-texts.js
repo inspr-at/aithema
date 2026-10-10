@@ -43,6 +43,7 @@ export const FEATURE_REASON_CODES = [
   // server ui-render-limits/spend-cap and OpenRouter plugin/facade.
   'UI render limit reached for this session', 'UI render limit reached for this UTC day',
   'OpenRouter spend cap exhausted', 'OpenRouter request exceeds spend reservation',
+  'Voice minute cap reached for this deployment', 'Voice minute cap reached for this UTC day',
   // claude-html health and ElevenLabs health.
   'cost ceiling breached', 'spend cap reached', 'spend ledger unreadable', 'credential unavailable',
   // server document upload availability.

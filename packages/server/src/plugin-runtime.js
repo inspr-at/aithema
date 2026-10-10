@@ -90,7 +90,7 @@ export function mockPresets() {
     eu: { plugins: [], bindings: {} }, custom: { plugins: [], bindings: {} } };
 }
 export function createPluginRuntime({ storage, reasoning = createMockReasoning(), registry = new PluginRegistry().register(reasoning),
-  presets = mockPresets(), consent, budget = new SQLiteBudgetLedger(storage), healthMs = 1000, now = () => Date.now(), uiRenderLimits = {},
+  presets = mockPresets(), consent, budget = new SQLiteBudgetLedger(storage), voiceCap, healthMs = 1000, now = () => Date.now(), uiRenderLimits = {},
   renderLimiter = createUIRenderLimiter({ storage, now, ...uiRenderLimits }) } = {}) {
   // Invalid host choices fail at startup instead of at a visitor's first request.
   for (const preset of PROCESSING_PRESETS) if (preset !== 'device') normalizeChoices(presets[preset]);
@@ -158,7 +158,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   const voiceAmounts = (binding, options) => {
     const milliseconds = options.spendDeadlineAt === undefined ? binding.maxDurationSeconds * 1000
       : Math.min(binding.maxDurationSeconds * 1000, Math.max(0, options.spendDeadlineAt - now()));
-    return { maxMicro: options.spendDeadlineAt === undefined ? binding.maxMicro : Math.ceil(milliseconds / 60_000 * binding.upstreamMicroPerMinute),
+    return { maxMilliseconds: Math.ceil(milliseconds), maxMicro: options.spendDeadlineAt === undefined ? binding.maxMicro : Math.ceil(milliseconds / 60_000 * binding.upstreamMicroPerMinute),
       maxVisitorMicro: Math.ceil(milliseconds / 60_000 * binding.visitorMicroPerMinute) };
   };
   async function evaluate(session, preset, feature, options) {
@@ -224,6 +224,10 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       if (reaction.reason) return { reason: `delegated reasoning: ${reaction.reason}` };
     }
     const amounts = feature === 'voice' ? voiceAmounts(binding, options) : { maxMicro: binding.maxMicro, maxVisitorMicro: 0 };
+    if (feature === 'voice' && !options.existingCall) {
+      const reason = voiceCap?.reason(amounts.maxMilliseconds);
+      if (reason) return { reason };
+    }
     if (visual(feature) && !options.existingCall && !storage.canStoreConcept(session.id, feature === 'html' ? MAX_HTML_BYTES : undefined)) return { reason: 'concept storage limit' };
     if (visual(feature) && !options.existingCall && renderLimiter.reason(session.id)) return { reason: renderLimiter.reason(session.id) };
     if (!options.existingCall && !budget.canAdmit(session.id, amounts.maxMicro, amounts.maxVisitorMicro)) return { reason: 'budget denied' };
@@ -300,7 +304,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     return { selection };
   }
   const runtime = {
-    budget, consent, visualKind, renderLimiter, selectionKey, choicesFor,
+    budget, voiceCap, consent, visualKind, renderLimiter, selectionKey, choicesFor,
     async uploadAvailability(session, options = {}) {
       return boundedEvaluate(session, session.processingPreset ?? 'best', 'uploads', options);
     },
@@ -512,15 +516,22 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const result = await this.checkVoice(session, options);
       if (!unchanged(session, 'voice')) throw new PluginError('not-admitted');
       const { binding, plugin } = result;
-      const { maxMicro, maxVisitorMicro } = voiceAmounts(binding, options);
+      const { maxMicro, maxVisitorMicro, maxMilliseconds } = voiceAmounts(binding, options);
       const { attemptId } = budget.admit({ sessionId: session.id, lane: 'voice', maxMicro, maxVisitorMicro,
         requestSha256: hash(request), bindingSha256: hash(binding) });
-      const claim = budget.claim(attemptId); let reported = false, consuming = false;
+      const claim = budget.claim(attemptId); let reported = false, consuming = false, dispatched = false, reservation;
       const report = terminal => {
-        const receipt = budget.settleVoice(claim.claimId, terminal); reported = true; return receipt;
+        const receipt = budget.settleVoice(claim.claimId, terminal); reported = true;
+        if (reservation && (!dispatched || terminal.closureConfirmed === true && terminal.outcome !== 'uncertain')) {
+          voiceCap.settle(reservation, dispatched ? terminal.usage.providerSeconds : 0);
+        }
+        return receipt;
       };
       const zero = () => report({ attemptId, outcome: 'cancelled', closureConfirmed: true, chargedMicro: 0,
         usage: { providerSeconds: 0, providerMinutes: 0, pausedSeconds: 0, visitorSeconds: 0, upstreamMicro: 0, visitorMicro: 0 } });
+      // Atomic aggregate admission precedes facade provisioning and provider credentials.
+      try { reservation = voiceCap?.reserve({ attemptId, sessionId: session.id, callId: request.callId, maxMilliseconds }); }
+      catch (error) { zero(); throw error; }
       const attempt = { ...claim, maxMicro, async consume() {
         if (reported || consuming) throw new PluginError('already-claimed');
         consuming = true;
@@ -535,12 +546,21 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
           }
           options.signal?.throwIfAborted();
           if (!unchanged(session, 'voice')) throw new PluginError('not-admitted');
-          claim.consume();
+          claim.consume(); dispatched = true;
         } catch { zero(); throw new PluginError('not-admitted', 'Voice dispatch refused'); }
       } };
       return { plugin, binding, options: { ...options, attempt, report }, finish() {
         if (!reported) report({ attemptId, outcome: 'uncertain', closureConfirmed: false, chargedMicro: maxMicro });
       } };
+    },
+    recoverVoiceCap() { voiceCap?.recover(); },
+    reconcileVoice(attemptId, terminal) {
+      const receipt = budget.reconcileVoice(attemptId, terminal);
+      // Calls made before the cap existed have no aggregate reservation.
+      if (voiceCap && storage.db.prepare('SELECT 1 FROM voice_cap_reservations WHERE attempt_id=?').get(attemptId)) {
+        voiceCap.settle({ attemptId }, terminal.usage.providerSeconds);
+      }
+      return receipt;
     },
     async admit({ session, lane, operation, request, options = {} }) {
       const invocationCurrent = () => unchanged(session, lane) && (lane !== 'concept' ||

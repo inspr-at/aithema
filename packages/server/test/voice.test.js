@@ -1,7 +1,7 @@
 import { test as nodeTest } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers, createPluginRuntime, createVoiceProvider, createFacadeSecrets, mockPresets,
-  SQLiteBudgetLedger } from '../src/index.js';
+  SQLiteBudgetLedger, createVoiceCap, VOICE_CAP_REASON, VOICE_DAY_CAP_REASON } from '../src/index.js';
 import { PluginRegistry, createMockReasoning, activeTurns, PluginError, inputRevision } from '@inspr/aithema-core';
 import { readFile } from 'node:fs/promises';
 import { temporaryDb, unzip } from '../../../test/helpers.js';
@@ -9,13 +9,14 @@ import { eventProbe } from '../../../test/voice-test-events.js';
 
 const test = (name, fn) => nodeTest(name, { timeout: 60_000 }, fn);
 
-export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, path, reasoning = createMockReasoning() } = {}) {
+export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, path, cap, reasoning = createMockReasoning() } = {}) {
   const storage = new SQLiteStorage(path), secrets = createFacadeSecrets();
   let clock = Date.now(), sequence = 0, covered = true, secretReads = 0, coverageReads = 0, healthReads = 0, releasing = false;
   const opened = new Map(), ended = new Set(), waiting = new Map(), provisioned = [], traffic = [], closeRequests = [];
   const providerEvents = eventProbe();
   const endClient = id => { ended.add(id); waiting.get(id)?.(); waiting.delete(id); };
   const now = () => clock;
+  const voiceCap = cap ? createVoiceCap({ storage, now, ...cap }) : undefined;
   const binding = { plugin: 'elevenlabs', model: 'fixture-agent', agentId: 'fixture-agent', effort: 'none',
     endpoint: 'https://provider.test', accountRef: 'fixture', secretRef: 'fixture-ref', maxMicro: 60_000,
     maxTokens: 1, rates: { inputMicro: 0, outputMicro: 0 }, maxDurationSeconds: 60,
@@ -48,7 +49,7 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
   presets.best.plugins.push('elevenlabs'); presets.best.bindings.voice = binding; presets.best.policy = { endpoints: [binding.endpoint] };
   const consent = { async coverage({ scope, consentRevision }) { coverageReads++; return { covered, ...scope, scope, consentRevision, checkedAt: clock, expiresAt: clock + 100_000 }; } };
   const registry = new PluginRegistry().register(createMockReasoning()).register(plugin);
-  const admittedRuntime = createPluginRuntime({ storage, registry, presets, consent, now });
+  const admittedRuntime = createPluginRuntime({ storage, registry, presets, consent, now, voiceCap });
   // Instrument reasoning after canonical admission; wrappers never gain mock trust.
   const runtime = { ...admittedRuntime, async admit(args) {
     const admitted = await admittedRuntime.admit(args);
@@ -62,11 +63,113 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
   const start = async (callId = 'call-1') => {
     const response = await route('/voice', { callId }); assert.equal(response.status, 201); return response.json();
   };
-  return { storage, secrets, runtime, handlers, session, route, start, presets, provisioned, traffic, now, plugin: registry.get('elevenlabs'), endClient, closeRequests,
+  return { storage, secrets, runtime, handlers, session, route, start, presets, provisioned, traffic, now, voiceCap, plugin: registry.get('elevenlabs'), endClient, closeRequests,
     waitForClosure: id => providerEvents.waitFor(event => event.type === 'details' && event.id === id),
     authChecks: () => ({ secretReads, coverageReads, healthReads }),
     advance: ms => { clock += ms; }, coverage: value => { covered = value; } };
 }
+
+for (const [limits, reason] of [[{ capMilliseconds: 59_999 }, VOICE_CAP_REASON], [{ perDayMilliseconds: 59_999 }, VOICE_DAY_CAP_REASON]]) {
+  test(`aggregate admission exposes ${reason} before credential minting or facade provisioning`, async t => {
+    const h = voiceFixture(t, { cap: limits });
+    const response = await h.route('/voice', { callId: 'denied' });
+    assert.equal(response.status, 403); assert.deepEqual(await response.json(), { error: 'not-admitted', reason });
+    assert.deepEqual(h.traffic, []); assert.deepEqual(h.provisioned, []);
+    assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 0);
+    assert.deepEqual((await h.runtime.matrix(h.storage.get(h.session.id))).best.voice, { available: false, reason });
+  });
+}
+
+test('parallel starts from different sessions cannot overshoot the deployment duration cap', async t => {
+  const h = voiceFixture(t, { cap: { capMilliseconds: 120_000, perDayMilliseconds: 120_000 } });
+  const sessions = Array.from({ length: 8 }, () => h.storage.create({ ownerToken: 'voice-owner', demo: true }));
+  const responses = await Promise.all(sessions.map((session, i) => h.handlers.handle(new Request(`http://host/api/sessions/${session.id}/voice`, {
+    method: 'POST', headers: { 'x-aithema-session-token': 'voice-owner' }, body: JSON.stringify({ callId: `parallel-${i}` }) }))));
+  assert.equal(responses.filter(r => r.status === 201).length, 2);
+  assert.equal(responses.filter(r => r.status === 403).length, 6);
+  assert.equal(h.traffic.filter(url => url.includes('/token?')).length, 2);
+  assert.equal(h.provisioned.length, 2); assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 120_000);
+  for (const response of responses.filter(r => r.status === 403)) assert.equal((await response.json()).reason, VOICE_CAP_REASON);
+});
+
+test('confirmed closure releases unused aggregate minutes including paused provider time; active calls remain authorized at the cap', async t => {
+  const h = voiceFixture(t, { cap: { capMilliseconds: 70_000, perDayMilliseconds: 70_000 } }), first = await h.start();
+  assert.equal((await h.runtime.matrix(h.storage.get(h.session.id))).best.voice.reason, VOICE_CAP_REASON);
+  h.advance(5000);
+  const identity = { providerSessionId: first.providerSessionId };
+  assert.equal((await h.route(`/voice/${first.callId}/pause`, identity)).status, 200);
+  h.advance(5000);
+  assert.equal((await h.route(`/voice/${first.callId}/resume`, identity)).status, 200);
+  assert.equal((await h.route(`/voice/${first.callId}/heartbeat`, identity)).status, 200);
+  assert.equal((await h.route(`/voice/${first.callId}/close`, identity)).status, 200);
+  assert.equal(h.voiceCap.snapshot().spentMilliseconds, 10_000, 'paused provider duration remains billable');
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 0);
+  await h.start('next-call'); assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 60_000);
+});
+
+test('unknown closure keeps aggregate duration until authenticated reconciliation', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
+  const h = voiceFixture(t, { unknown: true, cap: { capMilliseconds: 60_000 } }), grant = await h.start();
+  h.advance(2000); const closing = h.route(`/voice/${grant.callId}/close`, { providerSessionId: grant.providerSessionId });
+  await h.waitForClosure(grant.providerSessionId); t.mock.timers.tick(10_000);
+  const terminal = await closing.then(r => r.json());
+  assert.equal(terminal.outcome, 'uncertain'); assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 60_000);
+  assert.equal((await h.route('/voice', { callId: 'denied' })).status, 403);
+  const record = h.storage.voiceCalls()[0];
+  h.runtime.reconcileVoice(record.attemptId, { ...terminal, outcome: 'completed', closureConfirmed: true,
+    usage: { providerSeconds: 2, providerMinutes: 2 / 60, pausedSeconds: 0, visitorSeconds: 2, upstreamMicro: 2000, visitorMicro: 4000 } });
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 0); assert.equal(h.voiceCap.snapshot().spentMilliseconds, 2000);
+});
+
+test('recovery and stale reconnect replay use remaining aggregate duration under one call identity', async t => {
+  const h = voiceFixture(t, { cap: { capMilliseconds: 60_000, perDayMilliseconds: 60_000 } }), first = await h.start();
+  h.advance(10_000);
+  assert.equal((await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId })).status, 200);
+  const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId });
+  assert.equal(response.status, 200); const next = await response.json();
+  assert.equal(next.callId, first.callId); assert.equal(next.spendDeadlineAt, first.spendDeadlineAt);
+  assert.equal(h.voiceCap.snapshot().spentMilliseconds, 10_000); assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 50_000);
+  const replay = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId });
+  assert.equal(replay.status, 200); assert.equal((await replay.json()).providerSessionId, next.providerSessionId);
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 50_000);
+  const rows = h.storage.db.prepare('SELECT call_id, reserved_ms FROM voice_cap_reservations').all();
+  assert.deepEqual(rows.map(r => r.reserved_ms), [60_000, 50_000]); assert.ok(rows.every(r => r.call_id === first.callId));
+});
+
+test('overlapping recovery extends the call conservatively and an old settlement cannot release the successor hold', async t => {
+  const h = voiceFixture(t, { slowClosure: true, cap: { capMilliseconds: 120_000 } }), first = await h.start();
+  h.advance(5000);
+  const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId });
+  assert.equal(response.status, 200); const next = await response.json();
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 115_000);
+  await h.waitForClosure(first.providerSessionId); h.endClient(first.providerSessionId); await h.handlers.idle();
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 55_000); assert.equal(h.voiceCap.snapshot().spentMilliseconds, 5000);
+  assert.equal((await h.route(`/voice/${next.callId}/heartbeat`, { providerSessionId: next.providerSessionId })).status, 200);
+});
+
+test('recovery refuses before minting while the predecessor is unconfirmed, then reuses its released headroom', async t => {
+  const h = voiceFixture(t, { slowClosure: true, cap: { capMilliseconds: 60_000 } }), first = await h.start();
+  h.advance(5000);
+  const denied = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId });
+  assert.equal(denied.status, 403); assert.equal((await denied.json()).reason, VOICE_CAP_REASON);
+  assert.equal(h.traffic.filter(url => url.includes('/token?')).length, 1);
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 60_000);
+  await h.waitForClosure(first.providerSessionId); h.endClient(first.providerSessionId); await h.handlers.idle();
+  const retry = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId });
+  assert.equal(retry.status, 200); const next = await retry.json();
+  assert.equal(next.callId, first.callId); assert.equal(next.spendDeadlineAt, first.spendDeadlineAt);
+  assert.equal(h.voiceCap.snapshot().spentMilliseconds, 5000); assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 55_000);
+});
+
+test('an undispatched admission releases its aggregate hold after the consent check fails', async t => {
+  const h = voiceFixture(t, { cap: { capMilliseconds: 60_000 } });
+  const admitted = await h.runtime.admitVoice({ session: h.storage.get(h.session.id), request: { callId: 'revoked' } });
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 60_000);
+  h.storage.reviseConsent(h.session.id, false);
+  await assert.rejects(admitted.options.attempt.consume(), /refused/); admitted.finish();
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 0); assert.equal(h.voiceCap.snapshot().spentMilliseconds, 0);
+  assert.deepEqual(h.traffic, []);
+});
 
 test('voice start, speak, heard correction, type, pause, resume and close share durable turns and duration settlement', async t => {
   const h = voiceFixture(t), grant = await h.start(), identity = { providerSessionId: grant.providerSessionId };
