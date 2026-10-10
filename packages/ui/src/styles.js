@@ -135,8 +135,9 @@ svg { display:block; flex:none; }
 .voice-wave { width:100%; height:48px; opacity:.9; }
 .voice-state, .voice-caption { position:relative; z-index:1; max-width:100%; padding:5px 12px; border-radius:999px; font-size:.68rem; line-height:1.25; text-align:center; color:var(--aithema-muted);
   background:color-mix(in srgb,var(--aithema-surface) 94%,transparent); box-shadow:0 0 12px 7px color-mix(in srgb,var(--aithema-surface) 70%,transparent); overflow-wrap:anywhere; }
-/* A call message (START keeps errors out of the rail) opens under the rail over the conversation's edge: whole, and it moves nothing. */
-.audio-rail[data-message] .voice-state { position:absolute; z-index:5; top:calc(100% + 6px); left:56px; right:0; padding:.6rem .85rem; border:1px solid var(--aithema-line);
+/* A call message (START keeps errors out of the rail) opens under the rail over the conversation's edge: whole, and it moves
+   nothing. It stays under the sticky AI notice line (z-index 3), which is in view wherever an interaction can begin. */
+.audio-rail[data-message] .voice-state { position:absolute; z-index:2; top:calc(100% + 6px); left:56px; right:0; padding:.6rem .85rem; border:1px solid var(--aithema-line);
   border-radius:12px; background:var(--aithema-surface); box-shadow:var(--aithema-shadow-raised); text-align:left; font-size:.8rem; line-height:1.45; color:var(--aithema-ink); }
 .voice-state:empty, .voice-caption:empty { visibility:hidden; }
 /* A live caption takes the pill while words arrive; the state stays readable to assistive technology. */
@@ -145,8 +146,12 @@ svg { display:block; flex:none; }
 .audio-rail[data-state="failed"][data-message] .voice-state { color:var(--aithema-error); }
 
 /* Concepts: one quiet line under the rail (START keeps concepts out of the conversation's way). */
-.concept-bar { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:.75rem; min-height:2.75rem; }
-.concept-rail { display:grid; grid-template-columns:1.5rem minmax(0,1fr) auto; align-items:center; gap:.6rem; min-width:0; }
+/* One grid for the line: scene, state, the thumbnail once there is a concept, and Request at the right edge, so the
+   thumbnail arriving narrows the state's column and never moves Request. */
+.concept-bar { display:grid; grid-template-columns:1.5rem minmax(0,1fr) auto auto; align-items:center; gap:.6rem; min-height:2.75rem; }
+.concept-rail { display:contents; } .concept-scene { grid-column:1; } .concept-activity { grid-column:2; }
+.concept-preview-slot { grid-area:1/3; } .concept-request { grid-area:1/4; }
+.concept-preview-slot:has(.concept-preview:disabled) { display:none; }
 .concept-activity { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:.1rem .6rem; font-size:.75rem; color:var(--aithema-muted); }
 /* Reserved lines (a longer state scrolls in them) and a progress line that is always there: a concept state
    never changes the line's height, so the transcript below it never moves. */
@@ -354,8 +359,8 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
   .voice-orb { width:32px; height:32px; } .voice-orb .orb { --orb-size:32px; }
   .voice-state, .voice-caption { font-size:.6rem; padding:3px 6px; } .audio-rail[data-message] .voice-state { left:0; font-size:.78rem; padding:.55rem .75rem; }
   .turn { max-width:88%; } .upload { width:90%; }
-  .concept-bar { grid-template-columns:minmax(0,1fr); } .concept-preview-slot:has(.concept-preview:disabled) { display:none; }
-  .concept-rail { grid-template-columns:1.5rem minmax(0,1fr); } .concept-request { grid-column:1/-1; justify-self:start; } .concept-activity-text { height:3.9em; }
+  .concept-bar { grid-template-columns:1.5rem minmax(0,1fr) auto; } .concept-activity { grid-column:2/-1; }
+  .concept-request { grid-area:2/1/3/3; justify-self:start; } .concept-preview-slot { grid-area:2/3; } .concept-activity-text { height:3.9em; }
   .workspace:not([data-stage="live"]) .status { display:none; }
   /* The viewer on phones: navigation in two rows and a two-line disclosure, so long (German) labels stay whole. */
   .concept-viewer[open] { grid-template-rows:4rem minmax(0,1fr) 21.5rem; }

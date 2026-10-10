@@ -58,7 +58,8 @@ export const hostStyles = `
 .handover__row { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:.5rem; min-height:0; }
 .handover-request { display:inline-grid; margin-left:-.85rem; font-size:.8rem; line-height:1.2; text-align:left; }
 .handover-request > * { grid-area:1/1; } .handover__sizer { visibility:hidden; }
-.handover__state { margin:0; font-size:.72rem; line-height:1.3; color:var(--aithema-muted); max-height:3.9em; overflow-y:auto; overflow-wrap:anywhere; }
+/* Three reserved lines (a longer state scrolls in them): failed, retried and sent states never resize the row under the pointer. */
+.handover__state { margin:0; font-size:.72rem; line-height:1.3; color:var(--aithema-muted); height:3.9em; overflow-y:auto; overflow-wrap:anywhere; }
 .understanding[data-handover] { grid-template-rows:auto auto minmax(0,1fr) auto auto; }
 
 /* Dialogs: the settings dialog's frame, smaller. */
