@@ -348,6 +348,10 @@ for (const [name, providerBytes] of credentialFixtures) test(`${name} stored, se
   assert.deepEqual(entry, { id: item.id, path, promptDigest: item.promptDigest, provenance: item.provenance });
   assert.equal(entry.provenance.credentials.c2pa, 'present'); assert.equal(entry.provenance.credentials.verification, 'not-verified');
   assert.equal(entry.provenance.assurances.imperceptibleWatermark, 'provider-declared');
+  const manifest = JSON.parse(files['manifest.json']);
+  assert.deepEqual(manifest.files.find(file => file.path === path), { path, sha256: expected });
+  assert.deepEqual(manifest.files.map(file => file.path).sort(), Object.keys(files).filter(name => name !== 'manifest.json').sort());
+  for (const file of manifest.files) assert.equal(file.sha256, digest(files[file.path]), file.path);
 });
 test('refinements use exact edit processing scope for admission, claim consumption and publication', async t => {
   const scopes = [], consent = { grant() {}, coverage(args) { scopes.push(args.scope.operation); return exactConsent.coverage(args); } };
@@ -437,6 +441,10 @@ test('export retains transcript and understanding when image publication is unav
     assert.ok(files['transcript.json'].includes('public API')); assert.ok(files['understanding.json']);
     assert.equal(JSON.parse(files['concepts.json'])[0].id, first.id);
     assert.deepEqual(JSON.parse(files['concepts-manifest.json']).withheld, [{ id: first.id, reason: 'publication-not-allowed' }]);
+    const manifest = JSON.parse(files['manifest.json']);
+    assert.deepEqual(manifest.withheld, JSON.parse(files['concepts-manifest.json']).withheld);
+    assert.equal(manifest.erased.some(entry => entry.id === first.id), false);
+    assert.ok(manifest.files.every(file => !file.path.startsWith('concepts/')));
     assert.ok(Object.keys(files).every(name => !name.startsWith('concepts/')));
     assert.equal(files['concepts.json'].includes('private image guidance'), false); assert.equal(artifact.mock.callCount(), 0);
     h.presets.best.bindings.images = binding; plugin?.mock.restore(); artifact.mock.restore();

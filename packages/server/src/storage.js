@@ -4,7 +4,7 @@ import { realpathSync } from 'node:fs';
 import { dirname, basename, resolve, join } from 'node:path';
 import { normalizeUploadLimits } from './upload-limits.js';
 import { applyEvent, createSession, inputRevision, emptyUnderstanding, isUIArtifact, isHTMLArtifact, inspectHTML, HTML_MEDIA_TYPE, imageInfo, reduceConceptIntent, createConceptIntent, MAX_IMAGE_BYTES,
-  defaultSettings, normalizeSettings, sameSelection, conversationStarted, createCredits, rebindCredits, reduceCredits } from '@inspr/aithema-core';
+  defaultSettings, normalizeSettings, sameSelection, conversationStarted, createCredits, rebindCredits, reduceCredits, aiTextOrigin, withAITextOrigin } from '@inspr/aithema-core';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 export const MAX_CONCEPT_STORAGE_BYTES = 64 * 1024 * 1024;
@@ -80,7 +80,7 @@ export class SQLiteStorage {
     session.transcript = session.transcript.map(t => this.#hydrateData(id, t));
     if (session.understanding.contentRef) {
       const data = this.#hydrateData(id, session.understanding);
-      session.understanding = data.erased ? emptyUnderstanding(session) : data;
+      session.understanding = data.erased ? emptyUnderstanding(session) : withAITextOrigin(data);
     }
     if (session.actor?.contentRef) {
       const record = this.getRecord(id, session.actor.contentRef); session.actor = record.erased ? null : record.data;
@@ -154,12 +154,13 @@ export class SQLiteStorage {
       : { id: record.id, data: JSON.parse(record.bytes), hash: record.hash, at: record.at };
   }
   #hydrateData(id, data) {
-    if (!data.contentRef) return data;
-    const record = this.getRecord(id, data.contentRef);
-    return record.erased ? { ...data, erased: true, withdrawn: true } : { ...data, ...record.data };
+    const record = data.contentRef ? this.getRecord(id, data.contentRef) : null;
+    const hydrated = !record ? data : record.erased ? { ...data, erased: true, withdrawn: true } : { ...data, ...record.data };
+    return hydrated.role ? withAITextOrigin(hydrated) : hydrated;
   }
   #hydrateEvent(event) {
-    const data = event.type === 'upload.state' ? this.#hydrateUpload(event.sessionId, event.data, true) : this.#hydrateData(event.sessionId, event.data);
+    let data = event.type === 'upload.state' ? this.#hydrateUpload(event.sessionId, event.data, true) : this.#hydrateData(event.sessionId, event.data);
+    if (event.type === 'understanding.updated') data = withAITextOrigin(data);
     if (event.type === 'concept.state' && data.artifact && !this.db.prepare('SELECT 1 FROM concept_artifacts WHERE session_id=? AND id=? AND tombstone IS NULL').get(event.sessionId, data.artifact.id)) {
       return { ...event, data: { ...data, artifact: { id: data.artifact.id, erased: true } } };
     }
@@ -208,7 +209,10 @@ export class SQLiteStorage {
         : ['contentRef', 'hash', 'erased'].includes(key)));
     const contentRef = `${id}:${seq}`, at = data.at ?? new Date().toISOString();
     // A reply's engine label reveals the visitor's choice, so it is erased with the reply.
-    const bytes = JSON.stringify(['turn.final', 'turn.corrected'].includes(type) ? { content: data.content, ...(data.engine ? { engine: data.engine } : {}) } : data), digest = hash(bytes);
+    const origin = aiTextOrigin({ model: data.model, plugin: data.provider });
+    const bytes = JSON.stringify(['turn.final', 'turn.corrected'].includes(type)
+      ? { content: data.content, ...(data.role === 'assistant' ? { ...origin, ...(data.engine ? { engine: data.engine } : {}) } : {}) }
+      : { ...data, ...origin }), digest = hash(bytes);
     this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id,
       ['turn.final', 'turn.corrected'].includes(type) ? data.role === 'user' ? 'person' : 'reply' : 'understanding', bytes, digest, at);
     return ['turn.final', 'turn.corrected'].includes(type) ? { id: data.id, role: data.role, at,
@@ -231,7 +235,9 @@ export class SQLiteStorage {
     if (understandingRef) metadata.understanding = understandingRef;
     else {
       const old = JSON.parse(this.db.prepare('SELECT snapshot FROM sessions WHERE id=?').get(session.id).snapshot);
-      metadata.understanding = session.understanding.inputRevision === null ? emptyUnderstanding(session) : old.understanding;
+      metadata.understanding = session.understanding.inputRevision === null
+        ? { ...emptyUnderstanding(session), ...(session.understanding.origin === 'ai-generated' ? { origin: 'ai-generated' } : {}) }
+        : old.understanding;
     }
     // Selected actor reasoning is content too; inferred actor lives with understanding.
     if (session.actor?.evidence === 'selected') {
@@ -401,7 +407,9 @@ export class SQLiteStorage {
           !consumed.has(t.id) && normalize(t.content) === normalize(value.text));
         event = typed ? this.read(id).find(e => e.type === 'turn.final' && e.data.id === typed.id)
           : this.#append(session, 'turn.final', { id: turnId, role: value.role, content: value.text,
-            at: new Date().toISOString(), ...(value.role === 'assistant' ? { inputRevision: inputRevision(session), provenance: guard.provenance === 'facade-produced' ? 'facade-produced' : 'browser-asserted' } : {}) });
+            at: new Date().toISOString(), ...(value.role === 'assistant' ? { ...aiTextOrigin({ model: guard.model, plugin: guard.provider }),
+              ...(guard.engine ? { engine: guard.engine } : {}), inputRevision: inputRevision(session),
+              provenance: guard.provenance === 'facade-produced' ? 'facade-produced' : 'browser-asserted' } : {}) });
         if (typed) {
           const metadata = { ...event, data: this.#metadata(id, event.type, event.data) };
           this.db.prepare('INSERT INTO receipts VALUES (?,?,?,?)').run(id, clientId, bytes, JSON.stringify(metadata));
@@ -413,7 +421,8 @@ export class SQLiteStorage {
         this.db.prepare("UPDATE content SET bytes=NULL,tombstone=? WHERE session_id=? AND (id=? OR kind IN ('understanding','actor'))")
           .run(new Date().toISOString(), id, turn.contentRef);
         event = this.#append(session, 'turn.corrected', { id: turnId, role: turn.role, content: value.prefix,
-          at: turn.at, inputRevision: inputRevision(session), provenance: turn.provenance });
+          at: turn.at, inputRevision: inputRevision(session), provenance: turn.provenance,
+          ...aiTextOrigin({ model: turn.model, plugin: turn.provider }), ...(turn.engine ? { engine: turn.engine } : {}) });
       }
       const metadata = { ...event, data: this.#metadata(id, event.type, event.data) };
       this.db.prepare('INSERT INTO receipts VALUES (?,?,?,?)').run(id, clientId, bytes, JSON.stringify(metadata));

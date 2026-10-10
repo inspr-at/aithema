@@ -81,12 +81,12 @@ test('SSE Last-Event-ID replays exactly missed durable events and never partial 
     assert.equal(invalid.status, 400);
   } finally { await handlers.close(); store.close(); }
 });
-test('export ZIP holds exactly transcript JSON/Markdown and understanding, without confirmation', () => {
+test('export ZIP holds transcript JSON/Markdown, understanding and manifest, without confirmation', () => {
   const store = new SQLiteStorage();
   try {
     const s = store.create(); store.postTurn(s.id, 'turn1', bytes('Hello ü'), 'Hello ü');
     const files = unzip(exportSession(store.get(s.id)));
-    assert.deepEqual(Object.keys(files), ['transcript.json', 'transcript.md', 'understanding.json']);
+    assert.deepEqual(Object.keys(files), ['transcript.json', 'transcript.md', 'understanding.json', 'manifest.json']);
     assert.equal(JSON.parse(files['transcript.json']).turns[0].content, 'Hello ü');
     assert.match(files['transcript.md'], /## user\n\nHello ü/u);
     assert.deepEqual(JSON.parse(files['understanding.json']), s.understanding);

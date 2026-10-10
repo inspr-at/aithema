@@ -4,6 +4,10 @@ import { reasoningRequest } from './prompts.js';
 import { assertReasoning, operationScope, matchesSchema } from './reasoning.js';
 import { untilCancelled, cancellableStream } from './cancellation.js';
 import { documentInputs, hasConversationInput } from './document-context.js';
+import { aiTextOrigin } from './text-origin.js';
+
+const producer = (admitted, plugin) => aiTextOrigin(admitted?.producer ?? plugin.binding ??
+  { model: plugin.model, plugin: plugin.manifest?.id ?? plugin.id });
 
 export class SessionLanes {
   #flights = new Map();
@@ -78,10 +82,10 @@ export class SessionLanes {
           finally { admitted?.finish({ failed }); }
           if (!current()) return 'stale';
           if (!matchesSchema(raw, understandingSchema(session.preset))) throw new TypeError('Invalid understanding output');
-          const data = reduceUnderstanding(this.getSession(id).understanding, raw, {
+          const data = { ...reduceUnderstanding(this.getSession(id).understanding, raw, {
             transcript: activeTurns(this.getSession(id)), inputRevision: revision, locale: session.locale,
             draft, actor: this.getSession(id).actor, preset: session.preset,
-          });
+          }), ...producer(admitted, admitted?.plugin ?? binding) };
           if (!this.publish(id, 'understanding.updated', data, revision)) return 'stale';
           // Verify persisted state before a final result is reported.
           if (!current() || this.getSession(id).understanding.inputRevision !== revision) return 'stale';
@@ -103,13 +107,15 @@ export class SessionLanes {
           content += delta;
           // Tagged with the settings revision it started under, so a client never shows a
           // superseded stream beside its replacement.
-          this.transient(id, { type: 'turn.partial', data: { id: turnId, delta, inputRevision: revision, settingsRevision: session.settings?.revision ?? 0 } });
+          this.transient(id, { type: 'turn.partial', data: { id: turnId, delta, ...producer(admitted, admitted?.plugin ?? this.reasoning),
+            inputRevision: revision, settingsRevision: session.settings?.revision ?? 0 } });
         } } catch (error) { failed = true; throw error; }
         finally { admitted?.finish({ failed }); }
         if (!current()) return 'stale';
         if (!content.trim()) throw new TypeError('Empty reasoning stream');
         // The admitted public choice labels which model and effort produced this reply.
         if (!this.publish(id, 'turn.final', { id: turnId, role: 'assistant', content,
+          ...producer(admitted, admitted?.plugin ?? this.reasoning),
           at: new Date().toISOString(), inputRevision: revision, ...(admitted?.engine ? { engine: admitted.engine } : {}) }, revision)) return 'stale';
       }
       return 'completed';

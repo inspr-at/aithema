@@ -1,4 +1,8 @@
-import { activeTurns, HTML_MEDIA_TYPE, frameDocument } from '@inspr/aithema-core';
+import { activeTurns, HTML_MEDIA_TYPE, frameDocument, withAITextOrigin } from '@inspr/aithema-core';
+import { createHash } from 'node:crypto';
+import serverPackage from '../package.json' with { type: 'json' };
+
+const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 // Dependency-free, store-only ZIP. UTF-8 flags; fixed timestamp for reproducible exports.
 function crc32(bytes) {
   let crc = 0xffffffff;
@@ -30,7 +34,9 @@ export function zipStore(files) {
   end.writeUInt32LE(central.length, 12); end.writeUInt32LE(offset, 16);
   return Buffer.concat([...locals, central, end]);
 }
-export function exportSession(session, artifacts = [], withheld = []) {
+export function exportSession(session, artifacts = [], withheld = [], {
+  exportedAt = new Date().toISOString(), commit = process.env.AITHEMA_COMMIT,
+} = {}) {
   const json = value => JSON.stringify(value, null, 2) + '\n';
   const published = new Set(artifacts.map(a => a.id));
   const accounted = new Set([...published, ...withheld.map(a => a.id)]);
@@ -42,11 +48,11 @@ export function exportSession(session, artifacts = [], withheld = []) {
   // Replies name the acknowledged model and response style that produced them.
   const engine = t => t.engine?.label ? ` · ${[t.engine.label, t.engine.effort && t.engine.effort !== 'none' ? t.engine.effort : null].filter(Boolean).join(' · ')}` : '';
   const { model = null, effort = null, voice = null, visuals = null } = session.settings ?? {};
-  return zipStore({
+  const files = {
     'transcript.json': json({ sessionId: session.id, processing: { preset: session.processingPreset ?? 'best', model, effort, voice, visuals },
-      turns: activeTurns(session) }),
-    'transcript.md': '# Conversation\n\n' + activeTurns(session).map(t => `## ${t.role}${engine(t)}${t.provenance === 'browser-asserted' ? ' (browser-asserted)' : ''}\n\n${t.content}\n`).join('\n'),
-    'understanding.json': json(session.understanding),
+      turns: activeTurns(session).map(withAITextOrigin) }),
+    'transcript.md': '# Conversation\n\n' + activeTurns(session).map(t => `## ${t.role}${engine(t)}${t.provenance === 'browser-asserted' ? ' (browser-asserted)' : ''}${t.role === 'assistant' ? ' (AI-generated)' : ''}\n\n${t.content}\n`).join('\n'),
+    'understanding.json': json(session.understanding.inputRevision === null ? session.understanding : withAITextOrigin(session.understanding)),
     ...((session.uploads ?? []).length ? { 'uploads.json': json(session.uploads.map(u => u.state === 'withdrawn' || u.erased || u.withdrawn
       ? { id: u.id } : Object.fromEntries(['id', 'state', 'filename', 'mediaType', 'bytes', 'at', 'text', 'reason', 'truncated', 'extractor']
         .filter(key => u[key] !== undefined).map(key => [key, u[key]])))) } : {}),
@@ -56,5 +62,18 @@ export function exportSession(session, artifacts = [], withheld = []) {
         ...(a.mediaType.startsWith('image/') ? { promptDigest: a.promptDigest, provenance: a.provenance } : {}) })), withheld: omissions }) } : {}),
     ...Object.fromEntries(artifacts.flatMap(a => [[`concepts/${a.id}.${a.mediaType.split('/')[1]}`, a.mediaType === HTML_MEDIA_TYPE
       ? frameDocument(new TextDecoder().decode(a.bytes), { standalone: true }) : a.bytes], [`concepts/${a.id}.provenance.json`, json(a.provenance)]])),
+  };
+  const originals = new Map(artifacts.map(a => [`concepts/${a.id}.${a.mediaType.split('/')[1]}`, Buffer.from(a.bytes)]));
+  files['manifest.json'] = json({ version: 1, generator: { name: 'aithema', version: serverPackage.version,
+    ...(typeof commit === 'string' && /^[a-f0-9]{7,40}$/u.test(commit) ? { commit } : {}) }, exportedAt,
+    // The manifest excludes itself: its own exported-byte hash would be recursive.
+    files: Object.entries(files).map(([path, value]) => {
+      const bytes = Buffer.from(value), original = originals.get(path);
+      return { path, sha256: sha256(bytes), ...(original && !bytes.equals(original) ? { originalSha256: sha256(original) } : {}) };
+    }), withheld: omissions,
+    erased: [...session.transcript.filter(t => t.erased || t.withdrawn).map(t => ({ kind: 'turn', id: t.id })),
+      ...(session.uploads ?? []).filter(u => u.erased || u.withdrawn || u.state === 'withdrawn').map(u => ({ kind: 'upload', id: u.id })),
+      ...omissions.filter(a => a.reason === 'erased').map(a => ({ kind: 'concept', id: a.id }))],
   });
+  return zipStore(files);
 }

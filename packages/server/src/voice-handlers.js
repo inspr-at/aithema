@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { PluginError, inputRevision, reasoningRequest } from '@inspr/aithema-core';
+import { PluginError, inputRevision, reasoningRequest, aiTextOrigin } from '@inspr/aithema-core';
 import { createCompletionsHandler } from '../../../plugins/elevenlabs/src/facade.js';
 import { voiceOperation } from '../../core/src/live-voice.js';
 import { ConflictError, NotFoundError } from './storage.js';
@@ -120,12 +120,12 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       await runtime.checkVoice(session, { ...options, existingCall: true });
       return runtime.admit({ session, lane: 'reaction', operation: 'stream', request, options });
     },
-    onCompletion({ callId, providerSessionId, content }) {
+    onCompletion({ callId, providerSessionId, content, textOrigin, engine }) {
       const entry = calls.get(callId);
       if (!entry?.call || entry.closing || entry.call.providerSessionId !== providerSessionId) return;
       entry.produced ??= [];
-      entry.produced.push(content);
-      while (entry.produced.length > 256 || entry.produced.reduce((n, text) => n + text.length, 0) > 1_048_576) entry.produced.shift();
+      entry.produced.push({ content, textOrigin, engine });
+      while (entry.produced.length > 256 || entry.produced.reduce((n, reply) => n + reply.content.length, 0) > 1_048_576) entry.produced.shift();
     },
   });
   async function changePause(entry, paused, opts = {}) {
@@ -222,9 +222,11 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         if (entry.call.signal.aborted) throw new PluginError('unavailable');
         if (action === 'events') {
           const fresh = sessionFor(entry);
-          const provenance = body.event?.role === 'assistant' && entry.produced?.includes(body.event.text) ? 'facade-produced' : 'browser-asserted';
+          const produced = body.event?.role === 'assistant' && entry.produced?.findLast(reply => reply.content === body.event.text);
+          const provenance = produced ? 'facade-produced' : 'browser-asserted';
           const result = storage.postVoiceEvent(sessionId, callId, entry.call.providerSessionId, body.event,
-            { ownerToken, revision: inputRevision(fresh), provenance });
+            { ownerToken, revision: inputRevision(fresh), provenance,
+              ...(produced ? { ...produced.textOrigin, engine: produced.engine } : aiTextOrigin(entry.admission.binding)) });
           if (!result.replayed) {
             publish(sessionId, result.event); onTurn(sessionId, result.event);
           }

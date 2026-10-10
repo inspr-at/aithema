@@ -620,7 +620,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         })();
       } });
       const described = runtime.describe(session);
-      return { plugin, ...(lane === 'concept' ? { visuals: described.visuals?.id ?? null } : { engine: { preset: described.preset, model: described.model?.id ?? null,
+      return { plugin, ...(lane === 'concept' ? { visuals: described.visuals?.id ?? null } : { producer: { model: binding.model, plugin: binding.plugin }, engine: { preset: described.preset, model: described.model?.id ?? null,
         label: described.model?.label ?? null, effort: binding.effort } }), options: { ...options, attempt, report }, finish({ failed = false } = {}) {
         try {
           if (!reported) {

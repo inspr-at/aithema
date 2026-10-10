@@ -2,8 +2,11 @@ import { createConceptIntent, reduceConceptIntent } from './concept-intent.js';
 import { PROCESSING_PRESETS } from './presets.js';
 import { START_PRESET, capBuildReadiness, createPreset } from './understanding.js';
 import { normalizeSettings, defaultSettings } from './settings.js';
+import { withAITextOrigin } from './text-origin.js';
 // An erased choice falls back to the core default preset, like createSession's default.
 const ERASED_PRESET = 'best';
+const erasedTurn = turn => Object.fromEntries(Object.entries(turn).filter(([key]) =>
+  !['content', 'origin', 'model', 'provider', 'engine'].includes(key)));
 export const inputRevision = session => `${session.inputRevision}:${session.consentRevision}:${session.withdrawalRevision}:${session.locale}:${session.sessionRevision ?? 0}:${Boolean(session.tombstone)}`;
 export const activeTurns = session => session.transcript.filter(t => !t.erased && !t.withdrawn);
 /** Durable: withdrawal and expiry mark turns but never remove their transcript entries. */
@@ -19,13 +22,13 @@ export function createSession({ id = crypto.randomUUID(), locale = 'en', identif
     inputRevision: 0, consentRevision: 0, withdrawalRevision: 0, sessionRevision: 0,
     paused: false, consentWithdrawn: false, tombstone: null, transcript: [], uploads: [], concepts: [],
     conceptIntent: createConceptIntent(), conceptStatus: { phase: 'idle' },
-    understanding: { ...capBuildReadiness({}, [] , preset), version: 1, inputRevision: null,
+    understanding: { ...capBuildReadiness({}, [] , preset), origin: 'ai-generated', version: 1, inputRevision: null,
       locale, draft: false, questionHistory: [] } };
 }
 export function applyEvent(session, event) {
   const next = structuredClone(session);
   if (event.type === 'turn.final') {
-    next.transcript.push(event.data);
+    next.transcript.push(withAITextOrigin(event.data));
     if (event.data.role === 'user') next.inputRevision += 1;
   } else if (event.type === 'upload.state') {
     const upload = event.data;
@@ -36,7 +39,7 @@ export function applyEvent(session, event) {
     if (upload.state === 'withdrawn') {
       next.withdrawalRevision += 1; next.sessionRevision += 1;
       next.transcript = next.transcript.map(t => t.role === 'assistant'
-        ? { ...Object.fromEntries(Object.entries(t).filter(([key]) => key !== 'content')), erased: true, withdrawn: true } : t);
+        ? { ...erasedTurn(t), erased: true, withdrawn: true } : t);
       // Document-derived summaries can feed any concept. Revocation clears every
       // dependent projection atomically; a later lane rebuilds remaining inputs.
       next.concepts = [];
@@ -50,7 +53,7 @@ export function applyEvent(session, event) {
     // Focus is derived from understanding, so it does not invalidate that input.
     next.focusedQuestion = event.data.erased ? null : event.data.question;
   } else if (event.type === 'understanding.updated') {
-    next.understanding = event.data.erased ? emptyUnderstanding(next) : event.data;
+    next.understanding = event.data.erased ? emptyUnderstanding(next) : withAITextOrigin(event.data);
     next.actor = event.data.erased ? null : event.data.actor;
   } else if (event.type === 'session.paused') {
     next.paused = event.data.paused;
@@ -85,11 +88,11 @@ export function applyEvent(session, event) {
     if (event.type === 'consent.revised') {
       next.consentRevision += 1; next.consentWithdrawn = !event.data.granted;
       next.transcript = next.transcript.map(t => t.role === 'assistant'
-        ? { ...Object.fromEntries(Object.entries(t).filter(([key]) => key !== 'content')), erased: true } : t);
+        ? { ...erasedTurn(t), erased: true } : t);
     } else {
       next.withdrawalRevision += 1;
       next.transcript = next.transcript.map(t => t.id === event.data.turnId || t.role === 'assistant' || event.type === 'session.erased'
-        ? { ...Object.fromEntries(Object.entries(t).filter(([key]) => key !== 'content')), erased: true, withdrawn: true } : t);
+        ? { ...erasedTurn(t), erased: true, withdrawn: true } : t);
       // Erasure also forgets the visitor's processing choice, so it never seeds another conversation.
       if (event.type === 'session.erased') { next.tombstone = event.data.at; next.settings = defaultSettings(); next.processingPreset = ERASED_PRESET;
         next.identity = null; next.handover = null; next.credits = null; next.library = null; next.identified = false;

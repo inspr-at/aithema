@@ -357,6 +357,38 @@ erasure acknowledgement. `storage.expire(id, turnId)` uses the same invalidation
 hosts await `handlers.expire(cutoffTimestamp)` to cancel and rebuild as well.
 The demo applies a twelve-month turn retention cutoff each minute.
 
+Assistant replies, including assistant voice transcripts, and generated
+understanding objects carry `origin: "ai-generated"` in API snapshots, durable
+event replay and exports. When known, `model` is the producing binding's exact
+model id and `provider` is its plugin id. These are public identities; keys,
+endpoints, routing and account references are excluded. `engine` separately
+retains the visitor's selected model label and response style. Voice keeps its
+`facade-produced` or `browser-asserted` transcript provenance alongside AI origin;
+a matched facade completion names its reasoning producer. Person turns have no
+AI-origin fields. Withdrawal, consent revision and erasure remove the origin,
+model, provider and engine with their content, including replay and receipts.
+An empty understanding after invalidation has no origin metadata. Older generated
+records receive the origin label on read; unknown producers remain omitted.
+
+`transcript.json` carries these fields per assistant turn, `transcript.md` visibly
+marks each assistant turn `(AI-generated)`, and `understanding.json` carries the
+generated understanding's fields. Robust text watermarking depends on upstream
+providers and what is "technically feasible"; these provenance labels do not
+implement a text watermark.
+
+Every ZIP export includes `manifest.json` with `version: 1`, `generator:
+{name: "aithema", version, commit?}`, an ISO-8601 `exportedAt`, and `files:
+[{path, sha256, originalSha256?}]`. `generator.version` comes from the server
+package; `commit` is the host's `AITHEMA_COMMIT` when it is a Git SHA. Each lowercase
+hex SHA-256 covers the exact exported bytes, including JSON, Markdown, uploads,
+concepts and provenance sidecars. The manifest itself is excluded from `files`
+to avoid a recursive self-digest. Wrapped HTML also has `originalSha256` over
+the stored artifact; its sidecar still describes that original. Image bytes
+remain identical to the stored artifact. `withheld: [{id, reason}]` matches
+`concepts-manifest.json`, including erased concepts. `erased: [{kind, id}]`
+accounts for turn, upload and concept tombstones using IDs only; neither list
+includes erased content, producer metadata or original digests.
+
 A persistent `SQLiteStorage` holds an OS-backed exclusive lock on the canonical
 database's companion `.writer.sqlite` file until close or process death. A second
 writer refuses startup. Legacy unowned sessions migrate to the erasable layout
@@ -1156,7 +1188,8 @@ content. A second CSP disables scripts in downloaded files. The download does
 not have the preview's opaque-origin frame and host navigation gate, so a
 standalone copy is deliberately a passive document. Network requests and form
 submission are blocked; permitted links stay within the document. The provenance
-digest describes the original stored artifact, before the export wrapper.
+digest describes the original stored artifact, before the export wrapper;
+`manifest.json` records both the original and wrapped export-byte digests.
 
 `AITHEMA_HTML_MODE` defaults to `fake`, a deterministic local clickable HTML
 generator with escaped summary and open questions. `off` removes its binding. On a

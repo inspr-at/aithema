@@ -362,6 +362,8 @@ test('a device conversation uses the locally connected model and keeps analysis,
   assert.ok(root.querySelector('.features').textContent.includes(en.reasons['unavailable on device']));
   root.querySelector('textarea').value = 'Hello device'; root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick(6);
   assert.deepEqual(h.c.session.transcript.map(turn => turn.content), ['Hello device', 'From device']);
+  assert.equal(h.c.session.transcript[0].origin, undefined);
+  assert.equal(h.c.session.transcript[1].origin, 'ai-generated'); assert.equal(h.c.session.transcript[1].model, 'local-7b');
 });
 
 test('confirming an uncovered choice continues into the host consent interface, and the ready card keeps offering it', async t => {
