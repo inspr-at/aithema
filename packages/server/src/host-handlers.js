@@ -40,7 +40,16 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     return identity;
   }
   function initialize(id, ownerToken, { newSession = false } = {}) {
-    if (!host || storage.hostState(id)) return;
+    if (!host) return;
+    const state = storage.hostState(id);
+    if (state) {
+      // A lock from an earlier host policy must not strand a conversation
+      // when verification is disabled, including demo-to-live adoption.
+      if (state.identity?.verificationRequired === true && host.policy?.verificationRequired !== true) {
+        identityTransition(id, ownerToken, { type: 'policy', origin: 'host', verificationRequired: false });
+      }
+      return;
+    }
     // New/reset inherit the owner's guard, including a deliberate pause.
     if (ownerToken && storage.ownerCreditState(ownerToken)?.paused && !storage.get(id).paused) {
       publish(id, storage.pause(id, true, { ownerToken }));

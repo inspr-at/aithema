@@ -76,7 +76,7 @@ for (const body of [undefined, { title: 'New' }]) test(`library ${body ? 'new' :
 
 test('identity locks assessment and concepts, trusts only host evidence, verifies once and keeps manual pause', async t => {
   const f = fixture(t), s = await f.create(), base = `/api/sessions/${s.id}`;
-  assert.equal(s.identity.status, 'guest'); assert.equal(s.identity.assessmentUnlocked, false);
+  assert.equal(s.identity.status, 'guest'); assert.equal(s.identity.assessmentUnlocked, false); assert.equal(s.identified, false);
   await f.call(`${base}/turns`, { clientEventId: 'first', content: 'systems: API' }); await f.handlers.idle();
   assert.equal(f.storage.get(s.id).understanding.inputRevision, null);
   assert.equal((await f.runtime.matrix(f.storage.get(s.id))).best.analysis.reason, 'verification required');
@@ -86,6 +86,7 @@ test('identity locks assessment and concepts, trusts only host evidence, verifie
   }
   const pending = await (await f.call(`${base}/identity/request`, { address: 'owner@example.test' })).json();
   assert.equal(pending.identity.delivery, 'sent'); assert.equal(pending.identity.status, 'verification-pending');
+  assert.equal(f.storage.get(s.id).identified, false);
   const message = await f.message(s.id);
   assert.equal(JSON.stringify(await (await f.call(base)).json()).includes(message.token), false);
   assert.equal(JSON.stringify(f.storage.read(s.id)).includes(message.token), false);
@@ -94,6 +95,7 @@ test('identity locks assessment and concepts, trusts only host evidence, verifie
   assert.equal(wrong.identity.status, 'verification-pending');
   const confirmed = await (await f.call(`${base}/identity/confirm`, { token: message.token })).json();
   assert.equal(confirmed.identity.status, 'verified'); assert.equal(confirmed.identity.assessmentUnlocked, true);
+  assert.equal(f.storage.get(s.id).identified, true);
   assert.equal(confirmed.identity.manualPaused, true); assert.equal(confirmed.identity.canRunAssessment, false);
   assert.equal(f.storage.get(s.id).paused, true);
   await f.call(`${base}/identity/unlock`, {}); await f.call(`${base}/identity/confirm`, { token: message.token });
@@ -106,6 +108,7 @@ for (const verificationRequired of [false, true]) test(`host verification policy
   const f = fixture(t, { verificationRequired }), s = await f.create(), base = `/api/sessions/${s.id}`;
   assert.equal(s.identity.verificationRequired, verificationRequired);
   assert.equal(s.identity.demoBypass, false); assert.equal(s.identity.status, 'guest');
+  assert.equal(s.identified, false);
   assert.equal(s.identity.assessmentUnlocked, !verificationRequired);
   assert.equal(s.identity.conceptsUnlocked, !verificationRequired);
   await f.call(`${base}/turns`, { clientEventId: 'policy-turn', content: 'systems: API' }); await f.handlers.idle();
@@ -261,6 +264,44 @@ test('pre-B1 sessions stay unlocked across restart and their first identity and 
   await f.call(`${base}/turns`, { clientEventId: 'old-session', content: 'systems: API' }); await f.handlers.idle();
   assert.equal(f.storage.get(old.id).understanding.inputRevision, inputRevision(f.storage.get(old.id)));
   assert.equal((await f.create()).identity.verificationRequired, true);
+});
+
+for (const status of ['guest', 'verification-pending', 'verified']) test(`live adoption removes the demo lock for ${status} with a durable policy change`, async t => {
+  const db = await temporaryDb(), f = fixture(t, { storage: new SQLiteStorage(db) }), s = await f.create();
+  const base = `/api/sessions/${s.id}`;
+  if (status !== 'guest') {
+    await f.call(`${base}/identity/request`, { address: 'adopt@example.test' });
+    await f.call(`${base}/identity/confirm`, { token: status === 'verified' ? (await f.message(s.id)).token : 'wrong' });
+  }
+  await f.call(`${base}/pause`, { paused: true });
+  const before = f.storage.hostState(s.id).identity, seq = f.storage.get(s.id).seq;
+  assert.equal(before.status, status); assert.equal(before.verificationRequired, true);
+  await f.close();
+  const live = fixture(t, { storage: new SQLiteStorage(db), demo: false });
+  for (const action of ['identity', 'credits']) assert.equal((await live.call(`${base}/${action}`)).status, 200);
+  assert.deepEqual(live.storage.hostState(s.id).identity, before);
+  assert.equal(live.storage.get(s.id).seq, seq);
+  await live.handlers.resume(); await live.handlers.idle();
+  const adopted = live.storage.hostState(s.id).identity, session = live.storage.get(s.id);
+  assert.deepEqual(adopted, { ...before, verificationRequired: false });
+  assert.equal(session.identity.assessmentUnlocked, true); assert.equal(session.identity.conceptsUnlocked, true);
+  assert.equal(session.identity.canRunAssessment, false); assert.equal(session.paused, true);
+  assert.equal(session.identified, status === 'verified');
+  const change = live.storage.read(s.id, seq);
+  assert.deepEqual(change.map(e => e.type), ['identity.policy-changed', 'identity.state']);
+  assert.deepEqual(change[0].data, { verificationRequired: false, reason: 'host-policy-disabled' });
+  const replay = live.storage.read(s.id).reduce(applyEvent, createSession({ id: s.id, demo: true }));
+  assert.deepEqual(replay.identity, session.identity); assert.equal(inputRevision(replay), inputRevision(session));
+  await live.handlers.resume();
+  assert.equal(live.storage.get(s.id).seq, seq + 2);
+  assert.equal((await live.call(`${base}/demo/outbox`)).status, 404);
+  await live.call(`${base}/pause`, { paused: false });
+  assert.equal(live.storage.get(s.id).identity.canRunAssessment, true);
+  await live.close();
+  const restarted = fixture(t, { storage: new SQLiteStorage(db) });
+  await restarted.handlers.resume();
+  assert.equal(restarted.storage.get(s.id).identity.verificationRequired, false);
+  assert.equal((await restarted.create()).identity.verificationRequired, true);
 });
 
 test('resend and address changes keep the host cooldown; stale and expired links cannot unlock', async t => {

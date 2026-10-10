@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ACTOR_ROLES, createIdentity, identityView, reduceIdentity } from '../src/index.js';
+import { ACTOR_ROLES, createIdentity, identityView, reduceIdentity, createSession, applyEvent } from '../src/index.js';
 const createLockedIdentity = options => createIdentity({ verificationRequired: true, ...options });
 const email = 'visitor@example.test';
 const step = (state, type, data = {}, now = state.lastNow) => reduceIdentity(state, { type, now, ...data });
@@ -19,6 +19,42 @@ test('host policy defaults off; an explicit lock requires verification without c
   assert.equal(identityView(pending, 0).assessmentUnlocked, true);
   assert.equal(identityView(pending, 0).conceptsUnlocked, true);
   assert.equal(identityView(createLockedIdentity(), 0).assessmentUnlocked, false);
+});
+
+test('session identification follows verified status rather than unlocked surfaces or demo bypass', () => {
+  for (const demoBypass of [false, true]) {
+    let session = createSession(), identity = createIdentity({ demoBypass });
+    const project = () => {
+      session = applyEvent(session, { seq: session.seq + 1, type: 'identity.state', data: identityView(identity, identity.lastNow) });
+    };
+    project();
+    assert.equal(session.identity.assessmentUnlocked, true); assert.equal(session.identified, false);
+    assert.equal(session.sessionRevision, 0);
+    identity = request(identity).state; project();
+    assert.equal(session.identified, false); assert.equal(session.sessionRevision, 0);
+    identity = confirm(identity).state; project();
+    assert.equal(session.identified, true); assert.equal(session.sessionRevision, 1);
+    identity = step(identity, 'change-address', { address: 'changed@example.test' }).state; project();
+    assert.equal(session.identity.assessmentUnlocked, true); assert.equal(session.identified, false);
+    assert.equal(session.sessionRevision, 2);
+  }
+});
+
+test('host policy removal unlocks without verification, preserves identity facts and emits once', () => {
+  let s = request().state;
+  s = step(s, 'confirmation-attempt').state;
+  s = step(s, 'pause', { origin: 'manual', paused: true }).state;
+  const result = step(s, 'policy', { origin: 'host', verificationRequired: false }, 1);
+  assert.deepEqual(result.state, { ...s, verificationRequired: false, lastNow: 1 });
+  assert.deepEqual(result.events[0], { type: 'identity.policy-changed',
+    data: { verificationRequired: false, reason: 'host-policy-disabled' } });
+  assert.equal(result.events[1].type, 'identity.state');
+  assert.equal(result.events[1].data.status, 'verification-pending');
+  assert.equal(result.events[1].data.assessmentUnlocked, true);
+  assert.equal(result.events[1].data.canRunAssessment, false);
+  assert.deepEqual(step(result.state, 'policy', { origin: 'host', verificationRequired: false }, 2).events, []);
+  for (const data of [{ verificationRequired: false }, { origin: 'visitor', verificationRequired: false },
+    { origin: 'host', verificationRequired: true }]) assert.throws(() => step(s, 'policy', data));
 });
 
 test('explicit policy locks guests; verification emits unlock and renderable actor state', () => {
@@ -248,6 +284,19 @@ test('confirmation attempts are bounded per request, survive expiry and reset on
   assert.equal(step(s, 'confirmation-attempt').confirmationAllowed, true);
 });
 
+test('confirmation attempt configuration accepts and enforces both bounds', () => {
+  for (const maxConfirmationAttempts of [1, 10]) {
+    let s = request(createLockedIdentity({ policy: { maxConfirmationAttempts } })).state;
+    for (let i = 0; i < maxConfirmationAttempts; i++) {
+      const result = step(s, 'confirmation-attempt');
+      assert.equal(result.confirmationAllowed, true);
+      s = result.state;
+    }
+    assert.equal(identityView(s, 0).confirmationAttemptsRemaining, 0);
+    assert.equal(step(s, 'confirmation-attempt').confirmationBlocked, true);
+  }
+});
+
 test('identity emits no state event for a clock tick, unchanged role or pause, or duplicate expiry', () => {
   const s = delivery(request().state);
   for (const result of [step(s, 'tick', {}, 1), step(s, 'role', { role: null }, 2),
@@ -260,6 +309,7 @@ test('identity emits no state event for a clock tick, unchanged role or pause, o
 test('identity rejects malformed configuration, addresses, events and time', () => {
   for (const options of [{ roles: [] }, { roles: ['x', 'x'] }, { role: 'other' }, { demoBypass: 'yes' },
     { verificationRequired: 'yes' }, { policy: { maxConfirmationAttempts: 0 } }, { policy: { maxConfirmationAttempts: 1.5 } },
+    { policy: { maxConfirmationAttempts: 11 } }, { policy: { maxConfirmationAttempts: Number.MAX_SAFE_INTEGER } },
     { policy: { verificationTtlMs: 0 } }, { policy: { resendCooldownMs: -1 } }]) assert.throws(() => createLockedIdentity(options));
   const s = createLockedIdentity();
   for (const value of ['', 'missing-at', 'a@b', 'a b@example.test', 'x'.repeat(255)]) {

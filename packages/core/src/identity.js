@@ -11,7 +11,7 @@ export function createIdentity({ roles = ACTOR_ROLES, role = null, demoBypass = 
       roles.some(r => typeof r !== 'string' || !r || r.length > 64) || role !== null && !roles.includes(role) ||
       typeof demoBypass !== 'boolean' || typeof verificationRequired !== 'boolean' ||
       !time(limits.resendCooldownMs) || !time(limits.verificationTtlMs) || !limits.verificationTtlMs ||
-      !time(limits.maxConfirmationAttempts) || !limits.maxConfirmationAttempts) {
+      !time(limits.maxConfirmationAttempts) || !limits.maxConfirmationAttempts || limits.maxConfirmationAttempts > 10) {
     throw new TypeError('Invalid identity configuration');
   }
   return { status: 'guest', roles: [...roles], role, address: null, verificationRevision: 0,
@@ -129,6 +129,13 @@ export function reduceIdentity(state, event) {
     case 'demo':
       if (event.origin !== 'host' || event.enabled !== false) throw new TypeError('Host demo revocation required');
       next.demoBypass = false;
+      break;
+    case 'policy':
+      if (event.origin !== 'host' || event.verificationRequired !== false) throw new TypeError('Host verification policy removal required');
+      if (next.verificationRequired === true) {
+        next.verificationRequired = false;
+        events.push({ type: 'identity.policy-changed', data: { verificationRequired: false, reason: 'host-policy-disabled' } });
+      }
       break;
     case 'tick': break;
     default: throw new TypeError('Unknown identity event');

@@ -163,11 +163,19 @@ with an identity port that declares `deliversVerification: true` and actually
 delivers verification through `requestVerification` and `verify` (START parity).
 It gates assessment and fresh concept admission; transcript export stays
 available. New conversations persist their policy. Conversations created before
-B1 are adopted with the lock off on restart; existing policies are not changed
-retroactively. Only trusted host configuration may enable a labelled demo bypass.
+B1 are adopted with the lock off on restart. When the host policy is turned off,
+adoption removes an existing lock and journals `identity.policy-changed` with
+`reason: "host-policy-disabled"`, followed by `identity.state`. This includes a
+database created with `AITHEMA_DEMO_VERIFY=1` and later opened in live mode.
+Adoption retains verification status, attempt counts and pause state; enabling
+the policy applies only to new conversations. Only trusted host configuration
+may enable a labelled demo bypass. An unlocked guest remains unidentified:
+`session.identified` follows verified identity, and live assessment still waits
+for `preset.anonymousTurns` unless the visitor has actually verified.
 
 Token confirmation permits five attempts per requested verification revision by
-default (`identity.configuration().policy.maxConfirmationAttempts`). Each attempt
+default (`identity.configuration().policy.maxConfirmationAttempts`, an integer
+from 1 through 10). Each attempt
 is reserved durably in the same SQLite transaction as its state event, before
 calling the host, including calls that fail or are interrupted. Once exhausted,
 confirmation returns 429 without consulting the port until a new verification
@@ -175,7 +183,7 @@ is requested under the resend cooldown. Polling authoritative host evidence
 does not redeem a token or spend a confirmation attempt.
 
 The existing `GET S/events` SSE stream carries durable `identity.state`,
-`verification.requested`, `identity.resend-blocked`, `identity.unlocked`,
+`verification.requested`, `identity.resend-blocked`, `identity.unlocked`, `identity.policy-changed`,
 `handover.state`, `handover.limit-reached`, `library.state`, `credits.state`,
 `credits.limit-reached` and `conversation.end-requested`, in the usual
 `{sessionId,seq,generation,type,at,data}` envelope. Snapshots project `identity`,
@@ -205,7 +213,7 @@ Host adapter contract:
   `{verified,address,revision}` from its own token redemption or poll state.
   Calls receive an abort signal and deadline; the configuration's policy sets
   the resend cooldown, verification TTL and positive, bounded
-  `maxConfirmationAttempts` (default 5). Hosts must enforce equivalent durable,
+  `maxConfirmationAttempts` (integer 1–10, default 5). Hosts must enforce equivalent durable,
   race-safe attempt limits on any alternate token redemption endpoints; tokens
   must be compared in constant time, single-use, expiry-bound and revision-bound.
   `deliversVerification: true` attests real delivery capability when the host

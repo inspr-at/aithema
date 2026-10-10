@@ -57,7 +57,7 @@ export function applyEvent(session, event) {
   } else if (event.type === 'identity.state') {
     next.identity = event.data.erased ? { erased: true } : event.data;
     // Retained transition metadata keeps revisions stable after address erasure.
-    const identified = event.data.identified ?? Boolean(next.identity?.assessmentUnlocked);
+    const identified = event.data.identified ?? (next.identity?.status === 'verified');
     if (identified !== next.identified) next.sessionRevision += 1;
     next.identified = identified;
   } else if (event.type === 'handover.state') {
@@ -66,7 +66,7 @@ export function applyEvent(session, event) {
     next.credits = event.data;
   } else if (event.type === 'library.state') {
     next.library = event.data.erased ? null : event.data;
-  } else if (['verification.requested', 'identity.unlocked', 'identity.resend-blocked', 'handover.limit-reached',
+  } else if (['verification.requested', 'identity.unlocked', 'identity.policy-changed', 'identity.resend-blocked', 'handover.limit-reached',
     'credits.limit-reached', 'conversation.end-requested'].includes(event.type)) {
     // Notifications accompany their durable state projection.
   } else if (event.type === 'settings.changed') {

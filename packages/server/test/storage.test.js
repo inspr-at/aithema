@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, ConflictError, createHandlers, exportSession } from '../src/index.js';
-import { inputRevision, createMockReasoning } from '@inspr/aithema-core';
+import { inputRevision, createMockReasoning, createSession, applyEvent } from '@inspr/aithema-core';
 import { instrumentedMockRuntime } from '../../../test/server-fixtures.js';
 import { mockConsent, testToken, ownedRequest, temporaryDb, unzip, readEvents } from '../../../test/helpers.js';
 const bytes = content => Buffer.from(JSON.stringify({ clientEventId: 'turn1', content }));
@@ -40,6 +40,25 @@ test('stale publication guard rejects a snapshot/event together', () => {
     const s = store.create(), revision = inputRevision(s); store.postTurn(s.id, 'turn1', bytes('hello'), 'hello');
     assert.equal(store.append(s.id, 'understanding.updated', {}, revision), null);
     assert.equal(store.read(s.id).length, 2);
+  } finally { store.close(); }
+});
+test('identity journal retains verified identification independently of unlocked surfaces for erased replay', () => {
+  const store = new SQLiteStorage();
+  try {
+    const s = store.create();
+    for (const status of ['guest', 'verification-pending', 'verified', 'verification-pending']) {
+      store.append(s.id, 'identity.state', { status, assessmentUnlocked: true, address: 'owner@example.test' });
+      const snapshot = store.get(s.id), retained = JSON.parse(store.db.prepare(
+        'SELECT event FROM events WHERE session_id=? ORDER BY seq DESC LIMIT 1').get(s.id).event).data;
+      assert.equal(snapshot.identified, status === 'verified');
+      assert.equal(retained.identified, status === 'verified');
+    }
+    assert.equal(store.get(s.id).sessionRevision, 2);
+    store.erase(s.id);
+    const events = store.read(s.id), replay = events.reduce(applyEvent, createSession({ id: s.id }));
+    assert.equal(inputRevision(replay), inputRevision(store.get(s.id)));
+    assert.equal(replay.identified, false);
+    assert.equal(JSON.stringify(events).includes('owner@example.test'), false);
   } finally { store.close(); }
 });
 test('turn transaction rolls back event and snapshot if receipt persistence fails', () => {

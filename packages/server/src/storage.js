@@ -167,7 +167,7 @@ export class SQLiteStorage {
   }
   #metadata(id, type, data, seq) {
     if (['identity.state', 'verification.requested', 'library.state'].includes(type)) {
-      const retained = type === 'identity.state' ? { identified: data.identified ?? Boolean(data.assessmentUnlocked) } : {};
+      const retained = type === 'identity.state' ? { identified: data.identified ?? (data.status === 'verified') } : {};
       if (data.contentRef) return { contentRef: data.contentRef, hash: data.hash, ...retained };
       const bytes = JSON.stringify(data), contentRef = `${id}:host:${seq}`;
       this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id, 'host', bytes, hash(bytes), new Date().toISOString());
