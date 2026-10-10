@@ -1472,7 +1472,18 @@ Readiness of voice is separately visible in
 | `AITHEMA_UPLOAD_MAX_REQUEST_BYTES` | Multipart streaming body ceiling; default `67108864` (64 MiB), lowering only |
 | `AITHEMA_UPLOAD_MAX_FILES` | Active document count per session, including pending/unreadable; default `8`, lowering only |
 | `AITHEMA_UPLOAD_MAX_SESSION_BYTES` | Active source-byte count per session; default `167772160` (160 MiB), lowering only; withdrawal releases capacity |
+| `AITHEMA_UPLOAD_MAX_CONCURRENT_REQUESTS_PER_SESSION` | Concurrent upload requests per session; default `2`, lowering only; excess requests receive `429` before their bodies are read |
+| `AITHEMA_UPLOAD_MAX_CONCURRENT_REQUESTS` | Concurrent upload requests across the deployment's server process, shared by handler instances; default `4`, lowering only; excess requests receive `429` before parsing |
 | `AITHEMA_VOICE_HOST_MODULE` | Optional server-only host override; unset selects built-in start2 host |
+
+Multipart admission permits at most the configured file count plus two scalar
+parts, with an 8 KiB header ceiling per part, before calling the native parser.
+Only headers with empty payloads enter `formData()`; file content is a view of
+the buffered request. Declared-length bodies use one buffer; undeclared bodies
+use Node 24's resizable backing store to avoid repeated full-body copies and
+final concatenation. Single-chunk bodies need no buffering copy.
+Upload expiry withdraws and cancels only the expired upload; newer pending
+uploads in that session and work in other sessions continue processing.
 
 Production requires no `ELEVENLABS_AGENT_ID`: the owned agent id comes from ensure
 and is cached in `AITHEMA_DB`. An existing same-name foreign agent or multiple

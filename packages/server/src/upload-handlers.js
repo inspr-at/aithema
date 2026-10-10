@@ -2,10 +2,14 @@ import { createHash } from 'node:crypto';
 import { inputRevision, PluginError, operationScope } from '@inspr/aithema-core';
 import { sniffDocument, EXTRACTOR_LIMITS, TEXT_MEDIA_TYPES, EXTRACTOR_MEDIA_TYPES } from '@inspr/aithema-core/extractor';
 import { normalizeUploadLimits } from './upload-limits.js';
+import { scanUploadMultipart } from './upload-multipart.js';
 import { ConflictError } from './storage.js';
 
 const identifier = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(value);
 const json = (body, status = 200) => Response.json(body, { status, headers: { 'cache-control': 'no-store' } });
+// Shared by handler instances in this deployment's server process.
+const requestsPerSession = new Map();
+let requestsInDeployment = 0;
 const extensions = { pdf: EXTRACTOR_MEDIA_TYPES.pdf, docx: EXTRACTOR_MEDIA_TYPES.docx, xlsx: EXTRACTOR_MEDIA_TYPES.xlsx,
   pptx: EXTRACTOR_MEDIA_TYPES.pptx, txt: 'text/plain', md: 'text/markdown', csv: 'text/csv', json: 'application/json', xml: 'application/xml' };
 export function sniffUploadDocument(bytes, filename, maxBytes = EXTRACTOR_LIMITS.maxBytes) {
@@ -55,7 +59,13 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
     for (const job of pending) job.controller.abort(new DOMException('Upload processing revoked', 'AbortError'));
     await Promise.allSettled(pending.map(j => j.promise));
   }
-  return { cancelSession,
+  async function cancelUpload(id, uploadId) {
+    const job = jobs.get(uploadId);
+    if (job?.id !== id) return;
+    job.controller.abort(new DOMException('Upload processing revoked', 'AbortError'));
+    await job.promise;
+  }
+  return { cancelSession, cancelUpload,
     async handle(request) {
       const match = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})\/uploads(?:\/([a-zA-Z0-9_-]{1,128})(?:\/(withdraw))?)?$/u.exec(new URL(request.url).pathname);
       if (!match) return null;
@@ -73,36 +83,50 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
       if (!/^multipart\/form-data\s*;/iu.test(request.headers.get('content-type') ?? '')) return json({ error: 'multipart-required' }, 415);
       const length = request.headers.get('content-length');
       if (length && /^\d+$/u.test(length) && Number(length) > limits.maxRequestBytes) throw new RangeError('Upload request limit');
-      const deadlineAt = Date.now() + limits.requestBudgetMs;
-      const bytes = await readBody(request, limits.maxRequestBytes);
-      const form = await new Request(request.url, { method: 'POST', headers: { 'content-type': request.headers.get('content-type') }, body: bytes }).formData();
-      const clientEventId = form.get('clientEventId'), revision = form.get('inputRevision') ?? guard.revision;
-      if (!identifier(clientEventId) || form.getAll('clientEventId').length !== 1 || typeof revision !== 'string' || form.getAll('inputRevision').length > 1 ||
-        [...form.keys()].some(key => !['clientEventId', 'inputRevision', 'file', 'files'].includes(key))) return json({ error: 'invalid-upload' }, 400);
-      const entries = [...form.getAll('file'), ...form.getAll('files')];
-      if (!entries.length || entries.some(f => !(f instanceof File))) return json({ error: 'invalid-upload' }, 400);
-      if (entries.length > limits.maxFilesPerRequest || entries.some(f => f.size > limits.maxBytes)) throw new RangeError('Upload file limit');
-      const files = await Promise.all(entries.map(async f => {
-        const bytes = new Uint8Array(await f.arrayBuffer()), detected = sniffUploadDocument(bytes, f.name, limits.maxBytes);
-        return { bytes, filename: f.name.slice(0, 200), originalName: f.name, mediaType: detected.mediaType, deadlineAt };
-      }));
-      // Multipart boundary and the untrusted client MIME are transport details.
-      // The receipt binds exact filenames, order, content bytes and base revision.
-      const digest = createHash('sha256').update(JSON.stringify({ revision: form.get('inputRevision'), files: files.map(f => ({ filename: f.originalName,
-        hash: createHash('sha256').update(f.bytes).digest('hex') })) })).digest('hex');
-      const replay = storage.uploadReceipt(id, clientEventId, digest, guard);
-      if (replay) return json({ accepted: true, ...replay, uploads: replay.events.map(e => e.data), limits });
-      const availability = await runtime.uploadAvailability(session, { signal: request.signal, deadlineAt });
-      storage.authorize(id, ownerToken);
-      if (inputRevision(storage.get(id)) !== guard.revision) throw new ConflictError('Upload admission changed');
-      if (availability.reason) return json({ error: 'uploads-unavailable', reason: availability.reason }, 403);
-      const result = storage.postUploads(id, clientEventId, digest, files, limits, { ...guard, revision });
-      if (!result.replayed) {
-        for (const event of result.events) publish(id, event);
-        onInput(id, { pending: true });
-        for (const event of result.events) start(id, event.data.id);
+      const active = requestsPerSession.get(id) ?? 0;
+      if (active >= limits.maxConcurrentRequestsPerSession || requestsInDeployment >= limits.maxConcurrentRequestsPerDeployment) return json({ error: 'upload-rate-limit' }, 429);
+      requestsPerSession.set(id, active + 1); requestsInDeployment++;
+      try {
+        const deadlineAt = Date.now() + limits.requestBudgetMs;
+        const bytes = await readBody(request, limits.maxRequestBytes);
+        const { parts, metadata } = scanUploadMultipart(bytes, request.headers.get('content-type'), limits.maxFilesPerRequest);
+        const form = await new Request(request.url, { method: 'POST', headers: { 'content-type': request.headers.get('content-type') }, body: metadata }).formData();
+        const fields = [...form.entries()].map(([key, value], i) => ({ key, value, bytes: parts[i]?.bytes }));
+        if (fields.length !== parts.length || fields.some(f => !['clientEventId', 'inputRevision', 'file', 'files'].includes(f.key))) return json({ error: 'invalid-upload' }, 400);
+        const ids = fields.filter(f => f.key === 'clientEventId'), revisions = fields.filter(f => f.key === 'inputRevision');
+        if (ids.length !== 1 || revisions.length > 1 || [...ids, ...revisions].some(f => typeof f.value !== 'string' || f.bytes.length > 128)) return json({ error: 'invalid-upload' }, 400);
+        const clientEventId = ids[0].bytes.toString('utf8'), rawRevision = revisions[0]?.bytes.toString('utf8');
+        const revision = rawRevision ?? guard.revision;
+        if (!identifier(clientEventId)) return json({ error: 'invalid-upload' }, 400);
+        const entries = [...fields.filter(f => f.key === 'file'), ...fields.filter(f => f.key === 'files')];
+        if (!entries.length || entries.some(f => !(f.value instanceof File))) return json({ error: 'invalid-upload' }, 400);
+        if (entries.length > limits.maxFilesPerRequest || entries.some(f => f.bytes.length > limits.maxBytes)) throw new RangeError('Upload file limit');
+        const files = entries.map(({ value: f, bytes }) => {
+          const detected = sniffUploadDocument(bytes, f.name, limits.maxBytes);
+          return { bytes, filename: f.name.slice(0, 200), originalName: f.name, mediaType: detected.mediaType, deadlineAt };
+        });
+        // Multipart boundary and the untrusted client MIME are transport details.
+        // The receipt binds exact filenames, order, content bytes and base revision.
+        const digest = createHash('sha256').update(JSON.stringify({ revision: rawRevision ?? null, files: files.map(f => ({ filename: f.originalName,
+          hash: createHash('sha256').update(f.bytes).digest('hex') })) })).digest('hex');
+        const replay = storage.uploadReceipt(id, clientEventId, digest, guard);
+        if (replay) return json({ accepted: true, ...replay, uploads: replay.events.map(e => e.data), limits });
+        const availability = await runtime.uploadAvailability(session, { signal: request.signal, deadlineAt });
+        storage.authorize(id, ownerToken);
+        if (inputRevision(storage.get(id)) !== guard.revision) throw new ConflictError('Upload admission changed');
+        if (availability.reason) return json({ error: 'uploads-unavailable', reason: availability.reason }, 403);
+        const result = storage.postUploads(id, clientEventId, digest, files, limits, { ...guard, revision });
+        if (!result.replayed) {
+          for (const event of result.events) publish(id, event);
+          onInput(id, { pending: true });
+          for (const event of result.events) start(id, event.data.id);
+        }
+        return json({ accepted: true, ...result, uploads: result.events.map(e => e.data), limits }, result.replayed ? 200 : 202);
+      } finally {
+        const remaining = requestsPerSession.get(id) - 1;
+        if (remaining) requestsPerSession.set(id, remaining); else requestsPerSession.delete(id);
+        requestsInDeployment--;
       }
-      return json({ accepted: true, ...result, uploads: result.events.map(e => e.data), limits }, result.replayed ? 200 : 202);
     },
     resume() {
       for (const id of storage.list()) for (const upload of storage.get(id).uploads) if (upload.state === 'pending') start(id, upload.id);

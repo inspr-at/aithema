@@ -16,17 +16,40 @@ function sse(event) {
 }
 export async function readBody(request, limit = 32_768) {
   if (!request.body) return new Uint8Array();
+  const length = request.headers.get('content-length');
+  const declared = length && /^\d+$/u.test(length) ? Number(length) : null;
+  if (declared !== null && (!Number.isSafeInteger(declared) || declared > limit)) throw new RangeError('Request limit');
+  // Fill one buffer for declared lengths. Node 24's resizable backing store
+  // grows undeclared bodies without retaining chunks or copying a full body
+  // on resize/concat; a single-chunk body can be returned directly.
+  const body = declared === null ? null : Buffer.allocUnsafe(declared);
   const reader = request.body.getReader();
-  const chunks = []; let size = 0;
+  let first, growing, size = 0;
   try {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       size += value.length;
       if (size > limit) { await reader.cancel(); throw new RangeError('Request limit'); }
-      chunks.push(value);
+      if (!value.length) continue;
+      if (body) {
+        if (size > body.length) { await reader.cancel(); throw new TypeError('Request length mismatch'); }
+        body.set(value, size - value.length);
+      } else if (!first && !growing) first = value;
+      else {
+        if (!growing) {
+          growing = new ArrayBuffer(size, { maxByteLength: limit });
+          new Uint8Array(growing).set(first); first = null;
+        } else growing.resize(size);
+        new Uint8Array(growing, size - value.length, value.length).set(value);
+      }
     }
-    return Buffer.concat(chunks);
+    if (body) {
+      if (size !== body.length) throw new TypeError('Request length mismatch');
+      return body;
+    }
+    if (growing) return Buffer.from(growing, 0, size);
+    return first ? Buffer.from(first.buffer, first.byteOffset, first.byteLength) : Buffer.alloc(0);
   } finally { reader.releaseLock(); }
 }
 
@@ -389,7 +412,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         }
         for (const upload of storage.get(id).uploads.filter(u => u.state !== 'withdrawn' && Date.parse(u.at) < before)) {
           const event = storage.withdrawUpload(id, upload.id);
-          await Promise.all([uploadHandlers.cancelSession(id), invalidate(id, event, 'upload-expired'), conceptHandlers.lane.supersede(id)]);
+          await Promise.all([uploadHandlers.cancelUpload(id, upload.id), invalidate(id, event, 'upload-expired'), conceptHandlers.lane.supersede(id)]);
           schedule(id); conceptHandlers.ended(id);
         }
       }

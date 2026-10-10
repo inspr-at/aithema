@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { uploadContextMessage, createSession, reasoningRequest, conceptHTMLSpec } from '../src/index.js';
+import { uploadContextMessage, createSession, reasoningRequest, conceptHTMLSpec, conceptPrompt } from '../src/index.js';
 
 test('document framing escapes closing delimiters, bounds the complete context and marks truncation', () => {
   const session = createSession();
@@ -35,4 +35,17 @@ test('JSON escaping is counted in the total budget and unreadable context states
     { id: 'unreadable', state: 'unreadable', filename: 'empty.txt', mediaType: 'text/plain', at: '2026-10-02T00:00:00Z', reason: 'empty' }];
   const context = uploadContextMessage(session, { totalChars: 1200, perDocumentChars: 12000 });
   assert.ok(context.length <= 1200); assert.match(context, /"reason":"empty"/u); assert.match(context, /Truncated/u);
+});
+
+test('concept document block starts on its own line after truncated requirement JSON', () => {
+  const session = createSession();
+  session.transcript = [{ id: 'long', role: 'user', content: 'Long requirement text '.repeat(2000) }];
+  session.uploads = [{ id: 'reference', state: 'accepted', filename: 'reference.txt', mediaType: 'text/plain',
+    at: '2026-10-01T00:00:00Z', text: 'Document reference fixture' }];
+  const prompt = conceptPrompt(session), [intro, requirements, ...document] = prompt.split('\n');
+  assert.match(intro, /untrusted design content/u);
+  assert.equal(requirements.length, 20000);
+  assert.throws(() => JSON.parse(requirements), SyntaxError, 'fixture cuts inside a requirement string');
+  assert.match(document[0], /^UNTRUSTED uploaded reference data/u);
+  assert.equal(JSON.parse(document[1]).text, 'Document reference fixture');
 });

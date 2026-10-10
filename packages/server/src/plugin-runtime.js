@@ -329,9 +329,10 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         }
       } }, report: terminal => budget.settle(claim.claimId, terminal, { inputMicro: 0, outputMicro: 0 }) });
       try {
-        invocation.dispatch(); invocation.usage({ inputTokens: 0, outputTokens: 0 });
+        invocation.dispatch();
         const extractor = createExtractor({ plugins: [plugin], limits: binding.limits });
         const result = await extractor.extract(bytes, metadata, options);
+        invocation.usage({ inputTokens: 0, outputTokens: 0 });
         options.signal?.throwIfAborted();
         if (!current()) throw new PluginError('cancelled');
         await invocation.finish(true);

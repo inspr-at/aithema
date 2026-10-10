@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { createHandlers, createPluginRuntime, SQLiteStorage, mockPresets, SERVER_UPLOAD_LIMITS, normalizeUploadLimits, uploadLimitConfig, sniffUploadDocument } from '../src/index.js';
+import { createHandlers, createPluginRuntime, SQLiteStorage, mockPresets, SERVER_UPLOAD_LIMITS, normalizeUploadLimits, uploadLimitConfig, sniffUploadDocument, readBody } from '../src/index.js';
+import { scanUploadMultipart } from '../src/upload-multipart.js';
 import { createMockReasoning, PluginRegistry, reasoningRequest, inputRevision, conceptHTMLSpec, conceptPrompt, createSession, applyEvent } from '@inspr/aithema-core';
 import { EXTRACTOR_LIMITS, EXTRACTOR_MEDIA_TYPES } from '@inspr/aithema-core/extractor';
 import { createTextExtractor } from '@inspr/aithema-plugin-extract-text';
@@ -12,12 +13,12 @@ import { mockConsent, testToken, ownedRequest, temporaryDb, unzip } from '../../
 import { bytes, pdf, docx, xlsx, pptx, HANG, stallWorkerURL } from '../../../test/extractor-fixtures.js';
 import { observeParsers, waitFor } from '../../../plugins/extract-text/test/extractor-test-helpers.js';
 
-function setup(t, { storage = new SQLiteStorage(), consent = mockConsent, limits, textPlugin, reasoning = createMockReasoning(), presets = mockPresets(), manageStorage = true } = {}) {
+function setup(t, { storage = new SQLiteStorage(), consent = mockConsent, limits, readUploadBody, textPlugin, reasoning = createMockReasoning(), presets = mockPresets(), manageStorage = true } = {}) {
   const registry = new PluginRegistry().register(reasoning);
   if (textPlugin) { registry.register(textPlugin); presets.best.plugins.push(textPlugin.manifest.id); presets.best.extractors = [{ plugin: textPlugin.manifest.id }]; }
   else registerDemoExtractors(registry, presets);
   const runtime = createPluginRuntime({ storage, reasoning, registry, presets, consent });
-  const handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent, uploads: { limits } });
+  const handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent, uploads: { limits, ...(readUploadBody ? { readBody: readUploadBody } : {}) } });
   const session = storage.create({ ownerToken: testToken, demo: true });
   t.after(async () => { await handlers.close(); if (manageStorage) storage.close(); });
   return { storage, runtime, handlers, session };
@@ -125,6 +126,110 @@ test('streaming request body enforces the byte ceiling without Content-Length', 
   assert.equal((await f.handlers.handle(declared)).status, 413);
 });
 
+test('many tiny multipart parts are refused before formData is called', async t => {
+  const f = setup(t), form = new FormData();
+  for (let i = 0; i < 1000; i++) form.append('files', 'x');
+  const parser = t.mock.method(Request.prototype, 'formData', () => assert.fail('multipart parser must not run'));
+  const request = ownedRequest(`http://localhost/api/sessions/${f.session.id}/uploads`, { method: 'POST', body: form });
+  assert.equal((await f.handlers.handle(request)).status, 413);
+  assert.equal(parser.mock.callCount(), 0);
+  assert.equal(f.storage.get(f.session.id).uploads.length, 0);
+});
+
+test('an oversized multipart header is refused before formData is called', async t => {
+  const f = setup(t), boundary = 'header-fixture';
+  const parser = t.mock.method(Request.prototype, 'formData', () => assert.fail('multipart parser must not run'));
+  const request = ownedRequest(`http://localhost/api/sessions/${f.session.id}/uploads`, { method: 'POST',
+    headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+    body: `--${boundary}\r\nContent-Disposition: form-data; name="clientEventId"\r\nX-Padding: ${'a'.repeat(8192)}\r\n\r\nheader\r\n--${boundary}--\r\n` });
+  assert.equal((await f.handlers.handle(request)).status, 413);
+  assert.equal(parser.mock.callCount(), 0);
+  assert.equal(f.storage.get(f.session.id).uploads.length, 0);
+});
+
+test('native multipart parsing receives bounded metadata and admission reuses body byte views', async t => {
+  let body;
+  const f = setup(t, { readUploadBody: async (...args) => { body = await readBody(...args); return body; } });
+  const original = Request.prototype.formData, admitted = f.storage.postUploads.bind(f.storage);
+  t.mock.method(Request.prototype, 'formData', async function() {
+    const metadata = await this.clone().arrayBuffer();
+    assert.ok(metadata.byteLength < 1024, 'native parser never receives document payloads');
+    const form = await original.call(this);
+    assert.equal(form.get('files').size, 0);
+    return form;
+  });
+  t.mock.method(File.prototype, 'arrayBuffer', () => assert.fail('no document File copy'));
+  t.mock.method(f.storage, 'postUploads', (id, clientId, digest, files, ...rest) => {
+    assert.equal(files[0].bytes.buffer, body.buffer);
+    assert.equal(files[0].bytes.byteLength, 60000);
+    return admitted(id, clientId, digest, files, ...rest);
+  });
+  await post(f, 'views', [['Straße.txt', bytes('Document fixture words. '.repeat(2500))]]);
+  await f.handlers.idle();
+  assert.equal(f.storage.get(f.session.id).uploads[0].filename, 'Straße.txt');
+});
+
+test('multipart scanning preserves boundary-like payload bytes and refuses malformed framing', () => {
+  const type = 'multipart/form-data; boundary="fixture"';
+  const payload = 'literal\r\n--fixtureX\r\nmore';
+  const body = Buffer.from(`--fixture\r\nContent-Disposition: form-data; name="files"; filename="literal.txt"\r\n\r\n${payload}\r\n--fixture--\r\n`);
+  const { parts } = scanUploadMultipart(body, type, 1);
+  assert.equal(parts[0].bytes.toString(), payload); assert.equal(parts[0].bytes.buffer, body.buffer);
+  for (const invalid of [body.subarray(1), body.subarray(0, body.length - 5), Buffer.concat([body, Buffer.from('junk')])]) {
+    assert.throws(() => scanUploadMultipart(invalid, type, 1), TypeError);
+  }
+  assert.throws(() => scanUploadMultipart(body, 'multipart/form-data; boundary=' + 'a'.repeat(71), 1), TypeError);
+});
+
+test('declared-length streaming bodies fill one buffer and reject length mismatches', async () => {
+  const request = length => new Request('http://localhost/upload', { method: 'POST', duplex: 'half',
+    headers: { 'content-length': String(length) }, body: new ReadableStream({ start(c) {
+      c.enqueue(Buffer.from('abc')); c.enqueue(Buffer.from('def')); c.close();
+    } }) });
+  assert.equal((await readBody(request(6), 10)).toString(), 'abcdef');
+  await assert.rejects(readBody(request(5), 10), TypeError);
+  await assert.rejects(readBody(request(7), 10), TypeError);
+});
+
+test('undeclared streaming bodies grow without concatenating a second complete body', async t => {
+  const request = new Request('http://localhost/upload', { method: 'POST', duplex: 'half',
+    body: new ReadableStream({ start(c) {
+      for (const chunk of ['abc', 'def', 'ghi']) c.enqueue(Buffer.from(chunk));
+      c.close();
+    } }) });
+  const concat = t.mock.method(Buffer, 'concat', () => assert.fail('no full-body concat'));
+  const body = await readBody(request, 10);
+  assert.equal(body.toString(), 'abcdefghi'); assert.equal(body.buffer.resizable, true);
+  assert.equal(concat.mock.callCount(), 0);
+});
+
+for (const cap of ['session', 'deployment']) test(`${cap} upload concurrency is capped before reading or parsing, and slots are released`, async t => {
+  const started = Promise.withResolvers(), release = Promise.withResolvers(); let reads = 0;
+  const limits = cap === 'session' ? { maxConcurrentRequestsPerSession: 1 } : { maxConcurrentRequestsPerDeployment: 1 };
+  const readUploadBody = async (...args) => { if (++reads === 1) { started.resolve(); await release.promise; } return readBody(...args); };
+  const first = setup(t, { limits, readUploadBody });
+  const second = cap === 'session' ? first : setup(t, { limits, readUploadBody });
+  const parser = t.mock.method(Request.prototype, 'formData');
+  const held = first.handlers.handle(uploadRequest(first.session.id, 'held'));
+  try {
+    await waitFor(started.promise, 'held upload body');
+    assert.equal((await second.handlers.handle(uploadRequest(second.session.id, 'overflow'))).status, 429);
+    assert.equal(reads, 1); assert.equal(parser.mock.callCount(), 0);
+  } finally { release.resolve(); }
+  assert.equal((await held).status, 202); await first.handlers.idle();
+  assert.equal((await second.handlers.handle(uploadRequest(second.session.id, 'after-release'))).status, 202);
+  await second.handlers.idle();
+  assert.equal(parser.mock.callCount(), 2);
+});
+
+test('rejected parsing and refused admission release upload concurrency slots', async t => {
+  const f = setup(t, { consent: { coverage: () => ({ covered: false }) }, limits: { maxConcurrentRequestsPerSession: 1, maxConcurrentRequestsPerDeployment: 1 } });
+  const invalid = ownedRequest(`http://localhost/api/sessions/${f.session.id}/uploads`, { method: 'POST',
+    headers: { 'content-type': 'multipart/form-data; boundary=fixture' }, body: 'invalid' });
+  assert.equal((await f.handlers.handle(invalid)).status, 400);
+  for (const id of ['refusal-one', 'refusal-two']) assert.equal((await f.handlers.handle(uploadRequest(f.session.id, id))).status, 403);
+});
+
 test('concurrent admission cannot exceed the per-session count', async t => {
   const f = setup(t, { limits: { maxDocumentsPerSession: 1 } });
   const responses = await Promise.all(['one', 'two'].map(id => f.handlers.handle(uploadRequest(f.session.id, id))));
@@ -146,7 +251,10 @@ for (const operation of ['withdraw', 'erase', 'consent']) test(`${operation} kil
   const upload = f.storage.get(f.session.id).uploads[0];
   assert.equal(upload.state, operation === 'consent' ? 'unreadable' : 'withdrawn');
   await f.handlers.idle();
-  assert.ok(f.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='extractor'").all().every(a => a.state === 'settled'));
+  const attempts = f.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='extractor'").all();
+  assert.equal(attempts.length, 1);
+  assert.equal(attempts[0].state, 'settled'); assert.equal(attempts[0].outcome, 'uncertain');
+  assert.equal(attempts[0].usage, null); assert.equal(attempts[0].settled_micro, attempts[0].max_micro); assert.equal(attempts[0].max_micro, 0);
 });
 
 test('withdrawal clears projections and text across restart, physical storage, replay and export', async t => {
@@ -241,7 +349,11 @@ test('defaults, lowering-only config and extension/content sniffing are explicit
   assert.equal(SERVER_UPLOAD_LIMITS.maxBytes, 20 * 1024 * 1024); assert.equal(SERVER_UPLOAD_LIMITS.maxDocumentsPerSession, 8);
   assert.equal(SERVER_UPLOAD_LIMITS.maxRequestBytes, 64 * 1024 * 1024);
   assert.equal(uploadLimitConfig({ AITHEMA_UPLOAD_MAX_BYTES: '1024' }).maxBytes, 1024);
+  assert.equal(uploadLimitConfig({ AITHEMA_UPLOAD_MAX_CONCURRENT_REQUESTS: '2', AITHEMA_UPLOAD_MAX_CONCURRENT_REQUESTS_PER_SESSION: '1' }).maxConcurrentRequestsPerDeployment, 2);
+  assert.equal(uploadLimitConfig({ AITHEMA_UPLOAD_MAX_CONCURRENT_REQUESTS_PER_SESSION: '1' }).maxConcurrentRequestsPerSession, 1);
   assert.throws(() => normalizeUploadLimits({ maxBytes: SERVER_UPLOAD_LIMITS.maxBytes + 1 }), TypeError);
+  assert.throws(() => normalizeUploadLimits({ maxConcurrentRequestsPerDeployment: SERVER_UPLOAD_LIMITS.maxConcurrentRequestsPerDeployment + 1 }), TypeError);
+  assert.throws(() => uploadLimitConfig({ AITHEMA_UPLOAD_MAX_CONCURRENT_REQUESTS: '0' }), TypeError);
   assert.throws(() => uploadLimitConfig({ AITHEMA_UPLOAD_MAX_FILES: 'NaN' }), TypeError);
   assert.equal(sniffUploadDocument(bytes('plain markdown'), 'notes.md').mediaType, 'text/markdown');
   assert.equal(sniffUploadDocument(pdf(), 'fake.csv').reason, 'unsupported');
@@ -271,11 +383,18 @@ test('document input supersedes held understanding and late results cannot overw
 });
 
 test('batch deadline produces a durable unreadable reason and no live parser', { timeout: 10000 }, async t => {
-  const observer = observeParsers(t), f = setup(t, { textPlugin: createTextExtractor({ workerURL: stallWorkerURL }), limits: { requestBudgetMs: 200 } });
-  await post(f, 'deadline', [['deadline.txt', bytes(HANG)]]); await f.handlers.idle();
+  const observer = observeParsers(t), f = setup(t, { textPlugin: createTextExtractor({ workerURL: stallWorkerURL }), limits: { requestBudgetMs: 1000 } });
+  const started = observer.spawned();
+  await post(f, 'deadline', [['deadline.txt', bytes(HANG)]]);
+  const record = await waitFor(started, 'deadline parser spawn');
+  assert.equal(await waitFor(record.started, 'deadline parser start'), true);
+  await f.handlers.idle();
   const upload = f.storage.get(f.session.id).uploads[0];
   assert.equal(upload.state, 'unreadable'); assert.equal(upload.reason, 'deadline'); assert.equal(observer.activeCount(), 0);
   assert.equal(f.storage.uploadBytes(f.session.id, upload.id), null);
+  const attempts = f.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='extractor'").all();
+  assert.equal(attempts.length, 1); assert.equal(attempts[0].outcome, 'uncertain'); assert.equal(attempts[0].usage, null);
+  assert.equal(attempts[0].settled_micro, attempts[0].max_micro); assert.equal(attempts[0].max_micro, 0);
 });
 
 test('restart resumes pending local work and preserves accepted document IDs/text', async t => {
@@ -296,4 +415,27 @@ test('expiry applies upload tombstones and releases capacity', async t => {
   assert.equal(f.storage.uploadBytes(f.session.id, removed.id), null);
   await post(f, 'replacement'); await f.handlers.idle();
   assert.equal(f.storage.get(f.session.id).uploads.filter(u => u.state === 'accepted').length, 1);
+});
+
+test('expiry cancels only expired pending uploads and preserves newer and other-session work', { timeout: 10000 }, async t => {
+  const observer = observeParsers(t), f = setup(t, { textPlugin: createTextExtractor({ workerURL: stallWorkerURL }) });
+  const started = observer.spawned();
+  const old = await post(f, 'old-pending', [['old.txt', bytes(HANG)]]), expiredId = old.uploads[0].id;
+  const record = await waitFor(started, 'expired parser spawn');
+  assert.equal(await waitFor(record.started, 'expired parser start'), true);
+  const newer = await post(f, 'new-pending', [['new.txt', bytes('Newer pending document')]]);
+  const other = f.storage.create({ ownerToken: testToken, demo: true });
+  const response = await f.handlers.handle(uploadRequest(other.id, 'other-pending'));
+  assert.equal(response.status, 202);
+  const get = f.storage.get.bind(f.storage);
+  t.mock.method(f.storage, 'get', id => {
+    const session = get(id);
+    return { ...session, uploads: session.uploads.map(u => ({ ...u, at: u.id === expiredId ? '2000-01-01T00:00:00Z' : '2030-01-01T00:00:00Z' })) };
+  });
+  await f.handlers.expire(Date.parse('2020-01-01T00:00:00Z')); await f.handlers.idle();
+  const uploads = f.storage.get(f.session.id).uploads;
+  assert.equal(uploads.find(u => u.id === expiredId).state, 'withdrawn');
+  assert.equal(uploads.find(u => u.id === newer.uploads[0].id).state, 'accepted');
+  assert.equal(f.storage.get(other.id).uploads[0].state, 'accepted');
+  assert.equal(observer.activeCount(), 0);
 });
