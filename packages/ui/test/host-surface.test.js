@@ -337,6 +337,8 @@ test('library: saving a rename keeps every row in place; a background reload too
   input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter' })); await tick();
   assert.equal(dialog.querySelector('tr[data-key="c"] .library__name').textContent, 'Clinic rota 2027');
   assert.deepEqual(keys(), ['a', 'b', 'c'], 'the renamed row stays where the pointer is');
+  // "Name saved." appears above the list: its line keeps the height it reserves (the browser suite measures it).
+  assert.match(hostStyles, /\.library__message \{ min-height:1\.3em; line-height:1\.3; \}/u);
   assert.ok([...dialog.querySelectorAll('tbody tr')].every((row, i) => row === nodes[i]), 'same nodes, same places');
   assert.ok(root.activeElement === dialog.querySelector('tr[data-key="c"] .library-rename'), 'focus on Rename');
   // The rename's library.state event reloads the open list without moving a row.

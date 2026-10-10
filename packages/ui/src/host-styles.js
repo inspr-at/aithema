@@ -79,7 +79,8 @@ dialog.library { width:min(54rem, calc(100vw - 1rem)); height:min(44rem, calc(10
 .library__head { display:grid; gap:.45rem; padding:1rem 1.25rem .5rem; border-bottom:1px solid var(--aithema-line); }
 .library__heading { display:flex; align-items:center; justify-content:space-between; gap:1rem; } .library-close { margin-right:-.85rem; font-size:.82rem; }
 .library__lead, .library__notice, .library__message { margin:0; } .library__lead { font-size:.87rem; }
-.library__notice, .library__message { font-size:.75rem; color:var(--aithema-muted); } .library__message { min-height:1.3em; }
+/* The message line reserves its own line height, so a message appearing never pushes the list. */
+.library__notice, .library__message { font-size:.75rem; color:var(--aithema-muted); } .library__message { min-height:1.3em; line-height:1.3; }
 .library__list { min-height:0; overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; padding:0 1.25rem; }
 .library table { width:100%; border-collapse:collapse; table-layout:fixed; }
 .library thead th { position:sticky; top:0; z-index:1; padding:.25rem 0; text-align:left; font-size:.75rem; font-weight:600; color:var(--aithema-muted);
@@ -110,7 +111,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 @media(max-width:40rem) {
   .host-bar { height:5.6rem; grid-template-rows:2.9rem minmax(0,1fr); }
   dialog.library { width:calc(100vw - .5rem); height:calc(100dvh - .5rem); border-radius:.8rem; }
-  .library__head, .library__foot { padding-inline:.8rem; } .library__list { padding:0 .8rem; }
+  .library__head, .library__foot { padding-inline:.8rem; } .library__list { padding:0 .8rem; } .library__message { min-height:2.6em; }
   .library table, .library tbody, .library thead { display:block; } .library__col-actions { display:none; }
   .library thead tr { display:flex; gap:1rem; position:sticky; top:0; z-index:1; background:var(--aithema-surface); border-bottom:1px solid var(--aithema-line); }
   .library thead th { width:auto; position:static; border-bottom:0; }
