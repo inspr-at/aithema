@@ -127,6 +127,20 @@ test('manual pause and resumption do not extend the one-hour wall-clock guard', 
   assert.equal(step(s, 'tick', {}, s.endsAt).state.endReason, 'one-hour');
 });
 
+test('credits emit only changed state, including one expiry instead of countdown events', () => withLedger((ledger, session) => {
+  let s = step(createCredits({ sessionId: session.id }), 'start', {}, 100).state;
+  for (const result of [step(s, 'tick', {}, 101), step(s, 'start', {}, 102),
+    step(s, 'pause', { paused: false }, 103)]) assert.deepEqual(result.events, []);
+  const balance = viewOf(ledger, session.id);
+  const changed = step(s, 'balance', { balance }, 104);
+  assert.equal(changed.events.length, 1);
+  s = changed.state;
+  assert.deepEqual(step(s, 'balance', { balance }, 105).events, []);
+  const expired = step(s, 'tick', {}, s.endsAt);
+  assert.deepEqual(expired.events.map(e => e.type), ['credits.limit-reached', 'conversation.end-requested', 'credits.state']);
+  assert.deepEqual(step(expired.state, 'tick', {}, s.endsAt + 1).events, []);
+}));
+
 test('an authoritative limit ends once, waits for host closure and cannot be restarted by a balance/top-up', () => {
   let s = start();
   const limited = step(s, 'limit', { reason: 'session' }, 200);

@@ -56,6 +56,7 @@ export class SessionLanes {
       scope.signal.throwIfAborted();
       if (session.tombstone || session.consentWithdrawn) return 'blocked';
       if (lane === 'understanding') {
+        if (session.identity?.verificationRequired === true && !session.identity.assessmentUnlocked) return 'verification-required';
         const humanTurns = activeTurns(session).filter(t => t.role === 'user').length + documentInputs(session).length;
         if (!humanTurns || (!session.demo && !session.identified && humanTurns < session.preset.anonymousTurns)) return 'deferred';
         if (session.understanding.inputRevision === revision && !session.understanding.draft) return 'cached';

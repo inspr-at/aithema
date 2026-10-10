@@ -230,7 +230,9 @@ export function reduceCredits(state, event) {
     case 'tick': break;
     default: throw new TypeError('Unknown credit event');
   }
-  events.push({ type: 'credits.state', data: creditsView(next, event.now) });
+  const { lastNow: _beforeNow, ...before } = state;
+  const { lastNow: _afterNow, ...after } = next;
+  if (JSON.stringify(before) !== JSON.stringify(after)) events.push({ type: 'credits.state', data: creditsView(next, event.now) });
   return { state: next, events };
 }
 

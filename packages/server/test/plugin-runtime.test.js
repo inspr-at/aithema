@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHandlers, createPluginRuntime, SQLiteStorage, SQLiteBudgetLedger } from '../src/index.js';
-import { PluginRegistry, createMockReasoning, mockManifest, SessionLanes } from '@inspr/aithema-core';
+import { PluginRegistry, createMockReasoning, mockManifest, SessionLanes, inputRevision, createPreset } from '@inspr/aithema-core';
 import { createOpenRouterReasoning } from '../../../plugins/openrouter/src/index.js';
+import { createDemoHost } from '../../../demo/host-ports.js';
 import { ownedRequest, testToken, mockConsent } from '../../../test/helpers.js';
 import { binding, chatServer, request, consumeInFinallyReasoning, openRouterPrices } from '../../../test/plugin-fixtures.js';
 function qualify(b) {
@@ -81,6 +82,68 @@ test('both lanes settle a distinct attempt, recheck consent and charge tokens us
   await assert.rejects(h.runtime.admit({ session: h.session, lane: 'reaction', operation: 'stream', request,
     options: { signal: new AbortController().signal, deadlineAt: Date.now() + 1000 } }), /consent port unavailable/);
   assert.equal(h.storage.db.prepare('SELECT COUNT(*) AS n FROM budget_attempts').get().n, 2);
+});
+
+for (const anonymousTurns of [3, 4]) test(`unlocked guests defer live assessment for ${anonymousTurns} turns until real verification`, async t => {
+  const storage = new SQLiteStorage(), endpoint = 'https://provider.example.test/chat', bodies = [];
+  const b = qualify(binding('openrouter', endpoint, { maxMicro: 50_000, maxTokens: 4096 }));
+  const plugin = createOpenRouterReasoning({ binding: b, prices: openRouterPrices, resolveSecret: () => 'local-fixture',
+    async fetchImpl(url, options) {
+      assert.equal(url, endpoint);
+      const body = JSON.parse(options.body); bodies.push(body);
+      const usage = { prompt_tokens: 3, completion_tokens: 4 };
+      if (body.stream) return new Response('data: {"choices":[{"delta":{"content":"Hello"},"finish_reason":"stop"}]}\n\n' +
+        `data: ${JSON.stringify({ choices: [], usage })}\n\ndata: [DONE]\n\n`);
+      const raw = { summary: 'Fixture assessment', signals: [], openQuestions: [],
+        constraints: { operations: null, data: null, systems: null, reach: null, requirements: null },
+        progress: { talk: { value: 0.25, reasoning: 'Fixture' }, build: { value: 0, reasoning: 'Fixture' } },
+        actor: null, engagement: null, conceptIntent: null };
+      return Response.json({ usage, choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(raw) } }] });
+    } });
+  const presets = Object.fromEntries(['best', 'eu', 'custom'].map(p => [p, { plugins: ['openrouter'],
+    bindings: { reaction: b, understanding: b }, policy: { endpoints: [endpoint] } }]));
+  const consent = { coverage({ scope, consentRevision }) {
+    return { covered: true, ...scope, consentRevision, scope, checkedAt: Date.now(), expiresAt: Date.now() + 60_000 };
+  } };
+  const runtime = createPluginRuntime({ storage, registry: new PluginRegistry().register(plugin), presets, consent });
+  const host = createDemoHost({ storage, verificationRequired: false });
+  const handlers = createHandlers({ storage, reasoning: plugin, pluginRuntime: runtime, consent, host,
+    sessionOptions: { demo: false, preset: createPreset({ anonymousTurns }) } });
+  t.after(async () => { await handlers.close(); storage.close(); });
+  const call = (path, body) => handlers.handle(ownedRequest(`http://local${path}`, {
+    method: 'POST', body: JSON.stringify(body),
+  }));
+  const create = async () => {
+    const response = await call('/api/sessions', {}), session = await response.json();
+    assert.equal(response.status, 201, JSON.stringify(session));
+    return session;
+  };
+  const assessments = () => bodies.filter(body => !body.stream).length;
+  const guest = await create(), base = `/api/sessions/${guest.id}`;
+  assert.equal(plugin.billable, true); assert.equal(guest.demo, false); assert.equal(guest.identified, false);
+  assert.equal(guest.identity.status, 'guest'); assert.equal(guest.identity.verificationRequired, false);
+  assert.equal(guest.identity.assessmentUnlocked, true); assert.equal(guest.featureMatrix.best.analysis.available, true);
+  for (let i = 1; i <= guest.preset.anonymousTurns; i++) {
+    assert.equal((await call(`${base}/turns`, { clientEventId: `turn-${i}`, content: `Turn ${i}` })).status, 200);
+    await handlers.idle();
+    assert.equal(storage.get(guest.id).identified, false);
+    assert.equal(assessments(), i < guest.preset.anonymousTurns ? 0 : 1);
+    assert.equal(await handlers.lanes.run(guest.id, 'understanding'), i < guest.preset.anonymousTurns ? 'deferred' : 'cached');
+  }
+  assert.equal(bodies.filter(body => body.stream).length, anonymousTurns);
+  assert.equal(storage.get(guest.id).understanding.inputRevision, inputRevision(storage.get(guest.id)));
+  const short = await create(), shortBase = `/api/sessions/${short.id}`;
+  await call(`${shortBase}/turns`, { clientEventId: 'first', content: 'First turn' }); await handlers.idle();
+  assert.equal(assessments(), 1); assert.equal(storage.get(short.id).understanding.inputRevision, null);
+  await call(`${shortBase}/identity/request`, { address: 'verified@example.test' });
+  assert.equal(storage.get(short.id).identified, false);
+  assert.equal(await handlers.lanes.run(short.id, 'understanding'), 'deferred');
+  const token = host.outbox({ sessionId: short.id, ownerToken: testToken }).at(-1).token;
+  const confirmed = await call(`${shortBase}/identity/confirm`, { token });
+  assert.equal(confirmed.status, 200); assert.equal((await confirmed.json()).identity.status, 'verified');
+  await handlers.idle();
+  assert.equal(storage.get(short.id).identified, true); assert.equal(assessments(), 2);
+  assert.equal(storage.get(short.id).understanding.inputRevision, inputRevision(storage.get(short.id)));
 });
 test('admission timeout and budget denial never open providers; a missing terminal settles conservatively', async t => {
   const h = setup(t), budget = new SQLiteBudgetLedger(h.storage, { sessionCapMicro: 1500 });
