@@ -2,28 +2,23 @@
 // quiet accent text actions and at most one filled primary per area. Every changing value sits in
 // a reserved slot (stacked states share one grid cell), so nothing moves under the pointer.
 export const hostStyles = `
-/* Wide screens: the host bar heads the right column above the understanding pane, which gives up
-   exactly that height, so the conversation pane keeps its place and size. */
-@media(min-width:60rem) {
-  .workspace[data-host] { grid-template-areas:"preset preset" "conversation bar" "conversation understanding" "foot foot"; }
-  .workspace[data-host] > .preset-panel { grid-area:preset; } .workspace[data-host] > .host-bar { grid-area:bar; }
-  .workspace[data-host] > .conversation { grid-area:conversation; } .workspace[data-host] > .host-foot { grid-area:foot; }
-  .workspace[data-host] > .understanding { grid-area:understanding; height:38.2rem; } }
-.host-bar { display:grid; grid-template-columns:auto minmax(0,1fr) auto; grid-template-areas:"library verify account" "credits credits credits";
-  align-items:center; column-gap:.75rem; height:4.4rem; padding:0 .25rem; border-bottom:1px solid var(--aithema-line); min-width:0; }
-.library-open-dialog { grid-area:library; display:inline-flex; align-items:center; gap:.45rem; min-height:2.75rem; margin-left:-.6rem; padding:.4rem .6rem;
-  font-size:.82rem; font-weight:600; color:var(--aithema-accent); white-space:nowrap; }
+/* The host bar sits in the top row beside the processing line (START's masthead controls): Conversations,
+   the verification entry, the account slot, and the credits line under them. */
+.host-bar { display:grid; grid-template-columns:repeat(3,auto); grid-template-areas:"library verify account" "credits credits credits";
+  justify-content:end; align-items:center; column-gap:.5rem; min-width:0; }
+.library-open-dialog { grid-area:library; display:inline-flex; align-items:center; gap:.45rem; min-height:2.75rem; padding:.4rem .75rem;
+  font-size:.8125rem; font-weight:600; color:var(--aithema-accent); white-space:nowrap; border-radius:999px; }
 .library-open-dialog svg { display:block; flex:none; }
 .host-verify { grid-area:verify; min-width:0; display:flex; align-items:center; }
 .verify-entry { min-height:2.75rem; padding:.4rem .6rem; font-size:.8rem; line-height:1.2; font-weight:600; color:var(--aithema-accent); text-align:left; overflow-wrap:anywhere; }
 .verify-done { display:inline-flex; align-items:center; gap:.35rem; font-size:.8rem; color:var(--aithema-muted); }
 .verify-done svg, .verify__done svg { flex:none; color:var(--aithema-accent); }
-.host-account { grid-area:account; justify-self:end; display:flex; align-items:center; min-height:2.75rem; font-size:.8rem; }
-.host-credits { grid-area:credits; align-self:start; margin:0; font-size:.72rem; line-height:1.3; color:var(--aithema-muted); max-height:2.6em;
+.host-account { grid-area:account; justify-self:end; display:flex; align-items:center; min-height:2.75rem; font-size:.8125rem; }
+.host-credits { grid-area:credits; justify-self:end; max-width:34rem; margin:0; font-size:.72rem; line-height:1.3; color:var(--aithema-muted); text-align:right; max-height:2.6em;
   overflow-y:auto; overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
 .host-credits[data-ended="true"] .host-credits__text { color:var(--aithema-warning); }
-.host-foot { grid-column:1/-1; display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.5rem 1.5rem;
-  padding:.75rem .25rem; border-top:1px solid var(--aithema-line); font-size:.78rem; color:var(--aithema-muted); }
+.host-foot { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.5rem 1.5rem;
+  padding:1rem 0 .25rem; border-top:1px solid var(--aithema-line); font-size:.75rem; color:var(--aithema-muted); }
 [aria-disabled="true"]:is(.verify-send, .verify-resend, .handover-request, .library-open, .library-new, .library-reset, .library-rename,
   .library-delete, .library-confirm) { opacity:.5; cursor:not-allowed; }
 :is(.verify-send, .library-new) { color:var(--aithema-on-accent); background:var(--aithema-accent); font-weight:600; min-height:2.75rem; }
@@ -34,7 +29,7 @@ export const hostStyles = `
 /* The verification lock replaces the assessment in place. */
 .verify-lock { display:grid; gap:.55rem; padding:.25rem 0 1rem; }
 .verify-lock__icon { color:var(--aithema-accent); line-height:0; } .verify-lock__icon svg { display:block; }
-.verify-lock__title { font:600 1.02rem/1.3 Georgia,serif; margin:0; } .analysis-content .verify-lock__lead { font-size:.87rem; margin:0; }
+.verify-lock__title { font:600 1.05rem/1.3 var(--aithema-display); margin:0; } .analysis-content .verify-lock__lead { font-size:.87rem; margin:0; }
 .verify-form { display:grid; gap:.45rem; min-width:0; }
 .verify__field { display:grid; min-width:0; } .verify__field > * { grid-area:1/1; align-self:end; min-width:0; }
 .verify__capture { display:grid; gap:.25rem; } .verify__label { font-size:.75rem; color:var(--aithema-muted); }
@@ -55,20 +50,20 @@ export const hostStyles = `
 .analysis-content .verify__note, .verify__note { margin:0; min-height:1.3em; font-size:.75rem; line-height:1.3; color:var(--aithema-muted); font-variant-numeric:tabular-nums; }
 
 /* The handover band sits between the assessment and the export line. */
-.understanding[data-host][data-handover] { grid-template-rows:3.6rem 7rem minmax(0,1fr) 8.4rem 3.6rem; }
-.handover { display:grid; grid-template-rows:auto auto minmax(0,1fr); gap:.3rem; padding:.6rem 1.25rem; border-top:1px solid var(--aithema-line); overflow:hidden; }
-.handover h3 { margin:0; } .handover__offer { margin:0; font-size:.78rem; line-height:1.35; color:var(--aithema-muted); max-height:2.7em; overflow-y:auto; overflow-wrap:anywhere; }
+.handover { display:grid; gap:.3rem; padding:.75rem 0; border-top:1px solid var(--aithema-line); }
+.handover h3 { margin:0; font-size:.86rem; font-weight:700; } .handover__offer { margin:0; font-size:.78rem; line-height:1.35; color:var(--aithema-muted); max-height:2.7em; overflow-y:auto; overflow-wrap:anywhere; }
 .handover__row { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:.5rem; min-height:0; }
 .handover-request { display:inline-grid; margin-left:-.85rem; font-size:.8rem; line-height:1.2; text-align:left; }
 .handover-request > * { grid-area:1/1; } .handover__sizer { visibility:hidden; }
 .handover__state { margin:0; font-size:.72rem; line-height:1.3; color:var(--aithema-muted); max-height:3.9em; overflow-y:auto; overflow-wrap:anywhere; }
+.understanding[data-handover] { grid-template-rows:auto auto minmax(0,1fr) auto auto; }
 
 /* Dialogs: the settings dialog's frame, smaller. */
-:is(dialog.library, dialog.verify-dialog) { padding:0; margin:auto; border:1px solid var(--aithema-line); border-radius:1.1rem; color:var(--aithema-ink);
-  background:var(--aithema-surface); box-shadow:0 28px 100px #10233535,0 2px 12px #392a1912; font:.875rem/1.4 var(--aithema-font); max-width:none; max-height:none; overflow:hidden; }
+:is(dialog.library, dialog.verify-dialog) { padding:0; margin:auto; border:1px solid var(--aithema-line); border-radius:var(--aithema-radius-lg); color:var(--aithema-ink);
+  background:var(--aithema-surface); box-shadow:var(--aithema-shadow-raised); font:.875rem/1.4 var(--aithema-font); max-width:none; max-height:none; overflow:hidden; }
 :is(dialog.library, dialog.verify-dialog)::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur(6px); }
 :is(dialog.library, dialog.verify-dialog) :is(button, input, a):focus-visible { outline:3px solid var(--aithema-accent); outline-offset:2px; }
-:is(dialog.library, dialog.verify-dialog) h2 { font:400 1.45rem/1.2 Georgia,serif; margin:0; letter-spacing:-.01em; }
+:is(dialog.library, dialog.verify-dialog) h2 { font:400 1.45rem/1.2 var(--aithema-display); margin:0; letter-spacing:-.01em; }
 dialog.verify-dialog { width:min(32rem, calc(100vw - 1rem)); }
 .verify-dialog__frame { display:grid; gap:1rem; padding:1rem 1.25rem 1.25rem; }
 .verify-dialog__head { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
@@ -109,7 +104,6 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .library__question { margin:0; height:2.8em; line-height:1.4; font-weight:650; overflow-y:auto; overflow-wrap:anywhere; }
 .library__warning { display:grid; margin:0; font-size:.8rem; color:var(--aithema-muted); } .library__warning > * { grid-area:1/1; } .library__sizer { visibility:hidden; } .library__confirm-actions { display:flex; flex-wrap:wrap; gap:.25rem; margin-left:-.85rem; }
 @media(max-width:40rem) {
-  .host-bar { height:5.6rem; grid-template-rows:2.9rem minmax(0,1fr); }
   dialog.library { width:calc(100vw - .5rem); height:calc(100dvh - .5rem); border-radius:.8rem; }
   .library__head, .library__foot { padding-inline:.8rem; } .library__list { padding:0 .8rem; } .library__message { min-height:2.6em; }
   .library table, .library tbody, .library thead { display:block; } .library__col-actions { display:none; }
