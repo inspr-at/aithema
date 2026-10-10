@@ -58,8 +58,14 @@ export function createProcessingConsent({ storage, bindings, now = Date.now }) {
     grants TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS processing_consent_events (id INTEGER PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id),
     revision INTEGER NOT NULL, at INTEGER NOT NULL, items TEXT NOT NULL, copy_version TEXT NOT NULL);`);
-  const describe = sessionId => ({ contract, items, intro: CONSENT_INTRO, withdrawal: CONSENT_WITHDRAWAL,
-    selected: sessionId ? Object.keys(JSON.parse(db.prepare('SELECT grants FROM processing_consents WHERE session_id=?').get(sessionId)?.grants ?? '{}')) : [] });
+  const describe = sessionId => {
+    const row = sessionId ? db.prepare('SELECT * FROM processing_consents WHERE session_id=?').get(sessionId) : null;
+    const session = sessionId ? storage.get(sessionId) : null, at = now();
+    const grants = row && !session.tombstone && !session.consentWithdrawn && row.revision === session.consentRevision ? JSON.parse(row.grants) : {};
+    const selected = items.filter(item => { const grant = grants[item.id]; return grant?.version === item.version &&
+      grant.at <= at && at - grant.at < CONSENT_VALIDITY_MS; }).map(item => item.id);
+    return { contract, items, intro: CONSENT_INTRO, withdrawal: CONSENT_WITHDRAWAL, selected };
+  };
   return { describe,
     grant({ sessionId, consentRevision, decision }) {
       if (!decision || decision.contract !== contract || !Array.isArray(decision.items) ||

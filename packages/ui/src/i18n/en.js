@@ -439,5 +439,18 @@ export const en = {
       confirmed: 'Link opened. The email address is confirmed.', failed: 'The fake mail could not be loaded.', close: 'Close' },
     labels: { 'Fake HTML — local deterministic click-dummy, no provider network': 'Test drafts (local click-dummy)',
       'Fake images — local deterministic PNG, no provider network': 'Test images (local PNG)' },
+    theme: 'Appearance', themes: { light: 'Light', dark: 'Dark', system: 'System' },
+    conversationFailed: 'Could not open the conversation. Reload to retry.',
+    consentPage: {
+      intro: 'Choose which processing you allow for this conversation. Unselected items are not granted.',
+      selectAll: 'Select all', one: 'Grant one permission', count: 'Grant {count} permissions', all: 'Grant all permissions',
+      none: 'Continue without consent', back: 'Back', legend: 'Choose processing permissions',
+      loading: 'Loading current permissions…', saving: 'Saving your selection…', retry: 'Try again',
+      stale: 'The processing terms have changed. Reload the current terms and review your selection.',
+      missing: 'No conversation is available. Go back to open a conversation.',
+      required: 'Required for this choice', optional: 'Optional for this choice',
+      mockRecipients: 'Recipient: the local mock; no upstream processors.',
+      mockConsequence: 'Without consent, mock processing remains unavailable.',
+    },
   },
 };

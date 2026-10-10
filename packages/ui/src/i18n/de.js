@@ -446,5 +446,18 @@ export const de = {
     outbox: { open: 'Test-E-Mails (nur Demo)', title: 'Nur Demo: Postausgang für Test-E-Mails', note: 'Bestätigungs-E-Mails bleiben auf diesem Computer. Ein Link, den Sie hier öffnen, bestätigt die Adresse wie in einem echten Postfach.',
       to: 'An {address}', confirm: 'Bestätigungslink öffnen', used: 'Link bereits verwendet', empty: 'Noch keine Test-E-Mail. Senden Sie zuerst einen Bestätigungslink.',
       confirmed: 'Link geöffnet. Die E-Mail-Adresse ist bestätigt.', failed: 'Die Test-E-Mails konnten nicht geladen werden.', close: 'Schließen' },
+    theme: 'Darstellung', themes: { light: 'Hell', dark: 'Dunkel', system: 'System' },
+    conversationFailed: 'Das Gespräch konnte nicht geöffnet werden. Laden Sie die Seite neu.',
+    consentPage: {
+      intro: 'Wählen Sie, welche Verarbeitung Sie für dieses Gespräch erlauben. Nicht ausgewählte Punkte sind nicht freigegeben.',
+      selectAll: 'Alle auswählen', one: 'Eine Einwilligung erteilen', count: '{count} Einwilligungen erteilen', all: 'Alle Einwilligungen erteilen',
+      none: 'Ohne Einwilligung weiter', back: 'Zurück', legend: 'Verarbeitung auswählen',
+      loading: 'Aktuelle Einwilligungen werden geladen …', saving: 'Ihre Auswahl wird gespeichert …', retry: 'Erneut versuchen',
+      stale: 'Die Bedingungen der Verarbeitung haben sich geändert. Laden Sie die aktuellen Bedingungen und prüfen Sie Ihre Auswahl.',
+      missing: 'Es ist kein Gespräch verfügbar. Gehen Sie zurück, um ein Gespräch zu öffnen.',
+      required: 'Für diese Auswahl erforderlich', optional: 'Für diese Auswahl optional',
+      mockRecipients: 'Empfänger: der lokale Mock; keine weiteren Auftragsverarbeiter.',
+      mockConsequence: 'Ohne Einwilligung bleibt die Mock-Verarbeitung nicht verfügbar.',
+    },
   },
 };
