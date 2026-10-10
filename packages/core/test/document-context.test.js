@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { uploadContextMessage, createSession, reasoningRequest, conceptHTMLSpec, conceptPrompt } from '../src/index.js';
+import { uploadContextMessage, createSession, reasoningRequest, conceptHTMLSpec, conceptPrompt, createMockReasoning } from '../src/index.js';
 
 test('document framing escapes closing delimiters, bounds the complete context and marks truncation', () => {
   const session = createSession();
@@ -48,4 +48,43 @@ test('concept document block starts on its own line after truncated requirement 
   assert.throws(() => JSON.parse(requirements), SyntaxError, 'fixture cuts inside a requirement string');
   assert.match(document[0], /^UNTRUSTED uploaded reference data/u);
   assert.equal(JSON.parse(document[1]).text, 'Document reference fixture');
+});
+
+for (const locale of ['en', 'de']) test(`mock upload understanding shows person turns and localized file mentions (${locale})`, async () => {
+  const session = createSession({ locale });
+  const words = locale === 'de' ? ['Wir sind eine Bäckerei.', 'Wir nehmen Vorbestellungen an.', 'Die Abholung erfolgt in der Filiale.', 'Systeme: API']
+    : ['We run a bakery.', 'We take advance orders.', 'Customers collect orders in the shop.', 'systems: API'];
+  session.transcript = [{ role: 'assistant', content: 'Assistant-only sentinel' }, ...words.map(content => ({ role: 'user', content }))];
+  const documentText = locale === 'de' ? 'Betrieb: gehostet\nDaten: öffentlich\nSysteme: SAP\nReichweite: lokal'
+    : 'operations: hosted\ndata: public\nsystems: SAP\nreach: local';
+  session.uploads = [
+    { id: 'old', state: 'accepted', filename: 'angebot.pdf', mediaType: 'application/pdf', at: '2026-10-01T00:00:00Z',
+      text: 'data: confidential; requirements: delivery' },
+    { id: 'new', state: 'accepted', filename: 'notizen.txt', mediaType: 'text/plain', at: '2026-10-02T00:00:00Z', text: documentText },
+    { id: 'empty', state: 'unreadable', filename: 'empty.txt', mediaType: 'text/plain', at: '2026-10-03T00:00:00Z', reason: 'empty' },
+    { id: 'removed', state: 'withdrawn', filename: 'removed.txt', at: '2026-10-04T00:00:00Z', text: 'withdrawn sentinel' },
+  ];
+  const result = await createMockReasoning().structured(reasoningRequest(session, 'understanding'), {});
+  const mentions = ['notizen.txt', 'angebot.pdf'].map(name => `${locale === 'de' ? 'Datei' : 'File'}: ${name}`);
+  assert.equal(result.summary, [...words, ...mentions].join(' '));
+  assert.deepEqual(result.signals, [...words.slice(-3), ...mentions]);
+  for (const visible of [result.summary, ...result.signals]) assert.doesNotMatch(visible, /UNTRUSTED|[{}]|Assistant-only sentinel|empty\.txt|removed\.txt/u);
+  assert.deepEqual(['operations', 'data', 'systems', 'reach', 'requirements'].map(slot => result.constraints[slot]?.value),
+    locale === 'de' ? ['gehostet', 'öffentlich', 'API', 'lokal', 'delivery'] : ['hosted', 'public', 'API', 'local', 'delivery']);
+  assert.equal(result.constraints.operations.evidence, documentText);
+  assert.equal(result.progress.talk.value, 1);
+});
+
+test('mock file mentions remain visible after a long person summary and without person turns', async () => {
+  const session = createSession();
+  session.uploads = [{ id: 'notes', state: 'accepted', filename: 'notes.txt', mediaType: 'text/plain',
+    at: '2026-10-01T00:00:00Z', text: 'operations: hosted\nsystems: SAP' }];
+  const mock = createMockReasoning();
+  const result = await mock.structured(reasoningRequest(session, 'understanding'), {});
+  assert.equal(result.summary, 'File: notes.txt'); assert.deepEqual(result.signals, ['File: notes.txt']);
+  assert.equal(result.constraints.operations.value, 'hosted'); assert.equal(result.constraints.systems.value, 'SAP');
+  assert.equal(result.progress.talk.value, 0);
+  session.transcript = [{ role: 'user', content: 'A'.repeat(600) }];
+  const long = await mock.structured(reasoningRequest(session, 'understanding'), {});
+  assert.equal(long.summary, 'A'.repeat(500) + ' File: notes.txt');
 });
