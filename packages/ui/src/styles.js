@@ -38,7 +38,9 @@ export const styles = `${themeStyles}
 :host { --aithema-font:ui-sans-serif,-apple-system,"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
   --aithema-display:Georgia,"Iowan Old Style","Palatino Linotype",serif; --aithema-mono:ui-monospace,"SF Mono","Cascadia Mono",Menlo,monospace;
   --aithema-radius-sm:10px; --aithema-radius-md:18px; --aithema-radius-lg:28px;
-  --aithema-shell-max:1520px; --aithema-gutter:clamp(1.25rem,4vw,3.5rem); --aithema-pane-height:calc(100dvh - 2rem);
+  --aithema-shell-max:1520px; --aithema-gutter:clamp(1.25rem,4vw,3.5rem);
+  /* The live workspace's height on wide screens; a host with a masthead above subtracts it, e.g. calc(100dvh - 4rem). */
+  --aithema-height:100dvh;
   --aithema-ease:cubic-bezier(.22,.61,.36,1);
   /* START's three offset light sources, none aligned to the grid. A host that paints them on its page sets this to none. */
   --aithema-backdrop:radial-gradient(ellipse 60% 50% at 88% 4%,rgba(18,144,140,.14),transparent 70%),
@@ -70,6 +72,9 @@ svg { display:block; flex:none; }
   gap:clamp(1rem,2.5vw,2rem); width:100%; max-width:var(--aithema-shell-max); margin-inline:auto; padding:0 var(--aithema-gutter) 1rem; }
 .toolbar { grid-area:top; display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:.5rem 1rem; min-height:3.5rem; padding-top:.75rem; }
 .conversation { grid-area:conversation; } .understanding { grid-area:understanding; } .host-foot { grid-area:foot; }
+.preset-panel { grid-column:1; } .host-bar { grid-column:2; } .settings-open { grid-column:3; }
+/* Before the conversation starts there is nothing to understand: the column is not there (START data-entry). */
+.workspace:not([data-stage="live"]) .understanding { display:none; }
 /* The processing line: what processes this conversation, quiet, on the page itself. */
 .preset-panel { min-width:0; overflow-anchor:none; padding-top:var(--aithema-slack-top,0px); padding-bottom:var(--aithema-slack-bottom,0px); }
 .workspace:not([data-stage="live"]) .engine { visibility:hidden; }
@@ -83,7 +88,7 @@ svg { display:block; flex:none; }
 .head { display:flex; align-items:baseline; justify-content:space-between; gap:.5rem 1.5rem; }
 /* The AI notice (AIT-119, GUI-27): one quiet line, no box, from the first paint on. Sticky, so it stays in view
    wherever an interaction can begin; the hidden full notice holds its height, so it never resizes. */
-.conversation > .head { position:sticky; top:0; z-index:3; padding:.35rem 0; background:var(--aithema-paper); }
+.conversation > .head { position:sticky; top:0; z-index:3; padding:.35rem 0; background-color:var(--aithema-paper); background-image:var(--aithema-backdrop); background-attachment:fixed; }
 .ai-notice { display:grid; flex:1; min-width:0; margin:0; font-size:.75rem; line-height:1.35; color:var(--aithema-muted); overflow-wrap:anywhere; }
 .ai-notice > span { grid-area:1/1; } .ai-notice__sizer { visibility:hidden; }
 .status { flex:none; max-width:45%; font-size:.75rem; line-height:1.35; color:var(--aithema-muted); text-align:right; overflow-wrap:anywhere; }
@@ -310,8 +315,10 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
   .workspace[data-understanding="absent"] { grid-template-columns:minmax(0,1fr) minmax(0,0fr); column-gap:0; }
   .understanding { transition:opacity 420ms ease 120ms,transform 520ms var(--aithema-ease) 100ms,padding 480ms ease,border-width 300ms ease; }
   .workspace[data-understanding="absent"] .understanding { min-width:0; padding-inline:0; border-width:0; opacity:0; transform:translateX(1.75rem); }
-  .workspace[data-stage="live"] .conversation { height:var(--aithema-pane-height); min-height:30rem; grid-template-rows:auto auto auto minmax(0,1fr) auto; }
-  .workspace[data-stage="live"] .understanding { height:var(--aithema-pane-height); min-height:30rem; }
+  .workspace[data-stage="live"] { height:var(--aithema-height); min-height:34rem; grid-template-rows:auto minmax(0,1fr) auto; }
+  .workspace[data-stage="live"]:not(:has(> .host-foot:not([hidden]))) { grid-template-rows:auto minmax(0,1fr); grid-template-areas:"top top" "conversation understanding"; }
+  .workspace[data-stage="live"] :is(.conversation, .understanding) { min-height:0; }
+  .workspace[data-stage="live"] .conversation { grid-template-rows:auto auto auto minmax(0,1fr) auto; }
 }
 /* Narrow screens: stacked, the page scrolls; the transcript keeps a bounded reading area. */
 @media(max-width:59.99rem) {

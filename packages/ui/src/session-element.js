@@ -655,9 +655,7 @@ export class AithemaSession extends HTMLElement {
     workspace.dataset.stage = stage;
     // Understanding is absent before the first input, then opens beside the conversation (START, ~560 ms).
     const understanding = this.#hasInput() ? 'present' : 'absent';
-    if (workspace.dataset.understanding !== understanding) {
-      workspace.dataset.understanding = understanding; root.querySelector('.understanding').inert = understanding === 'absent';
-    }
+    workspace.dataset.understanding = understanding; root.querySelector('.understanding').inert = understanding === 'absent';
     // Before the start only the entrance is operable: the call and concept rails wait for it.
     for (const selector of ['.audio-rail', '.concept-bar']) root.querySelector(selector).inert = stage !== 'live';
     this.#placeOrb(stage);
