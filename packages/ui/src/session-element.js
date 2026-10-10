@@ -276,8 +276,13 @@ export class AithemaSession extends HTMLElement {
     if (this.#options.host) this.#host = new HostSurface({ root, copy: this.#copy, options: this.#options.host, baseUrl: this.#base, sessionToken: this.#sessionToken,
       session: () => this.#session, status: text => this.#status(text), adopt: (session, reason) => this.#adopt(session, reason),
       onLock: () => { this.#render('aside'); this.#render('transcript'); },
-      // Unlocking keeps a deliberate pause: Resume is offered, else the composer takes focus.
-      focusAfterUnlock: () => { const input = root.querySelector('textarea'); (this.#session.paused || input.disabled ? root.querySelector('.pause') : input).focus(); } });
+      // Focus follows the visible stage control: Continue at the entrance, Start at readiness; live,
+      // unlocking keeps a deliberate pause (Resume is offered), else the composer takes focus.
+      focusAfterUnlock: () => {
+        const stage = this.#stage(), input = root.querySelector('textarea');
+        (stage === 'entrance' ? root.querySelector('.chooser__continue') : stage === 'ready' ? root.querySelector('.ready__start')
+          : this.#session.paused || input.disabled ? root.querySelector('.pause') : input)?.focus();
+      } });
     this.#render('transcript'); this.#render('aside'); this.#render('composer');
   }
   // A conversation from the library (open, new, reset, or the replacement of a deleted one). The host

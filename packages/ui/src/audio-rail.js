@@ -55,7 +55,9 @@ export class AudioRail {
   button(name) { return this.root.querySelector(`.voice-${name}`); }
   capability(name) { return this.client?.manifest?.liveVoice?.capabilities?.[name] !== 'unavailable'; }
   render() {
-    const c = this.copy, active = Boolean(this.session), available = this.feature(), transitional = ['connecting', 'closing', 'recovering'].includes(this.state);
+    // Closing a rail that had no call (an invalidation while idle) is no call: it never marks one active.
+    const c = this.copy, active = Boolean(this.session), available = this.feature(),
+      transitional = ['connecting', 'recovering'].includes(this.state) || this.state === 'closing' && this.closingCall;
     const state = this.paused && active ? 'paused' : this.state;
     if (this.root.dataset.state !== undefined && this.root.dataset.state !== state) queueMicrotask(() => this.onState?.(state));
     this.root.dataset.state = state;
@@ -70,7 +72,7 @@ export class AudioRail {
     for (const [name, label] of Object.entries(labels)) {
       const button = this.button(name); button.querySelector('.voice-label').textContent = label; button.title = label;
       const command = { input: 'setInput', output: 'setOutput', pause: this.paused ? 'resume' : 'pause' }[name];
-      button.disabled = name === 'start' ? active || transitional || !available.available || !this.client
+      button.disabled = name === 'start' ? active || transitional || this.state === 'closing' || !available.available || !this.client
         : name === 'retry' ? active || this.state !== 'failed' || !available.available
         : name === 'playback' ? !this.playbackBlocked
         : name === 'close' ? !active && this.state !== 'connecting' : !active || name !== 'close' && (this.busy || transitional || command && !this.capability(command));
@@ -193,7 +195,8 @@ export class AudioRail {
   reportPlaybackBlocked() { this.playbackBlocked = true; this.error = this.copy.voicePlaybackBlocked; this.render(); }
   close(reason) {
     if (this.closing) return this.closing;
-    const session = this.session; ++this.generation; clearInterval(this.heartbeat); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.quiet();
+    const session = this.session; this.closingCall = Boolean(session) || ['connecting', 'recovering'].includes(this.state);
+    ++this.generation; clearInterval(this.heartbeat); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.quiet();
     this.session = null; this.hidePending = false; this.state = 'closing'; this.render();
     this.onEnd?.();
     const controller = this.controller;
