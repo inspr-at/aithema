@@ -88,7 +88,7 @@ test('export ZIP holds transcript JSON/Markdown, understanding and manifest, wit
     const files = unzip(exportSession(store.get(s.id)));
     assert.deepEqual(Object.keys(files), ['transcript.json', 'transcript.md', 'understanding.json', 'manifest.json']);
     assert.equal(JSON.parse(files['transcript.json']).turns[0].content, 'Hello ü');
-    assert.match(files['transcript.md'], /## user\n\nHello ü/u);
+    assert.match(files['transcript.md'], /## user\n\n`{3}text\nHello ü\n`{3}\n/u);
     assert.deepEqual(JSON.parse(files['understanding.json']), s.understanding);
   } finally { store.close(); }
 });
