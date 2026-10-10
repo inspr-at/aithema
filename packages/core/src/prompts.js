@@ -18,5 +18,7 @@ ${draft ? 'Produce a quick incremental draft.' : 'Produce a thorough final asses
       stale: session.understanding.inputRevision !== inputRevision(session), understanding: session.understanding }) },
       ...(uploads ? [{ role: 'user', content: uploads }] : []),
       ...activeTurns(session).map(({ role, content }) => ({ role, content }))],
+    // Identify server-added context without interpreting person-turn text.
+    documentMessageIndex: uploads ? 1 : null,
     draft, locale: session.locale, preset: session.preset };
 }
