@@ -4,6 +4,8 @@ import { request } from 'node:http';
 import { startChild, temporaryDb, post } from '../../test/helpers.js';
 import { deploymentConfig, deploymentGate } from '../deployment.js';
 import { openRouterConfig } from '../openrouter-config.js';
+import { demoPresets } from '../choices.js';
+import { isOptionId } from '@inspr/aithema-core';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { access } from 'node:fs/promises';
@@ -126,6 +128,42 @@ test('analysis effort accepts the plugin efforts and leaves reaction effort at n
     assert.equal(configured.reaction.effort, 'none');
   }
   assert.equal(openRouterConfig({ ...values, OPENROUTER_ANALYSIS_EFFORT: ' ' }).understanding.effort, 'none');
+});
+
+test('alias route ids are stable, valid and distinct from concrete models and other aliases', () => {
+  const models = ['~anthropic/claude-haiku-latest', 'anthropic/claude-haiku-latest', '~anthropic/claude-opus-latest'];
+  const route = model => demoPresets({ provider: 'openrouter', reaction: { model } }).best.choices.models[0];
+  const ids = models.map(model => route(model).id);
+  assert.ok(ids.every(isOptionId)); assert.equal(new Set(ids).size, models.length);
+  assert.deepEqual(models.map(model => route(model).id), ids);
+  assert.equal(ids[1], 'openrouter/anthropic/claude-haiku-latest');
+  assert.equal(isOptionId('openrouter/~anthropic/claude-haiku-latest'), false);
+});
+
+for (const htmlMode of ['off', 'claude']) test(`start2 alias environment reaches ready with HTML ${htmlMode} and no provider calls`, { timeout: 15_000 }, async t => {
+  const analysis = '~anthropic/claude-opus-latest', speech = '~anthropic/claude-haiku-latest';
+  const analysisPrice = { prompt: 5e-6, completion: 25e-6 };
+  const running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb(), {
+    AITHEMA_PROVIDER: 'openrouter', OPENROUTER_MODEL: analysis, OPENROUTER_ANALYSIS_EFFORT: 'low',
+    OPENROUTER_SPEECH_MODEL: speech, OPENROUTER_PROVIDER_ONLY: 'Anthropic',
+    AITHEMA_OPENROUTER_PRICES: JSON.stringify({ [analysis]: analysisPrice, [speech]: { prompt: 1e-6, completion: 5e-6 },
+      ...(htmlMode === 'claude' ? { 'anthropic/claude-opus-5.5': analysisPrice } : {}) }),
+    OPENROUTER_API_KEY: 'test-not-a-key', AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: htmlMode,
+  });
+  t.after(() => running.kill());
+  const config = await fetch(running.url + '/demo/config').then(r => r.json());
+  assert.ok(config.label.includes(speech)); assert.equal(config.voiceMode, 'off'); assert.equal(config.imageMode, 'off');
+  assert.equal(config.htmlMode, htmlMode); assert.equal(config.htmlDisabledReason, null);
+  assert.deepEqual(config.processingConsent.items.map(item => item.id), ['models-international']);
+  // Creating a session and reading choices never grants consent or dispatches a lane.
+  const created = await post(running.url + '/api/sessions', {}); assert.equal(created.status, 201);
+  const session = await created.json(), headers = { cookie: created.headers.get('set-cookie').split(';')[0] };
+  const response = await fetch(running.url + `/api/sessions/${session.id}/settings`, { headers }); assert.equal(response.status, 200);
+  const { best } = (await response.json()).presets, [route] = best.models;
+  assert.equal(best.models.length, 1); assert.equal(route.id, 'openrouter/alias/anthropic/claude-haiku-latest');
+  assert.equal(best.defaults.model, route.id); assert.ok(route.label.includes(speech)); assert.ok(route.label.includes(analysis));
+  assert.equal(best.voices.length, 0);
+  assert.deepEqual(best.visuals.map(option => option.id), htmlMode === 'claude' ? ['claude-html'] : []);
 });
 
 test('invalid live model/prices/token caps/effort refuse startup before database or voice work', async () => {

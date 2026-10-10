@@ -135,6 +135,32 @@ test('served model remains per call when usage is missing, and absent model meta
   await plugin.structured(request, options({ report: terminal => reports.push(terminal) }));
   assert.equal(Object.hasOwn(reports[2], 'servedModel'), false);
 });
+test('served model receipts accept only 1–128 model-id characters in streaming and structured responses', async () => {
+  const model = '~anthropic/claude-opus-latest';
+  const valid = ['a', '~anthropic/Claude_opus-5.5:latest', 'a'.repeat(128)];
+  const invalid = [undefined, null, 17, '', ' ', 'a'.repeat(129), 'anthropic/model name', 'anthropic/model\n',
+    'anthropic/model\r', 'anthropic/model\t', 'anthropic/mödel', 'anthropic/<script>', 'anthropic/model?x=1'];
+  for (const servedModel of [...valid, ...invalid]) {
+    const reports = [], plugin = createOpenRouterReasoning({ model, prices: { [model]: { prompt: 1e-9, completion: 1e-9 } },
+      resolveSecret: () => 'local-fixture', fetchImpl: async (url, init) => {
+        const { stream } = JSON.parse(init.body), payload = { model: servedModel, usage: { prompt_tokens: 3, completion_tokens: 4 },
+          choices: stream ? [{ delta: { content: 'Hello' }, finish_reason: 'stop' }]
+            : [{ finish_reason: 'stop', message: { content: '{"summary":"Known"}' } }] };
+        return stream ? new Response(`data: ${JSON.stringify(payload)}\n\ndata: [DONE]\n\n`) : Response.json(payload);
+      } });
+    for (const stream of [true, false]) {
+      const opts = options({ report: terminal => reports.push(terminal) });
+      if (stream) for await (const delta of plugin.stream(request, opts)) assert.equal(delta, 'Hello');
+      else assert.deepEqual(await plugin.structured(request, opts), { summary: 'Known' });
+    }
+    assert.equal(reports.length, 2);
+    for (const report of reports) {
+      assert.equal(report.outcome, 'completed'); assert.deepEqual(report.usage, { inputTokens: 3, outputTokens: 4 });
+      assert.equal(Object.hasOwn(report, 'servedModel'), valid.includes(servedModel));
+      if (valid.includes(servedModel)) assert.equal(report.servedModel, servedModel);
+    }
+  }
+});
 test('AbortSignal cancels an active streaming response', async t => {
   const plugin = await fake(t, async (req, res) => { await body(req); res.writeHead(200, { 'content-type': 'text/event-stream' });
     res.write('data: {"choices":[{"delta":{"content":"first"}}]}\n\n'); });

@@ -64,6 +64,33 @@ test('different processor/account/route leaves HTML unavailable; START has no ma
   } finally { storage.close(); }
 });
 
+test('HTML consent matches an Anthropic latest alias while retaining exact HTML model and route scopes', () => {
+  const alias = '~anthropic/claude-opus-latest';
+  const aliasValues = { ...values, OPENROUTER_MODEL: alias,
+    AITHEMA_OPENROUTER_PRICES: JSON.stringify({ [alias]: { prompt: 1.4e-6, completion: 1.4e-5 },
+      [model]: { prompt: 1.4e-6, completion: 1.4e-5 } }) };
+  const reasoning = openRouterConfig(aliasValues), configured = htmlConfig(aliasValues, [reasoning.understanding]);
+  assert.equal(configured.disabledReason, null); assert.equal(configured.binding.legal.evidence.model, model);
+  assert.deepEqual(configured.binding.legal.processors, ['Anthropic']);
+  const storage = new SQLiteStorage();
+  try {
+    const session = storage.create(), consent = createProcessingConsent({ storage,
+      bindings: [reasoning.reaction, reasoning.understanding, configured.binding] });
+    assert.equal(consent.grant({ sessionId: session.id, consentRevision: 1,
+      decision: { contract: consent.describe().contract, items: ['models-international'] } }), true);
+    storage.reviseConsent(session.id, true);
+    for (const operation of ['generate', 'edit']) assert.equal(consent.coverage({ sessionId: session.id, consentRevision: 1,
+      scope: processingScope(configured.binding, operation) }).covered, true);
+    assert.equal(consent.coverage({ sessionId: session.id, consentRevision: 1,
+      scope: processingScope({ ...configured.binding, model: alias }, 'generate') }).covered, false);
+  } finally { storage.close(); }
+  for (const changes of [{ model: '~openai/gpt-latest' }, { model: '~anthropic/claude-opus' },
+    { model: '~~anthropic/claude-opus-latest' }, { accountRef: 'other' },
+    { routing: { ...reasoning.understanding.routing, max_price: { prompt: 2, completion: 20 } } }]) {
+    assert.equal(htmlConfig(aliasValues, [{ ...reasoning.understanding, ...changes }]).disabledReason, HTML_CONSENT_UNAVAILABLE);
+  }
+});
+
 test('START HTML lane uses real consent and routing; paid publication, owner reads and exports survive shared-cap exhaustion and breach', { timeout: 10000 }, async t => {
   const reasoningConfig = openRouterConfig(values), configured = htmlConfig(values, [reasoningConfig.understanding]);
   const storage = new SQLiteStorage(), capMicro = 300000;
