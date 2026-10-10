@@ -1754,9 +1754,11 @@ its language presets are cleared. The agent allows only a per-conversation
 verified on START's agent by read-only GET 2026-10-09).
 After every agent create or PATCH, startup GETs the owned agent and verifies
 its name/id, auth enabled, exactly one allowlist hostname equal to the public
-origin's host (including any port), the extra-body override, that the language
-override is the only enabled conversation override (the first-message override
-is disabled), a first message equal to the notice, no language presets,
+origin's host (including any port), the extra-body override, explicit
+conversation override flags (`agent.language` exactly `true`,
+`agent.first_message` exactly `false`, every other flag exactly `false`; an
+omitted, null or string flag disables voice), a first message equal to the
+notice, `language_presets` exactly `{}` (omitted or null disables voice),
 `custom-llm` selection, callback URL, owned secret id and every copied
 privacy field.
 Any mismatch disables voice with `agent-readback-mismatch`; logs contain only

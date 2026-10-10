@@ -5,9 +5,10 @@ import { SPOKEN_AI_NOTICE } from '../../../packages/core/src/ai-notice.js';
 export const AGENT_NAME = 'aithema-start2';
 const SECRET_NAME = 'aithema-start2-facade';
 const id = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(value);
-// Dotted paths of every enabled (true) flag in a provider overrides tree.
-const enabled = (value, path = []) => value === true ? [path.join('.')] : value && typeof value === 'object'
-  ? Object.entries(value).flatMap(([key, item]) => enabled(item, [...path, key])) : [];
+// Every leaf of a provider overrides tree as [dotted path, value]; only plain objects are descended,
+// so null, arrays and strings surface as leaves that no boolean check accepts.
+const leaves = (value, path = []) => value && typeof value === 'object' && !Array.isArray(value)
+  ? Object.entries(value).flatMap(([key, item]) => leaves(item, [...path, key])) : [[path.join('.'), value]];
 const pick = (value, keys) => Object.fromEntries(keys.filter(key => value?.[key] !== undefined).map(key => [key, structuredClone(value[key])]));
 export class AgentEnsureError extends Error {}
 
@@ -139,12 +140,12 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
     'platform_settings.auth.enable_auth': platform?.auth?.enable_auth === true,
     'platform_settings.auth.allowlist': Array.isArray(allowlist) && allowlist.length === 1 && allowlist[0]?.hostname === origin.host,
     'platform_settings.overrides.custom_llm_extra_body': platform?.overrides?.custom_llm_extra_body === true,
-    'platform_settings.overrides.conversation_config_override.agent.first_message': allowed?.agent?.first_message !== true,
+    // Explicit values only: an omitted, null or string flag is no proof that an override is refused.
+    'platform_settings.overrides.conversation_config_override.agent.first_message': allowed?.agent?.first_message === false,
     'platform_settings.overrides.conversation_config_override.agent.language': allowed?.agent?.language === true,
-    'platform_settings.overrides.conversation_config_override': isDeepStrictEqual(enabled(allowed), ['agent.language']),
+    'platform_settings.overrides.conversation_config_override': leaves(allowed).every(([path, flag]) => flag === (path === 'agent.language')),
     'conversation_config.agent.first_message': spoken === SPOKEN_AI_NOTICE,
-    'conversation_config.language_presets': presets === undefined || presets === null ||
-      typeof presets === 'object' && !Array.isArray(presets) && Object.keys(presets).length === 0,
+    'conversation_config.language_presets': isDeepStrictEqual(presets, {}),
     'conversation_config.agent.prompt.llm': prompt?.llm === 'custom-llm',
     'conversation_config.agent.prompt.custom_llm.url': prompt?.custom_llm?.url === body.conversation_config.agent.prompt.custom_llm.url,
     'conversation_config.agent.prompt.custom_llm.api_key.secret_id': prompt?.custom_llm?.api_key?.secret_id === secretId,

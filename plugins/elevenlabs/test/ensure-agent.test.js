@@ -100,6 +100,22 @@ const mismatches = [
     ['platform_settings.overrides.conversation_config_override.agent.language', 'platform_settings.overrides.conversation_config_override']],
   ['platform_settings.overrides.conversation_config_override.agent.prompt', { prompt: true }, ['platform_settings.overrides.conversation_config_override']],
   ['platform_settings.overrides.conversation_config_override.tts', { voice_id: true }, ['platform_settings.overrides.conversation_config_override']],
+  // Read-back must prove the explicit values; omitted, null or string flags prove nothing.
+  ...['first_message', 'language'].flatMap(flag => [undefined, null, 'true', 'false', 0].map(value => {
+    const field = `platform_settings.overrides.conversation_config_override.agent.${flag}`;
+    // An omitted flag leaves no malformed leaf in the tree; only the explicit-value check reports it.
+    return [field, value, value === undefined ? [field] : [field, 'platform_settings.overrides.conversation_config_override']];
+  })),
+  ...[undefined, null, 'true', []].map(value => ['platform_settings.overrides.conversation_config_override', value,
+    ['platform_settings.overrides.conversation_config_override.agent.first_message', 'platform_settings.overrides.conversation_config_override.agent.language',
+      'platform_settings.overrides.conversation_config_override']]),
+  ['platform_settings.overrides.conversation_config_override', {}, ['platform_settings.overrides.conversation_config_override.agent.first_message',
+    'platform_settings.overrides.conversation_config_override.agent.language']],
+  ...[null, 'true', 'false', []].map(value => ['platform_settings.overrides.conversation_config_override.tts', { voice_id: value },
+    ['platform_settings.overrides.conversation_config_override']]),
+  ['platform_settings.overrides.conversation_config_override.conversation', { text_only: 'true' }, ['platform_settings.overrides.conversation_config_override']],
+  ['platform_settings.overrides.conversation_config_override.agent.prompt', null, ['platform_settings.overrides.conversation_config_override']],
+  ...[undefined, null, [], 'none', { en: null }].map(value => ['conversation_config.language_presets', value]),
   ['conversation_config.agent.first_message', ''],
   ['conversation_config.agent.first_message', 'template greeting'],
   ['conversation_config.agent.first_message', 'I am a human assistant.'],
@@ -135,6 +151,21 @@ for (const mode of ['create', 'PATCH']) {
     assert.equal(host.binding, undefined);
     assert.equal(host.disabledReason, 'agent-readback-mismatch');
     assert.deepEqual(logs, [{ name: AGENT_NAME, id: 'owned-agent', fields: reported }]);
+  });
+  test(`${mode} read-back accepts extra conversation override flags only when explicitly false`, async t => {
+    const fake = await fakeElevenLabs(t), storage = new SQLiteStorage(), logs = [];
+    t.after(() => storage.close());
+    if (mode === 'PATCH') await ensureAgent(options(storage, fake));
+    const host = await createVoiceHost({ ...options(storage, fake, logs), fetchImpl: async (url, init) => {
+      const response = await fetch(url, init);
+      if (init.method !== 'GET' || !new URL(url).pathname.endsWith('/agents/owned-agent')) return response;
+      const saved = await response.json();
+      saved.platform_settings.overrides.conversation_config_override = { tts: { voice_id: false, stability: false },
+        conversation: { text_only: false }, agent: { first_message: false, language: true, prompt: { prompt: false, llm: false } } };
+      return Response.json(saved);
+    } });
+    assert.ok(host.binding);
+    assert.deepEqual(logs.at(-1), { name: AGENT_NAME, id: 'owned-agent' });
   });
   test(`${mode} rejects the wrong top-level platform key and disables voice`, async t => {
     const fake = await fakeElevenLabs(t), storage = new SQLiteStorage(); t.after(() => storage.close());
