@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers } from '../src/index.js';
-import { mockConsent, testToken, ownedRequest, readEvents } from '../../../test/helpers.js';
+import { mockConsent, testToken, ownedRequest } from '../../../test/helpers.js';
 import { createMockReasoning, inputRevision } from '@inspr/aithema-core';
 import { instrumentedMockRuntime } from '../../../test/server-fixtures.js';
 
@@ -16,6 +16,22 @@ async function waitFor(predicate) {
     await new Promise(r => setTimeout(r, 5));
   }
   assert.fail('Expected current-revision work before the held call was released');
+}
+async function readLaneStatus(response, revision) {
+  const reader = response.body.getReader(), decoder = new TextDecoder(); let buffer = '';
+  try {
+    while (true) {
+      const { done, value } = await reader.read(); assert.equal(done, false, 'expected a current-revision lane status');
+      buffer += decoder.decode(value, { stream: true }); let index;
+      while ((index = buffer.indexOf('\n\n')) >= 0) {
+        const data = buffer.slice(0, index).split('\n').find(line => line.startsWith('data:'));
+        buffer = buffer.slice(index + 2);
+        if (!data) continue;
+        const event = JSON.parse(data.slice(5));
+        if (event.type === 'lane.status' && event.data.inputRevision === revision) return event;
+      }
+    }
+  } finally { await reader.cancel(); }
 }
 
 for (const check of ['abort', 'reply']) test(`superseding a held understanding call: ${check}`, async () => {
@@ -168,16 +184,12 @@ test('AIT-109 N1: scheduling publishes both running lanes together, including su
     const s = storage.create({ demo: true, ownerToken: testToken });
     subscription = await handlers.handle(request(`${s.id}/events?after=${storage.get(s.id).seq}`));
     await turn(handlers, s.id, 'first', 'First');
-    const events = await readEvents(subscription, 4); subscription = null;
-    const status = events.find(event => event.type === 'lane.status' && event.data.inputRevision === inputRevision(storage.get(s.id)));
-    assert.ok(status, 'scheduling must publish the current revision');
+    const status = await readLaneStatus(subscription, inputRevision(storage.get(s.id))); subscription = null;
     assert.deepEqual(status.data.running.sort(), ['reaction', 'understanding']);
     subscription = await handlers.handle(request(`${s.id}/events?after=${storage.get(s.id).seq}`));
     await turn(handlers, s.id, 'second', 'Second');
-    const updated = await readEvents(subscription, 4); subscription = null;
-    assert.equal(updated.at(-1).type, 'lane.status');
-    assert.equal(updated.at(-1).data.inputRevision, inputRevision(storage.get(s.id)));
-    assert.deepEqual(updated.at(-1).data.running.sort(), ['reaction', 'understanding']);
+    const updated = await readLaneStatus(subscription, inputRevision(storage.get(s.id))); subscription = null;
+    assert.deepEqual(updated.data.running.sort(), ['reaction', 'understanding']);
   } finally { await subscription?.body.cancel(); held.resolve(); await handlers.close(); storage.close(); }
 });
 
