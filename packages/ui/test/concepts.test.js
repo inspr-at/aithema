@@ -3,17 +3,24 @@ import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
 import { createSession } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
-import { conceptProgress } from '../src/concept-view.js';
+import { de } from '../src/i18n/de.js';
+import { conceptProgress, conceptKind, conceptStateText } from '../src/concept-view.js';
 const window = new Window({ url: 'http://localhost/' });
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
 const tick = () => new Promise(r => setImmediate(r));
 function item(id, extra = {}) { return { id, mediaType: 'image/png', width: 480, height: 320, turnIds: ['first'], referenceIds: [], archived: false,
   feedback: { vote: 'clear', chips: [] }, provenance: { origin: 'ai-generated', generator: { provider: 'local-demo-fake' } }, ...extra }; }
-function setup(t, { concepts = [item('image1')], copy = en, sessionToken = 'owner-fixture', baseUrl = '' } = {}) {
+// A clickable draft as the server publishes it (AIT-113): text/html, no pixel size.
+const draftBytes = revision => new TextEncoder().encode(`<!doctype html><html><head><title>Draft</title></head><body><p>Revision ${revision}</p></body></html>`);
+function draft(id, extra = {}) { return item(id, { mediaType: 'text/html', width: undefined, height: undefined, visualKind: 'html',
+  provenance: { origin: 'ai-generated', modality: 'html', generator: { provider: 'local-demo-fake' } }, ...extra }); }
+function setup(t, { concepts = [item('image1')], copy = en, sessionToken = 'owner-fixture', baseUrl = '', session: extra = {}, refuse } = {}) {
   const c = document.createElement('aithema-session'), session = createSession({ demo: true });
   session.transcript = [{ id: 'first', role: 'user', content: 'An API dashboard' }]; session.inputRevision = 1;
-  session.concepts = concepts; session.conceptCost = { maxMicro: 1234 }; session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, images: { available: true } } };
+  session.concepts = concepts; session.conceptCost = { maxMicro: 1234 };
+  session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, images: { available: true }, html: { available: true } } };
+  Object.assign(session, extra);
   const calls = [], downloads = [], revoked = []; let blobId = 0;
   t.mock.method(URL, 'createObjectURL', () => 'blob:concept-fixture-' + ++blobId); t.mock.method(URL, 'revokeObjectURL', url => revoked.push(url));
   t.mock.method(window.HTMLAnchorElement.prototype, 'click', function () { downloads.push({ href: this.href, name: this.download }); });
@@ -21,9 +28,11 @@ function setup(t, { concepts = [item('image1')], copy = en, sessionToken = 'owne
     calls.push({ url, options });
     if (url.endsWith('/events')) return new Response(new ReadableStream({ start(controller) { options.signal.addEventListener('abort', () => controller.close(), { once: true }); } }));
     if (url.endsWith('/image') || url.includes('/image?')) return new Response(new Uint8Array([137, 80, 78, 71]), { headers: { 'content-type': 'image/png' } });
+    if (url.endsWith('/html')) return new Response(draftBytes(/(\d+)\/html$/u.exec(url)?.[1] ?? 0), { headers: { 'content-type': 'application/octet-stream' } });
     if (!options.body) return Response.json(c.session);
+    if (refuse) return Response.json(refuse.body, { status: refuse.status });
     const body = JSON.parse(options.body); let event;
-    if (url.endsWith('/feedback') || url.endsWith('/reject')) event = { seq: c.session.seq + 1, type: 'concept.feedback', data: { artifactId: url.includes('image1') ? 'image1' : 'image2',
+    if (url.endsWith('/feedback') || url.endsWith('/reject')) event = { seq: c.session.seq + 1, type: 'concept.feedback', data: { artifactId: /\/concepts\/([^/]+)\/(?:feedback|reject)$/u.exec(url)[1],
       vote: body.vote, chips: body.chips, archived: url.endsWith('/reject') } };
     else event = { seq: c.session.seq + 1, type: 'concept.state', data: { intent: c.session.conceptIntent, status: { phase: 'waiting' } } };
     return Response.json({ event });
@@ -165,4 +174,114 @@ test('hiding the page sends durable ineligibility without requesting a concept',
   const signal = calls.find(c => c.url.endsWith('/concepts/eligibility'));
   assert.ok(signal); assert.deepEqual(JSON.parse(signal.options.body), { eligible: false });
   assert.equal(calls.filter(c => c.options.body && !c.url.endsWith('/concepts/eligibility')).length, 0);
+});
+
+test('concept kinds and the rail state in plain words: pending, ready revision, failure reasons, limits and spend cap (AIT-113 B2)', () => {
+  assert.equal(conceptKind(draft('html1')), 'html'); assert.equal(conceptKind(item('image1')), 'image'); assert.equal(conceptKind(undefined), 'image');
+  const on = { available: true, reason: null }, state = (status, extra = {}) => conceptStateText({ copy: en, status, feature: on, items: [], kind: 'html', ...extra });
+  assert.equal(state({ phase: 'pending' }), 'Creating your clickable draft…');
+  assert.equal(state({ phase: 'pending' }, { items: [draft('html1')] }), 'Updating your draft with your latest answers…');
+  assert.equal(state({ phase: 'pending' }, { kind: 'image' }), en.conceptRendering);
+  assert.equal(state({ phase: 'ready' }, { items: [draft('html1'), item('image1'), draft('html2')] }), 'Draft revision 2 is ready.');
+  assert.equal(state({ phase: 'ready' }, { items: [draft('html1'), item('image1')] }), en.conceptReady, 'the ready sentence follows the latest item');
+  assert.equal(state({ phase: 'failed', error: 'rate-limit', reason: 'UI render limit reached for this session' }), 'Visual concept limit reached for this conversation.');
+  assert.equal(state({ phase: 'failed', error: 'rate-limit', reason: 'UI render limit reached for this UTC day' }), 'Visual concept limit reached for today (UTC).');
+  assert.equal(state({ phase: 'failed', error: 'concept-unavailable', reason: 'OpenRouter spend cap exhausted' }), 'OpenRouter spending limit reached.');
+  assert.equal(state({ phase: 'failed', error: 'restart' }), en.conceptRestarted); assert.equal(state({ phase: 'failed', error: 'source-removed' }), en.conceptSourceRemoved);
+  assert.equal(state({ phase: 'failed', error: 'concept-unavailable' }), en.conceptFailed);
+  assert.equal(state({ phase: 'idle' }, { feature: { available: false, reason: 'Budget used up' }, items: [draft('html1')] }), 'Budget used up.', 'a closed feature says why, also with drafts shown');
+  assert.equal(state({ phase: 'failed' }, { requestError: 'Refused.' }), 'Refused.');
+  assert.equal(state({ phase: 'idle' }), en.conceptIntro);
+  const german = (status, extra) => conceptStateText({ copy: de, status, feature: on, items: [draft('html1')], kind: 'html', ...extra });
+  assert.equal(german({ phase: 'ready' }), 'Fassung 1 des Entwurfs ist fertig.');
+  assert.equal(german({ phase: 'failed', reason: 'OpenRouter spend cap exhausted' }), 'Ausgabenlimit für OpenRouter erreicht.');
+  for (const key of Object.keys(en)) if (key.startsWith('concept')) assert.ok(key in de, `German bundle has ${key}`);
+  assert.deepEqual(Object.keys(de.conceptPreview).sort(), Object.keys(en.conceptPreview).sort());
+});
+test('rail and viewer switch by media type: drafts render in the sandboxed preview from fetched bytes, images stay images', async t => {
+  const { root, calls } = setup(t, { concepts: [item('image1'), draft('html1')], session: { conceptVisualKind: 'html' } }); await tick();
+  const thumb = root.querySelector('.concept-preview');
+  assert.equal(thumb.querySelector('img').hidden, true); assert.equal(thumb.querySelector('.concept-preview-glyph').hidden, false);
+  assert.equal(thumb.querySelector('.concept-preview-label').textContent, 'Open clickable draft'); assert.equal(thumb.getAttribute('aria-label'), 'Open clickable draft');
+  assert.equal(calls.some(c => /\/(?:image|html)/u.test(c.url)), false, 'the rail loads no draft bytes and never frames one');
+  root.querySelector('.concept-tab').click(); await tick(); await tick();
+  const preview = root.querySelector('.concept-html'), image = root.querySelector('.concept-image');
+  assert.equal(preview.hidden, false); assert.equal(image.hidden, true); assert.equal(image.hasAttribute('src'), false);
+  assert.equal(root.querySelector('.concept-viewer').dataset.kind, 'html');
+  assert.equal(new TextDecoder().decode(preview.artifact.bytes).includes('Revision 1'), true); assert.equal(preview.artifact.mediaType, 'text/html');
+  assert.equal(preview.copy.label, en.conceptPreview.label);
+  assert.equal(root.querySelector('#concept-title').textContent, 'Draft revision 1'); assert.equal(root.querySelector('.concept-count').textContent, '2 of 2');
+  assert.equal(root.querySelector('.concept-disclosure').textContent, en.conceptDraftFake); assert.equal(root.querySelector('.concept-download').textContent, 'Download draft');
+  const get = calls.find(c => c.url.endsWith('/concepts/html1/html'));
+  assert.ok(get); assert.equal(get.options.body, undefined); assert.equal(get.options.cache, 'no-store');
+  assert.equal(new Headers(get.options.headers).get('x-aithema-session-token'), 'owner-fixture');
+  root.querySelector('.concept-viewer').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowLeft' })); await tick();
+  assert.equal(preview.hidden, true); assert.equal(preview.artifact, null, 'a hidden preview runs no draft');
+  assert.equal(image.hidden, false); assert.ok(image.src.startsWith('blob:')); assert.equal(root.querySelector('#concept-title').textContent, 'Visual concept 1');
+  assert.equal(root.querySelector('.concept-download').textContent, en.conceptDownload); assert.ok(calls.some(c => c.url.endsWith('/concepts/image1/image')));
+  root.querySelector('.concept-viewer').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'ArrowRight' })); await tick();
+  assert.equal(calls.filter(c => c.url.endsWith('/html')).length, 1, 'draft bytes are cached for the session');
+  // The width switch's own arrow keys (default prevented) never change the revision.
+  const arrow = new window.KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }); arrow.preventDefault();
+  root.querySelector('.concept-viewer').dispatchEvent(arrow); assert.equal(root.querySelector('.concept-count').textContent, '2 of 2');
+  root.querySelector('.concept-close').click(); assert.equal(preview.artifact, null, 'closing the viewer stops the draft');
+});
+test('a refresh revision replaces the shown latest draft in place; an older revision or a draft in use stays put (AIT-113 B2)', async t => {
+  const { c, root } = setup(t, { concepts: [draft('html1')], session: { conceptVisualKind: 'html' } });
+  root.querySelector('.concept-tab').click(); await tick(); await tick();
+  const preview = root.querySelector('.concept-html'), regenerate = root.querySelector('.concept-regenerate'), up = root.querySelector('.concept-up');
+  const arrive = id => c.receive({ seq: c.session.seq + 1, type: 'concept.state', data: { intent: c.session.conceptIntent, status: { phase: 'ready' }, artifact: draft(id) } });
+  arrive('html2'); await tick(); await tick();
+  assert.equal(root.querySelector('.concept-count').textContent, '2 of 2'); assert.equal(root.querySelector('#concept-title').textContent, 'Draft revision 2');
+  assert.match(new TextDecoder().decode(preview.artifact.bytes), /Revision 2/u);
+  assert.equal(root.querySelector('.concept-regenerate'), regenerate); assert.equal(root.querySelector('.concept-up'), up, 'controls keep their nodes');
+  assert.equal(root.querySelector('.concept-activity-text').textContent, 'Draft revision 2 is ready.');
+  const shown = preview.artifact; c.receive({ seq: c.session.seq + 1, type: 'concept.feedback', data: { artifactId: 'html2', vote: 'up', chips: [], archived: false } });
+  assert.equal(preview.artifact, shown, 'a live render of the same revision keeps its frame');
+  root.querySelector('.concept-previous').click(); await tick();
+  arrive('html3'); await tick();
+  assert.equal(root.querySelector('.concept-count').textContent, '1 of 3', 'an older revision being read stays');
+  assert.equal(root.querySelector('.concept-viewer-message').textContent, en.conceptDraftNewer);
+  root.querySelector('.concept-next').click(); root.querySelector('.concept-next').click(); await tick();
+  assert.equal(root.querySelector('.concept-viewer-message').textContent, '');
+  t.mock.getter(preview, 'draftFocused', () => true);
+  arrive('html4'); await tick();
+  assert.equal(root.querySelector('.concept-count').textContent, '3 of 4', 'someone working inside the draft keeps it');
+  assert.equal(root.querySelector('.concept-viewer-message').textContent, en.conceptDraftNewer);
+});
+test('Like, guidance, Regenerate and Reject work for drafts exactly like images', async t => {
+  const { c, root, calls } = setup(t, { concepts: [draft('html1')], session: { conceptVisualKind: 'html' } });
+  root.querySelector('.concept-tab').click(); await tick();
+  root.querySelector('.concept-up').click(); await tick(); assert.equal(c.session.concepts[0].feedback.vote, 'up');
+  assert.equal(root.querySelector('.concept-up').getAttribute('aria-pressed'), 'true');
+  root.querySelector('.concept-guidance-options button').click(); await tick(); assert.deepEqual(c.session.concepts[0].feedback.chips, ['Simpler layout']);
+  root.querySelector('.concept-regenerate').click(); await tick();
+  assert.ok(calls.find(c => c.url.endsWith('/concepts/html1/regenerate')));
+  root.querySelector('.concept-reject').click(); await tick();
+  assert.ok(calls.find(c => c.url.endsWith('/concepts/html1/reject'))); assert.equal(c.session.concepts[0].archived, true);
+  assert.equal(root.querySelector('.concept-viewer').open, false); assert.equal(root.querySelector('.concept-html').artifact, null);
+});
+test('a draft downloads as the static export file with scripts off, never as the raw bytes', async t => {
+  const blobs = [];
+  const { root, downloads, revoked } = setup(t, { concepts: [draft('html1')], session: { conceptVisualKind: 'html' } });
+  URL.createObjectURL.mock.mockImplementation(blob => { blobs.push(blob); return 'blob:draft-download'; });
+  root.querySelector('.concept-tab').click(); await tick(); await tick();
+  root.querySelector('.concept-download').click(); await tick(); await tick();
+  assert.equal(downloads[0].name, 'concept-html1.html'); assert.ok(revoked.includes('blob:draft-download'));
+  const text = await blobs.at(-1).text();
+  assert.equal(blobs.at(-1).type, 'text/html'); assert.match(text, /^<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'/u);
+  assert.match(text, /content="script-src 'none'"/u); assert.match(text, /Revision 1/u);
+});
+test('the request gate follows the host visual kind; a refused request says why in plain words', async t => {
+  const limited = { best: { text: { available: true }, analysis: { available: true }, images: { available: true },
+    html: { available: false, reason: 'UI render limit reached for this session' } } };
+  const { root } = setup(t, { concepts: [], session: { conceptVisualKind: 'html', featureMatrix: limited } }); await tick();
+  assert.equal(root.querySelector('.concept-request').disabled, true);
+  assert.equal(root.querySelector('.concept-request').title, 'Visual concept limit reached for this conversation');
+  assert.equal(root.querySelector('.concept-activity-text').textContent, 'Visual concept limit reached for this conversation.');
+  const refused = setup(t, { concepts: [], session: { conceptVisualKind: 'html' }, refuse: { status: 403, body: { error: 'not-admitted', reason: 'OpenRouter spend cap exhausted' } } });
+  await tick(); refused.root.querySelector('.concept-request').click(); await tick(); await tick();
+  assert.equal(refused.root.querySelector('.concept-activity-text').textContent, 'OpenRouter spending limit reached.');
+  refused.c.receive({ seq: refused.c.session.seq + 1, type: 'concept.state', data: { intent: refused.c.session.conceptIntent, status: { phase: 'pending', startedAt: Date.now(), estimateMs: 45000 } } });
+  assert.equal(refused.root.querySelector('.concept-activity-text').textContent, 'Creating your clickable draft…', 'the refusal stands only until the state moves on');
 });

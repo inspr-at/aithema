@@ -85,6 +85,9 @@ iframe { position:absolute; top:0; bottom:0; left:50%; transform:translateX(-50%
 .stage[data-width="phone"] iframe { width:min(var(--preview-phone),100%); box-shadow:0 0 0 1px var(--aithema-line,#d5dfda); }
 iframe:focus-visible { outline:2px solid var(--aithema-accent,#227c78); outline-offset:-2px; }
 .state { position:absolute; inset:0; margin:0; display:grid; place-items:center; padding:1.5rem; text-align:center; color:var(--aithema-muted,#5d6e71); }
+/* fill: the stage takes whatever height the host gives the element, e.g. a viewer row. */
+:host([fill]) { display:grid; grid-template-rows:auto minmax(0,1fr); height:100%; min-height:0; }
+:host([fill]) .stage { height:auto; min-height:0; }
 @media (pointer:coarse) { .seg button { min-height:2.75rem; } }
 `;
 const DRAFT_ICON = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 13l1-3.5L10.5 3 13 5.5 6.5 12z M9.5 4l2.5 2.5" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>';
@@ -109,6 +112,8 @@ export class AithemaHTMLPreview extends HTMLElement {
   set copy(value) { this.#copy = { ...previewCopy, ...value }; this.#text(); this.#render(); }
   get copy() { return this.#copy; }
   get width() { return this.#width; }
+  /** Whether the shown draft holds keyboard focus (someone is working inside it). */
+  get draftFocused() { return this.#frameFocused || this.#frame !== null && this.shadowRoot.activeElement === this.#frame; }
   /** Wide or phone; the stage keeps its size, only the frame's width changes. */
   set width(value) { if (!['wide', 'phone'].includes(value)) return; this.#width = value; this.#text(); }
   get artifact() { return this.#artifact; }

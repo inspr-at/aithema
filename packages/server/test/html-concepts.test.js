@@ -1,7 +1,7 @@
 import { test as nodeTest } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { PluginRegistry, createMockReasoning, inputRevision, reduceUnderstanding, verifyHTMLArtifact, HTML_PREVIEW_CSP, syncConceptIntent, reduceConceptIntent } from '@inspr/aithema-core';
+import { PluginError, PluginRegistry, createMockReasoning, inputRevision, reduceUnderstanding, verifyHTMLArtifact, HTML_PREVIEW_CSP, syncConceptIntent, reduceConceptIntent } from '@inspr/aithema-core';
 import { SQLiteStorage, createHandlers, createPluginRuntime, mockPresets, createMemoryConsentLedger,
   createLocalHTML, localHTMLBinding, createLocalImages, localImageBinding, createUIRenderLimiter, uiRenderLimitConfig } from '../src/index.js';
 import { ownedRequest, temporaryDb, unzip } from '../../../test/helpers.js';
@@ -275,4 +275,10 @@ test('a separately qualified HTML scope needs its own current grant for generate
   revokeAfterRender = true; await h.request('revoked', first.id); await h.handlers.idle();
   assert.equal(h.storage.get(h.id).concepts.length, 2); assert.equal(h.storage.get(h.id).conceptStatus.phase, 'failed');
   assert.equal((await h.call(`concepts/${first.id}/html`)).status, 403);
+});
+
+test('a spend cap refusal during rendering persists its reason, so the viewer can say so (AIT-113 B2)', async t => {
+  const h = await setup(t, { intercept: () => { throw new PluginError('not-admitted', 'OpenRouter spend cap exhausted'); } });
+  await h.turn('first'); h.readiness(); assert.equal((await h.request()).status, 202); await h.handlers.idle();
+  assert.deepEqual(h.storage.get(h.id).conceptStatus, { ...h.storage.get(h.id).conceptStatus, phase: 'failed', reason: 'OpenRouter spend cap exhausted', retryable: true });
 });
