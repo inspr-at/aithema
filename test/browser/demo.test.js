@@ -15,6 +15,7 @@ import { de } from '../../packages/ui/src/i18n/de.js';
 import { START_GERMAN_CONSENT, FEATURE_REASON_CODES, VOICE_REASON_CODES } from '../fixtures/german-server-texts.js';
 import { pdf } from '../extractor-fixtures.js';
 import { formatBytes } from '../../packages/ui/src/uploads.js';
+import { AI_NOTICE } from '../../packages/core/src/ai-notice.js';
 
 const waitTimeout = 45_000;
 const content = 'operations: hosted; data: public; systems: API; reach: international';
@@ -1252,9 +1253,10 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     // Before consent, Attach stays reachable and says the server's reason in German.
     const attach = () => inShadow(page, c => { const a = c.shadowRoot.querySelector('.attach');
       return { label: a.querySelector('.attach__label').textContent, disabled: a.getAttribute('aria-disabled'), title: a.title,
-        described: c.shadowRoot.getElementById(a.getAttribute('aria-describedby')).textContent }; });
+        described: a.getAttribute('aria-describedby').split(' ').map(id => c.shadowRoot.getElementById(id).textContent) }; });
+    // Its own description first, then the AI notice (AIT-119).
     assert.deepEqual(await attach(), { label: 'Dateien anhängen', disabled: 'true', title: 'Dateien können nicht angehängt werden: Einwilligung zur Verarbeitung erforderlich',
-      described: 'Dateien können nicht angehängt werden: Einwilligung zur Verarbeitung erforderlich' });
+      described: ['Dateien können nicht angehängt werden: Einwilligung zur Verarbeitung erforderlich', `${AI_NOTICE.de.text} ${AI_NOTICE.de.voice}`] });
     await page.click('#grant'); await waitForShadow(page, '.composer textarea', { enabled: true });
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.attach').getAttribute('aria-disabled') === 'false');
     assert.equal((await attach()).title, 'Bis zu 8 Dateien, je höchstens 20 MB: PDF, Word, Excel, PowerPoint, Text, Markdown, CSV, JSON oder XML. Die Originaldatei wird nicht aufbewahrt.');
@@ -1418,4 +1420,206 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     assert.deepEqual(problems, []);
     assert.equal(posts(), 5, 'two pickers and the drop at 1440 px, two pickers at 400 px, one request each');
     t.diagnostic(`Uploads: ${posts()} upload POSTs via picker and drop, pending→accepted for txt and PDF, understanding refreshed, withdraw kept the chip and focus, refusal before sending; the changing row's box, name and action unchanged under the pointer for pending→accepted, pending→unreadable, unreadable→withdrawn and accepted→withdrawn at 1440 and 400 px; German, light/dark, 1440 and 400 px.`);
+  });
+
+// AIT-119: wherever an interaction can begin, the AI notice is already in view. The page (and the start
+// card's own pane) are scrolled only as a visitor would to reach each control; the notice itself is never
+// scrolled to.
+const COMPOSER = ['.composer textarea', '.attach', '.send'];
+const ENTRY_POINTS = {
+  chooser: [...['best', 'eu', 'device', 'custom'].map(preset => `.chooser-option[data-preset="${preset}"]`), '.chooser__continue', ...COMPOSER],
+  // The ready card before consent is granted: Review consent opens the host's consent interface.
+  'ready before consent': ['.ready__change', '.ready__consent', '.voice-start', ...COMPOSER],
+  ready: ['.ready__change', '.voice-start', ...COMPOSER],
+  conversation: ['.voice-start', ...COMPOSER],
+  'failed call': ['.voice-retry', '.voice-start', ...COMPOSER],
+};
+const noticeView = (page, selector) => inShadow(page, (c, selector) => {
+  const r = c.shadowRoot, line = r.querySelector('.ai-notice'), rect = line.getBoundingClientRect(), style = getComputedStyle(line);
+  const inside = b => b.width > 0 && b.height > 0 && b.top >= -.5 && b.left >= -.5 && b.bottom <= innerHeight + .5 && b.right <= innerWidth + .5;
+  // What a pointer at the line's centre would hit: the line itself, never the start card or a rail.
+  const hit = r.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
+  const control = selector ? r.querySelector(selector) : null, own = control?.getBoundingClientRect();
+  const pane = control?.closest('.intro')?.getBoundingClientRect();
+  return { notice: inside(rect) && style.visibility === 'visible' && style.display !== 'none' && line.contains(hit),
+    control: own ? inside(own) && (!pane || own.top >= pane.top - .5 && own.bottom <= pane.bottom + .5) : null,
+    below: own ? own.top >= rect.bottom - .5 : null, text: r.querySelector('#ai-notice').textContent };
+}, selector);
+// Scroll as a visitor would until the control shows at the viewport's bottom or top edge.
+const reveal = (page, selector, edge) => inShadow(page, (c, selector, edge) => {
+  const control = c.shadowRoot.querySelector(selector), intro = control.closest('.intro');
+  if (intro) {
+    const own = control.getBoundingClientRect(), pane = intro.getBoundingClientRect();
+    intro.scrollTop += own.bottom > pane.bottom ? own.bottom - pane.bottom : Math.min(0, own.top - pane.top);
+  }
+  const own = control.getBoundingClientRect();
+  window.scrollTo(0, scrollY + (edge === 'bottom' ? own.bottom - innerHeight : own.top));
+}, selector, edge);
+async function noticeAtEntryPoints(page, state, full, label) {
+  const checked = [];
+  for (const selector of ENTRY_POINTS[state]) {
+    const shown = await inShadow(page, (c, selector) => { const n = c.shadowRoot.querySelector(selector); return Boolean(n?.getClientRects().length); }, selector);
+    assert.ok(shown, `${label}: ${selector} is shown`);
+    for (const edge of ['bottom', 'top']) {
+      await reveal(page, selector, edge);
+      const view = await noticeView(page, selector);
+      assert.deepEqual([view.control, view.notice, view.text], [true, true, full], `${label}: notice with ${selector} at the viewport's ${edge}`);
+    }
+    // Keyboard: focusing a control scrolled far out of view brings it in below the notice, never under it.
+    const focusable = await inShadow(page, (c, selector) => !c.shadowRoot.querySelector(selector).disabled, selector);
+    if (focusable) {
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+      await inShadow(page, (c, selector) => c.shadowRoot.querySelector(selector).focus(), selector);
+      const view = await noticeView(page, selector);
+      assert.deepEqual([view.control, view.notice, view.below], [true, true, true], `${label}: notice and focused ${selector}`);
+    }
+    checked.push(selector);
+  }
+  await page.evaluate(() => window.scrollTo(0, 0));
+  return checked;
+}
+
+test('the AI notice is in view wherever an interaction can begin, without scrolling to it: every chooser option, the ready card before and after consent, Start and Retry call and the composer, English and German, 1440 and 400 px (AIT-119)',
+  { timeout: 240_000 }, async t => {
+    const executablePath = await browserPath(), evidence = process.env.AITHEMA_EVIDENCE_DIR;
+    const directory = await mkdtemp(join(tmpdir(), 'aithema-browser-notice-'));
+    const demo = await startDemo(directory); let browser;
+    t.after(async () => {
+      try { await browser?.close(); }
+      finally { await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); }
+    });
+    if (evidence) await mkdir(evidence, { recursive: true });
+    browser = await puppeteer.launch({ executablePath, headless: true, env: { PATH: process.env.PATH, HOME: homedir() },
+      userDataDir: join(directory, 'chrome'), timeout: waitTimeout,
+      args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    const style = page => inShadow(page, c => {
+      const r = c.shadowRoot, line = r.querySelector('.ai-notice'), text = r.querySelector('#ai-notice'), s = getComputedStyle(line);
+      return { clipped: line.scrollHeight > line.clientHeight + 1 || text.scrollWidth > line.clientWidth + 1, color: s.color,
+        background: s.backgroundColor, pane: getComputedStyle(r.querySelector('.conversation')).backgroundColor,
+        border: [s.borderLeftWidth, s.borderRightWidth, s.borderTopWidth, s.borderTopLeftRadius, s.boxShadow],
+        pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+    });
+    const quiet = async (page, label) => {
+      const s = await style(page);
+      assert.deepEqual([s.clipped, s.border, s.pageOverflow], [false, ['0px', '0px', '0px', '0px', 'none'], 0], label);
+      assert.equal(s.background, s.pane, `${label}: GUI-27, its fill is the pane's own surface, no tint`);
+      return s;
+    };
+    const shot = async (page, name) => { if (evidence) await page.screenshot({ path: join(evidence, `ai-notice-${name}.png`) }); };
+    const sizes = [[1440, 1000], [400, 800]], tally = {};
+    for (const [locale, languages] of [['en', ['en-GB', 'en']], ['de', ['de-AT', 'de']]]) {
+      const full = `${AI_NOTICE[locale].text} ${AI_NOTICE[locale].voice}`;
+      // Its own browser context: a fresh session, never the other language's saved one.
+      const context = await browser.createBrowserContext(), page = await context.newPage(); await preparePage(page, languages);
+      const problems = []; page.on('pageerror', error => problems.push(error.message));
+      await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
+      await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '#ai-notice', { text: full });
+      assert.equal(await page.evaluate(() => document.documentElement.lang), locale);
+      assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.intro').dataset.mode), 'chooser');
+      // As the page first paints at 1440 × 1000, nothing scrolled: the chooser's first options already show,
+      // and so does the notice above them.
+      assert.equal(await page.evaluate(() => scrollY), 0);
+      const first = await noticeView(page, '.chooser-option[data-preset="best"]');
+      assert.deepEqual([first.control, first.notice, first.text], [true, true, full], `${locale}: first paint at 1440 px`);
+      assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('textarea').disabled), true, 'before consent, choice or typing');
+      await quiet(page, `${locale} light 1440 px`); await shot(page, `${locale}-light-1440`);
+      for (const [width, height] of sizes) {
+        await page.setViewport({ width, height });
+        tally[`chooser ${width}`] = await noticeAtEntryPoints(page, 'chooser', full, `${locale} chooser ${width} px`);
+      }
+      await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
+      await reveal(page, '.chooser__continue', 'bottom'); await quiet(page, `${locale} dark 400 px`); await shot(page, `${locale}-dark-400-start`);
+      await page.setViewport({ width: 1440, height: 1000 }); await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
+
+      // Nothing shifts under the pointer. At the page's end every part of the pane is in view and the notice
+      // stands in its own place; resting on it, hovering the controls, granting consent (the composer opens),
+      // a turn and its reply leave the notice and the composer exactly where they were.
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+      let before = { line: await box(page, '.ai-notice'), composer: await box(page, '.composer') };
+      await page.mouse.move(before.line.x + 40, before.line.y + before.line.height / 2);
+      sameBox(before.line, await box(page, '.ai-notice'), 'notice on hover');
+      assert.equal((await style(page)).background, (await style(page)).pane, 'hover adds no tint');
+      for (const selector of ['.chooser-option', '.attach', '.send']) {
+        await rest(page, selector);
+        sameBox(before.line, await box(page, '.ai-notice'), `notice while hovering ${selector}`);
+        sameBox(before.composer, await box(page, '.composer'), `composer while hovering ${selector}`);
+      }
+      // Continue before consent: the ready card offers Review consent and the composer stays closed.
+      await inShadow(page, c => c.shadowRoot.querySelector('.chooser__continue').click());
+      await waitForShadow(page, '.ready__consent');
+      assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('textarea').disabled), true, `${locale}: ready card before consent`);
+      for (const [width, height] of sizes) {
+        await page.setViewport({ width, height });
+        tally[`ready before consent ${width}`] = await noticeAtEntryPoints(page, 'ready before consent', full, `${locale} ready before consent ${width} px`);
+      }
+      await page.setViewport({ width: 1440, height: 1000 });
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+      before = { line: await box(page, '.ai-notice'), composer: await box(page, '.composer') };
+      await page.mouse.move(before.line.x + 40, before.line.y + before.line.height / 2);
+      await page.evaluate(() => document.querySelector('#grant').click());
+      await waitForShadow(page, '.composer textarea', { enabled: true });
+      await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.ready__consent'));
+      await waitForShadow(page, '.ready__change');
+      sameBox(before.line, await box(page, '.ai-notice'), 'notice under the pointer while consent opens the composer');
+      sameBox(before.composer, await box(page, '.composer'), 'composer while consent opens it');
+      await rest(page, '.voice-start');
+      sameBox(before.line, await box(page, '.ai-notice'), 'notice while hovering Start call');
+      // Ready card after consent: Change, Start call and the composer, both sizes.
+      await page.evaluate(() => window.scrollTo(0, 0));
+      await shot(page, `${locale}-light-1440-ready`);
+      for (const [width, height] of sizes) {
+        await page.setViewport({ width, height });
+        tally[`ready ${width}`] = await noticeAtEntryPoints(page, 'ready', full, `${locale} ready ${width} px`);
+      }
+      await page.setViewport({ width: 1440, height: 1000 });
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+      await page.mouse.move(before.line.x + 40, before.line.y + before.line.height / 2);
+      await sendTurn(page, locale === 'de' ? 'Wir brauchen eine Vorbestell-App.' : 'We need a preorder app.');
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('ol li.turn').length >= 2);
+      sameBox(before.line, await box(page, '.ai-notice'), 'notice under the pointer while a turn and reply arrive');
+      assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.intro').dataset.mode), '');
+      await page.mouse.move(0, 0);
+      // The conversation: Start call and the composer, both sizes, light and dark.
+      for (const [width, height] of sizes) {
+        await page.setViewport({ width, height });
+        tally[`conversation ${width}`] = await noticeAtEntryPoints(page, 'conversation', full, `${locale} conversation ${width} px`);
+      }
+      // A failed call: the fake voice drops and every recovery is refused, so the call ends failed and
+      // offers Retry call.
+      await page.setViewport({ width: 1440, height: 1000 });
+      await startCall(page);
+      const refuseRecovery = request => {
+        if (request.isInterceptResolutionHandled()) return;
+        if (/\/voice\/[^/]+\/recover$/u.test(new URL(request.url()).pathname)) void request.respond({ status: 503, contentType: 'application/json', body: '{}' });
+        else void request.continue();
+      };
+      await page.setRequestInterception(true); page.on('request', refuseRecovery);
+      await page.evaluate(() => document.querySelector('#fake-disconnect').click());
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'failed');
+      page.off('request', refuseRecovery); await page.setRequestInterception(false);
+      assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.voice-retry').disabled), false, `${locale}: Retry call is offered`);
+      for (const [width, height] of sizes) {
+        await page.setViewport({ width, height });
+        tally[`failed call ${width}`] = await noticeAtEntryPoints(page, 'failed call', full, `${locale} failed call ${width} px`);
+      }
+      for (const theme of ['dark', 'light']) {
+        await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
+        await reveal(page, '.composer textarea', 'bottom');
+        const view = await noticeView(page, '.composer textarea');
+        assert.deepEqual([view.control, view.notice, view.text], [true, true, full], `${locale} ${theme} 400 px`);
+        await quiet(page, `${locale} ${theme} 400 px`); await shot(page, `${locale}-${theme}-400`);
+      }
+      const lightColor = (await style(page)).color;
+      await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
+      assert.notEqual((await style(page)).color, lightColor, 'dark mode uses its own muted token');
+      const phoneLine = await box(page, '.ai-notice');
+      await page.mouse.move(phoneLine.x + 40, phoneLine.y + phoneLine.height / 2);
+      sameBox(phoneLine, await box(page, '.ai-notice'), 'notice on hover at 400 px');
+      await page.setViewport({ width: 1440, height: 1000 }); await page.evaluate(() => window.scrollTo(0, 0));
+      await quiet(page, `${locale} dark 1440 px`); await shot(page, `${locale}-dark-1440`);
+      assert.deepEqual(problems, []);
+      await context.close();
+    }
+    t.diagnostic(`AI notice in view without scrolling to it, en and de, at the viewport's bottom and top edge and on keyboard focus: ${
+      Object.entries(tally).map(([state, selectors]) => `${state} px: ${selectors.length} entry points`).join('; ')}; first paint at 1440 px; nothing moves under the pointer.`);
   });

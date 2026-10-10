@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
 import { createSession, inputRevision, reduceUnderstanding } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
+import { de } from '../src/i18n/de.js';
+import { AI_NOTICE } from '../../core/src/ai-notice.js';
 import { styles } from '../src/styles.js';
 import { settingsStyles } from '../src/settings-styles.js';
 import { contrast, mix, textPairs, tokens } from '../../../test/contrast.js';
@@ -652,4 +654,100 @@ test('every text pair reaches WCAG AA in light and dark, placeholder, bubbles an
   assert.match(darkSettings, /\.done, \.chooser__continue \{ color:var\(--aithema-paper\); \}/u);
   assert.match(darkSettings, /\.gauge-panel \{ background:linear-gradient\(155deg,var\(--aithema-surface\),var\(--aithema-paper\)\); \}/u);
   assert.doesNotMatch(settingsStyles, /#89613b|#9a4030|#925125|color:#fff; border-color:var\(--aithema-accent\)/u);
+});
+
+// AIT-119, EU AI Act Art. 50(1): the notice stands before the first interaction, in the page language.
+test('the AI notice is painted with the first render, ahead of the composer, in English and German (AIT-119)', () => {
+  for (const [locale, copy] of [['en', en], ['de', de]]) {
+    const c = document.createElement('aithema-session'), session = createSession({ locale, demo: true });
+    session.featureMatrix = { best: { text: { available: false, reason: 'current processing consent required' }, analysis: { available: true, reason: null } } };
+    c.configure({ copy: structuredClone(copy), session });
+    const root = c.shadowRoot, notice = root.querySelector('#ai-notice');
+    // Without a voice client only the first sentence shows; the hidden copy keeps the full notice's height.
+    assert.equal(notice.textContent, AI_NOTICE[locale].text);
+    assert.equal(root.querySelector('.ai-notice__sizer').textContent, `${AI_NOTICE[locale].text} ${AI_NOTICE[locale].voice}`);
+    assert.equal(root.querySelector('textarea').disabled, true, 'the composer is still closed while the notice already stands');
+    // It sits directly under the conversation header, outside the start card, so neither the chooser nor the
+    // ready card covers it, and it comes before every control of the pane.
+    const line = notice.parentElement;
+    assert.equal(line.parentElement, root.querySelector('section.conversation'));
+    assert.equal(line.previousElementSibling, root.querySelector('.conversation > header.head'));
+    assert.equal(root.querySelector('.intro').contains(line), false);
+    session.featureMatrix.best.text = { available: true, reason: null };
+    c.configure({ copy: structuredClone(copy), session });
+    assert.equal(c.shadowRoot.querySelector('textarea').disabled, false);
+    assert.equal(c.shadowRoot.querySelector('#ai-notice').textContent, AI_NOTICE[locale].text);
+  }
+  assert.equal(AI_NOTICE.en.text, 'You are talking to an AI assistant.');
+  assert.equal(AI_NOTICE.de.text, 'Sie sprechen mit einem KI-Assistenten.');
+  assert.equal(AI_NOTICE.de.voice, 'Gesprochene Antworten verwenden eine synthetische Stimme.');
+});
+test('with voice offered both sentences show; consent still pending counts as offered (AIT-119)', () => {
+  const c = document.createElement('aithema-session'), session = createSession({ demo: true });
+  const client = { manifest: { liveVoice: { capabilities: {} } }, async start() { throw new Error('unused'); } };
+  session.featureMatrix = { best: { voice: { available: false, reason: 'current processing consent required' }, text: { available: true }, analysis: { available: true } } };
+  c.configure({ copy: en, session, voiceClient: client });
+  const full = `${AI_NOTICE.en.text} ${AI_NOTICE.en.voice}`;
+  assert.equal(c.shadowRoot.querySelector('#ai-notice').textContent, full);
+  session.featureMatrix.best.voice = { available: false, reason: 'voice off' };
+  c.configure({ copy: en, session, voiceClient: client });
+  assert.equal(c.shadowRoot.querySelector('#ai-notice').textContent, AI_NOTICE.en.text);
+  assert.equal(c.shadowRoot.querySelector('.ai-notice__sizer').textContent, full);
+});
+test('a host rewords the AI notice through the bundle or configure, but an empty override keeps the default (AIT-119)', () => {
+  const c = document.createElement('aithema-session'), session = createSession({ demo: true });
+  const text = () => c.shadowRoot.querySelector('#ai-notice').textContent;
+  for (const blank of ['', '   ', null, 42]) {
+    c.configure({ copy: { ...en, aiNotice: { text: blank, voice: blank } }, session });
+    assert.equal(text(), AI_NOTICE.en.text, `bundle ${JSON.stringify(blank)}`);
+    c.configure({ copy: en, session, aiNotice: { text: blank } });
+    assert.equal(text(), AI_NOTICE.en.text, `configure ${JSON.stringify(blank)}`);
+  }
+  c.configure({ copy: { ...en, aiNotice: undefined }, session }); assert.equal(text(), AI_NOTICE.en.text);
+  c.configure({ copy: { ...en, aiNotice: { text: 'Host bundle: an AI answers.' } }, session });
+  assert.equal(text(), 'Host bundle: an AI answers.');
+  c.configure({ copy: { ...en, aiNotice: { text: 'Host bundle: an AI answers.' } }, session, aiNotice: { text: 'Host config: an AI answers.' } });
+  assert.equal(text(), 'Host config: an AI answers.');
+  // An empty configured part defers to the bundle, then to the default; it never empties the line.
+  c.configure({ copy: { ...en, aiNotice: { text: 'Host bundle: an AI answers.' } }, session, aiNotice: { text: ' ' } });
+  assert.equal(text(), 'Host bundle: an AI answers.');
+});
+test('screen readers get the AI notice once, as the last description of every control that begins an interaction (AIT-119)', () => {
+  const c = setup(), root = c.shadowRoot, notice = root.querySelector('#ai-notice');
+  const described = node => (node.getAttribute('aria-describedby') ?? '').split(' ').filter(Boolean);
+  const entries = () => [...root.querySelectorAll('.chooser-option, .chooser__continue, .ready__actions button, .voice-start, .voice-retry, textarea, .attach, .send')];
+  // Chooser state: the four options keep their own detail first, Continue and the composer theirs.
+  assert.equal(root.querySelector('.intro').dataset.mode, 'chooser');
+  assert.deepEqual([...root.querySelectorAll('.chooser-option')].map(described),
+    ['best', 'eu', 'device', 'custom'].map(preset => [`chooser-${preset}-detail`, 'ai-notice']));
+  assert.deepEqual(described(root.querySelector('.chooser__continue')), ['ai-notice']);
+  assert.deepEqual(described(root.querySelector('textarea')), ['composer-reason', 'ai-notice']);
+  assert.deepEqual(described(root.querySelector('.attach')), ['attach-limits', 'ai-notice']);
+  for (const selector of ['.send', '.voice-start', '.voice-retry']) assert.deepEqual(described(root.querySelector(selector)), ['ai-notice'], selector);
+  assert.equal(entries().length, 10, 'four options, Continue, Start and Retry call, composer, Attach and Send');
+  // Every referenced description exists in this shadow root, so nothing is silently dropped.
+  for (const node of entries()) for (const id of described(node)) assert.ok(root.getElementById(id), `${id} exists`);
+  // Ready state, with consent still missing: Change and Review consent are described too.
+  const session = c.session;
+  session.featureMatrix.best.text = { available: false, reason: 'current processing consent required' };
+  c.configure({ copy: en, session });
+  c.receive({ seq: c.session.seq + 1, type: 'settings.changed', data: { processingPreset: 'best',
+    settings: { ...session.settings, revision: 1, origin: 'chosen', at: new Date().toISOString() } } });
+  assert.equal(root.querySelector('.intro').dataset.mode, 'ready');
+  const actions = [...root.querySelectorAll('.ready__actions button')];
+  assert.deepEqual(actions.map(button => button.className), ['ready__change', 'ready__consent']);
+  for (const button of actions) assert.deepEqual(described(button), ['ai-notice'], button.className);
+  for (const node of entries()) assert.equal(described(node).at(-1), 'ai-notice', node.className || node.tagName);
+  // Not a live region: it is read with those controls, not re-announced on every render.
+  for (let node = notice; node && node !== root; node = node.parentNode) {
+    assert.equal(node.getAttribute('aria-live'), null); assert.equal(node.getAttribute('role'), null); assert.equal(node.getAttribute('aria-hidden'), null);
+  }
+  assert.equal(root.querySelector('.ai-notice__sizer').getAttribute('aria-hidden'), 'true');
+  // GUI-27: a plain line, no box, pill or edge accent; its fill is the pane's own surface, so while it stays
+  // in view over scrolled content it reads as part of the pane, not as a tinted box.
+  const css = root.querySelector('style').textContent, rule = css.slice(css.indexOf('.ai-notice {'), css.indexOf('}', css.indexOf('.ai-notice {')));
+  for (const banned of ['border-radius', 'border-left', 'border-top', 'box-shadow', 'outline', 'color-mix']) assert.ok(!rule.includes(banned), banned);
+  assert.match(rule, /background:var\(--aithema-surface\);/u);
+  assert.match(rule, /position:sticky; top:0;/u);
+  assert.match(css, /\.conversation \{[^}]*overflow:clip;/u, 'the pane is no scroll container, so the notice sticks to the viewport');
 });

@@ -123,8 +123,10 @@ the call record and AIT-97's engine-wide pause state, returning
 Heartbeat renews only the browser lease, bounded by the unchanged spend deadline.
 Pause renews neither deadline.
 
-Only `overrides.agent.language` and `overrides.agent.firstMessage` are allowed;
-model, prompt, credential and custom-LLM overrides are rejected.
+Only `overrides.agent.language` is allowed, on the server and in the browser;
+first-message, model, prompt, credential and custom-LLM overrides are rejected.
+The agent's first message is the spoken AI notice (AIT-119), set server-side,
+which no browser may replace.
 The start result exposes public identities/deadlines, `credential`, `pause`,
 `resume`, `heartbeat`, `close(reason?, outcome?)`, private `snapshot()` and a
 server-only call `signal` aborted at closure. Pass that signal alongside the
@@ -197,7 +199,7 @@ The `control` port has `start(request, options)`, `close(identity, options)`,
 options)` and optional `recover(identity, options)`. Identity is
 `{callId,providerSessionId}`; close also carries `reason`. Start/recover return
 only `{callId,providerSessionId,credential,spendDeadlineAt,
-browserLivenessDeadlineAt,overrides?,facadeCallId?}`. Language/first-message overrides come
+browserLivenessDeadlineAt,overrides?,facadeCallId?}`. The language override comes
 from host configuration. Browsers never supply server authority, API keys or
 facade secrets; joined tests carry authority in-process solely for conformance.
 

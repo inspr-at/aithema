@@ -35,7 +35,10 @@ button:disabled { opacity:.5; cursor:wait; } :focus-visible { outline:2px solid 
 .features li { font-size:.75rem; } .features .unavailable { color:var(--aithema-muted); }
 .features span { display:block; font-size:.65rem; max-width:12rem; } .conversation, .understanding { min-width:0; border:1px solid var(--aithema-line);
   background:var(--aithema-surface); border-radius:1rem; overflow:hidden; }
-.conversation { height:42rem; max-height:85dvh; display:grid; grid-template-rows:3.6rem 8rem 5.4rem minmax(0,1fr) 10rem; }
+/* 42rem plus the AI notice's line (AIT-119), so the start card and transcript keep their room. Clip, not
+   hidden: the pane is no scroll container, so the notice can stay in view while the page scrolls. */
+.conversation { height:43.6rem; max-height:85dvh; display:grid; grid-template-rows:3.6rem auto 8rem 5.4rem minmax(0,1fr) 10rem;
+  overflow:clip; }
 .head { display:flex; align-items:center; justify-content:space-between; padding:0 1.25rem; border-bottom:1px solid var(--aithema-line); }
 h2 { font-size:1.05rem; font-weight:600; margin:0; } h3 { font-size:.82rem; font-weight:650; margin:0 0 .4rem; }
 .status { font-size:.75rem; line-height:1.25; color:var(--aithema-muted); max-width:50%; max-height:2.5em; overflow:hidden; text-align:right; }
@@ -57,6 +60,14 @@ ol { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; 
   text-decoration-color:color-mix(in srgb,currentColor 40%,transparent); text-underline-offset:3px; }
 :is(.withdraw, .upload-withdraw):hover:not(:disabled) { background:none; color:var(--aithema-ink); text-decoration-color:currentColor; } .pause { font-size:.75rem; min-width:5.5rem; flex-shrink:0; }
 .composer { border-top:1px solid var(--aithema-line); padding:.8rem 1.2rem; display:grid; gap:.5rem; }
+/* The AI notice (AIT-119, GUI-27): plain muted text under the conversation header, no box: its fill is the
+   pane's own surface. Sticky, so whenever any of the pane's controls is in view the notice is too; it never
+   takes or changes layout space. Both spans share one cell; the hidden full notice sets the height, so the
+   line never resizes after the first paint. Controls scrolled to by focus stop below it, never under it. */
+.ai-notice { position:sticky; top:0; z-index:3; display:grid; margin:0; padding:.45rem 1.25rem; font-size:.75rem; line-height:1.35;
+  color:var(--aithema-muted); background:var(--aithema-surface); border-bottom:1px solid var(--aithema-line); overflow-wrap:anywhere; }
+.ai-notice > span { grid-area:1/1; } .ai-notice__sizer { visibility:hidden; }
+.conversation > :not(.head, .ai-notice) :is(button, textarea) { scroll-margin-top:4rem; }
 .composer label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
 textarea { resize:none; width:100%; height:5rem; border:0; background:transparent; color:inherit; padding:.3rem 0; }
 textarea::placeholder { color:var(--aithema-muted); opacity:1; }
@@ -91,7 +102,7 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .upload[data-state="unreadable"] .upload__state { color:var(--aithema-warning); }
 .upload[data-state="withdrawn"] .upload__name { font-weight:400; color:var(--aithema-muted); }
 .upload .upload-withdraw { margin-top:0; } .upload-withdraw[aria-disabled="true"] { opacity:.5; cursor:wait; }
-.understanding { height:42rem; display:grid; grid-template-rows:3.6rem 7rem minmax(0,1fr) 3.6rem; }
+.understanding { height:43.6rem; display:grid; grid-template-rows:3.6rem 7rem minmax(0,1fr) 3.6rem; }
 .readiness { padding:.8rem 1.25rem; } .scale { height:.72rem; border:1px solid var(--aithema-line); border-radius:999px;
   position:relative; background:linear-gradient(90deg,color-mix(in srgb,var(--aithema-accent) 10%,var(--aithema-surface)) 0 30%,
   color-mix(in srgb,var(--aithema-amber) 12%,var(--aithema-surface)) 30% 100%); overflow:visible; }
@@ -184,7 +195,7 @@ summary { cursor:pointer; } details p { padding:.5rem 0; } blockquote { margin:.
 @media(min-width:60rem) { .workspace { grid-template-columns:minmax(0,1.65fr) minmax(20rem,1fr); } }
 /* Phones: fixed rail heights keep targets still; the transcript gets most of a small viewport (D14). */
 @media(max-width:40rem) {
-  .conversation { height:auto; max-height:none; grid-template-rows:3.6rem 12rem 9.4rem clamp(20rem,60svh,36rem) 9rem; }
+  .conversation { height:auto; max-height:none; grid-template-rows:3.6rem auto 12rem 9.4rem clamp(20rem,60svh,36rem) 9rem; }
   textarea { height:3.8rem; }
   /* Phones: Attach is its icon; the name stays its accessible label. */
   .attach { width:2.75rem; height:2.75rem; padding:0; justify-content:center; margin-left:-.6rem; }

@@ -1,3 +1,5 @@
+import { AI_NOTICE } from '../../../core/src/ai-notice.js';
+
 // German bundle. Wording follows START src/lib/i18n.ts (formal "Sie"; a visual concept is an "Entwurf").
 export const de = {
   conceptTab: 'Entwurf', conceptView: 'Entwurf ansehen', conceptTitle: 'Visueller Entwurf {number}', conceptCount: '{current} von {count}',
@@ -204,6 +206,8 @@ export const de = {
   notConfigured: 'Nicht eingerichtet', deviceExportUnavailable: 'Export ist auf dem Gerät nicht verfügbar',
   deviceConnectFirst: 'Verbinden Sie zuerst ein lokales Modell', deviceConversation: 'Auf meinem Gerät: dieses Gespräch bleibt in diesem Tab',
   deviceUnavailable: 'Lokales Modell nicht verfügbar',
+  // Art. 50(1) AI notice (AIT-119). A host may reword it; an empty part falls back to this default.
+  aiNotice: { ...AI_NOTICE.de },
   conversation: 'Gespräch', understanding: 'So verstehen wir es', you: 'Sie', assistant: 'Assistent',
   pause: 'Pausieren', resume: 'Fortsetzen', withdraw: 'Aussage zurückziehen', withdrawn: 'Aussage zurückgezogen',
   paused: 'Gespräch pausiert', pausedResume: 'Weiterhin pausiert. Wählen Sie „Fortsetzen“, um weiterzumachen.', consentRequired: 'Aktuelle Einwilligung zur Verarbeitung erforderlich',

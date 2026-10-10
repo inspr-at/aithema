@@ -100,7 +100,7 @@ registerDemoExtractors(registry, presets);
 const pluginRuntime = createPluginRuntime({ storage, reasoning, consent, registry, uiRenderLimits, presets });
 const host = createDemoHost({ storage, demo: process.env.AITHEMA_PROVIDER === undefined,
   verificationRequired: process.env.AITHEMA_DEMO_VERIFY === '1' });
-const handlers = createHandlers({ storage, reasoning, pluginRuntime, consent, ownership, host, uploads: { limits: uploadLimits }, voice: voicePlugin ? { secrets, closeOrphan: voiceHost?.closeOrphan, staticSecretRef: voiceHost?.staticSecretRef } : undefined }); await handlers.resume();
+const handlers = createHandlers({ storage, reasoning, pluginRuntime, consent, ownership, host, uploads: { limits: uploadLimits }, voice: voicePlugin ? { secrets, closeOrphan: voiceHost?.closeOrphan, staticSecretRef: voiceHost?.staticSecretRef, presentation: voiceHost?.presentation } : undefined }); await handlers.resume();
 const expiry = startExpiry(handlers);
 let allowedHosts = new Set();
 async function handle(request) {

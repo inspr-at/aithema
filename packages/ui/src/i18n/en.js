@@ -1,3 +1,5 @@
+import { AI_NOTICE } from '../../../core/src/ai-notice.js';
+
 export const en = {
   conceptTab: 'Concept', conceptView: 'View concept', conceptTitle: 'Visual concept {number}', conceptCount: '{current} of {count}',
   conceptClose: 'Back to conversation', conceptPrevious: 'Previous', conceptNext: 'Next', conceptDownload: 'Download image',
@@ -199,6 +201,8 @@ export const en = {
   notConfigured: 'Not configured', deviceExportUnavailable: 'Device export is unavailable',
   deviceConnectFirst: 'Connect a local model first', deviceConversation: 'On my device — this conversation stays in this tab',
   deviceUnavailable: 'Local model unavailable',
+  // Art. 50(1) AI notice (AIT-119). A host may reword it; an empty part falls back to this default.
+  aiNotice: { ...AI_NOTICE.en },
   conversation: 'Conversation', understanding: 'Understanding', you: 'You', assistant: 'Assistant',
   pause: 'Pause', resume: 'Resume', withdraw: 'Withdraw statement', withdrawn: 'Statement withdrawn',
   paused: 'Session paused', pausedResume: 'Still paused. Select Resume to continue.', consentRequired: 'Current processing consent required',

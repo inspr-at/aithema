@@ -18,8 +18,9 @@ export function createFacadeSecrets() {
 
 export function createVoiceHandlers({ storage, runtime, ownership, readBody, secrets,
   publish, onTurn, onClose, hostPrompt = '', now = Date.now, browserLeaseMs = 30_000, deadlineMs = 30_000,
-  closeOrphan, staticSecretRef } = {}) {
+  closeOrphan, staticSecretRef, presentation } = {}) {
   if (!secrets?.provision || !secrets.resolve || !secrets.revoke) throw new TypeError('Private facade secret store required');
+  if (presentation !== undefined && typeof presentation !== 'function') throw new TypeError('Voice presentation must be a function of the session locale');
   const calls = new Map(), sessions = new Map(), settlements = new Set();
   const sessionFor = entry => {
     const session = storage.authorize(entry.sessionId, entry.ownerToken);
@@ -84,9 +85,11 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       if (end <= now()) throw new PluginError('deadline');
       if (!staticSecretRef) await secrets.provision(entry.facadeSecretRef);
       controller.signal.throwIfAborted();
+      // The host's per-conversation language, if its agent allows it; never the greeting (AIT-119).
+      const overrides = presentation?.(session.locale);
       entry.call = await admitted.plugin.start({ callId, sessionId, ownerToken, facadeSecretRef: entry.facadeSecretRef,
         facadeUrl: `${admitted.binding.publicFacadeBaseUrl}${staticSecretRef ? staticFacadeRoute : `/api/voice/${callId}/llm/chat/completions`}`,
-        settingsRevision: session.settings?.revision ?? 0 },
+        settingsRevision: session.settings?.revision ?? 0, ...(overrides ? { overrides } : {}) },
         { ...admitted.options, spendDeadlineAt: end, browserLivenessDeadlineAt: Math.min(end, now() + browserLeaseMs) });
       entry.call.signal.addEventListener('abort', () => {
         void close(entry, entry.call.snapshot().reason ?? 'cancelled', 'cancelled');

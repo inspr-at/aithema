@@ -1,9 +1,14 @@
 import { readJson } from './server.js';
 import { isDeepStrictEqual } from 'node:util';
+import { SPOKEN_AI_NOTICE } from '../../../packages/core/src/ai-notice.js';
 
 export const AGENT_NAME = 'aithema-start2';
 const SECRET_NAME = 'aithema-start2-facade';
 const id = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(value);
+// Every leaf of a provider overrides tree as [dotted path, value]; only non-empty plain objects are
+// descended, so null, arrays, strings and empty objects surface as leaves that no boolean check accepts.
+const leaves = (value, path = []) => value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length
+  ? Object.entries(value).flatMap(([key, item]) => leaves(item, [...path, key])) : [[path.join('.'), value]];
 const pick = (value, keys) => Object.fromEntries(keys.filter(key => value?.[key] !== undefined).map(key => [key, structuredClone(value[key])]));
 export class AgentEnsureError extends Error {}
 
@@ -88,20 +93,28 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
   // UNVERIFIED API SHAPE: POST /v1/convai/agents/create and PATCH /v1/convai/agents/:id;
   // custom_llm.api_key {secret_id}, llm 'custom-llm', platform_settings.auth/overrides.
   // Require a matching owned-agent GET after every write before enabling voice.
+  // The first message is our own spoken AI notice (Art. 50(1), AIT-119), never START's greeting. It is
+  // fixed here, server-side and bilingual, because no browser may choose it: the agent refuses a
+  // first-message override, and no language preset exists through which a language could pick another.
   const body = { name: AGENT_NAME, conversation_config: {
     tts: { ...pick(config.tts, ['voice_id', 'model_id', 'stability', 'similarity_boost', 'style', 'use_speaker_boost', 'speed', 'optimize_streaming_latency', 'agent_output_audio_format']),
       ...(config.tts.voice_settings ? { voice_settings: pick(config.tts.voice_settings, ['stability', 'similarity_boost', 'style', 'use_speaker_boost', 'speed']) } : {}) },
     asr: pick(config.asr, ['quality', 'provider', 'user_input_audio_format', 'keywords']),
     turn: pick(config.turn, ['turn_timeout', 'silence_end_call_timeout', 'mode']),
     conversation: { max_duration_seconds: maxDurationSeconds },
-    agent: { language: config.agent?.language ?? 'en', first_message: '',
+    // UNVERIFIED API SHAPE: conversation_config.language_presets {[language]: {overrides, ...}}; empty clears them.
+    language_presets: {},
+    agent: { language: config.agent?.language ?? 'en', first_message: SPOKEN_AI_NOTICE,
       prompt: { prompt: '', llm: 'custom-llm', tools: [], knowledge_base: [],
         custom_llm: { url: `${publicOrigin}/api/voice/llm/chat/completions`, model_id: 'aithema-session', api_key: { secret_id: secretId } } } },
   }, platform_settings: {
     privacy: pick(template.platform_settings?.privacy, ['record_voice', 'retention_days', 'delete_audio', 'delete_transcript', 'zero_retention_mode']),
     // UNVERIFIED API SHAPE: allowlist item {hostname}, per ElevenLabs docs; live list was empty.
     auth: { enable_auth: true, allowlist: [{ hostname: origin.host }] },
-    overrides: { custom_llm_extra_body: true },
+    // verified by read-only GET 2026-10-09 on START's agent: conversation_config_override.agent
+    // {first_message, language}. Only the language may change per conversation (speech recognition and
+    // voice); it cannot change the greeting text, which only first_message or a language preset sets.
+    overrides: { custom_llm_extra_body: true, conversation_config_override: { agent: { first_message: false, language: true } } },
   } };
   let agentId = owned;
   if (agentId) await request(`/v1/convai/agents/${encodeURIComponent(agentId)}`, 'PATCH', body);
@@ -118,6 +131,8 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
     throw error;
   }
   const platform = remote?.platform_settings, prompt = remote?.conversation_config?.agent?.prompt;
+  const spoken = remote?.conversation_config?.agent?.first_message, presets = remote?.conversation_config?.language_presets;
+  const allowed = platform?.overrides?.conversation_config_override;
   const allowlist = platform?.auth?.allowlist;
   const checks = {
     agent_id: remote?.agent_id === agentId,
@@ -125,6 +140,12 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
     'platform_settings.auth.enable_auth': platform?.auth?.enable_auth === true,
     'platform_settings.auth.allowlist': Array.isArray(allowlist) && allowlist.length === 1 && allowlist[0]?.hostname === origin.host,
     'platform_settings.overrides.custom_llm_extra_body': platform?.overrides?.custom_llm_extra_body === true,
+    // Explicit values only: an omitted, null or string flag is no proof that an override is refused.
+    'platform_settings.overrides.conversation_config_override.agent.first_message': allowed?.agent?.first_message === false,
+    'platform_settings.overrides.conversation_config_override.agent.language': allowed?.agent?.language === true,
+    'platform_settings.overrides.conversation_config_override': leaves(allowed).every(([path, flag]) => flag === (path === 'agent.language')),
+    'conversation_config.agent.first_message': spoken === SPOKEN_AI_NOTICE,
+    'conversation_config.language_presets': isDeepStrictEqual(presets, {}),
     'conversation_config.agent.prompt.llm': prompt?.llm === 'custom-llm',
     'conversation_config.agent.prompt.custom_llm.url': prompt?.custom_llm?.url === body.conversation_config.agent.prompt.custom_llm.url,
     'conversation_config.agent.prompt.custom_llm.api_key.secret_id': prompt?.custom_llm?.api_key?.secret_id === secretId,

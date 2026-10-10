@@ -1,6 +1,7 @@
 import { ensureAgent, AgentEnsureError } from '../plugins/elevenlabs/src/ensure-agent.js';
 import { reconcileUsage } from '../plugins/elevenlabs/src/server.js';
 import { qualifyStartBinding } from './processing-consent.js';
+import { AI_NOTICE } from '../packages/core/src/ai-notice.js';
 
 // START src/lib/provider-pricing.ts PROVIDER_COST_RESERVATIONS.agentCallMicrodollarsPerMinute.
 const RATE = 100_000, DURATION = 600;
@@ -14,6 +15,11 @@ export async function createVoiceHost({ storage, resolveSecret, publicOrigin, te
       maxTokens: 1, rates: { inputMicro: 0, outputMicro: 0 }, maxDurationSeconds: DURATION,
       upstreamMicroPerMinute: RATE, visitorMicroPerMinute: RATE, publicFacadeBaseUrl: publicOrigin });
     return { binding, staticSecretRef: 'AITHEMA_VOICE_FACADE_SECRET',
+      // Each call listens and speaks in the conversation's language. The greeting is the agent's fixed,
+      // bilingual AI notice (AIT-119), which no override can replace. UNVERIFIED LIVE: that a call speaks
+      // the notice first and that this language override leaves its text unchanged rests on the read-back
+      // and the provider's documentation; verify live (README, "Coordinator live smoke", step 4).
+      presentation: locale => Object.hasOwn(AI_NOTICE, locale) ? { agent: { language: locale } } : undefined,
       async closeOrphan(call, { signal }) {
         // verified by read-only GET 2026-10-09: conversation_id echo,
         // status and metadata.call_duration_secs/cost (provider credits).
