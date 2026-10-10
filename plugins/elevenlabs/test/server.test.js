@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mintConversationCredential, reconcileUsage, createVoiceBinding } from '../src/server.js';
 import { validateManifest, PluginRegistry } from '../../../packages/core/src/plugins.js';
 import { manifest } from '../src/manifest.js';
+import { voiceOverrides } from '../src/options.js';
 import { PluginError } from '../../../packages/core/src/invocation.js';
 import { fixture, binding, invocationOptions, flush } from './fixtures.js';
 
@@ -275,12 +276,16 @@ test('post-mint journal failure withholds credential and settles conservatively'
 test('START presentation overrides stay allowlisted and never carry provider configuration', async () => {
   const local = fixture(), options = invocationOptions();
   const session = await local.server.start({ callId: 'call_overrides', facadeSecretRef: 'fixture-ref',
-    overrides: { agent: { language: 'de', firstMessage: '' } } }, options);
-  assert.deepEqual(session.overrides, { agent: { language: 'de', firstMessage: '' } }); await session.close();
+    overrides: { agent: { language: 'de', firstMessage: 'Sie sprechen mit einem KI-Assistenten.' } } }, options);
+  assert.deepEqual(session.overrides, { agent: { language: 'de', firstMessage: 'Sie sprechen mit einem KI-Assistenten.' } }); await session.close();
   const denied = invocationOptions();
   await assert.rejects(local.server.start({ callId: 'call_overrides_bad', facadeSecretRef: 'fixture-ref',
     overrides: { agent: { prompt: { customLlm: { apiKey: 'fake-not-allowed' } } } } }, denied), { code: 'provider' });
   assert.equal(denied.reports.length, 1); assert.equal(denied.reports[0].chargedMicro, 0);
+});
+test('a first-message override may reword the spoken AI notice but never blank it (AIT-119)', () => {
+  for (const firstMessage of ['', '   ', '\n']) assert.throws(() => voiceOverrides({ agent: { language: 'en', firstMessage } }), TypeError);
+  assert.deepEqual(voiceOverrides({ agent: { language: 'en' } }), { agent: { language: 'en' } });
 });
 test('spend expiry aborts an in-flight pause and closure polling settles exactly once', async () => {
   const local = fixture({ saveCall: (call, opts) => opts?.paused === true ? new Promise(() => {}) : { acknowledged: true, paused: call.paused } });

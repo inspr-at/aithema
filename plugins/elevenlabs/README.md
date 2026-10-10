@@ -124,7 +124,9 @@ Heartbeat renews only the browser lease, bounded by the unchanged spend deadline
 Pause renews neither deadline.
 
 Only `overrides.agent.language` and `overrides.agent.firstMessage` are allowed;
-model, prompt, credential and custom-LLM overrides are rejected.
+model, prompt, credential and custom-LLM overrides are rejected. The first
+message carries the spoken AI notice (AIT-119), so an empty or blank
+`firstMessage` is rejected too.
 The start result exposes public identities/deadlines, `credential`, `pause`,
 `resume`, `heartbeat`, `close(reason?, outcome?)`, private `snapshot()` and a
 server-only call `signal` aborted at closure. Pass that signal alongside the

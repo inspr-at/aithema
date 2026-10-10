@@ -5,6 +5,7 @@ import { ensureAgent, AGENT_NAME } from '../src/ensure-agent.js';
 import { createVoiceHost } from '../../../demo/start2-voice-host.js';
 import { fakeElevenLabs } from '../../../test/start2-fakes.js';
 import { temporaryDb } from '../../../test/helpers.js';
+import { AI_NOTICE, aiNoticeText } from '../../../packages/core/src/ai-notice.js';
 
 const options = (storage, fake, logs = []) => ({ storage, apiBaseUrl: fake.endpoint, templateAgentId: 'template-agent',
   publicOrigin: 'https://start2.example.test', resolveSecret: ref => ref === 'ELEVENLABS_API_KEY' ? 'local-key-fixture' : 'local-bearer-fixture',
@@ -28,6 +29,8 @@ test('startup creates only the owned agent; whitelists template settings and ref
   assert.deepEqual(created.platform_settings.auth.allowlist, [{ hostname: 'start2.example.test' }]);
   assert.equal(created.platform_settings.auth.enable_auth, true);
   assert.equal(created.platform_settings.overrides.custom_llm_extra_body, true);
+  assert.equal(created.conversation_config.agent.first_message, `${AI_NOTICE.en.text} ${AI_NOTICE.en.voice}`);
+  assert.deepEqual(created.platform_settings.overrides.conversation_config_override, { agent: { first_message: true, language: true } });
   assert.equal(created.platform_settings.privacy.retention_days, 30);
   assert.equal(Object.hasOwn(created, 'platform_config'), false);
   for (const text of ['template greeting', 'template persona', 'private', 'local-key-fixture', 'local-bearer-fixture']) assert.ok(!JSON.stringify(created).includes(text));
@@ -89,6 +92,11 @@ const mismatches = [
   ['platform_settings.auth.allowlist', [{ hostname: 'https://start2.example.test' }]],
   ['platform_settings.auth.allowlist', [{ hostname: 'start2.example.test' }, { hostname: 'foreign.test' }]],
   ['platform_settings.overrides.custom_llm_extra_body', false],
+  ['platform_settings.overrides.conversation_config_override.agent.first_message', false],
+  ['platform_settings.overrides.conversation_config_override.agent.language', false],
+  ['conversation_config.agent.first_message', ''],
+  ['conversation_config.agent.first_message', ' '],
+  ['conversation_config.agent.first_message', 'template greeting'],
   ['conversation_config.agent.prompt.llm', 'other-llm'],
   ['conversation_config.agent.prompt.custom_llm.url', 'https://foreign.test/callback'],
   ['conversation_config.agent.prompt.custom_llm.api_key.secret_id', 'foreign-secret'],
@@ -166,4 +174,17 @@ test('an uncertain secret creation stays closed across restart and names only th
   assert.deepEqual(logs, [{ name: 'aithema-start2-facade' }, { name: 'aithema-start2-facade' }]);
   assert.equal(storage.db.prepare('SELECT * FROM host_voice_secrets').all().length, 0);
   assert.equal(writes(fake).length, 1);
+});
+test('the spoken AI notice follows the template language, a host may reword it, never blank it (AIT-119)', async t => {
+  const fake = await fakeElevenLabs(t), storage = new SQLiteStorage(); t.after(() => storage.close());
+  fake.template.conversation_config.agent.language = 'de';
+  const host = await createVoiceHost({ ...options(storage, fake), notice: { de: { text: '  ', voice: 'Antworten klingen synthetisch.' } } });
+  assert.ok(host.binding);
+  const spoken = `${AI_NOTICE.de.text} Antworten klingen synthetisch.`;
+  assert.equal(writes(fake).find(r => r.path.endsWith('/agents/create')).body.conversation_config.agent.first_message, spoken);
+  assert.equal(fake.agents[0].conversation_config.agent.first_message, spoken);
+  // Every call speaks the notice first in its conversation's language.
+  assert.deepEqual(host.presentation('de'), { agent: { language: 'de', firstMessage: spoken } });
+  assert.deepEqual(host.presentation('en'), { agent: { language: 'en', firstMessage: aiNoticeText('en') } });
+  assert.equal(host.presentation('fr'), undefined);
 });

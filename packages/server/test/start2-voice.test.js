@@ -9,8 +9,9 @@ import { createProcessingConsent, qualifyStartBinding, CONSENT_VALIDITY_MS } fro
 import { fakeElevenLabs } from '../../../test/start2-fakes.js';
 import { openRouterConfig } from '../../../demo/openrouter-config.js';
 import { temporaryDb } from '../../../test/helpers.js';
+import { aiNoticeText } from '../../../packages/core/src/ai-notice.js';
 
-async function fixture(t) {
+async function fixture(t, { locale = 'en' } = {}) {
   let cleanup; t.after(() => cleanup?.());
   const storage = new SQLiteStorage(), eleven = await fakeElevenLabs(t), logs = [], upstream = [];
   const openrouter = await listen(async req => {
@@ -37,9 +38,9 @@ async function fixture(t) {
   const secrets = createFacadeSecrets(); secrets.resolve = ref => ref === host.staticSecretRef ? 'local-callback-fixture' : null;
   const runtime = createPluginRuntime({ storage, consent, registry: new PluginRegistry().register(reasoning).register(voice),
     presets: { best: { plugins: ['elevenlabs', 'openrouter'], bindings: { voice: host.binding, reaction, understanding }, policy: { endpoints: [eleven.endpoint, reaction.endpoint] } } } });
-  const handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent, voice: { secrets, staticSecretRef: host.staticSecretRef } });
+  const handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent, voice: { secrets, staticSecretRef: host.staticSecretRef, presentation: host.presentation } });
   cleanup = async () => { await handlers.close(); storage.close(); openrouter.server.closeAllConnections(); await new Promise(resolve => openrouter.server.close(resolve)); };
-  const session = storage.create({ ownerToken: 'local-owner' });
+  const session = storage.create({ ownerToken: 'local-owner', locale });
   const route = (suffix, body = {}, owner = 'local-owner') => handlers.handle(new Request(`https://start2.example.test/api/sessions/${session.id}${suffix}`, {
     method: 'POST', headers: { 'x-aithema-session-token': owner }, body: JSON.stringify(body) }));
   const grant = async items => route('/consent', { granted: true, processing: { contract: consent.describe().contract, items } });
@@ -71,6 +72,13 @@ test('static callback authenticates before body, rejects missing/unknown identit
   assert.ok(!JSON.stringify(call).includes('local-callback-fixture'));
   await h.route(`/voice/${call.callId}/close`, { providerSessionId: call.providerSessionId });
   assert.equal((await h.callback(call.facadeCallId)).status, 403);
+});
+test('each call speaks the AI notice first, in the conversation language (AIT-119)', async t => {
+  for (const locale of ['en', 'de']) {
+    const h = await fixture(t, { locale }), call = await h.start();
+    assert.deepEqual(call.overrides, { agent: { language: locale, firstMessage: aiNoticeText(locale) } });
+    await h.route(`/voice/${call.callId}/close`, { providerSessionId: call.providerSessionId });
+  }
 });
 test('typed reaction and understanding bind different configured models with current consent and share the spend cap', async t => {
   const h = await fixture(t); assert.equal((await h.grant(['models-international'])).status, 200);

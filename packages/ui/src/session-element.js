@@ -6,6 +6,7 @@ import { readinessScalePercent, readinessListItems, readinessListWindow, newlyCl
 import { displayedReadinessPercent } from '../../core/src/understanding.js';
 import { FEATURES, deviceFeatures } from '../../core/src/presets.js';
 import { SETTINGS_OFF, isDynamicReason, isConsentReason } from '../../core/src/settings.js';
+import { aiNotice } from '../../core/src/ai-notice.js';
 import { AudioRail } from './audio-rail.js';
 import { styles } from './styles.js';
 import { settingsStyles } from './settings-styles.js';
@@ -66,7 +67,7 @@ export class AithemaSession extends HTMLElement {
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
   #open = []; #cleared = []; #failure = false; #sending = false;
   #pointer = null; #onTranscript = false; #follow = true; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false;
-  #dialog; #connector; #createDevice; #deviceEndpoint; #chooser = { choice: null, busy: false, error: '' };
+  #dialog; #connector; #createDevice; #deviceEndpoint; #chooser = { choice: null, busy: false, error: '' }; #aiNotice;
   #uploadAt = new Map(); #uploading = false; #uploadNotice = ''; #reading = ''; #limits = UPLOAD_LIMITS; #limitsLoad = null; #dragDepth = 0;
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
@@ -80,9 +81,11 @@ export class AithemaSession extends HTMLElement {
   /**
    * `deviceConnector` is the browser device plugin factory for the settings Advanced tab;
    * `voiceClients` maps host voice option ids to browser clients (else `voiceClient`).
+   * `aiNotice` ({text?, voice?}) rewords the AI notice ahead of `copy.aiNotice`; it cannot remove it.
    */
-  configure({ copy, baseUrl = '', session, sessionToken, deviceReasoning, deviceConnector, deviceEndpoint, voiceClient, voiceClients, voicePlayback }) {
+  configure({ copy, baseUrl = '', session, sessionToken, deviceReasoning, deviceConnector, deviceEndpoint, voiceClient, voiceClients, voicePlayback, aiNotice }) {
     if (!copy || !session) throw new TypeError('Host copy and session required');
+    this.#aiNotice = aiNotice;
     const reopen = this.#dialog?.open;
     this.#concept?.destroy(); this.#rail?.destroy(); this.#voiceClient = voiceClient; this.#voiceClients = voiceClients; this.#voicePlayback = voicePlayback;
     this.#abort?.abort(); this.#deviceController?.abort(); this.#deviceReasoning = deviceReasoning; this.#copy = copy; this.#base = baseUrl.replace(/\/$/u, '');
@@ -139,6 +142,7 @@ export class AithemaSession extends HTMLElement {
         <button class="settings-open" type="button" aria-haspopup="dialog">${ICONS.gear}<span></span></button></div><ul class="features"></ul></section>
       <section class="conversation"><header class="head"><h2 data-copy="conversation"></h2><button class="pause" type="button"></button><span class="status" role="status"></span></header>
         <div class="audio-rail"></div><div class="concept-rail"></div><div class="transcript-shell"><div class="concept-preview-slot"></div><ol aria-live="polite"></ol><button class="transcript-latest" type="button" data-copy="transcriptLatest" style="visibility:hidden"></button></div><div class="intro" hidden></div>
+        <p class="ai-notice"><span id="ai-notice"></span><span class="ai-notice__sizer" aria-hidden="true"></span></p>
         <form class="composer"><label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000"></textarea>
           <div class="composer-actions"><button class="attach" type="button" aria-describedby="attach-limits">${UPLOAD_ICONS.attach}<span class="attach__label"></span></button>
             <span class="sr-only" id="attach-limits"></span><input class="attach-input" type="file" multiple hidden tabindex="-1" accept="${UPLOAD_ACCEPT}">
@@ -175,7 +179,7 @@ export class AithemaSession extends HTMLElement {
     for (const node of root.querySelectorAll('[data-copy]')) node.textContent = this.#copy[node.dataset.copy];
     root.querySelector('textarea').placeholder = this.#copy.placeholder;
     root.querySelector('.transcript-latest').addEventListener('click', () => this.#scrollToLatest());
-    root.querySelector('textarea').setAttribute('aria-describedby', 'composer-reason');
+    root.querySelector('textarea').setAttribute('aria-describedby', 'ai-notice composer-reason');
     root.querySelector('.scale').setAttribute('aria-label', `${this.#copy.talk} — ${this.#copy.build}`);
     this.#renderMode();
     root.querySelector('.export').addEventListener('click', e => {
@@ -212,6 +216,8 @@ export class AithemaSession extends HTMLElement {
         this.#render('features'); this.#render('composer'); this.#render('aside');
         if (this.isConnected) void this.#refreshFeatures();
       } });
+    // Screen readers hear the AI notice with the controls that begin an interaction (Art. 50(1)).
+    for (const name of ['start', 'retry']) root.querySelector(`.voice-${name}`).setAttribute('aria-describedby', 'ai-notice');
     root.querySelector('.pause').addEventListener('click', async () => {
       const button = root.querySelector('.pause');
       if (this.#rail.session) { await this.#rail.pause(!this.#session.paused); return; }
@@ -413,7 +419,7 @@ export class AithemaSession extends HTMLElement {
   }
   #paint(part) {
     const root = this.shadowRoot, copy = this.#copy;
-    this.#paintStatus();
+    this.#paintStatus(); this.#paintNotice();
     root.querySelector('.pause').textContent = this.#session.paused ? copy.resume : copy.pause;
     root.querySelector('.pause').setAttribute('aria-pressed', String(this.#session.paused));
     const element = (tag, value, className) => {
@@ -547,6 +553,21 @@ export class AithemaSession extends HTMLElement {
       }
     });
     this.#expandLabel();
+  }
+  // Art. 50(1) (AIT-119): one quiet line above the composer from the first paint on, so it stands
+  // before typing or a call can begin. The configured wording wins over the bundle's, an empty part
+  // falls back to the default. The hidden copy of the full notice holds the line's height, so the
+  // voice sentence appearing or going never moves the composer.
+  #paintNotice() {
+    const root = this.shadowRoot, pick = part => [this.#aiNotice?.[part], this.#copy.aiNotice?.[part]].find(value => typeof value === 'string' && value.trim());
+    const notice = aiNotice(this.#session.locale, { text: pick('text'), voice: pick('voice') });
+    setText(root.querySelector('#ai-notice'), this.#voiceOffered() ? `${notice.text} ${notice.voice}` : notice.text);
+    setText(root.querySelector('.ai-notice__sizer'), `${notice.text} ${notice.voice}`);
+  }
+  // Replies can be spoken here: voice is available now, or once consent, a resume or the provider allows it.
+  #voiceOffered() {
+    const preset = this.#session.processingPreset ?? 'best', voice = this.#session.featureMatrix?.[preset]?.voice;
+    return preset !== 'device' && Boolean(this.#voiceClientFor()) && Boolean(voice?.available || isDynamicReason(voice?.reason));
   }
   #engineDetail() {
     const copy = this.#copy, preset = this.#session.processingPreset ?? 'best', view = engineView(this.#session);

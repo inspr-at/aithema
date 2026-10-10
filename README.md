@@ -395,6 +395,34 @@ writer refuses startup. Legacy unowned sessions migrate to the erasable layout
 but remain inaccessible to visitors; create a new owned session. No ownership
 takeover is provided.
 
+## AI notice (AIT-119, EU AI Act Art. 50(1))
+
+`<aithema-session>` tells people that they are talking to an AI system before the
+first interaction, and keeps telling them. One quiet line heads the composer from
+the component's first paint: before the start card is answered, before consent,
+typing or a call, and for the whole conversation. It reads "You are talking to an
+AI assistant. Spoken replies use a synthetic voice." (German: "Sie sprechen mit
+einem KI-Assistenten. Gesprochene Antworten verwenden eine synthetische Stimme.").
+The second sentence shows only while this conversation can speak: a voice client
+is configured and voice is available or waits only for consent, a resume or the
+provider. A hidden copy of the full notice holds the line's height, so the
+sentence appearing or going never moves the composer. The line is described to
+screen readers through `aria-describedby` on the composer and on Start call and
+Retry call; it is not a live region, so it is not re-announced on every update.
+
+Hosts may reword the notice but cannot remove it. Set `aiNotice: {text, voice}`
+in the copy bundle or pass `configure({..., aiNotice: {text, voice}})`, which wins
+over the bundle. Each part that is missing, empty or only whitespace falls back,
+first to the bundle, then to the default for the session language. The defaults
+live in `packages/core/src/ai-notice.js` (`AI_NOTICE`, `aiNotice`, `aiNoticeText`).
+
+The start2 voice host speaks the same notice as the agent's first message.
+`ensureAgent({..., notice})` and `createVoiceHost({..., notice})` take an optional
+`{[locale]: {text?, voice?}}` rewording with the same fallback. The agent's own
+first message uses the template's language; each call then overrides the
+language and first message with the conversation's (`presentation(locale)`,
+passed as `voice.presentation` to `createHandlers`). A first-message override may
+never be empty.
 
 ## Voice host integration
 
@@ -1702,12 +1730,18 @@ by its id, then restart. The host creates a new secret and persists its receipt.
 If the secret is in use or ownership is uncertain, restore the proven receipt
 from backup or resolve that ownership first; do not delete an active secret.
 Template prompts, personas, first messages, knowledge bases and tools are excluded.
-The host's custom LLM has an empty prompt/greeting and no tools or knowledge base;
-Aithema rebuilds the trusted session prompt at each callback.
+The host's custom LLM has an empty prompt and no tools or knowledge base;
+Aithema rebuilds the trusted session prompt at each callback. Its greeting is
+Aithema's own spoken AI notice (see "AI notice" above), never START's. The agent
+allows per-conversation `first_message` and `language` overrides
+(`platform_settings.overrides.conversation_config_override.agent`, the shape
+verified on START's agent by read-only GET 2026-10-09).
 After every agent create or PATCH, startup GETs the owned agent and verifies
 its name/id, auth enabled, exactly one allowlist hostname equal to the public
-origin's host (including any port), the extra-body override, `custom-llm`
-selection, callback URL, owned secret id and every copied privacy field.
+origin's host (including any port), the extra-body override, both
+first-message/language override flags, a non-empty first message equal to the
+notice, `custom-llm` selection, callback URL, owned secret id and every copied
+privacy field.
 Any mismatch disables voice with `agent-readback-mismatch`; logs contain only
 the owned name/id and failing field names. A failed GET also disables voice.
 

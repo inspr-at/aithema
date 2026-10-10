@@ -1,19 +1,23 @@
 import { ensureAgent, AgentEnsureError } from '../plugins/elevenlabs/src/ensure-agent.js';
 import { reconcileUsage } from '../plugins/elevenlabs/src/server.js';
 import { qualifyStartBinding } from './processing-consent.js';
+import { AI_NOTICE, aiNoticeText } from '../packages/core/src/ai-notice.js';
 
 // START src/lib/provider-pricing.ts PROVIDER_COST_RESERVATIONS.agentCallMicrodollarsPerMinute.
 const RATE = 100_000, DURATION = 600;
 export async function createVoiceHost({ storage, resolveSecret, publicOrigin, templateAgentId,
-  apiBaseUrl, fetchImpl = fetch, log } = {}) {
+  apiBaseUrl, fetchImpl = fetch, log, notice } = {}) {
   try {
     const { agentId, apiBaseUrl: endpoint } = await ensureAgent({ storage, resolveSecret, publicOrigin,
-      templateAgentId, apiBaseUrl, fetchImpl, log, maxDurationSeconds: DURATION });
+      templateAgentId, apiBaseUrl, fetchImpl, log, maxDurationSeconds: DURATION, notice });
     const binding = qualifyStartBinding({ plugin: 'elevenlabs', model: agentId, agentId, effort: 'none',
       endpoint, accountRef: 'start2-elevenlabs', secretRef: 'ELEVENLABS_API_KEY', maxMicro: RATE * DURATION / 60,
       maxTokens: 1, rates: { inputMicro: 0, outputMicro: 0 }, maxDurationSeconds: DURATION,
       upstreamMicroPerMinute: RATE, visitorMicroPerMinute: RATE, publicFacadeBaseUrl: publicOrigin });
     return { binding, staticSecretRef: 'AITHEMA_VOICE_FACADE_SECRET',
+      // Each call speaks the AI notice first, in the conversation's language (AIT-119); the agent allows both overrides.
+      presentation: locale => Object.hasOwn(AI_NOTICE, locale)
+        ? { agent: { language: locale, firstMessage: aiNoticeText(locale, notice?.[locale]) } } : undefined,
       async closeOrphan(call, { signal }) {
         // verified by read-only GET 2026-10-09: conversation_id echo,
         // status and metadata.call_duration_secs/cost (provider credits).
