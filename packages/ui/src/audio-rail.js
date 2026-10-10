@@ -73,7 +73,7 @@ export class AudioRail {
   failure(error) {
     this.error = error?.name === 'NotAllowedError' ? this.copy.voiceMicDenied :
       error?.name === 'NotFoundError' ? this.copy.voiceMicMissing :
-      error?.code === 'not-admitted' ? this.copy.voiceAdmissionDenied :
+      error?.code === 'not-admitted' ? (Object.hasOwn(this.copy.reasons ?? {}, error.reason) ? this.copy.reasons[error.reason] : this.copy.voiceAdmissionDenied) :
       error?.code === 'voice-conflict' ? this.copy.voiceConflict :
       error?.code === 'deadline' ? this.copy.voiceDeadline : this.copy.voiceConnectionFailed;
     // A conflict may say when the earlier call's lease ends; Retry then waits it out.

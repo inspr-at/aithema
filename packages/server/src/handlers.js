@@ -452,6 +452,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         }
       }
     },
+    reconcileVoiceLater() { voiceHandlers?.reconcileLater(); },
     async resume() {
       hostHandlers.resume();
       pluginRuntime.budget.recover();

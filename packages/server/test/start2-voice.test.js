@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SQLiteStorage, createHandlers, createPluginRuntime, createVoiceProvider, createFacadeSecrets, createSpendCap } from '../src/index.js';
+import { SQLiteStorage, createHandlers, createPluginRuntime, createVoiceProvider, createFacadeSecrets, createSpendCap, createVoiceCap } from '../src/index.js';
 import { PluginRegistry } from '@inspr/aithema-core';
 import { listen } from '../src/http.js';
 import { createOpenRouterReasoning } from '../../../plugins/openrouter/src/index.js';
@@ -10,9 +10,13 @@ import { fakeElevenLabs } from '../../../test/start2-fakes.js';
 import { openRouterConfig } from '../../../demo/openrouter-config.js';
 import { temporaryDb } from '../../../test/helpers.js';
 
-async function fixture(t, { locale = 'en' } = {}) {
+async function fixture(t, { locale = 'en', capMilliseconds, closureTimeoutMs, reconcileIntervalMs } = {}) {
   let cleanup; t.after(() => cleanup?.());
   const storage = new SQLiteStorage(), eleven = await fakeElevenLabs(t), logs = [], upstream = [];
+  let processing = false;
+  const reconciled = Promise.withResolvers();
+  const providerFetch = (input, options) => new URL(input).pathname.startsWith('/v1/convai/conversations/') && processing
+    ? Promise.resolve(Response.json({ conversation_id: new URL(input).pathname.split('/').at(-1), status: 'processing' })) : fetch(input, options);
   const openrouter = await listen(async req => {
     const body = await req.json(); upstream.push(body);
     if (!body.stream) return Response.json({ choices: [{ finish_reason: 'stop', message: { content: '{"summary":"Local understanding"}' } }],
@@ -21,7 +25,7 @@ async function fixture(t, { locale = 'en' } = {}) {
       'data: {"choices":[],"usage":{"prompt_tokens":1,"completion_tokens":2,"cost":0.00001}}\n\ndata: [DONE]\n\n');
   });
   const host = await createVoiceHost({ storage, templateAgentId: 'template-agent', publicOrigin: 'https://start2.example.test', apiBaseUrl: eleven.endpoint,
-    resolveSecret: () => 'local-fixture-key', log: value => logs.push(value) });
+    resolveSecret: () => 'local-fixture-key', log: value => logs.push(value), fetchImpl: providerFetch });
   assert.ok(host.binding);
   const configured = openRouterConfig({ OPENROUTER_MODEL: 'openai/understanding-fixture', OPENROUTER_SPEECH_MODEL: 'anthropic/speech-fixture',
     OPENROUTER_PROVIDER_ONLY: 'Anthropic,OpenAI',
@@ -33,11 +37,16 @@ async function fixture(t, { locale = 'en' } = {}) {
     spendCap: createSpendCap({ storage, account: reaction.accountRef, capMicro: 2_000_000 }) });
   const consent = createProcessingConsent({ storage, bindings: [host.binding, reaction, understanding] });
   const voice = createVoiceProvider({ storage, staticFacade: true, binding: { agentId: host.binding.agentId, secretRef: host.binding.secretRef,
-    apiBaseUrl: eleven.endpoint, upstreamMicroPerMinute: 100_000, visitorMicroPerMinute: 100_000 }, resolveSecret: () => 'local-fixture-key' });
+    apiBaseUrl: eleven.endpoint, upstreamMicroPerMinute: 100_000, visitorMicroPerMinute: 100_000 }, resolveSecret: () => 'local-fixture-key',
+    fetchImpl: providerFetch, closureTimeoutMs, reconcileLater: () => handlers.reconcileVoiceLater() });
   const secrets = createFacadeSecrets(); secrets.resolve = ref => ref === host.staticSecretRef ? 'local-callback-fixture' : null;
-  const runtime = createPluginRuntime({ storage, consent, registry: new PluginRegistry().register(reasoning).register(voice),
+  const voiceCap = capMilliseconds === undefined ? undefined : createVoiceCap({ storage, capMilliseconds });
+  const runtime = createPluginRuntime({ storage, consent, voiceCap, registry: new PluginRegistry().register(reasoning).register(voice),
     presets: { best: { plugins: ['elevenlabs', 'openrouter'], bindings: { voice: host.binding, reaction, understanding }, policy: { endpoints: [eleven.endpoint, reaction.endpoint] } } } });
-  const handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent, voice: { secrets, staticSecretRef: host.staticSecretRef, presentation: host.presentation } });
+  const reconcile = runtime.reconcileVoice;
+  runtime.reconcileVoice = (...args) => { const result = reconcile(...args); reconciled.resolve(); return result; };
+  const handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent,
+    voice: { secrets, staticSecretRef: host.staticSecretRef, presentation: host.presentation, closeOrphan: host.closeOrphan, reconcileIntervalMs } });
   cleanup = async () => { await handlers.close(); storage.close(); openrouter.server.closeAllConnections(); await new Promise(resolve => openrouter.server.close(resolve)); };
   const session = storage.create({ ownerToken: 'local-owner', locale });
   const route = (suffix, body = {}, owner = 'local-owner') => handlers.handle(new Request(`https://start2.example.test/api/sessions/${session.id}${suffix}`, {
@@ -50,8 +59,23 @@ async function fixture(t, { locale = 'en' } = {}) {
   const callback = (identity, bearer = 'local-callback-fixture', extra = {}) => handlers.handle(new Request('https://start2.example.test/api/voice/llm/chat/completions', {
     method: 'POST', headers: bearer === null ? {} : { authorization: `Bearer ${bearer}` },
     body: JSON.stringify({ elevenlabs_extra_body: { aithema_call: identity }, messages: [{ role: 'user', content: 'Hello' }], ...extra }) }));
-  return { storage, eleven, handlers, runtime, session, route, grant, start, callback, consent, upstream };
+  return { storage, eleven, handlers, runtime, session, route, grant, start, callback, consent, upstream, voiceCap,
+    processing: value => { processing = value; }, reconciled: reconciled.promise };
 }
+
+test('start2 retries uncertain holds in process and admits a later call without a restart', { timeout: 5000 }, async t => {
+  const h = await fixture(t, { capMilliseconds: 601_000, closureTimeoutMs: 10, reconcileIntervalMs: 10 }), call = await h.start();
+  h.processing(true);
+  const terminal = await h.route(`/voice/${call.callId}/close`, { providerSessionId: call.providerSessionId }).then(r => r.json());
+  assert.equal(terminal.outcome, 'uncertain'); assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 600_000);
+  assert.equal((await h.route('/voice', { callId: 'held' })).status, 403);
+  assert.equal(h.storage.voiceCalls()[0].reconciliationPending, true);
+  h.processing(false); await h.reconciled;
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 0); assert.equal(h.voiceCap.snapshot().spentMilliseconds, 1000);
+  assert.equal(h.storage.voiceCalls()[0].reconciliationPending, false);
+  await h.start('later-call');
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 600_000);
+});
 
 test('static callback authenticates before body, rejects missing/unknown identity and disables per-call route/provisioning', async t => {
   const h = await fixture(t), call = await h.start(), writes = h.eleven.requests.filter(r => r.method !== 'GET').length;

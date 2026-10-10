@@ -8,7 +8,8 @@ export function createVoiceControl({ baseUrl = '', sessionId, sessionToken, rece
     const value = await response.json();
     if (!response.ok) {
       const error = new Error('Voice control failed'), seconds = Number(response.headers.get('retry-after'));
-      error.code = value.error; if (seconds > 0) error.retryAfterMs = seconds * 1000; throw error;
+      error.code = value.error; if (typeof value.reason === 'string') error.reason = value.reason;
+      if (seconds > 0) error.retryAfterMs = seconds * 1000; throw error;
     }
     return value;
   };

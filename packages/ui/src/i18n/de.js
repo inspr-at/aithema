@@ -293,6 +293,8 @@ export const de = {
     'spend cap reached': 'Ausgabenlimit für den Anbieter erreicht',
     'spend ledger unreadable': 'Ausgaben für den Anbieter konnten nicht geprüft werden',
     'OpenRouter spend cap exhausted': 'Ausgabenlimit für OpenRouter erreicht',
+    'Voice minute cap reached for this deployment': 'Das Limit für Sprachminuten dieses Hosts ist erreicht. Sie können schriftlich fortfahren.',
+    'Voice minute cap reached for this UTC day': 'Das tägliche Limit für Sprachminuten dieses Hosts ist erreicht. Sie können schriftlich fortfahren.',
     'OpenRouter request exceeds spend reservation': 'Anfrage überschreitet das reservierte OpenRouter-Budget',
     'closed': 'Sprachgespräch beendet',
     'cancelled': 'Sprachgespräch abgebrochen',
