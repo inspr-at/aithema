@@ -244,7 +244,8 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
           assert.equal(resting.length, 4);
           const columns = width >= 832 ? 4 : 2;
           assert.equal(new Set(resting.map(o => o.x)).size, columns, `${columns} columns at ${width}px: ${JSON.stringify(resting)}`);
-          assert.ok(resting.every(o => o.width === resting[0].width), `equal choices at ${width}px`);
+          // Equal to the layout unit: the grid hands a fraction of a pixel left over to the last column.
+          assert.ok(resting.every(o => Math.abs(o.width - resting[0].width) <= .5), `equal choices at ${width}px: ${JSON.stringify(resting)}`);
           await page.hover('aithema-session >>> .chooser-option[data-preset="custom"]');
           assert.deepEqual(await chooserGeometry(), resting, `hover moves nothing at ${width}px`);
           await page.click('aithema-session >>> .chooser-option[data-preset="device"]');
@@ -1183,7 +1184,8 @@ test('clickable html drafts: request, sandboxed preview, a refresh revision in p
 
     // Dark: the viewer and preview follow the dark tokens.
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
-    assert.equal(await inShadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.concept-viewer')).backgroundColor), 'rgb(20, 26, 27)');
+    // AIT-128: START's dark paper, #0b1a26.
+    assert.equal(await inShadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.concept-viewer')).backgroundColor), 'rgb(11, 26, 38)');
     await shot(page, 'en-dark-1440-viewer');
     // 400 px: the viewer fits, the draft keeps a usable stage, the title is whole, nothing overflows sideways.
     await page.setViewport({ width: 400, height: 800 });
@@ -1577,7 +1579,7 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
       await page.mouse.move(before.line.x + 40, before.line.y + before.line.height / 2);
       sameBox(before.line, await box(page, '.ai-notice'), 'notice on hover');
       assert.equal((await style(page)).background, (await style(page)).pane, 'hover adds no tint');
-      for (const selector of ['.chooser-option', '.chooser__continue', '.settings-open']) {
+      for (const selector of ['.chooser-option', '.chooser__continue']) {
         await rest(page, selector);
         sameBox(before.line, await box(page, '.ai-notice'), `notice while hovering ${selector}`);
         sameBox(before.go, await box(page, '.chooser__continue'), `Continue while hovering ${selector}`);

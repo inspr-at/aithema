@@ -6,7 +6,9 @@ export const hostStyles = `
    Conversations, the verification entry and the account slot on one line; on phones the credits go under them. */
 .host-bar { display:grid; grid-template-columns:minmax(0,auto) repeat(3,auto); grid-template-areas:"credits library verify account";
   justify-content:end; align-items:center; column-gap:.5rem; min-width:0; }
-@media(max-width:44rem) { .host-bar { grid-template-columns:repeat(3,auto); grid-template-areas:"library verify account" "credits credits credits"; } }
+/* Phones: the controls wrap as whole words (never squeezed to a letter per line), the credits line below them. */
+@media(max-width:44rem) { .host-bar { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-start; gap:0 .25rem; }
+  .host-credits { flex:1 0 100%; max-width:none; text-align:left; } }
 .library-open-dialog { grid-area:library; display:inline-flex; align-items:center; gap:.45rem; min-height:2.75rem; padding:.4rem .75rem;
   font-size:.8125rem; font-weight:600; color:var(--aithema-accent); white-space:nowrap; border-radius:999px; }
 .library-open-dialog svg { display:block; flex:none; }

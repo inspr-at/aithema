@@ -127,6 +127,7 @@ test('START look on the reference host: entrance, consent page, readiness, conve
         assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('[data-ready="consent"]').dataset.state), 'confirmed');
         assert.equal(await page.evaluate(() => window.microphoneRequests), 0, `${label}: no microphone request on the way to readiness`);
         await shot(`readiness-${label}`);
+        await inShadow(page, c => c.shadowRoot.querySelector('.ready__modes').scrollIntoView({ block: 'center' }));
         const modes = await boxes(page, '.ready__mode');
         await page.click('aithema-session >>> .ready__mode[data-mode="type"]');
         assert.deepEqual(await boxes(page, '.ready__mode'), modes, `${label}: the mode choice keeps its width`);

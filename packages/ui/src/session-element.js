@@ -230,8 +230,9 @@ export class AithemaSession extends HTMLElement {
       ready: () => this.#orphan, onLevel: level => this.#orb?.setEnergy(level),
       // A call that starts, ends or fails moves the stage and the avatar with it.
       onState: state => {
-        // A call the visitor started keeps the conversation open after it ends.
-        if (this.#rail?.root.dataset.call === 'active') this.#started = true;
+        // A call the visitor started keeps the conversation open after it ends. Only a running call counts:
+        // an invalidation closes the rail without one, and its brief closing state starts nothing.
+        if (this.#rail?.session) this.#started = true;
         this.#orb?.setVoice(state); this.#clearNotice(); this.#render('transcript'); this.#render('composer');
       },
       context: () => ({ understanding: this.#session.understanding, focusedQuestion: this.#session.focusedQuestion ?? null }),

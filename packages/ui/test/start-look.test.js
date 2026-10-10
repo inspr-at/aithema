@@ -120,6 +120,18 @@ test('Continue fires aithema-consent for an uncovered choice; readiness follows 
   assert.equal(j.stage(), 'live');
 });
 
+test('a consent change at the entrance closes no call and keeps the entrance; at readiness it keeps readiness', async t => {
+  for (const origin of ['default', 'chosen']) {
+    const j = journey(t, { origin }), before = j.stage();
+    assert.equal(before, origin === 'chosen' ? 'ready' : 'entrance');
+    // consent.revised invalidates the conversation's derived state, which closes the (idle) rail.
+    j.c.receive({ seq: j.c.session.seq + 1, type: 'consent.revised', data: { granted: true, at: new Date().toISOString() } });
+    await tick(6);
+    assert.equal(j.stage(), before, `${origin}: the brief closing state of an idle rail starts nothing`);
+    assert.deepEqual(j.starts, []); assert.deepEqual(j.media, []);
+  }
+});
+
 test('typing starts the live conversation with focus in the composer; typing during a call still works', async t => {
   const j = journey(t, { origin: 'chosen' });
   assert.equal(j.stage(), 'ready');

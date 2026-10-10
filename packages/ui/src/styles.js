@@ -73,7 +73,7 @@ svg { display:block; flex:none; }
 /* The shell (START .shell, .v2__workspace): centred, START's gutters, stacked on phones. */
 .workspace { display:grid; grid-template-columns:minmax(0,1fr); grid-template-areas:"top" "conversation" "understanding" "foot";
   gap:.75rem clamp(1rem,2.5vw,2rem); width:100%; max-width:var(--aithema-shell-max); margin-inline:auto; padding:0 var(--aithema-gutter) 1rem; }
-.toolbar { grid-area:top; display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:.5rem 1rem; min-height:3.5rem; padding-top:.75rem; }
+.toolbar { grid-area:top; display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:.5rem 1rem; min-height:3.5rem; padding-top:.25rem; }
 .conversation { grid-area:conversation; } .understanding { grid-area:understanding; } .host-foot { grid-area:foot; }
 .preset-panel { grid-column:1; } .host-bar { grid-column:2; } .settings-open { grid-column:3; }
 /* Before the conversation starts there is nothing to understand: the column is not there (START data-entry),
@@ -95,7 +95,10 @@ svg { display:block; flex:none; }
 .conversation > .head { position:sticky; top:0; z-index:3; padding:.35rem 0; background-color:var(--aithema-paper); background-image:var(--aithema-lighting); background-attachment:fixed; }
 .ai-notice { display:grid; flex:1; min-width:0; margin:0; font-size:.75rem; line-height:1.35; color:var(--aithema-muted); overflow-wrap:anywhere; }
 .ai-notice > span { grid-area:1/1; } .ai-notice__sizer { visibility:hidden; }
-.status { flex:none; max-width:45%; font-size:.75rem; line-height:1.35; color:var(--aithema-muted); text-align:right; overflow-wrap:anywhere; }
+/* The status has a fixed width and two reserved lines (a longer one scrolls in them): a new status never
+   rewraps the notice or changes the head's height, so nothing below it moves. */
+.status { flex:0 0 min(45%,26rem); height:2.7em; overflow-y:auto; overscroll-behavior:contain; font-size:.75rem; line-height:1.35; color:var(--aithema-muted);
+  text-align:right; overflow-wrap:anywhere; }
 .workspace:not([data-stage="live"]) .status { visibility:hidden; }
 .conversation > :not(.head) :is(button, textarea) { scroll-margin-top:5.5rem; }
 .workspace:not([data-stage="live"]) :is(.audio-rail, .concept-bar, .transcript-shell, .composer) { display:none; }
@@ -145,10 +148,12 @@ svg { display:block; flex:none; }
 .concept-bar { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:.75rem; min-height:2.75rem; }
 .concept-rail { display:grid; grid-template-columns:1.5rem minmax(0,1fr) auto; align-items:center; gap:.6rem; min-width:0; }
 .concept-activity { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:.1rem .6rem; font-size:.75rem; color:var(--aithema-muted); }
-.concept-activity-text { grid-column:1/-1; line-height:1.3; min-height:2.6em; overflow-wrap:anywhere; }
+/* Reserved lines (a longer state scrolls in them) and a progress line that is always there: a concept state
+   never changes the line's height, so the transcript below it never moves. */
+.concept-activity-text { grid-column:1/-1; line-height:1.3; height:2.6em; overflow-y:auto; overscroll-behavior:contain; overflow-wrap:anywhere; }
 .concept-progress { width:100%; height:.3rem; accent-color:var(--aithema-accent); }
-.concept-countdown { font-size:.7rem; white-space:nowrap; font-variant-numeric:tabular-nums; }
-.concept-rail:not([data-phase="pending"]) :is(.concept-progress, .concept-countdown) { visibility:hidden; height:0; }
+.concept-countdown { font-size:.7rem; line-height:1.3; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.concept-rail:not([data-phase="pending"]) :is(.concept-progress, .concept-countdown) { visibility:hidden; }
 .concept-request { min-height:2.75rem; font-size:.8rem; line-height:1.2; white-space:nowrap; }
 .concept-scene { width:1.5rem; height:1.5rem; display:grid; grid-template-columns:1fr 1fr; gap:2px; }
 .concept-scene i { background:var(--aithema-accent); border-radius:2px; opacity:.3; }
@@ -337,13 +342,17 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 }
 @keyframes rise-in { from { opacity:0; transform:translateY(.5rem); } to { opacity:1; transform:none; } }
 @media(max-width:44rem) {
-  .conversation > .head { flex-direction:column; align-items:stretch; } .status { max-width:none; min-height:1.35em; text-align:left; }
+  /* Phones: the host's controls and Settings on the first line, the processing line (once there is one) below. */
+  .toolbar { grid-template-columns:minmax(0,1fr) auto; align-items:start; } .host-bar { grid-column:1; } .settings-open { grid-column:2; }
+  .preset-panel { grid-column:1/-1; grid-row:2; } .toolbar:has(> .host-bar[hidden]) .preset-panel { grid-column:1; grid-row:1; align-self:center; }
+  .workspace:not([data-stage="live"]) .engine { display:none; }
+  .conversation > .head { flex-direction:column; align-items:stretch; } .status { flex-basis:auto; text-align:left; }
   .audio-rail { grid-template-columns:32px 44px minmax(0,1fr) 44px 44px 44px; gap:4px; }
   .voice-orb { width:32px; height:32px; } .voice-orb .orb { --orb-size:32px; }
   .voice-state, .voice-caption { font-size:.6rem; padding:3px 6px; } .audio-rail[data-message] .voice-state { left:0; font-size:.78rem; padding:.55rem .75rem; }
   .turn { max-width:88%; } .upload { width:90%; }
   .concept-bar { grid-template-columns:minmax(0,1fr); } .concept-preview-slot:has(.concept-preview:disabled) { display:none; }
-  .concept-rail { grid-template-columns:1.5rem minmax(0,1fr); } .concept-request { grid-column:1/-1; justify-self:start; } .concept-activity-text { min-height:3.9em; }
+  .concept-rail { grid-template-columns:1.5rem minmax(0,1fr); } .concept-request { grid-column:1/-1; justify-self:start; } .concept-activity-text { height:3.9em; }
   .workspace:not([data-stage="live"]) .status { display:none; }
   /* The viewer on phones: navigation in two rows and a two-line disclosure, so long (German) labels stay whole. */
   .concept-viewer[open] { grid-template-rows:4rem minmax(0,1fr) 21.5rem; }
