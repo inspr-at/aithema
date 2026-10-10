@@ -5,9 +5,9 @@ import { SPOKEN_AI_NOTICE } from '../../../packages/core/src/ai-notice.js';
 export const AGENT_NAME = 'aithema-start2';
 const SECRET_NAME = 'aithema-start2-facade';
 const id = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(value);
-// Every leaf of a provider overrides tree as [dotted path, value]; only plain objects are descended,
-// so null, arrays and strings surface as leaves that no boolean check accepts.
-const leaves = (value, path = []) => value && typeof value === 'object' && !Array.isArray(value)
+// Every leaf of a provider overrides tree as [dotted path, value]; only non-empty plain objects are
+// descended, so null, arrays, strings and empty objects surface as leaves that no boolean check accepts.
+const leaves = (value, path = []) => value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length
   ? Object.entries(value).flatMap(([key, item]) => leaves(item, [...path, key])) : [[path.join('.'), value]];
 const pick = (value, keys) => Object.fromEntries(keys.filter(key => value?.[key] !== undefined).map(key => [key, structuredClone(value[key])]));
 export class AgentEnsureError extends Error {}
