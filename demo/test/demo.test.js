@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { request } from 'node:http';
-import { startChild, temporaryDb, post } from '../../test/helpers.js';
+import { startChild, temporaryDb, post, sessionFetch } from '../../test/helpers.js';
 import { inputRevision } from '@inspr/aithema-core';
 function rawStatus(url, options) {
   return new Promise((resolve, reject) => {
