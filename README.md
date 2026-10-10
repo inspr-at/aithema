@@ -382,8 +382,8 @@ Turn content is capped at 8,000 UTF-16 code units. Turn POSTs allow up to 64 KiB
 on the wire for JSON escaping and up to 32 KiB for decoded UTF-8 content plus
 serialized metadata (with the content value omitted from that metadata count).
 Escaped Unicode and control characters therefore do not consume extra content
-budget. Other JSON routes retain their 32 KiB wire limit; oversized requests
-return 413.
+budget. `readBody()` retains its 32 KiB default for routes without an explicit
+wire limit; oversized requests return 413.
 
 API clients retain the `x-aithema-session-token` response header from creation
 and send it on every session request, including SSE and export. A host may supply
