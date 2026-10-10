@@ -9,8 +9,21 @@ export const UPLOAD_LIMITS = Object.freeze({ maxBytes: 20 * 1024 * 1024, maxRequ
 // Extensions the server sniffs and extracts; a file without one is left to the server's sniffing.
 export const UPLOAD_EXTENSIONS = Object.freeze(['pdf', 'docx', 'xlsx', 'pptx', 'txt', 'md', 'csv', 'json', 'xml']);
 export const UPLOAD_ACCEPT = UPLOAD_EXTENSIONS.map(extension => `.${extension}`).join(',');
-// Multipart framing around each file and the two scalar fields, generously rounded up.
-const PART_BYTES = 1024, FORM_BYTES = 1024;
+// Multipart framing, byte for byte as the browser writes it (HTML multipart/form-data encoding):
+// the clientEventId field, then one part per file, then the closing delimiter. The browser picks
+// the boundary; it is at most 70 characters (RFC 2046, which the server enforces), so the sum is
+// exact for that boundary and never below the real body.
+const MAX_BOUNDARY = 70, encoder = new TextEncoder(), utf8 = text => encoder.encode(text).length;
+// Names and filenames escape LF, CR and the double quote; a file without a type is sent as octet-stream.
+const escaped = name => name.replace(/[\n\r"]/gu, c => ({ '\n': '%0A', '\r': '%0D', '"': '%22' })[c]);
+const partBytes = (name, type, boundary) => 2 + boundary + 2
+  + utf8(`Content-Disposition: form-data; name="files"; filename="${escaped(name)}"\r\nContent-Type: ${type}\r\n\r\n`) + 2;
+/** Bytes of the multipart framing around one file (its delimiter and headers), without its contents. */
+export const filePartBytes = (file, boundary = MAX_BOUNDARY) => partBytes(file.name, file.type || 'application/octet-stream', boundary);
+/** Bytes of the request outside the file parts: the clientEventId field (a UUID) and the closing delimiter. */
+export function formBytes(boundary = MAX_BOUNDARY) {
+  return 2 + boundary + 2 + utf8('Content-Disposition: form-data; name="clientEventId"\r\n\r\n') + 36 + 2 + 2 + boundary + 2 + 2;
+}
 const extension = name => /\.([a-z0-9]+)$/iu.exec(name)?.[1].toLowerCase() ?? null;
 const fill = (text, values) => text.replace(/\{(\w+)\}/gu, (match, key) => values[key] ?? match);
 
@@ -19,7 +32,13 @@ export function uploadLimits(value) {
   return Object.freeze(Object.fromEntries(Object.entries(UPLOAD_LIMITS).map(([key, fallback]) =>
     [key, Number.isSafeInteger(value?.[key]) && value[key] > 0 ? value[key] : fallback])));
 }
-const fileCeiling = limits => Math.min(limits.maxBytes, limits.maxRequestBytes - PART_BYTES - FORM_BYTES);
+// The largest file one request can carry: its own framing for a given file, the shortest framing
+// (no name, no type) for the limits shown before a file is chosen. Never negative; below one byte
+// this host's limits leave no room for any file.
+const ceiling = (limits, part) => Math.max(0, Math.min(limits.maxBytes, limits.maxRequestBytes - formBytes() - part));
+const fileCeiling = (limits, file) => ceiling(limits, file ? filePartBytes(file) : partBytes('', '', MAX_BOUNDARY));
+/** Whether this host's limits leave room for a file at all. */
+export const uploadsPossible = limits => fileCeiling(uploadLimits(limits)) > 0;
 
 /**
  * Splits chosen files into what is sent and what is refused before sending. Files that pass go in
@@ -27,11 +46,11 @@ const fileCeiling = limits => Math.min(limits.maxBytes, limits.maxRequestBytes -
  * (count or total size) is refused as a whole, since only the person can choose which files matter.
  */
 export function planUploads(files, { limits: raw, uploads = [] } = {}) {
-  const limits = uploadLimits(raw), ceiling = fileCeiling(limits), refused = [], fitting = [];
+  const limits = uploadLimits(raw), refused = [], fitting = [];
   for (const file of files) {
-    const type = extension(file.name);
+    const type = extension(file.name), limit = fileCeiling(limits, file);
     if (type && !UPLOAD_EXTENSIONS.includes(type)) refused.push({ name: file.name, reason: 'type' });
-    else if (file.size > ceiling) refused.push({ name: file.name, reason: 'size' });
+    else if (file.size > limit) refused.push({ name: file.name, reason: 'size', limit });
     else fitting.push(file);
   }
   const active = uploads.filter(u => u.state !== 'withdrawn' && !u.erased);
@@ -40,9 +59,9 @@ export function planUploads(files, { limits: raw, uploads = [] } = {}) {
     : used + adding > limits.maxSessionBytes ? 'session' : null;
   const batches = [];
   if (!blocked) for (const file of fitting) {
-    const last = batches.at(-1), size = file.size + PART_BYTES;
+    const last = batches.at(-1), size = filePartBytes(file) + file.size;
     if (last && last.files.length < limits.maxFilesPerRequest && last.bytes + size <= limits.maxRequestBytes) { last.files.push(file); last.bytes += size; }
-    else batches.push({ files: [file], bytes: FORM_BYTES + size });
+    else batches.push({ files: [file], bytes: formBytes() + size });
   }
   return { batches: batches.map(batch => batch.files), refused, blocked, limits };
 }
@@ -54,22 +73,29 @@ export function formatBytes(bytes, locale = 'en') {
 }
 export function plural(forms, count) { return fill(count === 1 ? forms.one : forms.other, { count }); }
 export function limitsText(copy, limits, locale) {
+  if (!uploadsPossible(limits)) return copy.uploads.impossible;
   return fill(copy.uploads.limits, { files: limits.maxDocumentsPerSession, size: formatBytes(fileCeiling(limits), locale) });
 }
 export function dropText(copy, limits, locale) {
+  if (!uploadsPossible(limits)) return copy.uploads.impossible;
   return fill(copy.uploads.dropLimits, { files: limits.maxDocumentsPerSession, size: formatBytes(fileCeiling(limits), locale) });
 }
 
 /** The plain-words refusal for a plan, or '' when everything chosen is sent. */
 export function refusalText(copy, { refused, blocked, limits }, locale) {
-  const u = copy.uploads, size = formatBytes(fileCeiling(limits), locale);
-  const sentences = [];
-  if (refused.length) sentences.push(fill(u.refused, { list: refused.map(r => fill(r.reason === 'type' ? u.type : u.tooLarge, { name: r.name, size })).join(', ') }));
+  const u = copy.uploads, sentences = [];
+  if (refused.length && !uploadsPossible(limits)) return u.impossible;
+  if (refused.length) sentences.push(fill(u.refused, { list: refused.map(r => fill(r.reason === 'type' ? u.type : u.tooLarge, { name: r.name, size: formatBytes(r.limit ?? 0, locale) })).join(', ') }));
   if (blocked === 'count') sentences.push(fill(u.tooMany, { files: limits.maxDocumentsPerSession }));
   if (blocked === 'session') sentences.push(fill(u.sessionFull, { size: formatBytes(limits.maxSessionBytes, locale) }));
   return sentences.join(' ');
 }
 
+/** Every state line one language can show, for the slot that reserves the tallest of them. */
+export function uploadStateTexts(copy) {
+  const u = copy.uploads;
+  return [u.pending, u.accepted, u.truncated, ...Object.values(u.reasons).map(reason => fill(u.unreadable, { reason }))];
+}
 /** The chip's state line: pending, accepted (or accepted in part), unreadable with its reason. */
 export function uploadStateText(copy, upload) {
   const u = copy.uploads;

@@ -823,10 +823,14 @@ In `<aithema-session>` (B2), Attach opens the native picker (multiple files), an
 files dropped on the conversation upload the same way. Before sending, the client
 names refused types, oversized files and an overfull conversation in plain words,
 using the limits the route reports; files that fit are packed into requests under
-the per-request ceilings. When the `uploads` verdict is unavailable, Attach stays
-focusable and says the server's reason. Each upload is a transcript line keyed by
-its ID with its name (as text), size and state; Withdraw upload uses the POST
-route. Upload, limit and withdraw requests pass the same-origin guard of the
+the per-request ceilings. The request size counts the multipart body byte for byte
+(clientEventId, each part's headers with the escaped UTF-8 filename and type, and
+a boundary of the 70-character maximum); a host request limit too small for any
+file says so instead of showing a size. When the `uploads` verdict is unavailable,
+Attach stays focusable and says the server's reason. Each upload is a fixed-width
+transcript line keyed by its ID with its name (as text, one line), size and state
+in reserved slots, so no state change or withdrawal moves or resizes it; Withdraw
+upload uses the POST route. Upload, limit and withdraw requests pass the same-origin guard of the
 concept view and carry the owner header or cookie. Extracted text never renders.
 
 The demo registers the local text, PDF and OOXML plugins by default. Other

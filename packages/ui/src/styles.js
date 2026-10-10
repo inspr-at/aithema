@@ -75,12 +75,19 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
   border:2px dashed var(--aithema-accent); border-radius:.75rem; background:color-mix(in srgb,var(--aithema-surface) 94%,transparent); }
 .conversation[data-dropping] .drop-overlay { visibility:visible; }
 .drop-overlay p { margin:0; display:grid; gap:.3rem; } .drop-overlay strong { color:var(--aithema-accent); } .drop-overlay span { font-size:.8rem; color:var(--aithema-muted); }
-/* An upload in the transcript (GUI-27, not a pill): glyph, name and muted size; then state and Withdraw upload. */
-.upload { align-self:flex-end; max-width:78%; display:grid; grid-template-columns:1.25rem minmax(0,1fr); gap:.5rem; padding:.15rem 0; overflow-wrap:anywhere; }
+/* An upload in the transcript (GUI-27, not a pill): glyph, name and Withdraw upload; then muted size and state.
+   Fixed width and slots: a state change or withdrawal never moves the name or the action, nor resizes the row. */
+.upload { align-self:flex-end; width:min(34rem,78%); display:grid; grid-template-columns:1.25rem 4.5rem minmax(0,1fr) auto;
+  grid-template-rows:1.6rem auto; grid-template-areas:"glyph name name action" "glyph size state state"; column-gap:.5rem; padding:.15rem 0; overflow-wrap:anywhere; }
 .upload:focus { outline:none; } .upload:focus-visible { outline:2px solid var(--aithema-accent); outline-offset:3px; }
-.upload__glyph { color:var(--aithema-muted); padding-top:.1rem; } .upload__glyph svg { display:block; }
-.upload__head, .upload__foot { margin:0; min-height:1.6rem; display:flex; flex-wrap:wrap; align-items:baseline; gap:0 .6rem; }
-.upload__name { font-size:.87rem; font-weight:600; } .upload__size, .upload__state { font-size:.72rem; color:var(--aithema-muted); }
+.upload__glyph { grid-area:glyph; color:var(--aithema-muted); padding-top:.1rem; } .upload__glyph svg { display:block; }
+.upload__name { grid-area:name; align-self:center; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:.87rem; font-weight:600; }
+.upload__size { grid-area:size; } .upload__size, .upload__status > * { font-size:.72rem; color:var(--aithema-muted); line-height:1.45; }
+/* The real line and its invisible stand-ins share one cell: the cell keeps the size of the largest. */
+.upload__action { grid-area:action; display:grid; justify-items:end; align-items:center; }
+.upload__status { grid-area:state; display:grid; } :is(.upload__action, .upload__status) > * { grid-area:1/1; }
+.upload__sizer { visibility:hidden; } .upload__action .upload__sizer { display:block; font-size:.72rem; padding:.2rem 0; }
+.upload__action :is(.upload-withdraw, .upload__sizer) { white-space:nowrap; }
 .upload[data-state="unreadable"] .upload__state { color:var(--aithema-warning); }
 .upload[data-state="withdrawn"] .upload__name { font-weight:400; color:var(--aithema-muted); }
 .upload .upload-withdraw { margin-top:0; } .upload-withdraw[aria-disabled="true"] { opacity:.5; cursor:wait; }
@@ -182,7 +189,7 @@ summary { cursor:pointer; } details p { padding:.5rem 0; } blockquote { margin:.
   /* Phones: Attach is its icon; the name stays its accessible label. */
   .attach { width:2.75rem; height:2.75rem; padding:0; justify-content:center; margin-left:-.6rem; }
   .attach__label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
-  .upload { max-width:90%; }
+  .upload { width:90%; }
   .audio-rail { height:12rem; grid-template-columns:2.5rem minmax(0,1fr); grid-template-rows:4.9rem auto; }
   .voice-orb { width:2.5rem; height:2.5rem; align-self:center; } .voice-state { max-height:5.2em; }
   .voice-controls { grid-template-columns:repeat(4,minmax(0,1fr)); grid-auto-rows:2.7rem; }

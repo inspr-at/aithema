@@ -534,6 +534,49 @@ async function rest(page, selector) {
   await page.mouse.move(target.x + Math.min(target.width / 2, 40), target.y + Math.min(target.height / 2, 10));
   return target;
 }
+// The changing upload row's own boxes: the row, its name, its action slot and (while it exists) the button.
+const rowBoxes = (page, selector) => inShadow(page, (c, selector) => {
+  const row = c.shadowRoot.querySelector(selector), rect = n => { if (!n) return null; const r = n.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
+  return { row: rect(row), name: rect(row.querySelector('.upload__name')), action: rect(row.querySelector('.upload__action')), button: rect(row.querySelector('.upload-withdraw')) };
+}, selector);
+function sameRow(before, after, label) {
+  for (const part of ['row', 'name', 'action']) sameBox(before[part], after[part], `${label}: ${part}`);
+  if (before.button && after.button) sameBox(before.button, after.button, `${label}: Withdraw upload`);
+}
+// Rest the pointer on a part of an upload row (its name by default) and measure the row.
+async function restOnRow(page, selector, part = '.upload__name') {
+  await rest(page, `${selector} ${part}`);
+  return rowBoxes(page, selector);
+}
+// Holds upload states after "pending" (and every event after them) in the page, then delivers them in order:
+// the pending row can then be measured under a resting pointer however fast the file is read.
+const hold = (page, on) => inShadow(page, (c, on) => {
+  if (!c.heldUploadEvents) {
+    const deliver = c.receive.bind(c), queue = c.heldUploadEvents = [];
+    c.receive = event => {
+      if (c.holdUploadEvents && event?.seq && (queue.length || event.type === 'upload.state' && event.data?.state !== 'pending')) { queue.push(event); return; }
+      return deliver(event);
+    };
+    c.deliverHeldUploadEvents = () => { for (const event of queue.splice(0).sort((a, b) => a.seq - b.seq)) deliver(event); };
+  }
+  c.holdUploadEvents = on; if (!on) c.deliverHeldUploadEvents();
+}, on);
+// Attach a file that cannot be read, rest on its Withdraw upload, press it: the row keeps its box, name and action.
+async function unreadableThenWithdrawn(page, path, label, shot, shotName) {
+  await inShadow(page, c => c.shadowRoot.querySelector('.attach').focus());
+  const [chooser] = await Promise.all([page.waitForFileChooser(), page.keyboard.press('Enter')]);
+  await chooser.accept([path]);
+  await until(page, () => [...document.querySelector('aithema-session').shadowRoot.querySelectorAll('.upload')].at(-1)?.dataset.state === 'unreadable');
+  const id = await inShadow(page, c => [...c.shadowRoot.querySelectorAll('ol li.upload')].at(-1).dataset.id), selector = `ol li[data-id="${id}"]`;
+  assert.match(await inShadow(page, (c, selector) => c.shadowRoot.querySelector(`${selector} .upload__state`).textContent, selector), /^Nicht lesbar: .+ Bitte fügen Sie den relevanten Teil als Text ein\.$/u);
+  await page.mouse.move(0, 0); await shot(shotName, selector);
+  const before = await restOnRow(page, selector, '.upload-withdraw');
+  await inShadow(page, (c, selector) => c.shadowRoot.querySelector(`${selector} .upload-withdraw`).focus({ preventScroll: true }), selector);
+  await page.keyboard.press('Enter');
+  await until(page, selector => document.querySelector('aithema-session').shadowRoot.querySelector(selector).dataset.state === 'withdrawn', selector);
+  sameRow(before, await rowBoxes(page, selector), label);
+  assert.equal(await inShadow(page, c => c.shadowRoot.activeElement?.dataset.state), 'withdrawn', `${label}: focus stays on the row`);
+}
 const until = (page, fn, arg) => page.waitForFunction(fn, { polling: 50, timeout: waitTimeout }, arg);
 const sendTurn = (page, text) => inShadow(page, (c, text) => {
   c.shadowRoot.querySelector('textarea').value = text; c.shadowRoot.querySelector('form').requestSubmit();
@@ -1170,21 +1213,22 @@ test('document uploads: a text file and a PDF through the real file picker, pend
       finally { await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); }
     });
     if (evidence) await mkdir(evidence, { recursive: true });
-    const shot = async (target, name) => {
+    const shot = async (target, name, row = '.upload') => {
       if (!evidence) return;
-      await inShadow(target, c => { c.shadowRoot.querySelector('.conversation').scrollIntoView({ block: 'start' });
-        // The transcript shows its first upload near the top.
-        const shell = c.shadowRoot.querySelector('.transcript-shell'), chip = shell.querySelector('.upload');
-        shell.scrollTop = chip ? shell.scrollTop + chip.getBoundingClientRect().top - shell.getBoundingClientRect().top - 120 : shell.scrollHeight; });
+      await inShadow(target, (c, row) => { c.shadowRoot.querySelector('.conversation').scrollIntoView({ block: 'start' });
+        // The transcript shows its first upload (or the row in question) near the top.
+        const shell = c.shadowRoot.querySelector('.transcript-shell'), chip = shell.querySelector(row);
+        shell.scrollTop = chip ? shell.scrollTop + chip.getBoundingClientRect().top - shell.getBoundingClientRect().top - 120 : shell.scrollHeight; }, row);
       await target.screenshot({ path: join(evidence, `uploads-${name}.png`) });
     };
     // Fixtures: a small text file, a real PDF, a refused type and a file to drop.
     const files = join(directory, 'files'); await mkdir(files);
-    const paths = { text: join(files, 'notizen.txt'), pdf: join(files, 'angebot.pdf'), refused: join(files, 'skript.sh'), dropped: join(files, 'ablauf.md') };
+    const paths = { text: join(files, 'notizen.txt'), pdf: join(files, 'angebot.pdf'), refused: join(files, 'skript.sh'), dropped: join(files, 'ablauf.md'), broken: join(files, 'kaputt.pdf') };
     const textBytes = Buffer.from('Betrieb: gehostet. Kundinnen bestellen Brot am Vortag und holen es in der Filiale ab.'), pdfBytes = pdf(['Preorder app for three branches: pickup list every morning.']);
     await writeFile(paths.text, textBytes); await writeFile(paths.pdf, pdfBytes);
     await writeFile(paths.refused, 'echo nein');
     await writeFile(paths.dropped, '# Ablauf\nBestellung, Abholung, Tagesliste.');
+    await writeFile(paths.broken, '%PDF-1.7\n%nicht lesbar\n');
     browser = await puppeteer.launch({ executablePath, headless: true, env: { PATH: process.env.PATH, HOME: homedir() },
       userDataDir: join(directory, 'chrome'), timeout: waitTimeout,
       args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
@@ -1226,7 +1270,8 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     });
 
     // Keyboard: Attach is reachable and Enter opens the native picker (the real file input).
-    // The pointer rests on the person's turn while files arrive and are read.
+    // The pointer rests on the person's turn while files arrive, then on an arriving row while it is read.
+    await hold(page, true);
     await inShadow(page, c => c.shadowRoot.querySelector('.attach').focus());
     const turnBefore = await rest(page, 'ol li.turn.user');
     const composerBefore = await box(page, '.composer'), sendBefore = await box(page, '.send');
@@ -1235,11 +1280,19 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     await chooser.accept([paths.text, paths.pdf]);
     await until(page, () => {
       const rows = [...document.querySelector('aithema-session').shadowRoot.querySelectorAll('.upload')];
+      return rows.length === 2 && rows.every(row => row.dataset.state === 'pending');
+    });
+    sameBox(turnBefore, await box(page, 'ol li.turn.user'), 'hovered turn while files arrived');
+    const chipIds = () => inShadow(page, c => [...c.shadowRoot.querySelectorAll('ol li.upload')].map(row => row.dataset.id));
+    const textChip = `ol li[data-id="${(await chipIds())[0]}"]`, pendingRow = await restOnRow(page, textChip);
+    await hold(page, false);
+    await until(page, () => {
+      const rows = [...document.querySelector('aithema-session').shadowRoot.querySelectorAll('.upload')];
       return rows.length === 2 && rows.every(row => row.dataset.state === 'accepted');
     });
     const states = await page.evaluate(() => window.uploadStates);
     assert.deepEqual(states, { 'notizen.txt': ['pending', 'accepted'], 'angebot.pdf': ['pending', 'accepted'] }, 'each chip shows pending, then accepted');
-    sameBox(turnBefore, await box(page, 'ol li.turn.user'), 'hovered turn while files were read');
+    sameRow(pendingRow, await rowBoxes(page, textChip), 'pending → accepted at 1440 px');
     sameBox(composerBefore, await box(page, '.composer'), 'composer'); sameBox(sendBefore, await box(page, '.send'), 'Send');
     const chips = () => inShadow(page, c => [...c.shadowRoot.querySelectorAll('.upload')].map(row => ({ name: row.querySelector('.upload__name').textContent,
       size: row.querySelector('.upload__size').textContent, state: row.querySelector('.upload__state').textContent,
@@ -1270,6 +1323,9 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     assert.equal(posts(), requestsBefore, 'nothing sent for a refused file');
     await shot(page, 'de-light-1440-refused');
 
+    // An unreadable file says why; withdrawing it under the pointer keeps its row's geometry.
+    await unreadableThenWithdrawn(page, paths.broken, 'unreadable → withdrawn at 1440 px', (name, row) => shot(page, name, row), 'de-light-1440-unreadable');
+
     // Drop: a real file drag over the transcript shows the overlay without moving layout, then uploads.
     const cdp = await page.createCDPSession(), shell = await box(page, '.transcript-shell');
     const at = { x: Math.round(shell.x + shell.width / 2), y: Math.round(shell.y + shell.height / 2) };
@@ -1295,16 +1351,14 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     });
 
     // Withdraw upload under the pointer: the chip stays where it is, focus stays on it, the understanding rebuilds.
-    const chipIds = () => inShadow(page, c => [...c.shadowRoot.querySelectorAll('ol li.upload')].map(row => row.dataset.id));
-    const chipSelector = `ol li[data-id="${(await chipIds())[0]}"]`;
+    const chipSelector = textChip;
     // The pointer rests on the button and the keyboard presses it, so both anchoring and focus are checked.
-    const withdrawBefore = await rest(page, `${chipSelector} .upload-withdraw`), chipBefore = await box(page, chipSelector);
+    const rowBefore = await restOnRow(page, chipSelector, '.upload-withdraw');
     await inShadow(page, (c, selector) => c.shadowRoot.querySelector(`${selector} .upload-withdraw`).focus({ preventScroll: true }), chipSelector);
     assert.equal(await inShadow(page, c => c.shadowRoot.activeElement?.className), 'upload-withdraw');
     await page.keyboard.press('Enter');
     await until(page, selector => document.querySelector('aithema-session').shadowRoot.querySelector(selector).dataset.state === 'withdrawn', chipSelector);
-    void withdrawBefore;
-    sameBox(chipBefore, await box(page, chipSelector), 'withdrawn chip');
+    sameRow(rowBefore, await rowBoxes(page, chipSelector), 'accepted → withdrawn at 1440 px');
     assert.equal(await inShadow(page, c => c.shadowRoot.activeElement?.classList.contains('upload') && c.shadowRoot.activeElement.dataset.state), 'withdrawn', 'focus stays on the withdrawn row');
     assert.deepEqual((await chips())[0], { name: 'Datei zurückgezogen', size: '', state: '', withdraw: null });
     assert.equal(await inShadow(page, c => c.session.uploads.some(u => u.filename === 'notizen.txt')), false);
@@ -1330,17 +1384,25 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     await shot(page, 'de-dark-400');
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
     await shot(page, 'de-light-400');
-    // At 400 px a chip under the pointer also stays put while another file is read.
+    // At 400 px a chip under the pointer also stays put while another file arrives, and the arriving
+    // row keeps its geometry from pending to accepted under the pointer.
+    await hold(page, true);
     await inShadow(page, c => c.shadowRoot.querySelector('.attach').focus());
     const lastChip = `ol li[data-id="${(await chipIds()).at(-1)}"]`, phoneChip = await rest(page, lastChip);
     const [phoneChooser] = await Promise.all([page.waitForFileChooser(), page.keyboard.press('Enter')]);
     await phoneChooser.accept([paths.text]);
-    await until(page, () => [...document.querySelector('aithema-session').shadowRoot.querySelectorAll('.upload')].filter(r => r.dataset.state === 'accepted').length === 3);
+    await until(page, () => [...document.querySelector('aithema-session').shadowRoot.querySelectorAll('.upload')].some(r => r.dataset.state === 'pending'));
     sameBox(phoneChip, await box(page, lastChip), 'hovered chip at 400 px');
+    const phoneNew = `ol li[data-id="${(await chipIds()).at(-1)}"]`, phonePending = await restOnRow(page, phoneNew);
+    await hold(page, false);
+    await until(page, () => [...document.querySelector('aithema-session').shadowRoot.querySelectorAll('.upload')].filter(r => r.dataset.state === 'accepted').length === 3);
+    sameRow(phonePending, await rowBoxes(page, phoneNew), 'pending → accepted at 400 px');
     await page.mouse.move(0, 0); await shot(page, 'de-light-400-accepted');
+    // The longest German state wraps at 400 px; withdrawing it under the pointer keeps the row's height.
+    await unreadableThenWithdrawn(page, paths.broken, 'unreadable → withdrawn at 400 px', (name, row) => shot(page, name, row), 'de-light-400-unreadable');
 
     assert.ok(uploadRequests.length > 0 && uploadRequests.every(([, origin]) => origin === new URL(demo.url).origin), 'upload requests stay on the page origin');
     assert.deepEqual(problems, []);
-    assert.equal(posts(), 3, 'picker, drop and the 400 px picker each sent one request');
-    t.diagnostic(`Uploads: ${posts()} upload POSTs via picker and drop, pending→accepted for txt and PDF, understanding refreshed, withdraw kept the chip and focus, refusal before sending; German, light/dark, 1440 and 400 px.`);
+    assert.equal(posts(), 5, 'two pickers and the drop at 1440 px, two pickers at 400 px, one request each');
+    t.diagnostic(`Uploads: ${posts()} upload POSTs via picker and drop, pending→accepted for txt and PDF, understanding refreshed, withdraw kept the chip and focus, refusal before sending; the changing row's box, name and action unchanged under the pointer for pending→accepted, unreadable→withdrawn and accepted→withdrawn; German, light/dark, 1440 and 400 px.`);
   });

@@ -231,7 +231,7 @@ export const de = {
     refused: 'Nicht angehängt: {list}.', tooLarge: '{name} (zu groß, höchstens {size} pro Datei)', type: '{name} (Dateityp wird nicht angenommen)',
     tooMany: 'In diesem Gespräch können keine weiteren Dateien hinzugefügt werden (höchstens {files}).', sessionFull: 'Diese Dateien passen nicht mehr in dieses Gespräch (höchstens {size} insgesamt).',
     overLimit: 'Diese Dateien überschreiten die Grenzen für Dateien in diesem Gespräch.', failed: 'Die Datei konnte nicht übernommen werden.',
-    busy: 'Es werden noch Dateien hochgeladen. Versuchen Sie es gleich noch einmal.',
+    busy: 'Es werden noch Dateien hochgeladen. Versuchen Sie es gleich noch einmal.', impossible: 'Dateien können nicht hochgeladen werden: Die Upload-Grenzen dieses Hosts lassen keinen Platz für eine Datei.',
     reasons: { unsupported: 'Dateityp wird nicht angenommen', empty: 'die Datei enthält keinen Text', malformed: 'die Datei ist beschädigt oder hat nicht das erwartete Format',
       encrypted: 'die Datei ist passwortgeschützt', limit: 'die Datei ist zu groß oder zu lang zum Auslesen', deadline: 'das Auslesen hat zu lange gedauert',
       cancelled: 'das Auslesen wurde abgebrochen', unavailable: 'das Auslesen ist gerade nicht verfügbar' },

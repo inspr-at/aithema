@@ -11,7 +11,7 @@ import { settingsStyles } from './settings-styles.js';
 import { SettingsDialog, ICONS, PRESET_ORDER, reasonText, engineView, catalogLabel } from './settings-dialog.js';
 import { LocalConnector } from './local-connector.js';
 import { postJson, postForm, sameOrigin } from './post-json.js';
-import { UPLOAD_LIMITS, UPLOAD_ACCEPT, UPLOAD_ICONS, uploadLimits, planUploads, refusalText, uploadStateText, formatBytes, plural, limitsText, dropText } from './uploads.js';
+import { UPLOAD_LIMITS, UPLOAD_ACCEPT, UPLOAD_ICONS, uploadLimits, planUploads, refusalText, uploadStateText, uploadStateTexts, uploadsPossible, formatBytes, plural, limitsText, dropText } from './uploads.js';
 import { voiceJournal, tabStorage, closeVoiceCall, answerVoicePings, voiceCallAbandoned } from './voice-orphan.js';
 
 const PANES = '.transcript-shell, .analysis-content, .preset-panel, .intro';
@@ -227,7 +227,7 @@ export class AithemaSession extends HTMLElement {
     }, { passive: true });
     shell.addEventListener('pointerenter', () => { this.#onTranscript = true; });
     shell.addEventListener('pointerleave', () => {
-      this.#onTranscript = false; for (const row of shell.querySelectorAll('.upload')) row.style.minWidth = '';
+      this.#onTranscript = false;
       if (this.#follow) this.#scrollToLatest();
     });
     for (const pane of root.querySelectorAll(PANES)) pane.addEventListener('pointerleave', () => clearSlack(pane));
@@ -458,7 +458,7 @@ export class AithemaSession extends HTMLElement {
         let row = rows.get(key); rows.delete(key);
         if (upload) {
           if (!row) { row = this.#uploadRow(upload.id); row.dataset.id = key; }
-          this.#paintUpload(row, upload, hovered);
+          this.#paintUpload(row, upload);
           if (row !== next) list.insertBefore(row, next); else next = next.nextElementSibling;
           continue;
         }
@@ -746,30 +746,30 @@ export class AithemaSession extends HTMLElement {
     for (const turn of this.#partials.values()) entries.push({ key: turn.id, turn });
     return entries;
   }
-  // GUI-27, not a pill: a plain line with a file glyph, the name and its muted size, then the state
-  // and Withdraw upload. Both lines keep their height in every state, so a change never moves a row.
+  // GUI-27, not a pill: a plain line with a file glyph, the name and Withdraw upload, then the muted
+  // size and the state. Every part has its own slot, so no state change moves or resizes the row:
+  // the name is one line, the action slot keeps the width of its label after withdrawal, and the
+  // state slot is as tall as the longest state of this language (invisible copies stacked under it).
   // Names are text, never markup; the file's contents never reach the page.
   #uploadRow(id) {
-    const row = node('li', 'upload'); row.tabIndex = -1;
+    const copy = this.#copy, row = node('li', 'upload'); row.tabIndex = -1;
     const glyph = node('span', 'upload__glyph'); glyph.innerHTML = UPLOAD_ICONS.file;
     const name = node('span', 'upload__name'); name.id = `upload-name-${id}`;
-    const head = node('p', 'upload__head'); head.append(name, node('small', 'upload__size'));
-    const foot = node('p', 'upload__foot'); foot.append(node('small', 'upload__state'));
-    const text = node('div', 'upload__text'); text.append(head, foot);
-    row.append(glyph, text);
+    const sizer = text => { const n = node('small', 'upload__sizer', text); n.setAttribute('aria-hidden', 'true'); return n; };
+    const action = node('span', 'upload__action'); action.append(sizer(copy.uploads.withdraw));
+    const status = node('span', 'upload__status'); status.append(node('small', 'upload__state'), ...uploadStateTexts(copy).map(sizer));
+    row.append(glyph, name, action, node('small', 'upload__size'), status);
     return row;
   }
-  #paintUpload(row, upload, hovered) {
+  #paintUpload(row, upload) {
     const copy = this.#copy, gone = upload.state === 'withdrawn' || Boolean(upload.erased);
-    // A withdrawn row is shorter; like a redacted turn it keeps its size while the pointer rests on the transcript.
-    if (!hovered) row.style.minWidth = '';
-    else if (gone && row.isConnected && row.dataset.state !== 'withdrawn') row.style.minWidth = `${row.getBoundingClientRect().width}px`;
     row.dataset.state = gone ? 'withdrawn' : upload.state;
-    setText(row.querySelector('.upload__name'), gone ? copy.uploads.withdrawn : upload.filename ?? '');
+    const name = row.querySelector('.upload__name');
+    setText(name, gone ? copy.uploads.withdrawn : upload.filename ?? ''); name.title = gone ? '' : upload.filename ?? '';
     setText(row.querySelector('.upload__size'), gone || !Number.isFinite(upload.bytes) ? '' : formatBytes(upload.bytes, this.#session.locale));
     setText(row.querySelector('.upload__state'), gone ? '' : uploadStateText(copy, upload));
     const button = row.querySelector('.upload-withdraw');
-    if (!gone && !button) row.querySelector('.upload__foot').append(this.#uploadWithdrawButton(row, upload.id));
+    if (!gone && !button) row.querySelector('.upload__action').prepend(this.#uploadWithdrawButton(row, upload.id));
     if (gone && button) {
       // Focus stays where it was: on the row, never dropped to the page.
       const focused = this.shadowRoot.activeElement === button;
@@ -803,6 +803,7 @@ export class AithemaSession extends HTMLElement {
       const feature = this.#feature('uploads', true);
       if (!feature.available) { this.#uploadRefusal(this.#copy.uploads.unavailable.replace('{reason}', feature.reason)); return; }
       if (this.#uploading) { this.#uploadRefusal(this.#copy.uploads.busy); return; }
+      if (!uploadsPossible(this.#limits)) { this.#uploadRefusal(this.#copy.uploads.impossible); return; }
       void this.#loadLimits(); input.click();
     });
     input.addEventListener('change', () => { const files = [...input.files ?? []]; input.value = ''; void this.#attach(files); });
@@ -840,7 +841,7 @@ export class AithemaSession extends HTMLElement {
     const root = this.shadowRoot, attach = root.querySelector('.attach'), feature = this.#feature('uploads', true);
     const limits = limitsText(this.#copy, this.#limits, this.#session.locale);
     const unavailable = feature.available ? '' : this.#copy.uploads.unavailable.replace('{reason}', feature.reason);
-    attach.setAttribute('aria-disabled', String(!feature.available || this.#uploading));
+    attach.setAttribute('aria-disabled', String(!feature.available || this.#uploading || !uploadsPossible(this.#limits)));
     attach.title = unavailable || limits;
     setText(root.querySelector('#attach-limits'), unavailable || limits);
   }

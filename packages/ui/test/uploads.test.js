@@ -4,7 +4,9 @@ import { Window } from 'happy-dom';
 import { createSession } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
-import { UPLOAD_LIMITS, planUploads, refusalText, formatBytes, uploadStateText } from '../src/uploads.js';
+import { UPLOAD_LIMITS, planUploads, refusalText, formatBytes, uploadStateText, uploadStateTexts, filePartBytes, formBytes, limitsText, dropText, uploadsPossible } from '../src/uploads.js';
+// Node's own FormData and File encode a real multipart body; the component tests below use the window's.
+const { FormData: NodeFormData, File: NodeFile } = globalThis;
 const window = new Window({ url: 'http://localhost/' });
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
@@ -54,7 +56,7 @@ const owned = calls => calls.filter(call => !call.url.endsWith('/events') && new
 test('client limits: type and size refused per file, count and session totals per batch, requests packed under the request ceiling', () => {
   const limits = { ...UPLOAD_LIMITS, maxBytes: 100, maxRequestBytes: 4096, maxFilesPerRequest: 2, maxDocumentsPerSession: 4, maxSessionBytes: 300 };
   const plan = planUploads([file('notes.txt', 50), file('tool.exe'), file('huge.pdf', 101), file('README'), file('table.CSV', 60)], { limits });
-  assert.deepEqual(plan.refused, [{ name: 'tool.exe', reason: 'type' }, { name: 'huge.pdf', reason: 'size' }]);
+  assert.deepEqual(plan.refused, [{ name: 'tool.exe', reason: 'type' }, { name: 'huge.pdf', reason: 'size', limit: 100 }]);
   assert.deepEqual(plan.batches.map(batch => batch.map(f => f.name)), [['notes.txt', 'README'], ['table.CSV']], 'two files per request; no extension is left to the server');
   assert.equal(plan.blocked, null);
   assert.equal(refusalText(en, plan, 'en'), 'Not attached: tool.exe (file type not accepted), huge.pdf (too large, up to 100 B per file).');
@@ -69,6 +71,63 @@ test('client limits: type and size refused per file, count and session totals pe
   assert.equal(formatBytes(UPLOAD_LIMITS.maxBytes, 'en'), '20 MB'); assert.equal(formatBytes(1536, 'de'), '1,5 KB'); assert.equal(formatBytes(820, 'en'), '820 B');
   const packed = planUploads(Array.from({ length: 4 }, (_, i) => file(`p${i}.pdf`, 20 * 1024 * 1024 - 4096)));
   assert.deepEqual(packed.batches.map(batch => batch.length), [3, 1], 'four 20 MB files go in two requests under 64 MB');
+});
+
+// The real body, as Node's fetch encodes it (the same HTML multipart/form-data algorithm as a browser).
+async function encoded(files) {
+  const form = new NodeFormData(); form.append('clientEventId', crypto.randomUUID());
+  for (const f of files) form.append('files', f, f.name);
+  const body = new Uint8Array(await new Response(form).arrayBuffer()), boundary = new TextDecoder().decode(body).split('\r\n')[0].slice(2);
+  return { bytes: body.length, boundary: boundary.length };
+}
+
+test('multipart overhead is the exact encoded body: boundary, every part header with the escaped UTF-8 filename and type, and clientEventId', async () => {
+  const cases = [[new NodeFile(['hello'], 'a.txt', { type: 'text/plain' })],
+    [new NodeFile(['x'.repeat(300)], 'Übersicht "Q3"\r\nfinal 📄.pdf', { type: 'application/pdf' }), new NodeFile([''], 'leer'), new NodeFile(['{}'], 'données.json', { type: 'application/json' })]];
+  for (const files of cases) {
+    const real = await encoded(files);
+    assert.equal(formBytes(real.boundary) + files.reduce((sum, f) => sum + filePartBytes(f, real.boundary) + f.size, 0), real.bytes, files.map(f => f.name).join(', '));
+  }
+  // The browser picks the boundary; the count assumes the longest the server accepts (70), so it never falls
+  // short: the boundary appears once per field, once per file and once to close.
+  const [one] = cases[0], real = await encoded([one]);
+  assert.equal(formBytes() + filePartBytes(one) + one.size, real.bytes + 3 * (70 - real.boundary));
+});
+
+test('a 1 KB request limit still takes a five-byte file; limits too small for any file say so, never a negative size', async t => {
+  const limits = { ...UPLOAD_LIMITS, maxRequestBytes: 1024 }, small = new NodeFile(['hello'], 'notes.txt', { type: 'text/plain' });
+  assert.ok((await encoded([small])).bytes <= 1024, 'its real body fits');
+  const plan = planUploads([small], { limits });
+  assert.deepEqual(plan.refused, []); assert.deepEqual(plan.batches.map(batch => batch.map(f => f.name)), [['notes.txt']]);
+  // Two of them share one request; two 300-byte files no longer fit one 1 KB request together, so each goes alone.
+  assert.deepEqual(planUploads([small, new NodeFile(['hello'], 'more.txt', { type: 'text/plain' })], { limits }).batches.map(batch => batch.length), [2]);
+  const pair = ['a.txt', 'b.txt'].map(name => new NodeFile(['x'.repeat(300)], name, { type: 'text/plain' }));
+  assert.ok((await encoded(pair)).bytes > 1024 && (await encoded(pair.slice(0, 1))).bytes <= 1024);
+  assert.deepEqual(planUploads(pair, { limits }).batches.map(batch => batch.length), [1, 1]);
+  const shown = limitsText(en, limits, 'en');
+  assert.match(shown, /^Up to 8 files, \d+ B each:/u); assert.doesNotMatch(shown + dropText(de, limits, 'de'), /-\d/u);
+  const big = new NodeFile(['x'.repeat(900)], 'big.txt', { type: 'text/plain' }), refused = planUploads([big], { limits });
+  assert.equal(refused.refused[0].reason, 'size'); assert.ok(refused.refused[0].limit > 0 && refused.refused[0].limit < 900);
+  assert.match(refusalText(en, refused, 'en'), /^Not attached: big\.txt \(too large, up to \d+ B per file\)\.$/u);
+  // A host limit smaller than any file part: uploads are plainly not possible.
+  for (const maxRequestBytes of [100, 300]) {
+    const tiny = { ...UPLOAD_LIMITS, maxRequestBytes };
+    assert.equal(uploadsPossible(tiny), false);
+    assert.equal(limitsText(en, tiny, 'en'), en.uploads.impossible); assert.equal(dropText(de, tiny, 'de'), de.uploads.impossible);
+    assert.equal(refusalText(en, planUploads([new NodeFile(['a'], 'a.txt')], { limits: tiny }), 'en'), 'Files cannot be uploaded: the upload limits of this host leave no room for a file.');
+  }
+  assert.equal(uploadsPossible(limits), true);
+  // In the component: the five-byte file is sent under the host's 1 KB limit.
+  const { root, calls } = setup(t, { limits });
+  await choose(root, [file('notes.txt', 5)]);
+  assert.equal(root.querySelector('.composer-reason').textContent.includes('Not attached'), false, root.querySelector('.composer-reason').textContent);
+  assert.deepEqual(calls.find(call => call.options.method === 'POST')?.options.body.getAll('files').map(f => f.name), ['notes.txt']);
+  // Once a host's limits leave no room, Attach says so and no longer opens the picker.
+  const tiny = setup(t, { limits: { ...UPLOAD_LIMITS, maxRequestBytes: 100 } }), attach = tiny.root.querySelector('.attach');
+  let picked = 0; t.mock.method(tiny.root.querySelector('.attach-input'), 'click', () => { picked++; });
+  attach.click(); await tick(); await tick();
+  assert.equal(picked, 1); assert.equal(attach.getAttribute('aria-disabled'), 'true'); assert.equal(attach.title, en.uploads.impossible);
+  attach.click(); assert.equal(picked, 1); assert.equal(tiny.root.querySelector('.composer-reason').textContent, en.uploads.impossible);
 });
 
 test('chips: pending, accepted and unreadable with the localized reason, keyed by upload id, names as text and placed where they arrived', t => {
@@ -90,6 +149,14 @@ test('chips: pending, accepted and unreadable with the localized reason, keyed b
   assert.deepEqual(rows(root), ['First', 'file notes.txt', 'Later', 'file locked.pdf']);
   assert.equal(uploadStateText(de, { state: 'unreadable', reason: 'deadline' }), 'Nicht lesbar: das Auslesen hat zu lange gedauert. Bitte fügen Sie den relevanten Teil als Text ein.');
   assert.equal(uploadStateText(en, { state: 'unreadable', reason: 'future-reason' }), 'Not readable: reading is not available right now. Please paste the relevant part as text.');
+  // Fixed slots: the action slot keeps the label's width after withdrawal, and the state slot holds every
+  // state of this language invisibly, so it is as tall as the longest; the stand-ins are hidden from assistive technology.
+  const sizers = [...chip.querySelectorAll('.upload__status .upload__sizer')].map(n => n.textContent);
+  assert.deepEqual(sizers, uploadStateTexts(en)); assert.ok(sizers.includes(uploadStateText(en, { state: 'unreadable', reason: 'malformed' })));
+  assert.equal(chip.querySelector('.upload__action .upload__sizer').textContent, en.uploads.withdraw);
+  assert.ok([...chip.querySelectorAll('.upload__sizer')].every(n => n.getAttribute('aria-hidden') === 'true'));
+  assert.match(root.querySelector('style').textContent, /\.upload \{ align-self:flex-end; width:min\(34rem,78%\);/u);
+  assert.match(root.querySelector('style').textContent, /\.upload__sizer \{ visibility:hidden; \}/u);
 });
 
 test('Withdraw upload posts to the owner route, keeps the row in place as a tombstone and keeps focus there', async t => {
