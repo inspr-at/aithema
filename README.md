@@ -791,8 +791,8 @@ At most nine total references are used, each
 at most 12 MiB. After durably removing the upload source, await
 `handlers.removeConceptReference(sessionId, sourceId)` before acknowledgement.
 The included fake tests exercise this port, dependency-scoped removal and an
-upload/turn with the same ID. Document upload routes ship in AIT-100 B1; their
-attachment UI is the later B2 slice. Image upload references remain a host port.
+upload/turn with the same ID. Document upload routes ship in AIT-100 B1 and
+their attachment UI in B2 (below). Image upload references remain a host port.
 
 Document uploads use `POST /api/sessions/:id/uploads` with `multipart/form-data`:
 one `clientEventId`, optional `inputRevision`, and `file` or repeated `files`.
@@ -818,6 +818,16 @@ Withdraw with DELETE `/api/sessions/:id/uploads/:uploadId` or POST
 retain the ID and tombstone flags. Replay keeps the original transition with
 `erased:true,withdrawn:true` and the ID only when its content is gone; consumers
 must treat those flags as a tombstone. No original-byte download route exists.
+
+In `<aithema-session>` (B2), Attach opens the native picker (multiple files), and
+files dropped on the conversation upload the same way. Before sending, the client
+names refused types, oversized files and an overfull conversation in plain words,
+using the limits the route reports; files that fit are packed into requests under
+the per-request ceilings. When the `uploads` verdict is unavailable, Attach stays
+focusable and says the server's reason. Each upload is a transcript line keyed by
+its ID with its name (as text), size and state; Withdraw upload uses the POST
+route. Upload, limit and withdraw requests pass the same-origin guard of the
+concept view and carry the owner header or cookie. Extracted text never renders.
 
 The demo registers the local text, PDF and OOXML plugins by default. Other
 hosts register them in `PluginRegistry`, allow their IDs in the preset's

@@ -1,4 +1,4 @@
-import { postJson } from './post-json.js';
+import { postJson, sameOrigin } from './post-json.js';
 import { reasonText } from './settings-dialog.js';
 import { HTML_MEDIA_TYPE, frameDocument, inspectHTML } from '../../core/src/ui-html.js';
 
@@ -97,11 +97,7 @@ export class ConceptView {
   current() { return this.items.find(c => c.id === this.#selected); }
   path(suffix = '') { return `${this.baseUrl}/api/sessions/${this.#session.id}/concepts${suffix}`; }
   // Every owner-authenticated concept request, GET or POST, passes here before it is sent.
-  sameOrigin(path) {
-    const location = this.root.ownerDocument.defaultView?.location;
-    if (location?.origin && location.origin !== 'null' && new URL(path, location.href).origin !== location.origin) throw new Error('Concept routes require same origin');
-    return path;
-  }
+  sameOrigin(path) { return sameOrigin(this.root.ownerDocument.defaultView, path, 'Concept routes require same origin'); }
   connect() {
     this.root.ownerDocument.addEventListener('visibilitychange', this.visibility);
     this.root.ownerDocument.defaultView?.addEventListener('pagehide', this.pagehide);
