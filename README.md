@@ -259,7 +259,7 @@ storage erasure, delivery deduplication and wallet reservation fingerprints.
 on the host surface inside `<aithema-session>`; each flag shows one part, and every
 fact comes from the routes above. Without `host` nothing changes.
 
-- **Host bar** above the understanding pane (wide) or above the conversation (narrow):
+- **Host bar** in the component's top row, beside the processing line and Settings:
   **Conversations**, the verification entry, the `account` slot and the credits line.
 - **Verification** (`verification: true`): while host policy locks the assessment,
   the understanding pane shows the email form in its place (START EmailLock);
@@ -295,6 +295,7 @@ while its demo host is active; a live provider host shows none of the demo copy)
 
 | Slot | Where |
 | --- | --- |
+| `promise` | Entrance headline above the processing choice; without it the component shows START's three lines (`copy.entrance.promise`) and lead |
 | `account` | Right end of the host bar (account menu) |
 | `credits-limit` | After the credits line once the limit is reached (top-up or next step) |
 | `handover-offer` | Offer copy in the handover band (default: a generic sentence) |
@@ -558,8 +559,10 @@ to `component.configure`. The demo is a complete reference. Serve client ESM,
 the SDK IIFE and worklets; never serve the plugin's server or facade modules.
 The localhost demo serves the pinned SDK at `/vendor/elevenlabs/lib.iife.js` and
 standalone worklets at `/vendor/elevenlabs/worklets/{raw-audio,audio-concat}.js`.
-The rail reads optional `audioLevels()` input/output measurements; the orb's
-outer size remains fixed. Blocked SDK audio playback offers a user-gesture retry.
+The rail reads optional `audioLevels()` input/output measurements: the waveform
+draws the visitor's level while listening and the reply's while speaking, and the
+orb (docked in the rail as the voice avatar) reacts to the audible reply only; its
+outer size remains fixed. Call messages open under the rail without moving it. Blocked SDK audio playback offers a user-gesture retry.
 Hosts with an additional Web Audio context can supply `voicePlayback` to resume it.
 
 Voice finals are ordinary durable `turn.final` events. A genuine heard prefix is
@@ -745,9 +748,26 @@ help). It is a native modal `<dialog>`: focus moves to Done and returns to its
 opener, Escape closes menus first, and tabs, radios and listboxes support the
 keyboard. Up to 40rem wide it fills the viewport. Every changing value sits in a
 fixed box, so hover, saves and gauge updates never move a control. A conversation
-starts with the preset chooser (START `LandingPresets`), covering the call and
-concept rails until a choice is confirmed, and then a ready card
-(START `ConversationReadiness`) until the first message. Custom opens the dialog.
+starts with START's entrance: the `promise` slot (or the default promise) and the
+orb above the four processing choices (START `LandingPresets`); Custom opens the
+dialog. Continue fires `aithema-consent` when the choice is not covered yet. Then
+readiness (START `ConversationReadiness`): model, consent, microphone and speaker
+states, a reversible choice to speak or to type, and an explicit Start. Nothing
+asks for the microphone before a voice start. The call rail and the composer open
+with the conversation; the understanding column opens with the first input.
+
+The look is START's (palettes, Georgia display serif, radii 10/18/28 px, offset
+lighting) on the public `--aithema-*` tokens. `theme="light|dark|system"` on the
+element picks the palette (default system). Hosts may override any token; three
+shape the page: `--aithema-height` (the live workspace's height on wide screens,
+default `100dvh`; subtract a host masthead), `--aithema-lighting` (START's three
+offset light sources, fixed to the viewport; the sticky AI-notice line and the
+concept viewer use it) and `--aithema-backdrop` (what the element paints behind
+itself, the lighting over paper; set it to `none` when the host page paints START's
+paper and lighting, as the reference host does, so page and component are one
+canvas). The understanding column opens with START's 560 ms reveal only when the
+first input arrives on screen; `prefers-reduced-motion` stops every animation, the
+reveal included.
 
 Hosts list visitor choices per preset as `presets[p].choices = {models, voices,
 visuals, defaults}`. A model option is `{id, label?, binding | bindings: {reaction,

@@ -353,6 +353,11 @@
       "aithema_module": "plugins/elevenlabs/, packages/core/src/live-voice.js",
       "start_source": "start-agm-com src/pages/api/v2/{agent-token,call-reconcile,pause}.ts, src/pages/api/v2/llm/chat/completions.ts, src/scripts/v2.ts, src/lib/providers/elevenlabs.ts",
       "notes": "Generic authenticated token minting, session reasoning facade, acknowledged pause and separate visitor/upstream accounting, SDK final/correction events and bounded recovery. SDK dependency pinned to START lockfile 1.17.0. INSPR holds port rights under approved revised D3."
+    },
+    {
+      "aithema_module": "packages/ui/src/{styles,entrance-styles,orb,waveform,audio-rail,session-element,icons}.js",
+      "start_source": "start-agm-com src/styles/app.css (palette, type, shell, orb), src/styles/landing-presets.css, src/pages/index.astro (entrance, readiness, conversation rail, transcript, composer, understanding), src/components/{Orb,LandingPresets,ConversationReadiness}.astro, src/scripts/orb.ts, src/lib/waveform-level.ts, src/lib/microphone.ts (conversation signal)",
+      "notes": "START's look as the component's default presentation (AIT-128): palettes, display serif, radii, offset lighting, promise and orb entrance, four processing choices, readiness with an explicit start, icon rail with waveform, tailed bubbles and the understanding reveal. No Augmentoring name, logo, imprint or brand copy. INSPR holds rights to the ported generic code under approved decision D3 (revised, 2026-10-09)."
     }
   ],
   "not_copied": [
@@ -363,5 +368,16 @@
     "credits",
     "customer records",
     "env/secret files"
+  ],
+  "vendored": [
+    {
+      "name": "lucide (icon paths)",
+      "version": "1.31.0",
+      "license": "ISC",
+      "copyright": "Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022 as part of Feather (MIT). All other copyright (c) for Lucide are held by Lucide Contributors 2022.",
+      "files": "packages/ui/src/icons.js",
+      "use": "Inner SVG paths of the mic, volume, keyboard, settings, info, check, arrow-right, refresh-cw, panels-top-left and download icons, copied through START src/lib/icons.ts.",
+      "license_text": "Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted, provided that the above copyright notice and this permission notice appear in all copies. THE SOFTWARE IS PROVIDED \"AS IS\" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE."
+    }
   ]
 }

@@ -231,21 +231,21 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         assert.ok(id);
         await waitForShadow(page, '.composer textarea');
         assert.equal(await page.$eval('aithema-session', component => component.session.id), id);
-        // GUI-27 item 5: the preset chooser is a plain list on hairlines, not a row of equal
-        // bordered tiles, and hover or selection never moves or resizes an option.
-        // Positions are relative to the list, since hovering may scroll it into view.
+        // AIT-128: START's four processing choices (LandingPresets), four columns, two on narrow screens;
+        // hover or selection never moves or resizes an option. Positions are relative to the list,
+        // since hovering may scroll it into view.
         const chooserGeometry = () => page.$$eval('aithema-session >>> .chooser-option', nodes => nodes.map(node => {
-          const rect = node.getBoundingClientRect(), list = node.parentElement.getBoundingClientRect(), style = getComputedStyle(node);
-          return { x: rect.x - list.x, y: rect.y - list.y, width: rect.width, height: rect.height, radius: style.borderTopLeftRadius,
-            sides: [style.borderLeftWidth, style.borderRightWidth], shadow: style.boxShadow, background: style.backgroundColor };
+          const rect = node.getBoundingClientRect(), list = node.parentElement.getBoundingClientRect();
+          return { x: rect.x - list.x, y: rect.y - list.y, width: rect.width, height: rect.height };
         }));
         for (const width of [390, 1024]) {
           await page.setViewport({ width, height: 900 });
           const resting = await chooserGeometry();
           assert.equal(resting.length, 4);
-          assert.ok(resting.every((o, i) => o.x === resting[0].x && o.width === resting[0].width && (!i || o.y > resting[i - 1].y)), `one column at ${width}px: ${JSON.stringify(resting)}`);
-          assert.ok(resting.every(o => o.radius === '0px' && o.sides.every(side => side === '0px') && o.shadow === 'none' &&
-            o.background === 'rgba(0, 0, 0, 0)'), `no bordered or filled tiles at ${width}px`);
+          const columns = width >= 832 ? 4 : 2;
+          assert.equal(new Set(resting.map(o => o.x)).size, columns, `${columns} columns at ${width}px: ${JSON.stringify(resting)}`);
+          // Equal to the layout unit: the grid hands a fraction of a pixel left over to the last column.
+          assert.ok(resting.every(o => Math.abs(o.width - resting[0].width) <= .5), `equal choices at ${width}px: ${JSON.stringify(resting)}`);
           await page.hover('aithema-session >>> .chooser-option[data-preset="custom"]');
           assert.deepEqual(await chooserGeometry(), resting, `hover moves nothing at ${width}px`);
           await page.click('aithema-session >>> .chooser-option[data-preset="device"]');
@@ -264,6 +264,8 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
           assert.equal(saved.status(), 200, `${selector} must save consent through the demo UI`);
           await waitForShadow(page, '.composer textarea', { enabled });
         }
+        // AIT-128: the composer opens with START's explicit start.
+        await startTyping(page);
         await page.mouse.move(0, 0);
         assert.equal(await page.$eval('aithema-session', component =>
           component.shadowRoot.querySelector('.summary-text').textContent), '');
@@ -296,7 +298,8 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
           .querySelectorAll('[data-select="model"] [role=option]')].find(node => node.querySelector('strong').textContent === 'Swift (mock)'));
         const [, modelSaved] = await Promise.all([swift.click(), settingsSaved()]);
         assert.equal(modelSaved.status(), 200, 'the server acknowledges the model');
-        assert.deepEqual(JSON.parse(modelSaved.request().postData()), { processingPreset: 'custom', model: 'mock/swift', effort: 'none', voice: 'off', visuals: 'off', baseRevision: 1 });
+        // AIT-128: Continue confirmed the offered choice first (revision 1); the preset change here made revision 2.
+        assert.deepEqual(JSON.parse(modelSaved.request().postData()), { processingPreset: 'custom', model: 'mock/swift', effort: 'none', voice: 'off', visuals: 'off', baseRevision: 2 });
         await waitForShadow(page, '.save-status', { text: 'Changes saved' });
         const effort = await page.$('aithema-session >>> #settings-effort');
         await effort.focus();
@@ -593,12 +596,36 @@ async function unreadableThenWithdrawn(page, path, width, shot, shotName) {
   assert.equal(await inShadow(page, c => c.shadowRoot.activeElement?.dataset.state), 'withdrawn', `unreadable → withdrawn at ${width}: focus stays on the row`);
 }
 const until = (page, fn, arg) => page.waitForFunction(fn, { polling: 50, timeout: waitTimeout }, arg);
+// AIT-128: the composer opens with START's explicit start: Continue (from the entrance), Text input, Start.
+async function startTyping(page) {
+  const stage = () => inShadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.stage);
+  if (await stage() === 'live') return;
+  if (await stage() === 'entrance') {
+    await inShadow(page, c => c.shadowRoot.querySelector('.chooser__continue').click());
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').dataset.stage === 'ready');
+  }
+  await inShadow(page, c => { c.shadowRoot.querySelector('.ready__mode[data-mode="type"]').click(); c.shadowRoot.querySelector('.ready__start').click(); });
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').dataset.stage === 'live');
+}
 const sendTurn = (page, text) => inShadow(page, (c, text) => {
   c.shadowRoot.querySelector('textarea').value = text; c.shadowRoot.querySelector('form').requestSubmit();
 }, text);
+// AIT-128: the first input opens the understanding with START's one-time reveal (the column slides in over
+// ~560 ms). It is the visitor's own action, not a live update; checks under a resting pointer start after it.
+const revealed = page => until(page, () => {
+  const workspace = document.querySelector('aithema-session').shadowRoot.querySelector('.workspace');
+  return workspace.dataset.understanding === 'present' && !workspace.hasAttribute('data-reveal');
+});
 const voiceState = page => inShadow(page, c => c.shadowRoot.querySelector('.audio-rail').dataset.state);
+// Start call; before the conversation has started, through START's explicit voice start (Continue, Speak, Start).
 async function startCall(page) {
-  await inShadow(page, c => c.shadowRoot.querySelector('.voice-start').click());
+  const stage = () => inShadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.stage);
+  if (await stage() === 'entrance') {
+    await inShadow(page, c => c.shadowRoot.querySelector('.chooser__continue').click());
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').dataset.stage === 'ready');
+  }
+  if (await stage() === 'ready') await inShadow(page, c => { c.shadowRoot.querySelector('.ready__mode[data-mode="voice"]').click(); c.shadowRoot.querySelector('.ready__start').click(); });
+  else await inShadow(page, c => c.shadowRoot.querySelector('.voice-start').click());
   await until(page, () => ['listening', 'speaking'].includes(document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state));
 }
 async function endCall(page) {
@@ -631,7 +658,7 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
     await mockConsent(page); await waitForShadow(page, '.composer textarea', { enabled: true });
     await sendTurn(page, 'We are a bakery and want a pre-order app for our customers.');
-    await waitForShadow(page, 'aside .notice', { text: 'Current assessment' });
+    await waitForShadow(page, 'aside .notice', { text: 'Current assessment' }); await revealed(page);
 
     // D7: window blur alone never pauses the call or the session.
     await startCall(page);
@@ -740,15 +767,17 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
     assert.ok([de.voiceRecoveryFailed, de.voiceClosureUncertain, de.voiceConflict].every(message => voiceMessages.includes(message)));
     await german.setViewport({ width: 400, height: 800 });
     const voiceFit = await inShadow(german, (c, messages) => {
-      const r = c.shadowRoot, state = r.querySelector('.voice-state'), info = r.querySelector('.voice-info'), rail = r.querySelector('.audio-rail'), original = state.textContent;
-      const boxes = () => [...r.querySelectorAll('.voice-orb, .voice-controls button, .concept-rail, .transcript-shell')].map(node => JSON.stringify(node.getBoundingClientRect()));
-      const before = boxes(), result = messages.map(message => {
+      // AIT-128: a call message opens under START's rail (data-message), whole and inside the page.
+      const r = c.shadowRoot, state = r.querySelector('.voice-state'), rail = r.querySelector('.audio-rail'), original = state.textContent;
+      const boxes = () => [...r.querySelectorAll('.voice-orb, .audio-rail button, .concept-rail, .transcript-shell')].map(node => JSON.stringify(node.getBoundingClientRect()));
+      const before = boxes(), message = rail.hasAttribute('data-message'); rail.toggleAttribute('data-message', true);
+      const result = messages.map(message => {
         state.textContent = message;
-        const lines = Math.round(state.scrollHeight / parseFloat(getComputedStyle(state).lineHeight));
-        return { message: message.slice(0, 40), lines, clipped: state.scrollHeight > state.clientHeight + 1 || info.scrollHeight > info.clientHeight + 1 || rail.scrollHeight > rail.clientHeight + 1,
+        const lines = Math.round((state.clientHeight - parseFloat(getComputedStyle(state).paddingTop) * 2) / parseFloat(getComputedStyle(state).lineHeight)), own = state.getBoundingClientRect();
+        return { message: message.slice(0, 40), lines, clipped: state.scrollHeight > state.clientHeight + 1 || own.left < 0 || own.right > innerWidth,
           moved: boxes().some((box, index) => box !== before[index]) };
       });
-      state.textContent = original; return result;
+      rail.toggleAttribute('data-message', message); state.textContent = original; return result;
     }, voiceMessages);
     assert.ok(voiceFit[0].lines >= 3, `the longest message wraps (${voiceFit[0].lines} lines)`);
     assert.deepEqual(voiceFit.filter(fit => fit.clipped || fit.moved), [], 'no voice message is clipped or moves a control at 400 px');
@@ -837,7 +866,7 @@ test('AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab l
       if (request.url() === `${demo.url}/anchor-fixture`) void request.respond({ status: 200, contentType: 'text/html; charset=utf-8', body: anchorFixture });
       else void request.continue();
     });
-    await fixture.goto(`${demo.url}/anchor-fixture`); await fixture.waitForFunction(() => window.fixtureReady);
+    await fixture.goto(`${demo.url}/anchor-fixture`); await fixture.waitForFunction(() => window.fixtureReady); await revealed(fixture);
     const signal = index => fixture.evaluate(i => {
       const rect = document.querySelector('aithema-session').shadowRoot.querySelectorAll('.signals li')[i].getBoundingClientRect();
       return { x: rect.x, y: rect.y };
@@ -974,19 +1003,20 @@ test('AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab l
         conversation: getComputedStyle(c.shadowRoot.querySelector('.conversation')).backgroundColor,
         placeholder: getComputedStyle(textarea, '::placeholder').color };
     });
-    assert.deepEqual(dark, { surface: '#1b2223', paper: '#141a1b', conversation: 'rgb(27, 34, 35)', placeholder: 'rgb(155, 173, 171)' });
+    // AIT-128: START's dark palette; the conversation stands on the page itself, as in START.
+    assert.deepEqual(dark, { surface: '#102433', paper: '#0b1a26', conversation: 'rgba(0, 0, 0, 0)', placeholder: 'rgb(157, 180, 196)' });
     assert.equal(await page.$eval('body', body => getComputedStyle(body).backgroundColor), 'rgb(11, 26, 38)', 'host paper uses the START palette');
     // The AIT-112 settings dialog follows the same tokens: its primary button inverts and the gauge panel darkens.
     const settingsDark = await inShadow(page, c => {
       c.openSettings(); const r = c.shadowRoot;
       return { done: getComputedStyle(r.querySelector('dialog.settings .done')).color,
-        gauges: getComputedStyle(r.querySelector('.gauge-panel')).backgroundImage.includes('rgb(27, 34, 35)') };
+        gauges: getComputedStyle(r.querySelector('.gauge-panel')).backgroundImage.includes('rgb(16, 36, 51)') };
     });
-    assert.deepEqual(settingsDark, { done: 'rgb(20, 26, 27)', gauges: true });
+    assert.deepEqual(settingsDark, { done: 'rgb(11, 26, 38)', gauges: true });
     await page.keyboard.press('Escape');
     await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
-    assert.equal(await inShadow(page, c => getComputedStyle(c).getPropertyValue('--aithema-surface').trim()), '#fffef9');
+    assert.equal(await inShadow(page, c => getComputedStyle(c).getPropertyValue('--aithema-surface').trim()), '#fffcf8');
 
     // D14: at 400 px the transcript keeps a usable height, the concept status is whole, nothing overflows sideways.
     await page.setViewport({ width: 400, height: 800 });
@@ -1074,7 +1104,7 @@ test('clickable html drafts: request, sandboxed preview, a refresh revision in p
     await mockConsent(page); await waitForShadow(page, '.composer textarea', { enabled: true });
     // The mock's slot-filling turn earns the first milestone, so the request renders at once.
     await sendTurn(page, `We are a bakery and want a pre-order app. ${content}`);
-    await waitForShadow(page, 'aside .notice', { text: 'Current assessment' });
+    await waitForShadow(page, 'aside .notice', { text: 'Current assessment' }); await revealed(page);
 
     // Request: the rail says what happens in plain words and nothing moves under the pointer.
     const requestBefore = await rest(page, '.concept-request');
@@ -1155,7 +1185,8 @@ test('clickable html drafts: request, sandboxed preview, a refresh revision in p
 
     // Dark: the viewer and preview follow the dark tokens.
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
-    assert.equal(await inShadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.concept-viewer')).backgroundColor), 'rgb(20, 26, 27)');
+    // AIT-128: START's dark paper, #0b1a26.
+    assert.equal(await inShadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.concept-viewer')).backgroundColor), 'rgb(11, 26, 38)');
     await shot(page, 'en-dark-1440-viewer');
     // 400 px: the viewer fits, the draft keeps a usable stage, the title is whole, nothing overflows sideways.
     await page.setViewport({ width: 400, height: 800 });
@@ -1270,7 +1301,7 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     assert.equal((await attach()).title, 'Bis zu 8 Dateien, je höchstens 20 MB: PDF, Word, Excel, PowerPoint, Text, Markdown, CSV, JSON oder XML. Die Originaldatei wird nicht aufbewahrt.');
 
     await sendTurn(page, 'Wir sind eine Bäckerei und wollen eine Vorbestell-App. Betrieb: gehostet; Daten: öffentlich; Systeme: API; Reichweite: international');
-    await waitForShadow(page, 'aside .notice', { text: 'Aktuelle Einschätzung' });
+    await waitForShadow(page, 'aside .notice', { text: 'Aktuelle Einschätzung' }); await revealed(page);
     const firstRevision = await inShadow(page, c => c.session.understanding.inputRevision);
 
     // Record every chip state as it renders, so a fast extraction still shows its pending state.
@@ -1386,7 +1417,7 @@ test('document uploads: a text file and a PDF through the real file picker, pend
 
     // Dark and 400 px: tokens follow the theme, Attach becomes its icon, nothing overflows sideways.
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
-    assert.equal(await inShadow(page, c => getComputedStyle(c.shadowRoot.querySelectorAll('ol li.upload')[1].querySelector('.upload__name')).color), 'rgb(226, 233, 230)');
+    assert.equal(await inShadow(page, c => getComputedStyle(c.shadowRoot.querySelectorAll('ol li.upload')[1].querySelector('.upload__name')).color), 'rgb(234, 241, 246)', 'START\'s dark ink');
     await shot(page, 'de-dark-1440-withdrawn');
     await page.setViewport({ width: 400, height: 800 });
     const phone = await inShadow(page, c => {
@@ -1435,10 +1466,11 @@ test('document uploads: a text file and a PDF through the real file picker, pend
 // scrolled to.
 const COMPOSER = ['.composer textarea', '.attach', '.send'];
 const ENTRY_POINTS = {
-  chooser: [...['best', 'eu', 'device', 'custom'].map(preset => `.chooser-option[data-preset="${preset}"]`), '.chooser__continue', ...COMPOSER],
+  // AIT-128: START's entrance, then readiness with its explicit start; the call rail and the composer open with the conversation.
+  chooser: [...['best', 'eu', 'device', 'custom'].map(preset => `.chooser-option[data-preset="${preset}"]`), '.chooser__continue'],
   // The ready card before consent is granted: Review consent opens the host's consent interface.
-  'ready before consent': ['.ready__change', '.ready__consent', '.voice-start', ...COMPOSER],
-  ready: ['.ready__change', '.voice-start', ...COMPOSER],
+  'ready before consent': ['.ready__change', '.ready__consent', '.ready__start'],
+  ready: ['.ready__change', '.ready__start'],
   conversation: ['.voice-start', ...COMPOSER],
   'failed call': ['.voice-retry', '.voice-start', ...COMPOSER],
 };
@@ -1540,17 +1572,18 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
       await page.setViewport({ width: 1440, height: 1000 }); await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
 
       // Nothing shifts under the pointer. At the page's end every part of the pane is in view and the notice
-      // stands in its own place; resting on it, hovering the controls, granting consent (the composer opens),
-      // a turn and its reply leave the notice and the composer exactly where they were.
+      // stands in its own place; resting on it, hovering the controls, granting consent (the ready card's Start
+      // stays), a turn and its reply leave the notice, Start and the composer exactly where they were.
+      // AIT-128: before the conversation starts, the entrance and then the ready card stand where the composer will.
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-      let before = { line: await box(page, '.ai-notice'), composer: await box(page, '.composer') };
+      let before = { line: await box(page, '.ai-notice'), go: await box(page, '.chooser__continue') };
       await page.mouse.move(before.line.x + 40, before.line.y + before.line.height / 2);
       sameBox(before.line, await box(page, '.ai-notice'), 'notice on hover');
       assert.equal((await style(page)).background, (await style(page)).pane, 'hover adds no tint');
-      for (const selector of ['.chooser-option', '.attach', '.send']) {
+      for (const selector of ['.chooser-option', '.chooser__continue']) {
         await rest(page, selector);
         sameBox(before.line, await box(page, '.ai-notice'), `notice while hovering ${selector}`);
-        sameBox(before.composer, await box(page, '.composer'), `composer while hovering ${selector}`);
+        sameBox(before.go, await box(page, '.chooser__continue'), `Continue while hovering ${selector}`);
       }
       // The confirmed choice navigates to consent. Return without a grant to
       // check the ready card's entry points in the new host document.
@@ -1569,7 +1602,7 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
       }
       await page.setViewport({ width: 1440, height: 1000 });
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-      before = { line: await box(page, '.ai-notice'), composer: await box(page, '.composer') };
+      before = { line: await box(page, '.ai-notice'), start: await box(page, '.ready__start') };
       await page.mouse.move(before.line.x + 40, before.line.y + before.line.height / 2);
       await Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
         page.click('aithema-session >>> .ready__consent')]);
@@ -1581,10 +1614,10 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
       await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.ready__consent'));
       await waitForShadow(page, '.ready__change');
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-      sameBox(before.line, await box(page, '.ai-notice'), 'notice under the pointer while consent opens the composer');
-      sameBox(before.composer, await box(page, '.composer'), 'composer while consent opens it');
-      await rest(page, '.voice-start');
-      sameBox(before.line, await box(page, '.ai-notice'), 'notice while hovering Start call');
+      sameBox(before.line, await box(page, '.ai-notice'), 'notice under the pointer after consent');
+      sameBox(before.start, await box(page, '.ready__start'), 'the ready card\'s Start after consent');
+      await rest(page, '.ready__start');
+      sameBox(before.line, await box(page, '.ai-notice'), 'notice while hovering Start');
       // Ready card after consent: Change, Start call and the composer, both sizes.
       await page.evaluate(() => window.scrollTo(0, 0));
       await shot(page, `${locale}-light-1440-ready`);
@@ -1593,12 +1626,19 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
         tally[`ready ${width}`] = await noticeAtEntryPoints(page, 'ready', full, `${locale} ready ${width} px`);
       }
       await page.setViewport({ width: 1440, height: 1000 });
-      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-      await page.mouse.move(before.line.x + 40, before.line.y + before.line.height / 2);
+      // The first turn opens the conversation and START's understanding reveal; then, with the pointer resting on
+      // the notice, the next turn and its reply leave the notice and the composer exactly where they were.
       await sendTurn(page, locale === 'de' ? 'Wir brauchen eine Vorbestell-App.' : 'We need a preorder app.');
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('ol li.turn').length >= 2);
-      sameBox(before.line, await box(page, '.ai-notice'), 'notice under the pointer while a turn and reply arrive');
+      await revealed(page);
       assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.intro').dataset.mode), '');
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+      before = { line: await box(page, '.ai-notice'), composer: await box(page, '.composer') };
+      await page.mouse.move(before.line.x + 40, before.line.y + before.line.height / 2);
+      await sendTurn(page, locale === 'de' ? 'Für drei Filialen.' : 'For three branches.');
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('ol li.turn').length >= 4);
+      sameBox(before.line, await box(page, '.ai-notice'), 'notice under the pointer while a turn and reply arrive');
+      sameBox(before.composer, await box(page, '.composer'), 'composer while a turn and reply arrive');
       await page.mouse.move(0, 0);
       // The conversation: Start call and the composer, both sizes, light and dark.
       for (const [width, height] of sizes) {

@@ -19,8 +19,13 @@ import { voiceJournal, tabStorage, closeVoiceCall, answerVoicePings, voiceCallAb
 import { node, setText, reconcile } from './dom.js';
 import { HostSurface } from './host-surface.js';
 import { hostStyles } from './host-styles.js';
+import { entranceStyles } from './entrance-styles.js';
+import { orbStyles, createOrb } from './orb.js';
+import { icon } from './icons.js';
 
-const PANES = '.transcript-shell, .analysis-content, .preset-panel, .intro';
+const PANES = '.transcript-shell, .analysis-content, .preset-panel';
+// START's understanding reveal: 560 ms of column, 100–620 ms of the pane fading in (styles.js), with a margin.
+const REVEAL_MS = 700;
 function clearSlack(pane) { pane.style.removeProperty('--aithema-slack-top'); pane.style.removeProperty('--aithema-slack-bottom'); }
 // Empty space below a pane's content: padding fills it before it adds any scroll room.
 function spareSpace(pane) {
@@ -62,6 +67,7 @@ export class AithemaSession extends HTMLElement {
   #open = []; #cleared = []; #failure = false; #sending = false;
   #pointer = null; #onTranscript = false; #follow = true; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false;
   #dialog; #connector; #createDevice; #deviceEndpoint; #chooser = { choice: null, busy: false, error: '' }; #aiNotice; #host; #options; #refocus = null;
+  #orb = null; #started = false; #inputMode = null; #microphone = 'unknown'; #permission = null;
   #uploadAt = new Map(); #uploading = false; #uploadNotice = ''; #reading = ''; #limits = UPLOAD_LIMITS; #limitsLoad = null; #dragDepth = 0;
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
@@ -85,7 +91,7 @@ export class AithemaSession extends HTMLElement {
     this.#aiNotice = aiNotice; this.#options = { ...options }; delete this.#options.session;
     this.#host?.destroy(); this.#host = null;
     const reopen = this.#dialog?.open;
-    this.#concept?.destroy(); this.#rail?.destroy(); this.#voiceClient = voiceClient; this.#voiceClients = voiceClients; this.#voicePlayback = voicePlayback;
+    this.#concept?.destroy(); this.#rail?.destroy(); this.#rail = null; this.#orb?.destroy(); this.#orb = null; this.#voiceClient = voiceClient; this.#voiceClients = voiceClients; this.#voicePlayback = voicePlayback;
     this.#abort?.abort(); this.#deviceController?.abort(); this.#deviceReasoning = deviceReasoning; this.#copy = copy; this.#base = baseUrl.replace(/\/$/u, '');
     // The local connection belongs to this tab, not to a conversation: it survives a new session.
     if (deviceConnector !== this.#createDevice || deviceEndpoint !== this.#deviceEndpoint) {
@@ -96,7 +102,7 @@ export class AithemaSession extends HTMLElement {
     this.#createDevice = deviceConnector; this.#deviceEndpoint = deviceEndpoint;
     this.#session = structuredClone(session); this.#sessionToken = sessionToken; this.#cursor = session.seq; this.#partials.clear(); this.#reasoningRevision = 0;
     this.#restoreFailure(); this.#pending = null; this.#sending = false;
-    this.#invalidatedAt = 0; this.#chooser = { choice: null, busy: false, error: '' };
+    this.#invalidatedAt = 0; this.#chooser = { choice: null, busy: false, error: '' }; this.#started = false; this.#inputMode = null;
     this.#open = []; this.#cleared = []; this.#follow = true; this.#onTranscript = false; this.#notice = ''; this.#connection = '';
     this.#uploadAt.clear(); this.#uploading = false; this.#uploadNotice = ''; this.#reading = ''; this.#limits = UPLOAD_LIMITS; this.#limitsLoad = null; this.#dragDepth = 0;
     // A page that loads paused stays paused until the person resumes it (AIT-116 D4).
@@ -114,10 +120,10 @@ export class AithemaSession extends HTMLElement {
   connectedCallback() {
     if (!this.#session) return;
     this.#pings ??= answerVoicePings(() => this.#rail?.session?.callId ?? null);
-    this.#concept?.connect(); this.#connect(); this.#watchPage(true); this.#offerResume(); this.#host?.connect();
+    this.#concept?.connect(); this.#connect(); this.#watchPage(true); this.#offerResume(); this.#host?.connect(); this.#orb?.mount();
   }
   disconnectedCallback() {
-    this.#host?.disconnect(); this.#watchPage(false); this.#concept?.suspend(); this.#rail?.destroy(); this.#abort?.abort(); this.#deviceController?.abort();
+    this.#host?.disconnect(); this.#watchPage(false); this.#concept?.suspend(); this.#rail?.destroy(); this.#orb?.destroy(); this.#abort?.abort(); this.#deviceController?.abort();
     this.#pings?.close(); this.#pings = null;
   }
   reportVoicePlaybackBlocked() { this.#rail?.reportPlaybackBlocked(); }
@@ -135,34 +141,45 @@ export class AithemaSession extends HTMLElement {
   #mount() {
     const root = this.shadowRoot;
     // Static trusted markup only. All host/model/user copy is assigned through textContent.
-    root.innerHTML = `<style>${styles}${settingsStyles}${hostStyles}</style><div class="workspace">
-      <section class="preset-panel"><div class="engine"><div class="engine__text"><span class="engine__label" data-copy="processing"></span>
-          <strong class="engine__value"></strong><span class="engine__detail"></span></div>
-        <button class="settings-open" type="button" aria-haspopup="dialog">${ICONS.gear}<span></span></button></div><ul class="features"></ul></section>
-      <div class="host-bar" role="group" hidden><button class="library-open-dialog" type="button" aria-haspopup="dialog" hidden></button>
-        <div class="host-verify"></div><div class="host-account"><slot name="account"></slot></div>
-        <p class="host-credits" hidden><span class="host-credits__text"></span> <span class="host-credits__limit" hidden><slot name="credits-limit"></slot></span></p></div>
-      <section class="conversation"><header class="head"><h2 data-copy="conversation"></h2><button class="pause" type="button"></button><span class="status" role="status"></span></header>
-        <p class="ai-notice"><span id="ai-notice"></span><span class="ai-notice__sizer" aria-hidden="true"></span></p>
-        <div class="audio-rail"></div><div class="concept-rail"></div><div class="transcript-shell"><div class="concept-preview-slot"></div><ol aria-live="polite"></ol><button class="transcript-latest" type="button" data-copy="transcriptLatest" style="visibility:hidden"></button></div><div class="intro" hidden></div>
-        <form class="composer"><label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000"></textarea>
+    // START's shell (app.css .shell, index.astro .v2__workspace): a top row, the conversation and,
+    // once there is input, the understanding beside it. The entrance (promise, orb and processing
+    // choice, then readiness) fills the conversation column until the conversation starts.
+    root.innerHTML = `<style>${styles}${orbStyles}${entranceStyles}${settingsStyles}${hostStyles}</style><div class="workspace" data-stage="entrance" data-understanding="absent">
+      <header class="toolbar"><section class="preset-panel"><div class="engine"><div class="engine__text"><span class="engine__label" data-copy="processing"></span>
+          <strong class="engine__value"></strong><span class="engine__detail"></span></div></div><ul class="features"></ul></section>
+        <div class="host-bar" role="group" hidden><button class="library-open-dialog" type="button" aria-haspopup="dialog" hidden></button>
+          <div class="host-verify"></div><div class="host-account"><slot name="account"></slot></div>
+          <p class="host-credits" hidden><span class="host-credits__text"></span> <span class="host-credits__limit" hidden><slot name="credits-limit"></slot></span></p></div>
+        <button class="settings-open" type="button" aria-haspopup="dialog">${icon('settings')}<span class="visually-hidden"></span></button></header>
+      <section class="conversation" aria-labelledby="conversation-title"><header class="head"><h2 class="visually-hidden" id="conversation-title" data-copy="conversation"></h2>
+          <p class="ai-notice"><span id="ai-notice"></span><span class="ai-notice__sizer" aria-hidden="true"></span></p><span class="status" role="status"></span></header>
+        <div class="intro" hidden><div class="intro__prompt"><div class="intro__orb"></div><div class="intro__promise"><slot name="promise"><h2 class="promise"></h2><p class="promise__lead"></p></slot></div></div>
+          <div class="intro__card"></div></div>
+        <div class="audio-rail"></div><div class="concept-bar"><div class="concept-rail"></div><div class="concept-preview-slot"></div></div>
+        <div class="transcript-shell"><ol aria-live="polite"></ol><button class="transcript-latest" type="button" data-copy="transcriptLatest" style="visibility:hidden"></button></div>
+        <form class="composer"><label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000" rows="2"></textarea>
           <div class="composer-actions"><button class="attach" type="button" aria-describedby="attach-limits ai-notice">${UPLOAD_ICONS.attach}<span class="attach__label"></span></button>
             <span class="sr-only" id="attach-limits"></span><input class="attach-input" type="file" multiple hidden tabindex="-1" accept="${UPLOAD_ACCEPT}">
-            <small class="composer-reason" role="status" id="composer-reason"></small><button class="send" data-copy="send" aria-describedby="ai-notice"></button></div></form>
+            <small class="composer-reason" role="status" id="composer-reason"></small><button class="send" aria-describedby="ai-notice">${icon('arrowRight')}<span class="visually-hidden"></span></button></div></form>
         <div class="drop-overlay" aria-hidden="true"><p><strong></strong><span></span></p></div></section>
-      <aside class="understanding"><header class="head"><h2 data-copy="understanding"></h2><button class="concept-tab" type="button" data-copy="conceptTab"></button></header>
+      <aside class="understanding" aria-labelledby="understanding-title"><header class="head"><h2 id="understanding-title" data-copy="understanding"></h2><button class="concept-tab" type="button" data-copy="conceptTab"></button></header>
         <section class="readiness"><div class="scale" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span class="fill"></span><span class="marker"></span></div>
-          <div class="scale-labels"><span data-copy="talk"></span><span data-copy="build"></span></div><p class="talk-progress"></p><p class="build-progress"></p></section>
-        <div class="analysis-content"><p class="notice" role="status"></p><div class="verify-lock" hidden></div><section><h3 data-copy="summary"></h3><p class="summary-text"></p></section>
+          <div class="scale-labels" aria-hidden="true"><span data-copy="talk"></span><span data-copy="build"></span></div><p class="talk-progress"></p><p class="build-progress"></p></section>
+        <div class="analysis-content"><p class="notice" role="status"></p><div class="verify-lock" hidden></div><section class="summary"><h3 data-copy="summary"></h3><p class="summary-text"></p></section>
           <section><h3 data-copy="signals"></h3><ul class="signals"></ul></section><section><h3 data-copy="questions"></h3><ul class="questions"></ul></section>
           <section><h3 data-copy="missing"></h3><ul class="missing"></ul><p class="overflow"></p></section>
-          <section><div class="cleared-head"><h3 data-copy="clarified"></h3><button class="expand" type="button"></button></div><div class="cleared"></div></section></div>
-        <section class="handover" aria-labelledby="handover-title" hidden><h3 id="handover-title"></h3><p class="handover__offer"><slot name="handover-offer"></slot></p>
-          <div class="handover__row"><button class="handover-request" type="button" aria-describedby="handover-state"></button><p class="handover__state" id="handover-state" role="status"></p></div></section>
-        <footer class="foot"><a class="export" data-copy="export"></a><button class="retry" type="button" data-copy="retry" hidden></button></footer></aside>
+          <section><div class="cleared-head"><h3 data-copy="clarified"></h3><button class="expand" type="button"></button></div><div class="cleared"></div></section>
+          <div class="handover" role="region" aria-labelledby="handover-title" hidden><h3 id="handover-title"></h3><p class="handover__offer"><slot name="handover-offer"></slot></p>
+            <div class="handover__row"><button class="handover-request" type="button" aria-describedby="handover-state"></button><p class="handover__state" id="handover-state" role="status"></p></div></div></div>
+        <footer class="foot"><a class="export">${icon('download')}<span data-copy="export"></span></a><button class="retry" type="button" data-copy="retry" hidden></button></footer></aside>
       <footer class="host-foot" hidden><slot name="legal"></slot><slot name="footer"></slot></footer></div>
       <dialog class="settings"></dialog><dialog class="library"></dialog><dialog class="verify-dialog"></dialog>`;
-    root.querySelector('.settings-open span').textContent = this.#copy.settings.open;
+    // The promise is host content when the host slots it; otherwise START's three lines (contract: AIT-128/129).
+    const promise = root.querySelector('.promise');
+    for (const [index, line] of (this.#copy.entrance?.promise ?? []).entries()) { if (index) promise.append(' '); promise.append(node('span', '', line)); }
+    root.querySelector('.promise__lead').textContent = this.#copy.entrance?.lead ?? '';
+    root.querySelector('.send .visually-hidden').textContent = this.#copy.send;
+    root.querySelector('.settings-open span').textContent = this.#copy.settings.open; root.querySelector('.settings-open').title = this.#copy.settings.open;
     root.querySelector('.settings-open').addEventListener('click', event => this.openSettings(event.currentTarget));
     this.#dialog = new SettingsDialog({ dialog: root.querySelector('dialog.settings'), copy: this.#copy, ports: {
       // Withdrawn turns still mark a started conversation (the server's device lock agrees).
@@ -182,7 +199,6 @@ export class AithemaSession extends HTMLElement {
     this.#concept.update(this.#session);
     this.#render('features');
     for (const node of root.querySelectorAll('[data-copy]')) node.textContent = this.#copy[node.dataset.copy];
-    root.querySelector('textarea').placeholder = this.#copy.placeholder;
     root.querySelector('.transcript-latest').addEventListener('click', () => this.#scrollToLatest());
     root.querySelector('textarea').setAttribute('aria-describedby', 'composer-reason ai-notice');
     root.querySelector('.scale').setAttribute('aria-label', `${this.#copy.talk} — ${this.#copy.build}`);
@@ -211,7 +227,14 @@ export class AithemaSession extends HTMLElement {
     });
     this.#rail = new AudioRail({ root: root.querySelector('.audio-rail'), copy: this.#copy, client: this.#voiceClientFor(),
       feature: () => this.#feature('voice', true), playback: this.#voicePlayback, journal: this.#journal ?? undefined,
-      ready: () => this.#orphan, onState: () => this.#clearNotice(),
+      ready: () => this.#orphan, onLevel: level => this.#orb?.setEnergy(level),
+      // A call that starts, ends or fails moves the stage and the avatar with it.
+      onState: state => {
+        // A call the visitor started keeps the conversation open after it ends. Only a running call counts:
+        // an invalidation closes the rail without one, and its brief closing state starts nothing.
+        if (this.#rail?.session) this.#started = true;
+        this.#orb?.setVoice(state); this.#clearNotice(); this.#render('transcript'); this.#render('composer');
+      },
       context: () => ({ understanding: this.#session.understanding, focusedQuestion: this.#session.focusedQuestion ?? null }),
       onEnd: () => {
         if (this.#pending) { delete this.#pending.voiceCallId; delete this.#pending.providerSessionId; }
@@ -225,6 +248,11 @@ export class AithemaSession extends HTMLElement {
     // after the control's own description: here Start and Retry call, the composer above, and the
     // chooser and ready card where they are built.
     for (const name of ['start', 'retry']) root.querySelector(`.voice-${name}`).setAttribute('aria-describedby', 'ai-notice');
+    // One pause for the conversation and its call, in the rail's pause cell (START's single capsule):
+    // it drives the call when one runs and the acknowledged conversation pause otherwise.
+    const pause = node('button', 'pause'); pause.type = 'button';
+    pause.innerHTML = `<span class="voice-icon">${icon('pause')}</span><span class="voice-icon voice-icon--resume">${icon('play')}</span><span class="voice-label"></span>`;
+    root.querySelector('.voice-cell--pause').prepend(pause); root.querySelector('.audio-rail').tabIndex = -1;
     root.querySelector('.pause').addEventListener('click', async () => {
       const button = root.querySelector('.pause');
       if (this.#rail.session) { await this.#rail.pause(!this.#session.paused); return; }
@@ -247,9 +275,14 @@ export class AithemaSession extends HTMLElement {
     for (const pane of root.querySelectorAll(PANES)) pane.addEventListener('pointerleave', () => clearSlack(pane));
     if (this.#options.host) this.#host = new HostSurface({ root, copy: this.#copy, options: this.#options.host, baseUrl: this.#base, sessionToken: this.#sessionToken,
       session: () => this.#session, status: text => this.#status(text), adopt: (session, reason) => this.#adopt(session, reason),
-      onLock: () => this.#render('aside'),
-      // Unlocking keeps a deliberate pause: Resume is offered, else the composer takes focus.
-      focusAfterUnlock: () => { const input = root.querySelector('textarea'); (this.#session.paused || input.disabled ? root.querySelector('.pause') : input).focus(); } });
+      onLock: () => { this.#render('aside'); this.#render('transcript'); },
+      // Focus follows the visible stage control: Continue at the entrance, Start at readiness; live,
+      // unlocking keeps a deliberate pause (Resume is offered), else the composer takes focus.
+      focusAfterUnlock: () => {
+        const stage = this.#stage(), input = root.querySelector('textarea');
+        (stage === 'entrance' ? root.querySelector('.chooser__continue') : stage === 'ready' ? root.querySelector('.ready__start')
+          : this.#session.paused || input.disabled ? root.querySelector('.pause') : input)?.focus();
+      } });
     this.#render('transcript'); this.#render('aside'); this.#render('composer');
   }
   // A conversation from the library (open, new, reset, or the replacement of a deleted one). The host
@@ -441,15 +474,20 @@ export class AithemaSession extends HTMLElement {
   #paint(part) {
     const root = this.shadowRoot, copy = this.#copy;
     this.#paintStatus(); this.#paintNotice();
-    root.querySelector('.pause').textContent = this.#session.paused ? copy.resume : copy.pause;
-    root.querySelector('.pause').setAttribute('aria-pressed', String(this.#session.paused));
+    const pause = root.querySelector('.pause');
+    if (pause) {
+      setText(pause.querySelector('.voice-label'), this.#session.paused ? copy.resume : copy.pause); pause.title = pause.textContent;
+      pause.setAttribute('aria-pressed', String(this.#session.paused));
+    }
     const element = (tag, value, className) => {
       const node = document.createElement(tag); if (value !== undefined) node.textContent = value;
       if (className) node.className = className; return node;
     };
     if (part === 'composer') {
-      const text = this.#feature('text', true);
-      root.querySelector('textarea').disabled = !text.available;
+      const text = this.#feature('text', true), input = root.querySelector('textarea');
+      input.disabled = !text.available;
+      // START's composer: during a call it invites speaking or typing, otherwise the next message.
+      input.placeholder = this.#rail?.session ? copy.placeholderVoice ?? copy.placeholder : copy.placeholder;
       root.querySelector('.send').disabled = this.#sending || !text.available;
       const reason = root.querySelector('.composer-reason');
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');
@@ -610,23 +648,49 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.engine__detail').textContent = this.#engineDetail();
     root.querySelector('.engine__detail').title = this.#engineDetail();
   }
-  // Conversation start (START LandingPresets and ConversationReadiness): a preset chooser
-  // until the visitor confirms a choice, then the ready card until the first message.
+  // Anything the visitor contributed (or its withdrawal) means the conversation has begun.
+  #hasInput() {
+    const session = this.#session;
+    return Boolean(session.transcript.length || session.uploads?.length || this.#partials.size || session.tombstone);
+  }
+  // START's journey (index.astro data-entry, data-choosing-preset): the entrance with the processing
+  // choice, readiness once a choice is confirmed, then the live conversation after an explicit start or
+  // once the conversation has input. A pause or a running call also shows the live view (its controls).
+  #stage() {
+    if (this.#hasInput() || this.#started || this.#session.paused || this.#rail?.root.dataset.call === 'active') return 'live';
+    return (this.#session.settings?.origin ?? 'default') === 'chosen' ? 'ready' : 'entrance';
+  }
   #renderIntro() {
-    const root = this.shadowRoot, intro = root.querySelector('.intro'), active = root.activeElement;
+    const root = this.shadowRoot, workspace = root.querySelector('.workspace'), intro = root.querySelector('.intro'), active = root.activeElement;
     const focus = active && intro.contains(active) ? active.dataset.focusKey : null;
-    const started = this.#session.transcript.length || this.#session.uploads?.length || this.#partials.size || this.#session.tombstone;
-    const mode = started ? '' : (this.#session.settings?.origin ?? 'default') === 'chosen' ? 'ready' : 'chooser';
-    // The chooser covers the call and concept rails until a choice exists; the ready
-    // card covers only the still empty transcript, so a call can start from it.
-    for (const selector of ['.audio-rail', '.concept-rail']) root.querySelector(selector).inert = mode === 'chooser';
+    const stage = this.#stage(), mode = { entrance: 'chooser', ready: 'ready' }[stage] ?? '';
+    workspace.dataset.stage = stage;
+    // Understanding is absent before the first input, then opens beside the conversation (START, ~560 ms).
+    // A host verification lock holds its email form there, so the pane is present while it is locked.
+    const understanding = this.#hasInput() || this.#host?.locked ? 'present' : 'absent';
+    // Only an opening on screen animates (data-reveal): the first paint of a conversation that already has input does not.
+    if (understanding === 'present' && workspace.dataset.understanding === 'absent' && intro.hasAttribute('data-mode')) {
+      workspace.dataset.reveal = ''; setTimeout(() => workspace.removeAttribute('data-reveal'), REVEAL_MS);
+    }
+    workspace.dataset.understanding = understanding; root.querySelector('.understanding').inert = understanding === 'absent';
+    // Before the start only the entrance is operable: the call and concept rails wait for it.
+    for (const selector of ['.audio-rail', '.concept-bar']) root.querySelector(selector).inert = stage !== 'live';
+    this.#placeOrb(stage);
     intro.dataset.mode = mode; intro.hidden = !mode;
-    if (!mode) { intro.replaceChildren(); return; }
+    const card = intro.querySelector('.intro__card');
+    if (!mode) { card.replaceChildren(); return; }
     // The card is built once per mode and its controls are keyed and updated in place, so a
     // live update keeps the hovered and focused nodes, and #anchored keeps them still (AIT-116 D2).
-    if (intro.firstElementChild?.className !== mode) intro.replaceChildren(mode === 'ready' ? this.#readyCard() : this.#chooserCard());
-    if (mode === 'ready') this.#paintReady(intro.firstElementChild); else this.#paintChooser(intro.firstElementChild);
+    if (card.firstElementChild?.className !== mode) card.replaceChildren(mode === 'ready' ? this.#readyCard() : this.#chooserCard());
+    if (mode === 'ready') this.#paintReady(card.firstElementChild); else this.#paintChooser(card.firstElementChild);
     if (focus && !intro.contains(root.activeElement)) intro.querySelector(`[data-focus-key="${focus}"]`)?.focus();
+  }
+  // One orb: the entrance shows it, the rail docks it as the voice avatar (START Orb.astro, v2 orb dock).
+  #placeOrb(stage) {
+    this.#orb ??= createOrb(this.ownerDocument);
+    const dock = this.shadowRoot.querySelector(stage === 'live' ? '.audio-rail .voice-orb' : '.intro__orb');
+    if (dock && this.#orb.element.parentNode !== dock) dock.append(this.#orb.element);
+    if (this.isConnected) this.#orb.mount();
   }
   // A preset other than the acknowledged one is refused at the start only for host reasons;
   // Custom always opens settings.
@@ -635,6 +699,8 @@ export class AithemaSession extends HTMLElement {
     const refused = preset !== 'custom' && preset !== (this.#session.processingPreset ?? 'best') && verdict && !verdict.available && !isDynamicReason(verdict.reason);
     return refused ? verdict.reason : null;
   }
+  // START LandingPresets: four choices, a summary area that reserves its longest text and a Continue
+  // whose position never changes.
   #chooserCard() {
     const copy = this.#copy, c = copy.chooser;
     const section = node('section', 'chooser'); section.setAttribute('aria-labelledby', 'chooser-title');
@@ -648,14 +714,12 @@ export class AithemaSession extends HTMLElement {
     const hint = node('div', 'chooser__hint');
     hint.append(summary, node('span'));
     const go = node('button', 'chooser__continue'); go.type = 'button'; go.dataset.focusKey = 'continue'; go.setAttribute('aria-describedby', 'ai-notice');
-    const arrow = node('span', 'chooser__arrow'); arrow.setAttribute('aria-hidden', 'true'); arrow.innerHTML = ICONS.arrow;
+    const arrow = node('span', 'chooser__arrow'); arrow.setAttribute('aria-hidden', 'true'); arrow.innerHTML = icon('arrowRight');
     go.append(node('span', '', c.continue), arrow);
     go.addEventListener('click', () => void this.#confirmChoice(go));
     const action = node('div', 'chooser__action'); action.append(hint, go);
     const error = node('p', 'chooser__error'); error.setAttribute('role', 'alert');
-    // The action row and its error line stay pinned at the card's bottom edge (AIT-104 B2).
-    const footer = node('div', 'chooser__footer'); footer.append(action, error);
-    section.append(title, cards, footer);
+    section.append(title, cards, action, error);
     return section;
   }
   #chooserOption(preset) {
@@ -664,10 +728,9 @@ export class AithemaSession extends HTMLElement {
     const detail = node('span', 'chooser-option__detail'); detail.id = `chooser-${preset}-detail`;
     detail.append(node('span', '', c.lead[preset]), node('span', '', c.detail[preset]));
     card.setAttribute('aria-describedby', `${detail.id} ai-notice`);
-    const icon = node('span', 'chooser-option__icon'); icon.setAttribute('aria-hidden', 'true'); icon.innerHTML = ICONS[preset];
+    const glyph = node('span', 'chooser-option__icon'); glyph.setAttribute('aria-hidden', 'true'); glyph.innerHTML = ICONS[preset];
     const radio = node('span', 'radio'); radio.setAttribute('aria-hidden', 'true');
-    const text = node('span', 'chooser-option__text'); text.append(node('strong', '', copy.presets[preset]), detail, node('small', 'chooser-option__note'));
-    card.append(radio, icon, text);
+    card.append(glyph, radio, node('strong', '', copy.presets[preset]), detail, node('small', 'chooser-option__note'));
     // The verdict is read at click time: it may have changed since the card was built.
     card.addEventListener('click', () => {
       if (this.#chooser.busy) return;
@@ -716,48 +779,96 @@ export class AithemaSession extends HTMLElement {
     }
     this.#render('transcript');
     if (result.ok) {
-      const input = this.shadowRoot.querySelector('textarea');
-      if (!input.disabled) input.focus(); else this.shadowRoot.querySelector('.ready__change')?.focus();
-      // START continues into consent when the confirmed choice is not covered yet.
+      // Readiness follows; Start takes focus. START continues into consent when the choice is not covered yet.
+      this.shadowRoot.querySelector('.ready__start')?.focus();
       if (result.ack.consent?.required) this.#requestConsent('chooser', result.ack.consent.features);
     } else this.shadowRoot.querySelector('.chooser__continue')?.focus();
   }
+  // START ConversationReadiness and the readiness card around it (index.astro .v2__consent): the model,
+  // consent, microphone and speaker states, a reversible choice to speak or to type, and an explicit start.
   #readyCard() {
-    const section = document.createElement('section'); section.className = 'ready'; section.setAttribute('aria-labelledby', 'ready-title');
-    const title = document.createElement('h3'); title.id = 'ready-title'; title.textContent = this.#copy.ready.title;
-    const actions = document.createElement('div'); actions.className = 'ready__actions';
-    section.append(title, document.createElement('dl'), actions);
+    const copy = this.#copy, r = copy.ready, section = node('section', 'ready'); section.setAttribute('aria-labelledby', 'ready-title');
+    const title = node('h3', '', r.title); title.id = 'ready-title';
+    const route = node('p', 'ready__route'); route.id = 'ready-route';
+    const modes = node('div', 'ready__modes'); modes.setAttribute('role', 'group'); modes.setAttribute('aria-label', r.inputMode);
+    for (const [mode, glyph, label] of [['voice', 'mic', r.voice], ['type', 'keyboard', r.type]]) {
+      const choice = node('button', 'ready__mode'); choice.type = 'button'; choice.dataset.mode = mode; choice.dataset.focusKey = `mode-${mode}`;
+      choice.innerHTML = icon(glyph); choice.append(node('span', '', label));
+      choice.addEventListener('click', () => { if (choice.getAttribute('aria-disabled') !== 'true') { this.#inputMode = mode; this.#render('transcript'); } });
+      modes.append(choice);
+    }
+    const start = node('button', 'ready__start'); start.type = 'button'; start.dataset.focusKey = 'start';
+    start.setAttribute('aria-describedby', 'ready-route ai-notice');
+    const arrow = node('span', 'ready__arrow'); arrow.setAttribute('aria-hidden', 'true'); arrow.innerHTML = icon('arrowRight');
+    start.append(node('span', '', r.start), arrow);
+    start.addEventListener('click', () => this.#start());
+    section.append(title, node('dl'), node('div', 'ready__actions'), route, modes, start);
+    this.#watchMicrophone();
     return section;
+  }
+  // Voice is offered here only when a voice client exists and the selection allows it (or will, after consent).
+  #voiceChoice() {
+    const voice = this.#feature('voice'), device = this.#session.processingPreset === 'device';
+    return !device && Boolean(this.#voiceClientFor()) && engineView(this.#session).voice !== SETTINGS_OFF && (voice.available || isDynamicReason(voice.reason));
+  }
+  #mode() { return this.#voiceChoice() ? this.#inputMode ?? 'voice' : 'type'; }
+  // Read-only, as START: a permission query never acquires the microphone or starts a provider.
+  #watchMicrophone() {
+    if (this.#permission) return;
+    this.#permission = Promise.resolve().then(() => globalThis.navigator?.permissions?.query?.({ name: 'microphone' })).then(status => {
+      if (!status) return;
+      const update = () => { this.#microphone = status.state; if (this.shadowRoot.querySelector('.ready')) this.#render('transcript'); };
+      status.addEventListener?.('change', update); update();
+    }).catch(() => { this.#microphone = 'unknown'; });
   }
   #paintReady(section) {
     const copy = this.#copy, r = copy.ready, device = this.#session.processingPreset === 'device', view = engineView(this.#session);
-    const consent = this.#consentState(), local = this.#device?.model;
-    const voice = device ? SETTINGS_OFF : view.voice, visuals = device ? SETTINGS_OFF : view.visuals;
+    const consent = this.#consentState(), local = this.#device?.model, mode = this.#mode(), voiceMode = mode === 'voice';
+    const visuals = device ? SETTINGS_OFF : view.visuals;
     const effort = view.effort, model = catalogLabel(copy, view.model?.label ?? view.model?.id);
+    const microphone = { granted: [r.micGranted, 'confirmed'], denied: [r.micDenied, 'pending'], prompt: [r.micPrompt, 'pending'] }[this.#microphone] ?? [r.checkOnStart, 'pending'];
     const rows = [
-      ['model', r.model, device ? local ? `${copy.engine.localModel}: ${local}` : r.notConnected
+      ['model', 'settings', r.model, device ? local ? `${copy.engine.localModel}: ${local}` : r.notConnected
         : [model, effort && effort !== 'none' ? copy.settings.efforts[effort] ?? effort : null].filter(Boolean).join(' · '), device && !local ? 'pending' : 'selected'],
-      ['consent', r.consent, consent === 'device' ? r.notNeeded : consent === 'granted' ? r.granted : r.missing, ['device', 'granted'].includes(consent) ? 'confirmed' : 'pending'],
-      ['microphone', r.microphone, voice !== SETTINGS_OFF ? r.checkOnStart : r.off, voice !== SETTINGS_OFF ? 'pending' : 'off'],
-      ['speaker', r.speaker, voice !== SETTINGS_OFF ? r.onOnStart : r.off, voice !== SETTINGS_OFF ? 'selected' : 'off'],
-      ['visuals', r.visuals, visuals !== SETTINGS_OFF ? r.on : r.off, visuals !== SETTINGS_OFF ? 'selected' : 'off'],
+      ['consent', 'info', r.consent, consent === 'device' ? r.notNeeded : consent === 'granted' ? r.granted : r.missing, ['device', 'granted'].includes(consent) ? 'confirmed' : 'pending'],
+      ['microphone', 'mic', r.microphone, voiceMode ? microphone[0] : r.off, voiceMode ? microphone[1] : 'off'],
+      ['speaker', 'volume', r.speaker, voiceMode ? r.onOnStart : r.off, voiceMode ? 'selected' : 'off'],
+      ['visuals', 'concept', r.visuals, visuals !== SETTINGS_OFF ? r.on : r.off, visuals !== SETTINGS_OFF ? 'selected' : 'off'],
     ];
-    reconcile(section.querySelector('dl'), rows.map(row => [row[0], row]), ([id]) => {
-      const row = document.createElement('div'); row.className = 'ready__row'; row.dataset.ready = id;
-      const dd = document.createElement('dd'), check = document.createElement('span');
-      check.className = 'ready__check'; check.setAttribute('aria-hidden', 'true'); check.textContent = '✓';
-      dd.append(check, document.createElement('span')); row.append(document.createElement('dt'), dd); return row;
-    }, (row, [, label, value, state]) => {
-      row.dataset.state = state; setText(row.querySelector('dt'), label); setText(row.querySelector('dd > span:last-child'), value);
+    reconcile(section.querySelector('dl'), rows.map(row => [row[0], row]), ([id, glyph]) => {
+      const row = node('div', 'ready__row'); row.dataset.ready = id;
+      const dt = node('dt'), dd = node('dd'), mark = node('span', 'ready__icon'), check = node('span', 'ready__check');
+      mark.setAttribute('aria-hidden', 'true'); mark.innerHTML = icon(glyph);
+      check.setAttribute('aria-hidden', 'true'); check.innerHTML = icon('check');
+      dt.append(mark, node('span')); dd.append(check, node('span')); row.append(dt, dd); return row;
+    }, (row, [, , label, value, state]) => {
+      row.dataset.state = state; setText(row.querySelector('dt > span:last-child'), label); setText(row.querySelector('dd > span:last-child'), value);
     });
     const actions = ['change', ...['missing', 'withdrawn'].includes(consent) ? ['consent'] : []];
     reconcile(section.querySelector('.ready__actions'), actions.map(action => [action, action]), action => {
-      const button = document.createElement('button'); button.type = 'button'; button.className = `ready__${action}`; button.dataset.focusKey = action;
+      const button = node('button', `ready__${action}`, action === 'change' ? r.change : copy.settings.reviewConsent); button.type = 'button'; button.dataset.focusKey = action;
       button.setAttribute('aria-describedby', 'ai-notice');
-      button.textContent = action === 'change' ? r.change : copy.settings.reviewConsent;
       button.addEventListener('click', () => { if (action === 'change') this.openSettings(button); else this.#requestConsent('ready'); });
       return button;
     }, () => {});
+    setText(section.querySelector('.ready__route'), copy.chooser.summary[this.#session.processingPreset ?? 'best'] ?? '');
+    const offered = this.#voiceChoice();
+    for (const choice of section.querySelectorAll('.ready__mode')) {
+      choice.setAttribute('aria-pressed', String(choice.dataset.mode === mode));
+      const unavailable = choice.dataset.mode === 'voice' && !offered;
+      choice.setAttribute('aria-disabled', String(unavailable));
+      if (unavailable) choice.title = this.#feature('voice', true).reason ?? copy.notConfigured; else choice.removeAttribute('title');
+    }
+  }
+  // The explicit start: typing opens the composer; speaking starts the call, the only path to the
+  // microphone. A start the current consent does not cover goes to the host's consent first.
+  #start() {
+    const mode = this.#mode(), feature = this.#feature(mode === 'voice' ? 'voice' : 'text');
+    if (!feature.available && isConsentReason(feature.reason)) { this.#requestConsent('ready'); return; }
+    this.#started = true; this.#render('transcript'); this.#render('composer');
+    // Focus lands where the conversation continues: the composer, or the call's own group (no key there ends it).
+    if (mode === 'voice') { void this.#rail.start(); this.shadowRoot.querySelector('.audio-rail').focus(); }
+    else this.shadowRoot.querySelector('textarea').focus();
   }
   #withdrawButton(row) {
     const copy = this.#copy, button = document.createElement('button');

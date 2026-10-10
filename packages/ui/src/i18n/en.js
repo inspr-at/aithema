@@ -31,7 +31,7 @@ export const en = {
   voiceRail: 'Voice conversation', voiceStart: 'Start call', voiceClose: 'End call',
   voiceMicOn: 'Mic on', voiceMicOff: 'Mic off', voiceSpeakerOn: 'Sound on', voiceSpeakerOff: 'Sound off',
   voiceRetry: 'Retry call', voicePlaybackRetry: 'Enable sound', voiceCommandUnavailable: 'Unavailable with this voice plugin',
-  voiceStates: { idle: 'Ready to talk', connecting: 'Connecting voice…', listening: 'Listening', speaking: 'Speaking',
+  voiceStates: { idle: 'Ready to talk', connecting: 'Connecting voice…', listening: 'Listening', speaking: 'Speaking the reply',
     paused: 'Call paused', recovering: 'Reconnecting voice…', closing: 'Settling call…', failed: 'Call ended' },
   voiceMicDenied: 'Microphone access denied. Allow access, then retry.', voiceMicMissing: 'No microphone found. Connect one, then retry.',
   voiceAdmissionDenied: 'Voice is unavailable. Check consent and available credits.',
@@ -138,11 +138,15 @@ export const en = {
     summary: { best: 'Your conversation data is processed by the host’s recommended providers.', eu: 'Your conversation data is processed within the EU.',
       device: 'Your text chat runs on your device.', custom: 'You configure your own settings.' },
   },
+  // START landing (src/lib/i18n.ts v2.titleLines, v2.lead): the default promise when the host slots none.
+  entrance: { promise: ['Your project.', 'Your process.', 'Optimised with AI.'], lead: 'Discuss your project and receive a first assessment.' },
+  // START src/content/conversation-readiness.ts and the readiness card (v2.inputModeLabel, voiceInput, entryTyping, consentStart).
   ready: {
     title: 'Before you start', model: 'AI model', consent: 'Data consent', microphone: 'Microphone', speaker: 'Voice output', visuals: 'Visual concepts',
     granted: 'Granted', missing: 'Consent needed', notNeeded: 'Not needed on this device', off: 'Off', on: 'On',
     checkOnStart: 'Check when starting', onOnStart: 'On when starting', notConnected: 'Connect under Settings › Advanced',
-    change: 'Change settings',
+    micGranted: 'Allowed · not yet active', micDenied: 'Blocked in browser', micPrompt: 'Allow when starting',
+    change: 'Change settings', inputMode: 'Input mode', voice: 'Voice input', type: 'Text input', start: 'Start conversation',
   },
   local: {
     title: 'Local', intro: 'Connect an AI model running on the device you are using.', connection: 'Connection', textBadge: 'Text only',
@@ -207,7 +211,7 @@ export const en = {
   pause: 'Pause', resume: 'Resume', withdraw: 'Withdraw statement', withdrawn: 'Statement withdrawn',
   paused: 'Session paused', pausedResume: 'Still paused. Select Resume to continue.', consentRequired: 'Current processing consent required',
   controlFailed: 'Could not save this change. Try again.',
-  composer: 'Your message', placeholder: 'Describe what you would like to improve…', send: 'Send',
+  composer: 'Your message', placeholder: 'Type your next message here …', placeholderVoice: 'Just start talking – or type.', send: 'Send',
   shortcut: '{key} + Enter to send', shortcutKeys: { mac: '⌘', other: 'Ctrl' }, summary: 'Summary', signals: 'Signals', questions: 'Open questions',
   missing: 'What is still missing', clarified: 'Already clarified', expand: 'Expand all', collapse: 'Collapse all',
   export: 'Export conversation', retry: 'Retry', connecting: 'Connecting…', connected: 'Connected',

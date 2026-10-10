@@ -40,7 +40,9 @@ export class ConceptView {
     root.querySelector('.concept-rail').innerHTML = `<div class="concept-scene" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
       <div class="concept-activity"><span class="concept-activity-text" role="status"></span><progress class="concept-progress" max="100" value="0"></progress><small class="concept-countdown"></small></div>
       <button class="concept-request" type="button"></button>`;
-    root.querySelector('.concept-preview-slot').innerHTML = `<button class="concept-preview" type="button"><img alt="" decoding="async"><span class="concept-preview-glyph" hidden>${DRAFT_GLYPH}</span><span class="concept-preview-label"></span></button>`;
+    // The label shares one cell with both possible labels, so the thumbnail keeps its width when an image or a draft arrives.
+    root.querySelector('.concept-preview-slot').innerHTML = `<button class="concept-preview" type="button"><img alt="" decoding="async"><span class="concept-preview-glyph" hidden>${DRAFT_GLYPH}</span><span class="concept-preview-text"><span class="concept-preview-label"></span><span class="concept-preview-sizer" aria-hidden="true"></span><span class="concept-preview-sizer" aria-hidden="true"></span></span></button>`;
+    const [image, draft] = root.querySelectorAll('.concept-preview-sizer'); image.textContent = copy.conceptView; draft.textContent = copy.conceptDraftView ?? '';
     const dialog = document.createElement('dialog'); dialog.className = 'concept-viewer'; dialog.setAttribute('aria-labelledby', 'concept-title');
     dialog.innerHTML = `<header class="concept-viewer-head"><h2 id="concept-title"></h2><span class="concept-count" aria-live="polite"></span><button class="concept-close" type="button"></button></header>
       <div class="concept-stage"><img class="concept-image" decoding="async"><aithema-html-preview class="concept-html" fill hidden></aithema-html-preview><p class="concept-image-status" role="status"></p></div>

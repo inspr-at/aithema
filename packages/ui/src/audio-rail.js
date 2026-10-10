@@ -1,15 +1,24 @@
 import { watchVoicePlayback } from './voice-playback.js';
-// START's rail lifecycle, ported to the live-voice session interface (INSPR D3).
+import { icon } from './icons.js';
+import { Waveform } from './waveform.js';
+// START's rail lifecycle, ported to the live-voice session interface (INSPR D3). The presentation is
+// START's conversation rail (index.astro .v2__conversation-rail): an orb dock, icon controls in fixed
+// cells and the waveform with one status phrase. Alternatives share a cell (Start and the microphone,
+// End and Retry call, Sound and Enable sound), so no state change moves a control.
+const BUTTONS = { start: ['mic'], input: ['mic', true], output: ['volume', true], playback: ['volume'], close: ['stop'], retry: ['refresh'] };
 export class AudioRail {
-  constructor({ root, copy, client, feature, context, onPartial, onPause, onEnd, onState, playback, journal, ready, heartbeatMs = 10_000 }) {
-    Object.assign(this, { root, copy, client, feature, context, onPartial, onPause, onEnd, onState, playback, journal, ready, heartbeatMs });
+  constructor({ root, copy, client, feature, context, onPartial, onPause, onEnd, onState, onLevel, playback, journal, ready, heartbeatMs = 10_000 }) {
+    Object.assign(this, { root, copy, client, feature, context, onPartial, onPause, onEnd, onState, onLevel, playback, journal, ready, heartbeatMs });
     this.state = 'idle'; this.input = true; this.output = true; this.generation = 0;
-    root.innerHTML = `<div class="voice-orb" aria-hidden="true"><div class="voice-wave">${'<i></i>'.repeat(9)}</div></div>
-      <div class="voice-info"><span class="voice-state" role="status"></span><span class="voice-caption"></span></div>
-      <div class="voice-controls"><button class="voice-start" type="button"></button><button class="voice-close" type="button"></button>
-        <button class="voice-input" type="button"></button><button class="voice-output" type="button"></button>
-        <button class="voice-pause" type="button"></button><button class="voice-retry" type="button"></button>
-        <button class="voice-playback" type="button"></button></div>`;
+    const button = name => `<button class="voice-${name}" type="button">${name === 'pause' ? `<span class="voice-icon">${icon('pause')}</span><span class="voice-icon voice-icon--resume">${icon('play')}</span>`
+      : icon(BUTTONS[name][0], { slash: BUTTONS[name][1] === true })}<span class="voice-label"></span></button>`;
+    root.innerHTML = `<div class="voice-orb" aria-hidden="true"></div>
+      <div class="voice-cell voice-cell--output">${button('output')}${button('playback')}</div>
+      <div class="voice-signal"><canvas class="voice-wave" aria-hidden="true"></canvas><span class="voice-state" role="status"></span><span class="voice-caption"></span></div>
+      <div class="voice-cell voice-cell--pause">${button('pause')}</div>
+      <div class="voice-cell voice-cell--mic">${button('start')}${button('input')}</div>
+      <div class="voice-cell voice-cell--end">${button('close')}${button('retry')}</div>`;
+    this.waveform = new Waveform(root.querySelector('.voice-wave'));
     this.button('start').addEventListener('click', () => void this.start());
     this.button('close').addEventListener('click', () => void this.close());
     this.button('pause').addEventListener('click', () => void this.pause(!this.paused));
@@ -46,20 +55,24 @@ export class AudioRail {
   button(name) { return this.root.querySelector(`.voice-${name}`); }
   capability(name) { return this.client?.manifest?.liveVoice?.capabilities?.[name] !== 'unavailable'; }
   render() {
-    const c = this.copy, active = Boolean(this.session), available = this.feature(), transitional = ['connecting', 'closing', 'recovering'].includes(this.state);
+    // Closing a rail that had no call (an invalidation while idle) is no call: it never marks one active.
+    const c = this.copy, active = Boolean(this.session), available = this.feature(),
+      transitional = ['connecting', 'recovering'].includes(this.state) || this.state === 'closing' && this.closingCall;
     const state = this.paused && active ? 'paused' : this.state;
     if (this.root.dataset.state !== undefined && this.root.dataset.state !== state) queueMicrotask(() => this.onState?.(state));
     this.root.dataset.state = state;
-    this.root.setAttribute('aria-label', c.voiceRail);
+    this.root.dataset.call = active || transitional ? 'active' : 'none';
+    this.root.toggleAttribute('data-playback-blocked', Boolean(this.playbackBlocked)); this.root.toggleAttribute('data-message', Boolean(this.error));
+    this.root.setAttribute('role', 'group'); this.root.setAttribute('aria-label', c.voiceRail);
     this.root.querySelector('.voice-state').textContent = this.error ?? (active || transitional ? c.voiceStates[this.root.dataset.state] :
       available.available && this.client ? c.voiceStates[this.state] : available.reason ?? c.notConfigured);
     const labels = { start: c.voiceStart, close: c.voiceClose, input: this.input ? c.voiceMicOn : c.voiceMicOff,
       output: this.output ? c.voiceSpeakerOn : c.voiceSpeakerOff, pause: this.paused ? c.resume : c.pause,
       retry: c.voiceRetry, playback: c.voicePlaybackRetry };
     for (const [name, label] of Object.entries(labels)) {
-      const button = this.button(name); button.textContent = label; button.title = label;
+      const button = this.button(name); button.querySelector('.voice-label').textContent = label; button.title = label;
       const command = { input: 'setInput', output: 'setOutput', pause: this.paused ? 'resume' : 'pause' }[name];
-      button.disabled = name === 'start' ? active || transitional || !available.available || !this.client
+      button.disabled = name === 'start' ? active || transitional || this.state === 'closing' || !available.available || !this.client
         : name === 'retry' ? active || this.state !== 'failed' || !available.available
         : name === 'playback' ? !this.playbackBlocked
         : name === 'close' ? !active && this.state !== 'connecting' : !active || name !== 'close' && (this.busy || transitional || command && !this.capability(command));
@@ -105,14 +118,15 @@ export class AudioRail {
           this.failure(error); void this.close();
         }).finally(() => { this.beating = false; });
       }, this.heartbeatMs);
+      // The waveform follows the measured level; under reduced motion it keeps its still baseline.
+      const still = this.root.ownerDocument.defaultView?.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
       this.meter = setInterval(() => {
         const levels = session.audioLevels?.(); if (!levels) return;
-        const level = this.paused ? 0 : Math.min(1, Math.max(0, levels[this.state === 'speaking' ? 'output' : 'input'] ?? 0));
+        const speaking = this.state === 'speaking', level = this.paused ? 0 : Math.min(1, Math.max(0, levels[speaking ? 'output' : 'input'] ?? 0));
         this.root.dataset.measured = '';
-        this.root.querySelector('.voice-orb').style.setProperty('--voice-energy', String(level));
-        [...this.root.querySelectorAll('.voice-wave i')].forEach((bar, index) => {
-          bar.style.transform = `scaleY(${.08 + level * (1 - Math.abs(index - 4) / 7)})`;
-        });
+        if (!still) this.waveform.push(level, speaking ? 'assistant' : 'user', 80);
+        // The orb reacts to the audible reply only, never to the visitor's input (START orb).
+        this.onLevel?.(speaking ? level : 0);
       }, 80);
       void this.consume(session, generation);
       if (this.root.ownerDocument.hidden || this.hidePending) { this.hidePending = false; this.hide(); }
@@ -135,7 +149,7 @@ export class AudioRail {
         }
         if (event.type === 'ended') {
           clearInterval(this.heartbeat); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.session = null; this.journal?.clear();
-          this.onEnd?.();
+          this.quiet(); this.onEnd?.();
           this.state = ['closed', 'cancelled'].includes(event.reason) ? 'idle' : 'failed';
           this.error = event.reason === 'recovery-failed' ? this.copy.voiceRecoveryFailed :
             event.reason === 'closure-uncertain' ? this.copy.voiceClosureUncertain :
@@ -181,7 +195,8 @@ export class AudioRail {
   reportPlaybackBlocked() { this.playbackBlocked = true; this.error = this.copy.voicePlaybackBlocked; this.render(); }
   close(reason) {
     if (this.closing) return this.closing;
-    const session = this.session; ++this.generation; clearInterval(this.heartbeat); clearInterval(this.meter); this.playbackWatcher?.destroy();
+    const session = this.session; this.closingCall = Boolean(session) || ['connecting', 'recovering'].includes(this.state);
+    ++this.generation; clearInterval(this.heartbeat); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.quiet();
     this.session = null; this.hidePending = false; this.state = 'closing'; this.render();
     this.onEnd?.();
     const controller = this.controller;
@@ -197,8 +212,9 @@ export class AudioRail {
     })().finally(() => { this.closing = null; });
     return this.closing;
   }
+  quiet() { delete this.root.dataset.measured; this.waveform.baseline(); this.onLevel?.(0); }
   destroy() {
-    this.onState = null;
+    this.onState = null; this.onLevel = null;
     this.root.ownerDocument.removeEventListener('visibilitychange', this.visibility);
     void this.close();
   }

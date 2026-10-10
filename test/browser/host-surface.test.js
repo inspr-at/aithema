@@ -226,9 +226,11 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     sameBox(requestBox, await box(page, '.handover-request'), 'handover action after a failed delivery');
     assert.equal(await text(page, '.handover__label'), h.retry);
     await shot(page, 'en-light-1440-handover-failed', '.handover');
+    // The evidence shot may scroll the page; the pointer rests on Retry again before pressing it (AIT-128).
+    const retryBox = await rest(page, '.handover-request');
     await page.mouse.down(); await page.mouse.up();
     await until(page, sent => document.querySelector('aithema-session').shadowRoot.querySelector('.handover__state').textContent === sent, demoSent);
-    sameBox(requestBox, await box(page, '.handover-request'), 'handover action after Retry');
+    sameBox(retryBox, await box(page, '.handover-request'), 'handover action after Retry');
     assert.equal(await inShadow(page, c => c.session.handover.status), 'sent');
     await shot(page, 'en-light-1440-handover-sent', '.handover');
     tally.push('handover failed then Retry sent');

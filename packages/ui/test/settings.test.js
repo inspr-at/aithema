@@ -236,7 +236,9 @@ test('hover, focus and saves change text in fixed boxes only: no control moves u
 });
 
 test('the conversation starts with the preset chooser, then the acknowledged ready card', async t => {
-  const h = fixture(t);
+  // A host voice client: the ready card offers speaking (AIT-128), and nothing starts it before the explicit start.
+  const starts = [];
+  const h = fixture(t, { voiceClient: { manifest: voiceManifest, async start() { starts.push('start'); throw new Error('unused'); } } });
   let root = h.root, cards = () => [...root.querySelectorAll('.chooser-option')];
   assert.equal(root.querySelector('.intro').dataset.mode, 'chooser');
   assert.equal(root.querySelector('.audio-rail').inert, true, 'rails wait for a choice');
@@ -249,10 +251,11 @@ test('the conversation starts with the preset chooser, then the acknowledged rea
   assert.equal(root.querySelector('.chooser__summary [role=status]').textContent, en.chooser.summary.device);
   cards()[0].click(); root.querySelector('.chooser__continue').click(); await tick(6);
   assert.deepEqual(h.posts, [{ processingPreset: 'best', baseRevision: 0, model: 'mock', effort: 'none', voice: 'fake-voice', visuals: 'off' }]);
-  assert.equal(root.querySelector('.intro').dataset.mode, 'ready'); assert.equal(root.querySelector('.audio-rail').inert, false);
+  assert.equal(root.querySelector('.intro').dataset.mode, 'ready'); assert.equal(root.querySelector('.audio-rail').inert, true, 'the call waits for the explicit start');
   const rows = Object.fromEntries([...root.querySelectorAll('.ready__row')].map(row => [row.dataset.ready, [row.querySelector('dd').textContent.replace('✓', ''), row.dataset.state]]));
   assert.deepEqual(rows, { model: ['Mock reasoning', 'selected'], consent: [en.ready.granted, 'confirmed'], microphone: [en.ready.checkOnStart, 'pending'],
     speaker: [en.ready.onOnStart, 'selected'], visuals: [en.ready.off, 'off'] });
+  assert.deepEqual(starts, [], 'the ready card starts no call');
   h.c.receive({ seq: h.c.session.seq + 1, type: 'turn.final', data: { id: 'first', role: 'user', content: 'Hello' } });
   assert.equal(root.querySelector('.intro').hidden, true, 'the first message replaces the start screen');
 });

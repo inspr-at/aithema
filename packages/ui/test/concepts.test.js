@@ -167,7 +167,11 @@ test('automatic concept arrivals render under the pointer; composer, tabs and vi
   assert.equal(count.textContent, '2 of 2', 'ArrowRight navigates to the new concept');
   controls.dispatchEvent(new window.Event('pointerleave')); assert.equal(count.textContent, '2 of 2');
   const css = root.querySelector('style').textContent;
-  assert.match(css, /grid-template-rows:3.6rem auto 8rem 5.4rem minmax\(0,1fr\) 10rem/);
+  // START's live column (AIT-128): head, rail and concept line keep their rows, the transcript takes the rest and
+  // the composer's field has a fixed height, so a concept arriving never moves the composer.
+  assert.match(css, /\.workspace\[data-stage="live"\] \.conversation \{ grid-template-rows:auto auto auto minmax\(0,1fr\) auto; \}/);
+  assert.match(css, /\.concept-bar \{ [^}]*min-height:2\.75rem; \}/);
+  assert.match(css, /textarea \{ [^}]*min-height:3\.5rem; height:3\.5rem;/);
   assert.match(css, /grid-template-rows:4rem minmax\(0,1fr\) 12.5rem/);
   assert.match(css, /concept-navigation, \.concept-feedback \{ display:flex; align-items:center; gap:\.25rem; height:2\.75rem; \}/);
 });

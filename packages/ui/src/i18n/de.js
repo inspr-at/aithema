@@ -36,7 +36,7 @@ export const de = {
   voiceRail: 'Sprachgespräch', voiceStart: 'Anruf starten', voiceClose: 'Anruf beenden',
   voiceMicOn: 'Mikrofon an', voiceMicOff: 'Mikrofon aus', voiceSpeakerOn: 'Ton an', voiceSpeakerOff: 'Ton aus',
   voiceRetry: 'Erneut anrufen', voicePlaybackRetry: 'Ton aktivieren', voiceCommandUnavailable: 'Mit diesem Sprachdienst nicht verfügbar',
-  voiceStates: { idle: 'Bereit zum Sprechen', connecting: 'Verbindung wird aufgebaut …', listening: 'Ich höre zu', speaking: 'Ich spreche',
+  voiceStates: { idle: 'Bereit zum Sprechen', connecting: 'Verbindung wird aufgebaut …', listening: 'Ich höre zu', speaking: 'Antwort wird gesprochen',
     paused: 'Anruf pausiert', recovering: 'Verbindung wird wiederhergestellt …', closing: 'Anruf wird beendet …', failed: 'Anruf beendet' },
   voiceMicDenied: 'Kein Zugriff auf das Mikrofon. Erlauben Sie den Zugriff und versuchen Sie es erneut.',
   voiceMicMissing: 'Es wurde kein Mikrofon gefunden. Schließen Sie eines an und versuchen Sie es erneut.',
@@ -143,11 +143,15 @@ export const de = {
     summary: { best: 'Ihre Gesprächsdaten werden von den empfohlenen Anbietern des Hosts verarbeitet.', eu: 'Ihre Gesprächsdaten werden in der EU verarbeitet.',
       device: 'Ihr Textchat läuft auf Ihrem Gerät.', custom: 'Sie legen Ihre Einstellungen selbst fest.' },
   },
+  // START-Startseite (src/lib/i18n.ts v2.titleLines, v2.lead): das Versprechen, wenn der Host keines einsetzt.
+  entrance: { promise: ['Ihr Projekt.', 'Ihr Prozess.', 'Mit KI optimiert.'], lead: 'Klären Sie Ihr Vorhaben im Gespräch und erhalten Sie eine erste Einschätzung.' },
+  // START src/content/conversation-readiness.ts und die Bereitschaftskarte (v2.inputModeLabel, voiceInput, entryTyping, consentStart).
   ready: {
-    title: 'Bevor Sie beginnen', model: 'KI-Modell', consent: 'Einwilligung zu Daten', microphone: 'Mikrofon', speaker: 'Sprachausgabe', visuals: 'Visuelle Entwürfe',
-    granted: 'Erteilt', missing: 'Einwilligung nötig', notNeeded: 'Auf diesem Gerät nicht nötig', off: 'Aus', on: 'An',
-    checkOnStart: 'Wird beim Start geprüft', onOnStart: 'Beim Start an', notConnected: 'Unter Einstellungen › Erweitert verbinden',
-    change: 'Einstellungen ändern',
+    title: 'Vor dem Gespräch', model: 'KI-Modell', consent: 'Datenfreigabe', microphone: 'Mikrofon', speaker: 'Sprachausgabe', visuals: 'Visuelle Entwürfe',
+    granted: 'Freigegeben', missing: 'Freigabe fehlt', notNeeded: 'Auf diesem Gerät nicht nötig', off: 'Aus', on: 'An',
+    checkOnStart: 'Beim Start prüfen', onOnStart: 'Beim Start aktiv', notConnected: 'Unter Einstellungen › Erweitert verbinden',
+    micGranted: 'Erlaubt · noch nicht aktiv', micDenied: 'Im Browser blockiert', micPrompt: 'Beim Start erlauben',
+    change: 'Einstellungen ändern', inputMode: 'Eingabemodus', voice: 'Spracheingabe', type: 'Texteingabe', start: 'Gespräch starten',
   },
   local: {
     title: 'Lokal', intro: 'Verbinden Sie ein KI-Modell, das auf dem Gerät läuft, das Sie gerade verwenden.', connection: 'Verbindung', textBadge: 'Nur Text',
@@ -212,7 +216,7 @@ export const de = {
   pause: 'Pausieren', resume: 'Fortsetzen', withdraw: 'Aussage zurückziehen', withdrawn: 'Aussage zurückgezogen',
   paused: 'Gespräch pausiert', pausedResume: 'Weiterhin pausiert. Wählen Sie „Fortsetzen“, um weiterzumachen.', consentRequired: 'Aktuelle Einwilligung zur Verarbeitung erforderlich',
   controlFailed: 'Die Änderung konnte nicht gespeichert werden. Versuchen Sie es erneut.',
-  composer: 'Ihre Nachricht', placeholder: 'Schreiben Sie hier, was Sie verbessern möchten …', send: 'Senden',
+  composer: 'Ihre Nachricht', placeholder: 'Schreiben Sie hier Ihre nächste Nachricht …', placeholderVoice: 'Sprechen Sie einfach los – oder tippen Sie.', send: 'Senden',
   shortcut: '{key} + Enter zum Senden', shortcutKeys: { mac: '⌘', other: 'Strg' }, summary: 'Zusammenfassung', signals: 'Was wir konkret gesehen haben', questions: 'Was noch offen ist',
   missing: 'Was noch fehlt', clarified: 'Schon geklärt', expand: 'Alle aufklappen', collapse: 'Alle zuklappen',
   export: 'Gesprächsdaten herunterladen', retry: 'Erneut versuchen', connecting: 'Verbindung wird aufgebaut …', connected: 'Verbunden',
