@@ -608,9 +608,22 @@ async function startTyping(page) {
 const sendTurn = (page, text) => inShadow(page, (c, text) => {
   c.shadowRoot.querySelector('textarea').value = text; c.shadowRoot.querySelector('form').requestSubmit();
 }, text);
+// AIT-128: the first input opens the understanding with START's one-time reveal (the column slides in over
+// ~560 ms). It is the visitor's own action, not a live update; checks under a resting pointer start after it.
+const revealed = page => until(page, () => {
+  const workspace = document.querySelector('aithema-session').shadowRoot.querySelector('.workspace');
+  return workspace.dataset.understanding === 'present' && !workspace.hasAttribute('data-reveal');
+});
 const voiceState = page => inShadow(page, c => c.shadowRoot.querySelector('.audio-rail').dataset.state);
+// Start call; before the conversation has started, through START's explicit voice start (Continue, Speak, Start).
 async function startCall(page) {
-  await inShadow(page, c => c.shadowRoot.querySelector('.voice-start').click());
+  const stage = () => inShadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.stage);
+  if (await stage() === 'entrance') {
+    await inShadow(page, c => c.shadowRoot.querySelector('.chooser__continue').click());
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').dataset.stage === 'ready');
+  }
+  if (await stage() === 'ready') await inShadow(page, c => { c.shadowRoot.querySelector('.ready__mode[data-mode="voice"]').click(); c.shadowRoot.querySelector('.ready__start').click(); });
+  else await inShadow(page, c => c.shadowRoot.querySelector('.voice-start').click());
   await until(page, () => ['listening', 'speaking'].includes(document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state));
 }
 async function endCall(page) {
@@ -643,7 +656,7 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
     await mockConsent(page); await waitForShadow(page, '.composer textarea', { enabled: true });
     await sendTurn(page, 'We are a bakery and want a pre-order app for our customers.');
-    await waitForShadow(page, 'aside .notice', { text: 'Current assessment' });
+    await waitForShadow(page, 'aside .notice', { text: 'Current assessment' }); await revealed(page);
 
     // D7: window blur alone never pauses the call or the session.
     await startCall(page);
@@ -851,7 +864,7 @@ test('AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab l
       if (request.url() === `${demo.url}/anchor-fixture`) void request.respond({ status: 200, contentType: 'text/html; charset=utf-8', body: anchorFixture });
       else void request.continue();
     });
-    await fixture.goto(`${demo.url}/anchor-fixture`); await fixture.waitForFunction(() => window.fixtureReady);
+    await fixture.goto(`${demo.url}/anchor-fixture`); await fixture.waitForFunction(() => window.fixtureReady); await revealed(fixture);
     const signal = index => fixture.evaluate(i => {
       const rect = document.querySelector('aithema-session').shadowRoot.querySelectorAll('.signals li')[i].getBoundingClientRect();
       return { x: rect.x, y: rect.y };
@@ -1089,7 +1102,7 @@ test('clickable html drafts: request, sandboxed preview, a refresh revision in p
     await mockConsent(page); await waitForShadow(page, '.composer textarea', { enabled: true });
     // The mock's slot-filling turn earns the first milestone, so the request renders at once.
     await sendTurn(page, `We are a bakery and want a pre-order app. ${content}`);
-    await waitForShadow(page, 'aside .notice', { text: 'Current assessment' });
+    await waitForShadow(page, 'aside .notice', { text: 'Current assessment' }); await revealed(page);
 
     // Request: the rail says what happens in plain words and nothing moves under the pointer.
     const requestBefore = await rest(page, '.concept-request');
@@ -1285,7 +1298,7 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     assert.equal((await attach()).title, 'Bis zu 8 Dateien, je höchstens 20 MB: PDF, Word, Excel, PowerPoint, Text, Markdown, CSV, JSON oder XML. Die Originaldatei wird nicht aufbewahrt.');
 
     await sendTurn(page, 'Wir sind eine Bäckerei und wollen eine Vorbestell-App. Betrieb: gehostet; Daten: öffentlich; Systeme: API; Reichweite: international');
-    await waitForShadow(page, 'aside .notice', { text: 'Aktuelle Einschätzung' });
+    await waitForShadow(page, 'aside .notice', { text: 'Aktuelle Einschätzung' }); await revealed(page);
     const firstRevision = await inShadow(page, c => c.session.understanding.inputRevision);
 
     // Record every chip state as it renders, so a fast extraction still shows its pending state.
@@ -1556,17 +1569,18 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
       await page.setViewport({ width: 1440, height: 1000 }); await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
 
       // Nothing shifts under the pointer. At the page's end every part of the pane is in view and the notice
-      // stands in its own place; resting on it, hovering the controls, granting consent (the composer opens),
-      // a turn and its reply leave the notice and the composer exactly where they were.
+      // stands in its own place; resting on it, hovering the controls, granting consent (the ready card's Start
+      // stays), a turn and its reply leave the notice, Start and the composer exactly where they were.
+      // AIT-128: before the conversation starts, the entrance and then the ready card stand where the composer will.
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-      let before = { line: await box(page, '.ai-notice'), composer: await box(page, '.composer') };
+      let before = { line: await box(page, '.ai-notice'), go: await box(page, '.chooser__continue') };
       await page.mouse.move(before.line.x + 40, before.line.y + before.line.height / 2);
       sameBox(before.line, await box(page, '.ai-notice'), 'notice on hover');
       assert.equal((await style(page)).background, (await style(page)).pane, 'hover adds no tint');
-      for (const selector of ['.chooser-option', '.attach', '.send']) {
+      for (const selector of ['.chooser-option', '.chooser__continue', '.settings-open']) {
         await rest(page, selector);
         sameBox(before.line, await box(page, '.ai-notice'), `notice while hovering ${selector}`);
-        sameBox(before.composer, await box(page, '.composer'), `composer while hovering ${selector}`);
+        sameBox(before.go, await box(page, '.chooser__continue'), `Continue while hovering ${selector}`);
       }
       // The confirmed choice navigates to consent. Return without a grant to
       // check the ready card's entry points in the new host document.
@@ -1585,7 +1599,7 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
       }
       await page.setViewport({ width: 1440, height: 1000 });
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-      before = { line: await box(page, '.ai-notice'), composer: await box(page, '.composer') };
+      before = { line: await box(page, '.ai-notice'), start: await box(page, '.ready__start') };
       await page.mouse.move(before.line.x + 40, before.line.y + before.line.height / 2);
       await Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
         page.click('aithema-session >>> .ready__consent')]);
@@ -1597,10 +1611,10 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
       await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.ready__consent'));
       await waitForShadow(page, '.ready__change');
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-      sameBox(before.line, await box(page, '.ai-notice'), 'notice under the pointer while consent opens the composer');
-      sameBox(before.composer, await box(page, '.composer'), 'composer while consent opens it');
-      await rest(page, '.voice-start');
-      sameBox(before.line, await box(page, '.ai-notice'), 'notice while hovering Start call');
+      sameBox(before.line, await box(page, '.ai-notice'), 'notice under the pointer after consent');
+      sameBox(before.start, await box(page, '.ready__start'), 'the ready card\'s Start after consent');
+      await rest(page, '.ready__start');
+      sameBox(before.line, await box(page, '.ai-notice'), 'notice while hovering Start');
       // Ready card after consent: Change, Start call and the composer, both sizes.
       await page.evaluate(() => window.scrollTo(0, 0));
       await shot(page, `${locale}-light-1440-ready`);
@@ -1609,12 +1623,19 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
         tally[`ready ${width}`] = await noticeAtEntryPoints(page, 'ready', full, `${locale} ready ${width} px`);
       }
       await page.setViewport({ width: 1440, height: 1000 });
-      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
-      await page.mouse.move(before.line.x + 40, before.line.y + before.line.height / 2);
+      // The first turn opens the conversation and START's understanding reveal; then, with the pointer resting on
+      // the notice, the next turn and its reply leave the notice and the composer exactly where they were.
       await sendTurn(page, locale === 'de' ? 'Wir brauchen eine Vorbestell-App.' : 'We need a preorder app.');
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('ol li.turn').length >= 2);
-      sameBox(before.line, await box(page, '.ai-notice'), 'notice under the pointer while a turn and reply arrive');
+      await revealed(page);
       assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.intro').dataset.mode), '');
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+      before = { line: await box(page, '.ai-notice'), composer: await box(page, '.composer') };
+      await page.mouse.move(before.line.x + 40, before.line.y + before.line.height / 2);
+      await sendTurn(page, locale === 'de' ? 'Für drei Filialen.' : 'For three branches.');
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('ol li.turn').length >= 4);
+      sameBox(before.line, await box(page, '.ai-notice'), 'notice under the pointer while a turn and reply arrive');
+      sameBox(before.composer, await box(page, '.composer'), 'composer while a turn and reply arrive');
       await page.mouse.move(0, 0);
       // The conversation: Start call and the composer, both sizes, light and dark.
       for (const [width, height] of sizes) {
