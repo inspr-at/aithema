@@ -99,6 +99,19 @@ test('START look on the reference host: entrance, consent page, readiness, conve
         }), { lighting: 3, fixed: true, component: ['none', 'rgba(0, 0, 0, 0)'] }, `${label}: no seam between page and component`);
         assert.equal(await page.evaluate(() => document.querySelectorAll('h1').length), 1, `${label}: one h1 on the page`);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true, `${label}: no sideways scrolling`);
+        if (width < 600) {
+          // START's compact phone header: the host masthead in two rows, the component's toolbar in two, nothing overlapping.
+          const masthead = await page.$eval('.masthead', n => n.getBoundingClientRect().height);
+          assert.ok(masthead <= 104, `${label}: the masthead takes two rows (${masthead}px)`);
+          const controls = await inShadow(page, c => ['.library-open-dialog', '.host-verify', '.host-account', '.host-credits', '.settings-open'].map(selector => {
+            const r = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return { selector, top: r.top, bottom: r.bottom, left: r.left, right: r.right };
+          }).filter(r => r.bottom > r.top));
+          const centres = controls.map(r => (r.top + r.bottom) / 2).sort((a, b) => a - b);
+          assert.ok(centres.filter((centre, i) => i === 0 || centre - centres[i - 1] > 6).length <= 2, `${label}: the toolbar takes two rows ${JSON.stringify(controls)}`);
+          for (const [i, a] of controls.entries()) for (const b of controls.slice(i + 1)) {
+            assert.ok(a.right <= b.left + .5 || b.right <= a.left + .5 || a.bottom <= b.top + .5 || b.bottom <= a.top + .5, `${label}: ${a.selector} and ${b.selector} overlap`);
+          }
+        }
         // Entrance: the promise, the orb and four choices; Continue keeps its place while choosing.
         assert.deepEqual(await inShadow(page, c => [...c.shadowRoot.querySelectorAll('.promise span')].map(n => n.textContent)), en.entrance.promise);
         const orb = await box(page, '.intro__orb .orb'); assert.ok(orb.width >= 60 && orb.width <= 100, `${label}: entrance orb ${orb.width}px`);
@@ -150,6 +163,13 @@ test('START look on the reference host: entrance, consent page, readiness, conve
           assert.ok(aside.width >= 352, `${label}: understanding at least 22rem (${aside.width})`);
           assert.ok(Math.abs(conversation.width / aside.width - 1.55 / .88) < .25 || aside.width === 352, `${label}: START's 1.55 / 0.88 split (${conversation.width} / ${aside.width})`);
           assert.ok(aside.y + aside.height <= height + 1 && after.y + after.height <= height + 1, `${label}: panes and composer are viewport-contained`);
+          // The readable assessment comes first and has the pane; the handover follows it in the same scrolling pane (START).
+          const pane = await inShadow(page, c => {
+            const content = c.shadowRoot.querySelector('.analysis-content'), handover = c.shadowRoot.querySelector('.handover');
+            return { inside: content.contains(handover), first: c.shadowRoot.querySelector('.summary-text').getBoundingClientRect().top < handover.getBoundingClientRect().top,
+              share: content.clientHeight / c.shadowRoot.querySelector('.understanding').clientHeight };
+          });
+          assert.ok(pane.inside && pane.first && pane.share >= .4, `${label}: the assessment has the pane (${JSON.stringify(pane)})`);
         }
         await page.evaluate(() => window.scrollTo(0, 0)); await page.mouse.move(0, 0);
         await shot(`conversation-${label}`);

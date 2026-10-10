@@ -6,9 +6,13 @@ export const hostStyles = `
    Conversations, the verification entry and the account slot on one line; on phones the credits go under them. */
 .host-bar { display:grid; grid-template-columns:minmax(0,auto) repeat(3,auto); grid-template-areas:"credits library verify account";
   justify-content:end; align-items:center; column-gap:.5rem; min-width:0; }
-/* Phones: the controls wrap as whole words (never squeezed to a letter per line), the credits line below them. */
+/* Phones: the controls wrap as whole words (never squeezed to a letter per line), the credits line below them,
+   one touch row high with room at its end for Settings. Conversations shows its icon; its name stays for assistive
+   technology, so the three actions share one line. */
 @media(max-width:44rem) { .host-bar { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-start; gap:0 .25rem; }
-  .host-credits { flex:1 0 100%; max-width:none; text-align:left; } }
+  .host-credits { flex:1 0 100%; height:2.75rem; max-height:none; padding:.45rem 3.25rem .45rem 0; text-align:left; }
+  .library-open-dialog { justify-content:center; min-width:2.75rem; padding-inline:.5rem; }
+  .library-open-dialog span { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; } }
 .library-open-dialog { grid-area:library; display:inline-flex; align-items:center; gap:.45rem; min-height:2.75rem; padding:.4rem .75rem;
   font-size:.8125rem; font-weight:600; color:var(--aithema-accent); white-space:nowrap; border-radius:999px; }
 .library-open-dialog svg { display:block; flex:none; }
@@ -52,7 +56,8 @@ export const hostStyles = `
 .verify__message[data-error="true"] { color:var(--aithema-error); }
 .analysis-content .verify__note, .verify__note { margin:0; min-height:1.3em; font-size:.75rem; line-height:1.3; color:var(--aithema-muted); font-variant-numeric:tabular-nums; }
 
-/* The handover band sits between the assessment and the export line. */
+/* The handover band follows the assessment in its scrolling pane (START: contact below the assessment), so the
+   readable assessment comes first and the band never squeezes it; the export line stays below the pane. */
 .handover { display:grid; gap:.3rem; padding:.75rem 0; border-top:1px solid var(--aithema-line); }
 .handover h3 { margin:0; font-size:.86rem; font-weight:700; } .handover__offer { margin:0; font-size:.78rem; line-height:1.35; color:var(--aithema-muted); max-height:2.7em; overflow-y:auto; overflow-wrap:anywhere; }
 .handover__row { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:.5rem; min-height:0; }
@@ -60,7 +65,6 @@ export const hostStyles = `
 .handover-request > * { grid-area:1/1; } .handover__sizer { visibility:hidden; }
 /* Three reserved lines (a longer state scrolls in them): failed, retried and sent states never resize the row under the pointer. */
 .handover__state { margin:0; font-size:.72rem; line-height:1.3; color:var(--aithema-muted); height:3.9em; overflow-y:auto; overflow-wrap:anywhere; }
-.understanding[data-handover] { grid-template-rows:auto auto minmax(0,1fr) auto auto; }
 
 /* Dialogs: the settings dialog's frame, smaller. */
 :is(dialog.library, dialog.verify-dialog) { padding:0; margin:auto; border:1px solid var(--aithema-line); border-radius:var(--aithema-radius-lg); color:var(--aithema-ink);

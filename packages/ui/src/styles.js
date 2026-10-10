@@ -347,9 +347,13 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 }
 @keyframes rise-in { from { opacity:0; transform:translateY(.5rem); } to { opacity:1; transform:none; } }
 @media(max-width:44rem) {
-  /* Phones: the host's controls and Settings on the first line, the processing line (once there is one) below. */
-  .toolbar { grid-template-columns:minmax(0,1fr) auto; align-items:start; } .host-bar { grid-column:1; } .settings-open { grid-column:2; }
-  .preset-panel { grid-column:1/-1; grid-row:2; } .toolbar:has(> .host-bar[hidden]) .preset-panel { grid-column:1; grid-row:1; align-self:center; }
+  /* Phones (START's compact masthead): the host's actions on the first line, its credits on the second with Settings
+     at their end, then the processing line (once there is one). Without credits or a host bar, Settings moves up. */
+  .toolbar { grid-template-columns:minmax(0,1fr) auto; align-items:start; column-gap:.5rem; min-height:0; }
+  .host-bar { grid-column:1/-1; grid-row:1/3; } .settings-open { grid-column:2; grid-row:2; align-self:end; } .preset-panel { grid-column:1/-1; grid-row:3; }
+  .toolbar:has(.host-credits[hidden]) .host-bar { grid-column:1; grid-row:1; } .toolbar:has(.host-credits[hidden]) .settings-open { grid-row:1; }
+  .toolbar:has(.host-credits[hidden]) .preset-panel { grid-row:2; }
+  .toolbar:has(> .host-bar[hidden]) .settings-open { grid-row:1; } .toolbar:has(> .host-bar[hidden]) .preset-panel { grid-column:1; grid-row:1; align-self:center; }
   .workspace:not([data-stage="live"]) .engine { display:none; }
   /* Room below the composer for the sticky notice line (inside the column, since a sticky box never enters its
      container's padding): with Attach or Send scrolled to the very top, the notice still stands above them (AIT-119). */

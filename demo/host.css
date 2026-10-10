@@ -65,7 +65,11 @@ aithema-session { display:block; width:100%; --aithema-height:calc(100dvh - 7rem
 @media(max-width:1150px) { .consent-header { grid-template-columns:1fr; } .consent-actions--top { justify-content:flex-start; } }
 @media(max-width:900px) { .consent-items { grid-template-columns:minmax(0,1fr); } }
 @media(max-width:600px) {
- .masthead { flex-wrap:wrap; } .host-actions { gap:4px 16px; justify-content:flex-start; }
+ /* START's compact phone masthead: the wordmark and New conversation on the first row, language and appearance
+    on the second (the actions' wrapper steps aside so its controls take the two rows). */
+ .masthead { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; gap:0 16px; padding-block:12px 0; }
+ .host-actions { display:contents; }
+ .host-actions > label { grid-row:2; justify-self:start; } .host-actions > #new { grid-row:1; grid-column:2; justify-self:end; text-align:right; }
  .consent-page { padding:20px 16px 16px; } .consent-header h1 { font-size:29px; }
  .consent-actions { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); width:100%; }
  .consent-actions [data-grant] { width:100%; grid-column:1/-1; }
