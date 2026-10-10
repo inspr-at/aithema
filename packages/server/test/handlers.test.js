@@ -140,16 +140,17 @@ test('AIT-109 L2: shutdown cancels boot recovery without dispatching queued sess
   } finally { held.resolve(); await handlers.close(); storage.close(); }
 });
 
-test('AIT-109 N1: scheduling publishes both running lanes together, including superseded work', async () => {
+test('AIT-109 N1: scheduling publishes both running lanes together, including superseded work', { timeout: 3000 }, async () => {
   const storage = new SQLiteStorage(), held = deferred(), handlers = createHandlers({ storage, consent: mockConsent });
   handlers.lanes.run = async () => { await held.promise; return 'completed'; };
   let subscription;
   try {
     const s = storage.create({ demo: true, ownerToken: testToken });
-    subscription = await handlers.handle(request(`${s.id}/events`));
+    subscription = await handlers.handle(request(`${s.id}/events?after=${storage.get(s.id).seq}`));
     await turn(handlers, s.id, 'first', 'First');
     const events = await readEvents(subscription, 4); subscription = null;
     const status = events.find(event => event.type === 'lane.status' && event.data.inputRevision === inputRevision(storage.get(s.id)));
+    assert.ok(status, 'scheduling must publish the current revision');
     assert.deepEqual(status.data.running.sort(), ['reaction', 'understanding']);
     subscription = await handlers.handle(request(`${s.id}/events?after=${storage.get(s.id).seq}`));
     await turn(handlers, s.id, 'second', 'Second');
