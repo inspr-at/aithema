@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
-import { createSession, inputRevision, reduceUnderstanding } from '@inspr/aithema-core';
+import { applyEvent, createSession, inputRevision, reduceUnderstanding } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 import { AI_NOTICE } from '../../core/src/ai-notice.js';
@@ -207,6 +207,79 @@ test('an SSE cursor rejected with 400 restores the snapshot and reconnects with 
     assert.deepEqual(calls.map(r => r.cursor), ['99', undefined, '1']);
     assert.equal(c.session.seq, 1);
   } finally { c.remove(); await new Promise(r => setImmediate(r)); globalThis.fetch = originalFetch; }
+});
+test('AIT-109 N2: Retry stays hidden while anonymous understanding is deferred', () => {
+  const c = setup(), session = c.session;
+  session.demo = false; c.configure({ copy: en, session });
+  for (let i = 1; i <= 2; i++) {
+    turn(c, `person-${i}`, `Message ${i}`);
+    c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: `reply-${i}`, role: 'assistant', content: 'Reply',
+      inputRevision: inputRevision(c.session) } });
+    assert.equal(c.shadowRoot.querySelector('.retry').hidden, true, 'waiting for the turn threshold is not a failure');
+  }
+  turn(c, 'person-3', 'Third message');
+  assert.equal(c.shadowRoot.querySelector('.retry').hidden, false, 'assessment can now be retried');
+  const identified = setup(), identifiedSession = identified.session;
+  identifiedSession.demo = false; identifiedSession.identified = true;
+  identified.configure({ copy: en, session: identifiedSession }); turn(identified, 'identified', 'First');
+  assert.equal(identified.shadowRoot.querySelector('.retry').hidden, false, 'identified people bypass the threshold');
+});
+
+test('AIT-109 N3: failed snapshot recovery waits one second before reconnecting', async t => {
+  const c = setup(), calls = [];
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+    calls.push(url);
+    if (!url.endsWith('/events')) return new Response(null, { status: 503 });
+    if (calls.length === 1) return new Response(null, { status: 400 });
+    return new Response(new ReadableStream({ start(controller) {
+      options.signal.addEventListener('abort', () => controller.close(), { once: true });
+    } }));
+  });
+  try {
+    document.body.append(c); await new Promise(resolve => setImmediate(resolve));
+    assert.equal(calls.length, 2, 'a failed restore must not reconnect immediately');
+    t.mock.timers.tick(999); await new Promise(resolve => setImmediate(resolve)); assert.equal(calls.length, 2);
+    t.mock.timers.tick(1); await new Promise(resolve => setImmediate(resolve)); assert.equal(calls.length, 3);
+    assert.equal(c.shadowRoot.querySelector('.status').textContent, en.connected);
+  } finally { c.remove(); await new Promise(resolve => setImmediate(resolve)); }
+});
+
+test('AIT-109 L5: dropped SSE resumes its cursor, ignores replay, and restores a sequence gap', async t => {
+  const c = setup(), cursors = [], encoder = new TextEncoder();
+  const first = { sessionId: c.session.id, seq: 1, type: 'turn.final', data: { id: 'first', role: 'user', content: 'über' } };
+  const second = { ...first, seq: 2, data: { id: 'second', role: 'user', content: 'second' } };
+  const missing = { ...first, seq: 3, data: { id: 'missing', role: 'user', content: 'restored' } };
+  const gap = { ...first, seq: 4, data: { id: 'reply', role: 'assistant', content: 'restored reply' } };
+  const restored = [first, second, missing, gap].reduce(applyEvent, c.session);
+  let snapshots = 0;
+  const frame = event => encoder.encode(`id: ${event.seq}\nevent: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+    if (!url.endsWith('/events')) { snapshots++; return Response.json(restored); }
+    cursors.push(options.headers['Last-Event-ID']);
+    return new Response(new ReadableStream({ start(controller) {
+      if (cursors.length === 1) {
+        const bytes = frame(first), split = bytes.indexOf(0xc3) + 1;
+        controller.enqueue(bytes.slice(0, split)); controller.enqueue(bytes.slice(split)); controller.close();
+      } else {
+        options.signal.addEventListener('abort', () => controller.close(), { once: true });
+        if (cursors.length === 2) {
+          for (const event of [first, second, gap]) controller.enqueue(frame(event));
+        }
+      }
+    } }));
+  });
+  try {
+    document.body.append(c); await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(cursors, ['0']); assert.equal(c.session.transcript[0].content, 'über');
+    t.mock.timers.tick(999); await new Promise(resolve => setImmediate(resolve)); assert.deepEqual(cursors, ['0']);
+    t.mock.timers.tick(1); await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(cursors, ['0', '1', '4']); assert.ok(snapshots >= 1);
+    assert.equal(c.session.seq, 4);
+    assert.deepEqual(c.session.transcript.map(turn => turn.id), ['first', 'second', 'missing', 'reply']);
+    assert.match(c.shadowRoot.querySelector('ol').textContent, /restored reply/u);
+  } finally { c.remove(); await new Promise(resolve => setImmediate(resolve)); }
 });
 test('pause state changes only after server acknowledgement; a failed resume preserves pause', async () => {
   const c = setup(), original = globalThis.fetch; let release;

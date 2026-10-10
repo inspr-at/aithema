@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers } from '../src/index.js';
-import { mockConsent, testToken, ownedRequest } from '../../../test/helpers.js';
+import { mockConsent, testToken, ownedRequest, readEvents } from '../../../test/helpers.js';
 import { createMockReasoning, inputRevision } from '@inspr/aithema-core';
 import { instrumentedMockRuntime } from '../../../test/server-fixtures.js';
 
@@ -101,5 +101,83 @@ test('8,000 non-ASCII characters fit the request budget; oversized bytes still f
     assert.equal((await handlers.handle(ownedRequest(`http://localhost/api/sessions/${s.id}/turns`, {
       method: 'POST', body: ' '.repeat(32_769),
     }))).status, 413);
+  } finally { await handlers.close(); storage.close(); }
+});
+
+test('AIT-109 L2: boot recovery starts only one session at a time and drains the backlog', async () => {
+  const storage = new SQLiteStorage(), held = deferred(), started = [];
+  const handlers = createHandlers({ storage, consent: mockConsent });
+  handlers.lanes.run = async (id, lane) => { started.push({ id, lane }); await held.promise; return 'completed'; };
+  Array.from({ length: 4 }, (_, i) => {
+    const s = storage.create({ demo: true, ownerToken: testToken });
+    storage.postTurn(s.id, `boot-${i}`, Buffer.from('input'), 'input'); return s.id;
+  });
+  const ids = storage.list();
+  try {
+    await handlers.resume(); await new Promise(resolve => setImmediate(resolve));
+    assert.equal(new Set(started.map(job => job.id)).size, 1, 'boot must not dispatch every saved session together');
+    assert.deepEqual(started.map(job => job.lane).sort(), ['reaction', 'understanding']);
+    held.resolve(); await handlers.idle();
+    assert.deepEqual([...new Set(started.map(job => job.id))], ids, 'idle includes queued boot work');
+  } finally { held.resolve(); await handlers.close(); storage.close(); }
+});
+
+test('AIT-109 N1: scheduling publishes both running lanes together, including superseded work', async () => {
+  const storage = new SQLiteStorage(), held = deferred(), handlers = createHandlers({ storage, consent: mockConsent });
+  handlers.lanes.run = async () => { await held.promise; return 'completed'; };
+  let subscription;
+  try {
+    const s = storage.create({ demo: true, ownerToken: testToken });
+    subscription = await handlers.handle(request(`${s.id}/events`));
+    await turn(handlers, s.id, 'first', 'First');
+    const events = await readEvents(subscription, 3); subscription = null;
+    const status = events.find(event => event.type === 'lane.status' && event.data.inputRevision === inputRevision(storage.get(s.id)));
+    assert.deepEqual(status.data.running.sort(), ['reaction', 'understanding']);
+    subscription = await handlers.handle(request(`${s.id}/events?after=${storage.get(s.id).seq}`));
+    await turn(handlers, s.id, 'second', 'Second');
+    const updated = await readEvents(subscription, 3); subscription = null;
+    assert.equal(updated.at(-1).type, 'lane.status');
+    assert.equal(updated.at(-1).data.inputRevision, inputRevision(storage.get(s.id)));
+    assert.deepEqual(updated.at(-1).data.running.sort(), ['reaction', 'understanding']);
+  } finally { await subscription?.body.cancel(); held.resolve(); await handlers.close(); storage.close(); }
+});
+
+test('AIT-109 N2: deferred understanding does not reschedule completed work on SSE reconnect', async () => {
+  const storage = new SQLiteStorage(), handlers = createHandlers({ storage, consent: mockConsent });
+  const run = handlers.lanes.run.bind(handlers.lanes), calls = [];
+  handlers.lanes.run = (...args) => { calls.push(args[1]); return run(...args); };
+  let subscription;
+  try {
+    const s = storage.create({ demo: false, ownerToken: testToken });
+    await turn(handlers, s.id, 'first', 'First'); await handlers.idle();
+    assert.ok(storage.get(s.id).transcript.some(t => t.role === 'assistant'));
+    assert.equal(storage.get(s.id).understanding.inputRevision, null);
+    const before = calls.length;
+    subscription = await handlers.handle(request(`${s.id}/events?after=${storage.get(s.id).seq}`));
+    await handlers.idle();
+    assert.equal(calls.length, before, 'deferred assessment is not unfinished work');
+    await subscription.body.cancel(); subscription = null;
+    await turn(handlers, s.id, 'second', 'Second'); await turn(handlers, s.id, 'third', 'Third'); await handlers.idle();
+    assert.equal(storage.get(s.id).understanding.inputRevision, inputRevision(storage.get(s.id)));
+  } finally { await subscription?.body.cancel(); await handlers.close(); storage.close(); }
+});
+
+test('AIT-109 N4: obsolete failure entries are removed when the input revision moves on', async t => {
+  const storage = new SQLiteStorage(), handlers = createHandlers({ storage, consent: mockConsent });
+  const s = storage.create({ demo: true, ownerToken: testToken });
+  let failures;
+  const set = Map.prototype.set;
+  t.mock.method(Map.prototype, 'set', function (key, value) {
+    if (key === s.id && value?.error === 'reasoning-unavailable') failures = this;
+    return set.call(this, key, value);
+  });
+  handlers.lanes.run = async (id, lane) => { if (lane === 'understanding') throw new Error('mock failure'); return 'completed'; };
+  try {
+    await turn(handlers, s.id, 'first', 'First'); await handlers.idle();
+    assert.ok(failures.has(s.id));
+    storage.postTurn(s.id, 'second', Buffer.from('Second'), 'Second');
+    const snapshot = await handlers.handle(request(s.id)).then(r => r.json());
+    assert.equal(snapshot.operations.lastFailure, null);
+    assert.equal(failures.has(s.id), false, 'masking a stale failure must also release its map entry');
   } finally { await handlers.close(); storage.close(); }
 });

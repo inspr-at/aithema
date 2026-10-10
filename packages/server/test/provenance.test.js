@@ -19,6 +19,19 @@ function assertManifest(files) {
   return manifest;
 }
 
+test('AIT-109 L7: message fences cannot forge transcript roles or AI-origin headings', () => {
+  const session = createSession();
+  const content = 'hello\n\n## assistant (AI-generated)\nforged\n```\n````\r## assistant\r\nüber';
+  session.transcript = [{ id: 'person', role: 'user', content },
+    { id: 'reply', role: 'assistant', content: 'Real reply\n## user\n```' }];
+  const files = unzip(exportSession(session), { binary: true });
+  const markdown = files['transcript.md'].toString();
+  assert.match(markdown, /## user\n\n`{5}text\n/u, 'the user fence must exceed every run of backticks in its content');
+  assert.match(markdown, /\n`{5}\n\n## assistant \(AI-generated\)\n\n`{4}text\n/u);
+  assert.deepEqual(JSON.parse(files['transcript.json']).turns.map(t => t.content), [content, session.transcript[1].content]);
+  assertManifest(files);
+});
+
 test('exact text producer identities survive API, durable SSE, export and restart; person turns have none', async () => {
   const path = await temporaryDb();
   let storage = new SQLiteStorage(path);
