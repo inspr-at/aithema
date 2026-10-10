@@ -87,9 +87,10 @@ async function rest(page, selector) {
 }
 const click = (page, selector) => inShadow(page, (c, selector) => c.shadowRoot.querySelector(selector).click(), selector);
 const overflow = page => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-async function launch(directory) {
+// One browser per language, each with its own profile: separate owner cookies and storage.
+async function launch(directory, profile) {
   return puppeteer.launch({ executablePath: await browserPath(), headless: true, env: { PATH: process.env.PATH, HOME: homedir() },
-    userDataDir: join(directory, 'chrome'), timeout: waitTimeout, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    userDataDir: join(directory, profile), timeout: waitTimeout, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
 }
 // The start card (preset chooser) at a size: Continue whole and inside the card, nothing scrolled inside it where it fits.
 async function chooserFits(page, width, height, label) {
@@ -109,9 +110,9 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
   { timeout: 300_000 }, async t => {
     const evidence = process.env.AITHEMA_EVIDENCE_DIR;
     const directory = await mkdtemp(join(tmpdir(), 'aithema-browser-host-'));
-    const demo = await startDemo(directory, { AITHEMA_DEMO_VERIFY: '1', AITHEMA_DEMO_HANDOVER_FAIL: '1' }); let browser;
+    const demo = await startDemo(directory, { AITHEMA_DEMO_VERIFY: '1', AITHEMA_DEMO_HANDOVER_FAIL: '1' }); let browser, deBrowser;
     t.after(async () => {
-      try { await browser?.close(); }
+      try { await browser?.close(); await deBrowser?.close(); }
       finally { await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); }
     });
     if (evidence) await mkdir(evidence, { recursive: true });
@@ -120,11 +121,11 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
       if (selector) await inShadow(page, (c, selector) => c.shadowRoot.querySelector(selector).scrollIntoView({ block: 'center' }), selector);
       await page.screenshot({ path: join(evidence, `host-${name}.png`) });
     };
-    browser = await launch(directory);
+    browser = await launch(directory, 'chrome-en');
     const tally = [];
 
     // English, 1440 × 1000, light.
-    const problems = [], context = await browser.createBrowserContext(), page = await context.newPage();
+    const problems = [], page = await browser.newPage();
     await preparePage(page, ['en-GB', 'en'], problems, (status, path) => status === 404 && path.startsWith('/api/library/'));
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
@@ -287,10 +288,11 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     await page.setViewport({ width: 1440, height: 1000 });
     await shot(page, 'en-dark-1440-handover', '.understanding');
     assert.deepEqual(problems, []);
-    await context.close();
+    await browser.close(); browser = null;
 
     // German, 400 × 800, dark: one language on the page, the lock and the dialogs in German.
-    const german = [], deContext = await browser.createBrowserContext(), dePage = await deContext.newPage();
+    deBrowser = await launch(directory, 'chrome-de');
+    const german = [], dePage = await deBrowser.newPage();
     await preparePage(dePage, ['de-AT', 'de'], german);
     await dePage.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
     await dePage.setViewport({ width: 400, height: 800 });
@@ -327,6 +329,5 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     }
     assert.equal(await overflow(dePage), 0);
     assert.deepEqual(german, []);
-    await deContext.close();
     t.diagnostic(`Host surface: ${tally.join('; ')}; German dark 400 px lock, verify dialog and library; no sideways overflow.`);
   });
