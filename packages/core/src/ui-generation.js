@@ -25,15 +25,29 @@ export function assertUIGeneration(plugin) {
   }
   return plugin;
 }
-export function isUIArtifact(artifact) {
+export function isUIArtifact(artifact, { allowLegacy = false } = {}) {
   const p = artifact?.provenance;
+  const keys = ['version', 'origin', 'modality', 'digitalSourceType', 'generatedAt', 'generator', 'techniques', 'assurances', 'subject'];
+  // Keep stored v1 embedded-metadata artifacts usable, including as edit references.
+  const legacy = allowLegacy && exactKeys(p, keys) && exactKeys(p.assurances, ['digitallySigned', 'imperceptibleWatermark']) &&
+    p.assurances.imperceptibleWatermark === 'provider-status-unknown';
+  const current = exactKeys(p, [...keys, 'promptDigest', 'credentials']) && p.promptDigest === artifact.promptDigest &&
+    exactKeys(p.credentials, ['c2pa', 'manifestByteLength', 'verification']) &&
+    ['present', 'absent'].includes(p.credentials.c2pa) && p.credentials.verification === 'not-verified' &&
+    Number.isSafeInteger(p.credentials.manifestByteLength) && p.credentials.manifestByteLength >= 0 &&
+    p.credentials.manifestByteLength <= artifact.bytes?.byteLength &&
+    (p.credentials.c2pa === 'present') === (p.credentials.manifestByteLength > 0) &&
+    exactKeys(p.assurances, ['digitallySigned', 'imperceptibleWatermark', 'watermarkSource']) &&
+    (p.assurances.imperceptibleWatermark === 'unknown' && p.assurances.watermarkSource === null ||
+      p.assurances.imperceptibleWatermark === 'provider-declared' &&
+      typeof p.assurances.watermarkSource === 'string' && p.assurances.watermarkSource.length > 0);
   return Boolean(artifact && typeof artifact === 'object' && Reflect.ownKeys(artifact).every(key =>
     ['bytes', 'mediaType', 'width', 'height', 'promptDigest', 'provenance'].includes(key)) &&
     artifact.bytes instanceof Uint8Array && artifact.bytes.byteLength > 0 &&
     ['image/png', 'image/webp', 'image/jpeg'].includes(artifact.mediaType) &&
     ['width', 'height'].every(key => Number.isSafeInteger(artifact[key]) && artifact[key] > 0) &&
     /^sha256:[a-f0-9]{64}$/u.test(artifact.promptDigest) &&
-    exactKeys(p, ['version', 'origin', 'modality', 'digitalSourceType', 'generatedAt', 'generator', 'techniques', 'assurances', 'subject']) &&
+    (legacy || current) &&
     p.version === 1 && p.modality === 'image' &&
     ['ai-generated', 'ai-manipulated'].includes(p.origin) &&
     p.digitalSourceType === IPTC_DIGITAL_SOURCE[p.origin === 'ai-generated' ? 'generated' : 'manipulated'] &&
@@ -44,7 +58,5 @@ export function isUIArtifact(artifact) {
     Array.isArray(p.techniques) && p.techniques.includes('response-field') &&
     exactKeys(p.subject, ['contentDigest', 'mediaType']) &&
     /^sha-256=:[A-Za-z0-9+/]{43}=:$/u.test(p.subject.contentDigest) &&
-    p.subject.mediaType === artifact.mediaType && exactKeys(p.assurances, ['digitallySigned', 'imperceptibleWatermark']) &&
-    p.assurances.digitallySigned === false &&
-    p.assurances.imperceptibleWatermark === 'provider-status-unknown');
+    p.subject.mediaType === artifact.mediaType && p.assurances.digitallySigned === false);
 }

@@ -16,6 +16,7 @@ export * from './cancellation.js';
 export * from './ui-generation.js';
 export * from './ui-html.js';
 export * from './image-info.js';
+export * from './image-credentials.js';
 export * from './concept-intent.js';
 export * from './identity.js';
 export * from './library-port.js';

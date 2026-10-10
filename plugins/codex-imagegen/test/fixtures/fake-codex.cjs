@@ -73,8 +73,13 @@ async function main() {
   if (mode === 'beyondtolerance') { width = Math.floor(width * 1.05) + 1; }
   // Header fixtures, just like the existing JPEG fixture: imageInfo is not a
   // pixel decoder. Keep real raster bytes unnecessary for these boundary tests.
-  const png = Buffer.from(PNG, 'base64'); png.writeUInt32BE(width, 16); png.writeUInt32BE(height, 20);
-  const webp = Buffer.from(WEBP, 'base64'); webp.writeUInt16LE(width, 26); webp.writeUInt16LE(height, 28);
+  let png = Buffer.from(PNG, 'base64'); png.writeUInt32BE(width, 16); png.writeUInt32BE(height, 20);
+  let webp = Buffer.from(WEBP, 'base64'); webp.writeUInt16LE(width, 26); webp.writeUInt16LE(height, 28);
+  const credentialChunk = Buffer.from(process.env.FAKE_CREDENTIAL_CHUNK ?? '', 'base64');
+  if (credentialChunk.length) {
+    if (requested[3] === 'png') png = Buffer.concat([png.subarray(0, -12), credentialChunk, png.subarray(-12)]);
+    else { webp = Buffer.concat([webp, credentialChunk]); webp.writeUInt32LE(webp.length - 8, 4); }
+  }
   if (mode === 'webp' || (requested[3] === 'webp' && mode !== 'wrongformat')) writeFileSync(join(process.cwd(), 'render.WEBP'), webp);
   else if (mode === 'jpeg') writeFileSync(join(process.cwd(), 'render.JPEG'), Buffer.from([
     255, 216, 255, 192, 0, 11, 8, 0, 2, 0, 3, 1, 1, 17, 0, 255, 217,

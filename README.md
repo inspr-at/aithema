@@ -622,9 +622,9 @@ additional references). The request follows the official
 [generation reference](https://developers.openai.com/api/reference/resources/images/methods/generate)
 and [edit reference](https://developers.openai.com/api/reference/python/resources/images/methods/edit).
 Defaults follow START: one image, `1536x1024`, high quality and WebP output;
-PNG fallback is identified from the returned bytes. PNG/WebP dimensions come
-from the image headers. The response is bounded at 18 MiB and each image,
-including embedded metadata, at 12 MiB. A URL response is downloaded inside
+PNG/JPEG fallback is identified from the returned bytes. PNG/WebP/JPEG dimensions
+come from the image headers. The response is bounded at 18 MiB and each image,
+including provider metadata, at 12 MiB. A URL response is downloaded inside
 the server only when its exact origin appears in the private
 `binding.routing.imageOrigins` allowlist; downloads carry no authorization or
 cookies and reject redirects. Base64 is decoded locally.
@@ -645,16 +645,37 @@ a vendor price. The host must supply researched conservative private image rates
 input/output bounds through `createImageBinding` before live admission; chat
 UTF-8 token bounds do not bound image tokens. No live provider call or qualification was performed.
 
-The artifact embeds XMP using IPTC Digital Source Type
-`trainedAlgorithmicMedia` / `ai-generated` for generation without references and
-`compositeWithTrainedAlgorithmicMedia` / `ai-manipulated` for every refinement.
-This single rule applies to both `generate` with previous/rejected/upload
-references (the edit endpoint) and explicit `edit`. Its response metadata includes
-a SHA-256 Content-Digest of the final marked bytes, provider/model and generation
-time. It makes no C2PA signature or local watermark claim. Storage preserves
-the marked bytes and metadata; image GETs provide `Content-Digest`, truthful
-`Content-Type`, `x-aithema-origin` and a provenance sidecar.
-Embedding replaces existing PNG/WebP XMP blocks with one current record.
+Image artifacts keep the provider-returned PNG/JPEG/WebP bytes byte-identical
+through storage, serving, downloads and ZIP export. Aithema never injects or
+replaces XMP/IPTC metadata or changes WebP header flags. Our IPTC-equivalent
+Digital Source Type (`trainedAlgorithmicMedia` / `ai-generated` for generation,
+`compositeWithTrainedAlgorithmicMedia` / `ai-manipulated` for refinement),
+provider/model, SHA-256 prompt digest, generation time and original-byte
+Content-Digest live in the provenance sidecar and each image entry's
+`provenance` in `concepts-manifest.json`. The refinement rule applies both to
+`generate` with previous/rejected/upload references and explicit `edit`.
+Image GETs provide `Content-Digest`, truthful `Content-Type`, `x-aithema-origin`
+and an owner-authenticated provenance sidecar.
+
+Credential presence is detected structurally from PNG `caBX` chunks, JPEG
+APP11 JUMBF segments with the exact `c2pa` description label (including
+numbered continuations), and WebP `C2PA` chunks. Sidecars record
+`credentials: {c2pa: "present"|"absent", manifestByteLength, verification:
+"not-verified"}`; the byte length excludes image chunk/segment framing and
+repeated JPEG superbox headers. **Present means present (not verified)**:
+Aithema does not validate signatures, certificates, assertions or trust chains;
+`assurances.digitallySigned: false` makes no verified-signature claim.
+OpenAI's watermark status is `provider-declared`, with a source note for its
+[SynthID declaration](https://help.openai.com/en/articles/8912793); no local
+watermark detection is claimed. Fake/local images retain their provider
+identity and disclosure, report C2PA `absent`, and use watermark `unknown`.
+
+Existing stored images with embedded XMP and legacy provenance remain readable,
+downloadable, exportable and usable as edit references without changing their
+bytes. This cannot repair any upstream signature invalidated by earlier
+metadata injection. A future re-signing path could record the original OpenAI
+image as a C2PA ingredient and sign the derived image; signing and new native
+dependencies are outside this change.
 
 `createConceptIntent`, `reduceConceptIntent`, `planConceptIntent` and
 `conceptResultDisposition` implement the pure spending policy. The host passes
@@ -928,9 +949,11 @@ Failures, crashes, deadlines and cancellation after the child spawns report
 `outcome: 'uncertain'` without usage, matching shared settlement semantics.
 Successful zero token totals are monetary settlement units, not measured CLI
 consumption. Preflight/refusal keeps the exact shared zero report. Provenance
-identifies `codex-imagegen`, the bound model and byte digest through response
-fields. Health checks executable/account-directory availability and startup
-compatibility without authenticating or rendering. All tests use a fake
+identifies `codex-imagegen`, the bound model, prompt digest, generation time and
+byte digest through the sidecar and export manifest. Local output reports C2PA
+credentials `absent` and watermark status `unknown`. Health checks executable
+and account-directory availability and startup compatibility without
+authenticating or rendering. All tests use a fake
 executable; no live Codex render is performed.
 
 AIT-113 part B wiring requirements, still pending:
@@ -1412,7 +1435,7 @@ policy were removed. The table records the port in the current package layout.
 | `src/pages/index.astro`, `src/scripts/v2.ts` (conversation/aside) | `packages/ui/src/{session-element,styles}.js` | transcript bubbles, composer shortcuts, readiness/aside, expansion and responsive layout; host copy/tokens |
 | `tests/{analyze-route,guided-pass,analysis-incremental,critical-surfaces}.test.ts` | `packages/core/test/`, `packages/ui/test/` | selected reducer/readiness/lane/UI behaviour cases converted to `node:test` |
 | `src/lib/{generated-ui,generated-ui-idle,generated-ui-policy}.ts`, `src/pages/api/v2/generated-ui/index.ts` | `packages/core/src/concept-intent.js` | pure host policy; recorded intent, arming, cadence, dedupe and source/consent invalidation; historical slow results |
-| `src/lib/providers/openai-image.ts`, `src/lib/provenance.ts` | `plugins/openai-images/src/` | server Images generate/edit with lifetime/claim contract, bounded private bytes, IPTC XMP and digest metadata; no branding or legal/account facts |
+| `src/lib/providers/openai-image.ts`, `src/lib/provenance.ts` | `plugins/openai-images/src/` | server Images generate/edit with lifetime/claim contract, bounded private bytes, byte-preserving IPTC-equivalent sidecars and digest metadata; no branding or legal/account facts |
 | `src/scripts/{concept-viewer,concept-backdrop}.ts`, `src/lib/{generated-ui-view,generated-ui-progress,generated-ui-idle}.ts`, `src/pages/index.astro` (concepts) | `packages/ui/src/{concept-view,session-element,styles}.js` | one immersive viewer, preview, fixed controls, estimated countdown, feedback and cost copy; no START branding |
 | `src/pages/api/v2/generated-ui/index.ts` | `packages/core/src/concept-lane.js`, `packages/server/src/{concept-handlers,image-binding,local-images,storage}.js` | durable intent/progress, private-byte references, exact image scopes, conservative private costs, byte history and erasure |
 | `tests/generated-ui.test.ts` | `packages/core/test/concept-intent.test.js`, `plugins/openai-images/test/openai-images.test.js` | selected spending, slow-render, removal/withdrawal and private image transport cases with fakes |

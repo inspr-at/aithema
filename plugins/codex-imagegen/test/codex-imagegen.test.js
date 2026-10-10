@@ -9,6 +9,7 @@ import { createCodexImagegen, manifest } from '../src/index.js';
 import { prepareBrief } from '../src/brief.js';
 import { PluginError, PluginRegistry, validateManifest, isUIArtifact, IPTC_DIGITAL_SOURCE } from '@inspr/aithema-core';
 import { uiGenerationConformance } from '../../../packages/core/src/ui-generation-conformance.js';
+import { jumbf, pngChunk, webpChunk, webp } from '../../../test/image-fixtures.js';
 
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO/aK0kAAAAASUVORK5CYII=', 'base64');
 const spec = { prompt: 'Host policy: visitor wants a quiet library. Visual language: cream and ink.' };
@@ -38,7 +39,7 @@ async function fake(t, extra = {}) {
     const probe = args.includes('--help') || args[0] === 'features';
     (probe ? probes : records).push(record);
     const child = spawn(process.execPath, [file, ...args], { ...config, env: { ...config.env, FAKE_TRACE_DIR: trace,
-      FAKE_PROBE_MODE: extra.probeMode ?? '' } });
+      FAKE_PROBE_MODE: extra.probeMode ?? '', FAKE_CREDENTIAL_CHUNK: extra.credentialChunk?.toString('base64') ?? '' } });
     record.child = child; active++; peak = Math.max(peak, active);
     child.once('close', () => active--);
     return child;
@@ -105,6 +106,9 @@ test('generate sends a resolved stdin brief and returns actual bytes, model and 
   assert.equal(result.mediaType, 'image/png'); assert.equal(result.width, 1536); assert.equal(result.height, 1024);
   assert.equal(result.provenance.generator.provider, 'codex-imagegen'); assert.equal(result.provenance.generator.model, f.binding.model);
   assert.equal(result.provenance.origin, 'ai-generated'); assert.equal(result.provenance.digitalSourceType, IPTC_DIGITAL_SOURCE.generated);
+  assert.deepEqual(result.provenance.credentials, { c2pa: 'absent', manifestByteLength: 0, verification: 'not-verified' });
+  assert.equal(result.provenance.promptDigest, result.promptDigest);
+  assert.deepEqual(result.provenance.assurances, { digitallySigned: false, imperceptibleWatermark: 'unknown', watermarkSource: null });
   assert.equal(result.provenance.subject.contentDigest, `sha-256=:${createHash('sha256').update(result.bytes).digest('base64')}:`);
   assert.equal(result.promptDigest, `sha256:${createHash('sha256').update(record.brief).digest('hex')}`);
   assert.deepEqual(record.args.slice(0, 5), ['exec', '-m', 'fixture-model', '-c', 'model_reasoning_effort="high"']);
@@ -129,6 +133,36 @@ test('generate sends a resolved stdin brief and returns actual bytes, model and 
   assert.deepEqual(Object.keys(f.records[0].config.env).sort(), ['CODEX_HOME', 'HOME', 'LANG', 'PATH', 'TMPDIR']);
   assert.deepEqual(f.records[0].config.stdio, ['pipe', 'ignore', 'ignore']); assert.equal(f.records[0].config.detached, true);
   terminal(o, 'completed');
+});
+
+for (const format of ['png', 'webp']) for (const marked of [false, true]) test(`${format} Codex output ${marked ? 'with' : 'without'} synthetic C2PA is detected and preserved through generation and editing`, async t => {
+  const payload = jumbf(), chunk = format === 'png' ? pngChunk('caBX', payload) : webpChunk('C2PA', payload);
+  const f = await fake(t, { credentialChunk: marked ? chunk : undefined }), input = { ...spec, format };
+  let expected = Buffer.from(format === 'png' ? png : webp);
+  if (format === 'png') { expected.writeUInt32BE(1536, 16); expected.writeUInt32BE(1024, 20); }
+  else { expected.writeUInt16LE(1536, 26); expected.writeUInt16LE(1024, 28); }
+  if (marked) expected = format === 'png' ? Buffer.concat([expected.subarray(0, -12), chunk, expected.subarray(-12)]) : Buffer.concat([expected, chunk]);
+  if (format === 'webp') expected.writeUInt32LE(expected.length - 8, 4);
+  const source = await f.plugin.generate(input, '', options());
+  const edited = await f.plugin.edit(source, input, 'Blue action', options());
+  for (const result of [source, edited]) {
+    assert.equal(isUIArtifact(result), true); assert.deepEqual(Buffer.from(result.bytes), expected);
+    assert.deepEqual(result.provenance.credentials, { c2pa: marked ? 'present' : 'absent',
+      manifestByteLength: marked ? payload.length : 0, verification: 'not-verified' });
+    assert.deepEqual(result.provenance.assurances, { digitallySigned: false, imperceptibleWatermark: 'unknown', watermarkSource: null });
+    assert.equal(result.provenance.subject.contentDigest, `sha-256=:${createHash('sha256').update(expected).digest('base64')}:`);
+  }
+});
+
+test('Codex accepts a legacy artifact only as an edit reference', async t => {
+  const f = await fake(t), source = await f.plugin.generate(spec, '', options());
+  delete source.provenance.credentials; delete source.provenance.promptDigest;
+  source.provenance.techniques = ['embedded-metadata', 'response-field'];
+  source.provenance.assurances = { digitallySigned: false, imperceptibleWatermark: 'provider-status-unknown' };
+  assert.equal(isUIArtifact(source), false); assert.equal(isUIArtifact(source, { allowLegacy: true }), true);
+  const result = await f.plugin.edit(source, spec, 'Blue action', options());
+  assert.equal(isUIArtifact(result), true);
+  assert.equal((await f.ready(1)).references[0].bytes, Buffer.from(source.bytes).toString('base64'));
 });
 
 test('ordered previous, rejected and upload bytes go to private files and variadic -i, never a positional prompt', async t => {
