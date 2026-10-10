@@ -1,3 +1,4 @@
+import { mockConsent } from './consent-helpers.js';
 // AIT-104 B2: the host surface in a real browser against the default mock demo with its labelled
 // demo host: the verification lock through the fake mail outbox (AITHEMA_DEMO_VERIFY=1), the
 // conversation library (create, rename, sort, open, delete), handover with one failed delivery
@@ -49,8 +50,10 @@ async function preparePage(page, languages, problems, allowed = () => false) {
   await page.setViewport({ width: 1440, height: 1000 });
   page.setDefaultTimeout(waitTimeout);
   await page.evaluateOnNewDocument(languages => {
+    if (window !== window.top) return;
     Object.defineProperty(navigator, 'languages', { get: () => languages });
     Object.defineProperty(navigator, 'language', { get: () => languages[0] });
+    try { localStorage.setItem('aithema-demo-locale', languages[0].startsWith('de') ? 'de' : 'en'); } catch { /* Storage can be denied. */ }
     document.addEventListener('DOMContentLoaded', () => {
       const icon = document.createElement('link'); icon.rel = 'icon'; icon.href = 'data:,'; document.head.append(icon);
     }, { once: true });
@@ -153,7 +156,7 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     assert.equal(await text(page, '.host-verify .verify-entry'), v.entry, 'the bar offers the same verification');
     assert.deepEqual(await inShadow(page, c => c.shadowRoot.querySelector('.verify-lock .verify-send').getAttribute('aria-describedby').split(' ')), ['verify-lock-message', 'ai-notice']);
     // Consent, the ready card and a first statement.
-    await page.evaluate(() => document.querySelector('#grant').click());
+    await mockConsent(page);
     await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('textarea').disabled);
     await click(page, '.chooser__continue'); await shadow(page, '.ready__change');
     await inShadow(page, c => { c.shadowRoot.querySelector('textarea').value = 'We need a preorder app for our bakery.'; c.shadowRoot.querySelector('form.composer').requestSubmit(); });

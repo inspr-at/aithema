@@ -1,3 +1,4 @@
+import { reviseMockConsent } from './consent-helper.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
@@ -25,6 +26,7 @@ test('labelled fake agent exercises speech, voice barge-in, typing, acknowledged
     const html = await nativeFetch(running.url).then(r => r.text());
     window.document.write(html.replace(/<script[^>]*>[\s\S]*?<\/script>/gu, ''));
     for (const key of keys) globalThis[key] = window[key];
+    localStorage.setItem('aithema-demo-locale', 'en');
     globalThis.fetch = async (url, init = {}) => {
       const absolute = new URL(url, running.url); assert.equal(absolute.origin, new URL(running.url).origin, 'agent never opens an external network');
       paths.push(absolute.pathname);
@@ -47,7 +49,7 @@ test('labelled fake agent exercises speech, voice barge-in, typing, acknowledged
     const session = (type, predicate = () => true) => notice => notice.source === 'session' && notice.event.type === type && predicate(notice.event);
     const rendered = predicate => notice => notice.source === 'render' && predicate(notice);
     assert.match(document.querySelector('#fake-label').textContent, /Fake voice.*no provider network/);
-    await act(() => document.querySelector('#grant').click(), session('consent.revised'), rendered(n => !n.startDisabled));
+    await act(() => void reviseMockConsent(c), session('consent.revised'), rendered(n => !n.startDisabled));
     await act(() => root.querySelector('.voice-start').click(), voice('final', e => e.role === 'assistant'));
     assert.equal(root.querySelector('.audio-rail').dataset.state, 'speaking');
     await act(() => document.querySelector('#fake-say').click(), voice('final', e => e.role === 'user' && e.text.includes('public API')),

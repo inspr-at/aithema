@@ -47,6 +47,9 @@ test('demo slot fills, the fake outbox and the demo handover wording appear only
         assert.equal(document.querySelector('#error').textContent, '');
         assert.equal(document.querySelectorAll('[data-demo-only]').length, 0);
         assert.equal(document.querySelector('#outbox-open') === null, true, 'no fake outbox button');
+        for (const id of ['title', 'provider', 'mock-hint', 'settings-hint', 'resume-hint', 'fake-voice']) assert.equal(document.getElementById(id), null);
+        assert.equal(document.title, 'Aithema');
+        assert.equal(document.querySelector('section[aria-labelledby="consent-title"]'), null);
         const page = document.body.innerHTML;
         assert.doesNotMatch(page, demoCopy);
         for (const text of [...demoTexts(en), ...demoTexts(de)]) assert.ok(!page.includes(text), `demo copy on a live page: ${text}`);

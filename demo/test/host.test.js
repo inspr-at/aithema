@@ -1,3 +1,4 @@
+import { reviseMockConsent } from './consent-helper.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -8,13 +9,14 @@ import { contrast, mix, tokens } from '../../test/contrast.js';
 test('demo host creates owned sessions through postJson and combines consent, pause and settings controls', { timeout: 15_000 }, async () => {
   const running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb());
   const nativeFetch = globalThis.fetch, window = new Window({ url: running.url });
-  const keys = ['HTMLElement', 'customElements', 'document', 'CustomEvent', 'localStorage'];
+  const keys = ['HTMLElement', 'customElements', 'document', 'CustomEvent', 'localStorage', 'location'];
   const originals = Object.fromEntries(keys.map(key => [key, globalThis[key]]));
   let cookie = ''; const posts = [];
   try {
     const html = await nativeFetch(running.url).then(response => response.text());
     window.document.write(html.replace(/<script[^>]*>[\s\S]*?<\/script>/gu, ''));
     for (const key of keys) globalThis[key] = window[key];
+    localStorage.setItem('aithema-demo-locale', 'en');
     globalThis.fetch = async (url, init = {}) => {
       const headers = new Headers(init.headers);
       if (cookie) headers.set('cookie', cookie);
@@ -35,7 +37,7 @@ test('demo host creates owned sessions through postJson and combines consent, pa
     assert.equal(root.querySelector('.intro').dataset.mode, 'chooser', 'a new conversation starts with the preset chooser');
     assert.equal(root.querySelector('.engine__value').textContent, 'Best models');
     assert.equal(root.querySelector('.send').disabled, true, 'initial mock admission waits for consent');
-    document.querySelector('#grant').click();
+    await reviseMockConsent(component);
     await wait(() => !root.querySelector('.send').disabled);
     const send = root.querySelector('.send'), pause = root.querySelector('.pause');
     root.querySelector('textarea').value = 'systems: API; data: public';
@@ -50,11 +52,11 @@ test('demo host creates owned sessions through postJson and combines consent, pa
     assert.equal(document.documentElement.lang, 'en'); assert.equal(component.session.locale, 'en');
     assert.equal(root.querySelector('.readiness').style.visibility, '', 'cached analysis stays visible during pause');
     pause.click(); await wait(() => !component.session.paused && !send.disabled);
-    document.querySelector('#revoke').click();
+    await reviseMockConsent(component, false);
     await wait(() => component.session.consentWithdrawn && send.disabled);
     assert.equal(root.querySelector('.summary-text').textContent, '');
     assert.equal(root.querySelector('.send'), send); assert.equal(root.querySelector('.pause'), pause);
-    document.querySelector('#grant').click();
+    await reviseMockConsent(component);
     await wait(() => !component.session.consentWithdrawn && !send.disabled);
     root.querySelector('.preset-panel').dispatchEvent(new window.Event('pointerleave'));
     // Settings: the demo operator allowlist, enforced and acknowledged by the server.
@@ -72,17 +74,14 @@ test('demo host creates owned sessions through postJson and combines consent, pa
     assert.match(root.querySelector('.engine__detail').textContent, /Deep \(mock\)/u);
     // AIT-118: the header and the mock consent name the active visual kind from the server's binding, never always the image label.
     const { en: copy } = await import('../../packages/ui/src/i18n/en.js'), h = copy.host;
-    const header = () => document.querySelector('#provider').textContent, consentText = () => document.querySelector('#consent-text').textContent;
+    const header = () => document.querySelector('#provider').textContent;
     assert.equal(component.session.conceptVisualKind, 'html');
     assert.equal(header(), `Mock reasoning — deterministic demo · ${h.labels['Fake HTML — local deterministic click-dummy, no provider network']}`);
     assert.equal(header(), 'Mock reasoning — deterministic demo · Test drafts (local click-dummy)');
-    assert.equal(consentText(), `${h.consentUse.html} ${h.consentTerms}`); assert.doesNotMatch(consentText(), /image/u);
     option('visuals', 'Fake images (local PNG)').click();
     await wait(() => component.session.conceptVisualKind === 'images' && header().endsWith('Test images (local PNG)'));
-    assert.equal(consentText(), `${h.consentUse.images} ${h.consentTerms}`);
     option('visuals', 'Off').click();
     await wait(() => header().endsWith(h.visualsOff));
-    assert.equal(consentText(), `${h.consentUse.off} ${h.consentTerms}`); assert.doesNotMatch(consentText(), /draft|image/u);
     option('visuals', 'Fake HTML (local click-dummy)').click();
     await wait(() => header().endsWith('Test drafts (local click-dummy)'));
     dialog.querySelector('.preset-option[data-preset="custom"]').click();
@@ -99,7 +98,8 @@ test('demo host creates owned sessions through postJson and combines consent, pa
     // The settings dialog defers consent to the host; its message comes from the i18n bundle.
     const { en } = await import('../../packages/ui/src/i18n/en.js');
     component.dispatchEvent(new CustomEvent('aithema-consent', { detail: { reason: 'settings', features: ['text'] } }));
-    assert.equal(document.querySelector('#consent-status').textContent, en.consentForSelection);
+    assert.equal(location.pathname, '/consent/');
+    assert.equal(new URLSearchParams(location.search).get('session'), component.session.id);
     assert.ok(posts.length >= 9);
     assert.ok(posts.every(post => post.contentType === 'application/json'));
     assert.equal(posts[0].path, '/api/sessions', 'browser creation uses the guarded JSON request');
@@ -112,14 +112,17 @@ test('demo host creates owned sessions through postJson and combines consent, pa
 });
 
 test('demo page tokens reach WCAG AA text contrast in light and dark (AIT-116 D9, AIT-118)', async () => {
-  const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+  const html = await readFile(new URL('../host.css', import.meta.url), 'utf8');
   const light = tokens(html.match(/^:root \{([^}]*)\}/mu)[1], '');
-  const dark = tokens(html.match(/@media\(prefers-color-scheme:dark\) \{ :root \{([^}]*)\}/u)[1], '');
-  assert.match(html, /#grant \{ background:var\(--accent\); color:var\(--surface\); \}/u);
+  const dark = tokens(html.match(/@media\(prefers-color-scheme:dark\) \{ :root:not\(\[data-theme="light"\]\) \{([^}]*)\}/u)[1], '');
   for (const [theme, t] of Object.entries({ light, dark })) {
     const backgrounds = { paper: t.paper, surface: t.surface, 'hover tint': mix(t.accent, t.paper, .08) };
-    const pairs = [['surface on accent (Allow)', t.surface, t.accent], ['surface on hovered accent', t.surface, mix(t.accent, t.ink, .84)]];
+    const pairs = [];
     for (const text of ['ink', 'muted', 'accent', 'error']) for (const [name, background] of Object.entries(backgrounds)) pairs.push([`${text} on ${name}`, t[text], background]);
     for (const [pair, text, background] of pairs) assert.ok(contrast(text, background) >= 4.5, `${theme} ${pair}: ${contrast(text, background).toFixed(2)}:1`);
   }
+  const grant = html.match(/\.consent-actions \[data-grant\] \{([^}]*)\}/u)[1];
+  const color = grant.match(/color:(#[0-9a-f]{3,6});/u)[1], foreground = color.length === 4 ? '#' + [...color.slice(1)].map(c => c + c).join('') : color;
+  const stops = grant.match(/linear-gradient\(150deg,(#[0-9a-f]{6}),(#[0-9a-f]{6})\)/u).slice(1);
+  for (const stop of stops) assert.ok(contrast(foreground, stop) >= 4.5, `consent grant on ${stop}: ${contrast(foreground, stop).toFixed(2)}:1`);
 });
