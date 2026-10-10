@@ -1,5 +1,6 @@
 import { processingScope, MOCK_PROCESSING_SCOPE } from '@inspr/aithema-core';
 import { matchingHTMLReasoning } from './html-config.js';
+import { modelProvider } from './model-provider.js';
 
 // Ported verbatim from START src/lib/consent-items.ts and the English items in
 // src/lib/i18n.ts (consentCopy.en). No EU or zero-retention entitlement is inferred.
@@ -15,9 +16,6 @@ export const CONSENT_ITEMS = [
 ];
 export const CONSENT_INTRO = 'Choose once which processing you allow. Your choice applies in this browser until you change or withdraw it, for at most twelve months. As long as the selected processing is covered here, you can change settings without agreeing again. Items with different recipients or purposes are listed separately. Unselected items are not granted.';
 export const CONSENT_WITHDRAWAL = 'You can withdraw consent here at any time. Withdrawal does not undo transfers that have already taken place.';
-
-// OpenRouter family aliases keep the configured id but consent to its provider.
-const modelProvider = model => (/^~[^/]+\/[^/]+-latest$/u.test(model) ? model.slice(1) : model).split('/')[0];
 
 /** Account evidence port of START's international route, deliberately conservative.
  * START src/lib/config.ts elevenLabsAgentsSettings: self-serve api.elevenlabs.io,

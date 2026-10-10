@@ -1,6 +1,7 @@
 import { createBinding } from '@inspr/aithema-core';
 import { modelPrice, providerMaxPrice } from '../plugins/openrouter/src/pricing.js';
 import { usdMicro } from '../packages/server/src/spend-cap.js';
+import { modelProvider } from './model-provider.js';
 
 export const HTML_CONSENT_UNAVAILABLE = 'HTML consent scope unavailable: START has no matching HTML item';
 const endpoint = binding => binding.endpoint.replace(/\/$/u, '').replace(/\/chat\/completions$/u, '');
@@ -14,7 +15,7 @@ const same = (a, b) => JSON.stringify(canonical(a)) === JSON.stringify(canonical
  */
 export function matchingHTMLReasoning(binding, reasoningBindings) {
   return reasoningBindings.find(b => b.plugin === 'openrouter' && b.legal?.purpose === 'models-international' &&
-    b.model.split('/')[0] === binding.model.split('/')[0] && b.accountRef === binding.accountRef && b.secretRef === binding.secretRef &&
+    modelProvider(b.model) === modelProvider(binding.model) && b.accountRef === binding.accountRef && b.secretRef === binding.secretRef &&
     endpoint(b) === endpoint(binding) && same(b.routing ?? {}, binding.routing ?? {}));
 }
 export function coverHTMLBinding(binding, reasoningBindings) {

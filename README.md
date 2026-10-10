@@ -1930,10 +1930,10 @@ reviews the prices. Use explicit versioned model ids when upgrades must be manua
 
 Each parsed response's `model` is retained as `servedModel` beside usage in the
 call's terminal report, including when token usage is missing. The host persists
-it in `budget_attempts.terminal_json`; final replies and assessments record that
-served model as their producer. The configured binding/alias remains the basis
-for pricing and consent. OPS can inspect recent resolutions without conversation
-content:
+it in `budget_attempts.terminal_json`; partial turns show the configured alias,
+while final replies and assessments record the served model as their producer.
+The configured binding/alias remains the basis for pricing and consent. OPS can
+inspect recent resolutions without conversation content:
 
 ```sql
 SELECT attempt_id, lane, outcome,
@@ -1943,8 +1943,10 @@ WHERE lane IN ('reaction', 'understanding')
 ORDER BY rowid DESC LIMIT 20;
 ```
 
-An absent response model leaves `servedModel` absent; final producer identity then
-falls back to the configured id, which is not evidence of an alias resolution.
+The response model must be 1–128 characters using letters, digits or `. _ : / ~ -`.
+An absent or invalid response model leaves `servedModel` absent; final producer
+identity then falls back to the configured id, which is not evidence of an alias
+resolution.
 
 The request ceiling is the UTF-8 byte length of the complete serialized messages
 array, including the system message, multiplied by the configured prompt price,

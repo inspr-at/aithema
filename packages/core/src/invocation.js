@@ -31,7 +31,7 @@ export async function beginInvocation(options, { billable = true } = {}) {
       if (value && Number.isSafeInteger(value.inputTokens) && value.inputTokens >= 0 && Number.isSafeInteger(value.outputTokens) && value.outputTokens >= 0) usage = value;
     },
     servedModel(value) {
-      if (typeof value === 'string' && value.trim()) servedModel = value;
+      if (typeof value === 'string' && value.length > 0 && value.length <= 128 && !/[^A-Za-z0-9._:/~-]/u.test(value)) servedModel = value;
     },
     async finish(completed = false) {
       if (terminal) { if (cancelled) return; throw new PluginError('already-claimed'); }

@@ -36,7 +36,10 @@ export function demoPresets({ provider = 'mock', reaction, understanding = react
   const extras = [voicePlugin, imagePlugin, htmlPlugin].filter(Boolean).map(plugin => plugin.manifest.id);
   if (provider !== 'mock') {
     const vendor = provider === 'mistral' ? 'Mistral' : 'OpenRouter';
-    const route = { id: `${provider}/${reaction.model}`, bindings: { reaction, understanding },
+    // START-consented concrete models begin with openai, anthropic or x-ai.
+    // A separate alias/ namespace avoids collisions without allowing ~ in client settings.
+    const modelId = provider === 'openrouter' && reaction.model.startsWith('~') ? `alias/${reaction.model.slice(1)}` : reaction.model;
+    const route = { id: `${provider}/${modelId}`, bindings: { reaction, understanding },
       label: reaction.model === understanding.model ? `${reaction.model} via ${vendor}` : `${reaction.model} and ${understanding.model} via ${vendor}` };
     // Only configured live providers; the operator's explicit fake HTML is labelled a demo.
     const live = o => o.binding && (!o.id.startsWith('fake-') || htmlDemo && o.id === 'fake-html');
