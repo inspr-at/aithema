@@ -24,10 +24,10 @@ test('demo slot fills, the fake outbox and the demo handover wording appear only
     const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
     const body = html.match(/<body>([\s\S]*?)<\/body>/u)[1].replace(/<script[^>]*>[\s\S]*?<\/script>/gu, '');
     // The page with a stubbed component: configure() records what the host passes.
-    function prepare(demoHost, locale, providers = { imageLabel: 'Images off', voiceMode: 'off' }) {
+    function prepare(demoHost, locale, providers = { imageLabel: 'Images off', voiceMode: 'off' }, engine = {}) {
       document.body.innerHTML = body;
       localStorage.clear(); localStorage.setItem('aithema-demo-locale', locale);
-      const session = { id: `slots-${locale}`, locale, processingPreset: 'best', featureMatrix: {} };
+      const session = { id: `slots-${locale}`, locale, processingPreset: 'best', featureMatrix: {}, ...engine };
       const component = document.querySelector('aithema-session'), configured = [];
       component.configure = options => { configured.push(options); };
       Object.defineProperty(component, 'session', { get: () => configured.at(-1)?.session });
@@ -75,10 +75,12 @@ test('demo slot fills, the fake outbox and the demo handover wording appear only
       // simulated email, handover and credits. The demo copy claims only what the demo host itself simulates.
       await t.test(`demo host beside live images or voice (${locale}): no copy claims that nothing leaves this computer`, async () => {
         // Live images render here; the ElevenLabs voice SDK cannot load in happy-dom, so the copy check below covers voice.
-        prepare(true, locale, { imageMode: 'openai', imageLabel: 'OpenAI images', voiceMode: 'off' });
+        prepare(true, locale, { imageMode: 'openai', imageLabel: 'OpenAI images', voiceMode: 'off' },
+          { engine: { visuals: 'openai' }, conceptVisualKind: 'images' });
         await import(`../host.js?slots-mixed-${locale}`);
         assert.equal(document.querySelector('#error').textContent, '');
         assert.equal(document.querySelector('#demo-footer').textContent, copy.host.slots.footer);
+        assert.match(document.querySelector('#provider').textContent, /OpenAI/u, 'the header names the live image provider');
         const page = document.body.textContent;
         assert.doesNotMatch(page, /leaves this computer|verlässt diesen Computer|stays local|bleibt lokal|nothing leaves|nichts verlässt/iu);
         for (const text of demoTexts(copy)) assert.doesNotMatch(text, /leaves this computer|verlässt diesen Computer|nothing leaves|nichts verlässt/iu, text);
