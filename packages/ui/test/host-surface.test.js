@@ -117,6 +117,24 @@ test('verification unlock over SSE keeps a manual pause and says so; the bar the
   assert.equal(root.querySelector('.host-verify .verify-done').textContent, v.verified);
 });
 
+test('a keyboard unlock before the first input moves focus to the visible stage control: Continue at the entrance, Start at readiness', async t => {
+  for (const [chosen, stage, selector] of [[false, 'entrance', '.chooser__continue'], [true, 'ready', '.ready__start']]) {
+    const { c, root } = setup(t, { session: { identity: pending() } }); await tick();
+    if (chosen) c.receive({ seq: c.session.seq + 1, type: 'settings.changed',
+      data: { processingPreset: 'best', settings: { ...c.session.settings, revision: 1, origin: 'chosen', at: new Date().toISOString() } } });
+    assert.equal(root.querySelector('.workspace').dataset.stage, stage);
+    // The visitor works in the locked form, then the link is confirmed elsewhere.
+    const inLock = root.querySelector('.verify-lock .verify-resend'); inLock.focus();
+    assert.ok(root.activeElement === inLock, `${stage}: focus is in the locked form`);
+    c.receive({ seq: c.session.seq + 1, type: 'identity.state', data: identity({ status: 'verified', address: 'visitor@example.com', verificationRequired: true }) });
+    assert.equal(root.querySelector('.verify-lock').hidden, true);
+    const target = root.querySelector(selector);
+    assert.ok(target.closest('[hidden], [inert]') === null, `${stage}: the control is visible and operable`);
+    assert.ok(root.activeElement === target, `${stage}: focus is on ${selector}`);
+    assert.equal(root.querySelector('.workspace').dataset.stage, stage, 'unlocking starts nothing');
+  }
+});
+
 test('verification polling asks the host to unlock while a link is pending, never while hidden from a disconnected page', async t => {
   const { root, calls } = setup(t, { host: { verification: true, pollMs: 5 }, session: { identity: pending({ pollVerification: true }) },
     routes: { 'POST /identity/unlock': () => Response.json({ identity: identity({ status: 'verified', address: 'visitor@example.com', verificationRequired: true }) }) } });

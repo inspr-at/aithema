@@ -121,13 +121,25 @@ test('Continue fires aithema-consent for an uncovered choice; readiness follows 
 });
 
 test('a consent change at the entrance closes no call and keeps the entrance; at readiness it keeps readiness', async t => {
-  for (const origin of ['default', 'chosen']) {
-    const j = journey(t, { origin }), before = j.stage();
+  for (const [origin, focusKey] of [['default', 'continue'], ['chosen', 'start']]) {
+    const j = journey(t, { origin }), before = j.stage(), card = j.root.querySelector('.intro__card').firstElementChild;
     assert.equal(before, origin === 'chosen' ? 'ready' : 'entrance');
+    const control = card.querySelector(`[data-focus-key="${focusKey}"]`); control.focus();
+    assert.ok(j.root.activeElement === control, `${origin}: the stage control has focus`);
+    // Every value the stage takes, even for a moment.
+    const seen = [], observer = new window.MutationObserver(records => seen.push(...records.map(r => r.oldValue)));
+    observer.observe(j.workspace(), { attributes: true, attributeFilter: ['data-stage'], attributeOldValue: true });
     // consent.revised invalidates the conversation's derived state, which closes the (idle) rail.
     j.c.receive({ seq: j.c.session.seq + 1, type: 'consent.revised', data: { granted: true, at: new Date().toISOString() } });
-    await tick(6);
+    assert.equal(j.stage(), before, `${origin}: at once, the idle rail's closure is no call`);
+    assert.equal(j.root.querySelector('.audio-rail').dataset.call, 'none');
+    await Promise.resolve(); assert.equal(j.stage(), before, `${origin}: after the queued state change too`);
+    await tick(6); observer.disconnect();
     assert.equal(j.stage(), before, `${origin}: the brief closing state of an idle rail starts nothing`);
+    assert.deepEqual(seen.filter(value => value !== before), [], `${origin}: the stage never flipped`);
+    assert.ok(j.root.querySelector('.intro__card').firstElementChild === card, `${origin}: the card is the same node`);
+    assert.ok(card.querySelector(`[data-focus-key="${focusKey}"]`) === control, `${origin}: the control is the same node`);
+    assert.ok(j.root.activeElement === control, `${origin}: focus stays on it`);
     assert.deepEqual(j.starts, []); assert.deepEqual(j.media, []);
   }
 });
