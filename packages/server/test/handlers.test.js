@@ -122,6 +122,24 @@ test('AIT-109 L2: boot recovery starts only one session at a time and drains the
   } finally { held.resolve(); await handlers.close(); storage.close(); }
 });
 
+test('AIT-109 L2: shutdown cancels boot recovery without dispatching queued sessions', async () => {
+  const storage = new SQLiteStorage(), held = deferred(), started = [];
+  const handlers = createHandlers({ storage, consent: mockConsent });
+  handlers.lanes.run = async (id, lane, { signal }) => {
+    started.push(id); signal.addEventListener('abort', held.resolve, { once: true });
+    await held.promise; return 'completed';
+  };
+  for (let i = 0; i < 3; i++) {
+    const session = storage.create({ demo: true, ownerToken: testToken });
+    storage.postTurn(session.id, `boot-${i}`, Buffer.from('input'), 'input');
+  }
+  try {
+    await handlers.resume(); await new Promise(resolve => setImmediate(resolve));
+    await handlers.close();
+    assert.equal(new Set(started).size, 1, 'shutdown must leave the recovery backlog undispatched');
+  } finally { held.resolve(); await handlers.close(); storage.close(); }
+});
+
 test('AIT-109 N1: scheduling publishes both running lanes together, including superseded work', async () => {
   const storage = new SQLiteStorage(), held = deferred(), handlers = createHandlers({ storage, consent: mockConsent });
   handlers.lanes.run = async () => { await held.promise; return 'completed'; };
@@ -130,12 +148,12 @@ test('AIT-109 N1: scheduling publishes both running lanes together, including su
     const s = storage.create({ demo: true, ownerToken: testToken });
     subscription = await handlers.handle(request(`${s.id}/events`));
     await turn(handlers, s.id, 'first', 'First');
-    const events = await readEvents(subscription, 3); subscription = null;
+    const events = await readEvents(subscription, 4); subscription = null;
     const status = events.find(event => event.type === 'lane.status' && event.data.inputRevision === inputRevision(storage.get(s.id)));
     assert.deepEqual(status.data.running.sort(), ['reaction', 'understanding']);
     subscription = await handlers.handle(request(`${s.id}/events?after=${storage.get(s.id).seq}`));
     await turn(handlers, s.id, 'second', 'Second');
-    const updated = await readEvents(subscription, 3); subscription = null;
+    const updated = await readEvents(subscription, 4); subscription = null;
     assert.equal(updated.at(-1).type, 'lane.status');
     assert.equal(updated.at(-1).data.inputRevision, inputRevision(storage.get(s.id)));
     assert.deepEqual(updated.at(-1).data.running.sort(), ['reaction', 'understanding']);

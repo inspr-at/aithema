@@ -245,6 +245,25 @@ test('AIT-109 N3: failed snapshot recovery waits one second before reconnecting'
   } finally { c.remove(); await new Promise(resolve => setImmediate(resolve)); }
 });
 
+test('AIT-109 N3: removing the page cancels the failed-restore reconnect delay', async t => {
+  const c = setup(), calls = [];
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+    calls.push(url);
+    if (!url.endsWith('/events')) return new Response(null, { status: 503 });
+    if (calls.length === 1) return new Response(null, { status: 400 });
+    return new Response(new ReadableStream({ start(controller) {
+      options.signal.addEventListener('abort', () => controller.close(), { once: true });
+    } }));
+  });
+  try {
+    document.body.append(c); await new Promise(resolve => setImmediate(resolve));
+    c.remove(); await new Promise(resolve => setImmediate(resolve));
+    t.mock.timers.tick(1000); await new Promise(resolve => setImmediate(resolve));
+    assert.equal(calls.length, 2, 'no reconnect after disconnection');
+  } finally { c.remove(); }
+});
+
 test('AIT-109 L5: dropped SSE resumes its cursor, ignores replay, and restores a sequence gap', async t => {
   const c = setup(), cursors = [], encoder = new TextEncoder();
   const first = { sessionId: c.session.id, seq: 1, type: 'turn.final', data: { id: 'first', role: 'user', content: 'über' } };
