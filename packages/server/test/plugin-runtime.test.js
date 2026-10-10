@@ -86,7 +86,9 @@ test('both lanes settle a distinct attempt, recheck consent and charge tokens us
 
 test('alias resolutions reach durable lane producer identity and OPS terminal receipts', async t => {
   const h = setup(t), analysis = '~anthropic/claude-opus-latest', speech = '~anthropic/claude-haiku-latest';
-  h.presets.best.bindings = { reaction: qualify({ ...h.b, model: speech }), understanding: qualify({ ...h.b, model: analysis }) };
+  // Full lane prompts need the same reservation as the other integration fixtures.
+  h.presets.best.bindings = { reaction: qualify({ ...h.b, model: speech, maxMicro: 50_000 }),
+    understanding: qualify({ ...h.b, model: analysis, maxMicro: 50_000 }) };
   const raw = { summary: 'Fixture assessment', signals: [], openQuestions: [],
     constraints: { operations: null, data: null, systems: null, reach: null, requirements: null },
     progress: { talk: { value: 0.25, reasoning: 'Fixture' }, build: { value: 0, reasoning: 'Fixture' } },
