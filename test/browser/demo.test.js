@@ -3,7 +3,7 @@ import { fork } from 'node:child_process';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { constants } from 'node:fs';
-import { access, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
@@ -390,8 +390,8 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
 
 async function startDemo(directory, port = '0') {
   const child = fork(new URL('../../demo/server.js', import.meta.url), [], {
-    // These steps drive the image concept viewer; HTML concepts (the demo default since AIT-113 B1) have their own viewer.
-    env: { PATH: process.env.PATH, PORT: port, AITHEMA_DB: join(directory, 'session.sqlite'), AITHEMA_PROVIDER: 'mock', AITHEMA_HTML_MODE: 'off' }, silent: true,
+    // The demo default: fake clickable HTML drafts (AIT-113), shown in the concept viewer.
+    env: { PATH: process.env.PATH, PORT: port, AITHEMA_DB: join(directory, 'session.sqlite'), AITHEMA_PROVIDER: 'mock' }, silent: true,
   });
   child.stdout.resume(); child.stderr.resume();
   const [message] = await Promise.race([once(child, 'message'),
@@ -592,7 +592,7 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
     await until(page, () => {
       const r = document.querySelector('aithema-session').shadowRoot;
       return !r.querySelector('.concept-tab').disabled && r.querySelector('.concept-preview').style.visibility !== 'hidden'
-        && r.querySelector('.concept-activity-text').textContent === 'Your concept is ready.';
+        && r.querySelector('.concept-activity-text').textContent === 'Draft revision 1 is ready.';
     });
     sameBox(requestBefore, await box(page, '.concept-request'), 'concept request button');
 
@@ -605,9 +605,11 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
     const chipBefore = await rest(page, '.concept-guidance-options button'); await page.mouse.down(); await page.mouse.up();
     await waitForShadow(page, '.concept-guidance-selected button', { text: 'Remove: Simpler layout' });
     sameBox(chipBefore, await box(page, '.concept-guidance-options button'), 'guidance chip');
+    // The new revision waits while the pointer rests on the controls: the count, Next and a notice update at once.
     const regenerateBefore = await rest(page, '.concept-regenerate'); await page.mouse.down(); await page.mouse.up();
     await waitForShadow(page, '.concept-count', { text: '1 of 2' });
     await waitForShadow(page, '.concept-next', { enabled: true });
+    await waitForShadow(page, '.concept-viewer-message', { text: 'A newer revision is ready. Select Next to see it.' });
     sameBox(regenerateBefore, await box(page, '.concept-regenerate'), 'Regenerate');
     await page.keyboard.press('ArrowRight');
     await waitForShadow(page, '.concept-count', { text: '2 of 2' });
@@ -892,4 +894,218 @@ test('AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab l
     assert.equal(phone.conversationOverflow, 0); assert.equal(phone.pageOverflow, 0, 'no horizontal overflow');
     assert.deepEqual(problems, []);
     t.diagnostic(`D2 0±1 px with scroll room, spare space and 5 grow/shrink rounds, no residual padding; chooser Device kept its node and 0±1 px across a live EU refusal; D4 foreign pause kept, auxiliary window left the call alone; D9 dark tokens; D14 transcript ${phone.transcript} px at 400 px.`);
+  });
+
+// The shown draft: preview state, the revision its frame holds, and the viewer's words.
+const draftView = page => inShadow(page, c => {
+  const r = c.shadowRoot, preview = r.querySelector('.concept-html'), frame = preview.shadowRoot.querySelector('iframe');
+  return { state: preview.state, hidden: preview.hidden, revision: /Revision (\d+)/u.exec(frame?.getAttribute('srcdoc') ?? '')?.[1] ?? null,
+    sandbox: frame?.getAttribute('sandbox') ?? null, title: r.querySelector('#concept-title').textContent, count: r.querySelector('.concept-count').textContent,
+    label: preview.shadowRoot.querySelector('.label-text').textContent, image: !r.querySelector('.concept-image').hidden };
+});
+const waitDraft = (page, revision) => until(page, revision => {
+  const preview = document.querySelector('aithema-session').shadowRoot.querySelector('.concept-html');
+  return preview.state === 'ready' && preview.shadowRoot.querySelector('iframe')?.getAttribute('srcdoc').includes(`Revision ${revision}`);
+}, revision);
+const VIEWER_CONTROLS = ['.concept-close', '.concept-count', '.concept-stage', '.concept-html', '.concept-previous', '.concept-next', '.concept-download',
+  '.concept-regenerate', '.concept-up', '.concept-down', '.concept-reject', '.concept-guidance-options button'];
+const boxes = page => Promise.all(VIEWER_CONTROLS.map(selector => box(page, selector)));
+// Every visible viewer button, whole: neither its own text nor any clipping or scrolling ancestor cuts it off.
+const viewerClipping = c => {
+  const r = c.shadowRoot, found = [], name = node => node.className || node.textContent;
+  for (const button of r.querySelectorAll('.concept-viewer button')) {
+    if (button.hidden || !button.getClientRects().length) continue;
+    if (button.scrollHeight > button.clientHeight + 1 || button.scrollWidth > button.clientWidth + 1) found.push(`${name(button)}: its text`);
+    const rect = button.getBoundingClientRect();
+    for (let node = button.parentElement; node; node = node.parentElement) {
+      const style = getComputedStyle(node); if (style.overflowX === 'visible' && style.overflowY === 'visible') continue;
+      const outer = node.getBoundingClientRect(), left = outer.left + node.clientLeft, top = outer.top + node.clientTop;
+      if (rect.left < left - .5 || rect.top < top - .5 || rect.right > left + node.clientWidth + .5 || rect.bottom > top + node.clientHeight + .5) found.push(`${name(button)}: by ${name(node)}`);
+    }
+  }
+  for (const node of r.querySelectorAll('.concept-disclosure, .concept-guidance-options')) {
+    if (node.scrollHeight > node.clientHeight + 1 || node.scrollWidth > node.clientWidth + 1) found.push(`${name(node)}: overflows`);
+  }
+  return found;
+};
+
+test('clickable html drafts: request, sandboxed preview, a refresh revision in place, Like and Reject, light/dark/400 px/German (AIT-113 B2)',
+  { timeout: 240_000 }, async t => {
+    const executablePath = await browserPath(), evidence = process.env.AITHEMA_EVIDENCE_DIR;
+    const directory = await mkdtemp(join(tmpdir(), 'aithema-browser-drafts-'));
+    const demo = await startDemo(directory); let browser;
+    t.after(async () => {
+      try { await browser?.close(); }
+      finally { await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); }
+    });
+    if (evidence) await mkdir(evidence, { recursive: true });
+    // Rail shots scroll the conversation into view first; viewer shots show the full-window dialog.
+    const shot = async (target, name) => {
+      if (!evidence) return;
+      if (name.endsWith('-rail') || name.endsWith('-reject')) await inShadow(target, c => {
+        c.shadowRoot.querySelector('.conversation').scrollIntoView({ block: 'start' }); c.shadowRoot.querySelector('.transcript-shell').scrollTop = 0;
+      });
+      await target.screenshot({ path: join(evidence, `${name}.png`) });
+    };
+    browser = await puppeteer.launch({ executablePath, headless: true, env: { PATH: process.env.PATH, HOME: homedir() },
+      userDataDir: join(directory, 'chrome'), timeout: waitTimeout,
+      args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    const problems = [];
+    const watch = page => {
+      page.on('pageerror', error => problems.push(`pageerror ${error.message}`));
+      // The preview's host-policy probe is blocked by design: that refusal proves frame-src 'none' is enforced.
+      page.on('console', message => { if (message.type() === 'error' && !/^Framing '' violates the following Content Security Policy directive: "frame-src 'none'"/u.test(message.text())) problems.push(`console ${message.text()}`); });
+      page.on('response', response => { if (response.status() >= 400) problems.push(`${response.status()} ${response.request().method()} ${new URL(response.url()).pathname}`); });
+    };
+    const page = await browser.newPage(); await preparePage(page, ['en-US', 'en']); watch(page);
+    // Headless Chrome follows the machine's colour scheme; light and dark are each set explicitly.
+    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
+    const draftRequests = [];
+    page.on('request', request => { if (/\/concepts\/[^/]+\/(?:html|image)/u.test(request.url())) draftRequests.push([request.resourceType(), new URL(request.url()).pathname.split('/').at(-1)]); });
+    await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
+    await page.click('#grant'); await waitForShadow(page, '.composer textarea', { enabled: true });
+    // The mock's slot-filling turn earns the first milestone, so the request renders at once.
+    await sendTurn(page, `We are a bakery and want a pre-order app. ${content}`);
+    await waitForShadow(page, 'aside .notice', { text: 'Current assessment' });
+
+    // Request: the rail says what happens in plain words and nothing moves under the pointer.
+    const requestBefore = await rest(page, '.concept-request');
+    assert.match(await inShadow(page, c => c.shadowRoot.querySelector('.concept-request').textContent), /^Request concept · No cost \(local fake\)$/u);
+    await page.mouse.down(); await page.mouse.up();
+    await waitForShadow(page, '.concept-activity-text', { text: 'Draft revision 1 is ready.' });
+    sameBox(requestBefore, await box(page, '.concept-request'), 'concept request button');
+    assert.deepEqual(await inShadow(page, c => {
+      const preview = c.shadowRoot.querySelector('.concept-preview');
+      return { label: preview.querySelector('.concept-preview-label').textContent, glyph: !preview.querySelector('.concept-preview-glyph').hidden, image: !preview.querySelector('img').hidden };
+    }), { label: 'Open clickable draft', glyph: true, image: false }, 'the rail thumbnail is a draft glyph, never a live frame');
+    await page.mouse.move(0, 0); await shot(page, 'en-light-1440-rail');
+
+    // The viewer renders the draft in the sandboxed preview from fetched bytes.
+    await inShadow(page, c => c.shadowRoot.querySelector('.concept-tab').click());
+    await waitDraft(page, 1);
+    assert.deepEqual(await draftView(page), { state: 'ready', hidden: false, revision: '1', sandbox: 'allow-scripts', title: 'Draft revision 1', count: '1 of 1',
+      label: 'Draft — generated', image: false });
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.concept-download').textContent), 'Download draft');
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.concept-disclosure').textContent), 'Fake draft — local deterministic click-dummy, no AI or provider network');
+    await shot(page, 'en-light-1440-viewer');
+
+    // A refresh after new turns arrives while the pointer rests on Like: the shown revision stays
+    // and no control moves; the count, Next and a notice say a newer one is ready. The turns go in
+    // behind the modal viewer.
+    const notice = () => inShadow(page, c => c.shadowRoot.querySelector('.concept-viewer-message').textContent);
+    const turns = async (first, second) => {
+      const count = await inShadow(page, c => c.session.transcript.length);
+      await sendTurn(page, first); await until(page, count => document.querySelector('aithema-session').session.transcript.length >= count + 2, count);
+      await sendTurn(page, second);
+    };
+    const likeBefore = await rest(page, '.concept-up'), controlsBefore = await boxes(page);
+    await turns('Customers pick a branch and a pickup time; staff see one list per morning.', 'Payment happens in the shop. The data is public opening hours and our product list.');
+    await waitForShadow(page, '.concept-count', { text: '1 of 2' }); await waitForShadow(page, '.concept-next', { enabled: true });
+    const waiting = await draftView(page);
+    assert.equal(waiting.revision, '1'); assert.equal(waiting.title, 'Draft revision 1'); assert.equal(await notice(), 'A newer revision is ready. Select Next to see it.');
+    (await boxes(page)).forEach((after, i) => sameBox(controlsBefore[i], after, VIEWER_CONTROLS[i]));
+    assert.ok(await inShadow(page, (c, at) => c.shadowRoot.elementFromPoint(at.x, at.y)?.closest('.concept-up') !== null,
+      { x: likeBefore.x + Math.min(likeBefore.width / 2, 40), y: likeBefore.y + Math.min(likeBefore.height / 2, 10) }), 'the pointer still rests on Like');
+
+    // Like shows its effect at once under the pointer, on the revision shown; Next and Previous walk the revisions.
+    await page.mouse.down(); await page.mouse.up();
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.concept-up').getAttribute('aria-pressed') === 'true');
+    sameBox(likeBefore, await box(page, '.concept-up'), 'Like');
+    assert.deepEqual(await inShadow(page, c => c.session.concepts.map(item => item.feedback.vote)), ['up', 'clear']);
+    await page.keyboard.press('ArrowRight'); await waitDraft(page, 2);
+    assert.equal((await draftView(page)).count, '2 of 2'); assert.equal(await notice(), '');
+    await page.keyboard.press('ArrowLeft'); await waitDraft(page, 1);
+    await page.keyboard.press('ArrowRight'); await waitDraft(page, 2);
+
+    // With the pointer off the controls and focus on Close, the next revision (requested here without
+    // moving focus) replaces the shown latest one in its fixed stage; focus stays on Close and no control moves.
+    await page.mouse.move(0, 0); await inShadow(page, c => c.shadowRoot.querySelector('.concept-close').focus());
+    const restingBefore = await boxes(page);
+    await inShadow(page, c => c.shadowRoot.querySelector('.concept-regenerate').click());
+    // A regenerated revision 2 (the fake's page text says so) is the viewer's third draft.
+    await until(page, () => {
+      const c = document.querySelector('aithema-session'), preview = c.shadowRoot.querySelector('.concept-html');
+      return c.session.concepts.length === 3 && preview.state === 'ready' && preview.dataset.id === c.session.concepts.at(-1).id;
+    });
+    const replaced = await draftView(page);
+    assert.equal(replaced.count, '3 of 3'); assert.equal(replaced.title, 'Draft revision 3'); assert.equal(await notice(), '');
+    assert.equal(await inShadow(page, c => c.shadowRoot.activeElement?.className), 'concept-close', 'focus stays on Close');
+    (await boxes(page)).forEach((after, i) => sameBox(restingBefore[i], after, VIEWER_CONTROLS[i]));
+
+    // Keyboard: Tab reaches the width switch and then the draft itself; focus never leaves the viewer.
+    await inShadow(page, c => c.shadowRoot.querySelector('.concept-close').focus());
+    await page.keyboard.press('Tab');
+    assert.equal(await inShadow(page, c => c.shadowRoot.activeElement?.className), 'concept-html', 'Tab moves from Close into the draft preview');
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.concept-html').shadowRoot.activeElement?.dataset.width), 'wide');
+    await page.keyboard.press('ArrowRight');
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.concept-html').width), 'phone', 'arrow keys switch the width, not the revision');
+    assert.equal((await draftView(page)).count, '3 of 3');
+    await page.keyboard.press('Tab');
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.concept-html').shadowRoot.activeElement?.tagName), 'IFRAME', 'Tab continues into the draft');
+    await shot(page, 'en-light-1440-viewer-phone-width');
+    await inShadow(page, c => { c.shadowRoot.querySelector('.concept-html').width = 'wide'; });
+
+    // Dark: the viewer and preview follow the dark tokens.
+    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
+    assert.equal(await inShadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.concept-viewer')).backgroundColor), 'rgb(20, 26, 27)');
+    await shot(page, 'en-dark-1440-viewer');
+    // 400 px: the viewer fits, the draft keeps a usable stage, the title is whole, nothing overflows sideways.
+    await page.setViewport({ width: 400, height: 800 });
+    const phone = await inShadow(page, c => {
+      const r = c.shadowRoot, title = r.querySelector('#concept-title'), dialog = r.querySelector('.concept-viewer').getBoundingClientRect();
+      return { stage: r.querySelector('.concept-html').shadowRoot.querySelector('.stage').getBoundingClientRect().height, width: dialog.width,
+        titleClipped: title.scrollHeight > title.clientHeight + 1 || title.scrollWidth > title.clientWidth + 1,
+        pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+    });
+    assert.ok(phone.stage >= 200, `draft stage ${phone.stage} px at 400 px`); assert.equal(phone.width, 400);
+    assert.equal(phone.titleClipped, false, 'the viewer title is whole at 400 px');
+    assert.deepEqual(await inShadow(page, viewerClipping), [], 'no clipped viewer button at 400 px, guidance chips wrap into rows');
+    assert.equal(phone.pageOverflow, 0);
+    await shot(page, 'en-dark-400-viewer');
+    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
+    await shot(page, 'en-light-400-viewer');
+    await page.setViewport({ width: 1440, height: 1000 });
+
+    // Reject archives exactly the shown revision and returns to the conversation.
+    const shown = await inShadow(page, c => c.session.concepts.at(-1).id);
+    const rejectBefore = await rest(page, '.concept-reject'); void rejectBefore;
+    await page.mouse.down(); await page.mouse.up();
+    await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.concept-viewer').open);
+    assert.equal(await inShadow(page, (c, id) => c.session.concepts.find(item => item.id === id).archived, shown), true);
+    await waitForShadow(page, '.concept-activity-text', { text: 'Draft revision 2 is ready.' });
+    assert.ok(draftRequests.length > 0 && draftRequests.every(([type, route]) => type === 'fetch' && route === 'html'), `drafts load as fetched data only: ${JSON.stringify(draftRequests)}`);
+    await page.mouse.move(0, 0); await shot(page, 'en-light-1440-after-reject');
+    await page.setViewport({ width: 400, height: 800 }); await shot(page, 'en-light-400-rail');
+    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]); await shot(page, 'en-dark-400-rail');
+    await page.setViewport({ width: 1440, height: 1000 }); await shot(page, 'en-dark-1440-rail');
+    await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
+
+    // German: one language on the page, formal and with "Entwurf".
+    const context = await browser.createBrowserContext(), german = await context.newPage();
+    await preparePage(german, ['de-DE', 'de']); watch(german);
+    await german.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
+    await german.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(german, '.composer textarea');
+    await german.click('#grant'); await waitForShadow(german, '.composer textarea', { enabled: true });
+    await sendTurn(german, 'Wir sind eine Tischlerei. Betrieb: gehostet; Daten: öffentlich; Systeme: API; Reichweite: international');
+    await waitForShadow(german, 'aside .notice', { text: 'Aktuelle Einschätzung' });
+    assert.equal(await inShadow(german, c => c.shadowRoot.querySelector('.concept-request').textContent), 'Entwurf anfordern · Kostenlos (lokaler Test)');
+    await inShadow(german, c => c.shadowRoot.querySelector('.concept-request').click());
+    await waitForShadow(german, '.concept-activity-text', { text: 'Fassung 1 des Entwurfs ist fertig.' });
+    await german.mouse.move(0, 0); await shot(german, 'de-light-1440-rail');
+    await inShadow(german, c => c.shadowRoot.querySelector('.concept-tab').click()); await waitDraft(german, 1);
+    assert.deepEqual(await draftView(german), { state: 'ready', hidden: false, revision: '1', sandbox: 'allow-scripts', title: 'Entwurf, Fassung 1', count: '1 von 1',
+      label: 'Entwurf, generiert', image: false });
+    assert.match(await inShadow(german, c => c.shadowRoot.querySelector('.concept-html').shadowRoot.querySelector('iframe').getAttribute('srcdoc')), /<p>Fassung 1<\/p>/u, 'the German draft says Fassung');
+    assert.deepEqual(await inShadow(german, c => ['.concept-previous', '.concept-next', '.concept-download', '.concept-up', '.concept-reject', '.concept-close']
+      .map(selector => c.shadowRoot.querySelector(selector).textContent)),
+    ['Vorheriger', 'Nächster', 'Entwurf herunterladen', 'Gefällt mir', 'Ablehnen und ausblenden', 'Zurück zum Gespräch']);
+    await shot(german, 'de-light-1440-viewer');
+    await german.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]); await shot(german, 'de-dark-1440-viewer');
+    await german.setViewport({ width: 400, height: 800 });
+    assert.deepEqual(await inShadow(german, viewerClipping), [], 'no clipped German button at 400 px, guidance chips wrap into rows');
+    await shot(german, 'de-dark-400-viewer');
+    await german.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]); await shot(german, 'de-light-400-viewer');
+    await context.close();
+    assert.deepEqual(problems, []);
+    t.diagnostic(`Drafts: requested, rendered sandboxed from fetched bytes (${draftRequests.length} GET /html), revision 2 waited under a resting pointer and revision 3 replaced revision 2 in place, 0 px movement of ${VIEWER_CONTROLS.length} controls; Like, Previous/Next, Tab into the draft, Reject; light, dark, 400 px and German.`);
   });

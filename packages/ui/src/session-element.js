@@ -1,4 +1,5 @@
 import { ConceptView } from './concept-view.js';
+import './html-preview.js'; // <aithema-html-preview>, the concept viewer's stage for drafts
 import { applyEvent, inputRevision, activeTurns } from '../../core/src/session.js';
 import { readinessScalePercent, readinessListItems, readinessListWindow, newlyClearedFirst } from '../../core/src/readiness.js';
 import { displayedReadinessPercent } from '../../core/src/understanding.js';
@@ -160,7 +161,8 @@ export class AithemaSession extends HTMLElement {
         !node.closest('[hidden]')) ?? root.querySelector('.settings-open'),
     } });
     this.#concept = new ConceptView({ root, copy: this.#copy, baseUrl: this.#base, sessionToken: this.#sessionToken,
-      receive: event => this.receive(event), feature: () => this.#feature('images', true) });
+      // The host's visual kind decides which feature verdict gates requests: images or clickable drafts.
+      receive: event => this.receive(event), feature: () => this.#feature(this.#session.conceptVisualKind === 'html' ? 'html' : 'images', true) });
     this.#concept.update(this.#session);
     this.#render('features');
     for (const node of root.querySelectorAll('[data-copy]')) node.textContent = this.#copy[node.dataset.copy];
@@ -850,6 +852,9 @@ export class AithemaSession extends HTMLElement {
       if (sessionId !== this.#session.id || session.seq !== this.#cursor || session.id !== sessionId) return;
       this.#session.featureMatrix = session.featureMatrix;
       if (session.engine) this.#session.engine = session.engine;
+      // A changed visuals choice can switch between images and drafts, and their cost.
+      if (session.conceptVisualKind) this.#session.conceptVisualKind = session.conceptVisualKind;
+      if ('conceptCost' in session) this.#session.conceptCost = session.conceptCost;
       this.#renderMode(); this.#rail.render(); this.#concept.update(this.#session); this.#dialog?.sync();
       this.#render('features'); this.#render('aside'); this.#render('composer'); this.#render('transcript');
       this.dispatchEvent(new CustomEvent('aithema-features', { bubbles: true, composed: true }));

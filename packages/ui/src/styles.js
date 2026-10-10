@@ -102,22 +102,29 @@ summary { cursor:pointer; } details p { padding:.5rem 0; } blockquote { margin:.
 .concept-preview-slot { height:6rem; margin-bottom:.7rem; }
 .concept-preview { width:100%; height:6rem; display:flex; gap:1rem; align-items:center; text-align:left; }
 .concept-preview img { width:8rem; height:4.5rem; object-fit:contain; border-radius:.3rem; } .concept-preview-label { font-size:.8rem; }
+.concept-preview-glyph { width:8rem; height:4.5rem; flex:none; display:grid; place-items:center; color:var(--aithema-accent); }
+.concept-preview-glyph svg { width:3.5rem; height:auto; }
 .concept-viewer { position:fixed; inset:0; margin:0; width:100vw; max-width:none; height:100dvh; max-height:none; padding:0; border:0;
   color:var(--aithema-ink); background:var(--aithema-paper); overflow:hidden; }
 .concept-viewer[open] { display:grid; grid-template-rows:4rem minmax(0,1fr) 17rem; }
 .concept-viewer::backdrop { background:var(--aithema-ink); }
 .concept-viewer-head { display:grid; grid-template-columns:minmax(0,1fr) 5rem minmax(9rem,13rem); align-items:center; gap:1rem; padding:.5rem 1rem; }
-.concept-viewer-head h2 { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; } .concept-count { font-size:.8rem; }
+/* The title wraps to two lines rather than hiding its end. */
+.concept-viewer-head h2 { line-height:1.2; max-height:2.4em; overflow:hidden; overflow-wrap:anywhere; } .concept-count { font-size:.8rem; }
 .concept-stage { position:relative; min-height:0; display:grid; place-items:center; padding:1rem; }
 .concept-image { width:100%; height:100%; min-height:0; object-fit:contain; }
+/* A draft fills the stage; its width switch sits in the preview's own top line. */
+.concept-viewer[data-kind="html"] .concept-stage { place-items:stretch; padding:.5rem 1rem 0; }
+.concept-html { width:100%; height:100%; min-height:0; }
 .concept-image-status { position:absolute; bottom:0; font-size:.8rem; }
 .concept-viewer-controls { padding:.6rem 1rem; overflow:auto; scrollbar-gutter:stable; border-top:1px solid var(--aithema-line); }
 .concept-navigation { display:grid; grid-template-columns:1fr 1fr 1.3fr 2fr; gap:.5rem; }
-.concept-navigation button, .concept-feedback button { height:3rem; overflow:hidden; font-size:.75rem; }
+.concept-navigation button, .concept-feedback button { height:3rem; overflow:hidden; font-size:.75rem; line-height:1.2; padding:.2rem .4rem; }
 .concept-disclosure { height:1.2rem; margin:.35rem 0; font-size:.75rem; overflow:hidden; }
 .concept-feedback { display:grid; grid-template-columns:1fr 1fr 2fr; gap:.5rem; }
 .concept-feedback [aria-pressed="true"] { background:var(--aithema-accent); color:var(--aithema-on-accent); }
-.concept-guidance-options { height:3rem; display:flex; align-items:center; gap:.4rem; overflow:auto; white-space:nowrap; }
+/* The fixed guidance choices wrap into rows on narrow screens rather than scrolling sideways out of view. */
+.concept-guidance-options { min-height:3rem; display:flex; flex-wrap:wrap; align-items:center; align-content:center; gap:.4rem; padding:.3rem 0; white-space:nowrap; }
 .concept-guidance-options button, .concept-guidance-selected button { font-size:.7rem; padding:.3rem .5rem; flex-shrink:0; }
 .concept-guidance-selected { height:2.3rem; display:flex; gap:.4rem; align-items:center; overflow:auto; white-space:nowrap; }
 .concept-viewer-message { height:1rem; margin:.2rem 0; font-size:.75rem; }
@@ -133,6 +140,12 @@ summary { cursor:pointer; } details p { padding:.5rem 0; } blockquote { margin:.
   .concept-rail { height:9.4rem; grid-template-columns:2.5rem minmax(0,1fr); grid-template-rows:minmax(0,1fr) 2.7rem; align-items:start; }
   .concept-activity-text { height:3.3rem; }
   .concept-request { grid-column:1/-1; height:2.7rem; }
+  /* The viewer on phones: navigation in two rows and a two-line disclosure, so long (German) labels stay whole. */
+  .concept-viewer[open] { grid-template-rows:4rem minmax(0,1fr) 21.5rem; }
+  .concept-navigation { grid-template-columns:1fr 1fr; } .concept-navigation button { height:2.75rem; }
+  .concept-disclosure { height:2.4em; line-height:1.2; }
+  .concept-viewer-head { grid-template-columns:minmax(0,1fr) 3.5rem minmax(7rem,9rem); gap:.5rem; }
+  .concept-viewer-head h2 { font-size:.95rem; } .concept-close { font-size:.75rem; line-height:1.2; padding:.3rem .5rem; }
 }
 @media(prefers-reduced-motion:reduce) { * { scroll-behavior:auto; animation:none !important; } }
 `;
