@@ -286,12 +286,14 @@ test('German copy on the host surface; every English host key has a German count
   assert.deepEqual(keys(de.host.outbox).sort(), keys(en.host.outbox).sort());
 });
 
-test('start card: the action row sits in a sticky footer so Continue is never cut off (AIT-104 B2 fix)', t => {
+test('start card: Continue keeps START\'s last column of the action row on the page, and the error line is reserved (AIT-104 B2, AIT-128)', t => {
   const { root } = setup(t, { host: null });
-  const footer = root.querySelector('.chooser__footer');
-  assert.ok(footer, 'the chooser has a footer');
-  assert.ok(footer.querySelector('.chooser__continue') && footer.querySelector('.chooser__error'));
-  assert.match(root.querySelector('style').textContent, /\.chooser__footer \{ position:sticky; bottom:0;/u);
+  const action = root.querySelector('.chooser__action');
+  assert.ok(action?.querySelector('.chooser__continue') && action.nextElementSibling?.matches('.chooser__error'));
+  // The entrance is the page itself, not a scrolling card: nothing can cut Continue off.
+  const css = root.querySelector('style').textContent;
+  assert.match(css, /\.chooser__continue \{ grid-column:-2\/-1;/u); assert.match(css, /\.chooser__error \{[^}]*min-height:1\.5em;/u);
+  assert.doesNotMatch(css, /\.intro \{[^}]*overflow:auto/u);
   assert.match(hostStyles, /\.verify__primary > \* \{ grid-area:1\/1;/u, 'Send and Send again share one cell');
 });
 
