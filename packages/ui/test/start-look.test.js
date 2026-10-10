@@ -141,6 +141,8 @@ test('a consent change at the entrance closes no call and keeps the entrance; at
     assert.ok(card.querySelector(`[data-focus-key="${focusKey}"]`) === control, `${origin}: the control is the same node`);
     assert.ok(j.root.activeElement === control, `${origin}: focus stays on it`);
     assert.deepEqual(j.starts, []); assert.deepEqual(j.media, []);
+    // happy-dom's ShadowRoot.activeElement throws while focus rests in another component's shadow tree.
+    control.blur();
   }
 });
 

@@ -6,13 +6,6 @@ export const hostStyles = `
    Conversations, the verification entry and the account slot on one line; on phones the credits go under them. */
 .host-bar { display:grid; grid-template-columns:minmax(0,auto) repeat(3,auto); grid-template-areas:"credits library verify account";
   justify-content:end; align-items:center; column-gap:.5rem; min-width:0; }
-/* Phones: the controls wrap as whole words (never squeezed to a letter per line), the credits line below them,
-   one touch row high with room at its end for Settings. Conversations shows its icon; its name stays for assistive
-   technology, so the three actions share one line. */
-@media(max-width:44rem) { .host-bar { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-start; gap:0 .25rem; }
-  .host-credits { flex:1 0 100%; height:2.75rem; max-height:none; padding:.45rem 3.25rem .45rem 0; text-align:left; }
-  .library-open-dialog { justify-content:center; min-width:2.75rem; padding-inline:.5rem; }
-  .library-open-dialog span { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; } }
 .library-open-dialog { grid-area:library; display:inline-flex; align-items:center; gap:.45rem; min-height:2.75rem; padding:.4rem .75rem;
   font-size:.8125rem; font-weight:600; color:var(--aithema-accent); white-space:nowrap; border-radius:999px; }
 .library-open-dialog svg { display:block; flex:none; }
@@ -24,6 +17,13 @@ export const hostStyles = `
 .host-credits { grid-area:credits; justify-self:end; max-width:28rem; margin:0; font-size:.72rem; line-height:1.3; color:var(--aithema-muted); text-align:right; max-height:2.6em;
   overflow-y:auto; overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
 .host-credits[data-ended="true"] .host-credits__text { color:var(--aithema-warning); }
+/* Phones (after the rules it adjusts): the controls wrap as whole words (never squeezed to a letter per line),
+   the credits line below them, one touch row high with room at its end for Settings. Conversations shows its
+   icon; its name stays for assistive technology, so the three actions share one line. */
+@media(max-width:44rem) { .host-bar { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-start; gap:0 .25rem; }
+  .host-credits { flex:1 0 100%; height:2.75rem; max-height:none; padding:.45rem 3.25rem .45rem 0; text-align:left; }
+  .library-open-dialog { justify-content:center; min-width:2.75rem; padding-inline:.5rem; }
+  .library-open-dialog span { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; } }
 .host-foot { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.5rem 1.5rem;
   padding:1rem 0 .25rem; border-top:1px solid var(--aithema-line); font-size:.75rem; color:var(--aithema-muted); }
 [aria-disabled="true"]:is(.verify-send, .verify-resend, .handover-request, .library-open, .library-new, .library-reset, .library-rename,

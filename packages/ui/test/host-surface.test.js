@@ -132,6 +132,8 @@ test('a keyboard unlock before the first input moves focus to the visible stage 
     assert.ok(target.closest('[hidden], [inert]') === null, `${stage}: the control is visible and operable`);
     assert.ok(root.activeElement === target, `${stage}: focus is on ${selector}`);
     assert.equal(root.querySelector('.workspace').dataset.stage, stage, 'unlocking starts nothing');
+    // happy-dom's ShadowRoot.activeElement throws while focus rests in another component's shadow tree.
+    target.blur();
   }
 });
 
