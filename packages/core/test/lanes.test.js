@@ -44,7 +44,17 @@ test('reaction streams deltas and only publishes one complete durable assistant 
   const run = h.lanes.run(h.session.id, 'reaction'); assert.equal(run, h.lanes.run(h.session.id, 'reaction'));
   await run; assert.ok(h.partials.length > 1); assert.equal(h.published.length, 1);
   assert.equal(h.published[0].data.content, h.partials.map(e => e.data.delta).join(''));
+  for (const data of [...h.partials.map(e => e.data), h.published[0].data]) {
+    assert.equal(data.origin, 'ai-generated'); assert.equal(data.model, 'mock'); assert.equal(data.provider, 'mock');
+  }
+  assert.equal(h.session.transcript[0].origin, undefined);
   assert.equal(await h.lanes.run(h.session.id, 'reaction'), 'cached');
+});
+test('draft and final understanding name their own producers rather than copying provider output', async () => {
+  const h = harness(createMockReasoning({ model: 'final-fixture' }), {}, { draftReasoning: createMockReasoning({ model: 'draft-fixture' }) });
+  h.turn('systems: API'); await h.lanes.run(h.session.id, 'understanding');
+  assert.deepEqual(h.published.map(e => [e.data.draft, e.data.origin, e.data.model, e.data.provider]),
+    [[true, 'ai-generated', 'draft-fixture', 'mock'], [false, 'ai-generated', 'final-fixture', 'mock']]);
 });
 test('stale reaction fragments never become a final turn', async () => {
   const started = deferred(), gate = deferred();

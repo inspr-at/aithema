@@ -145,9 +145,14 @@ test('a saved model and effort are the bindings both lanes dispatch with; comple
   const reply = h.storage.get(session.id).transcript.filter(turn => turn.role === 'assistant').at(-1);
   assert.deepEqual(reply.engine, { preset: 'best', model: 'b', label: 'Model B', effort: 'high' });
   const files = unzip(await (await h.call(`/${session.id}/export`)).arrayBuffer());
-  assert.match(files['transcript.md'], /## assistant · Model A\n\nHello[\s\S]*## assistant · Model B · high\n\nHello/u, 'the export names each reply\'s model');
+  assert.match(files['transcript.md'], /## assistant · Model A \(AI-generated\)\n\nHello[\s\S]*## assistant · Model B · high \(AI-generated\)\n\nHello/u, 'the export names each reply\'s model');
   assert.deepEqual(JSON.parse(files['transcript.json']).processing, { preset: 'best', model: 'b', effort: 'high', voice: 'off', visuals: 'off' });
-  assert.equal(JSON.stringify(h.storage.read(session.id)).includes('fixture/model-b'), false, 'events carry ids and labels, never bindings');
+  const events = h.storage.read(session.id);
+  assert.deepEqual(events.filter(e => e.type === 'turn.final' && e.data.role === 'assistant').map(e => [e.data.origin, e.data.model, e.data.provider]),
+    [['ai-generated', 'fixture/model-a', 'openrouter'], ['ai-generated', 'fixture/model-b', 'openrouter']]);
+  for (const privateField of ['secretRef', 'accountRef', 'routing', fake.endpoint]) {
+    assert.equal(JSON.stringify(events).includes(privateField), false, 'events carry public producer identities, never private bindings');
+  }
 });
 
 test('a choice saved while a lane runs supersedes it like new input and reruns it with the new binding', async t => {

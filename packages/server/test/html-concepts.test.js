@@ -116,6 +116,14 @@ test('HTML export prepends the preview CSP and disables standalone scripts befor
   assert.equal(JSON.parse(files[`concepts/${item.id}.provenance.json`]).subject.contentDigest, item.provenance.subject.contentDigest);
   assert.deepEqual(JSON.parse(files['concepts-manifest.json']), { version: 1,
     included: [{ id: item.id, path: `concepts/${item.id}.html` }], withheld: [] });
+  const manifest = JSON.parse(files['manifest.json']), exportedPath = `concepts/${item.id}.html`;
+  const entry = manifest.files.find(file => file.path === exportedPath);
+  const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
+  assert.equal(entry.sha256, sha256(Buffer.from(html)));
+  assert.equal(entry.originalSha256, sha256(h.storage.conceptArtifact(h.id, item.id).bytes));
+  assert.notEqual(entry.sha256, entry.originalSha256);
+  assert.deepEqual(manifest.files.map(file => file.path).sort(), Object.keys(files).filter(path => path !== 'manifest.json').sort());
+  for (const file of manifest.files) assert.equal(file.sha256, sha256(Buffer.from(files[file.path])), file.path);
 });
 
 for (const action of ['withdraw', 'consent', 'erase']) test(`${action} removes HTML bytes and feedback; replay and export cannot resurrect them`, async t => {
@@ -132,6 +140,10 @@ for (const action of ['withdraw', 'consent', 'erase']) test(`${action} removes H
     const files = unzip(new Uint8Array(await (await h.call('export')).arrayBuffer()));
     assert.ok(Object.keys(files).every(name => !name.startsWith('concepts/')));
     assert.deepEqual(JSON.parse(files['concepts-manifest.json']).withheld, [{ id: item.id, reason: 'erased' }]);
+    const manifest = JSON.parse(files['manifest.json']);
+    assert.deepEqual(manifest.withheld, JSON.parse(files['concepts-manifest.json']).withheld);
+    assert.ok(manifest.erased.some(entry => entry.kind === 'concept' && entry.id === item.id));
+    assert.ok(manifest.files.every(file => !file.path.startsWith('concepts/')));
   }
 });
 

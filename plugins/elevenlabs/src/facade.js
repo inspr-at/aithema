@@ -2,6 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import { PluginError } from '../../../packages/core/src/invocation.js';
 import { operationScope } from '../../../packages/core/src/reasoning.js';
 import { voiceOperation } from '../../../packages/core/src/live-voice.js';
+import { aiTextOrigin } from '../../../packages/core/src/text-origin.js';
 import { readJson } from './server.js';
 
 const spendReason = error => ['OpenRouter spend cap exhausted', 'OpenRouter request exceeds spend reservation'].includes(error?.message) ? error.message : undefined;
@@ -77,6 +78,8 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
       admission = await voiceOperation(opts, bounded => admitReasoning({ callId: call.callId, request: input, options: bounded }));
       if (!admission?.plugin?.stream || !admission.options?.attempt || typeof admission.options.report !== 'function' ||
         typeof admission.finish !== 'function') throw new PluginError('not-admitted', 'Reasoning admission required');
+      const textOrigin = aiTextOrigin(admission.producer ?? admission.plugin.binding ??
+        { model: admission.plugin.model, plugin: admission.plugin.manifest?.id ?? admission.plugin.id });
       const report = admission.options.report;
       invocationOptions = { ...admission.options,
         signal: admission.options.signal ? AbortSignal.any([scope.signal, admission.options.signal]) : scope.signal,
@@ -95,7 +98,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
           content += first.value; if (content.length > 1_048_576) throw new PluginError('limit'); first = await next();
         }
         if (reports !== 1) throw new PluginError('invalid-output', 'Reasoning omitted terminal report');
-        await onCompletion?.({ callId: call.callId, providerSessionId: call.providerSessionId, content });
+        await onCompletion?.({ callId: call.callId, providerSessionId: call.providerSessionId, content, textOrigin, engine: admission.engine });
         await cleanup(false);
         return Response.json({ id, object: 'chat.completion', created: Math.floor(now() / 1000), model: 'session-reasoning',
           choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }] }, { headers: { 'cache-control': 'no-store' } });
@@ -109,7 +112,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
             const item = part ?? await next();
             if (item.done) {
               if (reports !== 1) throw new PluginError('invalid-output', 'Reasoning omitted terminal report');
-              await onCompletion?.({ callId: call.callId, providerSessionId: call.providerSessionId, content });
+              await onCompletion?.({ callId: call.callId, providerSessionId: call.providerSessionId, content, textOrigin, engine: admission.engine });
               await cleanup(false);
               const stop = frame({}); stop.choices[0].finish_reason = 'stop';
               controller.enqueue(encoder.encode(`data: ${JSON.stringify(stop)}\n\ndata: [DONE]\n\n`)); controller.close(); return;

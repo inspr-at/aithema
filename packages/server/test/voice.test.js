@@ -75,10 +75,13 @@ test('voice start, speak, heard correction, type, pause, resume and close share 
     assert.equal(response.status, 200); return response.json();
   };
   const spoken = { type: 'final', turnId: `${grant.providerSessionId}:user:1`, role: 'user', text: 'systems: API; data: public' };
-  await event(spoken); const rows = h.storage.read(h.session.id).filter(e => e.type === 'turn.final').length;
+  const person = await event(spoken);
+  for (const key of ['origin', 'model', 'provider']) assert.equal(Object.hasOwn(person.data, key), false);
+  const rows = h.storage.read(h.session.id).filter(e => e.type === 'turn.final').length;
   await event(spoken); assert.equal(h.storage.read(h.session.id).filter(e => e.type === 'turn.final').length, rows, 'final callback is idempotent');
   await event({ type: 'final', turnId: `${grant.providerSessionId}:assistant:2`, role: 'assistant', text: 'Understood. This remainder was not heard.' });
-  await event({ type: 'heard', turnId: `${grant.providerSessionId}:assistant:2`, prefix: 'Understood.' });
+  const corrected = await event({ type: 'heard', turnId: `${grant.providerSessionId}:assistant:2`, prefix: 'Understood.' });
+  assert.equal(corrected.data.origin, 'ai-generated'); assert.equal(corrected.data.model, 'fixture-agent'); assert.equal(corrected.data.provider, 'elevenlabs');
   await event({ type: 'final', turnId: `${grant.providerSessionId}:user:3`, role: 'user', text: 'Typed during the call' });
   h.advance(2000);
   const pause = await h.route(`/voice/${grant.callId}/pause`, identity); assert.deepEqual(await pause.json(), { acknowledged: true, paused: true });
@@ -509,15 +512,34 @@ test('assistant voice finals retain facade-produced or browser-asserted provenan
   const completion = await h.handlers.handle(new Request(`https://facade.test/api/voice/${grant.callId}/llm/chat/completions`, {
     method: 'POST', headers: { authorization: `Bearer ${secret}` }, body: JSON.stringify({ aithema_call: grant.callId, messages: [{ role: 'user', content: 'Hello' }] }) }));
   const produced = (await completion.json()).choices[0].message.content;
+  // A transcript callback must use the completion's producer, even if the
+  // runtime's next reaction would use a different binding.
+  h.presets.best.bindings.reaction = { ...h.presets.best.bindings.reaction, model: 'next-model' };
   for (const [index, text] of [produced, 'Browser invented assistant speech'].entries()) {
     const response = await h.route(`/voice/${grant.callId}/events`, { providerSessionId: grant.providerSessionId,
       event: { type: 'final', callId: grant.callId, turnId: `${grant.providerSessionId}:assistant:${index}`, role: 'assistant', text, provenance: 'facade-produced' } });
     assert.equal(response.status, 200);
   }
-  assert.deepEqual(h.storage.get(h.session.id).transcript.map(t => t.provenance), ['facade-produced', 'browser-asserted']);
+  const snapshot = await h.handlers.handle(new Request(`http://host/api/sessions/${h.session.id}`, { headers: { 'x-aithema-session-token': 'voice-owner' } })).then(r => r.json());
+  assert.deepEqual(snapshot.transcript.map(t => t.provenance), ['facade-produced', 'browser-asserted']);
+  for (const [index, turn] of snapshot.transcript.entries()) {
+    assert.equal(turn.origin, 'ai-generated'); assert.equal(turn.model, index ? 'fixture-agent' : 'mock');
+    assert.equal(turn.provider, index ? 'elevenlabs' : 'mock');
+  }
   assert.deepEqual(h.storage.read(h.session.id).filter(e => e.type === 'turn.final').map(e => e.data.provenance), ['facade-produced', 'browser-asserted']);
+  assert.deepEqual(h.storage.read(h.session.id).filter(e => e.type === 'turn.final').map(e => e.data.origin), ['ai-generated', 'ai-generated']);
   const exported = await h.handlers.handle(new Request(`http://host/api/sessions/${h.session.id}/export`, { headers: { 'x-aithema-session-token': 'voice-owner' } }));
-  assert.match(unzip(await exported.arrayBuffer())['transcript.md'], /assistant \(browser-asserted\)/);
+  const files = unzip(await exported.arrayBuffer());
+  assert.match(files['transcript.md'], /assistant \(browser-asserted\) \(AI-generated\)/);
+  assert.deepEqual(JSON.parse(files['transcript.json']).turns.map(t => [t.origin, t.model, t.provider]),
+    [['ai-generated', 'mock', 'mock'], ['ai-generated', 'fixture-agent', 'elevenlabs']]);
+  const correction = await h.route(`/voice/${grant.callId}/events`, { providerSessionId: grant.providerSessionId,
+    event: { type: 'heard', callId: grant.callId, turnId: `${grant.providerSessionId}:assistant:0`, prefix: produced.slice(0, 3) } });
+  const corrected = (await correction.json()).data;
+  assert.equal(corrected.origin, 'ai-generated'); assert.equal(corrected.model, 'mock'); assert.equal(corrected.provider, 'mock');
+  const original = h.storage.read(h.session.id).find(e => e.type === 'turn.final' && e.data.id === corrected.id).data;
+  assert.equal(original.erased, true);
+  for (const key of ['origin', 'model', 'provider', 'engine']) assert.equal(Object.hasOwn(original, key), false);
 });
 
 test('slow closure: recovery reserves remaining visitor duration after previously settled usage', async t => {

@@ -1,6 +1,7 @@
 import { ConceptView } from './concept-view.js';
 import './html-preview.js'; // <aithema-html-preview>, the concept viewer's stage for drafts
 import { applyEvent, inputRevision, activeTurns } from '../../core/src/session.js';
+import { aiTextOrigin } from '../../core/src/text-origin.js';
 import { readinessScalePercent, readinessListItems, readinessListWindow, newlyClearedFirst } from '../../core/src/readiness.js';
 import { displayedReadinessPercent } from '../../core/src/understanding.js';
 import { FEATURES, deviceFeatures } from '../../core/src/presets.js';
@@ -961,13 +962,13 @@ export class AithemaSession extends HTMLElement {
       if (!current()) return;
       this.receive({ seq: this.#cursor + 1, type: 'turn.final', data: { id: crypto.randomUUID(), role: 'user', content } });
       input.value = '';
-      const id = crypto.randomUUID(), revision = inputRevision(this.#session); let answer = '';
+      const id = crypto.randomUUID(), revision = inputRevision(this.#session), origin = aiTextOrigin({ model: device.model, plugin: device.id }); let answer = '';
       for await (const delta of device.stream({ messages: activeTurns(this.#session).map(({ role, content }) => ({ role, content })) },
         { signal: controller.signal, deadlineAt })) {
         if (!current()) return; answer += delta;
-        this.receive({ type: 'turn.partial', data: { id, delta, inputRevision: revision } });
+        this.receive({ type: 'turn.partial', data: { id, delta, ...origin, inputRevision: revision } });
       }
-      if (current()) this.receive({ seq: this.#cursor + 1, type: 'turn.final', data: { id, role: 'assistant', content: answer, inputRevision: revision } });
+      if (current()) this.receive({ seq: this.#cursor + 1, type: 'turn.final', data: { id, role: 'assistant', content: answer, ...origin, inputRevision: revision } });
       if (current()) this.#status(this.#copy.deviceConversation);
     } catch { if (current()) { this.#partials.clear(); this.#render('transcript'); this.#status(this.#copy.deviceUnavailable); } }
     finally { if (sessionId === this.#session.id) { this.#sending = false; button.disabled = !this.#feature('text').available; this.#render('composer'); } }
