@@ -23,7 +23,8 @@ consent checks, engine-wide pause, withdrawal/erasure and an exclusive writer.
 Visitors choose the processing preset, model, response style, voice and visual
 concepts within the host's allowlist, enforced and acknowledged by the server.
 The server host surface supplies email verification/unlock, an owner conversation
-library, handover retry and a server-computed credits slot; its UI follows separately.
+library, handover retry and a server-computed credits slot; `<aithema-session>`
+shows them when the host passes `configure({host})` (AIT-104 B2).
 The demo is for localhost and defaults to labelled deterministic reasoning, voice
 and image fakes.
 
@@ -73,7 +74,9 @@ Ubuntu with Node 24 and a five-minute limit;
 `npm test` does not require a browser. To prove the missing JSON content-type
 regression is detected, run `AITHEMA_BROWSER_REGRESSION=1 npm run test:browser`:
 this serves a test-only faulty `demo/host.js` session POST and must fail with 415,
-without changing the demo files.
+without changing the demo files. `test/browser/host-surface.test.js` covers the host
+surface UI (below) against the demo with `AITHEMA_DEMO_VERIFY=1` and
+`AITHEMA_DEMO_HANDOVER_FAIL=1`; set `AITHEMA_EVIDENCE_DIR` to save its screenshots.
 
 The demo visibly labels **Mock reasoning** by default. Its deterministic responses
 recognize statements such as `operations: hosted; data: public; systems: API;
@@ -245,6 +248,55 @@ one redemption (`token: null`); tokenless polling retains the verified fact.
 `/demo/config` exposes `hostLabel`, `demoHost` and `verificationRequired`.
 The destructive local port kits test owner isolation,
 storage erasure, delivery deduplication and wallet reservation fingerprints.
+
+## Host surface UI (AIT-104 B2)
+
+`configure({..., host: {library, verification, handover, credits, locale}})` turns
+on the host surface inside `<aithema-session>`; each flag shows one part, and every
+fact comes from the routes above. Without `host` nothing changes.
+
+- **Host bar** above the understanding pane (wide) or above the conversation (narrow):
+  **Conversations**, the verification entry, the `account` slot and the credits line.
+- **Verification** (`verification: true`): while host policy locks the assessment,
+  the understanding pane shows the email form in its place (START EmailLock);
+  otherwise the bar offers a quiet **Verify your email** that opens a small dialog.
+  Send, resend with a visible cooldown, change address; 400 and 429 answers are
+  plain words. While a link is pending the component polls `S/identity/unlock`
+  (every 4 s, not while the page is hidden). Unlocking keeps a manual pause and
+  says so; focus in the form moves to Resume or the composer.
+- **Library** (`library: true`): a dialog listing the owner's conversations with
+  search (server side), sortable Title and Last activity columns, open, inline
+  rename, delete and reset with a confirmation that states the erasure, and New.
+  Rows are keyed; confirmations share the footer's cell, so nothing moves.
+  Opening, creating or resetting dispatches a cancelable
+  `aithema-open-conversation` event with `{session, reason, previousSessionId}`
+  (`reason` is `open`, `new`, `reset` or `deleted`). A host that owns per-conversation
+  clients (voice) calls `preventDefault()` and reconfigures; otherwise the element
+  switches itself.
+- **Handover** (`handover: true`): a band under the assessment, shown when the host
+  offer is available, with the `handover-offer` slot, one action (Arrange,
+  Send update, Retry) whose box never changes, and its state in words, including
+  `handover.limit-reached`.
+- **Credits** (`credits: true` or `{format(micro, locale)}`): the owner balance and
+  the conversation's remaining minutes; on `credits.limit-reached` or an ending
+  slot the line names the reason and shows the `credits-limit` slot.
+
+Named slots, all host content (the demo fills each with labelled demo text):
+
+| Slot | Where |
+| --- | --- |
+| `account` | Right end of the host bar (account menu) |
+| `credits-limit` | After the credits line once the limit is reached (top-up or next step) |
+| `handover-offer` | Offer copy in the handover band (default: a generic sentence) |
+| `legal` | Footer row under the workspace, left (legal links) |
+| `footer` | Footer row, right (status or imprint); the row shows only when a slot is filled |
+
+New interaction controls that start AI processing (Send confirmation link,
+Send link again, library open/New/Reset) list `ai-notice` in their
+`aria-describedby`. The demo shows a **Fake mail (demo only)** outbox button
+whenever its demo host is active (`demoHost`); it lists `GET S/demo/outbox` and
+confirms a link through `S/identity/confirm`. `AITHEMA_DEMO_HANDOVER_FAIL=n`
+(1–10, demo only) fails the first n fake handover deliveries to show Retry.
 
 ## Package layout
 

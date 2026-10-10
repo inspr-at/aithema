@@ -184,26 +184,30 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .conversation { position:relative; }
 .intro { position:absolute; inset:0; z-index:2; grid-column:1/-1; grid-row:5/6; overflow:auto; overflow-anchor:none; overscroll-behavior:contain;
   scrollbar-gutter:stable; padding:calc(1rem + var(--aithema-slack-top,0px)) 1.25rem calc(1rem + var(--aithema-slack-bottom,0px)); background:var(--aithema-surface); display:grid; align-content:start; }
-.intro[data-mode=chooser] { grid-row:3/6; }
-.chooser { display:grid; gap:.9rem; }
+.intro[data-mode=chooser] { grid-row:3/6; padding-top:calc(.6rem + var(--aithema-slack-top,0px)); padding-bottom:var(--aithema-slack-bottom,0px); scroll-padding-bottom:6rem; }
+/* AIT-104 B2: compact enough that the whole start card shows at 1440 × 1000 without scrolling; where it
+   still must scroll, the action row stays pinned at the card's bottom edge, so Continue is never cut off. */
+.chooser { display:grid; gap:.5rem; }
 .chooser h3, .ready h3 { font:600 1.05rem/1.3 Georgia,serif; margin:0; }
 .chooser__list { display:grid; max-width:44rem; border-bottom:1px solid var(--aithema-line); }
 /* GUI-27: a plain list on hairlines, not a row of equal tiles. Selection is the filled
    radio and the accent name; hover only tints the name. Nothing moves or resizes. */
 .chooser-option { display:grid; grid-template-columns:1.05rem 1.5rem minmax(0,1fr); column-gap:.8rem; align-items:start; width:100%; min-width:0;
-  padding:.75rem .2rem; border:0; border-top:1px solid var(--aithema-line); border-radius:0; background:none; text-align:left; }
+  padding:.5rem .2rem; border:0; border-top:1px solid var(--aithema-line); border-radius:0; background:none; text-align:left; }
 .chooser-option:hover { background:none; }
 .chooser-option .radio { margin-top:.15rem; }
 .chooser-option__icon { display:grid; place-items:center; width:1.35rem; height:1.35rem; color:var(--aithema-accent); }
 .chooser-option__icon svg { display:block; width:100%; height:100%; }
-.chooser-option__text { display:grid; gap:.15rem; min-width:0; }
+.chooser-option__text { display:grid; grid-template-columns:auto minmax(0,1fr); column-gap:.6rem; row-gap:.1rem; align-items:baseline; min-width:0; }
+.chooser-option__text > strong { grid-column:1; grid-row:1; } .chooser-option__detail { grid-column:1/-1; grid-row:2; }
 .chooser-option strong { font:600 1.02rem/1.25 Georgia,serif; color:var(--aithema-ink); }
 .chooser-option:hover:not([aria-disabled=true]) strong { color:color-mix(in srgb,var(--aithema-accent) 35%,var(--aithema-ink)); }
 .chooser-option[aria-pressed=true] strong { color:var(--aithema-accent); }
 .chooser-option__detail { display:grid; gap:.05rem; line-height:1.4; }
 .chooser-option__detail>:first-child { font-size:.8rem; } .chooser-option__detail>:last-child { font-size:.74rem; color:var(--aithema-muted); }
 .chooser-option[aria-disabled=true] { cursor:help; } .chooser-option[aria-disabled=true] :is(strong,.chooser-option__icon,.chooser-option__detail>*) { color:var(--aithema-muted); }
-.chooser-option__note { font-size:.7rem; color:var(--aithema-warning); } .chooser-option__note:empty { display:none; }
+.chooser-option__note { grid-column:2; grid-row:1; font-size:.7rem; color:var(--aithema-warning); } .chooser-option__note:empty { display:none; }
+.chooser__footer { position:sticky; bottom:0; z-index:1; display:grid; gap:.2rem; padding:.45rem 0 .7rem; background:var(--aithema-surface); }
 .chooser__action { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:.8rem; align-items:center; }
 .chooser__hint { display:grid; gap:.2rem; min-width:0; }
 .chooser__summary { display:grid; } .chooser__summary>* { grid-area:1/1; }
@@ -215,7 +219,7 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
   background:linear-gradient(135deg,color-mix(in srgb,var(--aithema-ink) 85%,var(--aithema-accent)),var(--aithema-ink)); }
 .chooser__continue:hover:not(:disabled) { background:var(--aithema-ink); }
 .chooser__arrow { display:grid; place-items:center; width:1.4rem; height:2rem; }
-.chooser__error { min-height:1.3em; font-size:.75rem; color:var(--aithema-error); }
+.chooser__error { min-height:1.3em; margin:0; font-size:.75rem; color:var(--aithema-error); }
 .ready { display:grid; gap:.6rem; max-width:34rem; }
 .ready dl { display:grid; gap:.45rem; margin:0; }
 .ready__row { display:grid; grid-template-columns:minmax(7.5rem,1fr) minmax(0,1.6fr); align-items:center; gap:.7rem; min-height:1.5rem; }
@@ -244,8 +248,9 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
   .settings__footer { grid-template-columns:minmax(0,1fr); gap:.3rem; padding:.2rem .8rem .7rem; }
   .done { justify-self:stretch; width:100%; } .disclosure__body { left:.8rem; width:calc(100% - 1.6rem); }
   .gauges { gap:.7rem .3rem; } .gauge__glass { width:3.3rem; height:6.6rem; } .gauge__value { font-size:1rem; }
-  .intro { padding:calc(.75rem + var(--aithema-slack-top,0px)) .8rem calc(.75rem + var(--aithema-slack-bottom,0px)); } .chooser { gap:.6rem; }
-  .chooser-option { grid-template-columns:1.05rem minmax(0,1fr); padding:.6rem .1rem; } .chooser-option__icon { display:none; }
+  .intro { padding:calc(.75rem + var(--aithema-slack-top,0px)) .8rem calc(.75rem + var(--aithema-slack-bottom,0px)); } .chooser { gap:.5rem; }
+  .intro[data-mode=chooser] { padding-bottom:var(--aithema-slack-bottom,0px); }
+  .chooser-option { grid-template-columns:1.05rem minmax(0,1fr); padding:.5rem .1rem; } .chooser-option__icon { display:none; }
   .chooser-option strong { font-size:.95rem; }
   .chooser__action { grid-template-columns:minmax(0,1fr); } .chooser__continue { justify-content:space-between; }
   .ready__row { grid-template-columns:minmax(6.2rem,1fr) minmax(0,1.3fr); gap:.4rem; } .ready dt, .ready dd { font-size:.74rem; } }

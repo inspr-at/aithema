@@ -49,6 +49,8 @@ export const FEATURE_REASON_CODES = [
   // server document upload availability.
   'extractors not configured', 'document text not covered by reasoning scope', 'extractor not in preset',
   'extractor binding invalid', 'extractor must be local and free', 'extractor unhealthy',
+  // server plugin runtime: the host verification lock (AIT-104).
+  'verification required',
 ];
 
 // Server voice-handlers, handlers invalidation, core live-voice and ElevenLabs

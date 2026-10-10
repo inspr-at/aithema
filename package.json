@@ -11,7 +11,7 @@
   ],
   "scripts": {
     "test": "node --test packages/*/test/*.test.js plugins/*/test/*.test.js demo/test/*.test.js",
-    "test:browser": "node --test test/browser/demo.test.js test/browser/html-preview.test.js",
+    "test:browser": "node --test test/browser/demo.test.js test/browser/html-preview.test.js test/browser/host-surface.test.js",
     "demo": "node demo/server.js"
   },
   "devDependencies": {
