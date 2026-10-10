@@ -35,7 +35,8 @@ export function uploadLimits(value) {
 // The largest file one request can carry: its own framing for a given file, the shortest framing
 // (no name, no type) for the limits shown before a file is chosen. Never negative; below one byte
 // this host's limits leave no room for any file.
-const ceiling = (limits, part) => Math.max(0, Math.min(limits.maxBytes, limits.maxRequestBytes - formBytes() - part));
+const room = (limits, part) => Math.min(limits.maxBytes, limits.maxRequestBytes - formBytes() - part);
+const ceiling = (limits, part) => Math.max(0, room(limits, part));
 const fileCeiling = (limits, file) => ceiling(limits, file ? filePartBytes(file) : partBytes('', '', MAX_BOUNDARY));
 /** Whether this host's limits leave room for a file at all. */
 export const uploadsPossible = limits => fileCeiling(uploadLimits(limits)) > 0;
@@ -46,11 +47,13 @@ export const uploadsPossible = limits => fileCeiling(uploadLimits(limits)) > 0;
  * (count or total size) is refused as a whole, since only the person can choose which files matter.
  */
 export function planUploads(files, { limits: raw, uploads = [] } = {}) {
-  const limits = uploadLimits(raw), refused = [], fitting = [];
+  const limits = uploadLimits(raw), refused = [], fitting = [], possible = uploadsPossible(limits);
   for (const file of files) {
+    // The whole request one file would need on its own (form, its part's headers and its bytes) is checked
+    // against the ceilings before batching: an empty file still carries headers that may not fit.
     const type = extension(file.name), limit = fileCeiling(limits, file);
     if (type && !UPLOAD_EXTENSIONS.includes(type)) refused.push({ name: file.name, reason: 'type' });
-    else if (file.size > limit) refused.push({ name: file.name, reason: 'size', limit });
+    else if (!possible || file.size > room(limits, filePartBytes(file))) refused.push({ name: file.name, reason: 'size', limit });
     else fitting.push(file);
   }
   const active = uploads.filter(u => u.state !== 'withdrawn' && !u.erased);

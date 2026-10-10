@@ -800,10 +800,8 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.attach__label').textContent = this.#copy.uploads.attach;
     root.querySelector('.drop-overlay strong').textContent = this.#copy.uploads.dropActive;
     root.querySelector('.attach').addEventListener('click', () => {
-      const feature = this.#feature('uploads', true);
-      if (!feature.available) { this.#uploadRefusal(this.#copy.uploads.unavailable.replace('{reason}', feature.reason)); return; }
-      if (this.#uploading) { this.#uploadRefusal(this.#copy.uploads.busy); return; }
-      if (!uploadsPossible(this.#limits)) { this.#uploadRefusal(this.#copy.uploads.impossible); return; }
+      const refusal = this.#attachRefusal();
+      if (refusal) { this.#uploadRefusal(refusal); return; }
       void this.#loadLimits(); input.click();
     });
     input.addEventListener('change', () => { const files = [...input.files ?? []]; input.value = ''; void this.#attach(files); });
@@ -836,12 +834,20 @@ export class AithemaSession extends HTMLElement {
     }
     zone.toggleAttribute('data-dropping', on);
   }
+  // Why nothing can be attached right now, or '' when it can. Attach is aria-disabled exactly then, and
+  // every way in (the button, the picker's files, a drop) is refused by it before anything is sent.
+  #attachRefusal() {
+    const copy = this.#copy, feature = this.#feature('uploads', true);
+    if (!feature.available) return copy.uploads.unavailable.replace('{reason}', feature.reason);
+    if (this.#uploading) return copy.uploads.busy;
+    return uploadsPossible(this.#limits) ? '' : copy.uploads.impossible;
+  }
   // Unavailable (consent, preset, extractors, pause) stays focusable and says why when pressed.
   #paintAttach() {
     const root = this.shadowRoot, attach = root.querySelector('.attach'), feature = this.#feature('uploads', true);
     const limits = limitsText(this.#copy, this.#limits, this.#session.locale);
     const unavailable = feature.available ? '' : this.#copy.uploads.unavailable.replace('{reason}', feature.reason);
-    attach.setAttribute('aria-disabled', String(!feature.available || this.#uploading || !uploadsPossible(this.#limits)));
+    attach.setAttribute('aria-disabled', String(Boolean(this.#attachRefusal())));
     attach.title = unavailable || limits;
     setText(root.querySelector('#attach-limits'), unavailable || limits);
   }
@@ -864,13 +870,14 @@ export class AithemaSession extends HTMLElement {
   }
   async #attach(files) {
     if (!files.length) return;
-    const copy = this.#copy, feature = this.#feature('uploads', true), sessionId = this.#session.id;
-    if (!feature.available) { this.#uploadRefusal(copy.uploads.unavailable.replace('{reason}', feature.reason)); return; }
-    if (this.#uploading) { this.#uploadRefusal(copy.uploads.busy); return; }
+    const copy = this.#copy, sessionId = this.#session.id, refusal = this.#attachRefusal();
+    if (refusal) { this.#uploadRefusal(refusal); return; }
     this.#uploading = true; this.#uploadNotice = ''; this.#render('composer');
     try {
       await this.#loadLimits();
       if (sessionId !== this.#session.id) return;
+      // The host's limits may have arrived just now and leave no room: nothing is sent.
+      if (!uploadsPossible(this.#limits)) { this.#uploadNotice = copy.uploads.impossible; return; }
       const plan = planUploads(files, { limits: this.#limits, uploads: this.#session.uploads });
       const notices = [refusalText(copy, plan, this.#session.locale)], count = plan.batches.flat().length;
       if (count) {

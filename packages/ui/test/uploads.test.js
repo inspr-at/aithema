@@ -130,6 +130,35 @@ test('a 1 KB request limit still takes a five-byte file; limits too small for an
   attach.click(); assert.equal(picked, 1); assert.equal(tiny.root.querySelector('.composer-reason').textContent, en.uploads.impossible);
 });
 
+test('an empty file is checked with its headers: under a 100-byte request limit dropping or picking empty.txt sends nothing and says uploads are not possible', async t => {
+  const tiny = { ...UPLOAD_LIMITS, maxRequestBytes: 100 }, empty = new NodeFile([''], 'empty.txt', { type: 'text/plain' });
+  assert.ok((await encoded([empty])).bytes > 100, 'its real body is over the limit');
+  const plan = planUploads([empty], { limits: tiny });
+  assert.deepEqual(plan.batches, []); assert.deepEqual(plan.refused, [{ name: 'empty.txt', reason: 'size', limit: 0 }]);
+  assert.equal(refusalText(en, plan, 'en'), en.uploads.impossible);
+  // Room for a one-byte file without a name or type, but not for this empty file's own headers.
+  let tight = tiny; while (!uploadsPossible(tight)) tight = { ...tight, maxRequestBytes: tight.maxRequestBytes + 1 };
+  assert.ok(formBytes() + filePartBytes(empty) > tight.maxRequestBytes);
+  assert.deepEqual(planUploads([empty], { limits: tight }).batches, [], 'its part headers alone are over the request limit');
+  // In the component: a drop before the host's limits are known, a drop once Attach is aria-disabled, and the picker.
+  const { root, calls } = setup(t, { limits: tiny }), zone = root.querySelector('.conversation');
+  const drop = async () => {
+    for (const type of ['dragenter', 'drop']) {
+      const event = new window.Event(type, { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'dataTransfer', { value: { types: ['Files'], files: [file('empty.txt', 0)], dropEffect: 'none' } }); zone.dispatchEvent(event);
+    }
+    await tick(); await tick();
+  };
+  const posts = () => calls.filter(call => call.options.method === 'POST').length;
+  await drop();
+  assert.equal(posts(), 0, 'dropping empty.txt sends no request');
+  assert.equal(root.querySelector('.composer-reason').textContent, en.uploads.impossible);
+  assert.equal(root.querySelector('.attach').getAttribute('aria-disabled'), 'true');
+  await drop(); await choose(root, [file('empty.txt', 0)]);
+  assert.equal(posts(), 0, 'no path sends while Attach is aria-disabled');
+  assert.equal(root.querySelector('.composer-reason').textContent, en.uploads.impossible);
+});
+
 test('chips: pending, accepted and unreadable with the localized reason, keyed by upload id, names as text and placed where they arrived', t => {
   const { c, root } = setup(t, { transcript: [{ id: 't1', role: 'user', content: 'First', at: at(5) }, { id: 't2', role: 'user', content: 'Later', at: at(20) }] });
   state(c, pending('u1', { filename: '<img src=x onerror=alert(1)>.txt' }));
