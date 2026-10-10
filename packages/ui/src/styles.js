@@ -123,7 +123,8 @@ summary { cursor:pointer; } details p { padding:.5rem 0; } blockquote { margin:.
 .concept-disclosure { height:1.2rem; margin:.35rem 0; font-size:.75rem; overflow:hidden; }
 .concept-feedback { display:grid; grid-template-columns:1fr 1fr 2fr; gap:.5rem; }
 .concept-feedback [aria-pressed="true"] { background:var(--aithema-accent); color:var(--aithema-on-accent); }
-.concept-guidance-options { height:3rem; display:flex; align-items:center; gap:.4rem; overflow:auto; white-space:nowrap; }
+/* The fixed guidance choices wrap into rows on narrow screens rather than scrolling sideways out of view. */
+.concept-guidance-options { min-height:3rem; display:flex; flex-wrap:wrap; align-items:center; align-content:center; gap:.4rem; padding:.3rem 0; white-space:nowrap; }
 .concept-guidance-options button, .concept-guidance-selected button { font-size:.7rem; padding:.3rem .5rem; flex-shrink:0; }
 .concept-guidance-selected { height:2.3rem; display:flex; gap:.4rem; align-items:center; overflow:auto; white-space:nowrap; }
 .concept-viewer-message { height:1rem; margin:.2rem 0; font-size:.75rem; }

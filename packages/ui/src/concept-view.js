@@ -32,7 +32,7 @@ const DRAFT_GLYPH = '<svg viewBox="0 0 48 32" aria-hidden="true"><rect x="1.5" y
 /** Generic START viewer experience, private owner-authenticated bytes only. */
 export class ConceptView {
   #session; #selected; #latest; #seen = new Set(); #urls = new Map(); #drafts = new Map(); #loads = new Map(); #epoch = 0;
-  #busy = false; #trigger; #timer; #touchX; #requestError = null; #statusKey = '';
+  #busy = false; #trigger; #timer; #touchX; #requestError = null; #statusKey = ''; #pointer = false;
   constructor({ root, copy, baseUrl, sessionToken, receive, feature }) {
     Object.assign(this, { root, copy, baseUrl, sessionToken, receive, feature });
     this.visibility = () => { if (root.ownerDocument.hidden) void this.endEligibility(); };
@@ -86,6 +86,9 @@ export class ConceptView {
         const index = stops.indexOf(root.activeElement); e.preventDefault(); stops[(index + (e.shiftKey ? -1 : 1) + stops.length) % stops.length]?.focus();
       }
     });
+    const controls = root.querySelector('.concept-viewer-controls');
+    controls.addEventListener('pointerenter', () => { this.#pointer = true; });
+    controls.addEventListener('pointerleave', () => { this.#pointer = false; });
     const stage = root.querySelector('.concept-stage');
     stage.addEventListener('touchstart', e => { this.#touchX = e.touches[0]?.clientX; }, { passive: true });
     stage.addEventListener('touchend', e => { const delta = e.changedTouches[0]?.clientX - this.#touchX; if (Math.abs(delta) > 60) this.navigate(delta > 0 ? -1 : 1); }, { passive: true });
@@ -94,9 +97,10 @@ export class ConceptView {
   get items() { return (this.#session?.concepts ?? []).filter(c => !c.archived && !c.erased); }
   current() { return this.items.find(c => c.id === this.#selected); }
   path(suffix = '') { return `${this.baseUrl}/api/sessions/${this.#session.id}/concepts${suffix}`; }
+  // Every owner-authenticated concept request, GET or POST, passes here before it is sent.
   sameOrigin(path) {
     const location = this.root.ownerDocument.defaultView?.location;
-    if (location?.origin && location.origin !== 'null' && new URL(path, location.href).origin !== location.origin) throw new Error('Concept images require same-origin routes');
+    if (location?.origin && location.origin !== 'null' && new URL(path, location.href).origin !== location.origin) throw new Error('Concept routes require same origin');
     return path;
   }
   connect() {
@@ -141,13 +145,18 @@ export class ConceptView {
     this.render();
   }
   // Drafts are revised continuously: a viewer showing the latest draft moves on to the new
-  // revision in its fixed stage, unless someone is working inside the draft; an older
-  // revision stays put. Either way the count and Next update at once.
+  // revision in its fixed stage, unless someone is at work in the viewer (focus in the draft,
+  // its width switch or a viewer control, or the pointer on the controls); an older revision
+  // stays put. Either way the count and Next update at once.
   follow(latest) {
     const before = this.#latest; this.#latest = latest?.id;
     if (!this.dialog.open || !before || !latest || latest.id === before || conceptKind(latest) !== 'html') return;
-    if (this.#selected === before && !this.root.querySelector('.concept-html').draftFocused) { this.#selected = latest.id; this.#seen.add(latest.id); }
+    if (this.#selected === before && !this.inUse()) { this.#selected = latest.id; this.#seen.add(latest.id); }
     else this.root.querySelector('.concept-viewer-message').textContent = this.copy.conceptDraftNewer;
+  }
+  inUse() {
+    const draft = this.root.querySelector('.concept-html'), active = this.root.activeElement;
+    return this.#pointer || draft.draftFocused || active === draft || Boolean(active && this.root.querySelector('.concept-viewer-controls').contains(active));
   }
   visualKind() { return this.#session?.conceptVisualKind === 'html' ? 'html' : 'image'; }
   progress() {
@@ -264,7 +273,7 @@ export class ConceptView {
     if (!this.dialog.open) return;
     // A closed viewer runs no draft; reopening shows the cached bytes at once.
     const draft = this.root.querySelector('.concept-html'); draft.artifact = null; delete draft.dataset.id;
-    this.root.querySelector('.concept-viewer-message').textContent = '';
+    this.root.querySelector('.concept-viewer-message').textContent = ''; this.#pointer = false;
     this.dialog.close(); this.#trigger?.focus(); this.#trigger = null;
   }
   navigate(delta) {
@@ -296,7 +305,7 @@ export class ConceptView {
     if (!sourceTurnId) return;
     const focused = this.root.activeElement; this.#busy = true; this.#requestError = null; this.gates(); const sessionId = this.#session.id;
     try {
-      const response = await postJson(this.path(artifactId ? `/${artifactId}/regenerate` : ''),
+      const response = await postJson(this.sameOrigin(this.path(artifactId ? `/${artifactId}/regenerate` : '')),
         { clientEventId: crypto.randomUUID(), intent: true, sourceTurnId }, { sessionToken: this.sessionToken });
       if (!response.ok) throw Object.assign(new Error(), { reason: (await response.json().catch(() => null))?.reason });
       const ack = await response.json(); if (sessionId === this.#session.id) this.receive(ack.event);
@@ -310,7 +319,7 @@ export class ConceptView {
     const current = this.current(); if (this.#busy || !current || !this.feature().available || chips.length > 8) return;
     const focused = this.root.activeElement; this.#busy = true; this.gates(); const sessionId = this.#session.id;
     try {
-      const response = await postJson(this.path(`/${current.id}/${reject ? 'reject' : 'feedback'}`),
+      const response = await postJson(this.sameOrigin(this.path(`/${current.id}/${reject ? 'reject' : 'feedback'}`)),
         { clientEventId: crypto.randomUUID(), vote, chips }, { sessionToken: this.sessionToken });
       if (!response.ok) throw new Error(); const ack = await response.json();
       if (sessionId === this.#session.id) { this.receive(ack.event); if (reject) this.close(); }

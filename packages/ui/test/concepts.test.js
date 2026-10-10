@@ -116,6 +116,36 @@ test('foreign image URLs cannot receive ownership headers or become download tar
   root.querySelector('.concept-tab').click(); await tick(); root.querySelector('.concept-download').click(); await tick();
   assert.equal(calls.length, 0); assert.equal(downloads.length, 0); assert.equal(root.querySelector('.concept-image').hasAttribute('src'), false);
 });
+test('a foreign baseUrl receives no owner-authenticated concept request: request, regenerate, Like, Dislike, guidance, Reject and eligibility are refused before sending', async t => {
+  for (const kind of ['image', 'html']) {
+    const concepts = [kind === 'html' ? draft('c1', { feedback: { vote: 'clear', chips: ['Simpler layout'] } }) : item('c1', { feedback: { vote: 'clear', chips: ['Simpler layout'] } })];
+    const { c, root, calls } = setup(t, { baseUrl: 'https://other.example', concepts, session: { conceptVisualKind: kind } });
+    // Views left from earlier tests also hear the page's visibility signal; they post to their own (same) origin.
+    const foreign = () => calls.filter(call => new URL(call.url, 'http://localhost/').origin !== 'http://localhost');
+    const owned = () => foreign().filter(call => new Headers(call.options.headers).get('x-aithema-session-token') !== null).length;
+    const steps = {
+      'request': () => root.querySelector('.concept-request').click(),
+      'open': () => root.querySelector('.concept-tab').click(),
+      'regenerate': () => root.querySelector('.concept-regenerate').click(),
+      'Like': () => root.querySelector('.concept-up').click(),
+      'Dislike': () => root.querySelector('.concept-down').click(),
+      'add guidance': () => root.querySelector('.concept-guidance-options button:nth-child(2)').click(),
+      'remove guidance': () => root.querySelector('.concept-guidance-selected button').click(),
+      'download': () => root.querySelector('.concept-download').click(),
+      'Reject': () => root.querySelector('.concept-reject').click(),
+      'eligibility': () => { t.mock.method(document, 'hidden', () => true, { getter: true }); document.dispatchEvent(new window.Event('visibilitychange')); },
+    };
+    for (const [name, step] of Object.entries(steps)) {
+      step(); await tick(); await tick();
+      assert.equal(owned(), 0, `${kind} ${name}: no request carries the owner header`); assert.deepEqual(foreign().map(call => call.url), [], `${kind} ${name}: nothing is sent`);
+    }
+    assert.equal(root.querySelector('.concept-viewer').open, true, `${kind}: a refused Reject leaves the viewer open`);
+    assert.equal(root.querySelector('.concept-viewer-message').textContent, en.controlFailed);
+    assert.equal(root.querySelector('.concept-activity-text').textContent, en.conceptFailed);
+    assert.deepEqual(c.session.concepts[0].feedback, { vote: 'clear', chips: ['Simpler layout'] }); assert.equal(c.session.concepts[0].archived, false);
+    c.remove(); t.mock.restoreAll();
+  }
+});
 test('automatic concept arrivals render under the pointer; composer, tabs and viewer controls keep their nodes and fixed geometry', async t => {
   const { c, root } = setup(t); root.querySelector('.concept-tab').click(); await tick();
   const composer = root.querySelector('.composer'), tab = root.querySelector('.concept-tab'), controls = root.querySelector('.concept-viewer-controls');
@@ -248,6 +278,46 @@ test('a refresh revision replaces the shown latest draft in place; an older revi
   arrive('html4'); await tick();
   assert.equal(root.querySelector('.concept-count').textContent, '3 of 4', 'someone working inside the draft keeps it');
   assert.equal(root.querySelector('.concept-viewer-message').textContent, en.conceptDraftNewer);
+});
+test('a revision waits while a viewer control holds focus or the pointer rests on the controls; focus never disappears (AIT-113 B2 gate)', async t => {
+  const arrive = (c, id) => c.receive({ seq: c.session.seq + 1, type: 'concept.state', data: { intent: c.session.conceptIntent, status: { phase: 'ready' }, artifact: draft(id) } });
+  // One viewer on the page at a time (happy-dom cannot resolve focus held in another shadow root).
+  let previous;
+  const viewer = async () => {
+    previous?.root.activeElement?.blur(); previous?.c.remove();
+    const view = previous = setup(t, { concepts: [draft('html1', { feedback: { vote: 'up', chips: ['Simpler layout'] } })], session: { conceptVisualKind: 'html' } });
+    document.body.append(view.c); view.root.querySelector('.concept-tab').click(); await tick(); await tick(); return view;
+  };
+  // "Remove: <chip>" on the latest draft holds focus while a revision arrives.
+  const { c, root } = await viewer(), preview = root.querySelector('.concept-html'), shown = preview.artifact;
+  const chip = root.querySelector('.concept-guidance-selected button'); chip.focus(); assert.ok(root.activeElement === chip);
+  arrive(c, 'html2'); await tick(); await tick();
+  assert.ok(root.activeElement === chip, 'focus stays on Remove: Simpler layout'); assert.equal(chip.isConnected, true);
+  assert.deepEqual([...root.querySelectorAll('.concept-guidance-selected button')].map(b => b.textContent), ['Remove: Simpler layout'], 'nothing is removed');
+  assert.equal(root.querySelector('.concept-viewer-message').textContent, en.conceptDraftNewer, 'the newer-revision notice appears');
+  assert.equal(root.querySelector('.concept-count').textContent, '1 of 2'); assert.equal(root.querySelector('#concept-title').textContent, 'Draft revision 1');
+  assert.equal(preview.artifact, shown, 'the shown draft keeps its frame'); assert.equal(root.querySelector('.concept-next').disabled, false);
+  // Any other viewer control, and a pointer resting on the controls, defer the same way.
+  for (const mode of ['Like', 'Regenerate', 'Download', 'pointer']) {
+    const view = await viewer(), before = view.root.querySelector('.concept-html').artifact;
+    const target = { Like: '.concept-up', Regenerate: '.concept-regenerate', Download: '.concept-download' }[mode];
+    if (target) view.root.querySelector(target).focus();
+    else view.root.querySelector('.concept-viewer-controls').dispatchEvent(new window.Event('pointerenter'));
+    const focused = view.root.activeElement;
+    arrive(view.c, 'html2'); await tick(); await tick();
+    assert.equal(view.root.querySelector('.concept-count').textContent, '1 of 2', `${mode}: the shown revision stays`);
+    assert.equal(view.root.querySelector('.concept-html').artifact, before, `${mode}: the frame stays`);
+    assert.equal(view.root.querySelector('.concept-viewer-message').textContent, en.conceptDraftNewer, `${mode}: notice`);
+    assert.ok(view.root.activeElement === focused, `${mode}: focus is where it was`);
+    if (mode !== 'pointer') continue;
+    // Once the pointer leaves and no control holds focus, the next revision replaces the latest in place.
+    view.root.querySelector('.concept-next').click(); await tick();
+    view.root.querySelector('.concept-viewer-controls').dispatchEvent(new window.Event('pointerleave')); view.root.querySelector('.concept-close').focus();
+    arrive(view.c, 'html3'); await tick(); await tick();
+    assert.equal(view.root.querySelector('.concept-count').textContent, '3 of 3', 'replaced in place when nobody is at work in the viewer');
+    assert.match(new TextDecoder().decode(view.root.querySelector('.concept-html').artifact.bytes), /Revision 3/u);
+    assert.ok(view.root.activeElement === view.root.querySelector('.concept-close'));
+  }
 });
 test('Like, guidance, Regenerate and Reject work for drafts exactly like images', async t => {
   const { c, root, calls } = setup(t, { concepts: [draft('html1')], session: { conceptVisualKind: 'html' } });

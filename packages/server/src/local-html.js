@@ -24,7 +24,7 @@ export function createLocalHTML({ now = () => 0 } = {}) {
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${summary}</title>
 <style>body{font:1rem/1.5 system-ui;margin:0;padding:clamp(1rem,4vw,3rem);color:#243b40;background:#f7f5ef}main{max-width:70ch}button{font:inherit;min-height:44px;padding:.5rem 1rem}h1{overflow-wrap:anywhere}:focus-visible{outline:2px solid #227c78}em,i,cite,address,dfn,var{font-style:normal}</style></head><body><main>
 <h1>${summary}</h1><p>${de ? 'Entwurf aus Ihrem Gespräch. Alle Daten sind Beispieldaten.' : 'Draft click-dummy, generated from your conversation. All data is sample data.'}</p>
-<p>Revision ${revision}</p><button type="button" id="toggle" aria-expanded="false">${de ? 'Offene Fragen' : 'Open questions'}</button>
+<p>${de ? 'Fassung' : 'Revision'} ${revision}</p><button type="button" id="toggle" aria-expanded="false">${de ? 'Offene Fragen' : 'Open questions'}</button>
 <button type="button" id="reset">${de ? 'Demo zurücksetzen' : 'Reset demo'}</button><section id="questions" hidden><ul>${questions || `<li>${de ? 'Keine offenen Fragen.' : 'No open questions.'}</li>`}</ul></section>
 <script>const button=document.getElementById('toggle'),panel=document.getElementById('questions');button.addEventListener('click',()=>{panel.hidden=!panel.hidden;button.setAttribute('aria-expanded',String(!panel.hidden))});document.getElementById('reset').addEventListener('click',()=>{panel.hidden=true;button.setAttribute('aria-expanded','false')});</script>
 </main></body></html>`;

@@ -282,3 +282,16 @@ test('a spend cap refusal during rendering persists its reason, so the viewer ca
   await h.turn('first'); h.readiness(); assert.equal((await h.request()).status, 202); await h.handlers.idle();
   assert.deepEqual(h.storage.get(h.id).conceptStatus, { ...h.storage.get(h.id).conceptStatus, phase: 'failed', reason: 'OpenRouter spend cap exhausted', retryable: true });
 });
+
+test('the local fake draft names its revision in the page language: "Fassung N" in German, "Revision N" in English (AIT-113 B2)', async () => {
+  const html = createLocalHTML(), text = artifact => new TextDecoder().decode(artifact.bytes);
+  const options = () => ({ deadlineAt: Date.now() + 5000, attempt: { attemptId: crypto.randomUUID(), claimId: crypto.randomUUID(), consume() {} }, report() {} });
+  // The visible page, without the head comment that carries the revision number for the next edit.
+  const visible = page => page.replace(/<!--[\s\S]*?-->/gu, '');
+  const spec = language => ({ prompt: 'Click-dummy', language, understanding: { summary: 'Reparaturen' } });
+  const first = await html.generate(spec('de'), '', options()), second = await html.edit(first, spec('de'), 'Mehr Kontrast', options());
+  assert.match(visible(text(first)), /<p>Fassung 1<\/p>/u); assert.match(visible(text(second)), /<p>Fassung 2<\/p>/u);
+  assert.doesNotMatch(visible(text(second)), /Revision/u, 'no English word on the German page');
+  const english = await html.edit(await html.generate(spec('en'), '', options()), spec('en'), 'More contrast', options());
+  assert.match(visible(text(english)), /<p>Revision 2<\/p>/u);
+});

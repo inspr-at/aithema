@@ -605,13 +605,14 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
     const chipBefore = await rest(page, '.concept-guidance-options button'); await page.mouse.down(); await page.mouse.up();
     await waitForShadow(page, '.concept-guidance-selected button', { text: 'Remove: Simpler layout' });
     sameBox(chipBefore, await box(page, '.concept-guidance-options button'), 'guidance chip');
-    // A new draft revision replaces the shown latest one in place; Previous reaches the earlier one.
+    // The new revision waits while the pointer rests on the controls: the count, Next and a notice update at once.
     const regenerateBefore = await rest(page, '.concept-regenerate'); await page.mouse.down(); await page.mouse.up();
-    await waitForShadow(page, '.concept-count', { text: '2 of 2' });
-    await waitForShadow(page, '.concept-previous', { enabled: true });
-    sameBox(regenerateBefore, await box(page, '.concept-regenerate'), 'Regenerate');
-    await page.keyboard.press('ArrowLeft');
     await waitForShadow(page, '.concept-count', { text: '1 of 2' });
+    await waitForShadow(page, '.concept-next', { enabled: true });
+    await waitForShadow(page, '.concept-viewer-message', { text: 'A newer revision is ready. Select Next to see it.' });
+    sameBox(regenerateBefore, await box(page, '.concept-regenerate'), 'Regenerate');
+    await page.keyboard.press('ArrowRight');
+    await waitForShadow(page, '.concept-count', { text: '2 of 2' });
     await page.keyboard.press('Escape'); await page.mouse.move(0, 0);
 
     // D4: reloading during a call ends it cleanly: no pause, no conflict, Start call works at once.
@@ -909,6 +910,24 @@ const waitDraft = (page, revision) => until(page, revision => {
 const VIEWER_CONTROLS = ['.concept-close', '.concept-count', '.concept-stage', '.concept-html', '.concept-previous', '.concept-next', '.concept-download',
   '.concept-regenerate', '.concept-up', '.concept-down', '.concept-reject', '.concept-guidance-options button'];
 const boxes = page => Promise.all(VIEWER_CONTROLS.map(selector => box(page, selector)));
+// Every visible viewer button, whole: neither its own text nor any clipping or scrolling ancestor cuts it off.
+const viewerClipping = c => {
+  const r = c.shadowRoot, found = [], name = node => node.className || node.textContent;
+  for (const button of r.querySelectorAll('.concept-viewer button')) {
+    if (button.hidden || !button.getClientRects().length) continue;
+    if (button.scrollHeight > button.clientHeight + 1 || button.scrollWidth > button.clientWidth + 1) found.push(`${name(button)}: its text`);
+    const rect = button.getBoundingClientRect();
+    for (let node = button.parentElement; node; node = node.parentElement) {
+      const style = getComputedStyle(node); if (style.overflowX === 'visible' && style.overflowY === 'visible') continue;
+      const outer = node.getBoundingClientRect(), left = outer.left + node.clientLeft, top = outer.top + node.clientTop;
+      if (rect.left < left - .5 || rect.top < top - .5 || rect.right > left + node.clientWidth + .5 || rect.bottom > top + node.clientHeight + .5) found.push(`${name(button)}: by ${name(node)}`);
+    }
+  }
+  for (const node of r.querySelectorAll('.concept-disclosure, .concept-guidance-options')) {
+    if (node.scrollHeight > node.clientHeight + 1 || node.scrollWidth > node.clientWidth + 1) found.push(`${name(node)}: overflows`);
+  }
+  return found;
+};
 
 test('clickable html drafts: request, sandboxed preview, a refresh revision in place, Like and Reject, light/dark/400 px/German (AIT-113 B2)',
   { timeout: 240_000 }, async t => {
@@ -970,27 +989,48 @@ test('clickable html drafts: request, sandboxed preview, a refresh revision in p
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.concept-disclosure').textContent), 'Fake draft — local deterministic click-dummy, no AI or provider network');
     await shot(page, 'en-light-1440-viewer');
 
-    // A refresh after new turns arrives under a resting pointer: the new revision replaces the
-    // shown one in its fixed stage and no control moves. The turns go in behind the modal viewer.
+    // A refresh after new turns arrives while the pointer rests on Like: the shown revision stays
+    // and no control moves; the count, Next and a notice say a newer one is ready. The turns go in
+    // behind the modal viewer.
+    const notice = () => inShadow(page, c => c.shadowRoot.querySelector('.concept-viewer-message').textContent);
+    const turns = async (first, second) => {
+      const count = await inShadow(page, c => c.session.transcript.length);
+      await sendTurn(page, first); await until(page, count => document.querySelector('aithema-session').session.transcript.length >= count + 2, count);
+      await sendTurn(page, second);
+    };
     const likeBefore = await rest(page, '.concept-up'), controlsBefore = await boxes(page);
-    await sendTurn(page, 'Customers pick a branch and a pickup time; staff see one list per morning.');
-    await until(page, () => document.querySelector('aithema-session').session.transcript.length >= 4);
-    await sendTurn(page, 'Payment happens in the shop. The data is public opening hours and our product list.');
-    await waitDraft(page, 2);
-    const refreshed = await draftView(page);
-    assert.equal(refreshed.count, '2 of 2'); assert.equal(refreshed.title, 'Draft revision 2');
+    await turns('Customers pick a branch and a pickup time; staff see one list per morning.', 'Payment happens in the shop. The data is public opening hours and our product list.');
+    await waitForShadow(page, '.concept-count', { text: '1 of 2' }); await waitForShadow(page, '.concept-next', { enabled: true });
+    const waiting = await draftView(page);
+    assert.equal(waiting.revision, '1'); assert.equal(waiting.title, 'Draft revision 1'); assert.equal(await notice(), 'A newer revision is ready. Select Next to see it.');
     (await boxes(page)).forEach((after, i) => sameBox(controlsBefore[i], after, VIEWER_CONTROLS[i]));
     assert.ok(await inShadow(page, (c, at) => c.shadowRoot.elementFromPoint(at.x, at.y)?.closest('.concept-up') !== null,
       { x: likeBefore.x + Math.min(likeBefore.width / 2, 40), y: likeBefore.y + Math.min(likeBefore.height / 2, 10) }), 'the pointer still rests on Like');
 
-    // Like shows its effect at once under the pointer; Previous and Next walk the revisions.
+    // Like shows its effect at once under the pointer, on the revision shown; Next and Previous walk the revisions.
     await page.mouse.down(); await page.mouse.up();
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.concept-up').getAttribute('aria-pressed') === 'true');
     sameBox(likeBefore, await box(page, '.concept-up'), 'Like');
-    const liked = await inShadow(page, c => c.session.concepts.at(-1).feedback.vote); assert.equal(liked, 'up');
-    await page.keyboard.press('ArrowLeft'); await waitDraft(page, 1);
-    assert.equal((await draftView(page)).count, '1 of 2');
+    assert.deepEqual(await inShadow(page, c => c.session.concepts.map(item => item.feedback.vote)), ['up', 'clear']);
     await page.keyboard.press('ArrowRight'); await waitDraft(page, 2);
+    assert.equal((await draftView(page)).count, '2 of 2'); assert.equal(await notice(), '');
+    await page.keyboard.press('ArrowLeft'); await waitDraft(page, 1);
+    await page.keyboard.press('ArrowRight'); await waitDraft(page, 2);
+
+    // With the pointer off the controls and focus on Close, the next revision (requested here without
+    // moving focus) replaces the shown latest one in its fixed stage; focus stays on Close and no control moves.
+    await page.mouse.move(0, 0); await inShadow(page, c => c.shadowRoot.querySelector('.concept-close').focus());
+    const restingBefore = await boxes(page);
+    await inShadow(page, c => c.shadowRoot.querySelector('.concept-regenerate').click());
+    // A regenerated revision 2 (the fake's page text says so) is the viewer's third draft.
+    await until(page, () => {
+      const c = document.querySelector('aithema-session'), preview = c.shadowRoot.querySelector('.concept-html');
+      return c.session.concepts.length === 3 && preview.state === 'ready' && preview.dataset.id === c.session.concepts.at(-1).id;
+    });
+    const replaced = await draftView(page);
+    assert.equal(replaced.count, '3 of 3'); assert.equal(replaced.title, 'Draft revision 3'); assert.equal(await notice(), '');
+    assert.equal(await inShadow(page, c => c.shadowRoot.activeElement?.className), 'concept-close', 'focus stays on Close');
+    (await boxes(page)).forEach((after, i) => sameBox(restingBefore[i], after, VIEWER_CONTROLS[i]));
 
     // Keyboard: Tab reaches the width switch and then the draft itself; focus never leaves the viewer.
     await inShadow(page, c => c.shadowRoot.querySelector('.concept-close').focus());
@@ -999,7 +1039,7 @@ test('clickable html drafts: request, sandboxed preview, a refresh revision in p
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.concept-html').shadowRoot.activeElement?.dataset.width), 'wide');
     await page.keyboard.press('ArrowRight');
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.concept-html').width), 'phone', 'arrow keys switch the width, not the revision');
-    assert.equal((await draftView(page)).count, '2 of 2');
+    assert.equal((await draftView(page)).count, '3 of 3');
     await page.keyboard.press('Tab');
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.concept-html').shadowRoot.activeElement?.tagName), 'IFRAME', 'Tab continues into the draft');
     await shot(page, 'en-light-1440-viewer-phone-width');
@@ -1015,11 +1055,11 @@ test('clickable html drafts: request, sandboxed preview, a refresh revision in p
       const r = c.shadowRoot, title = r.querySelector('#concept-title'), dialog = r.querySelector('.concept-viewer').getBoundingClientRect();
       return { stage: r.querySelector('.concept-html').shadowRoot.querySelector('.stage').getBoundingClientRect().height, width: dialog.width,
         titleClipped: title.scrollHeight > title.clientHeight + 1 || title.scrollWidth > title.clientWidth + 1,
-        overflow: [...r.querySelectorAll('.concept-viewer button, .concept-disclosure')].filter(b => !b.hidden && (b.scrollHeight > b.clientHeight + 1 || b.scrollWidth > b.clientWidth + 1)).map(b => b.className || b.textContent),
         pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
     });
     assert.ok(phone.stage >= 200, `draft stage ${phone.stage} px at 400 px`); assert.equal(phone.width, 400);
-    assert.equal(phone.titleClipped, false, 'the viewer title is whole at 400 px'); assert.deepEqual(phone.overflow, [], 'no clipped viewer button at 400 px');
+    assert.equal(phone.titleClipped, false, 'the viewer title is whole at 400 px');
+    assert.deepEqual(await inShadow(page, viewerClipping), [], 'no clipped viewer button at 400 px, guidance chips wrap into rows');
     assert.equal(phone.pageOverflow, 0);
     await shot(page, 'en-dark-400-viewer');
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
@@ -1032,7 +1072,7 @@ test('clickable html drafts: request, sandboxed preview, a refresh revision in p
     await page.mouse.down(); await page.mouse.up();
     await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.concept-viewer').open);
     assert.equal(await inShadow(page, (c, id) => c.session.concepts.find(item => item.id === id).archived, shown), true);
-    await waitForShadow(page, '.concept-activity-text', { text: 'Draft revision 1 is ready.' });
+    await waitForShadow(page, '.concept-activity-text', { text: 'Draft revision 2 is ready.' });
     assert.ok(draftRequests.length > 0 && draftRequests.every(([type, route]) => type === 'fetch' && route === 'html'), `drafts load as fetched data only: ${JSON.stringify(draftRequests)}`);
     await page.mouse.move(0, 0); await shot(page, 'en-light-1440-after-reject');
     await page.setViewport({ width: 400, height: 800 }); await shot(page, 'en-light-400-rail');
@@ -1055,17 +1095,17 @@ test('clickable html drafts: request, sandboxed preview, a refresh revision in p
     await inShadow(german, c => c.shadowRoot.querySelector('.concept-tab').click()); await waitDraft(german, 1);
     assert.deepEqual(await draftView(german), { state: 'ready', hidden: false, revision: '1', sandbox: 'allow-scripts', title: 'Entwurf, Fassung 1', count: '1 von 1',
       label: 'Entwurf, generiert', image: false });
+    assert.match(await inShadow(german, c => c.shadowRoot.querySelector('.concept-html').shadowRoot.querySelector('iframe').getAttribute('srcdoc')), /<p>Fassung 1<\/p>/u, 'the German draft says Fassung');
     assert.deepEqual(await inShadow(german, c => ['.concept-previous', '.concept-next', '.concept-download', '.concept-up', '.concept-reject', '.concept-close']
       .map(selector => c.shadowRoot.querySelector(selector).textContent)),
     ['Vorheriger', 'Nächster', 'Entwurf herunterladen', 'Gefällt mir', 'Ablehnen und ausblenden', 'Zurück zum Gespräch']);
     await shot(german, 'de-light-1440-viewer');
     await german.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]); await shot(german, 'de-dark-1440-viewer');
     await german.setViewport({ width: 400, height: 800 });
-    assert.deepEqual(await inShadow(german, c => [...c.shadowRoot.querySelectorAll('.concept-viewer button, .concept-disclosure')]
-      .filter(b => !b.hidden && (b.scrollHeight > b.clientHeight + 1 || b.scrollWidth > b.clientWidth + 1)).map(b => b.className || b.textContent)), [], 'no clipped German button at 400 px');
+    assert.deepEqual(await inShadow(german, viewerClipping), [], 'no clipped German button at 400 px, guidance chips wrap into rows');
     await shot(german, 'de-dark-400-viewer');
     await german.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]); await shot(german, 'de-light-400-viewer');
     await context.close();
     assert.deepEqual(problems, []);
-    t.diagnostic(`Drafts: requested, rendered sandboxed from fetched bytes (${draftRequests.length} GET /html), revision 2 replaced revision 1 under a resting pointer with 0 px movement of ${VIEWER_CONTROLS.length} controls; Like, Previous/Next, Tab into the draft, Reject; light, dark, 400 px and German.`);
+    t.diagnostic(`Drafts: requested, rendered sandboxed from fetched bytes (${draftRequests.length} GET /html), revision 2 waited under a resting pointer and revision 3 replaced revision 2 in place, 0 px movement of ${VIEWER_CONTROLS.length} controls; Like, Previous/Next, Tab into the draft, Reject; light, dark, 400 px and German.`);
   });
