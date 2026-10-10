@@ -41,7 +41,7 @@ aithema-session { display:block; width:100%; }
 .consent-actions [data-grant] { width:256px; height:60px; flex:none; background:linear-gradient(150deg,#235c6c,#102f46); color:#fff; border-color:#285064; }
 .consent-actions [data-select-all] { width:160px; flex:none; }
 .consent-actions [data-revoke] { font-weight:400; }
-.consent-status { height:8em; overflow:auto; font-size:14px; line-height:1.5; margin:12px 0; }
+.consent-status { height:3em; overflow:auto; font-size:14px; line-height:1.5; margin:12px 0; }
 .consent-status[data-state="failed"],.consent-status[data-state="stale"] { color:var(--error); }
 #retry { min-height:44px; border:0; padding:8px 0; background:transparent; color:var(--accent); font-weight:600; }
 .consent-items { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; border:0; padding:0; margin:0; min-width:0; }

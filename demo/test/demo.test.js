@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { request } from 'node:http';
-import { startChild, temporaryDb, post, sessionFetch } from '../../test/helpers.js';
+import { startChild, temporaryDb, post } from '../../test/helpers.js';
 import { inputRevision } from '@inspr/aithema-core';
 function rawStatus(url, options) {
   return new Promise((resolve, reject) => {
@@ -12,7 +12,10 @@ function rawStatus(url, options) {
 test('demo serves native UI modules, labelled mock host and persistent handlers', { timeout: 10_000 }, async t => {
   const db = await temporaryDb(); let running = await startChild(new URL('../server.js', import.meta.url), db);
   t.after(async () => running.kill());
-  const page = await fetch(running.url), html = await page.text(); assert.match(html, /Demo — Aithema reset slice 1/);
+  const page = await fetch(running.url), html = await page.text();
+  assert.match(html, /<title>Aithema<\/title>/u);
+  assert.match(html, /<html lang="de">/u);
+  assert.match(html, /<aside class="demo-strip" data-demo-only hidden/u);
   assert.equal(page.headers.get('content-security-policy'), "frame-src 'none'; child-src 'none'");
   assert.match(html, /<meta http-equiv="Content-Security-Policy" content="frame-src 'none'; child-src 'none'">/u);
   for (const method of ['GET', 'HEAD']) {
@@ -256,8 +259,12 @@ test('dedicated consent page and its assets are served explicitly; mock readback
   const html = await fetch(running.url + '/consent/').then(r => r.text());
   assert.match(html, /https:\/\/github.com\/inspr-at\/aithema/u);
   assert.equal((await fetch(running.url + '/demo/mock-consent.js')).status, 404, 'server-only ledger is not a static asset');
-  const session = await post(running.url + '/api/sessions', {}).then(r => r.json()), url = `${running.url}/api/sessions/${session.id}/consent`;
-  assert.deepEqual((await sessionFetch(url).then(r => r.json())).selected, []);
-  await post(url, { granted: true }); assert.deepEqual((await sessionFetch(url).then(r => r.json())).selected, ['mock-processing']);
-  await post(url, { granted: false }); assert.deepEqual((await sessionFetch(url).then(r => r.json())).selected, []);
+  const created = await post(running.url + '/api/sessions', {}), session = await created.json();
+  const headers = { cookie: created.headers.get('set-cookie').split(';')[0] }, url = `${running.url}/api/sessions/${session.id}/consent`;
+  const verdict = async () => {
+    const response = await fetch(url, { headers }); assert.equal(response.status, 200); return response.json();
+  };
+  assert.deepEqual((await verdict()).selected, []);
+  assert.equal((await post(url, { granted: true }, headers)).status, 200); assert.deepEqual((await verdict()).selected, ['mock-processing']);
+  assert.equal((await post(url, { granted: false }, headers)).status, 200); assert.deepEqual((await verdict()).selected, []);
 });

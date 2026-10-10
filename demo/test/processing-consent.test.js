@@ -1,9 +1,57 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { processingScope } from '@inspr/aithema-core';
+import { readFile } from 'node:fs/promises';
+import { Window } from 'happy-dom';
+import { createSession, processingScope } from '@inspr/aithema-core';
 import { SQLiteStorage } from '@inspr/aithema-server';
-import { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL, createProcessingConsent, qualifyStartBinding } from '../processing-consent.js';
+import { createProcessingConsent, qualifyStartBinding } from '../processing-consent.js';
 import { openRouterConfig } from '../openrouter-config.js';
+import { en } from '../../packages/ui/src/i18n/en.js';
+import { de } from '../../packages/ui/src/i18n/de.js';
+
+test('host voice setup errors render in German and English as new conversations change language', async () => {
+  const window = new Window({ url: 'http://localhost/' });
+  const keys = ['HTMLElement', 'customElements', 'document', 'CustomEvent', 'localStorage', 'navigator', 'fetch'];
+  const originals = Object.fromEntries(keys.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  let session;
+  try {
+    const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
+    window.document.write(html.replace(/<script[^>]*>[\s\S]*?<\/script>/gu, ''));
+    for (const key of keys.filter(key => key !== 'fetch')) Object.defineProperty(globalThis, key, { configurable: true, value: window[key] });
+    localStorage.setItem('aithema-demo-locale', 'de');
+    globalThis.fetch = async (url, init = {}) => {
+      const pathname = new URL(url, window.location.href).pathname;
+      if (pathname === '/demo/config') return Response.json({ demoHost: true, voiceMode: 'off', voiceDisabledReason: 'agent-api-get-403', label: '', imageLabel: '' });
+      if (pathname === '/api/sessions' && init.method === 'POST') {
+        session = createSession({ demo: true, locale: JSON.parse(init.body).locale });
+        session.featureMatrix = { best: { text: { available: false, reason: 'current processing consent required' } } };
+        return Response.json(session);
+      }
+      if (pathname.endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+        init.signal?.addEventListener('abort', () => controller.close(), { once: true });
+      } }), { headers: { 'content-type': 'text/event-stream' } });
+      if (pathname === `/api/sessions/${session.id}`) return Response.json(session);
+      throw new Error(`Unexpected fixture request: ${pathname}`);
+    };
+    await import('../host.js');
+    const check = copy => {
+      assert.equal(document.querySelector('#error').textContent, '');
+      assert.ok(document.querySelector('#provider').textContent.includes(copy.host.voiceUnavailable.replace('{reason}', copy.reasons['agent-api'].replace('{status}', '403'))));
+    };
+    check(de);
+    const locale = document.querySelector('#locale'); locale.value = 'en'; locale.dispatchEvent(new window.Event('change'));
+    check(de);
+    document.querySelector('#new').click();
+    for (let i = 0; document.documentElement.lang !== 'en'; i++) {
+      if (i === 400) assert.fail('Host did not open the English conversation');
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    check(en);
+  } finally {
+    window.document.querySelector('aithema-session')?.remove(); await window.happyDOM.close();
+    for (const key of keys) { if (originals[key]) Object.defineProperty(globalThis, key, originals[key]); else delete globalThis[key]; }
+  }
+});
 
 test('latest aliases qualify and receive consent under the normalized provider, with exact model scopes', () => {
   const analysis = '~anthropic/claude-opus-latest', speech = '~anthropic/claude-haiku-latest';

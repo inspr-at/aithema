@@ -451,6 +451,7 @@ export const en = {
       required: 'Required for this choice', optional: 'Optional for this choice',
       mockRecipients: 'Recipient: the local mock; no upstream processors.',
       mockConsequence: 'Without consent, mock processing remains unavailable.',
+      mockTerms: 'This covers conversation data, item version 1, for twelve months. Grants live in memory; grant again after a server restart.',
     },
   },
 };

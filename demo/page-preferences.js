@@ -27,7 +27,7 @@ export function mountTheme(document = globalThis.document, storage) {
 }
 export function paintUtilities(copy, document = globalThis.document) {
   document.querySelector('#language-label').textContent = copy.host.language;
-  document.querySelector('#source').textContent = copy.host.source;
+  document.querySelector('#source').textContent = copy.host.slots.source;
   document.querySelector('#theme-label').textContent = copy.host.theme;
   for (const option of document.querySelector('#theme').options) option.textContent = copy.host.themes[option.value];
   document.querySelector('#new').textContent = copy.host.newConversation;

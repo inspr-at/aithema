@@ -25,7 +25,7 @@ export async function mountConsentPage({ document = globalThis.document, locatio
   const returnTo = consentReturnPath(query.get('return'), location.origin);
   const fieldset = document.querySelector('#processing-items'), status = document.querySelector('#consent-status');
   const text = (selector, value) => { document.querySelector(selector).textContent = value; };
-  let copy = { de, en }[preferredLocale(storage)], binding, session, rendered, selected = [], busy = true, usable = false, retryAction;
+  let copy = { de, en }[preferredLocale(storage)], binding, session, rendered, selected = [], hasGrant = false, busy = true, usable = false, retryAction;
   mountTheme(document, storage);
   for (const back of document.querySelectorAll('[data-back]')) back.href = returnTo;
   function paint() {
@@ -42,11 +42,11 @@ export async function mountConsentPage({ document = globalThis.document, locatio
   }
   function updateActions() {
     const c = copy.host.consentPage, boxes = [...fieldset.querySelectorAll('input')], count = boxes.filter(box => box.checked).length;
-    const label = count === 0 ? selected.length ? copy.host.revoke : c.none : count === boxes.length ? c.all : count === 1 ? c.one : c.count;
+    const label = count === 0 ? hasGrant ? copy.host.revoke : c.none : count === boxes.length ? c.all : count === 1 ? c.one : c.count;
     for (const button of document.querySelectorAll('[data-grant]')) { button.textContent = label.replace('{count}', String(count)); button.disabled = busy || !usable; }
     for (const button of document.querySelectorAll('[data-select-all]')) { button.textContent = c.selectAll; button.disabled = busy || !usable || count === boxes.length; }
     // Keep withdrawal available even with stale terms or unavailable granting.
-    for (const button of document.querySelectorAll('[data-revoke]')) { button.textContent = copy.host.revoke; button.disabled = busy || !session; }
+    for (const button of document.querySelectorAll('[data-revoke]')) { button.textContent = copy.host.revoke; button.hidden = !hasGrant; button.disabled = busy || !session || !hasGrant; }
     fieldset.disabled = busy || !usable;
   }
   function state(name, message, retry) {
@@ -62,9 +62,9 @@ export async function mountConsentPage({ document = globalThis.document, locatio
     const contract = binding.processingConsent;
     const kind = !session.engine?.visuals || session.engine.visuals === 'off' || session.processingPreset === 'device' ? 'off' : session.conceptVisualKind === 'html' ? 'html' : 'images';
     const items = contract ? rendered.items : [{ id: 'mock-processing', version: 1, title: copy.host.consentTitle,
-      recipients: c.mockRecipients, text: `${copy.host.consentUse[kind]} ${copy.host.consentTerms} ${c.mockConsequence}` }];
-    text('#consent-text', c.intro);
-    text('#consent-info', contract ? copy.processingConsent.withdrawal ?? rendered.withdrawal : copy.host.consentTerms);
+      recipients: c.mockRecipients, text: `${copy.host.consentUse[kind]} ${c.mockConsequence}` }];
+    text('#consent-text', contract ? copy.processingConsent.intro ?? rendered.intro : c.intro);
+    text('#consent-info', contract ? copy.processingConsent.withdrawal ?? rendered.withdrawal : c.mockTerms);
     for (const [index, item] of items.entries()) {
       const legal = contract ? translatedItem(item, copy) : item;
       const row = document.createElement('div'); row.className = 'consent-item';
@@ -97,16 +97,18 @@ export async function mountConsentPage({ document = globalThis.document, locatio
       rendered = binding.processingConsent ?? {};
       // Paint the server's document before the grant request finishes. If the
       // verdict cannot be read the controls remain closed and no boxes are ticked.
-      selected = []; renderItems(); paint();
+      selected = []; hasGrant = false; renderItems(); paint();
       if (binding.voiceMode === 'elevenlabs' && !binding.processingConsent) {
-        text('#consent-text', copy.voiceHostConsent); text('#consent-info', copy.voiceHostConsent);
+        text('#consent-text', copy.voiceHostConsent); text('#consent-info', '');
         fieldset.querySelectorAll('.consent-item').forEach(row => row.remove());
-        busy = false; state('unavailable', copy.voiceHostConsent); return;
+        hasGrant = session.consentRevision > 0 && !session.consentWithdrawn;
+        busy = false; state('unavailable', ''); return;
       }
       const current = await get(`/api/sessions/${id}/consent`);
       // The per-session contract is the authoritative current document.
       if (binding.processingConsent && current.contract) rendered = current;
       selected = current.selected ?? [];
+      hasGrant = selected.length > 0;
       usable = true; busy = false; renderItems(); paint();
       state('ready', session.consentWithdrawn ? copy.host.consentWithdrawn : selected.length ? binding.processingConsent ? copy.host.processingSaved : copy.host.consentAllowed : binding.processingConsent ? copy.host.processingWaiting : copy.host.consentRequired);
     } catch (error) {
@@ -118,6 +120,11 @@ export async function mountConsentPage({ document = globalThis.document, locatio
   async function save(withdraw = false) {
     if (busy || !session || !withdraw && !usable) return;
     const items = withdraw ? [] : [...fieldset.querySelectorAll('input:checked')].map(box => box.value);
+    // An empty first choice is a return, not withdrawal of a grant that never existed.
+    if (!hasGrant && items.length === 0) {
+      if (withdraw) return;
+      remember(sessionKey, id, storage); navigate(returnTo); return;
+    }
     const granted = !withdraw && items.length > 0;
     busy = true; state('saving', copy.host.consentPage.saving);
     try {

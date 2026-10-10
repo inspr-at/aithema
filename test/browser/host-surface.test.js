@@ -50,9 +50,10 @@ async function preparePage(page, languages, problems, allowed = () => false) {
   await page.setViewport({ width: 1440, height: 1000 });
   page.setDefaultTimeout(waitTimeout);
   await page.evaluateOnNewDocument(languages => {
+    if (window !== window.top) return;
     Object.defineProperty(navigator, 'languages', { get: () => languages });
     Object.defineProperty(navigator, 'language', { get: () => languages[0] });
-    localStorage.setItem('aithema-demo-locale', languages[0].startsWith('de') ? 'de' : 'en');
+    try { localStorage.setItem('aithema-demo-locale', languages[0].startsWith('de') ? 'de' : 'en'); } catch { /* Storage can be denied. */ }
     document.addEventListener('DOMContentLoaded', () => {
       const icon = document.createElement('link'); icon.rel = 'icon'; icon.href = 'data:,'; document.head.append(icon);
     }, { once: true });

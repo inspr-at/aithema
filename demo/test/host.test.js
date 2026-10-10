@@ -121,4 +121,8 @@ test('demo page tokens reach WCAG AA text contrast in light and dark (AIT-116 D9
     for (const text of ['ink', 'muted', 'accent', 'error']) for (const [name, background] of Object.entries(backgrounds)) pairs.push([`${text} on ${name}`, t[text], background]);
     for (const [pair, text, background] of pairs) assert.ok(contrast(text, background) >= 4.5, `${theme} ${pair}: ${contrast(text, background).toFixed(2)}:1`);
   }
+  const grant = html.match(/\.consent-actions \[data-grant\] \{([^}]*)\}/u)[1];
+  const color = grant.match(/color:(#[0-9a-f]{3,6});/u)[1], foreground = color.length === 4 ? '#' + [...color.slice(1)].map(c => c + c).join('') : color;
+  const stops = grant.match(/linear-gradient\(150deg,(#[0-9a-f]{6}),(#[0-9a-f]{6})\)/u).slice(1);
+  for (const stop of stops) assert.ok(contrast(foreground, stop) >= 4.5, `consent grant on ${stop}: ${contrast(foreground, stop).toFixed(2)}:1`);
 });

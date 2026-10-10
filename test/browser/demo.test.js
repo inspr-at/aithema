@@ -206,8 +206,12 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
     try {
       await Promise.race([failure.promise, (async () => {
         if (process.env.AITHEMA_BROWSER_REGRESSION === '1') await injectRegression(page, url, fail);
-        // The page language follows the browser; pin English whatever the machine locale is.
-        await page.evaluateOnNewDocument(() => { Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] }); localStorage.setItem('aithema-demo-locale', 'en'); });
+        // Pin an explicit English choice; the host otherwise defaults to German.
+        await page.evaluateOnNewDocument(() => {
+          if (window !== window.top) return;
+          Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+          try { localStorage.setItem('aithema-demo-locale', 'en'); } catch { /* Storage can be denied. */ }
+        });
         // The demo has no favicon. Avoid Chrome's implicit, unrelated /favicon.ico probe.
         await page.evaluateOnNewDocument(() => {
           document.addEventListener('DOMContentLoaded', () => {
@@ -462,7 +466,9 @@ test('AIT-117: a German processing-consent page contains START German copy and n
         title: input.parentElement.querySelector('span').textContent, text: [...input.closest('.consent-item').querySelectorAll('p')].map(p => p.textContent).join(' '), checked: input.checked })),
       visible: document.querySelector('main.consent-page').innerText,
     }));
-    assert.equal(consent.intro, de.host.consentPage.intro);
+    assert.equal(consent.intro, START_GERMAN_CONSENT.intro);
+    assert.equal(await page.$eval('#consent-info', node => node.textContent), START_GERMAN_CONSENT.withdrawal);
+    assert.equal(await page.$eval('#consent-title', node => node.textContent), de.host.processingTitle);
     for (const item of consent.items) {
       const expected = START_GERMAN_CONSENT.items[item.id];
       assert.equal(item.title, expected.title);
@@ -474,7 +480,6 @@ test('AIT-117: a German processing-consent page contains START German copy and n
     }
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
     await waitForShadow(page, '.composer textarea');
-    assert.ok((await page.$eval('#provider', node => node.textContent)).includes(de.reasons['agent-api'].replace('{status}', '403')));
     await waitForShadow(page, '.composer-reason', { text: de.reasons['current processing consent required'] });
     // Exercise every grepped reason through actual feature rows, including HTML and uploads,
     // delegated voice reasons and the bounded agent API status-code family.
@@ -511,9 +516,11 @@ async function preparePage(page, languages) {
   await page.setViewport({ width: 1440, height: 1000 });
   page.setDefaultTimeout(waitTimeout);
   await page.evaluateOnNewDocument(languages => {
+    // Puppeteer injects this into srcdoc policy probes and draft sandboxes too.
+    if (window !== window.top) return;
     Object.defineProperty(navigator, 'languages', { get: () => languages });
     Object.defineProperty(navigator, 'language', { get: () => languages[0] });
-    localStorage.setItem('aithema-demo-locale', languages[0].startsWith('de') ? 'de' : 'en');
+    try { localStorage.setItem('aithema-demo-locale', languages[0].startsWith('de') ? 'de' : 'en'); } catch { /* Storage can be denied. */ }
     document.addEventListener('DOMContentLoaded', () => {
       const icon = document.createElement('link'); icon.rel = 'icon'; icon.href = 'data:,'; document.head.append(icon);
     }, { once: true });
@@ -963,11 +970,12 @@ test('AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab l
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
     const dark = await inShadow(page, c => {
       const host = getComputedStyle(c), textarea = c.shadowRoot.querySelector('textarea');
-      return { surface: host.getPropertyValue('--aithema-surface').trim(), paper: getComputedStyle(document.body).backgroundColor,
+      return { surface: host.getPropertyValue('--aithema-surface').trim(), paper: host.getPropertyValue('--aithema-paper').trim(),
         conversation: getComputedStyle(c.shadowRoot.querySelector('.conversation')).backgroundColor,
         placeholder: getComputedStyle(textarea, '::placeholder').color };
     });
-    assert.deepEqual(dark, { surface: '#1b2223', paper: 'rgb(20, 26, 27)', conversation: 'rgb(27, 34, 35)', placeholder: 'rgb(155, 173, 171)' });
+    assert.deepEqual(dark, { surface: '#1b2223', paper: '#141a1b', conversation: 'rgb(27, 34, 35)', placeholder: 'rgb(155, 173, 171)' });
+    assert.equal(await page.$eval('body', body => getComputedStyle(body).backgroundColor), 'rgb(11, 26, 38)', 'host paper uses the START palette');
     // The AIT-112 settings dialog follows the same tokens: its primary button inverts and the gauge panel darkens.
     const settingsDark = await inShadow(page, c => {
       c.openSettings(); const r = c.shadowRoot;
@@ -1544,8 +1552,15 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
         sameBox(before.line, await box(page, '.ai-notice'), `notice while hovering ${selector}`);
         sameBox(before.composer, await box(page, '.composer'), `composer while hovering ${selector}`);
       }
-      // Continue before consent: the ready card offers Review consent and the composer stays closed.
-      await inShadow(page, c => c.shadowRoot.querySelector('.chooser__continue').click());
+      // The confirmed choice navigates to consent. Return without a grant to
+      // check the ready card's entry points in the new host document.
+      await Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
+        page.click('aithema-session >>> .chooser__continue')]);
+      await until(page, () => document.querySelector('#consent-status')?.dataset.state === 'ready');
+      assert.equal(new URL(page.url()).pathname, '/consent/');
+      assert.equal(await page.evaluate(() => document.documentElement.lang), locale);
+      await Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded' }), page.click('[data-grant]')]);
+      await waitForShadow(page, '#ai-notice', { text: full });
       await waitForShadow(page, '.ready__consent');
       assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('textarea').disabled), true, `${locale}: ready card before consent`);
       for (const [width, height] of sizes) {
@@ -1556,10 +1571,16 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
       before = { line: await box(page, '.ai-notice'), composer: await box(page, '.composer') };
       await page.mouse.move(before.line.x + 40, before.line.y + before.line.height / 2);
-      await mockConsent(page);
+      await Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded' }),
+        page.click('aithema-session >>> .ready__consent')]);
+      await until(page, () => document.querySelector('#consent-status')?.dataset.state === 'ready');
+      await page.click('[data-select-all]');
+      await Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded' }), page.click('[data-grant]')]);
+      await waitForShadow(page, '#ai-notice', { text: full });
       await waitForShadow(page, '.composer textarea', { enabled: true });
       await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.ready__consent'));
       await waitForShadow(page, '.ready__change');
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
       sameBox(before.line, await box(page, '.ai-notice'), 'notice under the pointer while consent opens the composer');
       sameBox(before.composer, await box(page, '.composer'), 'composer while consent opens it');
       await rest(page, '.voice-start');

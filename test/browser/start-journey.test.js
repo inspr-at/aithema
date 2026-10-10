@@ -155,6 +155,6 @@ test('AIT-129: failed and stale saves remain on consent; unsafe return targets g
   for (const destination of ['//evil.example/', 'https://evil.example/']) {
     await page.goto(`${demo.url}/consent/?session=${id}&return=${encodeURIComponent(destination)}`, { waitUntil: 'domcontentloaded' }); await consentReady(page);
     assert.equal(await page.$eval('[data-back]', a => new URL(a.href).pathname), '/');
-    await saveAndReturn(page, '[data-revoke]'); assert.equal(page.url(), `${demo.url}/`);
+    await saveAndReturn(page, '[data-grant]'); assert.equal(page.url(), `${demo.url}/`);
   }
 });

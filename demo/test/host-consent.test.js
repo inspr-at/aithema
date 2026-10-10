@@ -2,8 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Window } from 'happy-dom';
+import { runInNewContext } from 'node:vm';
 import { mountConsentPage, consentReturnPath } from '../consent-page.js';
-import { preferredLocale, mountTheme, themeKey, localeKey } from '../page-preferences.js';
+import { preferredLocale, preferredTheme, remember, mountTheme, themeKey, localeKey } from '../page-preferences.js';
 import { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL } from '../processing-consent.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
@@ -62,9 +63,48 @@ test('consent renders contract items, uses only matching translations and curren
   assert.equal(p.document.querySelector('b'), null);
   assert.deepEqual([...p.document.querySelectorAll('input')].map(b => b.checked), [false, false, false, true]);
   assert.equal(p.document.querySelector('.consent-item__mark'), null, 'no invented requirement mapping');
-  assert.equal(p.document.querySelector('#consent-text').textContent, de.host.consentPage.intro);
+  assert.equal(p.document.querySelector('#consent-text').textContent, de.processingConsent.intro);
+  assert.match(p.document.querySelector('#consent-text').textContent, /höchstens zwölf Monate/u);
   assert.equal(p.document.querySelectorAll('[data-grant]').length, 2);
   assert.equal(p.document.querySelectorAll('[data-revoke]').length, 2);
+});
+
+test('English consent renders every item and keeps unversioned and duplicate-id legal copy', async t => {
+  const unversioned = { id: 'models-international', title: 'Unversioned title', recipients: 'Unversioned recipient', text: '<b>Unversioned purpose</b>' };
+  const updated = { ...CONSENT_ITEMS[0], version: 2, title: 'Updated title', recipients: 'Updated recipient', text: 'Updated purpose' };
+  const items = [...CONSENT_ITEMS, unversioned, updated];
+  const p = await page(t, { session: { id: 's', locale: 'en', engine: {} }, items, selected: ['voice-elevenlabs'] });
+  assert.equal(p.document.documentElement.lang, 'en');
+  assert.equal(p.document.querySelector('#consent-text').textContent, en.processingConsent.intro);
+  assert.match(p.document.querySelector('#consent-text').textContent, /at most twelve months/u);
+  assert.equal(p.document.querySelector('#consent-info').textContent, en.processingConsent.withdrawal);
+  const rows = [...p.document.querySelectorAll('.consent-item')];
+  for (const [index, item] of items.entries()) {
+    const expected = index < CONSENT_ITEMS.length ? en.processingConsent.items[item.id] : item;
+    assert.equal(rows[index].querySelector('span').textContent, expected.title);
+    assert.deepEqual([...rows[index].querySelectorAll('p')].map(p => p.textContent), [expected.recipients, expected.text]);
+  }
+  assert.deepEqual([...p.document.querySelectorAll('input')].map(b => b.value), items.map(i => i.id));
+  assert.deepEqual([...p.document.querySelectorAll('input')].map(b => b.checked), [false, true, false, false]);
+  assert.equal(p.document.querySelector('b'), null);
+});
+
+test('continuing without a grant returns without recording a withdrawal; revoke requires a current grant', async t => {
+  for (const binding of [undefined, { voiceMode: 'fake' }]) {
+    const p = await page(t, { binding, returnTo: '/?no-grant=1' });
+    for (const revoke of p.document.querySelectorAll('[data-revoke]')) {
+      assert.equal(revoke.hidden, true); assert.equal(revoke.disabled, true);
+    }
+    p.document.querySelector('[data-select-all]').click();
+    p.document.querySelectorAll('input').forEach(box => { box.checked = false; });
+    p.document.querySelector('input').dispatchEvent(new p.window.Event('change', { bubbles: true }));
+    p.document.querySelector('[data-grant]').click(); await tick(() => p.returns.length);
+    assert.deepEqual(p.posts, []); assert.deepEqual(p.returns, ['/?no-grant=1']);
+  }
+  const p = await page(t, { selected: ['voice-elevenlabs'] });
+  for (const revoke of p.document.querySelectorAll('[data-revoke]')) {
+    assert.equal(revoke.hidden, false); assert.equal(revoke.disabled, false);
+  }
 });
 
 test('consent select all, selection label, grant and withdrawal use the rendered contract and safe return', async t => {
@@ -102,14 +142,14 @@ test('a failed or unconfirmed grant never returns as saved; failure offers retry
 });
 
 test('a stale contract stays closed until the current terms are reloaded and reviewed', async t => {
-  const p = await page(t, { stale: true });
+  const p = await page(t, { stale: true, selected: ['voice-elevenlabs'] });
   p.document.querySelector('[data-select-all]').click(); p.document.querySelector('[data-grant]').click();
   await tick(() => p.document.querySelector('#consent-status').dataset.state === 'stale');
   assert.equal(p.posts[0].processing.contract, 'rendered-v1'); assert.deepEqual(p.returns, []);
   assert.equal(p.document.querySelector('[data-grant]').disabled, true);
   assert.equal(p.document.querySelector('[data-revoke]').disabled, false, 'stale terms never prevent withdrawal');
   p.document.querySelector('#retry').click(); await tick(() => p.document.querySelector('#consent-status').dataset.state === 'ready');
-  assert.ok([...p.document.querySelectorAll('input')].every(b => !b.checked));
+  assert.deepEqual([...p.document.querySelectorAll('input:checked')].map(b => b.value), ['voice-elevenlabs'], 'reload reflects the current server grant');
   p.document.querySelector('[data-select-all]').click(); p.document.querySelector('[data-grant]').click(); await tick(() => p.returns.length);
   assert.equal(p.posts[1].processing.contract, 'current-v2');
 });
@@ -143,9 +183,33 @@ test('mock and uncontracted ElevenLabs use the same page without a voice or micr
   const voice = await page(t, { binding: { voiceMode: 'elevenlabs' } });
   assert.equal(voice.document.querySelector('[data-grant]').disabled, true);
   assert.equal(voice.document.querySelector('#consent-text').textContent, de.voiceHostConsent);
+  assert.equal(voice.document.querySelector('main').textContent.split(de.voiceHostConsent).length - 1, 1);
+  assert.equal(mock.document.querySelector('main').textContent.split(de.host.consentPage.mockRecipients).length - 1, 1);
+  assert.equal(mock.document.querySelector('#consent-info').textContent, de.host.consentPage.mockTerms);
+  assert.equal(mock.document.querySelector('#source').textContent, de.host.slots.source);
+  assert.equal(voice.document.querySelector('[data-revoke]').hidden, true);
+  const voiceGrant = await page(t, { binding: { voiceMode: 'elevenlabs' }, session: { id: 's', locale: 'de', consentRevision: 1, consentWithdrawn: false } });
+  assert.equal(voiceGrant.document.querySelector('[data-revoke]').hidden, false);
   const source = await readFile(new URL('../consent-page.js', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /getUserMedia|createVoiceControl|createElevenLabsClient|session-element/u);
   for (const p of [mock, voice]) assert.equal(p.document.querySelector('#source').getAttribute('href'), 'https://github.com/inspr-at/aithema');
+});
+
+test('blocked localStorage property reads preserve defaults, prepaint, theme controls and consent return', async t => {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
+  Object.defineProperty(globalThis, 'localStorage', { configurable: true, get() { throw new DOMException('Sandboxed document', 'SecurityError'); } });
+  t.after(() => { if (descriptor) Object.defineProperty(globalThis, 'localStorage', descriptor); else delete globalThis.localStorage; });
+  assert.equal(preferredLocale(), 'de'); assert.equal(preferredTheme(), 'system');
+  assert.doesNotThrow(() => remember(localeKey, 'en'));
+  const window = new Window({ url: 'http://localhost/consent/' }); t.after(() => window.happyDOM.close());
+  window.document.write(html.replace(/<script[^>]*>[\s\S]*?<\/script>/gu, ''));
+  const init = await readFile(new URL('../theme-init.js', import.meta.url), 'utf8');
+  assert.doesNotThrow(() => runInNewContext(init, { document: window.document, get localStorage() { throw new DOMException('Sandboxed document', 'SecurityError'); } }));
+  const returns = [];
+  await mountConsentPage({ document: window.document, location: window.location, navigate: path => returns.push(path) });
+  const theme = window.document.querySelector('#theme'); theme.value = 'dark'; theme.dispatchEvent(new window.Event('change'));
+  assert.equal(window.document.documentElement.dataset.theme, 'dark');
+  window.document.querySelector('#new').click(); assert.deepEqual(returns, ['/']);
 });
 
 test('German defaults independently of browser language, explicit choice wins and themes persist safely', async t => {

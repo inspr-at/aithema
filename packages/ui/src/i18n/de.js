@@ -458,6 +458,7 @@ export const de = {
       required: 'Für diese Auswahl erforderlich', optional: 'Für diese Auswahl optional',
       mockRecipients: 'Empfänger: der lokale Mock; keine weiteren Auftragsverarbeiter.',
       mockConsequence: 'Ohne Einwilligung bleibt die Mock-Verarbeitung nicht verfügbar.',
+      mockTerms: 'Das umfasst Gesprächsdaten, Fassung 1, für zwölf Monate. Einwilligungen liegen nur im Arbeitsspeicher; erteilen Sie sie nach einem Serverneustart erneut.',
     },
   },
 };
