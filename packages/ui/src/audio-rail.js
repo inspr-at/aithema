@@ -60,7 +60,7 @@ export class AudioRail {
     if (this.root.dataset.state !== undefined && this.root.dataset.state !== state) queueMicrotask(() => this.onState?.(state));
     this.root.dataset.state = state;
     this.root.dataset.call = active || transitional ? 'active' : 'none';
-    this.root.toggleAttribute('data-playback-blocked', Boolean(this.playbackBlocked));
+    this.root.toggleAttribute('data-playback-blocked', Boolean(this.playbackBlocked)); this.root.toggleAttribute('data-message', Boolean(this.error));
     this.root.setAttribute('role', 'group'); this.root.setAttribute('aria-label', c.voiceRail);
     this.root.querySelector('.voice-state').textContent = this.error ?? (active || transitional ? c.voiceStates[this.root.dataset.state] :
       available.available && this.client ? c.voiceStates[this.state] : available.reason ?? c.notConfigured);

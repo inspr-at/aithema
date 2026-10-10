@@ -227,7 +227,11 @@ export class AithemaSession extends HTMLElement {
       feature: () => this.#feature('voice', true), playback: this.#voicePlayback, journal: this.#journal ?? undefined,
       ready: () => this.#orphan, onLevel: level => this.#orb?.setEnergy(level),
       // A call that starts, ends or fails moves the stage and the avatar with it.
-      onState: state => { this.#orb?.setVoice(state); this.#clearNotice(); this.#render('transcript'); this.#render('composer'); },
+      onState: state => {
+        // A call the visitor started keeps the conversation open after it ends.
+        if (this.#rail?.root.dataset.call === 'active') this.#started = true;
+        this.#orb?.setVoice(state); this.#clearNotice(); this.#render('transcript'); this.#render('composer');
+      },
       context: () => ({ understanding: this.#session.understanding, focusedQuestion: this.#session.focusedQuestion ?? null }),
       onEnd: () => {
         if (this.#pending) { delete this.#pending.voiceCallId; delete this.#pending.providerSessionId; }

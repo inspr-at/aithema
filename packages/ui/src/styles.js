@@ -49,7 +49,7 @@ export const styles = `${themeStyles}
   font:clamp(1rem,.97rem + .15vw,1.0625rem)/1.6 var(--aithema-font); -webkit-font-smoothing:antialiased; }
 * { box-sizing:border-box; } [hidden] { display:none !important; }
 button, textarea, select, a { font:inherit; } button, a { touch-action:manipulation; }
-button { color:inherit; cursor:pointer; background:transparent; border:0; border-radius:var(--aithema-radius-sm); padding:.5rem .85rem; }
+button { color:inherit; cursor:pointer; background:transparent; border:0; border-radius:.45rem; padding:.5rem .85rem; }
 button:where(:hover:not(:disabled)) { background:color-mix(in srgb,var(--aithema-accent) 8%,transparent); }
 button:disabled { opacity:.5; cursor:wait; } :focus-visible { outline:2px solid var(--aithema-accent-bright); outline-offset:3px; border-radius:4px; }
 ::selection { background:var(--aithema-accent); color:var(--aithema-on-accent); }
@@ -85,7 +85,7 @@ svg { display:block; flex:none; }
 
 /* The conversation column (START .v2): quiet header line, then the entrance or the live conversation. */
 .conversation { position:relative; min-width:0; display:grid; grid-template-rows:auto; align-content:start; gap:.85rem; }
-.head { display:flex; align-items:baseline; justify-content:space-between; gap:.5rem 1.5rem; }
+.head { display:flex; align-items:baseline; justify-content:space-between; gap:.15rem 1.5rem; }
 /* The AI notice (AIT-119, GUI-27): one quiet line, no box, from the first paint on. Sticky, so it stays in view
    wherever an interaction can begin; the hidden full notice holds its height, so it never resizes. */
 .conversation > .head { position:sticky; top:0; z-index:3; padding:.35rem 0; background-color:var(--aithema-paper); background-image:var(--aithema-backdrop); background-attachment:fixed; }
@@ -93,12 +93,12 @@ svg { display:block; flex:none; }
 .ai-notice > span { grid-area:1/1; } .ai-notice__sizer { visibility:hidden; }
 .status { flex:none; max-width:45%; font-size:.75rem; line-height:1.35; color:var(--aithema-muted); text-align:right; overflow-wrap:anywhere; }
 .workspace:not([data-stage="live"]) .status { visibility:hidden; }
-.conversation > :not(.head) :is(button, textarea) { scroll-margin-top:3rem; }
+.conversation > :not(.head) :is(button, textarea) { scroll-margin-top:5.5rem; }
 .workspace:not([data-stage="live"]) :is(.audio-rail, .concept-bar, .transcript-shell, .composer) { display:none; }
 
 /* The conversation rail (START .v2__conversation-rail): orb dock, sound, waveform with one status phrase,
    pause, microphone and end. 44 px controls in fixed cells. */
-.audio-rail { display:grid; grid-template-columns:48px 44px minmax(0,1fr) 44px 44px 44px; align-items:center; gap:8px; min-height:48px; }
+.audio-rail { position:relative; display:grid; grid-template-columns:48px 44px minmax(0,1fr) 44px 44px 44px; align-items:center; gap:8px; min-height:48px; }
 .audio-rail:focus { outline:none; } .audio-rail:focus-visible { outline:2px solid var(--aithema-accent-bright); outline-offset:4px; border-radius:24px; }
 .voice-orb { width:48px; height:48px; display:grid; place-items:center; } .voice-orb .orb { --orb-size:48px; }
 .voice-cell { display:grid; } .voice-cell > * { grid-area:1/1; }
@@ -127,19 +127,21 @@ svg { display:block; flex:none; }
 .voice-signal > * { grid-area:1/1; }
 .voice-wave { width:100%; height:48px; opacity:.9; }
 .voice-state, .voice-caption { position:relative; z-index:1; max-width:100%; padding:5px 12px; border-radius:999px; font-size:.68rem; line-height:1.25; text-align:center; color:var(--aithema-muted);
-  background:color-mix(in srgb,var(--aithema-surface) 94%,transparent); box-shadow:0 0 12px 7px color-mix(in srgb,var(--aithema-surface) 70%,transparent);
-  max-height:calc(2.5em + 10px); overflow:hidden; overflow-wrap:anywhere; }
+  background:color-mix(in srgb,var(--aithema-surface) 94%,transparent); box-shadow:0 0 12px 7px color-mix(in srgb,var(--aithema-surface) 70%,transparent); overflow-wrap:anywhere; }
+/* A call message (START keeps errors out of the rail) opens under the rail over the conversation's edge: whole, and it moves nothing. */
+.audio-rail[data-message] .voice-state { position:absolute; z-index:5; top:calc(100% + 6px); left:56px; right:0; padding:.6rem .85rem; border:1px solid var(--aithema-line);
+  border-radius:12px; background:var(--aithema-surface); box-shadow:var(--aithema-shadow-raised); text-align:left; font-size:.8rem; line-height:1.45; color:var(--aithema-ink); }
 .voice-state:empty, .voice-caption:empty { visibility:hidden; }
 /* A live caption takes the pill while words arrive; the state stays readable to assistive technology. */
 .voice-signal:has(.voice-caption:not(:empty)) .voice-state { opacity:0; }
 .voice-caption { color:var(--aithema-ink); white-space:nowrap; text-overflow:clip; direction:rtl; }
-.audio-rail[data-state="failed"] .voice-state { color:var(--aithema-error); }
+.audio-rail[data-state="failed"][data-message] .voice-state { color:var(--aithema-error); }
 
 /* Concepts: one quiet line under the rail (START keeps concepts out of the conversation's way). */
 .concept-bar { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:.75rem; min-height:2.75rem; }
 .concept-rail { display:grid; grid-template-columns:1.5rem minmax(0,1fr) auto; align-items:center; gap:.6rem; min-width:0; }
 .concept-activity { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:.1rem .6rem; font-size:.75rem; color:var(--aithema-muted); }
-.concept-activity-text { grid-column:1/-1; line-height:1.3; max-height:2.6em; overflow:hidden; overflow-wrap:anywhere; }
+.concept-activity-text { grid-column:1/-1; line-height:1.3; min-height:2.6em; overflow-wrap:anywhere; }
 .concept-progress { width:100%; height:.3rem; accent-color:var(--aithema-accent); }
 .concept-countdown { font-size:.7rem; white-space:nowrap; font-variant-numeric:tabular-nums; }
 .concept-rail:not([data-phase="pending"]) :is(.concept-progress, .concept-countdown) { visibility:hidden; height:0; }
@@ -297,7 +299,7 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .concept-viewer-controls button { min-height:2.5rem; font-size:.82rem; line-height:1.2; padding:.35rem .7rem; }
 .concept-previous, .concept-next, .concept-up, .concept-down, .concept-guidance-options button { color:var(--aithema-ink); }
 .concept-previous { margin-left:-.7rem; } .concept-previous::before { content:'‹' / ''; margin-right:.4rem; } .concept-next::after { content:'›' / ''; margin-left:.4rem; }
-.concept-download { margin-left:auto; } .concept-regenerate { padding-inline:1.1rem; border-radius:999px; }
+.concept-download { margin-left:auto; } .concept-regenerate { padding-inline:1.1rem; }
 .concept-up { margin-left:-.7rem; }
 .concept-reject { margin-left:auto; color:var(--aithema-error); font-weight:600; }
 .concept-reject:hover:not(:disabled) { background:color-mix(in srgb,var(--aithema-error) 8%,transparent); }
@@ -329,11 +331,14 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 }
 @keyframes rise-in { from { opacity:0; transform:translateY(.5rem); } to { opacity:1; transform:none; } }
 @media(max-width:44rem) {
+  .conversation > .head { flex-direction:column; align-items:stretch; } .status { max-width:none; min-height:1.35em; text-align:left; }
   .audio-rail { grid-template-columns:32px 44px minmax(0,1fr) 44px 44px 44px; gap:4px; }
   .voice-orb { width:32px; height:32px; } .voice-orb .orb { --orb-size:32px; }
-  .voice-state, .voice-caption { font-size:.6rem; padding:3px 6px; }
+  .voice-state, .voice-caption { font-size:.6rem; padding:3px 6px; } .audio-rail[data-message] .voice-state { left:0; font-size:.78rem; padding:.55rem .75rem; }
   .turn { max-width:88%; } .upload { width:90%; }
   .concept-bar { grid-template-columns:minmax(0,1fr); } .concept-preview-slot:has(.concept-preview:disabled) { display:none; }
+  .concept-rail { grid-template-columns:1.5rem minmax(0,1fr); } .concept-request { grid-column:1/-1; justify-self:start; } .concept-activity-text { min-height:3.9em; }
+  .workspace:not([data-stage="live"]) .status { display:none; }
   /* The viewer on phones: navigation in two rows and a two-line disclosure, so long (German) labels stay whole. */
   .concept-viewer[open] { grid-template-rows:4rem minmax(0,1fr) 21.5rem; }
   .concept-navigation { height:auto; display:grid; grid-template-columns:auto auto minmax(0,1fr); grid-template-rows:2.75rem 2.75rem; row-gap:.2rem; }
