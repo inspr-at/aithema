@@ -27,9 +27,14 @@ const completion = (content, usage = { prompt_tokens: 1200, completion_tokens: 3
 async function fake(t, { capMicro = DEFAULT_CAP_MICRO, maxMicro = 1_000_000 } = {}) {
   const records = [], requests = []; let respond = (_req, res) => res.end(completion(dummy));
   const server = createServer(async (req, res) => {
+    // Give each request its own socket: aborted stalls must not leave pooled
+    // transport recovery waiting for timers on the frozen application clock.
+    res.setHeader('connection', 'close');
     const chunks = []; for await (const chunk of req) chunks.push(chunk);
     const record = { path: req.url, headers: req.headers, body: JSON.parse(Buffer.concat(chunks)) }; records.push(record);
-    if (record.body.messages.at(-1).content.includes('fixture-stall')) { res.writeHead(200); res.write('{'); return; }
+    if (record.body.messages.at(-1).content.includes('fixture-stall')) {
+      res.writeHead(200); res.write('{'); server.emit('fixture-stall', record); return;
+    }
     respond(record, res);
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
@@ -42,6 +47,8 @@ async function fake(t, { capMicro = DEFAULT_CAP_MICRO, maxMicro = 1_000_000 } = 
   const spendPath = join(mkdtempSync(join(tmpdir(), 'claude-html-')), 'spend.json');
   const make = (extra = {}) => createClaudeHTML({ binding, baseUrl, spendPath, capMicro, resolveSecret: () => 'local-fixture', fetchImpl, ...extra });
   return { origin, baseUrl, binding, records, requests, fetchImpl, spendPath, make, plugin: make(), respond(fn) { respond = fn; },
+    stalled: () => once(server, 'fixture-stall').then(([record]) => record),
+    onStall: fn => server.on('fixture-stall', fn),
     ceiling: (input = spec, feedback = '', previous) => callCeilingMicro(buildMessages(input, feedback, previous).messages, binding),
     spent: () => JSON.parse(readFileSync(spendPath, 'utf8')) };
 }
@@ -159,16 +166,33 @@ test('preflight cancellation and deadlines settle once at zero without dispatch 
   }
   assert.equal(f.requests.length, 0); assert.throws(() => f.spent(), /ENOENT/u);
 });
-test('active cancellation and deadlines end stalled calls as uncertain at the claim maximum', async t => {
+test('active cancellation and deadlines end stalled calls as uncertain at the claim maximum', { timeout: 10_000 }, async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
   const f = await fake(t, { maxMicro: 400_000 }), previous = await editSource(t);
   for (const operation of ['generate', 'edit']) for (const mode of ['cancelled', 'deadline']) {
     const controller = new AbortController(), o = options({ signal: controller.signal, deadlineAt: Date.now() + (mode === 'deadline' ? 60 : 3000) });
+    t.after(() => controller.abort());
     const stall = { ...spec, prompt: 'fixture-stall' };
+    // Arm observation before starting work; dispatch alone does not prove the
+    // server received the body. Loaded HTTP startup must not spend the deadline.
+    const observed = f.stalled();
+    let settled = false;
     const pending = operation === 'edit' ? f.plugin.edit(previous, stall, 'fixture-stall', o) : f.plugin.generate(stall, '', o);
-    let timer; if (mode === 'cancelled') timer = setTimeout(() => controller.abort(), 60);
-    await assert.rejects(pending, { code: mode }); clearTimeout(timer);
+    const rejected = assert.rejects(pending.finally(() => { settled = true; }), { code: mode });
+    await observed;
+    assert.equal(settled, false, `${operation} remains active until ${mode}`);
+    assert.equal(f.requests.at(-1).init.signal.aborted, false);
+    if (mode === 'deadline') {
+      t.mock.timers.tick(59);
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(settled, false, `${operation} survives until its deadline`);
+      assert.equal(f.requests.at(-1).init.signal.aborted, false);
+      t.mock.timers.tick(1);
+    } else controller.abort();
+    await rejected;
     assert.deepEqual(o.reports, [{ attemptId: o.attempt.attemptId, outcome: 'uncertain' }]);
   }
+  assert.equal(f.requests.length, 4); assert.equal(f.records.length, 4);
   assert.equal(f.spent().spentMicro, f.requests.reduce((sum, r) => sum + callCeilingMicro(JSON.parse(r.init.body).messages, f.binding), 0));
   assert.deepEqual(f.spent().reservations, {});
 });
@@ -221,11 +245,17 @@ test('bindings stay Claude-only, HTTP stays loopback, secrets resolve per call a
   }
   assert.throws(() => createClaudeHTML(), /Invalid private binding/u);
 });
-test('claude-html passes reusable kind conformance with fake active stalls and exact usage', async t => {
+test('claude-html passes reusable kind conformance with fake active stalls and exact usage', { timeout: 10_000 }, async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
   const f = await fake(t), previous = await editSource(t);
+  // The unchanged conformance kit arms 30ms active aborts/deadlines. Advance
+  // those timers only when the server has received and stalled each request.
+  let stalls = 0;
+  f.onStall(() => { stalls++; t.mock.timers.tick(30); });
   assert.deepEqual(await uiGenerationConformance(f.plugin, { spec, feedback, artifact: previous }, {
     stallSpec: { ...spec, prompt: 'fixture-stall' }, stallFeedback: 'fixture-stall', requestCount: () => f.requests.length,
     expectedUsage: { inputTokens: 1200, outputTokens: 3400 } }), { ok: true, failures: [] });
+  assert.equal(stalls, 4); assert.equal(f.requests.length, 6); assert.equal(f.records.length, 6);
   assert.deepEqual(inspectHTML(previous.bytes), { ok: true, problems: [] });
 });
 test('the spend ledger rejects invalid reservations and ignores unknown settlements', () => {
