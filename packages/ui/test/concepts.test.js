@@ -298,11 +298,11 @@ test('a revision waits while a viewer control holds focus or the pointer rests o
   assert.equal(root.querySelector('.concept-count').textContent, '1 of 2'); assert.equal(root.querySelector('#concept-title').textContent, 'Draft revision 1');
   assert.equal(preview.artifact, shown, 'the shown draft keeps its frame'); assert.equal(root.querySelector('.concept-next').disabled, false);
   // Any other viewer control, and a pointer resting on the controls, defer the same way.
-  for (const mode of ['Like', 'Regenerate', 'Download', 'pointer']) {
+  for (const mode of ['Like', 'Regenerate', 'Download', 'draft pointer', 'pointer']) {
     const view = await viewer(), before = view.root.querySelector('.concept-html').artifact;
     const target = { Like: '.concept-up', Regenerate: '.concept-regenerate', Download: '.concept-download' }[mode];
     if (target) view.root.querySelector(target).focus();
-    else view.root.querySelector('.concept-viewer-controls').dispatchEvent(new window.Event('pointerenter'));
+    else view.root.querySelector(mode === 'draft pointer' ? '.concept-stage' : '.concept-viewer-controls').dispatchEvent(new window.Event('pointerenter'));
     const focused = view.root.activeElement;
     arrive(view.c, 'html2'); await tick(); await tick();
     assert.equal(view.root.querySelector('.concept-count').textContent, '1 of 2', `${mode}: the shown revision stays`);

@@ -32,7 +32,7 @@ const DRAFT_GLYPH = '<svg viewBox="0 0 48 32" aria-hidden="true"><rect x="1.5" y
 /** Generic START viewer experience, private owner-authenticated bytes only. */
 export class ConceptView {
   #session; #selected; #latest; #seen = new Set(); #urls = new Map(); #drafts = new Map(); #loads = new Map(); #epoch = 0;
-  #busy = false; #trigger; #timer; #touchX; #requestError = null; #statusKey = ''; #pointer = false;
+  #busy = false; #trigger; #timer; #touchX; #requestError = null; #statusKey = ''; #pointer = false; #pointerStage = false;
   constructor({ root, copy, baseUrl, sessionToken, receive, feature }) {
     Object.assign(this, { root, copy, baseUrl, sessionToken, receive, feature });
     this.visibility = () => { if (root.ownerDocument.hidden) void this.endEligibility(); };
@@ -90,6 +90,9 @@ export class ConceptView {
     controls.addEventListener('pointerenter', () => { this.#pointer = true; });
     controls.addEventListener('pointerleave', () => { this.#pointer = false; });
     const stage = root.querySelector('.concept-stage');
+    // A pointer resting on the draft defers a revision too: replacing the frame would remove what it is on.
+    stage.addEventListener('pointerenter', () => { this.#pointerStage = true; });
+    stage.addEventListener('pointerleave', () => { this.#pointerStage = false; });
     stage.addEventListener('touchstart', e => { this.#touchX = e.touches[0]?.clientX; }, { passive: true });
     stage.addEventListener('touchend', e => { const delta = e.changedTouches[0]?.clientX - this.#touchX; if (Math.abs(delta) > 60) this.navigate(delta > 0 ? -1 : 1); }, { passive: true });
     this.connect();
@@ -156,7 +159,7 @@ export class ConceptView {
   }
   inUse() {
     const draft = this.root.querySelector('.concept-html'), active = this.root.activeElement;
-    return this.#pointer || draft.draftFocused || active === draft || Boolean(active && this.root.querySelector('.concept-viewer-controls').contains(active));
+    return this.#pointer || this.#pointerStage || draft.draftFocused || active === draft || Boolean(active && this.root.querySelector('.concept-viewer-controls').contains(active));
   }
   visualKind() { return this.#session?.conceptVisualKind === 'html' ? 'html' : 'image'; }
   progress() {
@@ -273,7 +276,7 @@ export class ConceptView {
     if (!this.dialog.open) return;
     // A closed viewer runs no draft; reopening shows the cached bytes at once.
     const draft = this.root.querySelector('.concept-html'); draft.artifact = null; delete draft.dataset.id;
-    this.root.querySelector('.concept-viewer-message').textContent = ''; this.#pointer = false;
+    this.root.querySelector('.concept-viewer-message').textContent = ''; this.#pointer = false; this.#pointerStage = false;
     this.dialog.close(); this.#trigger?.focus(); this.#trigger = null;
   }
   navigate(delta) {
