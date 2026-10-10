@@ -22,6 +22,8 @@ handover to PAIMOS is planned. Sessions now have visitor ownership, authoritativ
 consent checks, engine-wide pause, withdrawal/erasure and an exclusive writer.
 Visitors choose the processing preset, model, response style, voice and visual
 concepts within the host's allowlist, enforced and acknowledged by the server.
+The server host surface supplies email verification/unlock, an owner conversation
+library, handover retry and a server-computed credits slot; its UI follows separately.
 The demo is for localhost and defaults to labelled deterministic reasoning, voice
 and image fakes.
 
@@ -116,6 +118,98 @@ unverified until a host supplies private qualification and current consent.
 Keys resolve from `OPENROUTER_API_KEY` or `MISTRAL_API_KEY` only at runtime; they
 never enter manifests, snapshots, UI or logs. Tests never use these environment keys.
 The demo mock consent does not cover live providers.
+
+## Host surface API (AIT-104 B1)
+
+Pass `host` to `createHandlers`. Its ports are server configuration: the module
+never accepts a client actor, role, verification status, balance or handover
+revision. `ownership.token(request)` authenticates every host route; the demo
+uses the existing HttpOnly visitor cookie, and the default adapter uses
+`x-aithema-session-token`. Create the first session with `POST /api/sessions` to
+establish ownership. Foreign or erased session IDs return the same 404 before
+port calls and deduplication. Library list/new require an owner (401 otherwise).
+POSTs accept JSON; empty commands below use `{}`. Responses are uncached.
+
+In this table, `S` is `/api/sessions/:id` and `L` is `/api/library`.
+
+| Method and route | JSON payload / query | Response |
+| --- | --- | --- |
+| `GET S/identity` | — | `{identity}` |
+| `POST S/identity/request` | `{address}` | `{identity}` after requesting host mail |
+| `POST S/identity/resend` | `{}` | `{identity}`; cooldown returns 429 with `error: "resend-rate-limit"` |
+| `POST S/identity/change` | `{address}` | Immediately revokes old evidence, then requests mail under the same cooldown |
+| `POST S/identity/confirm` | `{token}` | `{identity}` using only host-confirmed address/revision evidence |
+| `POST S/identity/unlock` | `{}` | `{identity}` after authoritative host polling |
+| `GET L` | `search`, `offset` (default 0), `limit` (default 20, max 100) | `{items,total,offset,limit}` |
+| `POST L` | Optional `{title,locale,processingPreset,settings}` | 201 `{id,title,revision,createdAt,updatedAt,session}` |
+| `GET L/:id` | — | Library metadata and public `session` snapshot |
+| `POST L/:id/rename` | `{title}` (max 200 characters) | Updated metadata |
+| `POST L/:id/delete` | `{}` | `{id,erased:true,providerDeletion:"not-confirmed"}` after storage erasure and invalidation |
+| `POST L/:id/reset` | `{}` | 201 replacement entry, fresh transcript, `providerDeletion:"not-confirmed"`; previous ID is erased |
+| `GET S/handover` | — | `{handover,offer}`; the host owns the offer |
+| `POST S/handover` | `{}` | `{handover}` for the server's current input revision |
+| `POST S/handover/retry` | `{}` | `{handover}`; retries a failed revision with its original key, joins concurrent delivery |
+| `GET S/credits` | — | `{balance,limitSlot}` from `credits.js`, the budget ledger and owner wallet |
+
+Identity includes `status`, `role`, `roles`, `address`, `verificationRevision`,
+`delivery`, `expired`, `resendAfterMs`, `canResend`, `pollVerification`,
+`assessmentUnlocked`, `conceptsUnlocked`, `canRunAssessment`, `canRunConcepts`,
+`paused`, `manualPaused` and `demoBypass`. Address changes invalidate stale links
+even during cooldown. Unlock retains manual pause; `POST S/pause {paused:false}`
+is the existing explicit resume. Locked identity gates assessment and fresh
+concept admission; transcript export stays available. Only trusted host
+configuration may enable a labelled demo bypass.
+
+The existing `GET S/events` SSE stream carries durable `identity.state`,
+`verification.requested`, `identity.resend-blocked`, `identity.unlocked`,
+`handover.state`, `handover.limit-reached`, `library.state`, `credits.state`,
+`credits.limit-reached` and `conversation.end-requested`, in the usual
+`{sessionId,seq,generation,type,at,data}` envelope. Snapshots project `identity`,
+`handover`, `library` and `credits`; host reducer state commits with its events.
+Identity addresses and library titles are erasable content references in the
+journal. Verification tokens never enter snapshots or events. Restart recovers
+a preparing handover as retryable `failed` with `delivery-interrupted`.
+
+`balance` contains `sessionId` plus `owner`, `session` and `voiceVisitor`, each
+with `limitMicro`, `committedMicro`, `availableMicro`, `overrunMicro`.
+`limitSlot` contains `sessionId`, `status`, `balance`, `remainingMs`, `endReason`,
+`canStartPaidWork` and `topUpOwnedByHost`. The one-hour clock begins with the first
+accepted text turn; the owner guard retains its deadline, pause and terminal
+status across new/reset. This route projects the guard; live hosts own paid
+admission, settlement, top-up policy and execution of end requests.
+
+Host adapter contract:
+
+- `identity.configuration({sessionId,ownerToken})` synchronously supplies
+  `createIdentity` options (roles, policy, demo bypass). `requestVerification`
+  receives `{sessionId,ownerToken,address,revision,expiresAt}` and returns
+  `{status:"sent"|"failed"}`. `verify` receives the same owner/session binding,
+  current `address`, `revision` and optional `token`, returning
+  `{verified,address,revision}` from its own token redemption or poll state.
+  Calls receive an abort signal and deadline; the configuration's policy sets
+  the resend cooldown and verification TTL.
+- `library(ownerToken,hooks)` supplies the Part A library port. Use `hooks.create`
+  for settings-aware conversation creation and await `hooks.erase(id)` for the
+  storage erasure, lane cancellation and durable invalidation path; `hooks.publish`
+  publishes library metadata events. List/search/paging policy belongs to the port.
+- `handover(ownerToken)` supplies the Part A delivery port, optionally with
+  `offer({sessionId,session}) -> {available,...}`. Delivery receives only the
+  server-generated session/revision/key/attempt; the host owns all mail/content
+  and must persist delivery receipts in production. No CRM is implemented here.
+- `wallet(ownerToken)` supplies the Part A owner wallet. The view includes
+  existing ledger holds and settlements. Production hosts must use
+  `admitCredits` for authoritative owner reservations and own settlement/recovery;
+  the demo wallet and handover sink are local fakes.
+
+`demo/host-ports.js` supplies a SQLite-backed library and labelled in-memory
+mail, handover and wallet ports. **Demo-only route:** `GET S/demo/outbox` returns
+`{label,messages:[{sessionId,address,revision,expiresAt,token,verified}]}` for the
+owner, enabling B2 to submit the token to `S/identity/confirm`. It returns 404
+whenever `AITHEMA_PROVIDER` is set, including explicit `mock`; configured live
+provider mode supplies no fake verification or handover delivery. The default
+mock host labels its bypass through `identity.demoBypass` and `/demo/config`
+(`hostLabel`, `demoHost`). The destructive local port kits test owner isolation,
+storage erasure, delivery deduplication and wallet reservation fingerprints.
 
 ## Package layout
 

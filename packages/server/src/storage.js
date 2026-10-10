@@ -4,7 +4,7 @@ import { realpathSync } from 'node:fs';
 import { dirname, basename, resolve, join } from 'node:path';
 import { normalizeUploadLimits } from './upload-limits.js';
 import { applyEvent, createSession, inputRevision, emptyUnderstanding, isUIArtifact, isHTMLArtifact, inspectHTML, HTML_MEDIA_TYPE, imageInfo, reduceConceptIntent, createConceptIntent, MAX_IMAGE_BYTES,
-  defaultSettings, normalizeSettings, sameSelection, conversationStarted } from '@inspr/aithema-core';
+  defaultSettings, normalizeSettings, sameSelection, conversationStarted, createCredits, rebindCredits, reduceCredits } from '@inspr/aithema-core';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 export const MAX_CONCEPT_STORAGE_BYTES = 64 * 1024 * 1024;
@@ -32,6 +32,8 @@ export class SQLiteStorage {
     this.db = new DatabaseSync(path);
     this.db.exec(`PRAGMA busy_timeout=250; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA secure_delete=ON;
       CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, snapshot TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS host_states (session_id TEXT PRIMARY KEY REFERENCES sessions(id), record TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS owner_credit_guards (owner_hash TEXT PRIMARY KEY, record TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS content (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id),
         kind TEXT NOT NULL, bytes TEXT, hash TEXT NOT NULL, at TEXT NOT NULL, tombstone TEXT);
       CREATE TABLE IF NOT EXISTS events (session_id TEXT NOT NULL REFERENCES sessions(id),
@@ -72,6 +74,8 @@ export class SQLiteStorage {
     if (!row) throw new NotFoundError('Session not found');
     const session = JSON.parse(row.snapshot);
     session.settings ??= defaultSettings(); // sessions stored before visitor settings follow host defaults
+    if (session.identity?.contentRef) session.identity = this.#hydrateData(id, session.identity);
+    if (session.library?.contentRef) session.library = this.#hydrateData(id, session.library);
     session.uploads = (session.uploads ?? []).map(u => this.#hydrateUpload(id, u));
     session.transcript = session.transcript.map(t => this.#hydrateData(id, t));
     if (session.understanding.contentRef) {
@@ -102,6 +106,43 @@ export class SQLiteStorage {
     if (guard.revision !== undefined && inputRevision(session) !== guard.revision) throw new ConflictError('Stale session revision');
   }
   list() { return this.db.prepare('SELECT id FROM sessions').all().map(r => r.id); }
+  ownedIds(ownerToken) {
+    if (!ownerToken) return [];
+    return this.db.prepare("SELECT id FROM sessions WHERE json_extract(snapshot,'$.ownerHash')=? AND json_extract(snapshot,'$.tombstone') IS NULL")
+      .all(hash(ownerToken)).map(row => row.id);
+  }
+  hostState(id) {
+    const row = this.db.prepare('SELECT record FROM host_states WHERE session_id=?').get(id);
+    return row ? JSON.parse(row.record) : null;
+  }
+  ownerCreditState(ownerToken) {
+    if (!ownerToken) return null;
+    const row = this.db.prepare('SELECT record FROM owner_credit_guards WHERE owner_hash=?').get(hash(ownerToken));
+    return row ? JSON.parse(row.record) : null;
+  }
+  /** Only trusted reducers enter here. State and its public events commit together. */
+  transitionHost(id, update, guard = {}) {
+    return this.transaction(() => {
+      const session = this.get(id); this.#check(session, guard);
+      const result = update(this.hostState(id), session);
+      this.db.prepare('INSERT INTO host_states VALUES (?,?) ON CONFLICT(session_id) DO UPDATE SET record=excluded.record')
+        .run(id, JSON.stringify(result.state));
+      const events = (result.events ?? []).map(event => this.#append(this.get(id), event.type, event.data));
+      return { ...result, events };
+    });
+  }
+  /** One host clock guard per owner; new/reset never renew its deadline. */
+  transitionCredits(id, ownerToken, event, options = {}) {
+    return this.transaction(() => {
+      const session = this.authorize(id, ownerToken), key = session.ownerHash;
+      const row = this.db.prepare('SELECT record FROM owner_credit_guards WHERE owner_hash=?').get(key);
+      const state = row ? rebindCredits(JSON.parse(row.record), id) : createCredits({ sessionId: id, ...options });
+      const result = reduceCredits(state, { ...event, now: Math.max(event.now, state.lastNow) });
+      this.db.prepare('INSERT INTO owner_credit_guards VALUES (?,?) ON CONFLICT(owner_hash) DO UPDATE SET record=excluded.record')
+        .run(key, JSON.stringify(result.state));
+      return { ...result, events: result.events.map(e => this.#append(this.get(id), e.type, e.data)) };
+    });
+  }
   read(id, after = 0) {
     return this.db.prepare('SELECT event FROM events WHERE session_id=? AND seq>? ORDER BY seq').all(id, after)
       .map(row => this.#hydrateEvent(JSON.parse(row.event)));
@@ -124,6 +165,13 @@ export class SQLiteStorage {
     return { ...event, data };
   }
   #metadata(id, type, data, seq) {
+    if (['identity.state', 'verification.requested', 'library.state'].includes(type)) {
+      const retained = type === 'identity.state' ? { identified: data.identified ?? Boolean(data.assessmentUnlocked) } : {};
+      if (data.contentRef) return { contentRef: data.contentRef, hash: data.hash, ...retained };
+      const bytes = JSON.stringify(data), contentRef = `${id}:host:${seq}`;
+      this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id, 'host', bytes, hash(bytes), new Date().toISOString());
+      return { contentRef, hash: hash(bytes), ...retained };
+    }
     if (type === 'upload.state') {
       if (data.state === 'withdrawn') return { id: data.id, state: 'withdrawn', at: data.at, erased: true, withdrawn: true };
       if (data.contentRef) return Object.fromEntries(['id', 'state', 'at', 'reason', 'contentRef', 'hash'].filter(k => data[k] !== undefined).map(k => [k, data[k]]));
@@ -168,6 +216,10 @@ export class SQLiteStorage {
   }
   #save(session, understandingRef, focusedQuestionRef) {
     const metadata = { ...session, transcript: session.transcript.map(t => this.#metadata(session.id, 'turn.final', t)) };
+    for (const key of ['identity', 'library']) if (session[key]) {
+      const row = this.db.prepare("SELECT event FROM events WHERE session_id=? AND json_extract(event,'$.type')=? ORDER BY seq DESC LIMIT 1").get(session.id, `${key}.state`);
+      metadata[key] = row ? JSON.parse(row.event).data : null;
+    }
     metadata.uploads = (session.uploads ?? []).map(u => this.#metadata(session.id, 'upload.state', u));
     metadata.concepts = (session.concepts ?? []).map(c => ({ ...c, feedback: c.feedback?.contentRef
       ? { artifactId: c.id, archived: c.archived, contentRef: c.feedback.contentRef, hash: c.feedback.hash } : c.feedback }));
@@ -407,6 +459,7 @@ export class SQLiteStorage {
   erase(id, guard = {}) {
     return this.#invalidationTransaction(() => {
       const session = this.get(id); this.#check(session, guard); this.#invalidate(id, undefined, true);
+      this.db.prepare('DELETE FROM host_states WHERE session_id=?').run(id);
       this.db.prepare('UPDATE uploads SET bytes=NULL,tombstone=? WHERE session_id=?').run(new Date().toISOString(), id);
       return this.#append(session, 'session.erased', { at: new Date().toISOString() });
     });

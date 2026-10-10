@@ -54,6 +54,21 @@ export function applyEvent(session, event) {
     next.actor = event.data.erased ? null : event.data.actor;
   } else if (event.type === 'session.paused') {
     next.paused = event.data.paused;
+  } else if (event.type === 'identity.state') {
+    next.identity = event.data.erased ? { erased: true } : event.data;
+    // Retained transition metadata keeps revisions stable after address erasure.
+    const identified = event.data.identified ?? Boolean(next.identity?.assessmentUnlocked);
+    if (identified !== next.identified) next.sessionRevision += 1;
+    next.identified = identified;
+  } else if (event.type === 'handover.state') {
+    next.handover = event.data;
+  } else if (event.type === 'credits.state') {
+    next.credits = event.data;
+  } else if (event.type === 'library.state') {
+    next.library = event.data.erased ? null : event.data;
+  } else if (['verification.requested', 'identity.unlocked', 'identity.resend-blocked', 'handover.limit-reached',
+    'credits.limit-reached', 'conversation.end-requested'].includes(event.type)) {
+    // Notifications accompany their durable state projection.
   } else if (event.type === 'settings.changed') {
     // A processing choice is metadata: completed replies and understanding stay
     // cached for their input revision; in-flight work is superseded by the host.
@@ -77,6 +92,7 @@ export function applyEvent(session, event) {
         ? { ...Object.fromEntries(Object.entries(t).filter(([key]) => key !== 'content')), erased: true, withdrawn: true } : t);
       // Erasure also forgets the visitor's processing choice, so it never seeds another conversation.
       if (event.type === 'session.erased') { next.tombstone = event.data.at; next.settings = defaultSettings(); next.processingPreset = ERASED_PRESET;
+        next.identity = null; next.handover = null; next.credits = null; next.library = null; next.identified = false;
         next.uploads = (next.uploads ?? []).map(u => ({ id: u.id, state: 'withdrawn', erased: true, withdrawn: true })); }
     }
   } else if (event.type === 'concept.state') {

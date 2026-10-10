@@ -1,6 +1,7 @@
 import { createConceptHandlers } from './concept-handlers.js';
 import { createVoiceHandlers } from './voice-handlers.js';
 import { createUploadHandlers } from './upload-handlers.js';
+import { createHostHandlers } from './host-handlers.js';
 import { createPluginRuntime } from './plugin-runtime.js';
 import { randomUUID } from 'node:crypto';
 import { SessionLanes, createMockReasoning, createSession, inputRevision, activeTurns, hasConversationInput, PluginError, FEATURES, isConsentReason } from '@inspr/aithema-core';
@@ -55,7 +56,7 @@ export async function readBody(request, limit = 32_768) {
 
 export function createHandlers({ storage, reasoning = createMockReasoning(), sessionOptions = { demo: true },
   deadlineMs = 30_000, hostPrompt = '', pluginRuntime, consent = pluginRuntime?.consent,
-  ownership = { token: request => request.headers.get('x-aithema-session-token') }, voice, concepts = {}, uploads = {} }) {
+  ownership = { token: request => request.headers.get('x-aithema-session-token') }, voice, concepts = {}, uploads = {}, host }) {
   pluginRuntime ??= createPluginRuntime({ storage, reasoning, consent: consent ?? { coverage: () => ({ covered: false }) } });
   consent ??= pluginRuntime.consent;
   if (typeof consent?.coverage !== 'function' || consent !== pluginRuntime.consent) {
@@ -115,6 +116,23 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     async onWithdraw(id, event) {
       await Promise.all([invalidate(id, event, 'upload-withdrawn'), conceptHandlers.lane.supersede(id)]); schedule(id);
     } });
+  const hostHandlers = createHostHandlers({ storage, host, ownership, readBody, publish: broadcast, snapshot,
+    budget: pluginRuntime.budget, signal: stop.signal, now: host?.now, deadlineMs,
+    async createConversation(ownerToken, options = {}) {
+      const initial = await initialSettings(ownerToken, options);
+      if (initial.error) throw new TypeError(initial.error);
+      const session = storage.create({ ...sessionOptions, locale: options.locale ?? 'en', ownerToken, ...initial });
+      hostHandlers.initialize(session.id, ownerToken);
+      return session;
+    },
+    async eraseConversation(id, ownerToken) {
+      storage.authorize(id, ownerToken);
+      const event = storage.erase(id, { ownerToken }); await invalidate(id, event, 'session-erased');
+      await host?.erased?.({ sessionId: id, ownerToken });
+      return { id, erased: true };
+    },
+    unlocked(id) { lanes.supersede(id); schedule(id); conceptHandlers.schedule(id); },
+  });
   async function invalidate(id, event, reason) {
     const cancelled = Promise.allSettled([lanes.cancel(id), conceptHandlers.lane.invalidate(id),
       ...(['consent-withdrawn', 'consent-revised', 'session-erased'].includes(reason) ? [uploadHandlers.cancelSession(id)] : [])]);
@@ -237,6 +255,15 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   async function handle(request) {
     if (stop.signal.aborted) return json({ error: 'server-stopping' }, 503);
     try {
+      if (host) {
+        const ownedPath = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})(?:\/|$)/u.exec(new URL(request.url).pathname);
+        if (ownedPath) {
+          const ownerToken = ownership.token(request);
+          storage.authorize(ownedPath[1], ownerToken); hostHandlers.initialize(ownedPath[1], ownerToken);
+        }
+      }
+      const hostResponse = await hostHandlers.handle(request);
+      if (hostResponse) return hostResponse;
       const conceptResponse = await conceptHandlers.handle(request);
       if (conceptResponse) return conceptResponse;
       const voiceResponse = await voiceHandlers?.handle(request);
@@ -252,6 +279,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         const initial = await initialSettings(presented, options);
         if (initial.error) return json({ error: initial.error, field: initial.field, reason: initial.reason }, initial.status);
         const session = storage.create({ ...sessionOptions, locale: options.locale ?? 'en', ownerToken, ...initial });
+        hostHandlers.initialize(session.id, ownerToken);
         const response = json(await snapshot(session.id), 201);
         if (ownership.created) ownership.created(response, ownerToken, request);
         else response.headers.set('x-aithema-session-token', ownerToken);
@@ -261,6 +289,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       if (!match) return json({ error: 'not-found' }, 404);
       const [, id, action] = match;
       const ownerToken = ownership.token(request), authorized = storage.authorize(id, ownerToken);
+      hostHandlers.initialize(id, ownerToken);
       const guard = { ownerToken, revision: inputRevision(authorized) };
       if (!action && request.method === 'GET') return json(await snapshot(id));
       if (action === 'events' && request.method === 'GET') return events(request, id);
@@ -276,6 +305,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         if (!replayed) lanes.supersede(id);
         if (!replayed) broadcast(id, event);
         if (!replayed) conceptHandlers.onTurn(id, event.data.id);
+        if (!replayed) hostHandlers.startCredits(id, ownerToken);
         schedule(id);
         return json(event, 200);
       }
@@ -296,6 +326,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
           if (event) broadcast(id, event);
         }
         if (!body.paused) { schedule(id); conceptHandlers.schedule(id); }
+        hostHandlers.syncPause(id, ownerToken);
         return json({ paused: storage.get(id).paused, event });
       }
       if (action === 'withdraw' && request.method === 'POST') {
@@ -358,6 +389,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       if (action === 'consent' && request.method === 'GET' && consent.describe) return json(consent.describe(id));
       if (action === 'erase' && request.method === 'POST') {
         const event = storage.erase(id, guard); await invalidate(id, event, 'session-erased');
+        await host?.erased?.({ sessionId: id, ownerToken });
         return json({ erased: true, event, providerDeletion: 'not-confirmed' });
       }
       if (action === 'export' && request.method === 'GET') {
@@ -418,6 +450,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       }
     },
     async resume() {
+      hostHandlers.resume();
       pluginRuntime.budget.recover();
       uploadHandlers.resume();
       await conceptHandlers.resume();
@@ -430,8 +463,9 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         while (jobs.size) await Promise.allSettled([...jobs.values()].map(job => job.promise));
         await conceptHandlers.lane.idle();
         await voiceHandlers?.idle();
+        await hostHandlers.idle();
       } while (jobs.size);
     },
-    async close() { stop.abort(); await uploadHandlers.close(); await conceptHandlers.lane.close(); await voiceHandlers?.close(); await Promise.allSettled([...jobs.values()].map(job => job.promise)); },
+    async close() { stop.abort(); await uploadHandlers.close(); await conceptHandlers.lane.close(); await voiceHandlers?.close(); await hostHandlers.idle(); await Promise.allSettled([...jobs.values()].map(job => job.promise)); },
   };
 }

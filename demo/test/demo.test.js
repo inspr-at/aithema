@@ -28,6 +28,12 @@ test('demo serves native UI modules, labelled mock host and persistent handlers'
   const cookie = created.headers.get('set-cookie').split(';')[0];
   assert.match(created.headers.get('set-cookie'), /HttpOnly; SameSite=Strict/);
   assert.equal(created.headers.get('x-aithema-session-token'), null);
+  const requested = await post(running.url + `/api/sessions/${s.id}/identity/request`, { address: 'demo@example.test' }, { cookie });
+  assert.equal(requested.status, 200);
+  const outbox = await fetch(running.url + `/api/sessions/${s.id}/demo/outbox`, { headers: { cookie } }).then(r => r.json());
+  assert.match(outbox.label, /Demo only/u); assert.equal(outbox.messages.length, 1);
+  const confirmed = await post(running.url + `/api/sessions/${s.id}/identity/confirm`, { token: outbox.messages[0].token }, { cookie });
+  assert.equal((await confirmed.json()).identity.status, 'verified');
   await post(running.url + `/api/sessions/${s.id}/turns`, { clientEventId: 'demo-turn', content: 'Demo turn' }, { cookie });
   await running.kill(); running = await startChild(new URL('../server.js', import.meta.url), db);
   const restored = await fetch(running.url + `/api/sessions/${s.id}`, { headers: { cookie } }).then(r => r.json()); assert.equal(restored.transcript[0].content, 'Demo turn');
@@ -178,6 +184,8 @@ test('a live provider host offers only its configured route: no mock, no fake vo
   assert.deepEqual([config.voiceMode, config.imageMode, config.htmlMode], ['off', 'off', 'off']);
   const created = await post(running.url + '/api/sessions', {}), session = await created.json();
   const headers = { cookie: created.headers.get('set-cookie').split(';')[0] };
+  assert.equal(config.demoHost, false);
+  assert.equal((await fetch(running.url + `/api/sessions/${session.id}/demo/outbox`, { headers })).status, 404);
   assert.deepEqual([session.settings.model, session.settings.voice, session.settings.visuals], ['openrouter/anthropic/fixture', 'off', 'off']);
   const catalog = await fetch(running.url + `/api/sessions/${session.id}/settings`, { headers }).then(r => r.json());
   const best = catalog.presets.best;
