@@ -1,8 +1,9 @@
 import { createConceptHandlers } from './concept-handlers.js';
 import { createVoiceHandlers } from './voice-handlers.js';
+import { createUploadHandlers } from './upload-handlers.js';
 import { createPluginRuntime } from './plugin-runtime.js';
 import { randomUUID } from 'node:crypto';
-import { SessionLanes, createMockReasoning, createSession, inputRevision, activeTurns, PluginError, FEATURES, isConsentReason } from '@inspr/aithema-core';
+import { SessionLanes, createMockReasoning, createSession, inputRevision, activeTurns, hasConversationInput, PluginError, FEATURES, isConsentReason } from '@inspr/aithema-core';
 import { ConflictError, NotFoundError, SettingsConflictError } from './storage.js';
 import { exportSession } from './export.js';
 
@@ -31,7 +32,7 @@ export async function readBody(request, limit = 32_768) {
 
 export function createHandlers({ storage, reasoning = createMockReasoning(), sessionOptions = { demo: true },
   deadlineMs = 30_000, hostPrompt = '', pluginRuntime, consent = pluginRuntime?.consent,
-  ownership = { token: request => request.headers.get('x-aithema-session-token') }, voice, concepts = {} }) {
+  ownership = { token: request => request.headers.get('x-aithema-session-token') }, voice, concepts = {}, uploads = {} }) {
   pluginRuntime ??= createPluginRuntime({ storage, reasoning, consent: consent ?? { coverage: () => ({ covered: false }) } });
   consent ??= pluginRuntime.consent;
   if (typeof consent?.coverage !== 'function' || consent !== pluginRuntime.consent) {
@@ -86,8 +87,14 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       if (event?.data.role === 'user') conceptHandlers.onTurn(id, event.data.id);
       scheduleLane(id, 'understanding');
     } }) : null;
+  const uploadHandlers = createUploadHandlers({ storage, runtime: pluginRuntime, ownership, readBody, publish: broadcast, signal: stop.signal,
+    ...uploads, onInput(id, { pending = false } = {}) { lanes.supersede(id); if (!pending) schedule(id); },
+    async onWithdraw(id, event) {
+      await Promise.all([invalidate(id, event, 'upload-withdrawn'), conceptHandlers.lane.supersede(id)]); schedule(id);
+    } });
   async function invalidate(id, event, reason) {
-    const cancelled = Promise.allSettled([lanes.cancel(id), conceptHandlers.lane.invalidate(id)]);
+    const cancelled = Promise.allSettled([lanes.cancel(id), conceptHandlers.lane.invalidate(id),
+      ...(['consent-withdrawn', 'consent-revised', 'session-erased'].includes(reason) ? [uploadHandlers.cancelSession(id)] : [])]);
     failures.delete(id); broadcast(id, event);
     voiceHandlers?.stopSession(id, reason);
     await cancelled;
@@ -161,7 +168,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   }
   function unfinished(session) {
     const revision = inputRevision(session);
-    return !session.tombstone && activeTurns(session).some(t => t.role === 'user') &&
+    return !session.tombstone && hasConversationInput(session) &&
       (!activeTurns(session).some(t => t.role === 'assistant' && t.inputRevision === revision) ||
         session.understanding.inputRevision !== revision || session.understanding.draft);
   }
@@ -211,6 +218,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       if (conceptResponse) return conceptResponse;
       const voiceResponse = await voiceHandlers?.handle(request);
       if (voiceResponse) return voiceResponse;
+      const uploadResponse = await uploadHandlers.handle(request);
+      if (uploadResponse) return uploadResponse;
       const url = new URL(request.url);
       if (url.pathname === '/api/sessions' && request.method === 'POST') {
         const bytes = await readBody(request);
@@ -298,6 +307,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
           // Like new input: in-flight work on the previous choice is superseded and
           // unanswered input reruns with the new bindings; completed work stays cached.
           lanes.supersede(id); failures.delete(id);
+          await uploadHandlers.cancelSession(id);
           if (selection(before, 'concept') !== selection(storage.get(id), 'concept')) void conceptHandlers.lane.supersede(id);
           if (unfinished(storage.get(id))) schedule(id); else status(id);
         }
@@ -377,21 +387,28 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
           const event = storage.expire(id, turn.id); await invalidate(id, event, 'turn-expired'); schedule(id);
           conceptHandlers.ended(id);
         }
+        for (const upload of storage.get(id).uploads.filter(u => u.state !== 'withdrawn' && Date.parse(u.at) < before)) {
+          const event = storage.withdrawUpload(id, upload.id);
+          await Promise.all([uploadHandlers.cancelSession(id), invalidate(id, event, 'upload-expired'), conceptHandlers.lane.supersede(id)]);
+          schedule(id); conceptHandlers.ended(id);
+        }
       }
     },
     async resume() {
       pluginRuntime.budget.recover();
+      uploadHandlers.resume();
       await conceptHandlers.resume();
       await voiceHandlers?.resume();
       for (const id of storage.list()) if (unfinished(storage.get(id))) schedule(id);
     },
     async idle() {
       do {
+        await uploadHandlers.idle();
         while (jobs.size) await Promise.allSettled([...jobs.values()].map(job => job.promise));
         await conceptHandlers.lane.idle();
         await voiceHandlers?.idle();
       } while (jobs.size);
     },
-    async close() { stop.abort(); await conceptHandlers.lane.close(); await voiceHandlers?.close(); await Promise.allSettled([...jobs.values()].map(job => job.promise)); },
+    async close() { stop.abort(); await uploadHandlers.close(); await conceptHandlers.lane.close(); await voiceHandlers?.close(); await Promise.allSettled([...jobs.values()].map(job => job.promise)); },
   };
 }

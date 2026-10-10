@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto';
 import { PluginRegistry, createMockReasoning, createBinding, PluginError, isCancelledZeroReport, PROCESSING_PRESETS, FEATURES,
   deviceFeatures, featureUnavailable, bindingReason, processingScope, consentReason, MOCK_PROCESSING_SCOPE,
   operationScope, inputRevision, untilCancelled, MAX_HTML_BYTES, isCanonicalMockReasoning, EFFORT_ORDER, SETTINGS_OFF, isOptionId,
-  sortEfforts, preferredEffort, isDynamicReason, isConsentReason, CONSENT_REASON } from '@inspr/aithema-core';
+  sortEfforts, preferredEffort, isDynamicReason, isConsentReason, CONSENT_REASON, activeUploads, beginInvocation } from '@inspr/aithema-core';
+import { assertExtractor, createExtractor, normalizeExtractorLimits } from '@inspr/aithema-core/extractor';
 import { createDurationBinding, durationPluginMatches } from './voice-binding.js';
 import { isLocalVoice } from './local-voice.js';
 import { createImageBinding, imagePluginBinding } from './image-binding.js';
@@ -163,6 +164,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   async function evaluate(session, preset, feature, options) {
     if (!PROCESSING_PRESETS.includes(preset)) return { reason: 'unknown preset' };
     if (preset === 'device') return { reason: feature === 'text' ? 'device browser only' : 'unavailable on device' };
+    if (feature === 'uploads') return evaluateUploads(session, preset, options);
     const config = presets[preset], [lane, kind, defaultOperation] = map[feature];
     const operation = visual(feature) ? options.operation ?? defaultOperation : defaultOperation;
     if (visual(feature) && !['generate', 'edit'].includes(operation)) return { reason: 'operation unsupported' };
@@ -199,6 +201,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     // The canonical mock needs no external legal qualification. A host ledger,
     // including the demo's local grant, still governs its processing when supplied.
     if (mock && consent) scope = MOCK_PROCESSING_SCOPE;
+    if (['text', 'analysis'].includes(feature) && !mock && activeUploads(session).some(u => u.state === 'accepted') &&
+      !scope?.dataCategories.includes('file-text')) return { reason: 'document text not covered by reasoning scope' };
     if (scope) {
       if (!consent?.coverage) return { reason: 'consent port unavailable' };
       try {
@@ -222,6 +226,32 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     if (visual(feature) && !options.existingCall && renderLimiter.reason(session.id)) return { reason: renderLimiter.reason(session.id) };
     if (!options.existingCall && !budget.canAdmit(session.id, amounts.maxMicro, amounts.maxVisitorMicro)) return { reason: 'budget denied' };
     return { binding, plugin, operation, coverage, scope };
+  }
+  async function evaluateUploads(session, preset, options = {}) {
+    const config = presets[preset], bindings = config?.extractors;
+    if (!config) return { reason: 'preset not configured' };
+    if (!Array.isArray(bindings) || !bindings.length) return { reason: 'extractors not configured' };
+    if (session.paused) return { reason: 'session paused' };
+    if (session.tombstone || session.consentWithdrawn) return { reason: CONSENT };
+    // Reuse precisely the selected reasoning scopes, including file-text. Local
+    // extraction never broadens a provider grant or creates a new legal item.
+    for (const feature of ['text', 'analysis']) {
+      if (feature === 'analysis' && !selectedBinding(session, preset, 'understanding').raw) continue;
+      const result = await evaluate(session, preset, feature, { ...options, existingCall: true });
+      if (result.reason) return result;
+      if (result.scope !== MOCK_PROCESSING_SCOPE && !result.scope?.dataCategories.includes('file-text')) return { reason: 'document text not covered by reasoning scope' };
+    }
+    const plugins = [];
+    for (const binding of bindings) {
+      if (!binding || Object.keys(binding).some(k => !['plugin', 'limits'].includes(k)) || !config.plugins?.includes(binding.plugin)) return { reason: 'extractor not in preset' };
+      const plugin = registry.get(binding.plugin);
+      try { assertExtractor(plugin); normalizeExtractorLimits(binding.limits); } catch { return { reason: 'extractor binding invalid' }; }
+      if (plugin.manifest.placement !== 'server' || plugin.manifest.models.some(m => m.processingLocations.some(l => l !== 'host') ||
+        m.cost.inputMicro !== 0 || m.cost.outputMicro !== 0)) return { reason: 'extractor must be local and free' };
+      try { if (!(await plugin.health(options))?.available) return { reason: 'extractor unhealthy' }; } catch { return { reason: 'extractor unhealthy' }; }
+      plugins.push({ plugin, binding });
+    }
+    return { plugins };
   }
   async function boundedEvaluate(session, preset, feature, options = {}) {
     const scope = operationScope({ ...options, deadlineAt: Math.min(options.deadlineAt ?? Infinity, now() + healthMs) });
@@ -269,6 +299,45 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   }
   const runtime = {
     budget, consent, visualKind, renderLimiter, selectionKey, choicesFor,
+    async uploadAvailability(session, options = {}) {
+      return boundedEvaluate(session, session.processingPreset ?? 'best', 'uploads', options);
+    },
+    async extractUpload({ session, uploadId, bytes, metadata, options = {} }) {
+      const current = () => {
+        const latest = storage.get(session.id);
+        return !latest.tombstone && !latest.consentWithdrawn && latest.ownerHash === session.ownerHash &&
+          latest.consentRevision === session.consentRevision && selectionKey(latest, 'reaction') === selectionKey(session, 'reaction') &&
+          latest.uploads.some(u => u.id === uploadId && u.state === 'pending');
+      };
+      if (!current()) throw new PluginError('not-admitted');
+      const admission = await runtime.uploadAvailability(session, options);
+      if (admission.reason || !current()) throw new PluginError('not-admitted', admission.reason);
+      const admitted = admission.plugins.find(({ plugin }) => plugin.manifest.models.some(m => m.formats.includes(metadata.mediaType)));
+      if (!admitted) throw new PluginError('invalid-output');
+      const { plugin, binding } = admitted;
+      const { attemptId } = budget.admit({ sessionId: session.id, lane: 'extractor', maxMicro: 0,
+        requestSha256: createHash('sha256').update(bytes).digest('hex'), bindingSha256: hash(binding) });
+      const claim = budget.claim(attemptId);
+      const invocation = await beginInvocation({ ...options, attempt: { ...claim, async consume() {
+        try {
+          const check = await runtime.uploadAvailability(storage.get(session.id), options);
+          if (check.reason || !current()) throw new PluginError('not-admitted');
+          options.signal?.throwIfAborted(); claim.consume();
+        } catch (error) {
+          budget.settle(claim.claimId, { attemptId, outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 } }, { inputMicro: 0, outputMicro: 0 });
+          throw error;
+        }
+      } }, report: terminal => budget.settle(claim.claimId, terminal, { inputMicro: 0, outputMicro: 0 }) });
+      try {
+        invocation.dispatch(); invocation.usage({ inputTokens: 0, outputTokens: 0 });
+        const extractor = createExtractor({ plugins: [plugin], limits: binding.limits });
+        const result = await extractor.extract(bytes, metadata, options);
+        options.signal?.throwIfAborted();
+        if (!current()) throw new PluginError('cancelled');
+        await invocation.finish(true);
+        return { ...result, extractor: plugin.manifest.id };
+      } catch (error) { await invocation.finish(false); throw error; }
+    },
     /** Hosts withhold On my device with `presets.device = false`; other presets exist when configured. */
     offered: preset => preset === 'device' ? presets.device !== false : Boolean(presets[preset]),
     async matrix(session) {

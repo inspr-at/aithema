@@ -3,6 +3,7 @@ import { reduceUnderstanding, understandingSchema } from './understanding.js';
 import { reasoningRequest } from './prompts.js';
 import { assertReasoning, operationScope, matchesSchema } from './reasoning.js';
 import { untilCancelled, cancellableStream } from './cancellation.js';
+import { documentInputs, hasConversationInput } from './document-context.js';
 
 export class SessionLanes {
   #flights = new Map();
@@ -55,7 +56,7 @@ export class SessionLanes {
       scope.signal.throwIfAborted();
       if (session.tombstone || session.consentWithdrawn) return 'blocked';
       if (lane === 'understanding') {
-        const humanTurns = activeTurns(session).filter(t => t.role === 'user').length;
+        const humanTurns = activeTurns(session).filter(t => t.role === 'user').length + documentInputs(session).length;
         if (!humanTurns || (!session.demo && !session.identified && humanTurns < session.preset.anonymousTurns)) return 'deferred';
         if (session.understanding.inputRevision === revision && !session.understanding.draft) return 'cached';
         // A distinct draft binding can retain the incremental path without paying
@@ -85,7 +86,7 @@ export class SessionLanes {
           if (!current() || this.getSession(id).understanding.inputRevision !== revision) return 'stale';
         }
       } else {
-        if (!activeTurns(session).some(t => t.role === 'user')) return 'deferred';
+        if (!hasConversationInput(session)) return 'deferred';
         if (activeTurns(session).some(t => t.role === 'assistant' && t.inputRevision === revision)) return 'cached';
         if (this.getSession(id).paused) return 'paused';
         if (this.beforeDispatch && !await untilCancelled(this.beforeDispatch(id, lane, this.reasoning, revision, options), scope.signal)) return 'blocked';

@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { dirname, basename, resolve, join } from 'node:path';
+import { normalizeUploadLimits } from './upload-limits.js';
 import { applyEvent, createSession, inputRevision, emptyUnderstanding, isUIArtifact, isHTMLArtifact, inspectHTML, HTML_MEDIA_TYPE, imageInfo, reduceConceptIntent, createConceptIntent, MAX_IMAGE_BYTES,
   defaultSettings, normalizeSettings, sameSelection, conversationStarted } from '@inspr/aithema-core';
 
@@ -41,6 +42,9 @@ export class SQLiteStorage {
         session_id TEXT NOT NULL REFERENCES sessions(id), record TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS concept_artifacts (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id),
         bytes BLOB, metadata TEXT NOT NULL, dependencies TEXT NOT NULL, tombstone TEXT);
+      CREATE TABLE IF NOT EXISTS uploads (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id),
+        bytes BLOB, byte_count INTEGER NOT NULL, content_ref TEXT NOT NULL, tombstone TEXT);
+      CREATE INDEX IF NOT EXISTS upload_session ON uploads(session_id);
       CREATE INDEX IF NOT EXISTS concept_session ON concept_artifacts(session_id);
       CREATE INDEX IF NOT EXISTS voice_session ON voice_calls(session_id);
       CREATE INDEX IF NOT EXISTS sessions_owner ON sessions(json_extract(snapshot, '$.ownerHash'));
@@ -68,6 +72,7 @@ export class SQLiteStorage {
     if (!row) throw new NotFoundError('Session not found');
     const session = JSON.parse(row.snapshot);
     session.settings ??= defaultSettings(); // sessions stored before visitor settings follow host defaults
+    session.uploads = (session.uploads ?? []).map(u => this.#hydrateUpload(id, u));
     session.transcript = session.transcript.map(t => this.#hydrateData(id, t));
     if (session.understanding.contentRef) {
       const data = this.#hydrateData(id, session.understanding);
@@ -112,13 +117,21 @@ export class SQLiteStorage {
     return record.erased ? { ...data, erased: true, withdrawn: true } : { ...data, ...record.data };
   }
   #hydrateEvent(event) {
-    const data = this.#hydrateData(event.sessionId, event.data);
+    const data = event.type === 'upload.state' ? this.#hydrateUpload(event.sessionId, event.data, true) : this.#hydrateData(event.sessionId, event.data);
     if (event.type === 'concept.state' && data.artifact && !this.db.prepare('SELECT 1 FROM concept_artifacts WHERE session_id=? AND id=? AND tombstone IS NULL').get(event.sessionId, data.artifact.id)) {
       return { ...event, data: { ...data, artifact: { id: data.artifact.id, erased: true } } };
     }
     return { ...event, data };
   }
   #metadata(id, type, data, seq) {
+    if (type === 'upload.state') {
+      if (data.state === 'withdrawn') return { id: data.id, state: 'withdrawn', at: data.at, erased: true, withdrawn: true };
+      if (data.contentRef) return Object.fromEntries(['id', 'state', 'at', 'reason', 'contentRef', 'hash'].filter(k => data[k] !== undefined).map(k => [k, data[k]]));
+      const bytes = JSON.stringify(Object.fromEntries(['filename', 'mediaType', 'bytes', 'text', 'truncated', 'extractor', 'deadlineAt'].filter(k => data[k] !== undefined).map(k => [k, data[k]])));
+      const contentRef = `${id}:upload:${data.id}:${seq}`;
+      this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id, 'upload', bytes, hash(bytes), data.at);
+      return { id: data.id, state: data.state, at: data.at, ...(data.reason ? { reason: data.reason } : {}), contentRef, hash: hash(bytes) };
+    }
     if (type === 'concept.feedback') {
       if (data.contentRef) return { artifactId: data.artifactId, archived: data.archived, contentRef: data.contentRef, hash: data.hash };
       const bytes = JSON.stringify({ vote: data.vote, chips: data.chips }), contentRef = `${id}:concept-feedback:${seq}`;
@@ -155,6 +168,7 @@ export class SQLiteStorage {
   }
   #save(session, understandingRef, focusedQuestionRef) {
     const metadata = { ...session, transcript: session.transcript.map(t => this.#metadata(session.id, 'turn.final', t)) };
+    metadata.uploads = (session.uploads ?? []).map(u => this.#metadata(session.id, 'upload.state', u));
     metadata.concepts = (session.concepts ?? []).map(c => ({ ...c, feedback: c.feedback?.contentRef
       ? { artifactId: c.id, archived: c.archived, contentRef: c.feedback.contentRef, hash: c.feedback.hash } : c.feedback }));
     if (session.focusedQuestion !== undefined) {
@@ -215,6 +229,74 @@ export class SQLiteStorage {
       const metadata = { ...event, data: this.#metadata(id, 'turn.final', event.data) };
       this.db.prepare('INSERT INTO receipts VALUES (?,?,?,?)').run(id, clientId, hash(bytes), JSON.stringify(metadata));
       return { event, replayed: false };
+    });
+  }
+  #hydrateUpload(id, metadata, historical = false) {
+    const data = this.#hydrateData(id, metadata);
+    // Keep the event's original transition when replaying. Turning every erased
+    // pending/accepted event into another withdrawal would invent revisions.
+    return data.erased || data.withdrawn ? { id: data.id, state: historical ? metadata.state : 'withdrawn', erased: true, withdrawn: true } : data;
+  }
+  uploadReceipt(id, clientId, digest, guard = {}) {
+    const session = this.get(id); this.#check(session, { ...guard, revision: undefined });
+    const receipt = this.db.prepare('SELECT * FROM receipts WHERE session_id=? AND client_id=?').get(id, `upload:${clientId}`);
+    if (!receipt) return null;
+    if (receipt.bytes !== digest) throw new ConflictError('Upload client id has different bytes');
+    const { uploadIds } = JSON.parse(receipt.result);
+    return { replayed: true, events: uploadIds.map(uploadId => this.read(id).findLast(e => e.type === 'upload.state' && e.data.id === uploadId)) };
+  }
+  postUploads(id, clientId, digest, files, limits, guard = {}) {
+    limits = normalizeUploadLimits(limits);
+    return this.transaction(() => {
+      const replay = this.uploadReceipt(id, clientId, digest, guard); if (replay) return replay;
+      const session = this.get(id); this.#check(session, guard);
+      const current = session.uploads.filter(u => u.state !== 'withdrawn');
+      if (!files.length || files.length > limits.maxFilesPerRequest || current.length + files.length > limits.maxDocumentsPerSession ||
+        current.reduce((n, u) => n + u.bytes, 0) + files.reduce((n, f) => n + f.bytes.length, 0) > limits.maxSessionBytes ||
+        files.some(f => f.bytes.length > limits.maxBytes)) throw new RangeError('Upload limit');
+      const events = files.map(file => {
+        const uploadId = randomUUID(), event = this.#append(this.get(id), 'upload.state', { id: uploadId, state: 'pending',
+          filename: file.filename, mediaType: file.mediaType, bytes: file.bytes.length, deadlineAt: file.deadlineAt, at: new Date().toISOString() });
+        this.db.prepare('INSERT INTO uploads VALUES (?,?,?,?,?,NULL)').run(uploadId, id, file.bytes, file.bytes.length, event.data.contentRef);
+        return event;
+      });
+      this.db.prepare('INSERT INTO receipts VALUES (?,?,?,?)').run(id, `upload:${clientId}`, digest, JSON.stringify({ uploadIds: events.map(e => e.data.id) }));
+      return { events, replayed: false };
+    });
+  }
+  uploadBytes(id, uploadId) {
+    const row = this.db.prepare('SELECT bytes FROM uploads WHERE session_id=? AND id=? AND tombstone IS NULL').get(id, uploadId);
+    return row?.bytes ? new Uint8Array(row.bytes) : null;
+  }
+  completeUpload(id, uploadId, result, guard = {}) {
+    // Removing original bytes uses the same secure-delete and WAL acknowledgement
+    // boundary as withdrawal. Metadata/text stay erasable in the content store.
+    return this.#invalidationTransaction(() => {
+      const session = this.get(id); this.#check(session, guard);
+      const upload = session.uploads.find(u => u.id === uploadId);
+      if (!upload || upload.state !== 'pending') return null;
+      const event = this.#append(session, 'upload.state', { ...upload, contentRef: undefined, hash: undefined,
+        state: result.status, reason: result.reason, text: result.status === 'accepted' ? result.text : undefined,
+        truncated: result.truncated, extractor: result.extractor });
+      this.db.prepare('UPDATE uploads SET bytes=NULL,content_ref=? WHERE session_id=? AND id=?').run(event.data.contentRef, id, uploadId);
+      return event;
+    });
+  }
+  withdrawUpload(id, uploadId, guard = {}) {
+    return this.#invalidationTransaction(() => {
+      const session = this.get(id); this.#check(session, { ...guard, revision: undefined });
+      const upload = session.uploads.find(u => u.id === uploadId);
+      if (!upload) throw new NotFoundError('Upload not found');
+      if (upload.state === 'withdrawn') {
+        const previous = this.read(id).findLast(e => e.type === 'upload.state' && e.data.id === uploadId && e.data.state === 'withdrawn');
+        if (previous) return previous;
+      }
+      const at = new Date().toISOString();
+      this.db.prepare('UPDATE uploads SET bytes=NULL,tombstone=? WHERE session_id=? AND id=?').run(at, id, uploadId);
+      this.db.prepare("UPDATE content SET bytes=NULL,tombstone=? WHERE session_id=? AND kind='upload' AND id LIKE ?")
+        .run(at, id, `${id}:upload:${uploadId}:%`);
+      this.#invalidate(id);
+      return this.#append(this.get(id), 'upload.state', { id: uploadId, state: 'withdrawn', at });
     });
   }
   saveVoiceCall(id, record, { paused, guard = {} } = {}) {
@@ -325,6 +407,7 @@ export class SQLiteStorage {
   erase(id, guard = {}) {
     return this.#invalidationTransaction(() => {
       const session = this.get(id); this.#check(session, guard); this.#invalidate(id, undefined, true);
+      this.db.prepare('UPDATE uploads SET bytes=NULL,tombstone=? WHERE session_id=?').run(new Date().toISOString(), id);
       return this.#append(session, 'session.erased', { at: new Date().toISOString() });
     });
   }

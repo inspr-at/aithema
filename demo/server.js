@@ -1,7 +1,7 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { resolve, sep } from 'node:path';
-import { SQLiteStorage, createHandlers, createPluginRuntime, createMemoryConsentLedger, createFacadeSecrets, createVoiceProvider, createDurationBinding, createLocalImages, localImageBinding, createImageBinding, createSpendCap, createLocalHTML, localHTMLBinding, uiRenderLimitConfig } from '@inspr/aithema-server';
+import { SQLiteStorage, createHandlers, createPluginRuntime, createMemoryConsentLedger, createFacadeSecrets, createVoiceProvider, createDurationBinding, createLocalImages, localImageBinding, createImageBinding, createSpendCap, createLocalHTML, localHTMLBinding, uiRenderLimitConfig, uploadLimitConfig } from '@inspr/aithema-server';
 import { createLocalVoiceProvider, localVoiceBinding } from '../packages/server/src/local-voice.js';
 import { listen } from '@inspr/aithema-server/http';
 import { createMockReasoning, PluginRegistry } from '@inspr/aithema-core';
@@ -20,6 +20,7 @@ import { createProcessingConsent } from './processing-consent.js';
 import { openRouterConfig } from './openrouter-config.js';
 import { htmlConfig } from './html-config.js';
 import { createClaudeHTML } from '@inspr/aithema-plugin-claude-html';
+import { registerDemoExtractors } from './uploads.js';
 
 const deployment = deploymentConfig();
 // The demo is deterministic unless the operator explicitly selects a provider.
@@ -31,6 +32,7 @@ const openrouter = provider === 'openrouter' ? openRouterConfig(process.env) : u
 const live = provider !== 'mock';
 const html = htmlConfig(process.env, openrouter ? [openrouter.reaction, openrouter.understanding] : [], { live });
 const uiRenderLimits = uiRenderLimitConfig(process.env);
+const uploadLimits = uploadLimitConfig(process.env);
 const ownership = createOwnership(deployment);
 const root = fileURLToPath(new URL('../', import.meta.url));
 const defaultDb = resolve(root, '.data/session.sqlite');
@@ -93,14 +95,16 @@ const registry = new PluginRegistry().register(reasoning); if (voicePlugin) regi
 // The operator allowlist visitors choose from in settings (demo/choices.js).
 const presets = demoPresets({ provider, reaction: privateBinding, understanding: understandingBinding, voicePlugin,
   voiceBinding: voiceHost?.binding ?? localVoiceBinding, imagePlugin, imageBinding: imageSelection.images, htmlPlugin, htmlBinding: htmlSelection.html, htmlDemo: Boolean(html.demo), policy });
+registerDemoExtractors(registry, presets);
 const pluginRuntime = createPluginRuntime({ storage, reasoning, consent, registry, uiRenderLimits, presets });
-const handlers = createHandlers({ storage, reasoning, pluginRuntime, consent, ownership, voice: voicePlugin ? { secrets, closeOrphan: voiceHost?.closeOrphan, staticSecretRef: voiceHost?.staticSecretRef } : undefined }); await handlers.resume();
+const handlers = createHandlers({ storage, reasoning, pluginRuntime, consent, ownership, uploads: { limits: uploadLimits }, voice: voicePlugin ? { secrets, closeOrphan: voiceHost?.closeOrphan, staticSecretRef: voiceHost?.staticSecretRef } : undefined }); await handlers.resume();
 const expiry = startExpiry(handlers);
 let allowedHosts = new Set();
 async function handle(request) {
   const refused = deploymentGate(request, deployment, allowedHosts); if (refused) return refused;
   if (request.method === 'GET' && new URL(request.url).pathname === '/healthz') return Response.json({ ok: true, commit: deployment.commit });
-  if (request.method === 'POST' && request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') {
+  const upload = /^\/api\/sessions\/[a-zA-Z0-9_-]{1,128}\/uploads$/u.test(new URL(request.url).pathname);
+  if (request.method === 'POST' && !upload && request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') {
     return new Response(null, { status: 415 });
   }
   const url = new URL(request.url);

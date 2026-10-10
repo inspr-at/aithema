@@ -164,7 +164,7 @@ test('the demo exposes a realistic operator allowlist and serves the settings mo
   assert.equal(JSON.stringify(catalog).includes('example.test'), false, 'private endpoints stay on the server');
   const saved = await post(running.url + `/api/sessions/${session.id}/settings`, { processingPreset: 'custom', model: 'mock/swift', effort: 'low', baseRevision: 0 }, headers);
   assert.equal(saved.status, 200);
-  assert.deepEqual((await saved.json()).consent, { required: true, features: ['text', 'analysis'] }, 'the demo still waits for mock consent');
+  assert.deepEqual((await saved.json()).consent, { required: true, features: ['text', 'analysis', 'uploads'] }, 'the demo still waits for mock consent');
 });
 
 test('a live provider host offers only its configured route: no mock, no fake voice, images or HTML, and no unconfigured option', { timeout: 15_000 }, async t => {

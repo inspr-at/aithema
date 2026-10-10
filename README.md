@@ -791,7 +791,76 @@ At most nine total references are used, each
 at most 12 MiB. After durably removing the upload source, await
 `handlers.removeConceptReference(sessionId, sourceId)` before acknowledgement.
 The included fake tests exercise this port, dependency-scoped removal and an
-upload/turn with the same ID. Upload routes and their UI will arrive on AIT-100.
+upload/turn with the same ID. Document upload routes ship in AIT-100 B1; their
+attachment UI is the later B2 slice. Image upload references remain a host port.
+
+Document uploads use `POST /api/sessions/:id/uploads` with `multipart/form-data`:
+one `clientEventId`, optional `inputRevision`, and `file` or repeated `files`.
+The same cookie/header ownership port as turns runs before body parsing and
+receipt lookup. A new upload returns HTTP 202 with
+`{accepted:true, uploads:[...], events:[...], replayed:false, limits}`; retries
+return HTTP 200 and the current states with the original upload IDs. Receipts
+bind exact file bytes, names, order and the explicitly supplied revision;
+multipart boundary changes and client MIME labels do not change that identity.
+Different content under the same ID conflicts (409). Unauthorized or erased
+sessions return 404, invalid forms 400, oversized requests/files or session
+capacity 413, and unavailable upload processing 403 with a `reason`.
+
+`upload.state` is durable/SSE: `{id,state,at,contentRef,hash,...}` with hydrated
+metadata (`filename`, sniffed `mediaType`, source `bytes`, `deadlineAt`) while
+pending; accepted states add `text`, `truncated`, `extractor`; unreadable states
+carry `reason` (`unsupported`, `empty`, `malformed`, `encrypted`, `limit`,
+`deadline`, `cancelled`, `unavailable`). GET `/api/sessions/:id/uploads` returns
+`{uploads,limits}`; the session snapshot includes the same upload states.
+Withdraw with DELETE `/api/sessions/:id/uploads/:uploadId` or POST
+`/api/sessions/:id/uploads/:uploadId/withdraw`. The acknowledgement contains
+`{withdrawn:uploadId,event,providerDeletion:'not-confirmed'}`. Withdrawn states
+retain the ID and tombstone flags. Replay keeps the original transition with
+`erased:true,withdrawn:true` and the ID only when its content is gone; consumers
+must treat those flags as a tombstone. No original-byte download route exists.
+
+The demo registers the local text, PDF and OOXML plugins by default. Other
+hosts register them in `PluginRegistry`, allow their IDs in the preset's
+`plugins`, and supply `extractors:[{plugin:'extract-text'},
+{plugin:'extract-pdf'},{plugin:'extract-ooxml'}]` (optional lowering-only parser
+`limits` per binding). The `uploads` feature-matrix entry explains missing
+extractors, policy/consent refusal, pause, device unavailability and health.
+The runtime admits a single-use zero-cost extractor attempt with cancellation,
+deadline and one terminal report; it has no implicit plugin fallback.
+
+START defaults apply at the route: 20 MiB/file, 64 MiB/request, eight files per
+request and session, and a 25-second batch budget. The added per-session source
+byte ceiling defaults to 160 MiB (eight times START's file ceiling); pending and
+unreadable uploads reserve capacity, withdrawal releases it. Hosts can lower
+these ceilings through `createHandlers({uploads:{limits}})`. Part A's hard parser
+ceilings remain stricter: 2 MiB input, 60,000 extracted characters, 100 pages,
+10 seconds/parser, and the existing archive/heap/RSS caps. Larger admitted
+documents become unreadable with `reason:'limit'`. Binary signatures and Office
+structure plus the extension select media type; client MIME is ignored.
+
+Original bytes are erasable SQLite content while pending and discarded after
+extraction, matching START's document-original retention policy. Text/names
+live in erasable records; journal, receipts and snapshots keep references.
+Withdrawal/erasure deletes bytes and text, clears dependent replies,
+understanding and concepts, cancels/reaps running extraction, and rejects late
+publication. Restart/replay/export hydrate missing or withdrawn content as
+tombstones. `uploads.json` in the ZIP contains accepted full extracted text and
+metadata, unreadable metadata/reason, and withdrawn/erased IDs only. Original
+document bytes are excluded. START's current conversation ZIP omits uploads;
+including their extracted text here is the explicit AIT-100 export requirement.
+
+START's existing `models-international` item explicitly covers “text read from
+uploaded files”; its exact text is already in `demo/processing-consent.js` and
+is reused. Uploads require current `file-text` coverage on every configured
+selected reasoning lane; a scope without that category disables them. The
+deterministic local demo uses its existing mock grant. No legal text was added.
+Provider dispatch rechecks coverage, including after a settings change.
+Accepted text joins reaction/understanding at user-message authority as escaped
+UNTRUSTED data, with a 16,000-character total framing-inclusive budget and a
+12,000-character per-file cap; newest then relevant documents lead and clipping
+is marked. Upload state advances `inputRevision`, including document-only
+understanding. Person-turn evidence and HTML `visitorWords` stay person words;
+image concept prompts have a separate bounded document section, as START does.
 
 `createCodexImagegen({binding})` from `@inspr/aithema-plugin-codex-imagegen`
 implements the same server-only generate/edit contract. The operator supplies
@@ -1399,6 +1468,10 @@ Readiness of voice is separately visible in
 | `AITHEMA_HTML_MODEL` | `anthropic/claude-opus-5.5` (default); Claude model ID required in `AITHEMA_OPENROUTER_PRICES`; output capped at 8,000 tokens |
 | `AITHEMA_UI_RENDERS_PER_SESSION` | Persistent lifetime limit shared by HTML and images; default `20`; `0` disables generation |
 | `AITHEMA_UI_RENDERS_PER_DAY` | Persistent deployment-wide UTC-day limit shared by HTML and images; default `200`; `0` disables generation |
+| `AITHEMA_UPLOAD_MAX_BYTES` | Document route file ceiling; default `20971520` (20 MiB), lowering only; parser input remains capped at 2 MiB |
+| `AITHEMA_UPLOAD_MAX_REQUEST_BYTES` | Multipart streaming body ceiling; default `67108864` (64 MiB), lowering only |
+| `AITHEMA_UPLOAD_MAX_FILES` | Active document count per session, including pending/unreadable; default `8`, lowering only |
+| `AITHEMA_UPLOAD_MAX_SESSION_BYTES` | Active source-byte count per session; default `167772160` (160 MiB), lowering only; withdrawal releases capacity |
 | `AITHEMA_VOICE_HOST_MODULE` | Optional server-only host override; unset selects built-in start2 host |
 
 Production requires no `ELEVENLABS_AGENT_ID`: the owned agent id comes from ensure
