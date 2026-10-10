@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdtemp, mkdir, writeFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, isAbsolute } from 'node:path';
-import { createBinding, beginInvocation, operationScope, normalizedError, PluginError, imageInfo, IPTC_DIGITAL_SOURCE } from '@inspr/aithema-core';
+import { createBinding, beginInvocation, operationScope, normalizedError, PluginError, imageInfo, imageCredentials, IPTC_DIGITAL_SOURCE } from '@inspr/aithema-core';
 import { manifest } from './manifest.js';
 import { prepareBrief } from './brief.js';
 import { acquireSlot, cliEnvironment, executablePath, runCodex, producedImage } from './process.js';
@@ -38,7 +38,7 @@ function artifactFor(bytes, brief, model, operation, spec) {
     provenance: { version: 1, origin: edited ? 'ai-manipulated' : 'ai-generated', modality: 'image',
       digitalSourceType: IPTC_DIGITAL_SOURCE[edited ? 'manipulated' : 'generated'], generatedAt: new Date().toISOString(),
       generator: { provider: 'codex-imagegen', model }, promptDigest, techniques: ['response-field', 'sidecar'],
-      credentials: { c2pa: 'absent', manifestByteLength: 0, verification: 'not-verified' },
+      credentials: imageCredentials(bytes),
       assurances: { digitallySigned: false, imperceptibleWatermark: 'unknown', watermarkSource: null },
       subject: { contentDigest: `sha-256=:${createHash('sha256').update(bytes).digest('base64')}:`, mediaType } } };
 }

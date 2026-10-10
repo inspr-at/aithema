@@ -141,16 +141,21 @@ test('request idempotency is byte-bound and never repeats a paid image; pause bl
   await h.call('pause', { paused: true }); assert.equal((await h.request('paused', `/${first.id}/regenerate`)).status, 403);
   assert.equal((await h.call(`concepts/${first.id}/image`)).status, 200); assert.equal(h.records.length, 1);
 });
-test('legacy embedded images and provenance restore after restart; lost host consent fails closed until renewed', async t => {
+for (const legacy of [false, true]) test(`${legacy ? 'legacy embedded' : 'current credential-bearing'} images and provenance restore after restart; lost host consent fails closed until renewed`, async t => {
   const path = await temporaryDb(), h = await setup(t, { path, intercept: async (spec, feedback, options, images) => {
     await images.generate(spec, feedback, options);
-    const bytes = withCredential(png, { type: 'iTXt', payload: Buffer.from('XML:com.adobe.xmp\0\0\0\0\0<x:xmpmeta>legacy metadata</x:xmpmeta>') });
-    const artifact = imageArtifact(bytes, { prompt: spec.prompt, provider: 'local-demo-fake', model: 'deterministic-ui', operation: 'generate' });
-    delete artifact.provenance.credentials; delete artifact.provenance.promptDigest;
-    artifact.provenance.techniques = ['embedded-metadata', 'response-field'];
-    artifact.provenance.assurances = { digitallySigned: false, imperceptibleWatermark: 'provider-status-unknown' };
-    return artifact;
+    const bytes = legacy ? withCredential(png, { type: 'iTXt', payload: Buffer.from('XML:com.adobe.xmp\0\0\0\0\0<x:xmpmeta>legacy metadata</x:xmpmeta>') }) : credentialFixtures[0][1];
+    return imageArtifact(bytes, { prompt: spec.prompt, provider: legacy ? 'local-demo-fake' : 'openai', model: 'fixture-model', operation: 'generate' });
   } }); await h.turn('first'); const item = await rendered(h);
+  if (legacy) {
+    // Seed the historical stored shape after completion: new plugin output must stay current.
+    delete item.provenance.credentials; delete item.provenance.promptDigest;
+    item.provenance.techniques = ['embedded-metadata', 'response-field'];
+    item.provenance.assurances = { digitallySigned: false, imperceptibleWatermark: 'provider-status-unknown' };
+    const provenance = JSON.stringify(item.provenance);
+    h.storage.db.prepare("UPDATE concept_artifacts SET metadata=json_set(metadata, '$.provenance', json(?)) WHERE id=?").run(provenance, item.id);
+    h.storage.db.prepare("UPDATE sessions SET snapshot=json_set(snapshot, '$.concepts[0].provenance', json(?)) WHERE id=?").run(provenance, h.id);
+  }
   const bytes = h.storage.conceptArtifact(h.id, item.id).bytes;
   await h.handlers.close(); h.storage.close();
   // The original fixture's cleanup is replaced after this explicit restart.
@@ -164,7 +169,26 @@ test('legacy embedded images and provenance restore after restart; lost host con
   const grant = await handlers.handle(ownedRequest(`http://localhost/api/sessions/${h.id}/consent`, { method: 'POST', body: '{"granted":true}' })); assert.equal(grant.status, 200);
   assert.deepEqual(new Uint8Array(await (await imageRequest()).arrayBuffer()), bytes);
   assert.deepEqual(storage.get(h.id).concepts[0].provenance, item.provenance);
+  const restored = storage.conceptArtifact(h.id, item.id);
+  assert.deepEqual(restored.provenance, item.provenance); assert.equal(restored.promptDigest, item.promptDigest);
+  assert.deepEqual(restored.bytes, bytes);
+  if (!legacy) {
+    assert.equal(restored.provenance.credentials.c2pa, 'present');
+    assert.equal(restored.provenance.promptDigest, restored.promptDigest);
+  }
   assert.equal(storage.db.prepare("SELECT COUNT(*) AS n FROM budget_attempts WHERE lane='concept'").get().n, 1);
+});
+test('new plugin output in the legacy shape fails completion without storing an artifact', async t => {
+  const h = await setup(t, { intercept: async (spec, feedback, options, images) => {
+    const artifact = await images.generate(spec, feedback, options);
+    delete artifact.provenance.credentials; delete artifact.provenance.promptDigest;
+    artifact.provenance.techniques = ['embedded-metadata', 'response-field'];
+    artifact.provenance.assurances = { digitallySigned: false, imperceptibleWatermark: 'provider-status-unknown' };
+    return artifact;
+  } });
+  await h.turn('first'); h.readiness(); assert.equal((await h.request()).status, 202); await h.handlers.idle();
+  assert.equal(h.storage.get(h.id).conceptStatus.phase, 'failed');
+  assert.equal(h.storage.get(h.id).concepts.length, 0); assert.equal(h.storage.conceptArtifactIndex(h.id).length, 0);
 });
 test('withdrawal invalidates dependent pending renders and bytes, keeps unrelated history, and never resurrects on replay', async t => {
   let release, started;

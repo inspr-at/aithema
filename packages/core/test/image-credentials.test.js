@@ -52,11 +52,28 @@ test('JPEG finds APP11 between scans without reading stuffed scan bytes as metad
     Buffer.from([1, 0xff, 0, 0xeb, 0xff, 0xd0, 2]), app11(payload), jpeg.subarray(-2)]);
   assert.deepEqual(imageCredentials(bytes), present(payload.length));
 });
+for (const [name, bytes] of [['PNG', png], ['JPEG', jpeg], ['WebP', webp]]) test(`${name} requires both the C2PA content-type UUID and exact label`, () => {
+  const wrongUuid = Buffer.from(jumbf()); wrongUuid[16] ^= 1;
+  const missingLabelFlag = Buffer.from(jumbf()); missingLabelFlag[32] = 0;
+  for (const payload of [wrongUuid, missingLabelFlag, jumbf('c2pa.claim'), jumbf('unrelated'),
+    box('jumb', box('cbor', Buffer.from('c2pa\0')))]) {
+    assert.deepEqual(imageCredentials(withCredential(bytes, { payload })), absent);
+  }
+});
+for (const [name, bytes] of [['PNG', png], ['WebP', webp]]) test(`${name} ignores garbage and malformed credential store payloads`, () => {
+  const payload = jumbf(), oversized = Buffer.from(payload); oversized.writeUInt32BE(payload.length + 1);
+  const badChild = Buffer.from(payload); badChild.writeUInt32BE(payload.length, 8);
+  for (const data of [Buffer.from([1, 2, 3]), Buffer.from('c2pa'), oversized, badChild, payload.subarray(0, -1),
+    Buffer.concat([payload, Buffer.from([1])])]) {
+    assert.deepEqual(imageCredentials(withCredential(bytes, { payload: data })), absent);
+  }
+});
 test('PNG and WebP count payload bytes without chunk headers or odd-length padding', () => {
-  const payload = Buffer.from([1, 2, 3]);
-  assert.deepEqual(imageCredentials(withCredential(png, { payload })), present(3));
-  assert.deepEqual(imageCredentials(withCredential(webp, { payload })), present(3));
+  const payload = jumbf(); assert.equal(payload.length % 2, 1);
+  assert.deepEqual(imageCredentials(withCredential(png, { payload })), present(payload.length));
+  assert.deepEqual(imageCredentials(withCredential(webp, { payload })), present(payload.length));
   const multiplePng = Buffer.concat([png.subarray(0, -12), pngChunk('caBX', payload), pngChunk('caBX', payload), png.subarray(-12)]);
   const multipleWebp = Buffer.concat([webp, webpChunk('C2PA', payload), webpChunk('C2PA', payload)]); multipleWebp.writeUInt32LE(multipleWebp.length - 8, 4);
-  assert.deepEqual(imageCredentials(multiplePng), present(6)); assert.deepEqual(imageCredentials(multipleWebp), present(6));
+  assert.deepEqual(imageCredentials(multiplePng), present(payload.length * 2));
+  assert.deepEqual(imageCredentials(multipleWebp), present(payload.length * 2));
 });

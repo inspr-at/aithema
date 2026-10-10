@@ -25,11 +25,11 @@ export function assertUIGeneration(plugin) {
   }
   return plugin;
 }
-export function isUIArtifact(artifact) {
+export function isUIArtifact(artifact, { allowLegacy = false } = {}) {
   const p = artifact?.provenance;
   const keys = ['version', 'origin', 'modality', 'digitalSourceType', 'generatedAt', 'generator', 'techniques', 'assurances', 'subject'];
   // Keep stored v1 embedded-metadata artifacts usable, including as edit references.
-  const legacy = exactKeys(p, keys) && exactKeys(p.assurances, ['digitallySigned', 'imperceptibleWatermark']) &&
+  const legacy = allowLegacy && exactKeys(p, keys) && exactKeys(p.assurances, ['digitallySigned', 'imperceptibleWatermark']) &&
     p.assurances.imperceptibleWatermark === 'provider-status-unknown';
   const current = exactKeys(p, [...keys, 'promptDigest', 'credentials']) && p.promptDigest === artifact.promptDigest &&
     exactKeys(p.credentials, ['c2pa', 'manifestByteLength', 'verification']) &&

@@ -2,6 +2,7 @@ import { imageInfo } from './image-info.js';
 
 const text = (bytes, at, size) => String.fromCharCode(...bytes.subarray(at, at + size));
 const viewOf = bytes => new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+const C2PA_CONTENT_TYPE = [0x63, 0x32, 0x70, 0x61, 0x00, 0x11, 0x00, 0x10, 0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71];
 const record = manifestByteLength => ({ c2pa: manifestByteLength ? 'present' : 'absent',
   manifestByteLength, verification: 'not-verified' });
 
@@ -29,7 +30,8 @@ function c2paStoreLength(bytes) {
         const start = child + entry.header, end = child + entry.length;
         // JUMBF description: content-type UUID, toggles, optional NUL-terminated label.
         if (first && entry.type === 'jumd' && end - start >= 22 && bytes[start + 16] & 2) {
-          c2pa = text(bytes, start + 17, 5) === 'c2pa\0';
+          c2pa = C2PA_CONTENT_TYPE.every((byte, i) => bytes[start + i] === byte) &&
+            text(bytes, start + 17, 5) === 'c2pa\0';
         }
         first = false; child += entry.length;
       }
@@ -101,7 +103,7 @@ export function imageCredentials(bytes) {
   for (let at = png ? 8 : 12; at < bytes.length;) {
     const length = view.getUint32(at + (png ? 0 : 4), !png);
     const type = text(bytes, at + (png ? 4 : 0), 4);
-    if (type === (png ? 'caBX' : 'C2PA')) total += length;
+    if (type === (png ? 'caBX' : 'C2PA')) total += c2paStoreLength(bytes.subarray(at + 8, at + 8 + length));
     at += length + (png ? 12 : 8 + length % 2);
   }
   return record(total);

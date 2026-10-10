@@ -62,7 +62,7 @@ export function createOpenAIImages({ binding, baseUrl, resolveSecret = ref => pr
       const key = configured(); if (!key) throw new PluginError('auth');
       const references = [...validateUIReferences(spec?.references)];
       if (operation === 'edit') {
-        if (!isUIArtifact(artifact) || typeof feedback !== 'string' || !feedback.trim()) throw new PluginError('invalid-output');
+        if (!isUIArtifact(artifact, { allowLegacy: true }) || typeof feedback !== 'string' || !feedback.trim()) throw new PluginError('invalid-output');
         const info = imageInfo(artifact.bytes);
         if (info.mediaType !== artifact.mediaType || info.width !== artifact.width || info.height !== artifact.height) throw new PluginError('invalid-output');
         references.unshift({ bytes: artifact.bytes, mediaType: artifact.mediaType, role: 'previous' });

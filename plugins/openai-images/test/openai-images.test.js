@@ -283,6 +283,14 @@ for (const [name, mutation] of [
   ['wrong media type', result => ({ ...result, mediaType: 'image/webp', provenance: { ...result.provenance,
     subject: { ...result.provenance.subject, mediaType: 'image/webp' } } })],
   ['fabricated dimensions', result => ({ ...result, width: 1536, height: 1024 })],
+  ['missing credentials', result => { delete result.provenance.credentials; return result; }],
+  ['missing prompt digest', result => { delete result.provenance.promptDigest; return result; }],
+  ['legacy provenance', result => {
+    delete result.provenance.credentials; delete result.provenance.promptDigest;
+    result.provenance.techniques = ['embedded-metadata', 'response-field'];
+    result.provenance.assurances = { digitallySigned: false, imperceptibleWatermark: 'provider-status-unknown' };
+    return result;
+  }],
 ]) for (const operation of ['generate', 'edit']) test(`conformance rejects ${operation} ${name} against the actual bytes`, async t => {
   const f = await fake(t), broken = { ...f.plugin, async [operation](...args) { return mutation(await f.plugin[operation](...args)); } };
   const result = await uiGenerationConformance(broken, { spec, feedback, artifact: artifact() }, {
@@ -337,6 +345,14 @@ test('fake/local sidecars report absent credentials and unknown watermarks', () 
   assert.deepEqual(result.provenance.credentials, { c2pa: 'absent', manifestByteLength: 0, verification: 'not-verified' });
   assert.deepEqual(result.provenance.assurances, { digitallySigned: false, imperceptibleWatermark: 'unknown', watermarkSource: null });
 });
+for (const provider of ['codex-imagegen', 'another-provider']) for (const marked of [false, true]) test(`${provider} detects credentials from ${marked ? 'marked' : 'unmarked'} bytes with unknown watermark`, () => {
+  const bytes = marked ? withCredential(png) : png;
+  const result = imageArtifact(bytes, { prompt: 'generate', model: 'fixture-model', provider, operation: 'generate' });
+  assert.equal(isUIArtifact(result), true); assert.deepEqual(Buffer.from(result.bytes), bytes);
+  assert.deepEqual(result.provenance.credentials, { c2pa: marked ? 'present' : 'absent',
+    manifestByteLength: marked ? jumbf().length : 0, verification: 'not-verified' });
+  assert.deepEqual(result.provenance.assurances, { digitallySigned: false, imperceptibleWatermark: 'unknown', watermarkSource: null });
+});
 for (const [name, bytes, type] of [['PNG', png, 'iTXt'], ['WebP', webp, 'XMP ']]) test(`existing ${name} XMP remains intact through refinement`, () => {
   const source = withCredential(bytes, { type, payload: Buffer.from('XML:com.adobe.xmp\0<x:xmpmeta>legacy</x:xmpmeta>') });
   const result = imageArtifact(source, { prompt: 'refine', model: 'gpt-image-2', operation: 'edit' });
@@ -348,7 +364,8 @@ test('legacy embedded-metadata sidecars remain accepted as private edit referenc
   delete source.provenance.credentials; delete source.provenance.promptDigest;
   source.provenance.techniques = ['embedded-metadata', 'response-field'];
   source.provenance.assurances = { digitallySigned: false, imperceptibleWatermark: 'provider-status-unknown' };
-  assert.equal(isUIArtifact(source), true);
+  assert.equal(isUIArtifact(source), false);
+  assert.equal(isUIArtifact(source, { allowLegacy: true }), true);
   const result = await f.plugin.edit(source, spec, feedback, options());
   assert.deepEqual(new Uint8Array(await f.records[0].images[0].arrayBuffer()), source.bytes);
   assert.equal(result.provenance.origin, 'ai-manipulated');

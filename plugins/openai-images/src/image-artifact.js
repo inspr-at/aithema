@@ -16,7 +16,7 @@ export function imageArtifact(bytes, { prompt, model, operation, provider = 'ope
   const provenance = { version: 1, origin: operation === 'edit' ? 'ai-manipulated' : 'ai-generated', modality: 'image',
     digitalSourceType: IPTC_DIGITAL_SOURCE[operation === 'edit' ? 'manipulated' : 'generated'], generatedAt: new Date(now).toISOString(),
     generator: { provider, model }, promptDigest: digest, techniques: ['response-field', 'sidecar'],
-    credentials: provider === 'openai' ? imageCredentials(bytes) : { c2pa: 'absent', manifestByteLength: 0, verification: 'not-verified' },
+    credentials: provider === 'local-demo-fake' ? { c2pa: 'absent', manifestByteLength: 0, verification: 'not-verified' } : imageCredentials(bytes),
     assurances: { digitallySigned: false, imperceptibleWatermark: provider === 'openai' ? 'provider-declared' : 'unknown',
       watermarkSource: provider === 'openai' ? 'OpenAI declares SynthID on API images: https://help.openai.com/en/articles/8912793' : null } };
   return { bytes: new Uint8Array(bytes), mediaType: info.mediaType, width: info.width, height: info.height, promptDigest: digest,
