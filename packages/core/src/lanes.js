@@ -3,7 +3,7 @@ import { reduceUnderstanding, understandingSchema } from './understanding.js';
 import { reasoningRequest } from './prompts.js';
 import { assertReasoning, operationScope, matchesSchema } from './reasoning.js';
 import { untilCancelled, cancellableStream } from './cancellation.js';
-import { documentInputs, hasConversationInput } from './document-context.js';
+import { hasConversationInput, understandingDeferred } from './document-context.js';
 import { aiTextOrigin } from './text-origin.js';
 
 const producer = (admitted, plugin) => aiTextOrigin(admitted?.producer ?? plugin.binding ??
@@ -61,8 +61,7 @@ export class SessionLanes {
       if (session.tombstone || session.consentWithdrawn) return 'blocked';
       if (lane === 'understanding') {
         if (session.identity?.verificationRequired === true && !session.identity.assessmentUnlocked) return 'verification-required';
-        const humanTurns = activeTurns(session).filter(t => t.role === 'user').length + documentInputs(session).length;
-        if (!humanTurns || (!session.demo && !session.identified && humanTurns < session.preset.anonymousTurns)) return 'deferred';
+        if (understandingDeferred(session)) return 'deferred';
         if (session.understanding.inputRevision === revision && !session.understanding.draft) return 'cached';
         // A distinct draft binding can retain the incremental path without paying
         // twice for the same model in the slice-1 host.

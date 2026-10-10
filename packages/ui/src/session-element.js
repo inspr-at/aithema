@@ -1,6 +1,7 @@
 import { ConceptView } from './concept-view.js';
 import './html-preview.js'; // <aithema-html-preview>, the concept viewer's stage for drafts
 import { applyEvent, inputRevision, activeTurns } from '../../core/src/session.js';
+import { understandingDeferred } from '../../core/src/document-context.js';
 import { aiTextOrigin } from '../../core/src/text-origin.js';
 import { readinessScalePercent, readinessListItems, readinessListWindow, newlyClearedFirst } from '../../core/src/readiness.js';
 import { displayedReadinessPercent } from '../../core/src/understanding.js';
@@ -43,6 +44,13 @@ async function* serverEvents(reader) {
   }
 }
 const NONE = '\u0000none';
+function reconnectDelay(signal) {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise(resolve => {
+    const finish = () => { clearTimeout(timer); signal.removeEventListener('abort', finish); resolve(); };
+    const timer = setTimeout(finish, 1000); signal.addEventListener('abort', finish, { once: true });
+  });
+}
 // Repeated values get distinct keys by occurrence.
 function textKeys(values) {
   const seen = new Map();
@@ -539,7 +547,8 @@ export class AithemaSession extends HTMLElement {
     const hasPersonTurn = activeTurns(this.#session).some(t => t.role === 'user');
     const missingReply = hasPersonTurn && !activeTurns(this.#session).some(t => t.role === 'assistant' && t.inputRevision === revision);
     root.querySelector('.retry').disabled = !analysis.available;
-    root.querySelector('.retry').hidden = locked || !analysis.available || Boolean(running) || !(this.#failure || hasPersonTurn && (stale || u.draft || missingReply));
+    root.querySelector('.retry').hidden = locked || !analysis.available || Boolean(running) || !(this.#failure || hasPersonTurn &&
+      (missingReply || !understandingDeferred(this.#session) && (stale || u.draft)));
     root.querySelector('.summary-text').textContent = u.summary;
     for (const [selector, items] of [['.signals', u.signals], ['.questions', u.openQuestions]]) {
       reconcile(root.querySelector(selector), items.length ? textKeys(items) : [[NONE, null]],
@@ -1143,7 +1152,10 @@ export class AithemaSession extends HTMLElement {
       if (this.isConnected) this.#connect();
     } catch {
       if (sessionId !== this.#session.id) return;
-      this.#connectionStatus(this.#copy.reconnecting); if (this.isConnected) this.#connect();
+      this.#connectionStatus(this.#copy.reconnecting);
+      const controller = new AbortController(); this.#abort?.abort(); this.#abort = controller;
+      await reconnectDelay(controller.signal);
+      if (!controller.signal.aborted && sessionId === this.#session.id && this.isConnected) this.#connect();
     }
   }
   #connect() {
@@ -1173,10 +1185,7 @@ export class AithemaSession extends HTMLElement {
       if (this.#session.operations) this.#session.operations.running = [];
       attempt ||= 1;
       this.#partials.clear(); this.#render('transcript'); this.#render('aside'); this.#connectionStatus(this.#copy.reconnecting);
-      await new Promise(resolve => {
-        const finish = () => { clearTimeout(timer); signal.removeEventListener('abort', finish); resolve(); };
-        const timer = setTimeout(finish, 1000); signal.addEventListener('abort', finish, { once: true });
-      });
+      await reconnectDelay(signal);
     }
   }
 }
