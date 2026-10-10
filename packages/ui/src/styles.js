@@ -19,7 +19,7 @@ button:disabled { opacity:.5; cursor:wait; } :focus-visible { outline:2px solid 
 /* Quiet actions: accent text, a tint on hover. */
 :is(.pause, .concept-tab, .settings-open, .expand, .retry, .transcript-latest, .voice-controls button, .concept-request, .concept-close,
   .concept-download, .ready__actions button, .notice-action, .save-retry, .general button, .local-disconnect, .local-test, .copy-command,
-  .local-help-link, .local-stop, .local-send) { color:var(--aithema-accent); font-weight:600; }
+  .local-help-link, .local-stop, .local-send, .attach) { color:var(--aithema-accent); font-weight:600; }
 /* The one filled primary of an area. */
 :is(.send, .concept-regenerate, .local-connect) { color:var(--aithema-on-accent); background:var(--aithema-accent); font-weight:600; }
 :is(.send, .concept-regenerate, .local-connect):hover:not(:disabled) { background:color-mix(in srgb,var(--aithema-accent) 84%,var(--aithema-ink)); }
@@ -53,17 +53,44 @@ ol { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; 
 .turn.user::before { left:auto; right:-.43rem; clip-path:polygon(100% 0,0 0,100% 100%); }
 .turn strong { display:block; font-size:.68rem; color:var(--aithema-muted); margin-bottom:.2rem; }
 .turn span { white-space:pre-wrap; } .turn.partial { color:var(--aithema-muted); }
-.withdraw { display:block; margin-top:.4rem; font-size:.72rem; padding:.2rem 0; color:var(--aithema-muted); text-decoration:underline;
+:is(.withdraw, .upload-withdraw) { display:block; margin-top:.4rem; font-size:.72rem; padding:.2rem 0; color:var(--aithema-muted); text-decoration:underline;
   text-decoration-color:color-mix(in srgb,currentColor 40%,transparent); text-underline-offset:3px; }
-.withdraw:hover:not(:disabled) { background:none; color:var(--aithema-ink); text-decoration-color:currentColor; } .pause { font-size:.75rem; min-width:5.5rem; flex-shrink:0; }
+:is(.withdraw, .upload-withdraw):hover:not(:disabled) { background:none; color:var(--aithema-ink); text-decoration-color:currentColor; } .pause { font-size:.75rem; min-width:5.5rem; flex-shrink:0; }
 .composer { border-top:1px solid var(--aithema-line); padding:.8rem 1.2rem; display:grid; gap:.5rem; }
 .composer label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
 textarea { resize:none; width:100%; height:5rem; border:0; background:transparent; color:inherit; padding:.3rem 0; }
 textarea::placeholder { color:var(--aithema-muted); opacity:1; }
-.composer-actions { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
+.composer-actions { display:flex; align-items:center; justify-content:space-between; gap:.75rem; }
 .composer-actions small { font-size:.7rem; color:var(--aithema-muted); } .send { min-width:6rem; }
-/* A long reason wraps to a second line rather than ending in "…". */
-.composer-reason { min-width:0; line-height:1.3; max-height:2.6em; overflow-wrap:anywhere; }
+/* A long reason wraps to a second line rather than ending in "…"; a longer upload refusal scrolls in its two lines. */
+.composer-reason { flex:1; min-width:0; line-height:1.3; max-height:2.6em; overflow-wrap:anywhere; overflow-y:auto; overscroll-behavior:contain; }
+.sr-only { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+/* Attach (AIT-100 B2): a quiet action; unavailable stays focusable and says why when pressed. */
+.attach { display:inline-flex; align-items:center; gap:.4rem; flex-shrink:0; margin-left:-.85rem; font-size:.78rem; }
+.attach svg { flex:none; } .attach[aria-disabled="true"] { opacity:.5; cursor:not-allowed; }
+.attach[aria-disabled="true"]:hover { background:none; }
+/* Dropping files: an overlay over the conversation that never takes layout space. */
+.conversation { position:relative; }
+.drop-overlay { position:absolute; inset:.5rem; display:grid; place-items:center; padding:1rem; text-align:center; pointer-events:none; visibility:hidden;
+  border:2px dashed var(--aithema-accent); border-radius:.75rem; background:color-mix(in srgb,var(--aithema-surface) 94%,transparent); }
+.conversation[data-dropping] .drop-overlay { visibility:visible; }
+.drop-overlay p { margin:0; display:grid; gap:.3rem; } .drop-overlay strong { color:var(--aithema-accent); } .drop-overlay span { font-size:.8rem; color:var(--aithema-muted); }
+/* An upload in the transcript (GUI-27, not a pill): glyph, name and Withdraw upload; then muted size and state.
+   Fixed width and slots: a state change or withdrawal never moves the name or the action, nor resizes the row. */
+.upload { align-self:flex-end; width:min(34rem,78%); display:grid; grid-template-columns:1.25rem 4.5rem minmax(0,1fr) auto;
+  grid-template-rows:1.6rem auto; grid-template-areas:"glyph name name action" "glyph size state state"; column-gap:.5rem; padding:.15rem 0; overflow-wrap:anywhere; }
+.upload:focus { outline:none; } .upload:focus-visible { outline:2px solid var(--aithema-accent); outline-offset:3px; }
+.upload__glyph { grid-area:glyph; color:var(--aithema-muted); padding-top:.1rem; } .upload__glyph svg { display:block; }
+.upload__name { grid-area:name; align-self:center; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:.87rem; font-weight:600; }
+.upload__size { grid-area:size; } .upload__size, .upload__status > * { font-size:.72rem; color:var(--aithema-muted); line-height:1.45; }
+/* The real line and its invisible stand-ins share one cell: the cell keeps the size of the largest. */
+.upload__action { grid-area:action; display:grid; justify-items:end; align-items:center; }
+.upload__status { grid-area:state; display:grid; } :is(.upload__action, .upload__status) > * { grid-area:1/1; }
+.upload__sizer { visibility:hidden; } .upload__action .upload__sizer { display:block; font-size:.72rem; padding:.2rem 0; }
+.upload__action :is(.upload-withdraw, .upload__sizer) { white-space:nowrap; }
+.upload[data-state="unreadable"] .upload__state { color:var(--aithema-warning); }
+.upload[data-state="withdrawn"] .upload__name { font-weight:400; color:var(--aithema-muted); }
+.upload .upload-withdraw { margin-top:0; } .upload-withdraw[aria-disabled="true"] { opacity:.5; cursor:wait; }
 .understanding { height:42rem; display:grid; grid-template-rows:3.6rem 7rem minmax(0,1fr) 3.6rem; }
 .readiness { padding:.8rem 1.25rem; } .scale { height:.72rem; border:1px solid var(--aithema-line); border-radius:999px;
   position:relative; background:linear-gradient(90deg,color-mix(in srgb,var(--aithema-accent) 10%,var(--aithema-surface)) 0 30%,
@@ -72,7 +99,7 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .marker { position:absolute; top:-.25rem; left:30%; height:1.1rem; width:2px; background:var(--aithema-ink); }
 .scale-labels { display:flex; justify-content:space-between; font-size:.65rem; color:var(--aithema-muted); margin:.3rem 0; }
 .readiness p { margin:0; font-size:.7rem; color:var(--aithema-muted); }
-.analysis-content { overflow:auto; overflow-anchor:none; scrollbar-gutter:stable;
+.analysis-content { overflow:auto; overflow-anchor:none; scrollbar-gutter:stable; overflow-wrap:anywhere;
   padding:var(--aithema-slack-top,0px) 1.25rem calc(1rem + var(--aithema-slack-bottom,0px)); }
 .none-yet { list-style:none; color:var(--aithema-muted); } ul .none-yet { margin-left:-1.1rem; } .missing .none-yet { border-top:0; }
 .analysis-content section { margin-bottom:1.1rem; } .analysis-content p { margin:0; font-size:.87rem; }
@@ -159,6 +186,10 @@ summary { cursor:pointer; } details p { padding:.5rem 0; } blockquote { margin:.
 @media(max-width:40rem) {
   .conversation { height:auto; max-height:none; grid-template-rows:3.6rem 12rem 9.4rem clamp(20rem,60svh,36rem) 9rem; }
   textarea { height:3.8rem; }
+  /* Phones: Attach is its icon; the name stays its accessible label. */
+  .attach { width:2.75rem; height:2.75rem; padding:0; justify-content:center; margin-left:-.6rem; }
+  .attach__label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+  .upload { width:90%; }
   .audio-rail { height:12rem; grid-template-columns:2.5rem minmax(0,1fr); grid-template-rows:4.9rem auto; }
   .voice-orb { width:2.5rem; height:2.5rem; align-self:center; } .voice-state { max-height:5.2em; }
   .voice-controls { grid-template-columns:repeat(4,minmax(0,1fr)); grid-auto-rows:2.7rem; }

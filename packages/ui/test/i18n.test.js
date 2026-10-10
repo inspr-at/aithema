@@ -69,3 +69,15 @@ test('the demo header and mock consent name each visual kind in both languages; 
     assert.doesNotMatch(copy.host.consentUse.html, /image|bild/iu); assert.doesNotMatch(copy.host.consentUse.off, /image|bild|draft|entw/iu);
   }
 });
+
+test('upload copy exists in English and German with the same keys and placeholders, every German string formal and distinct (AIT-100 B2)', () => {
+  const leaves = (value, path = []) => typeof value === 'string' ? [[path.join('.'), value]] : Object.entries(value).flatMap(([key, v]) => leaves(v, [...path, key]));
+  const english = Object.fromEntries(leaves(en.uploads)), german = Object.fromEntries(leaves(de.uploads));
+  assert.deepEqual(Object.keys(german).sort(), Object.keys(english).sort());
+  for (const [key, text] of Object.entries(english)) {
+    assert.ok(text.length > 0 && german[key].length > 0, key);
+    assert.notEqual(german[key], text, key);
+    assert.deepEqual(german[key].match(/\{\w+\}/gu)?.sort() ?? [], text.match(/\{\w+\}/gu)?.sort() ?? [], `${key} placeholders`);
+    assert.doesNotMatch(german[key], /\b(?:du|dein|deine|dich|dir)\b/iu, `${key} uses formal Sie`);
+  }
+});

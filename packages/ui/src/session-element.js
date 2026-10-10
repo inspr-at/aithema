@@ -10,7 +10,8 @@ import { styles } from './styles.js';
 import { settingsStyles } from './settings-styles.js';
 import { SettingsDialog, ICONS, PRESET_ORDER, reasonText, engineView, catalogLabel } from './settings-dialog.js';
 import { LocalConnector } from './local-connector.js';
-import { postJson } from './post-json.js';
+import { postJson, postForm, sameOrigin } from './post-json.js';
+import { UPLOAD_LIMITS, UPLOAD_ACCEPT, UPLOAD_ICONS, uploadLimits, planUploads, refusalText, uploadStateText, uploadStateTexts, uploadsPossible, formatBytes, plural, limitsText, dropText } from './uploads.js';
 import { voiceJournal, tabStorage, closeVoiceCall, answerVoicePings, voiceCallAbandoned } from './voice-orphan.js';
 
 const PANES = '.transcript-shell, .analysis-content, .preset-panel, .intro';
@@ -65,6 +66,7 @@ export class AithemaSession extends HTMLElement {
   #open = []; #cleared = []; #failure = false; #sending = false;
   #pointer = null; #onTranscript = false; #follow = true; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false;
   #dialog; #connector; #createDevice; #deviceEndpoint; #chooser = { choice: null, busy: false, error: '' };
+  #uploadAt = new Map(); #uploading = false; #uploadNotice = ''; #reading = ''; #limits = UPLOAD_LIMITS; #limitsLoad = null; #dragDepth = 0;
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
     // Track the resting pointer so updates can keep the element under it in place.
@@ -94,6 +96,7 @@ export class AithemaSession extends HTMLElement {
     this.#restoreFailure(); this.#pending = null; this.#sending = false;
     this.#invalidatedAt = 0; this.#chooser = { choice: null, busy: false, error: '' };
     this.#open = []; this.#cleared = []; this.#follow = true; this.#onTranscript = false; this.#notice = ''; this.#connection = '';
+    this.#uploadAt.clear(); this.#uploading = false; this.#uploadNotice = ''; this.#reading = ''; this.#limits = UPLOAD_LIMITS; this.#limitsLoad = null; this.#dragDepth = 0;
     // A page that loads paused stays paused until the person resumes it (AIT-116 D4).
     this.#pausePrompt = Boolean(session.paused);
     // Every conversation keeps a journal: a choice at conversation start can switch it out of
@@ -136,7 +139,10 @@ export class AithemaSession extends HTMLElement {
       <section class="conversation"><header class="head"><h2 data-copy="conversation"></h2><button class="pause" type="button"></button><span class="status" role="status"></span></header>
         <div class="audio-rail"></div><div class="concept-rail"></div><div class="transcript-shell"><div class="concept-preview-slot"></div><ol aria-live="polite"></ol><button class="transcript-latest" type="button" data-copy="transcriptLatest" style="visibility:hidden"></button></div><div class="intro" hidden></div>
         <form class="composer"><label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000"></textarea>
-          <div class="composer-actions"><small class="composer-reason" role="status" id="composer-reason"></small><button class="send" data-copy="send"></button></div></form></section>
+          <div class="composer-actions"><button class="attach" type="button" aria-describedby="attach-limits">${UPLOAD_ICONS.attach}<span class="attach__label"></span></button>
+            <span class="sr-only" id="attach-limits"></span><input class="attach-input" type="file" multiple hidden tabindex="-1" accept="${UPLOAD_ACCEPT}">
+            <small class="composer-reason" role="status" id="composer-reason"></small><button class="send" data-copy="send"></button></div></form>
+        <div class="drop-overlay" aria-hidden="true"><p><strong></strong><span></span></p></div></section>
       <aside class="understanding"><header class="head"><h2 data-copy="understanding"></h2><button class="concept-tab" type="button" data-copy="conceptTab"></button></header>
         <section class="readiness"><div class="scale" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span class="fill"></span><span class="marker"></span></div>
           <div class="scale-labels"><span data-copy="talk"></span><span data-copy="build"></span></div><p class="talk-progress"></p><p class="build-progress"></p></section>
@@ -179,6 +185,8 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('textarea').addEventListener('keydown', e => {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.isComposing) { e.preventDefault(); void this.#send(); }
     });
+    root.querySelector('textarea').addEventListener('input', () => { if (this.#uploadNotice) { this.#uploadNotice = ''; this.#render('composer'); } });
+    this.#mountUploads();
     root.querySelector('.expand').addEventListener('click', () => {
       const details = [...root.querySelectorAll('.cleared details')];
       const expand = !details.every(d => d.open);
@@ -218,7 +226,10 @@ export class AithemaSession extends HTMLElement {
       if (this.#follow) root.querySelector('.transcript-latest').style.visibility = 'hidden';
     }, { passive: true });
     shell.addEventListener('pointerenter', () => { this.#onTranscript = true; });
-    shell.addEventListener('pointerleave', () => { this.#onTranscript = false; if (this.#follow) this.#scrollToLatest(); });
+    shell.addEventListener('pointerleave', () => {
+      this.#onTranscript = false;
+      if (this.#follow) this.#scrollToLatest();
+    });
     for (const pane of root.querySelectorAll(PANES)) pane.addEventListener('pointerleave', () => clearSlack(pane));
     this.#render('transcript'); this.#render('aside'); this.#render('composer');
   }
@@ -414,8 +425,10 @@ export class AithemaSession extends HTMLElement {
       root.querySelector('.send').disabled = this.#sending || !text.available;
       const reason = root.querySelector('.composer-reason');
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');
-      reason.textContent = text.available ? copy.shortcut.replace('{key}', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '') : text.reason;
-      reason.title = text.available ? '' : text.reason;
+      // An upload refusal stands until the person types or attaches again.
+      const words = this.#uploadNotice || (text.available ? copy.shortcut.replace('{key}', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '') : text.reason);
+      setText(reason, words); reason.title = this.#uploadNotice || text.available ? '' : text.reason;
+      this.#paintAttach();
       return;
     }
     if (part === 'features') {
@@ -432,15 +445,23 @@ export class AithemaSession extends HTMLElement {
     }
     if (part === 'transcript') {
       this.#renderIntro();
-      // Rows are keyed by turn id and updated in place: new turns append below, and
-      // focus and the hovered row survive updates. Superseded partials lose their rows.
+      // Rows are keyed by turn id (uploads by "upload:" and their id) and updated in place: new turns
+      // append below, and focus and the hovered row survive updates. Superseded partials lose their rows.
       const list = root.querySelector('ol'), shell = root.querySelector('.transcript-shell');
-      const turns = [...this.#session.transcript.filter(t => !t.erased || t.role === 'user'), ...this.#partials.values()];
+      const entries = this.#transcriptEntries(this.#session.transcript.filter(t => !t.erased || t.role === 'user'));
       const rows = new Map([...list.children].map(row => [row.dataset.id, row]));
-      const hovered = this.#onTranscript, count = list.children.length;
+      const hovered = this.#onTranscript, count = list.children.length, kept = new Set(entries.map(entry => entry.key));
+      // Rows that go are removed first, so a surviving row never moves past them: moving a node drops its focus.
+      for (const [key, row] of rows) if (!kept.has(key)) { row.remove(); rows.delete(key); }
       let next = list.firstElementChild;
-      for (const t of turns) {
-        let row = rows.get(t.id); rows.delete(t.id);
+      for (const { key, turn: t, upload } of entries) {
+        let row = rows.get(key); rows.delete(key);
+        if (upload) {
+          if (!row) { row = this.#uploadRow(upload.id); row.dataset.id = key; }
+          this.#paintUpload(row, upload);
+          if (row !== next) list.insertBefore(row, next); else next = next.nextElementSibling;
+          continue;
+        }
         if (!row) {
           row = element('li'); row.dataset.id = t.id; row.append(element('strong'), element('span'));
         }
@@ -544,7 +565,7 @@ export class AithemaSession extends HTMLElement {
   #renderIntro() {
     const root = this.shadowRoot, intro = root.querySelector('.intro'), active = root.activeElement;
     const focus = active && intro.contains(active) ? active.dataset.focusKey : null;
-    const started = this.#session.transcript.length || this.#partials.size || this.#session.tombstone;
+    const started = this.#session.transcript.length || this.#session.uploads?.length || this.#partials.size || this.#session.tombstone;
     const mode = started ? '' : (this.#session.settings?.origin ?? 'default') === 'chosen' ? 'ready' : 'chooser';
     // The chooser covers the call and concept rails until a choice exists; the ready
     // card covers only the still empty transcript, so a call can start from it.
@@ -705,6 +726,199 @@ export class AithemaSession extends HTMLElement {
     });
     return button;
   }
+  // Uploads sit in the transcript where they arrived: before the first turn saved after them, and
+  // ahead of a running reply. A withdrawn upload keeps the place it had on this page; one already
+  // withdrawn when the page loaded has no time left (it was erased) and stands before the turns.
+  #transcriptEntries(turns) {
+    // Files of one request share a time; the order they were first seen breaks the tie (a state change
+    // moves an upload to the end of the session's list).
+    const uploads = (this.#session.uploads ?? []).map(upload => {
+      if (upload.at && !this.#uploadAt.has(upload.id)) this.#uploadAt.set(upload.id, { at: upload.at, order: this.#uploadAt.size });
+      const seen = this.#uploadAt.get(upload.id);
+      return { key: `upload:${upload.id}`, upload, at: seen?.at ?? '', order: seen?.order ?? -1 };
+    }).sort((a, b) => a.at < b.at ? -1 : a.at > b.at ? 1 : a.order - b.order);
+    const entries = []; let next = 0;
+    for (const turn of turns) {
+      if (turn.at) while (next < uploads.length && uploads[next].at < turn.at) entries.push(uploads[next++]);
+      entries.push({ key: turn.id, turn });
+    }
+    entries.push(...uploads.slice(next));
+    for (const turn of this.#partials.values()) entries.push({ key: turn.id, turn });
+    return entries;
+  }
+  // GUI-27, not a pill: a plain line with a file glyph, the name and Withdraw upload, then the muted
+  // size and the state. Every part has its own slot, so no state change moves or resizes the row:
+  // the name is one line, the action slot keeps the width of its label after withdrawal, and the
+  // state slot is as tall as the longest state of this language (invisible copies stacked under it).
+  // Names are text, never markup; the file's contents never reach the page.
+  #uploadRow(id) {
+    const copy = this.#copy, row = node('li', 'upload'); row.tabIndex = -1;
+    const glyph = node('span', 'upload__glyph'); glyph.innerHTML = UPLOAD_ICONS.file;
+    const name = node('span', 'upload__name'); name.id = `upload-name-${id}`;
+    const sizer = text => { const n = node('small', 'upload__sizer', text); n.setAttribute('aria-hidden', 'true'); return n; };
+    const action = node('span', 'upload__action'); action.append(sizer(copy.uploads.withdraw));
+    const status = node('span', 'upload__status'); status.append(node('small', 'upload__state'), ...uploadStateTexts(copy).map(sizer));
+    row.append(glyph, name, action, node('small', 'upload__size'), status);
+    return row;
+  }
+  #paintUpload(row, upload) {
+    const copy = this.#copy, gone = upload.state === 'withdrawn' || Boolean(upload.erased);
+    row.dataset.state = gone ? 'withdrawn' : upload.state;
+    const name = row.querySelector('.upload__name');
+    setText(name, gone ? copy.uploads.withdrawn : upload.filename ?? ''); name.title = gone ? '' : upload.filename ?? '';
+    setText(row.querySelector('.upload__size'), gone || !Number.isFinite(upload.bytes) ? '' : formatBytes(upload.bytes, this.#session.locale));
+    setText(row.querySelector('.upload__state'), gone ? '' : uploadStateText(copy, upload));
+    const button = row.querySelector('.upload-withdraw');
+    if (!gone && !button) row.querySelector('.upload__action').prepend(this.#uploadWithdrawButton(row, upload.id));
+    if (gone && button) {
+      // Focus stays where it was: on the row, never dropped to the page.
+      const focused = this.shadowRoot.activeElement === button;
+      button.remove(); if (focused) row.focus();
+    }
+  }
+  #uploadWithdrawButton(row, uploadId) {
+    const copy = this.#copy, button = node('button', 'upload-withdraw', copy.uploads.withdraw);
+    button.type = 'button'; button.setAttribute('aria-describedby', `upload-name-${uploadId}`);
+    // Busy is aria-disabled, not disabled: a disabled button would drop keyboard focus to the page.
+    button.addEventListener('click', async () => {
+      if (button.getAttribute('aria-disabled') === 'true') return;
+      const sessionId = this.#session.id; button.setAttribute('aria-disabled', 'true');
+      try {
+        const path = `${this.#base}/api/sessions/${sessionId}/uploads/${encodeURIComponent(uploadId)}/withdraw`;
+        const response = await postJson(sameOrigin(this.ownerDocument.defaultView, path), {}, { sessionToken: this.#sessionToken });
+        if (!response.ok) throw new Error();
+        const ack = await response.json(); if (sessionId === this.#session.id) this.receive(ack.event);
+      } catch { if (sessionId === this.#session.id) this.#status(copy.uploads.withdrawFailed); }
+      finally { button.removeAttribute('aria-disabled'); }
+    });
+    return button;
+  }
+  // The attach button opens the native picker; files dropped anywhere on the conversation (the
+  // transcript or the composer) go the same way. The overlay is absolutely placed: it never moves layout.
+  #mountUploads() {
+    const root = this.shadowRoot, input = root.querySelector('.attach-input'), zone = root.querySelector('.conversation');
+    root.querySelector('.attach__label').textContent = this.#copy.uploads.attach;
+    root.querySelector('.drop-overlay strong').textContent = this.#copy.uploads.dropActive;
+    root.querySelector('.attach').addEventListener('click', () => {
+      const refusal = this.#attachRefusal();
+      if (refusal) { this.#uploadRefusal(refusal); return; }
+      void this.#loadLimits(); input.click();
+    });
+    input.addEventListener('change', () => { const files = [...input.files ?? []]; input.value = ''; void this.#attach(files); });
+    const carriesFiles = event => [...event.dataTransfer?.types ?? []].includes('Files');
+    zone.addEventListener('dragenter', event => {
+      if (!carriesFiles(event)) return;
+      event.preventDefault(); this.#dragDepth++; this.#dropping(true);
+    });
+    zone.addEventListener('dragover', event => {
+      if (!carriesFiles(event)) return;
+      event.preventDefault(); event.dataTransfer.dropEffect = 'copy';
+    });
+    zone.addEventListener('dragleave', event => {
+      if (!carriesFiles(event)) return;
+      this.#dragDepth = Math.max(0, this.#dragDepth - 1); if (!this.#dragDepth) this.#dropping(false);
+    });
+    // A dropped file never navigates the page away, also when uploading is unavailable.
+    zone.addEventListener('drop', event => {
+      if (!carriesFiles(event)) return;
+      event.preventDefault(); this.#dragDepth = 0; this.#dropping(false);
+      void this.#attach([...event.dataTransfer.files ?? []]);
+    });
+  }
+  #dropping(on) {
+    const zone = this.shadowRoot.querySelector('.conversation'), feature = this.#feature('uploads', true);
+    if (on) {
+      if (feature.available) void this.#loadLimits();
+      setText(zone.querySelector('.drop-overlay strong'), feature.available ? this.#copy.uploads.dropActive : this.#copy.uploads.unavailable.replace('{reason}', feature.reason));
+      setText(zone.querySelector('.drop-overlay span'), feature.available ? dropText(this.#copy, this.#limits, this.#session.locale) : '');
+    }
+    zone.toggleAttribute('data-dropping', on);
+  }
+  // Why nothing can be attached right now, or '' when it can. Attach is aria-disabled exactly then, and
+  // every way in (the button, the picker's files, a drop) is refused by it before anything is sent.
+  #attachRefusal() {
+    const copy = this.#copy, feature = this.#feature('uploads', true);
+    if (!feature.available) return copy.uploads.unavailable.replace('{reason}', feature.reason);
+    if (this.#uploading) return copy.uploads.busy;
+    return uploadsPossible(this.#limits) ? '' : copy.uploads.impossible;
+  }
+  // Unavailable (consent, preset, extractors, pause) stays focusable and says why when pressed.
+  #paintAttach() {
+    const root = this.shadowRoot, attach = root.querySelector('.attach'), feature = this.#feature('uploads', true);
+    const limits = limitsText(this.#copy, this.#limits, this.#session.locale);
+    const unavailable = feature.available ? '' : this.#copy.uploads.unavailable.replace('{reason}', feature.reason);
+    attach.setAttribute('aria-disabled', String(Boolean(this.#attachRefusal())));
+    attach.title = unavailable || limits;
+    setText(root.querySelector('#attach-limits'), unavailable || limits);
+  }
+  #uploadRefusal(text) { this.#uploadNotice = text; this.#render('composer'); }
+  // Limits are the host's (possibly lowered) values; the route defaults hold until they arrive.
+  #loadLimits() {
+    if (this.#limitsLoad) return this.#limitsLoad;
+    const sessionId = this.#session.id, path = `${this.#base}/api/sessions/${sessionId}/uploads`;
+    // Started on the next microtask, so a refusal before sending (another origin) can clear it.
+    const load = Promise.resolve().then(async () => {
+      try {
+        const response = await fetch(sameOrigin(this.ownerDocument.defaultView, path), { headers: this.#headers(), cache: 'no-store', signal: AbortSignal.timeout(5000) });
+        if (!response.ok) throw new Error();
+        const body = await response.json();
+        if (sessionId === this.#session.id) { this.#limits = uploadLimits(body.limits); this.#render('composer'); }
+      } catch { if (this.#limitsLoad === load) this.#limitsLoad = null; }
+    });
+    this.#limitsLoad = load;
+    return load;
+  }
+  async #attach(files) {
+    if (!files.length) return;
+    const copy = this.#copy, sessionId = this.#session.id, refusal = this.#attachRefusal();
+    if (refusal) { this.#uploadRefusal(refusal); return; }
+    this.#uploading = true; this.#uploadNotice = ''; this.#render('composer');
+    try {
+      await this.#loadLimits();
+      if (sessionId !== this.#session.id) return;
+      // The host's limits may have arrived just now and leave no room: nothing is sent.
+      if (!uploadsPossible(this.#limits)) { this.#uploadNotice = copy.uploads.impossible; return; }
+      const plan = planUploads(files, { limits: this.#limits, uploads: this.#session.uploads });
+      const notices = [refusalText(copy, plan, this.#session.locale)], count = plan.batches.flat().length;
+      if (count) {
+        this.#status(plural(copy.uploads.uploading, count));
+        let sent = 0;
+        for (const batch of plan.batches) {
+          const failure = await this.#postUploads(batch);
+          if (sessionId !== this.#session.id) return;
+          if (failure) { notices.push(failure); break; }
+          sent += batch.length;
+        }
+        if (sent && this.#session.uploads.some(u => u.state === 'pending')) { this.#reading = plural(copy.uploads.received, sent); this.#status(this.#reading); }
+        else this.#clearNotice();
+      }
+      this.#uploadNotice = notices.filter(Boolean).join(' ');
+    } finally {
+      if (sessionId === this.#session.id) { this.#uploading = false; this.#render('composer'); }
+    }
+  }
+  /** One multipart request; returns the plain-words failure, or '' once the server accepted it. */
+  async #postUploads(files) {
+    const copy = this.#copy, sessionId = this.#session.id, form = new FormData();
+    form.append('clientEventId', crypto.randomUUID());
+    for (const file of files) form.append('files', file, file.name);
+    let response, body = null;
+    try {
+      const path = `${this.#base}/api/sessions/${sessionId}/uploads`;
+      response = await postForm(sameOrigin(this.ownerDocument.defaultView, path), form, { sessionToken: this.#sessionToken });
+      body = await response.json().catch(() => null);
+    } catch { return copy.uploads.failed; }
+    if (sessionId !== this.#session.id) return '';
+    if (response.ok && body) {
+      if (body.limits) this.#limits = uploadLimits(body.limits);
+      for (const event of body.events ?? []) this.receive(event);
+      return '';
+    }
+    if (response.status === 413) return copy.uploads.overLimit;
+    if (response.status === 429) return copy.uploads.busy;
+    if (response.status === 403 && typeof body?.reason === 'string') return copy.uploads.unavailable.replace('{reason}', reasonText(copy, body.reason));
+    return copy.uploads.failed;
+  }
   #expandLabel() {
     const details = [...this.shadowRoot.querySelectorAll('.cleared details')], button = this.shadowRoot.querySelector('.expand');
     button.textContent = details.length && details.every(d => d.open) ? this.#copy.collapse : this.#copy.expand;
@@ -762,7 +976,10 @@ export class AithemaSession extends HTMLElement {
     if (event.sessionId && event.sessionId !== this.#session.id) return;
     if (event.seq) {
       if (event.seq <= this.#cursor) return;
-      const invalidation = ['turn.withdrawn', 'session.erased', 'consent.revised'].includes(event.type);
+      // A withdrawn upload revokes what was derived from it, like a withdrawn statement. (A replayed
+      // earlier state whose content is gone is only a tombstone; its withdrawal follows in the journal.)
+      const invalidation = ['turn.withdrawn', 'session.erased', 'consent.revised'].includes(event.type) ||
+        event.type === 'upload.state' && event.data.state === 'withdrawn';
       if (invalidation) {
         this.#invalidatedAt = Math.max(this.#invalidatedAt, event.seq);
         this.#deviceController?.abort(); void this.#rail.close();
@@ -812,6 +1029,12 @@ export class AithemaSession extends HTMLElement {
       if (event.type === 'turn.final') {
         this.#partials.delete(event.data.id);
         if (event.data.role === 'user') { this.#partials.clear(); this.#failure = false; }
+      }
+      // Every upload state is new input: a running reply belongs to the input before it.
+      if (event.type === 'upload.state') {
+        this.#partials.clear(); this.#failure = false;
+        // "Reading them…" ends with the last pending file; each chip then says how it went.
+        if (this.#reading && this.#notice === this.#reading && !this.#session.uploads.some(u => u.state === 'pending')) this.#notice = '';
       }
       if (['understanding.updated', 'question.focused', 'turn.corrected'].includes(event.type)) {
         void this.#rail.updateContext().catch(() => {});
