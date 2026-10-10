@@ -21,7 +21,7 @@ export const hostStyles = `
    the credits line below them, one touch row high with room at its end for Settings. Conversations shows its
    icon; its name stays for assistive technology, so the three actions share one line. */
 @media(max-width:44rem) { .host-bar { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-start; gap:0 .25rem; }
-  .host-credits { flex:1 0 100%; height:2.75rem; max-height:none; padding:.45rem 3.25rem .45rem 0; text-align:left; }
+  .host-credits { flex:1 1 100%; height:2.75rem; max-height:none; margin-right:3.25rem; padding:.45rem 0; text-align:left; }
   .library-open-dialog { justify-content:center; min-width:2.75rem; padding-inline:.5rem; }
   .library-open-dialog span { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; } }
 .host-foot { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.5rem 1.5rem;
