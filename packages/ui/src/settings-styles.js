@@ -6,11 +6,12 @@ export const settingsStyles = `
   --aithema-gauge-privacy:#48b886; --aithema-gauge-voice:#1bced5; --aithema-gauge-images:#a181fa; }
 .visually-hidden { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 .engine { display:grid; min-width:0; }
-.engine__text { min-width:0; display:flex; flex-wrap:wrap; align-items:baseline; gap:0 .6rem; }
+/* The processing line: the choice on one line, its detail in two reserved lines (a longer one scrolls in them),
+   so a change beside it in the top row never rewraps it into a taller row that moves both columns. */
+.engine__text { min-width:0; display:grid; }
 .engine__label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
-/* The choice wraps rather than ending in "…". */
-.engine__value { font:600 .95rem/1.4 var(--aithema-display); color:var(--aithema-ink); overflow-wrap:anywhere; }
-.engine__detail { font-size:.75rem; line-height:1.4; color:var(--aithema-muted); overflow-wrap:anywhere; }
+.engine__value { font:600 .95rem/1.4 var(--aithema-display); color:var(--aithema-ink); white-space:nowrap; overflow:hidden; }
+.engine__detail { height:2.8em; overflow-y:auto; overscroll-behavior:contain; font-size:.75rem; line-height:1.4; color:var(--aithema-muted); overflow-wrap:anywhere; }
 .chooser__continue svg, .done svg { display:block; flex:none; }
 
 dialog.settings { padding:0; margin:auto; border:1px solid var(--aithema-line); border-radius:var(--aithema-radius-lg); color:var(--aithema-ink);

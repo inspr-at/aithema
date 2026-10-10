@@ -346,6 +346,9 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
   .toolbar { grid-template-columns:minmax(0,1fr) auto; align-items:start; } .host-bar { grid-column:1; } .settings-open { grid-column:2; }
   .preset-panel { grid-column:1/-1; grid-row:2; } .toolbar:has(> .host-bar[hidden]) .preset-panel { grid-column:1; grid-row:1; align-self:center; }
   .workspace:not([data-stage="live"]) .engine { display:none; }
+  /* Room below the composer for the sticky notice line: with Attach or Send scrolled to the very top, the
+     notice still stands in view above them (AIT-119). */
+  .conversation { padding-bottom:2rem; }
   .conversation > .head { flex-direction:column; align-items:stretch; } .status { flex-basis:auto; text-align:left; }
   .audio-rail { grid-template-columns:32px 44px minmax(0,1fr) 44px 44px 44px; gap:4px; }
   .voice-orb { width:32px; height:32px; } .voice-orb .orb { --orb-size:32px; }

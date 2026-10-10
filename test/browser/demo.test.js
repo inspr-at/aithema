@@ -298,7 +298,8 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
           .querySelectorAll('[data-select="model"] [role=option]')].find(node => node.querySelector('strong').textContent === 'Swift (mock)'));
         const [, modelSaved] = await Promise.all([swift.click(), settingsSaved()]);
         assert.equal(modelSaved.status(), 200, 'the server acknowledges the model');
-        assert.deepEqual(JSON.parse(modelSaved.request().postData()), { processingPreset: 'custom', model: 'mock/swift', effort: 'none', voice: 'off', visuals: 'off', baseRevision: 1 });
+        // AIT-128: Continue confirmed the offered choice first (revision 1); the preset change here made revision 2.
+        assert.deepEqual(JSON.parse(modelSaved.request().postData()), { processingPreset: 'custom', model: 'mock/swift', effort: 'none', voice: 'off', visuals: 'off', baseRevision: 2 });
         await waitForShadow(page, '.save-status', { text: 'Changes saved' });
         const effort = await page.$('aithema-session >>> #settings-effort');
         await effort.focus();
@@ -1416,7 +1417,7 @@ test('document uploads: a text file and a PDF through the real file picker, pend
 
     // Dark and 400 px: tokens follow the theme, Attach becomes its icon, nothing overflows sideways.
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
-    assert.equal(await inShadow(page, c => getComputedStyle(c.shadowRoot.querySelectorAll('ol li.upload')[1].querySelector('.upload__name')).color), 'rgb(226, 233, 230)');
+    assert.equal(await inShadow(page, c => getComputedStyle(c.shadowRoot.querySelectorAll('ol li.upload')[1].querySelector('.upload__name')).color), 'rgb(234, 241, 246)', 'START\'s dark ink');
     await shot(page, 'de-dark-1440-withdrawn');
     await page.setViewport({ width: 400, height: 800 });
     const phone = await inShadow(page, c => {
