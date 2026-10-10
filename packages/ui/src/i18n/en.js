@@ -45,7 +45,7 @@ export const en = {
   fakeVoiceGreeting: 'Hello. Tell me what you would like to improve.', fakeVoiceReply: 'I understand. Which part should we clarify first?',
   fakeVoiceStatement: 'We want to improve our public API.', fakeVoiceHeard: 'I understand.',
   processing: 'Processing', presets: { best: 'Best models', eu: 'In the EU', device: 'On my device', custom: 'Custom' },
-  features: { text: 'Text', analysis: 'Analysis', voice: 'Voice', transcription: 'Transcription', images: 'Images', html: 'Clickable drafts' },
+  features: { text: 'Text', analysis: 'Analysis', voice: 'Voice', transcription: 'Transcription', images: 'Images', html: 'Clickable drafts', uploads: 'File uploads' },
   engine: { model: 'Model', voice: 'Voice', visuals: 'Visuals', off: 'Off', localModel: 'Local model', notConnected: 'not connected' },
   settings: {
     open: 'Settings', title: 'Settings', tabs: { general: 'General', model: 'AI model', local: 'Advanced' },
@@ -244,6 +244,13 @@ export const en = {
     'model not offered': 'This model is no longer offered', 'effort not offered': 'This response style is no longer offered',
     'voice not offered': 'This voice is no longer offered', 'visuals not offered': 'This visual option is no longer offered',
     'not offered': 'Not offered by this host',
+    // Document upload availability.
+    'extractors not configured': 'Document extraction is not set up by this host',
+    'document text not covered by reasoning scope': 'The selected model’s processing scope does not cover document text',
+    'extractor not in preset': 'Document extractor is not part of this processing choice',
+    'extractor binding invalid': 'Document extractor setup is invalid',
+    'extractor must be local and free': 'Document extraction must run locally at no cost',
+    'extractor unhealthy': 'Document extractor is not responding',
     // HTML, plugin health, voice lifecycle and demo voice-host availability reasons.
     'turn-withdrawn': 'Call ended after a statement was withdrawn',
     'consent-revised': 'Processing consent changed',

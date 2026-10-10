@@ -7,7 +7,7 @@ const ERASED_PRESET = 'best';
 export const inputRevision = session => `${session.inputRevision}:${session.consentRevision}:${session.withdrawalRevision}:${session.locale}:${session.sessionRevision ?? 0}:${Boolean(session.tombstone)}`;
 export const activeTurns = session => session.transcript.filter(t => !t.erased && !t.withdrawn);
 /** Durable: withdrawal and expiry mark turns but never remove their transcript entries. */
-export const conversationStarted = session => session.transcript.length > 0;
+export const conversationStarted = session => session.transcript.length > 0 || (session.uploads?.length ?? 0) > 0;
 export const emptyUnderstanding = session => ({ ...capBuildReadiness({}, [], session.preset), version: 1,
   inputRevision: null, locale: session.locale, draft: false, questionHistory: [] });
 export function createSession({ id = crypto.randomUUID(), locale = 'en', identified = false, demo = false,
@@ -17,7 +17,7 @@ export function createSession({ id = crypto.randomUUID(), locale = 'en', identif
   return { id, version: 1, seq: 0, locale, identified, demo, preset: createPreset(preset), actor, processingPreset,
     settings: normalizeSettings(settings),
     inputRevision: 0, consentRevision: 0, withdrawalRevision: 0, sessionRevision: 0,
-    paused: false, consentWithdrawn: false, tombstone: null, transcript: [], concepts: [],
+    paused: false, consentWithdrawn: false, tombstone: null, transcript: [], uploads: [], concepts: [],
     conceptIntent: createConceptIntent(), conceptStatus: { phase: 'idle' },
     understanding: { ...capBuildReadiness({}, [] , preset), version: 1, inputRevision: null,
       locale, draft: false, questionHistory: [] } };
@@ -27,6 +27,22 @@ export function applyEvent(session, event) {
   if (event.type === 'turn.final') {
     next.transcript.push(event.data);
     if (event.data.role === 'user') next.inputRevision += 1;
+  } else if (event.type === 'upload.state') {
+    const upload = event.data;
+    next.uploads = [...(next.uploads ?? []).filter(u => u.id !== upload.id),
+      upload.erased || upload.withdrawn ? { id: upload.id, state: 'withdrawn', erased: true, withdrawn: true } : upload];
+    next.inputRevision += 1;
+    next.understanding = emptyUnderstanding(next); next.actor = null; next.focusedQuestion = null;
+    if (upload.state === 'withdrawn') {
+      next.withdrawalRevision += 1; next.sessionRevision += 1;
+      next.transcript = next.transcript.map(t => t.role === 'assistant'
+        ? { ...Object.fromEntries(Object.entries(t).filter(([key]) => key !== 'content')), erased: true, withdrawn: true } : t);
+      // Document-derived summaries can feed any concept. Revocation clears every
+      // dependent projection atomically; a later lane rebuilds remaining inputs.
+      next.concepts = [];
+      next.conceptIntent = { ...next.conceptIntent, pending: null, referenceIds: [] };
+      next.conceptStatus = { phase: 'idle' };
+    }
   } else if (event.type === 'turn.corrected') {
     next.transcript = next.transcript.map(t => t.id === event.data.id ? { ...t, ...event.data, erased: Boolean(event.data.erased), withdrawn: Boolean(event.data.withdrawn) } : t);
     next.sessionRevision += 1; next.understanding = emptyUnderstanding(next); next.actor = null; next.focusedQuestion = null;
@@ -60,7 +76,8 @@ export function applyEvent(session, event) {
       next.transcript = next.transcript.map(t => t.id === event.data.turnId || t.role === 'assistant' || event.type === 'session.erased'
         ? { ...Object.fromEntries(Object.entries(t).filter(([key]) => key !== 'content')), erased: true, withdrawn: true } : t);
       // Erasure also forgets the visitor's processing choice, so it never seeds another conversation.
-      if (event.type === 'session.erased') { next.tombstone = event.data.at; next.settings = defaultSettings(); next.processingPreset = ERASED_PRESET; }
+      if (event.type === 'session.erased') { next.tombstone = event.data.at; next.settings = defaultSettings(); next.processingPreset = ERASED_PRESET;
+        next.uploads = (next.uploads ?? []).map(u => ({ id: u.id, state: 'withdrawn', erased: true, withdrawn: true })); }
     }
   } else if (event.type === 'concept.state') {
     next.conceptIntent = event.data.intent;

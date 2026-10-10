@@ -1,5 +1,5 @@
 export const PROCESSING_PRESETS = Object.freeze(['best', 'eu', 'device', 'custom']);
-export const FEATURES = Object.freeze(['text', 'analysis', 'voice', 'transcription', 'images', 'html']);
+export const FEATURES = Object.freeze(['text', 'analysis', 'voice', 'transcription', 'images', 'html', 'uploads']);
 export const EU_COUNTRIES = Object.freeze(['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU',
   'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE']);
 export const featureUnavailable = reason => ({ available: false, reason });

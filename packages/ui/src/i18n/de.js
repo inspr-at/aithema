@@ -51,7 +51,7 @@ export const de = {
   fakeVoiceGreeting: 'Hallo. Erzählen Sie mir, was Sie verbessern möchten.', fakeVoiceReply: 'Verstanden. Welchen Teil sollen wir zuerst klären?',
   fakeVoiceStatement: 'Wir möchten unsere öffentliche Schnittstelle verbessern.', fakeVoiceHeard: 'Verstanden.',
   processing: 'Verarbeitung', presets: { best: 'Beste Modelle', eu: 'In der EU', device: 'Auf meinem Gerät', custom: 'Eigene' },
-  features: { text: 'Text', analysis: 'Auswertung', voice: 'Sprache', transcription: 'Spracherkennung', images: 'Bilder', html: 'Klickbare Entwürfe' },
+  features: { text: 'Text', analysis: 'Auswertung', voice: 'Sprache', transcription: 'Spracherkennung', images: 'Bilder', html: 'Klickbare Entwürfe', uploads: 'Dateien hochladen' },
   engine: { model: 'Modell', voice: 'Sprache', visuals: 'Entwürfe', off: 'Aus', localModel: 'Lokales Modell', notConnected: 'nicht verbunden' },
   settings: {
     open: 'Einstellungen', title: 'Einstellungen', tabs: { general: 'Allgemein', model: 'KI-Modell', local: 'Erweitert' },
@@ -247,6 +247,13 @@ export const de = {
     'model not offered': 'Dieses Modell wird nicht mehr angeboten', 'effort not offered': 'Dieser Antwortstil wird nicht mehr angeboten',
     'voice not offered': 'Diese Stimme wird nicht mehr angeboten', 'visuals not offered': 'Diese visuelle Option wird nicht mehr angeboten',
     'not offered': 'Von diesem Host nicht angeboten',
+    // Document upload availability.
+    'extractors not configured': 'Das Auslesen von Dateien ist bei diesem Host nicht eingerichtet',
+    'document text not covered by reasoning scope': 'Der Verarbeitungsumfang des gewählten Modells deckt den Text hochgeladener Dateien nicht ab',
+    'extractor not in preset': 'Der Dienst zum Auslesen von Dateien gehört nicht zu dieser Verarbeitung',
+    'extractor binding invalid': 'Der Dienst zum Auslesen von Dateien ist nicht korrekt eingerichtet',
+    'extractor must be local and free': 'Dateien müssen lokal und ohne Kosten ausgelesen werden',
+    'extractor unhealthy': 'Der Dienst zum Auslesen von Dateien antwortet nicht',
     // HTML, plugin health, voice lifecycle and demo voice-host availability reasons.
     'turn-withdrawn': 'Sprachgespräch nach dem Widerruf einer Aussage beendet',
     'consent-revised': 'Einwilligung zur Verarbeitung geändert',

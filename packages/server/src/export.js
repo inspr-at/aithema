@@ -47,6 +47,9 @@ export function exportSession(session, artifacts = [], withheld = []) {
       turns: activeTurns(session) }),
     'transcript.md': '# Conversation\n\n' + activeTurns(session).map(t => `## ${t.role}${engine(t)}${t.provenance === 'browser-asserted' ? ' (browser-asserted)' : ''}\n\n${t.content}\n`).join('\n'),
     'understanding.json': json(session.understanding),
+    ...((session.uploads ?? []).length ? { 'uploads.json': json(session.uploads.map(u => u.state === 'withdrawn' || u.erased || u.withdrawn
+      ? { id: u.id } : Object.fromEntries(['id', 'state', 'filename', 'mediaType', 'bytes', 'at', 'text', 'reason', 'truncated', 'extractor']
+        .filter(key => u[key] !== undefined).map(key => [key, u[key]])))) } : {}),
     ...(concepts.length ? { 'concepts.json': json(concepts) } : {}),
     ...(artifacts.length || omissions.length ? { 'concepts-manifest.json': json({ version: 1,
       included: artifacts.map(a => ({ id: a.id, path: `concepts/${a.id}.${a.mediaType.split('/')[1]}` })), withheld: omissions }) } : {}),
