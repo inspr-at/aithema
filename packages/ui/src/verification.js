@@ -11,13 +11,13 @@ const CHECK = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" strok
 export const POLL_MS = 4000;
 
 export class Verification {
-  #copy; #request; #status; #onChange; #focusAfterUnlock; #pollMs; #root;
+  #copy; #request; #status; #onChange; #focusAfterUnlock; #pollMs; #root; #notice;
   #identity = null; #at = 0; #ui = { editing: false, busy: false, message: '', error: false };
   #forms = []; #entry; #lock; #dialog; #opener = null; #tick = null; #poll = null; #alive = true; #connected = false; #locked = false;
-  /** request(path, body?) reaches the session's own host routes and resolves {ok,status,body}. */
-  constructor({ root, copy, request, status, onChange, focusAfterUnlock, entry, lock, dialog, identity, pollMs = POLL_MS }) {
+  /** request(path, body?) reaches the session's own host routes and resolves {ok,status,body}; notice() is the AI notice line. */
+  constructor({ root, copy, request, status, onChange, focusAfterUnlock, entry, lock, dialog, identity, pollMs = POLL_MS, notice }) {
     this.#root = root; this.#copy = copy; this.#request = request; this.#status = status; this.#onChange = onChange;
-    this.#focusAfterUnlock = focusAfterUnlock; this.#pollMs = pollMs;
+    this.#focusAfterUnlock = focusAfterUnlock; this.#pollMs = pollMs; this.#notice = notice;
     this.#entry = entry; this.#lock = lock; this.#dialog = dialog;
     this.#mountEntry(); this.#mountLock(); this.#mountDialog();
     this.set(identity ?? null, { quiet: true });
@@ -62,6 +62,7 @@ export class Verification {
   openDialog(opener = this.#entry.querySelector('button')) {
     if (!this.enabled) return;
     this.#opener = opener; this.#paint();
+    setText(this.#dialog.querySelector('.verify-dialog__notice'), this.#notice?.() ?? '');
     if (!this.#dialog.open) this.#dialog.showModal?.();
     this.#focusForm(this.#forms.find(f => f.root.closest('dialog')));
   }
@@ -89,7 +90,10 @@ export class Verification {
     const title = node('h2', '', v.title); title.id = 'verify-dialog-title';
     const close = node('button', 'verify-dialog-close', v.close); close.type = 'button';
     close.addEventListener('click', () => this.#dialog.close());
-    head.append(title, close); frame.append(head, this.#form('verify-dialog'));
+    // The modal covers the conversation's AI notice, so the dialog repeats it in view; the sending
+    // controls stay described by the original (AIT-119), hence hidden from assistive technology here.
+    const notice = node('p', 'verify-dialog__notice'); notice.setAttribute('aria-hidden', 'true');
+    head.append(title, close); frame.append(head, notice, this.#form('verify-dialog'));
     this.#dialog.setAttribute('aria-labelledby', 'verify-dialog-title'); this.#dialog.replaceChildren(frame);
     this.#dialog.addEventListener('close', () => { const opener = this.#opener; this.#opener = null; if (opener?.isConnected) opener.focus(); });
   }

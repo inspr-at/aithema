@@ -3,6 +3,8 @@
 // port owns listing, search and paging; the dialog shows what the server returns, sorts the
 // loaded rows by title or last activity, and opens, renames, deletes, creates and resets.
 // Rows are keyed: nothing moves under the pointer, and a confirmation never pushes the list.
+// The shown order is fixed when the list is loaded, searched or sorted: a rename (which makes its
+// conversation the latest) or a background reload never moves rows; new rows join at the end.
 import { node, setText, reconcile, showOne, fill } from './dom.js';
 
 const PAGE = 100;
@@ -11,7 +13,7 @@ const time = value => { const at = typeof value === 'number' ? value : Date.pars
 
 export class LibraryDialog {
   #dialog; #copy; #request; #current; #locale; #adopt; #notice; #alive = true; #opener = null;
-  #items = []; #total = 0; #query = ''; #load = 0; #state = 'idle'; #message = '';
+  #items = []; #order = []; #total = 0; #query = ''; #load = 0; #state = 'idle'; #message = '';
   #sort = { key: 'updatedAt', direction: 'descending' }; #renaming = null; #confirm = null; #busy = false; #searchTimer = null;
   /** request(path, body?) reaches /api/library{path}; adopt(session, reason) opens a conversation. */
   constructor({ dialog, copy, request, current, locale, adopt, notice }) {
@@ -29,9 +31,10 @@ export class LibraryDialog {
     this.#paint(); void this.refresh();
     this.#dialog.querySelector('.library__search input').focus();
   }
-  /** A library.state or erasure event: reload the open list so names and rows stay current. */
-  changed() { if (this.#dialog.open && !this.#renaming) void this.refresh(); }
-  async refresh({ more = false } = {}) {
+  /** A library.state or erasure event: reload the open list so names stay current, rows in place. */
+  changed() { if (this.#dialog.open && !this.#renaming) void this.refresh({ keep: true }); }
+  /** A load sorts the list afresh; `more` appends a page and `keep` holds the shown order. */
+  async refresh({ more = false, keep = false } = {}) {
     const load = ++this.#load, offset = more ? this.#items.length : 0;
     if (!more) { this.#state = this.#items.length ? this.#state : 'loading'; this.#paint(); }
     try {
@@ -42,6 +45,7 @@ export class LibraryDialog {
       const seen = new Set(more ? this.#items.map(item => item.id) : []);
       this.#items = [...more ? this.#items : [], ...response.body.items.filter(item => !seen.has(item.id))];
       this.#total = Number.isSafeInteger(response.body.total) ? response.body.total : this.#items.length;
+      if (!more && !keep) this.#order = [];
       this.#state = 'ready';
     } catch {
       if (!this.#alive || load !== this.#load) return;
@@ -88,7 +92,7 @@ export class LibraryDialog {
       const key = button.dataset.sort;
       this.#sort = { key, direction: this.#sort.key === key ? this.#sort.direction === 'ascending' ? 'descending' : 'ascending'
         : key === 'title' ? 'ascending' : 'descending' };
-      this.#paint();
+      this.#order = []; this.#paint();
     });
     d.querySelector('.library-new').addEventListener('click', () => void this.#create());
     d.querySelector('.library-reset').addEventListener('click', () => this.#ask({ kind: 'reset', id: this.#current() }));
@@ -110,6 +114,13 @@ export class LibraryDialog {
     const collator = new Intl.Collator(this.#locale(), { sensitivity: 'base', numeric: true });
     return [...this.#items].sort((a, b) => sign * (key === 'title' ? collator.compare(this.#title(a), this.#title(b)) : time(a.updatedAt) - time(b.updatedAt))
       || a.id.localeCompare(b.id));
+  }
+  // The shown order: rows keep their place; rows not yet placed follow in sort order.
+  #shown() {
+    const byId = new Map(this.#items.map(item => [item.id, item])), placed = new Set(this.#order);
+    const rows = [...this.#order.filter(id => byId.has(id)).map(id => byId.get(id)), ...this.#sorted().filter(item => !placed.has(item.id))];
+    this.#order = rows.map(item => item.id);
+    return rows;
   }
   #row() {
     const c = this.#c, row = node('tr');
@@ -154,7 +165,7 @@ export class LibraryDialog {
       th.setAttribute('aria-sort', sorted ? this.#sort.direction : 'none');
       setText(th.querySelector('.library__arrow'), sorted ? this.#sort.direction === 'ascending' ? '↑' : '↓' : '');
     }
-    const items = this.#state === 'failed' ? [] : this.#sorted();
+    const items = this.#state === 'failed' ? [] : this.#shown();
     reconcile(d.querySelector('tbody'), items.map(item => [item.id, item]), () => this.#row(), (row, item) => this.#paintRow(row, item));
     const empty = this.#state === 'loading' && !items.length ? c.loading : this.#state === 'failed' ? c.failed
       : this.#state === 'ready' && !items.length ? this.#query ? c.noResults : c.none : '';
@@ -170,6 +181,9 @@ export class LibraryDialog {
       setText(confirm.querySelector('.library__question'), reset ? c.resetQuestion : fill(c.deleteQuestion, { title: item ? this.#title(item) : c.untitled }));
       setText(confirm.querySelector('.library__warning > span'), reset ? c.resetWarning : c.deleteWarning);
       setText(confirm.querySelector('.library-confirm'), reset ? c.resetConfirm : c.deleteConfirm);
+      // Resetting, or deleting the open conversation, begins a new one: the AI notice describes it (AIT-119).
+      const begins = reset || this.#confirm.id === this.#current();
+      confirm.querySelector('.library-confirm').setAttribute('aria-describedby', begins ? 'library-confirm-warning ai-notice' : 'library-confirm-warning');
       showOne(confirm, normal);
     } else showOne(normal, confirm);
     for (const b of d.querySelectorAll('.library__foot button')) b.setAttribute('aria-disabled', String(this.#busy));
@@ -224,12 +238,12 @@ export class LibraryDialog {
     if (!result) { this.#message = this.#c.actionFailed; this.#paint(); this.#dialog.querySelector('.library-confirm').focus(); return; }
     this.#confirm = null;
     if (kind === 'reset') { this.#finish(result.session, 'reset'); return; }
-    const index = this.#sorted().findIndex(item => item.id === id);
+    const index = this.#shown().findIndex(item => item.id === id);
     this.#items = this.#items.filter(item => item.id !== id); this.#total = Math.max(0, this.#total - 1);
     this.#message = this.#c.deleted; this.#paint();
     // The open conversation is gone for good: a new empty one takes its place.
     if (current) { await this.#create('deleted'); return; }
-    const next = this.#sorted()[Math.min(index, this.#items.length - 1)];
+    const next = this.#shown()[Math.min(index, this.#items.length - 1)];
     if (next) this.#focusRow(next.id, '.library-open'); else this.#dialog.querySelector('.library-new').focus();
   }
   async #create(reason = 'new') {
@@ -249,7 +263,7 @@ export class LibraryDialog {
     if (!this.#alive) return;
     this.#busy = false;
     if (result?.session) this.#finish(result.session, 'open');
-    else { this.#message = this.#c.actionFailed; this.#paint(); void this.refresh(); }
+    else { this.#message = this.#c.actionFailed; this.#paint(); void this.refresh({ keep: true }); }
   }
   #finish(session, reason) {
     this.#opener = null; this.#dialog.close(); this.#adopt(session, reason);

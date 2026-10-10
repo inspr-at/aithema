@@ -14,6 +14,7 @@ import { test } from 'node:test';
 import puppeteer from 'puppeteer-core';
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
+import { AI_NOTICE } from '../../packages/core/src/ai-notice.js';
 
 const waitTimeout = 45_000;
 async function browserPath() {
@@ -129,7 +130,9 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     await preparePage(page, ['en-GB', 'en'], problems, (status, path) => status === 404 && path.startsWith('/api/library/'));
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
-    const v = en.hostSurface.verify, l = en.hostSurface.library, h = en.hostSurface.handover;
+    const v = en.hostSurface.verify, l = en.hostSurface.library, h = en.hostSurface.handover, cr = en.hostSurface.credits;
+    // The demo handover reaches a local fake recipient: its success line promises no contact.
+    const demoSent = en.host.handover.sent;
 
     // The start card: Continue whole at both sizes, nothing scrolled inside the card at 1440 px.
     await visible(page, '.chooser__continue');
@@ -182,11 +185,21 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     // A manual pause before confirming: unlocking keeps it (START v2-verification-recovery).
     await click(page, '.pause');
     await until(page, () => document.querySelector('aithema-session').session.paused === true);
+    // The host deadline keeps running while paused: the countdown stays and the line says what pausing does.
+    await until(page, paused => {
+      const line = document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__text').textContent;
+      return / min left in this conversation · /u.test(line) && line.endsWith(paused);
+    }, cr.paused);
     // The fake mail outbox (demo only) stands in for the inbox.
     assert.equal(await page.$eval('#outbox-open', b => [b.hidden, b.textContent]).then(([hidden, label]) => !hidden && label), en.host.outbox.open);
     await page.click('#outbox-open');
     await page.waitForSelector('#outbox-list li button');
     assert.match(await page.$eval('#outbox-list li span', n => n.textContent), /visitor@example\.com/u);
+    // Confirming unlocks the AI assessment: the modal outbox shows the AI notice and the link is described by it.
+    assert.deepEqual(await page.$eval('#outbox-list li button', b => {
+      const notice = document.getElementById('ai-notice'), rect = notice.getBoundingClientRect();
+      return [b.getAttribute('aria-describedby'), notice.textContent, document.querySelector('#outbox').contains(notice) && rect.height > 0];
+    }), ['ai-notice', AI_NOTICE.en.text, true]);
     if (evidence) await page.screenshot({ path: join(evidence, 'host-en-light-1440-outbox.png') });
     await page.click('#outbox-list li button');
     await page.waitForFunction(text => document.querySelector('#outbox-status').textContent === text, {}, en.host.outbox.confirmed);
@@ -211,7 +224,7 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     assert.equal(await text(page, '.handover__label'), h.retry);
     await shot(page, 'en-light-1440-handover-failed', '.handover');
     await page.mouse.down(); await page.mouse.up();
-    await until(page, sent => document.querySelector('aithema-session').shadowRoot.querySelector('.handover__state').textContent === sent, h.sent);
+    await until(page, sent => document.querySelector('aithema-session').shadowRoot.querySelector('.handover__state').textContent === sent, demoSent);
     sameBox(requestBox, await box(page, '.handover-request'), 'handover action after Retry');
     assert.equal(await inShadow(page, c => c.session.handover.status), 'sent');
     await shot(page, 'en-light-1440-handover-sent', '.handover');
@@ -237,14 +250,26 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     await click(page, '.library-open-dialog');
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('dialog.library tbody tr').length === 2);
     // Rename the first conversation in place: its row keeps its box while the name is edited.
-    const row = `dialog.library tbody tr[data-key="${first}"]`;
-    const rowBefore = await box(page, row);
+    const row = `dialog.library tbody tr[data-key="${first}"]`, other = `dialog.library tbody tr[data-key="${second}"]`;
+    const keys = () => inShadow(page, c => [...c.shadowRoot.querySelectorAll('dialog.library tbody tr')].map(r => r.dataset.key));
+    assert.deepEqual(await keys(), [second, first], 'last activity first');
+    const rowBefore = await box(page, row), otherBefore = await box(page, other), renameBefore = await box(page, `${row} .library-rename`);
     await click(page, `${row} .library-rename`);
     assert.equal(await inShadow(page, c => c.shadowRoot.activeElement?.id), `library-rename-${first}`);
     sameBox(rowBefore, await box(page, row), 'the renamed row');
+    // Save with the pointer resting on Save: the rename makes this conversation the latest, yet no row moves.
+    const saveBox = await rest(page, `${row} .library-save`);
     await page.keyboard.type('Bakery preorders'); await page.keyboard.press('Enter');
     await until(page, row => document.querySelector('aithema-session').shadowRoot.querySelector(`${row} .library__name`).textContent === 'Bakery preorders', row);
     assert.equal(await text(page, 'dialog.library .library__message'), l.renamed);
+    // The rename's library.state event reloads the list in the background; give it time, then measure.
+    await new Promise(resolve => setTimeout(resolve, 600));
+    assert.deepEqual(await keys(), [second, first], 'the renamed row stays in place until the next load or search');
+    sameBox(rowBefore, await box(page, row), 'the renamed row after saving');
+    sameBox(otherBefore, await box(page, other), 'the other row after saving');
+    sameBox(renameBefore, await box(page, `${row} .library-rename`), 'Rename after saving');
+    sameBox(saveBox, await box(page, `${row} .library-save`), 'Save under the pointer');
+    await shot(page, 'en-light-1440-library-saved');
     // Sort by title: ascending, the untitled one after "Bakery …"; the header says so.
     await click(page, 'dialog.library [data-sort="title"]');
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.library__col-title').getAttribute('aria-sort')), 'ascending');
@@ -310,6 +335,15 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     await inShadow(dePage, c => c.shadowRoot.querySelector('.verify-entry').click());
     await until(dePage, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.verify-dialog').open);
     assert.equal(await inShadow(dePage, c => c.shadowRoot.activeElement?.id), 'verify-dialog-email');
+    // The modal covers the conversation's notice line, so the AI notice is in view inside the dialog itself.
+    const modalNotice = await inShadow(dePage, c => {
+      const r = c.shadowRoot, line = r.querySelector('dialog.verify-dialog .verify-dialog__notice'), rect = line.getBoundingClientRect();
+      const hit = r.elementFromPoint(rect.x + Math.min(rect.width / 2, 20), rect.y + rect.height / 2);
+      return { text: line.textContent, notice: r.querySelector('#ai-notice').textContent, inView: rect.height > 0 && rect.top >= 0 && rect.bottom <= innerHeight,
+        visible: getComputedStyle(line).visibility === 'visible', onTop: line.contains(hit) };
+    });
+    assert.deepEqual(modalNotice, { text: modalNotice.notice, notice: modalNotice.notice, inView: true, visible: true, onTop: true });
+    assert.match(modalNotice.notice, /KI-Assistent/u);
     await shot(dePage, 'de-dark-400-verify-dialog');
     await dePage.keyboard.press('Escape');
     await until(dePage, () => document.querySelector('aithema-session').shadowRoot.activeElement?.classList.contains('verify-entry'));

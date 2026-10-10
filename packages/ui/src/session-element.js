@@ -511,10 +511,14 @@ export class AithemaSession extends HTMLElement {
     for (const node of root.querySelectorAll('.analysis-content [data-redacted]')) {
       node.style.minHeight = ''; delete node.dataset.redacted;
     }
-    root.querySelector('.understanding').setAttribute('aria-disabled', String(!analysis.available));
+    // A pane that holds the host's own controls (the verification form, handover) is never marked
+    // disabled as a whole: only its unavailable parts are, through the notice and the hidden, inert content.
+    const aside = root.querySelector('.understanding');
+    if (this.#host?.holdsControls) aside.removeAttribute('aria-disabled'); else aside.setAttribute('aria-disabled', String(!analysis.available));
     // Keep the outer pane and readiness row in the grid when analysis is unavailable.
     // A host verification lock (AIT-104 B2) replaces the assessment in place with the email form.
     root.querySelector('.readiness').style.visibility = !locked && (analysis.available || cached) ? '' : 'hidden';
+    root.querySelector('.readiness').toggleAttribute('inert', locked);
     root.querySelector('.notice').hidden = locked;
     const u = this.#session.understanding, stale = u.inputRevision !== inputRevision(this.#session);
     // Sections appear with the first assessment; empty lists then say so quietly (D15).

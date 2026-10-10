@@ -73,6 +73,7 @@ dialog.verify-dialog { width:min(32rem, calc(100vw - 1rem)); }
 .verify-dialog__frame { display:grid; gap:1rem; padding:1rem 1.25rem 1.25rem; }
 .verify-dialog__head { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
 .verify-dialog-close { margin-right:-.85rem; font-size:.82rem; }
+.verify-dialog__notice { margin:-.5rem 0 0; font-size:.75rem; line-height:1.35; color:var(--aithema-muted); }
 dialog.library { width:min(54rem, calc(100vw - 1rem)); height:min(44rem, calc(100dvh - 1rem)); }
 .library__frame { display:grid; grid-template-rows:auto minmax(0,1fr) auto; height:100%; min-height:0; }
 .library__head { display:grid; gap:.45rem; padding:1rem 1.25rem .5rem; border-bottom:1px solid var(--aithema-line); }

@@ -40,13 +40,15 @@ export class HostSurface {
     if (o.verification) {
       this.#verification = new Verification({ root, copy, request: (path, body) => this.#call(this.#sessionPath(path), body), status, onChange: onLock,
         focusAfterUnlock, entry: bar.querySelector('.host-verify'), lock: root.querySelector('.verify-lock'), dialog: root.querySelector('dialog.verify-dialog'),
-        identity: this.#session().identity, pollMs: o.pollMs });
+        identity: this.#session().identity, pollMs: o.pollMs, notice: () => root.querySelector('#ai-notice')?.textContent ?? '' });
     }
     this.#mountHandover(); this.#mountFoot();
     this.#handover = this.#session().handover ?? null;
     this.#paintCredits(); this.#paintHandover();
   }
   get locked() { return this.#verification?.locked ?? false; }
+  /** The understanding pane holds host controls: the verification form while locked, or the handover band. */
+  get holdsControls() { return this.locked || Boolean(this.#options.handover); }
   get verification() { return this.#verification; }
   get library() { return this.#library; }
   /** Starts host reads once the element is in the page. */
@@ -188,9 +190,11 @@ export class HostSurface {
     if (!owner) { setText(text, ''); return; }
     const parts = [fill(c.balance, { available: format(owner.availableMicro, locale), limit: format(owner.limitMicro, locale) })];
     if (slot?.status === 'active' && Number.isFinite(slot.remainingMs)) {
-      const running = !session.paused && slot.canStartPaidWork !== false;
-      const remaining = Math.max(0, slot.remainingMs - (running ? Date.now() - this.#creditsAt : 0));
-      parts.push(fill(c.remaining, { minutes: Math.ceil(remaining / MINUTE) }) + (running ? '' : ` (${c.paused})`));
+      // The host's deadline keeps running during a pause (credits.js creditsView), so the countdown never
+      // stops; a pause only keeps new paid work from starting, and the line says exactly that.
+      const remaining = Math.max(0, slot.remainingMs - (Date.now() - this.#creditsAt));
+      parts.push(fill(c.remaining, { minutes: Math.ceil(remaining / MINUTE) }));
+      if (session.paused) parts.push(c.paused);
     }
     setText(text, parts.join(' · '));
   }

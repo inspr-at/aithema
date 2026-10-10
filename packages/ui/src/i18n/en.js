@@ -226,7 +226,7 @@ export const en = {
       title: 'Confirm your email', close: 'Back to the conversation',
       lockTitle: 'Unlock your assessment and concepts', lockLead: 'Confirm your email address to view the assessment.',
       label: 'Email address', placeholder: 'name@company.com', send: 'Send confirmation link',
-      hint: 'Then open the confirmation link in your inbox.', sentTo: 'The assessment goes to', change: 'Change', cancel: 'Cancel',
+      hint: 'Then open the confirmation link in your inbox.', sentTo: 'Confirmation link for', change: 'Change', cancel: 'Cancel',
       resend: 'Send link again', cooldown: 'You can send it again in {seconds} s.', sending: 'Sending confirmation …',
       sent: 'We sent you a confirmation link. Open your inbox and confirm the link.',
       saved: 'Your email address is saved. Confirm it with the link we sent to view the assessment.',
@@ -265,7 +265,7 @@ export const en = {
       limit: 'This conversation cannot be sent again. Start a new conversation to send more.',
     },
     credits: {
-      balance: 'Credits: {available} of {limit}', remaining: '{minutes} min left in this conversation', paused: 'time paused',
+      balance: 'Credits: {available} of {limit}', remaining: '{minutes} min left in this conversation', paused: 'Paused: nothing new starts, but the time keeps running',
       ended: { 'one-hour': 'This conversation reached its one-hour limit and has ended. Your transcript stays saved.',
         session: 'This conversation’s credits are used up. Your transcript stays saved.',
         voiceVisitor: 'The voice credits for this conversation are used up. Your transcript stays saved.',
@@ -429,9 +429,11 @@ export const en = {
     // Demo fills for the component's host slots and the fake mail outbox (AIT-104 B2); a real host supplies its own.
     slots: { account: 'Account (demo)', accountNote: 'Demo only: there is no real sign-in. Your conversations belong to this browser.',
       source: 'Source code', handoverOffer: 'Demo only: the request goes to a local fake recipient. Nobody contacts you.',
-      creditsLimit: 'Demo only: there is no top-up here. Start a new conversation under Conversations.',
+      creditsLimit: 'Demo only: there is no top-up here. The limit applies to all your conversations in this browser, so a new conversation does not lift it.',
       legal: 'Legal (demo)', license: 'Licence: AGPL-3.0-only', legalSource: 'Source and notices',
       footer: 'Demo only: a local host with fake email, handover and credits. Nothing leaves this computer.' },
+    // The demo handover reaches a local fake recipient: its success line promises no contact.
+    handover: { sent: 'Request sent to the local test recipient. This is a demo: nobody will contact you.' },
     outbox: { open: 'Fake mail (demo only)', title: 'Demo only: fake mail outbox', note: 'Confirmation mail stays on this computer. Opening a link here confirms the address, as a real inbox would.',
       to: 'To {address}', confirm: 'Open confirmation link', used: 'Link already used', empty: 'No fake mail yet. Send a confirmation link first.',
       confirmed: 'Link opened. The email address is confirmed.', failed: 'The fake mail could not be loaded.', close: 'Close' },

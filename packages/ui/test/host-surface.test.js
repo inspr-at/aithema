@@ -294,3 +294,99 @@ test('start card: the action row sits in a sticky footer so Continue is never cu
   assert.match(root.querySelector('style').textContent, /\.chooser__footer \{ position:sticky; bottom:0;/u);
   assert.match(hostStyles, /\.verify__primary > \* \{ grid-area:1\/1;/u, 'Send and Send again share one cell');
 });
+
+// Gate fix round 1 (PR #86): each test below would have caught one finding.
+test('verification copy names what B1 sends: a confirmation link, not the assessment (en and de)', () => {
+  assert.match(v.sentTo, /confirmation link/iu); assert.doesNotMatch(v.sentTo, /assessment/iu);
+  assert.match(de.hostSurface.verify.sentTo, /Bestätigungslink/u); assert.doesNotMatch(de.hostSurface.verify.sentTo, /Auswertung|Einschätzung/u);
+});
+
+test('credits: a pause never freezes the countdown (the host deadline keeps running) and says what pausing does', async t => {
+  const { c, root } = setup(t, { session: { paused: true }, routes: {
+    'GET /credits': () => Response.json({ balance, limitSlot: { status: 'active', remainingMs: 30 * 60_000, canStartPaidWork: false } }),
+  } });
+  await tick();
+  const text = () => root.querySelector('.host-credits__text').textContent;
+  assert.equal(text(), `Credits: 4.25 of 5 · 30 min left in this conversation · ${cr.paused}`);
+  assert.match(cr.paused, /time keeps running/u); assert.match(de.hostSurface.credits.paused, /Zeit läuft aber weiter/u);
+  // Ten minutes later, still paused: the line counts down like the server's deadline.
+  const now = Date.now(); t.mock.method(Date, 'now', () => now + 10 * 60_000);
+  c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
+  assert.equal(text(), `Credits: 4.25 of 5 · 20 min left in this conversation · ${cr.paused}`);
+  c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
+  assert.equal(text(), 'Credits: 4.25 of 5 · 20 min left in this conversation');
+});
+
+test('library: saving a rename keeps every row in place; a background reload too; the next load or search sorts afresh', async t => {
+  const items = [entry('a', 'Bakery preorders', '2026-10-09T10:00:00Z'), entry('b', 'Accounting export', '2026-10-05T10:00:00Z'), entry('c', 'Clinic rota', '2026-10-01T10:00:00Z')];
+  const { c, root } = setup(t, { routes: {
+    'GET /library': (_, path) => {
+      const search = new URLSearchParams(path.split('?')[1]).get('search') ?? '';
+      const found = items.filter(item => item.title.toLowerCase().includes(search.toLowerCase())).sort((x, y) => Date.parse(y.updatedAt) - Date.parse(x.updatedAt));
+      return Response.json({ items: found, total: found.length, offset: 0, limit: 100 });
+    },
+    // Renaming makes the conversation the latest one, as in B1.
+    'POST /library/c/rename': body => { Object.assign(items[2], { title: body.title, updatedAt: '2026-10-10T10:00:00Z' }); return Response.json(items[2]); },
+  } });
+  root.querySelector('.library-open-dialog').click(); await tick();
+  const dialog = root.querySelector('dialog.library'), keys = () => [...dialog.querySelectorAll('tbody tr')].map(r => r.dataset.key);
+  assert.deepEqual(keys(), ['a', 'b', 'c'], 'last activity first');
+  const nodes = [...dialog.querySelectorAll('tbody tr')];
+  dialog.querySelector('tr[data-key="c"] .library-rename').click();
+  const input = dialog.querySelector('tr[data-key="c"] .library__rename input'); input.value = 'Clinic rota 2027';
+  input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter' })); await tick();
+  assert.equal(dialog.querySelector('tr[data-key="c"] .library__name').textContent, 'Clinic rota 2027');
+  assert.deepEqual(keys(), ['a', 'b', 'c'], 'the renamed row stays where the pointer is');
+  assert.ok([...dialog.querySelectorAll('tbody tr')].every((row, i) => row === nodes[i]), 'same nodes, same places');
+  assert.ok(root.activeElement === dialog.querySelector('tr[data-key="c"] .library-rename'), 'focus on Rename');
+  // The rename's library.state event reloads the open list without moving a row.
+  c.receive({ seq: c.session.seq + 1, type: 'library.state', data: { title: '', revision: 2 } }); await tick();
+  assert.deepEqual(keys(), ['a', 'b', 'c']);
+  // A search is a new load: sorted afresh.
+  const search = dialog.querySelector('#library-search'); search.value = 'o';
+  search.dispatchEvent(new window.Event('input')); await new Promise(r => setTimeout(r, 300)); await tick();
+  assert.deepEqual(keys(), ['c', 'a', 'b']);
+});
+
+test('AI notice: visible inside the verification dialog; the Reset confirmation (and deleting the open conversation) describe it, deleting another does not', async t => {
+  const items = [entry('other', 'Other topic', '2026-10-01T10:00:00Z')];
+  const { c, root } = setup(t, { session: { identity: identity() }, routes: {
+    'GET /library': () => Response.json({ items: [entry(c.session.id, 'This one', '2026-10-09T10:00:00Z'), ...items], total: 2, offset: 0, limit: 100 }),
+  } });
+  await tick();
+  const notice = root.querySelector('#ai-notice').textContent;
+  assert.ok(notice.length > 0);
+  root.querySelector('.host-verify .verify-entry').click();
+  const dialog = root.querySelector('dialog.verify-dialog'), line = dialog.querySelector('.verify-dialog__notice');
+  assert.equal(dialog.open, true);
+  assert.ok(line && dialog.contains(line), 'the notice is inside the modal, not behind it');
+  assert.equal(line.textContent, notice); assert.equal(line.hidden, false); assert.notEqual(line.style.visibility, 'hidden');
+  assert.match(dialog.querySelector('.verify-send').getAttribute('aria-describedby'), /\bai-notice\b/u);
+  dialog.querySelector('.verify-dialog-close').click();
+  root.querySelector('.library-open-dialog').click(); await tick();
+  const library = root.querySelector('dialog.library'), confirm = library.querySelector('.library-confirm');
+  library.querySelector('.library-reset').click();
+  assert.deepEqual(confirm.getAttribute('aria-describedby').split(' '), ['library-confirm-warning', 'ai-notice']);
+  library.querySelector('.library-confirm-cancel').click();
+  library.querySelector(`tr[data-key="${c.session.id}"] .library-delete`).click();
+  assert.deepEqual(confirm.getAttribute('aria-describedby').split(' '), ['library-confirm-warning', 'ai-notice'], 'deleting the open conversation begins a new one');
+  library.querySelector('.library-confirm-cancel').click();
+  library.querySelector('tr[data-key="other"] .library-delete').click();
+  assert.deepEqual(confirm.getAttribute('aria-describedby').split(' '), ['library-confirm-warning']);
+});
+
+test('locked understanding pane: the verification controls sit under no aria-disabled or inert ancestor; only the locked content is inert', async t => {
+  const { root } = setup(t, { session: { identity: locked(),
+    featureMatrix: { best: { text: { available: true }, analysis: { available: false, reason: 'verification required' } } } } });
+  await tick();
+  const lock = root.querySelector('.verify-lock');
+  assert.equal(lock.hidden, false);
+  for (const control of [lock, lock.querySelector('#verify-lock-email'), lock.querySelector('.verify-send')]) {
+    // Compared as a label: a failing assertion never prints a whole DOM node.
+    const blocker = control.closest('[aria-disabled="true"], [inert]');
+    assert.equal(blocker && `${blocker.tagName.toLowerCase()}.${blocker.className}`, null, `${control.className || control.id} is usable`);
+  }
+  assert.notEqual(root.querySelector('.understanding').getAttribute('aria-disabled'), 'true');
+  assert.equal(root.querySelector('.readiness').hasAttribute('inert'), true, 'the locked readiness scale is unavailable');
+  assert.ok([...root.querySelectorAll('.analysis-content > section')].every(s => s.hidden));
+});

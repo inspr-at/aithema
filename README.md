@@ -267,7 +267,9 @@ fact comes from the routes above. Without `host` nothing changes.
 - **Library** (`library: true`): a dialog listing the owner's conversations with
   search (server side), sortable Title and Last activity columns, open, inline
   rename, delete and reset with a confirmation that states the erasure, and New.
-  Rows are keyed; confirmations share the footer's cell, so nothing moves.
+  Rows are keyed; confirmations share the footer's cell, so nothing moves. The
+  shown order is fixed when the list is loaded, searched or sorted: saving a rename
+  or a background reload keeps every row in place.
   Opening, creating or resetting dispatches a cancelable
   `aithema-open-conversation` event with `{session, reason, previousSessionId}`
   (`reason` is `open`, `new`, `reset` or `deleted`). A host that owns per-conversation
@@ -279,9 +281,13 @@ fact comes from the routes above. Without `host` nothing changes.
   `handover.limit-reached`.
 - **Credits** (`credits: true` or `{format(micro, locale)}`): the owner balance and
   the conversation's remaining minutes; on `credits.limit-reached` or an ending
-  slot the line names the reason and shows the `credits-limit` slot.
+  slot the line names the reason and shows the `credits-limit` slot. The owner's
+  deadline keeps running during a pause, so the countdown does too; the line adds
+  that a pause only keeps new work from starting. New and reset keep the owner's
+  time guard (`rebindCredits`), so a new conversation does not lift the limit.
 
-Named slots, all host content (the demo fills each with labelled demo text):
+Named slots, all host content (the demo fills each with labelled demo text, only
+while its demo host is active; a live provider host shows none of the demo copy):
 
 | Slot | Where |
 | --- | --- |
@@ -292,10 +298,13 @@ Named slots, all host content (the demo fills each with labelled demo text):
 | `footer` | Footer row, right (status or imprint); the row shows only when a slot is filled |
 
 New interaction controls that start AI processing (Send confirmation link,
-Send link again, library open/New/Reset) list `ai-notice` in their
-`aria-describedby`. The demo shows a **Fake mail (demo only)** outbox button
+Send link again, library open/New/Reset, the Reset confirmation) list `ai-notice`
+in their `aria-describedby`; the verification dialog repeats the notice in view,
+since the modal covers the conversation's line. The demo shows a **Fake mail (demo only)** outbox button
 whenever its demo host is active (`demoHost`); it lists `GET S/demo/outbox` and
-confirms a link through `S/identity/confirm`. `AITHEMA_DEMO_HANDOVER_FAIL=n`
+confirms a link through `S/identity/confirm`; the outbox shows the AI notice and its
+confirm links are described by it. The demo's handover success line says that only
+a local test recipient got the request. `AITHEMA_DEMO_HANDOVER_FAIL=n`
 (1–10, demo only) fails the first n fake handover deliveries to show Retry.
 
 ## Package layout

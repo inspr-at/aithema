@@ -7,6 +7,7 @@ import { en } from '../packages/ui/src/i18n/en.js';
 import { de } from '../packages/ui/src/i18n/de.js';
 import { postJson } from '../packages/ui/src/post-json.js';
 import { reasonText } from '../packages/ui/src/settings-dialog.js';
+import { aiNotice } from '../packages/core/src/ai-notice.js';
 const component = document.querySelector('aithema-session');
 const key = 'aithema-reset-slice-1-session', localeKey = 'aithema-demo-locale', bundles = { en, de };
 let fakeVoice, liveVoiceClient, copy = en, consentState = null;
@@ -24,13 +25,15 @@ function paintPage() {
   for (const [selector, value] of [['#title', h.title], ['#new', h.newConversation], ['#resume-hint', h.resumeHint], ['#source', h.source],
     ['#language-label', h.language], ['#mock-hint', h.mockHint], ['#settings-hint', h.settingsHint],
     ['#grant', binding.processingConsent ? h.processingGrant : h.grant], ['#revoke', h.revoke], ['#fake-label', copy.fakeVoice],
-    ['#fake-say', copy.fakeVoiceSay], ['#fake-interrupt', copy.fakeVoiceInterrupt], ['#fake-disconnect', copy.fakeVoiceDisconnect],
-    // The component's host slots (AIT-104 B2), filled with labelled demo content.
-    ['#demo-account-label', h.slots.account], ['#demo-account-note', h.slots.accountNote], ['#demo-account-source', h.slots.source],
-    ['#demo-handover-offer', h.slots.handoverOffer], ['#demo-credits-limit', h.slots.creditsLimit], ['#demo-license', h.slots.license],
-    ['#demo-legal-source', h.slots.legalSource], ['#demo-footer', h.slots.footer], ['#outbox-open', h.outbox.open], ['#outbox-title', h.outbox.title],
-    ['#outbox-note', h.outbox.note], ['#outbox-close', h.outbox.close]]) text(selector, value);
-  document.querySelector('#demo-legal').setAttribute('aria-label', h.slots.legal);
+    ['#fake-say', copy.fakeVoiceSay], ['#fake-interrupt', copy.fakeVoiceInterrupt], ['#fake-disconnect', copy.fakeVoiceDisconnect]]) text(selector, value);
+  // The component's host slots (AIT-104 B2), filled with labelled demo content only while the demo host runs.
+  if (binding.demoHost === true) {
+    for (const [selector, value] of [['#demo-account-label', h.slots.account], ['#demo-account-note', h.slots.accountNote], ['#demo-account-source', h.slots.source],
+      ['#demo-handover-offer', h.slots.handoverOffer], ['#demo-credits-limit', h.slots.creditsLimit], ['#demo-license', h.slots.license],
+      ['#demo-legal-source', h.slots.legalSource], ['#demo-footer', h.slots.footer], ['#outbox-open', h.outbox.open], ['#outbox-title', h.outbox.title],
+      ['#outbox-note', h.outbox.note], ['#ai-notice', aiNotice(component.session?.locale).text], ['#outbox-close', h.outbox.close]]) text(selector, value);
+    document.querySelector('#demo-legal').setAttribute('aria-label', h.slots.legal);
+  }
   if (binding.processingConsent) {
     text('#consent-title', h.processingTitle);
     const consent = copy.processingConsent ?? {}, fallback = binding.processingConsent;
@@ -89,6 +92,9 @@ async function open(fresh = false, request = {}) {
     await adopt(await response.json());
   } catch { document.querySelector('#error').textContent = copy.host.restoreFailed; }
 }
+// The demo handover reaches a local fake recipient, so its success line says nobody calls back.
+const componentCopy = () => binding.demoHost !== true ? copy
+  : { ...copy, hostSurface: { ...copy.hostSurface, handover: { ...copy.hostSurface.handover, ...copy.host.handover } } };
 // Shows a conversation: one from storage or a new one, or one the library opened, created or reset.
 async function adopt(session) {
   try {
@@ -108,7 +114,7 @@ async function adopt(session) {
         persistEvent: event => ports.persistEvent(event, { providerSessionId }) });
     }
     // The settings Advanced tab connects a local model through this browser-only factory.
-    component.configure({ voiceClient: liveVoiceClient ?? fakeVoice?.client, copy, session,
+    component.configure({ voiceClient: liveVoiceClient ?? fakeVoice?.client, copy: componentCopy(), session,
       deviceConnector: createDeviceReasoning, deviceEndpoint: 'http://127.0.0.1:8000',
       // The host surface (AIT-104 B2): library, handover and credits from the demo ports; verification
       // only where the fake mail outbox can confirm it (the mock demo).
@@ -122,9 +128,10 @@ async function adopt(session) {
   } catch { document.querySelector('#error').textContent = copy.host.restoreFailed; }
 }
 const binding = await fetch('/demo/config').then(r => r.json());
+// Demo slot fills and the fake outbox speak for the local demo host only: a live provider host shows none of them.
+if (binding.demoHost !== true) for (const demoOnly of document.querySelectorAll('[data-demo-only]')) demoOnly.remove();
 // Demo only: the fake mail outbox stands in for the visitor's inbox (GET S/demo/outbox).
 const outbox = document.querySelector('#outbox');
-document.querySelector('#outbox-open').hidden = binding.demoHost !== true;
 async function paintOutbox(status = '') {
   const o = copy.host.outbox, list = document.querySelector('#outbox-list'), id = component.session.id;
   document.querySelector('#outbox-status').textContent = status;
@@ -138,6 +145,8 @@ async function paintOutbox(status = '') {
       to.textContent = o.to.replace('{address}', message.address);
       if (!message.token) { const used = document.createElement('span'); used.textContent = o.used; item.append(to, used); return item; }
       const confirm = document.createElement('button'); confirm.type = 'button'; confirm.textContent = o.confirm;
+      // Confirming unlocks the AI assessment, so the outbox's own notice line describes it (AIT-119).
+      confirm.setAttribute('aria-describedby', 'ai-notice');
       confirm.addEventListener('click', async () => {
         confirm.disabled = true;
         const result = await postJson(`/api/sessions/${id}/identity/confirm`, { token: message.token }).catch(() => null);
@@ -149,12 +158,15 @@ async function paintOutbox(status = '') {
     if (!messages.length) document.querySelector('#outbox-status').textContent = status || o.empty;
   } catch { document.querySelector('#outbox-status').textContent = o.failed; }
 }
-document.querySelector('#outbox-open').addEventListener('click', () => { outbox.showModal(); void paintOutbox(); });
-document.querySelector('#outbox-close').addEventListener('click', () => outbox.close());
-// The demo account menu closes on Escape or a click elsewhere.
-const account = document.querySelector('#demo-account');
-document.addEventListener('click', event => { if (account.open && !event.composedPath().includes(account)) account.open = false; });
-account.addEventListener('keydown', event => { if (event.key === 'Escape' && account.open) { account.open = false; account.querySelector('summary').focus(); } });
+if (binding.demoHost === true) {
+  document.querySelector('#outbox-open').hidden = false;
+  document.querySelector('#outbox-open').addEventListener('click', () => { outbox.showModal(); void paintOutbox(); });
+  document.querySelector('#outbox-close').addEventListener('click', () => outbox.close());
+  // The demo account menu closes on Escape or a click elsewhere.
+  const account = document.querySelector('#demo-account');
+  document.addEventListener('click', event => { if (account.open && !event.composedPath().includes(account)) account.open = false; });
+  account.addEventListener('keydown', event => { if (event.key === 'Escape' && account.open) { account.open = false; account.querySelector('summary').focus(); } });
+}
 if (binding.processingConsent) {
   const container = document.createElement('div'); container.id = 'processing-items';
   for (const item of binding.processingConsent.items) {
