@@ -6,6 +6,7 @@ import { createFakeVoice } from './fake-voice.js';
 import { en } from '../packages/ui/src/i18n/en.js';
 import { de } from '../packages/ui/src/i18n/de.js';
 import { postJson } from '../packages/ui/src/post-json.js';
+import { reasonText } from '../packages/ui/src/settings-dialog.js';
 const component = document.querySelector('aithema-session');
 const key = 'aithema-reset-slice-1-session', localeKey = 'aithema-demo-locale', bundles = { en, de };
 let fakeVoice, liveVoiceClient, copy = en, consentState = null;
@@ -24,12 +25,23 @@ function paintPage() {
     ['#language-label', h.language], ['#mock-hint', h.mockHint], ['#settings-hint', h.settingsHint],
     ['#grant', binding.processingConsent ? h.processingGrant : h.grant], ['#revoke', h.revoke], ['#fake-label', copy.fakeVoice],
     ['#fake-say', copy.fakeVoiceSay], ['#fake-interrupt', copy.fakeVoiceInterrupt], ['#fake-disconnect', copy.fakeVoiceDisconnect]]) text(selector, value);
-  // The processing-consent host supplies its own item text; only the frame is page copy.
-  if (binding.processingConsent) text('#consent-title', h.processingTitle);
+  if (binding.processingConsent) {
+    text('#consent-title', h.processingTitle);
+    const consent = copy.processingConsent ?? {}, fallback = binding.processingConsent;
+    text('#consent-text', `${consent.intro ?? fallback.intro} ${consent.withdrawal ?? fallback.withdrawal}`);
+    const checkboxes = document.querySelectorAll('#processing-items input');
+    for (const [index, item] of fallback.items.entries()) {
+      // Only the matching legal version can be translated; all others keep the server text.
+      const translated = Object.hasOwn(consent.items ?? {}, item.id) && consent.items[item.id].version === item.version ? consent.items[item.id] : {};
+      const checkbox = checkboxes[index];
+      checkbox.parentElement.querySelector('span').textContent = translated.title ?? item.title;
+      checkbox.parentElement.nextElementSibling.textContent = `${translated.recipients ?? item.recipients} ${translated.text ?? item.text}`;
+    }
+  }
   else if (binding.voiceMode === 'elevenlabs') { text('#consent-title', copy.voiceHostConsentTitle); text('#consent-text', copy.voiceHostConsent); document.querySelector('#grant').title = copy.voiceHostConsent; }
   else { text('#consent-title', h.consentTitle); text('#consent-text', h.consentText); }
   text('#provider', [binding.label, binding.imageLabel].map(label => h.labels[label] ?? label).join(' · ')
-    + (binding.voiceDisabledReason ? ` · ${h.voiceUnavailable.replace('{reason}', binding.voiceDisabledReason)}` : ''));
+    + (binding.voiceDisabledReason ? ` · ${h.voiceUnavailable.replace('{reason}', reasonText(copy, binding.voiceDisabledReason))}` : ''));
   const choice = document.querySelector('#locale');
   for (const option of choice.options) option.textContent = h.languages[option.value];
   choice.value = preferredLocale();
@@ -83,14 +95,13 @@ async function open(fresh = false, request = {}) {
 }
 const binding = await fetch('/demo/config').then(r => r.json());
 if (binding.processingConsent) {
-  const copy = binding.processingConsent;
-  document.querySelector('#consent-text').textContent = `${copy.intro} ${copy.withdrawal}`;
   const container = document.createElement('div'); container.id = 'processing-items';
-  for (const item of copy.items) {
-    const label = document.createElement('label'), checkbox = document.createElement('input'), text = document.createElement('p');
+  for (const item of binding.processingConsent.items) {
+    const label = document.createElement('label'), checkbox = document.createElement('input'), title = document.createElement('span'), text = document.createElement('p');
     checkbox.type = 'checkbox'; checkbox.value = item.id;
-    label.append(checkbox, document.createTextNode(item.title));
-    text.textContent = `${item.recipients} ${item.text}`;
+    // Keep the server copy visible while opening; paintPage replaces matching versions later.
+    title.textContent = item.title; text.textContent = `${item.recipients} ${item.text}`;
+    label.append(checkbox, title);
     container.append(label, text);
   }
   document.querySelector('#grant').before(container);
