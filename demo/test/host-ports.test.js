@@ -42,6 +42,17 @@ test('demo identity host supplies revision-bound mail and polling facts under th
   kit.check(wrong?.verified === false, 'unverified token');
   const verified = await kit.run('confirmation failed', () => host.identity.verify({ ...request, token: mail[0].token }));
   kit.check(verified?.verified === true && verified.revision === 2, 'verified host evidence');
+  const reused = await kit.run('reused token failed', () => host.identity.verify({ ...request, token: mail[0].token }));
+  kit.check(reused?.verified === false, 'single-use token');
+  const wrongAfterVerification = await kit.run('wrong token after confirmation failed', () => host.identity.verify({ ...request, token: 'wrong' }));
+  kit.check(wrongAfterVerification?.verified === false, 'token evidence still requires a match');
+  kit.check(host.outbox(request)[0].token === null, 'redeemed token removed from outbox');
   const polled = await kit.run('polling failed', () => host.identity.verify(request)); kit.check(polled?.verified === true, 'authoritative polling');
+  const next = { ...request, revision: 3 };
+  await host.identity.requestVerification(next);
+  kit.check((await host.identity.verify({ ...next, token: mail[0].token })).verified === false, 'old token cannot redeem a new revision');
+  const nextToken = host.outbox(next).at(-1).token;
+  const raced = await Promise.all([host.identity.verify({ ...next, token: nextToken }), host.identity.verify({ ...next, token: nextToken })]);
+  kit.check(raced.filter(result => result.verified === true).length === 1, 'one concurrent token redemption');
   assert.deepEqual(kit.result(), { ok: true, failures: [] });
 });

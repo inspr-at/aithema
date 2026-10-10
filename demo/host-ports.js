@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { LibraryPortError, createFakeHandoverHost, handoverKey } from '@inspr/aithema-core';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -27,7 +27,7 @@ export function createDemoWallet({ limitMicro = 10_000_000, spent = () => 0 } = 
 
 /** Labelled local host. Library content lives in the demo SQLite journal;
  * fake email and handover receipts are intentionally in memory. */
-export function createDemoHost({ storage, demo = true, demoBypass = demo, now = () => Date.now(), identityPolicy,
+export function createDemoHost({ storage, demo = true, demoBypass = false, verificationRequired = false, now = () => Date.now(), identityPolicy,
   walletLimitMicro = 10_000_000, durationMs } = {}) {
   const mail = [], wallets = new Map(), sink = createFakeHandoverHost(), erasures = new Map(), resets = new Map();
   const authorize = (id, ownerToken) => {
@@ -43,6 +43,7 @@ export function createDemoHost({ storage, demo = true, demoBypass = demo, now = 
     return structuredClone(mail.filter(message => message.sessionId === sessionId));
   };
   const identity = {
+    deliversVerification: demo,
     configuration() { return { demoBypass, ...(identityPolicy ? { policy: identityPolicy } : {}) }; },
     async requestVerification({ sessionId, ownerToken, address, revision, expiresAt }) {
       storage.authorize(sessionId, ownerToken);
@@ -54,7 +55,13 @@ export function createDemoHost({ storage, demo = true, demoBypass = demo, now = 
       storage.authorize(sessionId, ownerToken);
       const message = mail.findLast(item => item.sessionId === sessionId && item.address === address && item.revision === revision);
       if (!demo || !message || now() >= message.expiresAt) return { verified: false };
-      if (token !== undefined && token === message.token) message.verified = true;
+      if (token !== undefined) {
+        if (message.verified || typeof token !== 'string') return { verified: false };
+        // Hash fixed-size digests so unequal token lengths do not short-circuit.
+        const matches = timingSafeEqual(createHash('sha256').update(token).digest(), createHash('sha256').update(message.token).digest());
+        if (!matches) return { verified: false };
+        message.verified = true; message.token = null;
+      }
       return { verified: message.verified, address: message.address, revision: message.revision };
     },
   };
@@ -115,6 +122,7 @@ export function createDemoHost({ storage, demo = true, demoBypass = demo, now = 
     return port;
   }
   const host = { label: 'Demo only: local host ports', demo, now, identity, library,
+    policy: { verificationRequired: demo && verificationRequired },
     ...(durationMs ? { credits: { durationMs } } : {}),
     outbox,
     async erased({ sessionId }) {

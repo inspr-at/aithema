@@ -122,7 +122,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       const initial = await initialSettings(ownerToken, options);
       if (initial.error) throw new TypeError(initial.error);
       const session = storage.create({ ...sessionOptions, locale: options.locale ?? 'en', ownerToken, ...initial });
-      hostHandlers.initialize(session.id, ownerToken);
+      hostHandlers.initialize(session.id, ownerToken, { newSession: true });
       return session;
     },
     async eraseConversation(id, ownerToken) {
@@ -259,7 +259,10 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         const ownedPath = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})(?:\/|$)/u.exec(new URL(request.url).pathname);
         if (ownedPath) {
           const ownerToken = ownership.token(request);
-          storage.authorize(ownedPath[1], ownerToken); hostHandlers.initialize(ownedPath[1], ownerToken);
+          storage.authorize(ownedPath[1], ownerToken);
+          if (!(request.method === 'GET' && /\/(?:identity|credits)$/u.test(new URL(request.url).pathname))) {
+            hostHandlers.initialize(ownedPath[1], ownerToken);
+          }
         }
       }
       const hostResponse = await hostHandlers.handle(request);
@@ -279,7 +282,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         const initial = await initialSettings(presented, options);
         if (initial.error) return json({ error: initial.error, field: initial.field, reason: initial.reason }, initial.status);
         const session = storage.create({ ...sessionOptions, locale: options.locale ?? 'en', ownerToken, ...initial });
-        hostHandlers.initialize(session.id, ownerToken);
+        hostHandlers.initialize(session.id, ownerToken, { newSession: true });
         const response = json(await snapshot(session.id), 201);
         if (ownership.created) ownership.created(response, ownerToken, request);
         else response.headers.set('x-aithema-session-token', ownerToken);

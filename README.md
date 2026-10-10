@@ -138,7 +138,7 @@ In this table, `S` is `/api/sessions/:id` and `L` is `/api/library`.
 | `POST S/identity/request` | `{address}` | `{identity}` after requesting host mail |
 | `POST S/identity/resend` | `{}` | `{identity}`; cooldown returns 429 with `error: "resend-rate-limit"` |
 | `POST S/identity/change` | `{address}` | Immediately revokes old evidence, then requests mail under the same cooldown |
-| `POST S/identity/confirm` | `{token}` | `{identity}` using only host-confirmed address/revision evidence |
+| `POST S/identity/confirm` | `{token}` | `{identity}` using host-confirmed address/revision evidence; exhausted attempts return 429 with `error: "confirmation-rate-limit"` |
 | `POST S/identity/unlock` | `{}` | `{identity}` after authoritative host polling |
 | `GET L` | `search`, `offset` (default 0), `limit` (default 20, max 100) | `{items,total,offset,limit}` |
 | `POST L` | Optional `{title,locale,processingPreset,settings}` | 201 `{id,title,revision,createdAt,updatedAt,session}` |
@@ -153,12 +153,26 @@ In this table, `S` is `/api/sessions/:id` and `L` is `/api/library`.
 
 Identity includes `status`, `role`, `roles`, `address`, `verificationRevision`,
 `delivery`, `expired`, `resendAfterMs`, `canResend`, `pollVerification`,
+`verificationRequired`, `confirmationAttemptsRemaining`,
 `assessmentUnlocked`, `conceptsUnlocked`, `canRunAssessment`, `canRunConcepts`,
 `paused`, `manualPaused` and `demoBypass`. Address changes invalidate stale links
 even during cooldown. Unlock retains manual pause; `POST S/pause {paused:false}`
-is the existing explicit resume. Locked identity gates assessment and fresh
-concept admission; transcript export stays available. Only trusted host
-configuration may enable a labelled demo bypass.
+is the existing explicit resume. The verification lock is an explicit host
+policy, **off by default**: set `host.policy.verificationRequired: true` only
+with an identity port that declares `deliversVerification: true` and actually
+delivers verification through `requestVerification` and `verify` (START parity).
+It gates assessment and fresh concept admission; transcript export stays
+available. New conversations persist their policy. Conversations created before
+B1 are adopted with the lock off on restart; existing policies are not changed
+retroactively. Only trusted host configuration may enable a labelled demo bypass.
+
+Token confirmation permits five attempts per requested verification revision by
+default (`identity.configuration().policy.maxConfirmationAttempts`). Each attempt
+is reserved durably in the same SQLite transaction as its state event, before
+calling the host, including calls that fail or are interrupted. Once exhausted,
+confirmation returns 429 without consulting the port until a new verification
+is requested under the resend cooldown. Polling authoritative host evidence
+does not redeem a token or spend a confirmation attempt.
 
 The existing `GET S/events` SSE stream carries durable `identity.state`,
 `verification.requested`, `identity.resend-blocked`, `identity.unlocked`,
@@ -166,7 +180,10 @@ The existing `GET S/events` SSE stream carries durable `identity.state`,
 `credits.limit-reached` and `conversation.end-requested`, in the usual
 `{sessionId,seq,generation,type,at,data}` envelope. Snapshots project `identity`,
 `handover`, `library` and `credits`; host reducer state commits with its events.
-Identity addresses and library titles are erasable content references in the
+Identity and credits GETs are read-only, including their first read on an older
+conversation: they never append events or persist state. Unlock polling emits
+events only when reducer state changes; countdowns and repeated replies do not
+grow the journal. Identity addresses and library titles are erasable content references in the
 journal. Verification tokens never enter snapshots or events. Restart recovers
 a preparing handover as retryable `failed` with `delivery-interrupted`.
 
@@ -187,7 +204,12 @@ Host adapter contract:
   current `address`, `revision` and optional `token`, returning
   `{verified,address,revision}` from its own token redemption or poll state.
   Calls receive an abort signal and deadline; the configuration's policy sets
-  the resend cooldown and verification TTL.
+  the resend cooldown, verification TTL and positive, bounded
+  `maxConfirmationAttempts` (default 5). Hosts must enforce equivalent durable,
+  race-safe attempt limits on any alternate token redemption endpoints; tokens
+  must be compared in constant time, single-use, expiry-bound and revision-bound.
+  `deliversVerification: true` attests real delivery capability when the host
+  enables `host.policy.verificationRequired`.
 - `library(ownerToken,hooks)` supplies the Part A library port. Use `hooks.create`
   for settings-aware conversation creation and await `hooks.erase(id)` for the
   storage erasure, lane cancellation and durable invalidation path; `hooks.publish`
@@ -206,9 +228,14 @@ mail, handover and wallet ports. **Demo-only route:** `GET S/demo/outbox` return
 `{label,messages:[{sessionId,address,revision,expiresAt,token,verified}]}` for the
 owner, enabling B2 to submit the token to `S/identity/confirm`. It returns 404
 whenever `AITHEMA_PROVIDER` is set, including explicit `mock`; configured live
-provider mode supplies no fake verification or handover delivery. The default
-mock host labels its bypass through `identity.demoBypass` and `/demo/config`
-(`hostLabel`, `demoHost`). The destructive local port kits test owner isolation,
+provider mode supplies no fake verification or handover delivery and never
+enables the lock. The default demo needs no verification and makes no verified
+identity claim. Set `AITHEMA_DEMO_VERIFY=1` explicitly to enable the demo lock
+with the fake outbox; this flag has no effect when `AITHEMA_PROVIDER` is set.
+Demo tokens use constant-time comparison and are removed from the outbox after
+one redemption (`token: null`); tokenless polling retains the verified fact.
+`/demo/config` exposes `hostLabel`, `demoHost` and `verificationRequired`.
+The destructive local port kits test owner isolation,
 storage erasure, delivery deduplication and wallet reservation fingerprints.
 
 ## Package layout

@@ -1,5 +1,5 @@
 import { createIdentity, identityView, reduceIdentity, createHandover, handoverView, reduceHandover,
-  assertLibraryPort, assertHandoverPort, budgetCreditView, creditsView, inputRevision, LibraryPortError,
+  assertLibraryPort, assertHandoverPort, budgetCreditView, createCredits, rebindCredits, reduceCredits, creditsView, inputRevision, LibraryPortError,
   operationScope, untilCancelled } from '@inspr/aithema-core';
 import { NotFoundError } from './storage.js';
 
@@ -14,6 +14,10 @@ const object = (body, keys) => body && typeof body === 'object' && !Array.isArra
  * All asynchronous replies recheck ownership before publication. */
 export function createHostHandlers({ storage, host, ownership, readBody, publish, snapshot, createConversation,
   eraseConversation, unlocked, budget, now = () => Date.now(), signal, deadlineMs = 30_000 }) {
+  if (host?.policy?.verificationRequired === true && (host.identity?.deliversVerification !== true ||
+      typeof host.identity.requestVerification !== 'function' || typeof host.identity.verify !== 'function')) {
+    throw new TypeError('Verification lock requires a delivering identity port');
+  }
   const deliveries = new Map();
   const clock = state => Math.max(now(), state?.lastNow ?? 0);
   async function callHost(fn) {
@@ -28,15 +32,22 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     return value;
   };
   const emit = (id, result) => { for (const event of result.events) publish(id, event); return result; };
-  function initialize(id, ownerToken) {
+  function initialIdentity(id, ownerToken, newSession = false) {
+    if (!host.identity) return null;
+    const identity = createIdentity({ ...host.identity.configuration?.({ sessionId: id, ownerToken }),
+      verificationRequired: newSession && host.policy?.verificationRequired === true });
+    identity.manualPaused = storage.get(id).paused;
+    return identity;
+  }
+  function initialize(id, ownerToken, { newSession = false } = {}) {
     if (!host || storage.hostState(id)) return;
     // New/reset inherit the owner's guard, including a deliberate pause.
     if (ownerToken && storage.ownerCreditState(ownerToken)?.paused && !storage.get(id).paused) {
       publish(id, storage.pause(id, true, { ownerToken }));
     }
-    emit(id, storage.transitionHost(id, (_state, session) => {
-      const identity = host.identity ? createIdentity(host.identity.configuration?.({ sessionId: id, ownerToken }) ?? {}) : null;
-      if (identity) identity.manualPaused = session.paused;
+    emit(id, storage.transitionHost(id, () => {
+      // Older conversations retain their admission policy when adopted by B1.
+      const identity = initialIdentity(id, ownerToken, newSession);
       const handover = createHandover({ sessionId: id });
       return { state: { identity, handover }, events: [
         ...(identity ? [{ type: 'identity.state', data: identityView(identity, clock(identity)) }] : []),
@@ -61,14 +72,24 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     if (host.wallet && ownerToken && (guard ? guard.paused !== paused : paused)) emit(id, storage.transitionCredits(id, ownerToken,
       { type: 'pause', paused, now: now() }, host.credits));
   }
-  function identityResult(id, extra = {}) {
-    const state = storage.hostState(id).identity;
+  function identityResult(id, extra = {}, ownerToken) {
+    const state = storage.hostState(id)?.identity ?? initialIdentity(id, ownerToken);
+    state.manualPaused = storage.get(id).paused;
     return { identity: identityView(state, clock(state)), ...extra };
   }
-  function credits(id, ownerToken, type = 'balance') {
+  function creditResult(id, ownerToken) {
     const balance = budgetCreditView(budget, id, host.wallet(ownerToken));
-    const result = emit(id, storage.transitionCredits(id, ownerToken,
-      type === 'balance' ? { type, balance, now: now() } : { type, now: now() }, host.credits));
+    const guard = storage.ownerCreditState(ownerToken);
+    const state = guard ? guard.sessionId === id ? guard : rebindCredits(guard, id) : createCredits({ sessionId: id, ...host.credits });
+    // Project live balances, expiry and pause without persisting read results.
+    const current = reduceCredits(state, { type: 'balance', balance, now: clock(state) }).state;
+    const projected = reduceCredits(current, { type: 'pause', paused: storage.get(id).paused, now: clock(current) }).state;
+    return { balance, limitSlot: creditsView(projected, clock(projected)) };
+  }
+  function startCredits(id, ownerToken) {
+    const balance = budgetCreditView(budget, id, host.wallet(ownerToken));
+    emit(id, storage.transitionCredits(id, ownerToken, { type: 'balance', balance, now: now() }, host.credits));
+    const result = emit(id, storage.transitionCredits(id, ownerToken, { type: 'start', now: now() }, host.credits));
     const paused = storage.get(id).paused;
     const current = result.state.paused === paused ? result : emit(id, storage.transitionCredits(id, ownerToken, { type: 'pause', paused, now: now() }));
     return { balance, limitSlot: creditsView(current.state, Math.max(now(), current.state.lastNow)) };
@@ -162,21 +183,42 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
         const messages = await host.outbox({ sessionId: id, ownerToken }); storage.authorize(id, ownerToken);
         return json({ label: 'Demo only: fake mail outbox', messages });
       }
+      // GETs must stay read-only even for conversations created before B1.
+      if (action === 'identity' && request.method === 'GET') {
+        if (!host.identity) return json({ error: 'identity-unavailable' }, 503);
+        return json(identityResult(id, {}, ownerToken));
+      }
+      if (action === 'credits') {
+        if (request.method !== 'GET') return json({ error: 'method-not-allowed' }, 405);
+        if (!host.wallet) return json({ error: 'credits-unavailable' }, 503);
+        return json(creditResult(id, ownerToken));
+      }
       initialize(id, ownerToken);
       if (action.startsWith('identity')) {
         if (!host.identity) return json({ error: 'identity-unavailable' }, 503);
         syncPause(id, ownerToken);
-        if (action === 'identity' && request.method === 'GET') {
-          identityTransition(id, ownerToken, { type: 'tick' }); return json(identityResult(id));
-        }
         if (request.method !== 'POST' || action === 'identity') return json({ error: 'method-not-allowed' }, 405);
         const command = action.slice('identity/'.length);
         const options = await body(request, ['request', 'change'].includes(command) ? ['address'] : command === 'confirm' ? ['token'] : []);
         if (command === 'confirm' && (typeof options.token !== 'string' || !options.token || options.token.length > 2048)) throw new TypeError('Invalid verification token');
         if (command === 'confirm' || command === 'unlock') {
-          const state = storage.hostState(id).identity;
-          const evidence = await callHost(callOptions => host.identity.verify({ sessionId: id, ownerToken, address: state.address,
-            revision: state.verificationRevision, ...(command === 'confirm' ? { token: options.token } : {}) }, callOptions));
+          let state = storage.hostState(id).identity;
+          if (state.status === 'verified') return json(identityResult(id));
+          if (command === 'confirm') {
+            // transitionHost reserves under BEGIN IMMEDIATE before any await.
+            const attempt = identityTransition(id, ownerToken, { type: 'confirmation-attempt' });
+            if (attempt.confirmationBlocked) return json(identityResult(id, { error: 'confirmation-rate-limit' }), 429);
+            if (!attempt.confirmationAllowed) return json(identityResult(id));
+            state = attempt.state.identity;
+          }
+          let evidence;
+          try {
+            evidence = await callHost(callOptions => host.identity.verify({ sessionId: id, ownerToken, address: state.address,
+              revision: state.verificationRevision, ...(command === 'confirm' ? { token: options.token } : {}) }, callOptions));
+          } catch (error) {
+            if (signal?.aborted) return json({ error: 'server-stopping' }, 503);
+            throw error;
+          }
           if (signal?.aborted) return json({ error: 'server-stopping' }, 503);
           storage.authorize(id, ownerToken); syncPause(id, ownerToken);
           const result = identityTransition(id, ownerToken, { type: 'verification', verified: evidence?.verified === true,
@@ -187,7 +229,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
         let result = identityTransition(id, ownerToken, { type: command === 'request' ? 'request-verification' : command === 'change' ? 'change-address' : 'resend', address: options.address });
         // Change invalidates old links immediately, then requests under the same cooldown.
         if (command === 'change') result = identityTransition(id, ownerToken, { type: 'resend' });
-        const blocked = result.events.some(e => e.type === 'identity.resend-blocked');
+        const blocked = result.resendBlocked;
         const effect = result.events.find(e => e.type === 'verification.requested');
         if (effect) {
           let delivery;
@@ -199,11 +241,6 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
             status: delivery?.status === 'sent' ? 'sent' : 'failed' });
         }
         return json(identityResult(id, blocked ? { error: 'resend-rate-limit' } : {}), blocked ? 429 : 200);
-      }
-      if (action === 'credits') {
-        if (request.method !== 'GET') return json({ error: 'method-not-allowed' }, 405);
-        if (!host.wallet) return json({ error: 'credits-unavailable' }, 503);
-        return json(credits(id, ownerToken));
       }
       if (!host.handover) return json({ error: 'handover-unavailable' }, 503);
       if (action === 'handover' && request.method === 'GET') {
@@ -220,7 +257,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     }
   }
   return { handle, initialize, syncPause,
-    startCredits(id, ownerToken) { if (host?.wallet) return credits(id, ownerToken, 'start'); },
+    startCredits(id, ownerToken) { if (host?.wallet) return startCredits(id, ownerToken); },
     resume() {
       if (!host) return;
       for (const id of storage.list()) {

@@ -98,7 +98,8 @@ const presets = demoPresets({ provider, reaction: privateBinding, understanding:
   voiceBinding: voiceHost?.binding ?? localVoiceBinding, imagePlugin, imageBinding: imageSelection.images, htmlPlugin, htmlBinding: htmlSelection.html, htmlDemo: Boolean(html.demo), policy });
 registerDemoExtractors(registry, presets);
 const pluginRuntime = createPluginRuntime({ storage, reasoning, consent, registry, uiRenderLimits, presets });
-const host = createDemoHost({ storage, demo: process.env.AITHEMA_PROVIDER === undefined });
+const host = createDemoHost({ storage, demo: process.env.AITHEMA_PROVIDER === undefined,
+  verificationRequired: process.env.AITHEMA_DEMO_VERIFY === '1' });
 const handlers = createHandlers({ storage, reasoning, pluginRuntime, consent, ownership, host, uploads: { limits: uploadLimits }, voice: voicePlugin ? { secrets, closeOrphan: voiceHost?.closeOrphan, staticSecretRef: voiceHost?.staticSecretRef } : undefined }); await handlers.resume();
 const expiry = startExpiry(handlers);
 let allowedHosts = new Set();
@@ -114,7 +115,8 @@ async function handle(request) {
   if (!['GET', 'HEAD'].includes(request.method)) return new Response(null, { status: 405 });
   if (url.pathname === '/demo/config') return Response.json({ label: reasoning.label, defaultPreset: 'best', voiceMode: voiceMode === 'elevenlabs' && !voiceHost?.binding ? 'off' : voiceMode,
     voiceDisabledReason: voiceHost?.disabledReason ?? null, processingConsent: consent.describe?.(), imageMode, imageLabel: imagePlugin?.label ?? 'Images off',
-    htmlMode: html.mode, htmlLabel: htmlPlugin?.label ?? 'HTML off', htmlDisabledReason: html.disabledReason ?? null, hostLabel: host.label, demoHost: host.demo });
+    htmlMode: html.mode, htmlLabel: htmlPlugin?.label ?? 'HTML off', htmlDisabledReason: html.disabledReason ?? null, hostLabel: host.label, demoHost: host.demo,
+    verificationRequired: host.policy.verificationRequired });
   if (url.pathname.startsWith('/vendor/elevenlabs/worklets/')) {
     const bytes = await voiceAsset(url.pathname.slice('/vendor/elevenlabs/worklets/'.length));
     return bytes ? new Response(request.method === 'HEAD' ? null : bytes, { headers: { 'content-type': 'text/javascript; charset=utf-8', 'x-content-type-options': 'nosniff' } }) : new Response(null, { status: 404 });

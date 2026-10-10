@@ -1,30 +1,34 @@
 // Generic START verification/recovery behaviour. The host owns email delivery,
 // token redemption and polling; only authoritative host facts enter this reducer.
 export const ACTOR_ROLES = Object.freeze(['private', 'company', 'representative', 'agency']);
-export const IDENTITY_POLICY = Object.freeze({ resendCooldownMs: 60_000, verificationTtlMs: 30 * 60_000 });
+export const IDENTITY_POLICY = Object.freeze({ resendCooldownMs: 60_000, verificationTtlMs: 30 * 60_000, maxConfirmationAttempts: 5 });
 const time = n => Number.isSafeInteger(n) && n >= 0;
 const address = value => typeof value === 'string' && value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(value);
 
-export function createIdentity({ roles = ACTOR_ROLES, role = null, demoBypass = false, policy = {} } = {}) {
+export function createIdentity({ roles = ACTOR_ROLES, role = null, demoBypass = false, verificationRequired = false, policy = {} } = {}) {
   const limits = { ...IDENTITY_POLICY, ...policy };
   if (!Array.isArray(roles) || !roles.length || new Set(roles).size !== roles.length ||
       roles.some(r => typeof r !== 'string' || !r || r.length > 64) || role !== null && !roles.includes(role) ||
-      typeof demoBypass !== 'boolean' || !time(limits.resendCooldownMs) || !time(limits.verificationTtlMs) || !limits.verificationTtlMs) {
+      typeof demoBypass !== 'boolean' || typeof verificationRequired !== 'boolean' ||
+      !time(limits.resendCooldownMs) || !time(limits.verificationTtlMs) || !limits.verificationTtlMs ||
+      !time(limits.maxConfirmationAttempts) || !limits.maxConfirmationAttempts) {
     throw new TypeError('Invalid identity configuration');
   }
   return { status: 'guest', roles: [...roles], role, address: null, verificationRevision: 0,
-    expiresAt: null, resendAt: 0, expired: false, delivery: 'idle', demoBypass,
+    expiresAt: null, resendAt: 0, expired: false, delivery: 'idle', demoBypass, verificationRequired, confirmationAttempts: 0,
     manualPaused: false, visibilityPaused: false, visible: true, releaseVisibilityOnReturn: false,
     lastNow: 0, policy: limits };
 }
 
 export function identityView(state, now) {
   if (!time(now)) throw new TypeError('Identity view requires host time');
-  const unlocked = state.demoBypass || state.status === 'verified';
+  const unlocked = state.verificationRequired !== true || state.demoBypass || state.status === 'verified';
   const paused = state.manualPaused || state.visibilityPaused;
   const expired = state.expired || state.expiresAt !== null && now >= state.expiresAt;
   return { status: state.status, role: state.role, roles: [...state.roles], address: state.address,
     verificationRevision: state.verificationRevision, delivery: state.delivery, expired,
+    verificationRequired: state.verificationRequired === true,
+    confirmationAttemptsRemaining: Math.max(0, (state.policy.maxConfirmationAttempts ?? IDENTITY_POLICY.maxConfirmationAttempts) - (state.confirmationAttempts ?? 0)),
     resendAfterMs: Math.max(0, state.resendAt - now),
     canResend: state.status === 'verification-pending' && now >= state.resendAt,
     pollVerification: state.status === 'verification-pending' && !expired && state.expiresAt !== null,
@@ -45,8 +49,10 @@ export function reduceIdentity(state, event) {
     if (next.delivery === 'requested') next.delivery = 'failed';
   }
   const events = [];
+  let resendBlocked = false, confirmationAllowed = false, confirmationBlocked = false;
   const request = () => {
     if (event.now < next.resendAt) {
+      resendBlocked = true;
       events.push({ type: 'identity.resend-blocked', data: { resendAfterMs: Math.max(0, next.resendAt - event.now) } });
       return;
     }
@@ -54,7 +60,7 @@ export function reduceIdentity(state, event) {
     next.expiresAt = event.now + next.policy.verificationTtlMs;
     next.resendAt = event.now + next.policy.resendCooldownMs;
     if (!time(next.expiresAt) || !time(next.resendAt)) throw new TypeError('Identity deadline overflow');
-    next.expired = false; next.delivery = 'requested';
+    next.expired = false; next.delivery = 'requested'; next.confirmationAttempts = 0;
     events.push({ type: 'verification.requested', data: { address: next.address,
       revision: next.verificationRevision, expiresAt: next.expiresAt } });
   };
@@ -85,6 +91,15 @@ export function reduceIdentity(state, event) {
       if (!['sent', 'failed'].includes(event.status)) throw new TypeError('Invalid verification delivery');
       if (next.status === 'verification-pending' && event.revision === next.verificationRevision &&
           event.address === next.address && next.delivery === 'requested') next.delivery = event.status;
+      break;
+    case 'confirmation-attempt':
+      // Reserve durably before the host sees a token. An interrupted or failed
+      // host call still consumes the attempt; only a new request renews it.
+      confirmationBlocked = (next.confirmationAttempts ?? 0) >= (next.policy.maxConfirmationAttempts ?? IDENTITY_POLICY.maxConfirmationAttempts);
+      if (!confirmationBlocked && next.status === 'verification-pending' && !next.expired && next.expiresAt !== null) {
+        next.confirmationAttempts = (next.confirmationAttempts ?? 0) + 1;
+        confirmationAllowed = true;
+      }
       break;
     case 'verification':
       if (event.verified === true && next.status === 'verification-pending' && !next.expired && next.expiresAt !== null &&
@@ -118,6 +133,11 @@ export function reduceIdentity(state, event) {
     case 'tick': break;
     default: throw new TypeError('Unknown identity event');
   }
-  events.push({ type: 'identity.state', data: identityView(next, event.now) });
-  return { state: next, events };
+  // Host time advances without journalling countdowns or unchanged polling.
+  const { lastNow: _beforeNow, ...before } = state;
+  const { lastNow: _afterNow, ...after } = next;
+  if (JSON.stringify(before) !== JSON.stringify(after)) {
+    events.push({ type: 'identity.state', data: identityView(next, event.now) });
+  } else events.length = 0;
+  return { state: next, events, resendBlocked, confirmationAllowed, confirmationBlocked };
 }

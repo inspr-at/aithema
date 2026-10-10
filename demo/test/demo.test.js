@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { request } from 'node:http';
 import { startChild, temporaryDb, post } from '../../test/helpers.js';
+import { inputRevision } from '@inspr/aithema-core';
 function rawStatus(url, options) {
   return new Promise((resolve, reject) => {
     const outgoing = request(url, options, response => { response.resume(); resolve(response.statusCode); });
@@ -19,7 +20,8 @@ test('demo serves native UI modules, labelled mock host and persistent handlers'
     assert.equal(response.headers.get('content-security-policy'), "frame-src 'none'; child-src 'none'");
     await response.body?.cancel();
   }
-  assert.match((await fetch(running.url + '/demo/config').then(r => r.json())).label, /Mock reasoning/);
+  const config = await fetch(running.url + '/demo/config').then(r => r.json());
+  assert.match(config.label, /Mock reasoning/); assert.equal(config.verificationRequired, false);
   for (const path of ['/demo/host.js', '/packages/ui/src/session-element.js', '/packages/ui/src/post-json.js', '/packages/ui/src/i18n/en.js', '/packages/core/src/readiness.js', '/plugins/device/src/index.js', '/packages/core/src/chat-completions.js', '/packages/core/src/plugins.js', '/packages/core/src/invocation.js', '/packages/core/src/presets.js']) {
     const r = await fetch(running.url + path); assert.equal(r.status, 200); assert.match(r.headers.get('content-type'), /javascript/);
   }
@@ -28,15 +30,47 @@ test('demo serves native UI modules, labelled mock host and persistent handlers'
   const cookie = created.headers.get('set-cookie').split(';')[0];
   assert.match(created.headers.get('set-cookie'), /HttpOnly; SameSite=Strict/);
   assert.equal(created.headers.get('x-aithema-session-token'), null);
-  const requested = await post(running.url + `/api/sessions/${s.id}/identity/request`, { address: 'demo@example.test' }, { cookie });
-  assert.equal(requested.status, 200);
-  const outbox = await fetch(running.url + `/api/sessions/${s.id}/demo/outbox`, { headers: { cookie } }).then(r => r.json());
-  assert.match(outbox.label, /Demo only/u); assert.equal(outbox.messages.length, 1);
-  const confirmed = await post(running.url + `/api/sessions/${s.id}/identity/confirm`, { token: outbox.messages[0].token }, { cookie });
-  assert.equal((await confirmed.json()).identity.status, 'verified');
+  assert.equal(s.identity.status, 'guest'); assert.equal(s.identity.demoBypass, false);
+  assert.equal(s.identity.verificationRequired, false);
+  assert.equal(s.identity.assessmentUnlocked, true); assert.equal(s.identity.conceptsUnlocked, true);
+  await post(running.url + `/api/sessions/${s.id}/consent`, { granted: true }, { cookie });
   await post(running.url + `/api/sessions/${s.id}/turns`, { clientEventId: 'demo-turn', content: 'Demo turn' }, { cookie });
+  for (let i = 0; i < 200; i++) {
+    const current = await fetch(running.url + `/api/sessions/${s.id}`, { headers: { cookie } }).then(r => r.json());
+    if (current.understanding.inputRevision === inputRevision(current)) break;
+    if (i === 199) assert.fail('default demo assessment requires no verification');
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
   await running.kill(); running = await startChild(new URL('../server.js', import.meta.url), db);
   const restored = await fetch(running.url + `/api/sessions/${s.id}`, { headers: { cookie } }).then(r => r.json()); assert.equal(restored.transcript[0].content, 'Demo turn');
+  assert.equal(restored.identity.verificationRequired, false); assert.equal(restored.identity.assessmentUnlocked, true);
+});
+
+test('AITHEMA_DEMO_VERIFY=1 explicitly locks the demo and its fake outbox can unlock it', { timeout: 10_000 }, async t => {
+  const running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb(), { AITHEMA_DEMO_VERIFY: '1' });
+  t.after(() => running.kill());
+  const config = await fetch(running.url + '/demo/config').then(r => r.json());
+  assert.equal(config.verificationRequired, true); assert.equal(config.demoHost, true);
+  const created = await post(running.url + '/api/sessions', {}), session = await created.json();
+  const headers = { cookie: created.headers.get('set-cookie').split(';')[0] }, base = running.url + `/api/sessions/${session.id}`;
+  assert.equal(session.identity.assessmentUnlocked, false); assert.equal(session.identity.conceptsUnlocked, false);
+  assert.equal(session.featureMatrix.best.analysis.reason, 'verification required');
+  await post(base + '/identity/request', { address: 'demo@example.test' }, headers);
+  const outbox = await fetch(base + '/demo/outbox', { headers }).then(r => r.json());
+  assert.match(outbox.label, /Demo only/u); assert.equal(outbox.messages.length, 1);
+  const confirmed = await post(base + '/identity/confirm', { token: outbox.messages[0].token }, headers);
+  const identity = (await confirmed.json()).identity;
+  assert.equal(identity.status, 'verified'); assert.equal(identity.assessmentUnlocked, true); assert.equal(identity.conceptsUnlocked, true);
+});
+
+test('an explicitly configured mock provider has no delivering identity port and ignores the demo verification flag', { timeout: 10_000 }, async t => {
+  const running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb(), { AITHEMA_PROVIDER: 'mock', AITHEMA_DEMO_VERIFY: '1' });
+  t.after(() => running.kill());
+  const config = await fetch(running.url + '/demo/config').then(r => r.json());
+  assert.equal(config.demoHost, false); assert.equal(config.verificationRequired, false);
+  const created = await post(running.url + '/api/sessions', {}), session = await created.json();
+  assert.equal(session.identity.verificationRequired, false);
+  assert.equal(session.identity.assessmentUnlocked, true); assert.equal(session.identity.conceptsUnlocked, true);
 });
 test('demo rejects foreign Hosts and non-JSON POSTs before session creation', { timeout: 10_000 }, async t => {
   const running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb());
@@ -178,13 +212,16 @@ test('a live provider host offers only its configured route: no mock, no fake vo
   const live = { AITHEMA_PROVIDER: 'openrouter', OPENROUTER_MODEL: 'openai/fixture', OPENROUTER_SPEECH_MODEL: 'anthropic/fixture',
     AITHEMA_OPENROUTER_PRICES: JSON.stringify({ 'openai/fixture': price, 'anthropic/fixture': price }) };
   // Explicit fake voice and images are still refused on a live host; HTML defaults to off.
-  let running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb(), { ...live, AITHEMA_VOICE_MODE: 'fake', AITHEMA_IMAGE_MODE: 'fake' });
+  let running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb(), { ...live, AITHEMA_VOICE_MODE: 'fake', AITHEMA_IMAGE_MODE: 'fake', AITHEMA_DEMO_VERIFY: '1' });
   t.after(() => running.kill());
   const config = await fetch(running.url + '/demo/config').then(r => r.json());
   assert.deepEqual([config.voiceMode, config.imageMode, config.htmlMode], ['off', 'off', 'off']);
   const created = await post(running.url + '/api/sessions', {}), session = await created.json();
   const headers = { cookie: created.headers.get('set-cookie').split(';')[0] };
   assert.equal(config.demoHost, false);
+  assert.equal(config.verificationRequired, false); assert.equal(session.identity.verificationRequired, false);
+  assert.equal(session.identity.assessmentUnlocked, true); assert.equal(session.identity.conceptsUnlocked, true);
+  assert.notEqual(session.featureMatrix.best.analysis.reason, 'verification required');
   assert.equal((await fetch(running.url + `/api/sessions/${session.id}/demo/outbox`, { headers })).status, 404);
   assert.deepEqual([session.settings.model, session.settings.voice, session.settings.visuals], ['openrouter/anthropic/fixture', 'off', 'off']);
   const catalog = await fetch(running.url + `/api/sessions/${session.id}/settings`, { headers }).then(r => r.json());

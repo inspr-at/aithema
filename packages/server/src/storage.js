@@ -136,7 +136,8 @@ export class SQLiteStorage {
     return this.transaction(() => {
       const session = this.authorize(id, ownerToken), key = session.ownerHash;
       const row = this.db.prepare('SELECT record FROM owner_credit_guards WHERE owner_hash=?').get(key);
-      const state = row ? rebindCredits(JSON.parse(row.record), id) : createCredits({ sessionId: id, ...options });
+      const previous = row ? JSON.parse(row.record) : null;
+      const state = previous ? previous.sessionId === id ? previous : rebindCredits(previous, id) : createCredits({ sessionId: id, ...options });
       const result = reduceCredits(state, { ...event, now: Math.max(event.now, state.lastNow) });
       this.db.prepare('INSERT INTO owner_credit_guards VALUES (?,?) ON CONFLICT(owner_hash) DO UPDATE SET record=excluded.record')
         .run(key, JSON.stringify(result.state));

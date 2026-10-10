@@ -162,7 +162,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       maxVisitorMicro: Math.ceil(milliseconds / 60_000 * binding.visitorMicroPerMinute) };
   };
   async function evaluate(session, preset, feature, options) {
-    if (session.identity && ((feature === 'analysis' && !session.identity.assessmentUnlocked) ||
+    if (session.identity?.verificationRequired === true && ((feature === 'analysis' && !session.identity.assessmentUnlocked) ||
       (visual(feature) && !session.identity.conceptsUnlocked))) return { reason: 'verification required' };
     if (!PROCESSING_PRESETS.includes(preset)) return { reason: 'unknown preset' };
     if (preset === 'device') return { reason: feature === 'text' ? 'device browser only' : 'unavailable on device' };
