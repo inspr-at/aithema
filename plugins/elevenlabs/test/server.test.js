@@ -268,10 +268,14 @@ test('spend and browser-liveness expiry each settle one terminal even while paus
     assert.equal(options.reports[0].chargedMicro, options.attempt.maxMicro); await call.close(); assert.equal(options.reports.length, 1);
   }
 });
-test('post-mint journal failure withholds credential and settles conservatively', async () => {
+test('post-mint journal failure withholds credential and confirms zero billable usage exactly once', async () => {
   const local = fixture({ saveCall: () => { throw new Error('journal failed'); } }), options = invocationOptions();
   await assert.rejects(local.server.start({ callId: 'call_failure', facadeSecretRef: 'fixture-ref' }, options));
-  assert.equal(options.reports.length, 1); assert.equal(options.reports[0].outcome, 'uncertain');
+  assert.equal(options.reports.length, 1); assert.equal(options.reports[0].outcome, 'cancelled');
+  assert.equal(options.reports[0].closureConfirmed, true); assert.equal(options.reports[0].chargedMicro, 0);
+  assert.deepEqual(options.reports[0].usage, { providerSeconds: 0, providerMinutes: 0, pausedSeconds: 0,
+    visitorSeconds: 0, upstreamMicro: 0, visitorMicro: 0 });
+  assert.equal(local.requests.length, 1, 'an undelivered credential needs no billable closure lookup');
 });
 test('START presentation overrides stay allowlisted and never carry provider configuration', async () => {
   const local = fixture(), options = invocationOptions();

@@ -117,7 +117,11 @@ URL initiation TTL is 15 minutes; application freshness does not change it.
 
 `saveCall(record, options)` persists private provider identity, admitted attempt,
 maximum, deadlines and pauses before a credential is returned. Credentials
-never enter this journal. When `options.paused` is present, atomically persist
+never enter this journal. Minting failures and journal failures before credential
+handoff report confirmed cancellation with zero duration and zero upstream/visitor
+cost, even when the provider allocated an id. Authority is consumed before minting;
+the billable dispatch boundary is the successful credential handoff. A late result
+from a timed-out mint cannot start or journal a call. When `options.paused` is present, atomically persist
 the call record and AIT-97's engine-wide pause state, returning
 `{acknowledged:true, paused}`. Serial transitions prevent pause/resume races.
 Heartbeat renews only the browser lease, bounded by the unchanged spend deadline.

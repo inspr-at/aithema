@@ -6,12 +6,13 @@ import { PluginRegistry, createMockReasoning, activeTurns, PluginError, inputRev
 import { readFile } from 'node:fs/promises';
 import { temporaryDb, unzip } from '../../../test/helpers.js';
 import { eventProbe } from '../../../test/voice-test-events.js';
+import { createElevenLabsServer } from '../../../plugins/elevenlabs/src/server.js';
 
 const test = (name, fn) => nodeTest(name, { timeout: 60_000 }, fn);
 
 export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, path, cap, reasoning = createMockReasoning() } = {}) {
   const storage = new SQLiteStorage(path), secrets = createFacadeSecrets();
-  let clock = Date.now(), sequence = 0, covered = true, secretReads = 0, coverageReads = 0, healthReads = 0, releasing = false;
+  let clock = Date.now(), sequence = 0, covered = true, secretReads = 0, coverageReads = 0, healthReads = 0, releasing = false, mintFailure;
   const opened = new Map(), ended = new Set(), waiting = new Map(), provisioned = [], traffic = [], closeRequests = [];
   const providerEvents = eventProbe();
   const endClient = id => { ended.add(id); waiting.get(id)?.(); waiting.delete(id); };
@@ -34,6 +35,10 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
     fetchImpl: async url => {
       traffic.push(String(url));
       if (String(url).includes('/token?')) {
+        if (mintFailure) {
+          providerEvents.record({ type: 'mint-failed' });
+          return typeof mintFailure === 'number' ? Response.json({}, { status: mintFailure }) : mintFailure;
+        }
         const id = `provider-${++sequence}`; opened.set(id, clock);
         return Response.json({ token: 'fixture-credential', conversation_id: id });
       }
@@ -64,10 +69,81 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
     const response = await route('/voice', { callId }); assert.equal(response.status, 201); return response.json();
   };
   return { storage, secrets, runtime, handlers, session, route, start, presets, provisioned, traffic, now, voiceCap, plugin: registry.get('elevenlabs'), endClient, closeRequests,
+    failMint: failure => { mintFailure = failure; },
+    waitForMintFailure: () => providerEvents.waitFor(event => event.type === 'mint-failed'),
     waitForClosure: id => providerEvents.waitFor(event => event.type === 'details' && event.id === id),
     authChecks: () => ({ secretReads, coverageReads, healthReads }),
     advance: ms => { clock += ms; }, coverage: value => { covered = value; } };
 }
+
+function assertUnbillableStart(h) {
+  const row = h.storage.db.prepare('SELECT * FROM budget_attempts WHERE lane=\'voice\' ORDER BY rowid DESC LIMIT 1').get();
+  assert.equal(row.state, 'settled'); assert.equal(row.outcome, 'cancelled');
+  assert.equal(row.settled_micro, 0); assert.equal(row.settled_visitor_micro, 0);
+  const terminal = JSON.parse(row.terminal_json);
+  assert.equal(terminal.closureConfirmed, true); assert.equal(terminal.chargedMicro, 0);
+  assert.equal(terminal.usage.providerSeconds, 0);
+  assert.equal(h.storage.db.prepare('SELECT actual_ms FROM voice_cap_reservations WHERE attempt_id=?').get(row.attempt_id).actual_ms, 0);
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 0);
+}
+
+for (const status of [500, 429]) {
+  test(`failed credential mint (${status}) durably releases minutes and both budgets before a later call`, async t => {
+    const h = voiceFixture(t, { cap: { capMilliseconds: 60_000, perDayMilliseconds: 60_000 } });
+    h.failMint(status);
+    assert.equal((await h.route('/voice', { callId: 'failed' })).status, 502);
+    assertUnbillableStart(h); assert.equal(h.storage.voiceCalls().length, 0);
+    assert.equal(h.runtime.budget.used(h.session.id), 0); assert.equal(h.runtime.budget.visitorUsed(h.session.id), 0);
+    h.failMint(null); await h.start('later-call');
+    assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 60_000);
+  });
+}
+
+test('timed-out mint releases the cap and a late credential cannot create a billable call', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
+  const h = voiceFixture(t, { cap: { capMilliseconds: 60_000 } }), late = Promise.withResolvers();
+  h.failMint(late.promise);
+  const pending = h.route('/voice', { callId: 'timeout' });
+  await h.waitForMintFailure(); h.advance(30_000); t.mock.timers.tick(30_000);
+  assert.equal((await pending).status, 504); assertUnbillableStart(h);
+  late.resolve(Response.json({ token: 'fixture-late-credential', conversation_id: 'late-provider' }));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.storage.voiceCalls().length, 0); assertUnbillableStart(h);
+  h.failMint(null); await h.start('later-call');
+});
+
+test('saveCall failure before a provider identity still releases minutes and money on the failure path', async t => {
+  const h = voiceFixture(t, { cap: { capMilliseconds: 60_000 } }), original = h.plugin.start;
+  let saves = 0;
+  const server = createElevenLabsServer({ binding: h.plugin.binding,
+    prepareCall: () => { throw new Error('preflight failed'); },
+    saveCall: record => { saves++; assert.equal(record.providerSessionId, undefined); throw new Error('journal failed'); },
+    fetchImpl: () => { assert.fail('no provider work before preflight succeeds'); } });
+  h.plugin.start = (request, options) => server.start(request, options);
+  assert.equal((await h.route('/voice', { callId: 'failed-save' })).status, 503);
+  assert.equal(saves, 1); assertUnbillableStart(h);
+  h.plugin.start = original; await h.start('later-call');
+});
+
+test('post-mint journal failure withholds the credential and durably releases the cap and both budgets', async t => {
+  const h = voiceFixture(t, { cap: { capMilliseconds: 60_000 } }), save = h.storage.saveVoiceCall;
+  h.storage.saveVoiceCall = () => { throw new Error('journal failed'); };
+  assert.equal((await h.route('/voice', { callId: 'failed-save' })).status, 503);
+  assertUnbillableStart(h); assert.equal(h.closeRequests.length, 0);
+  h.storage.saveVoiceCall = save; await h.start('later-call');
+});
+
+test('failed recovery mint releases only its own hold and permits a later call', async t => {
+  const h = voiceFixture(t, { cap: { capMilliseconds: 65_000 } }), first = await h.start();
+  h.advance(5000);
+  await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId });
+  h.failMint(500);
+  assert.equal((await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId })).status, 502);
+  assertUnbillableStart(h); assert.equal(h.voiceCap.snapshot().spentMilliseconds, 5000);
+  assert.equal(h.runtime.budget.used(h.session.id), 5000); assert.equal(h.runtime.budget.visitorUsed(h.session.id), 10_000);
+  h.failMint(null); await h.start('later-call');
+  assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 60_000);
+});
 
 for (const [limits, reason] of [[{ capMilliseconds: 59_999 }, VOICE_CAP_REASON], [{ perDayMilliseconds: 59_999 }, VOICE_DAY_CAP_REASON]]) {
   test(`aggregate admission exposes ${reason} before credential minting or facade provisioning`, async t => {

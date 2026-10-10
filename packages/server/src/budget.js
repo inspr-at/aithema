@@ -26,6 +26,7 @@ export class SQLiteBudgetLedger {
     for (const name of ['max_visitor_micro', 'settled_visitor_micro']) {
       if (!columns.some(c => c.name === name)) this.db.exec(`ALTER TABLE budget_attempts ADD COLUMN ${name} INTEGER NOT NULL DEFAULT 0 CHECK(${name} >= 0)`);
     }
+    if (!columns.some(c => c.name === 'voice_reconciliation_json')) this.db.exec('ALTER TABLE budget_attempts ADD COLUMN voice_reconciliation_json TEXT');
   }
   visitorUsed(sessionId) {
     return this.db.prepare(`SELECT COALESCE(SUM(CASE WHEN state='settled' THEN settled_visitor_micro ELSE max_visitor_micro END),0) AS n
@@ -122,9 +123,18 @@ export class SQLiteBudgetLedger {
     return this.storage.transaction(() => {
       const row = this.get(attemptId);
       if (!row || row.lane !== 'voice' || row.state !== 'settled') throw new PluginError('not-admitted');
-      this.db.prepare('UPDATE budget_attempts SET usage=?,settled_micro=?,settled_visitor_micro=?,overrun=? WHERE attempt_id=?')
+      const bytes = JSON.stringify(terminal);
+      if (row.voice_reconciliation_json !== null) {
+        const recorded = JSON.parse(row.voice_reconciliation_json);
+        if (recorded.providerSessionId !== terminal.providerSessionId ||
+          Object.keys({ ...recorded.usage, ...terminal.usage }).some(key => recorded.usage[key] !== terminal.usage[key])) {
+          throw new PluginError('already-claimed', 'Voice reconciliation already settled');
+        }
+        return row;
+      }
+      this.db.prepare('UPDATE budget_attempts SET usage=?,settled_micro=?,settled_visitor_micro=?,overrun=?,voice_reconciliation_json=? WHERE attempt_id=?')
         .run(JSON.stringify(terminal.usage), terminal.usage.upstreamMicro, terminal.usage.visitorMicro,
-          terminal.usage.upstreamMicro > row.max_micro ? 1 : 0, attemptId);
+          terminal.usage.upstreamMicro > row.max_micro ? 1 : 0, bytes, attemptId);
       return this.get(attemptId);
     });
   }

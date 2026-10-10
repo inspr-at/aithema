@@ -76,12 +76,13 @@ export function createVoiceCap({ storage, capMilliseconds, perDayMilliseconds, n
       });
     },
     recover() {
-      // Only a durable, confirmed terminal releases a hold, including pre-dispatch zeroes.
+      // Durable pre-dispatch cancellation and confirmed reconciliation release holds.
       // A crash between the budget report and this ledger update is safe to replay.
-      for (const row of db.prepare(`SELECT v.attempt_id, b.terminal_json FROM voice_cap_reservations v
+      for (const row of db.prepare(`SELECT v.attempt_id, b.outcome, b.settled_micro, b.terminal_json, b.voice_reconciliation_json FROM voice_cap_reservations v
         JOIN budget_attempts b ON b.attempt_id=v.attempt_id WHERE v.actual_ms IS NULL AND b.state='settled'`).all()) {
-        const terminal = JSON.parse(row.terminal_json);
+        const terminal = JSON.parse(row.voice_reconciliation_json ?? row.terminal_json);
         if (terminal.closureConfirmed === true && terminal.outcome !== 'uncertain') this.settle({ attemptId: row.attempt_id }, terminal.usage.providerSeconds);
+        else if (row.outcome === 'cancelled' && row.settled_micro === 0) this.settle({ attemptId: row.attempt_id }, 0);
       }
     },
   };

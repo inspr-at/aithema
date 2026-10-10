@@ -558,7 +558,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const receipt = budget.reconcileVoice(attemptId, terminal);
       // Calls made before the cap existed have no aggregate reservation.
       if (voiceCap && storage.db.prepare('SELECT 1 FROM voice_cap_reservations WHERE attempt_id=?').get(attemptId)) {
-        voiceCap.settle({ attemptId }, terminal.usage.providerSeconds);
+        voiceCap.settle({ attemptId }, JSON.parse(receipt.voice_reconciliation_json).usage.providerSeconds);
       }
       return receipt;
     },

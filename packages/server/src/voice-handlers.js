@@ -19,10 +19,42 @@ export function createFacadeSecrets() {
 
 export function createVoiceHandlers({ storage, runtime, ownership, readBody, secrets,
   publish, onTurn, onClose, hostPrompt = '', now = Date.now, browserLeaseMs = 30_000, deadlineMs = 30_000,
-  closeOrphan, staticSecretRef, presentation } = {}) {
+  closeOrphan, staticSecretRef, presentation, reconcileIntervalMs = 30_000, reconcileBatchSize = 10 } = {}) {
   if (!secrets?.provision || !secrets.resolve || !secrets.revoke) throw new TypeError('Private facade secret store required');
   if (presentation !== undefined && typeof presentation !== 'function') throw new TypeError('Voice presentation must be a function of the session locale');
+  if (!Number.isSafeInteger(reconcileIntervalMs) || reconcileIntervalMs <= 0 || !Number.isSafeInteger(reconcileBatchSize) || reconcileBatchSize <= 0) throw new TypeError('Invalid voice reconciliation retry bounds');
   const calls = new Map(), sessions = new Map(), settlements = new Set();
+  let reconcileTimer, reconcileJob, retryOffset = 0, stopping = false;
+  const pendingReconciliations = () => storage.voiceCalls().filter(record => record.reconciliationPending);
+  async function reconcile(record) {
+    try {
+      // The budget marker survives a crash before cap settlement or journal acknowledgement.
+      // Replay that value rather than fetching a potentially changed provider duration.
+      const row = runtime.budget.get(record.attemptId);
+      const result = row?.voice_reconciliation_json ? JSON.parse(row.voice_reconciliation_json)
+        : closeOrphan ? await voiceOperation({ deadlineAt: Date.now() + 1000 }, opts => closeOrphan(record, opts)) : null;
+      if (result?.closureConfirmed === true && result.providerSessionId === record.providerSessionId) {
+        runtime.reconcileVoice(record.attemptId, result);
+        const saved = storage.voiceCalls(record.sessionId).find(c => c.providerSessionId === record.providerSessionId);
+        storage.saveVoiceCall(record.sessionId, { ...saved, reconciliation: result, reconciliationPending: false });
+      }
+    } catch { /* Durable pending reconciliation remains visible and retryable. */ }
+  }
+  function reconcileLater() {
+    if (stopping || !closeOrphan || reconcileTimer || reconcileJob) return;
+    reconcileTimer = setTimeout(() => {
+      reconcileTimer = undefined;
+      reconcileJob = (async () => {
+        const records = pendingReconciliations(), count = Math.min(records.length, reconcileBatchSize);
+        for (let i = 0; i < count && !stopping; i++) await reconcile(records[(retryOffset + i) % records.length]);
+        retryOffset = records.length ? (retryOffset + count) % records.length : 0;
+      })().finally(() => {
+        reconcileJob = undefined;
+        if (!stopping && pendingReconciliations().length) reconcileLater();
+      });
+    }, reconcileIntervalMs);
+    reconcileTimer.unref?.();
+  }
   const sessionFor = entry => {
     const session = storage.authorize(entry.sessionId, entry.ownerToken);
     if (session.consentRevision !== entry.consentRevision || session.withdrawalRevision !== entry.withdrawalRevision) throw new PluginError('not-admitted', 'Call context revoked');
@@ -260,20 +292,16 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         storage.saveVoiceCall(record.sessionId, { ...record, closing: true, endedAt: record.endedAt ?? now(), reason: record.reason ?? 'server-restart',
           terminal: record.terminal ?? { attemptId: record.attemptId, outcome: row?.outcome ?? 'uncertain', closureConfirmed: false,
             chargedMicro: row?.settled_micro ?? record.maxMicro }, reconciliationPending: true });
-        if (closeOrphan) {
-          try {
-            const result = await voiceOperation({ deadlineAt: Date.now() + 1000 }, opts => closeOrphan(record, opts));
-            if (result?.closureConfirmed === true && result.providerSessionId === record.providerSessionId) {
-              runtime.reconcileVoice(record.attemptId, result);
-              const saved = storage.voiceCalls(record.sessionId).find(c => c.providerSessionId === record.providerSessionId);
-              storage.saveVoiceCall(record.sessionId, { ...saved, reconciliation: result, reconciliationPending: false });
-            }
-          }
-          catch { /* Durable pending reconciliation remains visible to the host. */ }
-        }
+        await reconcile(record);
       }
+      if (pendingReconciliations().length) reconcileLater();
     },
+    reconcileLater,
     async idle() { while (settlements.size) await Promise.allSettled([...settlements]); },
-    async close() { for (const id of sessions.keys()) this.stopSession(id, 'server-stopping'); await this.idle(); },
+    async close() {
+      stopping = true; clearTimeout(reconcileTimer);
+      for (const id of sessions.keys()) this.stopSession(id, 'server-stopping');
+      await this.idle(); await reconcileJob;
+    },
   };
 }

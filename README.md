@@ -508,7 +508,9 @@ insufficient deployment or UTC-day headroom refuses voice with a translated reas
 Daily accounting uses the UTC date of admission, including each recovery attempt;
 rollover opens a new daily bucket without deleting old holds or lifetime usage.
 Confirmed closure settles to provider seconds (rounded up to milliseconds), including
-paused time. Uncertain and unreconciled attempts retain their entire hold until
+paused time. Failed minting or startup journal writes before credential handoff
+settle both money and duration to zero: no browser conversation was billable.
+Uncertain and unreconciled attempts retain their entire hold until
 authenticated reconciliation. Recovery keeps the logical call identity and original
 deadline and reserves only the remaining duration: confirmed predecessors release
 headroom, while an overlapping unconfirmed predecessor still holds its reservation,
@@ -526,6 +528,16 @@ settles dispatched holds, revokes callback auth and retains pending orphan
 reconciliation under SQLite's exclusive writer. A host's bounded `closeOrphan`
 port may return authenticated final usage to correct cost without emitting a
 second terminal receipt. Pending records remain durable when that port fails.
+Start2/demo wires the provider's `reconcileLater` hook to an in-process retry:
+every 30 seconds after the previous batch finishes, up to 10 pending calls are
+checked through `closeOrphan`, each with a one-second deadline. Batches rotate
+through pending calls; processing records and outages keep their holds and retry
+without a restart. Confirmed reconciliation is recorded durably before releasing
+the cap and acknowledging the call journal, so restarts replay the recorded usage
+even if the provider's later duration differs. Shutdown stops and drains retries.
+Library hosts can wire `reconcileLater: () => handlers.reconcileVoiceLater()`
+and supply `voice.closeOrphan`; retry bounds are `voice.reconcileIntervalMs` and
+`voice.reconcileBatchSize` (defaults 30,000 ms and 10).
 
 ## Plugins, bindings and admission
 

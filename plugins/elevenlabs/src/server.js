@@ -136,7 +136,7 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
         spendDeadlineAt: options.spendDeadlineAt, browserLivenessDeadlineAt: options.browserLivenessDeadlineAt,
         facadeSecretRef: request.facadeSecretRef };
       const callCancellation = new AbortController();
-      let lifetime, closing, finished = false, mutation = Promise.resolve();
+      let lifetime, closing, finished = false, delivered = false, mutation = Promise.resolve();
       const cancelled = () => { void close('cancelled', 'cancelled').catch(() => {}); };
       const serial = fn => { const next = mutation.then(fn); mutation = next.catch(() => {}); return next; };
       const close = (reason = 'closed', outcome = 'completed') => {
@@ -149,7 +149,7 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
           finished = true;
           const closeOptions = { deadlineAt: Date.now() + closureTimeoutMs };
           let details, backoffMs = closurePollIntervalMs;
-          if (call.providerSessionId) {
+          if (delivered && call.providerSessionId) {
             try {
               if (requestProviderClose) await voiceOperation({ deadlineAt: Math.min(closeOptions.deadlineAt, Date.now() + 1000) },
                 opts => requestProviderClose(structuredClone(call), opts));
@@ -168,7 +168,12 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
               backoffMs = Math.min(backoffMs * 2, 2000);
             }
           }
-          const terminal = reconcileUsage({ call, details, binding, maxMicro: options.attempt.maxMicro, outcome });
+          // Minting a credential does not start a billable browser conversation.
+          // A failed start never handed it off, even if the provider allocated an id.
+          const terminal = delivered ? reconcileUsage({ call, details, binding, maxMicro: options.attempt.maxMicro, outcome })
+            : { outcome: 'cancelled', closureConfirmed: true, chargedMicro: 0,
+              ...(call.providerSessionId ? { providerSessionId: call.providerSessionId } : {}),
+              usage: { providerSeconds: 0, providerMinutes: 0, pausedSeconds: 0, visitorSeconds: 0, upstreamMicro: 0, visitorMicro: 0 } };
           call = { ...call, endedAt: now(), reason, terminal };
           // Even a journal failure must settle the admitted attempt exactly once.
           try { await voiceOperation({ deadlineAt: Date.now() + 1000 }, opts => saveCall(structuredClone(call), opts)); }
@@ -195,8 +200,8 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
           if (!amount(spendBound) || spendBound > options.attempt.maxMicro) throw new PluginError('not-admitted', 'Voice spend deadline exceeds admitted maximum');
           // Host preflight: legacy provisioning, or startup-established static callback authentication.
           await prepareCall(structuredClone(call), opts); opts.signal.throwIfAborted();
-          invocation.dispatch();
           const credential = await mintConversationCredential(binding, request, opts, { ...provider, now });
+          opts.signal.throwIfAborted();
           call = { ...call, providerSessionId: credential.providerSessionId };
           await saveCall(structuredClone(call), opts); opts.signal.throwIfAborted();
           call.credential = credential; // Kept in this private closure, never in the journal.
@@ -222,7 +227,7 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
           if (ack?.acknowledged !== true || ack.paused !== paused) throw new PluginError('invalid-output', 'Server pause was not acknowledged');
           call = next; return { acknowledged: true, paused };
         }));
-        return {
+        const session = {
           callId: call.callId, providerSessionId: call.providerSessionId, credential,
           ...(overrides ? { overrides } : {}),
           spendDeadlineAt: call.spendDeadlineAt, browserLivenessDeadlineAt: call.browserLivenessDeadlineAt,
@@ -239,6 +244,9 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
             return { acknowledged: true, browserLivenessDeadlineAt: deadline };
           })),
         };
+        // Authority is consumed before minting; billing begins at credential handoff.
+        invocation.dispatch(); delivered = true;
+        return session;
       } catch (error) {
         await close('start-failed', 'cancelled');
         throw normalizedError(error, options.signal);
