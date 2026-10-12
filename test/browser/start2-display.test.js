@@ -27,6 +27,7 @@ const boxes = (page, selectors) => shadow(page, (c, selectors) => selectors.map(
 const sameBoxes = (before, after, context) => before.forEach((box, i) => box.forEach((value, n) =>
   assert.ok(Math.abs(value - after[i][n]) <= .5, `${context}: ${i}/${n} shifted ${value} → ${after[i][n]}`)));
 
+const evidenceCommit = process.env.GITHUB_SHA ?? process.env.AITHEMA_COMMIT ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1] ?? 'd886da3';
 const content = {
   de: {
     first: 'Soll die Website eine geschätzte Lieferzeit anzeigen, die sich nach dem Backlog richtet? Bitte mit Ja oder Nein antworten.',
@@ -54,7 +55,7 @@ test('AIT-131 approved display: eight states at 390, 1024, 1440, both themes and
       AITHEMA_PROVIDER: 'openrouter', OPENROUTER_MODEL: understanding, OPENROUTER_SPEECH_MODEL: reply,
       OPENROUTER_API_KEY: 'fixture-not-a-key', AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
       AITHEMA_OPENROUTER_PRICES: JSON.stringify({ [reply]: { prompt: 1e-6, completion: 5e-6 }, [understanding]: { prompt: 5e-6, completion: 25e-6 } }),
-      AITHEMA_COMMIT: 'd886da3', AITHEMA_BUILD_DATE: '2026-10-12T09:00:00Z',
+      AITHEMA_COMMIT: evidenceCommit, AITHEMA_BUILD_DATE: '2026-10-12T09:00:00Z',
     });
     const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
       env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
@@ -93,11 +94,11 @@ test('AIT-131 approved display: eight states at 390, 1024, 1440, both themes and
     if (evidence) await mkdir(evidence, { recursive: true });
     const shot = async (state, width, theme) => {
       const name = `${state}-${width}-${theme}-${locale}.png`;
-      await shadow(page, c => c.shadowRoot.activeElement?.blur());
+      await shadow(page, c => { const active = c.shadowRoot.activeElement; if (active && !c.shadowRoot.querySelector('.conversations-menu').contains(active)) active.blur(); });
       if (evidence) { await page.screenshot({ path: join(evidence, name), fullPage: width === 390 }); files.push(name); }
     };
     async function scene(stage, drafts = 'off') {
-      await page.evaluate(async ({ stage, drafts, locale, words }) => {
+      await page.evaluate(async ({ stage, drafts, locale, words, commit }) => {
         const { en } = await import('/packages/ui/src/i18n/en.js'), { de } = await import('/packages/ui/src/i18n/de.js');
         const { inputRevision } = await import('/packages/core/src/session.js');
         const copy = { en, de }[locale], c = document.querySelector('aithema-session'), s = structuredClone(globalThis.displaySeed);
@@ -114,11 +115,11 @@ test('AIT-131 approved display: eight states at 390, 1024, 1440, both themes and
             signals: words.signals, openQuestions: words.questions, progress: { talk: { value: .5 }, build: { value: .2 } } };
         }
         c.configure({ copy, copyForLocale: value => ({ en, de })[value], session: s, voiceClient: globalThis.displayClient,
-          host: { library: true, credits: true, locale: () => locale, version: { version: '0.0.0', commit: 'd886da3', date: '2026-10-12T09:00:00Z' } } });
+          host: { library: true, credits: true, locale: () => locale, version: { version: '0.0.0', commit, date: '2026-10-12T09:00:00Z' } } });
         document.documentElement.lang = locale; document.querySelector('#locale').value = locale;
         const { paintUtilities } = await import('/demo/page-preferences.js'); paintUtilities(copy);
         window.scrollTo(0, 0);
-      }, { stage, drafts, locale, words: content[locale] });
+      }, { stage, drafts, locale, words: content[locale], commit: evidenceCommit });
       await until(page, () => /655/.test(document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__text').textContent));
       await page.mouse.move(0, 0); await settle();
     }
@@ -141,6 +142,7 @@ test('AIT-131 approved display: eight states at 390, 1024, 1440, both themes and
         await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]); await scene('entrance');
         assert.equal(await shadow(page, c => c.getAttribute('motion')), 'off', 'system default follows reduced motion');
         await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
+        await until(page, () => document.querySelector('aithema-session').getAttribute('motion') === 'on');
         assert.equal(await shadow(page, c => c.getAttribute('motion')), 'on');
         await page.click('aithema-session >>> .motion-toggle');
         assert.equal(await page.evaluate(() => localStorage.getItem('aithema-motion')), 'off');
@@ -199,16 +201,17 @@ test('AIT-131 approved display: eight states at 390, 1024, 1440, both themes and
       await shadow(page, c => c.shadowRoot.querySelector('.fold-strip').click()); await settle();
       assert.deepEqual(await shadow(page, c => [...c.shadowRoot.querySelectorAll('.transcript-shell,.analysis-content')].map(p => p.scrollTop)), scrollBefore, `${label}: restore pane scroll`);
       const footerStable = ['.display-foot', '.engine-info', '.connection-timer'], footerBefore = await boxes(page, footerStable);
-      await shadow(page, c => { c.shadowRoot.querySelector('.connection-timer').textContent = '1:00:00'; });
+      const timerText = await shadow(page, c => { const timer = c.shadowRoot.querySelector('.connection-timer'), text = timer.textContent; timer.textContent = '1:00:00'; return text; });
       sameBoxes(footerBefore, await boxes(page, footerStable), `${label}: timer hour boundary keeps its width`);
+      await shadow(page, (c, text) => { c.shadowRoot.querySelector('.connection-timer').textContent = text; }, timerText);
       for (const [selector, name] of [['.engine-info', 'flag-hover-open'], ['.ai-notice', 'footer-popup-open'], ['.host-credits', 'credits-popup-open']]) {
         await page.hover(`aithema-session >>> ${selector}`); await settle();
         sameBoxes(footerBefore, await boxes(page, footerStable), `${label}: ${name}`);
         const popup = await shadow(page, (c, selector) => {
           const p = c.shadowRoot.querySelector(selector).closest('[data-footer-popup]').querySelector('.footer-popup'), b = p.getBoundingClientRect();
-          return { visible: getComputedStyle(p).visibility, left: b.left, right: b.right, top: b.top, bottom: b.bottom, painted: [b.top + 4, b.bottom - 4].every(y => p.contains(c.shadowRoot.elementFromPoint(b.left + b.width / 2, y))) };
+          return { visible: getComputedStyle(p).visibility, left: b.left, right: b.right, top: b.top, bottom: b.bottom, clipped: p.scrollHeight > p.clientHeight + 1, painted: [b.top + 4, b.bottom - 4].every(y => p.contains(c.shadowRoot.elementFromPoint(b.left + b.width / 2, y))) };
         }, selector);
-        assert.equal(popup.visible, 'visible'); assert.equal(popup.painted, true, `${label}: popup is painted through its whole height`);
+        assert.equal(popup.visible, 'visible'); assert.equal(popup.clipped, false, `${label}: every popup line is readable`); assert.equal(popup.painted, true, `${label}: popup is painted through its whole height`);
         assert.ok(popup.left >= 0 && popup.right <= width + .5 && popup.top >= 0 && popup.bottom <= (width === 390 ? 844 : 900), `${label}: unclipped popup ${JSON.stringify(popup)}`);
         await shot(name, width, theme); await page.mouse.move(0, 0);
       }
@@ -274,7 +277,7 @@ test('AIT-131 approved display: eight states at 390, 1024, 1440, both themes and
     await page.keyboard.press('Escape'); assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversations-menu').hidden), true);
     assert.equal(await shadow(page, c => c.shadowRoot.activeElement.className), 'conversations-toggle');
     assert.deepEqual(errors, []);
-    if (evidence) await writeFile(join(evidence, 'display-evidence.json'), JSON.stringify({ ticket: 'AIT-131', createdAt: new Date().toISOString(), files }, null, 2));
+    if (evidence) await writeFile(join(evidence, 'display-evidence.json'), JSON.stringify({ ticket: 'AIT-131', commit: evidenceCommit, createdAt: new Date().toISOString(), files }, null, 2));
     // Optional read-only design reference supplied on the remote runner; never committed to the public repo.
     if (evidence) {
       try {

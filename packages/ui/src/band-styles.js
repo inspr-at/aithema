@@ -22,7 +22,6 @@ export const bandStyles = `
   background:linear-gradient(to right,transparent,var(--aithema-paper) 10%,var(--aithema-paper) 90%,transparent); box-shadow:none; }
 .audio-rail[data-message] .voice-state { left:0; }
 .workspace:not([data-stage="live"]) .band .audio-rail { display:grid; }
-.workspace:not([data-stage="live"]) .band .audio-rail { opacity:.65; }
 .header-actions { justify-self:end; }
 .band-utilities { display:flex; align-items:center; }
 .conversations-toggle { width:auto; white-space:nowrap; }
@@ -77,7 +76,7 @@ export const bandStyles = `
 .engine { position:relative; }
 .engine-info { width:44px; height:44px; padding:0; display:grid; place-items:center; position:relative; }
 .engine-info .engine__value { position:absolute; right:calc(100% + 2px); white-space:nowrap; opacity:0; transform:translateX(8px); pointer-events:none;
-  background:var(--aithema-paper); transition:opacity .18s,transform .18s; }
+  font:400 12.5px/1.4 var(--aithema-font); color:var(--aithema-muted); background:var(--aithema-paper); transition:opacity .18s,transform .18s; }
 .engine-info:hover .engine__value, .engine-info:focus-visible .engine__value { opacity:1; transform:translateX(0); }
 .status { display:flex; align-items:center; gap:8px; flex:none; width:auto; height:44px; overflow:visible; font-size:12.5px; line-height:1.4; visibility:visible !important; }
 .status[data-connected]::before { content:none; }
@@ -93,6 +92,7 @@ export const bandStyles = `
   max-height:calc(100dvh - 100px); overflow-y:auto; white-space:pre-line; overflow-wrap:anywhere; padding:10px 12px;
   border-radius:10px; background:var(--aithema-ink); color:var(--aithema-paper); font-size:12.5px; line-height:1.5;
   text-align:left; visibility:hidden; opacity:0; pointer-events:none; transition:opacity .12s; transform:none; }
+.engine__detail.footer-popup { height:auto; }
 .footer-popup p { margin:0; } .footer-popup p + p { margin-top:6px; }
 .footer-popup .host-foot { display:grid; white-space:normal; color:inherit; }
 .host-credits__deadline { display:block; margin-top:4px; }
