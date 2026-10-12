@@ -42,6 +42,13 @@ test('AIT-132: approved card, hover, focus, fold and no card at 1440/1024/390, l
       void (async () => {
         const path = new URL(request.url()).pathname;
         if (path.endsWith('/events')) { await request.respond({ status: 200, contentType: 'text/event-stream', body: ': fixture\n\n' }); return; }
+        // The finite SSE fixture reconnects and refreshes capabilities. Its
+        // snapshot must share the fixture's state, rather than overwrite it with
+        // the no-provider server's different capabilities at a matching seq.
+        if (/^\/api\/sessions\/[^/]+$/u.test(path) && request.method() === 'GET') {
+          const snapshot = await page.evaluate(() => globalThis.qcardSeed ? document.querySelector('aithema-session').session : null);
+          if (snapshot) { await request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(snapshot) }); return; }
+        }
         if (path.endsWith('/turns') && request.method() === 'POST') {
           const body = JSON.parse(request.postData());
           const event = await shadow(page, (c, body) => {
@@ -146,6 +153,7 @@ test('AIT-132: approved card, hover, focus, fold and no card at 1440/1024/390, l
         assert.deepEqual(await boxes(page, ['.qcard', '.composer']), docked, 'keyboard focus: card plus composer move exactly 0 px');
 
         // Real keyboard activation: no synthetic click handler or custom key event stands in for the browser.
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelectorAll('.qopt')[1].disabled), false, 'fixture text capability stays enabled through reconnects');
         await page.keyboard.press('Enter');
         await page.waitForFunction(() => globalThis.qcardRequests.length === 1 && document.querySelector('aithema-session').session.transcript.at(-1).role === 'user');
         assert.equal(await shown(page), false); still(baseline, await boxes(page), 'Enter disappearance');
