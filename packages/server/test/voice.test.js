@@ -1458,3 +1458,11 @@ test('AIT-137 restart preserves uncertain spend and permits exactly one authoriz
   assert.equal(await completionText(await resumed.run(context, () => assert.fail('completed replay must not dispatch'))), 'Recovered reply');
   assert.equal(storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts").get().n, 2);
 });
+
+
+test('AIT-137 assistant history changes do not create another operation for the same user position', async t => {
+  const h = await turnsOnceFixture(t), messages = [{ role: 'user', content: 'Ja' }];
+  const first = await completionText(await h.callback(messages));
+  assert.equal(await completionText(await h.callback([...messages, { role: 'assistant', content: 'Provider partial reply' }])), first);
+  assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
+});
