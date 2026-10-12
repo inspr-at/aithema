@@ -95,6 +95,7 @@ test(`AIT-145: retired channel ${outcome} cannot change a new generation or rele
   session.close = async () => { throw new Error('close request failed'); };
   await rail.close();
   // Reusing the session object exercises the generation guard independently of object identity.
+  events.end(); session.events = voiceEvents(); t.after(() => session.events.end());
   session.setInput = enabled => enabled ? Promise.resolve() : next.promise;
   await rail.start();
   try {
