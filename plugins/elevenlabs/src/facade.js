@@ -107,8 +107,8 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
         .map(({ role, content }) => ({ role, content }));
       if (turnOperations) {
         const newest = providerMessages.findLast(message => message.role === 'user');
-        const rawIdentities = [body.turn_id, body.message_id, body.elevenlabs_extra_body?.turn_id, body.elevenlabs_extra_body?.message_id,
-          newest?.turn_id, newest?.message_id, newest?.event_id, newest?.id].filter(value => value !== undefined);
+        const rawIdentities = [newest?.message_id, newest?.id, newest?.event_id, body.message_id, body.elevenlabs_extra_body?.message_id,
+          newest?.turn_id, body.turn_id, body.elevenlabs_extra_body?.turn_id].filter(value => value !== undefined);
         if (rawIdentities.some(value => !(typeof value === 'string' && value.length > 0 && value.length <= 256 ||
           Number.isSafeInteger(value) && value >= 0))) throw new PluginError('invalid-output');
         const turnIdentity = rawIdentities.length ? [...new Set(rawIdentities.map(String))] : undefined;

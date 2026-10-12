@@ -57,19 +57,27 @@ export function createVoiceOperationStore(storage) {
         t.callId === context.callId && t.providerSessionId === context.providerSessionId &&
         providerIdentity.some(identity => t.id === identity || t.id === `${context.providerSessionId}:user:${identity}`));
       const turnId = providerTurn?.id ?? context.recordedTurnId;
-      const identity = providerIdentity ? `provider:${JSON.stringify(providerIdentity)}` : turnId ? `canonical:${turnId}` : slot;
-      let key = alias(context, identity);
+      const identities = providerIdentity?.map(identity => `provider:${JSON.stringify(identity)}`);
+      const identity = identities?.[0] ?? (turnId ? `canonical:${turnId}` : slot);
+      // Optional provider metadata can appear/disappear on retry. Each stable id
+      // is an alias, rather than a different combination defining a new turn.
+      const keys = new Set((identities ?? [identity]).map(identity => alias(context, identity)).filter(Boolean));
+      if (keys.size > 1) refused('voice-turn-fenced');
+      let key = [...keys][0];
+      const candidate = !providerIdentity && get(alias(context, slot));
+      if (candidate?.canonical && turnId && candidate.turnId !== turnId) refused('voice-turn-obsolete');
+      const speech = session.transcript.filter(t => t.role === 'user' && t.callId === context.callId && t.providerSessionId === context.providerSessionId);
+      if (!providerIdentity && ordinal && ordinal < speech.length) refused('voice-turn-obsolete');
       // A provisional slot and its canonical transcript receipt identify the same operation.
       if (!key && turnId) key = alias(context, `canonical:${turnId}`);
       if (!key && !providerIdentity) {
-        const candidate = get(alias(context, slot));
         if (candidate && (!turnId || !candidate.canonical || candidate.turnId === turnId)) key = candidate.key;
       }
       let operation = key && get(key);
       if (operation) {
         if (turnId && !operation.canonical) { operation = { ...operation, turnId, canonical: true }; save(operation); }
         assertCurrent(operation);
-        link(context, identity, operation.key);
+        for (const aliasIdentity of identities ?? [identity]) link(context, aliasIdentity, operation.key);
         if (turnId) link(context, `canonical:${turnId}`, operation.key);
         return { operation, claimed: false };
       }
@@ -83,8 +91,8 @@ export function createVoiceOperationStore(storage) {
       assertCurrent(operation);
       if (list(context.sessionId).length >= 1000) refused('voice-turn-limit');
       db.prepare('INSERT INTO voice_turn_operations VALUES (?,?,?,?,?)').run(key, context.sessionId, context.callId, context.providerSessionId, JSON.stringify(operation));
-      link(context, identity, key);
-      if (!providerIdentity) link(context, slot, key);
+      for (const aliasIdentity of identities ?? [identity]) link(context, aliasIdentity, key);
+      link(context, slot, key);
       return { operation, claimed: true };
     });
   }

@@ -3,8 +3,6 @@ import { PluginError, PLUGIN_ERROR_CODES } from '../../core/src/invocation.js';
 import { voiceOperation } from '../../core/src/live-voice.js';
 
 export const DEFAULT_VOICE_TURN_REPLAY_MS = 120_000;
-export const VOICE_TURN_REASONS = new Set(['voice-turn-obsolete', 'voice-turn-replay-expired',
-  'voice-turn-replacement-required', 'voice-turn-revoked', 'voice-turn-fenced', 'voice-turn-limit']);
 const codeFor = error => error instanceof PluginError && PLUGIN_ERROR_CODES.includes(error.code) ? error.code : 'provider';
 const statusFor = code => code === 'not-admitted' ? 403 : code === 'deadline' ? 504 : code === 'limit' ? 413 : 502;
 const completion = flight => ({ id: flight.id, object: 'chat.completion', created: flight.created, model: 'session-reasoning',
@@ -118,7 +116,11 @@ export function createVoiceTurnOperations({ storage, now = Date.now, replayWindo
   async function respond(operation, flight, context, options) {
     await voiceOperation(options, () => flight.ready);
     if (flight.httpError) return Response.json(flight.httpError.body, { status: flight.httpError.status });
-    if (context.stream === true) return stream(flight, options?.signal, () => store.assertCurrent(store.get(operation.key)));
+    if (context.stream === true) return stream(flight, options?.signal, () => {
+      const current = store.get(operation.key);
+      if (current.fence !== operation.fence) throw new PluginError('not-admitted', 'voice-turn-fenced');
+      return store.assertCurrent(current);
+    });
     await voiceOperation(options, () => flight.done);
     if (flight.error) return Response.json({ error: flight.error }, { status: statusFor(flight.error) });
     return Response.json(store.readReply(store.get(operation.key), now()), { headers: { 'cache-control': 'no-store' } });
