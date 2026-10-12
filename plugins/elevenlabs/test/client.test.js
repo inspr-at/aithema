@@ -6,6 +6,19 @@ import { fixture, invocationOptions, flush, fakeSdk } from './fixtures.js';
 
 const channelEffects = sdk => sdk.effects.filter(([name]) => ['setInputMuted', 'setVolume'].includes(name));
 async function drain(session) { const events = []; for await (const event of session.events) events.push(event); return events; }
+for (const transport of ['webrtc', 'websocket']) test(`AIT-145: ${transport} hangup stops playback and capture before stalled SDK cleanup`, async t => {
+  const local = fixture(), session = await local.client.start({ callId: `end_${transport}`, transport }, invocationOptions());
+  const conversation = local.sdk.conversations.at(-1), cleanup = conversation.endSession, released = Promise.withResolvers();
+  conversation.endSession = async () => { await released.promise; return cleanup(); };
+  t.after(async () => { released.resolve(); await session.close(); });
+  const before = local.sdk.effects.length, pending = session.close();
+  assert.ok(local.sdk.acquired.every(stream => stream.getTracks().every(track => track.readyState === 'ended')));
+  assert.ok(local.sdk.effects.slice(before).some(([name, value]) => name === 'setVolume' && value === 0),
+    'remote playback is silenced synchronously, even if endSession never acknowledges');
+  const sent = local.sdk.outgoing.length;
+  local.sdk.sample({ buffered: true }); assert.equal(local.sdk.outgoing.length, sent);
+  released.resolve(); await pending;
+});
 test('transport loss while paused waits for acknowledged resume before spending on recovery', { timeout: 60_000 }, async () => {
   const local = fixture(), options = invocationOptions(), session = await local.client.start({ callId: 'call_paused_recovery' }, options);
   let retries = 0;

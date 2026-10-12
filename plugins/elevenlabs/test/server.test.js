@@ -50,6 +50,18 @@ test('API binding requires HTTPS except literal loopback HTTP test endpoints', (
     assert.equal(createVoiceBinding({ ...binding, apiBaseUrl }).apiBaseUrl, apiBaseUrl);
   }
 });
+test('AIT-145: final details above 64 KiB confirm a 1012-ended call and its USD 1.52 charge', async () => {
+  const local = fixture({ closureTimeoutMs: 100, providerDetails: id => ({ conversation_id: id, status: 'done',
+    metadata: { call_duration_secs: 784, cost: 5750, cost_fiat: 1.52, termination_reason: 'Client disconnected: 1012' },
+    transcript: [{ role: 'agent', message: 'x'.repeat(100_000) }] }) });
+  const options = invocationOptions(), session = await local.server.start({ callId: 'long_ended', facadeSecretRef: 'fixture-ref' }, options);
+  const terminal = await session.close();
+  assert.equal(terminal.closureConfirmed, true);
+  assert.equal(terminal.usage.providerSeconds, 784);
+  assert.equal(terminal.chargedMicro, 1_520_000);
+  assert.equal(terminal.usage.costEstimated, false);
+  assert.equal(options.reports.length, 1);
+});
 test('closure polls processing with backoff until done and excludes acknowledged pauses from visitor usage', async () => {
   const startedAt = Date.now(); let clock = startedAt, observations = 0; const observedAt = [];
   const local = fixture({ now: () => clock, closureTimeoutMs: 200, closurePollIntervalMs: 5,

@@ -32,6 +32,46 @@ function fixture(t, { pause, unavailable = false, journal, ready, start } = {}) 
   t.after(async () => { await rail.close(); rail.destroy(); root.remove(); });
   return { root, rail, commands, events, context };
 }
+test('AIT-145: hangup renders ended immediately while cost confirmation is pending', async t => {
+  const { rail, root } = fixture(t); await rail.start();
+  const terminal = Promise.withResolvers();
+  rail.session.close = () => terminal.promise;
+  const closing = rail.close();
+  try {
+    assert.equal(root.dataset.state, 'idle');
+    assert.equal(root.dataset.call, 'none');
+    assert.equal(root.querySelector('.voice-state').textContent, en.voiceClosureUncertain);
+    assert.equal(rail.button('start').disabled, false);
+    terminal.resolve({ closureConfirmed: false }); await closing;
+    assert.equal(root.dataset.state, 'idle', 'accounting uncertainty is not a failed call');
+  } finally { terminal.resolve({ closureConfirmed: false }); await closing; }
+});
+test('AIT-145: a failed closure request keeps the locally ended call ready for another call', async t => {
+  const { rail, root } = fixture(t); await rail.start();
+  rail.session.close = async () => { throw new Error('fixture network unavailable'); };
+  await rail.close();
+  assert.equal(root.dataset.state, 'idle');
+  assert.equal(rail.button('start').disabled, false);
+  assert.equal(root.querySelector('.voice-state').textContent, en.voiceClosureUncertain);
+});
+test('AIT-145: a late settlement cannot overwrite a newly started call', async t => {
+  const { rail, root } = fixture(t); await rail.start();
+  const terminal = Promise.withResolvers(), old = rail.session;
+  old.close = () => terminal.promise;
+  const next = { ...old, callId: 'next-call', events: voiceEvents(), async close() { this.events.end(); return { closureConfirmed: true }; } };
+  rail.client.start = async () => next;
+  const closing = rail.close();
+  try {
+    await rail.start();
+    terminal.resolve({ closureConfirmed: false }); await closing;
+    assert.equal(root.dataset.state, 'listening');
+    assert.equal(root.dataset.call, 'active');
+  } finally { terminal.resolve({ closureConfirmed: false }); old.events.end(); await closing; }
+});
+test('AIT-145: localized pending cost copy does not call the reserved ceiling a charge', () => {
+  assert.equal(de.voiceClosureUncertain, 'Anruf beendet. Kosten werden noch abgeglichen.');
+  assert.equal(en.voiceClosureUncertain, 'Call ended. Costs are still being reconciled.');
+});
 test('audio rail shows listening, speaking, paused, recovering and ended states with fixed controls and independent toggles', async t => {
   const { root, rail, events, commands } = fixture(t);
   const buttons = [...root.querySelectorAll('button')]; await rail.start();
