@@ -353,6 +353,7 @@ export class AithemaSession extends HTMLElement {
     pause.innerHTML = `<span class="voice-icon">${icon('pause')}</span><span class="voice-icon voice-icon--resume">${icon('play')}</span><span class="voice-label"></span>`;
     pause.dataset.reveal = ''; root.querySelector('.voice-cell--pause').prepend(pause); root.querySelector('.audio-rail').tabIndex = -1;
     root.querySelector('.pause').addEventListener('click', async () => {
+      if (this.#host?.usedUp) return;
       const button = root.querySelector('.pause');
       if (this.#rail.session) { await this.#rail.pause(!this.#session.paused); return; }
       button.disabled = true;
@@ -613,6 +614,8 @@ export class AithemaSession extends HTMLElement {
     if (pause) {
       setText(pause.querySelector('.voice-label'), this.#session.paused ? copy.resume : copy.pause); pause.title = pause.textContent;
       pause.setAttribute('aria-pressed', String(this.#session.paused));
+      pause.disabled = Boolean(this.#host?.usedUp);
+      if (this.#host?.usedUp) pause.title = copy.voiceStates.usedUp;
     }
     const element = (tag, value, className) => {
       const node = document.createElement(tag); if (value !== undefined) node.textContent = value;
@@ -731,15 +734,17 @@ export class AithemaSession extends HTMLElement {
       ? copy.talkProgress.replace('{percent}', displayedReadinessPercent(u.progress.talk.value)) : copy.notAssessed;
     root.querySelector('.build-progress').textContent = u.readinessAssessed
       ? copy.buildProgress.replace('{percent}', displayedReadinessPercent(u.progress.build.value)) : '';
-    root.querySelector('.notice').textContent = !analysis.available ? analysis.reason : this.#failure ? copy.reasoningFailed : !u.readinessAssessed ? copy.empty
+    if (!this.#host?.usedUp) root.querySelector('.notice').textContent = !analysis.available ? analysis.reason : this.#failure ? copy.reasoningFailed : !u.readinessAssessed ? copy.empty
       : stale ? copy.stale : u.draft ? copy.draft : copy.final;
     const revision = inputRevision(this.#session), operations = this.#session.operations;
     const running = operations?.inputRevision === revision && operations.running.length > 0;
     const hasPersonTurn = activeTurns(this.#session).some(t => t.role === 'user');
     const missingReply = hasPersonTurn && !activeTurns(this.#session).some(t => t.role === 'assistant' && t.inputRevision === revision);
     root.querySelector('.retry').disabled = !analysis.available;
-    root.querySelector('.retry').hidden = locked || !analysis.available || Boolean(running) || !(this.#failure || hasPersonTurn &&
+    if (!this.#host?.usedUp) root.querySelector('.retry').hidden = locked || !analysis.available || Boolean(running) || !(this.#failure || hasPersonTurn &&
       (missingReply || !understandingDeferred(this.#session) && (stale || u.draft)));
+    root.querySelector('.retry').style.visibility = this.#host?.usedUp ? 'hidden' : '';
+    root.querySelector('.retry').inert = Boolean(this.#host?.usedUp);
     root.querySelector('.summary-text').textContent = u.summary;
     for (const [selector, items] of [['.signals', u.signals], ['.questions', u.openQuestions]]) {
       reconcile(root.querySelector(selector), items.length ? textKeys(items) : [[NONE, null]],

@@ -25,7 +25,7 @@ const boxes = (page, selectors) => shadow(page, (c, selectors) => selectors.map(
 }), selectors);
 const unchanged = (before, after, label) => {
   const displacement = Math.max(...before.flatMap((row, i) => row.map((value, j) => Math.abs(value - after[i][j]))));
-  assert.equal(displacement, 0, `${label}: surrounding controls displaced ${displacement} px`);
+  assert.equal(displacement, 0, `${label}: surrounding controls displaced ${displacement} px; ${JSON.stringify(before)} -> ${JSON.stringify(after)}`);
   return displacement;
 };
 

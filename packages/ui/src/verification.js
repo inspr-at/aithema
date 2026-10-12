@@ -108,7 +108,7 @@ export class Verification {
     this.#paint();
     setText(this.#dialog.querySelector('.verify-dialog__notice'), this.#notice?.() ?? '');
     if (!this.#dialog.open) this.#dialog.showModal?.();
-    this.#focusForm(this.#forms.find(f => f.root.closest('dialog')));
+    this.#focusForm(form); if (this.#ui.editing) form?.input.select();
   }
   // Remaining resend cooldown, counted down from the moment the view arrived.
   #cooldown() { return Math.max(0, Math.ceil(((this.#identity?.resendAfterMs ?? 0) - (Date.now() - this.#at)) / 1000)); }
