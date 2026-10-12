@@ -92,6 +92,49 @@ function fixture(t, { transport, restored = true, component = false, echoPause =
 }
 
 for (const transport of ['webrtc', 'websocket']) {
+  for (const hold of [null, 'server Pause', 'visibility hold']) {
+    test(`AIT-138 fix 4: ${transport} restored Resume echo before HTTP acknowledgement ${hold ? `preserves newer ${hold}` : 'unpauses the UI with active media'}`, async t => {
+      const f = fixture(t, { transport, component: true });
+      let hidden = false;
+      if (hold === 'visibility hold') t.mock.method(document, 'hidden', () => hidden, { getter: true });
+      const root = f.root.querySelector('.audio-rail'), input = f.root.querySelector('textarea');
+      f.root.querySelector('.pause').click(); await f.resumeEntered.promise;
+      const resume = f.requests.find(request => request.url.endsWith('/resume'));
+      assert.equal(resume.completed, false);
+      f.element.receive({ seq: 1, type: 'session.paused',
+        data: { paused: false, resumeRequestId: resume.body.resumeRequestId } });
+      assert.equal(f.element.session.paused, true, 'the echo cannot release the HTTP acknowledgement fence');
+      assert.equal(input.disabled, true);
+      assert.equal(f.sdk.acquired.length, 0);
+      assert.ok(f.sdk.effects.filter(([name]) => name === 'setVolume').every(([, volume]) => volume === 0));
+      if (hold === 'server Pause') f.element.receive({ seq: 2, type: 'session.paused', data: { paused: true } });
+      if (hold === 'visibility hold') {
+        hidden = true; document.dispatchEvent(new window.Event('visibilitychange'));
+      }
+      f.resumeAck.resolve(); f.closeAck.resolve(); await flush();
+      assert.equal(resume.completed, true);
+      assert.equal(f.element.session.paused, Boolean(hold), 'the acknowledged UI projection follows the latest hold');
+      assert.equal(input.disabled, Boolean(hold), 'typing and the pause projection agree');
+      assert.equal(f.root.querySelector('.send').disabled, Boolean(hold));
+      if (hold) {
+        assert.equal(root.dataset.state, 'waiting');
+        assert.equal(f.root.querySelector('.status__label').textContent, en.paused);
+        assert.equal(f.returned.length, 0, 'a superseded startup cannot return active media');
+        assert.equal(f.sdk.acquired.length, 0);
+        assert.ok(f.sdk.effects.filter(([name]) => name === 'setVolume').every(([, volume]) => volume === 0));
+        assert.equal(f.requests.filter(request => request.url.endsWith('/resume')).length, 1);
+      } else {
+        assert.equal(root.dataset.state, 'listening');
+        assert.notEqual(f.root.querySelector('.status__label').textContent, en.paused);
+        assert.equal(f.returned[0].lifecycle.state.state, 'active');
+        assert.ok(f.sdk.acquired.some(stream => stream.getTracks().some(track => track.readyState === 'live')));
+        assert.deepEqual(f.sdk.effects.filter(([name]) => name === 'setVolume').at(-1), ['setVolume', 1]);
+        const outgoing = f.sdk.outgoing.length; f.sdk.sample();
+        assert.equal(f.sdk.outgoing.length, outgoing + 1, 'acknowledged active capture sends audio');
+      }
+    });
+  }
+
   for (const hold of ['server Pause', 'visibility hold']) {
     test(`AIT-138 fix 3: ${transport} delayed superseded Resume echo preserves ${hold} after compensating Pause HTTP`, async t => {
       const f = fixture(t, { transport, restored: false, component: true });
