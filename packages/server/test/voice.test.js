@@ -1988,14 +1988,15 @@ test('AIT-137 round 3: identical repeated-input retry history coalesces at ordin
   assert.deepEqual(h.counts(), { admissions: 2, models: 2, cost: 34 });
 });
 
-for (const kind of ['truncated', 'history-discontinuity', 'null-user', 'no-user']) {
+for (const kind of ['truncated', 'history-discontinuity', 'missing-history-start', 'null-user', 'no-user']) {
   test(`AIT-137 round 3: unknown callback ordinal is independent and never fences streaming B (${kind})`, async t => {
     const h = await turnsOnceFixture(t, { blocked: true, blockedModel: 2 });
     const a = { role: 'user', content: 'Ja' }, b = { role: 'user', content: 'Ja' };
     assert.equal(await completionText(await h.callback([a])), 'Reply 1 finished');
     const response = await h.callback([a, b], { stream: true }), reading = response.text();
     await h.waitForModel(2);
-    const messages = kind === 'no-user' ? [{ role: 'assistant', content: 'Unverifiable history' }]
+    const messages = kind === 'missing-history-start' ? [{ role: 'assistant', content: 'Again?' }, b]
+      : kind === 'no-user' ? [{ role: 'assistant', content: 'Unverifiable history' }]
       : kind === 'null-user' ? [{ role: 'user', content: null }, b]
       : [{ role: 'user', content: kind === 'history-discontinuity' ? 'Different shortened history' : 'Ja' }];
     const flags = kind === 'truncated' ? { history_truncated: true } : {};
@@ -2007,7 +2008,7 @@ for (const kind of ['truncated', 'history-discontinuity', 'null-user', 'no-user'
     assert.ok(reply.endsWith('data: [DONE]\n\n')); assert.doesNotMatch(reply, /"error"/u);
     assert.equal(await completionText(await h.callback([a, b])), 'Reply 2 finished');
     assert.deepEqual(h.counts(), { admissions: 4, models: 4, cost: 68 }, 'extra charge only for the documented unknown-ordinal fallback');
-    assert.ok(h.diagnostics.some(entry => entry.event === 'voice.turn.correlation_ambiguous' && entry.reason === kind), JSON.stringify(h.diagnostics));
+    assert.ok(h.diagnostics.some(entry => entry.event === 'voice.turn.correlation_ambiguous' && entry.reason === (kind === 'missing-history-start' ? 'history-discontinuity' : kind)), JSON.stringify(h.diagnostics));
   });
 }
 
@@ -2032,3 +2033,44 @@ for (const repeated of [false, true]) {
     });
   }
 }
+
+for (const phase of ['streaming', 'completed']) {
+  test(`AIT-137 round 3: two finals at one ordinal leave paid B intact (${phase})`, async t => {
+    const h = await turnsOnceFixture(t, { blocked: phase === 'streaming', blockedModel: 2 });
+    const a = { role: 'user', content: 'Ja' }, b = { role: 'user', content: 'Ja' };
+    assert.equal(await completionText(await h.callback([a])), 'Reply 1 finished');
+    const response = await h.callback([a, b], { stream: true }), reading = response.text();
+    await h.waitForModel(2);
+    if (phase === 'completed') assert.equal(sseReply(await reading), 'Reply 2 finished');
+    const replay = phase === 'completed' ? await h.callback([a, b], { stream: true }) : null;
+    await h.persist('user', 'b', 'Ja', { userTurnOrdinal: 2 });
+    const before = h.storage.voiceOperations(h.session.id).map(operation => [operation.key, operation.turnId, operation.providerIdentity]);
+    await h.persist('user', 'conflicting-b', 'Ja', { userTurnOrdinal: 2 });
+    assert.deepEqual(h.storage.voiceOperations(h.session.id).map(operation => [operation.key, operation.turnId, operation.providerIdentity]), before);
+    assert.equal(await completionText(await h.callback([a, b])), 'Reply 3 finished', 'ambiguous retry uses its own paid operation');
+    h.release();
+    const reply = await (replay ? replay.text() : reading);
+    assert.equal(sseReply(reply), 'Reply 2 finished');
+    assert.ok(reply.endsWith('data: [DONE]\n\n')); assert.doesNotMatch(reply, /"error"/u);
+    assert.deepEqual(h.counts(), { admissions: 3, models: 3, cost: 51 });
+    assert.ok(h.diagnostics.some(entry => entry.event === 'voice.turn.correlation_ambiguous' && entry.reason === 'multiple-receipts'));
+  });
+}
+
+test('AIT-137 round 3: two provider alias candidates cannot capture or fence paid B', async t => {
+  const h = await turnsOnceFixture(t, { blocked: true, blockedModel: 2 });
+  const a = { role: 'user', content: 'Ja', message_id: 'a' }, b = { role: 'user', content: 'Ja', event_id: 'b' };
+  assert.equal(await completionText(await h.callback([a])), 'Reply 1 finished');
+  const response = await h.callback([a, b], { stream: true }), reading = response.text();
+  await h.waitForModel(2);
+  const before = h.storage.voiceOperations(h.session.id).map(operation => [operation.key, operation.turnId, operation.providerIdentity]);
+  const ambiguous = { role: 'user', content: 'Ja', message_id: 'a', event_id: 'b' };
+  assert.equal(await completionText(await h.callback([a, b, ambiguous])), 'Reply 3 finished');
+  assert.deepEqual(h.storage.voiceOperations(h.session.id).slice(0, 2).map(operation => [operation.key, operation.turnId, operation.providerIdentity]), before);
+  h.release(); const reply = await reading;
+  assert.equal(sseReply(reply), 'Reply 2 finished');
+  assert.ok(reply.endsWith('data: [DONE]\n\n')); assert.doesNotMatch(reply, /"error"/u);
+  assert.equal(await completionText(await h.callback([a, b])), 'Reply 2 finished');
+  assert.deepEqual(h.counts(), { admissions: 3, models: 3, cost: 51 });
+  assert.ok(h.diagnostics.some(entry => entry.event === 'voice.turn.correlation_ambiguous' && entry.reason === 'multiple-candidates'));
+});
