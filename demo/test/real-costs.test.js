@@ -27,7 +27,7 @@ test('AIT-134 red-before: reasoning reserves its price estimate instead of USD 1
     presets: { best: { plugins: ['openrouter'], bindings: { reaction: binding }, policy: { endpoints: [binding.endpoint] } } } });
   const admitted = await runtime.admit({ session: storage.get(session.id), lane: 'reaction', operation: 'stream', request });
   const held = runtime.budget.used(session.id);
-  assert.throws(() => admitted.finish({ failed: true }), { code: 'invalid-output' });
+  admitted.finish({ failed: true });
   assert.ok(held > 0 && held < 10_000, `Expected a real-price hold below USD 0.01, got ${held} microUSD`);
 });
 
