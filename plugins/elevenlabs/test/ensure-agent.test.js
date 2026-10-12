@@ -36,7 +36,7 @@ test('AIT-146: long-form turn policy replaces eager template settings on create 
   for (let restart = 0; restart < 2; restart++) {
     await ensureAgent(options(storage, fake));
     const owned = fake.agents[0].conversation_config;
-    assert.deepEqual(owned.turn, { turn_timeout: 12, silence_end_call_timeout: 20, turn_eagerness: 'patient',
+    assert.deepEqual(owned.turn, { turn_timeout: 12, silence_end_call_timeout: 120, turn_eagerness: 'patient',
       turn_model: 'turn_v3', speculative_turn: false, spelling_patience: 'auto' });
     assert.deepEqual(owned.asr.keywords, ['Aithema', 'Hosting', 'Domain', 'Webshop', 'Schnittstelle', 'Datenschutz']);
     assert.deepEqual(fake.template, template);
@@ -122,6 +122,7 @@ test('the allowlist uses the origin host including its port and excludes the sch
 });
 
 const mismatches = [
+  ...[undefined, null, '120', -1, 20, 119].map(value => ['conversation_config.turn.silence_end_call_timeout', value]),
   ['conversation_config.turn.turn_eagerness', 'normal'],
   ['conversation_config.turn.turn_eagerness', undefined],
   ['conversation_config.turn.turn_timeout', 7],

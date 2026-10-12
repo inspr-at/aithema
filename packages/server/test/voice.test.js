@@ -11,6 +11,36 @@ import { createElevenLabsServer } from '../../../plugins/elevenlabs/src/server.j
 
 const test = (name, fn) => nodeTest(name, { timeout: 60_000 }, fn);
 
+for (const locale of ['de', 'en']) test(`AIT-138: server alone chooses ${locale} continuation, regardless of browser presentation`, async t => {
+  const h = voiceFixture(t, { voiceOptions: { presentation: language => ({ agent: { language, firstMessage: core.aiNoticeText(language) } }) } });
+  if (locale === 'de') await h.route('/locale', { locale });
+  const first = await h.start();
+  assert.equal(first.overrides.agent.firstMessage, core.aiNoticeText(locale));
+  const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId, presentation: 'opening' });
+  assert.equal(response.status, 200); const next = await response.json();
+  assert.equal(next.callId, first.callId); assert.equal(next.spendDeadlineAt, first.spendDeadlineAt);
+  assert.equal(next.presentation, 'continuation'); assert.deepEqual(next.overrides, { agent: { language: locale, firstMessage: '' } });
+});
+
+test('AIT-138: transcript persistence during awaited heartbeat eligibility keeps call authorization', async t => {
+  const h = voiceFixture(t), first = await h.start(), entered = Promise.withResolvers(), release = Promise.withResolvers();
+  const health = h.plugin.health;
+  h.plugin.health = async opts => { entered.resolve(); await release.promise; return health(opts); };
+  const beat = h.route(`/voice/${first.callId}/heartbeat`, { providerSessionId: first.providerSessionId });
+  await entered.promise;
+  h.storage.postTurn(h.session.id, 'new-input', new Uint8Array([1]), 'A final arrived while eligibility awaited', { ownerToken: 'voice-owner' });
+  release.resolve(); assert.equal((await beat).status, 200);
+  assert.deepEqual(h.closeRequests, []);
+});
+
+test('AIT-138: explicit hangup cannot be resurrected by a recover request', async t => {
+  const h = voiceFixture(t), first = await h.start();
+  await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId, reason: 'closed' });
+  const before = h.traffic.length;
+  const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId });
+  assert.equal(response.status, 403); assert.equal(h.traffic.length, before);
+});
+
 export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, path, cap, reasoning = createMockReasoning(), durationBinding = {}, voiceOptions = {} } = {}) {
   const storage = new SQLiteStorage(path), secrets = createFacadeSecrets();
   let clock = Date.now(), sequence = 0, covered = true, secretReads = 0, coverageReads = 0, healthReads = 0, releasing = false, mintFailure;

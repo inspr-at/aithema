@@ -39,6 +39,30 @@ async function setup(t, { sdk = fakeSdk(), transport = 'webrtc', persistEvent = 
 const message = (sdk, id) => sdk.starts.at(-1).onMessage({ role: 'user', message: `message ${id}`, event_id: id });
 const channelEffects = sdk => sdk.effects.filter(([name]) => ['setInputMuted', 'setVolume'].includes(name));
 
+test('AIT-138: heartbeat during recovery joins the replacement instead of closing the logical call', async t => {
+  const local = await setup(t), ready = deferred(), recover = local.control.recover;
+  local.control.recover = async (...args) => { await ready.promise; return recover(...args); };
+  local.sdk.starts[0].onDisconnect(); await until(() => local.closed.length === 1);
+  const beat = local.session.heartbeat().then(value => value, error => error);
+  try { await flush(); } finally { ready.resolve(); }
+  const result = await beat;
+  assert.equal(result.acknowledged, true);
+  assert.equal(local.closed.some(call => call.reason === 'closed' || call.reason === 'recovery-failed'), false);
+  assert.equal(local.session.callId, 'call_quick_fix');
+});
+
+test('AIT-138: exhaustion stops media and waits; explicit Resume gets a fresh per-outage allowance', async t => {
+  const local = await setup(t), recover = local.control.recover; let attempts = 0;
+  local.control.recover = async (...args) => { if (++attempts <= 3) throw new Error('outage'); return recover(...args); };
+  local.sdk.starts[0].onDisconnect();
+  await until(() => local.observed.some(event => event.type === 'waiting'));
+  assert.equal(local.session.lifecycle.state.state, 'waiting'); assert.equal(attempts, 3);
+  assert.ok(local.sdk.acquired.every(stream => stream.getTracks().every(track => track.readyState === 'ended')));
+  await local.session.resume();
+  await until(() => local.observed.some(event => event.type === 'recovered'));
+  assert.equal(local.session.lifecycle.state.state, 'active'); assert.equal(attempts, 4);
+});
+
 test('AIT-136 pause mutes capture immediately before the HTTP acknowledgement', async t => {
   const local = await setup(t), ack = deferred();
   local.control.pause = () => ack.promise;
