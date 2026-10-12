@@ -16,8 +16,8 @@ export const questionCardStyles = `
 .qopts { display:grid; gap:2px; margin-top:2px; }
 .qopt { display:grid; grid-template-columns:minmax(0,1fr) auto 30px; align-items:center; gap:10px;
   min-height:44px; padding:0 10px; border:0; border-radius:10px; background:transparent; color:var(--aithema-ink);
-  font:14.5px/1.4 var(--aithema-font); text-align:left; }
-.qopt .t { overflow-wrap:anywhere; padding-block:8px; }
+  font:14.5px var(--aithema-font); text-align:left; }
+.qopt .t { overflow-wrap:anywhere; }
 .qopt:hover:not(:disabled):not([aria-disabled="true"]) { background:color-mix(in srgb,var(--aithema-accent) 10%,transparent); }
 .qopt .go { width:30px; height:30px; border-radius:50%; display:grid; place-items:center; color:var(--aithema-accent);
   box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--aithema-accent) 40%,transparent); }
@@ -28,7 +28,7 @@ export const questionCardStyles = `
 .qopt:focus-visible { border-radius:10px; outline-offset:-2px; }
 .qopt[aria-disabled="true"] { opacity:.5; cursor:wait; }
 .qopt .tag { font:500 11.5px var(--aithema-font); color:var(--aithema-accent); }
-.qhint { margin:0; padding-left:10px; font-size:12.5px; line-height:1.4; color:var(--aithema-muted); }
+.qhint { margin:0; padding-left:10px; font-size:12.5px; color:var(--aithema-muted); }
 .transcript-shell { padding-bottom:calc(1.5rem + var(--aithema-slack-bottom,0px) + var(--question-card-height,0px)); }
 `;
 
