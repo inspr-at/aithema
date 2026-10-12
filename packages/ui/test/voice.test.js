@@ -583,7 +583,7 @@ test('AIT-138 fix 3: a waiting snapshot restores Resume without connecting until
   assert.equal(root.querySelector('.pause').disabled, false); assert.equal(connections, 0); assert.deepEqual(requests, []);
   root.querySelector('.pause').click(); await tick(); await tick();
   assert.equal(root.querySelector('.audio-rail').dataset.state, 'listening'); assert.equal(connections, 1);
-  assert.deepEqual(requests, [{ callId: 'durable-waiting-call', providerSessionId: 'retired-provider' }]);
+  assert.deepEqual(requests, [{ callId: 'durable-waiting-call', providerSessionId: 'retired-provider', explicit: true }]);
 });
 
 test('resending failed typed input after voice ends drops its stale call identity', async t => {
