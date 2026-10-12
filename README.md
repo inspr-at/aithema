@@ -1622,15 +1622,29 @@ version 2 format keeps per-attempt dispatch state, generation IDs, observed
 receipts and confirmed charges. Unknown dispatched costs remain `uncertainMicro`
 and can settle later by attempt ID without double charging. Active holds persist
 their writer ID, host, PID and a random incarnation ID shared by all ledgers in
-that process, plus `leaseExpiresAt`. A live writer renews its 30-second lease
-every five seconds while it owns active holds. `recover()`, snapshots and new
+that process, plus `leaseExpiresAt`. A writer renews its 30-second lease
+every five seconds while the persisted lease is still valid. Renewal failures
+are logged and retry only until expiry. A stalled event loop, repeated write
+failures or a forward clock jump can lose the lease: a late tick cannot revive
+it, and correcting the clock cannot restore that handle's authority.
+Dispatch and direct settlement check the writer, process incarnation and
+unexpired deadline under the same transaction lock as their journal change.
+Lease loss returns `not-admitted` (`Spend reservation lease lost`), aborts unsent
+provider work before budget dispatch is marked, and prevents draft publication.
+Calls already dispatched retain their evidence and settle through reconciliation.
+`recover()`, snapshots and new
 reservations reclaim holds only after lease expiry, regardless of PID reuse or
 hostname changes. Reclamation replays saved receipts, releases undispatched
 holds, and converts dispatched holds without known cost to uncertainty for
 reconciliation. Pre-lease version 2 holds receive one durable 30-second grace
-period. Renewal stops when the writer has no active holds, and its timer does
-not keep an exiting process alive. Dispatch rejects settled handles, expired
-leases and handles belonging to another writer or process incarnation.
+period; even undispatched legacy holds become uncertainty at expiry because
+an older writer does not enforce the new lease fence. A late legacy settlement
+can replace that estimate. Terminal rows discard obsolete owner and lease
+metadata before validation, including fields retained by a still-running older
+writer, without losing charges or receipts. Renewal stops when the writer has
+no active holds, and its timer does not keep an exiting process alive.
+Dispatch rejects settled handles. Reconciliation cannot settle another writer's
+unexpired active hold, and exact receipt replays never add a second charge.
 `createSpendLedger` accepts an optional `now` clock for deterministic fixtures.
 Version 1 counters are read conservatively: old
 reservations become uncertainty because they carry no dispatch evidence; old

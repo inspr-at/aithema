@@ -111,7 +111,7 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
           try {
             observe(JSON.parse(await readText(response, late.signal, id => observe({ id }))));
             await receipts;
-            if (cost !== null) await ledger.settle(reservation, cost);
+            if (cost !== null) await ledger.reconcileAttempt(options.attempt.attemptId, cost);
           } catch { /* Durable unknown costs remain retryable. */ }
           finally { late.dispose(); }
         })();
@@ -139,8 +139,11 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
       checkLifetime();
       reservation = await ledger.reserve(ceiling, { attemptId: options.attempt?.attemptId, provider: 'openrouter' });
       checkLifetime();
+      // The account journal fences ownership before either the invocation or
+      // the budget can record provider dispatch. A lease refusal is unsent.
+      await ledger.dispatch(reservation);
       invocation.dispatch(); dispatched = true;
-      options.attempt?.dispatchCost?.(); await ledger.dispatch(reservation); checkLifetime();
+      options.attempt?.dispatchCost?.(); checkLifetime();
       // Close even a late response from a transport that ignores cancellation.
       const response = checkedResponse(await abortable(Promise.resolve().then(() => fetchImpl(endpoint, { method: 'POST', signal: scope.signal,
         redirect: 'error', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, body })).then(checkedResponse), scope.signal));
@@ -174,15 +177,19 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
       try {
         // Unknown cost after dispatch keeps the full ceiling, including HTTP refusals.
         // Only the path before dispatch is provably unsent and may settle at zero.
-        let settlementFailed = false;
+        let settlementError;
         if (reservation !== null) try {
           await receipts;
           if (dispatched && cost === null) await ledger.uncertain(reservation);
           else await ledger.settle(reservation, !dispatched ? 0 : cost);
         }
-        catch { settlementFailed = true; ledgerFailures.set(ledger, 'spend ledger unreadable'); }
-        if (invocation) await invocation.finish(completed && !settlementFailed); if (reporting) await reporting;
-        if (settlementFailed) throw new PluginError('unavailable');
+        catch (error) {
+          settlementError = error;
+          ledgerFailures.set(ledger, error.code === 'not-admitted' ? 'spend reservation lease lost' : 'spend ledger unreadable');
+        }
+        if (invocation) await invocation.finish(completed && !settlementError); if (reporting) await reporting;
+        if (settlementError) throw settlementError instanceof PluginError && settlementError.code === 'not-admitted'
+          ? settlementError : new PluginError('unavailable');
       } finally { scope.dispose(); }
     }
   }

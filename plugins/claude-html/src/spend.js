@@ -32,6 +32,7 @@ export function callCeilingMicro(messages, binding) {
  * evidence/reconciliation/recovery, and snapshots separating unknown costs.
  * Every transaction takes an exclusive process lock. Active reservations carry
  * a process incarnation and a 30-second lease, renewed every five seconds.
+ * Expiry permanently fences that writer's handle; renewal cannot revive it.
  * Recovery waits for expiry even across PID reuse or a different hostname.
  */
 export function createSpendLedger({ path, capMicro = DEFAULT_CAP_MICRO, now = Date.now }) {
@@ -39,6 +40,7 @@ export function createSpendLedger({ path, capMicro = DEFAULT_CAP_MICRO, now = Da
   if (!Number.isSafeInteger(capMicro) || capMicro < 0) throw new TypeError('Invalid spend cap');
   if (typeof now !== 'function') throw new TypeError('Invalid spend clock');
   const lockPath = `${path}.lock`, recoveryPath = `${lockPath}.recovery`;
+  const normalized = Symbol('normalized ownership metadata');
   const owner = { pid: process.pid, host: hostname(), writerId: crypto.randomUUID(), incarnationId: PROCESS_INCARNATION };
   const unavailable = () => new PluginError('unavailable', 'Spend ledger unreadable or locked');
   const amount = n => Number.isSafeInteger(n) && n >= 0;
@@ -100,6 +102,13 @@ export function createSpendLedger({ path, capMicro = DEFAULT_CAP_MICRO, now = Da
       if (!object(state.operations)) throw new Error();
       const attempts = new Set();
       for (const [id, row] of Object.entries(state.operations)) {
+        // Pre-lease writers spread the current row when finishing, retaining
+        // unfamiliar lease fields. Terminal rows have no ownership authority:
+        // discard those fields before validation, preserving all cost evidence.
+        if (object(row) && ['uncertain', 'confirmed'].includes(row.state) &&
+          (Object.hasOwn(row, 'owner') || Object.hasOwn(row, 'leaseExpiresAt'))) {
+          delete row.owner; delete row.leaseExpiresAt; state[normalized] = true;
+        }
         if (!object(row) || !amount(row.ceilingMicro) || row.ceilingMicro < 1 ||
           !['reserved', 'dispatched', 'uncertain', 'confirmed'].includes(row.state) ||
           row.actualMicro !== undefined && !amount(row.actualMicro) ||
@@ -160,11 +169,20 @@ export function createSpendLedger({ path, capMicro = DEFAULT_CAP_MICRO, now = Da
   };
   const owns = row => row?.owner?.writerId === owner.writerId && row.owner.incarnationId === owner.incarnationId &&
     row.owner.pid === owner.pid && row.owner.host === owner.host;
-  const active = new Set();
+  const active = new Set(), lost = new Set();
   let renewal;
   const release = id => {
     active.delete(id);
     if (!active.size && renewal !== undefined) { clearInterval(renewal); renewal = undefined; }
+  };
+  const leaseLost = () => new PluginError('not-admitted', 'Spend reservation lease lost');
+  const lose = id => { if (active.has(id)) { lost.add(id); release(id); } };
+  const requireLease = (id, row, at = clock()) => {
+    if (lost.has(id) || !owns(row) || !['reserved', 'dispatched'].includes(row.state) ||
+      row.leaseExpiresAt === undefined || row.leaseExpiresAt <= at) {
+      lose(id); throw leaseLost();
+    }
+    return at;
   };
   const keepAlive = id => {
     active.add(id);
@@ -172,24 +190,32 @@ export function createSpendLedger({ path, capMicro = DEFAULT_CAP_MICRO, now = Da
     renewal = setInterval(() => {
       try {
         locked(() => {
-          const state = read(), deadline = clock() + LEASE_TTL_MS;
+          const state = read(), at = clock(), deadline = at + LEASE_TTL_MS;
           let changed = false;
           for (const id of active) {
             const row = state.operations[id];
-            if (!owns(row)) { release(id); continue; }
+            if (!owns(row) || !['reserved', 'dispatched'].includes(row.state) || row.leaseExpiresAt <= at) {
+              lose(id);
+              console.warn('[aithema/spend] reservation lease lost; dispatch and settlement fenced');
+              continue;
+            }
             const expiresAt = Math.max(row.leaseExpiresAt, deadline);
             if (expiresAt !== row.leaseExpiresAt) { row.leaseExpiresAt = expiresAt; changed = true; }
           }
           if (changed) write(state);
         });
-      } catch { /* A busy or failed ledger cannot extend a lease; the next tick retries. */ }
+      } catch (error) {
+        // A retry may renew only a still-valid persisted lease. Transaction
+        // failures never extend the deadline or silently restore authority.
+        console.warn('[aithema/spend] lease renewal failed; persisted deadline still applies', error.code);
+      }
     }, LEASE_RENEWAL_MS);
     // A pending reservation must not prevent a crashed/exiting process from ending.
     renewal.unref?.();
   };
   const recover = state => {
     const at = clock(), reclaimed = [];
-    let changed = false;
+    let changed = Boolean(state[normalized]);
     for (const [id, row] of Object.entries(state.operations)) {
       if (row.state === 'confirmed') continue;
       if (['reserved', 'dispatched'].includes(row.state)) {
@@ -201,15 +227,17 @@ export function createSpendLedger({ path, capMicro = DEFAULT_CAP_MICRO, now = Da
         if (row.leaseExpiresAt > at) continue;
       }
       if (row.observedMicro !== undefined) settle(state, id, row.observedMicro);
-      else if (row.state === 'reserved') settle(state, id, 0);
+      else if (row.state === 'reserved' && row.owner?.incarnationId !== undefined) settle(state, id, 0);
       else {
         if (row.state === 'uncertain') continue;
+        // A pre-lease writer cannot be fenced by an expiry check. Its unsent
+        // hold therefore stays conservative uncertainty, never confirmed zero.
         row.state = 'uncertain'; delete row.owner; delete row.leaseExpiresAt; delete state.reservations[id];
       }
       reclaimed.push(id); changed = true;
     }
     if (changed) write(state);
-    for (const id of reclaimed) release(id);
+    for (const id of reclaimed) lose(id);
     return state;
   };
   return {
@@ -233,17 +261,20 @@ export function createSpendLedger({ path, capMicro = DEFAULT_CAP_MICRO, now = Da
       if (!Number.isSafeInteger(micro) || micro < 0) throw new TypeError('Invalid settlement');
       return locked(() => {
         const state = read();
+        if (lost.has(id)) throw leaseLost();
+        const row = Object.hasOwn(state.operations, id) ? state.operations[id] : null;
+        // Exact replays of an already completed settlement remain idempotent.
+        // Uncertainty is settled only through durable attempt reconciliation.
+        if (row && (row.state !== 'confirmed' || active.has(id))) requireLease(id, row);
         settle(state, id, micro); write(state); release(id);
       });
     },
     dispatch(id) {
       return locked(() => {
         const state = read(), row = operation(state, id);
+        if (lost.has(id) || active.has(id) && !owns(row)) { lose(id); throw leaseLost(); }
         if (!['reserved', 'dispatched'].includes(row.state)) throw new PluginError('already-claimed', 'Spend already settled');
-        const at = clock();
-        if (!owns(row) || row.leaseExpiresAt === undefined || row.leaseExpiresAt <= at) {
-          throw new PluginError('not-admitted', 'Spend reservation ownership missing or expired');
-        }
+        const at = requireLease(id, row);
         row.state = 'dispatched'; row.leaseExpiresAt = Math.max(row.leaseExpiresAt, at + LEASE_TTL_MS); write(state);
       });
     },
@@ -263,7 +294,9 @@ export function createSpendLedger({ path, capMicro = DEFAULT_CAP_MICRO, now = Da
     uncertain(id) {
       return locked(() => {
         const state = read(), row = operation(state, id);
-        if (row.state === 'confirmed') { release(id); return; }
+        if (lost.has(id)) throw leaseLost();
+        if (['confirmed', 'uncertain'].includes(row.state) && !active.has(id)) return;
+        requireLease(id, row);
         row.state = 'uncertain'; delete row.owner; delete row.leaseExpiresAt; delete state.reservations[id]; write(state); release(id);
       });
     },
@@ -278,8 +311,9 @@ export function createSpendLedger({ path, capMicro = DEFAULT_CAP_MICRO, now = Da
     reconcileAttempt(attemptId, actualMicro) {
       if (!amount(actualMicro)) throw new TypeError('Invalid actual spend');
       return locked(() => {
-        const state = read(), id = Object.keys(state.operations).find(id => state.operations[id].attemptId === attemptId);
+        const state = recover(read()), id = Object.keys(state.operations).find(id => state.operations[id].attemptId === attemptId);
         if (!id) throw new PluginError('not-admitted', 'Spend reservation missing');
+        if (['reserved', 'dispatched'].includes(state.operations[id].state)) requireLease(id, state.operations[id]);
         settle(state, id, actualMicro); write(state); release(id);
       });
     },
