@@ -409,7 +409,9 @@ async function voicePromptFixture(t, prepare = () => {}, { stream } = {}) {
 
 function voiceUnderstanding(h, question, { draft = false, openQuestions = [question] } = {}) {
   const session = h.storage.get(h.session.id);
-  h.storage.append(session.id, 'understanding.updated', { ...session.understanding,
+  // New assessments must not reuse the hydrated record's content reference.
+  const { contentRef, hash, ...understanding } = session.understanding;
+  h.storage.append(session.id, 'understanding.updated', { ...understanding,
     inputRevision: inputRevision(session), draft, openQuestions });
   h.storage.append(session.id, 'question.focused', { question });
 }
