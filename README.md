@@ -1621,12 +1621,18 @@ The default `createSpendLedger({path, capMicro})` is a JSON cost journal. Its
 version 2 format keeps per-attempt dispatch state, generation IDs, observed
 receipts and confirmed charges. Unknown dispatched costs remain `uncertainMicro`
 and can settle later by attempt ID without double charging. Active holds persist
-their writer ID, host and PID as a process-lifetime lease. Startup `recover()`
-leaves another live writer's holds intact; only a provably dead local process or
-an unowned legacy operation permits receipt replay, release of undispatched
-holds, or conversion of dispatched holds to uncertainty. A live or unverifiable
-owner never loses its hold to a timeout. Dispatch rejects settled handles and
-handles belonging to another writer. Version 1 counters are read conservatively: old
+their writer ID, host, PID and a random incarnation ID shared by all ledgers in
+that process, plus `leaseExpiresAt`. A live writer renews its 30-second lease
+every five seconds while it owns active holds. `recover()`, snapshots and new
+reservations reclaim holds only after lease expiry, regardless of PID reuse or
+hostname changes. Reclamation replays saved receipts, releases undispatched
+holds, and converts dispatched holds without known cost to uncertainty for
+reconciliation. Pre-lease version 2 holds receive one durable 30-second grace
+period. Renewal stops when the writer has no active holds, and its timer does
+not keep an exiting process alive. Dispatch rejects settled handles, expired
+leases and handles belonging to another writer or process incarnation.
+`createSpendLedger` accepts an optional `now` clock for deterministic fixtures.
+Version 1 counters are read conservatively: old
 reservations become uncertainty because they carry no dispatch evidence; old
 aggregate spend is retained. Each
 transaction uses an `O_EXCL` lock containing the owner PID; a live, unknown or
