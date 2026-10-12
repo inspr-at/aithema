@@ -27,7 +27,9 @@ export function createDemoWallet({ limitMicro = 10_000_000, spent = () => 0 } = 
 }
 
 /** Labelled local host. Library content lives in the demo SQLite journal;
- * fake email and handover receipts are intentionally in memory. */
+ * fake email and handover receipts are intentionally in memory.
+ * demo:true is development only and explicitly exempts its fake-outbox identity
+ * flow from the privacy gate. Non-demo hosts need a notice even with delivery. */
 export function createDemoHost({ storage, demo = true, demoBypass = false, verificationRequired = false, now = () => Date.now(), identityPolicy,
   walletLimitMicro = 10_000_000, durationMs } = {}) {
   const mail = [], wallets = new Map(), sink = createFakeHandoverHost(), erasures = new Map(), resets = new Map();
