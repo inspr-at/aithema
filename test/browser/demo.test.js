@@ -662,10 +662,12 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
     browser = await puppeteer.launch({ executablePath, headless: true, env: { PATH: process.env.PATH, HOME: homedir() },
       userDataDir: join(directory, 'chrome'), timeout: waitTimeout,
       args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
-    const problems = []; let restarting = false;
+    const problems = [], closureTraffic = []; let restarting = false;
     const watch = page => {
       page.on('pageerror', error => problems.push(`pageerror ${error.message}`));
       page.on('response', response => {
+        const pathname = new URL(response.url()).pathname;
+        if (pathname.includes('/concepts') || /\/voice\/[^/]+\/close$/u.test(pathname)) closureTraffic.push({ pathname, status: response.status() });
         if (response.status() >= 400 && !(restarting && response.status() === 503)) {
           problems.push(`${response.status()} ${response.request().method()} ${new URL(response.url()).pathname}`);
         }
@@ -712,11 +714,20 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
     // D2: the concept rail under a resting pointer shows the finished concept at once.
     const requestBefore = await rest(page, '.concept-request');
     await page.mouse.down(); await page.mouse.up();
-    await until(page, () => {
-      const r = document.querySelector('aithema-session').shadowRoot;
-      return !r.querySelector('.concept-tab').disabled && r.querySelector('.concept-preview').style.visibility !== 'hidden'
-        && r.querySelector('.concept-activity-text').textContent === 'Draft revision 1 is ready.';
-    });
+    try {
+      await until(page, () => {
+        const r = document.querySelector('aithema-session').shadowRoot;
+        return !r.querySelector('.concept-tab').disabled && r.querySelector('.concept-preview').style.visibility !== 'hidden'
+          && r.querySelector('.concept-activity-text').textContent === 'Draft revision 1 is ready.';
+      });
+    } catch (error) {
+      console.info('AIT-145 post-hangup draft diagnostic', JSON.stringify({ traffic: closureTraffic, problems,
+        state: await inShadow(page, c => ({ voice: c.shadowRoot.querySelector('.audio-rail').dataset.state,
+          phase: c.session.conceptStatus?.phase, eligible: c.session.conceptIntent?.eligible,
+          count: c.session.concepts?.length, disabled: c.shadowRoot.querySelector('.concept-request').disabled,
+          activity: c.shadowRoot.querySelector('.concept-activity-text').textContent })) }));
+      throw error;
+    }
     sameBox(requestBefore, await box(page, '.concept-request'), 'concept request button');
 
     // D3: Like, a guidance chip and Regenerate show their effect while the pointer rests on them.
