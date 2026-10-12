@@ -92,14 +92,15 @@ test('HTML qualification has its own processor/model/endpoint/routing evidence a
   } finally { storage.close(); }
 });
 
-test('HTML accepts the exact Claude latest alias and requires prices under that alias', () => {
+test('HTML accepts the exact Claude latest alias and requires prices under that alias', async () => {
   const alias = '~anthropic/claude-opus-latest';
   const aliasValues = { ...values, OPENROUTER_MODEL: alias,
     AITHEMA_OPENROUTER_PRICES: JSON.stringify({ [alias]: { prompt: 1.4e-6, completion: 1.4e-5 } }) };
   const configured = htmlConfig(aliasValues);
+  const spendPath = `${await temporaryDb()}.spend.json`;
   assert.equal(configured.binding.model, alias); assert.equal(configured.binding.legal.evidence.model, alias);
   assert.doesNotThrow(() => createClaudeHTML({ binding: configured.binding,
-    spend: { reserve() {}, settle() {}, snapshot() {} }, resolveSecret: () => null }));
+    spendPath, resolveSecret: () => null }));
   for (const invalid of ['~openai/gpt-latest', '~anthropic/claude-opus', '~~anthropic/claude-opus-latest', '~anthropic/path/claude-latest']) {
     assert.throws(() => htmlConfig({ ...aliasValues, AITHEMA_HTML_MODEL: invalid }), /anthropic/);
     assert.throws(() => createClaudeHTML({ binding: { ...configured.binding, model: invalid } }), /anthropic/);
