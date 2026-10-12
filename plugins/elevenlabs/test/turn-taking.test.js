@@ -171,7 +171,7 @@ for (const transport of ['webrtc', 'websocket']) {
     local.agent(10); local.audio(10, -16384); local.interrupt(10); local.audio(12);
     const queued = local.queuedVolumes.length, aligned = local.alignments.length;
     local.interrupt(10); local.interrupt(11); local.agent(10); local.part(10);
-    for (const id of [9, 10, undefined, -1, 10.5]) local.audio(id, -16384);
+    for (const id of [9, 10, 11, undefined, -1, 10.5]) local.audio(id, -16384);
     assert.equal(local.volume(), 1, 'even a delayed interruption newer than the previous interruption cannot mute a newer audio reply');
     assert.equal(local.queuedVolumes.length, queued, 'no old WebSocket chunk reaches output');
     assert.equal(local.alignments.length, aligned, 'no old WebRTC provider audio reaches the SDK');
