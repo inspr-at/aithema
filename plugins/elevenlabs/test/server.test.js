@@ -62,6 +62,16 @@ test('AIT-145: final details above 64 KiB confirm a 1012-ended call and its USD 
   assert.equal(terminal.usage.costEstimated, false);
   assert.equal(options.reports.length, 1);
 });
+test('AIT-145: closure lookup diagnostics explain retained liability without raw provider errors', async () => {
+  const logs = [], local = fixture({ closureTimeoutMs: 20, log: event => logs.push(event),
+    providerDetails() { throw new PluginError('provider', 'fixture-private-error-context'); } });
+  const session = await local.server.start({ callId: 'closure_diagnostics', facadeSecretRef: 'fixture-ref' }, invocationOptions());
+  const terminal = await session.close();
+  assert.equal(terminal.closureConfirmed, false);
+  assert.ok(logs.some(event => event.event === 'voice.closure-lookup-failed' && event.code === 'provider'));
+  assert.ok(logs.some(event => event.event === 'voice.closure-pending' && event.retainedMicro === terminal.chargedMicro));
+  assert.doesNotMatch(JSON.stringify(logs), /fixture-private-error-context|fixture-api-key|fixture-facade-ref|fixture-token/u);
+});
 test('closure polls processing with backoff until done and excludes acknowledged pauses from visitor usage', async () => {
   const startedAt = Date.now(); let clock = startedAt, observations = 0; const observedAt = [];
   const local = fixture({ now: () => clock, closureTimeoutMs: 200, closurePollIntervalMs: 5,

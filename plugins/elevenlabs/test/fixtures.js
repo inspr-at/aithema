@@ -109,7 +109,7 @@ export function fakeSdk() {
   };
   return sdk;
 }
-export function fixture({ saveCall, sdk = fakeSdk(), providerDetails, prepareCall = async () => {}, requestProviderClose,
+export function fixture({ saveCall, sdk = fakeSdk(), providerDetails, prepareCall = async () => {}, requestProviderClose, log,
   now = Date.now, closureTimeoutMs = 20, closurePollIntervalMs = 2, reconcileLater, closeTimeoutMs } = {}) {
   const requests = [], saved = [], persisted = [], calls = new Map(); let mints = 0;
   const fetchImpl = async (input, options) => {
@@ -128,7 +128,7 @@ export function fixture({ saveCall, sdk = fakeSdk(), providerDetails, prepareCal
       metadata: { call_duration_secs: 120, start_time_unix_secs: (call?.startedAt ?? Date.now()) / 1000, cost: 17 } });
   };
   const server = createElevenLabsServer({ binding, fetchImpl, resolveSecret: () => 'fixture-api-key', prepareCall,
-    requestProviderClose, now, closureTimeoutMs, closurePollIntervalMs, reconcileLater,
+    requestProviderClose, now, closureTimeoutMs, closurePollIntervalMs, reconcileLater, log,
     async saveCall(call, options) {
       saved.push(structuredClone(call)); calls.set(`${call.callId}:${call.providerSessionId}`, structuredClone(call));
       if (saveCall) return saveCall(call, options);

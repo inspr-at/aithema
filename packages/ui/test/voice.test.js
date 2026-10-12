@@ -72,6 +72,36 @@ test('AIT-145: localized pending cost copy does not call the reserved ceiling a 
   assert.equal(de.voiceClosureUncertain, 'Anruf beendet. Kosten werden noch abgeglichen.');
   assert.equal(en.voiceClosureUncertain, 'Call ended. Costs are still being reconciled.');
 });
+test('AIT-145: browser control asks for background closure confirmation', async t => {
+  let body;
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    body = JSON.parse(options.body); return Response.json({ reconciliationPending: true, closureConfirmed: false }, { status: 202 });
+  });
+  const { control } = createVoiceControl({ sessionId: 'local-session' });
+  await control.close({ callId: 'ended-call', providerSessionId: 'ended-provider', reason: 'closed' });
+  assert.equal(body.background, true);
+});
+test('AIT-145: confirmed cost updates clear the pending call message only for the ended provider generation', async t => {
+  const session = createSession({ demo: true }), events = voiceEvents();
+  session.featureMatrix = { best: { voice: { available: true }, text: { available: true }, analysis: { available: true } } };
+  const c = document.createElement('aithema-session'); let callId;
+  c.configure({ copy: en, session, voiceClient: { manifest, async start(request) {
+    callId = request.callId;
+    return { callId, providerSessionId: 'ended-provider', events, async setInput() {}, async setOutput() {}, async updateContext() {},
+      async close() { events.end(); return { closureConfirmed: false, reconciliationPending: true }; } };
+  } } });
+  t.after(() => { c.remove(); c.configure({ copy: en, session }); });
+  const root = c.shadowRoot;
+  root.querySelector('.voice-start').click(); await tick();
+  root.querySelector('.voice-close').click(); await tick();
+  const receipt = providerSessionId => ({ type: 'voice.state', data: { callId, providerSessionId, state: 'ended',
+    terminal: { closureConfirmed: true, outcome: 'completed', usage: { upstreamMicro: 1_520_000, costEstimated: false } } } });
+  c.receive(receipt('foreign-provider'));
+  assert.equal(root.querySelector('.voice-state').textContent, en.voiceClosureUncertain);
+  c.receive(receipt('ended-provider'));
+  assert.equal(root.querySelector('.voice-state').textContent, 'Call ended.');
+  assert.equal(root.querySelector('.audio-rail').dataset.state, 'idle');
+});
 test('audio rail shows listening, speaking, paused, recovering and ended states with fixed controls and independent toggles', async t => {
   const { root, rail, events, commands } = fixture(t);
   const buttons = [...root.querySelectorAll('button')]; await rail.start();
