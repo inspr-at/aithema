@@ -76,6 +76,9 @@ export function createVoiceOperationStore(storage) {
       let operation = key && get(key);
       if (operation) {
         if (turnId && !operation.canonical) { operation = { ...operation, turnId, canonical: true }; save(operation); }
+        if (providerIdentity) {
+          operation.providerIdentity = [...new Set([...(operation.providerIdentity ?? []), ...providerIdentity])]; save(operation);
+        }
         assertCurrent(operation);
         for (const aliasIdentity of identities ?? [identity]) link(context, aliasIdentity, operation.key);
         if (turnId) link(context, `canonical:${turnId}`, operation.key);
@@ -93,6 +96,7 @@ export function createVoiceOperationStore(storage) {
       db.prepare('INSERT INTO voice_turn_operations VALUES (?,?,?,?,?)').run(key, context.sessionId, context.callId, context.providerSessionId, JSON.stringify(operation));
       for (const aliasIdentity of identities ?? [identity]) link(context, aliasIdentity, key);
       link(context, slot, key);
+      if (turnId) link(context, `canonical:${turnId}`, key);
       return { operation, claimed: true };
     });
   }
@@ -155,8 +159,8 @@ export function createVoiceOperationStore(storage) {
     const speech = session.transcript.filter(t => t.role === 'user' && t.callId === context.callId && t.providerSessionId === context.providerSessionId);
     const candidates = list(context.sessionId).filter(op => op.callId === context.callId && op.providerSessionId === context.providerSessionId && !op.canonical);
     const operation = candidates.find(op => op.providerIdentity?.some(identity => turn.id === identity || turn.id === `${context.providerSessionId}:user:${identity}`))
-      ?? candidates.find(op => !op.providerIdentity && op.ordinal === speech.length && op.afterTurnId === previous)
-      ?? candidates.findLast(op => !op.providerIdentity && op.afterTurnId === previous);
+      ?? candidates.find(op => op.ordinal === speech.length && op.afterTurnId === previous)
+      ?? candidates.findLast(op => op.afterTurnId === previous);
     if (!operation) return;
     operation.turnId = turn.id; operation.canonical = true; save(operation);
     link(context, `canonical:${turn.id}`, operation.key);

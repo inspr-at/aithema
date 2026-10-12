@@ -123,15 +123,25 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
         }, { ...bounded, signal: request.signal }));
         await cleanup(false);
         status = response.status;
+        if (!response.ok) {
+          const body = await response.json();
+          return reply(body, response.status, PLUGIN_ERROR_CODES.includes(body.error) ? body.error : 'provider');
+        }
         if (!response.body) { logResult(); return response; }
         const reader = response.body.getReader();
-        let ended = false;
+        const decoder = new TextDecoder();
+        let ended = false, responseError = null;
         return new Response(new ReadableStream({
           async pull(controller) {
             try {
               const item = await reader.read();
-              if (item.done) { ended = true; controller.close(); logResult(response.ok ? null : 'provider'); }
-              else { responseBytes += item.value.byteLength; controller.enqueue(item.value); }
+              if (item.done) { ended = true; controller.close(); logResult(responseError); }
+              else {
+                // The operation emits complete error frames, containing only a coded error.
+                const text = decoder.decode(item.value, { stream: true });
+                if (text.startsWith('data: {"error":')) responseError = codeFor(new PluginError(JSON.parse(text.slice(6)).error));
+                responseBytes += item.value.byteLength; controller.enqueue(item.value);
+              }
             } catch (error) { ended = true; controller.error(error); logResult(codeFor(error)); }
           },
           async cancel() { if (ended) return; ended = true; await reader.cancel(); logResult('cancelled'); },
