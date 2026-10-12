@@ -1143,7 +1143,13 @@ export class AithemaSession extends HTMLElement {
       if (event.seq <= this.#cursor) return;
       // A withdrawn upload revokes what was derived from it, like a withdrawn statement. (A replayed
       // earlier state whose content is gone is only a tombstone; its withdrawal follows in the journal.)
-      const invalidation = ['turn.withdrawn', 'session.erased', 'consent.revised'].includes(event.type) ||
+      // Draft-only saves advance consent without invalidating the conversation,
+      // matching the core reducer's checks before preserving browser processing.
+      const consentRevised = event.type === 'consent.revised';
+      const conversationUnchanged = consentRevised && event.data.granted &&
+        event.data.conversationUnchanged === true && !this.#session.consentWithdrawn;
+      const invalidation = ['turn.withdrawn', 'session.erased'].includes(event.type) ||
+        consentRevised && !conversationUnchanged ||
         event.type === 'upload.state' && event.data.state === 'withdrawn';
       if (invalidation) {
         this.#invalidatedAt = Math.max(this.#invalidatedAt, event.seq);
@@ -1190,7 +1196,7 @@ export class AithemaSession extends HTMLElement {
         if (event.data.paused) this.#deviceController?.abort(); else this.#pausePrompt = false;
         this.#rail.syncPause(event.data.paused);
       }
-      if ((invalidation || event.type === 'session.paused') && this.isConnected) void this.#refreshFeatures();
+      if ((invalidation || consentRevised || event.type === 'session.paused') && this.isConnected) void this.#refreshFeatures();
       if (event.type === 'turn.final') {
         this.#partials.delete(event.data.id);
         if (event.data.role === 'user') { this.#partials.clear(); this.#failure = false; }
