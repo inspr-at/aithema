@@ -46,6 +46,14 @@ function setup(t, { copy = en, host = { library: true, verification: true, hando
 }
 const userTurn = (c, id = 't1') => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id, role: 'user', content: 'We need a preorder app.' } });
 
+test('AIT-135 a host without an owner guard displays credits with a hidden, empty countdown', async t => {
+  const { root } = setup(t, { host: { credits: true } }); await tick();
+  assert.equal(root.querySelector('.host-credits').hidden, false);
+  assert.equal(root.querySelector('.host-credits__deadline').hidden, true);
+  assert.equal(root.querySelector('.host-credits__deadline').textContent, '');
+  assert.notEqual(root.querySelector('.host-credits__amount').textContent, '…');
+});
+
 test('AIT-145: background voice settlement refreshes the displayed wallet without another spoken turn', async t => {
   let availableMicro = 4_000_000;
   const { c, root, calls } = setup(t, { host: { credits: { format: value => (value / 1_000_000).toFixed(2) } }, routes: {

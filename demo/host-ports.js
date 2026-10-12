@@ -1,6 +1,7 @@
-import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { LibraryPortError, createFakeHandoverHost, handoverKey } from '@inspr/aithema-core';
 import { SQLiteBudgetLedger } from '../packages/server/src/budget.js';
+import { createVisitorCredits, EMAIL_NOTICE_VERSION } from './visitor-credits.js';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const integer = value => Number.isSafeInteger(value) && value >= 0;
@@ -29,30 +30,41 @@ export function createDemoWallet({ limitMicro = 10_000_000, spent = () => 0 } = 
 /** Labelled local host. Library content lives in the demo SQLite journal;
  * fake email and handover receipts are intentionally in memory. */
 export function createDemoHost({ storage, demo = true, demoBypass = false, verificationRequired = false, now = () => Date.now(), identityPolicy,
-  walletLimitMicro = 10_000_000, durationMs } = {}) {
+  durationMs, ownerGuard = true } = {}) {
   const mail = [], wallets = new Map(), sink = createFakeHandoverHost(), erasures = new Map(), resets = new Map();
   const costs = new SQLiteBudgetLedger(storage);
+  const visitorCredits = createVisitorCredits({ storage, now, deliveryEnabled: demo });
   storage.db.exec(`CREATE TABLE IF NOT EXISTS owner_wallet_reservations (
     attempt_id TEXT PRIMARY KEY, owner_hash TEXT NOT NULL, fingerprint TEXT NOT NULL,
     max_micro INTEGER NOT NULL, released INTEGER NOT NULL DEFAULT 0);
     CREATE INDEX IF NOT EXISTS wallet_owner ON owner_wallet_reservations(owner_hash);`);
   const walletForHash = ownerHash => {
     if (!wallets.has(ownerHash)) {
-      const balance = () => {
+      visitorCredits.visitor(ownerHash);
+      const readBalance = () => {
+        const { limitMicro } = visitorCredits.policy(ownerHash);
         const breakdown = costs.breakdown(undefined, { ownerHash });
         // A wallet reservation and its ledger row are one operation, including after restart.
         const unjournalled = storage.db.prepare(`SELECT COALESCE(SUM(w.max_micro),0) n FROM owner_wallet_reservations w
           LEFT JOIN budget_attempts b ON b.attempt_id=w.attempt_id WHERE w.owner_hash=? AND w.released=0 AND b.attempt_id IS NULL`).get(ownerHash).n;
         breakdown.reservedMicro += unjournalled;
-        return { limitMicro: walletLimitMicro, ...breakdown,
+        return { limitMicro, ...breakdown,
           committedMicro: breakdown.reservedMicro + breakdown.confirmedSpendMicro + breakdown.uncertainSpendMicro };
       };
-      const canAdmit = request => integer(request?.maxMicro) && request.maxMicro <= walletLimitMicro - balance().committedMicro;
+      // Reuse extendVoice's BEGIN IMMEDIATE: no async gap between policy and its ledger update.
+      const balance = () => storage.db.isTransaction ? readBalance() : storage.transaction(readBalance);
+      // maxVisitorMicro is safely ignored only while visitor price equals upstream price.
+      const canAdmit = request => {
+        if (!integer(request?.maxMicro)) return false;
+        const current = balance();
+        return current.limitMicro > 0 && request.maxMicro <= current.limitMicro - current.committedMicro;
+      };
       wallets.set(ownerHash, { balance, canAdmit,
         async admit(request) {
           if (typeof request?.attemptId !== 'string' || !request.attemptId || !integer(request.maxMicro) || !integer(request.maxVisitorMicro ?? 0)) throw new TypeError('Invalid wallet request');
           const fingerprint = JSON.stringify([request.sessionId, request.lane, request.maxMicro, request.maxVisitorMicro ?? 0, request.requestSha256, request.bindingSha256]);
           return storage.transaction(() => {
+            visitorCredits.touch(ownerHash);
             const previous = storage.db.prepare('SELECT * FROM owner_wallet_reservations WHERE attempt_id=?').get(request.attemptId);
             if (previous) {
               if (previous.owner_hash !== ownerHash || previous.fingerprint !== fingerprint) return { ok: false, reason: 'attempt-conflict' };
@@ -85,29 +97,30 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
   };
   const outbox = ({ sessionId, ownerToken }) => {
     storage.authorize(sessionId, ownerToken);
-    return structuredClone(mail.filter(message => message.sessionId === sessionId));
+    return structuredClone(mail.filter(message => message.sessionId === sessionId).map(({ ownerHash, createdAt, ...message }) => message));
   };
   const identity = {
     deliversVerification: demo,
     configuration() { return { demoBypass, ...(identityPolicy ? { policy: identityPolicy } : {}) }; },
+    project({ session }, state) { return visitorCredits.projectIdentity(session.ownerHash, state); },
+    persist({ session }, state) { visitorCredits.persistIdentity(session.ownerHash, state); },
     async requestVerification({ sessionId, ownerToken, address, revision, expiresAt }) {
-      storage.authorize(sessionId, ownerToken);
+      const session = storage.authorize(sessionId, ownerToken);
       if (!demo) return { status: 'failed' };
-      mail.push({ sessionId, address, revision, expiresAt, token: randomUUID(), verified: false });
+      const token = randomUUID();
+      visitorCredits.createToken({ ownerHash: session.ownerHash, sessionId, address, revision, expiresAt, token });
+      for (let i = mail.length - 1; i >= 0; i--) if (mail[i].ownerHash === session.ownerHash) mail.splice(i, 1);
+      mail.push({ sessionId, ownerHash: session.ownerHash, address, revision, expiresAt, token, verified: false, createdAt: now() });
       return { status: 'sent' };
     },
     async verify({ sessionId, ownerToken, address, revision, token }) {
-      storage.authorize(sessionId, ownerToken);
-      const message = mail.findLast(item => item.sessionId === sessionId && item.address === address && item.revision === revision);
-      if (!demo || !message || now() >= message.expiresAt) return { verified: false };
-      if (token !== undefined) {
-        if (message.verified || typeof token !== 'string') return { verified: false };
-        // Hash fixed-size digests so unequal token lengths do not short-circuit.
-        const matches = timingSafeEqual(createHash('sha256').update(token).digest(), createHash('sha256').update(message.token).digest());
-        if (!matches) return { verified: false };
+      const session = storage.authorize(sessionId, ownerToken);
+      if (!demo) return { verified: false };
+      const verified = visitorCredits.verifyToken({ ownerHash: session.ownerHash, address, revision, token });
+      if (verified && token !== undefined) for (const message of mail) if (message.ownerHash === session.ownerHash && message.revision === revision) {
         message.verified = true; message.token = null;
       }
-      return { verified: message.verified, address: message.address, revision: message.revision };
+      return { verified, address, revision };
     },
   };
   function library(ownerToken, hooks = {}) {
@@ -168,7 +181,18 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
   }
   const host = { label: 'Demo only: local host ports', demo, now, identity, library,
     policy: { verificationRequired: demo && verificationRequired },
-    ...(durationMs ? { credits: { durationMs } } : {}),
+    credits: { ownerGuard, ...(durationMs ? { durationMs } : {}) },
+    visitorCredits,
+    emailNotice: { version: EMAIL_NOTICE_VERSION, optional: true, purpose: 'visitor-credit', inactivityDays: 90,
+      marketingConsent: false, deliveryEnabled: demo,
+      text: { en: 'Saving an email is optional. It changes your visitor credit tier without resetting spend. We delete the address after 90 days without activity. Saving does not subscribe you to marketing.',
+        de: 'Das Speichern einer E-Mail-Adresse ist freiwillig. Es ändert dein Besucherguthaben, ohne Ausgaben zurückzusetzen. Wir löschen die Adresse nach 90 Tagen ohne Aktivität. Das Speichern ist keine Anmeldung für Werbung.' } },
+    visitor: ownerToken => visitorCredits.visitor(hash(ownerToken)),
+    touchVisitor: session => visitorCredits.touch(session.ownerHash),
+    saveEmail(ownerToken, input) { const result = visitorCredits.saveEmail(hash(ownerToken), input); purgeMail(); return result; },
+    deleteEmail(ownerToken) { const result = visitorCredits.deleteEmail(hash(ownerToken)); purgeMail(); return result; },
+    eraseVisitor(ownerToken) { visitorCredits.eraseVisitor(hash(ownerToken)); purgeMail(); },
+    retainVisitors(options) { const result = visitorCredits.retain(options); purgeMail(); return result; },
     outbox,
     async erased({ sessionId }) {
       for (let i = mail.length - 1; i >= 0; i--) if (mail[i].sessionId === sessionId) mail.splice(i, 1);
@@ -191,5 +215,11 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
     // Independent local fixture controls for the destructive conformance kits.
     sink, wasErased: id => Boolean(storage.get(id).tombstone),
   };
+  function purgeMail() {
+    for (let i = mail.length - 1; i >= 0; i--) {
+      const message = mail[i], row = storage.db.prepare('SELECT address,address_revision FROM visitor_identities WHERE owner_hash=?').get(message.ownerHash);
+      if (!row || row.address !== message.address || row.address_revision !== message.revision || now() - message.createdAt >= 24 * 60 * 60_000) mail.splice(i, 1);
+    }
+  }
   return host;
 }

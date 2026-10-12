@@ -34,15 +34,24 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
   const emit = (id, result) => { for (const event of result.events) publish(id, event); return result; };
   function initialIdentity(id, ownerToken, newSession = false) {
     if (!host.identity) return null;
-    const identity = createIdentity({ ...host.identity.configuration?.({ sessionId: id, ownerToken }),
+    let identity = createIdentity({ ...host.identity.configuration?.({ sessionId: id, ownerToken }),
       verificationRequired: newSession && host.policy?.verificationRequired === true });
+    identity = host.identity.project?.({ session: storage.get(id) }, identity) ?? identity;
     identity.manualPaused = storage.get(id).paused;
     return identity;
   }
   function initialize(id, ownerToken, { newSession = false } = {}) {
     if (!host) return;
+    if (ownerToken) host.touchVisitor?.(storage.get(id));
     const state = storage.hostState(id);
     if (state) {
+      if (state.identity && host.identity?.project) {
+        const projected = host.identity.project({ session: storage.get(id) }, state.identity);
+        if (JSON.stringify(identityView(projected, clock(projected))) !== JSON.stringify(identityView(state.identity, clock(state.identity)))) {
+          emit(id, storage.transitionHost(id, current => ({ state: { ...current, identity: projected },
+            events: [{ type: 'identity.state', data: identityView(projected, clock(projected)) }] }), ownerToken ? { ownerToken } : {}));
+        }
+      }
       // A lock from an earlier host policy must not strand a conversation
       // when verification is disabled, including demo-to-live adoption.
       if (state.identity?.verificationRequired === true && host.policy?.verificationRequired !== true) {
@@ -51,7 +60,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
       return;
     }
     // New/reset inherit the owner's guard, including a deliberate pause.
-    if (ownerToken && storage.ownerCreditState(ownerToken)?.paused && !storage.get(id).paused) {
+    if (host.credits?.ownerGuard !== false && ownerToken && storage.ownerCreditState(ownerToken)?.paused && !storage.get(id).paused) {
       publish(id, storage.pause(id, true, { ownerToken }));
     }
     emit(id, storage.transitionHost(id, () => {
@@ -65,8 +74,10 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     }, ownerToken ? { ownerToken } : {}));
   }
   function identityTransition(id, ownerToken, event) {
-    return emit(id, storage.transitionHost(id, state => {
-      const result = reduceIdentity(state.identity, { ...event, now: clock(state.identity) });
+    return emit(id, storage.transitionHost(id, (state, session) => {
+      const identity = host.identity.project?.({ session }, state.identity) ?? state.identity;
+      const result = reduceIdentity(identity, { ...event, now: clock(identity) });
+      host.identity.persist?.({ session }, result.state);
       return { ...result, state: { ...state, identity: result.state } };
     }, { ownerToken }));
   }
@@ -78,16 +89,18 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
       identityTransition(id, ownerToken, { type: 'pause', origin: 'manual', paused: storage.get(id).paused });
     }
     const paused = storage.get(id).paused, guard = storage.ownerCreditState(ownerToken);
-    if (host.wallet && ownerToken && (guard ? guard.paused !== paused : paused)) emit(id, storage.transitionCredits(id, ownerToken,
+    if (host.credits?.ownerGuard !== false && host.wallet && ownerToken && (guard ? guard.paused !== paused : paused)) emit(id, storage.transitionCredits(id, ownerToken,
       { type: 'pause', paused, now: now() }, host.credits));
   }
   function identityResult(id, extra = {}, ownerToken) {
-    const state = storage.hostState(id)?.identity ?? initialIdentity(id, ownerToken);
+    let state = storage.hostState(id)?.identity ?? initialIdentity(id, ownerToken);
+    state = host.identity.project?.({ session: storage.get(id) }, state) ?? state;
     state.manualPaused = storage.get(id).paused;
     return { identity: identityView(state, clock(state)), ...extra };
   }
   function creditResult(id, ownerToken) {
     const balance = budgetCreditView(budget, id, host.wallet(ownerToken));
+    if (host.credits?.ownerGuard === false) return { balance, limitSlot: null };
     const guard = storage.ownerCreditState(ownerToken);
     const state = guard ? guard.sessionId === id ? guard : rebindCredits(guard, id) : createCredits({ sessionId: id, ...host.credits });
     // Project live balances, expiry and pause without persisting read results.
@@ -97,6 +110,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
   }
   function startCredits(id, ownerToken) {
     const balance = budgetCreditView(budget, id, host.wallet(ownerToken));
+    if (host.credits?.ownerGuard === false) return { balance, limitSlot: null };
     emit(id, storage.transitionCredits(id, ownerToken, { type: 'balance', balance, now: now() }, host.credits));
     const result = emit(id, storage.transitionCredits(id, ownerToken, { type: 'start', now: now() }, host.credits));
     const paused = storage.get(id).paused;
@@ -142,10 +156,26 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     const url = new URL(request.url);
     const sessionMatch = new RegExp(`^/api/sessions/(${idPattern})/(identity(?:/(?:request|resend|change|confirm|unlock))?|handover(?:/retry)?|credits|demo/outbox)$`, 'u').exec(url.pathname);
     const libraryMatch = new RegExp(`^/api/library(?:/(${idPattern})(?:/(rename|delete|reset))?)?$`, 'u').exec(url.pathname);
-    if (!sessionMatch && !libraryMatch) return null;
+    const visitorPath = ['/api/visitor/email', '/api/visitor/erase'].includes(url.pathname);
+    if (!sessionMatch && !libraryMatch && !visitorPath) return null;
     if (!host) return json({ error: 'host-unavailable' }, 503);
     try {
       const ownerToken = ownership.token(request);
+      if (visitorPath) {
+        if (!ownerToken) return json({ error: 'owner-required' }, 401);
+        if (!host.visitor || !host.saveEmail || !host.deleteEmail || !host.eraseVisitor) return json({ error: 'visitor-unavailable' }, 503);
+        if (url.pathname === '/api/visitor/email') {
+          if (request.method === 'GET') return json({ visitor: host.visitor(ownerToken), notice: host.emailNotice ?? null });
+          if (request.method === 'POST' || request.method === 'PUT') return json({ visitor: host.saveEmail(ownerToken, await body(request, ['address', 'noticeVersion'])) });
+          if (request.method === 'DELETE') { await body(request, []); return json({ visitor: host.deleteEmail(ownerToken) }); }
+        } else if (request.method === 'POST') {
+          await body(request, []);
+          for (const id of storage.ownedIds(ownerToken)) await eraseConversation(id, ownerToken);
+          host.eraseVisitor(ownerToken);
+          return json({ erased: true, providerDeletion: 'not-confirmed' });
+        }
+        return json({ error: 'method-not-allowed' }, 405);
+      }
       if (libraryMatch) {
         if (!ownerToken) return json({ error: 'owner-required' }, 401);
         const [, id, action] = libraryMatch;

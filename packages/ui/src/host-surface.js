@@ -184,6 +184,7 @@ export class HostSurface {
       if (!this.#alive || load !== this.#creditsLoad || !response.ok) return;
       this.#credits = response.body; this.#creditsAt = Date.now();
       const slot = this.#credits?.limitSlot;
+      if (slot === null) this.#ended = null;
       if (['ending', 'ended'].includes(slot?.status)) this.#ended = slot.endReason ?? this.#ended ?? 'session';
       this.#paintCredits();
     } catch { /* The last known line stays until the next read. */ }
@@ -202,9 +203,10 @@ export class HostSurface {
     const amount = line.querySelector('.host-credits__amount'), total = line.querySelector('.host-credits__total'), unit = line.querySelector('.host-credits__unit');
     const scope = line.querySelector('.host-credits__scope'), deadline = line.querySelector('.host-credits__deadline');
     setText(scope, c.scope); limit.hidden = !this.#ended; line.dataset.ended = String(Boolean(this.#ended));
-    setText(total, ''); setText(unit, ''); setText(deadline, ''); track.hidden = true;
+    setText(total, ''); setText(unit, ''); setText(deadline, ''); deadline.hidden = true; track.hidden = true;
     if (this.#ended) {
       const ended = c.ended[this.#ended] ?? c.ended.session;
+      deadline.hidden = false;
       setText(amount, '—'); setText(deadline, ended); line.setAttribute('aria-label', ended); return;
     }
     const owner = this.#credits?.balance?.owner, slot = this.#credits?.limitSlot;
@@ -217,6 +219,7 @@ export class HostSurface {
     track.querySelector('i').style.width = `${maximum > 0 ? Math.min(100, value / maximum * 100) : 0}%`;
     track.setAttribute('aria-valuenow', String(value)); track.setAttribute('aria-valuemax', String(maximum)); track.setAttribute('aria-label', c.title);
     if (slot?.status === 'active' && Number.isFinite(slot.remainingMs)) {
+      deadline.hidden = false;
       const remaining = Math.max(0, slot.remainingMs - (Date.now() - this.#creditsAt));
       setText(deadline, [fill(c.remaining, { minutes: Math.ceil(remaining / MINUTE) }), session.paused ? c.paused : ''].filter(Boolean).join(' · '));
     }

@@ -1994,6 +1994,121 @@ DCO sign-off alone is insufficient. Review, merge and release remain maintainer-
 
 ## Test-host deployment (AIT-115)
 
+### Visitor credit and OPS CLI (AIT-135 Phase A1)
+
+START's visitor wallet uses a lifetime allowance across conversations, without
+refills or a one-hour owner deadline. The migration seeds **$10/$10/$10** for
+anonymous, email given and email confirmed. OPS applies Markus's **$10/$15/$20**
+decision through the CLI after deployment. A typed, explicitly saved address
+needs no mailbox proof for the email-given tier. Confirmation is disabled by
+default and cannot be enabled on a host without qualified delivery. Spend,
+uncertain liabilities and outstanding holds carry through promotions, address
+changes, deletion and conversation resets; email never keys a wallet. Exhaustion
+blocks new work until the applicable allowance increases. Every voice extension
+reads current settings and visitor evidence inside the existing ledger transaction;
+an admitted segment finishes, and a $0 allowance prevents further authorization.
+The start2 wiring sets both per-conversation ledger subcaps to $1,000; reusable
+library defaults stay at $10. The wallet's use of upstream cost for visitor credit
+is safe only while visitor and upstream prices are equal.
+
+Host-owned schema (in the same SQLite database and exclusive writer):
+
+| Table | Contents |
+| --- | --- |
+| `visitor_credit_settings` | Singleton; schema version 1, monotonic revision, integer micro-USD allowances, confirmation flag, UTC created/updated timestamps |
+| `visitor_credit_audit` | Append-only settings history: actor, UTC timestamp, source, revision, old/new settings; no visitor addresses; updates rejected by trigger |
+| `visitor_identities` | Opaque `visitor_ref` mapped uniquely to the existing owner hash; address/revision, saved/confirmed/pending evidence, notice version, creation/update/activity timestamps and shared verification state |
+| `visitor_confirmation_tokens` | SHA-256 token hash bound to visitor, address revision and requesting conversation; creation/expiry/redemption timestamps; cascade erased with the visitor |
+| `visitor_identity_cleanup` | Durable bounded cleanup queue for erasable identity projections in existing conversations |
+
+Settings accept decimal USD **strings**, with at most six fractional digits.
+Unknown fields, negative/unsafe amounts, values above $1,000 and descending
+tiers are rejected. A save requires `baseRevision`; a stale save returns 409
+with current settings. Settings and its audit insert commit in one transaction.
+After an uncertain CLI response, reload settings before retrying: replaying the
+old revision cannot append a second audit record. There is no environment
+bootstrap layer for allowances.
+
+The running host listens on a separate Unix socket, defaulting to
+`<database-directory>/ops/aithema-admin.sock`. The directory is 0700, the socket
+is 0600, and both belong to the host account. `AITHEMA_ADMIN_SOCKET` overrides
+the path on server and CLI. The public listener has no settings, audit or OPS
+endpoint. The actor is `ops-cli:<socket-owner-account>`; Node cannot identify
+the connecting peer account, so requests cannot supply an actor. The CLI never
+opens SQLite and refuses when the host is down. Start the authoritative server
+first; the existing exclusive writer lock also rejects a second server process.
+
+Run as the service account inside the start2 container (replace `start2` with
+OPS's actual container name). The image's service account is `node`:
+
+```sh
+docker exec --user node start2 node /app/demo/admin-cli.js settings
+docker exec --user node start2 node /app/demo/admin-cli.js set-allowances --base-revision 1 --anonymous 10 --email-given 15 --email-confirmed 20
+docker exec --user node start2 node /app/demo/admin-cli.js audit --after 0 --limit 100
+docker exec --user node start2 node /app/demo/admin-cli.js provider-cap
+```
+
+Use the revision returned by `settings`; the example's `1` applies only before
+the first OPS save. Local usage is `node demo/admin-cli.js --socket /absolute/path
+settings`, with `--socket` before the command. Audit pagination returns
+`nextAfter`; pass it as `--after` for the next page. Provider status is read-only:
+`capMicro`, `confirmedMicro`, `reservedMicro`, `uncertainMicro`, `remainingMicro`
+and `breached`, plus OPS recovery instructions. A host without a provider cap
+returns `available:false` and null totals. Remaining subtracts all commitments.
+Historical reservation overruns remain latched after restart or a cap raise:
+OPS investigates receipts, reconciles liabilities and fixes the cause, then
+performs an approved, audited maintenance recovery preserving history and
+carrying confirmed and unresolved liabilities forward. No reset command exists.
+
+With the next start2 deployment, OPS sets `AITHEMA_OPENROUTER_CAP_USD=100`.
+This deployment-wide lifetime ceiling covers OpenRouter text and Claude HTML;
+it excludes voice, which has separate optional `AITHEMA_VOICE_CAP_MINUTES` and
+`AITHEMA_VOICE_CAP_MINUTES_PER_DAY` ceilings in addition to each visitor wallet.
+Replacing the visitor cookie can still obtain a fresh anonymous allowance.
+The runtime-editable provider cap and abuse tracking are deferred.
+
+The visitor API uses the existing ownership cookie/token:
+
+- `GET /api/visitor/email` returns the profile and DE/EN optional-processing
+  notice, including `notice.version = "ait-135-v1"`, retention and delivery facts.
+- `POST` (or `PUT`) `/api/visitor/email` accepts only
+  `{ "address": "visitor@example.test", "noticeVersion": "ait-135-v1" }`.
+  Saving grants email-given credit and sends no mail. A changed address revokes
+  confirmation; repeating the same saved address cannot add credit.
+- `DELETE /api/visitor/email` removes the address and confirmation evidence,
+  returning the same wallet to anonymous. Accounting remains intact.
+- `POST /api/visitor/erase` with `{}` cancels/erases all owned conversations
+  through the existing erasure path, removes the visitor records, tokens and
+  address projections, and retains justified wallet accounting. Provider-side
+  erasure remains `not-confirmed`. Conversation delete/reset alone retains
+  the visitor profile.
+
+Hosts with delivery retain the existing request/send/confirm flow, including
+30-minute tokens, resend cooldown and five-attempt limit. Tokens are stored only
+as hashes; the labelled demo outbox alone holds raw links in memory. New
+conversations inherit visitor evidence. Live mode continues to hide verification
+until A2's reviewed design; A1 adds no form or admin UI. Without a clock guard,
+the credits API returns `limitSlot:null` and the UI hides the empty countdown.
+Other hosts can retain the guard; `host.credits.ownerGuard:false` disables it.
+Pause, consent, per-call duration and liveness safeguards remain in force.
+
+Bounded, idempotent cleanup runs at startup and daily through the host writer:
+addresses after 90 days of visitor inactivity, pending records/tokens after
+24 hours, and settings audit after 180 days. Pending cleanup preserves an
+independently saved address and its email-given tier. Explicit visitor erasure
+drains address-projection cleanup before acknowledging and truncates the WAL.
+Do not restore erased addresses from backups: OPS must keep backup expiry within
+the 90-day address retention window, retain an erasure record outside restored
+snapshots, and reapply erasures before serving a restored database.
+
+The remote wallet extension is deferred. Its future contract is
+`extend({attemptId,targetMaxMicro,targetMaxVisitorMicro})` with cumulative,
+idempotent targets, wallet acknowledgement before ledger update, serialized
+extensions, and conservative holds for unknown outcomes. No async wait belongs
+inside the local SQLite extension transaction. A2 supplies Tick's visitor
+save/edit/delete form and credit states; Phase C wires the agm1 relay and designed
+HTML confirmation mail. Admin authentication later uses Zitadel SSO.
+
 Run a pinned source commit with Node 24 or the provided `node:24-bookworm-slim`
 Dockerfile: `npm ci --omit=dev`, then `node demo/server.js`. The ElevenLabs SDK
 1.17.0 is a runtime dependency; the host serves its IIFE and worklets locally.
@@ -2017,6 +2132,7 @@ Readiness of voice is separately visible in
 | `AITHEMA_LISTEN_HOST` | Bind address; local `127.0.0.1`, image `0.0.0.0` |
 | `AITHEMA_PUBLIC_ORIGIN` | Canonical origin, e.g. `https://start2.augmentoring.com`, without trailing slash; accepted Host, facade base URL and Secure cookies |
 | `AITHEMA_DB` | Persistent SQLite path; local `.data/session.sqlite`, image `/data/session.sqlite` |
+| `AITHEMA_ADMIN_SOCKET` | Private OPS Unix socket; default `<database-directory>/ops/aithema-admin.sock`, directory 0700 and socket 0600 |
 | `AITHEMA_COMMIT` | Deployed source SHA; `/healthz` reports this or `null` |
 | `AITHEMA_PROVIDER` | `openrouter` for live reasoning; defaults to `mock` |
 | `OPENROUTER_API_KEY` | Account credential supplied by OPS through its secret service |
