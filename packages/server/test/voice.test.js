@@ -1650,3 +1650,16 @@ test('AIT-137 round 1: backpressure leaves no queued reply frames on an unread s
   assert.equal(new TextDecoder().decode(item.value), 'data: {"error":"not-admitted"}\n\n');
   assert.equal((await reader.read()).done, true); assert.equal(h.models(), 1);
 });
+
+test('AIT-137 round 1: HTTP cancellation during a pending pull preserves shared execution and one settlement', async t => {
+  const h = await turnsOnceFixture(t, { blocked: true });
+  const cancelled = await h.callback(undefined, { stream: true }), other = await h.callback(undefined, { stream: true });
+  const reader = cancelled.body.getReader(); await reader.read(); await reader.read();
+  let settled = false; const pending = reader.read().then(item => { settled = true; return item; });
+  await new Promise(resolve => setImmediate(resolve)); assert.equal(settled, false);
+  await reader.cancel(); assert.equal((await pending).done, true);
+  const text = other.text(); h.release();
+  assert.equal(sseReply(await text), 'Reply 1 finished');
+  assert.equal(await completionText(await h.callback()), 'Reply 1 finished');
+  assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
+});

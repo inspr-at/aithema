@@ -132,6 +132,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
           async pull(controller) {
             try {
               const item = await reader.read();
+              if (ended) return;
               if (item.done) { ended = true; controller.close(); logResult(responseError); }
               else {
                 // The operation emits complete error frames, containing only a coded error.

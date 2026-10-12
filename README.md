@@ -589,20 +589,31 @@ Unsupported commands and presets stay disabled with a reason. Automatic updates
 keep the rail, composer and export targets at fixed positions.
 
 Custom-LLM callbacks share a durable turn operation. Its key is SHA-256 of the
-session, call, provider generation and provider message/turn identity; each
-available provider identity is an alias for that operation. Without provider
+session, call, provider generation and namespaced provider identity (`message:`,
+`event:`, or `turn:`). Each available identifier aliases that operation only when
+its namespace agrees with the identifiers already bound to the turn. Without provider
 IDs, the key uses the canonical user turn and its call/generation provenance.
 If the callback arrives first, the server reserves a private turn identity from
-the ordered provider user-history position; the final transcript receipt binds
+the ordered provider user-history position. A retry that gains provider IDs
+attaches them to that same operation, including completed and failed operations;
+it retains replay and replacement authorization. The final transcript receipt binds
 the actual canonical turn ID atomically. Only transcript persistence publishes
 the person turn. Assistant history changes and text equality do not define
 operation identity. ID-less callbacks require ordered user history; stale or
 ambiguous positions are refused instead of being attached to a later identical
 utterance.
 
+Private receipt bindings preserve the provider event identity and the canonical
+turn separately. A typed echo binds explicitly to its original typed turn;
+position/predecessor matching never overrides conflicting provider IDs. An older
+receipt arriving after a newer admitted callback retains its earlier operation
+ordinal, so receipt arrival order cannot make the current paid operation obsolete.
+
 Operations move from `pending` to `completed` or `failed`. Concurrent callbacks
 join one admission and model stream; disconnecting a reader leaves the operation
-running under its own deadline. Completion stores the reply in erasable content
+running under its own deadline. Each reader requests frames independently; unread
+readers queue no frames, and lagging readers catch up in content frames of at most
+16,384 UTF-16 code units without splitting a surrogate pair. Completion stores the reply in erasable content
 in the same transaction as its terminal operation state, before publishing the
 successful stream terminator. Retries replay that reply and completion ID without
 admission or spending. `voice.turnReplayWindowMs` defaults to **120,000 ms** from
