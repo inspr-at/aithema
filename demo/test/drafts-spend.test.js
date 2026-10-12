@@ -280,6 +280,27 @@ for (const stage of ['reserved', 'dispatched', 'cost-receipt']) {
   });
 }
 
+for (const access of ['snapshot', 'reserve']) {
+  test(`AIT-134 round 3: ${access} reclaims a hold that expires after startup recovery`, async () => {
+    const path = `${await temporaryDb()}.spend.json`, expiresAt = 1_000_000;
+    writeFileSync(path, JSON.stringify({ version: 2, spentMicro: 0, reservations: { abandoned: 100 }, operations: {
+      abandoned: { ceilingMicro: 100, state: 'reserved', leaseExpiresAt: expiresAt,
+        owner: { pid: process.pid, host: hostname(), writerId: 'previous-writer', incarnationId: 'previous-process' } },
+    } }));
+    let clock = expiresAt - 1;
+    const spend = createSpendLedger({ path, capMicro: 100, now: () => clock });
+    spend.recover(); clock = expiresAt + 1;
+    if (access === 'snapshot') assert.equal(spend.snapshot().totalMicro, 0);
+    else {
+      const handle = spend.reserve(100);
+      assert.equal(spend.snapshot().reservedMicro, 100);
+      spend.settle(handle, 0);
+    }
+    const recovered = JSON.parse(readFileSync(path, 'utf8')).operations.abandoned;
+    assert.equal(recovered.state, 'confirmed'); assert.equal(recovered.actualMicro, 0);
+  });
+}
+
 test('AIT-134 round 3: an exited owner retains its hold until the lease expires', { timeout: 10_000 }, async t => {
   const path = `${await temporaryDb()}.spend.json`, child = await jsonWriter(t, path, 'reserved');
   const exited = once(child, 'exit'); child.send('exit'); await exited;
