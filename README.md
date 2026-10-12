@@ -1853,6 +1853,60 @@ returns a `delivery` effect. Part B persists state before dispatching effects an
 adds the routes/UI below. Host copy, branding, persona, legal text and schedules
 remain host-owned.
 
+### Host privacy document and email collection (AIT-151)
+
+Supply the host's own reviewed privacy notice outside this public repository:
+
+```sh
+AITHEMA_PRIVACY_DOCUMENT=/run/host-content/privacy.html
+AITHEMA_PRIVACY_DOCUMENT_DE=/run/host-content/privacy-de.html # optional
+AITHEMA_PRIVACY_DOCUMENT_EN=/run/host-content/privacy-en.html # optional
+```
+
+Mount these files read-only and readable by the runtime user. Each file must be
+a nonempty UTF-8 **HTML body fragment**, at most 256 KiB. The strict allowlist
+accepts `h1`–`h6`, `p`, `ul`, `ol`, `li`, `dl`, `dt`, `dd`, `section`, `article`,
+`div`, `span`, `strong`, `em`, `b`, `i`, `small`, `abbr`, `blockquote`, `address`,
+`a`, `br` and `hr`; tags must be balanced. Only quoted `id`, `lang`, `title`
+attributes and `href` on links are accepted. Links may use HTTPS (without URL
+credentials), `mailto:` addresses, single-slash local paths or `#` fragments;
+encoded attributes and protocol-relative links are refused. Omit document/head
+wrappers, comments, scripts, CSS, images, forms and event handlers. The existing
+HTML preview inspector permits executable click-dummies and is not a privacy
+sanitiser, so this page uses its own stricter grammar.
+
+Validation runs before opening the database or starting providers. An invalid
+configured file, including an invalid locale variant, refuses startup with
+`Invalid privacy document`. The server keeps the validated content in memory;
+restart after changing it. `/privacy` serves the default, and
+`/privacy?locale=de` or `?locale=en` selects a variant with fallback to the default
+(or the first configured DE/EN document when only variants are supplied). The
+page's `lang` and title follow the document served, including fallback. Variant
+files use their DE/EN language unless their outer container declares `lang`.
+A default fragment uses German unless its outer container declares its language,
+for example `<article lang="en">…</article>` for an English default. The
+host supplies styling, a script-free CSP and GET/HEAD responses. No legal text
+or sample policy is bundled in the product.
+
+`/demo/config` exposes only `privacy: { url: '/privacy' }` or `privacy: null`.
+The legal slot links it with `data-aithema-privacy` and `rel="privacy-policy"`,
+labelled “Datenschutzerklärung” / “Privacy policy”. Deployment file paths stay
+private. Live hosts continue to offer no email input.
+
+Server integrations provide the trusted `host.privacyDocumentConfigured()`
+capability **only after** validating and serving their document. The server
+exports `privacyDocumentConfigured(host)` for future save-email routes; check
+it before reading or persisting an address. Without this capability returning
+exactly `true`, every non-demo host refuses POST identity request, change,
+resend, confirm and unlock with HTTP 403 and
+`{ "error": "privacy-document-required" }`, before body parsing, identity
+writes or host calls, regardless of mail delivery. Ownership checks still run
+first. Only an explicit trusted `host.demo === true` exempts the development
+demo's fake-outbox flow; `identity.deliversVerification` never exempts a host.
+The demo flag must not be used by production delivery adapters. Configuring a
+document alone does not enable the future save-email UI or establish the host's
+legal compliance.
+
 `createIdentity({roles?, role?, demoBypass?, policy?})` starts a guest. Default
 roles are `private`, `company`, `representative`, `agency`; hosts may replace the
 taxonomy. `reduceIdentity(state, {type, now, ...})` accepts `request-verification`
@@ -2083,6 +2137,8 @@ Readiness of voice is separately visible in
 | `PORT` | Listen port; local/container default `3000` |
 | `AITHEMA_LISTEN_HOST` | Bind address; local `127.0.0.1`, image `0.0.0.0` |
 | `AITHEMA_PUBLIC_ORIGIN` | Canonical origin, e.g. `https://start2.augmentoring.com`, without trailing slash; accepted Host, facade base URL and Secure cookies |
+| `AITHEMA_PRIVACY_DOCUMENT` | Optional readable HTML-fragment file, at most 256 KiB; validated at startup and served at `/privacy`; required before email collection on hosts without verification delivery |
+| `AITHEMA_PRIVACY_DOCUMENT_DE`, `AITHEMA_PRIVACY_DOCUMENT_EN` | Optional locale variants; each must pass the same validation; only the page URL is exposed publicly |
 | `AITHEMA_DB` | Persistent SQLite path; local `.data/session.sqlite`, image `/data/session.sqlite` |
 | `AITHEMA_COMMIT` | Deployed source SHA; `/healthz` reports this or `null` |
 | `AITHEMA_PROVIDER` | `openrouter` for live reasoning; defaults to `mock` |

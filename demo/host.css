@@ -36,6 +36,10 @@ button:disabled { cursor:default; opacity:.55; }
 #language-note { min-height:1.5em; margin:0; }
 #error { min-height:1.5em; margin:0; color:var(--error); }
 main { width:100%; }
+.privacy-page { max-width:85ch; margin:0 auto; padding:20px clamp(16px,4vw,40px) 48px; line-height:1.65; overflow-wrap:anywhere; }
+.privacy-page h1,.privacy-page h2,.privacy-page h3 { font-family:var(--display); line-height:1.2; }
+.privacy-page h1 { font-size:clamp(28px,4vw,36px); }
+.privacy-page h2 { margin-top:1.6em; }
 /* The component's live view fits the viewport under the masthead and the reserved status lines (AIT-128). */
 aithema-session { display:block; width:100%; --aithema-height:100dvh; --aithema-backdrop:none; }
 .colophon { display:flex; flex-wrap:wrap; align-items:center; gap:8px 24px; padding-block:24px 32px; font-size:13px; color:var(--muted); }
