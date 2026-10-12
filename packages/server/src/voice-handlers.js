@@ -4,6 +4,7 @@ import { createCompletionsHandler } from '../../../plugins/elevenlabs/src/facade
 import { voiceOperation } from '../../core/src/live-voice.js';
 import { ConflictError, NotFoundError } from './storage.js';
 import { VOICE_CAP_REASONS } from './voice-cap.js';
+import { CUSTOM_LLM_BASE_PATH } from '../../../plugins/elevenlabs/src/ensure-agent.js';
 
 const json = (value, status = 200) => Response.json(value, { status, headers: { 'cache-control': 'no-store' } });
 const idPattern = '[a-zA-Z0-9_-]{1,128}';
@@ -135,10 +136,10 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       if (end <= now()) throw new PluginError('deadline');
       if (!staticSecretRef) await secrets.provision(entry.facadeSecretRef);
       controller.signal.throwIfAborted();
-      // The host's per-conversation language, if its agent allows it; never the greeting (AIT-119).
+      // Trusted presentation from the conversation's locale, including its AI notice (AIT-127).
       const overrides = presentation?.(session.locale);
       entry.call = await admitted.plugin.start({ callId, sessionId, ownerToken, facadeSecretRef: entry.facadeSecretRef,
-        facadeUrl: `${admitted.binding.publicFacadeBaseUrl}${staticSecretRef ? staticFacadeRoute : `/api/voice/${callId}/llm/chat/completions`}`,
+        facadeUrl: `${admitted.binding.publicFacadeBaseUrl}${staticSecretRef ? CUSTOM_LLM_BASE_PATH : `/api/voice/${callId}/llm`}`,
         settingsRevision: session.settings?.revision ?? 0, ...(overrides ? { overrides } : {}) },
         { ...admitted.options, spendDeadlineAt: end, browserLivenessDeadlineAt: Math.min(end, now() + browserLeaseMs) });
       entry.call.signal.addEventListener('abort', () => {

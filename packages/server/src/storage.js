@@ -280,7 +280,12 @@ export class SQLiteStorage {
         if (Buffer.from(receipt.bytes).toString() !== hash(bytes)) throw new ConflictError('Client event id has different bytes');
         return { event: this.#hydrateEvent(JSON.parse(receipt.result)), replayed: true };
       }
-      this.#check(session, guard);
+      // A first message whose body arrived across an empty conversation's locale change still
+      // belongs here. Only locale events may relax the server's earlier revision, never consent,
+      // withdrawal or another input, and never an explicit revision supplied by a client.
+      const localeOnly = guard.initialLocaleSeq !== undefined && !conversationStarted(session) &&
+        this.read(id, guard.initialLocaleSeq).every(event => event.type === 'session.locale-changed');
+      this.#check(session, localeOnly ? { ...guard, revision: undefined } : guard);
       if (session.transcript.some(turn => turn.id === clientId)) throw new ConflictError('Turn id already exists');
       const event = this.#append(session, 'turn.final', { id: clientId, role: 'user', content,
         ...(guard.voiceCallId ? { voiceCallId: guard.voiceCallId, voiceProviderId: guard.voiceProviderId } : {}),
@@ -483,6 +488,17 @@ export class SQLiteStorage {
   pause(id, paused, guard = {}) {
     return this.transaction(() => { const session = this.get(id); this.#check(session, guard);
       return this.#append(session, 'session.paused', { paused }); });
+  }
+  changeLocale(id, locale, guard = {}) {
+    if (!['en', 'de'].includes(locale)) throw new TypeError('Unsupported locale');
+    return this.transaction(() => {
+      const session = this.get(id); this.#check(session, { ...guard, revision: undefined });
+      // The handler also checks its connecting-call reservation synchronously. Persisted open
+      // calls protect another handler instance and the interval before restart reconciliation.
+      if (conversationStarted(session) || this.voiceCalls(id).some(call => !call.terminal)) throw new ConflictError('locale-conflict');
+      if (session.locale === locale) return null;
+      return this.#append(session, 'session.locale-changed', { locale });
+    });
   }
   conceptArtifactIndex(id) {
     // Tombstones remain accountable in exports without recovering erased metadata.

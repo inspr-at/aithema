@@ -30,6 +30,7 @@ test('demo slot fills, the fake outbox and the demo handover wording appear only
       const session = { id: `slots-${locale}`, locale, processingPreset: 'best', featureMatrix: {}, ...engine };
       const component = document.querySelector('aithema-session'), configured = [];
       component.configure = options => { configured.push(options); };
+      component.changeLocale = async () => true;
       Object.defineProperty(component, 'session', { get: () => configured.at(-1)?.session });
       globalThis.fetch = async url => {
         if (url === '/demo/config') return Response.json({ label: 'Mock reasoning — deterministic demo', ...providers, demoHost });

@@ -87,6 +87,67 @@ function assertUnbillableStart(h) {
   assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 0);
 }
 
+test('AIT-127: locale is authenticated, durable, in place, and refused after any turn', async t => {
+  const h = voiceFixture(t), id = h.session.id;
+  assert.equal((await h.route('/locale', { locale: 'de' }, 'stranger')).status, 404);
+  for (const locale of ['fr', '', null]) assert.equal((await h.route('/locale', { locale })).status, 400);
+  const response = await h.route('/locale', { locale: 'de' }); assert.equal(response.status, 200);
+  const ack = await response.json();
+  assert.equal(ack.session.id, id); assert.equal(ack.session.locale, 'de'); assert.equal(ack.session.understanding.locale, 'de');
+  assert.equal(ack.event.type, 'session.locale-changed');
+  assert.equal(h.storage.read(id).at(-1).type, 'session.locale-changed');
+  assert.equal((await h.route('/turns', { clientEventId: 'first', content: 'Hallo' })).status, 200);
+  assert.equal((await h.route('/locale', { locale: 'en' })).status, 409);
+  assert.equal(h.storage.get(id).transcript[0].content, 'Hallo');
+  await h.handlers.idle(); await h.route('/withdraw', { turnId: 'first' });
+  assert.equal((await h.route('/locale', { locale: 'en' })).status, 409, 'withdrawn turns still mark a started conversation');
+});
+
+test('AIT-127: locale cannot interrupt a connecting or active call with no turns', async t => {
+  const h = voiceFixture(t), entered = Promise.withResolvers(), release = Promise.withResolvers();
+  const admit = h.runtime.admitVoice.bind(h.runtime);
+  h.runtime.admitVoice = async (...args) => { entered.resolve(); await release.promise; return admit(...args); };
+  const pending = h.route('/voice', { callId: 'connecting' }); await entered.promise;
+  const refused = await h.route('/locale', { locale: 'de' });
+  release.resolve(); const started = await pending; const call = await started.json();
+  assert.equal(refused.status, 409); assert.equal(started.status, 201);
+  assert.equal((await h.route('/locale', { locale: 'de' })).status, 409);
+  assert.equal(h.storage.get(h.session.id).transcript.length, 0); assert.equal(h.storage.get(h.session.id).locale, 'en');
+  assert.deepEqual(h.closeRequests, []);
+  await h.route(`/voice/${call.callId}/close`, { providerSessionId: call.providerSessionId });
+  assert.equal((await h.route('/locale', { locale: 'de' })).status, 200);
+});
+
+test('AIT-127: a locale body overtaken by a first turn is refused; a turn body overtaken by locale is retained', async t => {
+  const h = voiceFixture(t);
+  function delayed(suffix, body) {
+    let writer;
+    const request = new Request(`http://host/api/sessions/${h.session.id}${suffix}`, { method: 'POST', duplex: 'half',
+      headers: { 'x-aithema-session-token': 'voice-owner' }, body: new ReadableStream({ start(controller) { writer = controller; } }) });
+    return { response: h.handlers.handle(request), finish() { writer.enqueue(new TextEncoder().encode(JSON.stringify(body))); writer.close(); } };
+  }
+  const turn = delayed('/turns', { clientEventId: 'first', content: 'First turn' });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal((await h.route('/locale', { locale: 'de' })).status, 200);
+  turn.finish(); assert.equal((await turn.response).status, 200);
+  assert.equal(h.storage.get(h.session.id).transcript[0].content, 'First turn');
+  const other = voiceFixture(t), gate = Promise.withResolvers();
+  const pending = other.handlers.handle(new Request(`http://host/api/sessions/${other.session.id}/locale`, { method: 'POST', duplex: 'half',
+    headers: { 'x-aithema-session-token': 'voice-owner' }, body: new ReadableStream({ async start(controller) {
+      await gate.promise; controller.enqueue(new TextEncoder().encode('{"locale":"de"}')); controller.close();
+    } }) }));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal((await other.route('/turns', { clientEventId: 'first', content: 'First turn' })).status, 200);
+  gate.resolve(); assert.equal((await pending).status, 409);
+  assert.equal(other.storage.get(other.session.id).locale, 'en');
+});
+
+test('AIT-127: legacy facade provisioning receives the base URL for one completion suffix', async t => {
+  const h = voiceFixture(t), call = await h.start();
+  assert.equal(h.provisioned[0].url, `https://facade.test/api/voice/${call.callId}/llm`);
+  assert.equal(new URL(`${h.provisioned[0].url}/chat/completions`).pathname, `/api/voice/${call.callId}/llm/chat/completions`);
+});
+
 for (const status of [500, 429]) {
   test(`failed credential mint (${status}) durably releases minutes and both budgets before a later call`, async t => {
     const h = voiceFixture(t, { cap: { capMilliseconds: 60_000, perDayMilliseconds: 60_000 } });

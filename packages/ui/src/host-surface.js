@@ -33,7 +33,8 @@ export class HostSurface {
     if (o.library) {
       open.innerHTML = LIBRARY_ICON; open.append(node('span', '', s.library.open));
       this.#library = new LibraryDialog({ dialog: root.querySelector('dialog.library'), copy, request: (path, body) => this.#call(`/api/library${path}`, body),
-        current: () => this.#session().id, locale: () => o.locale?.() ?? this.#session().locale ?? 'en', adopt: (next, reason) => this.#adopt(next, reason),
+        current: () => this.#session().id, locale: () => this.#session().locale ?? 'en',
+        newLocale: () => o.locale?.() ?? this.#session().locale ?? 'en', adopt: (next, reason) => this.#adopt(next, reason),
         notice: () => root.querySelector('#ai-notice')?.textContent ?? '' });
       open.addEventListener('click', () => this.#library.show(open));
     }
@@ -45,6 +46,17 @@ export class HostSurface {
     this.#mountHandover(); this.#mountFoot();
     this.#handover = this.#session().handover ?? null;
     this.#paintCredits(); this.#paintHandover();
+  }
+  setCopy(copy) {
+    this.#copy = copy;
+    const s = copy.hostSurface, root = this.#root;
+    root.querySelector('.host-bar').setAttribute('aria-label', s.bar);
+    if (this.#library) setText(root.querySelector('.library-open-dialog span'), s.library.open);
+    this.#verification?.setCopy(copy); this.#library?.setCopy(copy);
+    setText(root.querySelector('.handover h3'), s.handover.title);
+    setText(root.querySelector('slot[name="handover-offer"]'), s.handover.offer);
+    root.querySelectorAll('.handover__sizer').forEach((n, i) => setText(n, [s.handover.request, s.handover.update, s.handover.retry][i]));
+    this.update();
   }
   get locked() { return this.#verification?.locked ?? false; }
   /** The understanding pane holds host controls: the verification form while locked, or the handover band. */

@@ -2,6 +2,7 @@ import { createElevenLabsClient } from '../plugins/elevenlabs/src/client.js';
 
 /** Deterministic in-process agent. Only host persistence/control uses localhost. */
 export function createFakeVoice({ control, persistEvent, copy }) {
+  const currentCopy = () => typeof copy === 'function' ? copy() : copy;
   let callbacks, id, eventId = 0, lastAssistant, muted = false, volume = 1, open = false;
   const say = (role, message) => {
     if (!open || muted && role === 'user') return;
@@ -12,9 +13,9 @@ export function createFakeVoice({ control, persistEvent, copy }) {
   };
   const sdk = { async startSession(options) {
     callbacks = options; open = true; muted = false; id = options.fakeProviderSessionId;
-    queueMicrotask(() => { if (open) { options.onConnect({ conversationId: id }); say('agent', copy.fakeVoiceGreeting); } });
+    queueMicrotask(() => { if (open) { options.onConnect({ conversationId: id }); say('agent', currentCopy().fakeVoiceGreeting); } });
     return { getId: () => id, getInputVolume: () => muted ? 0 : .25, getOutputVolume: () => volume * .6, setMicMuted: value => { muted = value; }, setVolume: value => { volume = value.volume; },
-      sendUserMessage(text) { say('user', text); say('agent', copy.fakeVoiceReply); },
+      sendUserMessage(text) { say('user', text); say('agent', currentCopy().fakeVoiceReply); },
       sendContextualUpdate() {}, async endSession() { open = false; } };
   } };
   let providerSessionId;
@@ -25,8 +26,8 @@ export function createFakeVoice({ control, persistEvent, copy }) {
   const client = createElevenLabsClient({ sdk: { startSession: options => sdk.startSession({ ...options, fakeProviderSessionId: providerSessionId }) },
     control: wrappedControl, persistEvent: event => persistEvent(event, { providerSessionId }) });
   return { client,
-    speak(text = copy.fakeVoiceStatement) { say('user', text); say('agent', copy.fakeVoiceReply); },
-    bargeIn(prefix = copy.fakeVoiceHeard) {
+    speak(text = currentCopy().fakeVoiceStatement) { say('user', text); say('agent', currentCopy().fakeVoiceReply); },
+    bargeIn(prefix = currentCopy().fakeVoiceHeard) {
       if (!open || muted || !lastAssistant?.message.startsWith(prefix)) return;
       callbacks.onInterruption({ event_id: ++eventId });
       callbacks.onAgentResponseCorrection({ event_id: lastAssistant.event_id,

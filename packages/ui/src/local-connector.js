@@ -12,6 +12,20 @@ export class LocalConnector {
   constructor({ copy, create, endpoint = PROVIDERS.mtplx.endpoint, onChange = () => {} }) {
     this.#copy = copy; this.#create = create; this.#endpoint = endpoint; this.#onChange = onChange;
   }
+  setCopy(copy) {
+    const old = this.#copy.local;
+    for (const key of Object.keys(old)) if (this.#status === old[key]) { this.#status = copy.local[key]; break; }
+    this.#copy = copy; this.#copied = '';
+    if (!this.#root) return;
+    const c = copy.local;
+    for (const n of this.#root.querySelectorAll('[data-local]')) n.textContent = c[n.dataset.local];
+    this.#root.querySelectorAll('#local-provider option').forEach(n => { n.textContent = c.providers[n.value]; });
+    c.steps.forEach((step, i) => { this.#q(`.step-${i}`).textContent = step; });
+    this.#root.querySelectorAll('.quick-steps li').forEach((n, i) => {
+      n.querySelector('h5').textContent = c.quickSteps[i].title; n.querySelector('p').textContent = c.quickSteps[i].body;
+    });
+    this.#q('#local-message').placeholder = c.placeholder; this.#paint();
+  }
   get client() { return this.#client?.model ? this.#client : null; }
   get model() { return this.#client?.model ?? null; }
   #q(selector) { return this.#root.querySelector(selector); }
@@ -75,13 +89,12 @@ export class LocalConnector {
     this.#wire(); this.#paint();
   }
   #wire() {
-    const c = this.#copy.local;
     this.#q('.local__form').addEventListener('submit', event => { event.preventDefault(); void this.#connect(); });
     this.#q('.local-connect').addEventListener('click', () => void this.#connect());
-    this.#q('#local-endpoint').addEventListener('input', event => { this.#endpoint = event.target.value; this.#error = null; this.#status = c.endpointChanged; this.#paint(); });
+    this.#q('#local-endpoint').addEventListener('input', event => { this.#endpoint = event.target.value; this.#error = null; this.#status = this.#copy.local.endpointChanged; this.#paint(); });
     this.#q('#local-provider').addEventListener('change', event => {
       this.#provider = PROVIDERS[event.target.value] ? event.target.value : 'mtplx';
-      this.#endpoint = PROVIDERS[this.#provider].endpoint; this.#error = null; this.#status = c.endpointChanged; this.#view = 'help'; this.#paint();
+      this.#endpoint = PROVIDERS[this.#provider].endpoint; this.#error = null; this.#status = this.#copy.local.endpointChanged; this.#view = 'help'; this.#paint();
     });
     this.#q('#local-model').addEventListener('change', event => {
       try { this.#client?.select(event.target.value); this.#status = null; } catch (error) { this.#fail(error); }
@@ -96,8 +109,8 @@ export class LocalConnector {
       this.#view = 'help'; this.#paint(); this.#q('.setup-details').open = true; this.#q('#local-help').focus({ preventScroll: true });
     });
     this.#q('.copy-command').addEventListener('click', async () => {
-      try { await navigator.clipboard.writeText(this.#q('.setup-command').textContent); this.#copied = c.copied; }
-      catch { this.#copied = c.copyFailed; }
+      try { await navigator.clipboard.writeText(this.#q('.setup-command').textContent); this.#copied = this.#copy.local.copied; }
+      catch { this.#copied = this.#copy.local.copyFailed; }
       this.#q('.copy-status').textContent = this.#copied;
     });
     this.#q('.local__composer').addEventListener('submit', event => { event.preventDefault(); void this.#send(); });
