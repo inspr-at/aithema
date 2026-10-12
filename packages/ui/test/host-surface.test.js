@@ -48,7 +48,7 @@ const userTurn = (c, id = 't1') => c.receive({ seq: c.session.seq + 1, type: 'tu
 
 test('AIT-145: background voice settlement refreshes the displayed wallet without another spoken turn', async t => {
   let availableMicro = 4_000_000;
-  const { c, root, calls } = setup(t, { routes: {
+  const { c, root, calls } = setup(t, { host: { credits: { format: value => (value / 1_000_000).toFixed(2) } }, routes: {
     'GET /credits': () => Response.json({ balance: { owner: { limitMicro: 10_000_000, availableMicro } }, limitSlot: null }),
   } });
   await tick(); const before = calls.filter(call => call.path === '/credits').length;
