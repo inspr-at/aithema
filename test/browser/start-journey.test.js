@@ -51,7 +51,7 @@ const rect = (page, selector) => page.$eval(selector, node => {
 
 test('AIT-127: language repaints in place and keeps the selector under the pointer at desktop and phone sizes', { timeout: 120_000 }, async t => {
   const { page, demo } = await setup(t);
-  for (const width of [1440, 390]) {
+  for (const width of [1440, 390, 320]) {
     await page.setViewport({ width, height: 900 });
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await ready(page);
     await page.select('#locale', 'de');

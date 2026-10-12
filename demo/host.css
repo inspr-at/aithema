@@ -25,10 +25,10 @@ button:disabled { cursor:default; opacity:.55; }
 .host-actions label { display:inline-flex; align-items:center; gap:6px; }
 /* Reserve the longest DE/EN label in each existing header slot. A locale repaint never
    moves the selector sideways, or wraps the actions while the pointer rests on it (AIT-127). */
-#language-label { min-inline-size:4.75em; }
-#theme-label { min-inline-size:6.5em; }
+#language-label { inline-size:5.5em; flex:none; }
+#theme-label { inline-size:6.5em; flex:none; }
 #theme { inline-size:5em; }
-#new { inline-size:14em; max-inline-size:100%; text-align:right; }
+#new { inline-size:14em; max-inline-size:100%; block-size:44px; padding:4px 0; text-align:right; }
 .host-actions button,.host-actions select { background:transparent; color:var(--ink); border:0; border-radius:0; padding:8px 0; min-height:44px; }
 .host-actions button:hover,.host-actions select:hover { color:var(--accent); }
 .host-actions select option { color:var(--ink); background:var(--paper); }
