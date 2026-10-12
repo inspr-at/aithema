@@ -239,7 +239,9 @@ export class AudioRail {
     const session = this.session, generation = this.generation;
     const revision = ++this.pauseRevision;
     this.pauseCommand = { paused, revision };
-    if (paused) { this.paused = true; this.onPause?.(true); }
+    if (paused) this.paused = true;
+    // Repaint the next visitor action while capture retains its acknowledged hold.
+    this.onPause?.(Boolean(this.paused));
     this.busy = true; this.render();
     try {
       const ack = await session[paused ? 'pause' : 'resume'](paused ? undefined : {
@@ -247,10 +249,14 @@ export class AudioRail {
       });
       if (!this.current(session, generation) || revision !== this.pauseRevision) return;
       if (ack?.acknowledged !== true || ack.paused !== paused) throw new Error('Pause acknowledgement required');
-      this.paused = paused; this.errorKey = null; this.onPause?.(paused);
+      this.paused = paused; this.errorKey = null;
       if (!paused) { this.state = 'listening'; void this.updateContext().catch(() => {}); }
     } catch { if (this.current(session, generation) && revision === this.pauseRevision) this.errorKey = 'voicePauseFailed'; }
-    finally { if (this.current(session, generation) && revision === this.pauseRevision) { this.busy = false; this.pauseCommand = null; this.render(); this.settle(); } }
+    finally {
+      if (this.current(session, generation) && revision === this.pauseRevision) {
+        this.busy = false; this.pauseCommand = null; this.onPause?.(Boolean(this.paused)); this.render(); this.settle();
+      }
+    }
   }
   // Return whether the durable event may change the conversation's local pause projection.
   syncPause(paused, pauseRequestId, resumeRequestId) {
