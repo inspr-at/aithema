@@ -7,6 +7,12 @@ const json = (value, status = 200) => Response.json(value, { status, headers: { 
 const idPattern = '[a-zA-Z0-9_-]{1,128}';
 const object = (body, keys) => body && typeof body === 'object' && !Array.isArray(body) && Object.keys(body).every(key => keys.includes(key));
 
+/** Trusted host capability: true only after validating its deployment document.
+ * Future address-saving routes must check this before reading/persisting email. */
+export function privacyDocumentConfigured(host) {
+  return typeof host?.privacyDocumentConfigured === 'function' && host.privacyDocumentConfigured() === true;
+}
+
 /** Host ports are trusted server configuration, never request payloads.
  * identity: configuration({sessionId,ownerToken}), requestVerification(effect),
  * verify({sessionId,ownerToken,address,revision,token?}) -> authoritative evidence.
@@ -232,6 +238,12 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
       }
       const [, id, action] = sessionMatch;
       storage.authorize(id, ownerToken);
+      // Ownership precedes the release gate. Refuse before initialize, body
+      // parsing, journal transitions or host calls can collect an address.
+      // Only the explicitly flagged development demo (fake outbox) is exempt;
+      // real mail delivery never exempts collection from the privacy notice.
+      if (request.method === 'POST' && action.startsWith('identity/') && host.demo !== true &&
+          !privacyDocumentConfigured(host)) return json({ error: 'privacy-document-required' }, 403);
       if (action === 'demo/outbox') {
         if (host.demo !== true || typeof host.outbox !== 'function') return json({ error: 'not-found' }, 404);
         if (request.method !== 'GET') return json({ error: 'method-not-allowed' }, 405);
