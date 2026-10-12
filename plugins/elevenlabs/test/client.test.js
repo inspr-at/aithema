@@ -19,6 +19,17 @@ for (const transport of ['webrtc', 'websocket']) test(`AIT-145: ${transport} han
   local.sdk.sample({ buffered: true }); assert.equal(local.sdk.outgoing.length, sent);
   released.resolve(); await pending;
 });
+test('AIT-145: an input command completing after hangup cannot restore playback volume', async () => {
+  const local = fixture(), session = await local.client.start({ callId: 'late_audio_command' }, invocationOptions());
+  const entered = Promise.withResolvers(), released = Promise.withResolvers();
+  local.sdk.muteHook = async muted => { if (!muted) { entered.resolve(); await released.promise; } };
+  const changing = session.setInput(true).catch(error => error.code);
+  await entered.promise;
+  const pending = session.close(); released.resolve();
+  await changing; await pending; await flush();
+  assert.equal(local.sdk.effects.filter(([name]) => name === 'setVolume').at(-1)[1], 0);
+  assert.ok(local.sdk.acquired.every(stream => stream.getTracks().every(track => track.readyState === 'ended')));
+});
 test('transport loss while paused waits for acknowledged resume before spending on recovery', { timeout: 60_000 }, async () => {
   const local = fixture(), options = invocationOptions(), session = await local.client.start({ callId: 'call_paused_recovery' }, options);
   let retries = 0;
