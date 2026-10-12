@@ -11,7 +11,7 @@ export class VisitorEmail {
     Object.assign(this, { root, entry, copy, request, openDialog, changed, demo, delivery, privacyDocumentConfigured, handover, locale });
     this.alive = true; this.ui = { editing: false, deleting: false, busy: false, message: '', invalid: false, failed: false };
     entry.id = 'email'; entry.classList.add('host-mail');
-    entry.innerHTML = `<h3 class="verify-entry-title" id="email-heading"></h3><div class="m-stack">
+    entry.innerHTML = `<h3 class="verify-entry-title" id="email-heading" tabindex="-1"></h3><div class="m-stack">
       <form class="m-view m-form" data-view="capture" novalidate>
         <p class="m-lead m-two"><span class="m-lead-save"></span><span class="m-lead-edit"></span></p>
         <label class="m-label" for="email-input"></label><input class="m-in" id="email-input" type="email" autocomplete="email" maxlength="254" spellcheck="false" aria-describedby="email-message email-notice">
