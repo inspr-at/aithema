@@ -169,7 +169,8 @@ test('start2 drafts run at milestones in the background; conversation and select
   await grant(['models-international', 'drafts-anthropic']); await handlers.idle();
   await turn('wish', 'Please show a clickable draft for repair requests.'); await started.promise; await reasoningFinished();
   assert.equal(storage.get(session.id).conceptStatus.phase, 'pending');
-  assert.equal(runtime.budget.used(session.id), 1_000_000, 'only the active draft holds its maximum');
+  assert.equal(runtime.budget.used(session.id), spend.snapshot().reservedMicro, 'only the active draft holds its priced request estimate');
+  assert.ok(runtime.budget.used(session.id) < 1_000_000);
   await turn('during', 'Further details: the caretaker needs a repair list.'); await reasoningFinished();
   const current = storage.get(session.id);
   assert.ok(current.transcript.some(turn => turn.role === 'assistant' && turn.inputRevision === inputRevision(current)), 'conversation answers while HTML remains stalled');
@@ -228,7 +229,8 @@ test('withdrawing only drafts aborts a dispatched render before it finishes and 
   assert.equal(used, spent + spend.snapshot().uncertainMicro, 'cancellation retains the same uncertain estimate in both ledgers');
   released.resolve(); await new Promise(resolve => setImmediate(resolve));
   assert.equal(storage.get(id).concepts.length, 0, 'a transport ignoring abort cannot publish its late result');
-  assert.equal(runtime.budget.used(id), used); assert.equal(spend.snapshot().spentMicro, spent, 'late usage cannot change settled spend');
+  assert.equal(runtime.budget.used(id), 1234); assert.equal(spend.snapshot().spentMicro, 1234, 'late provider cost replaces the uncertain estimate');
+  assert.equal(spend.snapshot().uncertainMicro, 0);
   assert.equal(calls, 1);
 });
 
