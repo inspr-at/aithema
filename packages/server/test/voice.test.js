@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers, createPluginRuntime, createVoiceProvider, createFacadeSecrets, mockPresets,
   SQLiteBudgetLedger, createVoiceCap, VOICE_CAP_REASON, VOICE_DAY_CAP_REASON } from '../src/index.js';
 import { PluginRegistry, createMockReasoning, activeTurns, PluginError, inputRevision } from '@inspr/aithema-core';
+import * as core from '@inspr/aithema-core';
 import { readFile } from 'node:fs/promises';
 import { temporaryDb, unzip } from '../../../test/helpers.js';
 import { eventProbe } from '../../../test/voice-test-events.js';
@@ -470,6 +471,25 @@ test('AIT-144: voice guidance varies openings and limits speech to one short que
   assert.match(system, /stale[^\n]*open questions/iu);
   assert.match(system, /canonical[^\n]*latest[^\n]*take precedence/iu);
 });
+
+for (const locale of ['de', 'en']) {
+  test(`AIT-148: ${locale} voice replies compose the shared core policy with voice-only guidance`, async t => {
+    const h = await voicePromptFixture(t, h => h.storage.append(h.session.id, 'session.locale-changed', { locale }));
+    await h.callback([{ role: 'user', content: locale === 'de' ? 'Hallo' : 'Hello' }]);
+    const { system } = h.requests.at(-1);
+    assert.equal(typeof core.REPLY_POLICY, 'string');
+    assert.ok(core.REPLY_POLICY.length > 0);
+    assert.equal(system.split(core.REPLY_POLICY).length, 2);
+    assert.match(system, /Never open formulaically with "Danke", "Vielen Dank", "Thanks" or "Thank you"/u);
+    assert.match(system, /Do not replace these with another repeated stock opener or praise/u);
+    assert.match(system, /Vary acknowledgements and engage directly/u);
+    assert.match(system, /Never re-ask[^\n]*canonical person turns/iu);
+    assert.match(system, /two or three short sentences[^\n]*at most 60 words[^\n]*at most one question/iu);
+    assert.match(system, /Do not read back[^\n]*summary/iu);
+    assert.match(system, /stale or draft, ignore its open questions/iu);
+    assert.match(system, /focused question is only a suggestion/iu);
+  });
+}
 
 test('AIT-144: transcript replay keeps confirmed capacity and DACH out of fake replies', async t => {
   // De-identified excerpts of the reported German call. Provider metadata and
