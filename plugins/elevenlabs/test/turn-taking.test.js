@@ -87,10 +87,55 @@ async function playbackFixture(t, transport, { persistEvent = async () => {} } =
     if (transport === 'webrtc') return Array(128).fill(0.5 * element.volume);
     const frame = new Float32Array(128); processor.process([], [[frame]]); return [...frame];
   };
-  return { session, sdk, agent, audio, analysedAudio, part, interrupt, wire, volume, samples, queuedVolumes, alignments };
+  return { session, sdk, conversation, agent, audio, analysedAudio, part, interrupt, wire, volume, samples, queuedVolumes, alignments };
 }
 
 for (const transport of ['webrtc', 'websocket']) {
+  test(`AIT-145 + AIT-146: ${transport} fresh reply after interrupted hangup never re-arms playback or capture`, async t => {
+    const local = await playbackFixture(t, transport), { session, sdk, conversation } = local;
+    const cleanup = conversation.endSession.bind(conversation), released = Promise.withResolvers();
+    const entered = Promise.withResolvers(), unmuted = Promise.withResolvers();
+    conversation.endSession = async () => { await released.promise; return cleanup(); };
+    sdk.muteHook = async muted => { if (!muted) { entered.resolve(); await unmuted.promise; } };
+    t.after(() => { unmuted.resolve(); released.resolve(); });
+    local.agent(10); local.audio(10); assert.equal(local.volume(), 1);
+    local.interrupt(10); assert.equal(local.volume(), 0);
+    const changing = session.setOutput(true).catch(error => error.code);
+    await entered.promise;
+    const closing = session.close();
+    assert.equal(local.volume(), 0, 'hangup mutes before SDK cleanup acknowledges');
+    assert.ok(sdk.acquired.every(stream => stream.getTracks().every(track => track.readyState === 'ended')));
+    const queued = local.queuedVolumes.length, aligned = local.alignments.length;
+    const callbacks = sdk.starts[0];
+    for (const signal of [
+      () => local.audio(11),
+      () => local.part(12),
+      () => local.part(13, 'delta', 'Hosting'),
+      () => local.agent(14),
+      () => callbacks.onAgentChatResponsePart({ event_id: 15, type: 'start', text: '' }),
+      () => callbacks.onMessage({ role: 'agent', event_id: 16, message: 'A late fresh reply.' }),
+      () => callbacks.onModeChange({ mode: 'speaking' }),
+      () => local.interrupt(17),
+      () => callbacks.onDisconnect({ reason: 'error' }),
+    ]) {
+      signal();
+      assert.equal(local.volume(), 0, 'fresh audio, streamed parts and stale callbacks cannot revive an ended call');
+      assert.ok(local.samples().every(sample => sample === 0));
+    }
+    assert.equal(local.queuedVolumes.length, queued, 'no post-hangup PCM is enqueued');
+    assert.equal(local.alignments.length, aligned, 'no post-hangup alignment reaches the SDK');
+    unmuted.resolve(); await changing; await flush();
+    assert.equal(local.volume(), 0, 'a pre-hangup channel completion also honors terminal mute');
+    for (const command of [() => session.resume(), () => session.setOutput(true), () => session.setInput(true)]) {
+      await assert.rejects(command(), { code: 'unavailable' });
+    }
+    assert.equal(sdk.starts.length, 1, 'a late disconnect cannot restart the call');
+    assert.ok(sdk.acquired.every(stream => stream.getTracks().every(track => track.readyState === 'ended')));
+    released.resolve(); await closing;
+    local.audio(18); local.part(19);
+    assert.equal(local.volume(), 0, 'terminal mute survives completed teardown');
+  });
+
   test(`AIT-146: ${transport} interruption silences pinned SDK playback within 300 ms, before persistence`, async t => {
     let release;
     const saved = [], local = await playbackFixture(t, transport, { persistEvent: event => {

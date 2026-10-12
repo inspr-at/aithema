@@ -25,10 +25,11 @@ export class AudioRail {
     for (const [name, channel] of [['input', 'setInput'], ['output', 'setOutput']]) {
       this.button(name).addEventListener('click', async () => {
         if (!this.session || this.busy) return;
+        const session = this.session, generation = this.generation, value = !this[name];
         this.busy = true; this.render();
-        try { await this.session[channel](!this[name]); this[name] = !this[name]; }
-        catch (error) { this.failure(error); }
-        finally { this.busy = false; this.render(); this.settle(); }
+        try { await session[channel](value); if (this.current(session, generation)) this[name] = value; }
+        catch (error) { if (this.current(session, generation)) this.failure(error); }
+        finally { if (this.current(session, generation)) { this.busy = false; this.render(); this.settle(); } }
       });
     }
     this.button('retry').addEventListener('click', () => void this.start());
@@ -53,6 +54,8 @@ export class AudioRail {
     this.hidePending = false; this.hide();
   }
   button(name) { return this.root.querySelector(`.voice-${name}`); }
+  // Both checks matter: a provider can end without changing the generation, and a new call can reuse a session object.
+  current(session, generation) { return session === this.session && generation === this.generation; }
   capability(name) { return this.client?.manifest?.liveVoice?.capabilities?.[name] !== 'unavailable'; }
   // Keep the failure's meaning so a locale repaint also translates a retained message.
   get error() {
@@ -68,7 +71,8 @@ export class AudioRail {
     if (this.root.dataset.state !== undefined && this.root.dataset.state !== state) queueMicrotask(() => this.onState?.(state));
     this.root.dataset.state = state;
     this.root.dataset.call = active || transitional ? 'active' : 'none';
-    this.root.toggleAttribute('data-playback-blocked', Boolean(this.playbackBlocked)); this.root.toggleAttribute('data-message', Boolean(this.error));
+    this.root.toggleAttribute('data-playback-blocked', Boolean(this.playbackBlocked));
+    this.root.toggleAttribute('data-message', Boolean(this.error) && !['voiceClosureUncertain', 'voiceEnded'].includes(this.errorKey));
     this.root.setAttribute('role', 'group'); this.root.setAttribute('aria-label', c.voiceRail);
     this.root.querySelector('.voice-state').textContent = this.error ?? (active || transitional ? c.voiceStates[this.root.dataset.state] :
       available.available && this.client ? c.voiceStates[this.state] : available.reason ?? c.notConfigured);
@@ -102,32 +106,41 @@ export class AudioRail {
   }
   async start() {
     if (this.session || this.state === 'connecting' || !this.feature().available || !this.client) return;
-    const generation = ++this.generation; this.errorKey = null; this.state = 'connecting'; this.render();
+    const generation = ++this.generation; this.endedCall = null; this.errorKey = null; this.state = 'connecting'; this.render();
     const controller = new AbortController(); this.controller = controller;
+    let session;
     try {
       // A reloaded page first ends the call its predecessor left behind.
       await this.ready?.();
+      if (generation !== this.generation) return;
       const wait = (this.retryAt ?? 0) - Date.now(); this.retryAt = 0;
       if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
       if (generation !== this.generation) return;
-      this.playbackWatcher = watchVoicePlayback(this.root.ownerDocument, () => this.reportPlaybackBlocked());
-      const session = await this.client.start({ callId: crypto.randomUUID() }, { signal: controller.signal, deadlineAt: Date.now() + 30_000 });
+      this.playbackWatcher = watchVoicePlayback(this.root.ownerDocument, () => {
+        if (generation === this.generation && (session ? session === this.session : this.state === 'connecting')) this.reportPlaybackBlocked();
+      });
+      session = await this.client.start({ callId: crypto.randomUUID() }, { signal: controller.signal, deadlineAt: Date.now() + 30_000 });
       if (generation !== this.generation) { await session.close(); return; }
       this.session = session; this.paused = false; this.state = 'listening';
       this.journal?.save({ callId: session.callId, providerSessionId: session.providerSessionId });
-      await session.setInput(this.input); await session.setOutput(this.output);
+      await session.setInput(this.input);
+      if (!this.current(session, generation)) return;
+      await session.setOutput(this.output);
+      if (!this.current(session, generation)) return;
       await this.updateContext();
+      if (!this.current(session, generation)) return;
       this.render();
       this.heartbeat = setInterval(() => {
-        if (this.beating) return;
+        if (!this.current(session, generation) || this.beating) return;
         this.beating = true;
         Promise.resolve(session.heartbeat?.({ deadlineAt: Date.now() + 5000 })).catch(error => {
-          this.failure(error); void this.close();
-        }).finally(() => { this.beating = false; });
+          if (this.current(session, generation)) { this.failure(error); void this.close(); }
+        }).finally(() => { if (this.current(session, generation)) this.beating = false; });
       }, this.heartbeatMs);
       // The waveform follows the measured level; under reduced motion it keeps its still baseline.
       const still = this.root.ownerDocument.defaultView?.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
       this.meter = setInterval(() => {
+        if (!this.current(session, generation)) return;
         const levels = session.audioLevels?.(); if (!levels) return;
         const speaking = this.state === 'speaking', level = this.paused ? 0 : Math.min(1, Math.max(0, levels[speaking ? 'output' : 'input'] ?? 0));
         this.root.dataset.measured = '';
@@ -138,14 +151,14 @@ export class AudioRail {
       void this.consume(session, generation);
       if (this.root.ownerDocument.hidden || this.hidePending) { this.hidePending = false; this.hide(); }
     } catch (error) {
-      if (generation !== this.generation) return;
+      if (generation !== this.generation || session && session !== this.session) return;
       clearInterval(this.heartbeat); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.session = null; controller.abort(); this.state = 'failed'; this.failure(error);
     }
   }
   async consume(session, generation) {
     try {
       for await (const event of session.events) {
-        if (generation !== this.generation || event.callId !== session.callId) return;
+        if (!this.current(session, generation) || event.callId !== session.callId) return;
         if (['listening', 'speaking'].includes(event.type)) this.state = event.type;
         if (event.type === 'partial') { this.root.querySelector('.voice-caption').textContent = event.text; this.onPartial?.(event); }
         if (event.type === 'final') this.root.querySelector('.voice-caption').textContent = '';
@@ -156,8 +169,9 @@ export class AudioRail {
         }
         if (event.type === 'ended') {
           clearInterval(this.heartbeat); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.session = null; this.journal?.clear();
+          this.busy = false; this.beating = false; this.hidePending = false; this.playbackBlocked = false;
           this.quiet(); this.onEnd?.();
-          this.state = ['closed', 'cancelled'].includes(event.reason) ? 'idle' : 'failed';
+          this.state = ['closed', 'cancelled', 'closure-uncertain'].includes(event.reason) ? 'idle' : 'failed';
           this.errorKey = event.reason === 'recovery-failed' ? 'voiceRecoveryFailed' :
             event.reason === 'closure-uncertain' ? 'voiceClosureUncertain' :
             event.reason.includes('deadline') ? 'voiceDeadline' : this.state === 'failed' ? 'voiceConnectionFailed' : null;
@@ -165,7 +179,7 @@ export class AudioRail {
         }
         this.render();
       }
-    } catch (error) { if (generation === this.generation) { this.failure(error); await this.close(); } }
+    } catch (error) { if (this.current(session, generation)) { this.failure(error); await this.close(); } }
   }
   async pause(paused) {
     if (!this.session || this.busy || this.paused === paused) {
@@ -177,12 +191,12 @@ export class AudioRail {
     this.busy = true; this.render();
     try {
       const ack = await session[paused ? 'pause' : 'resume']();
-      if (generation !== this.generation || session !== this.session) return;
+      if (!this.current(session, generation)) return;
       if (ack?.acknowledged !== true || ack.paused !== paused) throw new Error('Pause acknowledgement required');
       this.paused = paused; this.errorKey = null; this.onPause?.(paused);
       if (!paused) { this.state = 'listening'; void this.updateContext().catch(() => {}); }
-    } catch { this.errorKey = 'voicePauseFailed'; }
-    finally { this.busy = false; this.render(); this.settle(); }
+    } catch { if (this.current(session, generation)) this.errorKey = 'voicePauseFailed'; }
+    finally { if (this.current(session, generation)) { this.busy = false; this.render(); this.settle(); } }
   }
   syncPause(paused) {
     if (this.session && this.paused !== paused && !this.busy) void this.pause(paused);
@@ -196,33 +210,55 @@ export class AudioRail {
     await this.session.updateContext(this.context());
   }
   async retryPlayback() {
-    try { await this.playback?.(); await this.playbackWatcher?.retry(); this.playbackBlocked = false; this.errorKey = null; }
-    catch { this.playbackBlocked = true; this.errorKey = 'voicePlaybackBlocked'; }
-    this.render();
+    if (!this.session && this.state !== 'connecting') return;
+    const session = this.session, generation = this.generation, watcher = this.playbackWatcher;
+    try {
+      await this.playback?.();
+      if (!this.current(session, generation)) return;
+      await watcher?.retry();
+      if (!this.current(session, generation)) return;
+      this.playbackBlocked = false; this.errorKey = null;
+    } catch { if (this.current(session, generation)) { this.playbackBlocked = true; this.errorKey = 'voicePlaybackBlocked'; } }
+    if (this.current(session, generation)) this.render();
   }
-  reportPlaybackBlocked() { this.playbackBlocked = true; this.errorKey = 'voicePlaybackBlocked'; this.render(); }
+  reportPlaybackBlocked() {
+    if (!this.session && this.state !== 'connecting') return;
+    this.playbackBlocked = true; this.errorKey = 'voicePlaybackBlocked'; this.render();
+  }
+  settlement(data) {
+    const ended = this.endedCall;
+    if (this.session || !ended || data.callId !== ended.callId || data.providerSessionId !== ended.providerSessionId ||
+      data.terminal?.closureConfirmed !== true || !data.terminal.usage || data.terminal.usage.costEstimated === true) return;
+    ended.settled = true;
+    if (this.errorKey === 'voiceClosureUncertain') { this.errorKey = 'voiceEnded'; this.render(); }
+  }
   close(reason) {
-    if (this.closing) {
+    if (this.closing && !this.session && this.state !== 'connecting') {
       if (reason) void this.closingSession?.close({ reason }).catch(() => {});
       return this.closing;
     }
-    const session = this.session; this.closingCall = Boolean(session) || ['connecting', 'recovering'].includes(this.state);
+    const session = this.session;
     this.closingSession = session;
-    ++this.generation; clearInterval(this.heartbeat); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.quiet();
-    this.session = null; this.hidePending = false; this.state = 'closing'; this.render();
+    const generation = ++this.generation;
+    clearInterval(this.heartbeat); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.quiet();
+    this.endedCall = session ? { callId: session.callId, providerSessionId: session.providerSessionId } : null;
+    this.session = null; this.hidePending = false; this.paused = false; this.busy = false; this.beating = false; this.playbackBlocked = false; this.state = 'idle';
+    this.errorKey = session ? 'voiceClosureUncertain' : null;
+    if (reason?.includes('deadline')) { this.state = 'failed'; this.errorKey = 'voiceDeadline'; }
+    this.root.querySelector('.voice-caption').textContent = ''; this.render();
     this.onEnd?.();
     const controller = this.controller;
-    this.closing = (async () => {
+    const closing = (async () => {
       try {
         const terminal = await session?.close({ deadlineAt: Date.now() + 45_000, reason: reason ?? 'closed' });
-        this.state = terminal && !terminal.closureConfirmed ? 'failed' : 'idle';
-        this.errorKey = terminal && !terminal.closureConfirmed ? 'voiceClosureUncertain' : null;
-        if (reason?.includes('deadline')) { this.state = 'failed'; this.errorKey = 'voiceDeadline'; }
+        if (generation !== this.generation) return;
         if (session) this.journal?.clear();
-      } catch { this.state = 'failed'; this.errorKey = 'voiceClosureUncertain'; }
-      finally { controller?.abort(); this.paused = false; this.root.querySelector('.voice-caption').textContent = ''; this.render(); }
-    })().finally(() => { this.closing = null; this.closingSession = null; });
-    return this.closing;
+        if (session && !reason?.includes('deadline') && !this.endedCall?.settled) this.errorKey =
+          terminal?.closureConfirmed && !terminal.usage?.costEstimated ? 'voiceEnded' : 'voiceClosureUncertain';
+      } catch { /* Local hangup is complete; the durable server lease and journal retain unresolved closure. */ }
+      finally { controller?.abort(); if (generation === this.generation) this.render(); }
+    })().finally(() => { if (this.closing === closing) { this.closing = null; this.closingSession = null; } });
+    this.closing = closing; return closing;
   }
   quiet() { delete this.root.dataset.measured; this.waveform.baseline(); this.onLevel?.(0); }
   destroy() {

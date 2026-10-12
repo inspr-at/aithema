@@ -231,7 +231,7 @@ test('periodic reconciliation bounds stalled lookups, rotates batches, retains f
   }
   const lookups = []; let mode = 'outage';
   const runtime = createPluginRuntime({ storage, budget, voiceCap: cap, consent: { coverage: () => ({ covered: false }) } });
-  const handlers = createHandlers({ storage, pluginRuntime: runtime, voice: { secrets: createFacadeSecrets(), reconcileIntervalMs: 10,
+  const handlers = createHandlers({ storage, pluginRuntime: runtime, voice: { secrets: createFacadeSecrets(), reconcileIntervalMs: 10, reconcileLookupTimeoutMs: 1000,
     reconcileBatchSize: 1, closeOrphan: async record => {
       lookups.push(record.providerSessionId);
       if (mode === 'outage') throw new Error('provider outage');

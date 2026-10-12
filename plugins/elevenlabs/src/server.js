@@ -85,7 +85,7 @@ export async function readJson(response, maxBytes = 65_536, { signal, onBytes } 
     cancel(); reader.releaseLock();
   }
 }
-async function providerJson(binding, path, { fetchImpl, resolveSecret }, options) {
+async function providerJson(binding, path, { fetchImpl, resolveSecret }, options, maxBytes = 65_536) {
   return voiceOperation(options, async ({ signal }) => {
     const key = await resolveSecret(binding.secretRef);
     if (typeof key !== 'string' || !key) throw new PluginError('auth', 'ElevenLabs credential unavailable');
@@ -97,8 +97,16 @@ async function providerJson(binding, path, { fetchImpl, resolveSecret }, options
       await response.body?.cancel();
       throw new PluginError([401, 403].includes(response.status) ? 'auth' : response.status === 429 ? 'rate-limit' : 'provider');
     }
-    return readJson(response);
+    return readJson(response, maxBytes, { signal });
   });
+}
+
+/** Details include the full transcript and telemetry, unlike a small token receipt. */
+export async function readConversationDetails(binding, providerSessionId, options = {}, ports = {}) {
+  binding = createVoiceBinding(binding);
+  if (!identifier(providerSessionId)) throw new TypeError('Invalid provider conversation identity');
+  return providerJson(binding, `/v1/convai/conversations/${encodeURIComponent(providerSessionId)}`,
+    { fetchImpl: ports.fetchImpl ?? fetch, resolveSecret: ports.resolveSecret ?? (ref => process.env[ref]) }, options, 8_388_608);
 }
 
 /** Low-level server primitive; the start authority below consumes the claim before calling it. */
@@ -161,11 +169,11 @@ export function reconcileUsage({ call, details, binding, maxMicro, outcome = 'co
 /** Private host ports persist call state and acknowledge an atomic engine-wide pause transition. */
 export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecret = ref => process.env[ref],
   saveCall, prepareCall, requestProviderClose, reconcileLater, now = Date.now, closureTimeoutMs = 30_000,
-  closurePollIntervalMs = 250 } = {}) {
+  closurePollIntervalMs = 250, log } = {}) {
   binding = createVoiceBinding(binding);
   if (typeof saveCall !== 'function' || typeof prepareCall !== 'function' ||
     ![closureTimeoutMs, closurePollIntervalMs].every(value => Number.isFinite(value) && value > 0) ||
-    reconcileLater !== undefined && typeof reconcileLater !== 'function') throw new TypeError('Durable saveCall, prepareCall and valid closure options required');
+    reconcileLater !== undefined && typeof reconcileLater !== 'function' || log !== undefined && typeof log !== 'function') throw new TypeError('Durable saveCall, prepareCall and valid closure options required');
   const provider = { fetchImpl, resolveSecret };
   return {
     manifest, binding,
@@ -187,6 +195,10 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
       let lifetime, rollingTimer, closing, finished = false, delivered = false, mutation = Promise.resolve();
       const cancelled = () => { void close('cancelled', 'cancelled').catch(() => {}); };
       const serial = fn => { const next = mutation.then(fn); mutation = next.catch(() => {}); return next; };
+      const diagnostic = (event, fields) => {
+        try { log?.({ event, callId: call.callId, providerSessionId: call.providerSessionId, ...fields }); }
+        catch { /* Operator diagnostics must never interrupt accounting. */ }
+      };
       const close = (reason = 'closed', outcome = 'completed') => {
         if (!['completed', 'cancelled'].includes(outcome)) return Promise.reject(new TypeError('Invalid voice settlement'));
         if (closing) return closing;
@@ -202,7 +214,7 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
         call = { ...call, closing: true, reason };
         closing = serial(async () => {
           finished = true;
-          const closeOptions = { deadlineAt: Date.now() + closureTimeoutMs };
+          const closureStartedAt = Date.now(), closeOptions = { deadlineAt: closureStartedAt + closureTimeoutMs };
           let details, backoffMs = closurePollIntervalMs;
           if (delivered && call.providerSessionId) {
             try { await voiceOperation({ deadlineAt: Date.now() + 1000 }, opts => saveCall(structuredClone(call), opts)); }
@@ -214,10 +226,18 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
             while (Date.now() < closeOptions.deadlineAt) {
               try {
                 // START src/pages/api/v2/call-reconcile.ts fetchConversationDetails: GET path/status/metadata.
-                details = await providerJson(binding, `/v1/convai/conversations/${encodeURIComponent(call.providerSessionId)}`, provider,
-                  { deadlineAt: Math.min(closeOptions.deadlineAt, Date.now() + 5000) });
-                if (reconcileUsage({ call, details, binding, maxMicro: options.attempt.maxMicro, outcome }).closureConfirmed) break;
-              } catch { /* Processing records and transient lookup failures are retryable within the window. */ }
+                details = await readConversationDetails(binding, call.providerSessionId,
+                  { deadlineAt: Math.min(closeOptions.deadlineAt, Date.now() + 5000) }, provider);
+                const observed = reconcileUsage({ call, details, binding, maxMicro: options.attempt.maxMicro, outcome });
+                diagnostic('voice.closure-observed', { status: ['initiated', 'in-progress', 'processing', 'done', 'failed'].includes(details?.status) ? details.status : 'invalid',
+                  identityMatches: details?.conversation_id === call.providerSessionId, closureConfirmed: observed.closureConfirmed,
+                  costEstimated: observed.usage?.costEstimated === true, elapsedMs: Date.now() - closureStartedAt });
+                if (observed.closureConfirmed) break;
+              } catch (error) {
+                diagnostic('voice.closure-lookup-failed', { code: error instanceof PluginError ? error.code : 'provider',
+                  elapsedMs: Date.now() - closureStartedAt });
+                // Processing records and transient lookup failures remain retryable.
+              }
               const remainingMs = closeOptions.deadlineAt - Date.now();
               if (remainingMs <= 0) break;
               try { await voiceOperation(closeOptions, ({ signal }) => delay(Math.min(backoffMs, remainingMs), undefined, { signal })); }
@@ -232,6 +252,9 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
               ...(call.providerSessionId ? { providerSessionId: call.providerSessionId } : {}),
               usage: { providerSeconds: 0, providerMinutes: 0, pausedSeconds: 0, visitorSeconds: 0, upstreamMicro: 0, visitorMicro: 0 } };
           call = { ...call, endedAt: now(), reason, terminal };
+          diagnostic(terminal.closureConfirmed && !terminal.usage?.costEstimated ? 'voice.cost-confirmed' : 'voice.closure-pending',
+            { closureConfirmed: terminal.closureConfirmed, costEstimated: terminal.usage?.costEstimated === true,
+              retainedMicro: terminal.chargedMicro, elapsedMs: Date.now() - closureStartedAt });
           // Even a journal failure must settle the admitted attempt exactly once.
           try { await voiceOperation({ deadlineAt: Date.now() + 1000 }, opts => saveCall(structuredClone(call), opts)); }
           finally {

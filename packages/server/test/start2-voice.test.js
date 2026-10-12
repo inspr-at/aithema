@@ -178,6 +178,20 @@ test('start2 retries uncertain holds in process and admits a later call without 
   await h.start('later-call');
   assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 600_000);
 });
+test('AIT-145: browser background close acknowledges locally ended before provider settlement', { timeout: 5000 }, async t => {
+  const h = await fixture(t, { closureTimeoutMs: 2000 }), call = await h.start();
+  h.processing(true);
+  const began = Date.now();
+  const response = await h.route(`/voice/${call.callId}/close`, { providerSessionId: call.providerSessionId, background: true });
+  const receipt = await response.json();
+  h.processing(false);
+  assert.equal(response.status, 202);
+  assert.ok(Date.now() - began < 1000, 'browser acknowledgement never waits for provider processing');
+  assert.equal(receipt.reconciliationPending, true);
+  assert.equal(receipt.closureConfirmed, false);
+  assert.equal((await h.callback(call.facadeCallId)).status, 403, 'LLM authority is already revoked');
+  await h.handlers.idle();
+});
 
 test('static callback authenticates before body, rejects missing/unknown identity and disables per-call route/provisioning', async t => {
   const h = await fixture(t), call = await h.start(), writes = h.eleven.requests.filter(r => r.method !== 'GET').length;

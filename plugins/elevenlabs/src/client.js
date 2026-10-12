@@ -174,6 +174,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
         commandCancellation.abort();
         // Privacy does not depend on asynchronous SDK cleanup or provider settlement.
         capture?.end();
+        try { void Promise.resolve(conversation?.setVolume({ volume: outputVolume() })).catch(() => {}); } catch {}
         try { void stopCapture(conversation).catch(() => {}); } catch {}
         try { void Promise.resolve(conversation?.connection?.close?.()).catch(() => {}); } catch {}
         closing = (async () => {
@@ -323,7 +324,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
               // WebRTC's native interrupt is a no-op. Mute its actual audio
               // elements (and WebSocket gain) synchronously, outside persistence
               // and the command queue. Only a newer agent reply lifts this gate.
-              conversation?.setVolume({ volume: 0 });
+              conversation?.setVolume({ volume: outputVolume() });
               for (const waiter of interruptionWaiters) waiter();
             }
             // Only the correction callback supplies heard text; interruption never invents it.
