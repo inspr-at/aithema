@@ -1460,6 +1460,29 @@ const completionText = async response => {
 const sseReply = text => text.split('\n\n').filter(line => line.startsWith('data: {')).map(line => JSON.parse(line.slice(6)))
   .map(frame => frame.choices?.[0].delta?.content ?? '').join('');
 
+test('AIT-138: transport recovery preserves paid generation work; repeated input in the successor is a new operation', async t => {
+  const h = await turnsOnceFixture(t, { blocked: true }), messages = [{ role: 'user', content: 'Accepted input' }];
+  const first = await h.callback(messages, { stream: true }), oldReply = first.text();
+  await h.started;
+  const admitted = h.storage.voiceOperations(h.session.id)[0];
+  const response = await h.route(`/voice/${h.grant.callId}/recover`, { providerSessionId: h.grant.providerSessionId });
+  assert.equal(response.status, 200); const next = await response.json();
+  const nextSecret = h.secrets.resolve(h.provisioned.at(-1).facadeSecretRef);
+  const newer = await h.handlers.handle(new Request(`https://facade.test/api/voice/${next.callId}/llm/chat/completions`, {
+    method: 'POST', headers: { authorization: `Bearer ${nextSecret}` },
+    body: JSON.stringify({ aithema_call: next.callId, messages }),
+  }));
+  assert.equal(await completionText(newer), 'Reply 2 finished');
+  h.release(); const text = await oldReply;
+  assert.doesNotMatch(text, /"error"/u, 'transport loss must not cancel already paid work');
+  assert.equal(sseReply(text), 'Reply 1 finished');
+  const operations = h.storage.voiceOperations(h.session.id);
+  assert.equal(operations.length, 2); assert.equal(operations[0].key, admitted.key); assert.equal(operations[0].fence, admitted.fence);
+  assert.ok(operations.every(operation => operation.state === 'completed'));
+  assert.notEqual(operations[0].key, operations[1].key); assert.notEqual(operations[0].providerSessionId, operations[1].providerSessionId);
+  assert.deepEqual(h.counts(), { admissions: 2, models: 2, cost: 34 }, 'each generation charges once; no receipt aliasing');
+});
+
 for (const order of ['callback-first', 'persist-first', 'persist-during-admission']) {
   test(`AIT-137 receipt timing leaves callback retry identity unchanged: ${order}`, async t => {
     const h = await turnsOnceFixture(t), messages = [{ role: 'user', content: 'Ja' }];
