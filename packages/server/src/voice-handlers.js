@@ -11,6 +11,23 @@ const routes = new RegExp(`^/api/sessions/(${idPattern})/voice(?:/(${idPattern})
 const facadeRoute = new RegExp(`^/api/voice/(${idPattern})/llm/chat/completions$`, 'u');
 const staticFacadeRoute = '/api/voice/llm/chat/completions';
 
+function unrecordedVoiceInput(session, messages) {
+  const latest = messages.at(-1);
+  // Only a trailing person utterance can be new input. Never replay provider history.
+  if (latest?.role !== 'user' || !latest.content.trim()) return [];
+  const normalize = text => text.trim().replace(/\s+/gu, ' ');
+  const last = session.transcript.at(-1), before = session.transcript.at(-2), previous = messages.at(-2);
+  const sameTurn = last?.role === 'user' && typeof last.content === 'string' &&
+    normalize(last.content) === normalize(latest.content);
+  // Without a shared event id, match the tail position as well as the text.
+  // A repeated answer after a new reply is a new turn; a heard prefix still
+  // identifies the preceding reply, whose prompt text comes only from our record.
+  const samePosition = !previous || previous.role === before?.role && typeof before.content === 'string' &&
+    (previous.role === 'assistant' ? normalize(previous.content).startsWith(normalize(before.content))
+      : normalize(previous.content) === normalize(before.content));
+  return sameTurn && samePosition ? [] : [{ role: 'user', content: latest.content }];
+}
+
 export function createFacadeSecrets() {
   const values = new Map();
   return { provision(ref) { values.set(ref, randomBytes(32).toString('base64url')); },
@@ -146,10 +163,12 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     },
     buildRequest({ callId, messages }) {
       const session = sessionFor(calls.get(callId)), trusted = reasoningRequest(session, 'reaction', false, hostPrompt);
-      // Provider text is untrusted conversational input, never system/model selection.
+      // persistEvent and the provider callback can arrive in either order. The
+      // session owns history (including typed turns, withdrawals and heard prefixes);
+      // provider text supplies at most the newest, not-yet-recorded person utterance.
       return { ...trusted, messages: [...trusted.messages,
         ...(session.focusedQuestion ? [{ role: 'user', content: JSON.stringify({ kind: 'untrusted-focused-question', question: session.focusedQuestion }) }] : []),
-        ...messages] };
+        ...unrecordedVoiceInput(session, messages)] };
     },
     async admitReasoning({ callId, request, options }) {
       const session = sessionFor(calls.get(callId));
