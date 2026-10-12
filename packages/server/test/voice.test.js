@@ -2074,3 +2074,21 @@ test('AIT-137 round 3: two provider alias candidates cannot capture or fence pai
   assert.deepEqual(h.counts(), { admissions: 3, models: 3, cost: 51 });
   assert.ok(h.diagnostics.some(entry => entry.event === 'voice.turn.correlation_ambiguous' && entry.reason === 'multiple-candidates'));
 });
+
+
+test('AIT-137 round 3: disjoint provider identity at an earlier position makes the ordinal unknown', async t => {
+  const h = await turnsOnceFixture(t, { blocked: true, blockedModel: 2 });
+  const a = { role: 'user', content: 'Ja', event_id: 'a' }, b = { role: 'user', content: 'Ja' };
+  assert.equal(await completionText(await h.callback([a])), 'Reply 1 finished');
+  const response = await h.callback([a, b], { stream: true }), reading = response.text();
+  await h.waitForModel(2);
+  // A truncated later repeated answer looks like slot 1, but has a new ID.
+  // No shared alias proves that this is a contradictory retry of A.
+  assert.equal(await completionText(await h.callback([{ role: 'user', content: 'Ja', event_id: 'c' }])), 'Reply 3 finished');
+  h.release(); const reply = await reading;
+  assert.equal(sseReply(reply), 'Reply 2 finished');
+  assert.ok(reply.endsWith('data: [DONE]\n\n')); assert.doesNotMatch(reply, /"error"/u);
+  assert.equal(await completionText(await h.callback([a, b])), 'Reply 2 finished');
+  assert.deepEqual(h.counts(), { admissions: 3, models: 3, cost: 51 });
+  assert.ok(h.diagnostics.some(entry => entry.event === 'voice.turn.correlation_ambiguous' && entry.reason === 'provider-position-ambiguous'));
+});
