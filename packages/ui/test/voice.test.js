@@ -77,11 +77,13 @@ test('voice unavailable in preset disables Start with a reason and retains layou
 });
 test('AIT-131: label ResizeObserver measures the mask, hides short flanks and follows disconnect/reconnect', async t => {
   const observers = [];
-  t.mock.method(window, 'ResizeObserver', class {
+  const view = document.defaultView, previous = view.ResizeObserver;
+  view.ResizeObserver = class {
     constructor(callback) { this.callback = callback; this.targets = new Set(); observers.push(this); }
     observe(target) { this.targets.add(target); }
     disconnect() { this.targets.clear(); }
-  });
+  };
+  t.after(() => { view.ResizeObserver = previous; });
   const { rail, root } = fixture(t), label = root.querySelector('.voice-state'), wave = root.querySelector('.voice-wave'), caption = root.querySelector('.voice-caption');
   const observer = observers.find(o => o.targets.has(label));
   assert.ok(observer); assert.ok(observer.targets.has(caption)); assert.ok(observer.targets.has(wave));

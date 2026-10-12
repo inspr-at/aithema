@@ -469,7 +469,8 @@ for (const preset of ['best', 'device']) for (const trigger of ['click', 'ctrlKe
   });
 }
 
-test('shortcut send uses sending and feature state even when the button has a stale disabled value', async () => {
+test('shortcut send uses sending and feature state even when the button has a stale disabled value', async t => {
+  platform(t, 'MacIntel');
   const c = setup(), root = c.shadowRoot, originalFetch = globalThis.fetch; let calls = 0;
   globalThis.fetch = async (_, options) => {
     calls++; const body = JSON.parse(options.body);

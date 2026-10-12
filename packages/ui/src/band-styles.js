@@ -25,6 +25,8 @@ export const bandStyles = `
 @container (width < 184px) { .voice-wave { visibility:hidden; } }
 .voice-state, .voice-caption { padding:3px 8px; border-radius:0; font-size:12px;
   background:none; box-shadow:none; }
+.voice-state { max-width:50%; text-wrap:balance; }
+.audio-rail[data-message] .voice-state { max-width:100%; }
 .audio-rail[data-message] .voice-state { left:0; }
 .workspace:not([data-stage="live"]) .band .audio-rail { display:grid; }
 .header-actions { justify-self:end; }
@@ -153,6 +155,7 @@ export const bandStyles = `
   .conversations-menu { z-index:12; left:12px; right:12px; top:62px; width:auto; }
   .band .audio-rail { gap:4px; margin-left:-4px; width:100%; }
   .voice-state,.voice-caption { font-size:10px; padding-inline:4px; }
+  .voice-state { max-width:100%; }
   .fold-strip { gap:8px; padding-left:max(12px,calc(54px - var(--aithema-gutter))); padding-right:12px; grid-template-columns:auto minmax(0,1fr); }
   .fold-question { grid-column:2; }
   .composer { margin-bottom:0; }

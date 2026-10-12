@@ -558,6 +558,7 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
         });
         assert.ok(Math.abs(label.half - label.width / 2) <= .5, `${width}/${theme}/${locale}: measured hole ${JSON.stringify(label)}`);
         assert.ok(label.lines <= 2.05, `${width}/${theme}/${locale}: at most two lines ${JSON.stringify(label)}`);
+        if (width >= 600) assert.ok(label.width <= label.waveWidth / 2 + .5, 'the wide status label uses at most half the wave');
         assert.notEqual(label.overflow, 'ellipsis'); assert.ok(label.scrollHeight <= label.clientHeight + 1, 'the full consent text stays readable');
         sameBoxes(before, await boxes(page, selectors), 'status and observer preserve every control under the pointer');
         await shot('r2-consent-status', width, theme, true);
