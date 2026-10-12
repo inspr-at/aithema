@@ -139,7 +139,7 @@ export class AudioRail {
   }
   async start() {
     if (this.session || this.state === 'connecting' || !this.feature().available || !this.client) return;
-    const generation = ++this.generation, revision = this.pauseRevision;
+    const generation = ++this.generation, revision = this.pauseRevision, resuming = Boolean(this.waitingCall);
     this.resumeRequests.clear(); this.endedCall = null; this.errorKey = null; this.state = 'connecting'; this.render();
     const controller = new AbortController(); this.controller = controller;
     const holdController = new AbortController(); this.holdController = holdController;
@@ -196,7 +196,7 @@ export class AudioRail {
       if (this.root.ownerDocument.hidden || this.hidePending) { this.hidePending = false; this.hide(); }
       // An early Resume echo stays fenced until startup succeeds. Publish its
       // acknowledged projection now, retaining any hold that superseded startup.
-      if (this.current(session, generation)) this.onPause?.(Boolean(this.paused));
+      if (resuming && this.current(session, generation)) this.onPause?.(Boolean(this.paused));
     } catch (error) {
       if (generation !== this.generation || session && session !== this.session) return;
       this.stopHeartbeat?.(); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.session = null; controller.abort();
