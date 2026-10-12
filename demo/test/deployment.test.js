@@ -164,7 +164,9 @@ for (const htmlMode of ['off', 'claude']) test(`start2 alias environment reaches
   const response = await fetch(running.url + `/api/sessions/${session.id}/settings`, { headers }); assert.equal(response.status, 200);
   const { best } = (await response.json()).presets, [route] = best.models;
   assert.equal(best.models.length, 1); assert.equal(route.id, 'openrouter/alias/anthropic/claude-haiku-latest');
-  assert.equal(best.defaults.model, route.id); assert.ok(route.label.includes(speech)); assert.ok(route.label.includes(analysis));
+  assert.equal(best.defaults.model, route.id); assert.equal(route.label, 'Claude Haiku / Claude Opus');
+  assert.equal(session.engine.model.reply, speech); assert.equal(session.engine.model.understanding, analysis);
+  assert.doesNotMatch(route.label, /~anthropic\/|openrouter\//u);
   assert.equal(best.voices.length, 0);
   assert.deepEqual(best.visuals.map(option => option.id), htmlMode === 'claude' ? ['claude-html'] : []);
 });
