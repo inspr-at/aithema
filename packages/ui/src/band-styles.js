@@ -141,6 +141,7 @@ export const bandStyles = `
   .conversations-toggle > svg:first-child { display:block; }
   .conversations-toggle span, .conversations-toggle > svg:last-child { display:none; }
 }
+:host([motion="off"]) * { animation:none !important; }
 :host([motion="off"]) :is(.orb *, .concept-scene *, .understanding) { animation:none !important; transition:none !important; }
 :host([motion="off"]) .engine__value { transition:none; }
 `;

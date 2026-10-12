@@ -742,7 +742,7 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
     restarting = true; await stopDemo(demo.child); demo = await startDemo(directory, port);
     await waitForShadow(page, '.composer textarea', { enabled: false });
     await until(page, () => !document.querySelector('aithema-session').session.featureMatrix.best.text.available);
-    await waitForShadow(page, '.status', { text: 'Connected' });
+    await waitForShadow(page, '.status__label', { text: 'Connected' });
     restarting = false;
 
     // D1: a German browser gets a German page and German replies; a new choice applies to the next conversation.
@@ -967,7 +967,7 @@ test('AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab l
     page.on('request', recordPause);
     await page.reload({ waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
     await until(page, key => sessionStorage.getItem(key) === null, journalKey);
-    await waitForShadow(page, '.status', { text: 'Still paused. Select Resume to continue.' });
+    await waitForShadow(page, '.status__label', { text: 'Still paused. Select Resume to continue.' });
     await new Promise(resolve => setTimeout(resolve, 1000));
     assert.equal(await inShadow(page, c => c.session.paused), true, 'a reload never lifts the pause');
     assert.deepEqual(pauses, [], 'no pause change without the person');
