@@ -1,7 +1,7 @@
 import { createConceptHandlers } from './concept-handlers.js';
 import { createVoiceHandlers } from './voice-handlers.js';
 import { createUploadHandlers } from './upload-handlers.js';
-import { createHostHandlers } from './host-handlers.js';
+import { createHostHandlers, PrivacyDocumentRequiredError } from './host-handlers.js';
 import { createPluginRuntime } from './plugin-runtime.js';
 import { randomUUID } from 'node:crypto';
 import { SessionLanes, createMockReasoning, createSession, inputRevision, activeTurns, hasConversationInput, understandingDeferred, PluginError, FEATURES, isConsentReason } from '@inspr/aithema-core';
@@ -121,7 +121,10 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   const voiceHandlers = voice ? createVoiceHandlers({ storage, runtime: pluginRuntime, ownership, readBody, hostPrompt,
     ...voice, publish: broadcast, onClose: id => conceptHandlers.ended(id), onTurn(id, event) {
       lanes.supersede(id);
-      if (event?.data.role === 'user') conceptHandlers.onTurn(id, event.data.id);
+      if (event?.data.role === 'user') {
+        host?.touchVisitor?.(storage.get(id));
+        conceptHandlers.onTurn(id, event.data.id);
+      }
       scheduleLane(id, 'understanding'); status(id);
     } }) : null;
   const uploadHandlers = createUploadHandlers({ storage, runtime: pluginRuntime, ownership, readBody, publish: broadcast, signal: stop.signal,
@@ -268,6 +271,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   async function handle(request) {
     if (stop.signal.aborted) return json({ error: 'server-stopping' }, 503);
     try {
+      const hostResponse = await hostHandlers.handle(request);
+      if (hostResponse) return hostResponse;
       if (host) {
         const ownedPath = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})(?:\/|$)/u.exec(new URL(request.url).pathname);
         if (ownedPath) {
@@ -278,8 +283,6 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
           }
         }
       }
-      const hostResponse = await hostHandlers.handle(request);
-      if (hostResponse) return hostResponse;
       const conceptResponse = await conceptHandlers.handle(request);
       if (conceptResponse) return conceptResponse;
       const voiceResponse = await voiceHandlers?.handle(request);
@@ -307,7 +310,10 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       const ownerToken = ownership.token(request), authorized = storage.authorize(id, ownerToken);
       hostHandlers.initialize(id, ownerToken);
       const guard = { ownerToken, revision: inputRevision(authorized) };
-      if (!action && request.method === 'GET') return json(await snapshot(id));
+      if (!action && request.method === 'GET') {
+        host?.touchVisitor?.(authorized);
+        return json(await snapshot(id));
+      }
       if (action === 'events' && request.method === 'GET') return events(request, id);
       if (action === 'locale' && request.method === 'POST') {
         const body = JSON.parse(Buffer.from(await readBody(request)).toString('utf8'));
@@ -338,6 +344,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         if (!replayed) lanes.supersede(id);
         if (!replayed) broadcast(id, event);
         if (!replayed) conceptHandlers.onTurn(id, event.data.id);
+        if (!replayed) host?.touchVisitor?.(storage.get(id));
         if (!replayed) hostHandlers.startCredits(id, ownerToken);
         schedule(id);
         return json(event, 200);
@@ -454,6 +461,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       }
       return json({ error: 'method-not-allowed' }, 405);
     } catch (error) {
+      if (error instanceof PrivacyDocumentRequiredError) return json({ error: error.code }, 403);
       if (error instanceof NotFoundError) return json({ error: 'session-not-found' }, 404);
       if (error instanceof ConflictError) return json({ error: 'idempotency-conflict' }, 409);
       if (error instanceof SyntaxError || error instanceof TypeError) return json({ error: 'invalid-request' }, 400);

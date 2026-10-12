@@ -1,7 +1,7 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { resolve, sep } from 'node:path';
-import { SQLiteStorage, createHandlers, createPluginRuntime, createFacadeSecrets, createVoiceProvider, createDurationBinding, createLocalImages, localImageBinding, createImageBinding, createSpendCap, createVoiceCap, voiceCapConfig, createLocalHTML, localHTMLBinding, uiRenderLimitConfig, uploadLimitConfig } from '@inspr/aithema-server';
+import { dirname, join, resolve, sep } from 'node:path';
+import { SQLiteStorage, SQLiteBudgetLedger, createHandlers, createPluginRuntime, createFacadeSecrets, createVoiceProvider, createDurationBinding, createLocalImages, localImageBinding, createImageBinding, createSpendCap, createVoiceCap, voiceCapConfig, createLocalHTML, localHTMLBinding, uiRenderLimitConfig, uploadLimitConfig } from '@inspr/aithema-server';
 import { createLocalVoiceProvider, localVoiceBinding } from '../packages/server/src/local-voice.js';
 import { listen } from '@inspr/aithema-server/http';
 import { createMockReasoning, PluginRegistry } from '@inspr/aithema-core';
@@ -25,6 +25,8 @@ import { htmlConfig } from './html-config.js';
 import { createClaudeHTML } from '@inspr/aithema-plugin-claude-html';
 import { registerDemoExtractors } from './uploads.js';
 import { createDemoHost } from './host-ports.js';
+import { VISITOR_CREDIT_CEILING_MICRO } from './visitor-credits.js';
+import { listenAdmin } from './admin-socket.js';
 
 const deployment = deploymentConfig();
 const privacy = await loadPrivacyDocuments(deployment.privacyDocuments);
@@ -106,15 +108,35 @@ const registry = new PluginRegistry().register(reasoning); if (voicePlugin) regi
 const presets = demoPresets({ provider, reaction: privateBinding, understanding: understandingBinding, voicePlugin,
   voiceBinding: voiceHost?.binding ?? localVoiceBinding, imagePlugin, imageBinding: imageSelection.images, htmlPlugin, htmlBinding: htmlSelection.html, htmlDemo: Boolean(html.demo), policy });
 registerDemoExtractors(registry, presets);
-const pluginRuntime = createPluginRuntime({ storage, reasoning, consent, registry, uiRenderLimits, presets, voiceCap });
+// START owns the lifetime wallet; these are per-conversation safety subcaps.
+const budget = new SQLiteBudgetLedger(storage, { sessionCapMicro: VISITOR_CREDIT_CEILING_MICRO, visitorCapMicro: VISITOR_CREDIT_CEILING_MICRO });
+const pluginRuntime = createPluginRuntime({ storage, reasoning, consent, registry, uiRenderLimits, presets, voiceCap, budget });
 const host = createDemoHost({ storage, demo: process.env.AITHEMA_PROVIDER === undefined,
-  verificationRequired: process.env.AITHEMA_DEMO_VERIFY === '1' });
-host.privacyDocumentConfigured = privacy.privacyDocumentConfigured;
+  verificationRequired: process.env.AITHEMA_DEMO_VERIFY === '1', ownerGuard: false,
+  privacyDocumentConfigured: privacy.privacyDocumentConfigured });
 // Demo only: AITHEMA_DEMO_HANDOVER_FAIL=n (1–10) fails the first n fake handover deliveries, to show Retry.
 const handoverFailures = Number(process.env.AITHEMA_DEMO_HANDOVER_FAIL ?? 0);
 if (host.demo && Number.isSafeInteger(handoverFailures)) for (let i = 0; i < Math.min(Math.max(handoverFailures, 0), 10); i++) host.sink.failNext();
-const handlers = createHandlers({ storage, reasoning, pluginRuntime, consent, ownership, host, uploads: { limits: uploadLimits }, voice: voicePlugin ? { secrets, closeOrphan: voiceHost?.closeOrphan, staticSecretRef: voiceHost?.staticSecretRef, presentation: voiceHost?.presentation, log: voiceHost?.log } : undefined }); await handlers.resume();
+const handlers = createHandlers({ storage, reasoning, pluginRuntime, consent, ownership, host, uploads: { limits: uploadLimits }, voice: voicePlugin ? { secrets, closeOrphan: voiceHost?.closeOrphan, staticSecretRef: voiceHost?.staticSecretRef, presentation: voiceHost?.presentation, log: voiceHost?.log } : undefined });
 const expiry = startExpiry(handlers);
+// Startup and daily bounded maintenance use the authoritative database writer.
+let visitorBatch;
+function retainVisitors() {
+  visitorBatch = undefined;
+  try {
+    const result = host.retainVisitors({ limit: 100 });
+    if (Object.values(result).some(value => value >= 100)) {
+      visitorBatch = setTimeout(retainVisitors, 10); visitorBatch.unref();
+    }
+  } catch { console.error({ event: 'visitor-retention-failed' }); }
+}
+retainVisitors();
+const visitorRetention = setInterval(retainVisitors, 24 * 60 * 60_000);
+visitorRetention.unref();
+const admin = await listenAdmin({ host, spendCap, socketPath: process.env.AITHEMA_ADMIN_SOCKET ??
+  join(dirname(resolve(process.env.AITHEMA_DB ?? defaultDb)), 'ops', 'admin') });
+// Expire old evidence before recovery can authorize fresh work.
+await handlers.resume();
 let allowedHosts = new Set();
 async function handle(request) {
   const refused = deploymentGate(request, deployment, allowedHosts); if (refused) return refused;
@@ -160,6 +182,9 @@ console.log(`Demo — Aithema reset slice 1: ${url} (${reasoning.label})`);
 process.send?.({ url });
 async function close() {
   clearInterval(expiry);
+  clearInterval(visitorRetention);
+  clearTimeout(visitorBatch);
+  await admin.close();
   server.close(); await handlers.close(); server.closeAllConnections(); storage.close();
 }
 process.once('SIGTERM', () => void close()); process.once('SIGINT', () => void close());

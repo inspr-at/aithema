@@ -324,6 +324,7 @@ for (const status of ['guest', 'verification-pending', 'verified']) test(`live a
   assert.equal(before.status, status); assert.equal(before.verificationRequired, true);
   await f.close();
   const live = fixture(t, { storage: new SQLiteStorage(db), demo: false });
+  live.host.privacyDocumentConfigured = () => true;
   for (const action of ['identity', 'credits']) assert.equal((await live.call(`${base}/${action}`)).status, 200);
   assert.deepEqual(live.storage.hostState(s.id).identity, before);
   assert.equal(live.storage.get(s.id).seq, seq);

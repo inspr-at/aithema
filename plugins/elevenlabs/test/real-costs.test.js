@@ -153,7 +153,13 @@ async function exposureFixture(t, { path, state = { final: false }, closeHook } 
   const budget = new SQLiteBudgetLedger(storage, { sessionCapMicro: 1_000_000 });
   const runtime = createPluginRuntime({ storage, budget, consent, presets,
     registry: new PluginRegistry().register(createMockReasoning()).register(plugin) });
-  const host = createDemoHost({ storage, walletLimitMicro: 1_000_000 }); runtime.setOwnerWallet(session => host.walletForSession(session));
+  const host = createDemoHost({ storage });
+  // AIT-135 replaces constructor allowances with the audited settings store.
+  const creditSettings = host.visitorCredits.settings();
+  if (creditSettings.allowancesMicro.anonymous !== 1_000_000) host.visitorCredits.saveSettings({
+    baseRevision: creditSettings.revision, allowancesUsd: { anonymous: '1', emailGiven: '1', emailConfirmed: '1' },
+  }, { actor: 'system:fixture', source: 'fixture' });
+  runtime.setOwnerWallet(session => host.walletForSession(session));
   const session = storage.list().length ? storage.get(storage.list()[0]) : storage.create({ ownerToken: 'voice-owner', demo: true });
   const admit = () => runtime.admitVoice({ session: storage.get(session.id), request: { callId: 'exposure-call' },
     options: { deadlineAt: Date.now() + 1000, spendDeadlineAt: Date.now() + 3600_000, browserLivenessDeadlineAt: Date.now() + 30_000 } });
