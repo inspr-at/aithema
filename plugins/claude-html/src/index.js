@@ -73,8 +73,8 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
     const scope = operationScope(options);
     let invocation, completed = false, reporting, reservation = null, dispatched = false, cost = null, ceiling = null;
     const checkLifetime = () => { scope.signal.throwIfAborted(); if (Date.now() >= options.deadlineAt) throw new PluginError('deadline'); };
-    const scoped = { ...options, signal: scope.signal, report: terminal => (reporting = Promise.resolve().then(() => options.report({
-      ...terminal, ...(dispatched && cost !== null ? { chargedMicro: cost } : {}) }))) };
+    const scoped = { ...options, signal: scope.signal, report: terminal => (reporting = Promise.resolve(options.report({
+      ...terminal, ...(dispatched ? { chargedMicro: cost ?? ceiling } : {}) }))) };
     const checkedResponse = response => {
       try { checkLifetime(); return response; }
       catch (error) { void response.body?.cancel().catch(() => {}); throw error; }
