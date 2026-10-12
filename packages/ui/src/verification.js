@@ -26,7 +26,7 @@ export class Verification {
     this.#email = new VisitorEmail({ root, entry, copy, request, demo, delivery, privacyDocumentConfigured, handover, locale,
       openDialog: opener => this.openDialog(opener), changed: async ({ refresh }) => {
         if (refresh) { this.#identity = structuredClone(this.#email.identity); await this.#creditsChanged?.(); }
-        this.#paint(); this.#onChange?.();
+        this.#paint(); this.#onChange?.({ saved: refresh });
       } });
     this.#mountLock(); this.#mountDialog();
     this.set(identity ?? null, { quiet: true });
@@ -236,8 +236,8 @@ export class Verification {
     for (const form of this.#forms) {
       form.root.dataset.mode = mode;
       const nums = this.#email.numbers, e = this.#copy.hostSurface.email;
-      setText(form.root.querySelector('.verify__lead-mail'), this.#email.tiers ? fill(e.leadMail, nums) : '');
-      setText(form.root.querySelector('.verify__lead-reconfirm'), this.#email.tiers ? fill(e.leadReconfirm, nums) : '');
+      setText(form.root.querySelector('.verify__lead-mail'), this.#email.tiers ? this.#email.tiers.canConfirm ? fill(e.leadMail, nums) : this.#email.tiers.allowancesMicro.emailGiven > this.#email.tiers.allowancesMicro.anonymous ? fill(e.leadSave, nums) : fill(e.tier, { tier: nums.email }) : '');
+      setText(form.root.querySelector('.verify__lead-reconfirm'), this.#email.tiers ? fill(this.#email.tiers.canConfirm ? e.leadReconfirm : e.leadEdit, nums) : '');
       form.root.querySelector('.verify__lead').classList.toggle('reconfirm', identity?.status === 'verified');
       this.#email.paintNotice(form.root.querySelector('.m-notice'));
       form.input.setAttribute('aria-invalid', String(Boolean(this.#ui.error && this.#ui.message === v.invalid)));

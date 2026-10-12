@@ -286,6 +286,10 @@ export class SettingsDialog {
     // The chooser's Custom card preselects the host's Custom preset with its defaults.
     void this.reload().then(() => { if (preset && this.#dialog.open && preset !== this.#draft?.processingPreset) this.#choosePreset(preset); });
   }
+  acknowledgeSave() {
+    if (!this.#saving && !this.#failed && !this.#pending()) this.#status = this.#copy.settings.saved;
+    this.sync();
+  }
   /** The credits action opens General and scrolls to the existing E-Mail cell. */
   openAt(tab, anchor, opener) {
     this.open(opener, { tab });

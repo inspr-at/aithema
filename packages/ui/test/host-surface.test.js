@@ -643,3 +643,15 @@ for (const copy of [de, en]) test(`AIT-135 A2 C: delivery saves the given tier b
   assert.deepEqual(writes.map(call => [call.method, call.path]), [['PUT', '/visitor/email'], ['POST', '/identity/request']]);
   assert.equal(h.root.querySelector('.host-verify').dataset.emailState, 'pending');
 });
+
+
+test('AIT-135 A2 C: equal allowances and disabled confirmation never promise an increase', async t => {
+  const { root } = setup(t, { session: { demo: true, identity: identity() }, host: { verification: true, credits: true }, routes: {
+    'GET /credits': () => Response.json({ balance, limitSlot: null, tiers: { current: 'anonymous', next: null, delta: 0, canConfirm: false,
+      allowancesMicro: { anonymous: 5_000_000, emailGiven: 5_000_000, emailConfirmed: 8_000_000 } } }),
+  } }); await tick(8);
+  assert.equal(root.querySelector('.m-lead-mail').textContent, 'Credit: 500 Credits');
+  assert.equal(root.querySelector('.credits-email').hidden, true);
+  root.querySelector('.verify-entry').click(); await tick();
+  assert.equal(root.querySelector('.verify__lead-mail').textContent, 'Credit: 500 Credits');
+});

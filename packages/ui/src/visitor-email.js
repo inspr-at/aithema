@@ -9,7 +9,7 @@ const valid = value => value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test
 export class VisitorEmail {
   constructor({ root, entry, copy, request, openDialog, changed, demo = false, delivery = true, privacyDocumentConfigured, handover = false, locale }) {
     Object.assign(this, { root, entry, copy, request, openDialog, changed, demo, delivery, privacyDocumentConfigured, handover, locale });
-    this.alive = true; this.ui = { editing: false, deleting: false, busy: false, message: '', invalid: false };
+    this.alive = true; this.ui = { editing: false, deleting: false, busy: false, message: '', invalid: false, failed: false };
     entry.id = 'email'; entry.classList.add('host-mail');
     entry.innerHTML = `<h3 class="verify-entry-title" id="email-heading"></h3><div class="m-stack">
       <form class="m-view m-form" data-view="capture" novalidate>
@@ -36,7 +36,7 @@ export class VisitorEmail {
     </div>`;
     entry.setAttribute('aria-labelledby', 'email-heading');
     this.q('.m-form').addEventListener('submit', event => { event.preventDefault(); void this.save(); });
-    this.q('#email-input').addEventListener('input', () => { if (!this.ui.busy) { this.ui.invalid = false; this.ui.message = ''; this.paint(); } });
+    this.q('#email-input').addEventListener('input', () => { if (!this.ui.busy) { this.ui.invalid = false; this.ui.failed = false; this.ui.message = ''; this.paint(); } });
     this.q('.m-change').addEventListener('click', () => { if (!this.canCollect || this.ui.busy) return; this.ui.editing = true; this.ui.message = ''; this.paint(); const input = this.q('#email-input'); input.value = this.address; input.focus({ preventScroll: true }); input.select(); });
     this.q('.m-cancel').addEventListener('click', () => { if (this.ui.busy) return; this.ui.editing = false; this.ui.message = ''; this.paint(); this.q('.m-change').focus({ preventScroll: true }); });
     for (const selector of ['.m-delete', '.m-delete-mail']) this.q(selector).addEventListener('click', () => { this.ui.deleting = true; this.ui.message = ''; this.paint(); this.q('.m-keep').focus({ preventScroll: true }); });
@@ -82,7 +82,9 @@ export class VisitorEmail {
     setText(this.q('h3'), v.section);
     for (const view of this.entry.querySelectorAll('.m-stack > .m-view')) { const shown = view.dataset.view === state; view.classList.toggle('on', shown); view.inert = !shown; view.setAttribute('aria-hidden', String(!shown)); }
     this.q('.m-form').classList.toggle('editing', this.ui.editing);
-    setText(this.q('.m-lead-save'), this.tiers ? fill(e.leadSave, n) : ''); setText(this.q('.m-lead-edit'), this.tiers ? fill(e.leadEdit, n) : '');
+    const givenRaises = this.tiers?.allowancesMicro?.emailGiven > this.tiers?.allowancesMicro?.anonymous;
+    const leadSave = this.tiers ? givenRaises ? fill(e.leadSave, n) : fill(e.tier, { tier: n.email }) : '';
+    setText(this.q('.m-lead-save'), leadSave); setText(this.q('.m-lead-edit'), this.tiers ? fill(e.leadEdit, n) : '');
     setText(this.q('.m-label'), v.label); this.q('#email-input').placeholder = v.placeholder;
     this.q('#email-input').setAttribute('aria-invalid', String(this.ui.invalid));
     for (const [selector, key] of [['.m-save', 'save'], ['.m-cancel', 'cancel'], ['.m-change', 'change'], ['.m-delete', 'delete'], ['.m-q', 'deleteQuestion'], ['.m-del', 'deleteConfirm'], ['.m-keep', 'cancel'], ['.m-change-mail', 'change'], ['.m-delete-mail', 'delete'], ['.m-unavailable', 'unavailable']]) setText(this.q(selector), e[key]);
@@ -94,17 +96,17 @@ export class VisitorEmail {
     this.q('.m-cons').classList.toggle('over', over);
     setText(this.q('.m-delete-normal'), this.tiers && Number.isFinite(spent) ? fill(e.deleteDrop, { ...n, available: this.format(Math.max(0, base - spent)) }) : '');
     setText(this.q('.m-delete-over'), Number.isFinite(spent) ? fill(e.deleteOver, { spent: this.format(spent) }) : '');
-    setText(this.q('.m-msg-text'), this.ui.message); this.q('.m-ico').innerHTML = this.ui.message ? this.ui.invalid ? INFO : CHECK : '';
+    setText(this.q('.m-msg-text'), this.ui.message); this.q('.m-ico').innerHTML = this.ui.message ? this.ui.invalid || this.ui.busy || this.ui.failed ? INFO : CHECK : '';
     setText(this.q('.m-delete-message'), this.ui.deleting ? this.ui.message : '');
     setText(this.q('.m-unavailable-message'), state === 'unavailable' ? this.ui.message : '');
     this.paintNotice(this.q('#email-notice')); this.paintNotice(this.q('.m-mail-notice'));
     const verified = this.identity?.status === 'verified', pending = this.identity?.status === 'verification-pending';
     this.q('[data-view="mail"]').dataset.address = String(Boolean(this.address));
-    setText(this.q('.m-lead-mail'), this.tiers ? fill(e.leadMail, n) : '');
+    setText(this.q('.m-lead-mail'), this.tiers?.canConfirm ? fill(e.leadMail, n) : leadSave);
     setText(this.q('.m-sent-prefix'), pending ? e.sentTo + ' ' : ''); setText(this.q('.verify-entry-address'), this.address);
     setText(this.q('.verify-entry-status'), pending ? v.linkSent : v.unverified); this.q('.verify-entry-status').hidden = verified;
-    setText(this.q('.verify-done > span'), v.verifiedShort); this.q('.verify-done').hidden = !verified;
-    setText(this.q('.m-mail-tier-text'), this.tiers && this.address ? verified ? fill(e.tier, { tier: n.confirmed }) : fill(e.pendingTier, n) : '');
+    setText(this.q('.verify-done > span'), this.tiers ? e.confirmedLabel : v.verifiedShort); this.q('.verify-done').hidden = !verified;
+    setText(this.q('.m-mail-tier-text'), this.tiers && this.address ? verified ? '· ' + fill(e.tier, { tier: this.format(this.tiers.allowancesMicro[this.tiers.current]) }) : this.tiers.canConfirm ? fill(e.pendingTier, n) : fill(e.tier, { tier: n.email }) : '');
     const button = this.q('.verify-entry'); button.hidden = !this.delivery || !this.canCollect || verified;
     setText(button, pending ? v.resendOrChange : v.entry);
     this.q('.m-change-mail').hidden = !verified || !this.canCollect;
@@ -118,7 +120,7 @@ export class VisitorEmail {
     if (this.ui.busy || !this.canCollect) return;
     const input = this.q('#email-input'), address = input.value.trim();
     if (!valid(address)) { this.ui.invalid = true; this.ui.message = this.copy.hostSurface.verify.invalid; this.paint(); input.focus({ preventScroll: true }); return; }
-    this.ui.busy = true; this.ui.invalid = false; this.ui.message = this.e.saving; this.paint();
+    this.ui.busy = true; this.ui.failed = false; this.ui.invalid = false; this.ui.message = this.e.saving; this.paint();
     let response; try { response = await this.request('/api/visitor/email', { address, noticeVersion: this.notice?.version }, 'PUT'); } catch { /* Keep the prior acknowledged address. */ }
     if (!this.alive) return;
     this.ui.busy = false;
@@ -126,11 +128,11 @@ export class VisitorEmail {
       this.visitor = response.body.visitor; this.identity = { ...this.identity, address: this.visitor.address, status: 'guest' };
       this.ui.editing = false; this.ui.message = ''; input.value = ''; this.paint();
       await this.changed?.({ refresh: true }); if (this.alive) this.q('.m-change').focus({ preventScroll: true });
-    } else { this.ui.message = response?.status === 400 ? this.copy.hostSurface.verify.invalid : this.e.failed; this.ui.invalid = response?.status === 400; this.paint(); }
+    } else { this.ui.failed = true; this.ui.message = response?.status === 400 ? this.copy.hostSurface.verify.invalid : this.e.failed; this.ui.invalid = response?.status === 400; this.paint(); }
   }
   async remove() {
     if (this.ui.busy || !this.address) return;
-    this.ui.busy = true; this.ui.message = this.e.deleting; this.paint();
+    this.ui.busy = true; this.ui.failed = false; this.ui.message = this.e.deleting; this.paint();
     let response; try { response = await this.request('/api/visitor/email', {}, 'DELETE'); } catch { /* Deletion is acknowledged before clearing the UI. */ }
     if (!this.alive) return;
     this.ui.busy = false;
@@ -140,7 +142,7 @@ export class VisitorEmail {
       const over = this.balance?.committedMicro >= this.tiers?.allowancesMicro?.anonymous;
       this.ui.message = over ? this.e.deletedOut : fill(this.e.deleted, this.numbers); this.paint();
       await this.changed?.({ refresh: true }); if (this.alive) this.focus();
-    } else { this.ui.message = this.e.deleteFailed; this.paint(); }
+    } else { this.ui.failed = true; this.ui.message = this.e.deleteFailed; this.paint(); }
   }
   destroy() { this.alive = false; this.legalSlot?.removeEventListener('slotchange', this.legalChanged); this.legalObserver?.disconnect(); }
 }

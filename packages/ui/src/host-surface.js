@@ -16,14 +16,14 @@ export class HostSurface {
   #root; #copy; #options; #base; #token; #session; #status; #adopt; #view; #alive = true; #connected = false;
   #verification = null; #library = null; #offer = null; #handover = null; #requesting = false; #limit = null;
   #credits = null; #creditsLoad = 0; #creditsTimer = null; #ended = null;
-  #menu = null; #openSettings; #onCredits;
+  #menu = null; #openSettings; #onCredits; #creditEnding;
   /**
    * options: {library, verification, handover, credits: true | {format(micro, locale)}, locale()}.
    * session() returns the live session; adopt(session, reason) opens another conversation.
    */
-  constructor({ root, copy, options, baseUrl, sessionToken, session, status, adopt, onLock, focusAfterUnlock, beforeVerifyDialog, verificationOpener, openSettings, onCredits }) {
+  constructor({ root, copy, options, baseUrl, sessionToken, session, status, adopt, onLock, focusAfterUnlock, beforeVerifyDialog, verificationOpener, openSettings, onCredits, creditEnding }) {
     this.#root = root; this.#copy = copy; this.#options = options ?? {}; this.#base = baseUrl; this.#token = sessionToken;
-    this.#openSettings = openSettings; this.#onCredits = onCredits;
+    this.#openSettings = openSettings; this.#onCredits = onCredits; this.#creditEnding = creditEnding;
     this.#session = session; this.#status = status; this.#adopt = adopt; this.#view = root.host?.ownerDocument?.defaultView ?? globalThis.window;
     const o = this.#options, bar = root.querySelector('.host-bar'), s = copy.hostSurface;
     root.querySelector('.workspace').toggleAttribute('data-host', true);
@@ -41,7 +41,7 @@ export class HostSurface {
         adopt: (next, reason) => this.#adopt(next, reason), manage: opener => this.#library.show(opener), status });
     }
     if (o.verification) {
-      this.#verification = new Verification({ root, copy, request: (path, body, method) => this.#call(path.startsWith('/api/') ? path : this.#sessionPath(path), body, method), status, onChange: () => { this.#paintCredits(); onLock?.(); this.#onCredits?.(); },
+      this.#verification = new Verification({ root, copy, request: (path, body, method) => this.#call(path.startsWith('/api/') ? path : this.#sessionPath(path), body, method), status, onChange: info => { this.#paintCredits(); onLock?.(info); this.#onCredits?.(); },
         creditsChanged: () => this.#loadCredits(), demo: this.#session().demo === true, handover: Boolean(o.handover),
         ...(typeof o.verification === 'object' ? o.verification : {}), locale: () => this.#session().locale ?? 'en',
         focusAfterUnlock, beforeOpen: beforeVerifyDialog, focusReturn: verificationOpener,
@@ -200,7 +200,7 @@ export class HostSurface {
     if (!this.#options.credits) return;
     const c = this.#copy.hostSurface.credits, layout = this.#copy.layout, locale = this.#session().locale ?? 'en';
     const format = typeof this.#options.credits?.format === 'function' ? this.#options.credits.format : defaultCreditFormat;
-    const owner = this.#credits?.balance?.owner, tiers = this.tiers, out = this.usedUp;
+    const owner = this.#credits?.balance?.owner, tiers = this.tiers, exhausted = this.usedUp, out = exhausted && !this.#creditEnding?.();
     const amount = line.querySelector('.host-credits__amount'), total = line.querySelector('.host-credits__total'), unit = line.querySelector('.host-credits__unit');
     const button = line.querySelector('.host-credits__button'), track = line.querySelector('.host-credits__track');
     const scope = line.querySelector('.host-credits__scope'), current = line.querySelector('.host-credits__current');
@@ -208,9 +208,9 @@ export class HostSurface {
     line.querySelector('.host-credits__used-up').setAttribute('aria-hidden', String(!out));
     setText(line.querySelector('.host-credits__used-up-full'), c.usedUp); setText(line.querySelector('.host-credits__used-up-short'), c.usedUpShort);
     setText(line.querySelector('.host-credits__equivalence'), c.unit);
-    setText(amount, owner ? format(out ? 0 : owner.availableMicro, locale) : '…');
+    setText(amount, owner ? format(exhausted ? 0 : owner.availableMicro, locale) : '…');
     setText(total, owner ? fill(layout.creditsTotal, { limit: format(owner.limitMicro, locale) }) : ''); setText(unit, owner ? layout.creditsUnit : '');
-    const balance = owner ? fill(out ? c.balanceOut : c.balance, { available: format(owner.availableMicro, locale), limit: format(owner.limitMicro, locale) }) : `${c.title}: ${c.loading}`;
+    const balance = owner ? fill(exhausted ? c.balanceOut : c.balance, { available: format(owner.availableMicro, locale), limit: format(owner.limitMicro, locale) }) : `${c.title}: ${c.loading}`;
     setText(scope, balance); button.setAttribute('aria-label', balance);
     current.hidden = !tiers;
     if (tiers) setText(current.querySelector('span:last-child'), fill(c[tiers.current === 'emailConfirmed' ? 'withConfirmed' : tiers.current === 'emailGiven' ? 'withEmail' : 'anonymous'], { tier: format(tiers.allowancesMicro?.[tiers.current], locale) }));
@@ -220,7 +220,7 @@ export class HostSurface {
     setText(link, next === 'emailConfirmed' ? c.confirm : c.give);
     track.hidden = !owner;
     if (owner) {
-      const value = wholeCredits(out ? 0 : owner.availableMicro), maximum = wholeCredits(owner.limitMicro);
+      const value = wholeCredits(exhausted ? 0 : owner.availableMicro), maximum = wholeCredits(owner.limitMicro);
       track.querySelector('i').style.width = `${maximum > 0 ? Math.min(100, value / maximum * 100) : 0}%`;
       track.setAttribute('aria-valuenow', String(value)); track.setAttribute('aria-valuemax', String(maximum)); track.setAttribute('aria-label', c.title);
     }

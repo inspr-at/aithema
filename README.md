@@ -2143,6 +2143,35 @@ The visitor API uses the existing ownership cookie/token:
   erasure remains `not-confirmed`. Conversation delete/reset alone retains
   the visitor profile.
 
+The owner-bound credits response also includes `tiers` for the visitor UI:
+
+```js
+{
+  current: 'anonymous',                 // anonymous | emailGiven | emailConfirmed
+  next: 'emailGiven',                   // next offered tier, or null
+  delta: 5_000_000,                     // additional USD millionths, or 0
+  canConfirm: false,                    // qualified delivery and confirmation policy
+  allowancesMicro: { anonymous: 10_000_000, emailGiven: 15_000_000, emailConfirmed: 20_000_000 }
+}
+```
+
+These are configured server values, not UI defaults. Hosts expose the optional
+`creditTiers(ownerToken)` projection; hosts without it return `tiers: null`.
+Ownership is checked before that projection. A missing privacy document removes
+`next`, sets `delta` to zero and disables `canConfirm` without changing accounting.
+Identity reads expose `delivery` and `privacyDocumentConfigured` separately from
+the verification evidence. Visitor email reads also expose the privacy capability.
+
+The UI uses `host.verification: { delivery, privacyDocumentConfigured }` (the
+legacy `true` still enables delivery). Save mode stays inline in Settings → General.
+The legal slot supplies its policy URL through `data-aithema-privacy` or
+`rel="privacy-policy"`. Non-demo collection requires both the server capability
+and that link; an existing address can still be deleted. The demo's explicit
+privacy exemption retains its local fake-mail flow. Delivery saves the address
+with the versioned notice before requesting its confirmation link, so pending
+addresses receive the given tier. Equal allowances and disabled confirmation
+never promise extra credit. No sample address or allowance is rendered by the UI.
+
 Hosts with delivery retain the existing request/send/confirm flow, including
 30-minute tokens, resend cooldown and five-attempt limit. Tokens are stored only
 as hashes; the labelled demo outbox alone holds raw links in memory. New

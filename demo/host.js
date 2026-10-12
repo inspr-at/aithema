@@ -92,7 +92,7 @@ async function adopt(session) {
       // The host surface (AIT-104 B2): library, handover and credits from the demo ports; verification
       // only where the fake mail outbox can confirm it (the mock demo).
       host: { library: true, verification: { delivery: binding.demoHost === true, privacyDocumentConfigured: Boolean(binding.privacy) },
-        handover: true, credits: true, locale: () => localeChoice, version: binding.build } });
+        handover: binding.demoHost === true, credits: true, locale: () => localeChoice, version: binding.build } });
     // A stored choice may have changed while the initial conversation was being restored.
     await component.changeLocale(localeChoice);
     paintPage();

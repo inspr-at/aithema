@@ -98,6 +98,7 @@ export class AithemaSession extends HTMLElement {
     const { copy, baseUrl = '', session, sessionToken, deviceReasoning, deviceConnector, deviceEndpoint, voiceClient, voiceClients, voicePlayback, aiNotice } = options ?? {};
     if (!copy || !session) throw new TypeError('Host copy and session required');
     this.#copyLocale = session.locale; this.#aiNotice = aiNotice; this.#options = { ...options }; delete this.#options.session;
+    clearTimeout(this.#creditEndTimer); this.#creditEnding = false; this.#creditAnnounced = false;
     this.#host?.destroy(); this.#host = null; this.#reveal?.destroy(); this.#timer?.destroy(); this.#popups?.destroy();
     this.#motionMedia?.removeEventListener?.('change', this.#motionListener);
     this.#paneObserver?.disconnect(); for (const timer of this.#scrollTimers.values()) clearTimeout(timer); this.#scrollTimers.clear();
@@ -375,10 +376,10 @@ export class AithemaSession extends HTMLElement {
     });
     for (const pane of root.querySelectorAll(PANES)) pane.addEventListener('pointerleave', () => clearSlack(pane));
     if (this.#options.host) this.#host = new HostSurface({ root, copy: this.#copy, options: this.#options.host, baseUrl: this.#base, sessionToken: this.#sessionToken,
-      openSettings: () => this.openSettings(root.querySelector('.host-credits__button'), { tab: 'general', anchor: '#email' }), onCredits: () => this.#creditsChanged(),
+      openSettings: () => this.openSettings(root.querySelector('.host-credits__button'), { tab: 'general', anchor: '#email' }), onCredits: () => this.#creditsChanged(), creditEnding: () => this.#creditEnding,
       session: () => this.#session, status: text => this.#status(text), adopt: (session, reason) => this.#adopt(session, reason),
       beforeVerifyDialog: () => this.#dialog.closeForVerification(), verificationOpener: () => root.querySelector('.settings-open'),
-      onLock: () => { this.#render('aside'); this.#render('transcript'); this.#dialog?.sync(); },
+      onLock: info => { this.#render('aside'); this.#render('transcript'); if (info?.saved) this.#dialog?.acknowledgeSave(); else this.#dialog?.sync(); },
       // Focus follows the visible stage control: Continue at the entrance, Start at readiness; live,
       // unlocking keeps a deliberate pause (Resume is offered), else the composer takes focus.
       focusAfterUnlock: () => {
@@ -546,7 +547,8 @@ export class AithemaSession extends HTMLElement {
       void this.#rail.close('host-limit');
       this.#creditEndTimer = setTimeout(() => { this.#creditEnding = false; this.#creditsChanged(); }, 600);
     }
-    if (!usedUp) { clearTimeout(this.#creditEndTimer); this.#creditEnding = false; this.#creditAnnounced = false; }
+    if (!usedUp) { clearTimeout(this.#creditEndTimer); this.#creditEnding = false; this.#creditAnnounced = false; setText(this.shadowRoot.querySelector('.credit-announcement'), ''); }
+    this.#host.update();
     if (usedUp && !this.#creditEnding && !this.#creditAnnounced) {
       this.#creditAnnounced = true; setText(this.shadowRoot.querySelector('.credit-announcement'), this.#copy.hostSurface.usedUp.announce);
     }

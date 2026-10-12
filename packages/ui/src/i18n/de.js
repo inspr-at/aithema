@@ -287,7 +287,7 @@ export const de = {
       deleteConfirm: 'E-Mail-Adresse löschen', deleted: 'E-Mail-Adresse gelöscht. Ihr Guthaben: {base} Credits.',
       deletedOut: 'E-Mail-Adresse gelöscht. Ihre Credits sind aufgebraucht.', deleting: 'Wird gelöscht …',
       sentTo: 'Link gesendet an', pendingTier: 'Guthaben: {email} Credits · nach der Bestätigung {confirmed}',
-      confirmed: 'Bestätigt · Guthaben: {confirmed} Credits',
+      confirmed: 'Bestätigt · Guthaben: {confirmed} Credits', confirmedLabel: 'Bestätigt',
       notice: 'Wir nutzen Ihre E-Mail-Adresse nur für Ihr Guthaben und später für eine Bestätigungsmail. Nie für Werbung. Nach 90 Tagen ohne Nutzung löschen wir sie automatisch.',
       noticeMail: 'Wir nutzen Ihre E-Mail-Adresse nur für Ihr Guthaben und die Bestätigungsmail. Nie für Werbung. Nach 90 Tagen ohne Nutzung löschen wir sie automatisch.',
       noticeHandover: 'Für eine persönliche Weiterführung fragen wir Sie gesondert.',

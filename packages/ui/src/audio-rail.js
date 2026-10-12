@@ -86,7 +86,7 @@ export class AudioRail {
       transitional = ['connecting', 'recovering'].includes(this.state) || this.state === 'closing' && this.closingCall;
     const usedUp = Boolean(this.usedUp?.()) || ['host-limit', 'budget denied'].includes(available.rawReason ?? available.reason) || ['host-limit', 'budget denied'].includes(this.errorReason);
     const creditEnding = Boolean(this.ending?.());
-    this.root.toggleAttribute('data-used-up', usedUp); this.root.toggleAttribute('data-credit-ending', creditEnding);
+    this.root.toggleAttribute('data-used-up', usedUp && !creditEnding); this.root.toggleAttribute('data-credit-ending', creditEnding);
     const state = this.paused && active ? 'paused' : this.state;
     if (this.root.dataset.state !== undefined && this.root.dataset.state !== state) queueMicrotask(() => { if (this.connected) this.onState?.(state); });
     this.root.dataset.state = state;

@@ -283,7 +283,7 @@ export const en = {
       deleteConfirm: 'Delete email address', deleted: 'Email address deleted. Your credit: {base} Credits.',
       deletedOut: 'Email address deleted. Your credits are used up.', deleting: 'Deleting…',
       sentTo: 'Link sent to', pendingTier: 'Credit: {email} Credits · {confirmed} once confirmed',
-      confirmed: 'Confirmed · Credit: {confirmed} Credits',
+      confirmed: 'Confirmed · Credit: {confirmed} Credits', confirmedLabel: 'Confirmed',
       notice: 'We use your email address only for your credit and, later, a confirmation email. Never for advertising. After 90 days without use, we delete it automatically.',
       noticeMail: 'We use your email address only for your credit and the confirmation email. Never for advertising. After 90 days without use, we delete it automatically.',
       noticeHandover: 'For a personal follow-up we ask you separately.',
