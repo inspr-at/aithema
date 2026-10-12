@@ -26,7 +26,7 @@ function fixture(t, { motion = true, reduced = false, copy = en, shadow = false 
   for (let index = 0; index < 4; index++) {
     const node = document.createElement('button'); node.textContent = `control ${index}`; node.setAttribute('data-reveal', '');
     node.getBoundingClientRect = () => ({ left: 108 + index * 200, top: 16, width: 44, height: 44 }); band.append(node); controls.push(node);
-    node.getClientRects = () => [node.getBoundingClientRect()];
+    node.getClientRects = () => [{}];
   }
   root.append(band); orb.mount(); const version = { product: 'Aithema 2026.10', commit: 'd886da3', date: '2026-10-12' };
   const reveal = createReveal({ band, orb, controls, links: copy.reveal.links, version, copy, motion });

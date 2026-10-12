@@ -34,6 +34,7 @@ export class Waveform {
     if (Observer) { this.sizes = new Observer(() => this.#draw()); this.sizes.observe(canvas); }
   }
   get direction() { return this.#direction; }
+  connect() { this.sizes?.observe(this.canvas); this.#draw(); }
   /** One measured level (0 to 1); a change of direction starts a fresh history. */
   push(level, direction, elapsedMs) {
     if (direction !== this.#direction) { this.#history.fill(0); this.#direction = direction; }

@@ -224,9 +224,13 @@ export class AudioRail {
     return this.closing;
   }
   quiet() { delete this.root.dataset.measured; this.waveform.baseline(); this.onLevel?.(0); }
+  connect() {
+    this.root.ownerDocument.addEventListener('visibilitychange', this.visibility); this.waveform.connect();
+  }
+  disconnect() {
+    this.root.ownerDocument.removeEventListener('visibilitychange', this.visibility); this.waveform.destroy(); void this.close();
+  }
   destroy() {
-    this.onState = null; this.onLevel = null; this.waveform.destroy();
-    this.root.ownerDocument.removeEventListener('visibilitychange', this.visibility);
-    void this.close();
+    this.onState = null; this.onLevel = null; this.disconnect();
   }
 }
