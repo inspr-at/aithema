@@ -24,8 +24,8 @@ for (const locale of ['de', 'en']) test(`AIT-138: server alone chooses ${locale}
 
 test('AIT-138: transcript persistence during awaited heartbeat eligibility keeps call authorization', async t => {
   const h = voiceFixture(t), first = await h.start(), entered = Promise.withResolvers(), release = Promise.withResolvers();
-  const health = h.plugin.health;
-  h.plugin.health = async opts => { entered.resolve(); await release.promise; return health(opts); };
+  h.beforeCoverage(async () => { entered.resolve(); await release.promise; });
+  t.after(() => release.resolve());
   const beat = h.route(`/voice/${first.callId}/heartbeat`, { providerSessionId: first.providerSessionId });
   await entered.promise;
   h.storage.postTurn(h.session.id, 'new-input', new Uint8Array([1]), 'A final arrived while eligibility awaited', { ownerToken: 'voice-owner' });
@@ -43,7 +43,7 @@ test('AIT-138: explicit hangup cannot be resurrected by a recover request', asyn
 
 export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, path, cap, reasoning = createMockReasoning(), durationBinding = {}, voiceOptions = {} } = {}) {
   const storage = new SQLiteStorage(path), secrets = createFacadeSecrets();
-  let clock = Date.now(), sequence = 0, covered = true, secretReads = 0, coverageReads = 0, healthReads = 0, releasing = false, mintFailure;
+  let clock = Date.now(), sequence = 0, covered = true, secretReads = 0, coverageReads = 0, healthReads = 0, releasing = false, mintFailure, beforeCoverage;
   const opened = new Map(), ended = new Set(), waiting = new Map(), provisioned = [], traffic = [], closeRequests = [];
   const providerEvents = eventProbe();
   const endClient = id => { ended.add(id); waiting.get(id)?.(); waiting.delete(id); };
@@ -83,7 +83,7 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
   const presets = mockPresets();
   const health = plugin.health; plugin.health = options => { healthReads++; return health(options); };
   presets.best.plugins.push('elevenlabs'); presets.best.bindings.voice = binding; presets.best.policy = { endpoints: [binding.endpoint] };
-  const consent = { async coverage({ scope, consentRevision }) { coverageReads++; return { covered, ...scope, scope, consentRevision, checkedAt: clock, expiresAt: clock + 100_000 }; } };
+  const consent = { async coverage({ scope, consentRevision }) { coverageReads++; await beforeCoverage?.(); return { covered, ...scope, scope, consentRevision, checkedAt: clock, expiresAt: clock + 100_000 }; } };
   const registry = new PluginRegistry().register(createMockReasoning()).register(plugin);
   const admittedRuntime = createPluginRuntime({ storage, registry, presets, consent, now, voiceCap });
   // Instrument reasoning after canonical admission; wrappers never gain mock trust.
@@ -104,7 +104,7 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
     waitForMintFailure: () => providerEvents.waitFor(event => event.type === 'mint-failed'),
     waitForClosure: id => providerEvents.waitFor(event => event.type === 'details' && event.id === id),
     authChecks: () => ({ secretReads, coverageReads, healthReads }),
-    advance: ms => { clock += ms; }, coverage: value => { covered = value; } };
+    advance: ms => { clock += ms; }, coverage: value => { covered = value; }, beforeCoverage: fn => { beforeCoverage = fn; } };
 }
 
 function assertUnbillableStart(h) {
