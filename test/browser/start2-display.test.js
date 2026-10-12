@@ -62,6 +62,26 @@ const freezeReveal = page => shadow(page, c => {
     .filter(animation => animation.animationName !== 'aithema-prism-turn');
   for (const animation of globalThis.displayRevealTimeline) { animation.pause(); animation.currentTime = 0; }
 });
+const finishRevealEntry = page => shadow(page, async c => {
+  const animations = c.shadowRoot.querySelector('.band').getAnimations({ subtree: true });
+  await Promise.all(animations.filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
+});
+const freezeRevealExit = async page => {
+  await shadow(page, c => {
+    const native = window.setTimeout;
+    window.setTimeout = fn => { globalThis.displayRevealCleanup = fn; return 0; };
+    try { c.shadowRoot.querySelector('.band').dispatchEvent(new MouseEvent('mouseleave')); }
+    finally { window.setTimeout = native; }
+  });
+  await freezeReveal(page);
+  return shadow(page, c => {
+    const band = c.shadowRoot.querySelector('.band'), row = band.querySelector('.aithema-reveal__row');
+    const fade = globalThis.displayRevealTimeline.find(a => a.effect.target === row && a.transitionProperty === 'opacity');
+    if (!fade) return null;
+    const frames = fade.effect.getKeyframes();
+    return { phase: band.dataset.aithemaRevealState, from: frames[0].opacity, to: frames.at(-1).opacity, duration: fade.effect.getTiming().duration };
+  });
+};
 const seekReveal = (page, ms) => page.evaluate(ms => {
   for (const animation of globalThis.displayRevealTimeline) animation.currentTime = ms;
 }, ms);
@@ -439,6 +459,43 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
   });
   if (evidence) await writeFile(join(evidence, 'display-regressions-evidence.json'), JSON.stringify({ ticket: 'AIT-131', commit: evidenceCommit,
     createdAt: new Date().toISOString(), files, checks }, null, 2));
+});
+
+test('AIT-149: reveal exit clock survives delayed browser round trips', { timeout: 60_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-reveal-clock-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_PROVIDER: 'openrouter', OPENROUTER_API_KEY: 'fixture-not-a-key',
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
+  });
+  let browser;
+  t.after(async () => { await browser?.close(); await demo.kill(); });
+  browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
+    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  const page = await browser.newPage(); page.setDefaultTimeout(30_000);
+  await page.setViewport({ width: 1440, height: 900 });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session?.id);
+  await shadow(page, async c => {
+    const { de } = await import('/packages/ui/src/i18n/de.js'), session = c.session;
+    session.settings.origin = 'chosen'; localStorage.setItem('aithema-motion', 'on');
+    c.configure({ copy: de, session }); c.shadowRoot.querySelector('.band-orb .orb').focus();
+  });
+  await finishRevealEntry(page);
+  // Every browser-call response arrives after the brand's entire 300ms fade.
+  // Capturing the exit in a later call must not silently lose that transition.
+  const slowPage = { async $eval(...args) {
+    const result = await page.$eval(...args);
+    await new Promise(resolve => setTimeout(resolve, 400));
+    return result;
+  } };
+  assert.deepEqual(await freezeRevealExit(slowPage), { phase: 'exiting', from: '1', to: '0', duration: 300 }, 'retain the brand fade despite browser round-trip latency');
+  await seekReveal(page, 0);
+  assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.aithema-reveal__row')).opacity), '1', 'the initial exit frame is still available');
+  await seekReveal(page, 350);
+  assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.aithema-reveal__row')).opacity), '0', 'the 350ms frame is past the completed brand fade');
+  await seekReveal(page, 1600);
+  await page.evaluate(() => { globalThis.displayRevealCleanup(); delete globalThis.displayRevealCleanup; });
 });
 
 test('AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages',
