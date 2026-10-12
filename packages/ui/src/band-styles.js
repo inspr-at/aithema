@@ -18,7 +18,8 @@ export const bandStyles = `
 .audio-rail .pause, .audio-rail .pause:hover:not(:disabled) { background:var(--aithema-ink); }
 .audio-rail .voice-pause { visibility:hidden; }
 .voice-signal { height:44px; }
-.voice-wave { height:30px; }
+.voice-wave { height:30px; --voice-label-half:80px;
+  mask-image:linear-gradient(to right,#000 calc(50% - var(--voice-label-half) - 8px),transparent calc(50% - var(--voice-label-half)),transparent calc(50% + var(--voice-label-half)),#000 calc(50% + var(--voice-label-half) + 8px)); }
 .voice-state, .voice-caption { padding:3px 8px; border-radius:0; font-size:12px;
   background:none; box-shadow:none; }
 .audio-rail[data-message] .voice-state { left:0; }
@@ -134,6 +135,7 @@ export const bandStyles = `
   .header-actions { gap:0; } .conversations-toggle { font-size:12px; padding:0 4px; min-width:88px; }
   .band .audio-rail { gap:4px; margin-left:-4px; width:100%; }
   .voice-state,.voice-caption { font-size:10px; padding-inline:4px; }
+  .voice-wave { --voice-label-half:60px; }
   .fold-strip { gap:8px; padding-left:max(12px,calc(54px - var(--aithema-gutter))); padding-right:12px; grid-template-columns:auto minmax(0,1fr); }
   .fold-question { grid-column:2; }
   .composer { margin-bottom:0; }

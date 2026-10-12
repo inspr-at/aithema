@@ -116,7 +116,7 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
     const shot = async (state, width, theme, preserveFocus = false) => {
       const name = `${state}-${width}-${theme}-${locale}.png`;
       if (!preserveFocus) await shadow(page, c => { const active = c.shadowRoot.activeElement; if (active && !c.shadowRoot.querySelector('.conversations-menu').contains(active)) active.blur(); });
-      if (evidence) { await page.screenshot({ path: join(evidence, name), fullPage: width === 390 }); files.push(name); }
+      if (evidence) { await page.screenshot({ path: join(evidence, name), fullPage: width === 390 && !state.startsWith('reveal-') }); files.push(name); }
     };
     async function scene(stage, drafts = 'off') {
       await page.evaluate(async ({ stage, drafts, locale, words, commit }) => {
@@ -171,7 +171,8 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
       const controls = await shadow(page, c => [...c.shadowRoot.querySelectorAll('.band [data-reveal]')].map(n => ({
         name: n.className, inert: n.inert, proxy: Boolean(n.closest('.aithema-reveal__dissolves')), marked: n.hasAttribute('data-aithema-reveal-control'),
       })));
-      assert.ok(controls.every(n => n.inert), `${label}: all band controls are inert while revealed: ${JSON.stringify(controls)}`);
+      const phase = await shadow(page, c => c.shadowRoot.querySelector('.band').dataset.aithemaRevealState);
+      assert.ok(phase === 'open' && controls.every(n => n.inert), `${label}: revealed controls (${phase}): ${JSON.stringify(controls)}`);
       // Hold only this synchronous exit's cleanup. Its genuine CSS timelines can then be sampled
       // at exact times without screenshot latency advancing them between requested frames.
       await shadow(page, c => {
