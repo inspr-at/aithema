@@ -477,3 +477,135 @@ test('locked understanding pane: the verification controls sit under no aria-dis
   assert.equal(root.querySelector('.readiness').hasAttribute('inert'), true, 'the locked readiness scale is unavailable');
   assert.ok([...root.querySelectorAll('.analysis-content > section')].every(s => s.hidden));
 });
+
+
+// AIT-135 A2: all amounts are acknowledged host values (USD millionths).
+const a2Allowances = { anonymous: 12_000_000, emailGiven: 18_000_000, emailConfirmed: 24_000_000 };
+function a2Setup(t, { copy = en, address = null, spent = 3_450_000, delivery = false, privacy = true, handover = false, save } = {}) {
+  let saved = address;
+  const tiers = () => ({ allowancesMicro: a2Allowances, current: saved ? 'emailGiven' : 'anonymous',
+    next: privacy ? saved ? delivery ? 'emailConfirmed' : null : 'emailGiven' : null,
+    delta: privacy ? saved ? delivery ? 6_000_000 : 0 : 6_000_000 : 0, canConfirm: delivery && privacy });
+  const visitor = () => ({ address: saved, tier: saved ? 'emailGiven' : 'anonymous', limitMicro: saved ? 18_000_000 : 12_000_000 });
+  const h = setup(t, { copy, host: { verification: { delivery, privacyDocumentConfigured: privacy }, credits: true, handover },
+    session: { demo: false, identity: identity({ address: saved }), settings: { origin: 'chosen', voice: 'off', visuals: 'off' } }, routes: {
+      'GET /identity': () => Response.json({ identity: identity({ address: saved }), delivery, privacyDocumentConfigured: privacy }),
+      'GET /visitor/email': () => Response.json({ visitor: visitor(), notice: { version: 'ait-135-v1', deliveryEnabled: delivery }, privacyDocumentConfigured: privacy }),
+      'GET /credits': () => { const limitMicro = visitor().limitMicro; return Response.json({ balance: { owner: { limitMicro, committedMicro: spent,
+        availableMicro: Math.max(0, limitMicro - spent) } }, limitSlot: null, tiers: tiers() }); },
+      'PUT /visitor/email': async body => { await save?.(body); saved = body.address; return Response.json({ visitor: visitor() }); },
+      'DELETE /visitor/email': () => { saved = null; return Response.json({ visitor: visitor() }); },
+    } });
+  if (privacy) {
+    const legal = document.createElement('nav'); legal.slot = 'legal';
+    const link = document.createElement('a'); link.href = '/privacy?locale=' + (copy === de ? 'de' : 'en'); link.setAttribute('data-aithema-privacy', ''); legal.append(link); h.c.append(legal);
+    h.root.querySelector('slot[name="legal"]').dispatchEvent(new window.Event('slotchange'));
+  }
+  return h;
+}
+
+for (const copy of [de, en]) test(`AIT-135 A2 B: server tiers in a group, one unit line, no countdown (${copy === de ? 'de' : 'en'})`, async t => {
+  const { c, root } = a2Setup(t, { copy }); await tick(8);
+  const popup = root.querySelector('.host-credits .footer-popup');
+  assert.equal(popup.getAttribute('role'), 'group');
+  assert.match(popup.querySelector('.host-credits__next').textContent, copy === de ? /1\.800 Credits/u : /1,800 Credits/u);
+  assert.equal(popup.querySelector('.credits-email').textContent, copy === de ? 'E-Mail-Adresse angeben' : 'Add your email address');
+  assert.equal(popup.querySelector('.host-credits__equivalence').textContent, copy === de ? '1 Credit = 1 US-Cent' : '1 Credit = 1 US cent');
+  assert.equal(root.querySelector('.host-credits__deadline')?.textContent ?? '', '');
+  popup.querySelector('.credits-email').click(); await tick(6);
+  assert.equal(root.querySelector('dialog.settings').open, true);
+  assert.equal(root.querySelector('[data-tab="general"]').getAttribute('aria-selected'), 'true');
+  assert.equal(root.activeElement?.id, 'email-input');
+  c.remove();
+});
+
+test('AIT-135 A2 B: used-up composer preserves the form, offers the actual delta and disables new work', async t => {
+  const { root } = a2Setup(t, { spent: 12_000_000 }); await tick(8);
+  assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'false');
+  assert.equal(root.querySelector('form.composer').inert, true);
+  assert.match(root.querySelector('.composer-out__give').textContent, /600 more Credits/u);
+  assert.equal(root.querySelector('.voice-state').textContent, 'Credits used up');
+  assert.equal(root.querySelector('.voice-start').disabled, true);
+  assert.equal(root.querySelector('.host-credits__amount').textContent, '0');
+  assert.equal(root.querySelector('.host-credits__used-up').getAttribute('aria-hidden'), 'false');
+});
+
+test('AIT-135 A2 B: no next tier offers export, including the privacy release gate', async t => {
+  for (const options of [{ address: 'reader@example.test', spent: 18_000_000 }, { privacy: false, spent: 12_000_000 }]) {
+    const { c, root } = a2Setup(t, options); await tick(8);
+    assert.equal(root.querySelector('.composer-out').dataset.next, 'none');
+    assert.equal(root.querySelector('.composer-out__export').getAttribute('aria-hidden'), 'false');
+    assert.equal(root.querySelector('.credits-email').hidden, true);
+    c.remove();
+  }
+});
+
+test('AIT-135 A2 B: Escape dismisses a pinned credits group and returns focus to the credits button', async t => {
+  const { root } = a2Setup(t); await tick(8);
+  const line = root.querySelector('.host-credits'), button = root.querySelector('.host-credits__button');
+  button.click(); root.querySelector('.credits-email').focus();
+  root.querySelector('.credits-email').dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  assert.equal(button.getAttribute('aria-expanded'), 'false');
+  assert.equal(line.hasAttribute('data-dismissed'), true);
+  assert.equal(root.activeElement, button);
+});
+
+for (const copy of [de, en]) test(`AIT-135 A2 C: inline save, edit and normal delete use acknowledged tiers (${copy === de ? 'de' : 'en'})`, async t => {
+  const { c, root, calls } = a2Setup(t, { copy }); await tick(8);
+  c.openSettings(undefined, { tab: 'general' }); await tick();
+  const section = root.querySelector('.host-verify'), input = section.querySelector('#email-input');
+  assert.match(section.querySelector('.m-lead').textContent, copy === de ? /1\.200.*1\.800/u : /1,200.*1,800/u);
+  assert.equal(section.querySelector('.m-pp').getAttribute('href'), '/privacy?locale=' + (copy === de ? 'de' : 'en'));
+  input.value = 'reader@example.test'; section.querySelector('.m-form').requestSubmit(); await tick(10);
+  assert.deepEqual(calls.find(call => call.method === 'PUT').body, { address: 'reader@example.test', noticeVersion: 'ait-135-v1' });
+  assert.equal(section.dataset.emailState, 'saved');
+  assert.match(section.querySelector('.m-tier').textContent, copy === de ? /Guthaben: 1\.800 Credits/u : /Credit: 1,800 Credits/u);
+  assert.doesNotMatch(section.querySelector('.m-tier').textContent, /1[.,]455/u, 'Settings shows the tier only');
+  assert.equal(root.activeElement, section.querySelector('.m-change'));
+  section.querySelector('.m-change').click();
+  assert.equal(input.value, 'reader@example.test'); assert.equal(input.selectionStart, 0); assert.equal(input.selectionEnd, input.value.length);
+  section.querySelector('.m-cancel').click(); section.querySelector('.m-delete').click();
+  assert.equal(root.activeElement, section.querySelector('.m-keep'));
+  assert.match(section.querySelector('.m-delete-normal').textContent, copy === de ? /1\.200.*855/u : /1,200.*855/u);
+  section.querySelector('.m-del').click(); await tick(10);
+  assert.equal(section.dataset.emailState, 'capture'); assert.equal(root.activeElement, input);
+  assert.equal(calls.filter(call => call.method === 'DELETE').length, 1);
+});
+
+test('AIT-135 A2 C: validation is calm, clears while typing, and saving keeps the button label', async t => {
+  let finish; const saving = new Promise(resolve => { finish = resolve; });
+  const { root, calls } = a2Setup(t, { save: () => saving }); await tick(8);
+  const input = root.querySelector('#email-input'), form = root.querySelector('.m-form'), button = root.querySelector('.m-save');
+  input.value = 'reader'; form.requestSubmit(); await tick();
+  assert.equal(input.getAttribute('aria-invalid'), 'true'); assert.equal(calls.filter(c => c.method === 'PUT').length, 0);
+  input.value = 'reader@example.test'; input.dispatchEvent(new window.Event('input', { bubbles: true }));
+  assert.equal(input.getAttribute('aria-invalid'), 'false'); form.requestSubmit(); await tick();
+  assert.equal(button.textContent, 'Save'); assert.match(root.querySelector('.m-msg').textContent, /Saving/u);
+  finish(); await tick(10);
+});
+
+test('AIT-135 A2 C: deleting an over-spent address works and restores the used-up state', async t => {
+  const { root, calls } = a2Setup(t, { address: 'reader@example.test', spent: 15_000_000 }); await tick(8);
+  root.querySelector('.m-delete').click();
+  assert.match(root.querySelector('.m-delete-over').textContent, /1,500 Credits.*used up/u);
+  root.querySelector('.m-del').click(); await tick(10);
+  assert.equal(calls.filter(c => c.method === 'DELETE').length, 1);
+  assert.match(root.querySelector('.m-msg').textContent, /deleted.*used up/u);
+  assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'false');
+});
+
+test('AIT-135 A2 C: no privacy document offers no collection input or confirmation dialog', async t => {
+  const { root, calls } = a2Setup(t, { privacy: false }); await tick(8);
+  assert.equal(root.querySelector('.host-verify').dataset.emailState, 'unavailable');
+  assert.equal(root.querySelector('.m-form').inert, true);
+  assert.equal(root.querySelector('.verify-entry').hidden, true);
+  assert.equal(root.querySelector('dialog.verify-dialog').open, false);
+  assert.equal(calls.filter(c => ['POST', 'PUT'].includes(c.method)).length, 0);
+});
+
+test('AIT-135 A2 C: handover purpose and the 90-day definition accompany the host privacy link', async t => {
+  const { root } = a2Setup(t, { handover: true }); await tick(8);
+  assert.match(root.querySelector('.m-notice').textContent, /For a personal follow-up we ask you separately\./u);
+  assert.match(root.querySelector('.m-notice').textContent, /cookie.*app.*conversation.*message.*voice turn/u);
+  assert.equal(root.querySelector('.m-pp').getAttribute('href'), '/privacy?locale=en');
+});

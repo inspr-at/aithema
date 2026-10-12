@@ -488,3 +488,35 @@ test('AIT-135 background wallet work cannot renew the inactivity retention of a 
   f.at(1000 + 90 * 24 * 60 * 60_000); f.host.retainVisitors();
   assert.equal(f.host.visitor(owner).address, null);
 });
+
+
+for (const delivery of [false, true]) test(`AIT-135 A2 API: tiers are server-computed, owner-bound and read-only (delivery ${delivery})`, async t => {
+  const f = fixture(t, { demo: delivery }); f.settings('12', '18', '24');
+  if (delivery) f.host.visitorCredits.saveSettings({ baseRevision: f.host.visitorCredits.settings().revision, confirmationEnabled: true });
+  const s = f.session('a2-api'), { call, handlers } = api(t, f), path = `/api/sessions/${s.id}/credits`;
+  const before = f.storage.read(s.id);
+  const read = async () => (await (await call(path)).json()).tiers;
+  const expected = current => ({ current, next: current === 'anonymous' ? 'emailGiven' : delivery ? 'emailConfirmed' : null,
+    delta: current === 'anonymous' || delivery ? 6_000_000 : 0, canConfirm: delivery,
+    allowancesMicro: { anonymous: 12_000_000, emailGiven: 18_000_000, emailConfirmed: 24_000_000 } });
+  assert.deepEqual(await read(), expected('anonymous'));
+  assert.deepEqual(f.storage.read(s.id), before, 'reading tiers appends no events');
+  f.host.saveEmail(owner, { address, noticeVersion });
+  assert.deepEqual(await read(), expected('emailGiven'));
+  const foreign = await handlers.handle(new Request(`http://local${path}`, { headers: { 'x-aithema-session-token': 'foreign' } }));
+  assert.equal(foreign.status, 404);
+  assert.equal(JSON.stringify(await foreign.json()).includes('allowancesMicro'), false);
+  f.host.deleteEmail(owner); f.settings('4', '9', '11');
+  assert.equal((await read()).delta, 5_000_000, 'CLI changes reach the next response');
+});
+
+test('AIT-135 A2 API: the privacy gate removes the offered next tier without changing the wallet', async t => {
+  const f = fixture(t, { privacyDocumentConfigured: () => false }); f.settings('12', '18', '24');
+  const s = f.session('a2-gated'), { call } = api(t, f);
+  const body = await (await call(`/api/sessions/${s.id}/credits`)).json();
+  assert.deepEqual(body.tiers, { current: 'anonymous', next: null, delta: 0, canConfirm: false,
+    allowancesMicro: { anonymous: 12_000_000, emailGiven: 18_000_000, emailConfirmed: 24_000_000 } });
+  assert.equal(body.balance.owner.limitMicro, 12_000_000);
+  const identity = await (await call(`/api/sessions/${s.id}/identity`)).json();
+  assert.equal(identity.delivery, false); assert.equal(identity.privacyDocumentConfigured, false);
+});
