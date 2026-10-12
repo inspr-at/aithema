@@ -15,7 +15,7 @@ export const defaultCreditFormat = formatCredits;
 export class HostSurface {
   #root; #copy; #options; #base; #token; #session; #status; #adopt; #view; #alive = true; #connected = false;
   #verification = null; #library = null; #offer = null; #handover = null; #requesting = false; #limit = null;
-  #credits = null; #creditsAt = 0; #creditsLoad = 0; #creditsTimer = null; #creditsTick = null; #ended = null;
+  #credits = null; #creditsLoad = 0; #creditsTimer = null; #ended = null;
   #menu = null; #openSettings; #onCredits;
   /**
    * options: {library, verification, handover, credits: true | {format(micro, locale)}, locale()}.
@@ -84,7 +84,7 @@ export class HostSurface {
   disconnect() {
     this.#connected = false; this.#verification?.disconnect();
     this.#menu?.disconnect();
-    clearInterval(this.#creditsTick); this.#creditsTick = null; clearTimeout(this.#creditsTimer); this.#creditsTimer = null;
+    clearTimeout(this.#creditsTimer); this.#creditsTimer = null;
   }
   destroy() { this.#alive = false; this.disconnect(); this.#verification?.destroy(); this.#library?.destroy(); this.#menu?.destroy(); }
   /** Durable host events (already applied to the session projection) and the turns that change balances. */

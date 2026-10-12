@@ -212,9 +212,9 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .m-in { grid-area:in; width:100%; min-height:44px; padding:.4rem .7rem; border:1px solid var(--aithema-line-strong,var(--aithema-line)); border-radius:.55rem; background:var(--aithema-paper); color:var(--aithema-ink); font: .95rem var(--aithema-font); }
 .m-in::placeholder { color:var(--aithema-muted); opacity:1; }
 .m-in[aria-invalid="true"],.verify__input[aria-invalid="true"] { border-color:color-mix(in srgb,var(--aithema-ink) 50%,transparent); }
-.m-save { grid-area:save; min-height:44px; padding:0 1.15rem; border-radius:.55rem; background:var(--aithema-accent); color:var(--aithema-on-accent); font-weight:600; white-space:nowrap; }
+.host-mail .m-save { grid-area:save; margin-left:0; justify-self:stretch; min-height:44px; padding:0 1.15rem; border-radius:.55rem; background:var(--aithema-accent); color:var(--aithema-on-accent); font-weight:600; white-space:nowrap; }
 .m-save[aria-disabled="true"],.m-del[aria-disabled="true"] { opacity:.55; cursor:progress; }
-.m-cancel { grid-area:cancel; } .m-form:not(.editing) .m-cancel { visibility:hidden; }
+.host-mail .m-cancel { grid-area:cancel; margin-left:0; } .m-form:not(.editing) .m-cancel { visibility:hidden; }
 .m-form .m-msg { grid-area:msg; }
 .m-msg { display:flex; align-items:center; gap:.4rem; min-height:2.6em; margin:0; font-size:.8rem; line-height:1.3; color:var(--aithema-ink); }
 .m-ico { flex:none; width:14px; height:14px; display:grid; color:var(--aithema-accent); } .m-ico:empty { visibility:hidden; }
@@ -231,7 +231,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .m-acts > .m-act:first-child { margin-left:-.85rem; } .m-dot { color:var(--aithema-muted); opacity:.6; }
 .m-q { font-size:.95rem; font-weight:600; margin:0; min-height:1.5rem; }
 .m-cons { font-size:.85rem; line-height:1.45; margin:0; max-width:34rem; }
-.m-del { min-height:44px; padding:0 1rem; margin-right:.5rem; border-radius:.55rem; border:1px solid var(--aithema-line); color:var(--aithema-ink); font-weight:600; font-size:.85rem; }
+.host-mail .m-del { min-height:44px; margin-left:0; padding:0 1rem; margin-right:.5rem; border-radius:.55rem; border:1px solid var(--aithema-line); color:var(--aithema-ink); font-weight:600; font-size:.85rem; }
 .m-delete-message,.m-unavailable-message { min-height:2.6em; margin:0; font-size:.8rem; }
 .m-mail-stack { display:grid; } .m-mail-stack > * { grid-area:1/1; }
 [data-view="mail"][data-address="true"] .m-lead-mail,[data-view="mail"][data-address="false"] .verify-entry-state { visibility:hidden; }

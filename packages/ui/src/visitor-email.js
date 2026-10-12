@@ -54,7 +54,7 @@ export class VisitorEmail {
   get e() { return this.copy.hostSurface.email; }
   get address() { return this.visitor?.address ?? this.identity?.address ?? ''; }
   get privacyLink() {
-    const nodes = this.legalSlot?.assignedElements?.({ flatten: true }) ?? [...(this.root.host?.querySelectorAll('[slot="legal"]') ?? [])];
+    const nodes = [...new Set([...(this.legalSlot?.assignedElements?.({ flatten: true }) ?? []), ...(this.root.host?.querySelectorAll('[slot="legal"]') ?? [])])];
     for (const node of nodes) {
       const link = node.matches?.('a[data-aithema-privacy],a[rel~="privacy-policy"]') ? node : node.querySelector?.('a[data-aithema-privacy],a[rel~="privacy-policy"]');
       const href = link?.getAttribute('href');

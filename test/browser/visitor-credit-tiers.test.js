@@ -89,19 +89,23 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
       await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
       await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
       const label = `${locale}-${theme}-${width}`;
-      const shot = async state => { states.push({ locale, theme, width, state }); if (evidence) await page.screenshot({ path: join(evidence, `a2-${label}-${state}.png`) }); };
+      const shot = async state => { await new Promise(resolve => setTimeout(resolve, 160)); states.push({ locale, theme, width, state }); if (evidence) await page.screenshot({ path: join(evidence, `a2-${label}-${state}.png`) }); };
       await fixture(page, locale);
       assert.equal(await shadow(page, c => Boolean(c.shadowRoot.querySelector('#email-input'))), true, 'the inline email input exists');
       await click(page, '.host-credits__button'); await shot('credits-anonymous');
       await click(page, '.credits-email'); await settle();
       const fixed = ['.settings__tabs', '.general-new', '.general-consent-manage', '.general-recommended', '.host-verify', '.settings-context', '.settings__footer'];
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').open), true, 'the credit link opened Settings');
       const before = await boxes(page, fixed);
       const check = async state => { await settle(); const displacementPx = unchanged(before, await boxes(page, fixed), `${label}/${state}`); passLines.push({ locale, theme, width, state, displacementPx, pass: true }); await shot(state); };
       await check('no-email');
-      const targets = await shadow(page, c => ['.m-in', '.m-save', '.m-pp'].map(selector => {
+      const targets = await shadow(page, c => ['.m-in', '.m-save', '#email-notice .m-pp'].map(selector => {
         const n = c.shadowRoot.querySelector(selector), rect = n.getBoundingClientRect(), after = getComputedStyle(n, '::after');
         return rect.height + Math.max(0, -(parseFloat(after.top) || 0)) + Math.max(0, -(parseFloat(after.bottom) || 0));
       }));
+      const primary = await shadow(page, c => { const button = c.shadowRoot.querySelector('.m-save'), style = getComputedStyle(button); return { label: button.textContent, color: style.color, background: style.backgroundColor }; });
+      assert.ok(primary.label && primary.color !== primary.background, 'the save label is visible on its primary fill');
+      t.diagnostic(JSON.stringify(await shadow(page, c => { const link = c.shadowRoot.querySelector('#email-notice .m-pp'); return { link: link.outerHTML, assigned: c.shadowRoot.querySelector('slot[name=legal]').assignedElements().map(n => n.outerHTML), state: c.shadowRoot.querySelector('.host-verify').dataset.emailState }; })));
       assert.ok(targets.every(height => height >= 44), `44 px capture and privacy targets: ${targets}`);
       await shadow(page, c => { c.shadowRoot.querySelector('#email-input').value = 'reader@example.test'; }); await check('typing');
       await shadow(page, c => { c.shadowRoot.querySelector('#email-input').value = 'reader'; c.shadowRoot.querySelector('.m-form').requestSubmit(); }); await check('invalid');
