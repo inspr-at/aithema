@@ -1406,3 +1406,55 @@ test('AIT-137 restart keeps a pending operation fenced until explicit replacemen
   assert.equal(calls, 0); assert.equal(storage.voiceOperations(session.id)[0].key, key);
   assert.equal(storage.voiceOperations(session.id)[0].state, 'failed');
 });
+
+
+test('AIT-137 provider message identity survives changes to optional turn metadata', async t => {
+  const h = await turnsOnceFixture(t), messages = [{ role: 'user', content: 'Ja', message_id: 'message-1' }];
+  const first = await completionText(await h.callback(messages, { turn_id: 'turn-1' }));
+  assert.equal(await completionText(await h.callback(messages)), first);
+  assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
+});
+
+test('AIT-137 an older ID-less Ja callback cannot bind to the later identical canonical turn', async t => {
+  const h = await turnsOnceFixture(t), old = [{ role: 'user', content: 'Ja' }];
+  await h.persist('user', 'first-ja', 'Ja'); await completionText(await h.callback(old));
+  await h.persist('assistant', 'question', 'Another question'); await h.persist('user', 'second-ja', 'Ja');
+  const current = [...old, { role: 'assistant', content: 'Another question' }, { role: 'user', content: 'Ja' }];
+  assert.equal(await completionText(await h.callback(current)), 'Reply 2 finished');
+  const obsolete = await h.callback(old);
+  assert.equal(obsolete.status, 403);
+  assert.deepEqual(await obsolete.json(), { error: 'not-admitted', reason: 'voice-turn-obsolete' });
+  assert.deepEqual(h.counts(), { admissions: 2, models: 2, cost: 34 });
+});
+
+test('AIT-137 restart preserves uncertain spend and permits exactly one authorized replacement and durable replay', async t => {
+  const { createVoiceTurnOperations } = await import('../src/voice-turns.js');
+  const path = await temporaryDb();
+  let storage = new SQLiteStorage(path), budget = new SQLiteBudgetLedger(storage), models = 1;
+  const session = storage.create({ ownerToken: 'restart-owner' });
+  const context = { sessionId: session.id, callId: 'restart-call', providerSessionId: 'restart-provider',
+    messages: [{ role: 'user', content: 'Restart input' }] };
+  const admission = () => budget.admit({ sessionId: session.id, lane: 'reaction', maxMicro: 50,
+    requestSha256: '0'.repeat(64), bindingSha256: '1'.repeat(64) });
+  const { operation } = storage.claimVoiceOperation(context, { now: 1000 });
+  const old = budget.claim(admission().attemptId); old.consume();
+  storage.voiceTurnStore.admitted(operation.key, operation.fence, old.attemptId);
+  storage.close(); storage = new SQLiteStorage(path); budget = new SQLiteBudgetLedger(storage);
+  assert.equal(budget.recover(), 1); assert.equal(budget.used(session.id), 50);
+  const turns = createVoiceTurnOperations({ storage, now: () => 1001, authorizeReplacement: () => true });
+  const execute = async worker => {
+    models++; const claim = budget.claim(admission().attemptId);
+    worker.admitted(claim.attemptId); claim.consume();
+    budget.settle(claim.claimId, { attemptId: claim.attemptId, outcome: 'completed', usage: { inputTokens: 1, outputTokens: 1 }, chargedMicro: 17 });
+    const chunk = { id: 'chatcmpl-restart', created: 1, choices: [{ delta: { content: 'Recovered reply' }, finish_reason: 'stop' }] };
+    return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`);
+  };
+  const replies = await Promise.all([turns.run(context, execute), turns.run(context, execute), turns.run(context, execute)]);
+  assert.deepEqual(await Promise.all(replies.map(completionText)), Array(3).fill('Recovered reply'));
+  assert.equal(models, 2); assert.equal(budget.used(session.id), 67);
+  assert.equal(storage.voiceOperations(session.id)[0].attempts[1].replaces, operation.fence);
+  storage.close(); storage = new SQLiteStorage(path); t.after(() => storage.close());
+  const resumed = createVoiceTurnOperations({ storage, now: () => 1002 });
+  assert.equal(await completionText(await resumed.run(context, () => assert.fail('completed replay must not dispatch'))), 'Recovered reply');
+  assert.equal(storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts").get().n, 2);
+});
