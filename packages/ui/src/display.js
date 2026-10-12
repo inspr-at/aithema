@@ -10,6 +10,7 @@ export const MODEL_DISPLAY_NAMES = Object.freeze({
   'anthropic/claude-opus-4.6': 'Claude Opus 4.6',
   'anthropic/claude-sonnet-4.6': 'Claude Sonnet 4.6',
   'openai/gpt-4.1-mini': 'GPT-4.1 mini',
+  'openrouter/openai/gpt-4.1-mini': 'GPT-4.1 mini',
   'openai/gpt-4.1': 'GPT-4.1',
   'openai/gpt-5.4': 'GPT-5.4',
   'mistralai/mistral-small-latest': 'Mistral Small',

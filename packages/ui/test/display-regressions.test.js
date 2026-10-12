@@ -129,6 +129,7 @@ test('AIT-131: translating preview copy preserves the existing frame and draft f
 
 for (const [locale, copy] of [['en', en], ['de', de]]) for (const route of [
   { model: 'anthropic/claude-opus-5.5', expected: 'Claude Opus 5.5' },
+  { model: 'openrouter/openai/gpt-4.1-mini', expected: 'GPT-4.1 mini' },
   { model: '~anthropic/claude-haiku-latest', label: '~anthropic/claude-haiku-latest', expected: 'Claude Haiku' },
   { model: 'retired/private-model', expected: copy.display.modelUnknown },
   { model: 'retired/private-model', label: 'retired/private-model', offered: true, expected: copy.display.modelUnknown },
