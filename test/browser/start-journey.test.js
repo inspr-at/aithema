@@ -61,7 +61,7 @@ test('AIT-113: live drafts consent is optional; granting and withdrawing only dr
   await visitConsent(page, demo.url);
   const drafts = 'input[value="drafts-anthropic"]';
   assert.equal(await page.$eval(drafts, b => b.checked), false);
-  assert.match(await page.$eval(drafts, b => b.closest('.consent-item').innerText), /KI-Entwürfe \(Anthropic\).*Optional/su);
+  assert.match(await page.$eval(drafts, b => b.closest('.consent-item').innerText), /KI-Entwürfe \(Anthropic\).*optional/su);
   const before = await rect(page, '[data-grant]');
   await page.click('input[value="models-international"]');
   assert.deepEqual(await rect(page, '[data-grant]'), before);
