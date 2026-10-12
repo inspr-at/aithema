@@ -47,7 +47,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     if (state) {
       if (state.identity && host.identity?.project) {
         const projected = host.identity.project({ session: storage.get(id) }, state.identity);
-        if (JSON.stringify(identityView(projected, clock(projected))) !== JSON.stringify(identityView(state.identity, clock(state.identity)))) {
+        if (!storage.get(id).identity || JSON.stringify(identityView(projected, clock(projected))) !== JSON.stringify(identityView(state.identity, clock(state.identity)))) {
           emit(id, storage.transitionHost(id, current => ({ state: { ...current, identity: projected },
             events: [{ type: 'identity.state', data: identityView(projected, clock(projected)) }] }), ownerToken ? { ownerToken } : {}));
         }

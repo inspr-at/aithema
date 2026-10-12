@@ -501,7 +501,9 @@ export class SQLiteStorage {
         expiresAt: null, resendAt: 0, expired: false, delivery: 'idle', confirmationAttempts: 0 };
       this.db.prepare('UPDATE host_states SET record=? WHERE session_id=?').run(JSON.stringify(record), row.session_id); count++;
     }
-    count += this.db.prepare(`UPDATE sessions SET snapshot=json_set(snapshot,'$.identity',NULL,'$.identified',json('false'))
+    // Keep the value-free identified flag: its transitions determine replay's
+    // input revision. The host publishes a new anonymous state on next use.
+    count += this.db.prepare(`UPDATE sessions SET snapshot=json_set(snapshot,'$.identity',NULL)
       WHERE id IN (SELECT id FROM sessions WHERE json_extract(snapshot,'$.ownerHash')=?
       AND json_extract(snapshot,'$.identity') IS NOT NULL LIMIT ?)`).run(ownerHash, limit - count).changes;
     const more = this.db.prepare(`SELECT 1 FROM content WHERE ${contentFilter} LIMIT 1`).get(ownerHash) ||
