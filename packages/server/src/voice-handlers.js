@@ -192,7 +192,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
   }
   function buildVoiceRequest(session, messages, call) {
     const latestInput = unrecordedVoiceInput(session, messages, call);
-    const trusted = reasoningRequest(session, 'reaction', false, hostPrompt, { pendingInput: latestInput.length > 0 });
+    const trusted = reasoningRequest(session, 'reaction', false, hostPrompt, { pendingInput: latestInput.length > 0, voiceReply: true });
     // Focus is derived by the asynchronous understanding lane. It is usable
     // only once that final assessment covers every input in this reply request.
     const currentFocus = !latestInput.length && !session.understanding.draft &&

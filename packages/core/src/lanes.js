@@ -5,6 +5,7 @@ import { assertReasoning, operationScope, matchesSchema } from './reasoning.js';
 import { untilCancelled, cancellableStream } from './cancellation.js';
 import { hasConversationInput, understandingDeferred } from './document-context.js';
 import { aiTextOrigin } from './text-origin.js';
+import { ReplyStream } from './reply.js';
 
 const producer = (admitted, plugin) => aiTextOrigin(admitted?.producer ?? plugin.binding ??
   { model: plugin.model, plugin: plugin.manifest?.id ?? plugin.id });
@@ -96,24 +97,30 @@ export class SessionLanes {
         if (this.beforeDispatch && !await untilCancelled(this.beforeDispatch(id, lane, this.reasoning, revision, options), scope.signal)) return 'blocked';
         if (!current() || this.getSession(id).paused) return 'stale';
         const turnId = crypto.randomUUID();
-        let content = '';
+        const reply = new ReplyStream(); let shown = '';
         const request = reasoningRequest(session, lane, false, this.hostPrompt);
         const admitted = await this.admit?.({ session: this.getSession(id), lane, operation: 'stream', request, options });
         let failed = false;
         try { for await (const delta of cancellableStream((admitted?.plugin ?? this.reasoning).stream(request, admitted?.options ?? options), scope.signal)) {
           if (!current()) return 'stale';
-          if (typeof delta !== 'string' || content.length + delta.length > 16_000) throw new TypeError('Invalid reasoning stream');
-          content += delta;
+          const text = reply.push(delta);
+          if (!text) continue;
+          shown += text;
           // Tagged with the settings revision it started under, so a client never shows a
           // superseded stream beside its replacement.
-          this.transient(id, { type: 'turn.partial', data: { id: turnId, delta, ...producer(admitted, admitted?.plugin ?? this.reasoning),
+          this.transient(id, { type: 'turn.partial', data: { id: turnId, delta: text, ...producer(admitted, admitted?.plugin ?? this.reasoning),
             inputRevision: revision, settingsRevision: session.settings?.revision ?? 0 } });
         } } catch (error) { failed = true; throw error; }
         finally { admitted?.finish({ failed }); }
         if (!current()) return 'stale';
+        const { content, question_short, options: answers } = reply.finish();
         if (!content.trim()) throw new TypeError('Empty reasoning stream');
+        // A provider may reorder JSON properties; reveal its remaining text only after parsing.
+        if (content.startsWith(shown) && content.length > shown.length) this.transient(id, { type: 'turn.partial', data: {
+          id: turnId, delta: content.slice(shown.length), ...producer(admitted, admitted?.plugin ?? this.reasoning),
+          inputRevision: revision, settingsRevision: session.settings?.revision ?? 0 } });
         // The admitted public choice labels which model and effort produced this reply.
-        if (!this.publish(id, 'turn.final', { id: turnId, role: 'assistant', content,
+        if (!this.publish(id, 'turn.final', { id: turnId, role: 'assistant', content, question_short, options: answers,
           ...producer(admitted, admitted?.plugin ?? this.reasoning),
           at: new Date().toISOString(), inputRevision: revision, ...(admitted?.engine ? { engine: admitted.engine } : {}) }, revision)) return 'stale';
       }

@@ -5,7 +5,7 @@ import { dirname, basename, resolve, join } from 'node:path';
 import { normalizeUploadLimits } from './upload-limits.js';
 import { createVoiceOperationStore } from './voice-operation-storage.js';
 import { applyEvent, createSession, inputRevision, emptyUnderstanding, isUIArtifact, isHTMLArtifact, inspectHTML, HTML_MEDIA_TYPE, imageInfo, reduceConceptIntent, createConceptIntent, MAX_IMAGE_BYTES,
-  defaultSettings, normalizeSettings, sameSelection, conversationStarted, createCredits, rebindCredits, reduceCredits, aiTextOrigin, withAITextOrigin } from '@inspr/aithema-core';
+  defaultSettings, normalizeSettings, sameSelection, conversationStarted, createCredits, rebindCredits, reduceCredits, aiTextOrigin, withAITextOrigin, parseReply } from '@inspr/aithema-core';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 export const MAX_CONCEPT_STORAGE_BYTES = 64 * 1024 * 1024;
@@ -214,10 +214,11 @@ export class SQLiteStorage {
       ['turn.final', 'turn.corrected'].includes(type) ? turnMetadata.includes(key)
         : ['contentRef', 'hash', 'erased'].includes(key)));
     const contentRef = `${id}:${seq}`, at = data.at ?? new Date().toISOString();
-    // A reply's engine label reveals the visitor's choice, so it is erased with the reply.
+    // Reply choices and the engine label are content: erase them with the reply, never retain them in metadata.
     const origin = aiTextOrigin({ model: data.model, plugin: data.provider });
     const bytes = JSON.stringify(['turn.final', 'turn.corrected'].includes(type)
-      ? { content: data.content, ...(data.role === 'assistant' ? { ...origin, ...(data.engine ? { engine: data.engine } : {}) } : {}) }
+      ? { content: data.content, ...(data.role === 'assistant' ? { ...origin, ...(data.engine ? { engine: data.engine } : {}),
+        ...('question_short' in data || 'options' in data ? parseReply(data) : {}) } : {}) }
       : { ...data, ...origin }), digest = hash(bytes);
     this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id,
       ['turn.final', 'turn.corrected'].includes(type) ? data.role === 'user' ? 'person' : 'reply' : 'understanding', bytes, digest, at);
