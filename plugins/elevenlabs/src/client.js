@@ -87,7 +87,8 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           try { await voiceOperation({ ...closeOptions, deadlineAt: Math.min(closeOptions.deadlineAt, Date.now() + 1000) }, () => conversation?.endSession()); }
           catch { /* Server closure remains authoritative. */ }
           // Leave closure time after a bounded drain; never revoke accepted events first.
-          if (!persistenceCancellation.signal.aborted) await drain(closeOptions.deadlineAt - Math.min(1000, closeTimeoutMs / 2));
+          const remaining = Math.max(0, closeOptions.deadlineAt - Date.now());
+          if (!persistenceCancellation.signal.aborted) await drain(closeOptions.deadlineAt - Math.min(1000, remaining / 2));
           stopPersistence();
           if (persistenceFailed) reason = 'transcript-persistence-failed';
           let terminal;
