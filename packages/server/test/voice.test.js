@@ -1511,6 +1511,23 @@ test('AIT-137 round 1: a shared message alias cannot attach a contradictory turn
   assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
 });
 
+test('AIT-137 round 1: identical message and event values in distinct namespaces buy separate turns', async t => {
+  const h = await turnsOnceFixture(t), a = { role: 'user', content: 'A', message_id: 7 };
+  const b = { role: 'user', content: 'B', event_id: 7 };
+  assert.equal(await completionText(await h.callback([a])), 'Reply 1 finished');
+  assert.equal(await completionText(await h.callback([a, b])), 'Reply 2 finished');
+  assert.deepEqual(h.counts(), { admissions: 2, models: 2, cost: 34 });
+});
+
+test('AIT-137 round 1: a provider alias at another user position is fenced instead of replayed', async t => {
+  const h = await turnsOnceFixture(t), a = { role: 'user', content: 'A', message_id: 'same' };
+  await completionText(await h.callback([a]));
+  const response = await h.callback([a, { role: 'user', content: 'B', message_id: 'same' }]);
+  assert.equal(response.status, 403);
+  assert.deepEqual(await response.json(), { error: 'not-admitted', reason: 'voice-turn-fenced' });
+  assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
+});
+
 test('AIT-137 round 1: a typed echo binds its own reply before the next spoken final', async t => {
   const h = await turnsOnceFixture(t);
   const typed = await h.route('/turns', { clientEventId: 'typed', content: 'Typed input',
@@ -1590,6 +1607,7 @@ async function fanoutFixture(t) {
       } }, { highWaterMark: 0 }));
   };
   return { join: () => turns.run(context, execute), produce: () => source.resolve(), finish: () => finished.resolve(),
+    revoke: () => storage.reviseConsent(session.id, false),
     idle: () => turns.idle(), models: () => models };
 }
 
@@ -1622,4 +1640,13 @@ test('AIT-137 round 1: cancelling one waiter during its pending pull leaves the 
   assert.equal(sseReply(await text), 'first' + 'x'.repeat(65_536));
   const replay = await h.join(); assert.equal(sseReply(await replay.text()), 'first' + 'x'.repeat(65_536));
   assert.equal(h.models(), 1);
+});
+
+test('AIT-137 round 1: backpressure leaves no queued reply frames on an unread subscription after revocation', async t => {
+  const h = await fanoutFixture(t), unread = await h.join(), fast = await h.join();
+  const text = fast.text(); h.produce(); h.finish(); await text; await h.idle();
+  h.revoke();
+  const reader = unread.body.getReader(), item = await reader.read();
+  assert.equal(new TextDecoder().decode(item.value), 'data: {"error":"not-admitted"}\n\n');
+  assert.equal((await reader.read()).done, true); assert.equal(h.models(), 1);
 });
