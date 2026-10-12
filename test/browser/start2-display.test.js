@@ -833,14 +833,28 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
         // The capped box may contain wave outside the rendered lines. Isolate paint underneath
         // the text itself, retaining the layout and mask while hiding only the glyphs.
         const text = label.textBox, clip = { x: Math.ceil(text.x), y: Math.ceil(text.y), width: Math.floor(text.right) - Math.ceil(text.x), height: Math.floor(text.bottom) - Math.ceil(text.y) };
-        await shadow(page, c => { c.shadowRoot.querySelector('.voice-state').style.visibility = 'hidden'; });
-        const painted = Buffer.from(await page.screenshot({ clip }));
-        await shadow(page, c => { c.shadowRoot.querySelector('.voice-wave').style.visibility = 'hidden'; });
-        const clear = Buffer.from(await page.screenshot({ clip }));
-        await shadow(page, c => {
-          c.shadowRoot.querySelector('.voice-wave').style.removeProperty('visibility');
-          c.shadowRoot.querySelector('.voice-state').style.removeProperty('visibility');
+        const background = await shadow(page, c => {
+          const signal = c.shadowRoot.querySelector('.voice-signal');
+          const saved = [signal.style.getPropertyValue('background'), signal.style.getPropertyPriority('background')];
+          // The transparent hole must expose exactly the same backdrop in both shots.
+          // Gradient dithering can change by 1/255 when Chrome changes compositing layers.
+          signal.style.setProperty('background', 'var(--aithema-paper)');
+          c.shadowRoot.querySelector('.voice-state').style.visibility = 'hidden';
+          return saved;
         });
+        let painted, clear;
+        try {
+          painted = Buffer.from(await page.screenshot({ clip }));
+          await shadow(page, c => { c.shadowRoot.querySelector('.voice-wave').style.visibility = 'hidden'; });
+          clear = Buffer.from(await page.screenshot({ clip }));
+        } finally {
+          await shadow(page, (c, [value, priority]) => {
+            const signal = c.shadowRoot.querySelector('.voice-signal');
+            value ? signal.style.setProperty('background', value, priority) : signal.style.removeProperty('background');
+            c.shadowRoot.querySelector('.voice-wave').style.removeProperty('visibility');
+            c.shadowRoot.querySelector('.voice-state').style.removeProperty('visibility');
+          }, background);
+        }
         if (evidence) {
           for (const [suffix, bytes] of [['painted', painted], ['wave-hidden', clear]]) {
             const name = `r3-consent-pixels-${width}-${theme}-${locale}-${suffix}.png`; await writeFile(join(evidence, name), bytes); files.push(name);
