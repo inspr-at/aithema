@@ -658,7 +658,8 @@ Hangup stops local capture and playback immediately and renders the call ended.
 Browser control requests `background: true`; the close route acknowledges with
 HTTP 202 while provider confirmation continues independently. Accepted transcript
 events still drain before the browser sends close. Pending cost accounting says
-“Call ended. Costs are still being reconciled.”, without treating the liability
+“Call ended. Costs are still being reconciled.” inside the rail's status cell,
+without a floating error panel covering later actions or treating the liability
 ceiling as a final visitor charge. Confirmed `voice.state` updates refresh the
 wallet and clear that message only for the matching ended provider generation.
 Both foreground and background conversation detail reads use a cancellable 8 MiB
