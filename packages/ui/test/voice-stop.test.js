@@ -96,13 +96,15 @@ for (const transport of ['webrtc', 'websocket']) {
     test(`AIT-138 fix 3: ${transport} delayed superseded Resume echo preserves ${hold} after compensating Pause HTTP`, async t => {
       const f = fixture(t, { transport, restored: false, component: true });
       let acquisitions = 0; f.sdk.beforeAcquire = () => { acquisitions++; };
+      let hidden = false;
+      if (hold === 'visibility hold') t.mock.method(document, 'hidden', () => hidden, { getter: true });
       const pause = f.root.querySelector('.pause'), root = f.root.querySelector('.audio-rail');
       f.root.querySelector('.voice-start').click(); await flush();
       pause.click(); await flush(); pause.click(); await f.resumeEntered.promise;
       const beforeAcquisitions = acquisitions, beforeEffects = f.sdk.effects.length;
       if (hold === 'server Pause') f.element.receive({ seq: 1, type: 'session.paused', data: { paused: true } });
       else {
-        t.mock.method(document, 'hidden', () => true, { getter: true });
+        hidden = true;
         document.dispatchEvent(new window.Event('visibilitychange'));
       }
       // The superseded Resume completes on the server, then its compensating Pause
@@ -112,7 +114,7 @@ for (const transport of ['webrtc', 'websocket']) {
       const pauses = f.requests.filter(request => request.url.endsWith('/pause'));
       assert.equal(resumes.length, 1); assert.equal(resumes[0].completed, true);
       assert.equal(pauses.length, 2); assert.ok(pauses.every(request => request.completed));
-      if (hold === 'visibility hold') t.mock.method(document, 'hidden', () => false, { getter: true });
+      hidden = false;
       let seq = f.element.session.seq;
       f.element.receive({ seq: ++seq, type: 'session.paused',
         data: { paused: false, resumeRequestId: resumes[0].body.resumeRequestId } });
