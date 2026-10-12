@@ -74,6 +74,8 @@ test('AIT-131 conversations menu: order, arrow/Home/End, Escape focus, Tab exit 
     adopt: (s, reason) => adopted.push([s.id, reason]), manage: opener => managed.push(opener), status: assert.fail });
   t.after(() => menu.destroy());
   const trigger = root.querySelector('.conversations-toggle'), pop = root.querySelector('.conversations-menu');
+  assert.equal(trigger.getAttribute('aria-label'), 'Gespräche'); assert.equal(trigger.title, 'Gespräche');
+  menu.setCopy(en); assert.equal(trigger.getAttribute('aria-label'), 'Conversations'); assert.equal(trigger.title, 'Conversations'); menu.setCopy(de);
   const key = (target, value, extra = {}) => { const e = new window.KeyboardEvent('keydown', { key: value, bubbles: true, cancelable: true, ...extra }); target.dispatchEvent(e); return e; };
   trigger.focus(); key(trigger, 'ArrowDown'); await new Promise(resolve => setImmediate(resolve));
   assert.equal(trigger.getAttribute('aria-expanded'), 'true');

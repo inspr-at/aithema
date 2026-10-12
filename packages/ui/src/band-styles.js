@@ -18,10 +18,11 @@ export const bandStyles = `
 .audio-rail .pause, .audio-rail .pause:hover:not(:disabled) { background:var(--aithema-ink); }
 .audio-rail .voice-pause { visibility:hidden; }
 .voice-signal { height:44px; container-type:inline-size; }
-.voice-wave { height:30px; --voice-label-half:80px;
+.voice-wave { height:30px; --voice-label-half:0px;
   mask-image:linear-gradient(to right,#000 calc(50% - var(--voice-label-half) - 8px),transparent calc(50% - var(--voice-label-half)),transparent calc(50% + var(--voice-label-half)),#000 calc(50% + var(--voice-label-half) + 8px)); }
-/* Each unmasked flank needs 24px, beyond the 80px label half and 8px fade. */
-@container (width < 224px) { .voice-wave { visibility:hidden; } }
+.voice-wave[data-short-flanks] { visibility:hidden; }
+/* Keep the accepted phone baseline hidden; the observer also hides short flanks at wider sizes. */
+@container (width < 184px) { .voice-wave { visibility:hidden; } }
 .voice-state, .voice-caption { padding:3px 8px; border-radius:0; font-size:12px;
   background:none; box-shadow:none; }
 .audio-rail[data-message] .voice-state { left:0; }
@@ -34,7 +35,8 @@ export const bandStyles = `
 .conversations-toggle > svg:last-child { width:10px; height:10px; flex:none; }
 .conversations-menu { z-index:12; max-height:min(440px,70dvh); overflow-y:auto; }
 .host-extras { position:absolute; top:calc(var(--band-height,90px) + 8px); right:var(--aithema-gutter); z-index:2; width:auto; }
-.host-extras:has(.host-verify:empty):has(.host-account slot:only-child) { min-height:0; }
+.host-extras:has(.host-verify:empty) { min-height:0; }
+.header-actions > .host-account { flex:none; }
 .conversation > .head { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); }
 .conversation > :not(.head) :is(button,textarea) { scroll-margin-top:160px; scroll-margin-bottom:80px; }
 .edge-column { position:absolute; top:calc(var(--band-height,90px) * .5 - 25px); left:6px; z-index:11; width:44px; pointer-events:none; }
@@ -147,19 +149,16 @@ export const bandStyles = `
   .conversations-wrap { width:100%; }
   .conversations-toggle { width:100%; }
   .band-utilities { flex:none; }
-  .conversations-toggle span { overflow:hidden; text-overflow:ellipsis; }
   .conversations-wrap { position:static; }
   .conversations-menu { z-index:12; left:12px; right:12px; top:62px; width:auto; }
   .band .audio-rail { gap:4px; margin-left:-4px; width:100%; }
   .voice-state,.voice-caption { font-size:10px; padding-inline:4px; }
-  .voice-wave { --voice-label-half:60px; }
-  @container (184px <= width < 224px) { .voice-wave { visibility:visible; } }
   .fold-strip { gap:8px; padding-left:max(12px,calc(54px - var(--aithema-gutter))); padding-right:12px; grid-template-columns:auto minmax(0,1fr); }
   .fold-question { grid-column:2; }
   .composer { margin-bottom:0; }
   .drafts-canvas { min-height:60svh; }
 }
-@media(max-width:320px) {
+@media(width < 400px) {
   .conversations-toggle { min-width:44px; width:44px; padding:0; justify-content:center; }
   .conversations-toggle > svg:first-child { display:block; }
   .conversations-toggle span, .conversations-toggle > svg:last-child { display:none; }

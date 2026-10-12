@@ -84,11 +84,17 @@ aithema-session { display:block; width:100%; --aithema-height:100dvh; --aithema-
  .consent-item { padding:10px 12px 14px; } .consent-item label { font-size:16px; }
 }
 /* Demo fills for the component's host slots (AIT-104 B2), each labelled demo. */
-#demo-account { position:relative; } #demo-account summary { cursor:pointer; color:var(--accent); font-weight:600; padding:.5rem .6rem; border-radius:.45rem; list-style:none; }
-#demo-account summary::-webkit-details-marker { display:none; } #demo-account summary:hover { background:color-mix(in srgb,var(--accent) 8%,transparent); }
-#demo-account > div { position:absolute; right:0; top:calc(100% + .25rem); z-index:5; width:min(18rem,80vw); padding:.75rem 1rem; background:var(--surface);
+#demo-account { position:relative; }
+#demo-account summary { display:flex; align-items:center; gap:7px; min-height:44px; padding:0 10px; cursor:pointer;
+  color:var(--ink); font-size:14px; font-weight:400; white-space:nowrap; border-radius:10px; list-style:none; }
+#demo-account summary::-webkit-details-marker { display:none; } #demo-account summary:hover { background:color-mix(in srgb,var(--ink) 6%,transparent); }
+#demo-account > div { position:absolute; right:0; top:calc(100% + 6px); z-index:12; width:min(18rem,calc(100vw - 24px)); max-height:calc(100dvh - 100px); overflow-y:auto; padding:.75rem 1rem; background:var(--surface);
   border:1px solid var(--line); border-radius:.6rem; box-shadow:0 12px 32px #10233526; font-size:.8rem; }
 #demo-account p { margin:0 0 .4rem; } #demo-account a { font-size:.8rem; }
+@media(width < 600px) {
+  #demo-account summary { width:44px; height:44px; padding:0; justify-content:center; }
+  #demo-account-label, #demo-account summary .utility-chevron { display:none; }
+}
 #demo-legal { display:flex; flex-wrap:wrap; gap:.25rem 1rem; } #demo-legal a { color:var(--accent); } #demo-footer { margin:0; color:var(--muted); }
 #outbox { width:min(34rem,calc(100vw - 1rem)); border:1px solid var(--line); border-radius:1rem; background:var(--surface); color:var(--ink); padding:1rem 1.25rem; }
 #outbox::backdrop { background:rgb(12 28 39 / .36); } #outbox h2 { font-size:1.05rem; margin:0 0 .3rem; } #outbox ul { list-style:none; padding:0; margin:.5rem 0; }

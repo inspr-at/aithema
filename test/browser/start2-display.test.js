@@ -73,6 +73,69 @@ const content = {
   },
 };
 
+test('AIT-131 r2 demo account stays in the band and opens below its control inside the viewport', { timeout: 120_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-account-band-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
+  });
+  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
+    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  t.after(async () => { await browser.close(); await demo.kill(); });
+  const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], checks = [];
+  if (evidence) await mkdir(evidence, { recursive: true });
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session?.id && !document.querySelector('#demo-account').hidden);
+  await shadow(page, c => { globalThis.accountSeed = c.session; });
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 390]) for (const folded of [false, true]) {
+    await page.setViewport({ width, height: 900 }); await page.select('#theme', theme);
+    await page.evaluate(async ({ locale, folded }) => {
+      const { en } = await import('/packages/ui/src/i18n/en.js'), { de } = await import('/packages/ui/src/i18n/de.js');
+      const { paintUtilities } = await import('/demo/page-preferences.js');
+      const copy = { en, de }[locale], c = document.querySelector('aithema-session'), s = structuredClone(globalThis.accountSeed);
+      s.locale = locale; s.settings.origin = 'chosen'; s.transcript = [{ id: 'account-source', role: 'user', content: locale === 'de' ? 'Eine Website für unsere Bäckerei.' : 'A website for our bakery.' }];
+      c.configure({ copy, session: s, host: { library: true } });
+      document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
+      for (const [selector, value] of [['#demo-account-label', copy.host.slots.account], ['#demo-account-note', copy.host.slots.accountNote], ['#demo-account-source', copy.host.slots.source]]) document.querySelector(selector).textContent = value;
+      document.querySelector('#demo-account').open = false;
+      if (folded) c.shadowRoot.querySelector('.fold').click();
+      window.scrollTo(0, 0);
+    }, { locale, folded });
+    await page.mouse.move(0, 300); await settle();
+    const control = await page.evaluate(() => {
+      const root = document.querySelector('aithema-session').shadowRoot, account = document.querySelector('#demo-account'), summary = account.querySelector('summary'), label = account.querySelector('#demo-account-label');
+      const rect = n => { const b = n.getBoundingClientRect(); return { left: b.left, top: b.top, right: b.right, bottom: b.bottom, width: b.width, height: b.height }; };
+      const slot = root.querySelector('slot[name="account"]'), wrap = slot.parentElement;
+      return { box: rect(summary), band: rect(root.querySelector('.band')), gear: rect(root.querySelector('.settings-open')), name: summary.getAttribute('aria-label'), title: summary.title,
+        inRightGroup: wrap.parentElement.classList.contains('header-actions'), beforeGear: wrap.nextElementSibling.classList.contains('settings-open'),
+        label: getComputedStyle(label).display !== 'none', icon: rect(account.querySelector('.utility-icon svg')), chevron: rect(account.querySelector('.utility-chevron svg')) };
+    });
+    const context = `${width}/${theme}/${locale}/${folded}: ${JSON.stringify(control)}`;
+    assert.equal(control.inRightGroup, true, context); assert.equal(control.beforeGear, true, context);
+    assert.ok(control.box.top >= control.band.top && control.box.bottom <= control.band.bottom, context);
+    assert.ok(control.box.left >= 0 && control.box.right <= control.gear.left + .5 && control.gear.right <= width + .5, context);
+    assert.equal(control.icon.width, 16); assert.equal(control.icon.height, 16); assert.equal(control.label, width >= 600);
+    assert.equal(control.name, { de, en }[locale].host.slots.account); assert.equal(control.title, control.name);
+    if (control.label) { assert.equal(control.chevron.width, 10); assert.equal(control.chevron.height, 10); }
+    const shot = async suffix => {
+      if (!evidence) return;
+      const name = `r2-demo-account-${folded ? 'folded' : 'unfolded'}-${suffix}-${width}-${theme}-${locale}.png`;
+      await page.screenshot({ path: join(evidence, name) }); files.push(name);
+    };
+    await shot('closed');
+    const before = await boxes(page, ['.band', '.band-orb', '.host-account', '.settings-open']);
+    await page.click('#demo-account summary'); await settle();
+    const panel = await page.$eval('#demo-account', account => {
+      const b = account.querySelector('div').getBoundingClientRect(), control = account.querySelector('summary').getBoundingClientRect();
+      return { open: account.open, left: b.left, top: b.top, right: b.right, bottom: b.bottom, controlBottom: control.bottom };
+    });
+    assert.equal(panel.open, true); assert.ok(panel.left >= 0 && panel.right <= width + .5 && panel.top >= panel.controlBottom + 5.5 && panel.bottom <= 900, JSON.stringify(panel));
+    sameBoxes(before, await boxes(page, ['.band', '.band-orb', '.host-account', '.settings-open']), 'account disclosure changes no band layout');
+    await shot('open'); await page.keyboard.press('Escape'); assert.equal(await page.$eval('#demo-account', n => n.open), false);
+    checks.push({ width, theme, locale, folded, control, panel });
+  }
+  if (evidence) await writeFile(join(evidence, 'r2-demo-account-evidence.json'), JSON.stringify({ ticket: 'AIT-131', commit: evidenceCommit, files, checks }, null, 2));
+});
+
 test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-display-regressions-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
@@ -378,7 +441,7 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversations-menu').hidden), true);
     }
     await t.test('B1/B2: all band menus share centred chevrons, icon sizes and gaps at every width', async () => {
-      for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [320, 321, 390, 600, 680, 768, 900, 1000, 1024, 1440]) {
+      for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [320, 321, 390, 400, 600, 680, 768, 900, 1000, 1024, 1440]) {
         await page.setViewport({ width, height: 900 }); await page.select('#theme', theme); await scene('conversation');
         const menus = await page.evaluate(() => {
           const root = document.querySelector('aithema-session').shadowRoot;
@@ -391,7 +454,7 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
         });
         assert.ok(menus.every(n => n.bounds.left >= 0 && n.bounds.right <= width + .5), `${width}/${theme}/${locale}: menus fit`);
         assert.ok(menus.every(n => n.chevron), 'language and appearance use the shared SVG chevron');
-        for (const menu of menus.slice(width === 320 ? 1 : 0)) {
+        for (const menu of menus.slice(width < 400 ? 1 : 0)) {
           assert.equal(menu.chevron.width, 10); assert.equal(menu.chevron.height, 10);
           assert.ok(Math.abs(menu.chevron.cy - menu.label.cy) <= .5, 'chevron is centred on its label');
           assert.equal(menu.path, menus[1].path); assert.equal(menu.gap, menus[1].gap);
@@ -454,8 +517,63 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
         const wave = await shadow(page, c => { const n = c.shadowRoot.querySelector('.voice-wave'), style = getComputedStyle(n), rect = n.getBoundingClientRect();
           return { width: rect.width, height: rect.height, flank: rect.width / 2 - parseFloat(style.getPropertyValue('--voice-label-half')) - 8, visibility: style.visibility }; });
         assert.ok(wave.width > 0 && wave.height === 30, 'visibility keeps the reserved box');
-        assert.equal(wave.visibility, wave.flank >= 24 ? 'visible' : 'hidden', JSON.stringify({ width, locale, ...wave }));
+        assert.equal(wave.visibility, wave.width >= 184 && wave.flank >= 24 ? 'visible' : 'hidden', JSON.stringify({ width, locale, ...wave }));
         await shot('band-amended', width, 'light');
+      }
+    });
+    await t.test('r2 menu: icon-only below 400px, whole localized labels from 400px, no ellipsis', async () => {
+      for (locale of ['de', 'en']) for (const width of [390, 400, 1440]) {
+        await page.setViewport({ width, height: 900 }); await page.select('#theme', 'light'); await scene('ready');
+        const menu = await shadow(page, c => {
+          const n = c.shadowRoot.querySelector('.conversations-toggle'), label = n.querySelector('span'), style = getComputedStyle(label);
+          const rect = n.getBoundingClientRect(), labelRect = label.getBoundingClientRect();
+          const range = document.createRange(); range.selectNodeContents(label);
+          return { name: n.getAttribute('aria-label'), title: n.title, label: label.textContent, visible: style.display !== 'none',
+            overflow: style.textOverflow, icon: n.firstElementChild.getBoundingClientRect().width,
+            fits: range.getBoundingClientRect().width <= labelRect.width + .5 && labelRect.right <= rect.right + .5 };
+        });
+        const name = locale === 'de' ? 'Gespräche' : 'Conversations';
+        assert.equal(menu.name, name); assert.equal(menu.title, name); assert.equal(menu.label, name); assert.equal(menu.icon, 16);
+        assert.equal(menu.visible, width >= 400); assert.notEqual(menu.overflow, 'ellipsis');
+        if (menu.visible) assert.equal(menu.fits, true, `${width}/${locale}: ${JSON.stringify(menu)}`);
+        await shot('r2-band', width, 'light');
+      }
+    });
+    await t.test('r2 status: measured hole has no flank pixels beneath the longest consent label and never shifts controls', async () => {
+      for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390]) {
+        await page.setViewport({ width, height: 900 }); await page.select('#theme', theme); await scene('ready');
+        const selectors = ['.band', '.band-orb', '.audio-rail', '.voice-cell--output', '.voice-cell--mic', '.settings-open'];
+        const before = await boxes(page, selectors), mic = (await boxes(page, ['.voice-cell--mic']))[0];
+        await page.mouse.move(mic[0] + 22, mic[1] + 22);
+        await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: false } }));
+        await until(page, expected => document.querySelector('aithema-session').shadowRoot.querySelector('.voice-state').textContent === expected, { de, en }[locale].consentRequired);
+        await settle();
+        const label = await shadow(page, c => {
+          const n = c.shadowRoot.querySelector('.voice-state'), wave = c.shadowRoot.querySelector('.voice-wave'), b = n.getBoundingClientRect(), w = wave.getBoundingClientRect(), style = getComputedStyle(n);
+          return { x: b.x, y: b.y, width: b.width, height: b.height, waveWidth: w.width,
+            half: parseFloat(getComputedStyle(wave).getPropertyValue('--voice-label-half')),
+            lines: (b.height - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom)) / parseFloat(style.lineHeight),
+            overflow: style.textOverflow, scrollHeight: n.scrollHeight, clientHeight: n.clientHeight,
+            visibility: getComputedStyle(wave).visibility };
+        });
+        assert.ok(Math.abs(label.half - label.width / 2) <= .5, `${width}/${theme}/${locale}: measured hole ${JSON.stringify(label)}`);
+        assert.ok(label.lines <= 2.05, `${width}/${theme}/${locale}: at most two lines ${JSON.stringify(label)}`);
+        assert.notEqual(label.overflow, 'ellipsis'); assert.ok(label.scrollHeight <= label.clientHeight + 1, 'the full consent text stays readable');
+        sameBoxes(before, await boxes(page, selectors), 'status and observer preserve every control under the pointer');
+        await shot('r2-consent-status', width, theme, true);
+        // Compare every rendered pixel wholly inside the label box against the same box with the wave hidden.
+        // The label has no background, so even one unmasked flank pixel changes this PNG.
+        const clip = { x: Math.ceil(label.x), y: Math.ceil(label.y), width: Math.floor(label.x + label.width) - Math.ceil(label.x), height: Math.floor(label.y + label.height) - Math.ceil(label.y) };
+        const painted = Buffer.from(await page.screenshot({ clip }));
+        await shadow(page, c => { c.shadowRoot.querySelector('.voice-wave').style.visibility = 'hidden'; });
+        const clear = Buffer.from(await page.screenshot({ clip }));
+        assert.ok(painted.equals(clear), `${width}/${theme}/${locale}: no flank pixel under the label box`);
+        await shadow(page, c => { c.shadowRoot.querySelector('.voice-wave').style.removeProperty('visibility'); });
+        if (evidence) {
+          for (const [suffix, bytes] of [['painted', painted], ['wave-hidden', clear]]) {
+            const name = `r2-consent-pixels-${width}-${theme}-${locale}-${suffix}.png`; await writeFile(join(evidence, name), bytes); files.push(name);
+          }
+        }
       }
     });
     for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {

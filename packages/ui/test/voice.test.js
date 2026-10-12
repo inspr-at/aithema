@@ -75,6 +75,29 @@ test('voice unavailable in preset disables Start with a reason and retains layou
   assert.equal(rail.button('start').disabled, true); assert.equal(rail.button('start').title, 'preset denies voice');
   await rail.start(); assert.equal(root.dataset.state, 'idle'); assert.equal(root.querySelectorAll('button').length, 7);
 });
+test('AIT-131: label ResizeObserver measures the mask, hides short flanks and follows disconnect/reconnect', async t => {
+  const observers = [];
+  t.mock.method(window, 'ResizeObserver', class {
+    constructor(callback) { this.callback = callback; this.targets = new Set(); observers.push(this); }
+    observe(target) { this.targets.add(target); }
+    disconnect() { this.targets.clear(); }
+  });
+  const { rail, root } = fixture(t), label = root.querySelector('.voice-state'), wave = root.querySelector('.voice-wave'), caption = root.querySelector('.voice-caption');
+  const observer = observers.find(o => o.targets.has(label));
+  assert.ok(observer); assert.ok(observer.targets.has(caption)); assert.ok(observer.targets.has(wave));
+  let labelWidth = 300, waveWidth = 500;
+  t.mock.method(label, 'getBoundingClientRect', () => ({ width: labelWidth }));
+  t.mock.method(wave, 'getBoundingClientRect', () => ({ width: waveWidth }));
+  t.mock.method(caption, 'getBoundingClientRect', () => ({ width: 80 }));
+  const buttons = [...root.querySelectorAll('button')];
+  observer.callback(); assert.equal(wave.style.getPropertyValue('--voice-label-half'), '150px'); assert.equal(wave.hasAttribute('data-short-flanks'), false);
+  labelWidth = 440; observer.callback(); assert.equal(wave.hasAttribute('data-short-flanks'), true);
+  waveWidth = 600; observer.callback(); assert.equal(wave.hasAttribute('data-short-flanks'), false);
+  caption.textContent = 'Live words'; observer.callback(); assert.equal(wave.style.getPropertyValue('--voice-label-half'), '40px');
+  assert.deepEqual([...root.querySelectorAll('button')], buttons, 'mask updates preserve the controls');
+  rail.disconnect(); assert.equal(observer.targets.size, 0);
+  rail.connect(); assert.ok(observer.targets.has(label)); assert.ok(observer.targets.has(wave));
+});
 test('three failed reconnects expose recovery and typing controls, with distinct terminal and permission messages', async t => {
   const { rail, root, events } = fixture(t); await rail.start();
   events.push({ type: 'ended', callId: 'local-call', reason: 'recovery-failed' }); events.end(); await tick();

@@ -18,6 +18,11 @@ export class AudioRail {
       <div class="voice-cell voice-cell--mic">${button('start')}${button('input')}</div>
       <div class="voice-cell voice-cell--end">${button('close')}${button('retry')}</div>`;
     this.waveform = new Waveform(root.querySelector('.voice-wave'));
+    const Observer = root.ownerDocument.defaultView?.ResizeObserver;
+    if (Observer) {
+      this.labelSizes = new Observer(() => this.measureLabel());
+      this.observeLabel();
+    }
     this.button('start').addEventListener('click', () => void this.start());
     this.button('close').addEventListener('click', () => void this.close());
     this.button('pause').addEventListener('click', () => void this.pause(!this.paused));
@@ -52,6 +57,17 @@ export class AudioRail {
     this.hidePending = false; this.hide();
   }
   button(name) { return this.root.querySelector(`.voice-${name}`); }
+  observeLabel() {
+    for (const selector of ['.voice-state', '.voice-caption', '.voice-wave']) this.labelSizes?.observe(this.root.querySelector(selector));
+  }
+  measureLabel() {
+    const wave = this.root.querySelector('.voice-wave'), caption = this.root.querySelector('.voice-caption');
+    const label = caption.textContent ? caption : this.root.querySelector('.voice-state');
+    const half = label.getBoundingClientRect().width / 2;
+    // Only paint changes: the label and every control keep their existing layout boxes.
+    wave.style.setProperty('--voice-label-half', `${half}px`);
+    wave.toggleAttribute('data-short-flanks', wave.getBoundingClientRect().width / 2 - half - 8 < 24);
+  }
   capability(name) { return this.client?.manifest?.liveVoice?.capabilities?.[name] !== 'unavailable'; }
   // Keep the failure's meaning so a locale repaint also translates a retained message.
   get error() {
@@ -226,9 +242,10 @@ export class AudioRail {
   quiet() { delete this.root.dataset.measured; this.waveform.baseline(); if (this.connected) this.onLevel?.(0); }
   connect() {
     this.connected = true; this.root.ownerDocument.addEventListener('visibilitychange', this.visibility); this.waveform.connect();
+    this.observeLabel();
   }
   disconnect() {
-    this.connected = false; this.root.ownerDocument.removeEventListener('visibilitychange', this.visibility); this.waveform.destroy(); void this.close();
+    this.connected = false; this.root.ownerDocument.removeEventListener('visibilitychange', this.visibility); this.waveform.destroy(); this.labelSizes?.disconnect(); void this.close();
   }
   destroy() {
     this.onState = null; this.onLevel = null; this.disconnect();

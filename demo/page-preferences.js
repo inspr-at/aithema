@@ -32,6 +32,11 @@ export function mountTheme(document = globalThis.document, storage) {
 }
 export function paintUtilities(copy, document = globalThis.document) {
   for (const chevron of document.querySelectorAll('.utility-chevron')) chevron.innerHTML = icon('chevron');
+  const account = document.querySelector('#demo-account summary');
+  if (account) {
+    document.querySelector('#demo-account-icon').innerHTML = icon('person');
+    account.title = copy.host.slots.account; account.setAttribute('aria-label', copy.host.slots.account);
+  }
   document.querySelector('#language-label').textContent = copy.host.language;
   const language = document.querySelector('#locale');
   const languageValue = document.querySelector('#language-value'); if (languageValue) languageValue.textContent = language.value.toUpperCase();

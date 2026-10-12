@@ -37,6 +37,7 @@ export class ConversationsMenu {
   setCopy(copy) {
     this.#copy = copy; const c = copy.display;
     setText(this.#button.querySelector('span'), copy.hostSurface.library.open); this.#button.title = copy.hostSurface.library.open;
+    this.#button.setAttribute('aria-label', copy.hostSurface.library.open);
     this.#menu.setAttribute('aria-label', copy.hostSurface.library.open);
     setText(this.#root.querySelector('.conversations-new span'), c.newConversation);
     setText(this.#root.querySelector('.library-open-dialog'), c.manageConversations);
