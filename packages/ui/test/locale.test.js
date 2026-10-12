@@ -113,12 +113,28 @@ test('AIT-127: rapid choices are serialized and a queued choice never changes a 
   assert.equal(await next, false); assert.equal(c.session.id, other.id); assert.equal(posts.length, 3);
 });
 
-test('AIT-127: device locale changes are local and never reconnect the device or replace its draft', async t => {
+test('AIT-127: device locale uses server metadata and never reconnects the device or replaces its draft', async t => {
   const { c, root, session, posts } = fixture(t);
   c.configure({ session: { ...session, processingPreset: 'device' }, copy: en, copyForLocale: locale => ({ en, de })[locale] });
   const input = root.querySelector('textarea'); input.value = 'Device draft';
-  assert.equal(await c.changeLocale('de'), true); assert.equal(posts.length, 0);
+  assert.equal(await c.changeLocale('de'), true); assert.equal(posts.length, 1);
   assert.equal(c.session.locale, 'de'); assert.equal(root.querySelector('textarea'), input); assert.equal(input.value, 'Device draft');
+});
+
+test('AIT-127: changing device locale does not consume a server settings acknowledgement on exit', async t => {
+  const { c, session } = fixture(t);
+  c.configure({ session: { ...session, processingPreset: 'device' }, copy: en, copyForLocale: locale => ({ en, de })[locale] });
+  c.remove(); let serverSeq = session.seq;
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
+    assert.equal(url, `/api/sessions/${session.id}/locale`);
+    const event = { sessionId: session.id, seq: ++serverSeq, type: 'session.locale-changed', data: { locale: JSON.parse(init.body).locale } };
+    return Response.json({ event });
+  });
+  await c.changeLocale('de');
+  c.receive({ sessionId: session.id, seq: ++serverSeq, type: 'settings.changed', data: { processingPreset: 'best',
+    settings: { ...session.settings, revision: 1, origin: 'chosen' } } });
+  assert.equal(c.session.processingPreset, 'best'); assert.equal(c.session.settings.revision, 1);
+  assert.equal(c.session.seq, serverSeq); assert.equal(c.session.locale, 'de');
 });
 
 test('AIT-127: a restore fetched before locale and first-turn events cannot roll them back', async t => {
