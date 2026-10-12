@@ -13,12 +13,12 @@ const routes = new RegExp(`^/api/sessions/(${idPattern})/voice(?:/(${idPattern})
 const facadeRoute = new RegExp(`^/api/voice/(${idPattern})/llm/chat/completions$`, 'u');
 const staticFacadeRoute = '/api/voice/llm/chat/completions';
 
-// Voice-only guidance composes with core's shared REPLY_POLICY via reasoningRequest.
+// Voice-only guidance composes with core's shared policies via reasoningRequest.
 const VOICE_REPLY_POLICY = `Voice reply guidance:
 A focused question is only a suggestion: check the conversation before asking it, even when understanding is current.
 When understanding is stale or draft, ignore its open questions as next-question candidates. If the latest answer resolves the preceding question, acknowledge it briefly and let the assessment catch up; do not repeat the question or claim the assessment is complete.
 Use two or three short sentences, usually at most 60 words, and at most one question about a genuinely unresolved point. A question is optional; answer the person's immediate request first.
-Do not read back the running summary or recap the whole answer. Speak naturally without lists or reasoning aloud. Use idiomatic German with the polite Sie form when the locale is German.`;
+Do not read back the running summary or recap the whole answer. Speak naturally without lists or reasoning aloud.`;
 
 function unrecordedVoiceInput(session, messages, { callId, providerSessionId }) {
   const latest = messages.at(-1);
