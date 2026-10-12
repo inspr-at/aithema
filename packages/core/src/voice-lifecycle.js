@@ -56,6 +56,8 @@ export function reduceVoiceLifecycle(state, event) {
       state: state.holds.length ? 'paused' : 'recovering', checkpoint: cutover() };
     case 'recovery-attempt': return { ...state, attempts: state.attempts + 1 };
     case 'recovery-failed': return state.attempts < 3 ? state : { ...state, state: 'waiting', needsRecovery: true, holds: hold('waiting') };
+    case 'recovery-exhausted': return { ...state, state: 'waiting', attempts: 3, needsRecovery: true,
+      holds: hold('waiting'), checkpoint: cutover() };
     case 'lease-expired': return { ...state, state: 'waiting', needsRecovery: true, holds: hold('waiting'), checkpoint: cutover() };
     case 'sleep': return { ...state, state: 'paused', holds: hold('sleep'), needsRecovery: true, checkpoint: cutover() };
     case 'wake': case 'ownership-lost': case 'server-restart':

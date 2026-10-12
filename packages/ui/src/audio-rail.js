@@ -8,9 +8,13 @@ import { watchVoiceHeartbeat, voiceAuthorityLost } from '../../core/src/voice-li
 // End and Retry call, Sound and Enable sound), so no state change moves a control.
 const BUTTONS = { start: ['mic'], input: ['mic', true], output: ['volume', true], playback: ['volume'], close: ['stop'], retry: ['refresh'] };
 export class AudioRail {
-  constructor({ root, copy, client, feature, context, onPartial, onPause, onEnd, onState, onLevel, playback, journal, ready, heartbeatMs = 10_000 }) {
+  constructor({ root, copy, client, feature, context, onPartial, onPause, onEnd, onState, onLevel, playback, journal, ready, waitingCall, heartbeatMs = 10_000 }) {
     Object.assign(this, { root, copy, client, feature, context, onPartial, onPause, onEnd, onState, onLevel, playback, journal, ready, heartbeatMs });
     this.state = 'idle'; this.input = true; this.output = true; this.generation = 0; this.connected = true;
+    if (waitingCall?.state === 'waiting' && waitingCall.providerSessionId) {
+      this.waitingCall = { callId: waitingCall.callId, providerSessionId: waitingCall.providerSessionId };
+      this.state = 'waiting'; this.paused = true;
+    }
     const button = name => `<button data-reveal class="voice-${name}" type="button">${name === 'pause' ? `<span class="voice-icon">${icon('pause')}</span><span class="voice-icon voice-icon--resume">${icon('play')}</span>`
       : icon(BUTTONS[name][0], { slash: BUTTONS[name][1] === true })}<span class="voice-label"></span></button>`;
     root.innerHTML = `<div class="voice-cell voice-cell--output">${button('output')}${button('playback')}</div>
@@ -26,7 +30,7 @@ export class AudioRail {
     }
     this.button('start').addEventListener('click', () => void this.start());
     this.button('close').addEventListener('click', () => void this.close());
-    this.button('pause').addEventListener('click', () => void this.pause(!this.paused));
+    this.button('pause').addEventListener('click', () => void (this.waitingCall ? this.start() : this.pause(!this.paused)));
     for (const [name, channel] of [['input', 'setInput'], ['output', 'setOutput']]) {
       this.button(name).addEventListener('click', async () => {
         if (!this.session || this.busy) return;
@@ -84,7 +88,7 @@ export class AudioRail {
   }
   render() {
     // Closing a rail that had no call (an invalidation while idle) is no call: it never marks one active.
-    const c = this.copy, active = Boolean(this.session), available = this.feature(),
+    const c = this.copy, active = Boolean(this.session || this.waitingCall), available = this.feature(),
       transitional = ['connecting', 'recovering'].includes(this.state) || this.state === 'closing' && this.closingCall;
     const state = this.paused && active && this.state !== 'waiting' ? 'paused' : this.state;
     if (this.root.dataset.state !== undefined && this.root.dataset.state !== state) queueMicrotask(() => { if (this.connected) this.onState?.(state); });
@@ -107,6 +111,8 @@ export class AudioRail {
         : name === 'close' ? !active && this.state !== 'connecting' : !active || name !== 'close' && (this.busy || transitional || command && !this.capability(command));
       if (name === 'start' && button.disabled && !active) button.title = available.reason ?? c.notConfigured;
       if (command && !this.capability(command)) button.title = c.voiceCommandUnavailable;
+      if (this.waitingCall && ['input', 'output'].includes(name)) button.disabled = true;
+      if (this.waitingCall && name === 'pause') button.disabled = Boolean(this.busy || transitional || !available.available || !this.client);
     }
     this.button('input').setAttribute('aria-pressed', String(this.input));
     this.button('output').setAttribute('aria-pressed', String(this.output));
@@ -142,9 +148,9 @@ export class AudioRail {
       this.playbackWatcher = watchVoicePlayback(this.root.ownerDocument, () => {
         if (generation === this.generation && (session ? session === this.session : this.state === 'connecting')) this.reportPlaybackBlocked();
       });
-      session = await this.client.start({ callId: crypto.randomUUID() }, { signal: controller.signal, holdSignal: holdController.signal, deadlineAt: Date.now() + 30_000 });
+      session = await this.client.start(this.waitingCall ?? { callId: crypto.randomUUID() }, { signal: controller.signal, holdSignal: holdController.signal, deadlineAt: Date.now() + 30_000 });
       if (generation !== this.generation) { await session.close(); return; }
-      this.session = session; this.paused = false; this.state = 'listening';
+      this.session = session; this.waitingCall = null; this.paused = false; this.state = 'listening';
       this.journal?.save({ callId: session.callId, providerSessionId: session.providerSessionId });
       await session.setInput(this.input);
       if (!this.current(session, generation)) return;
@@ -175,7 +181,8 @@ export class AudioRail {
       if (this.root.ownerDocument.hidden || this.hidePending) { this.hidePending = false; this.hide(); }
     } catch (error) {
       if (generation !== this.generation || session && session !== this.session) return;
-      this.stopHeartbeat?.(); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.session = null; controller.abort(); this.state = 'failed'; this.failure(error);
+      this.stopHeartbeat?.(); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.session = null; controller.abort();
+      this.state = this.waitingCall ? 'waiting' : 'failed'; this.failure(error);
     }
   }
   async consume(session, generation) {
@@ -265,12 +272,14 @@ export class AudioRail {
       if (reason) void this.closingSession?.close({ reason }).catch(() => {});
       return this.closing;
     }
-    const session = this.session;
+    const waiting = this.waitingCall;
+    const session = this.session ?? (waiting && this.client?.closeWaiting ? { ...waiting,
+      close: options => this.client.closeWaiting(waiting, options) } : null);
     this.closingSession = session;
     const generation = ++this.generation;
     this.stopHeartbeat?.(); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.quiet();
     this.endedCall = session ? { callId: session.callId, providerSessionId: session.providerSessionId } : null;
-    this.session = null; this.hidePending = false; this.paused = false; this.busy = false; this.beating = false; this.playbackBlocked = false; this.state = 'idle';
+    this.session = null; this.waitingCall = null; this.hidePending = false; this.paused = false; this.busy = false; this.beating = false; this.playbackBlocked = false; this.state = 'idle';
     this.errorKey = session ? 'voiceClosureUncertain' : null;
     if (reason?.includes('deadline')) { this.state = 'failed'; this.errorKey = 'voiceDeadline'; }
     this.root.querySelector('.voice-caption').textContent = ''; this.render();
@@ -294,7 +303,8 @@ export class AudioRail {
     this.observeLabel();
   }
   disconnect() {
-    this.connected = false; this.root.ownerDocument.removeEventListener('visibilitychange', this.visibility); this.waveform.destroy(); this.labelSizes?.disconnect(); void this.close();
+    this.connected = false; this.root.ownerDocument.removeEventListener('visibilitychange', this.visibility); this.waveform.destroy(); this.labelSizes?.disconnect();
+    if (this.session || this.state === 'connecting') void this.close();
   }
   destroy() {
     this.onState = null; this.onLevel = null; this.disconnect();

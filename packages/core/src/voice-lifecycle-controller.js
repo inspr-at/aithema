@@ -19,10 +19,16 @@ export function watchVoiceHeartbeat({ heartbeat, current = () => true, onFailure
 
 /** Transport ports own SDK effects; this controller owns outage policy, holds and deadlines. */
 export function createVoiceLifecycleController({ callId, renew, replace, beforeRecovery = async () => {},
-  failedReplacement = async () => {}, stopMedia = () => {}, terminal = () => {}, onEvent = () => {}, now = Date.now } = {}) {
+  failedReplacement = async () => {}, persistWaiting = async () => {}, stopMedia = () => {}, terminal = () => {}, onEvent = () => {}, now = Date.now } = {}) {
   let state = createVoiceLifecycle(callId), recovery, renewal, timer, stopHeartbeat;
   const dispatch = event => { state = reduceVoiceLifecycle(state, event); return state; };
   const ended = () => state.state === 'ended';
+  const exhausted = async () => {
+    dispatch({ type: 'recovery-exhausted' }); stopMedia();
+    try { await persistWaiting({ reason: 'recovery-failed', attempts: state.attempts }); }
+    catch { /* Local media stays stopped if the server is temporarily unreachable. */ }
+    if (!ended()) onEvent({ type: 'waiting', reason: 'recovery-failed' });
+  };
   const schedule = () => {
     clearTimeout(timer);
     if (ended() || !Number.isFinite(state.spendDeadlineAt)) return;
@@ -63,13 +69,10 @@ export function createVoiceLifecycleController({ callId, renew, replace, beforeR
           dispatch({ type: 'recovery-failed' });
         }
       }
-      if (!ended()) {
-        dispatch({ type: 'lease-expired' }); stopMedia();
-        onEvent({ type: 'waiting', reason: 'recovery-failed' });
-      }
+      if (!ended()) await exhausted();
       return false;
-    }).catch(() => {
-      if (!ended()) { dispatch({ type: 'lease-expired' }); stopMedia(); onEvent({ type: 'waiting', reason: 'recovery-failed' }); }
+    }).catch(async () => {
+      if (!ended()) await exhausted();
       return false;
     }).finally(() => { recovery = undefined; schedule(); });
     schedule(); return recovery;

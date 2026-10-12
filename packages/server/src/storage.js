@@ -384,7 +384,8 @@ export class SQLiteStorage {
     });
   }
   voiceLifecycle(id, callId) {
-    const row = this.db.prepare('SELECT record FROM voice_lifecycle_calls WHERE session_id=? AND call_id=?').get(id, callId);
+    const row = this.db.prepare('SELECT record FROM voice_lifecycle_calls WHERE session_id=? AND (? IS NULL OR call_id=?) ORDER BY rowid DESC LIMIT 1')
+      .get(id, callId ?? null, callId ?? null);
     return row ? JSON.parse(row.record) : null;
   }
   transitionVoiceLifecycle(id, callId, event) {

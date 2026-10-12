@@ -78,6 +78,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
   return {
     manifest,
     async health(options) { return voiceOperation(options, async () => ({ available: typeof (await getSdk())?.startSession === 'function' })); },
+    closeWaiting: (identity, options) => voiceOperation(options, opts => control.close({ ...identity, reason: options?.reason ?? 'closed' }, opts)),
     async start(request, options = {}) {
       const events = voiceEvents();
       let conversation, capture, grant, generation = 0, ended = false, closing, delivery = Promise.resolve(), commands = Promise.resolve();
@@ -449,6 +450,9 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
             try { await voiceOperation({ deadlineAt: Date.now() + 1000 }, opts => control.close({ ...identity(), reason: 'recovery-failed' }, opts)); } catch {}
           }
         },
+        async persistWaiting({ reason, attempts }) {
+          await voiceOperation({ deadlineAt: Date.now() + 5000 }, opts => control.close({ ...identity(), reason, recoveryAttempts: attempts }, opts));
+        },
       });
       const retainHold = () => {
         if (ended) return;
@@ -474,7 +478,15 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
         await voiceOperation(options, async opts => {
           lifecycle.dispatch({ type: 'start' });
           if (options.holdSignal?.aborted) retainHold();
-          const receipt = await control.start(request, opts); await connect(receipt, opts); lifecycle.connected(receipt);
+          if (request.providerSessionId) { paused = true; lifecycle.pause('waiting'); }
+          const receipt = request.providerSessionId
+            ? await control.recover({ callId: request.callId, providerSessionId: request.providerSessionId }, opts) : await control.start(request, opts);
+          await connect(receipt, opts); lifecycle.connected(receipt);
+          if (request.providerSessionId && !options.holdSignal?.aborted) {
+            const ack = await control.resume(identity(), opts);
+            if (ack?.acknowledged !== true || ack.paused !== false) throw new PluginError('invalid-output', 'Resume not acknowledged');
+            paused = false; lifecycle.resumed(); await capture.run(() => channels());
+          }
         });
         options.signal?.addEventListener('abort', cancel, { once: true });
         if (options.signal?.aborted) { cancel(); throw new PluginError('cancelled'); }
@@ -539,7 +551,13 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           heartbeat: opts => lifecycle.heartbeat(opts),
         };
         return assertVoiceSession(session);
-      } catch (error) { await close('start-failed', { deadlineAt: Date.now() + 1000 }); throw error; }
+      } catch (error) {
+        if (request.providerSessionId && grant && !ended) {
+          try { await voiceOperation({ deadlineAt: Date.now() + 1000 }, opts => control.close({ ...identity(),
+            reason: 'recovery-failed', recoveryAttempts: 3 }, opts)); } catch {}
+        }
+        await close(request.providerSessionId ? 'recovery-failed' : 'start-failed', { deadlineAt: Date.now() + 1000 }); throw error;
+      }
     },
   };
 }

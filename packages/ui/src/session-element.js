@@ -312,6 +312,7 @@ export class AithemaSession extends HTMLElement {
       } catch { this.#status(this.#copy.reasoningFailed); }
     });
     this.#rail = new AudioRail({ root: root.querySelector('.audio-rail'), copy: this.#copy, client: this.#voiceClientFor(),
+      waitingCall: this.#session.voiceLifecycle,
       feature: () => this.#feature('voice', true), playback: this.#voicePlayback, journal: this.#journal ?? undefined,
       ready: () => this.#orphan, onLevel: level => this.#orb?.setEnergy(level),
       // A call that starts, ends or fails moves the stage and the avatar with it.
@@ -342,6 +343,7 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.pause').addEventListener('click', async () => {
       const button = root.querySelector('.pause');
       if (this.#rail.session) { await this.#rail.pause(!this.#rail.paused); return; }
+      if (this.#rail.waitingCall) { await this.#rail.start(); return; }
       button.disabled = true;
       try { await this.#setPaused(!this.#session.paused); }
       finally { button.disabled = false; }
@@ -407,6 +409,7 @@ export class AithemaSession extends HTMLElement {
   async #endOrphanedCall() {
     const record = this.#journal?.read(), sessionId = this.#session.id;
     if (!record) return;
+    if (this.#session.voiceLifecycle?.state === 'waiting' && this.#session.voiceLifecycle.callId === record.callId) return;
     try {
       const abandoned = await voiceCallAbandoned(record.callId);
       if (sessionId !== this.#session.id) return;
@@ -581,7 +584,7 @@ export class AithemaSession extends HTMLElement {
     this.#paintStatus(); this.#paintNotice(); this.#fold?.update(this.#session);
     const pause = root.querySelector('.pause');
     if (pause) {
-      const voicePaused = this.#rail?.session ? this.#rail.paused : this.#session.paused;
+      const voicePaused = this.#rail?.session || this.#rail?.waitingCall ? this.#rail.paused : this.#session.paused;
       setText(pause.querySelector('.voice-label'), voicePaused ? copy.resume : copy.pause); pause.title = pause.textContent;
       pause.setAttribute('aria-pressed', String(Boolean(voicePaused)));
     }

@@ -133,8 +133,10 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     const resumable = recoverableVoiceEnd(reason);
     // Logical terminal intent commits before abort/settlement. A provider terminal
     // receipt only closes its own segment and cannot reopen the logical call.
-    storage.transitionVoiceLifecycle(entry.sessionId, entry.callId, { type: resumable
-      ? reason === 'browser-liveness-deadline' ? 'lease-expired' : 'transport-lost' : 'end', reason });
+    if (!resumable || storage.voiceLifecycle(entry.sessionId, entry.callId)?.state !== 'waiting') {
+      storage.transitionVoiceLifecycle(entry.sessionId, entry.callId, { type: resumable
+        ? reason === 'browser-liveness-deadline' ? 'lease-expired' : 'transport-lost' : 'end', reason });
+    }
     // Transport replacement ends readers/media, not already admitted reasoning.
     // Terminal intent and revocation still stop every generation of logical work.
     if (!resumable || reason === 'server-stopping') endAuthority(entry.sessionId, entry.callId);
@@ -148,7 +150,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     if (sessions.get(entry.sessionId) === entry) sessions.delete(entry.sessionId);
     publish(entry.sessionId, { type: 'voice.state', data: { callId: entry.callId,
       providerSessionId: entry.call?.providerSessionId,
-      state: resumable ? reason === 'browser-liveness-deadline' ? 'waiting' : 'recovering' : 'closing', reason } });
+      state: resumable ? storage.voiceLifecycle(entry.sessionId, entry.callId).state : 'closing', reason } });
     const settle = async () => {
       try {
         let pending;
@@ -309,6 +311,16 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
   }
   return {
     active: id => sessions.has(id),
+    snapshot(id) {
+      const logical = storage.voiceLifecycle(id);
+      if (!logical || logical.state === 'idle') return null;
+      // Authority revisions and checkpoints remain private; the UI needs only
+      // public identity and state to offer an explicitly requested continuation.
+      const { callId, providerSessionId, providerGeneration, state, attempts, needsRecovery,
+        spendDeadlineAt, browserLivenessDeadlineAt } = logical;
+      return { callId, providerSessionId, providerGeneration, state, attempts, needsRecovery,
+        spendDeadlineAt, browserLivenessDeadlineAt };
+    },
     typedContext(id, ownerToken, callId, providerSessionId) {
       const entry = calls.get(callId);
       if (!entry?.call || entry.sessionId !== id || entry.ownerToken !== ownerToken || entry.call.providerSessionId !== providerSessionId) throw new NotFoundError('Call not found');
@@ -356,6 +368,16 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           throw new PluginError('not-admitted', 'Logical call ended');
         }
         const logical = storage.voiceLifecycle(sessionId, callId);
+        if (action === 'close' && body.recoveryAttempts !== undefined &&
+          (body.reason !== 'recovery-failed' || !Number.isSafeInteger(body.recoveryAttempts) || body.recoveryAttempts < 1 || body.recoveryAttempts > 3)) {
+          throw new TypeError('Invalid recovery attempt count');
+        }
+        if (action === 'close' && previous && body.reason === 'recovery-failed' && body.recoveryAttempts === 3 &&
+          logical?.state !== 'ended' && logical?.providerSessionId === body.providerSessionId) {
+          const waiting = storage.transitionVoiceLifecycle(sessionId, callId, { type: 'recovery-exhausted' });
+          publish(sessionId, { type: 'voice.state', data: { callId, providerSessionId: body.providerSessionId,
+            state: waiting.state, attempts: waiting.attempts, reason: body.reason } });
+        }
         if (action === 'recover' && logical?.authorizationRevision && logical.authorizationRevision !== voiceAuthorizationRevision(storage.get(sessionId))) {
           throw new PluginError('not-admitted', 'Call authorization changed');
         }
