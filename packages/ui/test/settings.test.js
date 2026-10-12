@@ -98,7 +98,7 @@ test('AIT-147 footer: an enabled host without an identity port keeps the origina
 
 async function verificationDraft(t, options = {}) {
   const h = await opened(fixture(t, { copy: de, host: { verification: true }, identity: guestIdentity, ...options }));
-  h.q('[data-select="model"] .select__button').click(); h.option('model', 'Deep (mock)').click(); await tick(6);
+  h.q('[data-select="model"] .select__button').click(); h.q('#settings-options-model [data-value="mock/deep"]').click(); await tick(6);
   assert.equal(h.c.session.settings.effort, 'medium');
   const effort = h.q('#settings-effort'); effort.value = '2'; effort.dispatchEvent(new window.Event('input', { bubbles: true }));
   h.q('[data-tab="general"]').click();
