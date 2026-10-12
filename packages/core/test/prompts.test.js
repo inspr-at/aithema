@@ -12,6 +12,8 @@ for (const [locale, language, answer] of [
   test(`AIT-148: ${locale} text replies reject stock openings and respect confirmed answers`, () => {
     const { system } = core.reasoningRequest(session, 'reaction');
     assert.ok(system.includes(`Write in ${language} (locale ${locale})`));
+    assert.match(system, /Ask at most one question per reply/u);
+    assert.match(system, /canonical person turns and the latest callback answer take precedence/u);
     assert.match(system, /Never open formulaically with "Danke", "Vielen Dank", "Thanks" or "Thank you"/u);
     assert.match(system, /Do not replace these with another repeated stock opener or praise/u);
     assert.match(system, /Vary acknowledgements and engage directly/u);
@@ -21,7 +23,7 @@ for (const [locale, language, answer] of [
 
   test(`AIT-148: ${locale} text replies do not inherit voice-only rules`, () => {
     const { system } = core.reasoningRequest(session, 'reaction');
-    assert.doesNotMatch(system, /two or three short sentences|at most 60 words|at most one question/iu);
+    assert.doesNotMatch(system, /two or three short sentences|at most 60 words/iu);
     assert.doesNotMatch(system, /Do not read back[^\n]*summary|without lists or reasoning aloud/iu);
     assert.doesNotMatch(system, /stale or draft, ignore its open questions|focused question is only a suggestion/iu);
   });
