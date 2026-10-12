@@ -61,6 +61,7 @@ test('AIT-132: one click sends only the exact option text once, waits for persis
   const calls = [], held = Promise.withResolvers();
   t.mock.method(globalThis, 'fetch', async (url, request) => { calls.push({ url, body: JSON.parse(request.body) }); return held.promise; });
   const button = root.querySelector('.qopt'); button.click(); button.click();
+  assert.equal(button.disabled, false); assert.equal(button.getAttribute('aria-disabled'), 'true');
   assert.equal(calls.length, 1); assert.equal(calls[0].body.content, '  Both\ncolours  ');
   assert.match(calls[0].url, /\/turns$/u); assert.equal(shown(c), true, 'the question stays until its answer is persisted');
   held.resolve(Response.json({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'answer', role: 'user', content: calls[0].body.content } }));

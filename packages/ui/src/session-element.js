@@ -587,7 +587,7 @@ export class AithemaSession extends HTMLElement {
   #paint(part) {
     const root = this.shadowRoot, copy = this.#copy;
     this.#paintStatus(); this.#paintNotice(); this.#fold?.update(this.#session, hasOpenReplyQuestion(this.#session));
-    this.#questionCard?.update(currentQuestionCard(this.#session), copy, this.#sending || !this.#feature('text').available);
+    this.#questionCard?.update(currentQuestionCard(this.#session), copy, !this.#feature('text').available, this.#sending);
     const pause = root.querySelector('.pause');
     if (pause) {
       setText(pause.querySelector('.voice-label'), this.#session.paused ? copy.resume : copy.pause); pause.title = pause.textContent;

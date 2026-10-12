@@ -18,14 +18,15 @@ export const questionCardStyles = `
   min-height:44px; padding:0 10px; border:0; border-radius:10px; background:transparent; color:var(--aithema-ink);
   font:14.5px/1.4 var(--aithema-font); text-align:left; }
 .qopt .t { overflow-wrap:anywhere; padding-block:8px; }
-.qopt:hover:not(:disabled) { background:color-mix(in srgb,var(--aithema-accent) 10%,transparent); }
+.qopt:hover:not(:disabled):not([aria-disabled="true"]) { background:color-mix(in srgb,var(--aithema-accent) 10%,transparent); }
 .qopt .go { width:30px; height:30px; border-radius:50%; display:grid; place-items:center; color:var(--aithema-accent);
   box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--aithema-accent) 40%,transparent); }
 .qopt .go svg { width:14px; height:14px; }
-.qopt:hover:not(:disabled) .go, .qopt:focus-visible .go, .qopt.likely .go {
+.qopt:hover:not(:disabled):not([aria-disabled="true"]) .go, .qopt:focus-visible .go, .qopt.likely .go {
   background:var(--aithema-accent); color:var(--aithema-on-accent); box-shadow:none; }
 .qopt.likely, .qopt.likely:hover:not(:disabled) { background:color-mix(in srgb,var(--aithema-accent) 13%,transparent); font-weight:600; }
 .qopt:focus-visible { border-radius:10px; outline-offset:-2px; }
+.qopt[aria-disabled="true"] { opacity:.5; cursor:wait; }
 .qopt .tag { font:500 11.5px var(--aithema-font); color:var(--aithema-accent); }
 .qhint { margin:0; padding-left:10px; font-size:12.5px; line-height:1.4; color:var(--aithema-muted); }
 .transcript-shell { padding-bottom:calc(1.5rem + var(--aithema-slack-bottom,0px) + var(--question-card-height,0px)); }
@@ -42,7 +43,7 @@ export class QuestionCard {
     this.root = root; this.card = root.querySelector('.qcard'); this.answers = new WeakMap(); this.onResize = onResize;
     this.card.addEventListener('click', event => {
       const button = event.target.closest('.qopt');
-      if (button && !button.disabled && this.answers.has(button)) send(this.answers.get(button));
+      if (button && !button.disabled && button.getAttribute('aria-disabled') !== 'true' && this.answers.has(button)) send(this.answers.get(button));
     });
     this.connect();
   }
@@ -58,7 +59,7 @@ export class QuestionCard {
     this.root.querySelector('.conversation').style.setProperty('--question-card-height', `${height}px`);
     this.onResize?.();
   }
-  update(question, copy, disabled) {
+  update(question, copy, unavailable, sending = false) {
     const focused = this.card.contains(this.root.activeElement);
     this.card.hidden = !question;
     if (!question) {
@@ -79,7 +80,10 @@ export class QuestionCard {
       const arrow = node('span', 'go'); arrow.setAttribute('aria-hidden', 'true'); arrow.innerHTML = icon('arrowRight');
       button.append(node('span', 't'), node('span', 'tag'), arrow); return button;
     }, (button, option) => {
-      this.answers.set(button, option.text); button.disabled = disabled;
+      // A pending answer remains focused until its persisted turn closes the card.
+      // Native disabled is reserved for unavailable text input; aria-disabled blocks repeat submissions.
+      this.answers.set(button, option.text); button.disabled = unavailable;
+      button.setAttribute('aria-disabled', String(sending));
       button.classList.toggle('likely', option.likely === true);
       setText(button.querySelector('.t'), option.text); setText(button.querySelector('.tag'), option.likely ? c.suggestion : '');
       button.title = option.likely ? c.likely : '';
