@@ -121,6 +121,25 @@ test('AIT-138 fix 2: pause correlation survives durable replay without admitting
   assert.equal(h.storage.read(h.session.id, before).filter(event => event.type === 'session.paused').length, 1);
 });
 
+test('AIT-138 fix 3: Resume correlation survives durable replay and invalid identifiers cannot lift a Pause', async t => {
+  const h = voiceFixture(t), grant = await h.start(), resumeRequestId = crypto.randomUUID();
+  const identity = { providerSessionId: grant.providerSessionId };
+  await h.route(`/voice/${grant.callId}/pause`, identity);
+  const before = h.storage.get(h.session.id).seq;
+  const response = await h.route(`/voice/${grant.callId}/resume`, { ...identity, resumeRequestId });
+  assert.equal(response.status, 200);
+  const resumes = h.storage.read(h.session.id, before).filter(event => event.type === 'session.paused' && !event.data.paused);
+  assert.equal(resumes.length, 1); assert.equal(resumes[0].data.resumeRequestId, resumeRequestId);
+  await h.route(`/voice/${grant.callId}/pause`, identity);
+  const heldAt = h.storage.get(h.session.id).seq;
+  for (const invalidId of [{ unexpected: true }, '', 'contains spaces']) {
+    const invalid = await h.route(`/voice/${grant.callId}/resume`, { ...identity, resumeRequestId: invalidId });
+    assert.equal(invalid.status, 400); assert.equal(h.storage.get(h.session.id).paused, true);
+    assert.equal(h.storage.voiceLifecycle(h.session.id, grant.callId).state, 'paused');
+  }
+  assert.deepEqual(h.storage.read(h.session.id, heldAt), [], 'invalid Resume requests produce no durable events');
+});
+
 test('AIT-138 fix 2: background closure confirmation preserves a waiting logical call', async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
   const h = voiceFixture(t, { unknown: true, leaseMs: 20, voiceOptions: { reconcileIntervalMs: 10,

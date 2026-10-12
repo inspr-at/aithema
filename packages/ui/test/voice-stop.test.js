@@ -50,14 +50,15 @@ function fixture(t, { transport, restored = true, component = false, echoPause =
       return Response.json({ closureConfirmed: true, usage: { costEstimated: false } });
     }
     if (url.endsWith('/resume')) {
-      resumeEntered.resolve(); await resumeAck.promise; return Response.json({ acknowledged: true, paused: false });
+      resumeEntered.resolve(); await resumeAck.promise; request.completed = true;
+      return Response.json({ acknowledged: true, paused: false });
     }
     if (url.endsWith('/pause')) {
       if (echoPause && !echoed) {
         echoed = true; element.receive({ seq: 1, type: 'session.paused',
           data: { paused: true, pauseRequestId: request.body.pauseRequestId } });
       }
-      return Response.json({ acknowledged: true, paused: true });
+      request.completed = true; return Response.json({ acknowledged: true, paused: true });
     }
     if (url.endsWith('/heartbeat')) return Response.json({ acknowledged: true, browserLivenessDeadlineAt: Date.now() + 30_000 });
     callId = request.body.callId; return Response.json(receipt());
@@ -91,6 +92,80 @@ function fixture(t, { transport, restored = true, component = false, echoPause =
 }
 
 for (const transport of ['webrtc', 'websocket']) {
+  for (const hold of ['server Pause', 'visibility hold']) {
+    test(`AIT-138 fix 3: ${transport} delayed superseded Resume echo preserves ${hold} after compensating Pause HTTP`, async t => {
+      const f = fixture(t, { transport, restored: false, component: true });
+      let acquisitions = 0; f.sdk.beforeAcquire = () => { acquisitions++; };
+      const pause = f.root.querySelector('.pause'), root = f.root.querySelector('.audio-rail');
+      f.root.querySelector('.voice-start').click(); await flush();
+      pause.click(); await flush(); pause.click(); await f.resumeEntered.promise;
+      const beforeAcquisitions = acquisitions, beforeEffects = f.sdk.effects.length;
+      if (hold === 'server Pause') f.element.receive({ seq: 1, type: 'session.paused', data: { paused: true } });
+      else {
+        t.mock.method(document, 'hidden', () => true, { getter: true });
+        document.dispatchEvent(new window.Event('visibilitychange'));
+      }
+      // The superseded Resume completes on the server, then its compensating Pause
+      // completes over HTTP before either durable echo is delivered to the UI.
+      f.resumeAck.resolve(); await flush();
+      const resumes = f.requests.filter(request => request.url.endsWith('/resume'));
+      const pauses = f.requests.filter(request => request.url.endsWith('/pause'));
+      assert.equal(resumes.length, 1); assert.equal(resumes[0].completed, true);
+      assert.equal(pauses.length, 2); assert.ok(pauses.every(request => request.completed));
+      if (hold === 'visibility hold') t.mock.method(document, 'hidden', () => false, { getter: true });
+      let seq = f.element.session.seq;
+      f.element.receive({ seq: ++seq, type: 'session.paused',
+        data: { paused: false, resumeRequestId: resumes[0].body.resumeRequestId } });
+      f.element.receive({ seq: ++seq, type: 'session.paused',
+        data: { paused: true, pauseRequestId: pauses[1].body.pauseRequestId } });
+      await flush();
+      assert.deepEqual({ getUserMedia: acquisitions - beforeAcquisitions,
+        unmuted: f.sdk.effects.slice(beforeEffects).filter(([name, volume]) => name === 'setVolume' && volume > 0),
+        state: root.dataset.state, paused: f.element.session.paused, lifecycle: f.returned[0].lifecycle.state.state,
+        resumes: f.requests.filter(request => request.url.endsWith('/resume')).length },
+      { getUserMedia: 0, unmuted: [], state: 'paused', paused: true, lifecycle: 'paused', resumes: 1 });
+      assert.ok(f.sdk.acquired.every(stream => stream.getTracks().every(track => track.readyState === 'ended')));
+      const outgoing = f.sdk.outgoing.length; f.sdk.sample({ buffered: true });
+      assert.equal(f.sdk.outgoing.length, outgoing, 'held capture cannot send queued audio');
+      // A fresh visitor action is the only operation that may lift the hold.
+      pause.click(); await flush();
+      assert.equal(f.requests.filter(request => request.url.endsWith('/resume')).length, 2);
+      assert.ok(acquisitions > beforeAcquisitions);
+      assert.equal(root.dataset.state, 'listening'); assert.equal(f.element.session.paused, false);
+      assert.equal(f.returned[0].lifecycle.state.state, 'active');
+      assert.deepEqual(f.sdk.effects.filter(([name]) => name === 'setVolume').at(-1), ['setVolume', 1]);
+    });
+  }
+
+  test(`AIT-138 fix 3: ${transport} fast visitor Resume Pause Resume settles on the last click despite delayed echoes`, async t => {
+    const f = fixture(t, { transport, restored: false, component: true });
+    let acquisitions = 0; f.sdk.beforeAcquire = () => { acquisitions++; };
+    const pause = f.root.querySelector('.pause'), root = f.root.querySelector('.audio-rail');
+    f.root.querySelector('.voice-start').click(); await flush(); pause.click(); await flush();
+    const beforeAcquisitions = acquisitions;
+    pause.click(); await f.resumeEntered.promise;
+    assert.equal(pause.disabled, false, 'a pending Resume can be superseded by a visitor Pause');
+    pause.click(); pause.click(); f.resumeAck.resolve(); await flush();
+    const resumes = f.requests.filter(request => request.url.endsWith('/resume'));
+    const pauses = f.requests.filter(request => request.url.endsWith('/pause'));
+    assert.equal(resumes.length, 2); assert.ok(resumes.every(request => request.completed));
+    assert.equal(pauses.length, 2); assert.ok(pauses.every(request => request.completed));
+    assert.equal(acquisitions - beforeAcquisitions, 1, 'only the last explicit Resume reacquires capture');
+    let seq = f.element.session.seq;
+    for (const data of [{ paused: false, resumeRequestId: resumes[0].body.resumeRequestId },
+      { paused: true, pauseRequestId: pauses[1].body.pauseRequestId },
+      { paused: false, resumeRequestId: resumes[1].body.resumeRequestId }]) {
+      f.element.receive({ seq: ++seq, type: 'session.paused', data });
+    }
+    await flush();
+    assert.equal(f.requests.filter(request => request.url.endsWith('/resume')).length, 2);
+    assert.equal(f.requests.filter(request => request.url.endsWith('/pause')).length, 2);
+    assert.equal(acquisitions - beforeAcquisitions, 1);
+    assert.equal(root.dataset.state, 'listening'); assert.equal(f.element.session.paused, false);
+    assert.equal(f.returned[0].lifecycle.state.state, 'active');
+    assert.deepEqual(f.sdk.effects.filter(([name]) => name === 'setVolume').at(-1), ['setVolume', 1]);
+  });
+
   test(`AIT-138 fix 2: ${transport} Close fences restored Resume before a stalled closeWaiting POST`, async t => {
     const f = fixture(t, { transport }), starting = f.rail.start();
     await f.resumeEntered.promise;
