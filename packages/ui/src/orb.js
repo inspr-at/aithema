@@ -1,175 +1,116 @@
-// The orb, adapted from START src/components/Orb.astro, src/scripts/orb.ts and the orb layer of
-// src/styles/app.css (INSPR rights, D3). One object: the entrance shows it, and during a call the
-// same element is the voice avatar. WebGL draws the fluid field when it mounts; the three drifting
-// CSS layers stay underneath as the complete fallback. The shader constants were tuned by hand
-// against START's comparison board and are kept as they are.
-const VERTEX = 'attribute vec2 aPos; void main(){ gl_Position = vec4(aPos,0.0,1.0); }';
-const FRAGMENT = `
-precision highp float;
-uniform float uTime, uEnergy, uOct;
-uniform vec2  uResolution;
-uniform vec3  uC1, uC2, uC3;
-const float FLUID = 0.40; const float ROT = 0.525; const float TILT = 0.3375; const float SOFT = 10.0;
-const float SIZE = 1.10; const float DEPTH = 0.75; const float LIFT = 0.75; const float EDGE = 0.0175;
-vec3 mod289(vec3 x){ return x - floor(x * (1.0/289.0)) * 289.0; }
-vec2 mod289(vec2 x){ return x - floor(x * (1.0/289.0)) * 289.0; }
-vec3 permute(vec3 x){ return mod289(((x*34.0)+1.0)*x); }
-float snoise(vec2 v){
-  const vec4 C = vec4(0.211324865405187,0.366025403784439,-0.577350269189626,0.024390243902439);
-  vec2 i = floor(v + dot(v, C.yy)); vec2 x0 = v - i + dot(i, C.xx);
-  vec2 i1 = (x0.x > x0.y) ? vec2(1.0,0.0) : vec2(0.0,1.0);
-  vec4 x12 = x0.xyxy + C.xxzz; x12.xy -= i1; i = mod289(i);
-  vec3 p = permute(permute(i.y + vec3(0.0,i1.y,1.0)) + i.x + vec3(0.0,i1.x,1.0));
-  vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
-  m = m*m; m = m*m;
-  vec3 x = 2.0*fract(p * C.www) - 1.0; vec3 h = abs(x) - 0.5;
-  vec3 ox = floor(x + 0.5); vec3 a0 = x - ox;
-  m *= 1.79284291400159 - 0.85373472095314 * (a0*a0 + h*h);
-  vec3 g; g.x = a0.x*x0.x + h.x*x0.y; g.yz = a0.yz*x12.xz + h.yz*x12.yw;
-  return 130.0 * dot(m, g);
-}
-float fbm(vec2 p){
-  float f = 0.0, amp = 0.5;
-  for (int i = 0; i < 3; i++) { if (float(i) >= uOct) break; f += amp*snoise(p); p *= 1.9; amp *= 0.5; }
-  return f;
-}
-vec3 rotY(vec3 p, float a){ float s=sin(a),c=cos(a); return vec3(c*p.x + s*p.z, p.y, -s*p.x + c*p.z); }
-vec3 rotX(vec3 p, float a){ float s=sin(a),c=cos(a); return vec3(p.x, c*p.y - s*p.z, s*p.y + c*p.z); }
-void field(vec2 uv, vec3 home, vec3 colour, float seed, float t, out vec3 premul, out float cover) {
-  vec3 p = rotY(home, t * ROT);
-  p = rotX(p, TILT * sin(t * 0.21 + seed));
-  p.xy += vec2(fbm(vec2(seed, t*0.13)), fbm(vec2(seed+5.3, t*0.11))) * FLUID;
-  float near = 0.5 + 0.5 * p.z;
-  float radius = SIZE * (1.0 + DEPTH * (near - 0.5)) * (1.0 + uEnergy * 0.07);
-  float d = length(uv - p.xy) / max(radius, 0.02);
-  float g = exp(-d * d * SOFT);
-  cover = g * (1.0 - DEPTH * 0.35 * (1.0 - near));
-  vec3 lit = mix(colour, min(colour + vec3(0.55), vec3(1.0)), LIFT * exp(-d * d * SOFT * 1.6));
-  premul = lit * cover;
-}
-void main() {
-  vec2 uv = (gl_FragCoord.xy - 0.5 * uResolution) / min(uResolution.x, uResolution.y);
-  vec3 p1, p2, p3; float a1, a2, a3;
-  field(uv, vec3(-0.16,  0.13,  0.30), uC1, 0.0,  uTime, p1, a1);
-  field(uv, vec3( 0.18, -0.06, -0.28), uC2, 4.0,  uTime, p2, a2);
-  field(uv, vec3( 0.02, -0.20,  0.10), uC3, 11.0, uTime, p3, a3);
-  float sum = a1 + a2 + a3;
-  float alpha = 1.0 - (1.0 - a1) * (1.0 - a2) * (1.0 - a3);
-  vec3 premul = (p1 + p2 + p3) * (sum > 0.0001 ? alpha / sum : 0.0);
-  float aa = 1.5 / min(uResolution.x, uResolution.y);
-  float mask = smoothstep(0.5, 0.5 - max(aa, EDGE), length(uv));
-  float energy = 0.90 + uEnergy * 0.08;
-  gl_FragColor = vec4(premul * mask * energy, clamp(alpha * mask * energy, 0.0, 1.0));
-}`;
-// Teal, apricot and a translucent white lightening field; seconds of shader time per real second;
-// how fast the drawn energy follows the measured level, so speech cannot make it jitter.
-const COLOURS = [[0x12 / 255, 0x90 / 255, 0x8c / 255], [0xff / 255, 0xb4 / 255, 0x5e / 255], [1, 1, 1]];
-const TIME_SCALE = 1.28, ENERGY_SMOOTHING = 0.03;
+// AIT-140: the approved round-2 glass slab, adapted from start2-polish-approved-r2.html.
+// The public INSPR Aithema logo's aperture is expressed as even-odd paths, not an external asset.
+const LEFT = 'M627 110 110 627 627 1144Z M627 330 330 627 627 924Z';
+const RIGHT = 'M627 110 1144 627 627 1144Z M627 330 924 627 627 924Z';
+const CENTRE = 'm627 500 127 127-127 127-127-127 127-127Z';
+let nextOrb = 0;
 
 export const orbStyles = `
-.orb { --orb-size:clamp(15rem,34vw,27rem); --orb-energy:0; position:relative; width:var(--orb-size); height:var(--orb-size); flex:none; isolation:isolate; }
-.orb__layer { position:absolute; inset:0; border-radius:50%; filter:blur(calc(var(--orb-size) * .035 + var(--orb-energy) * 10px)); will-change:transform,opacity; }
-.orb--fluid > canvas { position:absolute; inset:0; width:100%; height:100%; border-radius:50%; }
-/* The canvas is translucent by design; the fallback fields under it would muddy its colours. */
-.orb--fluid > .orb__layer { display:none; }
-/* Mutually prime durations, so the field never visibly loops. */
-.orb__layer--a { background:radial-gradient(circle at 38% 34%,rgba(18,144,140,.92),rgba(18,144,140,0) 62%); animation:orb-drift-a 23s ease-in-out infinite; }
-.orb__layer--b { background:radial-gradient(circle at 66% 58%,rgba(255,180,94,.72),rgba(255,180,94,0) 58%); animation:orb-drift-b 31s ease-in-out infinite; }
-.orb__layer--c { background:radial-gradient(circle at 52% 72%,rgba(244,124,91,.58),rgba(244,124,91,0) 56%); animation:orb-drift-c 19s ease-in-out infinite; }
-/* A hairline ring gives the diffuse field an edge, so it reads as an object rather than a smudge. */
-.orb__ring { position:absolute; inset:4%; border-radius:50%; border:1px solid var(--aithema-line-strong); opacity:calc(.5 + var(--orb-energy) * .5);
-  transform:scale(calc(1 + var(--orb-energy) * .04)); transition:opacity 120ms linear,transform 120ms linear; }
-.orb__core { position:absolute; inset:30%; border-radius:50%; background:radial-gradient(circle at 42% 38%,rgba(255,252,248,.9),rgba(255,252,248,0) 70%);
-  opacity:calc(.35 + var(--orb-energy) * .65); transition:opacity 90ms linear; }
-/* Speaking without a measured level: the ring breathes instead (a static ring under reduced motion). */
-.orb[data-voice="speaking"]:not([data-measured]) .orb__ring { animation:orb-speak .76s ease-in-out infinite alternate; }
-@keyframes orb-speak { to { opacity:1; transform:scale(1.04); } }
-@keyframes orb-drift-a { 0%,100% { transform:translate3d(0,0,0) scale(1); } 50% { transform:translate3d(6%,-5%,0) scale(1.08); } }
-@keyframes orb-drift-b { 0%,100% { transform:translate3d(0,0,0) scale(1.04); } 50% { transform:translate3d(-7%,4%,0) scale(.95); } }
-@keyframes orb-drift-c { 0%,100% { transform:translate3d(0,0,0) scale(.98); } 50% { transform:translate3d(3%,7%,0) scale(1.1); } }
-@media(prefers-reduced-motion:reduce) { .orb__layer, .orb__ring { animation:none !important; transition:none; } .orb[data-voice="speaking"] .orb__ring { opacity:1; } }
+.orb { --orb-size:40px; --orb-energy:0; --orb-teal:var(--aithema-accent,var(--teal,#0e6f6c)); --orb-surface:var(--aithema-surface,var(--surface,#fffcf8)); position:relative; display:block; width:var(--orb-size); height:var(--orb-size); flex:none; border-radius:50%; perspective:140px; isolation:isolate; }
+.orb[role="button"]:focus-visible { outline:2px solid rgba(255,255,255,.7); outline-offset:2px; box-shadow:0 0 0 5px #102b42; }
+.orb > span { position:absolute; border-radius:50%; pointer-events:none; }
+.orb__body { inset:0; background:radial-gradient(circle at 50% 118%,color-mix(in srgb,var(--orb-teal) 62%,transparent),color-mix(in srgb,var(--orb-teal) 16%,transparent) 48%,transparent 72%),radial-gradient(circle at 50% 50%,color-mix(in srgb,var(--orb-surface) 22%,transparent),color-mix(in srgb,var(--orb-teal) 14%,transparent)); box-shadow:inset 0 -5px 9px color-mix(in srgb,var(--orb-teal) 38%,transparent),inset 0 3px 5px rgba(255,255,255,.75),inset 0 0 0 1px rgba(255,255,255,.4),0 5px 12px -4px rgba(16,43,66,.4),0 1px 2px rgba(16,43,66,.18); backdrop-filter:blur(2px) saturate(1.3); transition:transform 120ms linear,opacity .25s; }
+.orb__breath { inset:0; box-shadow:inset 0 -5px 9px color-mix(in srgb,var(--orb-teal) 48%,transparent),0 0 0 5px color-mix(in srgb,var(--orb-teal) 12%,transparent); opacity:0; }
+.orb__prism { inset:24%; border-radius:0 !important; transform-style:preserve-3d; transform:rotateX(10deg) rotateY(0deg); animation:aithema-prism-turn 14s linear infinite; }
+.orb__slab { position:absolute; inset:0; display:block; }
+.orb__slab svg { display:block; width:100%; height:100%; }
+.orb__slab--front { filter:drop-shadow(0 0 2px rgba(255,255,255,.9)); }
+.orb__face--logo { position:absolute; inset:0; opacity:0; transition:opacity .25s; }
+.orb__face--warm { opacity:1; transition:opacity .5s; }
+.orb[data-orb-reveal] .orb__face--logo { opacity:1; }
+.orb[data-orb-reveal] .orb__face--warm { opacity:0; }
+.orb__light { inset:0; mix-blend-mode:screen; opacity:.9; background:radial-gradient(circle at 94% 64%,rgba(255,166,58,.42),rgba(255,166,58,.14) 30%,transparent 58%); transition:opacity .5s,transform .5s; }
+.orb__warm-glow { inset:0; box-shadow:0 0 22px 2px rgba(255,170,70,.45); opacity:0; transition:opacity .5s; }
+.orb[data-orb-reveal] .orb__light { opacity:1; transform:scale(1.08); }
+.orb[data-orb-reveal] .orb__warm-glow { opacity:1; }
+.orb__caustic { left:22%; right:22%; bottom:7%; height:22%; background:radial-gradient(ellipse at 50% 60%,rgba(255,255,255,.55),transparent 70%); filter:blur(1px); }
+.orb__rim { inset:0; background:radial-gradient(circle,transparent 62%,rgba(255,255,255,.38) 71%,transparent 77%); mix-blend-mode:screen; }
+.orb__highlight { left:15%; top:8%; width:44%; height:30%; background:radial-gradient(ellipse at 50% 45%,rgba(255,255,255,.95),rgba(255,255,255,0) 72%); transform:rotate(-22deg); }
+.orb[data-voice="speaking"] .orb__body { animation:aithema-glass-breathe 2.4s ease-in-out infinite; }
+.orb[data-voice="speaking"] .orb__breath { animation:aithema-glass-light 2.4s ease-in-out infinite; }
+.orb:is([data-voice="paused"],[data-voice="ended"],[data-voice="idle"]) .orb__light { opacity:.6; }
+.orb[data-voice="paused"] .orb__body { opacity:.65; }
+.orb[data-voice="recovering"] .orb__body { opacity:.8; }
+@keyframes aithema-prism-turn { from { transform:rotateX(10deg) rotateY(0deg); } to { transform:rotateX(10deg) rotateY(360deg); } }
+/* Fixed glass shadows crossfade; speech never animates a shadow or a blur. */
+@keyframes aithema-glass-breathe { 0%,100% { transform:scale(1); } 50% { transform:scale(calc(1.015 + var(--orb-energy) * .035)); } }
+@keyframes aithema-glass-light { 0%,100% { opacity:0; transform:scale(1); } 50% { opacity:calc(.25 + var(--orb-energy) * .4); transform:scale(1.04); } }
+.orb[data-orb-paused] :is(.orb__prism,.orb__body,.orb__breath) { animation-play-state:paused; }
+.orb[data-orb-motion="off"] :is(.orb__prism,.orb__body,.orb__breath) { animation:none !important; }
+.orb[data-orb-motion="off"] :is(.orb__body,.orb__light) { transform:none !important; transition:opacity .2s; }
+.orb[data-orb-motion="off"] .orb__breath { opacity:0; }
+.orb[data-orb-motion="off"] :is(.orb__face--warm,.orb__face--logo,.orb__warm-glow) { transition:opacity .2s; }
+/* Keep the old layer/ring selectors for embedders that inspect the voice avatar. */
+@media(prefers-reduced-motion:reduce) { .orb__layer, .orb__ring { animation:none !important; transition:none; } .orb :is(.orb__prism,.orb__breath) { animation:none !important; } .orb__body,.orb__light { transform:none !important; } }
 `;
 
-function compile(gl, type, source) {
-  const shader = gl.createShader(type); if (!shader) return null;
-  gl.shaderSource(shader, source); gl.compileShader(shader);
-  return gl.getShaderParameter(shader, gl.COMPILE_STATUS) ? shader : null;
-}
-/**
- * Attaches the WebGL field to `host` and drives it, or returns null (no WebGL, no observers, a shader
- * that will not link); the caller then keeps the CSS orb: the worst case is the fallback, never a hole.
- */
-function mountFluid(host) {
-  const view = host.ownerDocument.defaultView;
-  if (!view?.ResizeObserver || !view.IntersectionObserver || !view.requestAnimationFrame) return null;
-  const canvas = host.ownerDocument.createElement('canvas');
-  let gl;
-  try { gl = canvas.getContext('webgl', { alpha: true, antialias: true, premultipliedAlpha: true }); } catch { return null; }
-  if (!gl) return null;
-  const vs = compile(gl, gl.VERTEX_SHADER, VERTEX), fs = compile(gl, gl.FRAGMENT_SHADER, FRAGMENT);
-  const program = vs && fs ? gl.createProgram() : null;
-  if (!program) return null;
-  gl.attachShader(program, vs); gl.attachShader(program, fs); gl.linkProgram(program);
-  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) return null;
-  gl.useProgram(program);
-  const buffer = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
-  const position = gl.getAttribLocation(program, 'aPos');
-  gl.enableVertexAttribArray(position); gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
-  const uniform = name => gl.getUniformLocation(program, name);
-  const uTime = uniform('uTime'), uEnergy = uniform('uEnergy'), uOct = uniform('uOct'), uResolution = uniform('uResolution');
-  COLOURS.forEach((colour, index) => gl.uniform3f(uniform(`uC${index + 1}`), ...colour));
-  gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-  host.append(canvas);
-  const reduced = view.matchMedia?.('(prefers-reduced-motion: reduce)');
-  let visible = true, clock = 0, last = 0, energy = 0, smoothed = 0, frame = 0, painted = false, destroyed = false;
-  const resize = () => {
-    const rect = host.getBoundingClientRect(), ratio = Math.min(view.devicePixelRatio || 1, 2);
-    const width = Math.max(1, Math.round(rect.width * ratio)), height = Math.max(1, Math.round(rect.height * ratio));
-    if (canvas.width === width && canvas.height === height) return;
-    canvas.width = width; canvas.height = height; gl.viewport(0, 0, width, height); gl.uniform2f(uResolution, width, height);
-    // Small instances lose nothing visible from fewer octaves and cost less.
-    gl.uniform1f(uOct, rect.width < 110 ? 2 : 3); painted = false;
-  };
-  const sizes = new view.ResizeObserver(resize), views = new view.IntersectionObserver(([entry]) => { visible = entry?.isIntersecting ?? true; });
-  sizes.observe(host); views.observe(host); resize();
-  const render = ms => {
-    frame = view.requestAnimationFrame(render);
-    const dt = last ? Math.min((ms - last) / 1000, .1) : 0; last = ms;
-    if (!visible || host.ownerDocument.visibilityState !== 'visible') return;
-    // Reduced motion still gets the object, just not the movement.
-    if (reduced?.matches) { if (painted) return; painted = true; clock = 8; smoothed = energy; }
-    else { clock += dt * TIME_SCALE; smoothed += (energy - smoothed) * ENERGY_SMOOTHING; }
-    gl.uniform1f(uTime, clock); gl.uniform1f(uEnergy, smoothed); gl.drawArrays(gl.TRIANGLES, 0, 3);
-  };
-  frame = view.requestAnimationFrame(render);
-  const destroy = (release = true) => {
-    if (destroyed) return; destroyed = true;
-    canvas.removeEventListener('webglcontextlost', lost); view.cancelAnimationFrame(frame); sizes.disconnect(); views.disconnect();
-    gl.deleteBuffer(buffer); gl.deleteProgram(program); gl.deleteShader(vs); gl.deleteShader(fs); canvas.remove();
-    host.classList.remove('orb--fluid');
-    if (release) gl.getExtension('WEBGL_lose_context')?.loseContext();
-  };
-  // A lost context reveals the CSS layers at once.
-  const lost = event => { event.preventDefault(); destroy(false); };
-  canvas.addEventListener('webglcontextlost', lost);
-  return { setEnergy(value) { energy = value; painted = false; }, destroy };
+function paths(fill) {
+  return `<path fill-rule="evenodd" d="${LEFT}" fill="${fill}"/><path fill-rule="evenodd" d="${RIGHT}" fill="${fill}"/><path d="${CENTRE}" fill="${fill}"/>`;
 }
 
-/** The orb element; `voice` mirrors the call state, `energy` (0 at rest, up to 1) the audible reply. */
-export function createOrb(document) {
-  const element = document.createElement('div'); element.className = 'orb'; element.setAttribute('aria-hidden', 'true');
-  element.innerHTML = '<div class="orb__layer orb__layer--a"></div><div class="orb__layer orb__layer--b"></div><div class="orb__layer orb__layer--c"></div><div class="orb__ring"></div><div class="orb__core"></div>';
-  let fluid = null;
+/** One object: the logo and the voice avatar. Energy is the audible reply, clamped to 0..1. */
+export function createOrb(document, { motion = true } = {}) {
+  const view = document.defaultView, preference = view?.matchMedia?.('(prefers-reduced-motion: reduce)');
+  const id = `aithema-orb-${++nextOrb}`, element = document.createElement('div');
+  element.className = 'orb'; element.setAttribute('aria-hidden', 'true'); element.dataset.orbPaused = '';
+  const layers = [-2.4, -1.4, -.4, .6, 1.6].map(z => `<span class="orb__slab" style="transform:translateZ(${z}px)"><svg viewBox="0 0 1254 1254" aria-hidden="true">${paths(`url(#${id}-edge)`)}</svg></span>`).join('');
+  element.innerHTML = `<style>${orbStyles}</style><span class="orb__body orb__layer orb__layer--a"></span><span class="orb__breath"></span><span class="orb__prism">${layers}<span class="orb__slab orb__slab--front" style="transform:translateZ(2.4px)"><svg class="orb__face--warm" viewBox="0 0 1254 1254" aria-hidden="true"><defs><linearGradient id="${id}-warm" gradientUnits="userSpaceOnUse" x1="110" y1="300" x2="1144" y2="950"><stop offset="0" stop-color="#fff"/><stop offset=".55" stop-color="#fff"/><stop offset="1" stop-color="#ffd08a"/></linearGradient><linearGradient id="${id}-edge" gradientUnits="userSpaceOnUse" x1="110" y1="300" x2="1144" y2="950"><stop offset="0" stop-color="#b9dcd8"/><stop offset=".5" stop-color="#e8efe9"/><stop offset="1" stop-color="#f2b25a"/></linearGradient></defs>${paths(`url(#${id}-warm)`)}</svg><svg class="orb__face--logo" viewBox="0 0 1254 1254" aria-hidden="true"><path fill-rule="evenodd" d="${LEFT}" fill="#0e6f6c"/><path fill-rule="evenodd" d="${RIGHT}" fill="#d69b31"/><path d="${CENTRE}" fill="#14304b"/></svg></span></span><span class="orb__light"></span><span class="orb__warm-glow"></span><span class="orb__caustic"></span><span class="orb__rim orb__ring"></span><span class="orb__highlight"></span>`;
+  const prism = element.querySelector('.orb__prism');
+  let requested = motion !== false, revealed = false, mounted = false, pose = null, turn = null, home = null;
+  const paused = new Set();
+  const moving = () => requested && !preference?.matches;
+  const animations = () => element.getAnimations?.({ subtree: true }) ?? [];
+  const visibility = () => {
+    element.toggleAttribute('data-orb-paused', document.hidden || !mounted);
+    if (document.hidden || !mounted) {
+      for (const animation of animations()) if (animation.playState === 'running') { paused.add(animation); animation.pause(); }
+    } else {
+      for (const animation of paused) if (animation.playState === 'paused') animation.play();
+      paused.clear();
+    }
+  };
+  const face = on => {
+    revealed = on; element.toggleAttribute('data-orb-reveal', on);
+    const from = view?.getComputedStyle(prism).transform || 'rotateX(10deg) rotateY(0deg)';
+    pose?.cancel(); pose = null;
+    if (!moving() || !prism.animate) { prism.style.transform = on ? 'rotateX(0deg) rotateY(0deg)' : ''; return; }
+    if (on && !turn) {
+      turn = prism.getAnimations().find(animation => animation.animationName === 'aithema-prism-turn');
+      turn?.pause(); home = from;
+    }
+    pose = prism.animate([{ transform: from }, { transform: on ? 'rotateX(0deg) rotateY(0deg)' : home || 'rotateX(10deg) rotateY(0deg)' }],
+      { duration: 700, easing: on ? 'cubic-bezier(.2,.9,.25,1.2)' : 'cubic-bezier(.2,.7,.2,1)', fill: 'forwards' });
+    if (!on) pose.onfinish = () => { pose?.cancel(); pose = null; if (!document.hidden && mounted) turn?.play(); turn = null; home = null; };
+    visibility();
+  };
+  const syncMotion = () => {
+    pose?.cancel(); pose = null; turn = null; home = null; paused.clear();
+    element.dataset.orbMotion = moving() ? 'on' : 'off';
+    prism.style.transform = revealed ? 'rotateX(0deg) rotateY(0deg)' : '';
+    if (moving() && mounted && !document.hidden) for (const animation of animations()) if (animation.animationName === 'aithema-prism-turn') animation.play();
+    if (revealed && moving()) face(true);
+    visibility();
+  };
+  const onReveal = event => face(Boolean(event.detail));
+  const mount = () => {
+    if (mounted || !element.isConnected) return;
+    mounted = true;
+    document.addEventListener('visibilitychange', visibility); preference?.addEventListener('change', syncMotion);
+    element.addEventListener('aithema-orb-reveal', onReveal); syncMotion();
+  };
+  element.dataset.orbMotion = moving() ? 'on' : 'off';
   return {
-    element,
-    mount() { if (fluid || !element.isConnected) return; fluid = mountFluid(element); if (fluid) element.classList.add('orb--fluid'); },
-    setVoice(state) { if (element.dataset.voice !== state) element.dataset.voice = state; },
+    element, mount,
+    setVoice(state) { element.dataset.voice = state; },
     setEnergy(value, measured = true) {
-      const energy = Math.min(1, Math.max(0, Number(value) || 0));
-      element.style.setProperty('--orb-energy', String(energy)); element.toggleAttribute('data-measured', measured); fluid?.setEnergy(energy);
+      element.style.setProperty('--orb-energy', String(Math.min(1, Math.max(0, Number(value) || 0))));
+      element.toggleAttribute('data-measured', measured);
     },
-    destroy() { fluid?.destroy(); fluid = null; },
+    setMotion(on) { requested = Boolean(on); syncMotion(); },
+    destroy() {
+      mounted = false; document.removeEventListener('visibilitychange', visibility); preference?.removeEventListener('change', syncMotion);
+      element.removeEventListener('aithema-orb-reveal', onReveal); pose?.cancel(); pose = null; turn?.cancel(); turn = null; home = null;
+      paused.clear(); element.dataset.orbPaused = '';
+    },
   };
 }

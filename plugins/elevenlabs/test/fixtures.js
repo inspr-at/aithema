@@ -12,21 +12,98 @@ export function invocationOptions(overrides = {}) {
       async consume() { await Promise.resolve(); if (consumed) throw new PluginError('already-claimed'); consumed = true; } },
     reports, report: terminal => { reports.push(terminal); }, ...overrides };
 }
+function audioStream(source) {
+  const track = { kind: 'audio', source, enabled: true, readyState: 'live',
+    stop() { this.readyState = 'ended'; }, getSettings: () => ({}) };
+  return { getTracks: () => [track], getAudioTracks: () => [track], clone: () => audioStream(source) };
+}
 export function fakeSdk() {
-  const starts = [], effects = []; let closed = false;
-  const sdk = { starts, effects, get closed() { return closed; },
+  const starts = [], effects = [], conversations = [], outgoing = [], acquired = []; let closed = false;
+  const mediaDevices = { async getUserMedia() {
+    await sdk.beforeAcquire?.();
+    const stream = audioStream('microphone'); acquired.push(stream); return stream;
+  } };
+  class AudioContext {
+    createMediaStreamDestination() { return { stream: audioStream('silence') }; }
+    async close() {}
+  }
+  const sdk = { starts, effects, conversations, outgoing, acquired, mediaDevices, AudioContext,
+    get closed() { return closed; },
+    sample({ buffered = false } = {}) {
+      const conversation = conversations.at(-1), track = conversation.track;
+      if (conversation.transport === 'websocket') {
+        if (buffered || !conversation.input.isMuted() && track?.readyState === 'live' && track.source === 'microphone') {
+          conversation.connection.sendMessage({ user_audio_chunk: 'fixture-audio' });
+        }
+      } else if (track?.readyState === 'live' && track.enabled && track.source === 'microphone' && !conversation.muted) {
+        outgoing.push(conversation.getId());
+      }
+    },
     interrupt(eventId = 2) { effects.push(['nativeInterruption', eventId]); starts.at(-1).onInterruption({ event_id: eventId }); },
     async startSession(options) {
       starts.push(options); closed = false;
       const providerSessionId = options.conversationToken?.replace('fixture-token-', '') ?? new URL(options.signedUrl).searchParams.get('conversation_id');
+      const preliminary = await mediaDevices.getUserMedia({ audio: true });
+      let stream = await mediaDevices.getUserMedia({ audio: true }), muted = false, publication;
+      const publish = () => { publication = { track: { mediaStreamTrack: stream.getAudioTracks()[0],
+        stop() { this.mediaStreamTrack.stop(); }, async mute() { muted = true; }, async unmute() { muted = false; } } }; };
+      publish();
+      const participant = {
+        audioTrackPublications: new Map([['microphone', publication]]),
+        getTrackPublication: () => publication,
+        async unpublishTrack(track, stop = true) {
+          effects.push(['unpublishTrack']); if (stop) track.stop(); publication = undefined;
+          this.audioTrackPublications.clear();
+        },
+        async setMicrophoneEnabled(enabled) {
+          effects.push(['setMicrophoneEnabled', enabled]);
+          if (enabled && (!publication || stream.getAudioTracks()[0].readyState === 'ended')) {
+            stream = await mediaDevices.getUserMedia({ audio: true }); publish();
+            this.audioTrackPublications.set('microphone', publication);
+          }
+          muted = !enabled;
+        },
+      };
+      const input = {
+        get inputStream() { return stream; },
+        mediaStreamSource: { disconnect() { effects.push(['disconnectInput']); } },
+        forgetInputStreamAndSource() { stream.getTracks().forEach(track => track.stop()); this.mediaStreamSource.disconnect(); },
+        async setMuted(value) {
+          effects.push(['setInputMuted', value]); await sdk.muteHook?.(value);
+          if (options.connectionType === 'webrtc') await participant.setMicrophoneEnabled(!value);
+          muted = value;
+        },
+        isMuted: () => muted,
+        async setDevice() {
+          effects.push(['setInputDevice']); const replacement = await mediaDevices.getUserMedia({ audio: true });
+          this.forgetInputStreamAndSource(); stream = replacement;
+        },
+      };
+      if (options.connectionType === 'webrtc') delete input.inputStream;
       const object = {
+        input, transport: options.connectionType, get muted() { return muted; },
+        get track() { return stream.getAudioTracks()[0]; },
+        connection: options.connectionType === 'webrtc' ? { room: { localParticipant: participant } }
+          : { sendMessage(message) { if (message.user_audio_chunk) outgoing.push(providerSessionId); } },
         getId: () => providerSessionId,
-        async endSession() { effects.push(['endSession']); closed = true; options.onDisconnect({ reason: 'user' }); },
-        setMicMuted(muted) { effects.push(['setMicMuted', muted]); },
+        async endSession() {
+          effects.push(['endSession']); stream.getTracks().forEach(track => track.stop());
+          preliminary.getTracks().forEach(track => track.stop()); closed = true;
+          options.onDisconnect({ reason: 'user' });
+        },
+        setMicMuted(value) {
+          effects.push(['setMicMuted', value]);
+          input.setMuted(value).catch(error => options.onError?.('Failed to set input muted state', error));
+        },
         setVolume({ volume }) { effects.push(['setVolume', volume]); },
         sendUserMessage(text) { effects.push(['sendUserMessage', text]); },
         sendContextualUpdate(text) { effects.push(['sendContextualUpdate', text]); },
       };
+      conversations.push(object);
+      // Both transports attach/publish audio before the public creation hook.
+      sdk.sample(); await sdk.beforeCreated?.(object, options);
+      preliminary.getTracks().forEach(track => track.stop());
+      options.onConversationCreated?.(object);
       options.onConnect({ conversationId: providerSessionId }); return object;
     },
   };
@@ -68,12 +145,14 @@ export function fixture({ saveCall, sdk = fakeSdk(), providerDetails, prepareCal
     resume: ({ providerSessionId }, options) => sessions.get(providerSessionId).resume(options),
     heartbeat: ({ providerSessionId }, options) => sessions.get(providerSessionId).heartbeat(options),
   };
-  const client = createElevenLabsClient({ sdk, control, closeTimeoutMs, persistEvent: async event => { persisted.push(event); } });
+  const client = createElevenLabsClient({ sdk, control, closeTimeoutMs, mediaDevices: sdk.mediaDevices, AudioContext: sdk.AudioContext,
+    persistEvent: async event => { persisted.push(event); } });
   // Joined fixture burns the SERVER authority even for a preflight-cancelled browser start.
   const plugin = { manifest, health: opts => server.health(opts), async start(request, options) {
     const ready = await server.start({ ...request, facadeSecretRef: 'fixture-facade-ref' }, options);
     sessions.set(ready.providerSessionId, ready);
     const joined = createElevenLabsClient({ sdk, control: { ...control, start: async () => receipt(ready) },
+      mediaDevices: sdk.mediaDevices, AudioContext: sdk.AudioContext,
       persistEvent: async event => { persisted.push(event); } });
     try { return await joined.start(request, options); } catch (error) { await ready.close('start-failed', 'cancelled'); throw error; }
   } };

@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createCompletionsHandler, bearerMatches } from '../src/facade.js';
+import { createHash } from 'node:crypto';
+import { request as httpRequest } from 'node:http';
+import { createCompletionsHandler, bearerMatches, MAX_COMPLETION_REQUEST_BYTES } from '../src/facade.js';
 import { beginInvocation, PluginError } from '../../../packages/core/src/invocation.js';
 import { operationScope } from '../../../packages/core/src/reasoning.js';
 import { invocationOptions, flush } from './fixtures.js';
@@ -9,6 +11,7 @@ import { PluginRegistry } from '../../../packages/core/src/plugins.js';
 import { createOpenRouterReasoning } from '../../openrouter/src/index.js';
 import { binding, openRouterPrices } from '../../../test/plugin-fixtures.js';
 import { testToken } from '../../../test/helpers.js';
+import { listen } from '../../../packages/server/src/http.js';
 
 function runtimeFixture(t, { coverage, consentAvailable = true } = {}) {
   const storage = new SQLiteStorage(); t.after(() => storage.close());
@@ -53,13 +56,14 @@ const grantFor = ({ scope, consentRevision }) => ({ covered: true, ...scope, sco
   checkedAt: Date.now(), expiresAt: Date.now() + 10_000 });
 
 function facadeFixture({ mode = 'normal', paused = false, deadlineAt = Date.now() + 5000, timeoutMs = 1000,
-  admissionOptions = {} } = {}) {
+  admissionOptions = {}, maxRequestBytes, staticSecretRef, ports = {}, log } = {}) {
   const call = { callId: 'call_facade', providerSessionId: 'conv_facade', facadeSecretRef: 'fixture-per-call-ref', paused,
+    ...(staticSecretRef ? { facadeCallId: 'call_facade' } : {}),
     spendDeadlineAt: deadlineAt, browserLivenessDeadlineAt: deadlineAt };
-  const admissions = [], upstream = [], optionsList = [];
-  const handler = createCompletionsHandler({ timeoutMs,
+  const admissions = [], upstream = [], optionsList = [], logs = [];
+  const handler = createCompletionsHandler({ timeoutMs, maxRequestBytes, staticSecretRef, log: log ?? (line => logs.push(line)),
     getCall: async () => ({ ...call }),
-    resolveSecret: ref => { assert.equal(ref, call.facadeSecretRef); return 'fixture-per-call-secret'; },
+    resolveSecret: ref => { assert.equal(ref, staticSecretRef ?? call.facadeSecretRef); return 'fixture-per-call-secret'; },
     buildRequest: async ({ messages }) => ({ system: 'Trusted session prompt', messages }),
     async admitReasoning({ callId, request, options }) {
       assert.equal(callId, call.callId); admissions.push(request);
@@ -68,6 +72,7 @@ function facadeFixture({ mode = 'normal', paused = false, deadlineAt = Date.now(
         const accounting = await beginInvocation(opts); const scope = operationScope(opts); let completed = false;
         try {
           scope.signal.throwIfAborted(); accounting.dispatch(); upstream.push(input);
+          if (mode === 'first-broken') throw new Error('fixture-per-call-secret must not escape');
           yield 'Hello';
           if (mode === 'stall') await new Promise((_, reject) => {
             const abort = () => reject(new PluginError('cancelled'));
@@ -81,17 +86,27 @@ function facadeFixture({ mode = 'normal', paused = false, deadlineAt = Date.now(
         } finally { scope.dispose(); if (mode !== 'omit-report') await accounting.finish(completed); }
       } };
       return { plugin, options: invocation, finish() {
+        if (mode === 'finish-broken') throw new Error('fixture-per-call-secret settlement failed');
+        if (mode === 'finish-stall') return new Promise(() => {});
         if (!invocation.reports.length) invocation.report({ attemptId: invocation.attempt.attemptId, outcome: 'uncertain' });
         assert.equal(invocation.reports.length, 1);
       } };
     },
+    ...ports,
   });
   const request = (body = {}, headers = {}) => new Request('https://host.example.test/voice/call_facade/completions', {
     method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer fixture-per-call-secret', ...headers },
     body: JSON.stringify({ elevenlabs_extra_body: { aithema_call: call.callId }, model: 'untrusted-provider-choice', stream: true,
       messages: [{ role: 'system', content: 'Untrusted provider system prompt' }, { role: 'user', content: 'hello' }], ...body }),
   });
-  return { call, handler, request, admissions, upstream, optionsList };
+  return { call, handler, request, admissions, upstream, optionsList, logs };
+}
+async function streamError(response, code) {
+  assert.equal(response.status, 200); // Headers are already committed; the terminal SSE frame carries the failure.
+  const text = await response.text();
+  assert.ok(text.endsWith(`data: ${JSON.stringify({ error: code })}\n\n`), text);
+  assert.equal(text.includes('[DONE]'), false); assert.equal(text.includes('"finish_reason":"stop"'), false);
+  return text;
 }
 test('facade checks per-call bearer and call identity before reasoning admission', async () => {
   const local = facadeFixture();
@@ -119,6 +134,182 @@ test('facade supports nonstream completions through the same admitted stream bin
   const local = facadeFixture(), response = await local.handler(local.request({ stream: false }));
   const body = await response.json(); assert.equal(body.object, 'chat.completion');
   assert.deepEqual(body.choices[0].message, { role: 'assistant', content: 'Hello world' }); assert.equal(local.optionsList[0].reports.length, 1);
+});
+test('AIT-130: facade accepts full conversation history above 64 KiB', async () => {
+  const local = facadeFixture();
+  const messages = Array.from({ length: 36 }, (_, index) => ({
+    role: index % 2 ? 'assistant' : 'user', content: `Turn ${index}: ${'spoken history '.repeat(150)}`,
+  }));
+  const request = local.request({ stream: false, messages });
+  assert.ok(Buffer.byteLength(await request.clone().text()) > 65_536);
+  const response = await local.handler(request);
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).choices[0].message.content, 'Hello world');
+  assert.deepEqual(local.upstream[0].messages, messages);
+});
+for (const bytes of [1_048_576, 2_097_152, MAX_COMPLETION_REQUEST_BYTES]) {
+  test(`AIT-130: callback accepts ${bytes} bytes of history including the exact limit`, async () => {
+    const local = facadeFixture({ timeoutMs: 5000, deadlineAt: Date.now() + 10_000 });
+    const messages = [{ role: 'user', content: '' }];
+    const overhead = Buffer.byteLength(await local.request({ stream: false, messages }).text());
+    messages[0].content = 'x'.repeat(bytes - overhead);
+    const request = local.request({ stream: false, messages }), response = await local.handler(request);
+    assert.equal(response.status, 200); const body = await response.json();
+    const line = JSON.parse(local.logs[0]);
+    assert.equal(line.requestBytes, bytes); assert.equal(line.responseBytes, Buffer.byteLength(JSON.stringify(body)));
+    assert.equal(line.errorCode, null); assert.equal(local.logs.length, 1);
+    assert.deepEqual(local.upstream[0].messages, messages);
+  });
+}
+test('AIT-130: a callback exceeding the new limit returns JSON 413 before admission', async () => {
+  const local = facadeFixture(), request = local.request({ messages: [{ role: 'user', content: 'x'.repeat(MAX_COMPLETION_REQUEST_BYTES) }] });
+  const response = await local.handler(request);
+  assert.equal(response.status, 413); assert.equal(response.headers.get('content-type'), 'application/json');
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(await response.json(), { error: 'limit' }); assert.equal(local.admissions.length, 0);
+  assert.equal(local.logs.length, 1);
+  const line = JSON.parse(local.logs[0]); assert.equal(line.status, 413); assert.equal(line.errorCode, 'limit');
+  assert.ok(line.requestBytes > MAX_COMPLETION_REQUEST_BYTES);
+});
+test('AIT-130: chunked oversized bodies are bounded even without Content-Length', async () => {
+  const local = facadeFixture({ maxRequestBytes: 1024 }); let cancelled = false, sent = 0;
+  const body = new ReadableStream({ pull(controller) { sent++; controller.enqueue(new Uint8Array(512)); },
+    cancel() { cancelled = true; } }, { highWaterMark: 0 });
+  const request = new Request(local.request().url, { method: 'POST', headers: local.request().headers, body, duplex: 'half' });
+  assert.equal(request.headers.has('content-length'), false);
+  const response = await local.handler(request);
+  assert.equal(response.status, 413); assert.deepEqual(await response.json(), { error: 'limit' });
+  assert.equal(sent, 3); assert.equal(cancelled, true); assert.equal(local.admissions.length, 0);
+  assert.equal(JSON.parse(local.logs[0]).requestBytes, 1536);
+});
+for (const [name, status, error, authorization, sent] of [
+  ['oversized', 413, 'limit', 'Bearer fixture-per-call-secret', 1025],
+  ['unauthorized', 401, 'unauthorized', 'Bearer fixture-denied-secret', 1],
+  ['stalled', 504, 'deadline', 'Bearer fixture-per-call-secret', 1],
+]) test(`AIT-130: HTTP callback sends JSON ${status} while a ${name} upload is still in progress`, { timeout: 5000 }, async t => {
+  const local = facadeFixture({ maxRequestBytes: 1024, timeoutMs: 100 }), { server, url } = await listen(local.handler);
+  t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
+  const response = await new Promise((resolve, reject) => {
+    const upload = httpRequest(url, { method: 'POST', headers: { authorization,
+      'content-type': 'application/json', 'content-length': '100000' } }, incoming => {
+      const chunks = []; incoming.on('data', chunk => chunks.push(chunk)); incoming.on('error', reject);
+      incoming.on('end', () => { resolve({ status: incoming.statusCode, body: Buffer.concat(chunks).toString(), connection: incoming.headers.connection }); upload.destroy(); });
+    });
+    upload.on('error', reject); t.after(() => upload.destroy());
+    // Keep the remainder unsent, proving reader cancellation cannot destroy the socket before the JSON reply.
+    upload.write('x'.repeat(sent));
+  });
+  assert.equal(response.status, status); assert.deepEqual(JSON.parse(response.body), { error });
+  assert.equal(response.connection, 'close');
+  assert.equal(local.admissions.length, 0); assert.equal(local.logs.length, 1);
+  assert.equal(JSON.parse(local.logs[0]).errorCode, error);
+});
+test('AIT-130: stalled body reads and cancellation hooks cannot outlive the facade deadline', async () => {
+  const local = facadeFixture({ timeoutMs: 30 }); let cancelled = false;
+  const body = new ReadableStream({ pull() { return new Promise(() => {}); },
+    cancel() { cancelled = true; return new Promise(() => {}); } }, { highWaterMark: 0 });
+  const request = new Request(local.request().url, { method: 'POST', headers: local.request().headers, body, duplex: 'half' });
+  const response = await local.handler(request);
+  assert.equal(response.status, 504); assert.deepEqual(await response.json(), { error: 'deadline' });
+  assert.equal(cancelled, true); assert.equal(body.locked, false); assert.equal(local.admissions.length, 0);
+  assert.equal(local.logs.length, 1); assert.equal(JSON.parse(local.logs[0]).errorCode, 'deadline');
+});
+test('AIT-130: static callback authenticates before reading its bounded history', async () => {
+  const local = facadeFixture({ staticSecretRef: 'fixture-static-ref' });
+  let reads = 0;
+  const body = new ReadableStream({ pull() { reads++; } }, { highWaterMark: 0 });
+  const denied = await local.handler(new Request(local.request().url, { method: 'POST', headers: { authorization: 'Bearer wrong' }, body, duplex: 'half' }));
+  assert.equal(denied.status, 401); assert.equal(reads, 0);
+  const response = await local.handler(local.request({ stream: false, messages: [{ role: 'user', content: 'hello '.repeat(12_000) }] }));
+  assert.equal(response.status, 200); await response.json(); assert.equal(local.admissions.length, 1);
+  assert.equal(JSON.parse(local.logs.at(-1)).callIdHash, createHash('sha256').update(local.call.callId).digest('hex').slice(0, 16));
+});
+test('AIT-130: stdout logs one value-free JSON line per success and failure', async t => {
+  const output = []; t.mock.method(console, 'log', line => output.push(line));
+  const local = facadeFixture({ log: console.log });
+  const response = await local.handler(local.request({ messages: [{ role: 'user', content: 'private spoken text' }] },
+    { cookie: 'fixture-cookie-secret', 'x-api-key': 'fixture-api-key' }));
+  const text = await response.text();
+  await local.handler(local.request({}, { authorization: 'Bearer fixture-denied-secret' }));
+  assert.equal(output.length, 2);
+  const success = JSON.parse(output[0]), failure = JSON.parse(output[1]);
+  assert.deepEqual(Object.keys(success).sort(), ['time', 'level', 'event', 'status', 'latencyMs', 'requestBytes', 'responseBytes', 'errorCode', 'callIdHash'].sort());
+  assert.ok(Number.isFinite(Date.parse(success.time))); assert.ok(success.latencyMs >= 0);
+  assert.equal(success.status, 200); assert.equal(success.level, 'info'); assert.equal(success.errorCode, null);
+  assert.equal(success.responseBytes, Buffer.byteLength(text));
+  assert.equal(failure.status, 401); assert.equal(failure.level, 'error'); assert.equal(failure.errorCode, 'unauthorized');
+  assert.equal(failure.requestBytes, 0);
+  for (const secret of ['Bearer', 'fixture-per-call-secret', 'fixture-denied-secret', 'fixture-cookie-secret', 'fixture-api-key',
+    'private spoken text', local.call.callId, local.call.providerSessionId, local.call.facadeSecretRef, 'host.example.test']) {
+    assert.equal(output.join('\n').includes(secret), false, secret);
+  }
+});
+test('AIT-130: rejected async callback logging falls back without an unhandled rejection', async t => {
+  const output = []; t.mock.method(console, 'error', line => output.push(line));
+  const local = facadeFixture({ log: async () => { await flush(); throw new Error('Bearer fixture-per-call-secret'); } });
+  const response = await local.handler(local.request({ stream: false }));
+  assert.equal(response.status, 200); assert.equal((await response.json()).choices[0].message.content, 'Hello world');
+  await flush(); await flush();
+  assert.equal(output.length, 1); const line = JSON.parse(output[0]);
+  assert.equal(line.status, 200); assert.equal(line.errorCode, null);
+  assert.equal(output[0].includes('fixture-per-call-secret'), false);
+});
+for (const failure of ['throw', 'reject']) {
+  test(`AIT-130: fallback callback logging can ${failure} without affecting JSON or SSE responses`, async t => {
+    const output = []; t.mock.method(console, 'error', line => {
+      output.push(line);
+      if (failure === 'throw') throw new Error('Bearer fixture-per-call-secret');
+      return Promise.reject(new Error('Bearer fixture-per-call-secret'));
+    });
+    const local = facadeFixture({ log: () => { throw new Error('Bearer fixture-per-call-secret'); } });
+    const denied = await local.handler(local.request({}, { authorization: 'Bearer wrong' }));
+    assert.equal(denied.status, 401); assert.deepEqual(await denied.json(), { error: 'unauthorized' });
+    const response = await local.handler(local.request());
+    assert.equal(response.status, 200); assert.ok((await response.text()).endsWith('data: [DONE]\n\n'));
+    await flush();
+    assert.equal(output.length, 2);
+    assert.equal(JSON.parse(output[0]).errorCode, 'unauthorized'); assert.equal(JSON.parse(output[1]).errorCode, null);
+    assert.equal(output.join('\n').includes('fixture-per-call-secret'), false);
+  });
+}
+for (const port of ['getCall', 'resolveSecret', 'buildRequest', 'admitReasoning', 'onCompletion']) {
+  test(`AIT-130: ${port} failure returns a stable JSON 502 and one secret-free log`, async () => {
+    const local = facadeFixture({ ports: { [port]: () => { throw new Error('Bearer fixture-per-call-secret'); } } });
+    const response = await local.handler(local.request({ stream: false }));
+    assert.equal(response.status, 502); assert.deepEqual(await response.json(), { error: 'provider' });
+    assert.equal(local.logs.length, 1); assert.equal(JSON.parse(local.logs[0]).errorCode, 'provider');
+    assert.equal(local.logs[0].includes('fixture-per-call-secret'), false);
+  });
+}
+for (const mode of ['first-broken', 'finish-broken', 'finish-stall']) {
+  test(`AIT-130: ${mode} cannot escape as an empty nonstream 5xx`, async () => {
+    const local = facadeFixture({ mode });
+    const response = await local.handler(local.request({ stream: false }));
+    assert.equal(response.status, mode === 'finish-stall' ? 504 : 502);
+    assert.deepEqual(await response.json(), { error: mode === 'finish-stall' ? 'deadline' : 'provider' });
+    assert.equal(local.logs.length, 1); assert.equal(local.logs[0].includes('fixture-per-call-secret'), false);
+  });
+}
+test('AIT-130: unknown plugin codes cannot leak credentials into errors or logs', async () => {
+  const local = facadeFixture({ ports: { buildRequest: () => { throw new PluginError('Bearer fixture-per-call-secret'); } } });
+  const response = await local.handler(local.request());
+  assert.equal(response.status, 502); assert.deepEqual(await response.json(), { error: 'provider' });
+  assert.equal(JSON.parse(local.logs[0]).errorCode, 'provider'); assert.equal(local.logs[0].includes('fixture-per-call-secret'), false);
+});
+test('AIT-130: method, malformed JSON and every known plugin failure return coded JSON', async () => {
+  const local = facadeFixture();
+  const method = await local.handler(new Request(local.request().url));
+  assert.equal(method.status, 405); assert.deepEqual(await method.json(), { error: 'method-not-allowed' });
+  const malformed = await local.handler(new Request(local.request().url, { method: 'POST', headers: local.request().headers, body: '{' }));
+  assert.equal(malformed.status, 400); assert.deepEqual(await malformed.json(), { error: 'invalid-output' });
+  for (const [code, status] of Object.entries({ auth: 401, 'not-admitted': 403, limit: 413, 'invalid-output': 400,
+    deadline: 504, cancelled: 502, 'already-claimed': 502, unavailable: 502, 'rate-limit': 502, provider: 502 })) {
+    const failed = facadeFixture({ ports: { buildRequest: () => { throw new PluginError(code, 'fixture-per-call-secret'); } } });
+    const response = await failed.handler(failed.request());
+    assert.equal(response.status, status); assert.deepEqual(await response.json(), { error: code });
+    assert.equal(failed.logs.length, 1); assert.equal(JSON.parse(failed.logs[0]).errorCode, code);
+    assert.equal(failed.logs[0].includes('fixture-per-call-secret'), false);
+  }
 });
 test('facade accepts ElevenLabs platform and direct callback identities and rejects conflicting identities', async () => {
   const local = facadeFixture();
@@ -155,7 +346,7 @@ test('paused, terminal and expired calls cannot start fresh delegated reasoning'
   assert.equal((await local.handler(local.request())).status, 403); assert.equal(local.admissions.length, 0);
 });
 test('malformed, oversized and nontext requests reject before admission', async () => {
-  const local = facadeFixture();
+  const local = facadeFixture({ maxRequestBytes: 65_536 });
   for (const body of [{ messages: [] }, { messages: [null] },
     { messages: [{ role: 'user', content: [] }] }, { stream: 'yes' }]) assert.equal((await local.handler(local.request(body))).status, 400);
   assert.equal((await local.handler(local.request({ messages: [{ role: 'user', content: 'x'.repeat(70_000) }] }))).status, 413);
@@ -166,31 +357,37 @@ test('cancelling a stalled streamed response aborts reasoning and reports uncert
   await reader.read(); await reader.read(); const pending = reader.read(); await flush();
   await reader.cancel(); await pending;
   assert.equal(local.optionsList[0].reports.length, 1); assert.equal(local.optionsList[0].reports[0].outcome, 'uncertain');
+  assert.equal(local.logs.length, 1); assert.equal(JSON.parse(local.logs[0]).errorCode, 'cancelled');
 });
 test('facade deadline and unused response each settle a delegated attempt once', async () => {
   const local = facadeFixture({ mode: 'stall', timeoutMs: 50 }), response = await local.handler(local.request());
-  await assert.rejects(response.text());
+  await streamError(response, 'deadline');
+  assert.equal(local.logs.length, 1); assert.equal(JSON.parse(local.logs[0]).errorCode, 'deadline');
   assert.equal(local.optionsList[0].reports.length, 1); assert.equal(local.optionsList[0].reports[0].outcome, 'uncertain');
   const unused = facadeFixture({ timeoutMs: 40 }); await unused.handler(unused.request());
   await new Promise(resolve => setTimeout(resolve, 70));
   assert.equal(unused.optionsList[0].reports.length, 1); assert.equal(unused.optionsList[0].reports[0].outcome, 'uncertain');
+  assert.equal(unused.logs.length, 1); assert.equal(JSON.parse(unused.logs[0]).errorCode, 'deadline');
 });
 test('call lifetime deadline also bounds a delegated response even when facade timeout is longer', async () => {
   const local = facadeFixture({ mode: 'stall', deadlineAt: Date.now() + 35, timeoutMs: 1000 });
-  const response = await local.handler(local.request()); await assert.rejects(response.text());
+  const response = await local.handler(local.request()); await streamError(response, 'deadline');
   assert.equal(local.optionsList[0].reports.length, 1); assert.equal(local.optionsList[0].reports[0].outcome, 'uncertain');
 });
 test('call closure signal cancels an active delegated response and refuses later callbacks', async () => {
   const local = facadeFixture({ mode: 'stall' }), controller = new AbortController(); local.call.signal = controller.signal;
-  const response = await local.handler(local.request()), pending = response.text(); await flush(); controller.abort();
-  await assert.rejects(pending); assert.equal(local.optionsList[0].reports.length, 1);
+  const response = await local.handler(local.request()), pending = streamError(response, 'cancelled'); await flush(); controller.abort();
+  await pending; assert.equal(local.optionsList[0].reports.length, 1);
   assert.equal((await local.handler(local.request())).status, 403); assert.equal(local.optionsList.length, 1);
 });
-test('broken stream and missing terminal never fabricate successful completion', async () => {
-  for (const mode of ['broken', 'omit-report']) {
+test('broken stream, failed settlement and missing terminal emit JSON errors without successful completion', async () => {
+  for (const mode of ['broken', 'omit-report', 'finish-broken']) {
     const local = facadeFixture({ mode }), response = await local.handler(local.request());
-    await assert.rejects(response.text()); assert.equal(local.optionsList[0].reports.length, 1);
-    assert.equal(local.optionsList[0].reports[0].outcome, 'uncertain');
+    const code = mode === 'omit-report' ? 'invalid-output' : 'provider';
+    await streamError(response, code); assert.equal(local.optionsList[0].reports.length, 1);
+    assert.equal(local.optionsList[0].reports[0].outcome, mode === 'finish-broken' ? 'completed' : 'uncertain');
+    assert.equal(local.logs.length, 1); const line = JSON.parse(local.logs[0]);
+    assert.equal(line.status, 200); assert.equal(line.errorCode, code); assert.equal(line.level, 'error');
   }
 });
 test('facade awaits fresh runtime consent before dispatch and settles the owned session token claim', async t => {
@@ -244,10 +441,36 @@ test('facade runtime admission requires authoritative consent and an owned sessi
 });
 test('facade preserves the admission cancellation signal and earlier deadline', async () => {
   const controller = new AbortController(), cancelled = facadeFixture({ mode: 'stall', admissionOptions: { signal: controller.signal } });
-  const response = await cancelled.handler(cancelled.request()), pending = response.text(); await flush(); controller.abort();
-  await assert.rejects(pending); assert.equal(cancelled.optionsList[0].reports.length, 1);
+  const response = await cancelled.handler(cancelled.request()), pending = streamError(response, 'cancelled'); await flush(); controller.abort();
+  await pending; assert.equal(cancelled.optionsList[0].reports.length, 1);
   assert.equal(cancelled.optionsList[0].reports[0].outcome, 'uncertain');
   const expired = facadeFixture({ mode: 'stall', admissionOptions: { deadlineAt: Date.now() + 40 } });
-  const bounded = await expired.handler(expired.request()); await assert.rejects(bounded.text());
+  const bounded = await expired.handler(expired.request()); await streamError(bounded, 'deadline');
   assert.equal(expired.optionsList[0].reports.length, 1); assert.equal(expired.optionsList[0].reports[0].outcome, 'uncertain');
+  const unused = facadeFixture({ mode: 'stall', admissionOptions: { deadlineAt: Date.now() + 30 } });
+  const unread = await unused.handler(unused.request()); await new Promise(resolve => setTimeout(resolve, 60));
+  assert.equal(unused.logs.length, 1); assert.equal(JSON.parse(unused.logs[0]).errorCode, 'deadline');
+  await streamError(unread, 'deadline'); assert.equal(unused.optionsList[0].reports.length, 1);
+});
+test('AIT-130: delayed nonstream completion cannot return success past the admission deadline', async () => {
+  let completions = 0;
+  const local = facadeFixture({ admissionOptions: { deadlineAt: Date.now() + 100 }, ports: {
+    async onCompletion() { completions++; await new Promise(resolve => setTimeout(resolve, 150)); },
+  } });
+  const response = await local.handler(local.request({ stream: false }));
+  assert.equal(completions, 1); assert.equal(response.status, 504);
+  assert.deepEqual(await response.json(), { error: 'deadline' });
+  assert.equal(local.optionsList[0].reports.length, 1); assert.equal(local.logs.length, 1);
+  assert.equal(JSON.parse(local.logs[0]).errorCode, 'deadline');
+});
+test('AIT-130: admission cancellation while nonstream completion awaits cannot return success', async () => {
+  const controller = new AbortController(); let completions = 0;
+  const local = facadeFixture({ admissionOptions: { signal: controller.signal }, ports: {
+    async onCompletion() { completions++; controller.abort(); await flush(); },
+  } });
+  const response = await local.handler(local.request({ stream: false }));
+  assert.equal(completions, 1); assert.equal(response.status, 502);
+  assert.deepEqual(await response.json(), { error: 'cancelled' });
+  assert.equal(local.optionsList[0].reports.length, 1); assert.equal(local.logs.length, 1);
+  assert.equal(JSON.parse(local.logs[0]).errorCode, 'cancelled');
 });
