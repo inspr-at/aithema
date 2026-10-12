@@ -479,6 +479,19 @@ test('AIT-144: voice guidance varies openings and limits speech to one short que
 });
 
 for (const locale of ['de', 'en']) {
+  test(`AIT-150: ${locale} voice replies inherit the conditional German address rule once from core`, async t => {
+    const h = await voicePromptFixture(t, h => h.storage.append(h.session.id, 'session.locale-changed', { locale }));
+    await h.callback([{ role: 'user', content: locale === 'de' ? 'Hallo' : 'Hello' }]);
+    const { system } = h.requests.at(-1);
+    const rule = 'When the conversation language is German, address the person with the polite Sie form consistently (never du or ihr); use idiomatic German.';
+    assert.ok(core.GENERIC_POLICY.includes(rule));
+    assert.equal(system.split(core.GENERIC_POLICY).length, 2);
+    assert.ok(system.includes(rule));
+    assert.equal(system.split('polite Sie form').length, 2, 'voice must not duplicate the shared rule');
+    assert.ok(system.includes(`Write in ${locale === 'de' ? 'German' : 'English'} (locale ${locale})`));
+    assert.doesNotMatch(system, /when the locale is German/u);
+  });
+
   test(`AIT-148: ${locale} voice replies compose the shared core policy with voice-only guidance`, async t => {
     const h = await voicePromptFixture(t, h => h.storage.append(h.session.id, 'session.locale-changed', { locale }));
     await h.callback([{ role: 'user', content: locale === 'de' ? 'Hallo' : 'Hello' }]);
