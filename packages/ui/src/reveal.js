@@ -76,6 +76,7 @@ export function createReveal({ band, orb, controls = [], links, version = {}, co
   const id = `aithema-reveal-${++nextReveal}`, style = document.createElement('style'), fx = document.createElement('div'), row = document.createElement('nav');
   style.textContent = css; fx.className = 'aithema-reveal__fx'; fx.setAttribute('aria-hidden', 'true');
   fx.innerHTML = '<div class="aithema-reveal__glass"></div><div class="aithema-reveal__wash"></div><div class="aithema-reveal__ring"></div>';
+  const glass = fx.querySelector('.aithema-reveal__glass');
   row.className = 'aithema-reveal__row'; row.id = id; row.setAttribute('aria-label', text.label ?? 'Aithema'); row.setAttribute('aria-hidden', 'true'); row.inert = true;
   const wordmark = document.createElement('span'); wordmark.className = 'aithema-reveal__wordmark'; wordmark.setAttribute('role', 'img'); wordmark.setAttribute('aria-label', text.wordmark ?? 'Aithema');
   Array.from(text.wordmark ?? 'Aithema').forEach((letter, index) => { const span = document.createElement('span'); span.className = 'aithema-reveal__letter'; span.textContent = letter; span.dataset.letter = letter; span.style.setProperty('--ar-i', index); span.setAttribute('aria-hidden', 'true'); wordmark.append(span); });
@@ -193,11 +194,14 @@ export function createReveal({ band, orb, controls = [], links, version = {}, co
   };
   const finishExit = () => {
     exitTimer = 0; if (phase !== 'exiting' || destroyed) return;
-    restoreControls(); stopParticles(true); setPhase('closed'); paused.clear();
+    restoreControls(); stopParticles(true); setPhase('closed'); glass.style.transform = ''; paused.clear();
   };
   const exitDuration = () => moving() ? Math.max(850, ...[...saved.values()].map(({ delay }) => 960 + delay * .55)) : 200;
   const close = () => {
     cancelIntent(); if (destroyed || phase !== 'open') return;
+    // Early leave holds the actual circle too. Expanding it to the final radius here would flash teal.
+    const currentCircle = view.getComputedStyle(glass).transform;
+    glass.style.transform = currentCircle === 'none' ? '' : currentCircle;
     setPhase('exiting'); trigger.setAttribute('aria-expanded', 'false'); row.setAttribute('aria-hidden', 'true');
     if (row.contains(active())) focusOrb(); row.inert = true;
     for (const [node, { attributes }] of saved) restore(node, attributes.filter(([name]) => name !== 'data-aithema-reveal-control'));
@@ -210,7 +214,7 @@ export function createReveal({ band, orb, controls = [], links, version = {}, co
     if (items.some(node => node.contains(active()))) focusOrb();
     if (phase === 'closed') { measure(); dissolveControls(); }
     for (const node of saved.keys()) { node.inert = true; node.setAttribute('aria-hidden', 'true'); }
-    row.inert = false; row.removeAttribute('aria-hidden'); trigger.setAttribute('aria-expanded', 'true'); setPhase('open');
+    row.inert = false; row.removeAttribute('aria-hidden'); trigger.setAttribute('aria-expanded', 'true'); glass.style.transform = ''; setPhase('open');
     trigger.dispatchEvent(new view.CustomEvent('aithema-orb-reveal', { detail: true })); startParticles(true);
   };
   const visibility = () => {

@@ -109,7 +109,7 @@ for (const locale of ['de', 'en']) test(`AIT-140 glass orb and reveal evidence: 
     const shot = async (name, ms) => { if(evidence) await page.screenshot({path:join(evidence,`${label}-${name}.png`),clip:{x:0,y:0,width,height:240}}); frames.push({label,name,animation_ms:ms}); };
     const baseline = await layout(page); assert.equal(await page.$eval('.orb', node => node.getBoundingClientRect().width),40);
     await page.evaluate(() => { const turn=window.fixture.orb.element.querySelector('.orb__prism').getAnimations()[0]; turn.pause(); turn.currentTime=0; }); await shot('orb-rest',0);
-    await page.evaluate(() => { window.fixture.orb.element.querySelector('.orb__prism').getAnimations()[0].currentTime=3500; }); await shot('orb-turning',3500);
+    await page.evaluate(() => { window.fixture.orb.element.querySelector('.orb__prism').getAnimations()[0].currentTime=2450; }); await shot('orb-turning',2450);
     await page.evaluate(() => { window.fixture.orb.setVoice('speaking'); window.fixture.orb.setEnergy(.7); window.fixture.orb.element.getAnimations({subtree:true}).forEach(a=>{if(a.animationName?.startsWith('aithema-glass')) {a.pause();a.currentTime=1200;}}); }); await shot('orb-speaking',1200);
     await page.evaluate(() => { window.fixture.orb.setVoice('listening'); window.fixture.orb.setEnergy(0); });
     // A real quick pointer pass must not start the sequence.
@@ -165,4 +165,32 @@ test('AIT-140: real keyboard navigation, reduced-motion preference, hidden tab a
   // Headless Chrome may keep background pages visible; when it does, exercise its lifecycle via CDP.
   const client=await page.createCDPSession();await client.send('Page.setWebLifecycleState',{state:'frozen'});await client.send('Page.setWebLifecycleState',{state:'active'});await page.bringToFront();
   assert.deepEqual(problems,[]);
+});
+
+test('AIT-140: early leave holds the circle; live exit colour samples every 50ms', {timeout:60_000}, async t=>{
+  const url=await server(t), evidence=process.env.AITHEMA_EVIDENCE_DIR;
+  const browser=await puppeteer.launch({executablePath:await browserPath(),headless:true,env:{PATH:process.env.PATH,HOME:homedir()},args:process.platform==='linux'&&process.env.CI?['--no-sandbox']:[]}); t.after(()=>browser.close());
+  const page=await browser.newPage(), records=[];
+  for(const theme of ['light','dark']) for(const width of [1440,390]) {
+    await page.setViewport({width,height:900,deviceScaleFactor:1}); await page.goto(`${url}/?locale=de&theme=${theme}`); await page.waitForFunction(()=>window.ready); await wait(100);
+    await page.evaluate(()=>window.fixture.orb.element.focus()); await wait(140);
+    const circle=await page.evaluate(()=>{const glass=window.fixture.band.querySelector('.aithema-reveal__glass');const before=getComputedStyle(glass).transform;window.fixture.reveal.close();return {before,after:getComputedStyle(glass).transform};});
+    assert.equal(circle.after,circle.before,'an early exit cannot change the circle radius');
+    if(evidence) await page.screenshot({path:join(evidence,`de-${theme}-${width}-early-exit.png`),clip:{x:0,y:0,width,height:240}});
+    await page.waitForFunction(()=>window.fixture.band.dataset.aithemaRevealState==='closed');
+    // Reopen without freezing; the ordinary CSS/JS exit runs on its real clock for this proof.
+    await page.evaluate(()=>window.fixture.orb.element.dispatchEvent(new Event('focus'))); await wait(2100);
+    const height=await page.$eval('#band',n=>n.getBoundingClientRect().height), point={x:2,y:height-2,width:1,height:1};
+    const start=performance.now(); await page.evaluate(()=>window.fixture.reveal.close()); const samples=[];
+    for(let ms=0;ms<=900;ms+=50) {
+      await wait(Math.max(0,start+ms-performance.now()));
+      const before=performance.now(), pixel=rgb(Buffer.from(await page.screenshot({clip:point}))), after=performance.now();
+      samples.push({scheduled_ms:ms,capture_start_ms:Math.round(before-start),capture_end_ms:Math.round(after-start),rgb:pixel});
+    }
+    records.push({theme,width,clock:'live, unfrozen CSS and ordinary exit cleanup; 50ms schedule with actual capture times',point,circle,samples});
+    if(evidence) await writeFile(join(evidence,'exit-colour-samples-live.json'),JSON.stringify(records,null,2)+'\n');
+    for(let channel=0;channel<3;channel++) {const direction=Math.sign(samples.at(-1).rgb[channel]-samples[0].rgb[channel]);for(let i=1;i<samples.length;i++) assert.ok((samples[i].rgb[channel]-samples[i-1].rgb[channel])*direction>=-2,`${theme}-${width} live exit channel ${channel} at ${samples[i].scheduled_ms}ms`);}
+    await page.waitForFunction(()=>window.fixture.band.dataset.aithemaRevealState==='closed');assert.ok(await page.evaluate(()=>window.fixture.controls.every(n=>!n.inert&&getComputedStyle(n).opacity==='1')));
+  }
+  t.diagnostic('76 live rendered-pixel colour samples, four early-leave checks; actual capture timestamps retained.');
 });
