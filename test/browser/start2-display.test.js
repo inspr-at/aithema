@@ -573,7 +573,16 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
           }),
           proxies: [...c.shadowRoot.querySelectorAll('.aithema-reveal__proxy')].map(n => Number(getComputedStyle(n).opacity)),
         }));
-        if (opacities.brand > .25) assert.ok([...opacities.controls.filter(n => n.visible).map(n => n.opacity), ...opacities.proxies].every(value => value <= .25), `${label}: brand and visible controls do not overlap: ${JSON.stringify({ ms, ...opacities })}`);
+        if (opacities.brand > .25 && ![...opacities.controls.filter(n => n.visible).map(n => n.opacity), ...opacities.proxies].every(value => value <= .25)) {
+          const timeline = await shadow(page, c => ({
+            phase: c.shadowRoot.querySelector('.band').dataset.aithemaRevealState,
+            animations: globalThis.displayRevealTimeline.filter(a => a.effect.target.matches('.aithema-reveal__row,.aithema-reveal__glass,[data-aithema-reveal-control]')).map(a => ({
+              target: a.effect.target.className, property: a.transitionProperty, state: a.playState, pending: a.pending,
+              currentTime: a.currentTime, timing: a.effect.getTiming(), keyframes: a.effect.getKeyframes(),
+            })),
+          }));
+          assert.fail(`${label}: brand and visible controls do not overlap: ${JSON.stringify({ ms, ...opacities, timeline })}`);
+        }
         samples.push({ ms, rgb: pixelRgb(Buffer.from(await page.screenshot({ clip: point }))), ...opacities });
         if ([0, 150, 300, 450, 700].includes(ms)) await shot(`reveal-exit-${ms}ms`, width, theme, true);
       }
