@@ -12,25 +12,26 @@ const routes = new RegExp(`^/api/sessions/(${idPattern})/voice(?:/(${idPattern})
 const facadeRoute = new RegExp(`^/api/voice/(${idPattern})/llm/chat/completions$`, 'u');
 const staticFacadeRoute = '/api/voice/llm/chat/completions';
 
-function unrecordedVoiceInput(session, messages) {
+function unrecordedVoiceInput(session, messages, { callId, providerSessionId }) {
   const latest = messages.at(-1);
   // Only a trailing person utterance can be new input. Never replay provider history.
   if (latest?.role !== 'user' || !latest.content.trim()) return [];
   const normalize = text => text.trim().replace(/\s+/gu, ' ');
-  const last = session.transcript.at(-1), before = session.transcript.at(-2), previous = messages.at(-2);
-  const sameTurn = last?.role === 'user' && typeof last.content === 'string' &&
+  const last = session.transcript.at(-1);
+  // Only server-persisted speech from this call AND provider generation can
+  // suppress input. Legacy turns have unknown provenance; typed turns carry
+  // voiceCallId/voiceProviderId instead, even when an SDK echo is absorbed.
+  const sameGeneration = turn => turn.callId === callId && turn.providerSessionId === providerSessionId;
+  const sameTurn = last?.role === 'user' && !last.erased && !last.withdrawn && sameGeneration(last) && typeof last.content === 'string' &&
     normalize(last.content) === normalize(latest.content);
-  // Equal text alone cannot place a repeated answer at the persisted tail.
-  // A delayed reply or server-only typed context leaves the positions uncertain.
-  // A nonempty heard prefix can anchor a reply only if it is unambiguous in
-  // provider history. When uncertain, keep the newest person utterance once.
-  const matchesBefore = message => message?.role === before?.role && typeof before?.content === 'string' &&
-    Boolean(normalize(before.content)) && (message.role === 'assistant'
-      ? normalize(message.content).startsWith(normalize(before.content))
-      : normalize(message.content) === normalize(before.content));
-  const samePosition = messages.length === session.transcript.length && (!previous ? !before
-    : matchesBefore(previous) && !messages.slice(0, -2).some(matchesBefore));
-  return sameTurn && samePosition ? [] : [{ role: 'user', content: latest.content }];
+  // Provenance does not identify individual repeated utterances (AIT-137).
+  // Extra provider turns can only veto suppression, never establish identity:
+  // a delayed or entirely unheard assistant reply leaves the newest input new.
+  const recorded = session.transcript.filter(turn => sameGeneration(turn) && !turn.erased && !turn.withdrawn &&
+    typeof turn.content === 'string' && Boolean(turn.content.trim()));
+  const providerAhead = ['user', 'assistant'].some(role =>
+    messages.filter(message => message.role === role).length > recorded.filter(turn => turn.role === role).length);
+  return sameTurn && !providerAhead ? [] : [{ role: 'user', content: latest.content }];
 }
 
 export function createFacadeSecrets() {
@@ -158,13 +159,13 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       throw error;
     } finally { started.resolve(); request.signal.removeEventListener('abort', abortStartup); }
   }
-  function buildVoiceRequest(session, messages) {
+  function buildVoiceRequest(session, messages, call) {
     const trusted = reasoningRequest(session, 'reaction', false, hostPrompt);
     // The session owns history, including typed turns, withdrawals and heard
     // prefixes. Provider text supplies only the newest unrecorded person input.
     return { ...trusted, messages: [...trusted.messages,
       ...(session.focusedQuestion ? [{ role: 'user', content: JSON.stringify({ kind: 'untrusted-focused-question', question: session.focusedQuestion }) }] : []),
-      ...unrecordedVoiceInput(session, messages)] };
+      ...unrecordedVoiceInput(session, messages, call)] };
   }
   const facade = createCompletionsHandler({ resolveSecret: secrets.resolve, staticSecretRef,
     getCall(request, options, identity) {
@@ -175,7 +176,8 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       return { ...entry.call.snapshot(), facadeSecretRef: entry.facadeSecretRef, facadeCallId: entry.facadeCallId, signal: entry.call.signal };
     },
     buildRequest({ callId, messages }) {
-      return buildVoiceRequest(sessionFor(calls.get(callId)), messages);
+      const entry = calls.get(callId);
+      return buildVoiceRequest(sessionFor(entry), messages, entry.call);
     },
     async admitReasoning({ callId, messages, options }) {
       const entry = calls.get(callId);
@@ -186,7 +188,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           // Build and admit from one snapshot, including input saved while the
           // voice check awaited. The facade must dispatch this admitted request.
           session = sessionFor(entry);
-          const request = buildVoiceRequest(session, messages);
+          const request = buildVoiceRequest(session, messages, entry.call);
           return { ...await runtime.admit({ session, lane: 'reaction', operation: 'stream', request, options }), request };
         } catch (error) {
           // sessionFor strictly fences ownership, consent and withdrawal before

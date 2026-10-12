@@ -646,7 +646,7 @@ for (const order of ['callback-first', 'persist-first', 'persist-during-voice-ch
   });
 }
 
-test('AIT-130 voice prompt retains typed turns during the call without replaying their provider echoes', async t => {
+test('AIT-130 voice prompt retains typed turns and conservatively includes their provider echoes', async t => {
   const h = await voicePromptFixture(t);
   await h.persist('user', 'spoken', 'Spoken context');
   await h.persist('assistant', 'reply', 'Recorded reply');
@@ -655,7 +655,7 @@ test('AIT-130 voice prompt retains typed turns during the call without replaying
     voiceCallId: h.grant.callId, providerSessionId: h.grant.providerSessionId });
   assert.equal(response.status, 200);
   const history = h.recorded();
-  assert.deepEqual(await h.callback(history), history, 'already saved typed input is not appended again');
+  assert.deepEqual(await h.callback(history), [...history, typed], 'typed provenance cannot suppress a provider utterance');
   await h.persist('user', 'typed-echo', typed.content);
   assert.deepEqual(h.recorded(), history, 'the SDK echo also uses the saved typed turn');
   const latest = { role: 'user', content: 'Spoken after typing' };
