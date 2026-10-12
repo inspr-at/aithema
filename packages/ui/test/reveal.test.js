@@ -80,6 +80,11 @@ test('AIT-140: keyboard focus leaving the band closes it', t => {
   assert.equal(f.state(), 'exiting'); f.advance(1500); assert.equal(f.state(), 'closed'); assert.equal(f.document.activeElement, outside);
 });
 
+test('AIT-140: a pointer reveal moves focus off a control before making it inert', t => {
+  const f = fixture(t); f.controls[0].focus(); f.event(f.orb.element, 'mouseenter'); f.advance(350);
+  assert.equal(f.state(), 'open'); assert.equal(f.document.activeElement, f.orb.element); assert.equal(f.controls[0].inert, true);
+});
+
 test('AIT-140: early exit preserves prior inert, aria-hidden, disabled and inline styles', t => {
   const f = fixture(t); f.controls[0].inert = true; f.controls[0].setAttribute('aria-hidden', 'true'); f.controls[1].disabled = true;
   f.controls[2].style.setProperty('--ar-delay', '17ms', 'important'); f.controls[3].style.opacity = '.7';

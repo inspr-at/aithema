@@ -14,7 +14,7 @@ const css = `
 .aithema-reveal-band > .aithema-reveal__row { position:absolute; left:var(--ar-row-left,108px); right:var(--ar-row-right,24px); top:0; bottom:6px; display:flex; align-items:center; gap:26px; color:#fff; font-family:var(--aithema-font,var(--ui,system-ui,sans-serif)); white-space:nowrap; opacity:0; pointer-events:none; z-index:3; transition:opacity .5s ease; }
 .aithema-reveal-band[data-aithema-reveal-state="open"] > .aithema-reveal__row { opacity:1; pointer-events:auto; }
 .aithema-reveal__wordmark { position:relative; display:inline-block; overflow:hidden; font:600 27px/1.15 var(--aithema-display,var(--display,Georgia,serif)); letter-spacing:-.03em; color:#fff; }
-.aithema-reveal__wordmark > .aithema-reveal__letter { display:inline-block; opacity:0; transform:translateY(9px) scale(.9); transition:opacity .55s,transform .65s cubic-bezier(.2,.9,.25,1.25); transition-delay:calc(120ms + var(--ar-i) * 45ms); }
+.aithema-reveal__wordmark > .aithema-reveal__letter { position:relative; display:inline-block; opacity:0; transform:translateY(9px) scale(.9); transition:opacity .55s,transform .65s cubic-bezier(.2,.9,.25,1.25); transition-delay:calc(120ms + var(--ar-i) * 45ms); }
 .aithema-reveal-band[data-aithema-reveal-state="open"] .aithema-reveal__letter { opacity:1; transform:none; }
 .aithema-reveal__letter::after { content:attr(data-letter); position:absolute; inset:0; filter:blur(9px); opacity:0; }
 .aithema-reveal-band[data-aithema-reveal-state="open"] .aithema-reveal__letter::after { animation:aithema-reveal-letter-mist .55s calc(120ms + var(--ar-i) * 45ms) both; }
