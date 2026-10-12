@@ -351,7 +351,7 @@ export class AithemaSession extends HTMLElement {
     pause.dataset.reveal = ''; root.querySelector('.voice-cell--pause').prepend(pause); root.querySelector('.audio-rail').tabIndex = -1;
     root.querySelector('.pause').addEventListener('click', async () => {
       const button = root.querySelector('.pause');
-      if (this.#rail.session) { await this.#rail.pause(!this.#rail.paused); return; }
+      if (this.#rail.session) { await this.#rail.pause(!this.#rail.pauseIntent); return; }
       if (this.#rail.waitingCall) { await this.#rail.start(); return; }
       button.disabled = true;
       try { await this.#setPaused(!this.#session.paused); }
@@ -598,7 +598,7 @@ export class AithemaSession extends HTMLElement {
     this.#questionCard?.update(currentQuestionCard(this.#session), copy, !this.#feature('text').available, this.#sending);
     const pause = root.querySelector('.pause');
     if (pause) {
-      const voicePaused = this.#rail?.session || this.#rail?.waitingCall ? this.#rail.paused : this.#session.paused;
+      const voicePaused = this.#rail?.session || this.#rail?.waitingCall ? this.#rail.pauseIntent : this.#session.paused;
       setText(pause.querySelector('.voice-label'), voicePaused ? copy.resume : copy.pause); pause.title = pause.textContent;
       pause.setAttribute('aria-pressed', String(Boolean(voicePaused)));
     }
@@ -1410,7 +1410,9 @@ export class AithemaSession extends HTMLElement {
       if (event.type === 'session.paused') {
         this.#invalidatedAt = Math.max(this.#invalidatedAt, event.seq); this.#notice = '';
         if (event.data.paused) this.#deviceController?.abort(); else this.#pausePrompt = false;
-        this.#rail.syncPause(event.data.paused, event.data.pauseRequestId);
+        if (!this.#rail.syncPause(event.data.paused, event.data.pauseRequestId, event.data.resumeRequestId)) {
+          this.#session.paused = Boolean(this.#rail.paused);
+        }
       }
       if ((invalidation || consentRevised || event.type === 'session.paused') && this.isConnected) void this.#refreshFeatures();
       if (event.type === 'turn.final') {

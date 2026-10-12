@@ -384,7 +384,8 @@ export class SQLiteStorage {
       if (existing && (existing.call_id !== record.callId || existing.session_id !== id)) throw new ConflictError('Voice identity mismatch');
       this.db.prepare('INSERT INTO voice_calls VALUES (?,?,?,?) ON CONFLICT(provider_id) DO UPDATE SET record=excluded.record')
         .run(record.providerSessionId, record.callId, id, JSON.stringify(record));
-      const event = paused === undefined || session.paused === paused ? null : this.#append(session, 'session.paused', { paused });
+      const event = paused === undefined || session.paused === paused ? null : this.#append(session, 'session.paused', { paused,
+        ...(!paused && guard.resumeRequestId !== undefined ? { resumeRequestId: guard.resumeRequestId } : {}) });
       return { acknowledged: true, ...(paused === undefined ? {} : { paused }), event };
     });
   }

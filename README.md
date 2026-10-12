@@ -695,6 +695,11 @@ and pending Resume before its keepalive request, including back/forward caching.
 Server pauses fence pending Resume and startup. The optional `pauseRequestId`
 correlates the call's own durable pause echo so it cannot recursively pause or
 block its own continuation; it supplies no authority or paid-operation identity.
+Resume carries an optional `resumeRequestId` through the durable echo, correlated
+with the rail's visitor-intent revision. An echo superseded by any later hold
+cannot lift that hold; events never start Resume commands. A fresh visitor action
+and its HTTP acknowledgement unlock media. Fast Resume → Pause → Resume clicks
+retain the last visitor intent while earlier commands finish muted.
 
 AIT-138's first slice stops here. Recovery notices, exact known-reply replay,
 durable controlling-tab takeover, sleep/wake handling and server-restart

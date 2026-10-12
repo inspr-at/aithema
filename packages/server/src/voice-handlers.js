@@ -456,8 +456,13 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           return json(result.event);
         }
         const before = storage.get(sessionId).seq;
-        if (action === 'resume') onActivity?.(session);
-        const ack = await entry.call[action]({ ...options(request), guard: { authorizationRevision: voiceAuthorizationRevision(session) } });
+        if (action === 'resume') {
+          if (body.resumeRequestId !== undefined && (typeof body.resumeRequestId !== 'string' ||
+            !new RegExp(`^${idPattern}$`, 'u').test(body.resumeRequestId))) throw new TypeError('Invalid resume request identity');
+          onActivity?.(session);
+        }
+        const ack = await entry.call[action]({ ...options(request), guard: { authorizationRevision: voiceAuthorizationRevision(session),
+          ...(action === 'resume' && body.resumeRequestId !== undefined ? { resumeRequestId: body.resumeRequestId } : {}) } });
         if (action === 'resume') storage.transitionVoiceLifecycle(sessionId, callId, { type: 'resume-acknowledged' });
         if (action === 'heartbeat') storage.transitionVoiceLifecycle(sessionId, callId, { type: 'heartbeat', ...ack });
         for (const event of storage.read(sessionId, before)) publish(sessionId, event);

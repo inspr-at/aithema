@@ -92,6 +92,11 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
         options.onPauseRequest?.(pauseRequestId);
         return control.pause({ ...identity(), pauseRequestId }, opts);
       };
+      const resumeControl = opts => {
+        const resumeRequestId = crypto.randomUUID();
+        (opts?.onResumeRequest ?? options.onResumeRequest)?.(resumeRequestId);
+        return control.resume({ ...identity(), resumeRequestId }, opts);
+      };
       const outputVolume = () => ended || paused || transportBlocked || !outputOn || playbackInterrupted ? 0 : 1;
       const stopPersistence = () => persistenceCancellation.abort();
       const persist = async value => {
@@ -494,7 +499,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
             ? await control.recover({ callId: request.callId, providerSessionId: request.providerSessionId, explicit: true }, opts) : await control.start(request, opts);
           await connect(receipt, opts); lifecycle.connected(receipt);
           if (request.providerSessionId && !options.holdSignal?.aborted) {
-            const ack = await control.resume(identity(), opts);
+            const ack = await resumeControl(opts);
             if (ended || opts.signal.aborted) throw new PluginError('cancelled');
             if (ack?.acknowledged !== true || ack.paused !== false) throw new PluginError('invalid-output', 'Resume not acknowledged');
             if (revision !== pauseRevision) throw new PluginError('unavailable', 'New pause requested while resuming');
@@ -527,7 +532,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
                 paused = true;
                 if (!await lifecycle.recover({ explicit: true })) throw new PluginError('unavailable');
               }
-              const ack = await control.resume(identity(), opts);
+              const ack = await resumeControl(opts);
               if (ended || opts.signal.aborted) throw new PluginError('cancelled');
               if (ack?.acknowledged !== true || ack.paused !== false) throw new PluginError('invalid-output', 'Resume not acknowledged');
               if (revision !== pauseRevision) throw new PluginError('unavailable', 'New pause requested while resuming');
