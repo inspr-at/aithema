@@ -96,6 +96,9 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
       try { checkLifetime(); return response; }
       catch (error) {
         // A late paid response cannot publish a draft, but its receipt still repairs costs.
+        if (!response.headers.get('content-type')?.includes('application/json')) {
+          void response.body?.cancel().catch(() => {}); throw error;
+        }
         const late = operationScope({ deadlineAt: Date.now() + 1000 });
         void (async () => {
           try {

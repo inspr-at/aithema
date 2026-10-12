@@ -656,7 +656,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const ceiling = html ? htmlCeiling : lane === 'concept' ? rates.maxInputTokens * rates.inputMicro + rates.maxOutputTokens * rates.outputMicro
         : plugin.estimateCost ? plugin.estimateCost(request, operation)
         : (promptBytes + 256 + (request.messages?.length ?? 0) * 64) * rates.inputMicro + binding.maxTokens * rates.outputMicro;
-      if (!Number.isSafeInteger(ceiling) || ceiling > binding.maxMicro) throw new PluginError('not-admitted', 'Request exceeds binding cost ceiling');
+      const tokenCeiling = lane === 'concept' ? ceiling : (promptBytes + 256 + (request.messages?.length ?? 0) * 64) * rates.inputMicro + binding.maxTokens * rates.outputMicro;
+      if (![ceiling, tokenCeiling].every(Number.isSafeInteger) || Math.max(ceiling, tokenCeiling) > binding.maxMicro) throw new PluginError('not-admitted', 'Request exceeds binding cost ceiling');
       if (operation !== result.operation) throw new PluginError('not-admitted');
       const { attemptId } = await admitBudget(session, { sessionId: session.id, lane, maxMicro: html || plugin.estimateCost ? ceiling : binding.maxMicro,
         ...(plugin.reconcileCost ? { providerCost: { plugin: binding.plugin, endpoint: binding.endpoint, secretRef: binding.secretRef, accountRef: binding.accountRef } } : {}),
