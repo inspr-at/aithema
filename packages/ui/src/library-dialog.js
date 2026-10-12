@@ -157,6 +157,8 @@ export class LibraryDialog {
     const c = this.#c, current = item.id === this.#current(), renaming = this.#renaming === item.id;
     const name = this.#title(item), open = row.querySelector('.library-open'), input = row.querySelector('.library__rename input');
     input.id = `library-rename-${item.id}`; row.querySelector('.library__rename label').htmlFor = input.id;
+    setText(row.querySelector('.library__rename label'), c.renameLabel);
+    for (const key of ['rename', 'delete', 'save', 'cancel']) setText(row.querySelector(`.library-${key}`), c[key]);
     setText(row.querySelector('.library__name'), name); setText(row.querySelector('.library__current'), current ? c.current : '');
     row.dataset.current = String(current); row.dataset.untitled = String(!item.title?.trim());
     const at = time(item.updatedAt), stamp = row.querySelector('time');
