@@ -23,7 +23,12 @@ async function fixture(t, { locale = 'en', capMilliseconds, closureTimeoutMs, re
     const body = await req.json(); upstream.push(body);
     if (!body.stream) {
       if (heldUnderstanding) { heldUnderstanding.started.resolve(); await heldUnderstanding.released.promise; }
-      return Response.json({ choices: [{ finish_reason: 'stop', message: { content: '{"summary":"Local understanding"}' } }],
+      const assessment = { summary: 'Local understanding' }, schema = body.response_format.json_schema.schema;
+      if (schema.properties.constraints) Object.assign(assessment, { signals: [], openQuestions: [],
+        constraints: Object.fromEntries(Object.keys(schema.properties.constraints.properties).map(key => [key, null])),
+        progress: { talk: { value: .2, reasoning: '' }, build: { value: 0, reasoning: '' } },
+        actor: null, engagement: null, conceptIntent: null });
+      return Response.json({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(assessment) } }],
         usage: { prompt_tokens: 1, completion_tokens: 2, cost: 0.00001 } });
     }
     return new Response('data: {"choices":[{"delta":{"content":"Local reasoning"},"finish_reason":"stop"}]}\n\n' +
