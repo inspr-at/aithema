@@ -194,6 +194,9 @@ export class AudioRail {
       }, 80);
       void this.consume(session, generation);
       if (this.root.ownerDocument.hidden || this.hidePending) { this.hidePending = false; this.hide(); }
+      // An early Resume echo stays fenced until startup succeeds. Publish its
+      // acknowledged projection now, retaining any hold that superseded startup.
+      if (this.current(session, generation)) this.onPause?.(Boolean(this.paused));
     } catch (error) {
       if (generation !== this.generation || session && session !== this.session) return;
       this.stopHeartbeat?.(); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.session = null; controller.abort();
