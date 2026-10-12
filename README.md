@@ -653,6 +653,14 @@ active successor. Exhaustion reports cannot overwrite a newer segment or undo
 terminal intent. Waiting snapshots contain neither authority revisions nor
 operation checkpoints.
 
+Close during restored Resume synchronously aborts startup and keeps capture
+stopped and output at zero before background closure. Startup failures and
+deadlines stop media before reporting exhaustion; pagehide also ends local media
+and pending Resume before its keepalive request, including back/forward caching.
+Server pauses fence pending Resume and startup. The optional `pauseRequestId`
+correlates the call's own durable pause echo so it cannot recursively pause or
+block its own continuation; it supplies no authority or paid-operation identity.
+
 AIT-138's first slice stops here. Recovery notices, exact known-reply replay,
 durable controlling-tab takeover, sleep/wake handling and server-restart
 restoration remain to be delivered. The reducer already models those transitions;
