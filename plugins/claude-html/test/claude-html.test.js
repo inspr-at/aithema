@@ -82,7 +82,8 @@ test('generate posts one chat completion with usage accounting and returns a ver
   assert.equal(record64.modality, 'html'); assert.equal(record64.generator.model, DEFAULT_MODEL);
   assert.equal(result.promptDigest, `sha256:${createHash('sha256').update(`${system.content}\n\n${user.content}`).digest('hex')}`);
   assert.deepEqual(o.reports, [{ attemptId: o.attempt.attemptId, outcome: 'completed', usage: { inputTokens: 1200, outputTokens: 3400 }, chargedMicro: 72_800 }]);
-  assert.deepEqual(f.spent(), { version: 1, spentMicro: 72_800, reservations: {}, costCeilingBreached: false });
+  assert.deepEqual(f.plugin.spend.snapshot(), { spentMicro: 72_800, reservedMicro: 0, uncertainMicro: 0,
+    totalMicro: 72_800, costCeilingBreached: false });
   assert.equal(JSON.stringify(result).includes('local-fixture'), false);
 });
 test('edit sends the previous dummy without its provenance record, requires feedback and bumps the revision', async t => {
@@ -148,14 +149,15 @@ test('unknown cost and dispatched HTTP refusals keep the full computed ceiling',
   const f = await fake(t, { maxMicro: 700_000 });
   f.respond((_req, res) => res.end(completion(dummy, { prompt_tokens: 5, completion_tokens: 6 })));
   const completed = options();
-  await f.plugin.generate(spec, '', completed); assert.equal(f.spent().spentMicro, f.ceiling());
+  await f.plugin.generate(spec, '', completed); assert.equal(f.plugin.spend.snapshot().uncertainMicro, f.ceiling());
+  assert.equal(f.spent().spentMicro, 0);
   assert.equal(completed.reports[0].chargedMicro, f.ceiling(), 'tokens alone do not lower the wallet below the account charge');
   for (const [status, code] of [[401, 'auth'], [402, 'limit'], [403, 'auth'], [429, 'rate-limit'], [500, 'provider']]) {
-    const before = f.spent().spentMicro;
+    const before = f.plugin.spend.snapshot().uncertainMicro;
     f.respond((_req, res) => { res.writeHead(status); res.end('private-provider-detail'); });
     const o = options(); await assert.rejects(f.plugin.generate(spec, '', o), error => error.code === code && error.message === code);
     assert.deepEqual(o.reports, [{ attemptId: o.attempt.attemptId, outcome: 'uncertain', chargedMicro: f.ceiling() }]);
-    assert.equal(f.spent().spentMicro - before, f.ceiling(), String(status)); assert.deepEqual(f.spent().reservations, {});
+    assert.equal(f.plugin.spend.snapshot().uncertainMicro - before, f.ceiling(), String(status)); assert.deepEqual(f.spent().reservations, {});
   }
   assert.equal(costMicro(0.1), 100_000); assert.equal(costMicro(0.0000001), 1); assert.equal(costMicro(-1), null); assert.equal(costMicro('1'), null);
   assert.equal(costMicro(1e-12), 1); assert.equal(costMicro(Number.MAX_VALUE), null);
@@ -196,7 +198,8 @@ test('active cancellation and deadlines end stalled calls as uncertain at the co
       chargedMicro: callCeilingMicro(JSON.parse(f.requests.at(-1).init.body).messages, f.binding) }]);
   }
   assert.equal(f.requests.length, 4); assert.equal(f.records.length, 4);
-  assert.equal(f.spent().spentMicro, f.requests.reduce((sum, r) => sum + callCeilingMicro(JSON.parse(r.init.body).messages, f.binding), 0));
+  assert.equal(f.plugin.spend.snapshot().uncertainMicro, f.requests.reduce((sum, r) => sum + callCeilingMicro(JSON.parse(r.init.body).messages, f.binding), 0));
+  assert.equal(f.spent().spentMicro, 0);
   assert.deepEqual(f.spent().reservations, {});
 });
 test('ignored transport cancellation still returns promptly with one uncertain terminal', async t => {
@@ -206,7 +209,8 @@ test('ignored transport cancellation still returns promptly with one uncertain t
   const pending = plugin.generate(spec, '', o); await started; controller.abort();
   await assert.rejects(pending, { code: 'cancelled' });
   assert.deepEqual(o.reports, [{ attemptId: o.attempt.attemptId, outcome: 'uncertain', chargedMicro: f.ceiling() }]);
-  assert.equal(f.spent().spentMicro, o.reports[0].chargedMicro);
+  assert.equal(f.plugin.spend.snapshot().uncertainMicro, o.reports[0].chargedMicro);
+  assert.equal(f.spent().spentMicro, 0);
 });
 test('authority refusal does not dispatch, reserve spend or invent a second terminal report', async t => {
   const f = await fake(t), o = options();
@@ -315,10 +319,12 @@ test('a ceiling breach below the total cap also stays unavailable across restart
 });
 test('an asynchronous injected spend port reserves before dispatch and settles its opaque handle', async t => {
   const f = await fake(t), handles = new Map(), events = []; let spentMicro = 0;
+  const backing = createSpendLedger({ path: f.spendPath + '.injected' });
   const spend = {
+    ...backing,
     async snapshot() { return { spentMicro, reservedMicro: [...handles.values()].reduce((sum, n) => sum + n, 0) }; },
-    async reserve(micro) { const handle = {}; handles.set(handle, micro); events.push(['reserve', micro]); return handle; },
-    async settle(handle, actual) { assert.equal(handles.has(handle), true); handles.delete(handle); spentMicro += actual; events.push(['settle', actual]); },
+    async reserve(micro, metadata) { const handle = backing.reserve(micro, metadata); handles.set(handle, micro); events.push(['reserve', micro]); return handle; },
+    async settle(handle, actual) { assert.equal(handles.has(handle), true); backing.settle(handle, actual); handles.delete(handle); spentMicro += actual; events.push(['settle', actual]); },
   };
   const plugin = f.make({ spend, fetchImpl(url, init) {
     assert.deepEqual([...handles.values()], [f.ceiling()]); events.push(['dispatch']); return f.fetchImpl(url, init);
@@ -328,9 +334,11 @@ test('an asynchronous injected spend port reserves before dispatch and settles i
   assert.equal(spentMicro, 72_800); assert.equal(existsSync(f.spendPath), false);
 });
 test('cancellation while reserving releases only a provably unsent request', async t => {
-  const f = await fake(t), controller = new AbortController(), handle = {}, settled = [];
-  const spend = { snapshot: () => ({ spentMicro: 0, reservedMicro: 0 }),
-    async reserve() { controller.abort(); return handle; }, settle: (id, cost) => { assert.equal(id, handle); settled.push(cost); } };
+  const f = await fake(t), controller = new AbortController(), settled = []; let handle;
+  const backing = createSpendLedger({ path: f.spendPath + '.injected' });
+  const spend = { ...backing,
+    async reserve(micro, metadata) { handle = backing.reserve(micro, metadata); controller.abort(); return handle; },
+    settle: (id, cost) => { assert.equal(id, handle); backing.settle(id, cost); settled.push(cost); } };
   const o = options({ signal: controller.signal });
   await assert.rejects(f.make({ spend }).generate(spec, '', o), { code: 'cancelled' });
   assert.deepEqual(settled, [0]); assert.equal(f.requests.length, 0);
@@ -339,9 +347,11 @@ test('cancellation while reserving releases only a provably unsent request', asy
 test('an ambiguous transport failure retains the ceiling and settlement failure closes the plugin', async t => {
   const f = await fake(t), failed = f.make({ fetchImpl() { throw new Error('socket state unknown'); } });
   await assert.rejects(failed.generate(spec, '', options()), { code: 'provider' });
-  assert.equal(f.spent().spentMicro, f.ceiling());
+  assert.equal(f.plugin.spend.snapshot().uncertainMicro, f.ceiling());
   let reservedMicro = 0;
-  const spend = { snapshot: () => ({ spentMicro: 0, reservedMicro }), reserve: micro => { reservedMicro = micro; return {}; },
+  const backing = createSpendLedger({ path: f.spendPath + '.injected' });
+  const spend = { ...backing, snapshot: () => ({ spentMicro: 0, reservedMicro }),
+    reserve: (micro, metadata) => { reservedMicro = micro; return backing.reserve(micro, metadata); },
     settle() { throw new Error('disk failed'); } };
   const plugin = f.make({ spend });
   await assert.rejects(plugin.generate(spec, '', options()), { code: 'unavailable' });

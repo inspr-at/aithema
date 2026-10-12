@@ -490,7 +490,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       hostHandlers.resume();
       pluginRuntime.budget.recover();
       host?.recoverWallets?.();
-      pluginRuntime.recoverCosts?.();
+      await pluginRuntime.recoverCosts?.();
       await pluginRuntime.reconcileCosts?.({ signal: stop.signal });
       reconcileCostsLater();
       uploadHandlers.resume();

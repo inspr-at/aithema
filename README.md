@@ -622,8 +622,22 @@ Library hosts pass `createVoiceCap({storage, ...voiceCapConfig(values)})` as
 `budget.visitorUsed(sessionId)` tracks voice visitor credits. Terminal usage
 retains full `providerSeconds`/`providerMinutes`, `pausedSeconds`, `visitorSeconds`,
 provider credits and both micro-unit costs. Confirmed pauses reduce visitor
-seconds and cost while upstream usage still accrues. Unknown dispatched closure
-charges both reserved maxima. Startup releases undispatched holds, conservatively
+seconds and cost while upstream usage still accrues. Healthy voice calls hold a
+renewable priced segment. Closing immediately counts the full provider duration
+ceiling × the configured rate as uncertain exposure for both money ledgers,
+even above the allowance; further admission counts that liability. Startup
+restores the same exposure from the attempt's persisted ceiling before any
+provider lookup. Only authenticated final details release it. Failed browser
+hangup, host shutdown and server crashes cannot establish stopped billing.
+ElevenLabs documents remote `end_call` through an [enterprise-only monitoring
+WebSocket](https://elevenlabs.io/docs/eleven-agents/guides/realtime-monitoring);
+the built-in self-serve host cannot assume this entitlement. Qualified hosts may
+supply `requestProviderClose`; the final authenticated record still confirms
+closure. Explicit `metadata.cost_fiat` or `metadata.cost` confirms a total.
+Component-only evidence requires platform (or legacy call), LLM and cumulative
+analysis charges, including explicit zero values. Missing components retain a
+labelled duration × rate estimate and schedule cost reconciliation.
+Startup releases undispatched holds, conservatively
 settles dispatched holds, revokes callback auth and retains pending orphan
 reconciliation under SQLite's exclusive writer. A host's bounded `closeOrphan`
 port may return authenticated final usage to correct cost without emitting a
@@ -1603,7 +1617,14 @@ repair either ledger after a crash between their writes. An interrupted request
 that never returns an ID remains uncertain; absence of an ID is never zero-cost
 evidence. Existing historical attempts without retained IDs need OPS evidence.
 
-The default `createSpendLedger({path, capMicro})` is a JSON counter. Each
+The default `createSpendLedger({path, capMicro})` is a JSON cost journal. Its
+version 2 format keeps per-attempt dispatch state, generation IDs, observed
+receipts and confirmed charges. Unknown dispatched costs remain `uncertainMicro`
+and can settle later by attempt ID without double charging. Startup `recover()`
+replays saved receipts, releases provably undispatched holds and preserves
+unknown dispatched exposure. Version 1 counters are read conservatively: old
+reservations become uncertainty because they carry no dispatch evidence; old
+aggregate spend is retained. Each
 transaction uses an `O_EXCL` lock containing the owner PID; a live, unknown or
 malformed owner fails closed. Only a provably dead PID permits stale-lock
 recovery, with an exclusive recovery guard preventing competing takeovers.
@@ -1612,9 +1633,15 @@ and its directory after rename. An unreadable/locked counter or failed
 settlement closes the plugin.
 Reset the cap only by deliberately replacing the counter's stored state.
 
-For AIT-115/part B, inject `spend: {reserve(ceilingMicro), settle(handle,
-actualMicro), snapshot()}`. Methods may be asynchronous and handles are opaque.
-`snapshot()` returns safe nonnegative `spentMicro` and `reservedMicro` integers;
+For AIT-115/part B, an injected `spend` port must implement `reserve(ceilingMicro,
+{attemptId, provider})`, `dispatch(handle)`, `record(handle, evidence)`,
+`uncertain(handle)`, `settle(handle, actualMicro)`, `snapshot()`, `recover()`,
+`evidence(attemptId)` and `reconcileAttempt(attemptId, actualMicro)`. Incomplete
+ports refuse startup with a reconciliation error. Methods may be asynchronous
+and handles are opaque. Receipts persist before settlement; reconciliation is
+acknowledged only after both budget and account ledgers settle.
+`snapshot()` returns safe nonnegative `spentMicro`, `reservedMicro` and
+`uncertainMicro` integers;
 it may also return a persisted `costCeilingBreached` flag. `reserve` must
 atomically enforce the same shared USD cap across all lanes and processes.
 The plugin's snapshot check alone does not provide interprocess admission.
@@ -1887,7 +1914,7 @@ Readiness of voice is separately visible in
 | `OPENROUTER_SPEECH_MODEL` | Reaction model id or latest alias for spoken and typed replies and the voice facade; defaults to `OPENROUTER_MODEL`; capped by `OPENROUTER_MAX_TOKENS`; choose for the seven-second platform timeout |
 | `OPENROUTER_MAX_TOKENS` | Reply token ceiling for reaction/speech; default `1200`; used in the per-request spend ceiling |
 | `OPENROUTER_ANALYSIS_MAX_TOKENS` | Understanding token ceiling; default `8000`; START found lower values truncated real analyses; used in the per-request spend ceiling |
-| `OPENROUTER_MAX_INPUT_TOKENS` | Technical input price bound; default `131072`; the per-operation reservation uses the request's serialized message bytes instead |
+| `OPENROUTER_MAX_INPUT_TOKENS` | Hard input bound, independent of price; default `131072`; conservatively enforced from UTF-8 bytes of serialized messages before money reservation and again before dispatch, including zero prompt prices |
 | `OPENROUTER_ANALYSIS_EFFORT` | Understanding reasoning effort: `none` (default), `low`, `medium`, `high`, `xhigh`, `max`; invalid values refuse startup; reaction always uses `none` |
 | `OPENROUTER_PROVIDER_ONLY` | Comma-separated upstream allow-list sent as `provider.only` on every request; unset means no restriction; part of the legal profile; must mirror START exactly |
 | `OPENROUTER_ANALYSIS_PROVIDER_IGNORE` | Comma-separated upstream exclusions sent as `provider.ignore` on understanding/analysis and HTML; default `Azure`, whose START workspace rejects `response_format` despite advertised support |
@@ -2037,7 +2064,8 @@ plus `max_tokens` multiplied by the completion price. Decimal arithmetic rounds
 that sum upward to microdollars. The port reserves this ceiling (with a minimum
 one-microdollar hold for free prices), refusing before dispatch when
 `spent + reserved + uncertain + ceiling > cap`. The configured input/output
-price bound also refuses oversized requests; it is separate from the small
+price bound and independent `maxInputTokens` bound refuse oversized requests;
+zero prompt prices do not relax the latter. They are separate from the small
 per-operation hold. `AITHEMA_OPENROUTER_RESERVE_USD` is removed.
 
 Every request asks for `usage.include`; final streaming or non-streaming

@@ -21,6 +21,9 @@ export async function createVoiceHost({ storage, resolveSecret, publicOrigin, te
       presentation: locale => Object.hasOwn(AI_NOTICE, locale)
         ? { agent: { language: locale, firstMessage: aiNoticeText(locale) } } : undefined,
       async closeOrphan(call, { signal }) {
+        // Remote end_call requires enterprise monitoring (ElevenLabs docs,
+        // /eleven-agents/guides/realtime-monitoring). This self-serve host has
+        // no qualified monitor port: keep ceiling exposure until final GET data.
         // verified by read-only GET 2026-10-09: conversation_id echo,
         // status and metadata.call_duration_secs/cost (provider credits).
         const response = await fetchImpl(`${endpoint}/v1/convai/conversations/${encodeURIComponent(call.providerSessionId)}`,

@@ -321,7 +321,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   const runtime = {
     budget, voiceCap, consent, visualKind, renderLimiter, selectionKey, choicesFor,
     setOwnerWallet(provider) { ownerWallet = provider; },
-    recoverCosts() { for (const plugin of registry.list()) plugin.recoverCosts?.(); },
+    recoverCosts() { return Promise.all(registry.list().map(plugin => plugin.recoverCosts?.())); },
     async reconcileCosts(options = {}) {
       const rows = budget.pendingCosts(), count = Math.min(10, rows.length);
       for (let i = 0; i < count && !options.signal?.aborted; i++) {
@@ -329,7 +329,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         const plugin = registry.get(record.plugin);
         if (!plugin?.reconcileCost) continue;
         try {
-          const saved = plugin.costEvidence?.(row.attempt_id);
+          const saved = await plugin.costEvidence?.(row.attempt_id);
           if (saved && Object.keys(saved).length) {
             budget.observeCost(row.attempt_id, saved); record = { ...record, ...saved };
           }
@@ -575,6 +575,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const { binding, plugin } = result;
       const { maxMicro, maxVisitorMicro, maxMilliseconds } = voiceAmounts(binding, options);
       const { attemptId } = await admitBudget(session, { sessionId: session.id, lane: 'voice', maxMicro, maxVisitorMicro,
+        voiceExposure: { maxMicro: Math.ceil(binding.maxDurationSeconds / 60 * binding.upstreamMicroPerMinute),
+          maxVisitorMicro: Math.ceil(binding.maxDurationSeconds / 60 * binding.visitorMicroPerMinute) },
         requestSha256: hash(request), bindingSha256: hash(binding) });
       const claim = budget.claim(attemptId); let reported = false, consuming = false, dispatched = false, reservation;
       const report = terminal => {
@@ -590,6 +592,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       try { reservation = voiceCap?.reserve({ attemptId, sessionId: session.id, callId: request.callId, maxMilliseconds }); }
       catch (error) { zero(); throw error; }
       const attempt = { ...claim, get maxMicro() { return budget.get(attemptId).max_micro; },
+        get exposureMicro() { return budget.get(attemptId).voice_exposure_micro; },
+        retainExposure: () => budget.retainVoiceExposure(attemptId),
         ...(binding.reservationSeconds ? { extend(seconds) {
           return budget.extendVoice(attemptId, { maxMicro: Math.ceil(seconds / 60 * binding.upstreamMicroPerMinute),
             maxVisitorMicro: Math.ceil(seconds / 60 * binding.visitorMicroPerMinute) }, extra => ownerWallet?.(session)?.canAdmit(extra));
@@ -611,7 +615,10 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         } catch { zero(); throw new PluginError('not-admitted', 'Voice dispatch refused'); }
       } };
       return { plugin, binding, options: { ...options, attempt, report }, finish() {
-        if (!reported) report({ attemptId, outcome: 'uncertain', closureConfirmed: false, chargedMicro: maxMicro });
+        if (!reported) {
+          if (dispatched) attempt.retainExposure();
+          report({ attemptId, outcome: 'uncertain', closureConfirmed: false, chargedMicro: attempt.maxMicro });
+        }
       } };
     },
     recoverVoiceCap() { voiceCap?.recover(); },

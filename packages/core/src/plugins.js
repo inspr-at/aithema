@@ -124,10 +124,11 @@ export class PluginRegistry {
 }
 /** Private effective selection; callers must never serialize it into a session or public manifest. */
 export function createBinding(value) {
-  const allowed = ['plugin', 'model', 'effort', 'endpoint', 'routing', 'accountRef', 'secretRef', 'maxMicro', 'maxTokens', 'rates', 'legal'];
+  const allowed = ['plugin', 'model', 'effort', 'endpoint', 'routing', 'accountRef', 'secretRef', 'maxMicro', 'maxTokens', 'maxInputTokens', 'rates', 'legal'];
   if (!value || typeof value !== 'object' || Object.keys(value).some(k => !allowed.includes(k)) ||
     !['plugin', 'model', 'effort', 'endpoint', 'accountRef', 'secretRef'].every(k => typeof value[k] === 'string' && value[k].length > 0) ||
     !Number.isSafeInteger(value.maxMicro) || value.maxMicro < 0 || !Number.isSafeInteger(value.maxTokens) || value.maxTokens < 1 ||
+    value.maxInputTokens !== undefined && (!Number.isSafeInteger(value.maxInputTokens) || value.maxInputTokens < 1) ||
     (value.routing !== undefined && (!value.routing || typeof value.routing !== 'object' || Array.isArray(value.routing))) ||
     !value.rates || !['inputMicro', 'outputMicro'].every(k => Number.isSafeInteger(value.rates[k]) && value.rates[k] >= 0)) throw new TypeError('Invalid private binding');
   const url = new URL(value.endpoint);

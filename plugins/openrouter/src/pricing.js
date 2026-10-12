@@ -32,10 +32,9 @@ export function providerMaxPrice(price) {
   return { prompt: perMillion(price.prompt), completion: perMillion(price.completion) };
 }
 
-export function requestCeilingMicro(body, price) {
-  const bytes = new TextEncoder().encode(JSON.stringify(body.messages)).byteLength;
-  return tokenCeilingMicro(bytes, body.max_tokens, price);
-}
+// A conservative token bound, independent of the configured prompt price.
+export const requestInputTokens = body => new TextEncoder().encode(JSON.stringify(body.messages)).byteLength;
+export const requestCeilingMicro = (body, price) => tokenCeilingMicro(requestInputTokens(body), body.max_tokens, price);
 
 export function tokenCeilingMicro(inputTokens, outputTokens, price) {
   if (!Number.isSafeInteger(inputTokens) || inputTokens < 0) throw new TypeError('Invalid input token ceiling');

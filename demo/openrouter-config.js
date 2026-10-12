@@ -44,7 +44,7 @@ export function openRouterConfig(values) {
     return qualifyStartBinding({ plugin: 'openrouter', model, effort,
       endpoint: 'https://openrouter.ai/api/v1/chat/completions', accountRef: 'start2-openrouter', secretRef: 'OPENROUTER_API_KEY',
       // Binding maximum is a technical price bound; admission holds the request estimate.
-      maxMicro: tokenCeilingMicro(maxInputTokens, maxTokens, price), maxTokens, rates: { inputMicro: 0, outputMicro: 0 },
+      maxMicro: tokenCeilingMicro(maxInputTokens, maxTokens, price), maxTokens, maxInputTokens, rates: { inputMicro: 0, outputMicro: 0 },
       routing: { require_parameters: true, allow_fallbacks: false,
         ...(providerOnly?.length ? { only: [...providerOnly] } : {}),
         ...(ignore?.length ? { ignore: [...ignore] } : {}),

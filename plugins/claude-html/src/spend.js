@@ -1,6 +1,6 @@
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { PluginError } from '@inspr/aithema-core';
+import { PluginError, generationId } from '@inspr/aithema-core';
 export const DEFAULT_CAP_MICRO = 10_000_000; // USD 10 in micro-dollars
 // Decimal arithmetic rounds upward without losing small fractions to binary floats.
 function decimal(value) {
@@ -25,8 +25,8 @@ export function callCeilingMicro(messages, binding) {
   return ceiling;
 }
 /**
- * Default spend port: reserve(ceilingMicro) → handle, settle(handle, actualMicro),
- * snapshot() → {spentMicro, reservedMicro, totalMicro, costCeilingBreached}.
+ * Default spend port: reserve/dispatch/record/uncertain/settle, durable attempt
+ * evidence/reconciliation/recovery, and snapshots separating unknown costs.
  * Every transaction takes an exclusive process lock. Crashed reservations stay
  * counted; only a lock whose owner PID is provably dead may be recovered.
  */
@@ -35,6 +35,8 @@ export function createSpendLedger({ path, capMicro = DEFAULT_CAP_MICRO }) {
   if (!Number.isSafeInteger(capMicro) || capMicro < 0) throw new TypeError('Invalid spend cap');
   const lockPath = `${path}.lock`, recoveryPath = `${lockPath}.recovery`;
   const unavailable = () => new PluginError('unavailable', 'Spend ledger unreadable or locked');
+  const amount = n => Number.isSafeInteger(n) && n >= 0;
+  const object = value => value && typeof value === 'object' && !Array.isArray(value);
   const deadOwner = file => {
     const pid = JSON.parse(readFileSync(file, 'utf8')).pid;
     if (!Number.isSafeInteger(pid) || pid < 1) throw unavailable();
@@ -70,15 +72,37 @@ export function createSpendLedger({ path, capMicro = DEFAULT_CAP_MICRO }) {
   const read = () => {
     let raw;
     try { raw = readFileSync(path, 'utf8'); } catch (error) {
-      if (error.code === 'ENOENT') return { version: 1, spentMicro: 0, reservations: {}, costCeilingBreached: false };
+      if (error.code === 'ENOENT') return { version: 2, spentMicro: 0, reservations: {}, operations: {}, costCeilingBreached: false };
       throw unavailable();
     }
     try {
       const state = JSON.parse(raw);
-      if (state?.version !== 1 || !Number.isSafeInteger(state.spentMicro) || state.spentMicro < 0 || !state.reservations ||
-        typeof state.reservations !== 'object' || Array.isArray(state.reservations) ||
+      if (![1, 2].includes(state?.version) || !amount(state.spentMicro) || !object(state.reservations) ||
         Object.values(state.reservations).some(v => !Number.isSafeInteger(v) || v < 1) ||
         state.costCeilingBreached !== undefined && typeof state.costCeilingBreached !== 'boolean') throw new Error();
+      if (state.version === 1) {
+        // Legacy holds have no dispatch evidence: never recover them as free.
+        state.operations = Object.fromEntries(Object.entries(state.reservations)
+          .map(([id, ceilingMicro]) => [id, { ceilingMicro, state: 'uncertain' }]));
+        state.reservations = {}; state.version = 2;
+      }
+      if (!object(state.operations)) throw new Error();
+      const attempts = new Set();
+      for (const [id, row] of Object.entries(state.operations)) {
+        if (!object(row) || !amount(row.ceilingMicro) || row.ceilingMicro < 1 ||
+          !['reserved', 'dispatched', 'uncertain', 'confirmed'].includes(row.state) ||
+          row.actualMicro !== undefined && !amount(row.actualMicro) ||
+          row.observedMicro !== undefined && !amount(row.observedMicro) ||
+          row.generationId !== undefined && !generationId(row.generationId) ||
+          (row.state === 'confirmed') !== (row.actualMicro !== undefined)) throw new Error();
+        if (row.attemptId !== undefined) {
+          if (typeof row.attemptId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(row.attemptId) || attempts.has(row.attemptId)) throw new Error();
+          attempts.add(row.attemptId);
+        }
+        const reserved = ['reserved', 'dispatched'].includes(row.state);
+        if (reserved ? state.reservations[id] !== row.ceilingMicro : Object.hasOwn(state.reservations, id)) throw new Error();
+      }
+      if (Object.keys(state.reservations).some(id => !Object.hasOwn(state.operations, id))) throw new Error();
       return state;
     } catch { throw unavailable(); }
   };
@@ -92,29 +116,105 @@ export function createSpendLedger({ path, capMicro = DEFAULT_CAP_MICRO }) {
     try { fsyncSync(directory); } finally { closeSync(directory); }
   };
   const snapshot = state => {
-    const reservedMicro = Object.values(state.reservations).reduce((sum, v) => sum + v, 0), totalMicro = state.spentMicro + reservedMicro;
+    const reservedMicro = Object.values(state.reservations).reduce((sum, v) => sum + v, 0);
+    const uncertainMicro = Object.values(state.operations).reduce((sum, row) => sum + (row.state === 'uncertain' ? row.ceilingMicro : 0), 0);
+    const totalMicro = state.spentMicro + reservedMicro + uncertainMicro;
     if (!Number.isSafeInteger(totalMicro)) throw unavailable();
-    return { spentMicro: state.spentMicro, reservedMicro, totalMicro, costCeilingBreached: state.costCeilingBreached ?? false };
+    return { spentMicro: state.spentMicro, reservedMicro, uncertainMicro, totalMicro, costCeilingBreached: state.costCeilingBreached ?? false };
+  };
+  const settle = (state, id, micro) => {
+    const row = Object.hasOwn(state.operations, id) ? state.operations[id] : null;
+    if (!row) return;
+    if (row.actualMicro !== undefined) {
+      if (row.actualMicro !== micro) throw new PluginError('already-claimed', 'Spend already settled');
+      return;
+    }
+    if (micro > row.ceilingMicro) state.costCeilingBreached = true;
+    if (!amount(state.spentMicro + micro)) throw unavailable();
+    delete state.reservations[id]; state.spentMicro += micro;
+    state.operations[id] = { ...row, state: 'confirmed', actualMicro: micro };
+  };
+  const operation = (state, id) => {
+    if (!Object.hasOwn(state.operations, id)) throw new PluginError('not-admitted', 'Spend reservation missing');
+    return state.operations[id];
   };
   return {
     path,
     snapshot: () => locked(() => snapshot(read())),
-    reserve(micro) {
+    reserve(micro, { attemptId, provider } = {}) {
       if (!Number.isSafeInteger(micro) || micro < 1) throw new TypeError('Invalid reservation');
+      if (attemptId !== undefined && (typeof attemptId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(attemptId)) ||
+        provider !== undefined && (typeof provider !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(provider))) throw new TypeError('Invalid spend identity');
       return locked(() => {
         const state = read(), current = snapshot(state);
         if (current.costCeilingBreached || micro > capMicro - current.totalMicro) throw new PluginError('limit', 'Spend cap reached');
-        const id = crypto.randomUUID(); state.reservations[id] = micro; write(state); return id;
+        if (attemptId && Object.values(state.operations).some(row => row.attemptId === attemptId)) throw new PluginError('already-claimed');
+        const id = crypto.randomUUID(); state.reservations[id] = micro;
+        state.operations[id] = { ceilingMicro: micro, state: 'reserved',
+          ...(attemptId ? { attemptId } : {}), ...(provider ? { provider } : {}) };
+        write(state); return id;
       });
     },
     settle(id, micro) {
       if (!Number.isSafeInteger(micro) || micro < 0) throw new TypeError('Invalid settlement');
       return locked(() => {
         const state = read();
-        if (!Object.hasOwn(state.reservations, id)) return;
-        if (micro > state.reservations[id]) state.costCeilingBreached = true;
-        if (!Number.isSafeInteger(state.spentMicro + micro)) throw unavailable();
-        delete state.reservations[id]; state.spentMicro += micro; write(state);
+        settle(state, id, micro); write(state);
+      });
+    },
+    dispatch(id) {
+      return locked(() => {
+        const state = read(), row = operation(state, id);
+        if (row.state === 'reserved') { row.state = 'dispatched'; write(state); }
+      });
+    },
+    record(id, { generationId: generation, chargedMicro }) {
+      if (generation !== undefined && !generationId(generation) || chargedMicro !== undefined && !amount(chargedMicro)) throw new TypeError('Invalid spend receipt');
+      return locked(() => {
+        const state = read(), row = operation(state, id);
+        if (generation && row.generationId && generation !== row.generationId ||
+          chargedMicro !== undefined && [row.observedMicro, row.actualMicro].some(n => n !== undefined && n !== chargedMicro)) {
+          throw new PluginError('already-claimed', 'Spend receipt conflict');
+        }
+        if (generation) row.generationId = generation;
+        if (chargedMicro !== undefined) row.observedMicro = chargedMicro;
+        write(state);
+      });
+    },
+    uncertain(id) {
+      return locked(() => {
+        const state = read(), row = operation(state, id);
+        if (row.state === 'confirmed') return;
+        row.state = 'uncertain'; delete state.reservations[id]; write(state);
+      });
+    },
+    evidence(attemptId) {
+      return locked(() => {
+        const row = Object.values(read().operations).find(row => row.attemptId === attemptId);
+        if (!row) return null;
+        return { ...(row.generationId ? { generationId: row.generationId } : {}),
+          ...(row.actualMicro !== undefined || row.observedMicro !== undefined ? { chargedMicro: row.actualMicro ?? row.observedMicro } : {}) };
+      });
+    },
+    reconcileAttempt(attemptId, actualMicro) {
+      if (!amount(actualMicro)) throw new TypeError('Invalid actual spend');
+      return locked(() => {
+        const state = read(), id = Object.keys(state.operations).find(id => state.operations[id].attemptId === attemptId);
+        if (!id) throw new PluginError('not-admitted', 'Spend reservation missing');
+        settle(state, id, actualMicro); write(state);
+      });
+    },
+    recover() {
+      // Exclusive startup recovery; never call while this writer has live work.
+      return locked(() => {
+        const state = read();
+        for (const [id, row] of Object.entries(state.operations)) {
+          if (row.state === 'confirmed') continue;
+          if (row.observedMicro !== undefined) settle(state, id, row.observedMicro);
+          else if (row.state === 'reserved') settle(state, id, 0);
+          else { row.state = 'uncertain'; delete state.reservations[id]; }
+        }
+        write(state);
       });
     },
   };

@@ -161,7 +161,8 @@ test('priced voice holds extend atomically without reserving the technical ceili
   assert.equal(attempt.maxMicro, 100_000);
   assert.equal(h.runtime.budget.breakdown(h.session.id).reservedMicro, 100_000);
   admitted.finish();
-  assert.equal(h.runtime.budget.breakdown(h.session.id).uncertainSpendMicro, 100_000);
+  assert.equal(h.runtime.budget.breakdown(h.session.id).uncertainSpendMicro, 1_000_000,
+    'losing the live invocation retains the provider ceiling, rather than its last healthy segment');
 });
 
 test('start2 retries uncertain holds in process and admits a later call without a restart', { timeout: 5000 }, async t => {

@@ -1,5 +1,5 @@
 import { createChatCompletions, createBinding, publicReasoningManifest, deepFreeze, PluginError } from '@inspr/aithema-core';
-import { modelPrice, providerMaxPrice, requestCeilingMicro } from './pricing.js';
+import { modelPrice, providerMaxPrice, requestCeilingMicro, requestInputTokens } from './pricing.js';
 import { reconcileGeneration } from './reconcile.js';
 const base = publicReasoningManifest('openrouter', 'OpenRouter', 'https://openrouter.ai');
 // The adapter forwards reasoning.effort; values follow START's 2026-09-13 check of
@@ -20,6 +20,11 @@ export function createOpenRouterReasoning({ binding, resolveSecret = ref => proc
     reconcileCost: (record, options) => reconcileGeneration(record, { resolveSecret, fetchImpl, ...options }),
     ...createChatCompletions({ manifest, binding, resolveSecret, fetchImpl, spendCap, authoritativeCost: true,
     spendCeiling(body) {
+      // Used both by admission estimates and immediately before account reserve /
+      // provider dispatch. Free prompt pricing cannot relax the technical bound.
+      if (binding.maxInputTokens !== undefined && requestInputTokens(body) > binding.maxInputTokens) {
+        throw new PluginError('not-admitted', 'OpenRouter input token ceiling exceeded');
+      }
       const ceiling = requestCeilingMicro(body, price);
       if (ceiling > binding.maxMicro) throw new PluginError('not-admitted', 'OpenRouter request exceeds spend reservation');
       return ceiling;

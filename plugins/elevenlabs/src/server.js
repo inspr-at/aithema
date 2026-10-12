@@ -34,7 +34,9 @@ function conversationCost(metadata, binding, seconds) {
   const platform = charging?.platform_charge ?? charging?.call_charge;
   const parts = [platform, charging?.llm_charge, charging?.analysis?.total?.charge];
   const credits = amount(metadata.cost) ? metadata.cost
-    : parts.some(amount) && parts.every(n => n == null || amount(n)) ? parts.reduce((sum, n) => sum + (n ?? 0), 0) : null;
+    // Optional components are unknown when absent, including a missing analysis
+    // charge. Only an explicit total or every component can confirm even zero.
+    : parts.every(amount) ? parts.reduce((sum, n) => sum + n, 0) : null;
   if (credits !== null && (binding.usdPerCredit !== undefined || credits === 0)) {
     const micro = usdCostMicro(binding.usdPerCredit ?? 0, credits);
     if (micro !== null) return { upstreamMicro: micro, providerCredits: credits,
@@ -152,7 +154,7 @@ export function reconcileUsage({ call, details, binding, maxMicro, outcome = 'co
   }
   const closureConfirmed = identityMatches && ['done', 'failed'].includes(details?.status) && usage !== null;
   return { providerSessionId: call.providerSessionId, outcome: closureConfirmed ? outcome : 'uncertain', closureConfirmed,
-    usage, chargedMicro: closureConfirmed ? usage.upstreamMicro : maxMicro,
+    usage, chargedMicro: closureConfirmed ? usage.upstreamMicro : Math.max(maxMicro, amount(call.exposureMicro) ? call.exposureMicro : 0),
     overrun: closureConfirmed && usage.upstreamMicro > maxMicro };
 }
 
@@ -179,6 +181,7 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
       let call = { callId: request.callId, startedAt: now(), pauses: [], paused: false,
         attemptId: options.attempt.attemptId, claimId: options.attempt.claimId, maxMicro: options.attempt.maxMicro,
         spendDeadlineAt: options.spendDeadlineAt, browserLivenessDeadlineAt: options.browserLivenessDeadlineAt,
+        exposureMicro: options.attempt.exposureMicro ?? Math.ceil((options.spendDeadlineAt - now()) / 60_000 * binding.upstreamMicroPerMinute),
         facadeSecretRef: request.facadeSecretRef };
       const callCancellation = new AbortController();
       let lifetime, rollingTimer, closing, finished = false, delivered = false, mutation = Promise.resolve();
@@ -187,6 +190,12 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
       const close = (reason = 'closed', outcome = 'completed') => {
         if (!['completed', 'cancelled'].includes(outcome)) return Promise.reject(new TypeError('Invalid voice settlement'));
         if (closing) return closing;
+        // A browser hangup or host timeout cannot prove billing stopped. Replace
+        // the healthy segment with full provider liability before stopping renewal.
+        if (delivered) {
+          options.attempt.retainExposure?.();
+          call = { ...call, maxMicro: Math.max(options.attempt.maxMicro, call.exposureMicro) };
+        }
         clearInterval(rollingTimer);
         lifetime?.dispose();
         options.signal?.removeEventListener('abort', cancelled);
@@ -196,6 +205,8 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
           const closeOptions = { deadlineAt: Date.now() + closureTimeoutMs };
           let details, backoffMs = closurePollIntervalMs;
           if (delivered && call.providerSessionId) {
+            try { await voiceOperation({ deadlineAt: Date.now() + 1000 }, opts => saveCall(structuredClone(call), opts)); }
+            catch { /* Budget exposure is already durable; still request closure and settle exactly once. */ }
             try {
               if (requestProviderClose) await voiceOperation({ deadlineAt: Math.min(closeOptions.deadlineAt, Date.now() + 1000) },
                 opts => requestProviderClose(structuredClone(call), opts));
@@ -293,8 +304,8 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
         // Authority is consumed before minting; billing begins at credential handoff.
         invocation.dispatch(); delivered = true;
         if (binding.reservationSeconds && options.attempt.extend) {
-          // The technical ceiling never becomes a full-call wallet hold. Extend a
-          // short priced segment; a refused extension triggers provider closure.
+          // Healthy calls extend only a short priced segment. Closing or recovery
+          // retains the full technical exposure until authenticated closure.
           rollingTimer = setInterval(() => {
             void serial(async () => {
               if (closing || finished) return;

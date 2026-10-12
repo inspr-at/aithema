@@ -10,6 +10,7 @@ export function createDurationBinding(raw) {
     reservationSeconds !== undefined && (!Number.isSafeInteger(reservationSeconds) || reservationSeconds < 1 || reservationSeconds > maxDurationSeconds) ||
     usdPerCredit !== undefined && (typeof usdPerCredit !== 'number' || !Number.isFinite(usdPerCredit) || usdPerCredit < 0) ||
     ![upstreamMicroPerMinute, visitorMicroPerMinute].every(n => Number.isSafeInteger(n) && n >= 0) ||
+    !Number.isSafeInteger(Math.ceil(maxDurationSeconds / 60 * upstreamMicroPerMinute)) ||
     !Number.isSafeInteger(Math.ceil(maxDurationSeconds / 60 * visitorMicroPerMinute)) ||
     Math.ceil((reservationSeconds ?? maxDurationSeconds) / 60 * upstreamMicroPerMinute) > binding.maxMicro) throw new TypeError('Invalid duration binding');
   const url = new URL(publicFacadeBaseUrl);
