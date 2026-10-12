@@ -73,7 +73,8 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
     const scope = operationScope(options);
     let invocation, completed = false, reporting, reservation = null, dispatched = false, cost = null, ceiling = null;
     const checkLifetime = () => { scope.signal.throwIfAborted(); if (Date.now() >= options.deadlineAt) throw new PluginError('deadline'); };
-    const scoped = { ...options, signal: scope.signal, report: terminal => (reporting = Promise.resolve().then(() => options.report(terminal))) };
+    const scoped = { ...options, signal: scope.signal, report: terminal => (reporting = Promise.resolve().then(() => options.report({
+      ...terminal, ...(dispatched && cost !== null ? { chargedMicro: cost } : {}) }))) };
     try {
       invocation = await beginInvocation(scoped);
       checkLifetime();
@@ -100,8 +101,12 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
         redirect: 'error', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, body })), scope.signal);
       checkLifetime();
       if (!response.ok) {
-        void response.body?.cancel().catch(() => {});
-        // A dispatched refusal is not proof that the socket was never written.
+        // An HTTP refusal can still report a charge, including an explicit zero.
+        // Without that evidence a dispatched request keeps its computed ceiling.
+        try {
+          const payload = JSON.parse(await readText(response, scope.signal));
+          invocation.usage(providerUsage(payload?.usage)); cost = costMicro(payload?.usage?.cost);
+        } catch { /* unavailable usage remains uncertain */ }
         throw new PluginError(response.status === 401 || response.status === 403 ? 'auth' : response.status === 402 ? 'limit' :
           response.status === 429 ? 'rate-limit' : 'provider');
       }

@@ -1,6 +1,8 @@
 // Public contracts for later slices. Every operation takes this same authority/lifetime envelope.
 export type Usage = { inputTokens: number; outputTokens: number };
-export type Terminal = { attemptId: string; servedModel?: string } & ({ outcome: 'completed' | 'cancelled'; usage: Usage } | { outcome: 'uncertain' });
+// A trusted provider may report an actual USD cost in whole micro-dollars.
+// Without it the host uses token rates or the uncertain reservation maximum.
+export type Terminal = { attemptId: string; servedModel?: string; chargedMicro?: number } & ({ outcome: 'completed' | 'cancelled'; usage: Usage } | { outcome: 'uncertain' });
 export interface OperationOptions {
   signal: AbortSignal;
   deadlineAt: number;

@@ -81,7 +81,7 @@ test('generate posts one chat completion with usage accounting and returns a ver
   const record64 = JSON.parse(Buffer.from(text.match(/aithema-provenance: ([\w-]+)/u)[1], 'base64url').toString());
   assert.equal(record64.modality, 'html'); assert.equal(record64.generator.model, DEFAULT_MODEL);
   assert.equal(result.promptDigest, `sha256:${createHash('sha256').update(`${system.content}\n\n${user.content}`).digest('hex')}`);
-  assert.deepEqual(o.reports, [{ attemptId: o.attempt.attemptId, outcome: 'completed', usage: { inputTokens: 1200, outputTokens: 3400 } }]);
+  assert.deepEqual(o.reports, [{ attemptId: o.attempt.attemptId, outcome: 'completed', usage: { inputTokens: 1200, outputTokens: 3400 }, chargedMicro: 72_800 }]);
   assert.deepEqual(f.spent(), { version: 1, spentMicro: 72_800, reservations: {}, costCeilingBreached: false });
   assert.equal(JSON.stringify(result).includes('local-fixture'), false);
 });
@@ -116,7 +116,7 @@ test('output that stays unsafe or incomplete is rejected while paid usage and co
     ['<div>no document</div>', 'stop'], [dummy, 'length'], [`${dummy}\n${'<!-- pad -->'.repeat(50_000)}${dummy}`, 'stop']]) {
     f.respond((_req, res) => res.end(completion(content, { prompt_tokens: 10, completion_tokens: 20, cost: 0.5 }, finish)));
     const o = options(); await assert.rejects(f.plugin.generate(spec, '', o), error => ['invalid-output', 'limit'].includes(error.code));
-    assert.deepEqual(o.reports, [{ attemptId: o.attempt.attemptId, outcome: 'cancelled', usage: { inputTokens: 10, outputTokens: 20 } }]);
+    assert.deepEqual(o.reports, [{ attemptId: o.attempt.attemptId, outcome: 'cancelled', usage: { inputTokens: 10, outputTokens: 20 }, chargedMicro: 500_000 }]);
   }
   assert.equal(f.spent().spentMicro, 6 * 500_000);
   f.respond((_req, res) => res.end('{private-broken-json'));

@@ -68,21 +68,23 @@ export class SQLiteBudgetLedger {
   }
   settle(claimId, terminal, rates = { inputMicro: 0, outputMicro: 0 }) {
     if (!terminal || !['completed', 'cancelled', 'uncertain'].includes(terminal.outcome) ||
-      !['inputMicro', 'outputMicro'].every(k => integer(rates[k]))) throw new TypeError('Invalid terminal report');
+      !['inputMicro', 'outputMicro'].every(k => integer(rates[k])) ||
+      Object.hasOwn(terminal, 'chargedMicro') && !integer(terminal.chargedMicro)) throw new TypeError('Invalid terminal report');
     if (terminal.outcome !== 'uncertain' && (!terminal.usage || !['inputTokens', 'outputTokens'].every(k => integer(terminal.usage[k])))) throw new TypeError('Invalid usage');
     return this.storage.transaction(() => {
       const row = this.db.prepare('SELECT * FROM budget_attempts WHERE claim_id=?').get(claimId);
       if (!row || terminal.attemptId !== row.attempt_id) throw new PluginError('not-admitted');
       const bytes = JSON.stringify({ attemptId: terminal.attemptId, outcome: terminal.outcome,
         ...(terminal.outcome === 'uncertain' ? {} : { usage: terminal.usage }),
+        ...(terminal.chargedMicro !== undefined ? { chargedMicro: terminal.chargedMicro } : {}),
         ...(typeof terminal.servedModel === 'string' && terminal.servedModel.trim() ? { servedModel: terminal.servedModel } : {}) });
       if (row.state === 'settled') {
         if (row.terminal_json !== bytes) throw new PluginError('already-claimed');
         return this.get(row.attempt_id); // exact terminal retries are idempotent
       }
       const dispatched = row.state === 'dispatched';
-      const actual = !dispatched ? 0 : terminal.outcome === 'uncertain' ? row.max_micro
-        : terminal.usage.inputTokens * rates.inputMicro + terminal.usage.outputTokens * rates.outputMicro;
+      const actual = !dispatched ? 0 : terminal.chargedMicro ?? (terminal.outcome === 'uncertain' ? row.max_micro
+        : terminal.usage.inputTokens * rates.inputMicro + terminal.usage.outputTokens * rates.outputMicro);
       // Unknown dispatched usage retains the maximum; known overruns remain visible as actual spend.
       const uncertain = !integer(actual);
       const usage = dispatched ? terminal.usage : { inputTokens: 0, outputTokens: 0 };

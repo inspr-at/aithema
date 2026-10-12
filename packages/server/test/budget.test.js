@@ -5,6 +5,22 @@ import { SQLiteStorage, SQLiteBudgetLedger } from '../src/index.js';
 import { temporaryDb } from '../../../test/helpers.js';
 const admit = (ledger, sessionId, extra = {}) => ledger.admit({ sessionId, lane: 'reaction', maxMicro: 40,
   requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64), ...extra });
+test('actual provider costs settle once, reject invalid costs and expose overruns', () => {
+  const storage = new SQLiteStorage(), session = storage.create(), ledger = new SQLiteBudgetLedger(storage);
+  try {
+    for (const chargedMicro of [0, 13, 41]) {
+      const a = admit(ledger, session.id, { lane: 'concept' }), claim = ledger.claim(a.attemptId); claim.consume();
+      const terminal = { attemptId: a.attemptId, outcome: 'completed', usage: { inputTokens: 1, outputTokens: 1 }, chargedMicro };
+      for (const invalid of [-1, NaN, Infinity, .1, '13', null, Number.MAX_SAFE_INTEGER + 1]) {
+        assert.throws(() => ledger.settle(claim.claimId, { ...terminal, chargedMicro: invalid }), /Invalid terminal/);
+      }
+      const row = ledger.settle(claim.claimId, terminal);
+      assert.equal(row.settled_micro, chargedMicro); assert.equal(row.overrun, chargedMicro > 40 ? 1 : 0);
+      assert.equal(ledger.settle(claim.claimId, terminal).settled_micro, chargedMicro);
+      assert.throws(() => ledger.settle(claim.claimId, { ...terminal, chargedMicro: chargedMicro + 1 }), { code: 'already-claimed' });
+    }
+  } finally { storage.close(); }
+});
 test('budget atomically reserves maxima across both lanes and burns durable single-use claims', () => {
   const storage = new SQLiteStorage(), s = storage.create(), ledger = new SQLiteBudgetLedger(storage, { sessionCapMicro: 60 });
   try {
