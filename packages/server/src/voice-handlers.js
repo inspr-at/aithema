@@ -12,6 +12,28 @@ const routes = new RegExp(`^/api/sessions/(${idPattern})/voice(?:/(${idPattern})
 const facadeRoute = new RegExp(`^/api/voice/(${idPattern})/llm/chat/completions$`, 'u');
 const staticFacadeRoute = '/api/voice/llm/chat/completions';
 
+function unrecordedVoiceInput(session, messages, { callId, providerSessionId }) {
+  const latest = messages.at(-1);
+  // Only a trailing person utterance can be new input. Never replay provider history.
+  if (latest?.role !== 'user' || !latest.content.trim()) return [];
+  const normalize = text => text.trim().replace(/\s+/gu, ' ');
+  const last = session.transcript.at(-1);
+  // Only server-persisted speech from this call AND provider generation can
+  // suppress input. Legacy turns have unknown provenance; typed turns carry
+  // voiceCallId/voiceProviderId instead, even when an SDK echo is absorbed.
+  const sameGeneration = turn => turn.callId === callId && turn.providerSessionId === providerSessionId;
+  const sameTurn = last?.role === 'user' && !last.erased && !last.withdrawn && sameGeneration(last) && typeof last.content === 'string' &&
+    normalize(last.content) === normalize(latest.content);
+  // Provenance does not identify individual repeated utterances (AIT-137).
+  // Extra provider turns can only veto suppression, never establish identity:
+  // a delayed or entirely unheard assistant reply leaves the newest input new.
+  const recorded = session.transcript.filter(turn => sameGeneration(turn) && !turn.erased && !turn.withdrawn &&
+    typeof turn.content === 'string' && Boolean(turn.content.trim()));
+  const providerAhead = ['user', 'assistant'].some(role =>
+    messages.filter(message => message.role === role).length > recorded.filter(turn => turn.role === role).length);
+  return sameTurn && !providerAhead ? [] : [{ role: 'user', content: latest.content }];
+}
+
 export function createFacadeSecrets() {
   const values = new Map();
   return { provision(ref) { values.set(ref, randomBytes(32).toString('base64url')); },
@@ -138,6 +160,14 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       throw error;
     } finally { started.resolve(); request.signal.removeEventListener('abort', abortStartup); }
   }
+  function buildVoiceRequest(session, messages, call) {
+    const trusted = reasoningRequest(session, 'reaction', false, hostPrompt);
+    // The session owns history, including typed turns, withdrawals and heard
+    // prefixes. Provider text supplies only the newest unrecorded person input.
+    return { ...trusted, messages: [...trusted.messages,
+      ...(session.focusedQuestion ? [{ role: 'user', content: JSON.stringify({ kind: 'untrusted-focused-question', question: session.focusedQuestion }) }] : []),
+      ...unrecordedVoiceInput(session, messages, call)] };
+  }
   const facade = createCompletionsHandler({ resolveSecret: secrets.resolve, staticSecretRef,
     getCall(request, options, identity) {
       const entry = staticSecretRef ? [...calls.values()].find(entry => entry.facadeCallId === identity)
@@ -147,16 +177,33 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       return { ...entry.call.snapshot(), facadeSecretRef: entry.facadeSecretRef, facadeCallId: entry.facadeCallId, signal: entry.call.signal };
     },
     buildRequest({ callId, messages }) {
-      const session = sessionFor(calls.get(callId)), trusted = reasoningRequest(session, 'reaction', false, hostPrompt);
-      // Provider text is untrusted conversational input, never system/model selection.
-      return { ...trusted, messages: [...trusted.messages,
-        ...(session.focusedQuestion ? [{ role: 'user', content: JSON.stringify({ kind: 'untrusted-focused-question', question: session.focusedQuestion }) }] : []),
-        ...messages] };
+      const entry = calls.get(callId);
+      return buildVoiceRequest(sessionFor(entry), messages, entry.call);
     },
-    async admitReasoning({ callId, request, options }) {
-      const session = sessionFor(calls.get(callId));
-      await runtime.checkVoice(session, { ...options, existingCall: true });
-      return runtime.admit({ session, lane: 'reaction', operation: 'stream', request, options });
+    async admitReasoning({ callId, messages, options }) {
+      const entry = calls.get(callId);
+      let session = sessionFor(entry);
+      for (let retry = 0; ; retry++) {
+        try {
+          await runtime.checkVoice(session, { ...options, existingCall: true });
+          // Build and admit from one snapshot, including input saved while the
+          // voice check awaited. The facade must dispatch this admitted request.
+          session = sessionFor(entry);
+          const request = buildVoiceRequest(session, messages, entry.call);
+          return { ...await runtime.admit({ session, lane: 'reaction', operation: 'stream', request, options }), request };
+        } catch (error) {
+          // sessionFor strictly fences ownership, consent and withdrawal before
+          // considering a retry. Never relax runtime's revision/dispatch checks.
+          const fresh = sessionFor(entry);
+          if (retry || !(error instanceof PluginError) || error.code !== 'not-admitted' ||
+            !['Session changed', 'Session changed during admission'].includes(error.message) ||
+            inputRevision(fresh) === inputRevision(session) || fresh.paused || fresh.locale !== session.locale ||
+            fresh.settings?.revision !== session.settings?.revision ||
+            runtime.selectionKey(fresh, 'voice') !== runtime.selectionKey(session, 'voice')) throw error;
+          options.signal?.throwIfAborted();
+          session = fresh;
+        }
+      }
     },
     onCompletion({ callId, providerSessionId, content, textOrigin, engine }) {
       const entry = calls.get(callId);
