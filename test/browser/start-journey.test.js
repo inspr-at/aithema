@@ -90,6 +90,37 @@ test('AIT-113: live drafts consent is optional; granting and withdrawing only dr
   }
 });
 
+
+test('AIT-127: language repaints in place and keeps the selector under the pointer at desktop and phone sizes', { timeout: 120_000 }, async t => {
+  const { page, demo } = await setup(t);
+  for (const width of [1440, 390, 320]) {
+    await page.setViewport({ width, height: 900 });
+    await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await ready(page);
+    await page.select('#locale', 'de');
+    await page.waitForFunction(() => document.querySelector('aithema-session').session.locale === 'de');
+    await page.evaluate(() => {
+      const c = document.querySelector('aithema-session'), root = c.shadowRoot;
+      globalThis.__localeNodes = { id: c.session.id, input: root.querySelector('textarea'), settings: root.querySelector('.settings-open'),
+        chooser: root.querySelector('.chooser-option'), continue: root.querySelector('.chooser__continue') };
+      globalThis.__localeNodes.input.value = 'Draft waiting here';
+    });
+    const before = await rect(page, '#locale');
+    await page.mouse.move(before[0] + before[2] / 2, before[1] + before[3] / 2);
+    await page.select('#locale', 'en');
+    await page.waitForFunction(() => document.querySelector('aithema-session').session.locale === 'en' && document.documentElement.lang === 'en');
+    const after = await rect(page, '#locale');
+    assert.ok(before.every((value, i) => Math.abs(value - after[i]) < .5), `${width}px: locale selector moved: ${before} → ${after}`);
+    assert.equal(await page.evaluate(() => {
+      const c = document.querySelector('aithema-session'), root = c.shadowRoot, old = globalThis.__localeNodes;
+      return c.session.id === old.id && root.querySelector('textarea') === old.input && old.input.value === 'Draft waiting here'
+        && root.querySelector('.settings-open') === old.settings && root.querySelector('.chooser-option') === old.chooser
+        && root.querySelector('.chooser__continue') === old.continue;
+    }), true);
+    assert.equal(await page.$eval('#language-note', n => n.textContent), '');
+    assert.equal(await page.$eval('aithema-session >>> .chooser__continue > span', n => n.textContent), 'Continue');
+  }
+});
+
 test('AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio', { timeout: 120_000 }, async t => {
   const { page, demo, voice } = await setup(t);
   await page.setViewport({ width: 1440, height: 900 });
@@ -112,8 +143,8 @@ test('AIT-129: German entrance → mock consent → readiness, withdrawal, store
   await saveAndReturn(page, '[data-revoke]');
   await page.waitForFunction(() => !document.querySelector('aithema-session').session.featureMatrix.best.text.available);
   await page.select('#locale', 'en');
-  assert.equal(await page.$eval('aithema-session', c => c.session.locale), 'de');
-  assert.match(await page.$eval('#language-note', p => p.textContent), /Neue Gespräche/u);
+  await page.waitForFunction(() => document.querySelector('aithema-session').session.locale === 'en');
+  assert.equal(await page.$eval('#language-note', p => p.textContent), '');
   const old = await page.$eval('aithema-session', c => c.session.id);
   await page.click('#new'); await page.waitForFunction(old => document.querySelector('aithema-session').session.id !== old, {}, old);
   assert.equal(await page.$eval('aithema-session', c => c.session.locale), 'en');

@@ -1,3 +1,4 @@
+import { aiNoticeText } from '../../../packages/core/src/ai-notice.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mintConversationCredential, reconcileUsage, createVoiceBinding } from '../src/server.js';
@@ -287,9 +288,10 @@ test('START presentation overrides stay allowlisted and never carry provider con
     overrides: { agent: { prompt: { customLlm: { apiKey: 'fake-not-allowed' } } } } }, denied), { code: 'provider' });
   assert.equal(denied.reports.length, 1); assert.equal(denied.reports[0].chargedMicro, 0);
 });
-test('no first-message override can replace the spoken AI notice: server and client refuse it, the SDK receives none (AIT-119)', async () => {
+test('AIT-127: server and client allow only the AI notice matching the conversation locale', async () => {
   const crafted = { agent: { language: 'en', firstMessage: 'I am a human assistant.' } };
   for (const firstMessage of ['I am a human assistant.', '', ' ']) assert.throws(() => voiceOverrides({ agent: { firstMessage } }), TypeError);
+  for (const firstMessage of [aiNoticeText('de'), '', ' ']) assert.throws(() => voiceOverrides({ agent: { language: 'en', firstMessage } }), TypeError);
   for (const language of [1, '', 'english']) assert.throws(() => voiceOverrides({ agent: { language } }), TypeError);
   assert.deepEqual(voiceOverrides({ agent: { language: 'en' } }), { agent: { language: 'en' } });
   const local = fixture(), refused = invocationOptions();
@@ -301,10 +303,9 @@ test('no first-message override can replace the spoken AI notice: server and cli
   await assert.rejects(local.client.start({ callId: 'call_greeting_client' }, invocationOptions()));
   assert.equal(local.sdk.starts.length, 0);
   for (const session of local.sessions.values()) await session.close();
-  local.control.start = async (request, options) => ({ ...await start(request, options), overrides: { agent: { language: 'de' } } });
+  local.control.start = async (request, options) => ({ ...await start(request, options), overrides: { agent: { language: 'de', firstMessage: aiNoticeText('de') } } });
   const session = await local.client.start({ callId: 'call_language_client' }, invocationOptions());
-  assert.deepEqual(local.sdk.starts[0].overrides, { agent: { language: 'de' } });
-  assert.equal(JSON.stringify(local.sdk.starts).includes('firstMessage'), false);
+  assert.deepEqual(local.sdk.starts[0].overrides, { agent: { language: 'de', firstMessage: aiNoticeText('de') } });
   await session.close();
 });
 test('spend expiry aborts an in-flight pause and closure polling settles exactly once', async () => {

@@ -128,13 +128,7 @@ export class SettingsDialog {
           <button type="button" class="save-retry" data-text="retry" data-visible="false"></button></div>
         <button type="button" class="done">${ICONS.check}<span class="done-label"></span></button></footer></div>`;
     this.#dialog.setAttribute('aria-labelledby', 'settings-title');
-    this.#q('.presets').setAttribute('aria-label', c.processing);
-    for (const node of this.#all('[data-text]')) node.textContent = c[node.dataset.text];
-    this.#q('.settings__title').textContent = c.title;
-    for (const tab of this.#all('[data-tab]')) tab.querySelector('.tab-label').textContent = c.tabs[tab.dataset.tab];
-    this.#q('.settings__tabs').setAttribute('aria-label', c.title);
-    for (const kind of GAUGES) this.#q(`[data-gauge="${kind}"] .gauge__label`).textContent = this.#copy.gauges.labels[kind];
-    for (const [name, label] of [['model', c.model], ['voice', c.voice], ['visuals', c.visuals]]) this.#q(`#settings-options-${name}`).setAttribute('aria-label', label);
+    this.#paintCopy();
     // Fixed boxes: every help text and notice is measured into its own grid cell.
     const measure = (parent, texts, className) => parent.append(...texts.map(text => {
       const node = document.createElement('p'); node.className = className; node.setAttribute('aria-hidden', 'true'); node.textContent = text; return node;
@@ -147,6 +141,25 @@ export class SettingsDialog {
     const button = document.createElement('span'); button.className = 'notice-action'; button.style.display = 'inline-block'; button.style.minHeight = '2.75rem';
     box.append(tallest, button); this.#q('.notice-area').prepend(box);
     this.#wire();
+  }
+  setCopy(copy) {
+    const old = this.#copy.settings;
+    for (const key of Object.keys(old)) if (typeof old[key] === 'string' && this.#status === old[key]) { this.#status = copy.settings[key]; break; }
+    this.#copy = copy; this.#notice = null; this.#paintCopy();
+    this.#all('.context-measure').forEach((n, i) => { n.textContent = fill(Object.values(copy.help)[i] ?? '', { reason: '' }); });
+    const c = copy.settings, notices = [c.callActive, c.toDevice, c.fromDevice, c.consentRequired, c.running, c.conflict, fill(c.notAllowed, { reason: '' })];
+    this.#q('.notice-measure .notice-text').textContent = notices.reduce((a, b) => b.length > a.length ? b : a);
+    this.#paintKeys.clear(); this.sync();
+  }
+  #paintCopy() {
+    const c = this.#copy.settings;
+    this.#q('.presets').setAttribute('aria-label', c.processing);
+    for (const node of this.#all('[data-text]')) node.textContent = c[node.dataset.text];
+    this.#q('.settings__title').textContent = c.title;
+    for (const tab of this.#all('[data-tab]')) tab.querySelector('.tab-label').textContent = c.tabs[tab.dataset.tab];
+    this.#q('.settings__tabs').setAttribute('aria-label', c.title);
+    for (const kind of GAUGES) this.#q(`[data-gauge="${kind}"] .gauge__label`).textContent = this.#copy.gauges.labels[kind];
+    for (const [name, label] of [['model', c.model], ['voice', c.voice], ['visuals', c.visuals]]) this.#q(`#settings-options-${name}`).setAttribute('aria-label', label);
   }
   #wire() {
     const dialog = this.#dialog;

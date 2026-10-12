@@ -55,6 +55,11 @@ export function applyEvent(session, event) {
   } else if (event.type === 'understanding.updated') {
     next.understanding = event.data.erased ? emptyUnderstanding(next) : withAITextOrigin(event.data);
     next.actor = event.data.erased ? null : event.data.actor;
+  } else if (event.type === 'session.locale-changed') {
+    if (!['en', 'de'].includes(event.data.locale)) throw new TypeError('Unsupported locale');
+    next.locale = event.data.locale;
+    next.sessionRevision += 1;
+    next.understanding = emptyUnderstanding(next); next.actor = null; next.focusedQuestion = null;
   } else if (event.type === 'session.paused') {
     next.paused = event.data.paused;
   } else if (event.type === 'identity.state') {

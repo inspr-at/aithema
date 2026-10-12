@@ -5,7 +5,7 @@ import { ensureAgent, AGENT_NAME } from '../src/ensure-agent.js';
 import { createVoiceHost } from '../../../demo/start2-voice-host.js';
 import { fakeElevenLabs } from '../../../test/start2-fakes.js';
 import { temporaryDb } from '../../../test/helpers.js';
-import { SPOKEN_AI_NOTICE } from '../../../packages/core/src/ai-notice.js';
+import { aiNoticeText } from '../../../packages/core/src/ai-notice.js';
 
 const options = (storage, fake, logs = []) => ({ storage, apiBaseUrl: fake.endpoint, templateAgentId: 'template-agent',
   publicOrigin: 'https://start2.example.test', resolveSecret: ref => ref === 'ELEVENLABS_API_KEY' ? 'local-key-fixture' : 'local-bearer-fixture',
@@ -31,9 +31,9 @@ test('startup creates only the owned agent; whitelists template settings and ref
   assert.deepEqual(created.platform_settings.auth.allowlist, [{ hostname: 'start2.example.test' }]);
   assert.equal(created.platform_settings.auth.enable_auth, true);
   assert.equal(created.platform_settings.overrides.custom_llm_extra_body, true);
-  assert.equal(created.conversation_config.agent.first_message, SPOKEN_AI_NOTICE);
+  assert.equal(created.conversation_config.agent.first_message, aiNoticeText('en'));
   assert.deepEqual(created.conversation_config.language_presets, {});
-  assert.deepEqual(created.platform_settings.overrides.conversation_config_override, { agent: { first_message: false, language: true } });
+  assert.deepEqual(created.platform_settings.overrides.conversation_config_override, { agent: { first_message: true, language: true } });
   assert.equal(created.platform_settings.privacy.retention_days, 30);
   assert.equal(Object.hasOwn(created, 'platform_config'), false);
   for (const text of ['template greeting', 'template persona', 'private', 'local-key-fixture', 'local-bearer-fixture']) assert.ok(!JSON.stringify(created).includes(text));
@@ -95,8 +95,8 @@ const mismatches = [
   ['platform_settings.auth.allowlist', [{ hostname: 'https://start2.example.test' }]],
   ['platform_settings.auth.allowlist', [{ hostname: 'start2.example.test' }, { hostname: 'foreign.test' }]],
   ['platform_settings.overrides.custom_llm_extra_body', false],
-  // AIT-119: the browser may never replace the spoken AI notice.
-  ['platform_settings.overrides.conversation_config_override.agent.first_message', true,
+  // AIT-127: both locale and the matching AI notice must be allowed explicitly.
+  ['platform_settings.overrides.conversation_config_override.agent.first_message', false,
     ['platform_settings.overrides.conversation_config_override.agent.first_message', 'platform_settings.overrides.conversation_config_override']],
   ['platform_settings.overrides.conversation_config_override.agent.language', false,
     ['platform_settings.overrides.conversation_config_override.agent.language', 'platform_settings.overrides.conversation_config_override']],
@@ -164,7 +164,7 @@ for (const mode of ['create', 'PATCH']) {
       if (init.method !== 'GET' || !new URL(url).pathname.endsWith('/agents/owned-agent')) return response;
       const saved = await response.json();
       saved.platform_settings.overrides.conversation_config_override = { tts: { voice_id: false, stability: false },
-        conversation: { text_only: false }, agent: { first_message: false, language: true, prompt: { prompt: false, llm: false } } };
+        conversation: { text_only: false }, agent: { first_message: true, language: true, prompt: { prompt: false, llm: false } } };
       return Response.json(saved);
     } });
     assert.ok(host.binding);
@@ -216,19 +216,20 @@ test('an uncertain secret creation stays closed across restart and names only th
   assert.equal(storage.db.prepare('SELECT * FROM host_voice_secrets').all().length, 0);
   assert.equal(writes(fake).length, 1);
 });
-test('the agent greets with the fixed bilingual AI notice in any template language; calls override only the language (AIT-119)', async t => {
-  const fake = await fakeElevenLabs(t), storage = new SQLiteStorage(); t.after(() => storage.close());
-  fake.template.conversation_config.agent.language = 'de';
-  const host = await createVoiceHost(options(storage, fake));
-  assert.ok(host.binding);
-  assert.match(SPOKEN_AI_NOTICE, /^Sie sprechen mit einem KI-Assistenten;.*You are talking to an AI assistant/u);
-  assert.doesNotMatch(SPOKEN_AI_NOTICE, /\{\{/u); // No dynamic variable a client could fill.
-  const created = writes(fake).find(r => r.path.endsWith('/agents/create')).body;
-  assert.equal(created.conversation_config.agent.language, 'de');
-  assert.equal(created.conversation_config.agent.first_message, SPOKEN_AI_NOTICE);
-  assert.equal(fake.agents[0].conversation_config.agent.first_message, SPOKEN_AI_NOTICE);
-  assert.equal(fake.agents[0].platform_settings.overrides.conversation_config_override.agent.first_message, false);
-  assert.deepEqual(host.presentation('de'), { agent: { language: 'de' } });
-  assert.deepEqual(host.presentation('en'), { agent: { language: 'en' } });
-  assert.equal(host.presentation('fr'), undefined);
+test('AIT-127: each locale gets only its own AI notice, with an enabled first-message override', async t => {
+  for (const language of ['de', 'en']) {
+    const fake = await fakeElevenLabs(t), storage = new SQLiteStorage(); t.after(() => storage.close());
+    fake.template.conversation_config.agent.language = language;
+    const host = await createVoiceHost(options(storage, fake)); assert.ok(host.binding);
+    const created = writes(fake).find(r => r.path.endsWith('/agents/create')).body;
+    assert.equal(created.conversation_config.agent.language, language);
+    assert.equal(created.conversation_config.agent.first_message, aiNoticeText(language));
+    assert.equal(fake.agents[0].platform_settings.overrides.conversation_config_override.agent.first_message, true);
+    for (const locale of ['de', 'en']) {
+      const expected = { agent: { language: locale, firstMessage: aiNoticeText(locale) } };
+      assert.deepEqual(host.presentation(locale), expected);
+      assert.doesNotMatch(expected.agent.firstMessage, locale === 'de' ? /You are talking/ : /Sie sprechen/);
+    }
+    assert.equal(host.presentation('fr'), undefined);
+  }
 });

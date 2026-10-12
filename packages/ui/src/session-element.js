@@ -68,6 +68,7 @@ export class AithemaSession extends HTMLElement {
   #pointer = null; #onTranscript = false; #follow = true; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false;
   #dialog; #connector; #createDevice; #deviceEndpoint; #chooser = { choice: null, busy: false, error: '' }; #aiNotice; #host; #options; #refocus = null;
   #orb = null; #started = false; #inputMode = null; #microphone = 'unknown'; #permission = null;
+  #localeChanging = Promise.resolve(); #copyLocale;
   #uploadAt = new Map(); #uploading = false; #uploadNotice = ''; #reading = ''; #limits = UPLOAD_LIMITS; #limitsLoad = null; #dragDepth = 0;
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
@@ -82,13 +83,14 @@ export class AithemaSession extends HTMLElement {
    * `deviceConnector` is the browser device plugin factory for the settings Advanced tab;
    * `voiceClients` maps host voice option ids to browser clients (else `voiceClient`).
    * `aiNotice` ({text?, voice?}) rewords the AI notice ahead of `copy.aiNotice`; it cannot remove it.
+   * `copyForLocale(locale)` supplies host copy for in-place locale changes before interaction.
    * `host` ({library, verification, handover, credits, locale}) turns on the host surface (AIT-104 B2):
    * the conversation library, email verification, handover and credits; see the README.
    */
   configure(options) {
     const { copy, baseUrl = '', session, sessionToken, deviceReasoning, deviceConnector, deviceEndpoint, voiceClient, voiceClients, voicePlayback, aiNotice } = options ?? {};
     if (!copy || !session) throw new TypeError('Host copy and session required');
-    this.#aiNotice = aiNotice; this.#options = { ...options }; delete this.#options.session;
+    this.#copyLocale = session.locale; this.#aiNotice = aiNotice; this.#options = { ...options }; delete this.#options.session;
     this.#host?.destroy(); this.#host = null;
     const reopen = this.#dialog?.open;
     this.#concept?.destroy(); this.#rail?.destroy(); this.#rail = null; this.#orb?.destroy(); this.#orb = null; this.#voiceClient = voiceClient; this.#voiceClients = voiceClients; this.#voicePlayback = voicePlayback;
@@ -128,6 +130,51 @@ export class AithemaSession extends HTMLElement {
   }
   reportVoicePlaybackBlocked() { this.#rail?.reportPlaybackBlocked(); }
   get session() { return structuredClone(this.#session); }
+  /** Change an unstarted conversation in place. Calls, turns and drafts keep their identity. */
+  changeLocale(locale) {
+    if (!this.#session) return Promise.resolve(false);
+    const sessionId = this.#session.id;
+    const changing = this.#localeChanging.then(async () => {
+      if (sessionId !== this.#session.id || !['en', 'de'].includes(locale) || !this.#options.copyForLocale?.(locale)) return false;
+      if (locale === this.#session.locale) return true;
+      if (this.#hasInput() || this.#sending || this.#uploading || this.#rail?.root.dataset.call === 'active') return false;
+      try {
+        const response = await postJson(`${this.#base}/api/sessions/${sessionId}/locale`, { locale }, { sessionToken: this.#sessionToken });
+        if (!response.ok || sessionId !== this.#session.id) return false;
+        const ack = await response.json();
+        if (sessionId !== this.#session.id) return false;
+        // Apply only the journal event. Its snapshot may predate a first turn or a later SSE event.
+        if (ack.event) this.receive(ack.event);
+        return this.#session.locale === locale;
+      } catch { return false; }
+    });
+    this.#localeChanging = changing.catch(() => false);
+    return changing;
+  }
+  #repaintLocale() {
+    if (this.#copyLocale === this.#session.locale) return;
+    const copy = this.#options.copyForLocale?.(this.#session.locale);
+    if (!copy) return;
+    this.#copyLocale = this.#session.locale;
+    const previous = this.#copy, root = this.shadowRoot;
+    this.#copy = copy; this.#options.copy = copy; this.#paintNotice();
+    for (const key of ['connecting', 'connected', 'reconnecting']) if (this.#connection === previous[key]) { this.#connection = copy[key]; break; }
+    this.#notice = ''; this.#uploadNotice = ''; this.#chooser.error = '';
+    this.#anchored(() => {
+      for (const n of root.querySelectorAll('[data-copy]')) setText(n, copy[n.dataset.copy]);
+      const promise = root.querySelector('.promise');
+      // Keep the promise's spans, like the composer and every control.
+      for (const [index, n] of [...promise.querySelectorAll('span')].entries()) setText(n, copy.entrance?.promise?.[index] ?? '');
+      setText(root.querySelector('.promise__lead'), copy.entrance?.lead ?? '');
+      setText(root.querySelector('.send .visually-hidden'), copy.send);
+      setText(root.querySelector('.settings-open span'), copy.settings.open); root.querySelector('.settings-open').title = copy.settings.open;
+      root.querySelector('.scale').setAttribute('aria-label', `${copy.talk} — ${copy.build}`);
+      this.#rail.copy = copy; this.#rail.render();
+      this.#dialog.setCopy(copy); this.#connector?.setCopy(copy); this.#concept.setCopy(copy); this.#host?.setCopy(copy);
+      this.#paint('features'); this.#paint('transcript'); this.#paint('aside'); this.#paint('composer');
+    });
+    this.dispatchEvent(new CustomEvent('aithema-locale', { detail: { locale: this.#session.locale }, bubbles: true, composed: true }));
+  }
   // A visitor-connected local model takes precedence over a host-supplied device client.
   get #device() { return this.#connector?.client ?? this.#deviceReasoning; }
   #voiceClientFor(session = this.#session) {
@@ -736,15 +783,23 @@ export class AithemaSession extends HTMLElement {
     card.addEventListener('click', () => {
       if (this.#chooser.busy) return;
       const refusal = this.#presetRefusal(preset);
-      this.#chooser.error = refusal ? `${copy.presets[preset]}: ${reasonText(copy, refusal)}` : '';
+      this.#chooser.error = refusal ? `${this.#copy.presets[preset]}: ${reasonText(this.#copy, refusal)}` : '';
       if (!refusal) this.#chooser.choice = preset;
       this.#render('transcript');
     });
     return card;
   }
   #paintChooser(section) {
-    const copy = this.#copy, c = copy.chooser, choice = this.#chooser.choice ?? this.#session.processingPreset ?? 'best';
+    const copy = this.#copy, c = copy.chooser;
+    setText(section.querySelector('#chooser-title'), c.title);
+    setText(section.querySelector('.chooser__continue > span'), c.continue);
+    const measures = [c.choose, c.saving, ...PRESET_ORDER.map(p => c.summary[p])];
+    section.querySelectorAll('.chooser__measure').forEach((n, i) => setText(n, measures[i]));
+    const choice = this.#chooser.choice ?? this.#session.processingPreset ?? 'best';
     reconcile(section.querySelector('.chooser__list'), PRESET_ORDER.map(preset => [preset, preset]), preset => this.#chooserOption(preset), (card, preset) => {
+      setText(card.querySelector('strong'), copy.presets[preset]);
+      const details = card.querySelectorAll('.chooser-option__detail > span');
+      setText(details[0], c.lead[preset]); setText(details[1], c.detail[preset]);
       const refusal = this.#presetRefusal(preset);
       card.setAttribute('aria-pressed', String(choice === preset)); card.setAttribute('aria-disabled', String(Boolean(refusal)));
       if (refusal) card.title = reasonText(copy, refusal); else card.removeAttribute('title');
@@ -824,6 +879,10 @@ export class AithemaSession extends HTMLElement {
   }
   #paintReady(section) {
     const copy = this.#copy, r = copy.ready, device = this.#session.processingPreset === 'device', view = engineView(this.#session);
+    setText(section.querySelector('#ready-title'), r.title);
+    setText(section.querySelector('.ready__start > span'), r.start);
+    section.querySelector('.ready__modes').setAttribute('aria-label', r.inputMode);
+    for (const button of section.querySelectorAll('.ready__mode')) setText(button.querySelector('span'), r[button.dataset.mode]);
     const consent = this.#consentState(), local = this.#device?.model, mode = this.#mode(), voiceMode = mode === 'voice';
     const visuals = device ? SETTINGS_OFF : view.visuals;
     const effort = view.effort, model = catalogLabel(copy, view.model?.label ?? view.model?.id);
@@ -851,7 +910,7 @@ export class AithemaSession extends HTMLElement {
       button.setAttribute('aria-describedby', 'ai-notice');
       button.addEventListener('click', () => { if (action === 'change') this.openSettings(button); else this.#requestConsent('ready'); });
       return button;
-    }, () => {});
+    }, (button, action) => setText(button, action === 'change' ? r.change : copy.settings.reviewConsent));
     setText(section.querySelector('.ready__route'), copy.chooser.summary[this.#session.processingPreset ?? 'best'] ?? '');
     const offered = this.#voiceChoice();
     for (const choice of section.querySelectorAll('.ready__mode')) {
@@ -1178,6 +1237,10 @@ export class AithemaSession extends HTMLElement {
       }
       const presetBefore = this.#session.processingPreset, settingsBefore = this.#session.settings;
       this.#session = applyEvent(this.#session, event); this.#cursor = event.seq;
+      // Every acknowledged journal event is a floor for older snapshot responses, including
+      // the locale acknowledgement and a first turn arriving while that response is in flight.
+      this.#invalidatedAt = Math.max(this.#invalidatedAt, event.seq);
+      if (event.type === 'session.locale-changed') this.#repaintLocale();
       this.#concept.update(this.#session);
       if (event.type === 'settings.changed') {
         // A changed model, effort or preset supersedes the running reply on the server:
@@ -1256,15 +1319,24 @@ export class AithemaSession extends HTMLElement {
     } catch { /* Existing verdicts stay closed until the host confirms coverage. */ }
   }
   async #restore() {
-    const sessionId = this.#session.id;
+    const sessionId = this.#session.id, requestedCursor = this.#cursor;
     try {
       const response = await fetch(`${this.#base}/api/sessions/${sessionId}`, { headers: this.#headers() });
       if (!response.ok) throw new Error();
       const session = await response.json();
       if (sessionId !== this.#session.id) return;
-      // A snapshot requested before a withdrawal must never restore its content.
-      if (session.seq < this.#invalidatedAt) return;
+      // A restore already in flight cannot overwrite a newer locale acknowledgement or first
+      // turn, any more than it may restore withdrawn content. Resume from the newer cursor.
+      if (session.seq < this.#invalidatedAt) {
+        // Reconnect only when another event advanced us during this fetch. Repeating a gap
+        // against the same stale snapshot must not create a synchronous restore loop.
+        if (this.#cursor > requestedCursor && this.isConnected) this.#connect();
+        return;
+      }
+      // An accepted snapshot protects its state from older responses to concurrent restores.
+      this.#invalidatedAt = Math.max(this.#invalidatedAt, session.seq);
       this.#session = session; this.#cursor = this.#session.seq; this.#partials.clear();
+      this.#repaintLocale();
       this.#restoreFailure(); this.#concept.update(this.#session); this.#renderMode(); this.#dialog?.sync(); this.#host?.resync();
       this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer');
       if (this.isConnected) this.#connect();
