@@ -143,7 +143,7 @@ test('served model receipts accept only 1–128 model-id characters in streaming
   for (const servedModel of [...valid, ...invalid]) {
     const reports = [], plugin = createOpenRouterReasoning({ model, prices: { [model]: { prompt: 1e-9, completion: 1e-9 } },
       resolveSecret: () => 'local-fixture', fetchImpl: async (url, init) => {
-        const { stream } = JSON.parse(init.body), payload = { model: servedModel, usage: { prompt_tokens: 3, completion_tokens: 4 },
+        const { stream } = JSON.parse(init.body), payload = { model: servedModel, usage: { prompt_tokens: 3, completion_tokens: 4, cost: 0 },
           choices: stream ? [{ delta: { content: 'Hello' }, finish_reason: 'stop' }]
             : [{ finish_reason: 'stop', message: { content: '{"summary":"Known"}' } }] };
         return stream ? new Response(`data: ${JSON.stringify(payload)}\n\ndata: [DONE]\n\n`) : Response.json(payload);
