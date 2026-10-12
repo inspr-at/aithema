@@ -1,6 +1,23 @@
 import { AI_NOTICE } from '../../../core/src/ai-notice.js';
 
 export const en = {
+  layout: {
+    fold: 'Fold conversation', unfold: 'Unfold conversation', openQuestion: 'Open question · Unfold',
+    canvas: 'Visual drafts', canvasEmpty: 'Space for your drafts.', noMessage: 'Unfold conversation',
+    motionOff: 'Turn motion off', motionOn: 'Turn motion on', aiShort: 'AI', syntheticVoice: 'synthetic voice',
+    creditsTotal: ' of {limit}', creditsUnit: ' Credits', inspr: 'The open-source family', augmentoring: 'AI consulting',
+  },
+  display: {
+    locale: 'en', modelInfo: 'Models and voice', modelUnknown: 'This host’s model', presetUnknown: 'This host’s selection',
+    reply: 'Replies', understanding: 'Understanding', voice: 'Voice', via: 'via {provider}',
+    international: 'international', eu: 'in the EU', device: 'on your device', localModel: 'Local model',
+    deviceProvider: 'your device', hostProvider: 'this host', testProvider: 'local test', testVoice: 'Test voice',
+    draftsOff: 'Visual drafts are not set up on this host.',
+    draftsOn: 'Request a draft · ~{credits} credits', draftsCost: '~{credits} credits',
+    draftsLow: 'There are not enough credits available for another draft right now.',
+    newConversation: 'New conversation', manageConversations: 'Manage all conversations', currentConversation: 'now',
+    withdraw: 'Remove this contribution. Applies from the next reply.',
+  },
   reveal: {
     label: 'About Aithema', wordmark: 'Aithema', build: 'Build {date}',
     links: [
@@ -20,7 +37,7 @@ export const en = {
   conceptLoading: 'Loading saved image…', conceptImageFailed: 'The saved image could not be loaded. Reopen to retry.',
   conceptGenerated: 'AI-generated image', conceptManipulated: 'AI-manipulated image',
   conceptFake: 'Fake image — local deterministic PNG, no AI or provider network',
-  conceptFree: 'No cost (local fake)', conceptCost: 'Up to {micro} micro-units', conceptCostUnknown: 'Cost unavailable',
+  conceptFree: 'No cost (local fake)', conceptCost: 'Up to {micro} micro-units',
   conceptGuidance: ['Simpler layout', 'More contrast', 'More whitespace', 'Warmer colours', 'Clearer hierarchy', 'Keep this direction'],
   // Host catalog names (models, voices, visuals, vendors) in this language; a name without an entry shows as the host wrote it.
   catalogLabels: {},
@@ -215,7 +232,7 @@ export const en = {
   deviceUnavailable: 'Local model unavailable',
   // Art. 50(1) AI notice (AIT-119). A host may reword it; an empty part falls back to this default.
   aiNotice: { ...AI_NOTICE.en },
-  conversation: 'Conversation', understanding: 'Understanding', you: 'You', assistant: 'Assistant',
+  conversation: 'Conversation', understanding: 'Understanding', you: 'You', assistant: 'AI assistant',
   pause: 'Pause', resume: 'Resume', withdraw: 'Withdraw statement', withdrawn: 'Statement withdrawn',
   paused: 'Session paused', pausedResume: 'Still paused. Select Resume to continue.', consentRequired: 'Current processing consent required',
   controlFailed: 'Could not save this change. Try again.',
@@ -235,6 +252,7 @@ export const en = {
     bar: 'Your conversation',
     verify: {
       entry: 'Verify your email', pending: 'Email not yet verified', verified: 'Email verified',
+      section: 'E-Mail', unverified: 'Not verified', linkSent: 'Link sent', resendOrChange: 'Resend or change', verifiedShort: 'Verified',
       title: 'Confirm your email', close: 'Back to the conversation',
       lockTitle: 'Unlock your assessment and concepts', lockLead: 'Confirm your email address to view the assessment.',
       label: 'Email address', placeholder: 'name@company.com', send: 'Send confirmation link',
@@ -277,7 +295,7 @@ export const en = {
       limit: 'This conversation cannot be sent again. Start a new conversation to send more.',
     },
     credits: {
-      balance: 'Credits: {available} of {limit}', remaining: '{minutes} min left in this conversation', paused: 'Paused: nothing new starts, but the time keeps running',
+      title: 'Your credits', scope: 'for all your conversations', loading: 'loading …', balance: '{available} of {limit} left', remaining: '{minutes} min left in this conversation', paused: 'Paused: nothing new starts, but the time keeps running',
       ended: { 'one-hour': 'This conversation reached its one-hour limit and has ended. Your transcript stays saved.',
         session: 'This conversation’s credits are used up. Your transcript stays saved.',
         voiceVisitor: 'The voice credits for this conversation are used up. Your transcript stays saved.',

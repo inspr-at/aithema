@@ -67,6 +67,7 @@ test('without a host option the component shows no host surface', t => {
   assert.equal(root.querySelector('.handover').hidden, true);
   assert.equal(root.querySelector('.verify-lock').hidden, true);
   assert.equal(root.querySelector('.workspace').hasAttribute('data-host'), false);
+  assert.equal(root.querySelector('.host-verify').hidden, true);
 });
 
 test('verification lock: the email form replaces the assessment in place, invalid refused locally, Send becomes Send link again with a cooldown (AIT-104 B2)', async t => {
@@ -99,7 +100,7 @@ test('verification lock: the email form replaces the assessment in place, invali
   assert.equal(lock.querySelector('.verify-resend').getAttribute('aria-disabled'), 'true', 'cooling down, still focusable');
   assert.equal(lock.querySelector('.verify-send').style.visibility, 'hidden', 'Send and Send link again share one cell');
   assert.equal(lock.querySelector('#verify-lock-message').textContent, v.saved);
-  assert.equal(root.querySelector('.host-verify .verify-entry').textContent, v.pending);
+  assert.equal(root.querySelector('.host-verify .verify-entry').textContent, 'Resend or change');
   // During the cooldown Resend says so without a request.
   lock.querySelector('.verify-resend').click(); await tick();
   assert.equal(lock.querySelector('#verify-lock-message').textContent, v.rateLimited);
@@ -118,7 +119,7 @@ test('verification lock: the email form replaces the assessment in place, invali
   assert.equal(lock.querySelector('form').dataset.mode, 'pending');
 });
 
-test('verification unlock over SSE keeps a manual pause and says so; the bar then shows a quiet verified line', async t => {
+test('verification unlock over SSE keeps a manual pause and says so; Settings then shows a quiet verified line', async t => {
   const { c, root } = setup(t, { session: { identity: pending() } }); await tick();
   assert.equal(root.querySelector('.verify-lock').hidden, false);
   c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
@@ -126,10 +127,10 @@ test('verification unlock over SSE keeps a manual pause and says so; the bar the
   c.receive({ seq: c.session.seq + 1, type: 'identity.unlocked', data: { manualPaused: true } });
   assert.equal(root.querySelector('.verify-lock').hidden, true);
   assert.equal(root.querySelector('.notice').hidden, false);
-  assert.equal(root.querySelector('.status').textContent, v.unlockedPaused);
+  assert.equal(root.querySelector('.status__label').textContent, v.unlockedPaused);
   assert.equal(root.querySelector('.host-verify .verify-entry').hidden, true);
   assert.equal(root.querySelector('.host-verify .verify-done').hidden, false);
-  assert.equal(root.querySelector('.host-verify .verify-done').textContent, v.verified);
+  assert.equal(root.querySelector('.host-verify .verify-done').textContent, 'Verified');
 });
 
 test('a keyboard unlock before the first input moves focus to the visible stage control: Continue at the entrance, Start at readiness', async t => {
@@ -160,17 +161,54 @@ test('verification polling asks the host to unlock while a link is pending, neve
   assert.equal(root.querySelector('.verify-lock').hidden, true);
 });
 
-test('without the lock, verification is a quiet bar entry that opens a small dialog and returns focus', async t => {
+test('without the lock, verification opens from Settings General and returns focus to the gear', async t => {
   const { root } = setup(t, { session: { identity: identity() } }); await tick();
   assert.equal(root.querySelector('.verify-lock').hidden, true);
+  assert.equal(root.querySelector('.host-extras'), null);
+  assert.equal(root.querySelector('.general').lastElementChild, root.querySelector('.host-verify'));
+  const gear = root.querySelector('.settings-open'), settings = root.querySelector('dialog.settings');
+  gear.click(); settings.querySelector('[data-tab="general"]').click();
+  assert.equal(settings.open, true);
   const button = root.querySelector('.host-verify .verify-entry');
   assert.equal(button.hidden, false); assert.equal(button.getAttribute('aria-haspopup'), 'dialog');
   button.click();
   const dialog = root.querySelector('dialog.verify-dialog');
+  assert.equal(settings.open, false);
   assert.equal(dialog.open, true);
   assert.equal(root.activeElement?.id, 'verify-dialog-email');
   dialog.querySelector('.verify-dialog-close').click();
+  await tick();
   assert.equal(dialog.open, false);
+  assert.equal(root.activeElement, gear);
+});
+
+test('AIT-131 r3: Settings email states follow identity events in DE and EN without replacing the action', async t => {
+  for (const [copy, words] of [[de, ['E-Mail', 'Nicht bestätigt', 'E-Mail bestätigen', 'Link gesendet', 'Erneut senden oder ändern', 'Bestätigt']],
+    [en, ['E-Mail', 'Not verified', 'Verify your email', 'Link sent', 'Resend or change', 'Verified']]]) await t.test(copy.display.locale, async t => {
+    const { c, root } = setup(t, { copy, session: { identity: identity() } }); await tick();
+    c.openSettings(undefined, { tab: 'general' });
+    const section = root.querySelector('.host-verify'), button = section.querySelector('.verify-entry');
+    assert.equal(section.closest('[data-panel]').dataset.panel, 'general');
+    assert.equal(section.hidden, false); assert.equal(section.querySelector('h3').textContent, words[0]);
+    assert.equal(section.querySelector('.verify-entry-status').textContent, words[1]);
+    assert.equal(button.textContent, words[2]); assert.equal(button.hidden, false);
+    c.receive({ seq: c.session.seq + 1, type: 'identity.state', data: pending({ verificationRequired: false }) });
+    assert.equal(section.querySelector('.verify-entry-address').textContent, 'visitor@example.com');
+    assert.equal(section.querySelector('.verify-entry-status').textContent, words[3]);
+    assert.equal(section.querySelector('.verify-entry'), button); assert.equal(button.textContent, words[4]);
+    button.click();
+    assert.equal(root.querySelector('dialog.settings').open, false); assert.equal(root.querySelector('dialog.verify-dialog').open, true);
+    assert.equal(root.activeElement, root.querySelector('dialog.verify-dialog .verify-resend'));
+    root.querySelector('.verify-dialog-close').click(); await tick();
+    assert.equal(root.activeElement, root.querySelector('.settings-open'));
+    c.openSettings(undefined, { tab: 'general' });
+    c.receive({ seq: c.session.seq + 1, type: 'identity.state', data: identity({ status: 'verified', address: 'visitor@example.com' }) });
+    assert.equal(section.querySelector('.verify-entry-address').textContent, 'visitor@example.com');
+    assert.equal(section.querySelector('.verify-done').hidden, false); assert.equal(section.querySelector('.verify-done').textContent, words[5]);
+    assert.equal(button.hidden, true); assert.equal(section.querySelector('.verify-entry-status').hidden, true);
+    c.receive({ seq: c.session.seq + 1, type: 'identity.state', data: { erased: true } });
+    assert.equal(section.hidden, true, 'erased identity leaves no email entry');
+  });
 });
 
 test('library: lists the owner conversations keyed, sorts by title and activity, renames in place, deletes with erasure wording (AIT-104 B2)', async t => {
@@ -181,7 +219,7 @@ test('library: lists the owner conversations keyed, sorts by title and activity,
     'POST /library/c/delete': () => { items.splice(2, 1); return Response.json({ id: 'c', erased: true, providerDeletion: 'not-confirmed' }); },
   } });
   const open = root.querySelector('.library-open-dialog');
-  assert.equal(open.hidden, false); assert.equal(open.textContent, l.open);
+  assert.equal(root.querySelector('.conversations-toggle').title, l.open); assert.equal(open.textContent, en.display.manageConversations);
   open.click(); await tick();
   const dialog = root.querySelector('dialog.library'), keys = () => [...dialog.querySelectorAll('tbody tr')].map(r => r.dataset.key);
   assert.equal(dialog.open, true); assert.equal(root.activeElement?.id, 'library-search');
@@ -230,7 +268,7 @@ test('library: New and Reset hand the conversation to the host; without a handle
   root.querySelector('.library-new').click(); await tick();
   assert.deepEqual(seen, [['new', created.id, first]]);
   assert.equal(c.session.id, created.id, 'not prevented: the element switched itself');
-  assert.equal(root.activeElement?.className, 'library-open-dialog', 'focus returns to the library button');
+  assert.equal(root.activeElement?.className, 'conversations-toggle', 'focus returns to the library button');
   assert.equal(calls.find(call => call.method === 'POST' && call.path === '/library').body.locale, 'en');
   // Reset asks first, with its own wording, then posts for the current conversation.
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
@@ -292,12 +330,12 @@ test('credits: the owner balance and time slot from the server; limit-reached sh
   await tick();
   const line = root.querySelector('.host-credits');
   assert.equal(line.hidden, false);
-  assert.equal(line.querySelector('.host-credits__text').textContent, 'Credits: 4.25 of 5 · 30 min left in this conversation');
+  assert.equal(line.querySelector('.host-credits__text').textContent, '425 of 500 Credits');
   assert.equal(line.querySelector('.host-credits__limit').hidden, true);
   c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'one-hour' } });
-  assert.equal(line.querySelector('.host-credits__text').textContent, cr.ended['one-hour']);
+  assert.equal(line.querySelector('.host-credits__deadline').textContent, cr.ended['one-hour']);
   assert.equal(line.querySelector('.host-credits__limit').hidden, false);
-  assert.equal(root.querySelector('.status').textContent, cr.ended['one-hour']);
+  assert.equal(root.querySelector('.status__label').textContent, cr.ended['one-hour']);
 });
 
 test('host slots: account, credits limit, handover offer, legal and footer are named slots; the footer row shows only when filled', async t => {
@@ -312,7 +350,8 @@ test('host slots: account, credits limit, handover offer, legal and footer are n
 
 test('German copy on the host surface; every English host key has a German counterpart', async t => {
   const { root } = setup(t, { copy: de, session: { identity: locked() } }); await tick();
-  assert.equal(root.querySelector('.library-open-dialog').textContent, de.hostSurface.library.open);
+  assert.equal(root.querySelector('.conversations-toggle').textContent, de.hostSurface.library.open);
+  assert.equal(root.querySelector('.library-open-dialog').textContent, de.display.manageConversations);
   assert.equal(root.querySelector('.verify-lock__title').textContent, de.hostSurface.verify.lockTitle);
   assert.equal(root.querySelector('.verify-lock .verify-send').textContent, de.hostSurface.verify.send);
   const keys = (value, prefix = '') => Object.entries(value).flatMap(([k, v]) => v && typeof v === 'object' ? keys(v, `${prefix}${k}.`) : [`${prefix}${k}`]);
@@ -343,15 +382,16 @@ test('credits: a pause never freezes the countdown (the host deadline keeps runn
     'GET /credits': () => Response.json({ balance, limitSlot: { status: 'active', remainingMs: 30 * 60_000, canStartPaidWork: false } }),
   } });
   await tick();
-  const text = () => root.querySelector('.host-credits__text').textContent;
-  assert.equal(text(), `Credits: 4.25 of 5 · 30 min left in this conversation · ${cr.paused}`);
+  const text = () => root.querySelector('.host-credits__deadline').textContent;
+  assert.equal(root.querySelector('.host-credits__text').textContent, '425 of 500 Credits');
+  assert.equal(text(), `30 min left in this conversation · ${cr.paused}`);
   assert.match(cr.paused, /time keeps running/u); assert.match(de.hostSurface.credits.paused, /Zeit läuft aber weiter/u);
   // Ten minutes later, still paused: the line counts down like the server's deadline.
   const now = Date.now(); t.mock.method(Date, 'now', () => now + 10 * 60_000);
   c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
-  assert.equal(text(), `Credits: 4.25 of 5 · 20 min left in this conversation · ${cr.paused}`);
+  assert.equal(text(), `20 min left in this conversation · ${cr.paused}`);
   c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
-  assert.equal(text(), 'Credits: 4.25 of 5 · 20 min left in this conversation');
+  assert.equal(text(), '20 min left in this conversation');
 });
 
 test('library: saving a rename keeps every row in place; a background reload too; the next load or search sorts afresh', async t => {

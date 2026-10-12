@@ -153,7 +153,7 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     assert.equal(await text(page, '.verify-lock__title'), v.lockTitle);
     assert.equal(await inShadow(page, c => [...c.shadowRoot.querySelectorAll('.analysis-content > section')].every(s => s.hidden)), true);
     assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.readiness').style.visibility), 'hidden');
-    assert.equal(await text(page, '.host-verify .verify-entry'), v.entry, 'the bar offers the same verification');
+    assert.equal(await text(page, '.host-verify .verify-entry'), v.entry, 'Settings offers the same verification');
     assert.deepEqual(await inShadow(page, c => c.shadowRoot.querySelector('.verify-lock .verify-send').getAttribute('aria-describedby').split(' ')), ['verify-lock-message', 'ai-notice']);
     // Consent, the ready card and a first statement.
     await mockConsent(page);
@@ -178,7 +178,7 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     assert.equal(await text(page, '.verify-lock .verify__address'), 'visitor@example.com');
     assert.match(await text(page, '#verify-lock-note'), /^You can send it again in \d+ s\.$/u);
     assert.equal(await inShadow(page, c => c.shadowRoot.activeElement?.className), 'verify-resend', 'focus stays in place');
-    assert.equal(await text(page, '.host-verify .verify-entry'), v.pending);
+    assert.equal(await text(page, '.host-verify .verify-entry'), v.resendOrChange);
     // Resend during the cooldown says so and sends nothing.
     await click(page, '.verify-lock .verify-resend');
     assert.equal(await text(page, '#verify-lock-message'), v.rateLimited);
@@ -190,7 +190,7 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     await until(page, () => document.querySelector('aithema-session').session.paused === true);
     // The host deadline keeps running while paused: the countdown stays and the line says what pausing does.
     await until(page, paused => {
-      const line = document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__text').textContent;
+      const line = document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__deadline').textContent;
       return / min left in this conversation · /u.test(line) && line.endsWith(paused);
     }, cr.paused);
     // The fake mail outbox (demo only) stands in for the inbox.
@@ -208,10 +208,10 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     await page.waitForFunction(text => document.querySelector('#outbox-status').textContent === text, {}, en.host.outbox.confirmed);
     await page.click('#outbox-close');
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.verify-lock').hidden);
-    assert.equal(await text(page, '.host-verify .verify-done'), v.verified);
+    assert.equal(await text(page, '.host-verify .verify-done'), v.verifiedShort);
     assert.equal(await inShadow(page, c => c.session.paused), true, 'the manual pause is kept');
     assert.equal(await text(page, '.pause'), en.resume);
-    assert.equal(await text(page, '.status'), v.unlockedPaused);
+    assert.equal(await text(page, '.status__label'), v.unlockedPaused);
     await click(page, '.pause'); await until(page, () => document.querySelector('aithema-session').session.paused === false);
     await shot(page, 'en-light-1440-verified', '.understanding');
     tally.push('outbox confirmation unlocks the assessment, manual pause kept');
@@ -236,11 +236,11 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     tally.push('handover failed then Retry sent');
 
     // Credits: the owner balance from the server, in the host bar.
-    assert.match(await text(page, '.host-credits__text'), /^Credits: [\d.,]+ of [\d.,]+/u);
+    assert.match(await text(page, '.host-credits__text'), /^[\d.,]+ of [\d.,]+ Credits$/u);
 
     // The library: the current conversation, New, rename, sort, open, delete.
     const first = await inShadow(page, c => c.session.id);
-    await click(page, '.library-open-dialog');
+    await click(page, '.conversations-toggle'); await click(page, '.library-open-dialog');
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('dialog.library tbody tr').length === 1);
     assert.equal(await text(page, 'dialog.library tbody tr .library__current'), l.current);
     assert.equal(await text(page, 'dialog.library tbody tr .library__name'), l.untitled);
@@ -251,8 +251,8 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     const second = await inShadow(page, c => c.session.id);
     assert.equal(await page.evaluate(() => localStorage.getItem('aithema-reset-slice-1-session')), second, 'the host adopted the new conversation');
     await shadow(page, '.chooser__continue');
-    await until(page, () => document.querySelector('aithema-session').shadowRoot.activeElement?.classList.contains('library-open-dialog'));
-    await click(page, '.library-open-dialog');
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.activeElement?.classList.contains('conversations-toggle'));
+    await click(page, '.conversations-toggle'); await click(page, '.library-open-dialog');
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('dialog.library tbody tr').length === 2);
     // Rename the first conversation in place: its row keeps its box while the name is edited.
     const row = `dialog.library tbody tr[data-key="${first}"]`, other = `dialog.library tbody tr[data-key="${second}"]`;
@@ -285,7 +285,7 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     await until(page, first => document.querySelector('aithema-session').session.id === first, first);
     assert.equal(await inShadow(page, c => c.session.library?.title), 'Bakery preorders');
     // Delete the empty one: the confirmation takes the footer's place, the list does not move.
-    await click(page, '.library-open-dialog');
+    await click(page, '.conversations-toggle'); await click(page, '.library-open-dialog');
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('dialog.library tbody tr').length === 2);
     const footBefore = await box(page, 'dialog.library .library__foot'), listBefore = await box(page, 'dialog.library tbody');
     await click(page, `dialog.library tbody tr[data-key="${second}"] .library-delete`);
@@ -301,7 +301,8 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     assert.equal(gone, 404, 'the deleted conversation is erased on the server');
     await page.keyboard.press('Escape');
     await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.library').open);
-    assert.equal(await inShadow(page, c => c.shadowRoot.activeElement?.className), 'library-open-dialog', 'Escape returns focus to the opener');
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.activeElement?.className === 'conversations-toggle');
+    assert.equal(await inShadow(page, c => c.shadowRoot.activeElement?.className), 'conversations-toggle', 'Escape returns focus to the opener');
     tally.push('library: new, rename in place, sort, open, delete with erasure wording');
 
     // Dark, 400 px: the bar, the library and the verified pane fit without sideways scrolling.
@@ -309,7 +310,7 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     await page.setViewport({ width: 400, height: 800 });
     assert.equal(await overflow(page), 0);
     await shot(page, 'en-dark-400-bar', '.host-bar');
-    await click(page, '.library-open-dialog');
+    await click(page, '.conversations-toggle'); await click(page, '.library-open-dialog');
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('dialog.library tbody tr').length === 1);
     const dialog = await box(page, 'dialog.library');
     assert.ok(dialog.x >= 0 && dialog.x + dialog.width <= 400 && dialog.y >= 0 && dialog.y + dialog.height <= 800, 'the library sheet fits the phone');
@@ -334,10 +335,13 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     await dePage.setViewport({ width: 400, height: 800 });
     await visible(dePage, '.verify-lock');
     assert.equal(await text(dePage, '.verify-lock__title'), de.hostSurface.verify.lockTitle);
-    assert.equal(await text(dePage, '.library-open-dialog'), de.hostSurface.library.open);
+    assert.equal(await text(dePage, '.conversations-toggle'), de.hostSurface.library.open);
+    assert.equal(await text(dePage, '.library-open-dialog'), de.display.manageConversations);
     assert.equal(await text(dePage, '.host-verify .verify-entry'), de.hostSurface.verify.entry);
     await shot(dePage, 'de-dark-400-locked', '.verify-lock');
+    await click(dePage, '.settings-open'); await click(dePage, '[data-tab="general"]');
     await inShadow(dePage, c => c.shadowRoot.querySelector('.verify-entry').click());
+    assert.equal(await inShadow(dePage, c => c.shadowRoot.querySelector('dialog.settings').open), false);
     await until(dePage, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.verify-dialog').open);
     assert.equal(await inShadow(dePage, c => c.shadowRoot.activeElement?.id), 'verify-dialog-email');
     // The modal covers the conversation's notice line, so the AI notice is in view inside the dialog itself.
@@ -348,11 +352,11 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
         visible: getComputedStyle(line).visibility === 'visible', onTop: line.contains(hit) };
     });
     assert.deepEqual(modalNotice, { text: modalNotice.notice, notice: modalNotice.notice, inView: true, visible: true, onTop: true });
-    assert.match(modalNotice.notice, /KI-Assistent/u);
+    assert.match(modalNotice.notice, /KI-Assistenz/u);
     await shot(dePage, 'de-dark-400-verify-dialog');
     await dePage.keyboard.press('Escape');
-    await until(dePage, () => document.querySelector('aithema-session').shadowRoot.activeElement?.classList.contains('verify-entry'));
-    await click(dePage, '.library-open-dialog');
+    await until(dePage, () => document.querySelector('aithema-session').shadowRoot.activeElement?.classList.contains('settings-open'));
+    await click(dePage, '.conversations-toggle'); await click(dePage, '.library-open-dialog');
     await until(dePage, () => document.querySelectorAll('aithema-session')[0].shadowRoot.querySelectorAll('dialog.library tbody tr').length === 1);
     assert.equal(await text(dePage, 'dialog.library #library-title'), de.hostSurface.library.title);
     await shot(dePage, 'de-dark-400-library');

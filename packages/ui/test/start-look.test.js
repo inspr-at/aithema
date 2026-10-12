@@ -181,7 +181,7 @@ test('understanding is absent before the first input and opens with it', async t
   assert.equal(j.workspace().hasAttribute('data-reveal'), false, 'then a resize or theme change moves nothing on its own');
 });
 
-test('a reload of a conversation with input opens live with the orb docked in the rail', async t => {
+test('a reload of a conversation with input opens live with the orb as the first band item', async t => {
   let session = createSession({ demo: true });
   session = applyEvent(session, { seq: 1, type: 'turn.final', data: { id: 't', role: 'user', content: 'Earlier' } });
   session.featureMatrix = { best: { text: available, analysis: available } };
@@ -189,8 +189,11 @@ test('a reload of a conversation with input opens live with the orb docked in th
   const root = c.shadowRoot;
   assert.equal(root.querySelector('.workspace').dataset.stage, 'live');
   assert.equal(root.querySelector('.workspace').hasAttribute('data-reveal'), false, 'a reload opens the understanding without animating it');
-  assert.ok(root.querySelector('.audio-rail .voice-orb .orb'), 'the entrance orb is the voice avatar');
-  assert.equal(root.querySelector('.intro__orb .orb'), null);
+  const firstItem = root.querySelector('.band > :not(style):not(.aithema-reveal__fx):not(.aithema-reveal__row):not(.aithema-reveal__dissolves)');
+  assert.equal(firstItem, root.querySelector('.band-orb'), 'the voice avatar is the first band layout item, ahead of controls');
+  assert.ok(firstItem.querySelector('.orb'));
+  assert.equal(root.querySelector('.intro').hidden, true);
+  assert.equal(root.querySelector('.band-orb').firstElementChild.classList.contains('orb'), true);
 });
 
 test('rail controls keep accessible names and their states in fixed shared cells', async t => {

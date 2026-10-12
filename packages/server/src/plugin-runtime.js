@@ -429,6 +429,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const named = (option, id) => id === SETTINGS_OFF ? SETTINGS_OFF : { id, label: option ? label(option, option.binding) : id, offered: Boolean(option) };
       return { preset, origin, effort: s.effort ?? reaction?.effort ?? null,
         model: s.modelId ? { id: s.modelId, label: s.model ? label(s.model, reaction) : s.modelId,
+          reply: reaction?.model ?? null, understanding: s.model?.bindings.understanding?.model ?? null, provider: reaction?.plugin ?? null,
           vendor: reaction ? registry.get(reaction.plugin)?.manifest.vendor.name ?? null : null, offered: Boolean(s.model) } : null,
         voice: named(s.voice, s.voiceId), visuals: named(s.visuals, s.visualsId) };
     },

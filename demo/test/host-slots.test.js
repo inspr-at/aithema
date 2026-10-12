@@ -22,7 +22,7 @@ test('demo slot fills, the fake outbox and the demo handover wording appear only
     for (const key of keys.filter(key => key !== 'fetch')) globalThis[key] = window[key];
     await import('../../packages/ui/src/session-element.js');
     const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
-    const body = html.match(/<body>([\s\S]*?)<\/body>/u)[1].replace(/<script[^>]*>[\s\S]*?<\/script>/gu, '');
+    const body = html.match(/<body[^>]*>([\s\S]*?)<\/body>/u)[1].replace(/<script[^>]*>[\s\S]*?<\/script>/gu, '');
     // The page with a stubbed component: configure() records what the host passes.
     function prepare(demoHost, locale, providers = { imageLabel: 'Images off', voiceMode: 'off' }, engine = {}) {
       document.body.innerHTML = body;
@@ -62,6 +62,10 @@ test('demo slot fills, the fake outbox and the demo handover wording appear only
         assert.equal(document.querySelector('#error').textContent, '');
         assert.equal(document.querySelector('#demo-footer').textContent, copy.host.slots.footer);
         assert.equal(document.querySelector('#demo-credits-limit').textContent, copy.host.slots.creditsLimit);
+        const account = document.querySelector('#demo-account summary');
+        assert.equal(account.getAttribute('aria-label'), copy.host.slots.account); assert.equal(account.title, copy.host.slots.account);
+        assert.ok(document.querySelector('#demo-account-icon svg'), 'the account keeps its person outline');
+        assert.equal(document.querySelector('#demo-account-label').textContent, copy.host.slots.account);
         assert.equal(document.querySelector('#outbox-open').hidden, false);
         // The demo handover reaches a fake recipient: success promises no contact, in line with the slot's disclaimer.
         const sent = configured.at(-1).copy.hostSurface.handover.sent;

@@ -310,13 +310,14 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
         assert.equal(await shadowFocus(page), 'settings-open', 'focus returns to the Settings button');
         await waitForShadow(page, '.engine__value', { text: 'Custom' });
-        await waitForShadow(page, '.engine__detail', { text: 'Swift (mock) · Low · Voice: Off · Visuals: Off' });
+        await waitForShadow(page, '.engine__detail', { text: 'Custom, international\nReplies: Swift (mock)\nUnderstanding: Swift (mock)\nvia local test · Voice: Off' });
         // The effect: the next reply comes from the newly chosen model.
         await composer.type('What about our data?');
         const nextTurn = page.waitForResponse(`${url}/api/sessions/${id}/turns`, { signal: controller.signal });
         await Promise.all([page.click('aithema-session >>> .send'), nextTurn]);
         await waitForShadow(page, 'ol li:last-child span', { text: 'Briefly: what should improve first?' });
-        await waitForShadow(page, 'ol li:last-child .engine-tag', { text: 'Swift (mock) · Low' });
+        assert.equal(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.engine-tag')), null);
+        assert.deepEqual(await page.$eval('aithema-session', c => ({ model: c.session.transcript.at(-1).engine.model, effort: c.session.transcript.at(-1).engine.effort })), { model: 'mock/swift', effort: 'low' });
 
         const restored = page.waitForResponse(`${url}/api/sessions/${id}`, { signal: controller.signal });
         let snapshot;
@@ -328,7 +329,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         assert.equal(await page.$eval('aithema-session', component => component.session.id), id, 'Reload must restore the same session');
         await waitForShadow(page, 'aside .summary-text', { text: `${content} What about our data?` });
         assert.equal(await page.$eval('#error', node => node.textContent), '');
-        await waitForShadow(page, '.engine__detail', { text: 'Swift (mock) · Low · Voice: Off · Visuals: Off' });
+        await waitForShadow(page, '.engine__detail', { text: 'Custom, international\nReplies: Swift (mock)\nUnderstanding: Swift (mock)\nvia local test · Voice: Off' });
 
         const exported = page.waitForResponse(`${url}/api/sessions/${id}/export`, { signal: controller.signal });
         const downloaded = waitForDownload(cdp, AbortSignal.any([controller.signal, AbortSignal.timeout(waitTimeout)]));
@@ -462,7 +463,8 @@ test('AIT-117: a German processing-consent page contains START German copy and n
     assert.equal(await inShadow(page, c => c.session.locale), 'de');
     const consentSessionId = await inShadow(page, c => c.session.id);
     await page.goto(`${demo.url}/consent/?session=${consentSessionId}&return=/`, { waitUntil: 'domcontentloaded' });
-    await until(page, () => document.querySelector('#processing-items span')?.textContent === 'KI-Modelle international');
+    await until(page, () => document.querySelector('#consent-status')?.dataset.state === 'ready' &&
+      document.querySelector('#processing-items span')?.textContent === 'KI-Modelle international');
     const consent = await page.evaluate(() => ({
       intro: document.querySelector('#consent-text').textContent,
       items: [...document.querySelectorAll('#processing-items input')].map(input => ({ id: input.value,
@@ -763,7 +765,7 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
     restarting = true; await stopDemo(demo.child); demo = await startDemo(directory, port);
     await waitForShadow(page, '.composer textarea', { enabled: false });
     await until(page, () => !document.querySelector('aithema-session').session.featureMatrix.best.text.available);
-    await waitForShadow(page, '.status', { text: 'Connected' });
+    await waitForShadow(page, '.status__label', { text: 'Connected' });
     restarting = false;
 
     // D1: a German browser gets a German page and German replies; a new choice applies to the next conversation.
@@ -772,7 +774,7 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
     await german.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(german, '.composer textarea');
     assert.equal(await inShadow(german, c => c.session.locale), 'de');
     assert.equal(await german.evaluate(() => document.documentElement.lang), 'de');
-    assert.equal(await german.$eval('#new', node => node.textContent), 'Neues Gespräch beginnen');
+    assert.equal(await german.$eval('aithema-session >>> .conversations-new', node => node.textContent), 'Neues Gespräch');
     await mockConsent(german); await waitForShadow(german, '.composer textarea', { enabled: true });
     assert.equal(await inShadow(german, c => c.session.featureMatrix.best.text.available), true);
     await sendTurn(german, 'Wir sind eine Tischlerei. Betrieb: wir hosten selbst; Daten: nur intern');
@@ -791,7 +793,7 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
     const voiceFit = await inShadow(german, (c, messages) => {
       // AIT-128: a call message opens under START's rail (data-message), whole and inside the page.
       const r = c.shadowRoot, state = r.querySelector('.voice-state'), rail = r.querySelector('.audio-rail'), original = state.textContent;
-      const boxes = () => [...r.querySelectorAll('.voice-orb, .audio-rail button, .concept-rail, .transcript-shell')].map(node => JSON.stringify(node.getBoundingClientRect()));
+      const boxes = () => [...r.querySelectorAll('.band-orb, .audio-rail button, .concept-rail, .transcript-shell')].map(node => JSON.stringify(node.getBoundingClientRect()));
       const before = boxes(), message = rail.hasAttribute('data-message'); rail.toggleAttribute('data-message', true);
       const result = messages.map(message => {
         state.textContent = message;
@@ -807,7 +809,7 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
     await german.select('#locale', 'en');
     assert.equal(await german.$eval('#language-note', node => node.textContent),
       'Neue Gespräche beginnen auf Englisch. Dieses Gespräch bleibt auf Deutsch.');
-    await german.click('#new');
+    await german.click('aithema-session >>> .conversations-toggle'); await german.click('aithema-session >>> .conversations-new');
     await until(german, () => document.querySelector('aithema-session').session.locale === 'en' && document.documentElement.lang === 'en');
     await waitForShadow(german, '.send', { text: 'Send' });
     assert.equal(await german.$eval('#language-note', node => node.textContent), '');
@@ -988,7 +990,7 @@ test('AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab l
     page.on('request', recordPause);
     await page.reload({ waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
     await until(page, key => sessionStorage.getItem(key) === null, journalKey);
-    await waitForShadow(page, '.status', { text: 'Still paused. Select Resume to continue.' });
+    await waitForShadow(page, '.status__label', { text: 'Still paused. Select Resume to continue.' });
     await new Promise(resolve => setTimeout(resolve, 1000));
     assert.equal(await inShadow(page, c => c.session.paused), true, 'a reload never lifts the pause');
     assert.deepEqual(pauses, [], 'no pause change without the person');
@@ -1130,7 +1132,7 @@ test('clickable html drafts: request, sandboxed preview, a refresh revision in p
 
     // Request: the rail says what happens in plain words and nothing moves under the pointer.
     const requestBefore = await rest(page, '.concept-request');
-    assert.match(await inShadow(page, c => c.shadowRoot.querySelector('.concept-request').textContent), /^Request concept · No cost \(local fake\)$/u);
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.concept-request').textContent), en.display.draftsOn.replace('{credits}', '0'));
     await page.mouse.down(); await page.mouse.up();
     await waitForShadow(page, '.concept-activity-text', { text: 'Draft revision 1 is ready.' });
     sameBox(requestBefore, await box(page, '.concept-request'), 'concept request button');
@@ -1249,7 +1251,7 @@ test('clickable html drafts: request, sandboxed preview, a refresh revision in p
     await mockConsent(german); await waitForShadow(german, '.composer textarea', { enabled: true });
     await sendTurn(german, 'Wir sind eine Tischlerei. Betrieb: gehostet; Daten: öffentlich; Systeme: API; Reichweite: international');
     await waitForShadow(german, 'aside .notice', { text: 'Aktuelle Einschätzung' });
-    assert.equal(await inShadow(german, c => c.shadowRoot.querySelector('.concept-request').textContent), 'Entwurf anfordern · Kostenlos (lokaler Test)');
+    assert.equal(await inShadow(german, c => c.shadowRoot.querySelector('.concept-request').textContent), de.display.draftsOn.replace('{credits}', '0'));
     await inShadow(german, c => c.shadowRoot.querySelector('.concept-request').click());
     await waitForShadow(german, '.concept-activity-text', { text: 'Fassung 1 des Entwurfs ist fertig.' });
     await german.mouse.move(0, 0); await shot(german, 'de-light-1440-rail');
@@ -1334,7 +1336,7 @@ test('document uploads: a text file and a PDF through the real file picker, pend
         if (states.at(-1) !== row.dataset.state) states.push(row.dataset.state);
       } };
       new MutationObserver(record).observe(list, { subtree: true, childList: true, attributes: true, characterData: true });
-      const status = c.shadowRoot.querySelector('.status'), said = window.statusLog = [];
+      const status = c.shadowRoot.querySelector('.status__label'), said = window.statusLog = [];
       new MutationObserver(() => { if (said.at(-1) !== status.textContent) said.push(status.textContent); }).observe(status, { subtree: true, childList: true, characterData: true });
     });
 
@@ -1373,7 +1375,7 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     assert.equal(await inShadow(page, c => [...c.shadowRoot.querySelectorAll('.upload')].some(row => row.innerHTML.includes('Kundinnen bestellen'))), false, 'extracted text never renders in a chip');
     // Uploading was announced through the existing status region; "reading them…" ends once both files are read.
     assert.ok((await page.evaluate(() => window.statusLog)).includes('2 Dateien werden hochgeladen …'), JSON.stringify(await page.evaluate(() => window.statusLog)));
-    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.status').textContent), 'Verbunden');
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.status__label').textContent), 'Verbunden');
 
     // The understanding refreshes for the new input revision.
     await until(page, async () => {
@@ -1551,7 +1553,7 @@ const noticeView = (page, selector) => inShadow(page, (c, selector) => {
   const pane = control?.closest('.intro')?.getBoundingClientRect();
   return { notice: inside(rect) && style.visibility === 'visible' && style.display !== 'none' && line.contains(hit),
     control: own ? inside(own) && (!pane || own.top >= pane.top - .5 && own.bottom <= pane.bottom + .5) : null,
-    below: own ? own.top >= rect.bottom - .5 : null, text: r.querySelector('#ai-notice').textContent };
+    above: own ? own.bottom <= rect.top + .5 : null, text: r.querySelector('#ai-notice').textContent };
 }, selector);
 // Scroll as a visitor would until the control shows at the viewport's bottom or top edge.
 const reveal = (page, selector, edge) => inShadow(page, (c, selector, edge) => {
@@ -1561,7 +1563,8 @@ const reveal = (page, selector, edge) => inShadow(page, (c, selector, edge) => {
     intro.scrollTop += own.bottom > pane.bottom ? own.bottom - pane.bottom : Math.min(0, own.top - pane.top);
   }
   const own = control.getBoundingClientRect();
-  window.scrollTo(0, scrollY + (edge === 'bottom' ? own.bottom - innerHeight : own.top));
+  const band = c.shadowRoot.querySelector('.band').getBoundingClientRect(), foot = c.shadowRoot.querySelector('.display-foot').getBoundingClientRect();
+  window.scrollTo(0, scrollY + (edge === 'bottom' ? own.bottom - foot.top + 12 : own.top - band.height - 12));
 }, selector, edge);
 async function noticeAtEntryPoints(page, state, full, label) {
   const checked = [];
@@ -1579,7 +1582,7 @@ async function noticeAtEntryPoints(page, state, full, label) {
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
       await inShadow(page, (c, selector) => c.shadowRoot.querySelector(selector).focus(), selector);
       const view = await noticeView(page, selector);
-      assert.deepEqual([view.control, view.notice, view.below], [true, true, true], `${label}: notice and focused ${selector}`);
+      assert.deepEqual([view.control, view.notice, view.above], [true, true, true], `${label}: notice and focused ${selector}`);
     }
     checked.push(selector);
   }
@@ -1599,7 +1602,7 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
     if (evidence) await mkdir(evidence, { recursive: true });
     const style = page => inShadow(page, c => {
       const r = c.shadowRoot, line = r.querySelector('.ai-notice'), text = r.querySelector('#ai-notice'), s = getComputedStyle(line);
-      return { clipped: line.scrollHeight > line.clientHeight + 1 || text.scrollWidth > line.clientWidth + 1, color: s.color,
+      return { clipped: line.scrollHeight > line.clientHeight + 1 || [...line.children].some(n => getComputedStyle(n).display !== 'none' && n.scrollWidth > n.clientWidth + 1), color: s.color,
         background: s.backgroundColor, pane: getComputedStyle(r.querySelector('.conversation')).backgroundColor,
         border: [s.borderLeftWidth, s.borderRightWidth, s.borderTopWidth, s.borderTopLeftRadius, s.boxShadow],
         pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };

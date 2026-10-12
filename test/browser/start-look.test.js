@@ -85,7 +85,7 @@ test('START look on the reference host: entrance, consent page, readiness, conve
         await page.setViewport({ width, height });
         // A fresh conversation in this layout and theme: its processing consent is its own.
         const previous = await inShadow(page, c => c.session.id);
-        await page.click('#new');
+        await page.click('aithema-session >>> .conversations-toggle'); await page.click('aithema-session >>> .conversations-new');
         await until(page, id => document.querySelector('aithema-session').session.id !== id
           && document.querySelector('aithema-session').shadowRoot.querySelector('.intro').dataset.mode === 'chooser', previous);
         await page.evaluate(() => window.scrollTo(0, 0)); await page.mouse.move(0, 0); await settle(450);
@@ -99,19 +99,12 @@ test('START look on the reference host: entrance, consent page, readiness, conve
         }), { lighting: 3, fixed: true, component: ['none', 'rgba(0, 0, 0, 0)'] }, `${label}: no seam between page and component`);
         assert.equal(await page.evaluate(() => document.querySelectorAll('h1').length), 1, `${label}: one h1 on the page`);
         assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true, `${label}: no sideways scrolling`);
-        if (width < 600) {
-          // START's compact phone header: the host masthead in two rows, the component's toolbar in two, nothing overlapping.
-          const masthead = await page.$eval('.masthead', n => n.getBoundingClientRect().height);
-          assert.ok(masthead <= 104, `${label}: the masthead takes two rows (${masthead}px)`);
-          const controls = await inShadow(page, c => ['.library-open-dialog', '.host-verify', '.host-account', '.host-credits', '.settings-open'].map(selector => {
-            const r = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return { selector, top: r.top, bottom: r.bottom, left: r.left, right: r.right };
-          }).filter(r => r.bottom > r.top));
-          const centres = controls.map(r => (r.top + r.bottom) / 2).sort((a, b) => a - b);
-          assert.ok(centres.filter((centre, i) => i === 0 || centre - centres[i - 1] > 6).length <= 2, `${label}: the toolbar takes two rows ${JSON.stringify(controls)}`);
-          for (const [i, a] of controls.entries()) for (const b of controls.slice(i + 1)) {
-            assert.ok(a.right <= b.left + .5 || b.right <= a.left + .5 || a.bottom <= b.top + .5 || b.bottom <= a.top + .5, `${label}: ${a.selector} and ${b.selector} overlap`);
-          }
-        }
+        const controls = await inShadow(page, c => ['.conversations-toggle', '.settings-open'].map(selector => {
+          const r = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return { selector, top: r.top, bottom: r.bottom, left: r.left, right: r.right, height: r.height };
+        }));
+        assert.ok(controls.every(r => r.height >= 44), `${label}: header controls keep 44 px targets`);
+        assert.ok(Math.abs(controls[0].top - controls[1].top) <= .5, `${label}: one header row`);
+        assert.ok(controls[0].right <= controls[1].left + .5, `${label}: header controls never overlap`);
         // Entrance: the promise, the orb and four choices; Continue keeps its place while choosing.
         assert.deepEqual(await inShadow(page, c => [...c.shadowRoot.querySelectorAll('.promise span')].map(n => n.textContent)), en.entrance.promise);
         const orb = await box(page, '.intro__orb .orb'); assert.ok(orb.width >= 60 && orb.width <= 100, `${label}: entrance orb ${orb.width}px`);
@@ -183,7 +176,7 @@ test('START look on the reference host: entrance, consent page, readiness, conve
         await inShadow(page, c => c.shadowRoot.querySelector('.voice-start').click());
         await until(page, () => ['listening', 'speaking'].includes(document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state));
         await settle(900);
-        assert.ok(await inShadow(page, c => Boolean(c.shadowRoot.querySelector('.audio-rail .voice-orb .orb'))), `${label}: the orb is docked in the rail`);
+        assert.ok(await inShadow(page, c => Boolean(c.shadowRoot.querySelector('.band-orb .orb'))), `${label}: the 40 px orb stays in the band`);
         const rail = await inShadow(page, c => [...c.shadowRoot.querySelectorAll('.audio-rail button')].filter(b => getComputedStyle(b).visibility === 'visible')
           .map(b => ({ name: b.textContent.trim(), width: Math.round(b.getBoundingClientRect().width), pressed: b.getAttribute('aria-pressed') })));
         assert.ok(rail.length >= 4 && rail.every(control => control.name && control.width === 44), `${label}: ${JSON.stringify(rail)}`);
@@ -200,7 +193,7 @@ test('START look on the reference host: entrance, consent page, readiness, conve
     await page.setViewport({ width: 1440, height: 900 });
     await page.select('#theme', 'system');
     await page.evaluate(() => sessionStorage.setItem('start-look-german', '1'));
-    await page.select('#locale', 'de'); await page.click('#new');
+    await page.select('#locale', 'de'); await page.click('aithema-session >>> .conversations-toggle'); await page.click('aithema-session >>> .conversations-new');
     await until(page, () => document.querySelector('aithema-session').session.locale === 'de'
       && document.querySelector('aithema-session').shadowRoot.querySelector('.intro').dataset.mode === 'chooser');
     assert.equal(await inShadow(page, c => getComputedStyle(c).getPropertyValue('--aithema-paper').trim()), palette.light.paper, 'system follows the light preference');

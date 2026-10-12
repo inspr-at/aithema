@@ -135,10 +135,17 @@ test('keyed rows: a superseded partial loses its node, a restarted reply under i
     engine: { label: 'Deep (mock)', effort: 'high' } } });
   assert.equal(root.querySelector('[data-id="r"]'), restarted, 'the final reply keeps the partial node');
   assert.equal(restarted.className.includes('partial'), false);
-  assert.equal(restarted.querySelector('.engine-tag')?.textContent, `Deep (mock) · ${en.settings.efforts.high}`);
+  assert.equal(restarted.querySelector('.engine-tag'), null, 'model information appears once in the footer');
+  assert.equal(c.session.transcript.at(-1).engine.label, 'Deep (mock)', 'the producer contract stays intact');
   assert.deepEqual([...root.querySelectorAll('.turn')].map(n => n.dataset.id), ['t1', 'r']);
 });
-test('Enter inserts a newline; Ctrl/Cmd+Enter sends; failed acknowledgement retries identical id and bytes', async () => {
+const platform = (t, value) => {
+  const previous = Object.getOwnPropertyDescriptor(globalThis.navigator, 'platform');
+  Object.defineProperty(globalThis.navigator, 'platform', { configurable: true, value });
+  t.after(() => { if (previous) Object.defineProperty(globalThis.navigator, 'platform', previous); else delete globalThis.navigator.platform; });
+};
+test('Enter inserts a newline; the platform shortcut sends; failed acknowledgement retries identical id and bytes', async t => {
+  platform(t, 'Linux x86_64');
   const c = setup(), root = c.shadowRoot, input = root.querySelector('textarea'); input.value = 'Hello\nworld';
   const originalFetch = globalThis.fetch, calls = []; let fail = true;
   globalThis.fetch = async (url, options) => {
@@ -150,7 +157,7 @@ test('Enter inserts a newline; Ctrl/Cmd+Enter sends; failed acknowledgement retr
     assert.equal(enter.defaultPrevented, false); assert.equal(calls.length, 0);
     input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }));
     await new Promise(r => setImmediate(r)); assert.equal(input.value, 'Hello\nworld'); assert.equal(calls.length, 1);
-    fail = false; input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
+    fail = false; input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }));
     await new Promise(r => setImmediate(r)); assert.equal(input.value, ''); assert.equal(calls[0], calls[1]);
   } finally { globalThis.fetch = originalFetch; }
 });
@@ -242,7 +249,7 @@ test('AIT-109 N3: failed snapshot recovery waits one second before reconnecting'
     assert.equal(calls.length, 2, 'a failed restore must not reconnect immediately');
     t.mock.timers.tick(999); await new Promise(resolve => setImmediate(resolve)); assert.equal(calls.length, 2);
     t.mock.timers.tick(1); await new Promise(resolve => setImmediate(resolve)); assert.equal(calls.length, 3);
-    assert.equal(c.shadowRoot.querySelector('.status').textContent, en.connected);
+    assert.equal(c.shadowRoot.querySelector('.status__label').textContent, en.connected);
   } finally { c.remove(); await new Promise(resolve => setImmediate(resolve)); }
 });
 
@@ -352,7 +359,8 @@ test('the engine panel keeps its fixed size, renders snapshot feature updates at
   c.configure({ copy: en, session });
   const root = c.shadowRoot;
   assert.equal(root.querySelector('.engine__value').textContent, 'Best models');
-  assert.equal(root.querySelector('.engine__label').textContent, en.processing);
+  assert.equal(root.querySelector('.toolbar .preset-panel'), null);
+  assert.ok(root.querySelector('.display-foot .engine__value'));
   assert.equal(root.querySelector('.settings-open').getAttribute('aria-haspopup'), 'dialog');
   assert.equal(root.querySelector('.preset-choice'), null, 'presets change through acknowledged settings, never a raw select');
   const expired = en.reasons['binding evidence expired'];
@@ -369,7 +377,7 @@ test('the engine panel keeps its fixed size, renders snapshot feature updates at
     root.querySelector('.preset-panel').dispatchEvent(new window.Event('pointerleave'));
   } finally { globalThis.fetch = originalFetch; }
   // START has no processing band: the processing line sits quietly in the top row, the features stay readable to assistive technology.
-  assert.ok(root.querySelector('.toolbar').contains(root.querySelector('.preset-panel')));
+  assert.ok(root.querySelector('.display-foot').contains(root.querySelector('.preset-panel')));
 });
 
 test('an acknowledged switch to EU gates the composer and analysis with their exact reasons and prevents posts', async () => {
@@ -424,7 +432,8 @@ test('composer gates update immediately while hovered and the aside stays in pla
 });
 
 for (const preset of ['best', 'device']) for (const trigger of ['click', 'ctrlKey', 'metaKey']) {
-  test(`hovered ${preset} composer permits consecutive sends using ${trigger} and blocks overlapping sends`, async () => {
+  test(`hovered ${preset} composer permits consecutive sends using ${trigger} and blocks overlapping sends`, async t => {
+    platform(t, trigger === 'metaKey' ? 'MacIntel' : 'Linux x86_64');
     const c = setup(), originalFetch = globalThis.fetch; let calls = 0, release;
     const held = () => new Promise(resolve => { release = resolve; });
     const device = { async connect() { calls++; await held(); }, async *stream() { yield 'Local answer'; } };
@@ -460,7 +469,8 @@ for (const preset of ['best', 'device']) for (const trigger of ['click', 'ctrlKe
   });
 }
 
-test('shortcut send uses sending and feature state even when the button has a stale disabled value', async () => {
+test('shortcut send uses sending and feature state even when the button has a stale disabled value', async t => {
+  platform(t, 'MacIntel');
   const c = setup(), root = c.shadowRoot, originalFetch = globalThis.fetch; let calls = 0;
   globalThis.fetch = async (_, options) => {
     calls++; const body = JSON.parse(options.body);
@@ -488,7 +498,7 @@ test('preset, feature and device copy comes from the host', async () => {
     deviceConversation: 'Bleibt im Tab', deviceUnavailable: 'Modell fehlt', settings: { ...en.settings, open: 'Einstellungen' } };
   c.configure({ copy, session: createSession({ processingPreset: 'device' }) });
   let root = c.shadowRoot;
-  assert.equal(root.querySelector('.engine__label').textContent, 'Verarbeitung');
+  assert.equal(root.querySelector('.engine__label'), null);
   assert.equal(root.querySelector('.engine__value').textContent, 'Lokal');
   assert.equal(root.querySelector('.settings-open').textContent, 'Einstellungen');
   assert.deepEqual([...root.querySelectorAll('.chooser-option strong')].map(n => n.textContent), ['Optimal', 'Europa', 'Lokal', 'Eigene']);
@@ -501,14 +511,14 @@ test('preset, feature and device copy comes from the host', async () => {
   assert.match(root.querySelector('.features').textContent, /Text lokal/);
   assert.equal(root.querySelector('.export').title, copy.deviceExportUnavailable);
   root.querySelector('textarea').value = 'Hello'; root.querySelector('form').dispatchEvent(new window.Event('submit'));
-  await new Promise(r => setImmediate(r)); assert.equal(root.querySelector('.status').textContent, copy.deviceConnectFirst);
+  await new Promise(r => setImmediate(r)); assert.equal(root.querySelector('.status__label').textContent, copy.deviceConnectFirst);
   const device = { async connect() {}, async *stream() { yield 'Hi'; } };
   c.configure({ copy, session: createSession({ processingPreset: 'device' }), deviceReasoning: device });
   root = c.shadowRoot; root.querySelector('textarea').value = 'Hello'; root.querySelector('form').dispatchEvent(new window.Event('submit'));
-  await new Promise(r => setImmediate(r)); assert.equal(root.querySelector('.status').textContent, copy.deviceConversation);
+  await new Promise(r => setImmediate(r)); assert.equal(root.querySelector('.status__label').textContent, copy.deviceConversation);
   c.configure({ copy, session: createSession({ processingPreset: 'device' }), deviceReasoning: { async connect() { throw new Error(); } } });
   root = c.shadowRoot; root.querySelector('textarea').value = 'Hello'; root.querySelector('form').dispatchEvent(new window.Event('submit'));
-  await new Promise(r => setImmediate(r)); assert.equal(root.querySelector('.status').textContent, copy.deviceUnavailable);
+  await new Promise(r => setImmediate(r)); assert.equal(root.querySelector('.status__label').textContent, copy.deviceUnavailable);
 });
 test('device sends text in this tab only; browser configure/disconnect aborts local work', async () => {
   const c = setup(), originalFetch = globalThis.fetch; let calls = 0, signal;
@@ -538,7 +548,7 @@ test('pause and consent gate sends and preset rows immediately while cached unde
   c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
   assert.equal(send.disabled, true); assert.equal(pause.textContent, en.resume);
   assert.match(root.querySelector('.features').textContent, /Session paused/);
-  assert.equal(root.querySelector('.status').textContent, en.paused, 'the status line follows the pause');
+  assert.equal(root.querySelector('.status__label').textContent, en.paused, 'the status line follows the pause');
   assert.equal(root.querySelector('.summary-text').textContent.includes('untrusted'), true);
   assert.equal(root.querySelector('.readiness').style.visibility, '');
   assert.ok([...root.querySelectorAll('.analysis-content section')].every(node => !node.hidden));
@@ -697,7 +707,7 @@ test('a reconnect re-reads feature verdicts, so a host restart that dropped cons
     assert.equal(refreshed, 1); assert.equal(root.querySelector('.send').disabled, true);
     assert.equal(root.querySelector('.composer-reason').textContent, en.reasons['current processing consent required']);
     assert.equal(root.querySelector('.notice').textContent, en.reasons['current processing consent required']);
-    assert.equal(root.querySelector('.status').textContent, en.connected);
+    assert.equal(root.querySelector('.status__label').textContent, en.connected);
   } finally { c.remove(); await new Promise(resolve => setImmediate(resolve)); globalThis.fetch = originalFetch; }
 });
 test('the German bundle covers every English key and renders the component in German', async () => {
@@ -800,15 +810,17 @@ test('the AI notice is painted with the first render, ahead of the composer, in 
     session.featureMatrix = { best: { text: { available: false, reason: 'current processing consent required' }, analysis: { available: true, reason: null } } };
     c.configure({ copy: structuredClone(copy), session });
     const root = c.shadowRoot, notice = root.querySelector('#ai-notice');
-    // Without a voice client only the first sentence shows; the hidden copy keeps the full notice's height.
+    // The complete sentence stays as the accessible description; the footer has a standing short notice.
     assert.equal(notice.textContent, AI_NOTICE[locale].text);
-    assert.equal(root.querySelector('.ai-notice__sizer').textContent, `${AI_NOTICE[locale].text} ${AI_NOTICE[locale].voice}`);
+    assert.equal(root.querySelector('.ai-notice__label').textContent, copy.assistant);
+    assert.equal(root.querySelector('.ai-notice__short').textContent, copy.layout.aiShort);
+    assert.equal(root.querySelector('.ai-notice__voice').textContent, copy.layout.syntheticVoice);
     assert.equal(root.querySelector('textarea').disabled, true, 'the composer is still closed while the notice already stands');
     // It is the conversation's first line, outside the start card, so neither the chooser nor the
     // ready card covers it, and it comes before every control of the pane.
     const line = notice.parentElement;
-    assert.equal(line.parentElement, root.querySelector('section.conversation > header.head'));
-    assert.equal(root.querySelector('section.conversation').firstElementChild, line.parentElement);
+    assert.ok(root.querySelector('.display-foot').contains(line));
+    assert.equal(root.querySelector('.ai-notice').getAttribute('aria-describedby'), 'ai-notice build-info');
     assert.equal(root.querySelector('.intro').contains(line), false);
     session.featureMatrix.best.text = { available: true, reason: null };
     c.configure({ copy: structuredClone(copy), session });
@@ -816,8 +828,8 @@ test('the AI notice is painted with the first render, ahead of the composer, in 
     assert.equal(c.shadowRoot.querySelector('#ai-notice').textContent, AI_NOTICE[locale].text);
   }
   assert.equal(AI_NOTICE.en.text, 'You are talking to an AI assistant.');
-  assert.equal(AI_NOTICE.de.text, 'Sie sprechen mit einem KI-Assistenten.');
-  assert.equal(AI_NOTICE.de.voice, 'Gesprochene Antworten verwenden eine synthetische Stimme.');
+  assert.equal(AI_NOTICE.de.text, 'Sie sprechen mit einer KI-Assistenz.');
+  assert.equal(AI_NOTICE.de.voice, 'Gesprochene Antworten nutzen eine synthetische Stimme.');
 });
 test('with voice offered both sentences show; consent still pending counts as offered (AIT-119)', () => {
   const c = document.createElement('aithema-session'), session = createSession({ demo: true });
@@ -829,7 +841,7 @@ test('with voice offered both sentences show; consent still pending counts as of
   session.featureMatrix.best.voice = { available: false, reason: 'voice off' };
   c.configure({ copy: en, session, voiceClient: client });
   assert.equal(c.shadowRoot.querySelector('#ai-notice').textContent, AI_NOTICE.en.text);
-  assert.equal(c.shadowRoot.querySelector('.ai-notice__sizer').textContent, full);
+  assert.equal(c.shadowRoot.querySelector('.ai-notice__voice').textContent, en.layout.syntheticVoice);
 });
 test('a host rewords the AI notice through the bundle or configure, but an empty override keeps the default (AIT-119)', () => {
   const c = document.createElement('aithema-session'), session = createSession({ demo: true });
@@ -878,16 +890,16 @@ test('screen readers get the AI notice once, as the last description of every co
   for (const node of entries()) assert.equal(described(node).at(-1), 'ai-notice', node.className || node.tagName);
   // Not a live region: it is read with those controls, not re-announced on every render.
   for (let node = notice; node && node !== root; node = node.parentNode) {
-    assert.equal(node.getAttribute('aria-live'), null); assert.equal(node.getAttribute('role'), null); assert.equal(node.getAttribute('aria-hidden'), null);
+    assert.equal(node.getAttribute('aria-live'), null); assert.ok([null, 'tooltip'].includes(node.getAttribute('role'))); assert.equal(node.getAttribute('aria-hidden'), null);
   }
-  assert.equal(root.querySelector('.ai-notice__sizer').getAttribute('aria-hidden'), 'true');
-  // GUI-27: a plain line, no box, pill or edge accent; the line it heads is filled with the page's own paper, so
-  // while it stays in view over scrolled content it reads as part of the page, not as a tinted box.
-  const css = root.querySelector('style').textContent, rule = css.slice(css.indexOf('.ai-notice {'), css.indexOf('}', css.indexOf('.ai-notice {')));
-  for (const banned of ['border', 'box-shadow', 'outline', 'color-mix', 'background']) assert.ok(!rule.includes(banned), banned);
-  const head = css.slice(css.indexOf('.conversation > .head {'), css.indexOf('}', css.indexOf('.conversation > .head {')));
-  assert.match(head, /position:sticky; top:0;/u); assert.match(head, /background-color:var\(--aithema-paper\); background-image:var\(--aithema-lighting\); background-attachment:fixed;/u);
-  // START's fixed lighting is the page's own: the same layers the component (or a host page) paints behind it.
+  assert.equal(root.querySelectorAll('#ai-notice').length, 1);
+  const css = root.querySelector('style').textContent;
+  const foot = css.slice(css.lastIndexOf('.display-foot {'), css.indexOf('}', css.lastIndexOf('.display-foot {')));
+  assert.match(foot, /position:fixed;/u); assert.match(foot, /bottom:0;/u);
+  const rule = [...css.matchAll(/\.ai-notice \{([^}]+)\}/gu)].map(match => match[1]).find(rule => rule.includes('min-height:44px;'));
+  assert.ok(rule, 'the standing notice keeps its full-size target; responsive font rules do not replace it');
+  assert.match(rule, /min-height:44px;/u); assert.match(rule, /background:none;/u);
+  for (const banned of ['border:', 'box-shadow:', 'font-style:italic']) assert.ok(!rule.includes(banned), banned);
   assert.match(css, /--aithema-backdrop:var\(--aithema-lighting\) var\(--aithema-paper\);/u);
-  for (const banned of ['border', 'box-shadow', 'radius']) assert.ok(!head.includes(banned), banned);
+
 });

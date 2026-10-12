@@ -9,16 +9,20 @@ const BUTTONS = { start: ['mic'], input: ['mic', true], output: ['volume', true]
 export class AudioRail {
   constructor({ root, copy, client, feature, context, onPartial, onPause, onEnd, onState, onLevel, playback, journal, ready, heartbeatMs = 10_000 }) {
     Object.assign(this, { root, copy, client, feature, context, onPartial, onPause, onEnd, onState, onLevel, playback, journal, ready, heartbeatMs });
-    this.state = 'idle'; this.input = true; this.output = true; this.generation = 0;
-    const button = name => `<button class="voice-${name}" type="button">${name === 'pause' ? `<span class="voice-icon">${icon('pause')}</span><span class="voice-icon voice-icon--resume">${icon('play')}</span>`
+    this.state = 'idle'; this.input = true; this.output = true; this.generation = 0; this.connected = true;
+    const button = name => `<button data-reveal class="voice-${name}" type="button">${name === 'pause' ? `<span class="voice-icon">${icon('pause')}</span><span class="voice-icon voice-icon--resume">${icon('play')}</span>`
       : icon(BUTTONS[name][0], { slash: BUTTONS[name][1] === true })}<span class="voice-label"></span></button>`;
-    root.innerHTML = `<div class="voice-orb" aria-hidden="true"></div>
-      <div class="voice-cell voice-cell--output">${button('output')}${button('playback')}</div>
-      <div class="voice-signal"><canvas class="voice-wave" aria-hidden="true"></canvas><span class="voice-state" role="status"></span><span class="voice-caption"></span></div>
+    root.innerHTML = `<div class="voice-cell voice-cell--output">${button('output')}${button('playback')}</div>
+      <div class="voice-signal" data-reveal><canvas class="voice-wave" aria-hidden="true"></canvas><span class="voice-state" role="status"></span><span class="voice-caption"></span></div>
       <div class="voice-cell voice-cell--pause">${button('pause')}</div>
       <div class="voice-cell voice-cell--mic">${button('start')}${button('input')}</div>
       <div class="voice-cell voice-cell--end">${button('close')}${button('retry')}</div>`;
     this.waveform = new Waveform(root.querySelector('.voice-wave'));
+    const Observer = root.ownerDocument.defaultView?.ResizeObserver;
+    if (Observer) {
+      this.labelSizes = new Observer(() => this.measureLabel());
+      this.observeLabel();
+    }
     this.button('start').addEventListener('click', () => void this.start());
     this.button('close').addEventListener('click', () => void this.close());
     this.button('pause').addEventListener('click', () => void this.pause(!this.paused));
@@ -54,6 +58,19 @@ export class AudioRail {
     this.hidePending = false; this.hide();
   }
   button(name) { return this.root.querySelector(`.voice-${name}`); }
+  observeLabel() {
+    for (const selector of ['.voice-state', '.voice-caption', '.voice-wave']) this.labelSizes?.observe(this.root.querySelector(selector));
+  }
+  measureLabel() {
+    const wave = this.root.querySelector('.voice-wave'), caption = this.root.querySelector('.voice-caption');
+    const label = caption.textContent ? caption : this.root.querySelector('.voice-state');
+    const range = this.root.ownerDocument.createRange();
+    range.selectNodeContents(label);
+    const half = Math.max(0, ...Array.from(range.getClientRects(), rect => rect.width)) / 2;
+    // Only paint changes: the label and every control keep their existing layout boxes.
+    wave.style.setProperty('--voice-label-half', `${half}px`);
+    wave.toggleAttribute('data-short-flanks', wave.getBoundingClientRect().width / 2 - half - 8 < 24);
+  }
   // Both checks matter: a provider can end without changing the generation, and a new call can reuse a session object.
   current(session, generation) { return session === this.session && generation === this.generation; }
   capability(name) { return this.client?.manifest?.liveVoice?.capabilities?.[name] !== 'unavailable'; }
@@ -68,7 +85,7 @@ export class AudioRail {
     const c = this.copy, active = Boolean(this.session), available = this.feature(),
       transitional = ['connecting', 'recovering'].includes(this.state) || this.state === 'closing' && this.closingCall;
     const state = this.paused && active ? 'paused' : this.state;
-    if (this.root.dataset.state !== undefined && this.root.dataset.state !== state) queueMicrotask(() => this.onState?.(state));
+    if (this.root.dataset.state !== undefined && this.root.dataset.state !== state) queueMicrotask(() => { if (this.connected) this.onState?.(state); });
     this.root.dataset.state = state;
     this.root.dataset.call = active || transitional ? 'active' : 'none';
     this.root.toggleAttribute('data-playback-blocked', Boolean(this.playbackBlocked));
@@ -92,6 +109,8 @@ export class AudioRail {
     this.button('input').setAttribute('aria-pressed', String(this.input));
     this.button('output').setAttribute('aria-pressed', String(this.output));
     this.button('pause').setAttribute('aria-pressed', String(Boolean(this.paused)));
+    // A different wrapped phrase can keep the same capped box, so text repaints also measure it.
+    this.measureLabel();
   }
   failure(error) {
     this.errorKey = error?.name === 'NotAllowedError' ? 'voiceMicDenied' :
@@ -144,9 +163,9 @@ export class AudioRail {
         const levels = session.audioLevels?.(); if (!levels) return;
         const speaking = this.state === 'speaking', level = this.paused ? 0 : Math.min(1, Math.max(0, levels[speaking ? 'output' : 'input'] ?? 0));
         this.root.dataset.measured = '';
-        if (!still) this.waveform.push(level, speaking ? 'assistant' : 'user', 80);
+        if (!still && this.motion !== false) this.waveform.push(level, speaking ? 'assistant' : 'user', 80);
         // The orb reacts to the audible reply only, never to the visitor's input (START orb).
-        this.onLevel?.(speaking ? level : 0);
+        if (this.connected) this.onLevel?.(speaking ? level : 0);
       }, 80);
       void this.consume(session, generation);
       if (this.root.ownerDocument.hidden || this.hidePending) { this.hidePending = false; this.hide(); }
@@ -260,10 +279,15 @@ export class AudioRail {
     })().finally(() => { if (this.closing === closing) { this.closing = null; this.closingSession = null; } });
     this.closing = closing; return closing;
   }
-  quiet() { delete this.root.dataset.measured; this.waveform.baseline(); this.onLevel?.(0); }
+  quiet() { delete this.root.dataset.measured; this.waveform.baseline(); if (this.connected) this.onLevel?.(0); }
+  connect() {
+    this.connected = true; this.root.ownerDocument.addEventListener('visibilitychange', this.visibility); this.waveform.connect();
+    this.observeLabel();
+  }
+  disconnect() {
+    this.connected = false; this.root.ownerDocument.removeEventListener('visibilitychange', this.visibility); this.waveform.destroy(); this.labelSizes?.disconnect(); void this.close();
+  }
   destroy() {
-    this.onState = null; this.onLevel = null;
-    this.root.ownerDocument.removeEventListener('visibilitychange', this.visibility);
-    void this.close();
+    this.onState = null; this.onLevel = null; this.disconnect();
   }
 }

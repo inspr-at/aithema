@@ -146,7 +146,7 @@ test('AIT-129: German entrance → mock consent → readiness, withdrawal, store
   await page.waitForFunction(() => document.querySelector('aithema-session').session.locale === 'en');
   assert.equal(await page.$eval('#language-note', p => p.textContent), '');
   const old = await page.$eval('aithema-session', c => c.session.id);
-  await page.click('#new'); await page.waitForFunction(old => document.querySelector('aithema-session').session.id !== old, {}, old);
+  await page.click('aithema-session >>> .conversations-toggle'); await page.click('aithema-session >>> .conversations-new'); await page.waitForFunction(old => document.querySelector('aithema-session').session.id !== old, {}, old);
   assert.equal(await page.$eval('aithema-session', c => c.session.locale), 'en');
   await page.reload({ waitUntil: 'domcontentloaded' }); await ready(page);
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), 'dark');

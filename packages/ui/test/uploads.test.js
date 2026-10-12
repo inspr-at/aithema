@@ -211,7 +211,7 @@ test('Withdraw upload posts to the owner route, keeps the row in place as a tomb
 test('a failed withdrawal says so and keeps the chip', async t => {
   const { root } = setup(t, { uploads: [pending('u1')], withdraw: () => new Response(null, { status: 500 }) });
   root.querySelector('.upload-withdraw').click(); await tick(); await tick();
-  assert.equal(root.querySelector('.status').textContent, en.uploads.withdrawFailed);
+  assert.equal(root.querySelector('.status__label').textContent, en.uploads.withdrawFailed);
   assert.equal(root.querySelector('.upload').dataset.state, 'pending'); assert.equal(root.querySelector('.upload-withdraw').hasAttribute('aria-disabled'), false);
 });
 
@@ -227,7 +227,7 @@ test('attaching sends one multipart request with the owner header, announces it 
   assert.equal(new Headers(post.options.headers).has('content-type'), false, 'the browser sets the multipart boundary');
   assert.match(post.options.body.get('clientEventId'), /^[0-9a-f-]{36}$/u); assert.deepEqual(post.options.body.getAll('files').map(f => f.name), ['brief.pdf', 'notes.md']);
   assert.deepEqual(rows(root), ['file brief.pdf', 'file notes.md']);
-  assert.equal(root.querySelector('.status').textContent, '2 files received. Reading them…');
+  assert.equal(root.querySelector('.status__label').textContent, '2 files received. Reading them…');
   assert.equal(root.querySelector('.intro').hidden, true, 'an upload starts the conversation');
 });
 
@@ -307,6 +307,6 @@ test('a foreign baseUrl receives no owner-authenticated upload request: limits, 
   const foreign = calls.filter(call => /\/uploads/u.test(call.url));
   assert.deepEqual(foreign, [], 'nothing reaches another origin');
   assert.equal(root.querySelector('.composer-reason').textContent, en.uploads.failed);
-  assert.equal(root.querySelector('.status').textContent, en.uploads.withdrawFailed);
+  assert.equal(root.querySelector('.status__label').textContent, en.uploads.withdrawFailed);
   assert.equal(root.querySelector('.upload').dataset.state, 'pending');
 });

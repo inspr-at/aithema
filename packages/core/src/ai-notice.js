@@ -2,7 +2,7 @@
 // latest at the first interaction. The second sentence applies only where replies can be spoken.
 export const AI_NOTICE = Object.freeze({
   en: Object.freeze({ text: 'You are talking to an AI assistant.', voice: 'Spoken replies use a synthetic voice.' }),
-  de: Object.freeze({ text: 'Sie sprechen mit einem KI-Assistenten.', voice: 'Gesprochene Antworten verwenden eine synthetische Stimme.' }),
+  de: Object.freeze({ text: 'Sie sprechen mit einer KI-Assistenz.', voice: 'Gesprochene Antworten nutzen eine synthetische Stimme.' }),
 });
 const filled = value => typeof value === 'string' && value.trim() ? value.trim() : null;
 

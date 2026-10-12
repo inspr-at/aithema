@@ -264,6 +264,38 @@ test('voice unavailable in preset disables Start with a reason and retains layou
   assert.equal(rail.button('start').disabled, true); assert.equal(rail.button('start').title, 'preset denies voice');
   await rail.start(); assert.equal(root.dataset.state, 'idle'); assert.equal(root.querySelectorAll('button').length, 7);
 });
+test('AIT-131: label ResizeObserver measures the mask, hides short flanks and follows disconnect/reconnect', async t => {
+  const observers = [];
+  const view = document.defaultView, previous = view.ResizeObserver;
+  view.ResizeObserver = class {
+    constructor(callback) { this.callback = callback; this.targets = new Set(); observers.push(this); }
+    observe(target) { this.targets.add(target); }
+    disconnect() { this.targets.clear(); }
+  };
+  t.after(() => { view.ResizeObserver = previous; });
+  const { rail, root } = fixture(t), label = root.querySelector('.voice-state'), wave = root.querySelector('.voice-wave'), caption = root.querySelector('.voice-caption');
+  const observer = observers.find(o => o.targets.has(label));
+  assert.ok(observer); assert.ok(observer.targets.has(caption)); assert.ok(observer.targets.has(wave));
+  let lineWidths = [280], waveWidth = 500;
+  t.mock.method(label, 'getBoundingClientRect', () => ({ width: 440 }));
+  t.mock.method(wave, 'getBoundingClientRect', () => ({ width: waveWidth }));
+  t.mock.method(caption, 'getBoundingClientRect', () => ({ width: 96 }));
+  t.mock.method(document, 'createRange', () => {
+    let selected;
+    return { selectNodeContents(node) { selected = node; },
+      getClientRects: () => (selected === caption ? [80] : lineWidths).map(width => ({ width })) };
+  });
+  const buttons = [...root.querySelectorAll('button')];
+  observer.callback(); assert.equal(wave.style.getPropertyValue('--voice-label-half'), '140px'); assert.equal(wave.hasAttribute('data-short-flanks'), false);
+  lineWidths = [184, 280]; observer.callback(); assert.equal(wave.style.getPropertyValue('--voice-label-half'), '140px', 'a wrapped label follows its widest text line, not the capped box');
+  lineWidths = [440, 180]; observer.callback(); assert.equal(wave.hasAttribute('data-short-flanks'), true);
+  waveWidth = 600; observer.callback(); assert.equal(wave.hasAttribute('data-short-flanks'), false);
+  lineWidths = [140, 200]; rail.render(); assert.equal(wave.style.getPropertyValue('--voice-label-half'), '100px', 'a text repaint also updates the hole when the capped box stays the same size');
+  caption.textContent = 'Live words'; observer.callback(); assert.equal(wave.style.getPropertyValue('--voice-label-half'), '40px');
+  assert.deepEqual([...root.querySelectorAll('button')], buttons, 'mask updates preserve the controls');
+  rail.disconnect(); assert.equal(observer.targets.size, 0);
+  rail.connect(); assert.ok(observer.targets.has(label)); assert.ok(observer.targets.has(wave));
+});
 test('three failed reconnects expose recovery and typing controls, with distinct terminal and permission messages', async t => {
   const { rail, root, events } = fixture(t); await rail.start();
   events.push({ type: 'ended', callId: 'local-call', reason: 'recovery-failed' }); events.end(); await tick();
@@ -327,9 +359,9 @@ test('component sends typed text through active voice, updates context and accep
   assert.ok(commands.some(([name, value]) => name === 'text' && value === 'typed during voice'));
   assert.equal(c.session.transcript.length, 1, 'typed text persists even when the provider never echoes');
   assert.ok(commands.findIndex(([name]) => name === 'persist') < commands.findIndex(([name]) => name === 'text'));
-  assert.equal(root.querySelector('.status').textContent, en.voiceTextSent);
+  assert.equal(root.querySelector('.status__label').textContent, en.voiceTextSent);
   events.push({ callId: activeCall, type: 'speaking' }); await tick();
-  assert.notEqual(root.querySelector('.status').textContent, en.voiceTextSent, 'the status line follows the call state (D11)');
+  assert.notEqual(root.querySelector('.status__label').textContent, en.voiceTextSent, 'the status line follows the call state (D11)');
   c.receive({ seq: c.session.seq + 1, type: 'question.focused', data: { question: 'Which systems?' } }); await tick();
   assert.equal(commands.at(-1)[1].focusedQuestion, 'Which systems?');
   c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...c.session.understanding, summary: 'New context', inputRevision: inputRevision(c.session) } }); await tick();
@@ -339,7 +371,7 @@ test('component sends typed text through active voice, updates context and accep
   root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick();
   assert.equal(c.session.transcript.at(-1).content, 'plain while closing');
   assert.equal(commands.filter(([name]) => name === 'text').length, 1, 'a plain acknowledgement is not forwarded to the closing SDK');
-  assert.equal(root.querySelector('textarea').value, ''); assert.equal(root.querySelector('.status').textContent, en.saved);
+  assert.equal(root.querySelector('textarea').value, ''); assert.equal(root.querySelector('.status__label').textContent, en.saved);
   root.querySelector('.voice-close').click(); await tick();
   settle({ closureConfirmed: true }); await tick();
 });
@@ -506,7 +538,7 @@ test('resending failed typed input after voice ends drops its stale call identit
   root.querySelector('.voice-start').click(); await tick();
   root.querySelector('textarea').value = 'yes';
   root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick();
-  assert.ok(requests[0].voiceCallId); assert.equal(root.querySelector('.status').textContent, en.failed);
+  assert.ok(requests[0].voiceCallId); assert.equal(root.querySelector('.status__label').textContent, en.failed);
   events.push({ type: 'ended', callId: requests[0].voiceCallId, reason: 'closed' }); events.end(); await tick();
   root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick();
   assert.equal(requests[1].voiceCallId, undefined); assert.equal(requests[1].providerSessionId, undefined);
@@ -598,7 +630,7 @@ test('a reload never sends paused:false by itself: it stays paused behind one fo
     assert.deepEqual(resumes(calls), [], `${name}: no pause change without the person`);
     assert.equal(c.session.paused, true, `${name}: still paused`);
     const root = c.shadowRoot, resume = root.querySelector('.pause');
-    assert.equal(root.querySelector('.status').textContent, probe.status ?? en.pausedResume, `${name}: a clear Resume prompt`);
+    assert.equal(root.querySelector('.status__label').textContent, probe.status ?? en.pausedResume, `${name}: a clear Resume prompt`);
     assert.equal(resume.textContent, en.resume); assert.equal(root.activeElement, resume, `${name}: Resume has focus`);
     c.remove();
   }
@@ -606,7 +638,7 @@ test('a reload never sends paused:false by itself: it stays paused behind one fo
   c.shadowRoot.querySelector('.pause').click(); await until(() => !c.session.paused, 'one click resumes');
   assert.deepEqual(resumes(calls).map(call => call.body), [{ paused: false }]);
   c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
-  assert.equal(c.shadowRoot.querySelector('.status').textContent, en.paused, 'the prompt ends with that pause');
+  assert.equal(c.shadowRoot.querySelector('.status__label').textContent, en.paused, 'the prompt ends with that pause');
 });
 test('without BroadcastChannel a reload never closes the journaled call; the lease ends it (AIT-116 D4)', async t => {
   const { c, calls, storage, session } = await reloadOrphan(t, { record: { callId: 'old-call', providerSessionId: 'old-provider' }, channel: false });

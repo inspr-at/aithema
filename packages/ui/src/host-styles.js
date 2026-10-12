@@ -2,30 +2,38 @@
 // quiet accent text actions and at most one filled primary per area. Every changing value sits in
 // a reserved slot (stacked states share one grid cell), so nothing moves under the pointer.
 export const hostStyles = `
-/* The host bar sits in the top row beside the processing line (START's masthead controls): the credits line,
-   Conversations, the verification entry and the account slot on one line; on phones the credits go under them. */
-.host-bar { display:grid; grid-template-columns:minmax(0,auto) repeat(3,auto); grid-template-areas:"credits library verify account";
-  justify-content:end; align-items:center; column-gap:.5rem; min-width:0; }
-.library-open-dialog { grid-area:library; display:inline-flex; align-items:center; gap:.45rem; min-height:2.75rem; padding:.4rem .75rem;
-  font-size:.8125rem; font-weight:600; color:var(--aithema-accent); white-space:nowrap; border-radius:999px; }
-.library-open-dialog svg { display:block; flex:none; }
-.host-verify { grid-area:verify; min-width:0; display:flex; align-items:center; }
-.verify-entry { min-height:2.75rem; padding:.4rem .6rem; font-size:.8rem; line-height:1.2; font-weight:600; color:var(--aithema-accent); text-align:left; overflow-wrap:anywhere; }
+/* One header row. The menu overlays the page, so opening it moves nothing. */
+.host-bar { display:flex; align-items:center; min-width:0; }
+.conversations-wrap { position:relative; }
+.conversations-toggle { display:inline-flex; align-items:center; gap:7px; min-height:44px; width:168px; padding:0 var(--aithema-menu-padding,10px); font-size:var(--aithema-menu-size,14px); color:var(--aithema-ink); }
+.conversations-toggle svg { width:17px; height:17px; } .conversations-toggle svg:last-child { width:10px; height:10px; }
+.conversations-menu { position:absolute; z-index:8; right:0; top:calc(100% + 6px); width:min(300px,calc(100vw - 32px)); padding:6px; border-radius:14px;
+  background:var(--aithema-surface); box-shadow:0 0 0 1px var(--aithema-line),var(--aithema-shadow-raised); font-size:14px; }
+.conversations-menu button { display:flex; align-items:center; gap:10px; width:100%; min-height:44px; padding:6px 10px; text-align:left; border-radius:9px; }
+.conversations-new { color:var(--aithema-accent); font-weight:600; } .conversations-new svg { width:16px; height:16px; }
+.conversations-recent { display:grid; margin:4px 0; padding:4px 0; border-block:1px solid var(--aithema-line); }
+.conversations-recent:empty { display:none; }
+.conversations-recent-item[data-current] { background:var(--aithema-accent-soft); }
+.conversations-recent-item span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.conversations-recent-item small { margin-left:auto; flex:none; font-size:12px; color:var(--aithema-muted); }
+.host-verify { min-width:0; grid-column:1/-1; border-top:1px solid var(--aithema-line); padding-top:1.2rem; }
+.verify-entry-state { display:flex; flex-wrap:wrap; align-items:center; gap:.35rem .7rem; font-size:.85rem; color:var(--aithema-muted); }
+.verify-entry-address { overflow-wrap:anywhere; }
+.verify-entry-address:empty { display:none; }
+.verify-entry { min-height:44px; padding:.4rem .85rem; font-size:.8rem; font-weight:400; color:var(--aithema-accent); text-align:left; }
 .verify-done { display:inline-flex; align-items:center; gap:.35rem; font-size:.8rem; color:var(--aithema-muted); }
 .verify-done svg, .verify__done svg { flex:none; color:var(--aithema-accent); }
-.host-account { grid-area:account; justify-self:end; display:flex; align-items:center; min-height:2.75rem; font-size:.8125rem; }
-.host-credits { grid-area:credits; justify-self:end; max-width:28rem; margin:0; font-size:.72rem; line-height:1.3; color:var(--aithema-muted); text-align:right; max-height:2.6em;
-  overflow-y:auto; overflow-wrap:anywhere; font-variant-numeric:tabular-nums; }
+.host-account { display:flex; align-items:center; font-size:.8125rem; }
+/* START preset flags; footer layout and viewport-clamped pop-ups are in band-styles. */
+.engine__flag { display:flex; align-items:center; }
+.settings-flag { display:inline-flex; align-items:center; gap:2px; }
+.settings-flag > svg { width:18px; height:12px; flex:none; border-radius:2px; }
+.settings-flag .settings-flag__machine { width:14px; height:14px; }
 .host-credits[data-ended="true"] .host-credits__text { color:var(--aithema-warning); }
-/* Phones (after the rules it adjusts): the controls wrap as whole words (never squeezed to a letter per line),
-   the credits line below them, one touch row high with room at its end for Settings. Conversations shows its
-   icon; its name stays for assistive technology, so the three actions share one line. */
-@media(max-width:44rem) { .host-bar { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-start; gap:0 .25rem; }
-  .host-credits { flex:1 1 100%; height:2.75rem; max-height:none; margin-right:3.25rem; padding:.45rem 0; text-align:left; }
-  .library-open-dialog { justify-content:center; min-width:2.75rem; padding-inline:.5rem; }
-  .library-open-dialog span { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; } }
-.host-foot { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.5rem 1.5rem;
-  padding:1rem 0 .25rem; border-top:1px solid var(--aithema-line); font-size:.75rem; color:var(--aithema-muted); }
+@media(max-width:44rem) {
+  .conversations-toggle { gap:4px; font-size:var(--aithema-menu-size,12px); padding:0 var(--aithema-menu-padding,4px); }
+  .conversations-toggle span { white-space:nowrap; }
+}
 [aria-disabled="true"]:is(.verify-send, .verify-resend, .handover-request, .library-open, .library-new, .library-reset, .library-rename,
   .library-delete, .library-confirm) { opacity:.5; cursor:not-allowed; }
 :is(.verify-send, .library-new) { color:var(--aithema-on-accent); background:var(--aithema-accent); font-weight:600; min-height:2.75rem; }

@@ -80,7 +80,7 @@ test('the catalog shows only ids, labels and manifest facts with each option\'s 
   assert.equal(qualified.status, 'consent', 'the mock grant does not cover an external provider');
   assert.equal(qualified.reason, 'current processing consent required'); assert.equal(qualified.facts.vendor, 'OpenRouter'); assert.equal(qualified.facts.free, false);
   assert.deepEqual(qualified.efforts, ['none', 'high']);
-  assert.deepEqual(catalog.engine.model, { id: 'mock', label: 'Mock reasoning', vendor: 'Mock reasoning', offered: true });
+  assert.deepEqual(catalog.engine.model, { id: 'mock', label: 'Mock reasoning', reply: 'mock', understanding: 'mock', provider: 'mock', vendor: 'Mock reasoning', offered: true });
   assert.equal((await h.call(`/${session.id}/settings`, undefined, 'other-owner')).status, 404, 'ownership guards the catalog');
 });
 

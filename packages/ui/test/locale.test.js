@@ -40,7 +40,7 @@ function fixture(t, { startGate, startError, host } = {}) {
 
 test('AIT-127: locale repaints the same conversation, composer, focus and control nodes', async t => {
   const { c, root, posts, session } = fixture(t);
-  const input = root.querySelector('textarea'), settings = root.querySelector('.settings-open'), rail = root.querySelector('.voice-start');
+  const input = root.querySelector('textarea'), settings = root.querySelector('.settings-open'), rail = root.querySelector('.voice-start'), orb = root.querySelector('.band-orb .orb');
   input.value = 'Unsent draft'; input.focus(); input.setSelectionRange(2, 6);
   assert.equal(await c.changeLocale('de'), true);
   assert.equal(c.session.id, session.id); assert.equal(c.session.locale, 'de');
@@ -51,6 +51,10 @@ test('AIT-127: locale repaints the same conversation, composer, focus and contro
   assert.equal(settings.textContent.trim(), de.settings.open); assert.equal(input.placeholder, de.placeholder);
   assert.equal(root.querySelector('.promise__lead').textContent, de.entrance.lead);
   assert.equal(root.querySelector('#ai-notice').textContent, `${de.aiNotice.text} ${de.aiNotice.voice}`);
+  assert.equal(root.querySelector('.band-orb .orb'), orb);
+  assert.equal(orb.getAttribute('aria-label'), de.reveal.label);
+  assert.equal(root.querySelector('.aithema-reveal__row').getAttribute('aria-label'), de.reveal.label);
+  assert.deepEqual([...root.querySelectorAll('.aithema-reveal__link')].map(n => n.title), de.reveal.links.map(link => link.subtitle));
   assert.deepEqual(posts.map(p => p.url), [`/api/sessions/${session.id}/locale`]);
 });
 
