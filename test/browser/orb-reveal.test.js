@@ -267,7 +267,7 @@ test('AIT-140: early leave holds the circle; live exit colour samples every 50ms
     await page.waitForFunction(()=>window.fixture.band.dataset.aithemaRevealState==='closed');
     // Reopen without freezing; the ordinary CSS/JS exit runs on its real clock for this proof.
     await page.evaluate(()=>window.fixture.orb.element.dispatchEvent(new Event('focus'))); await wait(2100);
-    const height=await page.$eval('#band',n=>n.getBoundingClientRect().height), point={x:2,y:height-2,width:1,height:1};
+    const height=await page.$eval('#band',n=>n.getBoundingClientRect().height), point={x:2,y:height-10,width:1,height:1};
     const start=performance.now(); await page.evaluate(()=>window.fixture.reveal.close()); const samples=[];
     for(let ms=0;ms<=900;ms+=50) {
       await wait(Math.max(0,start+ms-performance.now()));
