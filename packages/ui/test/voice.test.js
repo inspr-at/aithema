@@ -54,6 +54,124 @@ test('AIT-145: a failed closure request keeps the locally ended call ready for a
   assert.equal(rail.button('start').disabled, false);
   assert.equal(root.querySelector('.voice-state').textContent, en.voiceClosureUncertain);
 });
+for (const command of ['pause', 'resume', 'input', 'output', 'playback']) for (const outcome of ['success', 'failure'])
+test(`AIT-145: retired ${command} ${outcome} preserves ended status through close failure`, async t => {
+  const { rail, root, events } = fixture(t); await rail.start();
+  if (command === 'resume') await rail.pause(true);
+  const response = Promise.withResolvers(), terminal = Promise.withResolvers(), session = rail.session;
+  session.close = () => terminal.promise;
+  let pending;
+  if (command === 'playback') { rail.playback = () => response.promise; pending = rail.retryPlayback(); }
+  else if (['pause', 'resume'].includes(command)) {
+    session[command] = () => response.promise; pending = rail.pause(command === 'pause');
+  } else {
+    session[command === 'input' ? 'setInput' : 'setOutput'] = () => response.promise; rail.button(command).click();
+  }
+  const closing = rail.close(), render = t.mock.method(rail, 'render'), settle = t.mock.method(rail, 'settle');
+  try {
+    if (outcome === 'failure') response.reject(new Error('retired command cancelled'));
+    else response.resolve({ acknowledged: true, paused: command === 'pause' });
+    await pending; await tick();
+    const repaints = render.mock.callCount(), visibilitySettlements = settle.mock.callCount();
+    terminal.reject(new Error('close request failed')); await closing;
+    assert.equal(root.dataset.state, 'idle'); assert.equal(root.dataset.call, 'none');
+    assert.equal(root.querySelector('.voice-state').textContent, en.voiceClosureUncertain);
+    assert.equal(root.hasAttribute('data-message'), false, 'no floating failure panel over following controls');
+    assert.equal(rail.input, true); assert.equal(rail.output, true); assert.equal(rail.paused, false);
+    assert.equal(rail.button('start').disabled, false);
+    assert.equal(repaints, 0, 'a retired command must not repaint the rail');
+    assert.equal(visibilitySettlements, 0, 'a retired command must not settle visibility work');
+    rail.settlement({ callId: session.callId, providerSessionId: session.providerSessionId,
+      terminal: { closureConfirmed: true, usage: { upstreamMicro: 1_520_000, costEstimated: false } } });
+    assert.equal(root.querySelector('.voice-state').textContent, en.voiceEnded);
+    assert.equal(root.hasAttribute('data-message'), false);
+  } finally { response.resolve(); terminal.resolve({ closureConfirmed: false }); await pending; await closing; events.end(); }
+});
+for (const outcome of ['success', 'failure'])
+test(`AIT-145: retired channel ${outcome} cannot change a new generation or release its pending command`, async t => {
+  const { rail, root, events } = fixture(t); await rail.start();
+  const old = Promise.withResolvers(), next = Promise.withResolvers(), session = rail.session;
+  session.setInput = () => old.promise; rail.button('input').click();
+  session.close = async () => { throw new Error('close request failed'); };
+  await rail.close();
+  // Reusing the session object exercises the generation guard independently of object identity.
+  session.setInput = enabled => enabled ? Promise.resolve() : next.promise;
+  await rail.start();
+  try {
+    assert.equal(rail.button('input').disabled, false, 'hangup releases the retired command');
+    rail.button('input').click(); assert.equal(rail.busy, true);
+    if (outcome === 'failure') old.reject(new Error('retired command cancelled')); else old.resolve();
+    await tick();
+    assert.equal(rail.busy, true, 'the new command still owns the busy state');
+    assert.equal(rail.input, true, 'the retired command cannot change the channel preference');
+    assert.equal(root.dataset.state, 'listening'); assert.equal(root.dataset.call, 'active');
+    assert.equal(rail.errorKey, null); assert.equal(root.hasAttribute('data-message'), false);
+    next.resolve(); await tick(); assert.equal(rail.busy, false); assert.equal(rail.input, false);
+  } finally { old.resolve(); next.resolve(); await tick(); events.end(); }
+});
+for (const outcome of ['success', 'failure'])
+test(`AIT-145: provider-ended session ignores pending pause ${outcome} without a generation change`, async t => {
+  const { rail, root, events } = fixture(t); await rail.start();
+  const response = Promise.withResolvers(), generation = rail.generation;
+  rail.session.pause = () => response.promise;
+  const pending = rail.pause(true);
+  events.push({ callId: 'local-call', type: 'ended', reason: 'closed' }); events.end(); await tick();
+  const status = root.querySelector('.voice-state').textContent, render = t.mock.method(rail, 'render');
+  try {
+    assert.equal(rail.generation, generation, 'session identity must also guard completions');
+    if (outcome === 'failure') response.reject(new Error('retired command cancelled'));
+    else response.resolve({ acknowledged: true, paused: true });
+    await pending;
+    assert.equal(render.mock.callCount(), 0);
+    assert.equal(root.querySelector('.voice-state').textContent, status);
+    assert.equal(root.hasAttribute('data-message'), false);
+  } finally { response.resolve(); await pending; }
+});
+for (const command of ['setInput', 'setOutput', 'updateContext'])
+test(`AIT-145: retired startup ${command} completion cannot restart monitoring or issue more commands`, async t => {
+  const { rail, root, events, commands } = fixture(t), response = Promise.withResolvers();
+  const session = await rail.client.start(); session[command] = () => response.promise;
+  const starting = rail.start(); await tick(); await rail.close();
+  const count = commands.length, render = t.mock.method(rail, 'render'), interval = t.mock.method(globalThis, 'setInterval');
+  try {
+    response.resolve(); await starting;
+    assert.equal(render.mock.callCount(), 0);
+    assert.equal(interval.mock.callCount(), 0, 'hangup must not recreate heartbeat or waveform timers');
+    assert.equal(commands.length, count, 'no further startup commands after hangup');
+    assert.equal(root.querySelector('.voice-state').textContent, en.voiceEnded);
+  } finally { response.resolve(); await starting; events.end(); }
+});
+for (const outcome of ['success', 'failure'])
+test(`AIT-145: retired heartbeat ${outcome} cannot overwrite ended status after close failure`, async t => {
+  const response = Promise.withResolvers(), nativeInterval = globalThis.setInterval; let heartbeat;
+  t.mock.method(globalThis, 'setInterval', (callback, ms, ...args) => {
+    if (ms === 10_000) heartbeat = callback;
+    return nativeInterval(callback, ms, ...args);
+  });
+  const { rail, root, events } = fixture(t); await rail.start();
+  rail.session.heartbeat = () => response.promise; heartbeat();
+  rail.session.close = async () => { throw new Error('close request failed'); }; await rail.close();
+  const render = t.mock.method(rail, 'render'), close = t.mock.method(rail, 'close');
+  try {
+    if (outcome === 'failure') response.reject(new Error('retired heartbeat cancelled')); else response.resolve();
+    await tick();
+    assert.equal(close.mock.callCount(), 0, 'an old heartbeat cannot close a subsequent generation');
+    assert.equal(render.mock.callCount(), 0);
+    assert.equal(root.querySelector('.voice-state').textContent, en.voiceClosureUncertain);
+    assert.equal(root.hasAttribute('data-message'), false);
+  } finally { response.resolve(); await tick(); events.end(); }
+});
+test('AIT-145: retired autoplay failure cannot restore the floating playback panel', async t => {
+  const { rail, root } = fixture(t); await rail.start();
+  const response = Promise.withResolvers(), playing = Promise.withResolvers(), audio = document.createElement('audio');
+  audio.autoplay = true; audio.play = () => { playing.resolve(); return response.promise; };
+  document.body.append(audio); t.after(() => audio.remove()); await playing.promise;
+  rail.session.close = async () => { throw new Error('close request failed'); }; await rail.close();
+  response.reject(new window.DOMException('policy', 'NotAllowedError')); await tick();
+  assert.equal(root.querySelector('.voice-state').textContent, en.voiceClosureUncertain);
+  assert.equal(root.hasAttribute('data-message'), false);
+  assert.equal(rail.playbackBlocked, false);
+});
 test('AIT-145: a late settlement cannot overwrite a newly started call', async t => {
   const { rail, root } = fixture(t); await rail.start();
   const terminal = Promise.withResolvers(), old = rail.session;
