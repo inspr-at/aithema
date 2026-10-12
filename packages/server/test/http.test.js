@@ -94,15 +94,17 @@ for (const length of [undefined, '65537']) test(`AIT-142: early rejection does n
   const headers = length === undefined ? {} : { 'content-length': length };
   Object.assign(incoming, { method: 'POST', url: '/uploads', complete: false, headers,
     rawHeaders: Object.entries(headers).flat() });
-  let response, resumed = false;
+  let response, resume;
   outgoing.writeHead = (status, headers) => { response = { status, headers }; };
   outgoing.resume();
   t.after(() => { incoming.destroy(); outgoing.destroy(); });
   const serving = httpAdapter(() => {
-    incoming.on('resume', () => { resumed = true; });
+    // The bridge's initial pipe already scheduled a resume event. Observe new
+    // resume calls after rejection, rather than that earlier transport event.
+    resume = t.mock.method(incoming, 'resume');
     return Response.json({ error: 'refused' }, { status: 413 });
   })(incoming, outgoing);
   await serving; await new Promise(resolve => setImmediate(resolve));
   assert.equal(response.status, 413); assert.equal(response.headers.connection, 'close');
-  assert.equal(resumed, false, 'rejection must not resume an unbounded body');
+  assert.equal(resume.mock.calls.length, 0, 'rejection must not resume an unbounded body');
 });
