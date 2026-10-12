@@ -32,7 +32,7 @@ export const bandStyles = `
 .header-actions { justify-self:end; }
 .band-utilities { display:flex; align-items:center; }
 .header-actions > .settings-open { flex:none; }
-.conversations-toggle { width:auto; gap:7px; white-space:nowrap; }
+.conversations-toggle { width:auto; gap:var(--aithema-menu-gap,7px); white-space:nowrap; }
 .conversations-toggle > svg:first-child { display:block; width:16px; height:16px; flex:none; }
 .conversations-toggle > svg:last-child { width:10px; height:10px; flex:none; }
 .conversations-menu { z-index:12; max-height:min(440px,70dvh); overflow-y:auto; }
@@ -119,6 +119,7 @@ export const bandStyles = `
   .band { grid-template-columns:44px minmax(0,1fr); gap:8px 16px; }
   .band .audio-rail { grid-column:1/-1; grid-row:2; width:min(100%,720px); }
   .header-actions { grid-column:2; grid-row:1; }
+  .conversations-menu { left:0; right:auto; }
   .edge-column { --band-height:142px; }
 }
 @media(900px <= width < 1024px) {

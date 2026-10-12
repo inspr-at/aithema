@@ -5,7 +5,7 @@ export const hostStyles = `
 /* One header row. The menu overlays the page, so opening it moves nothing. */
 .host-bar { display:flex; align-items:center; min-width:0; }
 .conversations-wrap { position:relative; }
-.conversations-toggle { display:inline-flex; align-items:center; gap:7px; min-height:44px; width:168px; padding:0 10px; font-size:14px; color:var(--aithema-ink); }
+.conversations-toggle { display:inline-flex; align-items:center; gap:7px; min-height:44px; width:168px; padding:0 var(--aithema-menu-padding,10px); font-size:var(--aithema-menu-size,14px); color:var(--aithema-ink); }
 .conversations-toggle svg { width:17px; height:17px; } .conversations-toggle svg:last-child { width:10px; height:10px; }
 .conversations-menu { position:absolute; z-index:8; right:0; top:calc(100% + 6px); width:min(300px,calc(100vw - 32px)); padding:6px; border-radius:14px;
   background:var(--aithema-surface); box-shadow:0 0 0 1px var(--aithema-line),var(--aithema-shadow-raised); font-size:14px; }
@@ -28,7 +28,7 @@ export const hostStyles = `
 .settings-flag .settings-flag__machine { width:14px; height:14px; }
 .host-credits[data-ended="true"] .host-credits__text { color:var(--aithema-warning); }
 @media(max-width:44rem) {
-  .conversations-toggle { gap:4px; font-size:12px; padding:0 4px; }
+  .conversations-toggle { gap:4px; font-size:var(--aithema-menu-size,12px); padding:0 var(--aithema-menu-padding,4px); }
   .conversations-toggle span { white-space:nowrap; }
 }
 [aria-disabled="true"]:is(.verify-send, .verify-resend, .handover-request, .library-open, .library-new, .library-reset, .library-rename,

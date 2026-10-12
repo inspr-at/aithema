@@ -87,7 +87,8 @@ test('AIT-131 r2 demo account stays in the band and opens below its control insi
   await until(page, () => document.querySelector('aithema-session')?.session?.id && !document.querySelector('#demo-account').hidden);
   await shadow(page, c => { globalThis.accountSeed = c.session; });
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 390]) for (const folded of [false, true]) {
-    await page.setViewport({ width, height: 900 }); await page.select('#theme', theme);
+    const height = width === 390 ? 844 : 900;
+    await page.setViewport({ width, height }); await page.select('#theme', theme);
     await page.evaluate(async ({ locale, folded }) => {
       const { en } = await import('/packages/ui/src/i18n/en.js'), { de } = await import('/packages/ui/src/i18n/de.js');
       const { paintUtilities } = await import('/demo/page-preferences.js');
@@ -128,7 +129,7 @@ test('AIT-131 r2 demo account stays in the band and opens below its control insi
       const b = account.querySelector('div').getBoundingClientRect(), control = account.querySelector('summary').getBoundingClientRect();
       return { open: account.open, left: b.left, top: b.top, right: b.right, bottom: b.bottom, controlBottom: control.bottom };
     });
-    assert.equal(panel.open, true); assert.ok(panel.left >= 0 && panel.right <= width + .5 && panel.top >= panel.controlBottom + 5.5 && panel.bottom <= 900, JSON.stringify(panel));
+    assert.equal(panel.open, true); assert.ok(panel.left >= 0 && panel.right <= width + .5 && panel.top >= panel.controlBottom + 5.5 && panel.bottom <= height, JSON.stringify(panel));
     sameBoxes(before, await boxes(page, ['.band', '.band-orb', '.host-account', '.settings-open']), 'account disclosure changes no band layout');
     await shot('open'); await page.keyboard.press('Escape'); assert.equal(await page.$eval('#demo-account', n => n.open), false);
     checks.push({ width, theme, locale, folded, control, panel });
@@ -550,31 +551,37 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
         await settle();
         const label = await shadow(page, c => {
           const n = c.shadowRoot.querySelector('.voice-state'), wave = c.shadowRoot.querySelector('.voice-wave'), b = n.getBoundingClientRect(), w = wave.getBoundingClientRect(), style = getComputedStyle(n);
-          return { x: b.x, y: b.y, width: b.width, height: b.height, waveWidth: w.width,
+          return { x: b.x, y: b.y, width: b.width, height: b.height, waveX: w.x, waveWidth: w.width,
             half: parseFloat(getComputedStyle(wave).getPropertyValue('--voice-label-half')),
             lines: (b.height - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom)) / parseFloat(style.lineHeight),
             overflow: style.textOverflow, scrollHeight: n.scrollHeight, clientHeight: n.clientHeight,
             visibility: getComputedStyle(wave).visibility };
         });
         assert.ok(Math.abs(label.half - label.width / 2) <= .5, `${width}/${theme}/${locale}: measured hole ${JSON.stringify(label)}`);
+        assert.ok(Math.abs(label.x + label.width / 2 - label.waveX - label.waveWidth / 2) <= .5, 'the hole is centred under the label');
         assert.ok(label.lines <= 2.05, `${width}/${theme}/${locale}: at most two lines ${JSON.stringify(label)}`);
         if (width >= 600) assert.ok(label.width <= label.waveWidth / 2 + .5, 'the wide status label uses at most half the wave');
         assert.notEqual(label.overflow, 'ellipsis'); assert.ok(label.scrollHeight <= label.clientHeight + 1, 'the full consent text stays readable');
         sameBoxes(before, await boxes(page, selectors), 'status and observer preserve every control under the pointer');
         await shot('r2-consent-status', width, theme, true);
-        // Compare every rendered pixel wholly inside the label box against the same box with the wave hidden.
-        // The label has no background, so even one unmasked flank pixel changes this PNG.
+        // Hide only the glyphs, retaining the measured label box and mask. This isolates flank
+        // paint from text antialiasing when Chrome composites the masked canvas underneath it.
         const clip = { x: Math.ceil(label.x), y: Math.ceil(label.y), width: Math.floor(label.x + label.width) - Math.ceil(label.x), height: Math.floor(label.y + label.height) - Math.ceil(label.y) };
+        await shadow(page, c => { c.shadowRoot.querySelector('.voice-state').style.visibility = 'hidden'; });
         const painted = Buffer.from(await page.screenshot({ clip }));
         await shadow(page, c => { c.shadowRoot.querySelector('.voice-wave').style.visibility = 'hidden'; });
         const clear = Buffer.from(await page.screenshot({ clip }));
-        assert.ok(painted.equals(clear), `${width}/${theme}/${locale}: no flank pixel under the label box`);
-        await shadow(page, c => { c.shadowRoot.querySelector('.voice-wave').style.removeProperty('visibility'); });
+        await shadow(page, c => {
+          c.shadowRoot.querySelector('.voice-wave').style.removeProperty('visibility');
+          c.shadowRoot.querySelector('.voice-state').style.removeProperty('visibility');
+        });
         if (evidence) {
           for (const [suffix, bytes] of [['painted', painted], ['wave-hidden', clear]]) {
             const name = `r2-consent-pixels-${width}-${theme}-${locale}-${suffix}.png`; await writeFile(join(evidence, name), bytes); files.push(name);
           }
+          await writeFile(join(evidence, `r2-consent-geometry-${width}-${theme}-${locale}.json`), JSON.stringify(label, null, 2));
         }
+        assert.ok(painted.equals(clear), `${width}/${theme}/${locale}: no flank pixel under the label box`);
       }
     });
     for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
