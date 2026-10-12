@@ -168,7 +168,10 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.aithema-reveal__version code').textContent), evidenceCommit);
       assert.match(await shadow(page, c => c.shadowRoot.querySelector('.aithema-reveal__version').title), /2026-10-12/);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.aithema-reveal__row').getAttribute('aria-label')), copy.reveal.label);
-      assert.equal(await shadow(page, c => [...c.shadowRoot.querySelectorAll('.band [data-reveal]')].every(n => n.inert)), true);
+      const controls = await shadow(page, c => [...c.shadowRoot.querySelectorAll('.band [data-reveal]')].map(n => ({
+        name: n.className, inert: n.inert, proxy: Boolean(n.closest('.aithema-reveal__dissolves')), marked: n.hasAttribute('data-aithema-reveal-control'),
+      })));
+      assert.ok(controls.every(n => n.inert), `${label}: all band controls are inert while revealed: ${JSON.stringify(controls)}`);
       // Hold only this synchronous exit's cleanup. Its genuine CSS timelines can then be sampled
       // at exact times without screenshot latency advancing them between requested frames.
       await shadow(page, c => {
