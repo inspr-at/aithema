@@ -83,7 +83,7 @@ export function createVoiceTurnOperations({ storage, now = Date.now, replayWindo
   }
   function stream(flight, signal, assertCurrent) {
     const encoder = new TextEncoder();
-    let offset = 0, role = false, ended = false, waiting;
+    let offset = 0, role = false, ended = false, cancelled = false, waiting;
     const cancel = () => { ended = true; waiting?.(); };
     const detach = () => { signal?.removeEventListener('abort', cancel); if (waiting) flight.waiters.delete(waiting); };
     signal?.addEventListener('abort', cancel, { once: true });
@@ -91,7 +91,7 @@ export function createVoiceTurnOperations({ storage, now = Date.now, replayWindo
     return new Response(new ReadableStream({
       async pull(controller) {
         for (;;) {
-          if (ended) { detach(); controller.close(); return; }
+          if (ended) { detach(); if (!cancelled) controller.close(); return; }
           try { assertCurrent(); } catch (error) {
             ended = true; detach(); controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: codeFor(error) })}\n\n`)); controller.close(); return;
           }
@@ -100,7 +100,11 @@ export function createVoiceTurnOperations({ storage, now = Date.now, replayWindo
             ended = true; detach(); controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: flight.error })}\n\n`)); controller.close(); return;
           }
           if (offset < flight.content.length) {
-            const text = flight.content.slice(offset); offset = flight.content.length;
+            // Shared content is bounded once; a stalled reader queues no frames
+            // and catches up in bounded pieces only when it asks for another.
+            let end = Math.min(offset + 16_384, flight.content.length);
+            if (end < flight.content.length && /[\uD800-\uDBFF]/u.test(flight.content[end - 1])) end--;
+            const text = flight.content.slice(offset, end); offset = end;
             controller.enqueue(encoder.encode(frame(flight, { content: text }))); return;
           }
           if (flight.finished) {
@@ -110,8 +114,8 @@ export function createVoiceTurnOperations({ storage, now = Date.now, replayWindo
           flight.waiters.delete(waiting); waiting = undefined;
         }
       },
-      cancel() { cancel(); detach(); },
-    }), { headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store' } });
+      cancel() { cancelled = true; cancel(); detach(); },
+    }, { highWaterMark: 0 }), { headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store' } });
   }
   async function respond(operation, flight, context, options) {
     await voiceOperation(options, () => flight.ready);

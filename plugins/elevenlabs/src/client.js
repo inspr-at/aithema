@@ -246,7 +246,8 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
               assistants.set(turnId, { text: message, eventId });
               if (assistants.size > 256) assistants.delete(assistants.keys().next().value);
             }
-            emit({ type: 'final', turnId, role: speaker, text: message });
+            emit({ type: 'final', turnId, role: speaker, text: message,
+              ...(eventId !== undefined ? { event_id: eventId } : {}) });
           },
           onAgentResponseCorrection({ event_id: eventId, original_agent_response: original, corrected_agent_response: prefix }) {
             if (!active() || typeof original !== 'string' || typeof prefix !== 'string' || !original.startsWith(prefix)) return;

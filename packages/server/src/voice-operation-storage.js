@@ -1,9 +1,15 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { PluginError } from '@inspr/aithema-core';
+import { voiceTurnIdentities } from '../../core/src/live-voice.js';
 
 const hash = value => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const refused = reason => { throw new PluginError('not-admitted', reason); };
 const latestUser = session => session.transcript.findLast(turn => turn.role === 'user');
+const namespace = identity => identity.slice(0, identity.indexOf(':'));
+const overlaps = (a, b) => a?.some(identity => b?.includes(identity));
+const consistent = (a = [], b = []) => [...a, ...b].every(identity => /^(?:message|event|turn):.+$/su.test(identity)) &&
+  a.every(identity => !b.some(other => namespace(identity) === namespace(other) && identity !== other));
+const providerAlias = identity => `provider:${JSON.stringify(identity)}`;
 
 /** Private durable operations. Reply bytes use the ordinary erasable content store. */
 export function createVoiceOperationStore(storage) {
@@ -16,7 +22,11 @@ export function createVoiceOperationStore(storage) {
     identity TEXT NOT NULL, operation_key TEXT NOT NULL REFERENCES voice_turn_operations(operation_key),
     PRIMARY KEY(session_id, call_id, provider_id, identity));
     CREATE INDEX IF NOT EXISTS voice_turn_session ON voice_turn_operations(session_id);
-    CREATE INDEX IF NOT EXISTS voice_turn_generation ON voice_turn_operations(session_id, call_id, provider_id);`);
+    CREATE INDEX IF NOT EXISTS voice_turn_generation ON voice_turn_operations(session_id, call_id, provider_id);
+    CREATE TABLE IF NOT EXISTS voice_turn_receipts (
+    session_id TEXT NOT NULL REFERENCES sessions(id), call_id TEXT NOT NULL, provider_id TEXT NOT NULL,
+    receipt_id TEXT NOT NULL, record TEXT NOT NULL,
+    PRIMARY KEY(session_id, call_id, provider_id, receipt_id));`);
   const get = key => {
     if (!key) return null;
     const row = db.prepare('SELECT record FROM voice_turn_operations WHERE operation_key=?').get(key);
@@ -29,8 +39,28 @@ export function createVoiceOperationStore(storage) {
   const alias = (context, identity) => db.prepare(`SELECT operation_key FROM voice_turn_aliases
     WHERE session_id=? AND call_id=? AND provider_id=? AND identity=?`)
     .get(context.sessionId, context.callId, context.providerSessionId, identity)?.operation_key;
-  const link = (context, identity, key) => db.prepare('INSERT INTO voice_turn_aliases VALUES (?,?,?,?,?) ON CONFLICT DO NOTHING')
-    .run(context.sessionId, context.callId, context.providerSessionId, identity, key);
+  const link = (context, identity, key) => {
+    const existing = alias(context, identity);
+    if (existing && existing !== key) refused('voice-turn-fenced');
+    db.prepare('INSERT INTO voice_turn_aliases VALUES (?,?,?,?,?) ON CONFLICT DO NOTHING')
+      .run(context.sessionId, context.callId, context.providerSessionId, identity, key);
+  };
+  const receipts = context => db.prepare(`SELECT record FROM voice_turn_receipts
+    WHERE session_id=? AND call_id=? AND provider_id=? ORDER BY rowid`)
+    .all(context.sessionId, context.callId, context.providerSessionId).map(row => JSON.parse(row.record));
+  const saveReceipt = (context, receipt) => db.prepare(`INSERT INTO voice_turn_receipts VALUES (?,?,?,?,?)
+    ON CONFLICT(session_id,call_id,provider_id,receipt_id) DO UPDATE SET record=excluded.record`)
+    .run(context.sessionId, context.callId, context.providerSessionId, receipt.id, JSON.stringify(receipt));
+  function bind(operation, receipt) {
+    if (!consistent(operation.providerIdentity, receipt.providerIdentity) ||
+      operation.canonical && operation.turnId !== receipt.turnId) refused('voice-turn-fenced');
+    Object.assign(operation, { turnId: receipt.turnId, canonical: true,
+      providerIdentity: [...new Set([...(operation.providerIdentity ?? []), ...(receipt.providerIdentity ?? [])])] });
+    save(operation);
+    link(operation, `canonical:${receipt.turnId}`, operation.key);
+    for (const identity of operation.providerIdentity) link(operation, providerAlias(identity), operation.key);
+    saveReceipt(operation, { ...receipt, ordinal: operation.ordinal, operationKey: operation.key });
+  }
 
   function assertCurrent(operation) {
     // Publication checks need identities/revisions, never a hydrated prompt per token.
@@ -40,10 +70,20 @@ export function createVoiceOperationStore(storage) {
       session.withdrawalRevision !== operation.withdrawalRevision) refused('voice-turn-revoked');
     const turn = session.transcript.find(t => t.id === operation.turnId);
     if (turn?.erased || turn?.withdrawn) refused('voice-turn-obsolete');
-    if (operation.canonical && latestUser(session)?.id !== operation.turnId) refused('voice-turn-obsolete');
-    if (!operation.canonical && operation.attempts.at(-1).attemptId && (latestUser(session)?.id ?? null) !== operation.afterTurnId) refused('voice-turn-obsolete');
     if (db.prepare(`SELECT 1 FROM voice_turn_operations WHERE session_id=? AND call_id=? AND provider_id=?
       AND json_extract(record,'$.ordinal')>? LIMIT 1`).get(operation.sessionId, operation.callId, operation.providerSessionId, operation.ordinal)) refused('voice-turn-obsolete');
+    if (operation.canonical || operation.attempts.at(-1).attemptId) {
+      const users = session.transcript.filter(t => t.role === 'user');
+      const anchor = operation.canonical ? operation.turnId : operation.afterTurnId;
+      const position = anchor === null ? -1 : users.findIndex(t => t.id === anchor);
+      if (anchor !== null && position < 0) refused('voice-turn-obsolete');
+      for (const later of users.slice(position + 1)) {
+        // A receipt for a known predecessor can arrive after paid work starts,
+        // or even after this operation's receipt. Its arrival is not a new turn.
+        const predecessor = get(alias(operation, `canonical:${later.id}`));
+        if (!predecessor || predecessor.ordinal >= operation.ordinal) refused('voice-turn-obsolete');
+      }
+    }
     return operation;
   }
   function claim(context, { now = Date.now() } = {}) {
@@ -55,11 +95,17 @@ export function createVoiceOperationStore(storage) {
       // arrives. Assistant text/counts never create another user operation.
       const slot = `slot:${ordinal}`;
       const providerIdentity = context.turnIdentity;
-      const providerTurn = providerIdentity && session.transcript.find(t => t.role === 'user' &&
-        t.callId === context.callId && t.providerSessionId === context.providerSessionId &&
-        providerIdentity.some(identity => t.id === identity || t.id === `${context.providerSessionId}:user:${identity}`));
-      const turnId = providerTurn?.id ?? context.recordedTurnId;
-      const identities = providerIdentity?.map(identity => `provider:${JSON.stringify(identity)}`);
+      if (!consistent(providerIdentity, providerIdentity)) refused('voice-turn-fenced');
+      const records = receipts(context);
+      const matching = records.filter(receipt => overlaps(providerIdentity, receipt.providerIdentity));
+      if (matching.length > 1) refused('voice-turn-fenced');
+      const recorded = records.find(receipt => receipt.turnId === context.recordedTurnId);
+      const positional = records.find(receipt => (receipt.ordinal ?? receipt.position) === ordinal);
+      const receipt = matching[0] ?? (recorded && consistent(providerIdentity, recorded.providerIdentity) ? recorded : undefined)
+        ?? (positional && consistent(providerIdentity, positional.providerIdentity) ? positional : undefined);
+      if (receipt && !consistent(providerIdentity, receipt.providerIdentity)) refused('voice-turn-fenced');
+      const turnId = receipt?.turnId ?? (!recorded ? context.recordedTurnId : undefined);
+      const identities = providerIdentity?.map(providerAlias);
       const reservedTurnId = `${context.providerSessionId}:user:operation-${hash([context.sessionId, context.callId, context.providerSessionId, slot])}`;
       const identity = identities?.[0] ?? `canonical:${turnId ?? reservedTurnId}`;
       // Optional provider metadata can appear/disappear on retry. Each stable id
@@ -67,21 +113,21 @@ export function createVoiceOperationStore(storage) {
       const keys = new Set((identities ?? [identity]).map(identity => alias(context, identity)).filter(Boolean));
       if (keys.size > 1) refused('voice-turn-fenced');
       let key = [...keys][0];
-      const candidate = !providerIdentity && get(alias(context, slot));
+      const candidate = get(alias(context, slot));
       if (candidate?.canonical && turnId && candidate.turnId !== turnId) refused('voice-turn-obsolete');
-      const speech = session.transcript.filter(t => t.role === 'user' && t.callId === context.callId && t.providerSessionId === context.providerSessionId);
-      if (!providerIdentity && ordinal && ordinal < speech.length) refused('voice-turn-obsolete');
       // A provisional slot and its canonical transcript receipt identify the same operation.
       if (!key && turnId) key = alias(context, `canonical:${turnId}`);
-      if (!key && !providerIdentity) {
-        if (candidate && (!turnId || !candidate.canonical || candidate.turnId === turnId)) key = candidate.key;
-      }
+      if (!key && candidate) key = candidate.key;
+      if (key && candidate && candidate.key !== key) refused('voice-turn-fenced');
       let operation = key && get(key);
       if (operation) {
-        if (turnId && !operation.canonical) { operation = { ...operation, turnId, canonical: true }; save(operation); }
+        if (operation.ordinal !== ordinal || !consistent(operation.providerIdentity, providerIdentity)) refused('voice-turn-fenced');
+        if (operation.canonical && turnId && operation.turnId !== turnId) refused('voice-turn-obsolete');
         if (providerIdentity) {
           operation.providerIdentity = [...new Set([...(operation.providerIdentity ?? []), ...providerIdentity])]; save(operation);
         }
+        if (receipt) bind(operation, receipt);
+        else if (turnId && !operation.canonical) { operation = { ...operation, turnId, canonical: true }; save(operation); }
         assertCurrent(operation);
         for (const aliasIdentity of identities ?? [identity]) link(context, aliasIdentity, operation.key);
         if (turnId) link(context, `canonical:${turnId}`, operation.key);
@@ -90,7 +136,7 @@ export function createVoiceOperationStore(storage) {
       const id = randomUUID();
       key = hash([context.sessionId, context.callId, context.providerSessionId, identity]);
       operation = { key, sessionId: context.sessionId, callId: context.callId, providerSessionId: context.providerSessionId,
-        turnId: turnId ?? (providerIdentity ? `${context.providerSessionId}:user:${providerIdentity[0]}` : reservedTurnId),
+        turnId: turnId ?? reservedTurnId,
         canonical: Boolean(turnId), ordinal, providerIdentity, afterTurnId: latestUser(session)?.id ?? null,
         consentRevision: session.conversationConsentRevision ?? session.consentRevision, withdrawalRevision: session.withdrawalRevision,
         state: 'pending', fence: id, createdAt: now, attempts: [{ id, startedAt: now, state: 'pending' }] };
@@ -100,6 +146,7 @@ export function createVoiceOperationStore(storage) {
       for (const aliasIdentity of identities ?? [identity]) link(context, aliasIdentity, key);
       link(context, slot, key);
       if (turnId) link(context, `canonical:${turnId}`, key);
+      if (receipt) bind(operation, receipt);
       return { operation, claimed: true };
     });
   }
@@ -158,15 +205,20 @@ export function createVoiceOperationStore(storage) {
   // Called inside the final-event transaction, including a typed echo receipt.
   function bindTurn(context, turn) {
     if (turn.role !== 'user') return;
-    const session = storage.get(context.sessionId), previous = session.transcript.filter(t => t.role === 'user' && t.id !== turn.id).at(-1)?.id ?? null;
-    const speech = session.transcript.filter(t => t.role === 'user' && t.callId === context.callId && t.providerSessionId === context.providerSessionId);
-    const candidates = list(context.sessionId).filter(op => op.callId === context.callId && op.providerSessionId === context.providerSessionId && !op.canonical);
-    const operation = candidates.find(op => op.providerIdentity?.some(identity => turn.id === identity || turn.id === `${context.providerSessionId}:user:${identity}`))
-      ?? candidates.find(op => op.ordinal === speech.length && op.afterTurnId === previous)
-      ?? candidates.findLast(op => op.afterTurnId === previous);
-    if (!operation) return;
-    operation.turnId = turn.id; operation.canonical = true; save(operation);
-    link(context, `canonical:${turn.id}`, operation.key);
+    const session = storage.get(context.sessionId), records = receipts(context);
+    const previous = session.transcript.filter(t => t.role === 'user' && t.id !== turn.id).at(-1)?.id ?? null;
+    const receiptId = context.event.turnId;
+    const providerIdentity = voiceTurnIdentities(context.event) ?? [`event:${receiptId.slice(`${context.providerSessionId}:user:`.length)}`];
+    const receipt = { id: receiptId, turnId: turn.id, providerIdentity, position: records.length + 1 };
+    const candidates = list(context.sessionId).filter(op => op.callId === context.callId && op.providerSessionId === context.providerSessionId &&
+      consistent(op.providerIdentity, providerIdentity) && (!op.canonical || op.turnId === turn.id));
+    const exact = candidates.filter(op => overlaps(op.providerIdentity, providerIdentity));
+    // Typed echoes point at the original typed turn, not its predecessor.
+    // Positional matching is allowed only when there is no contradictory ID.
+    const operation = exact.length === 1 ? exact[0] : exact.length ? undefined : candidates.find(op =>
+      !op.canonical && op.ordinal === receipt.position && op.afterTurnId === (context.typedEcho ? turn.id : previous));
+    if (operation) bind(operation, receipt);
+    else saveReceipt(context, receipt);
   }
   return { get, list, claim, pending, admitted, fail, replace, complete, readReply, assertCurrent, bindTurn };
 }

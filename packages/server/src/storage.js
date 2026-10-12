@@ -423,7 +423,7 @@ export class SQLiteStorage {
               ...(guard.engine ? { engine: guard.engine } : {}), inputRevision: inputRevision(session),
               provenance: guard.provenance === 'facade-produced' ? 'facade-produced' : 'browser-asserted' } : {}) });
         if (typed) {
-          this.voiceTurnStore.bindTurn({ sessionId: id, callId, providerSessionId: providerId }, event.data);
+          this.voiceTurnStore.bindTurn({ sessionId: id, callId, providerSessionId: providerId, event: value, typedEcho: true }, event.data);
           const metadata = { ...event, data: this.#metadata(id, event.type, event.data) };
           this.db.prepare('INSERT INTO receipts VALUES (?,?,?,?)').run(id, clientId, bytes, JSON.stringify(metadata));
           return { event, replayed: true };
@@ -439,7 +439,7 @@ export class SQLiteStorage {
           ...aiTextOrigin({ model: turn.model, plugin: turn.provider }), ...(turn.engine ? { engine: turn.engine } : {}) });
       }
       const metadata = { ...event, data: this.#metadata(id, event.type, event.data) };
-      if (type === 'final') this.voiceTurnStore.bindTurn({ sessionId: id, callId, providerSessionId: providerId }, event.data);
+      if (type === 'final') this.voiceTurnStore.bindTurn({ sessionId: id, callId, providerSessionId: providerId, event: value }, event.data);
       this.db.prepare('INSERT INTO receipts VALUES (?,?,?,?)').run(id, clientId, bytes, JSON.stringify(metadata));
       return { event, replayed: false };
     });

@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { PluginError, PLUGIN_ERROR_CODES } from '../../../packages/core/src/invocation.js';
 import { operationScope } from '../../../packages/core/src/reasoning.js';
-import { voiceOperation } from '../../../packages/core/src/live-voice.js';
+import { voiceOperation, voiceTurnIdentities } from '../../../packages/core/src/live-voice.js';
 import { aiTextOrigin } from '../../../packages/core/src/text-origin.js';
 import { readJson } from './server.js';
 
@@ -107,11 +107,8 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
         .map(({ role, content }) => ({ role, content }));
       if (turnOperations) {
         const newest = providerMessages.findLast(message => message.role === 'user');
-        const rawIdentities = [newest?.message_id, newest?.id, newest?.event_id, body.message_id, body.elevenlabs_extra_body?.message_id,
-          newest?.turn_id, body.turn_id, body.elevenlabs_extra_body?.turn_id].filter(value => value !== undefined);
-        if (rawIdentities.some(value => !(typeof value === 'string' && value.length > 0 && value.length <= 256 ||
-          Number.isSafeInteger(value) && value >= 0))) throw new PluginError('invalid-output');
-        const turnIdentity = rawIdentities.length ? [...new Set(rawIdentities.map(String))] : undefined;
+        const turnIdentity = voiceTurnIdentities(newest, ...[body, body.elevenlabs_extra_body].map(source =>
+          ({ message_id: source?.message_id, event_id: source?.event_id, turn_id: source?.turn_id })));
         const response = await voiceOperation(opts, bounded => turnOperations.run({ callId: call.callId,
           providerSessionId: call.providerSessionId, messages, turnIdentity, stream: body.stream }, async operation => {
           // The durable operation owns its lifetime; an HTTP retry owns only a reader.
@@ -145,7 +142,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
             } catch (error) { ended = true; controller.error(error); logResult(codeFor(error)); }
           },
           async cancel() { if (ended) return; ended = true; await reader.cancel(); logResult('cancelled'); },
-        }), { status: response.status, headers: response.headers });
+        }, { highWaterMark: 0 }), { status: response.status, headers: response.headers });
       }
       // Rebuild the trusted session prompt. Discard provider system/model/options and private callback fields.
       const input = await voiceOperation(opts, bounded => buildRequest({ callId: call.callId, messages }, bounded));
