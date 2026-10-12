@@ -177,8 +177,8 @@ function conformanceFixture(local) {
       callbacks.onAgentResponseCorrection({ event_id: 11, original_agent_response: 'Hello there', corrected_agent_response: 'Hello' });
       return [
         { type: 'partial', turnId: `${provider}:user:pending`, role: 'user', text: 'hel', callId, providerSessionId: provider },
-        { type: 'final', turnId: `${provider}:user:10`, event_id: 10, role: 'user', text: 'hello', callId, providerSessionId: provider },
-        { type: 'final', turnId: `${provider}:assistant:11`, event_id: 11, role: 'assistant', text: 'Hello there', callId, providerSessionId: provider },
+        { type: 'final', turnId: `${provider}:user:10`, role: 'user', text: 'hello', event_id: 10, callId, providerSessionId: provider },
+        { type: 'final', turnId: `${provider}:assistant:11`, role: 'assistant', text: 'Hello there', event_id: 11, callId, providerSessionId: provider },
         { type: 'heard', turnId: `${provider}:assistant:11`, prefix: 'Hello', callId, providerSessionId: provider },
       ];
     },
