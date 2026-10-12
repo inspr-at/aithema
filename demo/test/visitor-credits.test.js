@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { SQLiteStorage, SQLiteBudgetLedger, createHandlers, createPluginRuntime } from '../../packages/server/src/index.js';
-import { admitCredits } from '@inspr/aithema-core';
+import { admitCredits, createIdentity } from '@inspr/aithema-core';
 import { createDemoHost } from '../host-ports.js';
 import { mockConsent, temporaryDb } from '../../test/helpers.js';
 
@@ -173,4 +173,67 @@ test('AIT-135 visitor erasure removes evidence and all address projections but r
   for (const id of [a.id, b.id]) assert.equal(JSON.stringify(f.storage.read(id)).includes(address), false);
   assert.equal(f.ledger.get(admitted.admission.attemptId).owner_hash, ownerHash);
   assert.equal(f.host.wallet(owner).balance().committedMicro, 10);
+});
+
+test('AIT-135 confirmed visitor evidence promotes the existing wallet, survives new conversations, and an address change erases old projections', async t => {
+  const f = fixture(t, { demo: true, verificationRequired: true }); f.settings('10', '15', '20');
+  f.host.visitorCredits.saveSettings({ baseRevision: f.host.visitorCredits.settings().revision, confirmationEnabled: true });
+  const runtime = createPluginRuntime({ storage: f.storage, consent: mockConsent, budget: f.ledger });
+  const handlers = createHandlers({ storage: f.storage, pluginRuntime: runtime, consent: mockConsent, host: f.host });
+  t.after(() => handlers.close());
+  const call = (path, payload) => handlers.handle(new Request(`http://local${path}`, { method: payload === undefined ? 'GET' : 'POST',
+    headers: { 'x-aithema-session-token': owner, 'content-type': 'application/json' }, ...(payload === undefined ? {} : { body: JSON.stringify(payload) }) }));
+  const a = await (await call('/api/sessions', {})).json(), base = `/api/sessions/${a.id}/identity`;
+  f.host.saveEmail(owner, { address, noticeVersion });
+  const ref = f.host.visitor(owner).visitorRef;
+  await admitCredits(f.ledger, f.request(a.id, 10_000_000), f.host.wallet(owner));
+  assert.equal((await call(`${base}/request`, { address })).status, 200);
+  const message = f.host.outbox({ sessionId: a.id, ownerToken: owner }).at(-1);
+  const confirmed = await call(`${base}/confirm`, { token: message.token });
+  assert.equal((await confirmed.json()).identity.status, 'verified');
+  assert.equal(f.host.wallet(owner).balance().limitMicro, 20_000_000);
+  assert.equal(f.host.wallet(owner).balance().committedMicro, 10_000_000);
+  const b = await (await call('/api/sessions', {})).json(); assert.equal(b.identity.status, 'verified');
+  assert.equal(f.host.visitor(owner).visitorRef, ref);
+  f.at(61_000); await call(`${base}/change`, { address: 'new@example.test' });
+  assert.equal(f.host.visitor(owner).tier, 'emailGiven');
+  assert.equal(f.host.wallet(owner).balance().limitMicro, 15_000_000);
+  assert.equal(f.host.wallet(owner).balance().committedMicro, 10_000_000);
+  for (const id of [a.id, b.id]) assert.equal(JSON.stringify(f.storage.read(id)).includes(address), false, 'old address projections must be erased');
+  assert.equal(f.host.visitorCredits.audit().some(e => JSON.stringify(e).includes(address)), false);
+});
+
+test('AIT-135 migration does not restart the inactivity retention window of a legacy confirmed address', async t => {
+  const db = await temporaryDb(), old = new SQLiteStorage(db), s = old.create({ id: 'legacy-address', ownerToken: owner });
+  old.transitionHost(s.id, () => ({ state: { identity: { ...createIdentity(), status: 'verified', address, verificationRevision: 1, lastNow: 1000 } }, events: [] }));
+  old.db.exec('DROP TRIGGER events_no_update');
+  const event = JSON.parse(old.db.prepare('SELECT event FROM events WHERE session_id=?').get(s.id).event);
+  event.at = new Date(1000).toISOString();
+  old.db.prepare('UPDATE events SET event=? WHERE session_id=?').run(JSON.stringify(event), s.id); old.close();
+  const f = fixture(t, { storage: new SQLiteStorage(db), now: () => 1000 + 91 * 24 * 60 * 60_000 });
+  f.host.retainVisitors(); assert.equal(f.host.visitor(owner).address, null);
+});
+
+test('AIT-135 a resend receives its own pending retention window; pending-only addresses still expire', async t => {
+  const f = fixture(t, { demo: true }), s = f.session('pending-only');
+  const request = { sessionId: s.id, ownerToken: owner, address, revision: 1, expiresAt: 1_801_000 };
+  await f.host.identity.requestVerification(request);
+  f.at(1000 + 23 * 60 * 60_000);
+  await f.host.identity.requestVerification({ ...request, revision: 2, expiresAt: 1000 + 23 * 60 * 60_000 + 1_800_000 });
+  f.at(1000 + 24 * 60 * 60_000); f.host.retainVisitors();
+  assert.equal(f.host.visitor(owner).address, address);
+  assert.equal(f.storage.db.prepare('SELECT COUNT(*) n FROM visitor_confirmation_tokens').get().n, 1);
+  f.at(1000 + 47 * 60 * 60_000); f.host.retainVisitors();
+  assert.equal(f.host.visitor(owner).address, null);
+  assert.equal(f.storage.db.prepare('SELECT COUNT(*) n FROM visitor_confirmation_tokens').get().n, 0);
+});
+
+test('AIT-135 failed policy reads block fresh admission while actual settlements remain recordable', async t => {
+  const f = fixture(t), s = f.session('policy-failure');
+  const admitted = await admitCredits(f.ledger, f.request(s.id, 10), f.host.wallet(owner));
+  const claim = f.ledger.claim(admitted.admission.attemptId); claim.consume();
+  f.storage.db.exec('DROP TABLE visitor_credit_settings');
+  await assert.rejects(admitCredits(f.ledger, f.request(s.id, 1), f.host.wallet(owner)));
+  f.ledger.settle(claim.claimId, { attemptId: claim.attemptId, outcome: 'completed', chargedMicro: 12, usage: { inputTokens: 0, outputTokens: 0 } });
+  assert.equal(f.ledger.get(claim.attemptId).settled_micro, 12);
 });
