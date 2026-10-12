@@ -131,10 +131,12 @@ export class AithemaSession extends HTMLElement {
     if (!this.#session) return;
     this.#pings ??= answerVoicePings(() => this.#rail?.session?.callId ?? null);
     this.#concept?.connect(); this.#connect(); this.#watchPage(true); this.#offerResume(); this.#host?.connect(); this.#orb?.mount(); this.#introOrb?.mount();
+    this.#popups?.connect(); this.#motionMedia?.addEventListener?.('change', this.#motionListener);
     this.#observePanes();
   }
   disconnectedCallback() {
     this.#timer?.setConnected(false); this.#reveal?.close();
+    this.#popups?.destroy(); this.#motionMedia?.removeEventListener?.('change', this.#motionListener);
     this.#host?.disconnect(); this.#watchPage(false); this.#concept?.suspend(); this.#rail?.destroy(); this.#orb?.destroy(); this.#introOrb?.destroy(); this.#abort?.abort(); this.#deviceController?.abort();
     this.#paneObserver?.disconnect(); for (const timer of this.#scrollTimers.values()) clearTimeout(timer); this.#scrollTimers.clear();
     this.#pings?.close(); this.#pings = null;
@@ -208,8 +210,8 @@ export class AithemaSession extends HTMLElement {
           <div class="conversations-menu" id="conversations-menu" role="menu" hidden><button class="conversations-new" type="button" role="menuitem" tabindex="-1" aria-describedby="ai-notice"></button>
             <div class="conversations-recent" role="group"></div><button class="library-open-dialog" type="button" role="menuitem" tabindex="-1" aria-haspopup="dialog"></button></div></div></div>
         <slot name="utilities" data-reveal></slot><button data-reveal class="settings-open" type="button" aria-haspopup="dialog">${icon('settings')}<span class="visually-hidden"></span></button></div>
-        </header><div class="edge-column"><button class="motion-toggle" type="button" aria-pressed="true"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M14 3c1.1 7.6 3.4 9.9 11 11-7.6 1.1-9.9 3.4-11 11C12.9 17.4 10.6 15.1 3 14c7.6-1.1 9.9-3.4 11-11Z"/></svg></button>
-          <button class="fold" type="button" aria-expanded="true" aria-controls="conversation-middle"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m6 11 6-5 6 5m-12 7 6-5 6 5"/></svg></button></div>
+        <div class="edge-column"><button class="motion-toggle" type="button" aria-pressed="true"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M14 3c1.1 7.6 3.4 9.9 11 11-7.6 1.1-9.9 3.4-11 11C12.9 17.4 10.6 15.1 3 14c7.6-1.1 9.9-3.4 11-11Z"/></svg></button>
+          <button class="fold" type="button" aria-expanded="true" aria-controls="conversation-middle"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m6 11 6-5 6 5m-12 7 6-5 6 5"/></svg></button></div></header>
       <div class="host-extras"><div class="host-verify"></div><div class="host-account"><slot name="account"></slot></div><div class="wordmark visually-hidden"><slot name="brand">Aithema</slot></div></div>
       <section class="conversation" id="conversation-middle" aria-labelledby="conversation-title"><header class="head"><h2 class="visually-hidden" id="conversation-title" data-copy="conversation"></h2>
 </header>
@@ -432,6 +434,7 @@ export class AithemaSession extends HTMLElement {
     this.#timer?.setConnected(connected);
   }
   #scrollToLatest() {
+    if (this.#fold?.folded) return;
     const shell = this.shadowRoot.querySelector('.transcript-shell');
     shell.scrollTop = shell.scrollHeight; this.#follow = true;
     this.shadowRoot.querySelector('.transcript-latest').style.visibility = 'hidden';
@@ -716,10 +719,8 @@ export class AithemaSession extends HTMLElement {
     this.#expandLabel();
     this.#syncPanes();
   }
-  // Art. 50(1) (AIT-119): one quiet line under the conversation header from the first paint on, so it
-  // stands before choosing, typing or a call can begin. The configured wording wins over the bundle's,
-  // an empty part falls back to the default. The hidden copy of the full notice holds the line's
-  // height, so the voice sentence appearing or going never moves anything.
+  // Art. 50(1): the footer notice stands from the first paint; its full sentence remains the
+  // accessible description of interaction controls. Host wording and voice-offered gating stay intact.
   #paintNotice() {
     const root = this.shadowRoot, pick = part => [this.#aiNotice?.[part], this.#copy.aiNotice?.[part]].find(value => typeof value === 'string' && value.trim());
     const notice = aiNotice(this.#session.locale, { text: pick('text'), voice: pick('voice') });
@@ -763,7 +764,12 @@ export class AithemaSession extends HTMLElement {
     this.#paneObserver?.disconnect();
     const Observer = this.ownerDocument.defaultView?.ResizeObserver;
     if (Observer) {
-      this.#paneObserver = new Observer(() => this.#syncPanes());
+      this.#paneObserver = new Observer(() => {
+        const band = this.shadowRoot.querySelector('.band');
+        this.shadowRoot.querySelector('.edge-column').style.setProperty('--band-height', `${band.getBoundingClientRect().height}px`);
+        this.#syncPanes();
+      });
+      this.#paneObserver.observe(this.shadowRoot.querySelector('.band'));
       for (const pane of this.shadowRoot.querySelectorAll(PANES)) {
         this.#paneObserver.observe(pane); for (const child of pane.children) this.#paneObserver.observe(child);
       }
@@ -823,7 +829,10 @@ export class AithemaSession extends HTMLElement {
     this.#introOrb ??= createOrb(this.ownerDocument, { motion: this.#motion });
     const intro = this.shadowRoot.querySelector('.intro__orb');
     if (this.#introOrb.element.parentNode !== intro) intro.append(this.#introOrb.element);
-    if (this.isConnected) { this.#orb.mount(); this.#introOrb.mount(); }
+    if (this.isConnected) {
+      if (this.#motion || this.#orb.setMotion) this.#orb.mount();
+      if (this.#motion || this.#introOrb.setMotion) this.#introOrb.mount();
+    }
   }
   #mountMotion() {
     const view = this.ownerDocument.defaultView;
@@ -845,7 +854,11 @@ export class AithemaSession extends HTMLElement {
   }
   #applyMotion() {
     this.setAttribute('motion', this.#motion ? 'on' : 'off'); this.#paintMotion();
-    this.#orb?.setMotion?.(this.#motion); this.#introOrb?.setMotion?.(this.#motion); this.#reveal?.setMotion(this.#motion);
+    for (const orb of [this.#orb, this.#introOrb]) {
+      if (orb?.setMotion) orb.setMotion(this.#motion);
+      else if (orb) { if (this.#motion && this.isConnected) orb.mount(); else orb.destroy(); }
+    }
+    this.#reveal?.setMotion(this.#motion);
     if (this.#rail) this.#rail.motion = this.#motion;
   }
   // A preset other than the acknowledged one is refused at the start only for host reasons;

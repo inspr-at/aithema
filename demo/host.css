@@ -126,3 +126,13 @@ aithema-session { display:block; width:100%; --aithema-height:100dvh; --aithema-
   .conversation-page .utility-language { width:48px; }
   .conversation-page .utility-theme { width:78px; }
 }
+
+/* Round 2 band utilities share one row; each selector retains a 44 px target. */
+@media(max-width:599px) {
+  .conversation-page .utility { gap:3px; padding:0 3px; min-width:44px; }
+  .conversation-page .utility select { font-size:12px; }
+  .conversation-page .utility-icon svg { width:14px; height:14px; }
+  .conversation-page #theme { inline-size:100%; }
+  .conversation-page .utility-chevron { font-size:10px; }
+}
+.conversation-page .colophon { display:none; }

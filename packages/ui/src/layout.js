@@ -67,7 +67,8 @@ export class ConversationFold {
   set(on) {
     if (on === this.folded) return;
     const panes = [...this.root.querySelectorAll('.transcript-shell, .analysis-content')];
-    if (on) this.scroll = panes.map(pane => [pane, pane.scrollTop]);
+    const view = this.root.ownerDocument.defaultView;
+    if (on) { this.scroll = panes.map(pane => [pane, pane.scrollTop]); this.pageScroll = [view?.scrollX ?? 0, view?.scrollY ?? 0]; }
     this.folded = on; this.root.querySelector('.workspace').toggleAttribute('data-folded', on);
     for (const n of this.root.querySelectorAll('.conversation, .understanding')) n.hidden = on;
     this.root.querySelector('.fold-view').hidden = !on;
@@ -75,8 +76,11 @@ export class ConversationFold {
     if (!on) {
       for (const [pane, top] of this.scroll ?? []) pane.scrollTop = top;
       // Browsers settle the restored grid before painting the offsets.
-      this.root.ownerDocument.defaultView?.requestAnimationFrame?.(() => {
-        if (!this.folded) for (const [pane, top] of this.scroll ?? []) pane.scrollTop = top;
+      view?.requestAnimationFrame?.(() => {
+        if (!this.folded) {
+          for (const [pane, top] of this.scroll ?? []) pane.scrollTop = top;
+          view.scrollTo?.(...this.pageScroll);
+        }
       });
       if (this.root.activeElement === this.strip) this.button.focus({ preventScroll: true });
     }
@@ -97,7 +101,10 @@ export class FooterPopups {
       if (event.key === 'Escape') for (const entry of this.entries) entry.setAttribute('data-dismissed', '');
     };
     this.resize = () => { for (const entry of this.entries) this.position(entry); };
-    root.addEventListener('keydown', this.key); this.view?.addEventListener('resize', this.resize);
+    this.connect();
+  }
+  connect() {
+    this.root.addEventListener('keydown', this.key); this.view?.addEventListener('resize', this.resize);
     this.view?.addEventListener('scroll', this.resize, { passive: true });
   }
   position(entry) {

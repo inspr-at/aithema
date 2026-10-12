@@ -111,7 +111,7 @@ test('verification unlock over SSE keeps a manual pause and says so; the bar the
   c.receive({ seq: c.session.seq + 1, type: 'identity.unlocked', data: { manualPaused: true } });
   assert.equal(root.querySelector('.verify-lock').hidden, true);
   assert.equal(root.querySelector('.notice').hidden, false);
-  assert.equal(root.querySelector('.status').textContent, v.unlockedPaused);
+  assert.equal(root.querySelector('.status__label').textContent, v.unlockedPaused);
   assert.equal(root.querySelector('.host-verify .verify-entry').hidden, true);
   assert.equal(root.querySelector('.host-verify .verify-done').hidden, false);
   assert.equal(root.querySelector('.host-verify .verify-done').textContent, v.verified);
@@ -277,12 +277,12 @@ test('credits: the owner balance and time slot from the server; limit-reached sh
   await tick();
   const line = root.querySelector('.host-credits');
   assert.equal(line.hidden, false);
-  assert.equal(line.querySelector('.host-credits__text').textContent, '425 of 500 left');
+  assert.equal(line.querySelector('.host-credits__text').textContent, '425 of 500 Credits');
   assert.equal(line.querySelector('.host-credits__limit').hidden, true);
   c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'one-hour' } });
-  assert.equal(line.querySelector('.host-credits__text').textContent, cr.ended['one-hour']);
+  assert.equal(line.querySelector('.host-credits__deadline').textContent, cr.ended['one-hour']);
   assert.equal(line.querySelector('.host-credits__limit').hidden, false);
-  assert.equal(root.querySelector('.status').textContent, cr.ended['one-hour']);
+  assert.equal(root.querySelector('.status__label').textContent, cr.ended['one-hour']);
 });
 
 test('host slots: account, credits limit, handover offer, legal and footer are named slots; the footer row shows only when filled', async t => {
@@ -329,8 +329,8 @@ test('credits: a pause never freezes the countdown (the host deadline keeps runn
     'GET /credits': () => Response.json({ balance, limitSlot: { status: 'active', remainingMs: 30 * 60_000, canStartPaidWork: false } }),
   } });
   await tick();
-  const text = () => root.querySelector('.host-credits').title;
-  assert.equal(root.querySelector('.host-credits__text').textContent, '425 of 500 left');
+  const text = () => root.querySelector('.host-credits__deadline').textContent;
+  assert.equal(root.querySelector('.host-credits__text').textContent, '425 of 500 Credits');
   assert.equal(text(), `30 min left in this conversation · ${cr.paused}`);
   assert.match(cr.paused, /time keeps running/u); assert.match(de.hostSurface.credits.paused, /Zeit läuft aber weiter/u);
   // Ten minutes later, still paused: the line counts down like the server's deadline.

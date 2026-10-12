@@ -152,6 +152,7 @@ export class ConceptView {
     if (!latest) this.root.querySelector('.concept-preview img').removeAttribute('src');
     this.follow(latest);
     this.render();
+    if (this.root.querySelector('.workspace')?.hasAttribute('data-folded')) void this.paintCanvas();
   }
   // Drafts are revised continuously: a viewer showing the latest draft moves on to the new
   // revision in its fixed stage, unless someone is at work in the viewer (focus in the draft,
@@ -234,6 +235,24 @@ export class ConceptView {
     void this.load(current.id).then(bytes => { if (this.current()?.id === current.id && this.dialog.open) {
       if (bytes) show(bytes); status.textContent = bytes ? '' : this.copy.conceptDraftFailed;
     } });
+  }
+  // The folded canvas uses the same authenticated loader, revocation rules and sandbox as the viewer.
+  async paintCanvas() {
+    const draft = this.root.querySelector('.canvas-html'), image = this.root.querySelector('.canvas-image');
+    if (!draft) return;
+    const empty = this.root.querySelector('.canvas-empty'), status = this.root.querySelector('.canvas-status');
+    const item = this.#session?.consentWithdrawn || this.#session?.tombstone ? null : this.items.at(-1);
+    draft.copy = this.copy.conceptPreview;
+    empty.hidden = Boolean(item); draft.hidden = !item || conceptKind(item) !== 'html'; image.hidden = !item || conceptKind(item) === 'html';
+    if (!item) { draft.artifact = null; image.removeAttribute('src'); status.textContent = ''; return; }
+    if (draft.dataset.id !== item.id) { draft.dataset.id = item.id; draft.artifact = null; image.removeAttribute('src'); }
+    status.textContent = conceptKind(item) === 'html' ? this.copy.conceptDraftLoading : this.copy.conceptLoading;
+    const bytes = await this.load(item.id);
+    if (this.#session?.consentWithdrawn || this.#session?.tombstone || this.items.at(-1)?.id !== item.id) return;
+    if (conceptKind(item) === 'html') {
+      if (bytes && draft.artifact?.bytes !== bytes) draft.artifact = { bytes, mediaType: HTML_MEDIA_TYPE };
+      status.textContent = bytes ? '' : this.copy.conceptDraftFailed;
+    } else { if (bytes) image.src = bytes; status.textContent = bytes ? '' : this.copy.conceptImageFailed; }
   }
   guidanceToggle(value) {
     const button = document.createElement('button'); button.type = 'button'; button.textContent = value; button.dataset.value = value;

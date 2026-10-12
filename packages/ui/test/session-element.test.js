@@ -249,7 +249,7 @@ test('AIT-109 N3: failed snapshot recovery waits one second before reconnecting'
     assert.equal(calls.length, 2, 'a failed restore must not reconnect immediately');
     t.mock.timers.tick(999); await new Promise(resolve => setImmediate(resolve)); assert.equal(calls.length, 2);
     t.mock.timers.tick(1); await new Promise(resolve => setImmediate(resolve)); assert.equal(calls.length, 3);
-    assert.equal(c.shadowRoot.querySelector('.status').textContent, en.connected);
+    assert.equal(c.shadowRoot.querySelector('.status__label').textContent, en.connected);
   } finally { c.remove(); await new Promise(resolve => setImmediate(resolve)); }
 });
 
@@ -510,14 +510,14 @@ test('preset, feature and device copy comes from the host', async () => {
   assert.match(root.querySelector('.features').textContent, /Text lokal/);
   assert.equal(root.querySelector('.export').title, copy.deviceExportUnavailable);
   root.querySelector('textarea').value = 'Hello'; root.querySelector('form').dispatchEvent(new window.Event('submit'));
-  await new Promise(r => setImmediate(r)); assert.equal(root.querySelector('.status').textContent, copy.deviceConnectFirst);
+  await new Promise(r => setImmediate(r)); assert.equal(root.querySelector('.status__label').textContent, copy.deviceConnectFirst);
   const device = { async connect() {}, async *stream() { yield 'Hi'; } };
   c.configure({ copy, session: createSession({ processingPreset: 'device' }), deviceReasoning: device });
   root = c.shadowRoot; root.querySelector('textarea').value = 'Hello'; root.querySelector('form').dispatchEvent(new window.Event('submit'));
-  await new Promise(r => setImmediate(r)); assert.equal(root.querySelector('.status').textContent, copy.deviceConversation);
+  await new Promise(r => setImmediate(r)); assert.equal(root.querySelector('.status__label').textContent, copy.deviceConversation);
   c.configure({ copy, session: createSession({ processingPreset: 'device' }), deviceReasoning: { async connect() { throw new Error(); } } });
   root = c.shadowRoot; root.querySelector('textarea').value = 'Hello'; root.querySelector('form').dispatchEvent(new window.Event('submit'));
-  await new Promise(r => setImmediate(r)); assert.equal(root.querySelector('.status').textContent, copy.deviceUnavailable);
+  await new Promise(r => setImmediate(r)); assert.equal(root.querySelector('.status__label').textContent, copy.deviceUnavailable);
 });
 test('device sends text in this tab only; browser configure/disconnect aborts local work', async () => {
   const c = setup(), originalFetch = globalThis.fetch; let calls = 0, signal;
@@ -547,7 +547,7 @@ test('pause and consent gate sends and preset rows immediately while cached unde
   c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
   assert.equal(send.disabled, true); assert.equal(pause.textContent, en.resume);
   assert.match(root.querySelector('.features').textContent, /Session paused/);
-  assert.equal(root.querySelector('.status').textContent, en.paused, 'the status line follows the pause');
+  assert.equal(root.querySelector('.status__label').textContent, en.paused, 'the status line follows the pause');
   assert.equal(root.querySelector('.summary-text').textContent.includes('untrusted'), true);
   assert.equal(root.querySelector('.readiness').style.visibility, '');
   assert.ok([...root.querySelectorAll('.analysis-content section')].every(node => !node.hidden));
@@ -706,7 +706,7 @@ test('a reconnect re-reads feature verdicts, so a host restart that dropped cons
     assert.equal(refreshed, 1); assert.equal(root.querySelector('.send').disabled, true);
     assert.equal(root.querySelector('.composer-reason').textContent, en.reasons['current processing consent required']);
     assert.equal(root.querySelector('.notice').textContent, en.reasons['current processing consent required']);
-    assert.equal(root.querySelector('.status').textContent, en.connected);
+    assert.equal(root.querySelector('.status__label').textContent, en.connected);
   } finally { c.remove(); await new Promise(resolve => setImmediate(resolve)); globalThis.fetch = originalFetch; }
 });
 test('the German bundle covers every English key and renders the component in German', async () => {
@@ -809,15 +809,17 @@ test('the AI notice is painted with the first render, ahead of the composer, in 
     session.featureMatrix = { best: { text: { available: false, reason: 'current processing consent required' }, analysis: { available: true, reason: null } } };
     c.configure({ copy: structuredClone(copy), session });
     const root = c.shadowRoot, notice = root.querySelector('#ai-notice');
-    // Without a voice client only the first sentence shows; the hidden copy keeps the full notice's height.
+    // The complete sentence stays as the accessible description; the footer has a standing short notice.
     assert.equal(notice.textContent, AI_NOTICE[locale].text);
-    assert.equal(root.querySelector('.ai-notice__sizer').textContent, `${AI_NOTICE[locale].text} ${AI_NOTICE[locale].voice}`);
+    assert.equal(root.querySelector('.ai-notice__label').textContent, copy.assistant);
+    assert.equal(root.querySelector('.ai-notice__short').textContent, copy.layout.aiShort);
+    assert.equal(root.querySelector('.ai-notice__voice').textContent, copy.layout.syntheticVoice);
     assert.equal(root.querySelector('textarea').disabled, true, 'the composer is still closed while the notice already stands');
     // It is the conversation's first line, outside the start card, so neither the chooser nor the
     // ready card covers it, and it comes before every control of the pane.
     const line = notice.parentElement;
-    assert.equal(line.parentElement, root.querySelector('section.conversation > header.head'));
-    assert.equal(root.querySelector('section.conversation').firstElementChild, line.parentElement);
+    assert.ok(root.querySelector('.display-foot').contains(line));
+    assert.equal(root.querySelector('.ai-notice').getAttribute('aria-describedby'), 'ai-notice build-info');
     assert.equal(root.querySelector('.intro').contains(line), false);
     session.featureMatrix.best.text = { available: true, reason: null };
     c.configure({ copy: structuredClone(copy), session });
@@ -838,7 +840,7 @@ test('with voice offered both sentences show; consent still pending counts as of
   session.featureMatrix.best.voice = { available: false, reason: 'voice off' };
   c.configure({ copy: en, session, voiceClient: client });
   assert.equal(c.shadowRoot.querySelector('#ai-notice').textContent, AI_NOTICE.en.text);
-  assert.equal(c.shadowRoot.querySelector('.ai-notice__sizer').textContent, full);
+  assert.equal(c.shadowRoot.querySelector('.ai-notice__voice').textContent, en.layout.syntheticVoice);
 });
 test('a host rewords the AI notice through the bundle or configure, but an empty override keeps the default (AIT-119)', () => {
   const c = document.createElement('aithema-session'), session = createSession({ demo: true });
@@ -887,16 +889,15 @@ test('screen readers get the AI notice once, as the last description of every co
   for (const node of entries()) assert.equal(described(node).at(-1), 'ai-notice', node.className || node.tagName);
   // Not a live region: it is read with those controls, not re-announced on every render.
   for (let node = notice; node && node !== root; node = node.parentNode) {
-    assert.equal(node.getAttribute('aria-live'), null); assert.equal(node.getAttribute('role'), null); assert.equal(node.getAttribute('aria-hidden'), null);
+    assert.equal(node.getAttribute('aria-live'), null); assert.ok([null, 'tooltip'].includes(node.getAttribute('role'))); assert.equal(node.getAttribute('aria-hidden'), null);
   }
-  assert.equal(root.querySelector('.ai-notice__sizer').getAttribute('aria-hidden'), 'true');
-  // GUI-27: a plain line, no box, pill or edge accent; the line it heads is filled with the page's own paper, so
-  // while it stays in view over scrolled content it reads as part of the page, not as a tinted box.
-  const css = root.querySelector('style').textContent, rule = css.slice(css.indexOf('.ai-notice {'), css.indexOf('}', css.indexOf('.ai-notice {')));
-  for (const banned of ['border', 'box-shadow', 'outline', 'color-mix', 'background']) assert.ok(!rule.includes(banned), banned);
-  const head = css.slice(css.indexOf('.conversation > .head {'), css.indexOf('}', css.indexOf('.conversation > .head {')));
-  assert.match(head, /position:sticky; top:0;/u); assert.match(head, /background-color:var\(--aithema-paper\); background-image:var\(--aithema-lighting\); background-attachment:fixed;/u);
-  // START's fixed lighting is the page's own: the same layers the component (or a host page) paints behind it.
+  assert.equal(root.querySelectorAll('#ai-notice').length, 1);
+  const css = root.querySelector('style').textContent;
+  const foot = css.slice(css.lastIndexOf('.display-foot {'), css.indexOf('}', css.lastIndexOf('.display-foot {')));
+  assert.match(foot, /position:fixed;/u); assert.match(foot, /bottom:0;/u);
+  const rule = css.slice(css.lastIndexOf('.ai-notice {'), css.indexOf('}', css.lastIndexOf('.ai-notice {')));
+  assert.match(rule, /min-height:44px;/u); assert.match(rule, /background:none;/u);
+  for (const banned of ['border:', 'box-shadow:', 'font-style:italic']) assert.ok(!rule.includes(banned), banned);
   assert.match(css, /--aithema-backdrop:var\(--aithema-lighting\) var\(--aithema-paper\);/u);
-  for (const banned of ['border', 'box-shadow', 'radius']) assert.ok(!head.includes(banned), banned);
+
 });

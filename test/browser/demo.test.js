@@ -1484,7 +1484,7 @@ const noticeView = (page, selector) => inShadow(page, (c, selector) => {
   const pane = control?.closest('.intro')?.getBoundingClientRect();
   return { notice: inside(rect) && style.visibility === 'visible' && style.display !== 'none' && line.contains(hit),
     control: own ? inside(own) && (!pane || own.top >= pane.top - .5 && own.bottom <= pane.bottom + .5) : null,
-    below: own ? own.top >= rect.bottom - .5 : null, text: r.querySelector('#ai-notice').textContent };
+    above: own ? own.bottom <= rect.top + .5 : null, text: r.querySelector('#ai-notice').textContent };
 }, selector);
 // Scroll as a visitor would until the control shows at the viewport's bottom or top edge.
 const reveal = (page, selector, edge) => inShadow(page, (c, selector, edge) => {
@@ -1494,7 +1494,8 @@ const reveal = (page, selector, edge) => inShadow(page, (c, selector, edge) => {
     intro.scrollTop += own.bottom > pane.bottom ? own.bottom - pane.bottom : Math.min(0, own.top - pane.top);
   }
   const own = control.getBoundingClientRect();
-  window.scrollTo(0, scrollY + (edge === 'bottom' ? own.bottom - innerHeight : own.top));
+  const band = c.shadowRoot.querySelector('.band').getBoundingClientRect(), foot = c.shadowRoot.querySelector('.display-foot').getBoundingClientRect();
+  window.scrollTo(0, scrollY + (edge === 'bottom' ? own.bottom - foot.top + 12 : own.top - band.height - 12));
 }, selector, edge);
 async function noticeAtEntryPoints(page, state, full, label) {
   const checked = [];
@@ -1512,7 +1513,7 @@ async function noticeAtEntryPoints(page, state, full, label) {
       await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
       await inShadow(page, (c, selector) => c.shadowRoot.querySelector(selector).focus(), selector);
       const view = await noticeView(page, selector);
-      assert.deepEqual([view.control, view.notice, view.below], [true, true, true], `${label}: notice and focused ${selector}`);
+      assert.deepEqual([view.control, view.notice, view.above], [true, true, true], `${label}: notice and focused ${selector}`);
     }
     checked.push(selector);
   }
@@ -1532,7 +1533,7 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
     if (evidence) await mkdir(evidence, { recursive: true });
     const style = page => inShadow(page, c => {
       const r = c.shadowRoot, line = r.querySelector('.ai-notice'), text = r.querySelector('#ai-notice'), s = getComputedStyle(line);
-      return { clipped: line.scrollHeight > line.clientHeight + 1 || text.scrollWidth > line.clientWidth + 1, color: s.color,
+      return { clipped: line.scrollHeight > line.clientHeight + 1 || [...line.children].some(n => getComputedStyle(n).display !== 'none' && n.scrollWidth > n.clientWidth + 1), color: s.color,
         background: s.backgroundColor, pane: getComputedStyle(r.querySelector('.conversation')).backgroundColor,
         border: [s.borderLeftWidth, s.borderRightWidth, s.borderTopWidth, s.borderTopLeftRadius, s.boxShadow],
         pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };

@@ -192,37 +192,30 @@ export class HostSurface {
     const line = this.#root.querySelector('.host-credits');
     line.hidden = !this.#options.credits;
     if (!this.#options.credits) return;
-    const c = this.#copy.hostSurface.credits, session = this.#session(), locale = session.locale ?? 'en';
+    const c = this.#copy.hostSurface.credits, layout = this.#copy.layout, session = this.#session(), locale = session.locale ?? 'en';
     const format = typeof this.#options.credits?.format === 'function' ? this.#options.credits.format : defaultCreditFormat;
-    const limit = line.querySelector('.host-credits__limit'), text = line.querySelector('.host-credits__text');
-    const track = line.querySelector('.host-credits__track'), title = line.querySelector('.host-credits__title'), scope = line.querySelector('.host-credits__scope');
-    setText(title, `${c.title} ·`); setText(scope, `· ${c.scope}`);
+    const limit = line.querySelector('.host-credits__limit'), track = line.querySelector('.host-credits__track');
+    const amount = line.querySelector('.host-credits__amount'), total = line.querySelector('.host-credits__total'), unit = line.querySelector('.host-credits__unit');
+    const scope = line.querySelector('.host-credits__scope'), deadline = line.querySelector('.host-credits__deadline');
+    setText(scope, c.scope); limit.hidden = !this.#ended; line.dataset.ended = String(Boolean(this.#ended));
+    setText(total, ''); setText(unit, ''); setText(deadline, ''); track.hidden = true;
     if (this.#ended) {
-      line.title = ''; line.removeAttribute('aria-description');
-      setText(text, c.ended[this.#ended] ?? c.ended.session); limit.hidden = false; line.dataset.ended = 'true';
-      track.hidden = true; title.hidden = true; scope.hidden = true;
-      return;
+      const ended = c.ended[this.#ended] ?? c.ended.session;
+      setText(amount, '—'); setText(deadline, ended); line.setAttribute('aria-label', ended); return;
     }
-    limit.hidden = true; line.dataset.ended = 'false';
-    title.hidden = false; scope.hidden = false;
     const owner = this.#credits?.balance?.owner, slot = this.#credits?.limitSlot;
-    if (!owner) { setText(text, c.loading); track.hidden = true; return; }
+    if (!owner) { setText(amount, '…'); line.setAttribute('aria-label', `${c.title}: ${c.loading}`); return; }
+    setText(amount, format(owner.availableMicro, locale));
+    setText(total, fill(layout.creditsTotal, { limit: format(owner.limitMicro, locale) })); setText(unit, layout.creditsUnit);
+    line.setAttribute('aria-label', `${c.title}: ${amount.textContent}${total.textContent}${unit.textContent} · ${c.scope}`);
     track.hidden = false;
     const value = wholeCredits(owner.availableMicro), maximum = wholeCredits(owner.limitMicro);
     track.querySelector('i').style.width = `${maximum > 0 ? Math.min(100, value / maximum * 100) : 0}%`;
-    track.setAttribute('aria-valuenow', String(value)); track.setAttribute('aria-valuemax', String(maximum));
-    track.setAttribute('aria-label', c.title);
-    const parts = [fill(c.balance, { available: format(owner.availableMicro, locale), limit: format(owner.limitMicro, locale) })];
+    track.setAttribute('aria-valuenow', String(value)); track.setAttribute('aria-valuemax', String(maximum)); track.setAttribute('aria-label', c.title);
     if (slot?.status === 'active' && Number.isFinite(slot.remainingMs)) {
-      // The host's deadline keeps running during a pause (credits.js creditsView), so the countdown never
-      // stops; a pause only keeps new paid work from starting, and the line says exactly that.
       const remaining = Math.max(0, slot.remainingMs - (Date.now() - this.#creditsAt));
-      parts.push(fill(c.remaining, { minutes: Math.ceil(remaining / MINUTE) }));
-      if (session.paused) parts.push(c.paused);
+      setText(deadline, [fill(c.remaining, { minutes: Math.ceil(remaining / MINUTE) }), session.paused ? c.paused : ''].filter(Boolean).join(' · '));
     }
-    // The visible footer is the wallet. The existing per-conversation deadline stays accessible on hover/focus.
-    setText(text, parts[0]);
-    line.title = parts.slice(1).join(' · '); line.setAttribute('aria-description', line.title);
   }
   // Legal and footer slots: the hairline row shows only when the host filled one of them.
   #mountFoot() {

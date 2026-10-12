@@ -105,7 +105,7 @@ test('AIT-131 approved display: eight states at 390, 1024, 1440, both themes and
         s.featureMatrix.best.html = visuals; s.featureMatrix.best.images = visuals;
         s.conceptVisualKind = 'html'; s.conceptCost = drafts === 'off' ? null : { maxMicro: 400_000 };
         if (stage === 'conversation') {
-          s.inputRevision = 1;
+          s.inputRevision = 1; s.openQuestion = { stub: true };
           s.transcript = [{ id: 'a1', role: 'assistant', content: words.first }, { id: 'u1', role: 'user', content: words.answer }, { id: 'a2', role: 'assistant', content: words.reply }];
           s.understanding = { ...s.understanding, locale, inputRevision: 1, readinessAssessed: true, draft: false, summary: words.summary,
             signals: words.signals, openQuestions: words.questions, progress: { talk: { value: .5 }, build: { value: .2 } } };
@@ -126,8 +126,8 @@ test('AIT-131 approved display: eight states at 390, 1024, 1440, both themes and
       await scene('entrance');
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.stage), 'entrance');
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${label}: no horizontal overflow`);
-      const header = await boxes(page, ['.wordmark', '.conversations-toggle', '.settings-open']);
-      assert.ok(Math.abs(header[0][1] + header[0][3] / 2 - header[1][1] - header[1][3] / 2) < .5, `${label}: wordmark and controls in one row`);
+      const header = await boxes(page, ['.band-orb', '.conversations-toggle', '.settings-open']);
+      assert.ok(Math.abs(header[0][1] + header[0][3] / 2 - header[1][1] - header[1][3] / 2) < .5, `${label}: band orb and menu share the first row`);
       assert.equal(header[1][3], 44); assert.equal(header[2][2], 44); assert.equal(header[2][3], 44);
       for (const selector of ['#locale', '#theme']) {
         const target = await page.$eval(selector, n => ({ width: n.getBoundingClientRect().width, height: n.getBoundingClientRect().height, title: n.title }));
@@ -141,7 +141,7 @@ test('AIT-131 approved display: eight states at 390, 1024, 1440, both themes and
         tags: c.shadowRoot.querySelectorAll('.engine-tag').length, text: c.shadowRoot.querySelector('.workspace').textContent }));
       assert.equal(bad.sessionRow, false); assert.equal(bad.tags, 0);
       assert.doesNotMatch(bad.text, /~anthropic\/|anthropic\/claude|openrouter\/|Kosten unbekannt|Cost unavailable/u);
-      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-credits__text').textContent), locale === 'de' ? '655 von 1.000 übrig' : '655 of 1,000 left');
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-credits__text').textContent), locale === 'de' ? '655 von 1.000 Credits' : '655 of 1,000 Credits');
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-credits__track i').style.width), '65.5%');
       const pane = await shadow(page, c => { const p = c.shadowRoot.querySelector('.analysis-content'); p.scrollTop = 0;
         return { overflow: p.scrollHeight > p.clientHeight, titleMask: getComputedStyle(c.shadowRoot.querySelector('.understanding > .head')).maskImage }; });
@@ -161,7 +161,36 @@ test('AIT-131 approved display: eight states at 390, 1024, 1440, both themes and
       await page.hover('aithema-session >>> .turn.user'); sameBoxes(before, await boxes(page, stable), `${label}: withdraw hover`);
       await shadow(page, c => c.shadowRoot.querySelector('.withdraw').focus()); sameBoxes(before, await boxes(page, stable), `${label}: withdraw focus`);
       assert.equal((await boxes(page, ['.withdraw']))[0][2], 44);
+      await page.mouse.move(0, 0); await page.evaluate(() => window.scrollTo(0, 0));
+      const foldBefore = await boxes(page, ['.fold', '.motion-toggle', '.band']);
+      const scrollBefore = await shadow(page, c => [...c.shadowRoot.querySelectorAll('.transcript-shell,.analysis-content')].map(p => p.scrollTop));
+      await shadow(page, c => c.shadowRoot.querySelector('.fold').click()); await settle();
+      sameBoxes(foldBefore, await boxes(page, ['.fold', '.motion-toggle', '.band']), `${label}: fold control stays fixed`);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversation').hidden && c.shadowRoot.querySelector('.understanding').hidden), true);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.fold-question').hidden), false);
+      const canvas = (await boxes(page, ['.drafts-canvas']))[0];
+      assert.ok(canvas[2] >= width - 2 * Math.max(20, width * .04) - 2, `${label}: full-width canvas`);
+      await shot('folded-strip-canvas', width, theme);
+      await shadow(page, c => c.shadowRoot.querySelector('.fold-strip').click()); await settle();
+      assert.deepEqual(await shadow(page, c => [...c.shadowRoot.querySelectorAll('.transcript-shell,.analysis-content')].map(p => p.scrollTop)), scrollBefore, `${label}: restore pane scroll`);
+      const footerStable = ['.display-foot', '.engine-info', '.connection-timer'], footerBefore = await boxes(page, footerStable);
+      for (const [selector, name] of [['.engine-info', 'flag-hover-open'], ['.ai-notice', 'footer-popup-open'], ['.host-credits', 'credits-popup-open']]) {
+        await page.hover(`aithema-session >>> ${selector}`); await settle();
+        sameBoxes(footerBefore, await boxes(page, footerStable), `${label}: ${name}`);
+        const popup = await shadow(page, (c, selector) => {
+          const p = c.shadowRoot.querySelector(selector).closest('[data-footer-popup]').querySelector('.footer-popup'), b = p.getBoundingClientRect();
+          return { visible: getComputedStyle(p).visibility, left: b.left, right: b.right, top: b.top, bottom: b.bottom };
+        }, selector);
+        assert.equal(popup.visible, 'visible');
+        assert.ok(popup.left >= 0 && popup.right <= width + .5 && popup.top >= 0 && popup.bottom <= (width === 390 ? 844 : 900), `${label}: unclipped popup ${JSON.stringify(popup)}`);
+        await shot(name, width, theme); await page.mouse.move(0, 0);
+      }
+      await page.click('aithema-session >>> .conversations-toggle');
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('.conversations-recent button').length === 3);
+      await shot('conversations-menu-open', width, theme); await page.keyboard.press('Escape');
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversations-menu').hidden), true);
       await scene('conversation', 'off');
+
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), copy.display.draftsOff);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-request').hidden), true); await shot('drafts-off', width, theme);
       await scene('conversation', 'on');
@@ -177,6 +206,27 @@ test('AIT-131 approved display: eight states at 390, 1024, 1440, both themes and
       await new Promise(resolve => setTimeout(resolve, 700)); await shot('voice-rail-live', width, theme);
       await shadow(page, c => c.shadowRoot.querySelector('.voice-close').click());
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'idle');
+    }
+    for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [320, 768]) {
+      await page.setViewport({ width, height: 900 }); await page.select('#theme', theme); await scene('conversation');
+      const row = await shadow(page, c => {
+        const r = c.shadowRoot, items = ['.ai-notice', '.host-credits', '.footer-right'].map(s => {
+          const b = r.querySelector(s).getBoundingClientRect(); return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
+        });
+        const visible = s => getComputedStyle(r.querySelector(s)).display !== 'none';
+        return { items, short: visible('.ai-notice__short'), version: visible('.display-version'), unit: visible('.host-credits__unit') };
+      });
+      assert.ok(row.items.every(b => b.left >= 0 && b.right <= width + .5), `${width}-${theme}-${locale}: footer fits`);
+      assert.ok(row.items.every(b => Math.abs(b.top - row.items[0].top) <= .5), 'one footer line');
+      assert.ok(row.items[0].right <= row.items[1].left + .5 && row.items[1].right <= row.items[2].left + .5, 'footer zones never overlap');
+      assert.equal(row.short, width < 600); assert.equal(row.version, width >= 600); assert.equal(row.unit, width >= 360);
+      await shot('footer-narrow', width, theme);
+      for (const [selector, name] of [['.engine-info', 'flag-hover-open'], ['.ai-notice', 'footer-popup-open'], ['.host-credits', 'credits-popup-open']]) {
+        await page.hover(`aithema-session >>> ${selector}`); await settle();
+        const popup = await shadow(page, (c, selector) => { const p = c.shadowRoot.querySelector(selector).closest('[data-footer-popup]').querySelector('.footer-popup'), b = p.getBoundingClientRect(); return [b.left,b.right,b.top,b.bottom]; }, selector);
+        assert.ok(popup[0] >= 0 && popup[1] <= width + .5 && popup[2] >= 0 && popup[3] <= 900, 'narrow popup fits');
+        await shot(name, width, theme); await page.mouse.move(0, 0);
+      }
     }
     locale = 'de'; await page.setViewport({ width: 1440, height: 900 }); await page.select('#theme', 'light'); await scene('conversation');
     const footer = await boxes(page, ['.display-foot', '.engine-info', '.composer']);
@@ -202,5 +252,5 @@ test('AIT-131 approved display: eight states at 390, 1024, 1440, both themes and
         await reference.screenshot({ path: join(evidence, 'approved-reference-1440-light-de.png'), fullPage: true }); await reference.close();
       } catch (error) { if (error.code !== 'ENOENT') throw error; }
     }
-    t.diagnostic(`AIT-131 display matrix: 96 state screenshots + 2 extra screenshots; ${files.length} files written.`);
+    t.diagnostic(`AIT-131 display matrix: Round-2 state and footer screenshots; ${files.length} files written.`);
   });

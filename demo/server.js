@@ -114,7 +114,7 @@ const expiry = startExpiry(handlers);
 let allowedHosts = new Set();
 async function handle(request) {
   const refused = deploymentGate(request, deployment, allowedHosts); if (refused) return refused;
-  if (request.method === 'GET' && new URL(request.url).pathname === '/healthz') return Response.json({ ok: true, commit: deployment.commit });
+  if (request.method === 'GET' && new URL(request.url).pathname === '/healthz') return Response.json({ ok: true, commit: deployment.commit ?? build.commit, version: build.version, product: build.product, date: build.date });
   const upload = /^\/api\/sessions\/[a-zA-Z0-9_-]{1,128}\/uploads$/u.test(new URL(request.url).pathname);
   if (request.method === 'POST' && !upload && request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') {
     return new Response(null, { status: 415 });

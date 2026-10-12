@@ -190,7 +190,7 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     await until(page, () => document.querySelector('aithema-session').session.paused === true);
     // The host deadline keeps running while paused: the countdown stays and the line says what pausing does.
     await until(page, paused => {
-      const line = document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits').title;
+      const line = document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__deadline').textContent;
       return / min left in this conversation · /u.test(line) && line.endsWith(paused);
     }, cr.paused);
     // The fake mail outbox (demo only) stands in for the inbox.
@@ -211,7 +211,7 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     assert.equal(await text(page, '.host-verify .verify-done'), v.verified);
     assert.equal(await inShadow(page, c => c.session.paused), true, 'the manual pause is kept');
     assert.equal(await text(page, '.pause'), en.resume);
-    assert.equal(await text(page, '.status'), v.unlockedPaused);
+    assert.equal(await text(page, '.status__label'), v.unlockedPaused);
     await click(page, '.pause'); await until(page, () => document.querySelector('aithema-session').session.paused === false);
     await shot(page, 'en-light-1440-verified', '.understanding');
     tally.push('outbox confirmation unlocks the assessment, manual pause kept');
@@ -236,7 +236,7 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     tally.push('handover failed then Retry sent');
 
     // Credits: the owner balance from the server, in the host bar.
-    assert.match(await text(page, '.host-credits__text'), /^[\d.,]+ of [\d.,]+ left$/u);
+    assert.match(await text(page, '.host-credits__text'), /^[\d.,]+ of [\d.,]+ Credits$/u);
 
     // The library: the current conversation, New, rename, sort, open, delete.
     const first = await inShadow(page, c => c.session.id);

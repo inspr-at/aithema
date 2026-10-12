@@ -11,5 +11,5 @@ export function buildInfo(values = process.env) {
       { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 1000, maxBuffer: 4096 }).trim().split('\n');
     commit ??= source[0]; date ??= source[1];
   } catch { /* An archive uses its supplied build metadata; missing facts are never invented. */ }
-  return { version: packageInfo.version, commit, date };
+  return { version: packageInfo.version, product: 'Aithema 2026.10', commit, date };
 }

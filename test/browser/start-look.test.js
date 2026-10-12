@@ -176,7 +176,7 @@ test('START look on the reference host: entrance, consent page, readiness, conve
         await inShadow(page, c => c.shadowRoot.querySelector('.voice-start').click());
         await until(page, () => ['listening', 'speaking'].includes(document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state));
         await settle(900);
-        assert.ok(await inShadow(page, c => Boolean(c.shadowRoot.querySelector('.audio-rail .voice-orb .orb'))), `${label}: the orb is docked in the rail`);
+        assert.ok(await inShadow(page, c => Boolean(c.shadowRoot.querySelector('.band-orb .orb'))), `${label}: the 40 px orb stays in the band`);
         const rail = await inShadow(page, c => [...c.shadowRoot.querySelectorAll('.audio-rail button')].filter(b => getComputedStyle(b).visibility === 'visible')
           .map(b => ({ name: b.textContent.trim(), width: Math.round(b.getBoundingClientRect().width), pressed: b.getAttribute('aria-pressed') })));
         assert.ok(rail.length >= 4 && rail.every(control => control.name && control.width === 44), `${label}: ${JSON.stringify(rail)}`);
