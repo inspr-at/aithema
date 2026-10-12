@@ -46,9 +46,12 @@ export function httpAdapter(handle) {
         } : {}) });
       const response = await handle(request);
       const responseHeaders = Object.fromEntries(response.headers);
-      // Finish small declared bodies before responding. Oversized, undeclared
-      // or stalled uploads still get their JSON refusal followed by a close.
-      if (body && !incoming.complete && !await finishSmallRequest(incoming, body)) responseHeaders.connection = 'close';
+      // Finish small rejected bodies before responding. A successful streaming
+      // response can still own the request body, so it keeps the existing path.
+      if (body && !incoming.complete) {
+        const finished = response.status >= 400 && await finishSmallRequest(incoming, body);
+        if (!finished) responseHeaders.connection = 'close';
+      }
       outgoing.writeHead(response.status, responseHeaders);
       if (!response.body) { outgoing.end(); return; }
       const reader = response.body.getReader();

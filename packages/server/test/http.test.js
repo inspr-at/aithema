@@ -108,3 +108,19 @@ for (const length of [undefined, '65537']) test(`AIT-142: early rejection does n
   assert.equal(response.status, 413); assert.equal(response.headers.connection, 'close');
   assert.equal(resume.mock.calls.length, 0, 'rejection must not resume an unbounded body');
 });
+
+test('HTTP adapter preserves a successful response that streams its request body', async t => {
+  const incoming = new PassThrough(), outgoing = new PassThrough(), first = Promise.withResolvers();
+  Object.assign(incoming, { method: 'POST', url: '/echo', complete: false,
+    headers: { 'content-length': '128' }, rawHeaders: ['content-length', '128'] });
+  let status; const chunks = [];
+  outgoing.writeHead = code => { status = code; };
+  outgoing.on('data', chunk => { chunks.push(chunk); first.resolve(); });
+  t.after(() => { incoming.destroy(); outgoing.destroy(); });
+  const serving = httpAdapter(request => new Response(request.body))(incoming, outgoing);
+  incoming.write(Buffer.alloc(64, 97));
+  await first.promise;
+  incoming.complete = true; incoming.end(Buffer.alloc(64, 98));
+  await serving;
+  assert.equal(status, 200); assert.equal(Buffer.concat(chunks).toString(), 'a'.repeat(64) + 'b'.repeat(64));
+});
