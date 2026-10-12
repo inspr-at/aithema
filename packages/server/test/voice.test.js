@@ -383,7 +383,7 @@ test('AIT-130 voice prompt retains typed turns during the call without replaying
   const typed = { role: 'user', content: 'Typed during this voice call' };
   const response = await h.route('/turns', { clientEventId: 'typed', content: typed.content,
     voiceCallId: h.grant.callId, providerSessionId: h.grant.providerSessionId });
-  assert.equal(response.status, 201);
+  assert.equal(response.status, 200);
   const history = h.recorded();
   assert.deepEqual(await h.callback(history), history, 'already saved typed input is not appended again');
   await h.persist('user', 'typed-echo', typed.content);
@@ -435,6 +435,14 @@ test('AIT-130 voice prompt matches a persisted utterance across harmless whitesp
   await h.persist('user', 'new', 'Newest   utterance\nwith spaces');
   const recorded = h.recorded();
   assert.deepEqual(await h.callback([...recorded.slice(0, -1), { role: 'user', content: ' Newest utterance with spaces ' }]), recorded);
+});
+
+test('AIT-130 voice prompt includes a repeated answer when the preceding assistant is not yet persisted', async t => {
+  const h = await voicePromptFixture(t);
+  await h.persist('user', 'old', 'Yes');
+  const latest = { role: 'user', content: 'Yes' }, recorded = h.recorded();
+  assert.deepEqual(await h.callback([...recorded, { role: 'assistant', content: 'Another question not yet recorded' }, latest]),
+    [...recorded, latest]);
 });
 
 test('consent withdrawal mid-call closes provider, settles once and rejects late finals and callback auth', async t => {
