@@ -42,6 +42,20 @@ test('AIT-138: explicit hangup cannot be resurrected by a recover request', asyn
   assert.equal(response.status, 403); assert.equal(h.traffic.length, before);
 });
 
+test('AIT-138 fix 2: pause correlation survives durable replay without admitting invalid identifiers', async t => {
+  const h = voiceFixture(t), grant = await h.start(), pauseRequestId = crypto.randomUUID();
+  const identity = { providerSessionId: grant.providerSessionId, pauseRequestId };
+  const before = h.storage.get(h.session.id).seq;
+  const response = await h.route(`/voice/${grant.callId}/pause`, identity);
+  assert.equal(response.status, 200);
+  const pauses = h.storage.read(h.session.id, before).filter(event => event.type === 'session.paused');
+  assert.equal(pauses.length, 1); assert.equal(pauses[0].data.pauseRequestId, pauseRequestId);
+  assert.equal(h.storage.voiceLifecycle(h.session.id, grant.callId).state, 'paused');
+  const invalid = await h.route(`/voice/${grant.callId}/pause`, { ...identity, pauseRequestId: { unexpected: true } });
+  assert.equal(invalid.status, 400);
+  assert.equal(h.storage.read(h.session.id, before).filter(event => event.type === 'session.paused').length, 1);
+});
+
 test('AIT-138 fix 2: background closure confirmation preserves a waiting logical call', async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
   const h = voiceFixture(t, { unknown: true, leaseMs: 20, voiceOptions: { reconcileIntervalMs: 10,

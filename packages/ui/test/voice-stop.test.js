@@ -15,11 +15,11 @@ await import('../src/session-element.js');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const flush = async () => { for (let i = 0; i < 4; i++) await tick(); };
 
-function fixture(t, { transport, restored = true, component = false } = {}) {
+function fixture(t, { transport, restored = true, component = false, echoPause = false } = {}) {
   const session = createSession({ demo: true }), sdk = fakeSdk(), requests = [], returned = [], failures = [];
   const resumeEntered = Promise.withResolvers(), resumeAck = Promise.withResolvers();
   const closeEntered = Promise.withResolvers(), closeAck = Promise.withResolvers();
-  let callId = 'restored-call';
+  let callId = 'restored-call', echoed = false;
   session.featureMatrix = { best: { voice: { available: true }, text: { available: true } } };
   const waiting = { callId, providerSessionId: 'retired-provider', state: 'waiting', attempts: 3,
     needsRecovery: true, spendDeadlineAt: Date.now() + 60_000, browserLivenessDeadlineAt: Date.now() - 1000 };
@@ -52,7 +52,13 @@ function fixture(t, { transport, restored = true, component = false } = {}) {
     if (url.endsWith('/resume')) {
       resumeEntered.resolve(); await resumeAck.promise; return Response.json({ acknowledged: true, paused: false });
     }
-    if (url.endsWith('/pause')) return Response.json({ acknowledged: true, paused: true });
+    if (url.endsWith('/pause')) {
+      if (echoPause && !echoed) {
+        echoed = true; element.receive({ seq: 1, type: 'session.paused',
+          data: { paused: true, pauseRequestId: request.body.pauseRequestId } });
+      }
+      return Response.json({ acknowledged: true, paused: true });
+    }
     if (url.endsWith('/heartbeat')) return Response.json({ acknowledged: true, browserLivenessDeadlineAt: Date.now() + 30_000 });
     callId = request.body.callId; return Response.json(receipt());
   });
@@ -119,6 +125,18 @@ for (const transport of ['webrtc', 'websocket']) {
   });
 
   for (const restored of [false, true]) {
+    test(`AIT-138 fix 2: ${transport} its own pause echo preserves ${restored ? 'restored Resume' : 'one Pause request'}`, async t => {
+      const f = fixture(t, { transport, restored, component: true, echoPause: true });
+      f.root.querySelector(restored ? '.pause' : '.voice-start').click(); await flush();
+      if (!restored) { f.root.querySelector('.pause').click(); await flush(); }
+      assert.equal(f.requests.filter(request => request.url.endsWith('/pause')).length, 1, 'an echo cannot recursively pause its own request');
+      if (restored) {
+        assert.equal(f.requests.filter(request => request.url.endsWith('/resume')).length, 1, 'setup pause acknowledgement must allow the explicit Resume');
+        f.resumeAck.resolve(); await flush();
+      }
+      assert.equal(f.root.querySelector('.audio-rail').dataset.state, restored ? 'listening' : 'paused');
+    });
+
     test(`AIT-138 fix 2: ${transport} a server pause fences ${restored ? 'restored startup' : 'active Resume'} before its acknowledgement`, async t => {
       const f = fixture(t, { transport, restored, component: true });
       f.root.querySelector(restored ? '.pause' : '.voice-start').click();
