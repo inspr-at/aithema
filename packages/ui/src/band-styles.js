@@ -29,7 +29,7 @@ export const bandStyles = `
 .audio-rail[data-message] .voice-state { max-width:100%; }
 .audio-rail[data-message] .voice-state { left:0; }
 .workspace:not([data-stage="live"]) .band .audio-rail { display:grid; }
-.header-actions { justify-self:end; }
+.header-actions { justify-self:end; justify-content:flex-end; }
 .band-utilities { display:flex; align-items:center; }
 .header-actions > .settings-open { flex:none; }
 .conversations-toggle { width:auto; gap:var(--aithema-menu-gap,7px); white-space:nowrap; }
