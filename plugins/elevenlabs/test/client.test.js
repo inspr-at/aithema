@@ -68,6 +68,7 @@ test('SDK commands preserve independent channels; pause mutes before acknowledge
   await assert.rejects(session.sendText('while paused'), { code: 'not-admitted' });
   await session.resume(); assert.deepEqual(channelEffects(local.sdk).slice(-2), [['setInputMuted', true], ['setVolume', 0]]);
   await session.setInput(true); assert.deepEqual(channelEffects(local.sdk).slice(-2), [['setInputMuted', false], ['setVolume', 0]]);
+  local.sdk.starts[0].onMessage({ role: 'agent', message: 'A fresh reply after the interruption.', event_id: 3 });
   await session.setOutput(true); assert.deepEqual(channelEffects(local.sdk).slice(-2), [['setInputMuted', false], ['setVolume', 1]]);
   const reader = drain(session); const terminal = await session.close(); assert.equal(terminal.closureConfirmed, true);
   assert.equal((await reader).at(-1).type, 'ended');
