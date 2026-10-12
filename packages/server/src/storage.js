@@ -529,7 +529,8 @@ export class SQLiteStorage {
   }
   pause(id, paused, guard = {}) {
     return this.transaction(() => { const session = this.get(id); this.#check(session, guard);
-      return this.#append(session, 'session.paused', { paused }); });
+      return this.#append(session, 'session.paused', { paused,
+        ...(guard.pauseRequestId === undefined ? {} : { pauseRequestId: guard.pauseRequestId }) }); });
   }
   changeLocale(id, locale, guard = {}) {
     if (!['en', 'de'].includes(locale)) throw new TypeError('Unsupported locale');

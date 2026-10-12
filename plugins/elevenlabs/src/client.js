@@ -87,6 +87,11 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
       const persistenceCancellation = new AbortController();
       const seen = new Set(), assistants = new Map(), stoppedInputs = new WeakSet();
       const identity = () => ({ callId: request.callId, providerSessionId: grant?.providerSessionId });
+      const pauseControl = opts => {
+        const pauseRequestId = crypto.randomUUID();
+        options.onPauseRequest?.(pauseRequestId);
+        return control.pause({ ...identity(), pauseRequestId }, opts);
+      };
       const outputVolume = () => ended || paused || transportBlocked || !outputOn || playbackInterrupted ? 0 : 1;
       const stopPersistence = () => persistenceCancellation.abort();
       const persist = async value => {
@@ -403,7 +408,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
         if (conversation.getId() !== receipt.providerSessionId) throw new PluginError('invalid-output', 'Provider identity mismatch');
         await (creationChannels ?? capture.run(() => channels()));
         if (paused) {
-          const ack = await voiceOperation(connectOptions, opts => control.pause(identity(), opts));
+          const ack = await voiceOperation(connectOptions, pauseControl);
           if (ack?.acknowledged !== true || ack.paused !== true) throw new PluginError('invalid-output', 'Pause not acknowledged');
         }
       };
@@ -509,7 +514,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
             const muted = capture.run(() => channels()); muted.catch(() => {});
             return command('pause', async opts => {
               await muted;
-              const ack = await control.pause(identity(), opts);
+              const ack = await pauseControl(opts);
               if (ack?.acknowledged !== true || ack.paused !== true) throw new PluginError('invalid-output', 'Pause not acknowledged');
               return ack;
             }, true)(commandOptions);

@@ -402,7 +402,9 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           return json(await pending);
         }
         if (action === 'pause') {
-          const event = storage.pause(sessionId, true, { ownerToken }); publish(sessionId, event);
+          if (body.pauseRequestId !== undefined && (typeof body.pauseRequestId !== 'string' ||
+            !new RegExp(`^${idPattern}$`, 'u').test(body.pauseRequestId))) throw new TypeError('Invalid pause request identity');
+          const event = storage.pause(sessionId, true, { ownerToken, pauseRequestId: body.pauseRequestId }); publish(sessionId, event);
           storage.transitionVoiceLifecycle(sessionId, callId, { type: 'pause' });
           return json(await changePause(entry, true, options(request)));
         }

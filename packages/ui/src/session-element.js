@@ -1395,7 +1395,7 @@ export class AithemaSession extends HTMLElement {
       if (event.type === 'session.paused') {
         this.#invalidatedAt = Math.max(this.#invalidatedAt, event.seq); this.#notice = '';
         if (event.data.paused) this.#deviceController?.abort(); else this.#pausePrompt = false;
-        this.#rail.syncPause(event.data.paused);
+        this.#rail.syncPause(event.data.paused, event.data.pauseRequestId);
       }
       if ((invalidation || consentRevised || event.type === 'session.paused') && this.isConnected) void this.#refreshFeatures();
       if (event.type === 'turn.final') {

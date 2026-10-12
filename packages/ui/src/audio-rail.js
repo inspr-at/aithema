@@ -11,6 +11,7 @@ export class AudioRail {
   constructor({ root, copy, client, feature, context, onPartial, onPause, onEnd, onState, onLevel, playback, journal, ready, waitingCall, heartbeatMs = 10_000 }) {
     Object.assign(this, { root, copy, client, feature, context, onPartial, onPause, onEnd, onState, onLevel, playback, journal, ready, heartbeatMs });
     this.state = 'idle'; this.input = true; this.output = true; this.generation = 0; this.connected = true;
+    this.pauseRequests = new Set();
     if (waitingCall?.state === 'waiting' && waitingCall.providerSessionId) {
       this.waitingCall = { callId: waitingCall.callId, providerSessionId: waitingCall.providerSessionId };
       this.state = 'waiting'; this.paused = true;
@@ -148,7 +149,14 @@ export class AudioRail {
       this.playbackWatcher = watchVoicePlayback(this.root.ownerDocument, () => {
         if (generation === this.generation && (session ? session === this.session : this.state === 'connecting')) this.reportPlaybackBlocked();
       });
-      session = await this.client.start(this.waitingCall ?? { callId: crypto.randomUUID() }, { signal: controller.signal, holdSignal: holdController.signal, deadlineAt: Date.now() + 30_000 });
+      session = await this.client.start(this.waitingCall ?? { callId: crypto.randomUUID() }, {
+        signal: controller.signal, holdSignal: holdController.signal, deadlineAt: Date.now() + 30_000,
+        onPauseRequest: id => {
+          if (generation !== this.generation) return;
+          this.pauseRequests.add(id);
+          if (this.pauseRequests.size > 128) this.pauseRequests.delete(this.pauseRequests.values().next().value);
+        },
+      });
       if (generation !== this.generation) { await session.close(); return; }
       this.session = session; this.waitingCall = null; this.paused = false; this.state = 'listening';
       this.journal?.save({ callId: session.callId, providerSessionId: session.providerSessionId });
@@ -233,7 +241,10 @@ export class AudioRail {
     } catch { if (this.current(session, generation) && revision === this.pauseRevision) this.errorKey = 'voicePauseFailed'; }
     finally { if (this.current(session, generation) && revision === this.pauseRevision) { this.busy = false; this.render(); this.settle(); } }
   }
-  syncPause(paused) {
+  syncPause(paused, pauseRequestId) {
+    // Our own durable pause echo acknowledges an existing hold. It must neither
+    // queue another Pause nor fence the Resume following muted SDK setup.
+    if (paused && this.pauseRequests.delete(pauseRequestId)) return;
     // A server hold must win over pending Resume, including restored startup.
     if (paused) {
       if (this.state === 'connecting' || this.session && (!this.paused || this.busy)) void this.pause(true);
@@ -280,6 +291,7 @@ export class AudioRail {
       close: options => this.client.closeWaiting(waiting, options) } : null);
     this.closingSession = session;
     const generation = ++this.generation;
+    this.pauseRequests.clear();
     // A restored Resume has capture guards but no returned session yet. Fence
     // startup before its late acknowledgement or the waiting-call POST can run.
     if (!this.session) { this.holdController?.abort(); this.controller?.abort(); }
