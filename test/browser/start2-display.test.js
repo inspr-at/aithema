@@ -178,6 +178,21 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
       checks.push({ locale, theme, width, visual, target });
     }
   });
+  await t.test('conversations menu corners stay painted above the second band row at medium widths', async () => {
+    for (const width of [600, 680, 768, 900, 1000]) {
+      await scene('de', 'light', width);
+      await shadow(page, async c => { const { de } = await import('/packages/ui/src/i18n/de.js'); c.configure({ copy: de, session: c.session, host: { library: true } }); });
+      await page.click('aithema-session >>> .conversations-toggle'); await settle();
+      const menu = await shadow(page, c => {
+        const root = c.shadowRoot, n = root.querySelector('.conversations-menu'), b = n.getBoundingClientRect();
+        return { left: b.left, right: b.right, top: b.top, bottom: b.bottom,
+          corners: [[b.left + 8, b.top + 8], [b.right - 8, b.top + 8], [b.left + 8, b.bottom - 8], [b.right - 8, b.bottom - 8]]
+            .map(([x, y]) => { const hit = root.elementFromPoint(x, y); return { painted: n.contains(hit), hit: hit?.className }; }) };
+      });
+      await shot('conversations-medium', 'de', 'light', width);
+      assert.ok(menu.corners.every(n => n.painted), `${width}: ${JSON.stringify(menu)}`);
+    }
+  });
   if (evidence) await writeFile(join(evidence, 'display-regressions-evidence.json'), JSON.stringify({ ticket: 'AIT-131', commit: evidenceCommit,
     createdAt: new Date().toISOString(), files, checks }, null, 2));
 });
@@ -357,7 +372,7 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
             .every(([x, y]) => n.contains(c.shadowRoot.elementFromPoint(x, y))) };
       });
       assert.ok(menu.left >= 0 && menu.right <= width + .5 && menu.top >= 0 && menu.bottom <= (width === 390 ? 844 : 900), `${width}-${theme}-${locale}: conversations menu fits ${JSON.stringify(menu)}`);
-      assert.equal(menu.painted, true, 'every menu corner is visible');
+      assert.equal(menu.painted, true, `${width}-${theme}-${locale}: every menu corner is visible ${JSON.stringify(menu)}`);
       sameBoxes(before, await boxes(page, selectors), 'opening the menu keeps the band fixed');
       await shot('conversations-menu-open', width, theme); await page.keyboard.press('Escape');
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversations-menu').hidden), true);
