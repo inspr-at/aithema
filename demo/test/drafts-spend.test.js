@@ -425,6 +425,26 @@ for (const ownership of ['expired lease', 'different incarnation', 'different wr
   });
 }
 
+for (const stage of ['reserved', 'dispatched', 'cost-receipt']) {
+  test(`AIT-134 round 4: a reader clock jump fences a still-running ${stage} writer with an older clock`, async t => {
+    t.mock.timers.enable({ apis: ['setInterval'] });
+    const path = `${await temporaryDb()}.spend.json`;
+    const writer = createSpendLedger({ path, capMicro: 100, now: () => 1_000_000 });
+    const handle = writer.reserve(100, { attemptId: 'skewed-reader' });
+    if (stage !== 'reserved') writer.dispatch(handle);
+    if (stage === 'cost-receipt') writer.record(handle, { chargedMicro: 37 });
+    const reader = createSpendLedger({ path, capMicro: 100, now: () => 1_030_001 }); reader.recover();
+    assert.throws(() => writer.settle(handle, stage === 'reserved' ? 0 : 37), { code: 'not-admitted' });
+    assert.throws(() => writer.dispatch(handle), { code: 'not-admitted' });
+    assert.equal(reader.snapshot().spentMicro, stage === 'cost-receipt' ? 37 : 0);
+    assert.equal(reader.snapshot().uncertainMicro, stage === 'dispatched' ? 100 : 0);
+    if (stage !== 'reserved') {
+      reader.reconcileAttempt('skewed-reader', 37); reader.reconcileAttempt('skewed-reader', 37);
+      assert.equal(reader.snapshot().spentMicro, 37);
+    }
+  });
+}
+
 test('AIT-134 round 4: failed renewal transactions log retries before the persisted lease expires', async t => {
   t.mock.timers.enable({ apis: ['setInterval'] });
   const warnings = []; t.mock.method(console, 'warn', (...args) => warnings.push(args.join(' ')));
