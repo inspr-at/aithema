@@ -99,7 +99,9 @@ export function createReveal({ band, orb, controls = [], links, version = {}, co
   });
   const build = document.createElement('span'); build.className = 'aithema-reveal__version aithema-reveal__rise'; build.style.setProperty('--ar-i', (links ?? text.links ?? []).length + 1);
   build.title = (text.build ?? '{date}').replace('{date}', version.date ?? '');
-  const product = document.createElement('span'), commit = document.createElement('code'); product.textContent = version.product ?? ''; commit.textContent = version.commit ?? ''; build.append(product, commit); row.append(build);
+  const product = document.createElement('span'), commit = document.createElement('code'), sourceCommit = version.commit ?? '';
+  product.textContent = version.product ?? ''; commit.textContent = /^[a-f0-9]{40,64}$/iu.test(sourceCommit) ? sourceCommit.slice(0, 10) : sourceCommit;
+  commit.title = sourceCommit; build.append(product, commit); row.append(build);
   const bandAttributes = remember(band, ['data-aithema-reveal-state', 'data-aithema-reveal-motion', 'data-aithema-reveal-paused']);
   const triggerAttributes = remember(trigger, ['aria-hidden', 'role', 'tabindex', 'aria-label', 'aria-expanded', 'aria-controls']);
   const hadClass = band.classList.contains('aithema-reveal-band'), originalPosition = band.style.position;
@@ -109,7 +111,7 @@ export function createReveal({ band, orb, controls = [], links, version = {}, co
   band.prepend(style, fx); band.insertBefore(row, trigger.parentNode === band ? trigger.nextSibling : null);
   const items = [...new Set(controls)].filter(control => control !== trigger && !control.contains(trigger));
   const saved = new Map(), properties = new Map(), paused = new Set();
-  let requested = motion !== false, destroyed = false, intent = 0, exitTimer = 0, phase = 'closed', suppressFocus = false, geometry, dissolves;
+  let requested = motion !== false, destroyed = false, connected = false, intent = 0, exitTimer = 0, phase = 'closed', suppressFocus = false, geometry, dissolves;
   let canvas, context, particles = [], frame = 0, ambient = 0, last = 0;
   const moving = () => requested && !preference?.matches;
   const active = () => band.getRootNode().activeElement ?? document.activeElement;
@@ -123,10 +125,14 @@ export function createReveal({ band, orb, controls = [], links, version = {}, co
     // The host owns the hairline. Clip all glass effects at its lower edge, including an inset line.
     const bottom = Math.max(0, parseFloat(view.getComputedStyle(band, '::after').bottom) || 0), height = Math.max(0, b.height - bottom);
     const x = r.left + r.width / 2 - b.left, y = r.top + r.height / 2 - b.top;
-    const sizes = items.map(node => {
-      const rect = node.getBoundingClientRect(), style = view.getComputedStyle(node);
+    const sizes = items.flatMap(node => {
+      const style = view.getComputedStyle(node);
+      // Reserved slots are layout, not visible controls. Leave them untouched:
+      // no dissolve clone, inert state, or stagger to paint a ghost on exit.
+      if (style.visibility === 'hidden' || parseFloat(style.opacity) === 0 || !node.getClientRects().length) return [];
+      const rect = node.getBoundingClientRect();
       const visual = ['display', 'align-items', 'justify-content', 'gap', 'padding', 'border', 'border-radius', 'background', 'color', 'font', 'line-height', 'box-shadow'].map(name => [name, style.getPropertyValue(name)]);
-      return { node, rect, opacity: style.opacity, transform: style.transform, visual };
+      return [{ node, rect, opacity: style.opacity, transform: style.transform, visual }];
     });
     const radius = Math.max(1, Math.hypot(x, y), Math.hypot(b.width - x, y), Math.hypot(x, height - y), Math.hypot(b.width - x, height - y));
     // Match the reference's 2400px circle without allocating a 4800px backing element.
@@ -218,7 +224,7 @@ export function createReveal({ band, orb, controls = [], links, version = {}, co
     view.clearInterval(ambient); ambient = 0; exitTimer = view.setTimeout(finishExit, exitDuration());
   };
   const open = () => {
-    cancelIntent(); if (destroyed || document.hidden || phase === 'open') return;
+    cancelIntent(); if (destroyed || !connected || document.hidden || phase === 'open') return;
     view.clearTimeout(exitTimer); exitTimer = 0;
     if (items.some(node => node.contains(active()))) focusOrb();
     if (phase === 'closed') { measure(); dissolveControls(); }
@@ -249,19 +255,29 @@ export function createReveal({ band, orb, controls = [], links, version = {}, co
     else if (event.composedPath().includes(trigger) && ['Enter', ' '].includes(event.key)) { event.preventDefault(); open(); }
   };
   const resize = () => { if (phase === 'open') { measure(); stopParticles(true); startParticles(); } };
-  trigger.addEventListener('mouseenter', enter); trigger.addEventListener('mouseleave', cancelIntent); trigger.addEventListener('focus', focus); trigger.addEventListener('click', open);
-  band.addEventListener('mouseleave', close); band.addEventListener('focusout', blur); document.addEventListener('keydown', keydown);
-  document.addEventListener('visibilitychange', visibility); view.addEventListener('resize', resize); preference?.addEventListener('change', syncMotion);
-  syncMotion(); visibility();
+  const connect = () => {
+    if (destroyed || connected) return; connected = true;
+    trigger.addEventListener('mouseenter', enter); trigger.addEventListener('mouseleave', cancelIntent); trigger.addEventListener('focus', focus); trigger.addEventListener('click', open);
+    band.addEventListener('mouseleave', close); band.addEventListener('focusout', blur); document.addEventListener('keydown', keydown);
+    document.addEventListener('visibilitychange', visibility); view.addEventListener('resize', resize); preference?.addEventListener('change', syncMotion);
+    syncMotion(); visibility();
+  };
+  const disconnect = () => {
+    if (!connected) return; connected = false;
+    cancelIntent(); view.clearTimeout(exitTimer); exitTimer = 0; stopParticles(true); restoreControls(); setPhase('closed'); glass.style.transform = ''; paused.clear();
+    row.inert = true; row.setAttribute('aria-hidden', 'true'); trigger.setAttribute('aria-expanded', 'false');
+    trigger.removeEventListener('mouseenter', enter); trigger.removeEventListener('mouseleave', cancelIntent); trigger.removeEventListener('focus', focus); trigger.removeEventListener('click', open);
+    band.removeEventListener('mouseleave', close); band.removeEventListener('focusout', blur); document.removeEventListener('keydown', keydown);
+    document.removeEventListener('visibilitychange', visibility); view.removeEventListener('resize', resize); preference?.removeEventListener('change', syncMotion);
+    trigger.dispatchEvent(new view.CustomEvent('aithema-orb-reveal', { detail: false }));
+  };
+  connect();
   return {
-    close,
+    close, connect, disconnect,
     setMotion(on) { if (!destroyed) { requested = Boolean(on); syncMotion(); } },
     destroy() {
-      if (destroyed) return; if (row.contains(active())) focusOrb(); destroyed = true; cancelIntent(); view.clearTimeout(exitTimer); stopParticles(true); restoreControls();
-      trigger.removeEventListener('mouseenter', enter); trigger.removeEventListener('mouseleave', cancelIntent); trigger.removeEventListener('focus', focus); trigger.removeEventListener('click', open);
-      band.removeEventListener('mouseleave', close); band.removeEventListener('focusout', blur); document.removeEventListener('keydown', keydown);
-      document.removeEventListener('visibilitychange', visibility); view.removeEventListener('resize', resize); preference?.removeEventListener('change', syncMotion);
-      trigger.dispatchEvent(new view.CustomEvent('aithema-orb-reveal', { detail: false })); restore(trigger, triggerAttributes); restore(band, bandAttributes);
+      if (destroyed) return; if (row.contains(active())) focusOrb(); disconnect(); destroyed = true;
+      restore(trigger, triggerAttributes); restore(band, bandAttributes);
       for (const [name, [value, priority]] of properties) value ? band.style.setProperty(name, value, priority) : band.style.removeProperty(name);
       if (!hadClass) band.classList.remove('aithema-reveal-band'); band.style.position = originalPosition; style.remove(); fx.remove(); row.remove(); paused.clear();
     },

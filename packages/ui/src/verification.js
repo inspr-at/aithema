@@ -2,7 +2,7 @@
 // v2-verification-recovery.ts. The server owns every fact: the component sends an address or
 // a resend request and shows the identity view the server acknowledges (also over SSE).
 // One form is built twice: inline on the understanding pane while host policy locks the
-// assessment, and in a small dialog behind the quiet entry in the host bar otherwise.
+// assessment, and in a small dialog behind the quiet entry in Settings otherwise.
 import { node, setText, showOne, fill } from './dom.js';
 
 // START EmailLock, without its motion: a closed padlock in the accent colour.
@@ -11,13 +11,14 @@ const CHECK = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" strok
 export const POLL_MS = 4000;
 
 export class Verification {
-  #copy; #request; #status; #onChange; #focusAfterUnlock; #pollMs; #root; #notice;
+  #copy; #request; #status; #onChange; #focusAfterUnlock; #pollMs; #root; #notice; #beforeOpen; #focusReturn;
   #identity = null; #at = 0; #ui = { editing: false, busy: false, message: '', error: false };
   #forms = []; #entry; #lock; #dialog; #opener = null; #tick = null; #poll = null; #alive = true; #connected = false; #locked = false;
   /** request(path, body?) reaches the session's own host routes and resolves {ok,status,body}; notice() is the AI notice line. */
-  constructor({ root, copy, request, status, onChange, focusAfterUnlock, entry, lock, dialog, identity, pollMs = POLL_MS, notice }) {
+  constructor({ root, copy, request, status, onChange, focusAfterUnlock, beforeOpen, focusReturn, entry, lock, dialog, identity, pollMs = POLL_MS, notice }) {
     this.#root = root; this.#copy = copy; this.#request = request; this.#status = status; this.#onChange = onChange;
     this.#focusAfterUnlock = focusAfterUnlock; this.#pollMs = pollMs; this.#notice = notice;
+    this.#beforeOpen = beforeOpen; this.#focusReturn = focusReturn;
     this.#entry = entry; this.#lock = lock; this.#dialog = dialog;
     this.#mountEntry(); this.#mountLock(); this.#mountDialog();
     this.set(identity ?? null, { quiet: true });
@@ -74,7 +75,8 @@ export class Verification {
   destroy() { this.#alive = false; this.disconnect(); clearInterval(this.#tick); this.#tick = null; if (this.#dialog.open) this.#dialog.close(); }
   openDialog(opener = this.#entry.querySelector('button')) {
     if (!this.enabled) return;
-    this.#opener = opener; this.#paint();
+    this.#opener = this.#focusReturn?.() ?? opener;
+    this.#beforeOpen?.(); this.#paint();
     setText(this.#dialog.querySelector('.verify-dialog__notice'), this.#notice?.() ?? '');
     if (!this.#dialog.open) this.#dialog.showModal?.();
     this.#focusForm(this.#forms.find(f => f.root.closest('dialog')));
@@ -87,10 +89,13 @@ export class Verification {
     return status === 'verification-pending' && this.#identity.address && !this.#ui.editing ? 'pending' : 'capture';
   }
   #mountEntry() {
+    const title = node('h3', 'verify-entry-title');
+    const state = node('p', 'verify-entry-state');
+    state.append(node('span', 'verify-entry-address'), node('span', 'verify-entry-status'));
     const button = node('button', 'verify-entry'); button.type = 'button'; button.setAttribute('aria-haspopup', 'dialog');
     button.addEventListener('click', () => this.openDialog(button));
     const done = node('span', 'verify-done'); done.innerHTML = CHECK; done.append(node('span'));
-    this.#entry.replaceChildren(button, done);
+    state.append(done); this.#entry.replaceChildren(title, state, button);
   }
   #mountLock() {
     const icon = node('span', 'verify-lock__icon'); icon.innerHTML = LOCK;
@@ -183,10 +188,16 @@ export class Verification {
   }
   #paint() {
     const v = this.#v, identity = this.#identity, mode = this.#mode(), cooldown = this.#cooldown();
-    // Bar entry: a quiet action until verified, then a plain line with a check.
-    const [button, done] = this.#entry.children;
-    button.hidden = !identity || mode === 'verified'; done.hidden = !identity || mode !== 'verified';
-    setText(button, identity?.status === 'verification-pending' ? v.pending : v.entry); setText(done.lastChild, v.verified);
+    // Settings owns the optional entry; the policy lock below remains in the understanding pane.
+    this.#entry.hidden = !this.enabled;
+    const button = this.#entry.querySelector('.verify-entry'), done = this.#entry.querySelector('.verify-done');
+    const verified = identity?.status === 'verified', pending = identity?.status === 'verification-pending';
+    setText(this.#entry.querySelector('h3'), v.section);
+    setText(this.#entry.querySelector('.verify-entry-address'), identity?.address ?? '');
+    const entryStatus = this.#entry.querySelector('.verify-entry-status');
+    setText(entryStatus, pending ? v.linkSent : v.unverified); entryStatus.hidden = verified;
+    button.hidden = !this.enabled || verified; done.hidden = !this.enabled || !verified;
+    setText(button, pending ? v.resendOrChange : v.entry); setText(done.lastChild, v.verifiedShort);
     // Lock pane: shown exactly while host policy holds the assessment.
     this.#lock.hidden = !this.locked;
     setText(this.#lock.querySelector('.verify-lock__title'), v.lockTitle);

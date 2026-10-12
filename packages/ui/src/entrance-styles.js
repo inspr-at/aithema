@@ -58,10 +58,10 @@ export const entranceStyles = `
 .chooser__continue:disabled { cursor:wait; opacity:.7; }
 .chooser__error { max-width:40rem; min-height:1.5em; margin:1rem auto 0; font-size:.9rem; line-height:1.5; text-align:center; color:var(--aithema-error); }
 
-/* Readiness (START data-entry without a preset choice): the orb waits in the future conversation corner, the promise
-   and the card stand side by side on short wide screens and stack elsewhere. */
+/* Readiness: the band orb is the presence; the promise and card stand side by side
+   on short wide screens and stack elsewhere. */
 .intro[data-mode="ready"] { row-gap:1.75rem; padding-top:1.5rem; }
-.intro[data-mode="ready"] .intro__orb { position:absolute; top:0; left:0; margin:0; } .intro[data-mode="ready"] .intro__orb .orb { --orb-size:48px; }
+.intro[data-mode="ready"] .intro__orb { display:none; }
 .intro[data-mode="ready"] :is(.promise, .intro__promise ::slotted(*)) { font-size:clamp(2.2rem,1.2rem + 3vw,3rem); }
 .intro[data-mode="ready"] .promise__lead { margin-top:.85rem; line-height:1.5; }
 .ready { display:grid; gap:.85rem; width:min(100%,38rem); padding:1.25rem 1.5rem; text-align:left; color:var(--aithema-muted); font-size:.85rem; line-height:1.45;

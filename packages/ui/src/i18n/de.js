@@ -2,6 +2,23 @@ import { AI_NOTICE } from '../../../core/src/ai-notice.js';
 
 // German bundle. Wording follows START src/lib/i18n.ts (formal "Sie"; a visual concept is an "Entwurf").
 export const de = {
+  layout: {
+    fold: 'Gespräch einklappen', unfold: 'Gespräch ausklappen', openQuestion: 'Offene Frage · Ausklappen',
+    canvas: 'Visuelle Entwürfe', canvasEmpty: 'Hier ist Platz für Ihre Entwürfe.', noMessage: 'Gespräch ausklappen',
+    motionOff: 'Bewegung ausschalten', motionOn: 'Bewegung einschalten', aiShort: 'KI', syntheticVoice: 'synthetische Stimme',
+    creditsTotal: ' von {limit}', creditsUnit: ' Credits', inspr: 'Die Open-Source-Familie', augmentoring: 'KI-Beratung',
+  },
+  display: {
+    locale: 'de', modelInfo: 'Modelle und Stimme', modelUnknown: 'Modell dieses Hosts', presetUnknown: 'Auswahl dieses Hosts',
+    reply: 'Antworten', understanding: 'Einschätzung', voice: 'Stimme', via: 'über {provider}',
+    international: 'international', eu: 'in der EU', device: 'auf Ihrem Gerät', localModel: 'Lokales Modell',
+    deviceProvider: 'Ihr Gerät', hostProvider: 'diesen Host', testProvider: 'lokalen Test', testVoice: 'Test-Stimme',
+    draftsOff: 'Visuelle Entwürfe sind auf diesem Host nicht eingerichtet.',
+    draftsOn: 'Entwurf anfordern · ~{credits} Credits', draftsCost: '~{credits} Credits',
+    draftsLow: 'Für einen weiteren Entwurf sind gerade nicht genug Credits verfügbar.',
+    newConversation: 'Neues Gespräch', manageConversations: 'Alle Gespräche verwalten', currentConversation: 'jetzt',
+    withdraw: 'Diesen Beitrag entfernen. Wirkt ab der nächsten Antwort.',
+  },
   reveal: {
     label: 'Über Aithema', wordmark: 'Aithema', build: 'Stand vom {date}',
     links: [
@@ -21,14 +38,14 @@ export const de = {
   conceptLoading: 'Gespeichertes Bild wird geladen …', conceptImageFailed: 'Das gespeicherte Bild konnte nicht geladen werden. Öffnen Sie es erneut.',
   conceptGenerated: 'KI-generiertes Bild', conceptManipulated: 'KI-bearbeitetes Bild',
   conceptFake: 'Testbild: lokal erzeugtes PNG, ohne KI und ohne Anbieter',
-  conceptFree: 'Kostenlos (lokaler Test)', conceptCost: 'Bis zu {micro} Mikro-Einheiten', conceptCostUnknown: 'Kosten unbekannt',
+  conceptFree: 'Kostenlos (lokaler Test)', conceptCost: 'Bis zu {micro} Mikro-Einheiten',
   conceptGuidance: ['Einfacheres Layout', 'Mehr Kontrast', 'Mehr Weißraum', 'Wärmere Farben', 'Klarere Hierarchie', 'Diese Richtung beibehalten'],
   // The demo host's catalog names in German (AIT-118: one language per page); product names stay as they are.
   catalogLabels: { 'Mock reasoning': 'Mock-Auswertung', 'Swift (mock)': 'Swift (Mock)', 'Deep (mock)': 'Deep (Mock)',
     'GPT-4.1 mini via OpenRouter': 'GPT-4.1 mini über OpenRouter', 'Fake voice (local agent)': 'Test-Sprache (lokaler Agent)',
     'Fake HTML (local click-dummy)': 'Test-Entwurf (lokaler Klick-Dummy)', 'Claude HTML click-dummy': 'Claude-Klick-Dummy',
     'Fake images (local PNG)': 'Testbilder (lokales PNG)', 'Demo only: fake HTML click-dummy (no provider)': 'Nur Demo: Test-Klick-Dummy (ohne Anbieter)',
-    'Anthropic via OpenRouter': 'Anthropic über OpenRouter' },
+    'Anthropic via OpenRouter': 'Anthropic über OpenRouter', 'This host’s model': 'Modell dieses Hosts' },
   conceptDraftView: 'Klickbaren Entwurf öffnen', conceptDraftTitle: 'Entwurf, Fassung {number}', conceptDraftDownload: 'Entwurf herunterladen',
   conceptDraftRendering: 'Ihr klickbarer Entwurf entsteht …', conceptDraftUpdating: 'Ihr Entwurf wird mit Ihren neuesten Antworten aktualisiert …',
   conceptDraftReady: 'Fassung {number} des Entwurfs ist fertig.', conceptDraftNewer: 'Eine neuere Fassung ist fertig. Wählen Sie „Nächster“, um sie zu sehen.',
@@ -220,7 +237,7 @@ export const de = {
   deviceUnavailable: 'Lokales Modell nicht verfügbar',
   // Art. 50(1) AI notice (AIT-119). A host may reword it; an empty part falls back to this default.
   aiNotice: { ...AI_NOTICE.de },
-  conversation: 'Gespräch', understanding: 'So verstehen wir es', you: 'Sie', assistant: 'Assistent',
+  conversation: 'Gespräch', understanding: 'So verstehen wir es', you: 'Sie', assistant: 'KI-Assistenz',
   pause: 'Pausieren', resume: 'Fortsetzen', withdraw: 'Aussage zurückziehen', withdrawn: 'Aussage zurückgezogen',
   paused: 'Gespräch pausiert', pausedResume: 'Weiterhin pausiert. Wählen Sie „Fortsetzen“, um weiterzumachen.', consentRequired: 'Aktuelle Einwilligung zur Verarbeitung erforderlich',
   controlFailed: 'Die Änderung konnte nicht gespeichert werden. Versuchen Sie es erneut.',
@@ -239,6 +256,7 @@ export const de = {
     bar: 'Ihr Gespräch',
     verify: {
       entry: 'E-Mail bestätigen', pending: 'E-Mail noch nicht bestätigt', verified: 'E-Mail bestätigt',
+      section: 'E-Mail', unverified: 'Nicht bestätigt', linkSent: 'Link gesendet', resendOrChange: 'Erneut senden oder ändern', verifiedShort: 'Bestätigt',
       title: 'E-Mail bestätigen', close: 'Zum Gespräch',
       lockTitle: 'Auswertung und Entwürfe freischalten', lockLead: 'Bestätigen Sie Ihre E-Mail-Adresse, um die Auswertung anzusehen.',
       label: 'E-Mail-Adresse', placeholder: 'name@unternehmen.at', send: 'Bestätigungslink senden',
@@ -281,7 +299,7 @@ export const de = {
       limit: 'Dieses Gespräch kann nicht erneut gesendet werden. Beginnen Sie ein neues Gespräch, um mehr zu senden.',
     },
     credits: {
-      balance: 'Credits: {available} von {limit}', remaining: 'noch {minutes} Min. in diesem Gespräch', paused: 'Pausiert: Es startet nichts Neues, die Zeit läuft aber weiter',
+      title: 'Ihre Credits', scope: 'für alle Ihre Gespräche', loading: 'werden geladen …', balance: '{available} von {limit} übrig', remaining: 'noch {minutes} Min. in diesem Gespräch', paused: 'Pausiert: Es startet nichts Neues, die Zeit läuft aber weiter',
       ended: { 'one-hour': 'Das Gespräch hat die Zeitgrenze von einer Stunde erreicht und ist beendet. Ihr Verlauf bleibt gespeichert.',
         session: 'Die Credits dieses Gesprächs sind aufgebraucht. Ihr Verlauf bleibt gespeichert.',
         voiceVisitor: 'Die Sprach-Credits dieses Gesprächs sind aufgebraucht. Ihr Verlauf bleibt gespeichert.',

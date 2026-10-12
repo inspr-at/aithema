@@ -1,6 +1,7 @@
 import { postJson, sameOrigin } from './post-json.js';
 import { reasonText } from './settings-dialog.js';
 import { HTML_MEDIA_TYPE, frameDocument, inspectHTML } from '../../core/src/ui-html.js';
+import { draftsLine } from './display.js';
 
 // START generated-ui-progress: estimates reserve completion for durable success.
 export function conceptProgress(status, now = Date.now()) {
@@ -15,15 +16,18 @@ const sentence = text => /[.!?…]$/u.test(text) ? text : `${text}.`;
  * The rail's plain-words generation state. `kind` is what the next render produces
  * (the host's visual kind); the ready sentence follows the latest item.
  */
-export function conceptStateText({ copy, status = { phase: 'idle' }, feature, items, kind, requestError }) {
+export function conceptStateText({ copy, status = { phase: 'idle' }, feature, items, kind, cost, requestError }) {
   const drafts = items.filter(c => conceptKind(c) === 'html').length;
   if (status.phase === 'pending') return kind === 'html' ? drafts ? copy.conceptDraftUpdating : copy.conceptDraftRendering : copy.conceptRendering;
   if (requestError) return requestError;
   if (status.phase === 'failed') return status.reason ? sentence(reasonText(copy, status.reason))
     : status.error === 'restart' ? copy.conceptRestarted : status.error === 'source-removed' ? copy.conceptSourceRemoved : copy.conceptFailed;
   if (status.phase === 'waiting') return copy.conceptWaiting;
-  if (!feature.available && feature.reason) return sentence(feature.reason);
-  if (!items.length) return copy.conceptIntro;
+  if (!items.length || !feature.available) {
+    const line = draftsLine({ copy, cost, feature });
+    if (!feature.available && feature.reason && cost && line.state !== 'low' && !/not configured|not set up|not offered|not in preset|visuals off|nicht eingerichtet|nicht angeboten|ausgeschaltet/iu.test(feature.rawReason ?? feature.reason)) return sentence(feature.reason);
+    return line.action ? '' : line.text;
+  }
   return conceptKind(items.at(-1)) === 'html' ? copy.conceptDraftReady.replace('{number}', drafts) : copy.conceptReady;
 }
 const DRAFT_GLYPH = '<svg viewBox="0 0 48 32" aria-hidden="true"><rect x="1.5" y="1.5" width="45" height="29" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/>' +
@@ -32,6 +36,7 @@ const DRAFT_GLYPH = '<svg viewBox="0 0 48 32" aria-hidden="true"><rect x="1.5" y
 /** Generic START viewer experience, private owner-authenticated bytes only. */
 export class ConceptView {
   #session; #selected; #latest; #seen = new Set(); #urls = new Map(); #drafts = new Map(); #loads = new Map(); #epoch = 0;
+  #canvasEpoch = 0; #canvasCopy;
   #busy = false; #trigger; #timer; #touchX; #requestError = null; #statusKey = ''; #pointer = false; #pointerStage = false;
   setCopy(copy) { this.copy = copy; this.#paintCopy(); this.render(); }
   #paintCopy() {
@@ -116,7 +121,7 @@ export class ConceptView {
   suspend() {
     this.root.ownerDocument.removeEventListener('visibilitychange', this.visibility);
     this.root.ownerDocument.defaultView?.removeEventListener('pagehide', this.pagehide);
-    this.#epoch++; clearInterval(this.#timer); this.#timer = null; for (const url of this.#urls.values()) URL.revokeObjectURL(url); this.#urls.clear(); this.#drafts.clear(); this.close();
+    this.#epoch++; clearInterval(this.#timer); this.#timer = null; for (const url of this.#urls.values()) URL.revokeObjectURL(url); this.#urls.clear(); this.#drafts.clear(); this.suspendCanvas(); this.close();
   }
   async endEligibility() {
     if (!this.#session || this.#session.tombstone || this.#session.processingPreset === 'device') return;
@@ -135,6 +140,12 @@ export class ConceptView {
     if (changedOwner || session.consentWithdrawn || session.tombstone) valid.clear();
     for (const [id, url] of this.#urls) if (!valid.has(id)) { URL.revokeObjectURL(url); this.#urls.delete(id); }
     for (const id of this.#drafts.keys()) if (!valid.has(id)) this.#drafts.delete(id);
+    // Hidden surfaces are still artifact surfaces. Revoke them independently of
+    // the fold state or the modal's selected revision.
+    const canvas = this.root.querySelector('.canvas-html'), canvasImage = this.root.querySelector('.canvas-image');
+    const canvasId = canvas?.dataset.id ?? canvasImage?.dataset.id;
+    if (changedOwner || session.consentWithdrawn || session.tombstone ||
+      (canvasId || canvas?.artifact || canvasImage?.hasAttribute('src')) && !valid.has(canvasId)) this.suspendCanvas();
     // Redact revoked content immediately.
     if (changedOwner || session.consentWithdrawn || session.tombstone || this.#selected && !valid.has(this.#selected)) {
       this.#epoch++; this.root.querySelector('.concept-image').removeAttribute('src'); this.root.querySelector('.concept-disclosure').textContent = '';
@@ -148,6 +159,7 @@ export class ConceptView {
     if (!latest) this.root.querySelector('.concept-preview img').removeAttribute('src');
     this.follow(latest);
     this.render();
+    if (this.root.querySelector('.workspace')?.hasAttribute('data-folded')) void this.paintCanvas();
   }
   // Drafts are revised continuously: a viewer showing the latest draft moves on to the new
   // revision in its fixed stage, unless someone is at work in the viewer (focus in the draft,
@@ -168,7 +180,7 @@ export class ConceptView {
     if (!this.#session) return;
     const status = this.#session.conceptStatus ?? { phase: 'idle' }, node = this.root.querySelector('.concept-progress');
     const text = this.root.querySelector('.concept-activity-text'), countdown = this.root.querySelector('.concept-countdown');
-    const words = conceptStateText({ copy: this.copy, status, feature: this.feature(), items: this.items, kind: this.visualKind(), requestError: this.#requestError });
+    const words = conceptStateText({ copy: this.copy, status, feature: this.feature(), items: this.items, kind: this.visualKind(), cost: this.#session.conceptCost, requestError: this.#requestError });
     if (text.textContent !== words) text.textContent = words;
     if (status.phase === 'pending') {
       const estimate = conceptProgress(status); node.value = estimate.percent;
@@ -231,6 +243,33 @@ export class ConceptView {
       if (bytes) show(bytes); status.textContent = bytes ? '' : this.copy.conceptDraftFailed;
     } });
   }
+  // The folded canvas uses the same authenticated loader, revocation rules and sandbox as the viewer.
+  suspendCanvas() {
+    this.#canvasEpoch++;
+    const draft = this.root.querySelector('.canvas-html'), image = this.root.querySelector('.canvas-image');
+    if (draft) { draft.artifact = null; delete draft.dataset.id; }
+    if (image) { image.removeAttribute('src'); delete image.dataset.id; }
+    this.root.querySelector('.canvas-status').textContent = '';
+  }
+  async paintCanvas() {
+    const draft = this.root.querySelector('.canvas-html'), image = this.root.querySelector('.canvas-image');
+    if (!draft || !this.root.querySelector('.workspace')?.hasAttribute('data-folded')) return;
+    const epoch = this.#canvasEpoch, sessionId = this.#session.id;
+    const empty = this.root.querySelector('.canvas-empty'), status = this.root.querySelector('.canvas-status');
+    const item = this.#session?.consentWithdrawn || this.#session?.tombstone ? null : this.items.at(-1);
+    if (this.#canvasCopy !== this.copy.conceptPreview) { draft.copy = this.copy.conceptPreview; this.#canvasCopy = this.copy.conceptPreview; }
+    empty.hidden = Boolean(item); draft.hidden = !item || conceptKind(item) !== 'html'; image.hidden = !item || conceptKind(item) === 'html';
+    if (!item) { this.suspendCanvas(); return; }
+    if (draft.dataset.id !== item.id) { draft.dataset.id = item.id; draft.artifact = null; image.removeAttribute('src'); }
+    status.textContent = conceptKind(item) === 'html' ? this.copy.conceptDraftLoading : this.copy.conceptLoading;
+    const bytes = await this.load(item.id);
+    if (epoch !== this.#canvasEpoch || sessionId !== this.#session.id || !this.root.querySelector('.workspace')?.hasAttribute('data-folded') ||
+      this.#session?.consentWithdrawn || this.#session?.tombstone || this.items.at(-1)?.id !== item.id) return;
+    if (conceptKind(item) === 'html') {
+      if (bytes && draft.artifact?.bytes !== bytes) draft.artifact = { bytes, mediaType: HTML_MEDIA_TYPE };
+      status.textContent = bytes ? '' : this.copy.conceptDraftFailed;
+    } else { if (bytes) { image.src = bytes; image.dataset.id = item.id; } status.textContent = bytes ? '' : this.copy.conceptImageFailed; }
+  }
   guidanceToggle(value) {
     const button = document.createElement('button'); button.type = 'button'; button.textContent = value; button.dataset.value = value;
     button.setAttribute('aria-pressed', 'false');
@@ -253,12 +292,15 @@ export class ConceptView {
     const active = this.root.activeElement; // captured before any control below is disabled
     const feature = this.feature(), pending = this.#session?.conceptStatus?.phase === 'pending';
     const source = this.#session?.transcript.some(t => t.role === 'user' && !t.erased && !t.withdrawn);
-    const cost = this.#session?.conceptCost, costCopy = cost ? cost.maxMicro === 0 ? this.copy.conceptFree : this.copy.conceptCost.replace('{micro}', cost.maxMicro) : this.copy.conceptCostUnknown;
+    const line = draftsLine({ copy: this.copy, cost: this.#session?.conceptCost, feature });
+    const costCopy = line.action ? this.copy.display.draftsCost.replace('{credits}', new Intl.NumberFormat(this.#session.locale).format(Math.ceil(this.#session.conceptCost.maxMicro / 10_000))) : '';
     const request = this.root.querySelector('.concept-request');
-    request.textContent = `${this.#session?.conceptStatus?.phase === 'failed' ? this.copy.conceptRetry : this.copy.conceptRequest} · ${costCopy}`;
-    request.disabled = this.#busy || pending || !feature.available || !source; request.title = !feature.available ? feature.reason : !source ? this.copy.conceptNeedsInput : '';
+    this.root.querySelector('.concept-activity').hidden = line.action && !['pending', 'failed', 'waiting'].includes(this.#session?.conceptStatus?.phase);
+    request.textContent = this.#session?.conceptStatus?.phase === 'failed' && line.action ? `${this.copy.conceptRetry} · ${costCopy}` : line.text;
+    request.hidden = !line.action;
+    request.disabled = this.#busy || pending || !line.action || !source; request.title = !feature.available ? feature.reason : !source ? this.copy.conceptNeedsInput : '';
     const regenerate = this.root.querySelector('.concept-regenerate'); regenerate.textContent = `${this.copy.conceptRegenerate} · ${costCopy}`;
-    regenerate.disabled = request.disabled || !this.current(); regenerate.title = request.title;
+    regenerate.hidden = !line.action; regenerate.disabled = request.disabled || !this.current(); regenerate.title = request.title;
     for (const node of this.root.querySelectorAll('.concept-feedback button, .concept-guidance-options button')) {
       node.disabled = this.#busy || !feature.available || !this.current(); node.title = !feature.available ? feature.reason : '';
     }
@@ -309,7 +351,7 @@ export class ConceptView {
     this.#loads.set(id, promise); return promise;
   }
   async request(artifactId) {
-    if (this.#busy || !this.feature().available || this.#session.conceptStatus?.phase === 'pending') return;
+    if (this.#busy || !this.feature().available || !draftsLine({ copy: this.copy, cost: this.#session.conceptCost, feature: this.feature() }).action || this.#session.conceptStatus?.phase === 'pending') return;
     const sourceTurnId = this.#session.transcript.filter(t => t.role === 'user' && !t.erased && !t.withdrawn).at(-1)?.id;
     if (!sourceTurnId) return;
     const focused = this.root.activeElement; this.#busy = true; this.#requestError = null; this.gates(); const sessionId = this.#session.id;

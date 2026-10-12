@@ -6,7 +6,7 @@ import { createReveal } from '../src/reveal.js';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 
-function fixture(t, { motion = true, reduced = false, copy = en, shadow = false } = {}) {
+function fixture(t, { motion = true, reduced = false, copy = en, shadow = false, sourceCommit = 'd886da3' } = {}) {
   const window = new Window(), document = window.document, listeners = new Set();
   const media = { matches: reduced, addEventListener: (_, fn) => listeners.add(fn), removeEventListener: (_, fn) => listeners.delete(fn) };
   window.matchMedia = () => media; window.HTMLCanvasElement.prototype.getContext = () => null;
@@ -26,8 +26,9 @@ function fixture(t, { motion = true, reduced = false, copy = en, shadow = false 
   for (let index = 0; index < 4; index++) {
     const node = document.createElement('button'); node.textContent = `control ${index}`; node.setAttribute('data-reveal', '');
     node.getBoundingClientRect = () => ({ left: 108 + index * 200, top: 16, width: 44, height: 44 }); band.append(node); controls.push(node);
+    node.getClientRects = () => [{}];
   }
-  root.append(band); orb.mount(); const version = { product: 'Aithema 2026.10', commit: 'd886da3', date: '2026-10-12' };
+  root.append(band); orb.mount(); const version = { product: 'Aithema 2026.10', commit: sourceCommit, date: '2026-10-12' };
   const reveal = createReveal({ band, orb, controls, links: copy.reveal.links, version, copy, motion });
   const event = (node, type, init = {}) => node.dispatchEvent(type === 'keydown' ? new window.KeyboardEvent(type, { bubbles: true, composed: true, ...init }) : new window.Event(type, init));
   const state = () => band.dataset.aithemaRevealState;
@@ -40,6 +41,19 @@ test('AIT-140: hover requires a full 350ms rest', t => {
   const f = fixture(t); f.event(f.orb.element, 'mouseenter'); f.advance(349); assert.equal(f.state(), 'closed');
   f.advance(1); assert.equal(f.state(), 'open'); assert.equal(f.orb.element.getAttribute('aria-expanded'), 'true');
   assert.ok(f.controls.every(node => node.inert));
+});
+
+for (const kind of ['hidden', 'transparent', 'no rects']) test(`AIT-131 B6: ${kind} controls get no dissolve proxy or stagger and stay untouched`, t => {
+  const f = fixture(t), node = f.controls[0];
+  if (kind === 'hidden') node.style.visibility = 'hidden';
+  if (kind === 'transparent') node.style.opacity = '0';
+  if (kind === 'no rects') node.getClientRects = () => [];
+  const before = node.outerHTML;
+  f.orb.element.click();
+  assert.equal(node.outerHTML, before, 'skipped controls retain their own attributes and styles');
+  assert.ok(![...f.band.querySelectorAll('.aithema-reveal__proxy')].some(proxy => proxy.textContent === node.textContent));
+  assert.equal(f.band.querySelectorAll('.aithema-reveal__proxy').length, 3, 'visible controls still dissolve');
+  f.reveal.close(); f.advance(1500); assert.equal(node.outerHTML, before);
 });
 
 test('AIT-140: a quick pass on the orb never opens the reveal', t => {
@@ -80,6 +94,11 @@ for (const [locale, copy] of [['en', en], ['de', de]]) test(`AIT-140: focus open
   assert.deepEqual(links.map(link => link.title), copy.reveal.links.map(link => link.subtitle));
   assert.equal(row.querySelector('code').textContent, 'd886da3'); assert.ok(row.textContent.includes('Aithema 2026.10'));
   links[0].focus(); assert.equal(f.root.getRootNode().activeElement, links[0]); assert.equal(f.state(), 'open');
+});
+test('AIT-131: full source SHAs have a compact visible fingerprint and retain their complete identity', t => {
+  const sourceCommit = '0123456789abcdef0123456789abcdef01234567', f = fixture(t, { sourceCommit });
+  const code = f.band.querySelector('.aithema-reveal__version code');
+  assert.equal(code.textContent, '0123456789'); assert.equal(code.title, sourceCommit);
 });
 
 test('AIT-140: Esc returns focus to the orb, closes once, and restores all controls', t => {

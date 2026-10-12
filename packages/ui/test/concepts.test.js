@@ -56,7 +56,7 @@ test('viewer opens cached bytes without spending and has accessible title, count
 });
 test('thumbs and guidance toggles persist on their artifact; regenerate shows cost and records explicit intent', async t => {
   const { c, root, calls } = setup(t); root.querySelector('.concept-tab').click(); await tick();
-  assert.match(root.querySelector('.concept-regenerate').textContent, /1234/);
+  assert.match(root.querySelector('.concept-regenerate').textContent, /~1 credits/);
   root.querySelector('.concept-up').click(); await tick(); assert.equal(c.session.concepts[0].feedback.vote, 'up');
   assert.equal(root.querySelector('.concept-up').getAttribute('aria-pressed'), 'true');
   const toggle = root.querySelector('.concept-guidance-options button'); assert.equal(toggle.getAttribute('aria-pressed'), 'false');
@@ -170,7 +170,7 @@ test('automatic concept arrivals render under the pointer; composer, tabs and vi
   // START's live column (AIT-128): head, rail and concept line keep their rows, the transcript takes the rest and
   // the composer's field has a fixed height, so a concept arriving never moves the composer.
   assert.match(css, /\.workspace\[data-stage="live"\] \.conversation \{ grid-template-rows:auto auto auto minmax\(0,1fr\) auto; \}/);
-  assert.match(css, /\.concept-bar \{ [^}]*min-height:2\.75rem; \}/);
+  assert.match(css, /\.concept-bar \{ [^}]*min-height:44px; \}/);
   assert.match(css, /textarea \{ [^}]*min-height:3\.5rem; height:3\.5rem;/);
   assert.match(css, /grid-template-rows:4rem minmax\(0,1fr\) 12.5rem/);
   assert.match(css, /concept-navigation, \.concept-feedback \{ display:flex; align-items:center; gap:\.25rem; height:2\.75rem; \}/);
@@ -230,9 +230,9 @@ test('concept kinds and the rail state in plain words: pending, ready revision, 
   assert.equal(state({ phase: 'failed', error: 'concept-unavailable', reason: 'OpenRouter spend cap exhausted' }), 'OpenRouter spending limit reached.');
   assert.equal(state({ phase: 'failed', error: 'restart' }), en.conceptRestarted); assert.equal(state({ phase: 'failed', error: 'source-removed' }), en.conceptSourceRemoved);
   assert.equal(state({ phase: 'failed', error: 'concept-unavailable' }), en.conceptFailed);
-  assert.equal(state({ phase: 'idle' }, { feature: { available: false, reason: 'Budget used up' }, items: [draft('html1')] }), 'Budget used up.', 'a closed feature says why, also with drafts shown');
+  assert.equal(state({ phase: 'idle' }, { feature: { available: false, reason: 'Budget used up' }, items: [draft('html1')] }), en.display.draftsLow, 'a closed credit feature says why, also with drafts shown');
   assert.equal(state({ phase: 'failed' }, { requestError: 'Refused.' }), 'Refused.');
-  assert.equal(state({ phase: 'idle' }), en.conceptIntro);
+  assert.equal(state({ phase: 'idle' }), en.display.draftsOff);
   const german = (status, extra) => conceptStateText({ copy: de, status, feature: on, items: [draft('html1')], kind: 'html', ...extra });
   assert.equal(german({ phase: 'ready' }), 'Fassung 1 des Entwurfs ist fertig.');
   assert.equal(german({ phase: 'failed', reason: 'OpenRouter spend cap exhausted' }), 'Ausgabenlimit für OpenRouter erreicht.');

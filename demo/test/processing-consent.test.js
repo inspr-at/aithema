@@ -22,10 +22,10 @@ test('host voice setup errors render in German and English as new conversations 
     globalThis.fetch = async (url, init = {}) => {
       const pathname = new URL(url, window.location.href).pathname;
       if (pathname === '/demo/config') return Response.json({ demoHost: true, voiceMode: 'off', voiceDisabledReason: 'agent-api-get-403', label: '', imageLabel: '' });
-      if (pathname === '/api/sessions' && init.method === 'POST') {
+      if ((pathname === '/api/sessions' || pathname === '/api/library') && init.method === 'POST') {
         session = createSession({ demo: true, locale: JSON.parse(init.body).locale });
         session.featureMatrix = { best: { text: { available: false, reason: 'current processing consent required' } } };
-        return Response.json(session);
+        return Response.json(pathname === '/api/library' ? { session } : session);
       }
       if (pathname.endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
         init.signal?.addEventListener('abort', () => controller.close(), { once: true });
@@ -41,7 +41,7 @@ test('host voice setup errors render in German and English as new conversations 
     check(de);
     const locale = document.querySelector('#locale'); locale.value = 'en'; locale.dispatchEvent(new window.Event('change'));
     check(de);
-    document.querySelector('#new').click();
+    document.querySelector('aithema-session').shadowRoot.querySelector('.conversations-new').click();
     for (let i = 0; document.documentElement.lang !== 'en'; i++) {
       if (i === 400) assert.fail('Host did not open the English conversation');
       await new Promise(resolve => setTimeout(resolve, 5));

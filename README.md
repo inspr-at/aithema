@@ -260,11 +260,14 @@ storage erasure, delivery deduplication and wallet reservation fingerprints.
 on the host surface inside `<aithema-session>`; each flag shows one part, and every
 fact comes from the routes above. Without `host` nothing changes.
 
-- **Host bar** in the component's top row, beside the processing line and Settings:
-  **Conversations**, the verification entry, the `account` slot and the credits line.
+- **Host bar** in the component's top row: **Conversations** and the `account` slot,
+  alongside the host utilities and Settings. Credits appear in the footer.
 - **Verification** (`verification: true`): while host policy locks the assessment,
-  the understanding pane shows the email form in its place (START EmailLock);
-  otherwise the bar offers a quiet **Verify your email** that opens a small dialog.
+  the understanding pane shows the email form in its place (START EmailLock).
+  The optional entry is the last **E-Mail** section in **Settings → General**:
+  not verified, address and link sent, or address and a verified check.
+  **Verify your email** / **Resend or change** closes Settings and opens the
+  verification dialog; closing it returns focus to the gear.
   Send, resend with a visible cooldown, change address; 400 and 429 answers are
   plain words. While a link is pending the component polls `S/identity/unlock`
   (every 4 s, not while the page is hidden). Unlocking keeps a manual pause and

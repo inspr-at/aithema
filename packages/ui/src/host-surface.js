@@ -1,5 +1,5 @@
 // The host surface inside <aithema-session> (AIT-104 B2): the host bar (conversation library,
-// verification entry, credits, the host's account slot), the verification lock on the
+// credits, the host's account slot), the verification entry in Settings, the verification lock on the
 // understanding pane, the handover band and the host's legal and footer slots. Each part
 // appears only when the host enables it in configure({host}); all facts come from the server.
 import { inputRevision, activeTurns } from '../../core/src/session.js';
@@ -7,40 +7,43 @@ import { postJson, sameOrigin } from './post-json.js';
 import { node, setText, fill } from './dom.js';
 import { Verification } from './verification.js';
 import { LibraryDialog } from './library-dialog.js';
+import { ConversationsMenu } from './conversations-menu.js';
+import { formatCredits, wholeCredits } from './display.js';
 
-const LIBRARY_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>';
 const MINUTE = 60_000;
-export const defaultCreditFormat = (micro, locale) => new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(micro / 1_000_000);
+export const defaultCreditFormat = formatCredits;
 
 export class HostSurface {
   #root; #copy; #options; #base; #token; #session; #status; #adopt; #view; #alive = true; #connected = false;
   #verification = null; #library = null; #offer = null; #handover = null; #requesting = false; #limit = null;
   #credits = null; #creditsAt = 0; #creditsLoad = 0; #creditsTimer = null; #creditsTick = null; #ended = null;
+  #menu = null;
   /**
    * options: {library, verification, handover, credits: true | {format(micro, locale)}, locale()}.
    * session() returns the live session; adopt(session, reason) opens another conversation.
    */
-  constructor({ root, copy, options, baseUrl, sessionToken, session, status, adopt, onLock, focusAfterUnlock }) {
+  constructor({ root, copy, options, baseUrl, sessionToken, session, status, adopt, onLock, focusAfterUnlock, beforeVerifyDialog, verificationOpener }) {
     this.#root = root; this.#copy = copy; this.#options = options ?? {}; this.#base = baseUrl; this.#token = sessionToken;
     this.#session = session; this.#status = status; this.#adopt = adopt; this.#view = root.host?.ownerDocument?.defaultView ?? globalThis.window;
     const o = this.#options, bar = root.querySelector('.host-bar'), s = copy.hostSurface;
     root.querySelector('.workspace').toggleAttribute('data-host', true);
     bar.hidden = false; bar.setAttribute('aria-label', s.bar);
     root.querySelector('.understanding').toggleAttribute('data-host', true);
-    // The library: the bar's first action opens the dialog.
-    const open = bar.querySelector('.library-open-dialog');
-    open.hidden = !o.library;
+    // Conversations: New first, recent conversations, then the full manager.
+    bar.querySelector('.conversations-wrap').hidden = !o.library;
     if (o.library) {
-      open.innerHTML = LIBRARY_ICON; open.append(node('span', '', s.library.open));
       this.#library = new LibraryDialog({ dialog: root.querySelector('dialog.library'), copy, request: (path, body) => this.#call(`/api/library${path}`, body),
         current: () => this.#session().id, locale: () => this.#session().locale ?? 'en',
         newLocale: () => o.locale?.() ?? this.#session().locale ?? 'en', adopt: (next, reason) => this.#adopt(next, reason),
         notice: () => root.querySelector('#ai-notice')?.textContent ?? '' });
-      open.addEventListener('click', () => this.#library.show(open));
+      this.#menu = new ConversationsMenu({ root, copy, request: (path, body) => this.#call(path, body), current: () => this.#session().id,
+        locale: () => this.#session().locale ?? 'en', newLocale: () => o.locale?.() ?? this.#session().locale ?? 'en',
+        adopt: (next, reason) => this.#adopt(next, reason), manage: opener => this.#library.show(opener), status });
     }
     if (o.verification) {
       this.#verification = new Verification({ root, copy, request: (path, body) => this.#call(this.#sessionPath(path), body), status, onChange: onLock,
-        focusAfterUnlock, entry: bar.querySelector('.host-verify'), lock: root.querySelector('.verify-lock'), dialog: root.querySelector('dialog.verify-dialog'),
+        focusAfterUnlock, beforeOpen: beforeVerifyDialog, focusReturn: verificationOpener,
+        entry: root.querySelector('.host-verify'), lock: root.querySelector('.verify-lock'), dialog: root.querySelector('dialog.verify-dialog'),
         identity: this.#session().identity, pollMs: o.pollMs, notice: () => root.querySelector('#ai-notice')?.textContent ?? '' });
     }
     this.#mountHandover(); this.#mountFoot();
@@ -51,7 +54,7 @@ export class HostSurface {
     this.#copy = copy;
     const s = copy.hostSurface, root = this.#root;
     root.querySelector('.host-bar').setAttribute('aria-label', s.bar);
-    if (this.#library) setText(root.querySelector('.library-open-dialog span'), s.library.open);
+    this.#menu?.setCopy(copy);
     this.#verification?.setCopy(copy); this.#library?.setCopy(copy);
     setText(root.querySelector('.handover h3'), s.handover.title);
     setText(root.querySelector('slot[name="handover-offer"]'), s.handover.offer);
@@ -66,15 +69,17 @@ export class HostSurface {
   /** Starts host reads once the element is in the page. */
   connect() {
     this.#connected = true;
+    this.#menu?.connect();
     void this.#verification?.load(); this.#verification?.connect();
     if (this.#options.handover && this.#offer === null) void this.#loadHandover();
     if (this.#options.credits) { void this.#loadCredits(); this.#tickCredits(); }
   }
   disconnect() {
     this.#connected = false; this.#verification?.disconnect();
+    this.#menu?.disconnect();
     clearInterval(this.#creditsTick); this.#creditsTick = null; clearTimeout(this.#creditsTimer); this.#creditsTimer = null;
   }
-  destroy() { this.#alive = false; this.disconnect(); this.#verification?.destroy(); this.#library?.destroy(); }
+  destroy() { this.#alive = false; this.disconnect(); this.#verification?.destroy(); this.#library?.destroy(); this.#menu?.destroy(); }
   /** Durable host events (already applied to the session projection) and the turns that change balances. */
   receive(event) {
     this.#verification?.receive(event);
@@ -191,25 +196,30 @@ export class HostSurface {
     const line = this.#root.querySelector('.host-credits');
     line.hidden = !this.#options.credits;
     if (!this.#options.credits) return;
-    const c = this.#copy.hostSurface.credits, session = this.#session(), locale = session.locale ?? 'en';
+    const c = this.#copy.hostSurface.credits, layout = this.#copy.layout, session = this.#session(), locale = session.locale ?? 'en';
     const format = typeof this.#options.credits?.format === 'function' ? this.#options.credits.format : defaultCreditFormat;
-    const limit = line.querySelector('.host-credits__limit'), text = line.querySelector('.host-credits__text');
+    const limit = line.querySelector('.host-credits__limit'), track = line.querySelector('.host-credits__track');
+    const amount = line.querySelector('.host-credits__amount'), total = line.querySelector('.host-credits__total'), unit = line.querySelector('.host-credits__unit');
+    const scope = line.querySelector('.host-credits__scope'), deadline = line.querySelector('.host-credits__deadline');
+    setText(scope, c.scope); limit.hidden = !this.#ended; line.dataset.ended = String(Boolean(this.#ended));
+    setText(total, ''); setText(unit, ''); setText(deadline, ''); track.hidden = true;
     if (this.#ended) {
-      setText(text, c.ended[this.#ended] ?? c.ended.session); limit.hidden = false; line.dataset.ended = 'true';
-      return;
+      const ended = c.ended[this.#ended] ?? c.ended.session;
+      setText(amount, '—'); setText(deadline, ended); line.setAttribute('aria-label', ended); return;
     }
-    limit.hidden = true; line.dataset.ended = 'false';
     const owner = this.#credits?.balance?.owner, slot = this.#credits?.limitSlot;
-    if (!owner) { setText(text, ''); return; }
-    const parts = [fill(c.balance, { available: format(owner.availableMicro, locale), limit: format(owner.limitMicro, locale) })];
+    if (!owner) { setText(amount, '…'); line.setAttribute('aria-label', `${c.title}: ${c.loading}`); return; }
+    setText(amount, format(owner.availableMicro, locale));
+    setText(total, fill(layout.creditsTotal, { limit: format(owner.limitMicro, locale) })); setText(unit, layout.creditsUnit);
+    line.setAttribute('aria-label', `${c.title}: ${amount.textContent}${total.textContent}${unit.textContent} · ${c.scope}`);
+    track.hidden = false;
+    const value = wholeCredits(owner.availableMicro), maximum = wholeCredits(owner.limitMicro);
+    track.querySelector('i').style.width = `${maximum > 0 ? Math.min(100, value / maximum * 100) : 0}%`;
+    track.setAttribute('aria-valuenow', String(value)); track.setAttribute('aria-valuemax', String(maximum)); track.setAttribute('aria-label', c.title);
     if (slot?.status === 'active' && Number.isFinite(slot.remainingMs)) {
-      // The host's deadline keeps running during a pause (credits.js creditsView), so the countdown never
-      // stops; a pause only keeps new paid work from starting, and the line says exactly that.
       const remaining = Math.max(0, slot.remainingMs - (Date.now() - this.#creditsAt));
-      parts.push(fill(c.remaining, { minutes: Math.ceil(remaining / MINUTE) }));
-      if (session.paused) parts.push(c.paused);
+      setText(deadline, [fill(c.remaining, { minutes: Math.ceil(remaining / MINUTE) }), session.paused ? c.paused : ''].filter(Boolean).join(' · '));
     }
-    setText(text, parts.join(' · '));
   }
   // Legal and footer slots: the hairline row shows only when the host filled one of them.
   #mountFoot() {
