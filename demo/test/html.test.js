@@ -189,6 +189,48 @@ test('start2 drafts run at milestones in the background; conversation and select
   assert.equal(calls.length, 2); assert.equal((await runtime.matrix(storage.get(session.id))).best.text.available, true);
 });
 
+test('withdrawing only drafts aborts a dispatched render before it finishes and ignores its late result', { timeout: 5000 }, async t => {
+  const { binding } = htmlConfig(values), storage = new SQLiteStorage();
+  const spend = createSpendCap({ storage, account: binding.accountRef, capMicro: 10_000_000 });
+  const started = Promise.withResolvers(), released = Promise.withResolvers();
+  let draftSignal, calls = 0;
+  const html = createClaudeHTML({ binding, spend, resolveSecret: () => 'fixture', fetchImpl: async (_endpoint, init) => {
+    calls++; draftSignal = init.signal; started.resolve(); await released.promise;
+    return Response.json({ usage: { prompt_tokens: 1, completion_tokens: 1, cost: .001234 },
+      choices: [{ finish_reason: 'stop', message: { content: '<!doctype html><html lang="en"><head><!-- Revision 1: Repairs. --><meta charset="utf-8"><title>Repairs</title></head><body>Repairs</body></html>' } }] });
+  } });
+  const reasoning = createMockReasoning(), presets = mockPresets();
+  presets.best.plugins.push('claude-html'); presets.best.bindings.html = binding;
+  presets.best.policy = { endpoints: [binding.endpoint] };
+  const consent = createProcessingConsent({ storage, bindings: [openRouterConfig(values).reaction, binding] });
+  const runtime = createPluginRuntime({ storage, reasoning, consent, presets,
+    registry: new PluginRegistry().register(reasoning).register(html) });
+  const handlers = createHandlers({ storage, reasoning, consent, pluginRuntime: runtime });
+  t.after(async () => { released.resolve(); await handlers.close(); storage.close(); });
+  const { id } = storage.create({ ownerToken: testToken });
+  const grant = async items => assert.equal((await handlers.handle(ownedRequest(`http://localhost/api/sessions/${id}/consent`, {
+    method: 'POST', body: JSON.stringify({ granted: true, processing: { contract: consent.describe().contract, items } }) }))).status, 200);
+  await grant(['models-international', 'drafts-anthropic']); await handlers.idle();
+  storage.postTurn(id, 'needs', Buffer.from('Repairs'), 'Repairs');
+  const session = storage.get(id);
+  storage.append(id, 'understanding.updated', reduceUnderstanding(session.understanding, { summary: 'Repairs', constraints: {},
+    openQuestions: [], progress: { talk: { value: .75 }, build: { value: 0 } } },
+  { transcript: session.transcript, inputRevision: inputRevision(session), preset: session.preset, locale: session.locale }));
+  handlers.conceptLane.recordIntent(id, { intentId: 'wish', sourceTurnId: 'needs' });
+  const pending = handlers.conceptLane.run(id); await started.promise;
+  assert.equal(draftSignal.aborted, false); assert.equal(storage.get(id).conceptStatus.phase, 'pending');
+  await grant(['models-international']);
+  assert.equal(storage.get(id).consentWithdrawn, false, 'conversation grant stays selected');
+  assert.equal(draftSignal.aborted, true, 'the admitted draft scope was withdrawn while generation was pending');
+  assert.equal(await pending, 'failed'); await handlers.idle();
+  assert.equal(storage.get(id).concepts.length, 0); assert.equal(spend.snapshot().reservedMicro, 0);
+  const used = runtime.budget.used(id), spent = spend.snapshot().spentMicro;
+  released.resolve(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(storage.get(id).concepts.length, 0, 'a transport ignoring abort cannot publish its late result');
+  assert.equal(runtime.budget.used(id), used); assert.equal(spend.snapshot().spentMicro, spent, 'late usage cannot change settled spend');
+  assert.equal(calls, 1);
+});
+
 test('START HTML lane uses real consent and routing; paid publication, owner reads and exports survive shared-cap exhaustion and breach', { timeout: 10000 }, async t => {
   const reasoningConfig = openRouterConfig(values), configured = htmlConfig(values);
   const storage = new SQLiteStorage(), capMicro = 300000;

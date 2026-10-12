@@ -49,13 +49,14 @@ for (const mode of ['completed', 'invalid-output', 'http-error', 'http-zero', 'h
     const row = budget.get(attemptId), account = spend.snapshot();
     assert.equal(row.state, 'settled'); assert.equal(account.reservedMicro, 0);
     if (['cancelled-unknown', 'http-unknown-json', 'http-non-json'].includes(mode)) {
-      assert.equal(row.outcome, 'uncertain'); assert.equal(row.settled_micro, 1_000_000);
+      assert.equal(row.outcome, 'uncertain');
       assert.ok(account.spentMicro > 0, 'unknown dispatched spend remains conservatively charged');
       const reservation = storage.db.prepare('SELECT ceiling_micro FROM spend_reservations').get();
       assert.equal(account.spentMicro, reservation.ceiling_micro);
+      assert.equal(row.settled_micro, account.spentMicro, 'unknown dispatched spend uses the same conservative ceiling in both ledgers');
     } else if (mode === 'http-tokens-only') {
-      assert.equal(row.settled_micro, 550, 'known tokens use conservative binding prices when cost is unavailable');
       assert.equal(account.spentMicro, storage.db.prepare('SELECT ceiling_micro FROM spend_reservations').get().ceiling_micro);
+      assert.equal(row.settled_micro, account.spentMicro, 'tokens without cost evidence use the account ceiling in the wallet too');
     } else {
       const actual = ['unsent', 'http-zero'].includes(mode) ? 0 : 1234;
       assert.equal(account.spentMicro, actual);
