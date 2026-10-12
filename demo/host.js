@@ -131,11 +131,12 @@ if (binding.demoHost === true) {
   // The demo account menu closes on Escape or a click elsewhere.
   const account = document.querySelector('#demo-account');
   const placeAccountPanel = () => {
-    if (account.open) account.style.setProperty('--demo-account-panel-top', `${component.shadowRoot.querySelector('.band').getBoundingClientRect().bottom + 6}px`);
+    const band = component.shadowRoot?.querySelector('.band');
+    if (account.open && band) account.style.setProperty('--demo-account-panel-top', `${band.getBoundingClientRect().bottom + 6}px`);
   };
   account.addEventListener('toggle', placeAccountPanel);
-  window.addEventListener('resize', placeAccountPanel);
-  window.addEventListener('scroll', placeAccountPanel, { passive: true });
+  document.defaultView?.addEventListener('resize', placeAccountPanel);
+  document.defaultView?.addEventListener('scroll', placeAccountPanel, { passive: true });
   document.addEventListener('click', event => { if (account.open && !event.composedPath().includes(account)) account.open = false; });
   account.addEventListener('keydown', event => { if (event.key === 'Escape' && account.open) { account.open = false; account.querySelector('summary').focus(); } });
 }
