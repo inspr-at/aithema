@@ -76,6 +76,7 @@ export const bandStyles = `
 .footer-right { display:flex; align-items:center; justify-self:end; gap:8px; }
 .engine { position:relative; }
 .engine-info { width:44px; height:44px; padding:0; display:grid; place-items:center; position:relative; }
+.engine-info:hover:not(:disabled) { background:none; }
 .engine-info .engine__value { position:absolute; right:calc(100% + 2px); white-space:nowrap; opacity:0; transform:translateX(8px); pointer-events:none;
   font:400 12.5px/1.4 var(--aithema-font); color:var(--aithema-muted); background:var(--aithema-paper); transition:opacity .18s,transform .18s; }
 .engine-info:hover .engine__value, .engine-info:focus-visible .engine__value { opacity:1; transform:translateX(0); }
@@ -124,6 +125,7 @@ export const bandStyles = `
   .display-foot__row { gap:8px; }
   .footer-right { gap:0; }
   .status { grid-template-columns:8ch; gap:0; } .connection-timer { grid-column:1; }
+  .display-foot__row:has(.engine-info:is(:hover,:focus-visible)) :is(.host-credits__unit,.host-credits__track) { visibility:hidden; }
 }
 @media(width < ${FOOTER_WIDTHS.number}px) { .host-credits__unit { display:none; } .host-credits__track { width:48px; } }
 @media(max-width:599px) {

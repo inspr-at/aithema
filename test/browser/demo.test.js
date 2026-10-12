@@ -770,7 +770,7 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
     const voiceFit = await inShadow(german, (c, messages) => {
       // AIT-128: a call message opens under START's rail (data-message), whole and inside the page.
       const r = c.shadowRoot, state = r.querySelector('.voice-state'), rail = r.querySelector('.audio-rail'), original = state.textContent;
-      const boxes = () => [...r.querySelectorAll('.voice-orb, .audio-rail button, .concept-rail, .transcript-shell')].map(node => JSON.stringify(node.getBoundingClientRect()));
+      const boxes = () => [...r.querySelectorAll('.band-orb, .audio-rail button, .concept-rail, .transcript-shell')].map(node => JSON.stringify(node.getBoundingClientRect()));
       const before = boxes(), message = rail.hasAttribute('data-message'); rail.toggleAttribute('data-message', true);
       const result = messages.map(message => {
         state.textContent = message;
@@ -1228,7 +1228,7 @@ test('clickable html drafts: request, sandboxed preview, a refresh revision in p
     await mockConsent(german); await waitForShadow(german, '.composer textarea', { enabled: true });
     await sendTurn(german, 'Wir sind eine Tischlerei. Betrieb: gehostet; Daten: öffentlich; Systeme: API; Reichweite: international');
     await waitForShadow(german, 'aside .notice', { text: 'Aktuelle Einschätzung' });
-    assert.equal(await inShadow(german, c => c.shadowRoot.querySelector('.concept-request').textContent), 'Entwurf anfordern · Kostenlos (lokaler Test)');
+    assert.equal(await inShadow(german, c => c.shadowRoot.querySelector('.concept-request').textContent), de.display.draftsOn.replace('{credits}', '0'));
     await inShadow(german, c => c.shadowRoot.querySelector('.concept-request').click());
     await waitForShadow(german, '.concept-activity-text', { text: 'Fassung 1 des Entwurfs ist fertig.' });
     await german.mouse.move(0, 0); await shot(german, 'de-light-1440-rail');
