@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { SQLiteStorage, SQLiteBudgetLedger, createHandlers, createPluginRuntime } from '../../packages/server/src/index.js';
-import { admitCredits, createIdentity } from '@inspr/aithema-core';
+import { admitCredits, createIdentity, createHandover, reduceHandover } from '@inspr/aithema-core';
 import { createDemoHost } from '../host-ports.js';
 import { mockConsent, temporaryDb } from '../../test/helpers.js';
 
@@ -22,6 +22,146 @@ function fixture(t, options = {}) {
     requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64), ...extra });
   return { storage, ledger, host, session, settings, request, at: value => { time = value; } };
 }
+
+const DAY = 24 * 60 * 60_000;
+const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
+function api(t, f) {
+  const runtime = createPluginRuntime({ storage: f.storage, consent: mockConsent, budget: f.ledger });
+  const handlers = createHandlers({ storage: f.storage, pluginRuntime: runtime, consent: mockConsent, host: f.host });
+  t.after(() => handlers.close());
+  const call = (path, payload, method = payload === undefined ? 'GET' : 'POST') => handlers.handle(new Request(`http://local${path}`, {
+    method, headers: { 'content-type': 'application/json', 'x-aithema-session-token': owner },
+    ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
+  }));
+  return { handlers, call };
+}
+
+for (const method of ['DELETE', 'PUT']) test(`AIT-135 fix round 1 ${method} during pending verification cannot restore the old address or issue its token`, { timeout: 5_000 }, async t => {
+  const f = fixture(t, { demo: true, verificationRequired: true }), { call } = api(t, f);
+  const s = await (await call('/api/sessions', {})).json();
+  f.host.saveEmail(owner, { address, noticeVersion });
+  const started = deferred(), release = deferred();
+  t.after(() => release.resolve());
+  const send = f.host.identity.requestVerification.bind(f.host.identity);
+  let staleError, attemptedToken;
+  const createToken = f.host.visitorCredits.createToken.bind(f.host.visitorCredits);
+  t.mock.method(f.host.visitorCredits, 'createToken', effect => { attemptedToken = effect.token; return createToken(effect); });
+  t.mock.method(f.host.identity, 'requestVerification', async effect => {
+    started.resolve(effect); await release.promise;
+    try { return await send(effect); } catch (error) { staleError = error; throw error; }
+  });
+  const pending = call(`/api/sessions/${s.id}/identity/request`, { address });
+  const effect = await started.promise;
+  const replacement = method === 'PUT' ? 'replacement@example.test' : null;
+  const changed = await call('/api/visitor/email', replacement ? { address: replacement, noticeVersion } : {}, method);
+  assert.equal(changed.status, 200);
+  const before = f.storage.db.prepare('SELECT * FROM visitor_identities WHERE owner_hash=?').get(ownerHash);
+  release.resolve(); const response = await pending;
+  assert.equal(f.host.visitor(owner).address, replacement, 'the queued effect must not resurrect the old address');
+  assert.deepEqual(f.storage.db.prepare('SELECT * FROM visitor_identities WHERE owner_hash=?').get(ownerHash), before);
+  assert.equal(staleError?.code, 'stale-verification');
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).error, 'stale-verification');
+  assert.equal(f.storage.db.prepare('SELECT COUNT(*) n FROM visitor_confirmation_tokens').get().n, 0);
+  assert.equal(f.host.visitorCredits.verifyToken({ ownerHash, address, revision: effect.revision, token: attemptedToken }), false);
+  assert.deepEqual(f.host.outbox({ sessionId: s.id, ownerToken: owner }), []);
+  assert.equal(JSON.stringify(f.storage.read(s.id)).includes(address), false);
+});
+
+test('AIT-135 fix round 1 a stale token effect rejects atomically without replacing the current revision token', t => {
+  const f = fixture(t), s = f.session('stale-token-atomic');
+  const visitor = f.host.saveEmail(owner, { address, noticeVersion });
+  const effect = { ownerHash, sessionId: s.id, address, revision: visitor.addressRevision, expiresAt: 1_801_000 };
+  f.host.visitorCredits.createToken({ ...effect, token: 'current-token' });
+  const identity = f.storage.db.prepare('SELECT * FROM visitor_identities WHERE owner_hash=?').get(ownerHash);
+  const tokens = f.storage.db.prepare('SELECT * FROM visitor_confirmation_tokens').all();
+  const transaction = f.storage.transaction.bind(f.storage);
+  let transactions = 0;
+  t.mock.method(f.storage, 'transaction', fn => { transactions++; return transaction(fn); });
+  assert.throws(() => f.host.visitorCredits.createToken({ ...effect, revision: effect.revision - 1, token: 'stale-token' }), { code: 'stale-verification' });
+  assert.equal(transactions, 1);
+  assert.deepEqual(f.storage.db.prepare('SELECT * FROM visitor_identities WHERE owner_hash=?').get(ownerHash), identity);
+  assert.deepEqual(f.storage.db.prepare('SELECT * FROM visitor_confirmation_tokens').all(), tokens);
+  assert.equal(f.host.visitorCredits.verifyToken({ ...effect, token: 'current-token' }), true);
+});
+
+test('AIT-135 fix round 1 a queued token effect cannot recreate an erased visitor', t => {
+  const f = fixture(t), s = f.session('stale-token-erasure');
+  const visitor = f.host.saveEmail(owner, { address, noticeVersion });
+  f.host.eraseVisitor(owner);
+  assert.throws(() => f.host.visitorCredits.createToken({ ownerHash, sessionId: s.id, address,
+    revision: visitor.addressRevision, expiresAt: 1_801_000, token: 'erased-token' }), { code: 'stale-verification' });
+  assert.equal(f.storage.db.prepare('SELECT COUNT(*) n FROM visitor_identities').get().n, 0);
+  assert.equal(f.storage.db.prepare('SELECT COUNT(*) n FROM visitor_confirmation_tokens').get().n, 0);
+});
+
+for (const background of ['expiry', 'recovery']) test(`AIT-135 fix round 1 migration ignores automatic ${background} and identity clocks for address retention`, async t => {
+  const db = await temporaryDb(), old = new SQLiteStorage(db), s = old.create({ id: `legacy-${background}`, ownerToken: owner });
+  const backgroundAt = 1_000 + 89 * DAY;
+  const identity = { ...createIdentity(), status: 'verified', address, verificationRevision: 1, lastNow: backgroundAt };
+  old.transitionHost(s.id, () => ({ state: { identity, handover: createHandover({ sessionId: s.id }) }, events: [] }));
+  old.postTurn(s.id, 'legacy-turn', Buffer.from('legacy-turn'), 'systems: API');
+  if (background === 'expiry') old.expire(s.id, 'legacy-turn');
+  else old.transitionHost(s.id, state => {
+    const preparing = reduceHandover(state.handover, { type: 'request', revision: 'legacy-revision' }).state;
+    const recovered = reduceHandover(preparing, { type: 'recover' });
+    return { state: { ...state, handover: recovered.state }, events: recovered.events };
+  });
+  old.db.exec('DROP TRIGGER events_no_update');
+  for (const row of old.db.prepare('SELECT seq,event FROM events WHERE session_id=?').all(s.id)) {
+    const event = JSON.parse(row.event);
+    event.at = new Date(['turn.withdrawn', 'handover.state'].includes(event.type) ? backgroundAt : 1_000).toISOString();
+    old.db.prepare('UPDATE events SET event=? WHERE session_id=? AND seq=?').run(JSON.stringify(event), s.id, row.seq);
+  }
+  old.close();
+  const f = fixture(t, { storage: new SQLiteStorage(db), now: () => 1_000 + 90 * DAY });
+  assert.equal(f.storage.db.prepare('SELECT last_active_at FROM visitor_identities WHERE owner_hash=?').get(ownerHash).last_active_at, 1_000);
+  assert.equal(f.host.retainVisitors().addresses, 1);
+  assert.equal(f.host.visitor(owner).address, null);
+});
+
+test('AIT-135 fix round 1 startup policy removal preserves the original confirmed-address retention deadline', async t => {
+  const f = fixture(t, { demo: true, verificationRequired: true }), { handlers, call } = api(t, f);
+  const s = await (await call('/api/sessions', {})).json(), base = `/api/sessions/${s.id}/identity`;
+  f.host.saveEmail(owner, { address, noticeVersion });
+  await call(`${base}/request`, { address });
+  const message = f.host.outbox({ sessionId: s.id, ownerToken: owner }).at(-1);
+  await call(`${base}/confirm`, { token: message.token });
+  assert.equal(f.host.visitor(owner).address, address);
+  f.at(1_000 + 89 * DAY); f.host.policy.verificationRequired = false;
+  await handlers.resume(); await handlers.idle();
+  assert.equal(f.storage.hostState(s.id).identity.verificationRequired, false);
+  assert.equal(f.storage.db.prepare('SELECT last_active_at FROM visitor_identities WHERE owner_hash=?').get(ownerHash).last_active_at, 1_000);
+  f.at(1_000 + 90 * DAY);
+  assert.equal(f.host.retainVisitors().addresses, 1);
+  assert.equal(f.host.visitor(owner).address, null);
+});
+
+test('AIT-135 fix round 1 address commands and identity polling do not replace visitor activity', async t => {
+  const f = fixture(t), { call } = api(t, f);
+  const s = await (await call('/api/sessions', {})).json();
+  f.host.saveEmail(owner, { address, noticeVersion });
+  f.at(1_000 + 89 * DAY);
+  await call('/api/visitor/email', { address, noticeVersion }, 'PUT');
+  await call(`/api/sessions/${s.id}/identity`);
+  await call(`/api/sessions/${s.id}/credits`);
+  await call(`/api/sessions/${s.id}/identity/unlock`, {});
+  assert.equal(f.storage.db.prepare('SELECT last_active_at FROM visitor_identities WHERE owner_hash=?').get(ownerHash).last_active_at, 1_000);
+  f.at(1_000 + 90 * DAY); f.host.retainVisitors();
+  assert.equal(f.host.visitor(owner).address, null);
+});
+
+test('AIT-135 fix round 1 an authenticated conversation visit renews address retention', async t => {
+  const f = fixture(t), { call } = api(t, f);
+  const s = await (await call('/api/sessions', {})).json();
+  f.host.saveEmail(owner, { address, noticeVersion });
+  f.at(1_000 + 89 * DAY);
+  assert.equal((await call(`/api/sessions/${s.id}`)).status, 200);
+  f.at(1_000 + 90 * DAY); f.host.retainVisitors();
+  assert.equal(f.host.visitor(owner).address, address);
+  f.at(1_000 + 179 * DAY); f.host.retainVisitors();
+  assert.equal(f.host.visitor(owner).address, null);
+});
 
 test('AIT-135 concurrent sessions of one visitor exhaust a single lifetime ceiling at the exact boundary', async t => {
   const f = fixture(t), a = f.session('tiers-a'), b = f.session('tiers-b');
