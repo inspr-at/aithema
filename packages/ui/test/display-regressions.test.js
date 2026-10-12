@@ -156,6 +156,7 @@ test('AIT-131: detach removes reveal document, window and media listeners; reatt
   const { c, root } = fixture(t); await tick();
   const before = [docCounts(), viewCounts(), mediaCounts()];
   root.querySelector('.band-orb .orb').click(); assert.equal(root.querySelector('.band').dataset.aithemaRevealState, 'open');
+  document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' }));
   c.remove();
   assert.deepEqual(docCounts(), { keydown: 0, visibilitychange: 0 });
   assert.deepEqual(viewCounts(), { resize: 0 }); assert.deepEqual(mediaCounts(), { change: 0 });

@@ -430,7 +430,7 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
     });
     await t.test('B7: status flanks hide together below 24px without removing the waveform box', async () => {
       for (locale of ['de', 'en']) for (const width of [320, 390, 1440]) {
-        await page.setViewport({ width, height: 900 }); await scene('ready');
+        await page.setViewport({ width, height: 900 }); await page.select('#theme', 'light'); await scene('ready');
         const wave = await shadow(page, c => { const n = c.shadowRoot.querySelector('.voice-wave'), style = getComputedStyle(n), rect = n.getBoundingClientRect();
           return { width: rect.width, height: rect.height, flank: rect.width / 2 - parseFloat(style.getPropertyValue('--voice-label-half')) - 8, visibility: style.visibility }; });
         assert.ok(wave.width > 0 && wave.height === 30, 'visibility keeps the reserved box');
