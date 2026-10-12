@@ -5,11 +5,36 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { SQLiteStorage } from '../../packages/server/src/index.js';
+import { createIdentity, createHandover } from '@inspr/aithema-core';
 import { deploymentConfig } from '../deployment.js';
 import { startChild, temporaryDb, post } from '../../test/helpers.js';
 
 const fixture = fileURLToPath(new URL('./fixtures/privacy.html', import.meta.url));
 const server = new URL('../server.js', import.meta.url);
+for (const [name, settings, allowed] of [
+  ['non-demo without a document', { AITHEMA_PROVIDER: 'mock' }, false],
+  ['non-demo with a document', { AITHEMA_PROVIDER: 'mock', AITHEMA_PRIVACY_DOCUMENT: fixture }, true],
+  ['demo without a document', {}, true],
+]) test(`AIT-135 fix round 2 server upgrade: ${name} applies privacy before constructing visitor credits`, async t => {
+  const db = await temporaryDb(), old = new SQLiteStorage(db), owner = 'upgrade-owner', address = 'upgrade@example.test';
+  const s = old.create({ id: 'server-legacy', ownerToken: owner });
+  const identity = { ...createIdentity(), status: 'verified', address, verificationRevision: 1, lastNow: Date.now() };
+  old.transitionHost(s.id, () => ({ state: { identity, handover: createHandover({ sessionId: s.id }) },
+    events: [{ type: 'identity.state', data: identity }] }));
+  old.close();
+  const running = await startChild(server, db, settings); t.after(() => running.kill());
+  const response = await fetch(running.url + '/api/visitor/email', { headers: { cookie: `aithema-visitor=${owner}` } });
+  assert.equal(response.status, 200);
+  const { visitor } = await response.json();
+  assert.equal(visitor.address, allowed ? address : null);
+  assert.equal(visitor.tier, allowed ? 'emailGiven' : 'anonymous');
+  await running.kill();
+  const storage = new SQLiteStorage(db); t.after(() => storage.close());
+  const row = storage.db.prepare('SELECT * FROM visitor_identities WHERE owner_hash=?').get(s.ownerHash);
+  assert.equal(JSON.stringify(row).includes(address), allowed, 'check the persisted construction result');
+});
+
 async function documentFile(content) {
   const dir = await mkdtemp(join(tmpdir(), 'aithema-privacy-'));
   const path = join(dir, 'privacy.html');
@@ -58,6 +83,25 @@ test('AIT-151: configured privacy is served in host styling with script-free CSP
   const headers = { cookie: created.headers.get('set-cookie').split(';')[0] };
   const request = await post(running.url + `/api/sessions/${session.id}/identity/request`, { address: 'visitor@example.test' }, headers);
   assert.equal(request.status, 200, 'a validated document releases the privacy guard');
+});
+
+test('AIT-135/AIT-151: restart without a document keeps erasure available for a stored demo address', async t => {
+  const db = await temporaryDb();
+  const demo = await startChild(server, db, { AITHEMA_DEMO_VERIFY: '1' });
+  t.after(() => demo.kill());
+  const created = await post(demo.url + '/api/sessions', {}), session = await created.json();
+  const headers = { cookie: created.headers.get('set-cookie').split(';')[0] };
+  const pending = await post(demo.url + `/api/sessions/${session.id}/identity/request`, { address: 'restart@example.test' }, headers);
+  assert.equal(pending.status, 200);
+  await demo.kill();
+  const live = await startChild(server, db, { AITHEMA_PROVIDER: 'mock' });
+  t.after(() => live.kill());
+  const refused = await post(live.url + `/api/sessions/${session.id}/identity/unlock`, {}, headers);
+  assert.equal(refused.status, 403);
+  assert.deepEqual(await refused.json(), { error: 'privacy-document-required' });
+  const erased = await post(live.url + '/api/visitor/erase', {}, headers);
+  assert.equal(erased.status, 200); assert.equal((await erased.json()).erased, true);
+  assert.equal((await fetch(live.url + `/api/sessions/${session.id}/identity`, { headers })).status, 404);
 });
 
 test('AIT-151: locale variants and safe fallback are loaded once at startup', async t => {

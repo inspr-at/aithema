@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { libraryConformance, handoverConformance, ownerWalletConformance } from '@inspr/aithema-core';
+import { libraryConformance, handoverConformance, ownerWalletConformance, createIdentity } from '@inspr/aithema-core';
 import { hostPortKit } from '../../packages/core/src/host-port-kit.js';
 import { SQLiteStorage, SQLiteBudgetLedger } from '../../packages/server/src/index.js';
 import { createDemoHost } from '../host-ports.js';
@@ -34,6 +34,10 @@ test('demo identity host supplies revision-bound mail and polling facts under th
   storage.create({ id: 'kit-session', ownerToken: 'kit-owner' });
   const host = createDemoHost({ storage, demoBypass: false, now: () => 1 }), kit = hostPortKit(1_000);
   const request = { sessionId: 'kit-session', ownerToken: 'kit-owner', address: 'kit@example.test', revision: 2, expiresAt: 100 };
+  const persistRequest = effect => host.identity.persist({ session: storage.get(effect.sessionId) },
+    { ...createIdentity(), status: 'verification-pending', address: effect.address,
+      verificationRevision: effect.revision, expiresAt: effect.expiresAt });
+  persistRequest(request);
   const delivery = await kit.run('mail delivery failed', () => host.identity.requestVerification(request));
   kit.check(delivery?.status === 'sent', 'confirmed fake mail delivery');
   const mail = await kit.run('outbox failed', () => host.outbox(request));
@@ -49,6 +53,7 @@ test('demo identity host supplies revision-bound mail and polling facts under th
   kit.check(host.outbox(request)[0].token === null, 'redeemed token removed from outbox');
   const polled = await kit.run('polling failed', () => host.identity.verify(request)); kit.check(polled?.verified === true, 'authoritative polling');
   const next = { ...request, revision: 3 };
+  persistRequest(next);
   await host.identity.requestVerification(next);
   kit.check((await host.identity.verify({ ...next, token: mail[0].token })).verified === false, 'old token cannot redeem a new revision');
   const nextToken = host.outbox(next).at(-1).token;

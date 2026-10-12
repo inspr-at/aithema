@@ -254,6 +254,41 @@ one redemption (`token: null`); tokenless polling retains the verified fact.
 The destructive local port kits test owner isolation,
 storage erasure, delivery deduplication and wallet reservation fingerprints.
 
+## Open-question answers (AIT-132)
+
+Text replies use the provider-neutral core `replySchema`: `{content,
+question_short, options: [{text, likely?}]}`. `content` remains the natural reply;
+`question_short` is its single unresolved question in brief, or `null`. There
+are at most four choices and one `likely: true`. Empty options produce no card.
+The prompt carries the schema through the existing stream operation; no native
+structured-output capability is required. The decoder streams only reply text,
+accepts existing plain-text replies, drops malformed choices and caps valid
+ones. Question text is bounded to 500 characters and answer text to the existing
+8,000-character visitor-turn limit. No production answer choices are seeded.
+Reply content retains its 16,000-character limit. The bounded JSON envelope
+accommodates all four maximum-length options, including JSON escaping. Metadata
+that exceeds this budget is discarded while reply text survives, even if the
+provider places `content` after the options.
+
+The final, current assistant turn owns the composer card. The likely answer is
+first; each native button sends its exact text through the same idempotent
+visitor-turn path as typing, including forwarding to an active voice call after
+persistence. A typed draft is preserved. Failed submissions retain the card for
+retry; a persisted typed, selected or spoken answer closes it. Incoming partials
+and background assessments cannot open it or replace focused answer buttons.
+The card sits above the dock with transcript scroll room, so the textarea,
+attachment and send controls move 0 px on appearance and disappearance. The
+fold strip also identifies plain questions without choices.
+
+The card fields live in the reply's erasable SQLite content record and survive
+snapshot/journal reload. Withdrawals and heard-prefix corrections clear them.
+Voice reasoning uses `reasoningRequest(..., {voiceReply: true})` for plain speech
+and retains the AIT-137/AIT-144 operations and focus checks. Shared AIT-148 reply
+guidance and AIT-150 German Sie guidance apply to both paths. DE/EN card copy is
+under `copy.questionCard`. `test/browser/question-card.test.js` records the card,
+hover, keyboard focus and fold strip at 1440/390, light/dark, DE/EN, plus measured
+zero movement and submission/voice checks, in `AITHEMA_EVIDENCE_DIR`.
+
 ## Host surface UI (AIT-104 B2)
 
 `configure({..., host: {library, verification, handover, credits, locale}})` turns
@@ -1903,14 +1938,17 @@ private. Live hosts continue to offer no email input.
 
 Server integrations provide the trusted `host.privacyDocumentConfigured()`
 capability **only after** validating and serving their document. The server
-exports `privacyDocumentConfigured(host)` for future save-email routes; check
-it before reading or persisting an address. Without this capability returning
-exactly `true`, every non-demo host refuses POST identity request, change,
-resend, confirm and unlock with HTTP 403 and
+exports `privacyDocumentConfigured(host)`; the single internal
+`assertAddressCollectionAllowed()` funnel checks it before reading or persisting
+an address. Without this capability returning exactly `true`, every non-demo
+host refuses POST/PUT visitor email and POST identity request, change, resend,
+confirm and unlock with HTTP 403 and
 `{ "error": "privacy-document-required" }`, before body parsing, identity
 writes or host calls, regardless of mail delivery. Ownership checks still run
 first. Only an explicit trusted `host.demo === true` exempts the development
 demo's fake-outbox flow; `identity.deliversVerification` never exempts a host.
+DELETE visitor email and POST visitor erasure remain available without a
+document, including removal of existing address projections and tokens.
 The demo flag must not be used by production delivery adapters. Configuring a
 document alone does not enable the future save-email UI or establish the host's
 legal compliance.
@@ -2123,6 +2161,180 @@ DCO sign-off alone is insufficient. Review, merge and release remain maintainer-
 
 ## Test-host deployment (AIT-115)
 
+### Visitor credit and OPS CLI (AIT-135 Phase A1)
+
+START's visitor wallet uses a lifetime allowance across conversations, without
+refills or a one-hour owner deadline. The migration seeds **$10/$10/$10** for
+anonymous, email given and email confirmed. OPS applies Markus's **$10/$15/$20**
+decision through the CLI after deployment. A typed, explicitly saved address
+needs no mailbox proof for the email-given tier. Confirmation is disabled by
+default and cannot be enabled on a host without qualified delivery. Spend,
+uncertain liabilities and outstanding holds carry through promotions, address
+changes, deletion and conversation resets; email never keys a wallet. Exhaustion
+blocks new work until the applicable allowance increases. Every voice extension
+reads current settings and visitor evidence inside the existing ledger transaction;
+an admitted segment finishes, and a $0 allowance prevents further authorization.
+Recovery and continuation reserve each replacement through the same current-policy
+admission as a new call, even when the logical call retains its identity and deadline.
+The start2 wiring sets both per-conversation ledger subcaps to $1,000; reusable
+library defaults stay at $10. The wallet's use of upstream cost for visitor credit
+is safe only while visitor and upstream prices are equal.
+
+Host-owned schema (in the same SQLite database and exclusive writer):
+
+| Table | Contents |
+| --- | --- |
+| `visitor_credit_settings` | Singleton; schema version 1, monotonic revision, integer micro-USD allowances, confirmation flag, UTC created/updated timestamps |
+| `visitor_credit_audit` | Append-only settings history: actor, UTC timestamp, source, revision, old/new settings; no visitor addresses; updates rejected by trigger |
+| `visitor_identities` | Opaque `visitor_ref` mapped uniquely to the existing owner hash; address/revision, saved/confirmed/pending evidence, notice version, creation/update/activity timestamps and shared verification state |
+| `visitor_confirmation_tokens` | SHA-256 token hash bound to visitor, address revision and requesting conversation; creation/expiry/redemption timestamps; cascade erased with the visitor |
+| `visitor_identity_cleanup` | Durable bounded cleanup queue for erasable identity projections in existing conversations |
+
+Settings accept decimal USD **strings**, with at most six fractional digits.
+Unknown fields, negative/unsafe amounts, values above $1,000 and descending
+tiers are rejected. A save requires `baseRevision`; a stale save returns 409
+with current settings. Settings and its audit insert commit in one transaction.
+After an uncertain CLI response, reload settings before retrying: replaying the
+old revision cannot append a second audit record. There is no environment
+bootstrap layer for allowances.
+
+The running host listens on a separate Unix socket, defaulting to
+`<database-directory>/ops/admin`. The short name leaves room for database paths
+within the operating system's Unix socket path limit; oversized overrides
+refuse startup with a request to set a shorter `AITHEMA_ADMIN_SOCKET` path.
+The directory is 0700, the socket
+is 0600, and both belong to the host account. `AITHEMA_ADMIN_SOCKET` overrides
+the path on server and CLI. The public listener has no settings, audit or OPS
+endpoint. The actor is `ops-cli:<socket-owner-account>`; Node cannot identify
+the connecting peer account, so requests cannot supply an actor. The CLI never
+opens SQLite and refuses when the host is down. Start the authoritative server
+first; the existing exclusive writer lock also rejects a second server process.
+
+Run as the service account inside the start2 container (replace `start2` with
+OPS's actual container name). The image's service account is `node`:
+
+```sh
+docker exec --user node start2 node /app/demo/admin-cli.js settings
+docker exec --user node start2 node /app/demo/admin-cli.js set-allowances --base-revision 1 --anonymous 10 --email-given 15 --email-confirmed 20
+docker exec --user node start2 node /app/demo/admin-cli.js audit --after 0 --limit 100
+docker exec --user node start2 node /app/demo/admin-cli.js provider-cap
+```
+
+Use the revision returned by `settings`; the example's `1` applies only before
+the first OPS save. Local usage is `node demo/admin-cli.js --socket /absolute/path
+settings`, with `--socket` before the command. Audit pagination returns
+`nextAfter`; pass it as `--after` for the next page. Provider status is read-only:
+`capMicro`, `confirmedMicro`, `reservedMicro`, `uncertainMicro`, `remainingMicro`
+and `breached`, plus OPS recovery instructions. A host without a provider cap
+returns `available:false` and null totals. Remaining subtracts all commitments.
+Historical reservation overruns remain latched after restart or a cap raise:
+OPS investigates receipts, reconciles liabilities and fixes the cause, then
+performs an approved, audited maintenance recovery preserving history and
+carrying confirmed and unresolved liabilities forward. No reset command exists.
+
+With the next start2 deployment, OPS sets `AITHEMA_OPENROUTER_CAP_USD=100`.
+This deployment-wide lifetime ceiling covers OpenRouter text and Claude HTML;
+it excludes voice, which has separate optional `AITHEMA_VOICE_CAP_MINUTES` and
+`AITHEMA_VOICE_CAP_MINUTES_PER_DAY` ceilings in addition to each visitor wallet.
+Replacing the visitor cookie can still obtain a fresh anonymous allowance.
+The runtime-editable provider cap and abuse tracking are deferred.
+
+The visitor API uses the existing ownership cookie/token:
+
+- `GET /api/visitor/email` returns the profile and DE/EN optional-processing
+  notice, including `notice.version = "ait-135-v1"`, retention and delivery facts.
+- `POST` (or `PUT`) `/api/visitor/email` accepts only
+  `{ "address": "visitor@example.test", "noticeVersion": "ait-135-v1" }`.
+  Saving grants email-given credit and sends no mail. A changed address revokes
+  confirmation; repeating the same saved address cannot add credit.
+- `DELETE /api/visitor/email` removes the address and confirmation evidence,
+  returning the same wallet to anonymous. Accounting remains intact.
+- `POST /api/visitor/erase` with `{}` cancels/erases all owned conversations
+  through the existing erasure path, removes the visitor records, tokens and
+  address projections, and retains justified wallet accounting. Provider-side
+  erasure remains `not-confirmed`. Conversation delete/reset alone retains
+  the visitor profile.
+
+Hosts with delivery retain the existing request/send/confirm flow, including
+30-minute tokens, resend cooldown and five-attempt limit. Tokens are stored only
+as hashes; the labelled demo outbox alone holds raw links in memory. New
+conversations inherit visitor evidence. Live mode continues to hide verification
+until A2's reviewed design; A1 adds no form or admin UI. Without a clock guard,
+the credits API returns `limitSlot:null` and the UI hides the empty countdown.
+Other hosts can retain the guard; `host.credits.ownerGuard:false` disables it.
+Pause, consent, per-call duration and liveness safeguards remain in force.
+
+Address collection and persistence use the internal
+`assertAddressCollectionAllowed()` entry point in `host-handlers.js`, delegating
+to AIT-151's `privacyDocumentConfigured(host)`. Only `host.demo === true` is
+exempt; mail delivery is never an exemption. Collection refuses with HTTP 403
+and `privacy-document-required` before body parsing or address persistence.
+DELETE email and visitor erasure bypass the funnel so deletion remains
+available without a document. Startup skips protected address-bearing host
+transitions until the document is configured, keeping the erasure API reachable.
+The validated privacy capability is passed into host and visitor-credit
+construction, before legacy migration. On a non-demo upgrade without a document,
+migration leaves legacy addresses untouched in their original store, under that
+store's existing erasure and retention, and creates anonymous visitor records
+without copying address or saved/confirmed/pending evidence. It does not defer a
+backfill: adding a document later requires a fresh explicit email save to grant
+email-given credit. A configured document or the explicit demo preserves the
+previous address migration behavior.
+The complete guarded route/effect inventory is:
+
+- Constructor migration of legacy addresses into visitor records, using the
+  same strict demo exemption and trusted privacy-document predicate.
+- `POST` and `PUT /api/visitor/email`: save or replace the visitor address.
+- `POST /api/sessions/:id/identity/request` and `/identity/change`: collect an
+  address, persist its new revision and queue verification.
+- `POST /api/sessions/:id/identity/resend`: persist the existing address with a
+  new pending revision and queue verification.
+- `POST /api/sessions/:id/identity/confirm` and `/identity/unlock`: reserve a
+  confirmation attempt, redeem/check evidence and persist the existing address.
+- Identity projection during conversation creation/opening and startup adoption:
+  persist inherited addresses in conversation state and journal projections.
+- Identity transitions, including policy removal, pause synchronization, delivery
+  results and verification results: persist address-bearing visitor/session state.
+- `POST /api/sessions/:id/handover`, `/handover/retry` and startup handover
+  recovery: persist the host state containing the existing identity projection.
+- The queued `verification.requested` effect (`requestVerification`) and
+  confirmation/polling effect (`verify`): issue/redeem address-revision tokens and
+  persist delivery/evidence. Both re-enter the same guard at dispatch.
+
+Token issuance checks the current stored address and revision in the same
+transaction. A stale effect returns `stale-verification` (HTTP 409) without
+restoring identity, replacing a current token or sending an old-address message.
+
+Bounded, idempotent cleanup runs at startup and daily through the host writer:
+addresses after 90 days of visitor inactivity, pending records/tokens after
+24 hours, and settings audit after 180 days. Voice Start, Resume and explicit
+recovery are visitor activity, as are accepted visitor turns. Automatic transport
+recovery, heartbeats and background settlement never renew address retention.
+Pending cleanup preserves an
+independently saved address column and its email-given tier, deletes expired
+tokens, and replaces pending verification state with address-free cleared state.
+It never reserializes an address, even with a document; reads project any retained
+saved address in memory. The 90-day inactivity deadline still deletes the saved
+address. Cleanup and deletion remain available without a document.
+Explicit visitor erasure
+drains address-projection cleanup before acknowledging and truncates the WAL.
+Only authenticated app/conversation opening, a message or a visitor voice turn
+updates address inactivity. The app opens its saved conversation or creates one;
+identity persistence, polling, policy changes, expiry and recovery do not renew
+the deadline. Legacy migration counts session creation and visitor turns only,
+excluding assistant turns and reducer clocks.
+Do not restore erased addresses from backups: OPS must keep backup expiry within
+the 90-day address retention window, retain an erasure record outside restored
+snapshots, and reapply erasures before serving a restored database.
+
+The remote wallet extension is deferred. Its future contract is
+`extend({attemptId,targetMaxMicro,targetMaxVisitorMicro})` with cumulative,
+idempotent targets, wallet acknowledgement before ledger update, serialized
+extensions, and conservative holds for unknown outcomes. No async wait belongs
+inside the local SQLite extension transaction. A2 supplies Tick's visitor
+save/edit/delete form and credit states; Phase C wires the agm1 relay and designed
+HTML confirmation mail. Admin authentication later uses Zitadel SSO.
+
 Run a pinned source commit with Node 24 or the provided `node:24-bookworm-slim`
 Dockerfile: `npm ci --omit=dev`, then `node demo/server.js`. The ElevenLabs SDK
 1.17.0 is a runtime dependency; the host serves its IIFE and worklets locally.
@@ -2145,9 +2357,10 @@ Readiness of voice is separately visible in
 | `PORT` | Listen port; local/container default `3000` |
 | `AITHEMA_LISTEN_HOST` | Bind address; local `127.0.0.1`, image `0.0.0.0` |
 | `AITHEMA_PUBLIC_ORIGIN` | Canonical origin, e.g. `https://start2.augmentoring.com`, without trailing slash; accepted Host, facade base URL and Secure cookies |
-| `AITHEMA_PRIVACY_DOCUMENT` | Optional readable HTML-fragment file, at most 256 KiB; validated at startup and served at `/privacy`; required before email collection on hosts without verification delivery |
+| `AITHEMA_PRIVACY_DOCUMENT` | Optional readable HTML-fragment file, at most 256 KiB; validated at startup and served at `/privacy`; required before email collection or address persistence on every non-demo host, regardless of verification delivery |
 | `AITHEMA_PRIVACY_DOCUMENT_DE`, `AITHEMA_PRIVACY_DOCUMENT_EN` | Optional locale variants; each must pass the same validation; only the page URL is exposed publicly |
 | `AITHEMA_DB` | Persistent SQLite path; local `.data/session.sqlite`, image `/data/session.sqlite` |
+| `AITHEMA_ADMIN_SOCKET` | Private OPS Unix socket; default `<database-directory>/ops/admin`, directory 0700 and socket 0600 |
 | `AITHEMA_COMMIT` | Deployed source SHA; `/healthz` reports this or `null` |
 | `AITHEMA_PROVIDER` | `openrouter` for live reasoning; defaults to `mock` |
 | `OPENROUTER_API_KEY` | Account credential supplied by OPS through its secret service |

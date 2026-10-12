@@ -9,8 +9,73 @@ import { DatabaseSync } from 'node:sqlite';
 import { temporaryDb, unzip } from '../../../test/helpers.js';
 import { eventProbe } from '../../../test/voice-test-events.js';
 import { createElevenLabsServer } from '../../../plugins/elevenlabs/src/server.js';
+import { createDemoHost } from '../../../demo/host-ports.js';
 
 const test = (name, fn) => nodeTest(name, { timeout: 60_000 }, fn);
+
+for (const settled of [false, true]) test(`AIT-138 / A1: recovery after a zero allowance refuses a paid segment (${settled ? 'settled' : 'active'} predecessor)`, async t => {
+  const h = voiceFixture(t, { durationBinding: { reservationSeconds: 5 },
+    host: args => createDemoHost({ ...args, ownerGuard: false }) });
+  const first = await h.start();
+  if (settled) {
+    await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId, reason: 'transport-lost' });
+    await h.handlers.idle();
+    assert.equal(h.storage.voiceCalls(h.session.id)[0].terminal.closureConfirmed, true);
+  }
+  const attempts = h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n;
+  const reservations = h.storage.db.prepare('SELECT COUNT(*) n FROM owner_wallet_reservations').get().n;
+  const credentials = h.traffic.filter(url => url.includes('/token?')).length;
+  h.host.visitorCredits.saveSettings({ baseRevision: h.host.visitorCredits.settings().revision,
+    allowancesUsd: { anonymous: '0', emailGiven: '0', emailConfirmed: '0' } }, { actor: 'ops-cli:fixture', source: 'ops-cli' });
+  const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId, explicit: true });
+  assert.equal(response.status, 403); assert.equal((await response.json()).error, 'not-admitted');
+  await h.handlers.idle();
+  assert.equal(h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n, attempts);
+  assert.equal(h.storage.db.prepare('SELECT COUNT(*) n FROM owner_wallet_reservations').get().n, reservations);
+  assert.equal(h.traffic.filter(url => url.includes('/token?')).length, credentials, 'no replacement provider credential is minted');
+  assert.equal(h.storage.voiceCalls(h.session.id).length, 1);
+  assert.equal(h.storage.ownerCreditState('voice-owner'), null, 'the optional owner guard stays disabled');
+});
+
+test('AIT-138 / A1: visitor Resume and explicit recovery renew retention; heartbeat and automatic recovery do not', async t => {
+  const DAY = 24 * 60 * 60_000;
+  let activityTime = 1_000;
+  const h = voiceFixture(t, { host: args => createDemoHost({ ...args, ownerGuard: false, now: () => activityTime }) });
+  h.host.saveEmail('voice-owner', { address: 'voice@example.test', noticeVersion: 'ait-135-v1' });
+  const activeAt = () => h.storage.db.prepare('SELECT last_active_at FROM visitor_identities WHERE owner_hash=?')
+    .get(h.session.ownerHash).last_active_at;
+  let grant = await h.start();
+  activityTime += 89 * DAY;
+  assert.equal((await h.route(`/voice/${grant.callId}/heartbeat`, { providerSessionId: grant.providerSessionId })).status, 200);
+  assert.equal(activeAt(), 1_000);
+  let response = await h.route(`/voice/${grant.callId}/recover`, { providerSessionId: grant.providerSessionId });
+  assert.equal(response.status, 200); grant = await response.json(); await h.handlers.idle();
+  assert.equal(activeAt(), 1_000, 'automatic recovery and settlement are not visitor activity');
+  const identity = { providerSessionId: grant.providerSessionId, explicit: true };
+  assert.equal((await h.route(`/voice/${grant.callId}/recover`, identity, 'another-owner')).status, 404);
+  assert.equal((await h.route(`/voice/${grant.callId}/recover`, { ...identity, explicit: 'yes' })).status, 400);
+  assert.equal(activeAt(), 1_000);
+  await h.route(`/voice/${grant.callId}/close`, { providerSessionId: grant.providerSessionId, reason: 'transport-lost' });
+  response = await h.route(`/voice/${grant.callId}/recover`, identity);
+  assert.equal(response.status, 200); grant = await response.json();
+  assert.equal(activeAt(), activityTime, 'explicit recovery from a settled segment renews activity');
+  activityTime += 1_000;
+  response = await h.route(`/voice/${grant.callId}/recover`, { providerSessionId: grant.providerSessionId, explicit: true });
+  assert.equal(response.status, 200); grant = await response.json();
+  assert.equal(activeAt(), activityTime, 'explicit recovery of an active segment renews activity');
+  activityTime += 1_000;
+  await h.route(`/voice/${grant.callId}/pause`, { providerSessionId: grant.providerSessionId });
+  assert.equal((await h.route(`/voice/${grant.callId}/resume`, { providerSessionId: grant.providerSessionId })).status, 200);
+  assert.equal(activeAt(), activityTime);
+  activityTime += 1_000;
+  assert.equal((await h.route('/pause', { paused: true })).status, 200);
+  assert.equal((await h.route('/pause', { paused: false })).status, 200);
+  assert.equal(activeAt(), activityTime, 'conversation Resume also renews voice activity');
+  activityTime = 1_000 + 90 * DAY; h.host.retainVisitors();
+  assert.equal(h.host.visitor('voice-owner').address, 'voice@example.test');
+  activityTime += 90 * DAY; h.host.retainVisitors();
+  assert.equal(h.host.visitor('voice-owner').address, null);
+});
 
 for (const locale of ['de', 'en']) test(`AIT-138: server alone chooses ${locale} continuation, regardless of browser presentation`, async t => {
   const h = voiceFixture(t, { voiceOptions: { presentation: language => ({ agent: { language, firstMessage: core.aiNoticeText(language) } }) } });
@@ -118,7 +183,7 @@ test('AIT-138 fix 3: exhaustion reports are owner authenticated, validated, and 
   assert.equal(h.storage.voiceLifecycle(h.session.id, first.callId).state, 'ended', 'exhaustion cannot undo explicit hang-up');
 });
 
-export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, path, cap, reasoning = createMockReasoning(), durationBinding = {}, voiceOptions = {} } = {}) {
+export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, path, cap, reasoning = createMockReasoning(), durationBinding = {}, voiceOptions = {}, host: createHost } = {}) {
   const storage = new SQLiteStorage(path), secrets = createFacadeSecrets();
   let clock = Date.now(), sequence = 0, covered = true, secretReads = 0, coverageReads = 0, healthReads = 0, releasing = false, mintFailure, beforeCoverage;
   const opened = new Map(), ended = new Set(), waiting = new Map(), provisioned = [], traffic = [], closeRequests = [];
@@ -168,7 +233,8 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
     const admitted = await admittedRuntime.admit(args);
     return args.lane === 'voice' ? admitted : { ...admitted, plugin: reasoning };
   } };
-  const handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent, voice: { secrets, now, browserLeaseMs: leaseMs, ...voiceOptions } });
+  const host = createHost?.({ storage, now });
+  const handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent, host, voice: { secrets, now, browserLeaseMs: leaseMs, ...voiceOptions } });
   t.after(async () => { releasing = true; for (const id of waiting.keys()) endClient(id); await handlers.close(); storage.close(); });
   const token = 'voice-owner', session = storage.create({ ownerToken: token, demo: true });
   const route = async (suffix, body = {}, owner = token) => handlers.handle(new Request(`http://host/api/sessions/${session.id}${suffix}`, {
@@ -176,7 +242,7 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
   const start = async (callId = 'call-1') => {
     const response = await route('/voice', { callId }); assert.equal(response.status, 201); return response.json();
   };
-  return { storage, secrets, runtime, handlers, session, route, start, presets, provisioned, traffic, now, voiceCap, plugin: registry.get('elevenlabs'), endClient, closeRequests,
+  return { storage, secrets, runtime, handlers, host, session, route, start, presets, provisioned, traffic, now, voiceCap, plugin: registry.get('elevenlabs'), endClient, closeRequests,
     failMint: failure => { mintFailure = failure; },
     waitForMintFailure: () => providerEvents.waitFor(event => event.type === 'mint-failed'),
     waitForClosure: id => providerEvents.waitFor(event => event.type === 'details' && event.id === id),

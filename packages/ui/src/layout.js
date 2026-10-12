@@ -56,13 +56,13 @@ export class ConversationFold {
     setText(this.root.querySelector('.fold-question'), c.openQuestion);
     setText(this.root.querySelector('.canvas-empty span'), c.canvasEmpty);
   }
-  update(session) {
+  update(session, openQuestion = session.openQuestion) {
     const last = session.transcript.filter(t => !t.erased).at(-1);
     setText(this.root.querySelector('.fold-text'), last?.content ?? this.copy.layout.noMessage);
     setText(this.root.querySelector('.fold-who'), last?.role === 'user' ? this.copy.you : this.copy.assistant);
     this.root.querySelector('.fold-strip').dataset.speaker = last?.role ?? 'assistant';
-    // AIT-132 can supply its open-card state here; an understanding question alone is not a card.
-    this.root.querySelector('.fold-question').hidden = !session.openQuestion;
+    // The current final reply owns this state; background understanding never opens the strip label.
+    this.root.querySelector('.fold-question').hidden = !openQuestion;
   }
   set(on) {
     if (on === this.folded) return;

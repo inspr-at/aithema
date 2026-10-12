@@ -10,15 +10,25 @@ export function assertReasoning(plugin) {
   }
   return plugin;
 }
-// The port accepts the JSON Schema subset produced by understandingSchema.
+// The port accepts the JSON Schema subset produced by understandingSchema and replySchema.
 export function matchesSchema(value, schema) {
   if (schema.anyOf) return schema.anyOf.some(s => matchesSchema(value, s));
   if (schema.enum && !schema.enum.includes(value)) return false;
   if (schema.type === 'null') return value === null;
-  if (schema.type === 'string') return typeof value === 'string';
+  if (schema.type === 'string') return typeof value === 'string' &&
+    (schema.minLength === undefined || value.length >= schema.minLength) && (schema.maxLength === undefined || value.length <= schema.maxLength);
+  if (schema.type === 'boolean') return typeof value === 'boolean';
   if (schema.type === 'number') return typeof value === 'number' && Number.isFinite(value) &&
     (schema.minimum === undefined || value >= schema.minimum) && (schema.maximum === undefined || value <= schema.maximum);
-  if (schema.type === 'array') return Array.isArray(value) && value.every(v => matchesSchema(v, schema.items));
+  if (schema.type === 'array') {
+    if (!Array.isArray(value) || schema.maxItems !== undefined && value.length > schema.maxItems ||
+      schema.minItems !== undefined && value.length < schema.minItems || !value.every(v => matchesSchema(v, schema.items))) return false;
+    if (schema.contains) {
+      const count = value.filter(v => matchesSchema(v, schema.contains)).length;
+      if (count < (schema.minContains ?? 1) || schema.maxContains !== undefined && count > schema.maxContains) return false;
+    }
+    return true;
+  }
   if (schema.type === 'object') return value !== null && typeof value === 'object' && !Array.isArray(value) &&
     (schema.required ?? []).every(k => Object.hasOwn(value, k)) &&
     Object.entries(value).every(([k, v]) => schema.properties[k]

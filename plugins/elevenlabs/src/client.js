@@ -441,11 +441,11 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           if (persistenceFailed) { await close('transcript-persistence-failed'); return; }
           try { await voiceOperation({ deadlineAt: Date.now() + 1000 }, opts => control.close({ ...recoveryIdentity, reason: 'transport-lost' }, opts)); } catch {}
         },
-        async replace() {
+        async replace({ explicit }) {
           if (ended || !control.recover) throw new PluginError('unavailable');
           // Every replacement is server-admitted, in its own callback key space.
           const opts = { signal: commandCancellation.signal, deadlineAt: Math.min(grant.spendDeadlineAt, Date.now() + 10_000) };
-          const receipt = await voiceOperation(opts, bounded => control.recover(recoveryIdentity, bounded));
+          const receipt = await voiceOperation(opts, bounded => control.recover({ ...recoveryIdentity, explicit }, bounded));
           if (ended) throw new PluginError('cancelled');
           await connect(receipt, opts); return receipt;
         },
@@ -491,7 +491,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           if (options.holdSignal?.aborted) retainHold();
           if (request.providerSessionId) { paused = true; lifecycle.pause('waiting'); }
           const receipt = request.providerSessionId
-            ? await control.recover({ callId: request.callId, providerSessionId: request.providerSessionId }, opts) : await control.start(request, opts);
+            ? await control.recover({ callId: request.callId, providerSessionId: request.providerSessionId, explicit: true }, opts) : await control.start(request, opts);
           await connect(receipt, opts); lifecycle.connected(receipt);
           if (request.providerSessionId && !options.holdSignal?.aborted) {
             const ack = await control.resume(identity(), opts);

@@ -1,0 +1,37 @@
+#!/usr/bin/env node
+import { dirname, join, resolve } from 'node:path';
+import { adminRequest } from './admin-socket.js';
+
+const usage = 'Usage: node demo/admin-cli.js [--socket PATH] settings | audit [--after ID] [--limit N] | provider-cap | '
+  + 'set-allowances --base-revision N --anonymous USD --email-given USD --email-confirmed USD';
+try {
+  const args = process.argv.slice(2);
+  let socket = process.env.AITHEMA_ADMIN_SOCKET ?? join(dirname(resolve(process.env.AITHEMA_DB ?? '.data/session.sqlite')), 'ops', 'admin');
+  if (args[0] === '--socket') { args.shift(); socket = args.shift(); }
+  const command = args.shift();
+  if (!['settings', 'set-allowances', 'audit', 'provider-cap'].includes(command)) throw new Error(usage);
+  const options = {};
+  while (args.length) {
+    const key = args.shift(), value = args.shift();
+    if (!key?.startsWith('--') || value === undefined || Object.hasOwn(options, key)) throw new Error(usage);
+    options[key] = value;
+  }
+  let payload;
+  const keys = Object.keys(options);
+  if (command === 'set-allowances') {
+    const required = ['--base-revision', '--anonymous', '--email-given', '--email-confirmed'];
+    if (keys.length !== required.length || required.some(key => !Object.hasOwn(options, key)) || !/^[1-9]\d*$/u.test(options['--base-revision'])) throw new Error(usage);
+    payload = { baseRevision: Number(options['--base-revision']), allowancesUsd: {
+      anonymous: options['--anonymous'], emailGiven: options['--email-given'], emailConfirmed: options['--email-confirmed'] } };
+  } else if (command === 'audit') {
+    if (keys.some(key => !['--after', '--limit'].includes(key))) throw new Error(usage);
+    payload = Object.fromEntries(keys.map(key => [key.slice(2), options[key]]));
+  } else if (keys.length) throw new Error(usage);
+  const result = await adminRequest(socket, command, payload);
+  console.log(JSON.stringify(result.body, null, 2));
+  if (result.status !== 200) process.exitCode = 1;
+} catch (error) {
+  console.error(['ENOENT', 'ECONNREFUSED'].includes(error.code)
+    ? 'The Aithema host is not running. Start the authoritative host before using the OPS CLI; there is no offline database fallback.' : error.message);
+  process.exitCode = 1;
+}

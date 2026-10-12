@@ -58,7 +58,7 @@ export function createVoiceLifecycleController({ callId, renew, replace, beforeR
       for (let attempt = 0; attempt < 3 && !ended(); attempt++) {
         dispatch({ type: 'recovery-attempt' });
         try {
-          const receipt = await replace();
+          const receipt = await replace({ explicit });
           if (ended()) return false;
           dispatch({ type: 'connected', ...receipt });
           onEvent({ type: 'recovered' }); return true;

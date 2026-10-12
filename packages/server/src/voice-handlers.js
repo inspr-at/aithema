@@ -49,7 +49,7 @@ export function createFacadeSecrets() {
 }
 
 export function createVoiceHandlers({ storage, runtime, ownership, readBody, secrets,
-  publish, onTurn, onClose, hostPrompt = '', now = Date.now, browserLeaseMs = 30_000, deadlineMs = 30_000,
+  publish, onTurn, onClose, onActivity, hostPrompt = '', now = Date.now, browserLeaseMs = 30_000, deadlineMs = 30_000,
   closeOrphan, staticSecretRef, presentation, reconcileIntervalMs = 30_000, reconcileBatchSize = 10,
   reconcileLookupTimeoutMs = 5000, log,
   turnReplayWindowMs, turnTimeoutMs = 30_000, authorizeTurnReplacement } = {}) {
@@ -228,7 +228,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
   }
   function buildVoiceRequest(session, messages, call) {
     const latestInput = unrecordedVoiceInput(session, messages, call);
-    const trusted = reasoningRequest(session, 'reaction', false, hostPrompt, { pendingInput: latestInput.length > 0 });
+    const trusted = reasoningRequest(session, 'reaction', false, hostPrompt, { pendingInput: latestInput.length > 0, voiceReply: true });
     // Focus is derived by the asynchronous understanding lane. It is usable
     // only once that final assessment covers every input in this reply request.
     const currentFocus = !latestInput.length && !session.understanding.draft &&
@@ -339,7 +339,9 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     async pauseSession(id, paused, opts = {}) {
       const entry = sessions.get(id);
       if (!entry?.call) return null;
-      return changePause(entry, paused, opts);
+      const ack = await changePause(entry, paused, opts);
+      if (!paused) onActivity?.(sessionFor(entry));
+      return ack;
     },
     async handle(request) {
       const path = new URL(request.url).pathname;
@@ -352,8 +354,10 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         if (request.method !== 'POST') return json({ error: 'method-not-allowed' }, 405);
         const bytes = await readBody(request, 65_536), body = bytes.length ? JSON.parse(Buffer.from(bytes).toString('utf8')) : {};
         if (!body || typeof body !== 'object' || Array.isArray(body)) throw new TypeError('Invalid body');
+        if (action === 'recover' && body.explicit !== undefined && typeof body.explicit !== 'boolean') throw new TypeError('Invalid recovery intent');
         if (!action) {
           if (typeof body.callId !== 'string' || !new RegExp(`^${idPattern}$`, 'u').test(body.callId) || calls.has(body.callId) || storage.voiceCalls(sessionId).some(c => c.callId === body.callId)) throw new ConflictError('Call identity reused');
+          onActivity?.(storage.get(sessionId));
           return json(await start(request, sessionId, ownerToken, body.callId), 201);
         }
         const previous = storage.voiceCalls(sessionId).find(c => c.callId === callId && c.providerSessionId === body.providerSessionId);
@@ -388,6 +392,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           if (Number.isSafeInteger(previous.settingsRevision) && previous.settingsRevision !== storage.get(sessionId).settings?.revision) {
             throw new PluginError('not-admitted', 'Processing settings changed');
           }
+          if (body.explicit === true) onActivity?.(storage.get(sessionId));
           return json(await start(request, sessionId, ownerToken, callId, previous.spendDeadlineAt, true));
         }
         if (!entry && previous && storage.get(sessionId).consentWithdrawn) throw new PluginError('not-admitted');
@@ -417,6 +422,8 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           throw error;
         }
         if (action === 'recover') {
+          // A visitor's Resume is activity; automatic transport repair is not.
+          if (body.explicit === true) onActivity?.(session);
           if (!bound && !entry.closing && !entry.call.signal.aborted) return json(receipt(entry.call));
           if (entry.recovering) throw new ConflictError('Recovery in progress');
           if (entry.settingsRevision !== session.settings?.revision) throw new PluginError('not-admitted', 'Processing settings changed');
@@ -449,6 +456,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           return json(result.event);
         }
         const before = storage.get(sessionId).seq;
+        if (action === 'resume') onActivity?.(session);
         const ack = await entry.call[action]({ ...options(request), guard: { authorizationRevision: voiceAuthorizationRevision(session) } });
         if (action === 'resume') storage.transitionVoiceLifecycle(sessionId, callId, { type: 'resume-acknowledged' });
         if (action === 'heartbeat') storage.transitionVoiceLifecycle(sessionId, callId, { type: 'heartbeat', ...ack });

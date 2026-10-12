@@ -6,7 +6,7 @@ import { normalizeUploadLimits } from './upload-limits.js';
 import { createVoiceOperationStore } from './voice-operation-storage.js';
 import { applyEvent, createSession, inputRevision, emptyUnderstanding, isUIArtifact, isHTMLArtifact, inspectHTML, HTML_MEDIA_TYPE, imageInfo, reduceConceptIntent, createConceptIntent, MAX_IMAGE_BYTES,
   defaultSettings, normalizeSettings, sameSelection, conversationStarted, createCredits, rebindCredits, reduceCredits, aiTextOrigin, withAITextOrigin,
-  voiceAuthorizationRevision, createVoiceLifecycle, reduceVoiceLifecycle } from '@inspr/aithema-core';
+  voiceAuthorizationRevision, createVoiceLifecycle, reduceVoiceLifecycle, parseReply } from '@inspr/aithema-core';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 export const MAX_CONCEPT_STORAGE_BYTES = 64 * 1024 * 1024;
@@ -139,6 +139,10 @@ export class SQLiteStorage {
   }
   /** One host clock guard per owner; new/reset never renew its deadline. */
   transitionCredits(id, ownerToken, event, options = {}) {
+    if (options.ownerGuard === false) {
+      this.authorize(id, ownerToken);
+      return { state: null, events: [] };
+    }
     return this.transaction(() => {
       const session = this.authorize(id, ownerToken), key = session.ownerHash;
       const row = this.db.prepare('SELECT record FROM owner_credit_guards WHERE owner_hash=?').get(key);
@@ -214,10 +218,11 @@ export class SQLiteStorage {
       ['turn.final', 'turn.corrected'].includes(type) ? turnMetadata.includes(key)
         : ['contentRef', 'hash', 'erased'].includes(key)));
     const contentRef = `${id}:${seq}`, at = data.at ?? new Date().toISOString();
-    // A reply's engine label reveals the visitor's choice, so it is erased with the reply.
+    // Reply choices and the engine label are content: erase them with the reply, never retain them in metadata.
     const origin = aiTextOrigin({ model: data.model, plugin: data.provider });
     const bytes = JSON.stringify(['turn.final', 'turn.corrected'].includes(type)
-      ? { content: data.content, ...(data.role === 'assistant' ? { ...origin, ...(data.engine ? { engine: data.engine } : {}) } : {}) }
+      ? { content: data.content, ...(data.role === 'assistant' ? { ...origin, ...(data.engine ? { engine: data.engine } : {}),
+        ...('question_short' in data || 'options' in data ? parseReply(data) : {}) } : {}) }
       : { ...data, ...origin }), digest = hash(bytes);
     this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id,
       ['turn.final', 'turn.corrected'].includes(type) ? data.role === 'user' ? 'person' : 'reply' : 'understanding', bytes, digest, at);
@@ -490,11 +495,40 @@ export class SQLiteStorage {
   }
   #invalidationTransaction(fn) {
     const result = this.transaction(fn);
+    this.checkpointErasure();
+    return result;
+  }
+  checkpointErasure() {
     // secure_delete clears pages in the database; truncate also removes earlier
     // committed content from the WAL before an erasure acknowledgement.
     const checkpoint = this.db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get();
     if (checkpoint.busy) throw new Error('Erasure checkpoint unavailable');
-    return result;
+  }
+  /** Bounded removal of identity projections, including deleted conversations.
+   * The host retains its cleanup queue until all batches have completed. */
+  eraseIdentityProjections(ownerHash, { limit = 100, at = new Date().toISOString() } = {}) {
+    if (typeof ownerHash !== 'string' || !/^[a-f0-9]{64}$/u.test(ownerHash) || !Number.isSafeInteger(limit) || limit < 1) throw new TypeError('Invalid identity erasure');
+    const owned = "SELECT id FROM sessions WHERE json_extract(snapshot,'$.ownerHash')=?";
+    const contentFilter = `session_id IN (${owned}) AND tombstone IS NULL AND id IN
+      (SELECT json_extract(event,'$.data.contentRef') FROM events WHERE json_extract(event,'$.type') IN ('identity.state','verification.requested'))`;
+    let count = this.db.prepare(`UPDATE content SET bytes=NULL,tombstone=? WHERE id IN (SELECT id FROM content WHERE ${contentFilter} LIMIT ?)`)
+      .run(at, ownerHash, limit).changes;
+    for (const row of this.db.prepare(`SELECT session_id,record FROM host_states WHERE session_id IN (${owned})
+      AND json_extract(record,'$.identity.address') IS NOT NULL LIMIT ?`).all(ownerHash, limit - count)) {
+      const record = JSON.parse(row.record), state = record.identity;
+      record.identity = { ...state, status: 'guest', address: null, verificationRevision: (state.verificationRevision ?? 0) + 1,
+        expiresAt: null, resendAt: 0, expired: false, delivery: 'idle', confirmationAttempts: 0 };
+      this.db.prepare('UPDATE host_states SET record=? WHERE session_id=?').run(JSON.stringify(record), row.session_id); count++;
+    }
+    // Keep the value-free identified flag: its transitions determine replay's
+    // input revision. The host publishes a new anonymous state on next use.
+    count += this.db.prepare(`UPDATE sessions SET snapshot=json_set(snapshot,'$.identity',NULL)
+      WHERE id IN (SELECT id FROM sessions WHERE json_extract(snapshot,'$.ownerHash')=?
+      AND json_extract(snapshot,'$.identity') IS NOT NULL LIMIT ?)`).run(ownerHash, limit - count).changes;
+    const more = this.db.prepare(`SELECT 1 FROM content WHERE ${contentFilter} LIMIT 1`).get(ownerHash) ||
+      this.db.prepare(`SELECT 1 FROM host_states WHERE session_id IN (${owned}) AND json_extract(record,'$.identity.address') IS NOT NULL LIMIT 1`).get(ownerHash) ||
+      this.db.prepare("SELECT 1 FROM sessions WHERE json_extract(snapshot,'$.ownerHash')=? AND json_extract(snapshot,'$.identity') IS NOT NULL LIMIT 1").get(ownerHash);
+    return { count, done: !more };
   }
   withdraw(id, turnId, reason = 'withdrawal', guard = {}) {
     return this.#invalidationTransaction(() => {

@@ -10,6 +10,30 @@ async function drain(session, closeOnWaiting = false) {
   for await (const event of session.events) { events.push(event); if (closeOnWaiting && event.type === 'waiting') await session.close(); }
   return events;
 }
+test('AIT-138 / A1: recovery identifies automatic repair separately from visitor Resume', async t => {
+  const local = fixture(), recovery = [];
+  local.control.recover = (identity, options) => {
+    recovery.push(identity);
+    return local.control.start({ callId: identity.callId }, { ...invocationOptions(), ...options });
+  };
+  const session = await local.client.start({ callId: 'activity_recovery' }, invocationOptions());
+  t.after(() => session.close());
+  assert.equal(await session.lifecycle.recover(), true);
+  assert.equal(recovery.at(-1).explicit, false);
+  await session.pause(); session.lifecycle.wait();
+  await session.resume();
+  assert.equal(recovery.at(-1).explicit, true);
+});
+test('AIT-138 / A1: restoring a waiting call sends explicit visitor recovery intent', async t => {
+  const local = fixture(), recovery = [];
+  local.control.recover = (identity, options) => {
+    recovery.push(identity);
+    return local.control.start({ callId: identity.callId }, options);
+  };
+  const session = await local.client.start({ callId: 'activity_restore', providerSessionId: 'retired-provider' }, invocationOptions());
+  t.after(() => session.close());
+  assert.deepEqual(recovery, [{ callId: 'activity_restore', providerSessionId: 'retired-provider', explicit: true }]);
+});
 test('AIT-138 fix 3: the browser persists exhausted admission attempts before recovery finishes', async t => {
   const local = fixture(), closing = [], originalClose = local.control.close;
   local.control.recover = async () => { throw new Error('provider unavailable'); };
