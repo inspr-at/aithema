@@ -114,6 +114,7 @@ test('final turns are persisted once; tentative captions and genuine heard corre
   assert.deepEqual(observed.map(event => event.type), ['listening', 'partial', 'final', 'speaking', 'final', 'heard', 'ended']);
   assert.equal(observed[5].turnId, observed[4].turnId); assert.equal(observed[5].prefix, 'Hello there,');
   assert.deepEqual(local.persisted.map(event => event.type), ['final', 'final', 'heard']);
+  assert.deepEqual(local.persisted.filter(event => event.type === 'final').map(event => event.event_id), [1, 2]);
   assert.equal(local.sdk.starts[0].customLlmExtraBody.aithema_call, session.callId);
   assert.equal(JSON.stringify(local.sdk.starts[0]).includes('fixture-api-key'), false);
   assert.equal(JSON.stringify(local.sdk.starts[0]).includes('fixture-facade-ref'), false);
@@ -201,8 +202,8 @@ function conformanceFixture(local) {
       callbacks.onAgentResponseCorrection({ event_id: 11, original_agent_response: 'Hello there', corrected_agent_response: 'Hello' });
       return [
         { type: 'partial', turnId: `${provider}:user:pending`, role: 'user', text: 'hel', callId, providerSessionId: provider },
-        { type: 'final', turnId: `${provider}:user:10`, role: 'user', text: 'hello', callId, providerSessionId: provider },
-        { type: 'final', turnId: `${provider}:assistant:11`, role: 'assistant', text: 'Hello there', callId, providerSessionId: provider },
+        { type: 'final', turnId: `${provider}:user:10`, role: 'user', text: 'hello', userTurnOrdinal: 1, event_id: 10, callId, providerSessionId: provider },
+        { type: 'final', turnId: `${provider}:assistant:11`, role: 'assistant', text: 'Hello there', event_id: 11, callId, providerSessionId: provider },
         { type: 'heard', turnId: `${provider}:assistant:11`, prefix: 'Hello', callId, providerSessionId: provider },
       ];
     },
@@ -256,4 +257,55 @@ test('live-voice conformance passes joined ElevenLabs halves and rejects broken 
   const mismatched = { ...local.plugin, manifest: { ...local.plugin.manifest, liveVoice: {
     ...local.plugin.manifest.liveVoice, capabilities: { ...local.plugin.manifest.liveVoice.capabilities, setOutput: 'native' } } } };
   assert.ok((await liveVoiceConformance(mismatched, { callId: 'call_mismatch' }, kit)).failures.includes('setOutput capability differs from behaviour'));
+});
+
+
+test('AIT-137 round 3: client user-final ordinal ignores assistant finals and duplicates, and resets on recovery', async () => {
+  const local = fixture(), initial = invocationOptions(), recovered = invocationOptions();
+  local.control.recover = ({ callId }, options) => local.control.start({ callId }, { ...recovered, ...options });
+  const session = await local.client.start({ callId: 'call_final_ordinals' }, initial), events = drain(session);
+  const first = local.sdk.starts[0];
+  first.onMessage({ role: 'user', message: 'Ja', event_id: 1 });
+  first.onMessage({ role: 'user', message: 'Ja', event_id: 1 });
+  first.onMessage({ role: 'agent', message: 'Again?', event_id: 2 });
+  first.onMessage({ role: 'user', message: 'Ja', event_id: 3 });
+  const oldGeneration = session.providerSessionId;
+  first.onDisconnect(); await flush();
+  assert.notEqual(session.providerSessionId, oldGeneration);
+  first.onMessage({ role: 'user', message: 'Stale', event_id: 4 });
+  local.sdk.starts[1].onMessage({ role: 'user', message: 'Ja', event_id: 1 });
+  await session.close(); await events;
+  const finals = local.persisted.filter(event => event.type === 'final' && event.role === 'user');
+  assert.deepEqual(finals.map(event => event.userTurnOrdinal), [1, 2, 1]);
+  assert.deepEqual(finals.map(event => event.event_id), [1, 3, 1]);
+  assert.notEqual(finals[1].providerSessionId, finals[2].providerSessionId);
+});
+
+test('AIT-137 round 5: custom-LLM metadata identifies identical replies across delayed finals', async () => {
+  const local = fixture(), session = await local.client.start({ callId: 'reply_identity' }, invocationOptions()), events = drain(session);
+  const callbacks = local.sdk.starts[0];
+  callbacks.onMessage({ role: 'user', message: 'Input A', event_id: 1 });
+  callbacks.onDebug({ type: 'agent_response_metadata', agent_response_metadata_event: { event_id: 2, metadata: { aithema_reply_id: 'chatcmpl-a' } } });
+  callbacks.onMessage({ role: 'user', message: 'Input B', event_id: 3 });
+  callbacks.onDebug({ type: 'agent_response_metadata', agent_response_metadata_event: { event_id: 4, metadata: { aithema_reply_id: 'chatcmpl-b' } } });
+  callbacks.onMessage({ role: 'agent', message: 'Same reply', event_id: 4 });
+  callbacks.onMessage({ role: 'agent', message: 'Same reply', event_id: 2 });
+  callbacks.onMessage({ role: 'agent', message: 'Same reply', event_id: 2 });
+  await session.close(); await events;
+  const replies = local.persisted.filter(event => event.role === 'assistant');
+  assert.deepEqual(replies.map(event => [event.event_id, event.replyId]), [[4, 'chatcmpl-b'], [2, 'chatcmpl-a']]);
+  assert.ok(replies.every(event => event.userTurnOrdinal === undefined), 'the server owns operation ordinals');
+});
+
+test('AIT-137 round 5: metadata after a final annotates that transcript exactly once', async () => {
+  const local = fixture(), session = await local.client.start({ callId: 'late_reply_metadata' }, invocationOptions()), events = drain(session);
+  const callbacks = local.sdk.starts[0];
+  callbacks.onMessage({ role: 'agent', message: 'Same reply', event_id: 2 });
+  await flush();
+  const metadata = { type: 'agent_response_metadata', agent_response_metadata_event: { event_id: 2, metadata: { aithema_reply_id: 'chatcmpl-a' } } };
+  callbacks.onDebug(metadata); callbacks.onDebug(metadata);
+  await session.close();
+  assert.deepEqual(local.persisted.map(event => [event.type, event.turnId, event.replyId]),
+    [['final', `${session.providerSessionId}:assistant:2`, undefined], ['reply', `${session.providerSessionId}:assistant:2`, 'chatcmpl-a']]);
+  assert.deepEqual((await events).map(event => event.type), ['final', 'ended']);
 });

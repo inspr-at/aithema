@@ -5,6 +5,7 @@ import { voiceOperation } from '../../core/src/live-voice.js';
 import { ConflictError, NotFoundError } from './storage.js';
 import { VOICE_CAP_REASONS } from './voice-cap.js';
 import { CUSTOM_LLM_BASE_PATH } from '../../../plugins/elevenlabs/src/ensure-agent.js';
+import { createVoiceTurnOperations } from './voice-turns.js';
 
 const json = (value, status = 200) => Response.json(value, { status, headers: { 'cache-control': 'no-store' } });
 const idPattern = '[a-zA-Z0-9_-]{1,128}';
@@ -50,12 +51,19 @@ export function createFacadeSecrets() {
 export function createVoiceHandlers({ storage, runtime, ownership, readBody, secrets,
   publish, onTurn, onClose, hostPrompt = '', now = Date.now, browserLeaseMs = 30_000, deadlineMs = 30_000,
   closeOrphan, staticSecretRef, presentation, reconcileIntervalMs = 30_000, reconcileBatchSize = 10,
-  reconcileLookupTimeoutMs = 5000, log } = {}) {
+  reconcileLookupTimeoutMs = 5000, log,
+  turnReplayWindowMs, turnTimeoutMs = 30_000, authorizeTurnReplacement } = {}) {
   if (!secrets?.provision || !secrets.resolve || !secrets.revoke) throw new TypeError('Private facade secret store required');
   if (presentation !== undefined && typeof presentation !== 'function') throw new TypeError('Voice presentation must be a function of the session locale');
   if (![reconcileIntervalMs, reconcileBatchSize, reconcileLookupTimeoutMs].every(value => Number.isSafeInteger(value) && value > 0) ||
     log !== undefined && typeof log !== 'function') throw new TypeError('Invalid voice reconciliation retry bounds');
   const calls = new Map(), sessions = new Map(), settlements = new Set();
+  if (!Number.isSafeInteger(turnTimeoutMs) || turnTimeoutMs <= 0) throw new TypeError('Invalid voice turn timeout');
+  const turns = createVoiceTurnOperations({ storage, now, replayWindowMs: turnReplayWindowMs,
+    authorizeReplacement: authorizeTurnReplacement && (args => {
+      const entry = calls.get(args.operation.callId);
+      return authorizeTurnReplacement({ ...args, session: sessionFor(entry) });
+    }) });
   let reconcileTimer, reconcileJob, retryOffset = 0, stopping = false;
   const pendingReconciliations = () => storage.voiceCalls().filter(record => record.reconciliationPending);
   const diagnostic = (record, event, fields) => {
@@ -196,7 +204,14 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       ...(currentFocus && session.focusedQuestion ? [{ role: 'user', content: JSON.stringify({ kind: 'untrusted-focused-question', question: session.focusedQuestion }) }] : []),
       ...latestInput] };
   }
-  const facade = createCompletionsHandler({ resolveSecret: secrets.resolve, staticSecretRef,
+  const facade = createCompletionsHandler({ resolveSecret: secrets.resolve, staticSecretRef, timeoutMs: turnTimeoutMs,
+    turnOperations: {
+      run(context, execute, options) {
+        const entry = calls.get(context.callId);
+        sessionFor(entry);
+        return turns.run({ ...context, sessionId: entry.sessionId }, execute, options);
+      },
+    },
     getCall(request, options, identity) {
       const entry = staticSecretRef ? [...calls.values()].find(entry => entry.facadeCallId === identity)
         : calls.get(facadeRoute.exec(new URL(request.url).pathname)?.[1]);
@@ -208,7 +223,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       const entry = calls.get(callId);
       return buildVoiceRequest(sessionFor(entry), messages, entry.call);
     },
-    async admitReasoning({ callId, messages, options }) {
+    async admitReasoning({ callId, messages, options, beforeAdmission }) {
       const entry = calls.get(callId);
       let session = sessionFor(entry);
       for (let retry = 0; ; retry++) {
@@ -218,10 +233,12 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           // voice check awaited. The facade must dispatch this admitted request.
           session = sessionFor(entry);
           const request = buildVoiceRequest(session, messages, entry.call);
-          return { ...await runtime.admit({ session, lane: 'reaction', operation: 'stream', request, options }), request };
+          beforeAdmission?.();
+          return { ...await runtime.admit({ session, lane: 'reaction', operation: 'stream', request,
+            options: { ...options, voiceReply: true } }), request };
         } catch (error) {
           // sessionFor strictly fences ownership, consent and withdrawal before
-          // considering a retry. Never relax runtime's revision/dispatch checks.
+          // considering a retry. Only append-only finals are benign at dispatch.
           const fresh = sessionFor(entry);
           if (retry || !(error instanceof PluginError) || error.code !== 'not-admitted' ||
             !['Session changed', 'Session changed during admission'].includes(error.message) ||
@@ -233,11 +250,11 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         }
       }
     },
-    onCompletion({ callId, providerSessionId, content, textOrigin, engine }) {
+    onCompletion({ callId, providerSessionId, replyId, content, textOrigin, engine, userTurnOrdinal }) {
       const entry = calls.get(callId);
       if (!entry?.call || entry.closing || entry.call.providerSessionId !== providerSessionId) return;
       entry.produced ??= [];
-      entry.produced.push({ content, textOrigin, engine });
+      entry.produced.push({ replyId, content, textOrigin, engine, userTurnOrdinal });
       while (entry.produced.length > 256 || entry.produced.reduce((n, reply) => n + reply.content.length, 0) > 1_048_576) entry.produced.shift();
     },
   });
@@ -341,11 +358,17 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         if (entry.call.signal.aborted) throw new PluginError('unavailable');
         if (action === 'events') {
           const fresh = sessionFor(entry);
-          const produced = body.event?.role === 'assistant' && entry.produced?.findLast(reply => reply.content === body.event.text);
+          // The completion ID belongs to one operation. Text only attests that
+          // receipt's bytes; it never selects a reply or supplies an ordinal.
+          const prior = body.event?.type === 'reply' && fresh.transcript.find(turn => turn.id === body.event.turnId && turn.role === 'assistant');
+          const produced = (body.event?.role === 'assistant' || prior) && typeof body.event.replyId === 'string' &&
+            entry.produced?.find(reply => reply.replyId === body.event.replyId &&
+              (prior ? Boolean(prior.content) && reply.content.startsWith(prior.content) : reply.content === body.event.text));
           const provenance = produced ? 'facade-produced' : 'browser-asserted';
           const result = storage.postVoiceEvent(sessionId, callId, entry.call.providerSessionId, body.event,
             { ownerToken, revision: inputRevision(fresh), provenance,
-              ...(produced ? { ...produced.textOrigin, engine: produced.engine } : aiTextOrigin(entry.admission.binding)) });
+              ...(produced ? { ...produced.textOrigin, engine: produced.engine, replyId: produced.replyId,
+                userTurnOrdinal: produced.userTurnOrdinal } : aiTextOrigin(entry.admission.binding)) });
           if (!result.replayed) {
             publish(sessionId, result.event); onTurn(sessionId, result.event);
           }
@@ -366,6 +389,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       }
     },
     async resume() {
+      turns.recover();
       runtime.recoverVoiceCap?.();
       // The exclusive writer has already conservatively recovered all open claims.
       for (let record of storage.voiceCalls()) {
@@ -387,7 +411,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       if (pendingReconciliations().length) reconcileLater();
     },
     reconcileLater,
-    async idle() { while (settlements.size) await Promise.allSettled([...settlements]); },
+    async idle() { while (settlements.size) await Promise.allSettled([...settlements]); await turns.idle(); },
     async close() {
       stopping = true; clearTimeout(reconcileTimer);
       for (const id of sessions.keys()) this.stopSession(id, 'server-stopping');

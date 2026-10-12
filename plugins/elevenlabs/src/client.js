@@ -105,12 +105,12 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           }
         }
       };
-      const emit = event => {
+      const emit = (event, expose = true) => {
         const value = Object.freeze({ ...event, ...identity() });
         delivery = delivery.then(async () => {
           if (persistenceCancellation.signal.aborted) return;
-          if (['final', 'heard'].includes(value.type)) await persist(value);
-          if (!persistenceCancellation.signal.aborted) events.push(value);
+          if (['final', 'heard', 'reply'].includes(value.type)) await persist(value);
+          if (expose && !persistenceCancellation.signal.aborted) events.push(value);
         }).catch(() => {
           if (persistenceCancellation.signal.aborted) return;
           persistenceFailed = true; stopPersistence();
@@ -201,7 +201,8 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
       const connect = async (receipt, connectOptions) => {
         const current = ++generation;
         playbackInterrupted = false;
-        let lastInterruptionId = -1, latestAssistantId = -1;
+        let lastInterruptionId = -1, latestAssistantId = -1, userTurnOrdinal = 0;
+        const replyIds = new Map();
         if (receipt?.callId !== request.callId || !receipt.providerSessionId || !receipt.credential ||
           !Number.isFinite(receipt.credential.ttlMs) || receipt.credential.ttlMs <= 0 || receipt.credential.ttlMs > 60_000 ||
           receipt.credential.providerSessionId !== receipt.providerSessionId) throw new PluginError('invalid-output', 'Invalid voice credential receipt');
@@ -292,17 +293,23 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           onMessage({ role, message, event_id: eventId }) {
             if (!active() || !['user', 'agent'].includes(role) || typeof message !== 'string' || !message.trim()) return;
             if (role === 'agent') observeAssistant(eventId);
-            if (paused) return;
             const speaker = role === 'agent' ? 'assistant' : 'user';
             const turnId = `${receipt.providerSessionId}:${speaker}:${eventId ?? `callback-${++sequence}`}`;
             if (seen.has(turnId)) return;
             if (seen.size >= 4096) { void close('transcript-limit').catch(() => {}); return; }
             seen.add(turnId);
+            // Capture order belongs to this provider generation, before async
+            // persistence. Paused finals leave a gap instead of shifting IDs.
+            const ordinal = speaker === 'user' ? ++userTurnOrdinal : undefined;
+            if (paused) return;
             if (speaker === 'assistant') {
-              assistants.set(turnId, { text: message, eventId });
+              assistants.set(turnId, { text: message, eventId, replyId: replyIds.get(eventId) });
               if (assistants.size > 256) assistants.delete(assistants.keys().next().value);
             }
-            emit({ type: 'final', turnId, role: speaker, text: message });
+            emit({ type: 'final', turnId, role: speaker, text: message,
+              ...(ordinal !== undefined ? { userTurnOrdinal: ordinal } : {}),
+              ...(speaker === 'assistant' && replyIds.get(eventId) ? { replyId: replyIds.get(eventId) } : {}),
+              ...(eventId !== undefined ? { event_id: eventId } : {}) });
           },
           onAgentResponseCorrection({ event_id: eventId, original_agent_response: original, corrected_agent_response: prefix }) {
             if (!active() || typeof original !== 'string' || typeof prefix !== 'string' || !original.startsWith(prefix)) return;
@@ -313,6 +320,22 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
             emit({ type: 'heard', turnId, prefix });
           },
           onDebug(event) {
+            // SDK 1.17.0 forwards this documented custom-LLM client event
+            // through onDebug. The provider event ID ties metadata to its final,
+            // even when identical replies finish or persist in another order.
+            if (!active()) return;
+            const metadata = event?.agent_response_metadata_event;
+            const replyId = metadata?.metadata?.aithema_reply_id, eventId = metadata?.event_id;
+            if (event?.type === 'agent_response_metadata' && Number.isSafeInteger(eventId) && eventId >= 0 &&
+              typeof replyId === 'string' && /^chatcmpl-[a-zA-Z0-9_-]{1,100}$/u.test(replyId)) {
+              replyIds.set(eventId, replyIds.has(eventId) && replyIds.get(eventId) !== replyId ? null : replyId);
+              if (replyIds.size > 256) replyIds.delete(replyIds.keys().next().value);
+              const turnId = `${receipt.providerSessionId}:assistant:${eventId}`, prior = assistants.get(turnId);
+              if (replyIds.get(eventId) && prior && prior.replyId !== replyId) {
+                prior.replyId = replyId;
+                emit({ type: 'reply', turnId, replyId }, false);
+              }
+            }
             const text = event?.tentative_user_transcription_event?.user_transcript;
             if (active() && !paused && event.type === 'tentative_user_transcript' && typeof text === 'string') {
               emit({ type: 'partial', turnId: `${receipt.providerSessionId}:user:pending`, role: 'user', text });

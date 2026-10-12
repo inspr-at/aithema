@@ -137,6 +137,15 @@ test('facade supports nonstream completions through the same admitted stream bin
   const body = await response.json(); assert.equal(body.object, 'chat.completion');
   assert.deepEqual(body.choices[0].message, { role: 'assistant', content: 'Hello world' }); assert.equal(local.optionsList[0].reports.length, 1);
 });
+
+test('AIT-137 round 5: the streamed reply identity reaches metadata and the server completion port', async () => {
+  const completions = [], local = facadeFixture({ ports: { onCompletion: event => completions.push(event) } });
+  const response = await local.handler(local.request()), text = await response.text();
+  const frames = text.split('\n\n').filter(frame => frame.startsWith('data: {')).map(frame => JSON.parse(frame.slice(6)));
+  assert.deepEqual(frames[0].metadata, { aithema_reply_id: frames[0].id });
+  assert.equal(completions[0].replyId, frames[0].id);
+  assert.ok(frames.every(frame => frame.id === completions[0].replyId));
+});
 test('AIT-130: facade accepts full conversation history above 64 KiB', async () => {
   const local = facadeFixture();
   const messages = Array.from({ length: 36 }, (_, index) => ({

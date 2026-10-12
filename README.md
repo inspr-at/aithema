@@ -591,6 +591,75 @@ identify text provenance, without confirming playback. Understanding/focus chang
 Unsupported commands and presets stay disabled with a reason. Automatic updates
 keep the rail, composer and export targets at fixed positions.
 
+Custom-LLM operation identity comes exclusively from the authenticated provider
+callback body. The key is SHA-256 of `(session, call, provider generation,
+user-turn ordinal, history digest)`. The ordinal counts original user messages
+in that generation's callback history. The digest covers the exact callback
+body with its message history through the last user message, including system
+and assistant entries, whitespace and optional provider metadata. `stream`
+only selects the response representation and is excluded. A suffix after the
+last user message is outside that turn's prefix. Identical bodies share a key;
+a different prefix or metadata creates a new operation, even at the same ordinal.
+A later repeated “Ja” therefore has its own key.
+
+Client finals are persisted as transcript only. They cannot bind, alias,
+validate, obsolete, fence or otherwise modify any operation. The client still
+captures `userTurnOrdinal` before asynchronous persistence; assistant finals and
+duplicate event IDs do not advance it, and recovery resets it for the generation.
+User finals retain that ordinal as transcript metadata. For a facade-produced
+assistant final, the server retains the originating callback's ordinal instead
+of accepting a client-supplied ordinal. Canonical prompts order those transcript
+entries by ordinal within the call and generation, with each user before its
+reply, even when an older admitted reply finishes after a newer one. Typed echo
+receipts retain the original typed turn; they do not bind an operation.
+
+The facade preserves the original provider history for identity and uses the
+canonical session history for reasoning. The ElevenLabs plugin documentation
+records the observed cumulative history and the transport limitation. Explicit
+truncation indicators, null/empty user entries and absent user entries make the
+ordinal unknown. Their body still has a stable digest, so identical retries
+coalesce and replay. A previously unseen regressed history starts a new operation;
+it cannot refuse fresh work as obsolete or fence already admitted work. A changed
+truncated body may consequently incur another charge. Byte-identical silent
+truncation cannot be distinguished from an identical retry by this interface;
+integrations that truncate must signal it. No receipt or predecessor evidence is
+used to infer completeness. The receipt-correlation ambiguity and provider-alias
+contradiction paths and their logs have been removed.
+
+Operations move from `pending` to `completed` or `failed`. Concurrent callbacks
+join one admission and model stream; disconnecting a reader leaves the operation
+running under its own deadline. Each reader requests frames independently; unread
+readers queue no frames, and lagging readers catch up in content frames of at most
+16,384 UTF-16 code units without splitting a surrogate pair. Completion stores
+the reply in erasable content with the operation's ordinal and terminal state
+before publishing the successful stream terminator. Retries replay that reply
+and completion ID without admission or spending. `voice.turnReplayWindowMs`
+defaults to **120,000 ms** from completion; `voice.turnTimeoutMs` defaults to
+**30,000 ms**. Expired callbacks return JSON 403 with `error: "not-admitted"`
+and `reason: "voice-turn-replay-expired"`, without another claim.
+
+Obsolescence applies only before admission: a known pending operation overtaken
+by an admitted higher ordinal in the same call and generation is refused with
+`reason: "voice-turn-obsolete"` and no charge. A mere claim does not obsolete
+another claim. Admitted operations finish, settle and publish even if newer
+operations are admitted; their completed replies remain replayable within the
+window. Consent withdrawal, erasure, pause and call cancellation retain their
+ordinary revocation controls.
+
+A failed operation requires explicit host authorization. Configure
+`voice.authorizeTurnReplacement({operation, session, options})` to return exactly
+`true` only when the host authorizes a new paid attempt. The default denies with
+`reason: "voice-turn-replacement-required"`; callback payloads cannot authorize
+replacement. One atomic replacement records `replaces` against the failed
+attempt's fence and attaches its new budget attempt. Old streams and terminal
+reports cannot publish or settle a second result over the successor. Startup
+recovers unowned pending operations as failed; it never dispatches them on an
+ordinary retry. Existing budget recovery retains uncertain dispatched spending,
+and an explicitly authorized replacement reserves separately. Completed replies
+survive restart for replay within their window; normal orphan-call credential
+revocation and closure still apply. Withdrawal and erasure remove reply bytes
+through the existing content tombstones and WAL checkpoint.
+
 Duration holds reserve provider and visitor ceilings separately.
 Set the upstream session cap to at least the voice maximum plus the delegated
 reaction maximum (`cap ≥ voice max + reaction max`), since the open voice hold

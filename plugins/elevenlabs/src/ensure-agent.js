@@ -13,6 +13,9 @@ const SECRET_NAME = 'aithema-start2-facade';
 const TURN_POLICY = Object.freeze({ turn_eagerness: 'patient', turn_timeout: 12,
   spelling_patience: 'auto', turn_model: 'turn_v3', speculative_turn: false });
 const ASR_KEYWORDS = Object.freeze(['Aithema', 'Hosting', 'Domain', 'Webshop', 'Schnittstelle', 'Datenschutz']);
+const CLIENT_EVENTS = Object.freeze(['conversation_initiation_metadata', 'asr_initiation_metadata', 'audio', 'interruption',
+  'user_transcript', 'tentative_user_transcript', 'agent_response',
+  'agent_response_correction', 'agent_chat_response_part', 'agent_response_metadata', 'ping']);
 const id = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(value);
 // Every leaf of a provider overrides tree as [dotted path, value]; only non-empty plain objects are
 // descended, so null, arrays, strings and empty objects surface as leaves that no boolean check accepts.
@@ -110,7 +113,7 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
       ...(config.tts.voice_settings ? { voice_settings: pick(config.tts.voice_settings, ['stability', 'similarity_boost', 'style', 'use_speaker_boost', 'speed']) } : {}) },
     asr: { ...pick(config.asr, ['quality', 'provider', 'user_input_audio_format']), keywords: [...ASR_KEYWORDS] },
     turn: { ...pick(config.turn, ['silence_end_call_timeout', 'mode']), ...TURN_POLICY },
-    conversation: { max_duration_seconds: maxDurationSeconds },
+    conversation: { max_duration_seconds: maxDurationSeconds, client_events: [...CLIENT_EVENTS] },
     // UNVERIFIED API SHAPE: conversation_config.language_presets {[language]: {overrides, ...}}; empty clears them.
     language_presets: {},
     agent: { language, first_message: aiNoticeText(language),
@@ -157,6 +160,7 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
     'platform_settings.overrides.conversation_config_override': leaves(allowed).every(([path, flag]) => flag === ['agent.language', 'agent.first_message'].includes(path)),
     'conversation_config.agent.language': remote?.conversation_config?.agent?.language === language,
     'conversation_config.conversation.max_duration_seconds': remote?.conversation_config?.conversation?.max_duration_seconds === maxDurationSeconds,
+    'conversation_config.conversation.client_events': isDeepStrictEqual(remote?.conversation_config?.conversation?.client_events, CLIENT_EVENTS),
     'conversation_config.agent.first_message': spoken === aiNoticeText(language),
     'conversation_config.language_presets': isDeepStrictEqual(presets, {}),
     ...Object.fromEntries(Object.entries(TURN_POLICY).map(([field, expected]) =>

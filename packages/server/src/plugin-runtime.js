@@ -155,11 +155,23 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   };
   const visual = feature => ['images', 'html'].includes(feature);
   // Single writer recovery is invoked by the host on startup, never on each dispatch.
-  const unchanged = (session, lane) => {
+  const unchanged = (session, lane, allowTranscriptFinals = false) => {
     const current = storage.get(session.id);
-    return Boolean(session.ownerHash) && current.ownerHash === session.ownerHash && !current.tombstone &&
-      !current.consentWithdrawn && !current.paused && inputRevision(current) === inputRevision(session) &&
-      selectionKey(current, lane) === selectionKey(session, lane);
+    if (!session.ownerHash || current.ownerHash !== session.ownerHash || current.tombstone || current.consentWithdrawn || current.paused ||
+      selectionKey(current, lane) !== selectionKey(session, lane)) return false;
+    if (inputRevision(current) === inputRevision(session)) return true;
+    if (!allowTranscriptFinals || inputRevision({ ...current, inputRevision: session.inputRevision }) !== inputRevision(session)) return false;
+    // A voice reply already owns its callback input. Only append-only finals
+    // are benign: existing transcript bytes and uploads must remain identical,
+    // and every added user final must account for exactly one input increment.
+    // Consent, withdrawals, corrections, locale/session revisions and choices
+    // retain their ordinary dispatch fences; the budget claim still owns spend.
+    const added = current.transcript.slice(session.transcript.length);
+    const transcriptBytes = turns => turns.map(({ userTurnOrdinal, replyId, provenance, origin, model, provider, engine, ...turn }) => turn);
+    return added.length > 0 && added.every(turn => ['user', 'assistant'].includes(turn.role) && !turn.erased && !turn.withdrawn) &&
+      current.inputRevision === session.inputRevision + added.filter(turn => turn.role === 'user').length &&
+      hash(transcriptBytes(current.transcript.slice(0, session.transcript.length))) === hash(transcriptBytes(session.transcript)) &&
+      hash(current.uploads) === hash(session.uploads);
   };
   const coverageFor = (session, scope, options) => consent.coverage({ sessionId: session.id,
     scope: structuredClone(scope), consentRevision: session.consentRevision }, options);
@@ -634,6 +646,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     async admit({ session, lane, operation, request, options = {} }) {
       const invocationCurrent = () => unchanged(session, lane) && (lane !== 'concept' ||
         storage.get(session.id).conceptIntent?.pending?.id === session.conceptIntent?.pending?.id);
+      const dispatchCurrent = () => options.voiceReply === true && lane === 'reaction' ? unchanged(session, lane, true) : invocationCurrent();
       // Ownership, revision and tombstone precede health, consent and budget work.
       if (!invocationCurrent()) throw new PluginError('not-admitted', 'Session changed during admission');
       if (lane === 'concept' && (!session.conceptIntent?.visualIntent || !session.conceptIntent.pending ||
@@ -699,7 +712,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const attempt = Object.freeze({ ...claim, ...(plugin.reconcileCost ? {
         observeCost: evidence => budget.observeCost(attemptId, evidence), dispatchCost: () => budget.markCostDispatch(attemptId) } : {}), consume() {
         if (reported || consuming) throw new PluginError('already-claimed');
-        if (!invocationCurrent() || options.signal?.aborted) return refuse('Session changed before dispatch');
+        if (!dispatchCurrent() || options.signal?.aborted) return refuse('Session changed before dispatch');
         consuming = true;
         if (!result.scope) return consumeOrRefuse();
         return (async () => {
@@ -708,7 +721,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
             let coverage;
             try { coverage = await untilCancelled(coverageFor(session, result.scope, { ...options, signal: scope.signal }), scope.signal); }
             catch { return refuse('consent port unavailable'); }
-            if (!invocationCurrent() || scope.signal.aborted) return refuse('Session changed before dispatch');
+            if (!dispatchCurrent() || scope.signal.aborted) return refuse('Session changed before dispatch');
             const reason = consentReason(coverage, result.scope, now(), session.consentRevision);
             if (reason) return refuse(reason);
             consumeOrRefuse();

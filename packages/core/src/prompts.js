@@ -12,6 +12,25 @@ The canonical person turns and the latest callback answer take precedence over u
 Never re-ask a point that the canonical person turns or latest answer already answer, confirm or decline.
 Reopen a confirmed fact only when the person corrects it or new evidence creates a real ambiguity. Do not present a confirmed fact as a correction or ask for confirmation again merely to continue.
 Vary acknowledgements and engage directly with what the person said. Never open formulaically with "Danke", "Vielen Dank", "Thanks" or "Thank you". Do not replace these with another repeated stock opener or praise.`;
+function promptTurns(session) {
+  const turns = activeTurns(session), generations = new Map();
+  for (let index = 0; index < turns.length; index++) {
+    const turn = turns[index];
+    if (!turn.callId || !turn.providerSessionId || !Number.isSafeInteger(turn.userTurnOrdinal) || turn.userTurnOrdinal <= 0) continue;
+    const key = JSON.stringify([turn.callId, turn.providerSessionId]);
+    if (!generations.has(key)) generations.set(key, []);
+    generations.get(key).push(index);
+  }
+  // Paid replies may finish out of order. Each reply ID carries its operation's
+  // ordinal into transcript metadata; text never supplies that association.
+  // These ordinals order context only and never change operation identity/state.
+  for (const positions of generations.values()) {
+    const ordered = positions.map(index => turns[index]).sort((a, b) =>
+      a.userTurnOrdinal - b.userTurnOrdinal || Number(a.role === 'assistant') - Number(b.role === 'assistant'));
+    positions.forEach((index, offset) => { turns[index] = ordered[offset]; });
+  }
+  return turns;
+}
 export function reasoningRequest(session, lane, draft = false, hostPrompt = '', { pendingInput = false } = {}) {
   const uploads = uploadContextMessage(session);
   return { system: `${GENERIC_POLICY}\n${hostPrompt}\nWrite in ${LANGUAGES[session.locale] ?? session.locale} (locale ${session.locale}), whatever language the transcript uses.
@@ -24,7 +43,7 @@ ${draft ? 'Produce a quick incremental draft.' : 'Produce a thorough final asses
       // persisted. Matching the stored revision alone does not cover that input.
       stale: pendingInput || session.understanding.inputRevision !== inputRevision(session), understanding: session.understanding }) },
       ...(uploads ? [{ role: 'user', content: uploads }] : []),
-      ...activeTurns(session).map(({ role, content }) => ({ role, content }))],
+      ...promptTurns(session).map(({ role, content }) => ({ role, content }))],
     // Identify server-added context without interpreting person-turn text.
     documentMessageIndex: uploads ? 1 : null,
     draft, locale: session.locale, preset: session.preset };

@@ -262,8 +262,13 @@ success. `stream:false` or omitted `stream` uses the same admission for a normal
 chat completion; only `stream:true` selects SSE.
 
 The callback body limit is **8 MiB (8,388,608 bytes)**, configurable with
-`maxRequestBytes`. ElevenLabs sends full history each turn; the host appends
-user/assistant messages to its trusted session prompt. The observed growth of
+`maxRequestBytes`. The current integration observes cumulative per-generation
+history in the callback `messages` array. The [custom-LLM documentation](https://elevenlabs.io/docs/eleven-agents/customization/llm/custom-llm)
+describes OpenAI-compatible chat requests; it does not promise untruncated
+history in every configuration. The [full-history fixture](test/facade.test.js)
+passes 36 user/assistant entries above 64 KiB and checks that every entry survives
+the facade unchanged. The host uses its canonical session history for reasoning,
+plus only the newest unrecorded callback input. The observed growth of
 72,176 bytes after about four minutes projects to about 2.1 MiB at the 120-minute
 voice cap, leaving nearly fourfold headroom. `readJson` counts actual bytes,
 coalesces tiny chunks into bounded 64 KiB slabs, and cancels body reads on the
@@ -271,6 +276,52 @@ facade deadline. Parsing temporarily also requires a contiguous byte buffer,
 decoded text and the JSON object. The HTTP adapter uses a bounded intermediary
 stream so reader cancellation preserves the socket until the JSON reply is sent;
 early replies close the connection without draining the remaining upload.
+For AIT-137, operation identity uses only this authenticated callback body:
+SHA-256 of session, call, provider generation, original user-message count and
+the digest of the exact body/history prefix through its last user message.
+System/assistant history, exact text and provider metadata remain in the digest;
+`stream` is a reader representation and is excluded. Client finals never modify
+operation identity or state. A different prefix starts a new operation;
+identical retry bodies coalesce and replay.
+
+Null/empty user entries, absent user entries, explicit `history_truncated` or
+`messages_truncated` indicators (top-level or in `elevenlabs_extra_body`) make the
+ordinal unknown. Identical unknown bodies still have the same key. A previously
+unseen lower ordinal is treated as possibly regressed/truncated and starts new
+work. Truncation that changes the body can cause an additional operation and
+charge; it cannot capture an old ordinal slot, refuse new work as obsolete or
+fence paid work. A silently truncated body byte-identical to an earlier full
+retry cannot be identified from that body alone; integrations that truncate
+must signal incompleteness. No history completeness is inferred from client
+receipts or predecessor operations.
+
+The client stamps each unique user final with `userTurnOrdinal` in capture order
+within the call and provider generation, before enqueueing persistence. Assistant
+finals and duplicate event IDs do not advance it. Finals suppressed while paused
+leave gaps, and recovery starts the new generation at one. `event_id` is retained.
+These fields are transcript metadata only. Every completion has an opaque reply
+ID belonging to its operation, including coalesced readers and replays. The
+first SSE frame carries `metadata.aithema_reply_id`. The owned agent enables and
+read-back verifies the [custom-LLM `agent_response_metadata` event](https://elevenlabs.io/docs/eleven-agents/customization/events/client-events).
+SDK 1.17.0 forwards it through `onDebug`; its provider `event_id` lets the client
+carry `replyId` on that exact assistant final. The server looks up the reply ID
+and stamps its operation's ordinal. Text only checks that receipt's bytes.
+Missing or unknown IDs never select an ordinal by text. If metadata arrives
+after its final, a `reply` persistence receipt adds a `turn.annotated` event with
+the reply ID and ordinal. This changes transcript metadata only, is idempotent,
+and keeps heard corrections on the same turn. No receipt-correlating operation
+aliases, binding or ambiguity log remain.
+
+For an already admitted voice reply, append-only ordinary user/assistant finals
+and reply-identity annotations are benign. User finals must exactly account for
+the numeric input-revision increment; prior transcript bytes and uploads must
+remain unchanged. Consent/conversation-consent, withdrawal, locale and session
+revision changes, ownership loss, pause, erasure, processing-choice changes and
+call cancellation retain their dispatch fences. Upload changes and heard-prefix
+corrections are not append-only finals. Fresh consent coverage and the budget's
+single-use claim still refuse withdrawal or revoked spend. Other reasoning
+lanes keep their strict input-revision checks.
+
 The 30-second callback timeout, call leases
 and earlier admission deadline still apply; iterator disposal and settlement
 each have a separate one-second bound.
@@ -314,7 +365,7 @@ AI notice come from the server host's `presentation(session.locale)` configurati
 Browsers never supply server authority, API keys or
 facade secrets; joined tests carry authority in-process solely for conformance.
 
-`persistEvent(event)` writes final/heard events durably with idempotent turn ids.
+`persistEvent(event)` writes final/heard events and late `reply` annotations durably with idempotent turn ids.
 Persistence failure ends the call rather than claiming a durable turn.
 Consume `session.events`; SDK activity signals are not transcript evidence.
 After transport loss, fence old callbacks and reconcile the old attempt.
