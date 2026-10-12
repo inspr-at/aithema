@@ -173,7 +173,9 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     async admitReasoning({ callId, request, options }) {
       const session = sessionFor(calls.get(callId));
       await runtime.checkVoice(session, { ...options, existingCall: true });
-      return runtime.admit({ session, lane: 'reaction', operation: 'stream', request, options });
+      // The newest utterance may have persisted while the voice check awaited.
+      // Admission still checks current ownership, context and revision at dispatch.
+      return runtime.admit({ session: sessionFor(calls.get(callId)), lane: 'reaction', operation: 'stream', request, options });
     },
     onCompletion({ callId, providerSessionId, content, textOrigin, engine }) {
       const entry = calls.get(callId);
