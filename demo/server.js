@@ -15,6 +15,7 @@ import { HTML_PREVIEW_HOST_CSP } from '../packages/core/src/ui-html.js';
 import { createOwnership, startExpiry } from './session-lifecycle.js';
 
 import { deploymentConfig, deploymentGate } from './deployment.js';
+import { buildInfo } from './build-info.js';
 import { createVoiceHost as createStart2VoiceHost } from './start2-voice-host.js';
 import { createMockConsent } from './mock-consent.js';
 import { createProcessingConsent } from './processing-consent.js';
@@ -25,6 +26,7 @@ import { registerDemoExtractors } from './uploads.js';
 import { createDemoHost } from './host-ports.js';
 
 const deployment = deploymentConfig();
+const build = buildInfo();
 // The demo is deterministic unless the operator explicitly selects a provider.
 // Validate models/prices before any database or live voice startup work.
 const provider = process.env.AITHEMA_PROVIDER ?? 'mock';
@@ -123,7 +125,7 @@ async function handle(request) {
   if (url.pathname === '/demo/config') return Response.json({ label: reasoning.label, defaultPreset: 'best', voiceMode: voiceMode === 'elevenlabs' && !voiceHost?.binding ? 'off' : voiceMode,
     voiceDisabledReason: voiceHost?.disabledReason ?? null, processingConsent: consent.describe?.().contract ? consent.describe() : undefined, imageMode, imageLabel: imagePlugin?.label ?? 'Images off',
     htmlMode: html.mode, htmlLabel: htmlPlugin?.label ?? 'HTML off', htmlDisabledReason: html.disabledReason ?? null, hostLabel: host.label, demoHost: host.demo,
-    verificationRequired: host.policy.verificationRequired });
+    verificationRequired: host.policy.verificationRequired, build });
   if (url.pathname.startsWith('/vendor/elevenlabs/worklets/')) {
     const bytes = await voiceAsset(url.pathname.slice('/vendor/elevenlabs/worklets/'.length));
     return bytes ? new Response(request.method === 'HEAD' ? null : bytes, { headers: { 'content-type': 'text/javascript; charset=utf-8', 'x-content-type-options': 'nosniff' } }) : new Response(null, { status: 404 });

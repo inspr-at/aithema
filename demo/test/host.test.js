@@ -80,7 +80,7 @@ test('demo host creates owned sessions through postJson and combines consent, pa
     option('model', 'Deep (mock)').click();
     await wait(() => component.session.settings.model === 'mock/deep');
     assert.equal(component.session.id, previousId, 'model changes apply to this conversation');
-    assert.match(root.querySelector('.engine__detail').textContent, /Deep \(mock\)/u);
+    assert.match(root.querySelector('.engine__detail').textContent, /Replies: Deep \(mock\)/u);
     // AIT-118: the header and the mock consent name the active visual kind from the server's binding, never always the image label.
     const { en: copy } = await import('../../packages/ui/src/i18n/en.js'), h = copy.host;
     const header = () => document.querySelector('#provider').textContent;

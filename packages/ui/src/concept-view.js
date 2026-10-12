@@ -1,6 +1,7 @@
 import { postJson, sameOrigin } from './post-json.js';
 import { reasonText } from './settings-dialog.js';
 import { HTML_MEDIA_TYPE, frameDocument, inspectHTML } from '../../core/src/ui-html.js';
+import { draftsLine } from './display.js';
 
 // START generated-ui-progress: estimates reserve completion for durable success.
 export function conceptProgress(status, now = Date.now()) {
@@ -15,15 +16,17 @@ const sentence = text => /[.!?…]$/u.test(text) ? text : `${text}.`;
  * The rail's plain-words generation state. `kind` is what the next render produces
  * (the host's visual kind); the ready sentence follows the latest item.
  */
-export function conceptStateText({ copy, status = { phase: 'idle' }, feature, items, kind, requestError }) {
+export function conceptStateText({ copy, status = { phase: 'idle' }, feature, items, kind, cost, requestError }) {
   const drafts = items.filter(c => conceptKind(c) === 'html').length;
   if (status.phase === 'pending') return kind === 'html' ? drafts ? copy.conceptDraftUpdating : copy.conceptDraftRendering : copy.conceptRendering;
   if (requestError) return requestError;
   if (status.phase === 'failed') return status.reason ? sentence(reasonText(copy, status.reason))
     : status.error === 'restart' ? copy.conceptRestarted : status.error === 'source-removed' ? copy.conceptSourceRemoved : copy.conceptFailed;
   if (status.phase === 'waiting') return copy.conceptWaiting;
-  if (!feature.available && feature.reason) return sentence(feature.reason);
-  if (!items.length) return copy.conceptIntro;
+  if (!items.length || !feature.available) {
+    const line = draftsLine({ copy, cost, feature });
+    return line.action ? '' : line.text;
+  }
   return conceptKind(items.at(-1)) === 'html' ? copy.conceptDraftReady.replace('{number}', drafts) : copy.conceptReady;
 }
 const DRAFT_GLYPH = '<svg viewBox="0 0 48 32" aria-hidden="true"><rect x="1.5" y="1.5" width="45" height="29" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/>' +
@@ -168,7 +171,7 @@ export class ConceptView {
     if (!this.#session) return;
     const status = this.#session.conceptStatus ?? { phase: 'idle' }, node = this.root.querySelector('.concept-progress');
     const text = this.root.querySelector('.concept-activity-text'), countdown = this.root.querySelector('.concept-countdown');
-    const words = conceptStateText({ copy: this.copy, status, feature: this.feature(), items: this.items, kind: this.visualKind(), requestError: this.#requestError });
+    const words = conceptStateText({ copy: this.copy, status, feature: this.feature(), items: this.items, kind: this.visualKind(), cost: this.#session.conceptCost, requestError: this.#requestError });
     if (text.textContent !== words) text.textContent = words;
     if (status.phase === 'pending') {
       const estimate = conceptProgress(status); node.value = estimate.percent;
@@ -253,12 +256,14 @@ export class ConceptView {
     const active = this.root.activeElement; // captured before any control below is disabled
     const feature = this.feature(), pending = this.#session?.conceptStatus?.phase === 'pending';
     const source = this.#session?.transcript.some(t => t.role === 'user' && !t.erased && !t.withdrawn);
-    const cost = this.#session?.conceptCost, costCopy = cost ? cost.maxMicro === 0 ? this.copy.conceptFree : this.copy.conceptCost.replace('{micro}', cost.maxMicro) : this.copy.conceptCostUnknown;
+    const line = draftsLine({ copy: this.copy, cost: this.#session?.conceptCost, feature });
+    const costCopy = line.action ? this.copy.display.draftsCost.replace('{credits}', new Intl.NumberFormat(this.#session.locale).format(Math.ceil(this.#session.conceptCost.maxMicro / 10_000))) : '';
     const request = this.root.querySelector('.concept-request');
-    request.textContent = `${this.#session?.conceptStatus?.phase === 'failed' ? this.copy.conceptRetry : this.copy.conceptRequest} · ${costCopy}`;
-    request.disabled = this.#busy || pending || !feature.available || !source; request.title = !feature.available ? feature.reason : !source ? this.copy.conceptNeedsInput : '';
+    this.root.querySelector('.concept-activity').hidden = line.action && !['pending', 'failed', 'waiting'].includes(this.#session?.conceptStatus?.phase);
+    request.textContent = line.text; request.hidden = !line.action;
+    request.disabled = this.#busy || pending || !line.action || !source; request.title = !feature.available ? feature.reason : !source ? this.copy.conceptNeedsInput : '';
     const regenerate = this.root.querySelector('.concept-regenerate'); regenerate.textContent = `${this.copy.conceptRegenerate} · ${costCopy}`;
-    regenerate.disabled = request.disabled || !this.current(); regenerate.title = request.title;
+    regenerate.hidden = !line.action; regenerate.disabled = request.disabled || !this.current(); regenerate.title = request.title;
     for (const node of this.root.querySelectorAll('.concept-feedback button, .concept-guidance-options button')) {
       node.disabled = this.#busy || !feature.available || !this.current(); node.title = !feature.available ? feature.reason : '';
     }
@@ -309,7 +314,7 @@ export class ConceptView {
     this.#loads.set(id, promise); return promise;
   }
   async request(artifactId) {
-    if (this.#busy || !this.feature().available || this.#session.conceptStatus?.phase === 'pending') return;
+    if (this.#busy || !this.feature().available || !draftsLine({ copy: this.copy, cost: this.#session.conceptCost, feature: this.feature() }).action || this.#session.conceptStatus?.phase === 'pending') return;
     const sourceTurnId = this.#session.transcript.filter(t => t.role === 'user' && !t.erased && !t.withdrawn).at(-1)?.id;
     if (!sourceTurnId) return;
     const focused = this.root.activeElement; this.#busy = true; this.#requestError = null; this.gates(); const sessionId = this.#session.id;

@@ -2,6 +2,7 @@
 // provider network, and real providers are declared so the settings screen shows how
 // a host lists them. An explicitly selected provider makes the demo a live host: it
 // then offers only its configured routes, so visitors never meet a mock there.
+import { MODEL_DISPLAY_NAMES } from '../packages/ui/src/display.js';
 
 /**
  * Voice or image mode for this host. Fake providers are local-demo only: a live host
@@ -35,12 +36,13 @@ export function demoPresets({ provider = 'mock', reaction, understanding = react
     option('fake-images', 'Fake images (local PNG)', imagePlugin, imageBinding), option('openai-images', 'OpenAI GPT Image 2', imagePlugin, imageBinding)];
   const extras = [voicePlugin, imagePlugin, htmlPlugin].filter(Boolean).map(plugin => plugin.manifest.id);
   if (provider !== 'mock') {
-    const vendor = provider === 'mistral' ? 'Mistral' : 'OpenRouter';
     // START-consented concrete models begin with openai, anthropic or x-ai.
     // A separate alias/ namespace avoids collisions without allowing ~ in client settings.
     const modelId = provider === 'openrouter' && reaction.model.startsWith('~') ? `alias/${reaction.model.slice(1)}` : reaction.model;
+    const displayName = id => Object.hasOwn(MODEL_DISPLAY_NAMES, id) ? MODEL_DISPLAY_NAMES[id] : 'This host’s model';
+    const replyName = displayName(reaction.model), understandingName = displayName(understanding.model);
     const route = { id: `${provider}/${modelId}`, bindings: { reaction, understanding },
-      label: reaction.model === understanding.model ? `${reaction.model} via ${vendor}` : `${reaction.model} and ${understanding.model} via ${vendor}` };
+      label: replyName === understandingName ? replyName : `${replyName} / ${understandingName}` };
     // Only configured live providers; the operator's explicit fake HTML is labelled a demo.
     const live = o => o.binding && (!o.id.startsWith('fake-') || htmlDemo && o.id === 'fake-html');
     voices = voices.filter(live);

@@ -37,7 +37,7 @@ button:disabled { cursor:default; opacity:.55; }
 #error { min-height:1.5em; margin:0; color:var(--error); }
 main { width:100%; }
 /* The component's live view fits the viewport under the masthead and the reserved status lines (AIT-128). */
-aithema-session { display:block; width:100%; --aithema-height:calc(100dvh - 7rem); --aithema-backdrop:none; }
+aithema-session { display:block; width:100%; --aithema-height:100dvh; --aithema-backdrop:none; }
 .colophon { display:flex; flex-wrap:wrap; align-items:center; gap:8px 24px; padding-block:24px 32px; font-size:13px; color:var(--muted); }
 .demo-strip { font-size:12px; color:var(--muted); padding-block:8px; }
 .demo-strip h2 { font-size:13px; margin:0; font-weight:600; }
@@ -95,3 +95,22 @@ aithema-session { display:block; width:100%; --aithema-height:calc(100dvh - 7rem
 #outbox li { border-top:1px solid var(--line); padding:.5rem 0; display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.25rem 1rem; }
 #outbox li span { overflow-wrap:anywhere; } #outbox-status { min-height:2.6em; margin:.3rem 0; font-size:.85rem; } #outbox-note, #ai-notice { font-size:.8rem; color:var(--muted); margin:0; }
 
+
+/* AIT-131: utility controls are slotted into the component's single header; consent keeps its own masthead. */
+.conversation-page .host-actions { display:flex; flex-wrap:nowrap; gap:4px; font-size:14px; }
+.conversation-page .utility { position:relative; display:inline-flex; align-items:center; gap:7px; min-height:44px; padding:0 10px; border-radius:10px; }
+.conversation-page .utility:hover { background:color-mix(in srgb,var(--ink) 6%,transparent); }
+.conversation-page .utility-icon { display:flex; color:var(--muted); } .utility-icon svg { display:block; width:17px; height:17px; }
+.conversation-page .utility select { appearance:none; min-height:44px; padding:0; border:0; background:none; font:inherit; cursor:pointer; }
+.conversation-page #theme { inline-size:4.1em; }
+.utility-chevron { pointer-events:none; color:var(--muted); }
+.conversation-page #language-label,.conversation-page #theme-label { inline-size:1px; }
+.conversation-page .host-status:has(#language-note:empty):has(#error:empty) { display:none; }
+.conversation-page .colophon { padding-block:8px 16px; }
+@media(max-width:600px) {
+  .conversation-page .host-actions { display:flex; gap:0; font-size:12px; }
+  .conversation-page .utility { gap:4px; padding:0 4px; }
+  .conversation-page .utility-icon svg { width:14px; height:14px; }
+  .conversation-page #theme { inline-size:4em; }
+  .conversation-page .wordmark { font-size:20px; }
+}

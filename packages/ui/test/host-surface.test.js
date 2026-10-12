@@ -166,7 +166,7 @@ test('library: lists the owner conversations keyed, sorts by title and activity,
     'POST /library/c/delete': () => { items.splice(2, 1); return Response.json({ id: 'c', erased: true, providerDeletion: 'not-confirmed' }); },
   } });
   const open = root.querySelector('.library-open-dialog');
-  assert.equal(open.hidden, false); assert.equal(open.textContent, l.open);
+  assert.equal(root.querySelector('.conversations-toggle').title, l.open); assert.equal(open.textContent, en.display.manageConversations);
   open.click(); await tick();
   const dialog = root.querySelector('dialog.library'), keys = () => [...dialog.querySelectorAll('tbody tr')].map(r => r.dataset.key);
   assert.equal(dialog.open, true); assert.equal(root.activeElement?.id, 'library-search');
@@ -215,7 +215,7 @@ test('library: New and Reset hand the conversation to the host; without a handle
   root.querySelector('.library-new').click(); await tick();
   assert.deepEqual(seen, [['new', created.id, first]]);
   assert.equal(c.session.id, created.id, 'not prevented: the element switched itself');
-  assert.equal(root.activeElement?.className, 'library-open-dialog', 'focus returns to the library button');
+  assert.equal(root.activeElement?.className, 'conversations-toggle', 'focus returns to the library button');
   assert.equal(calls.find(call => call.method === 'POST' && call.path === '/library').body.locale, 'en');
   // Reset asks first, with its own wording, then posts for the current conversation.
   t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
@@ -277,7 +277,7 @@ test('credits: the owner balance and time slot from the server; limit-reached sh
   await tick();
   const line = root.querySelector('.host-credits');
   assert.equal(line.hidden, false);
-  assert.equal(line.querySelector('.host-credits__text').textContent, 'Credits: 4.25 of 5 · 30 min left in this conversation');
+  assert.equal(line.querySelector('.host-credits__text').textContent, '425 of 500 left');
   assert.equal(line.querySelector('.host-credits__limit').hidden, true);
   c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'one-hour' } });
   assert.equal(line.querySelector('.host-credits__text').textContent, cr.ended['one-hour']);
@@ -297,7 +297,8 @@ test('host slots: account, credits limit, handover offer, legal and footer are n
 
 test('German copy on the host surface; every English host key has a German counterpart', async t => {
   const { root } = setup(t, { copy: de, session: { identity: locked() } }); await tick();
-  assert.equal(root.querySelector('.library-open-dialog').textContent, de.hostSurface.library.open);
+  assert.equal(root.querySelector('.conversations-toggle').textContent, de.hostSurface.library.open);
+  assert.equal(root.querySelector('.library-open-dialog').textContent, de.display.manageConversations);
   assert.equal(root.querySelector('.verify-lock__title').textContent, de.hostSurface.verify.lockTitle);
   assert.equal(root.querySelector('.verify-lock .verify-send').textContent, de.hostSurface.verify.send);
   const keys = (value, prefix = '') => Object.entries(value).flatMap(([k, v]) => v && typeof v === 'object' ? keys(v, `${prefix}${k}.`) : [`${prefix}${k}`]);
@@ -328,15 +329,16 @@ test('credits: a pause never freezes the countdown (the host deadline keeps runn
     'GET /credits': () => Response.json({ balance, limitSlot: { status: 'active', remainingMs: 30 * 60_000, canStartPaidWork: false } }),
   } });
   await tick();
-  const text = () => root.querySelector('.host-credits__text').textContent;
-  assert.equal(text(), `Credits: 4.25 of 5 · 30 min left in this conversation · ${cr.paused}`);
+  const text = () => root.querySelector('.host-credits').title;
+  assert.equal(root.querySelector('.host-credits__text').textContent, '425 of 500 left');
+  assert.equal(text(), `30 min left in this conversation · ${cr.paused}`);
   assert.match(cr.paused, /time keeps running/u); assert.match(de.hostSurface.credits.paused, /Zeit läuft aber weiter/u);
   // Ten minutes later, still paused: the line counts down like the server's deadline.
   const now = Date.now(); t.mock.method(Date, 'now', () => now + 10 * 60_000);
   c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
-  assert.equal(text(), `Credits: 4.25 of 5 · 20 min left in this conversation · ${cr.paused}`);
+  assert.equal(text(), `20 min left in this conversation · ${cr.paused}`);
   c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
-  assert.equal(text(), 'Credits: 4.25 of 5 · 20 min left in this conversation');
+  assert.equal(text(), '20 min left in this conversation');
 });
 
 test('library: saving a rename keeps every row in place; a background reload too; the next load or search sorts afresh', async t => {

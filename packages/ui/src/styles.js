@@ -39,7 +39,7 @@ export const styles = `${themeStyles}
   --aithema-display:Georgia,"Iowan Old Style","Palatino Linotype",serif; --aithema-mono:ui-monospace,"SF Mono","Cascadia Mono",Menlo,monospace;
   --aithema-radius-sm:10px; --aithema-radius-md:18px; --aithema-radius-lg:28px;
   --aithema-shell-max:1520px; --aithema-gutter:clamp(1.25rem,4vw,3.5rem);
-  /* The live workspace's height on wide screens; a host with a masthead above subtracts it, e.g. calc(100dvh - 4rem). */
+  /* The live workspace includes its single header and footer. */
   --aithema-height:100dvh;
   --aithema-ease:cubic-bezier(.22,.61,.36,1);
   /* START's three offset light sources (app.css body), none aligned to the grid, fixed to the viewport. */
@@ -73,19 +73,19 @@ svg { display:block; flex:none; }
 /* The shell (START .shell, .v2__workspace): centred, START's gutters, stacked on phones. */
 .workspace { display:grid; grid-template-columns:minmax(0,1fr); grid-template-areas:"top" "conversation" "understanding" "foot";
   gap:.75rem clamp(1rem,2.5vw,2rem); width:100%; max-width:var(--aithema-shell-max); margin-inline:auto; padding:0 var(--aithema-gutter) 1rem; }
-.toolbar { grid-area:top; display:grid; grid-template-columns:minmax(0,1fr) auto auto; align-items:center; gap:.5rem 1rem; min-height:3.5rem; padding-top:.25rem; }
-.conversation { grid-area:conversation; } .understanding { grid-area:understanding; } .host-foot { grid-area:foot; }
-.preset-panel { grid-column:1; } .host-bar { grid-column:2; } .settings-open { grid-column:3; }
+ .toolbar { grid-area:top; display:flex; align-items:center; flex-wrap:wrap; gap:0 .5rem; min-height:4.25rem; padding-top:.5rem; }
+.wordmark { margin-right:auto; color:var(--aithema-ink); font:600 24px/1.2 var(--aithema-display); letter-spacing:-.025em; }
+.header-actions { display:flex; align-items:center; gap:4px; min-width:0; }
+.host-extras { display:flex; align-items:center; gap:.5rem; width:100%; justify-content:flex-end; }
+.host-extras:has(.host-verify:empty):has(slot:not(:defined)) { display:none; }
 /* Before the conversation starts there is nothing to understand: the column is not there (START data-entry),
    unless a host verification lock needs it for its form. */
 .workspace[data-understanding="absent"]:not([data-stage="live"]) .understanding { display:none; }
-/* The processing line: what processes this conversation, quiet, on the page itself. */
-.preset-panel { min-width:0; overflow-anchor:none; padding-top:var(--aithema-slack-top,0px); padding-bottom:var(--aithema-slack-bottom,0px); }
-.workspace:not([data-stage="live"]) .engine { visibility:hidden; }
+/* The active preset appears once, in the footer. Feature verdicts remain accessible. */
+.preset-panel { min-width:0; }
 .features { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; margin:0; padding:0; }
-.settings-open { display:grid; place-items:center; width:2.75rem; height:2.75rem; padding:0; border-radius:50%; color:var(--aithema-muted);
-  border:1px solid var(--aithema-line); background:color-mix(in srgb,var(--aithema-surface) 68%,transparent); }
-.settings-open:hover:not(:disabled) { color:var(--aithema-ink); background:color-mix(in srgb,var(--aithema-accent-soft) 55%,var(--aithema-surface)); }
+.settings-open { display:grid; place-items:center; width:44px; height:44px; padding:0; border-radius:10px; color:var(--aithema-muted); }
+.settings-open:hover:not(:disabled) { color:var(--aithema-ink); background:color-mix(in srgb,var(--aithema-ink) 6%,transparent); }
 
 /* The conversation column (START .v2): quiet header line, then the entrance or the live conversation. */
 .conversation { position:relative; min-width:0; display:grid; grid-template-rows:auto; align-content:start; gap:.85rem; }
@@ -97,7 +97,8 @@ svg { display:block; flex:none; }
 .ai-notice > span { grid-area:1/1; } .ai-notice__sizer { visibility:hidden; }
 /* The status has a fixed width and two reserved lines (a longer one scrolls in them): a new status never
    rewraps the notice or changes the head's height, so nothing below it moves. */
-.status { flex:0 0 min(45%,26rem); height:2.7em; overflow-y:auto; overscroll-behavior:contain; font-size:.75rem; line-height:1.35; color:var(--aithema-muted);
+.status[data-connected]::before { content:"●" / ""; color:var(--aithema-accent); margin-right:.35rem; }
+.status { flex:0 0 6.5rem; height:2.7em; overflow-y:auto; overscroll-behavior:contain; font-size:.75rem; line-height:1.35; color:var(--aithema-muted);
   text-align:right; overflow-wrap:anywhere; }
 .workspace:not([data-stage="live"]) .status { visibility:hidden; }
 .conversation > :not(.head) :is(button, textarea) { scroll-margin-top:5.5rem; }
@@ -148,20 +149,17 @@ svg { display:block; flex:none; }
 /* Concepts: one quiet line under the rail (START keeps concepts out of the conversation's way). */
 /* One grid for the line: scene, state, the thumbnail once there is a concept, and Request at the right edge, so the
    thumbnail arriving narrows the state's column and never moves Request. */
-.concept-bar { display:grid; grid-template-columns:1.5rem minmax(0,1fr) auto auto; align-items:center; gap:.6rem; min-height:2.75rem; }
-.concept-rail { display:contents; } .concept-scene { grid-column:1; } .concept-activity { grid-column:2; }
-.concept-preview-slot { grid-area:1/3; } .concept-request { grid-area:1/4; }
-.concept-preview-slot:has(.concept-preview:disabled) { display:none; }
-.concept-activity { min-width:0; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:.1rem .6rem; font-size:.75rem; color:var(--aithema-muted); }
-/* Reserved lines (a longer state scrolls in them) and a progress line that is always there: a concept state
-   never changes the line's height, so the transcript below it never moves. */
-.concept-activity-text { grid-column:1/-1; line-height:1.3; height:2.6em; overflow-y:auto; overscroll-behavior:contain; overflow-wrap:anywhere; }
-.concept-progress { width:100%; height:.3rem; accent-color:var(--aithema-accent); }
-.concept-countdown { font-size:.7rem; line-height:1.3; white-space:nowrap; font-variant-numeric:tabular-nums; }
-.concept-rail:not([data-phase="pending"]) :is(.concept-progress, .concept-countdown) { visibility:hidden; }
-.concept-request { min-height:2.75rem; font-size:.8rem; line-height:1.2; white-space:nowrap; }
-.concept-scene { width:1.5rem; height:1.5rem; display:grid; grid-template-columns:1fr 1fr; gap:2px; }
-.concept-scene i { background:var(--aithema-accent); border-radius:2px; opacity:.3; }
+ .concept-bar { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:.5rem; min-height:44px; }
+.concept-rail { display:grid; grid-template-columns:22px minmax(0,1fr); align-items:center; column-gap:.65rem; min-height:44px; }
+.concept-scene { grid-area:1/1; width:22px; height:22px; display:grid; grid-template-columns:1fr 1fr; gap:2px; }
+.concept-scene i { background:var(--aithema-line-strong); border-radius:2px; }
+.concept-activity { grid-area:1/2; min-width:0; display:grid; gap:.2rem; }
+.concept-activity-text { font-size:.8125rem; color:var(--aithema-muted); line-height:1.4; }
+.concept-progress, .concept-countdown { display:none; }
+.concept-rail[data-phase="pending"] :is(.concept-progress,.concept-countdown) { display:block; }
+.concept-request { grid-area:1/2; justify-self:start; min-height:44px; padding:.4rem 0; font-size:.8125rem; line-height:1.4; text-align:left; }
+.concept-rail[data-phase="pending"] .concept-request { visibility:hidden; }
+.concept-rail:is([data-phase="failed"],[data-phase="waiting"]) .concept-request { grid-area:2/2; }
 .concept-rail[data-phase="pending"] .concept-scene i { animation:concept-pulse 1.8s ease-in-out infinite alternate; }
 .concept-scene i:nth-child(2n) { animation-delay:-.9s; } @keyframes concept-pulse { to { opacity:.9; } }
 .concept-preview-slot { display:grid; }
@@ -173,8 +171,9 @@ svg { display:block; flex:none; }
 
 /* The transcript (START .v2__transcript): tailed bubbles on the page, reading position kept by hand. */
 .transcript-shell { position:relative; min-height:0; overflow:auto; overflow-anchor:none; overscroll-behavior-y:contain; scrollbar-gutter:stable;
-  scrollbar-width:thin; scrollbar-color:color-mix(in srgb,var(--aithema-accent-bright) 36%,transparent) transparent;
-  padding:calc(.25rem + var(--aithema-slack-top,0px)) .75rem calc(1.5rem + var(--aithema-slack-bottom,0px)) .6rem; }
+  scrollbar-width:thin; scrollbar-color:transparent transparent;
+  mask-image:linear-gradient(to bottom,transparent 0,#000 26px);
+  padding:calc(26px + var(--aithema-slack-top,0px)) .75rem calc(1.5rem + var(--aithema-slack-bottom,0px)) .6rem; }
 .transcript-latest { position:sticky; bottom:0; display:block; margin:.6rem auto 0; font-size:.75rem; border-radius:999px;
   background:var(--aithema-surface); box-shadow:var(--aithema-shadow-raised); }
 ol { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:.5rem; font-size:.95rem; }
@@ -190,14 +189,21 @@ ol { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; 
   border-color:color-mix(in srgb,var(--aithema-accent) 32%,transparent); box-shadow:0 2px 6px color-mix(in srgb,var(--aithema-accent) 20%,transparent); }
 .turn.user::before { left:auto; right:-.45rem; border:0; border-right:1px solid color-mix(in srgb,var(--aithema-accent) 32%,transparent);
   border-top:1px solid color-mix(in srgb,var(--aithema-accent) 32%,transparent); clip-path:polygon(100% 0,0 0,100% 100%); }
-.turn strong { display:block; margin-bottom:.15rem; font-size:.72rem; font-weight:650; letter-spacing:.05em; text-transform:uppercase; color:var(--aithema-muted); }
+.turn strong { display:flex; align-items:center; gap:6px; margin-bottom:.15rem; font-size:.72rem; font-weight:600; color:var(--aithema-muted); }
+.speaker-sign { display:inline-grid; place-items:center; width:12px; height:12px; flex:none; border-radius:50%; background:radial-gradient(circle at 35% 35%,#fff,var(--aithema-accent-soft) 45%,color-mix(in srgb,var(--aithema-accent) 50%,var(--aithema-surface))); }
+.user .speaker-sign { background:none; } .speaker-sign svg { width:12px; height:12px; }
+.turn.user { padding-right:2.8rem; }
 .turn span { white-space:pre-wrap; } .turn.partial { color:var(--aithema-muted); }
-.turn small.engine-tag { display:block; margin-top:.35rem; font-size:.66rem; color:var(--aithema-muted); }
 @keyframes turn-in { from { transform:translateY(.35rem); } to { transform:none; } }
-/* Withdrawing one's own sentence: a quiet text action under the bubble. */
-:is(.withdraw, .upload-withdraw) { display:block; margin-top:.3rem; font-size:.72rem; padding:.2rem 0; color:var(--aithema-muted); text-decoration:underline;
+/* START's 20 px x in a reserved 44 px target: opacity changes, geometry does not. */
+.withdraw { position:absolute; top:0; right:0; display:grid; place-items:center; width:44px; height:44px; padding:0; color:var(--aithema-ink); opacity:0; background:none; }
+.withdraw svg { width:20px; height:20px; }
+.turn:hover .withdraw, .turn:focus-within .withdraw { opacity:.55; }
+.turn .withdraw:is(:hover,:focus-visible) { opacity:1; background:none; }
+@media(hover:none) { .turn .withdraw { opacity:.55; } }
+.upload-withdraw { display:block; margin-top:.3rem; font-size:.72rem; padding:.2rem 0; color:var(--aithema-muted); text-decoration:underline;
   text-decoration-color:color-mix(in srgb,currentColor 40%,transparent); text-underline-offset:3px; }
-:is(.withdraw, .upload-withdraw):hover:not(:disabled) { background:none; color:var(--aithema-ink); text-decoration-color:currentColor; }
+.upload-withdraw:hover:not(:disabled) { background:none; color:var(--aithema-ink); text-decoration-color:currentColor; }
 
 /* The composer (START .v2__composer): one raised card, one focus ring, 44 px round actions. */
 .composer { position:relative; display:grid; gap:.5rem; padding:clamp(.85rem,2vw,1.25rem); border:1px solid var(--aithema-line); border-radius:var(--aithema-radius-lg);
@@ -261,10 +267,11 @@ textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .scale-labels { display:flex; justify-content:space-between; height:1.4rem; font-size:.72rem; color:var(--aithema-muted); }
 .readiness p { margin:0; font-size:.78rem; line-height:1.35; color:var(--aithema-ink); } .readiness p:empty { display:none; }
 .analysis-content { min-height:0; overflow:auto; overflow-anchor:none; overscroll-behavior-y:contain; scrollbar-gutter:stable; overflow-wrap:anywhere;
-  scrollbar-width:thin; scrollbar-color:color-mix(in srgb,var(--aithema-accent-bright) 40%,transparent) transparent;
-  display:grid; align-content:start; gap:1.15rem; padding:calc(1rem + var(--aithema-slack-top,0px)) .75rem calc(1.5rem + var(--aithema-slack-bottom,0px)) 0; }
+  scrollbar-width:thin; scrollbar-color:transparent transparent;
+  scroll-padding-block:28px 44px; scroll-snap-type:y proximity;
+  display:grid; align-content:start; gap:1.15rem; padding:calc(28px + var(--aithema-slack-top,0px)) .75rem calc(44px + var(--aithema-slack-bottom,0px)) 0; }
 .notice { min-height:1.4rem; margin:0; font-size:.8rem; line-height:1.45; color:var(--aithema-muted); }
-.analysis-content section { display:grid; gap:.55rem; padding-top:1rem; border-top:1px solid var(--aithema-line); }
+.analysis-content section { scroll-snap-align:start; display:grid; gap:.55rem; padding-top:1rem; border-top:1px solid var(--aithema-line); }
 .analysis-content section.summary { padding-top:0; border-top:0; } .analysis-content section.summary h3 { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
 .summary-text { margin:0; font-size:1rem; line-height:1.55; color:var(--aithema-ink); text-wrap:pretty; }
 .analysis-content h3 { font-size:.86rem; font-weight:700; color:var(--aithema-ink); }
@@ -291,6 +298,15 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 .understanding > .foot { display:flex; align-items:center; justify-content:space-between; gap:1rem; min-height:3.25rem; padding-top:.75rem; border-top:1px solid var(--aithema-line); }
 .export { display:inline-flex; align-items:center; gap:.5rem; min-height:2.75rem; font-size:.78rem; color:var(--aithema-muted); text-underline-offset:.22em; }
 .export:hover { color:var(--aithema-accent); } .export svg { width:1rem; height:1rem; } .retry { font-size:.75rem; }
+
+/* Neutral scrollbars only during interaction. A stable gutter prevents hover from changing line wraps. */
+:is(.transcript-shell,.analysis-content):is(:hover,:focus-within,[data-scrolling]) { scrollbar-color:var(--aithema-line-strong) transparent; }
+:is(.transcript-shell,.analysis-content)::-webkit-scrollbar { width:6px; }
+:is(.transcript-shell,.analysis-content)::-webkit-scrollbar-thumb { border-radius:4px; background:transparent; }
+:is(.transcript-shell,.analysis-content):is(:hover,:focus-within,[data-scrolling])::-webkit-scrollbar-thumb { background:var(--aithema-line-strong); }
+.analysis-content[data-bottom] { mask-image:linear-gradient(to bottom,#000 calc(100% - 44px),transparent); }
+.analysis-content[data-top] { mask-image:linear-gradient(to bottom,transparent,#000 26px); }
+.analysis-content[data-top][data-bottom] { mask-image:linear-gradient(to bottom,transparent,#000 26px,#000 calc(100% - 44px),transparent); }
 
 /* The concept viewer: START's immersive surface on the page's own paper. */
 .concept-viewer { position:fixed; inset:0; margin:0; width:100vw; max-width:none; height:100dvh; max-height:none; padding:0; border:0;
@@ -334,8 +350,7 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
   .workspace[data-reveal] .understanding { transition:opacity 420ms ease 120ms,transform 520ms var(--aithema-ease) 100ms,padding 480ms ease,border-width 300ms ease; }
   .workspace[data-understanding="absent"] .understanding { min-width:0; padding-inline:0; border-width:0; opacity:0; transform:translateX(1.75rem); }
   .workspace[data-stage="live"] { height:var(--aithema-height); min-height:34rem; grid-template-rows:auto minmax(0,1fr) auto; }
-  .workspace[data-stage="live"]:not(:has(> .host-foot:not([hidden]))) { grid-template-rows:auto minmax(0,1fr); grid-template-areas:"top top" "conversation understanding"; }
-  .workspace[data-stage="live"] :is(.conversation, .understanding) { min-height:0; }
+    .workspace[data-stage="live"] :is(.conversation, .understanding) { min-height:0; }
   .workspace[data-stage="live"] .conversation { grid-template-rows:auto auto auto minmax(0,1fr) auto; }
 }
 /* Narrow screens: stacked, the page scrolls; the transcript keeps a bounded reading area. */
@@ -343,28 +358,22 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
   .workspace[data-understanding="absent"] .understanding { display:none; }
   .workspace[data-reveal] .understanding { animation:rise-in 420ms ease-out; }
   .transcript-shell { height:clamp(20rem,60svh,36rem); }
-  .understanding { max-height:none; } .analysis-content { overflow:visible; }
+  .understanding { max-height:none; } .analysis-content { max-height:440px; overflow:auto; }
 }
 @keyframes rise-in { from { opacity:0; transform:translateY(.5rem); } to { opacity:1; transform:none; } }
 @media(max-width:44rem) {
-  /* Phones (START's compact masthead): the host's actions on the first line, its credits on the second with Settings
-     at their end, then the processing line (once there is one). Without credits or a host bar, Settings moves up. */
-  .toolbar { grid-template-columns:minmax(0,1fr) auto; align-items:start; column-gap:.5rem; min-height:0; }
-  .host-bar { grid-column:1/-1; grid-row:1/3; } .settings-open { grid-column:2; grid-row:2; align-self:end; } .preset-panel { grid-column:1/-1; grid-row:3; }
-  .toolbar:has(.host-credits[hidden]) .host-bar { grid-column:1; grid-row:1; } .toolbar:has(.host-credits[hidden]) .settings-open { grid-row:1; }
-  .toolbar:has(.host-credits[hidden]) .preset-panel { grid-row:2; }
-  .toolbar:has(> .host-bar[hidden]) .settings-open { grid-row:1; } .toolbar:has(> .host-bar[hidden]) .preset-panel { grid-column:1; grid-row:1; align-self:center; }
-  .workspace:not([data-stage="live"]) .engine { display:none; }
+  .wordmark { font-size:20px; }
+  .toolbar { gap:0 4px; min-height:60px; }
+  .header-actions { gap:0; }
   /* Room below the composer for the sticky notice line (inside the column, since a sticky box never enters its
      container's padding): with Attach or Send scrolled to the very top, the notice still stands above them (AIT-119). */
   .composer { margin-bottom:2rem; }
-  .conversation > .head { flex-direction:column; align-items:stretch; } .status { flex-basis:auto; text-align:left; }
+  .conversation > .head { align-items:flex-start; gap:.5rem; } .status { flex-basis:5.5rem; text-align:right; }
   .audio-rail { grid-template-columns:32px 44px minmax(0,1fr) 44px 44px 44px; gap:4px; }
   .voice-orb { width:32px; height:32px; } .voice-orb .orb { --orb-size:32px; }
   .voice-state, .voice-caption { font-size:.6rem; padding:3px 6px; } .audio-rail[data-message] .voice-state { left:0; font-size:.78rem; padding:.55rem .75rem; }
   .turn { max-width:88%; } .upload { width:90%; }
-  .concept-bar { grid-template-columns:1.5rem minmax(0,1fr) auto; } .concept-activity { grid-column:2/-1; }
-  .concept-request { grid-area:2/1/3/3; justify-self:start; } .concept-preview-slot { grid-area:2/3; } .concept-activity-text { height:3.9em; }
+  .concept-bar { grid-template-columns:minmax(0,1fr) auto; } .concept-rail { column-gap:.5rem; }
   .workspace:not([data-stage="live"]) .status { display:none; }
   /* The viewer on phones: navigation in two rows and a two-line disclosure, so long (German) labels stay whole. */
   .concept-viewer[open] { grid-template-rows:4rem minmax(0,1fr) 21.5rem; }

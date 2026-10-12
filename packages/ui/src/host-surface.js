@@ -7,15 +7,17 @@ import { postJson, sameOrigin } from './post-json.js';
 import { node, setText, fill } from './dom.js';
 import { Verification } from './verification.js';
 import { LibraryDialog } from './library-dialog.js';
+import { ConversationsMenu } from './conversations-menu.js';
+import { formatCredits, wholeCredits } from './display.js';
 
-const LIBRARY_ICON = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h10"/></svg>';
 const MINUTE = 60_000;
-export const defaultCreditFormat = (micro, locale) => new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(micro / 1_000_000);
+export const defaultCreditFormat = formatCredits;
 
 export class HostSurface {
   #root; #copy; #options; #base; #token; #session; #status; #adopt; #view; #alive = true; #connected = false;
   #verification = null; #library = null; #offer = null; #handover = null; #requesting = false; #limit = null;
   #credits = null; #creditsAt = 0; #creditsLoad = 0; #creditsTimer = null; #creditsTick = null; #ended = null;
+  #menu = null;
   /**
    * options: {library, verification, handover, credits: true | {format(micro, locale)}, locale()}.
    * session() returns the live session; adopt(session, reason) opens another conversation.
@@ -27,20 +29,20 @@ export class HostSurface {
     root.querySelector('.workspace').toggleAttribute('data-host', true);
     bar.hidden = false; bar.setAttribute('aria-label', s.bar);
     root.querySelector('.understanding').toggleAttribute('data-host', true);
-    // The library: the bar's first action opens the dialog.
-    const open = bar.querySelector('.library-open-dialog');
-    open.hidden = !o.library;
+    // Conversations: New first, recent conversations, then the full manager.
+    bar.querySelector('.conversations-wrap').hidden = !o.library;
     if (o.library) {
-      open.innerHTML = LIBRARY_ICON; open.append(node('span', '', s.library.open));
       this.#library = new LibraryDialog({ dialog: root.querySelector('dialog.library'), copy, request: (path, body) => this.#call(`/api/library${path}`, body),
         current: () => this.#session().id, locale: () => this.#session().locale ?? 'en',
         newLocale: () => o.locale?.() ?? this.#session().locale ?? 'en', adopt: (next, reason) => this.#adopt(next, reason),
         notice: () => root.querySelector('#ai-notice')?.textContent ?? '' });
-      open.addEventListener('click', () => this.#library.show(open));
+      this.#menu = new ConversationsMenu({ root, copy, request: (path, body) => this.#call(path, body), current: () => this.#session().id,
+        locale: () => this.#session().locale ?? 'en', newLocale: () => o.locale?.() ?? this.#session().locale ?? 'en',
+        adopt: (next, reason) => this.#adopt(next, reason), manage: opener => this.#library.show(opener), status });
     }
     if (o.verification) {
       this.#verification = new Verification({ root, copy, request: (path, body) => this.#call(this.#sessionPath(path), body), status, onChange: onLock,
-        focusAfterUnlock, entry: bar.querySelector('.host-verify'), lock: root.querySelector('.verify-lock'), dialog: root.querySelector('dialog.verify-dialog'),
+        focusAfterUnlock, entry: root.querySelector('.host-verify'), lock: root.querySelector('.verify-lock'), dialog: root.querySelector('dialog.verify-dialog'),
         identity: this.#session().identity, pollMs: o.pollMs, notice: () => root.querySelector('#ai-notice')?.textContent ?? '' });
     }
     this.#mountHandover(); this.#mountFoot();
@@ -51,7 +53,7 @@ export class HostSurface {
     this.#copy = copy;
     const s = copy.hostSurface, root = this.#root;
     root.querySelector('.host-bar').setAttribute('aria-label', s.bar);
-    if (this.#library) setText(root.querySelector('.library-open-dialog span'), s.library.open);
+    this.#menu?.setCopy(copy);
     this.#verification?.setCopy(copy); this.#library?.setCopy(copy);
     setText(root.querySelector('.handover h3'), s.handover.title);
     setText(root.querySelector('slot[name="handover-offer"]'), s.handover.offer);
@@ -74,7 +76,7 @@ export class HostSurface {
     this.#connected = false; this.#verification?.disconnect();
     clearInterval(this.#creditsTick); this.#creditsTick = null; clearTimeout(this.#creditsTimer); this.#creditsTimer = null;
   }
-  destroy() { this.#alive = false; this.disconnect(); this.#verification?.destroy(); this.#library?.destroy(); }
+  destroy() { this.#alive = false; this.disconnect(); this.#verification?.destroy(); this.#library?.destroy(); this.#menu?.destroy(); }
   /** Durable host events (already applied to the session projection) and the turns that change balances. */
   receive(event) {
     this.#verification?.receive(event);
@@ -193,13 +195,23 @@ export class HostSurface {
     const c = this.#copy.hostSurface.credits, session = this.#session(), locale = session.locale ?? 'en';
     const format = typeof this.#options.credits?.format === 'function' ? this.#options.credits.format : defaultCreditFormat;
     const limit = line.querySelector('.host-credits__limit'), text = line.querySelector('.host-credits__text');
+    const track = line.querySelector('.host-credits__track'), title = line.querySelector('.host-credits__title'), scope = line.querySelector('.host-credits__scope');
+    setText(title, `${c.title} ·`); setText(scope, `· ${c.scope}`);
     if (this.#ended) {
+      line.title = ''; line.removeAttribute('aria-description');
       setText(text, c.ended[this.#ended] ?? c.ended.session); limit.hidden = false; line.dataset.ended = 'true';
+      track.hidden = true; title.hidden = true; scope.hidden = true;
       return;
     }
     limit.hidden = true; line.dataset.ended = 'false';
+    title.hidden = false; scope.hidden = false;
     const owner = this.#credits?.balance?.owner, slot = this.#credits?.limitSlot;
-    if (!owner) { setText(text, ''); return; }
+    if (!owner) { setText(text, c.loading); track.hidden = true; return; }
+    track.hidden = false;
+    const value = wholeCredits(owner.availableMicro), maximum = wholeCredits(owner.limitMicro);
+    track.querySelector('i').style.width = `${maximum > 0 ? Math.min(100, value / maximum * 100) : 0}%`;
+    track.setAttribute('aria-valuenow', String(value)); track.setAttribute('aria-valuemax', String(maximum));
+    track.setAttribute('aria-label', c.title);
     const parts = [fill(c.balance, { available: format(owner.availableMicro, locale), limit: format(owner.limitMicro, locale) })];
     if (slot?.status === 'active' && Number.isFinite(slot.remainingMs)) {
       // The host's deadline keeps running during a pause (credits.js creditsView), so the countdown never
@@ -208,7 +220,9 @@ export class HostSurface {
       parts.push(fill(c.remaining, { minutes: Math.ceil(remaining / MINUTE) }));
       if (session.paused) parts.push(c.paused);
     }
-    setText(text, parts.join(' · '));
+    // The visible footer is the wallet. The existing per-conversation deadline stays accessible on hover/focus.
+    setText(text, parts[0]);
+    line.title = parts.slice(1).join(' · '); line.setAttribute('aria-description', line.title);
   }
   // Legal and footer slots: the hairline row shows only when the host filled one of them.
   #mountFoot() {

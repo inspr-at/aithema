@@ -86,7 +86,7 @@ async function adopt(session) {
       deviceConnector: createDeviceReasoning, deviceEndpoint: 'http://127.0.0.1:8000',
       // The host surface (AIT-104 B2): library, handover and credits from the demo ports; verification
       // only where the fake mail outbox can confirm it (the mock demo).
-      host: { library: true, verification: binding.demoHost === true, handover: true, credits: true, locale: () => localeChoice } });
+      host: { library: true, verification: binding.demoHost === true, handover: true, credits: true, locale: () => localeChoice, version: binding.build } });
     // A stored choice may have changed while the initial conversation was being restored.
     await component.changeLocale(localeChoice);
     paintPage();
@@ -161,5 +161,4 @@ document.querySelector('#locale').addEventListener('change', async event => {
   const locale = event.target.value; localeChoice = locale; remember(localeKey, locale);
   await component.changeLocale(locale); paintPage();
 });
-document.querySelector('#new').addEventListener('click', () => void open(true));
 await open();

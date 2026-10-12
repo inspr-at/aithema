@@ -135,7 +135,8 @@ test('keyed rows: a superseded partial loses its node, a restarted reply under i
     engine: { label: 'Deep (mock)', effort: 'high' } } });
   assert.equal(root.querySelector('[data-id="r"]'), restarted, 'the final reply keeps the partial node');
   assert.equal(restarted.className.includes('partial'), false);
-  assert.equal(restarted.querySelector('.engine-tag')?.textContent, `Deep (mock) · ${en.settings.efforts.high}`);
+  assert.equal(restarted.querySelector('.engine-tag'), null, 'model information appears once in the footer');
+  assert.equal(c.session.transcript.at(-1).engine.label, 'Deep (mock)', 'the producer contract stays intact');
   assert.deepEqual([...root.querySelectorAll('.turn')].map(n => n.dataset.id), ['t1', 'r']);
 });
 test('Enter inserts a newline; Ctrl/Cmd+Enter sends; failed acknowledgement retries identical id and bytes', async () => {
@@ -150,7 +151,7 @@ test('Enter inserts a newline; Ctrl/Cmd+Enter sends; failed acknowledgement retr
     assert.equal(enter.defaultPrevented, false); assert.equal(calls.length, 0);
     input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }));
     await new Promise(r => setImmediate(r)); assert.equal(input.value, 'Hello\nworld'); assert.equal(calls.length, 1);
-    fail = false; input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
+    fail = false; input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }));
     await new Promise(r => setImmediate(r)); assert.equal(input.value, ''); assert.equal(calls[0], calls[1]);
   } finally { globalThis.fetch = originalFetch; }
 });
@@ -352,7 +353,8 @@ test('the engine panel keeps its fixed size, renders snapshot feature updates at
   c.configure({ copy: en, session });
   const root = c.shadowRoot;
   assert.equal(root.querySelector('.engine__value').textContent, 'Best models');
-  assert.equal(root.querySelector('.engine__label').textContent, en.processing);
+  assert.equal(root.querySelector('.toolbar .preset-panel'), null);
+  assert.ok(root.querySelector('.display-foot .engine__value'));
   assert.equal(root.querySelector('.settings-open').getAttribute('aria-haspopup'), 'dialog');
   assert.equal(root.querySelector('.preset-choice'), null, 'presets change through acknowledged settings, never a raw select');
   const expired = en.reasons['binding evidence expired'];
@@ -488,7 +490,7 @@ test('preset, feature and device copy comes from the host', async () => {
     deviceConversation: 'Bleibt im Tab', deviceUnavailable: 'Modell fehlt', settings: { ...en.settings, open: 'Einstellungen' } };
   c.configure({ copy, session: createSession({ processingPreset: 'device' }) });
   let root = c.shadowRoot;
-  assert.equal(root.querySelector('.engine__label').textContent, 'Verarbeitung');
+  assert.equal(root.querySelector('.engine__label'), null);
   assert.equal(root.querySelector('.engine__value').textContent, 'Lokal');
   assert.equal(root.querySelector('.settings-open').textContent, 'Einstellungen');
   assert.deepEqual([...root.querySelectorAll('.chooser-option strong')].map(n => n.textContent), ['Optimal', 'Europa', 'Lokal', 'Eigene']);
@@ -816,7 +818,7 @@ test('the AI notice is painted with the first render, ahead of the composer, in 
     assert.equal(c.shadowRoot.querySelector('#ai-notice').textContent, AI_NOTICE[locale].text);
   }
   assert.equal(AI_NOTICE.en.text, 'You are talking to an AI assistant.');
-  assert.equal(AI_NOTICE.de.text, 'Sie sprechen mit einem KI-Assistenten.');
+  assert.equal(AI_NOTICE.de.text, 'Sie sprechen mit einer KI-Assistenz.');
   assert.equal(AI_NOTICE.de.voice, 'Gesprochene Antworten verwenden eine synthetische Stimme.');
 });
 test('with voice offered both sentences show; consent still pending counts as offered (AIT-119)', () => {

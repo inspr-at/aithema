@@ -44,12 +44,16 @@ export class Waveform {
     const context = this.#context; if (!context) return;
     const { width, height } = this.canvas, middle = height / 2, amplitude = height * .47;
     context.clearRect(0, 0, width, height); context.beginPath();
-    context.lineCap = 'round'; context.lineJoin = 'round'; context.lineWidth = 1.5 * this.ratio; context.strokeStyle = COLOUR[this.#direction];
+    context.lineCap = 'round'; context.lineJoin = 'round'; context.lineWidth = 1.6 * this.ratio; context.strokeStyle = COLOUR[this.#direction];
     context.moveTo(0, middle); context.lineTo(width, middle);
-    this.#history.forEach((level, index) => {
-      const position = index / (HISTORY - 1), x = (this.#direction === 'assistant' ? 1 - position : position) * width, bar = level * amplitude;
+    // Interpolate the same 64 samples: 3 px pitch, while direction, rolling history and sampling stay unchanged.
+    const bars = Math.ceil((this.canvas.getBoundingClientRect().width || WIDTH) / 3);
+    for (let index = 0; index <= bars; index++) {
+      const position = index / bars, sample = position * (HISTORY - 1), lower = Math.floor(sample), share = sample - lower;
+      const level = this.#history[lower] * (1 - share) + this.#history[Math.min(HISTORY - 1, lower + 1)] * share;
+      const x = (this.#direction === 'assistant' ? 1 - position : position) * width, bar = level * amplitude;
       if (bar >= .5) { context.moveTo(x, middle - bar); context.lineTo(x, middle + bar); }
-    });
+    }
     context.stroke();
   }
 }
