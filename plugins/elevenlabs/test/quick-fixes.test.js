@@ -114,6 +114,23 @@ test('AIT-138: explicit provider end_call is terminal; diagnostic disconnect rea
   assert.equal(local.closed.at(-1).reason, 'provider-end');
 });
 
+for (const transport of ['webrtc', 'websocket']) test(`AIT-138: ${transport} unmute finishing after replacement cannot restore old capture or playback`, async t => {
+  const local = await setup(t, { transport }), old = local.sdk.conversations[0], entered = deferred(), release = deferred();
+  const setMuted = old.input.setMuted, setVolume = old.setVolume, oldVolumes = [];
+  old.setVolume = value => { oldVolumes.push(value.volume); return setVolume(value); };
+  old.input.setMuted = async value => {
+    if (!value) { entered.resolve(); await release.promise; }
+    return setMuted(value);
+  };
+  t.after(() => release.resolve());
+  const changing = local.session.setInput(true).catch(error => error.code); await entered.promise;
+  local.sdk.starts[0].onDisconnect(); await until(() => local.observed.some(event => event.type === 'recovered'));
+  release.resolve(); await changing;
+  assert.equal(oldVolumes.at(-1), 0);
+  assert.ok(old.track.readyState === 'ended' || old.track.source === 'silence', 'a retired generation cannot reacquire a physical microphone');
+  assert.equal(local.session.lifecycle.state.state, 'active');
+});
+
 test('AIT-136 pause mutes capture immediately before the HTTP acknowledgement', async t => {
   const local = await setup(t), ack = deferred();
   local.control.pause = () => ack.promise;
