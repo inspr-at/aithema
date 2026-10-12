@@ -16,6 +16,9 @@ const css = `
 .aithema-reveal__wordmark { position:relative; display:inline-block; overflow:hidden; font:600 27px/1.15 var(--aithema-display,var(--display,Georgia,serif)); letter-spacing:-.03em; color:#fff; }
 .aithema-reveal__wordmark > .aithema-reveal__letter { display:inline-block; opacity:0; transform:translateY(9px) scale(.9); transition:opacity .55s,transform .65s cubic-bezier(.2,.9,.25,1.25); transition-delay:calc(120ms + var(--ar-i) * 45ms); }
 .aithema-reveal-band[data-aithema-reveal-state="open"] .aithema-reveal__letter { opacity:1; transform:none; }
+.aithema-reveal__letter::after { content:attr(data-letter); position:absolute; inset:0; filter:blur(9px); opacity:0; }
+.aithema-reveal-band[data-aithema-reveal-state="open"] .aithema-reveal__letter::after { animation:aithema-reveal-letter-mist .55s calc(120ms + var(--ar-i) * 45ms) both; }
+@keyframes aithema-reveal-letter-mist { 0%,25% { opacity:.8; } 100% { opacity:0; } }
 .aithema-reveal__glint { position:absolute; inset:0 auto 0 0; width:26px; overflow:hidden; color:#ffe4b3; mask-image:linear-gradient(to right,transparent,#fff,transparent); opacity:0; }
 .aithema-reveal__glint > span { display:block; width:max-content; }
 .aithema-reveal-band[data-aithema-reveal-state="open"] .aithema-reveal__glint { animation:aithema-reveal-glint 1.3s .62s cubic-bezier(.3,.6,.2,1) both; }
@@ -45,6 +48,7 @@ const css = `
 @keyframes aithema-reveal-return { 0% { opacity:0; transform:translateX(14px) scale(.94); } 30% { opacity:.25; } 100% { opacity:0; transform:none; } }
 .aithema-reveal-band[data-aithema-reveal-paused] :is(.aithema-reveal__ring,.aithema-reveal__glint,.aithema-reveal__glint > span,.aithema-reveal__proxy) { animation-play-state:paused; }
 .aithema-reveal-band[data-aithema-reveal-motion="off"] :is(.aithema-reveal__ring,.aithema-reveal__stars,.aithema-reveal__glint,.aithema-reveal__dissolves) { display:none; animation:none !important; }
+.aithema-reveal-band[data-aithema-reveal-motion="off"] .aithema-reveal__letter::after { display:none; animation:none !important; }
 .aithema-reveal-band[data-aithema-reveal-motion="off"] :is(.aithema-reveal__glass,.aithema-reveal__wash,.aithema-reveal__row,.aithema-reveal__letter,.aithema-reveal__rise,[data-aithema-reveal-control]) { transition:opacity .2s ease !important; transition-delay:0s !important; animation:none !important; }
 .aithema-reveal-band[data-aithema-reveal-motion="off"] .aithema-reveal__glass { transform:scale(1); }
 .aithema-reveal-band[data-aithema-reveal-motion="off"] :is(.aithema-reveal__letter,.aithema-reveal__rise) { transform:none; opacity:1; }
@@ -72,8 +76,8 @@ export function createReveal({ band, orb, controls = [], links, version = {}, co
   style.textContent = css; fx.className = 'aithema-reveal__fx'; fx.setAttribute('aria-hidden', 'true');
   fx.innerHTML = '<div class="aithema-reveal__glass"></div><div class="aithema-reveal__wash"></div><div class="aithema-reveal__ring"></div>';
   row.className = 'aithema-reveal__row'; row.id = id; row.setAttribute('aria-label', text.label ?? 'Aithema'); row.setAttribute('aria-hidden', 'true'); row.inert = true;
-  const wordmark = document.createElement('span'); wordmark.className = 'aithema-reveal__wordmark'; wordmark.setAttribute('aria-label', text.wordmark ?? 'Aithema');
-  Array.from(text.wordmark ?? 'Aithema').forEach((letter, index) => { const span = document.createElement('span'); span.className = 'aithema-reveal__letter'; span.textContent = letter; span.style.setProperty('--ar-i', index); span.setAttribute('aria-hidden', 'true'); wordmark.append(span); });
+  const wordmark = document.createElement('span'); wordmark.className = 'aithema-reveal__wordmark'; wordmark.setAttribute('role', 'img'); wordmark.setAttribute('aria-label', text.wordmark ?? 'Aithema');
+  Array.from(text.wordmark ?? 'Aithema').forEach((letter, index) => { const span = document.createElement('span'); span.className = 'aithema-reveal__letter'; span.textContent = letter; span.dataset.letter = letter; span.style.setProperty('--ar-i', index); span.setAttribute('aria-hidden', 'true'); wordmark.append(span); });
   const glint = document.createElement('span'); glint.className = 'aithema-reveal__glint'; glint.setAttribute('aria-hidden', 'true');
   const glintText = document.createElement('span'); glintText.textContent = text.wordmark ?? 'Aithema'; glint.append(glintText); wordmark.append(glint);
   const separator = document.createElement('span'); separator.className = 'aithema-reveal__separator'; separator.setAttribute('aria-hidden', 'true'); row.append(wordmark, separator);
@@ -108,7 +112,11 @@ export function createReveal({ band, orb, controls = [], links, version = {}, co
   const measure = () => {
     const b = band.getBoundingClientRect(), r = trigger.getBoundingClientRect();
     const x = r.left + r.width / 2 - b.left, y = r.top + r.height / 2 - b.top;
-    const sizes = items.map(node => ({ node, rect: node.getBoundingClientRect(), opacity: view.getComputedStyle(node).opacity, transform: view.getComputedStyle(node).transform }));
+    const sizes = items.map(node => {
+      const rect = node.getBoundingClientRect(), style = view.getComputedStyle(node);
+      const visual = ['display', 'align-items', 'justify-content', 'gap', 'padding', 'border', 'border-radius', 'background', 'color', 'font', 'line-height', 'box-shadow'].map(name => [name, style.getPropertyValue(name)]);
+      return { node, rect, opacity: style.opacity, transform: style.transform, visual };
+    });
     const radius = Math.max(1, Math.hypot(x, y), Math.hypot(b.width - x, y), Math.hypot(x, b.height - y), Math.hypot(b.width - x, b.height - y));
     geometry = { x, y, left: b.left, top: b.top, width: b.width, height: b.height, sizes, radius };
     Object.entries({ '--ar-x': `${x}px`, '--ar-y': `${y}px`, '--ar-radius': `${radius}px`, '--ar-ring-scale': radius / 20,
@@ -123,7 +131,7 @@ export function createReveal({ band, orb, controls = [], links, version = {}, co
   };
   const dissolveControls = () => {
     dissolves = document.createElement('div'); dissolves.className = 'aithema-reveal__dissolves'; dissolves.setAttribute('aria-hidden', 'true'); dissolves.inert = true;
-    for (const { node, rect, opacity, transform } of geometry.sizes) {
+    for (const { node, rect, opacity, transform, visual } of geometry.sizes) {
       const delay = Math.round(Math.max(0, rect.left - (geometry.x + 20 + geometry.left)) * .42);
       const vars = ['--ar-delay', '--ar-opacity', '--ar-transform'].map(name => [name, node.style.getPropertyValue(name), node.style.getPropertyPriority(name)]);
       saved.set(node, { attributes: remember(node, ['inert', 'aria-hidden', 'data-aithema-reveal-control']), vars, delay });
@@ -132,6 +140,7 @@ export function createReveal({ band, orb, controls = [], links, version = {}, co
       if (moving()) {
         const proxy = node.cloneNode(true); proxy.removeAttribute('data-aithema-reveal-control'); proxy.removeAttribute('data-reveal'); proxy.removeAttribute('id'); proxy.classList.add('aithema-reveal__proxy');
         proxy.querySelectorAll('[id]').forEach(child => child.removeAttribute('id')); proxy.querySelectorAll('style,script').forEach(child => child.remove());
+        for (const [name, value] of visual) proxy.style.setProperty(name, value);
         Object.assign(proxy.style, { left: `${rect.left - geometry.left}px`, top: `${rect.top - geometry.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
         dissolves.append(proxy);
       }
@@ -195,8 +204,8 @@ export function createReveal({ band, orb, controls = [], links, version = {}, co
   const open = () => {
     cancelIntent(); if (destroyed || phase === 'open') return;
     view.clearTimeout(exitTimer); exitTimer = 0;
-    if (phase === 'closed') { measure(); dissolveControls(); }
     if (items.some(node => node.contains(active()))) focusOrb();
+    if (phase === 'closed') { measure(); dissolveControls(); }
     for (const node of saved.keys()) { node.inert = true; node.setAttribute('aria-hidden', 'true'); }
     row.inert = false; row.removeAttribute('aria-hidden'); trigger.setAttribute('aria-expanded', 'true'); setPhase('open');
     trigger.dispatchEvent(new view.CustomEvent('aithema-orb-reveal', { detail: true })); startParticles(true);

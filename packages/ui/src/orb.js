@@ -38,6 +38,7 @@ export const orbStyles = `
 .orb[data-orb-motion="off"] :is(.orb__prism,.orb__body,.orb__breath) { animation:none !important; }
 .orb[data-orb-motion="off"] :is(.orb__body,.orb__light) { transform:none !important; transition:opacity .2s; }
 .orb[data-orb-motion="off"] .orb__breath { opacity:0; }
+.orb[data-orb-motion="off"] :is(.orb__face--warm,.orb__face--logo,.orb__warm-glow) { transition:opacity .2s; }
 /* Keep the old layer/ring selectors for embedders that inspect the voice avatar. */
 @media(prefers-reduced-motion:reduce) { .orb__layer, .orb__ring { animation:none !important; transition:none; } .orb :is(.orb__prism,.orb__breath) { animation:none !important; } .orb__body,.orb__light { transform:none !important; } }
 `;
