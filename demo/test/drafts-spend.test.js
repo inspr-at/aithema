@@ -425,6 +425,22 @@ for (const ownership of ['expired lease', 'different incarnation', 'different wr
   });
 }
 
+test('AIT-134 round 4: failed renewal transactions log retries before the persisted lease expires', async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const warnings = []; t.mock.method(console, 'warn', (...args) => warnings.push(args.join(' ')));
+  let clock = 1_000_000;
+  const path = `${await temporaryDb()}.spend.json`, spend = createSpendLedger({ path, capMicro: 100, now: () => clock });
+  const handle = spend.reserve(100);
+  writeFileSync(`${path}.lock`, JSON.stringify({ pid: process.pid }), { flag: 'wx' });
+  try {
+    for (let tick = 0; tick < 2; tick++) { clock += 5_000; t.mock.timers.tick(5_000); }
+  } finally { unlinkSync(`${path}.lock`); }
+  assert.equal(warnings.length, 2); assert.match(warnings.join('\n'), /lease renewal failed/iu);
+  assert.equal(JSON.parse(readFileSync(path, 'utf8')).operations[handle].leaseExpiresAt, 1_030_000);
+  spend.dispatch(handle); spend.settle(handle, 37);
+  assert.equal(spend.snapshot().spentMicro, 37, 'failed renewals do not revoke a lease before its persisted deadline');
+});
+
 test('AIT-134 round 4: reconciliation cannot settle another live writer', async t => {
   t.mock.timers.enable({ apis: ['setInterval'] });
   const path = `${await temporaryDb()}.spend.json`, now = () => 1_000_000;
@@ -457,7 +473,8 @@ for (const lossAt of ['before dispatch', 'known-cost response', 'unknown-cost re
     } });
     const request = { prompt: 'Repairs', language: 'en' }, ceiling = plugin.estimateCost(request);
     const { attemptId } = budget.admit({ sessionId: session.id, lane: 'concept', maxMicro: ceiling,
-      requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64) });
+      requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64),
+      providerCost: { plugin: plugin.id, endpoint: binding.endpoint, secretRef: binding.secretRef } });
     const claim = budget.claim(attemptId);
     await assert.rejects(plugin.generate(request, '', { deadlineAt: Date.now() + 5000,
       attempt: { ...claim, dispatchCost() { dispatches++; budget.markCostDispatch(attemptId); },
