@@ -95,7 +95,7 @@ SDK's volume path, clears the WebSocket worklet immediately, and fences late
 audio before the connection can forward it to the queue. WebSocket playback
 unlocks synchronously on the first audio event with a newer provider id, before
 `WebSocketConnection.handleMessage` forwards it to output listeners (pinned
-SDK `dist/utils/WebSocketConnection.js:180-195`). It does not wait for the
+SDK `dist/utils/WebSocketConnection.js:160-171`). It does not wait for the
 complete `agent_response`, which can follow streamed TTS audio.
 
 WebRTC unlocks on the first newer provider `agent_chat_response_part` start or
