@@ -303,6 +303,140 @@ test('voice facade uses per-call auth, route binding, session reasoning and sepa
   assert.equal((await facade()).status, 401);
 });
 
+async function voicePromptFixture(t, prepare = () => {}) {
+  const requests = [], base = createMockReasoning();
+  const h = voiceFixture(t, { reasoning: { ...base, async *stream(request, options) {
+    requests.push(request); yield* base.stream(request, options);
+  } } });
+  prepare(h);
+  const grant = await h.start(), secret = h.secrets.resolve(h.provisioned[0].facadeSecretRef);
+  const persist = async (role, id, text) => {
+    const response = await h.route(`/voice/${grant.callId}/events`, { providerSessionId: grant.providerSessionId,
+      event: { type: 'final', callId: grant.callId, turnId: `${grant.providerSessionId}:${role}:${id}`, role, text } });
+    assert.equal(response.status, 200); return response.json();
+  };
+  const callback = async messages => {
+    const response = await h.handlers.handle(new Request(`https://facade.test/api/voice/${grant.callId}/llm/chat/completions`, {
+      method: 'POST', headers: { authorization: `Bearer ${secret}` },
+      body: JSON.stringify({ aithema_call: grant.callId, messages }) }));
+    assert.equal(response.status, 200); await response.json();
+    // The first message is server-added understanding, before the conversation.
+    return requests.at(-1).messages.slice(1);
+  };
+  const recorded = () => activeTurns(h.storage.get(h.session.id)).map(({ role, content }) => ({ role, content }));
+  return { ...h, grant, requests, persist, callback, recorded };
+}
+
+test('AIT-130 voice prompt contains a long provider history only once, from the session', async t => {
+  const h = await voicePromptFixture(t), history = [];
+  for (let i = 0; i < 36; i++) {
+    for (const role of ['user', 'assistant']) {
+      const content = `${role} turn ${i}: ${'context '.repeat(130)}`;
+      h.storage.postVoiceEvent(h.session.id, h.grant.callId, h.grant.providerSessionId, {
+        type: 'final', callId: h.grant.callId, turnId: `${h.grant.providerSessionId}:${role}:${i}`, role, text: content });
+      history.push({ role, content });
+    }
+  }
+  const latest = { role: 'user', content: 'Newest spoken question' };
+  assert.ok(Buffer.byteLength(JSON.stringify([...history, latest])) > 65_536);
+  assert.deepEqual(await h.callback([...history, latest]), [...h.recorded(), latest]);
+});
+
+test('AIT-130 voice prompt never restores withdrawn history from the provider', async t => {
+  const old = { role: 'user', content: 'Withdraw this private statement' };
+  const h = await voicePromptFixture(t, h => {
+    h.storage.postTurn(h.session.id, 'withdrawn', Buffer.from(old.content), old.content);
+    h.storage.withdraw(h.session.id, 'withdrawn');
+  });
+  const latest = { role: 'user', content: 'Use this current statement instead' };
+  const prompt = await h.callback([old, { role: 'assistant', content: 'Reply dependent on withdrawn text' }, latest]);
+  assert.deepEqual(prompt, [latest]);
+  assert.ok(!JSON.stringify(h.requests.at(-1)).includes(old.content));
+});
+
+for (const order of ['callback-first', 'persist-first', 'persist-during-admission']) {
+  test(`AIT-130 voice prompt includes the newest utterance once: ${order}`, async t => {
+    const h = await voicePromptFixture(t);
+    await h.persist('user', 'old', 'Earlier spoken input');
+    await h.persist('assistant', 'reply', 'Earlier recorded reply');
+    const latest = { role: 'user', content: 'Newest not-yet-persisted utterance' }, history = [...h.recorded(), latest];
+    const expected = [...h.recorded(), latest];
+    const admit = h.runtime.admit;
+    if (order === 'persist-first') await h.persist('user', 'new', latest.content);
+    if (order === 'persist-during-admission') {
+      h.runtime.admit = async args => {
+        if (args.operation === 'stream') await h.persist('user', 'new', latest.content);
+        return admit(args);
+      };
+    }
+    assert.deepEqual(await h.callback(history), expected);
+    if (order === 'callback-first') await h.persist('user', 'new', latest.content);
+    h.runtime.admit = admit;
+    assert.deepEqual(h.recorded(), expected, 'only persistEvent writes the new person turn');
+  });
+}
+
+test('AIT-130 voice prompt retains typed turns during the call without replaying their provider echoes', async t => {
+  const h = await voicePromptFixture(t);
+  await h.persist('user', 'spoken', 'Spoken context');
+  await h.persist('assistant', 'reply', 'Recorded reply');
+  const typed = { role: 'user', content: 'Typed during this voice call' };
+  const response = await h.route('/turns', { clientEventId: 'typed', content: typed.content,
+    voiceCallId: h.grant.callId, providerSessionId: h.grant.providerSessionId });
+  assert.equal(response.status, 201);
+  const history = h.recorded();
+  assert.deepEqual(await h.callback(history), history, 'already saved typed input is not appended again');
+  await h.persist('user', 'typed-echo', typed.content);
+  assert.deepEqual(h.recorded(), history, 'the SDK echo also uses the saved typed turn');
+  const latest = { role: 'user', content: 'Spoken after typing' };
+  assert.deepEqual(await h.callback([...history, latest]), [...history, latest]);
+});
+
+test('AIT-130 voice prompt uses the recorded heard prefix and ignores provider assistant text', async t => {
+  const h = await voicePromptFixture(t);
+  await h.persist('user', 'spoken', 'Spoken context');
+  await h.persist('assistant', 'reply', 'Heard prefix. Unheard remainder.');
+  const correction = await h.route(`/voice/${h.grant.callId}/events`, { providerSessionId: h.grant.providerSessionId,
+    event: { type: 'heard', callId: h.grant.callId, turnId: `${h.grant.providerSessionId}:assistant:reply`, prefix: 'Heard prefix.' } });
+  assert.equal(correction.status, 200);
+  const latest = { role: 'user', content: 'Barge-in question' }, recorded = h.recorded();
+  const history = [recorded[0], { role: 'assistant', content: 'Heard prefix. Unheard remainder.' }, latest];
+  assert.deepEqual(await h.callback(history), [...recorded, latest]);
+});
+
+test('AIT-130 voice prompt conservatively takes only the last of multiple unpersisted user messages', async t => {
+  const h = await voicePromptFixture(t);
+  const latest = { role: 'user', content: 'Newest person message' };
+  assert.deepEqual(await h.callback([{ role: 'user', content: 'Older provider-only message' }, latest]), [latest]);
+});
+
+test('AIT-130 voice prompt does not repeat old input when provider history ends in an assistant reply', async t => {
+  const h = await voicePromptFixture(t);
+  await h.persist('user', 'spoken', 'Already recorded input');
+  await h.persist('assistant', 'reply', 'Recorded assistant reply');
+  const recorded = h.recorded();
+  assert.deepEqual(await h.callback([...recorded, { role: 'assistant', content: 'Provider-only assistant text' }]), recorded);
+});
+
+test('AIT-130 voice prompt preserves a repeated answer after an intervening assistant turn', async t => {
+  const h = await voicePromptFixture(t);
+  await h.persist('user', 'old', 'Yes');
+  await h.persist('assistant', 'reply', 'Another question');
+  const latest = { role: 'user', content: 'Yes' }, recorded = h.recorded();
+  assert.deepEqual(await h.callback([...recorded, latest]), [...recorded, latest]);
+  await h.persist('user', 'new', latest.content);
+  assert.deepEqual(await h.callback([...recorded, latest]), h.recorded());
+});
+
+test('AIT-130 voice prompt matches a persisted utterance across harmless whitespace differences', async t => {
+  const h = await voicePromptFixture(t);
+  await h.persist('user', 'old', 'Earlier spoken input');
+  await h.persist('assistant', 'reply', 'Recorded reply');
+  await h.persist('user', 'new', 'Newest   utterance\nwith spaces');
+  const recorded = h.recorded();
+  assert.deepEqual(await h.callback([...recorded.slice(0, -1), { role: 'user', content: ' Newest utterance with spaces ' }]), recorded);
+});
+
 test('consent withdrawal mid-call closes provider, settles once and rejects late finals and callback auth', async t => {
   const h = voiceFixture(t), grant = await h.start(); h.advance(3000);
   assert.equal((await h.route('/consent', { granted: false })).status, 200);
