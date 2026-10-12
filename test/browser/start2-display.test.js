@@ -134,6 +134,10 @@ test('AIT-131 approved display: eight states at 390, 1024, 1440, both themes and
       const header = await boxes(page, ['.band-orb', '.conversations-toggle', '.settings-open']);
       assert.ok(Math.abs(header[0][1] + header[0][3] / 2 - header[1][1] - header[1][3] / 2) < .5, `${label}: band orb and menu share the first row`);
       assert.equal(header[1][3], 44); assert.equal(header[2][2], 44); assert.equal(header[2][3], 44);
+      const edge = await boxes(page, ['.motion-toggle', '.fold', '.band']);
+      assert.equal(edge[0][2], 44); assert.equal(edge[1][2], 44);
+      assert.ok(Math.abs(edge[0][0] + 22 - 28) <= .5 && Math.abs(edge[1][0] + 22 - 28) <= .5, `${label}: edge controls share the 14 px column`);
+      assert.ok(Math.abs(edge[0][1] + 22 - (edge[2][1] + edge[2][3] / 2 - 3)) <= .5, `${label}: motion control follows the approved band centre`);
       for (const selector of ['#locale', '#theme']) {
         const target = await page.$eval(selector, n => ({ width: n.getBoundingClientRect().width, height: n.getBoundingClientRect().height, title: n.title }));
         assert.ok(target.width >= 44 && target.height >= 44 && target.title, `${label}: ${selector} target and tooltip`);
