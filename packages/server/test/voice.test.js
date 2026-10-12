@@ -1358,9 +1358,10 @@ test('slow closure: recovery retries the original identity after a new SDK conne
 // AIT-137 probes count the actual admission, dispatch and durable cost separately.
 async function turnsOnceFixture(t, { voiceOptions, path, blocked = false, blockedModel = 1, failFirst = false, lateFirst = false } = {}) {
   const base = createMockReasoning(), started = Promise.withResolvers(), release = Promise.withResolvers(), modelEvents = eventProbe();
-  let models = 0, admissions = 0, lateReport;
+  let models = 0, admissions = 0, finalOrdinal = 0, lateReport;
+  const diagnostics = [];
   t.after(() => release.resolve());
-  const h = voiceFixture(t, { path, voiceOptions, reasoning: { ...base, async *stream(request, options) {
+  const h = voiceFixture(t, { path, voiceOptions: { log: entry => diagnostics.push(entry), ...voiceOptions }, reasoning: { ...base, async *stream(request, options) {
     await options.attempt.consume();
     const number = ++models;
     modelEvents.record(number);
@@ -1387,12 +1388,13 @@ async function turnsOnceFixture(t, { voiceOptions, path, blocked = false, blocke
       body: JSON.stringify({ aithema_call: grant.callId, messages, ...extra }) }));
   const persist = async (role, id, text, identity = {}) => {
     const response = await h.route(`/voice/${grant.callId}/events`, { providerSessionId: grant.providerSessionId,
-      event: { type: 'final', callId: grant.callId, turnId: `${grant.providerSessionId}:${role}:${id}`, role, text, ...identity } });
+      event: { type: 'final', callId: grant.callId, turnId: `${grant.providerSessionId}:${role}:${id}`, role, text,
+        ...(role === 'user' ? { userTurnOrdinal: ++finalOrdinal } : {}), ...identity } });
     assert.equal(response.status, 200); return response.json();
   };
   const rows = () => h.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='reaction'").all();
   return { ...h, grant, callback, persist, rows, started: started.promise, release: () => release.resolve(),
-    waitForModel: number => modelEvents.waitFor(value => value === number),
+    diagnostics, waitForModel: number => modelEvents.waitFor(value => value === number),
     counts: () => ({ admissions, models, cost: rows().reduce((sum, row) => sum + (row.settled_micro ?? 0), 0) }),
     reportLate: () => lateReport?.() };
 }
@@ -1673,7 +1675,7 @@ test('AIT-137 round 1: a typed echo binds its own reply before the next spoken f
 test('AIT-137 round 1: a contradictory receipt cannot capture a completed provider operation by predecessor', async t => {
   const h = await turnsOnceFixture(t), old = { role: 'user', content: 'Older input', event_id: 'old' };
   await completionText(await h.callback([old]));
-  await h.persist('user', 'new', 'New input', { event_id: 'new' });
+  await h.persist('user', 'new', 'New input', { event_id: 'new', userTurnOrdinal: 2 });
   const current = { role: 'user', content: 'New input', event_id: 'new' };
   assert.equal(await completionText(await h.callback([old, current])), 'Reply 2 finished');
   assert.equal((await h.callback([old])).status, 403);
@@ -1687,12 +1689,12 @@ for (const order of ['older-first', 'newer-first']) {
     await completionText(await h.callback([a]));
     const current = await h.callback([a, b], { stream: true }), text = current.text();
     await h.waitForModel(2);
-    if (order === 'newer-first') await h.persist('user', 'b', b.content, { event_id: 'b' });
-    await h.persist('user', 'a', a.content, { event_id: 'a' });
+    if (order === 'newer-first') await h.persist('user', 'b', b.content, { event_id: 'b', userTurnOrdinal: 2 });
+    await h.persist('user', 'a', a.content, { event_id: 'a', userTurnOrdinal: 1 });
     h.release(); const reply = await text;
     assert.equal(sseReply(reply), 'Reply 2 finished');
     assert.ok(reply.endsWith('data: [DONE]\n\n'), reply);
-    if (order === 'older-first') await h.persist('user', 'b', b.content, { event_id: 'b' });
+    if (order === 'older-first') await h.persist('user', 'b', b.content, { event_id: 'b', userTurnOrdinal: 2 });
     assert.equal(await completionText(await h.callback([a, b])), 'Reply 2 finished');
     assert.equal((await h.callback([a])).status, 403);
     assert.deepEqual(h.counts(), { admissions: 2, models: 2, cost: 34 });
@@ -1715,7 +1717,7 @@ for (const phase of ['streaming', 'completed']) {
       // Neither the callback nor the final supplies a matching provider ID.
       // Both receipts arrive before streaming B is allowed to finish.
       for (const [id, message] of order === 'older-first' ? [['a', a], ['b', b]] : [['b', b], ['a', a]]) {
-        await h.persist('user', id, message.content);
+        await h.persist('user', id, message.content, { userTurnOrdinal: id === 'a' ? 1 : 2 });
       }
       h.release();
       // An already-open completed replay must remain readable, without a new
@@ -1758,7 +1760,7 @@ for (const order of ['older-first', 'newer-first']) {
     };
     const callback = messages => turns.run({ ...context, messages }, execute);
     const persist = ([id, message]) => storage.postVoiceEvent(session.id, context.callId, context.providerSessionId, {
-      type: 'final', callId: context.callId, turnId: `${context.providerSessionId}:user:${id}`, role: 'user', text: message.content });
+      type: 'final', callId: context.callId, turnId: `${context.providerSessionId}:user:${id}`, role: 'user', text: message.content, userTurnOrdinal: id === 'a' ? 1 : 2 });
     assert.equal(await completionText(await callback([a])), 'Reply 1 finished');
     assert.equal(await completionText(await callback([a, b])), 'Reply 2 finished');
     const receipts = order === 'older-first' ? [['a', a], ['b', b]] : [['b', b], ['a', a]];
@@ -1870,3 +1872,163 @@ test('AIT-137 round 1: HTTP cancellation during a pending pull preserves shared 
   assert.equal(await completionText(await h.callback()), 'Reply 1 finished');
   assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
 });
+
+for (const phase of ['streaming', 'completed']) {
+  for (const order of ['older-first', 'newer-first']) {
+    test(`AIT-137 round 3: repeated Ja ID-less receipts preserve paid B (${phase}, ${order})`, async t => {
+      const h = await turnsOnceFixture(t, { blocked: phase === 'streaming', blockedModel: 2 });
+      const a = { role: 'user', content: 'Ja' }, b = { role: 'user', content: 'Ja' };
+      assert.equal(await completionText(await h.callback([a])), 'Reply 1 finished');
+      const current = await h.callback([a, b], { stream: true }), text = current.text();
+      await h.waitForModel(2);
+      let replay;
+      if (phase === 'completed') {
+        assert.equal(sseReply(await text), 'Reply 2 finished');
+        replay = await h.callback([a, b], { stream: true });
+      }
+      // Neither the callback nor the final supplies a matching provider ID.
+      // Both receipts arrive before streaming B is allowed to finish.
+      for (const [id, message] of order === 'older-first' ? [['a', a], ['b', b]] : [['b', b], ['a', a]]) {
+        await h.persist('user', id, message.content, { userTurnOrdinal: id === 'a' ? 1 : 2 });
+      }
+      h.release();
+      // An already-open completed replay must remain readable, without a new
+      // claim repairing its durable receipt binding before publication.
+      const reply = replay ? await replay.text() : await text;
+      assert.equal(sseReply(reply), 'Reply 2 finished');
+      assert.ok(reply.endsWith('data: [DONE]\n\n'), reply);
+      assert.doesNotMatch(reply, /"error"/u, 'late receipts must not fence an admitted reply');
+      assert.equal(await completionText(await h.callback([a, b])), 'Reply 2 finished');
+      assert.equal(await completionText(await h.callback([a, b])), 'Reply 2 finished');
+      const obsolete = await h.callback([a]);
+      assert.equal(obsolete.status, 403);
+      assert.deepEqual(await obsolete.json(), { error: 'not-admitted', reason: 'voice-turn-obsolete' });
+      assert.deepEqual(h.counts(), { admissions: 2, models: 2, cost: 34 });
+      assert.deepEqual(h.rows().map(row => [row.state, row.settled_micro]), [['settled', 17], ['settled', 17]]);
+    });
+  }
+}
+
+for (const order of ['older-first', 'newer-first']) {
+  test(`AIT-137 round 3: repeated Ja ID-less receipt order survives a restart between receipts (${order})`, async t => {
+    const { createVoiceTurnOperations } = await import('../src/voice-turns.js');
+    const path = await temporaryDb();
+    let storage = new SQLiteStorage(path), budget = new SQLiteBudgetLedger(storage), models = 0, admissions = 0;
+    t.after(() => storage.close());
+    const session = storage.create(), context = { sessionId: session.id, callId: 'receipt-restart', providerSessionId: 'provider-restart' };
+    const a = { role: 'user', content: 'Ja' }, b = { role: 'user', content: 'Ja' };
+    let turns = createVoiceTurnOperations({ storage, now: () => 1000 });
+    const execute = async worker => {
+      admissions++;
+      const admitted = budget.admit({ sessionId: session.id, lane: 'reaction', maxMicro: 50,
+        requestSha256: '0'.repeat(64), bindingSha256: '1'.repeat(64) });
+      const claim = budget.claim(admitted.attemptId);
+      worker.admitted(claim.attemptId); claim.consume(); models++;
+      budget.settle(claim.claimId, { attemptId: claim.attemptId, outcome: 'completed',
+        usage: { inputTokens: 1, outputTokens: 1 }, chargedMicro: 17 });
+      const chunk = { id: `chatcmpl-receipt-${models}`, created: 1,
+        choices: [{ delta: { content: `Reply ${models} finished` }, finish_reason: 'stop' }] };
+      return new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`);
+    };
+    const callback = messages => turns.run({ ...context, messages }, execute);
+    const persist = ([id, message]) => storage.postVoiceEvent(session.id, context.callId, context.providerSessionId, {
+      type: 'final', callId: context.callId, turnId: `${context.providerSessionId}:user:${id}`, role: 'user', text: message.content, userTurnOrdinal: id === 'a' ? 1 : 2 });
+    assert.equal(await completionText(await callback([a])), 'Reply 1 finished');
+    assert.equal(await completionText(await callback([a, b])), 'Reply 2 finished');
+    const receipts = order === 'older-first' ? [['a', a], ['b', b]] : [['b', b], ['a', a]];
+    persist(receipts[0]); await turns.idle(); storage.close();
+    storage = new SQLiteStorage(path); budget = new SQLiteBudgetLedger(storage);
+    turns = createVoiceTurnOperations({ storage, now: () => 1001 });
+    const replay = await turns.run({ ...context, messages: [a, b], stream: true }, execute);
+    persist(receipts[1]);
+    const reply = await replay.text();
+    assert.equal(sseReply(reply), 'Reply 2 finished');
+    assert.ok(reply.endsWith('data: [DONE]\n\n'), reply);
+    assert.doesNotMatch(reply, /"error"/u);
+    assert.equal(await completionText(await callback([a, b])), 'Reply 2 finished');
+    assert.equal(await completionText(await callback([a, b])), 'Reply 2 finished');
+    await assert.rejects(callback([a]), error => error instanceof PluginError && error.message === 'voice-turn-obsolete');
+    assert.deepEqual({ admissions, models, cost: budget.used(session.id) }, { admissions: 2, models: 2, cost: 34 });
+    assert.equal(storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='reaction'").get().n, 2);
+  });
+}
+
+
+for (const repeated of [false, true]) {
+  test(`AIT-137 round 3: missing A final cannot rebind A to B before B callback (${repeated ? 'Ja then Ja' : 'distinct input'})`, async t => {
+    const h = await turnsOnceFixture(t);
+    const a = { role: 'user', content: repeated ? 'Ja' : 'Input A' };
+    const b = { role: 'user', content: repeated ? 'Ja' : 'Input B', event_id: 'b' };
+    assert.equal(await completionText(await h.callback([a])), 'Reply 1 finished');
+    const aKey = h.storage.voiceOperations(h.session.id)[0].key;
+    // Client captured two finals; A's persistence is lost, B retains ordinal 2.
+    await h.persist('user', 'b', b.content, { event_id: 'b', userTurnOrdinal: 2 });
+    const savedA = h.storage.voiceTurnStore.get(aKey);
+    assert.equal(savedA.canonical, false, 'B must never supply A canonical identity');
+    assert.ok(!savedA.providerIdentity?.includes('event:b'), 'B must never supply A provider identity');
+    assert.equal(await completionText(await h.callback([a, { role: 'assistant', content: 'Again?' }, b])), 'Reply 2 finished');
+    assert.equal(await completionText(await h.callback([a, { role: 'assistant', content: 'Again?' }, b])), 'Reply 2 finished');
+    assert.deepEqual(h.counts(), { admissions: 2, models: 2, cost: 34 });
+    assert.deepEqual(h.rows().map(row => [row.state, row.settled_micro]), [['settled', 17], ['settled', 17]]);
+  });
+}
+
+test('AIT-137 round 3: identical repeated-input retry history coalesces at ordinal 2', async t => {
+  const h = await turnsOnceFixture(t, { blocked: true, blockedModel: 2 });
+  const a = { role: 'user', content: 'Ja' }, b = { role: 'user', content: 'Ja' };
+  assert.equal(await completionText(await h.callback([a])), 'Reply 1 finished');
+  const messages = [a, { role: 'assistant', content: 'Again?' }, b];
+  const responses = await Promise.all([h.callback(messages, { stream: true }), h.callback(messages, { stream: true }), h.callback(messages, { stream: true })]);
+  const reading = responses.map(response => response.text());
+  h.release();
+  const replies = await Promise.all(reading);
+  assert.deepEqual(replies.map(sseReply), Array(3).fill('Reply 2 finished'));
+  assert.ok(replies.every(reply => reply.endsWith('data: [DONE]\n\n') && !reply.includes('"error"')));
+  assert.equal(await completionText(await h.callback(messages)), 'Reply 2 finished');
+  assert.deepEqual(h.counts(), { admissions: 2, models: 2, cost: 34 });
+});
+
+for (const kind of ['truncated', 'history-discontinuity', 'null-user', 'no-user']) {
+  test(`AIT-137 round 3: unknown callback ordinal is independent and never fences streaming B (${kind})`, async t => {
+    const h = await turnsOnceFixture(t, { blocked: true, blockedModel: 2 });
+    const a = { role: 'user', content: 'Ja' }, b = { role: 'user', content: 'Ja' };
+    assert.equal(await completionText(await h.callback([a])), 'Reply 1 finished');
+    const response = await h.callback([a, b], { stream: true }), reading = response.text();
+    await h.waitForModel(2);
+    const messages = kind === 'no-user' ? [{ role: 'assistant', content: 'Unverifiable history' }]
+      : kind === 'null-user' ? [{ role: 'user', content: null }, b]
+      : [{ role: 'user', content: kind === 'history-discontinuity' ? 'Different shortened history' : 'Ja' }];
+    const flags = kind === 'truncated' ? { history_truncated: true } : {};
+    assert.equal(await completionText(await h.callback(messages, flags)), 'Reply 3 finished');
+    assert.equal(await completionText(await h.callback(messages, flags)), 'Reply 4 finished', 'unknown retries deliberately admit separately');
+    h.release();
+    const reply = await reading;
+    assert.equal(sseReply(reply), 'Reply 2 finished');
+    assert.ok(reply.endsWith('data: [DONE]\n\n')); assert.doesNotMatch(reply, /"error"/u);
+    assert.equal(await completionText(await h.callback([a, b])), 'Reply 2 finished');
+    assert.deepEqual(h.counts(), { admissions: 4, models: 4, cost: 68 }, 'extra charge only for the documented unknown-ordinal fallback');
+    assert.ok(h.diagnostics.some(entry => entry.event === 'voice.turn.correlation_ambiguous' && entry.reason === kind), JSON.stringify(h.diagnostics));
+  });
+}
+
+for (const repeated of [false, true]) {
+  for (const kind of ['unknown-receipt', 'missing-predecessors']) {
+    test(`AIT-137 round 3: ${kind} never fences streaming B (${repeated ? 'Ja then Ja' : 'distinct input'})`, async t => {
+      const h = await turnsOnceFixture(t, { blocked: true, blockedModel: 2 });
+      const a = { role: 'user', content: repeated ? 'Ja' : 'Input A' }, b = { role: 'user', content: repeated ? 'Ja' : 'Input B' };
+      assert.equal(await completionText(await h.callback([a])), 'Reply 1 finished');
+      const response = await h.callback([a, b], { stream: true }), reading = response.text();
+      await h.waitForModel(2);
+      const keys = h.storage.voiceOperations(h.session.id).map(operation => [operation.key, operation.turnId]);
+      await h.persist('user', 'unlocatable', repeated ? 'Ja' : 'Input C', { userTurnOrdinal: kind === 'unknown-receipt' ? null : 3 });
+      assert.deepEqual(h.storage.voiceOperations(h.session.id).map(operation => [operation.key, operation.turnId]), keys, 'ambiguous final must not rebind paid operations');
+      h.release();
+      const reply = await reading;
+      assert.equal(sseReply(reply), 'Reply 2 finished');
+      assert.ok(reply.endsWith('data: [DONE]\n\n')); assert.doesNotMatch(reply, /"error"/u);
+      assert.equal(await completionText(await h.callback([a, b])), 'Reply 2 finished');
+      assert.deepEqual(h.counts(), { admissions: 2, models: 2, cost: 34 });
+      assert.ok(h.diagnostics.some(entry => entry.event === 'voice.turn.correlation_ambiguous' && entry.reason === kind), JSON.stringify(h.diagnostics));
+    });
+  }
+}

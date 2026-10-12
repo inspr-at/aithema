@@ -258,3 +258,25 @@ test('live-voice conformance passes joined ElevenLabs halves and rejects broken 
     ...local.plugin.manifest.liveVoice, capabilities: { ...local.plugin.manifest.liveVoice.capabilities, setOutput: 'native' } } } };
   assert.ok((await liveVoiceConformance(mismatched, { callId: 'call_mismatch' }, kit)).failures.includes('setOutput capability differs from behaviour'));
 });
+
+
+test('AIT-137 round 3: client user-final ordinal ignores assistant finals and duplicates, and resets on recovery', async () => {
+  const local = fixture(), initial = invocationOptions(), recovered = invocationOptions();
+  local.control.recover = ({ callId }, options) => local.control.start({ callId }, { ...recovered, ...options });
+  const session = await local.client.start({ callId: 'call_final_ordinals' }, initial), events = drain(session);
+  const first = local.sdk.starts[0];
+  first.onMessage({ role: 'user', message: 'Ja', event_id: 1 });
+  first.onMessage({ role: 'user', message: 'Ja', event_id: 1 });
+  first.onMessage({ role: 'agent', message: 'Again?', event_id: 2 });
+  first.onMessage({ role: 'user', message: 'Ja', event_id: 3 });
+  const oldGeneration = session.providerSessionId;
+  first.onDisconnect(); await flush();
+  assert.notEqual(session.providerSessionId, oldGeneration);
+  first.onMessage({ role: 'user', message: 'Stale', event_id: 4 });
+  local.sdk.starts[1].onMessage({ role: 'user', message: 'Ja', event_id: 1 });
+  await session.close(); await events;
+  const finals = local.persisted.filter(event => event.type === 'final' && event.role === 'user');
+  assert.deepEqual(finals.map(event => event.userTurnOrdinal), [1, 2, 1]);
+  assert.deepEqual(finals.map(event => event.event_id), [1, 3, 1]);
+  assert.notEqual(finals[1].providerSessionId, finals[2].providerSessionId);
+});
