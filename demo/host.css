@@ -154,4 +154,8 @@ aithema-session { display:block; width:100%; --aithema-height:100dvh; --aithema-
   .conversation-page #theme { inline-size:100%; }
   .conversation-page .utility-chevron { font-size:10px; }
 }
+/* The longer German dark label also fits beside the demo account at 320 px. */
+@media(width < 360px) {
+  .conversation-page:has(#demo-account:not([hidden])) .utility { gap:2px; padding:0 1px; }
+}
 .conversation-page .colophon { display:none; }
