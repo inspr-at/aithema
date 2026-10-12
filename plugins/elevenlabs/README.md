@@ -92,9 +92,31 @@ of transcript persistence. SDK 1.17.0's WebRTC output `interrupt()` is a no-op;
 its WebSocket output fades for two seconds and the concat worklet continues
 rendering queued PCM until `clearInterrupted`. The adapter mutes through the
 SDK's volume path, clears the WebSocket worklet immediately, and fences late
-audio before the connection can forward it to the queue. A newer assistant
-response lifts the interruption mute while preserving the visitor's output
-selection and pause. Listening/speaking notifications alone cannot lift it.
+audio before the connection can forward it to the queue. WebSocket playback
+unlocks synchronously on the first audio event with a newer provider id, before
+`WebSocketConnection.handleMessage` forwards it to output listeners (pinned
+SDK `dist/utils/WebSocketConnection.js:180-195`). It does not wait for the
+complete `agent_response`, which can follow streamed TTS audio.
+
+WebRTC unlocks on the first newer provider `agent_chat_response_part` start or
+nonempty delta, or an audio event carrying alignment and a newer provider id,
+whichever arrives first. The pinned SDK routes provider data-channel audio
+through `handleMessage` (`dist/utils/WebRTCConnection.js:292-310`); streamed
+text parts retain their id in `onAgentChatResponsePart`
+(`dist/BaseConversation.js:254-257`, `381-383`; `@elevenlabs/types`
+`dist/generated/types/asyncapi-types.d.ts:148-157`). Alignment identifies TTS
+metadata from the provider: the local analyser synthesizes audio events with
+unrelated sequential ids and no alignment (`dist/utils/WebRTCConnection.js:435-449`).
+Those counters and listening/speaking notifications cannot unlock playback.
+LiveKit handles the media stream and its interruption; the replay checks the
+SDK audio element's volume and stale provider metadata, without simulating
+RTP ordering between the media track and data channel.
+
+Fresh ids are recorded even during pause or output-off; output volume still
+honors both controls, and acknowledged resume uses the updated interruption
+state. A fresh audio id also fences delayed interruptions and older provider
+audio, while additional chunks with the same fresh id remain valid. Final
+callbacks received during pause still do not emit or persist transcript turns.
 The SDK internals used here are covered by replay against the pinned SDK and
 its actual generated worklet. Updating the SDK requires requalifying that path.
 Only the existing correction callback supplies a genuine heard prefix.

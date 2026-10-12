@@ -210,6 +210,14 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           : connectionType !== 'webrtc' || typeof conversationToken !== 'string' || !conversationToken || signedUrl !== undefined) throw new PluginError('invalid-output', 'Invalid voice credential transport');
         grant = receipt; scheduleLease();
         const active = () => generation === current && !ended;
+        const observeAssistant = eventId => {
+          if (!active() || !Number.isSafeInteger(eventId) || eventId < 0) return;
+          latestAssistantId = Math.max(latestAssistantId, eventId);
+          if (playbackInterrupted && eventId > lastInterruptionId) {
+            playbackInterrupted = false;
+            conversation?.setVolume({ volume: outputVolume() });
+          }
+        };
         let creationChannels;
         const callbacks = {
           onConversationCreated(created) {
@@ -255,10 +263,16 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
                   (interruptedId <= lastInterruptionId || interruptedId < latestAssistantId)) return;
                 const audioId = message?.audio_event?.event_id;
                 // WebSocketConnection forwards audio to output listeners even
-                // when VoiceConversation rejects it as stale. Filter before
-                // both paths. WebRTC analyser IDs are local, not turn IDs.
-                if (connectionType === 'websocket' && message?.type === 'audio' && lastInterruptionId >= 0 &&
-                  (!Number.isSafeInteger(audioId) || audioId <= lastInterruptionId)) return;
+                // when VoiceConversation rejects it as stale. Unlock before
+                // both paths enqueue the first fresh chunk. WebRTC data-channel
+                // audio carries alignment; its local analyser events do not
+                // (SDK WebRTCConnection.js:292-310,435-449).
+                if (message?.type === 'audio' &&
+                  (connectionType === 'websocket' || message.audio_event?.alignment)) {
+                  if (lastInterruptionId >= 0 && (!Number.isSafeInteger(audioId) ||
+                    audioId <= lastInterruptionId || audioId < latestAssistantId)) return;
+                  observeAssistant(audioId);
+                }
                 return handleMessage.call(this, message);
               };
             }
@@ -268,19 +282,22 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
             if (active() && conversationId !== receipt.providerSessionId) void close('provider-identity-mismatch').catch(() => {});
           },
           onModeChange({ mode }) { if (active() && ['listening', 'speaking'].includes(mode)) emit({ type: mode }); },
+          onAgentChatResponsePart({ event_id: eventId, type, text }) {
+            // Provider stream starts/deltas precede the final response and
+            // identify the reply, unlike speaking mode or analyser counters.
+            if (connectionType === 'webrtc' && typeof text === 'string' &&
+              (type === 'start' || type === 'delta' && text.trim())) observeAssistant(eventId);
+          },
           onMessage({ role, message, event_id: eventId }) {
-            if (!active() || paused || !['user', 'agent'].includes(role) || typeof message !== 'string' || !message.trim()) return;
+            if (!active() || !['user', 'agent'].includes(role) || typeof message !== 'string' || !message.trim()) return;
+            if (role === 'agent') observeAssistant(eventId);
+            if (paused) return;
             const speaker = role === 'agent' ? 'assistant' : 'user';
             const turnId = `${receipt.providerSessionId}:${speaker}:${eventId ?? `callback-${++sequence}`}`;
             if (seen.has(turnId)) return;
             if (seen.size >= 4096) { void close('transcript-limit').catch(() => {}); return; }
             seen.add(turnId);
             if (speaker === 'assistant') {
-              if (Number.isSafeInteger(eventId)) latestAssistantId = Math.max(latestAssistantId, eventId);
-              if (playbackInterrupted && Number.isSafeInteger(eventId) && eventId > lastInterruptionId) {
-                playbackInterrupted = false;
-                conversation?.setVolume({ volume: outputVolume() });
-              }
               assistants.set(turnId, { text: message, eventId });
               if (assistants.size > 256) assistants.delete(assistants.keys().next().value);
             }
