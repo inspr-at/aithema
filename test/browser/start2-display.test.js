@@ -464,7 +464,7 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
 test('AIT-149: reveal exit clock survives delayed browser round trips', { timeout: 60_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-reveal-clock-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
-    AITHEMA_PROVIDER: 'openrouter', OPENROUTER_API_KEY: 'fixture-not-a-key',
+    AITHEMA_PROVIDER: 'mock',
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
   });
   let browser;
