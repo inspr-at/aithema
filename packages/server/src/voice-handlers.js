@@ -13,6 +13,17 @@ const routes = new RegExp(`^/api/sessions/(${idPattern})/voice(?:/(${idPattern})
 const facadeRoute = new RegExp(`^/api/voice/(${idPattern})/llm/chat/completions$`, 'u');
 const staticFacadeRoute = '/api/voice/llm/chat/completions';
 
+// Based on START's conversational reply guidance (src/lib/prompts.ts): short
+// spoken replies, evidence before panel questions, no repeated acknowledgements.
+const VOICE_REPLY_POLICY = `Voice reply guidance:
+The canonical person turns and the latest callback answer take precedence over understanding, focused questions and prior assistant wording.
+Never re-ask a point that the canonical person turns or latest answer already answer, confirm or decline. A focused question is only a suggestion: check the conversation before asking it, even when understanding is current.
+When understanding is stale or draft, ignore its open questions as next-question candidates. If the latest answer resolves the preceding question, acknowledge it briefly and let the assessment catch up; do not repeat the question or claim the assessment is complete.
+Reopen a confirmed fact only when the person corrects it or new evidence creates a real ambiguity. Do not present a confirmed fact as a correction or ask for confirmation again merely to continue.
+Vary acknowledgements and engage directly with what the person said. Never open formulaically with "Danke", "Vielen Dank", "Thanks" or "Thank you". Do not replace these with another repeated stock opener or praise.
+Use two or three short sentences, usually at most 60 words, and at most one question about a genuinely unresolved point. A question is optional; answer the person's immediate request first.
+Do not read back the running summary or recap the whole answer. Speak naturally without lists or reasoning aloud. Use idiomatic German with the polite Sie form when the locale is German.`;
+
 function unrecordedVoiceInput(session, messages, { callId, providerSessionId }) {
   const latest = messages.at(-1);
   // Only a trailing person utterance can be new input. Never replay provider history.
@@ -170,12 +181,18 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     } finally { started.resolve(); request.signal.removeEventListener('abort', abortStartup); }
   }
   function buildVoiceRequest(session, messages, call) {
-    const trusted = reasoningRequest(session, 'reaction', false, hostPrompt);
+    const latestInput = unrecordedVoiceInput(session, messages, call);
+    const trusted = reasoningRequest(session, 'reaction', false, hostPrompt, { pendingInput: latestInput.length > 0 });
+    // Focus is derived by the asynchronous understanding lane. It is usable
+    // only once that final assessment covers every input in this reply request.
+    const currentFocus = !latestInput.length && !session.understanding.draft &&
+      session.understanding.inputRevision === inputRevision(session) &&
+      session.understanding.openQuestions?.includes(session.focusedQuestion);
     // The session owns history, including typed turns, withdrawals and heard
     // prefixes. Provider text supplies only the newest unrecorded person input.
-    return { ...trusted, messages: [...trusted.messages,
-      ...(session.focusedQuestion ? [{ role: 'user', content: JSON.stringify({ kind: 'untrusted-focused-question', question: session.focusedQuestion }) }] : []),
-      ...unrecordedVoiceInput(session, messages, call)] };
+    return { ...trusted, system: `${trusted.system}\n${VOICE_REPLY_POLICY}`, messages: [...trusted.messages,
+      ...(currentFocus && session.focusedQuestion ? [{ role: 'user', content: JSON.stringify({ kind: 'untrusted-focused-question', question: session.focusedQuestion }) }] : []),
+      ...latestInput] };
   }
   const facade = createCompletionsHandler({ resolveSecret: secrets.resolve, staticSecretRef, timeoutMs: turnTimeoutMs,
     turnOperations: {
