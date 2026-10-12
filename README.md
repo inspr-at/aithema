@@ -1828,14 +1828,17 @@ private. Live hosts continue to offer no email input.
 
 Server integrations provide the trusted `host.privacyDocumentConfigured()`
 capability **only after** validating and serving their document. The server
-exports `privacyDocumentConfigured(host)` for future save-email routes; check
-it before reading or persisting an address. Without this capability returning
-exactly `true`, every non-demo host refuses POST identity request, change,
-resend, confirm and unlock with HTTP 403 and
+exports `privacyDocumentConfigured(host)`; the single internal
+`assertAddressCollectionAllowed()` funnel checks it before reading or persisting
+an address. Without this capability returning exactly `true`, every non-demo
+host refuses POST/PUT visitor email and POST identity request, change, resend,
+confirm and unlock with HTTP 403 and
 `{ "error": "privacy-document-required" }`, before body parsing, identity
 writes or host calls, regardless of mail delivery. Ownership checks still run
 first. Only an explicit trusted `host.demo === true` exempts the development
 demo's fake-outbox flow; `identity.deliversVerification` never exempts a host.
+DELETE visitor email and POST visitor erasure remain available without a
+document, including removal of existing address projections and tokens.
 The demo flag must not be used by production delivery adapters. Configuring a
 document alone does not enable the future save-email UI or establish the host's
 legal compliance.
@@ -2150,10 +2153,14 @@ Other hosts can retain the guard; `host.credits.ownerGuard:false` disables it.
 Pause, consent, per-call duration and liveness safeguards remain in force.
 
 Address collection and persistence use the internal
-`assertAddressCollectionAllowed()` entry point in `host-handlers.js`. It currently
-allows collection; its TODO names AIT-151, which will wire
-`privacyDocumentConfigured()` into that one function. The complete route/effect
-inventory for that wiring is:
+`assertAddressCollectionAllowed()` entry point in `host-handlers.js`, delegating
+to AIT-151's `privacyDocumentConfigured(host)`. Only `host.demo === true` is
+exempt; mail delivery is never an exemption. Collection refuses with HTTP 403
+and `privacy-document-required` before body parsing or address persistence.
+DELETE email and visitor erasure bypass the funnel so deletion remains
+available without a document. Startup skips protected address-bearing host
+transitions until the document is configured, keeping the erasure API reachable.
+The complete guarded route/effect inventory is:
 
 - `POST` and `PUT /api/visitor/email`: save or replace the visitor address.
 - `POST /api/sessions/:id/identity/request` and `/identity/change`: collect an
@@ -2220,7 +2227,7 @@ Readiness of voice is separately visible in
 | `PORT` | Listen port; local/container default `3000` |
 | `AITHEMA_LISTEN_HOST` | Bind address; local `127.0.0.1`, image `0.0.0.0` |
 | `AITHEMA_PUBLIC_ORIGIN` | Canonical origin, e.g. `https://start2.augmentoring.com`, without trailing slash; accepted Host, facade base URL and Secure cookies |
-| `AITHEMA_PRIVACY_DOCUMENT` | Optional readable HTML-fragment file, at most 256 KiB; validated at startup and served at `/privacy`; required before email collection on hosts without verification delivery |
+| `AITHEMA_PRIVACY_DOCUMENT` | Optional readable HTML-fragment file, at most 256 KiB; validated at startup and served at `/privacy`; required before email collection or address persistence on every non-demo host, regardless of verification delivery |
 | `AITHEMA_PRIVACY_DOCUMENT_DE`, `AITHEMA_PRIVACY_DOCUMENT_EN` | Optional locale variants; each must pass the same validation; only the page URL is exposed publicly |
 | `AITHEMA_DB` | Persistent SQLite path; local `.data/session.sqlite`, image `/data/session.sqlite` |
 | `AITHEMA_ADMIN_SOCKET` | Private OPS Unix socket; default `<database-directory>/ops/admin`, directory 0700 and socket 0600 |

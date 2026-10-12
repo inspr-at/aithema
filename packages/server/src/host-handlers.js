@@ -7,10 +7,17 @@ const json = (value, status = 200) => Response.json(value, { status, headers: { 
 const idPattern = '[a-zA-Z0-9_-]{1,128}';
 const object = (body, keys) => body && typeof body === 'object' && !Array.isArray(body) && Object.keys(body).every(key => keys.includes(key));
 
-/** Trusted host capability: true only after validating its deployment document.
- * Future address-saving routes must check this before reading/persisting email. */
+/** Trusted host capability: true only after validating its deployment document. */
 export function privacyDocumentConfigured(host) {
   return typeof host?.privacyDocumentConfigured === 'function' && host.privacyDocumentConfigured() === true;
+}
+
+export class PrivacyDocumentRequiredError extends Error {
+  constructor() {
+    super('Privacy document required');
+    this.name = 'PrivacyDocumentRequiredError';
+    this.code = 'privacy-document-required';
+  }
 }
 
 /** Host ports are trusted server configuration, never request payloads.
@@ -27,8 +34,8 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
   const deliveries = new Map();
   const clock = state => Math.max(now(), state?.lastNow ?? 0);
   function assertAddressCollectionAllowed() {
-    // TODO(AIT-151): require privacyDocumentConfigured() here before collecting
-    // or persisting addresses. This is the single guard entry point to wire.
+    // Only the explicit development demo is exempt, regardless of delivery.
+    if (host.demo !== true && !privacyDocumentConfigured(host)) throw new PrivacyDocumentRequiredError();
     return true;
   }
   async function callHost(fn) {
@@ -238,12 +245,9 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
       }
       const [, id, action] = sessionMatch;
       storage.authorize(id, ownerToken);
-      // Ownership precedes the release gate. Refuse before initialize, body
-      // parsing, journal transitions or host calls can collect an address.
-      // Only the explicitly flagged development demo (fake outbox) is exempt;
-      // real mail delivery never exempts collection from the privacy notice.
-      if (request.method === 'POST' && action.startsWith('identity/') && host.demo !== true &&
-          !privacyDocumentConfigured(host)) return json({ error: 'privacy-document-required' }, 403);
+      // Ownership precedes the funnel; collecting commands refuse before
+      // initialization, body parsing, journal transitions or host calls.
+      if (action.startsWith('identity/') && request.method === 'POST') assertAddressCollectionAllowed();
       if (action === 'demo/outbox') {
         if (host.demo !== true || typeof host.outbox !== 'function') return json({ error: 'not-found' }, 404);
         if (request.method !== 'GET') return json({ error: 'method-not-allowed' }, 405);
@@ -260,7 +264,6 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
         if (!host.wallet) return json({ error: 'credits-unavailable' }, 503);
         return json(creditResult(id, ownerToken));
       }
-      if (action.startsWith('identity/') && request.method === 'POST') assertAddressCollectionAllowed();
       initialize(id, ownerToken);
       if (action.startsWith('identity')) {
         if (!host.identity) return json({ error: 'identity-unavailable' }, 503);
@@ -309,6 +312,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
             return host.identity.requestVerification({ sessionId: id, ownerToken, ...effect.data }, callOptions);
           }); }
           catch (error) {
+            if (error instanceof PrivacyDocumentRequiredError) throw error;
             if (error?.code === 'stale-verification') {
               storage.authorize(id, ownerToken);
               return json(identityResult(id, { error: error.code }, ownerToken), 409);
@@ -331,6 +335,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
       await body(request, []); await deliver(id, ownerToken, action.endsWith('/retry') ? 'retry' : 'request');
       return json({ handover: handoverView(storage.hostState(id).handover) });
     } catch (error) {
+      if (error instanceof PrivacyDocumentRequiredError) return json({ error: error.code }, 403);
       if (error instanceof NotFoundError || error instanceof LibraryPortError && error.code === 'not-found') return json({ error: 'session-not-found' }, 404);
       if (error instanceof LibraryPortError) return json({ error: error.code }, 409);
       throw error;
@@ -342,8 +347,13 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
       if (!host) return;
       for (const id of storage.list()) {
         if (storage.get(id).tombstone) continue;
-        initialize(id);
-        if (storage.hostState(id).handover.status === 'preparing') handoverTransition(id, undefined, { type: 'recover' });
+        try {
+          initialize(id);
+          if (storage.hostState(id).handover.status === 'preparing') handoverTransition(id, undefined, { type: 'recover' });
+        } catch (error) {
+          // Leave protected state untouched while keeping deletion reachable.
+          if (!(error instanceof PrivacyDocumentRequiredError)) throw error;
+        }
       }
     },
     async idle() { await Promise.allSettled(deliveries.values()); },

@@ -1,7 +1,7 @@
 import { createConceptHandlers } from './concept-handlers.js';
 import { createVoiceHandlers } from './voice-handlers.js';
 import { createUploadHandlers } from './upload-handlers.js';
-import { createHostHandlers } from './host-handlers.js';
+import { createHostHandlers, PrivacyDocumentRequiredError } from './host-handlers.js';
 import { createPluginRuntime } from './plugin-runtime.js';
 import { randomUUID } from 'node:crypto';
 import { SessionLanes, createMockReasoning, createSession, inputRevision, activeTurns, hasConversationInput, understandingDeferred, PluginError, FEATURES, isConsentReason } from '@inspr/aithema-core';
@@ -271,6 +271,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   async function handle(request) {
     if (stop.signal.aborted) return json({ error: 'server-stopping' }, 503);
     try {
+      const hostResponse = await hostHandlers.handle(request);
+      if (hostResponse) return hostResponse;
       if (host) {
         const ownedPath = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})(?:\/|$)/u.exec(new URL(request.url).pathname);
         if (ownedPath) {
@@ -281,8 +283,6 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
           }
         }
       }
-      const hostResponse = await hostHandlers.handle(request);
-      if (hostResponse) return hostResponse;
       const conceptResponse = await conceptHandlers.handle(request);
       if (conceptResponse) return conceptResponse;
       const voiceResponse = await voiceHandlers?.handle(request);
@@ -461,6 +461,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       }
       return json({ error: 'method-not-allowed' }, 405);
     } catch (error) {
+      if (error instanceof PrivacyDocumentRequiredError) return json({ error: error.code }, 403);
       if (error instanceof NotFoundError) return json({ error: 'session-not-found' }, 404);
       if (error instanceof ConflictError) return json({ error: 'idempotency-conflict' }, 409);
       if (error instanceof SyntaxError || error instanceof TypeError) return json({ error: 'invalid-request' }, 400);
