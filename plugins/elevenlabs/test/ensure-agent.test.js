@@ -54,6 +54,7 @@ test('startup creates only the owned agent; whitelists template settings and ref
     body: { type: 'new', name: 'aithema-start2-facade', value: 'local-bearer-fixture' },
   });
   const created = writes(fake).find(r => r.path.endsWith('/agents/create')).body;
+  assert.equal(created.conversation_config.conversation.max_duration_seconds, 3600);
   assert.equal(created.conversation_config.tts.voice_id, 'voice-fixture');
   assert.equal(created.conversation_config.agent.language, 'en');
   // A base URL: the platform's OpenAI client appends /chat/completions, which must land on the static callback route (AIT-126).
@@ -122,6 +123,7 @@ test('the allowlist uses the origin host including its port and excludes the sch
 });
 
 const mismatches = [
+  ...[undefined, null, '3600', 120, 3599, 3601].map(value => ['conversation_config.conversation.max_duration_seconds', value]),
   ...[undefined, null, '120', -1, 20, 119].map(value => ['conversation_config.turn.silence_end_call_timeout', value]),
   ['conversation_config.turn.turn_eagerness', 'normal'],
   ['conversation_config.turn.turn_eagerness', undefined],
