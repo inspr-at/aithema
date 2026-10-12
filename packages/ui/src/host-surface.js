@@ -188,11 +188,12 @@ export class HostSurface {
     clearTimeout(this.#creditsTimer); this.#creditsTimer = setTimeout(() => void this.#loadCredits(), 300);
   }
   async #loadCredits() {
-    const load = ++this.#creditsLoad;
+    const load = ++this.#creditsLoad, previousTier = this.tiers?.current;
     try {
       const response = await this.#call(this.#sessionPath('credits'));
       if (!this.#alive || load !== this.#creditsLoad || !response.ok) return;
       this.#credits = response.body;
+      if (previousTier && previousTier !== this.tiers?.current) void this.#verification?.load();
       const slot = this.#credits?.limitSlot;
       if (slot === null || this.#credits?.balance?.owner?.availableMicro > 0 && slot?.endReason === 'host-limit') this.#ended = null;
       if (['ending', 'ended'].includes(slot?.status)) this.#ended = slot.endReason ?? this.#ended ?? 'session';
@@ -216,7 +217,7 @@ export class HostSurface {
     setText(total, owner ? fill(layout.creditsTotal, { limit: format(owner.limitMicro, locale) }) : ''); setText(unit, owner ? layout.creditsUnit : '');
     const balance = owner ? fill(exhausted ? c.balanceOut : c.balance, { available: format(owner.availableMicro, locale), limit: format(owner.limitMicro, locale) }) : `${c.title}: ${c.loading}`;
     setText(scope, balance); button.setAttribute('aria-label', balance);
-    current.hidden = !tiers;
+    current.hidden = !tiers || tiers.current === 'anonymous';
     if (tiers) setText(current.querySelector('span:last-child'), fill(c[tiers.current === 'emailConfirmed' ? 'withConfirmed' : tiers.current === 'emailGiven' ? 'withEmail' : 'anonymous'], { tier: format(tiers.allowancesMicro?.[tiers.current], locale) }));
     const next = this.nextTier, nextLine = line.querySelector('.host-credits__next'), link = line.querySelector('.credits-email');
     setText(nextLine, next ? fill(c[next === 'emailGiven' ? 'withEmail' : 'afterConfirm'], { tier: format(tiers.allowancesMicro?.[next], locale) }) : out ? c.noMore : '');

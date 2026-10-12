@@ -506,6 +506,7 @@ for (const copy of [de, en]) test(`AIT-135 A2 B: server tiers in a group, one un
   const { c, root } = a2Setup(t, { copy }); await tick(8);
   const popup = root.querySelector('.host-credits .footer-popup');
   assert.equal(popup.getAttribute('role'), 'group');
+  assert.equal(popup.querySelector('.host-credits__current').hidden, true, 'the anonymous balance already names its tier');
   assert.match(popup.querySelector('.host-credits__next').textContent, copy === de ? /1\.800 Credits/u : /1,800 Credits/u);
   assert.equal(popup.querySelector('.credits-email').textContent, copy === de ? 'E-Mail-Adresse angeben' : 'Add your email address');
   assert.equal(popup.querySelector('.host-credits__equivalence').textContent, copy === de ? '1 Credit = 1 US-Cent' : '1 Credit = 1 US cent');
