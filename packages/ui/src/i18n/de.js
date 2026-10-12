@@ -2,6 +2,14 @@ import { AI_NOTICE } from '../../../core/src/ai-notice.js';
 
 // German bundle. Wording follows START src/lib/i18n.ts (formal "Sie"; a visual concept is an "Entwurf").
 export const de = {
+  reveal: {
+    label: 'Über Aithema', wordmark: 'Aithema', build: 'Stand vom {date}',
+    links: [
+      { title: 'Website', subtitle: 'aithema.inspr.at', href: 'https://aithema.inspr.at' },
+      { title: 'INSPR', subtitle: 'Die Open-Source-Familie', href: 'https://inspr.at' },
+      { title: 'Augmentoring', subtitle: 'KI-Beratung', href: 'https://augmentoring.com' },
+    ],
+  },
   conceptTab: 'Entwurf', conceptView: 'Entwurf ansehen', conceptTitle: 'Visueller Entwurf {number}', conceptCount: '{current} von {count}',
   conceptClose: 'Zurück zum Gespräch', conceptPrevious: 'Vorheriger', conceptNext: 'Nächster', conceptDownload: 'Bild herunterladen',
   conceptRequest: 'Entwurf anfordern', conceptRegenerate: 'Neu erstellen', conceptRetry: 'Entwurf erneut versuchen', conceptUp: 'Gefällt mir', conceptDown: 'Gefällt mir nicht',
