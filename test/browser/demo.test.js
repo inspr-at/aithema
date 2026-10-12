@@ -578,7 +578,7 @@ const hold = (page, on) => inShadow(page, (c, on) => {
 async function unreadableThenWithdrawn(page, path, width, shot, shotName) {
   await hold(page, true);
   await inShadow(page, c => c.shadowRoot.querySelector('.attach').focus());
-  const [chooser] = await Promise.all([page.waitForFileChooser(), page.keyboard.press('Enter')]);
+  const chooser = await uploadChooser(page);
   await chooser.accept([path]);
   await until(page, () => [...document.querySelector('aithema-session').shadowRoot.querySelectorAll('.upload')].at(-1)?.dataset.state === 'pending');
   const id = await inShadow(page, c => [...c.shadowRoot.querySelectorAll('ol li.upload')].at(-1).dataset.id), selector = `ol li[data-id="${id}"]`;
@@ -596,6 +596,10 @@ async function unreadableThenWithdrawn(page, path, width, shot, shotName) {
   assert.equal(await inShadow(page, c => c.shadowRoot.activeElement?.dataset.state), 'withdrawn', `unreadable → withdrawn at ${width}: focus stays on the row`);
 }
 const until = (page, fn, arg) => page.waitForFunction(fn, { polling: 50, timeout: waitTimeout }, arg);
+async function uploadChooser(page, timeout = waitTimeout) {
+  const [chooser] = await Promise.all([page.waitForFileChooser({ timeout }), page.keyboard.press('Enter')]);
+  return chooser;
+}
 // AIT-128: the composer opens with START's explicit start: Continue (from the entrance), Text input, Start.
 async function startTyping(page) {
   const stage = () => inShadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.stage);
@@ -1322,7 +1326,7 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     await inShadow(page, c => c.shadowRoot.querySelector('.attach').focus());
     const turnBefore = await rest(page, 'ol li.turn.user');
     const composerBefore = await box(page, '.composer'), sendBefore = await box(page, '.send');
-    const [chooser] = await Promise.all([page.waitForFileChooser(), page.keyboard.press('Enter')]);
+    const chooser = await uploadChooser(page);
     assert.equal(chooser.isMultiple(), true);
     await chooser.accept([paths.text, paths.pdf]);
     await until(page, () => {
@@ -1364,7 +1368,7 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     // A refused type is named in plain words before anything is sent.
     const posts = () => uploadRequests.filter(([method, , upload]) => method === 'POST' && upload).length, requestsBefore = posts();
     await inShadow(page, c => c.shadowRoot.querySelector('.attach').focus());
-    const [refusal] = await Promise.all([page.waitForFileChooser(), page.keyboard.press('Enter')]);
+    const refusal = await uploadChooser(page);
     await refusal.accept([paths.refused]);
     await waitForShadow(page, '.composer-reason', { text: 'Nicht angehängt: skript.sh (Dateityp wird nicht angenommen).' });
     assert.equal(posts(), requestsBefore, 'nothing sent for a refused file');
@@ -1436,7 +1440,7 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     await hold(page, true);
     await inShadow(page, c => c.shadowRoot.querySelector('.attach').focus());
     const lastChip = `ol li[data-id="${(await chipIds()).at(-1)}"]`, phoneChip = await rest(page, lastChip);
-    const [phoneChooser] = await Promise.all([page.waitForFileChooser(), page.keyboard.press('Enter')]);
+    const phoneChooser = await uploadChooser(page);
     await phoneChooser.accept([paths.text]);
     await until(page, () => [...document.querySelector('aithema-session').shadowRoot.querySelectorAll('.upload')].some(r => r.dataset.state === 'pending'));
     sameBox(phoneChip, await box(page, lastChip), 'hovered chip at 400 px');
@@ -1459,6 +1463,43 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     assert.deepEqual(problems, []);
     assert.equal(posts(), 5, 'two pickers and the drop at 1440 px, two pickers at 400 px, one request each');
     t.diagnostic(`Uploads: ${posts()} upload POSTs via picker and drop, pending→accepted for txt and PDF, understanding refreshed, withdraw kept the chip and focus, refusal before sending; the changing row's box, name and action unchanged under the pointer for pending→accepted, pending→unreadable, unreadable→withdrawn and accepted→withdrawn at 1440 and 400 px; German, light/dark, 1440 and 400 px.`);
+  });
+
+test('AIT-142: the first real picker waits for interception acknowledgement before Enter',
+  { timeout: 30_000 }, async t => {
+    const executablePath = await browserPath();
+    const directory = await mkdtemp(join(tmpdir(), 'aithema-chooser-order-'));
+    const demo = await startDemo(directory); let browser;
+    t.after(async () => {
+      try { await browser?.close(); }
+      finally { await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); }
+    });
+    browser = await puppeteer.launch({ executablePath, headless: true,
+      env: { PATH: process.env.PATH, HOME: homedir() }, userDataDir: join(directory, 'chrome'), timeout: waitTimeout,
+      args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    const page = await browser.newPage(); await preparePage(page, ['de-DE', 'de']);
+    await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(page, '.composer textarea');
+    await mockConsent(page); await startTyping(page);
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.attach').getAttribute('aria-disabled') === 'false');
+    await inShadow(page, c => c.shadowRoot.querySelector('.attach').focus());
+    // CdpPage's own session owns Puppeteer's chooser listener. Delay its first
+    // interception command by one event-loop turn, allowing Enter to overtake it
+    // unless the picker helper awaits the acknowledgement explicitly.
+    const client = page._client(), send = client.send.bind(client), order = [];
+    let delayed = false;
+    t.mock.method(client, 'send', async (method, ...args) => {
+      if (method === 'Page.setInterceptFileChooserDialog') {
+        if (!delayed) { delayed = true; await new Promise(resolve => setImmediate(resolve)); }
+        const result = await send(method, ...args); order.push('interception acknowledged'); return result;
+      }
+      if (method === 'Input.dispatchKeyEvent' && args[0].type === 'keyDown') order.push('Enter dispatched');
+      return send(method, ...args);
+    });
+    try {
+      const chooser = await uploadChooser(page, 1_000);
+      assert.equal(chooser.isMultiple(), true); await chooser.cancel();
+      assert.equal(order[0], 'interception acknowledged', JSON.stringify(order));
+    } finally { t.diagnostic(`Picker protocol order: ${JSON.stringify(order)}`); }
   });
 
 // AIT-119: wherever an interaction can begin, the AI notice is already in view. The page (and the start

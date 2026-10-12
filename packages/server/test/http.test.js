@@ -42,3 +42,29 @@ test('HTTP adapter streams replay and handlers keep independent sessions isolate
   assert.equal(storage.get(a.id).transcript[0].content, 'A'); assert.equal(storage.get(b.id).transcript[0].content, 'B');
   assert.equal((await fetch(url + '/api/sessions/missing')).status, 404);
 });
+
+for (const status of [403, 404]) test(`AIT-142: early ${status} preserves a bounded multipart upload until its final boundary`,
+  { timeout: 5_000 }, async t => {
+    const rejected = Promise.withResolvers(), finish = Promise.withResolvers();
+    const { server, url } = await listen(() => {
+      rejected.resolve(); return Response.json({ error: 'refused' }, { status });
+    });
+    t.after(async () => { finish.resolve(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
+    const form = new FormData(); form.append('files', new File(['fixture'], 'fixture.txt'));
+    const serialized = new Request(url, { method: 'POST', body: form });
+    const bytes = new Uint8Array(await serialized.arrayBuffer()), split = bytes.length - 10;
+    let first = true;
+    const body = new ReadableStream({ async pull(controller) {
+      if (first) { first = false; controller.enqueue(bytes.subarray(0, split)); return; }
+      await finish.promise; controller.enqueue(bytes.subarray(split)); controller.close();
+    } });
+    const posting = globalThis.fetch(url, { method: 'POST', duplex: 'half', body,
+      headers: { 'content-type': serialized.headers.get('content-type'), 'content-length': String(bytes.length) } });
+    // Observe the rejection before allowing the final multipart bytes to be sent.
+    // No wall-clock delay or chance of the entire request arriving in one write.
+    posting.catch(() => {});
+    await rejected.promise; finish.resolve();
+    const response = await posting;
+    assert.equal(response.status, status); assert.deepEqual(await response.json(), { error: 'refused' });
+    assert.equal(response.headers.get('connection'), 'keep-alive', 'small rejected uploads must finish sending before the socket can close');
+  });
