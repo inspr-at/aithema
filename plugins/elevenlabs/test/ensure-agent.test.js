@@ -12,6 +12,23 @@ const options = (storage, fake, logs = []) => ({ storage, apiBaseUrl: fake.endpo
   log: value => logs.push(value) });
 const writes = fake => fake.requests.filter(request => request.method !== 'GET');
 
+test('AIT-146: long-form turn policy replaces eager template settings on create and restart, without writing START', async t => {
+  const fake = await fakeElevenLabs(t), storage = new SQLiteStorage(); t.after(() => storage.close());
+  Object.assign(fake.template.conversation_config.turn, { turn_eagerness: 'eager', turn_model: 'turn_v2',
+    speculative_turn: true, spelling_patience: 'off', turn_timeout: 7 });
+  fake.template.conversation_config.asr.keywords = ['START-only'];
+  const template = structuredClone(fake.template);
+  for (let restart = 0; restart < 2; restart++) {
+    await ensureAgent(options(storage, fake));
+    const owned = fake.agents[0].conversation_config;
+    assert.deepEqual(owned.turn, { turn_timeout: 12, silence_end_call_timeout: 20, turn_eagerness: 'patient',
+      turn_model: 'turn_v3', speculative_turn: false, spelling_patience: 'auto' });
+    assert.deepEqual(owned.asr.keywords, ['Aithema', 'Hosting', 'Domain', 'Webshop', 'Schnittstelle', 'Datenschutz']);
+    assert.deepEqual(fake.template, template);
+    assert.ok(fake.requests.filter(r => r.path.endsWith('/agents/template-agent')).every(r => r.method === 'GET'));
+  }
+});
+
 test('startup creates only the owned agent; whitelists template settings and references workspace secret; updates after restart', async t => {
   const fake = await fakeElevenLabs(t), path = await temporaryDb(), logs = [];
   let storage = new SQLiteStorage(path); t.after(() => storage.close());
@@ -90,6 +107,13 @@ test('the allowlist uses the origin host including its port and excludes the sch
 });
 
 const mismatches = [
+  ['conversation_config.turn.turn_eagerness', 'normal'],
+  ['conversation_config.turn.turn_eagerness', undefined],
+  ['conversation_config.turn.turn_timeout', 7],
+  ['conversation_config.turn.spelling_patience', 'off'],
+  ['conversation_config.turn.turn_model', 'turn_v2'],
+  ['conversation_config.turn.speculative_turn', true],
+  ['conversation_config.asr.keywords', []],
   ['platform_settings.auth.enable_auth', false],
   ['platform_settings.auth.allowlist', []],
   ['platform_settings.auth.allowlist', [{ hostname: 'https://start2.example.test' }]],

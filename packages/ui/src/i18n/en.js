@@ -63,7 +63,7 @@ export const en = {
   voiceConflict: 'This conversation already has a call in another tab or window. End it there, or wait a moment and select Retry call.',
   voiceDeadline: 'The call reached its time or connection limit.', voiceConnectionFailed: 'Voice connection failed. Retry or continue typing.',
   voiceRecoveryFailed: 'Three reconnect attempts failed. Retry the call or continue typing.',
-  voiceClosureUncertain: 'Call ended. Provider closure is unconfirmed; the reserved maximum is recorded.',
+  voiceClosureUncertain: 'Call ended. Costs are still being reconciled.', voiceEnded: 'Call ended.',
   voicePauseFailed: 'The pause change was not acknowledged. Try again.',
   voicePlaybackBlocked: 'Sound is blocked by your browser. Select Enable sound.', voiceTextSent: 'Sent to the voice assistant',
   consentForSelection: 'Your selection needs consent. Allow processing to continue.', voiceHostConsentTitle: 'Host-managed voice consent', voiceHostConsent: 'Live voice requires a current grant in the host consent ledger. The local mock consent button cannot grant it.',

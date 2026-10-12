@@ -713,6 +713,11 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
 
     // D2: the concept rail under a resting pointer shows the finished concept at once.
     const requestBefore = await rest(page, '.concept-request');
+    const receivesClick = await inShadow(page, c => {
+      const button = c.shadowRoot.querySelector('.concept-request'), rect = button.getBoundingClientRect();
+      return c.shadowRoot.elementFromPoint(rect.x + Math.min(rect.width / 2, 40), rect.y + Math.min(rect.height / 2, 10))?.closest('.concept-request') === button;
+    });
+    assert.equal(receivesClick, true, 'the ended-call status must leave the next action clickable');
     await page.mouse.down(); await page.mouse.up();
     await until(page, () => {
       const r = document.querySelector('aithema-session').shadowRoot;

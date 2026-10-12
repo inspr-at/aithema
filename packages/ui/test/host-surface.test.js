@@ -46,6 +46,21 @@ function setup(t, { copy = en, host = { library: true, verification: true, hando
 }
 const userTurn = (c, id = 't1') => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id, role: 'user', content: 'We need a preorder app.' } });
 
+test('AIT-145: background voice settlement refreshes the displayed wallet without another spoken turn', async t => {
+  let availableMicro = 4_000_000;
+  const { c, root, calls } = setup(t, { host: { credits: { format: value => (value / 1_000_000).toFixed(2) } }, routes: {
+    'GET /credits': () => Response.json({ balance: { owner: { limitMicro: 10_000_000, availableMicro } }, limitSlot: null }),
+  } });
+  await tick(); const before = calls.filter(call => call.path === '/credits').length;
+  assert.match(root.querySelector('.host-credits__text').textContent, /4\.00/u);
+  availableMicro = 8_480_000;
+  c.receive({ type: 'voice.state', data: { callId: 'ended-call', providerSessionId: 'ended-provider', state: 'ended',
+    terminal: { closureConfirmed: true, outcome: 'completed', usage: { upstreamMicro: 1_520_000, costEstimated: false } } } });
+  await new Promise(resolve => setTimeout(resolve, 400)); await tick();
+  assert.equal(calls.filter(call => call.path === '/credits').length, before + 1);
+  assert.match(root.querySelector('.host-credits__text').textContent, /8\.48/u);
+});
+
 test('without a host option the component shows no host surface', t => {
   const { root } = setup(t, { host: null });
   assert.equal(root.querySelector('.host-bar').hidden, true);

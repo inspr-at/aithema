@@ -92,6 +92,7 @@ export class HostSurface {
       this.#ended = reason ?? this.#ended ?? 'session';
     }
     if (['credits.state', 'credits.limit-reached', 'conversation.end-requested', 'session.paused'].includes(event.type) ||
+      event.type === 'voice.state' && ['closing', 'ended'].includes(event.data?.state) ||
       event.type === 'turn.final' && event.data?.role === 'assistant' || event.type === 'concept.state' && event.data?.artifact) this.#refreshCredits();
     this.update();
   }

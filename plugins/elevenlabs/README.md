@@ -87,6 +87,62 @@ Fakes drive that real callback rather than inventing an SDK force-interrupt
 method. The declaration follows the concept's native audio barge-in column;
 Part B must present it as audio barge-in, not a force-interrupt button.
 
+AIT-146 repairs playback at that native callback, synchronously and independently
+of transcript persistence. SDK 1.17.0's WebRTC output `interrupt()` is a no-op;
+its WebSocket output fades for two seconds and the concat worklet continues
+rendering queued PCM until `clearInterrupted`. The adapter mutes through the
+SDK's volume path, clears the WebSocket worklet immediately, and fences late
+audio before the connection can forward it to the queue. WebSocket playback
+unlocks synchronously on the first audio event with a newer provider id, before
+`WebSocketConnection.handleMessage` forwards it to output listeners (pinned
+SDK `dist/utils/WebSocketConnection.js:160-171`). It does not wait for the
+complete `agent_response`, which can follow streamed TTS audio.
+
+WebRTC unlocks on the first newer provider `agent_chat_response_part` start or
+nonempty delta, or an audio event carrying alignment and a newer provider id,
+whichever arrives first. The pinned SDK routes provider data-channel audio
+through `handleMessage` (`dist/utils/WebRTCConnection.js:292-310`); streamed
+text parts retain their id in `onAgentChatResponsePart`
+(`dist/BaseConversation.js:254-257`, `381-383`; `@elevenlabs/types`
+`dist/generated/types/asyncapi-types.d.ts:148-157`). Alignment identifies TTS
+metadata from the provider: the local analyser synthesizes audio events with
+unrelated sequential ids and no alignment (`dist/utils/WebRTCConnection.js:435-449`).
+Those counters and listening/speaking notifications cannot unlock playback.
+LiveKit handles the media stream and its interruption; the replay checks the
+SDK audio element's volume and stale provider metadata, without simulating
+RTP ordering between the media track and data channel.
+
+Fresh ids are recorded even during pause or output-off; output volume still
+honors both controls, and acknowledged resume uses the updated interruption
+state. A fresh audio id also fences delayed interruptions and older provider
+audio, while additional chunks with the same fresh id remain valid. Final
+callbacks received during pause still do not emit or persist transcript turns.
+The SDK internals used here are covered by replay against the pinned SDK and
+its actual generated worklet. Updating the SDK requires requalifying that path.
+Only the existing correction callback supplies a genuine heard prefix.
+
+The owned `aithema-start2` startup policy uses `turn_eagerness: patient`,
+`turn_timeout: 12`, `spelling_patience: auto`, `turn_model: turn_v3`, and
+`speculative_turn: false`. It replaces template ASR keywords with Aithema,
+Hosting, Domain, Webshop, Schnittstelle and Datenschutz. Each policy field and
+the exact keyword list must match the provider GET after create/PATCH; otherwise
+voice remains disabled. START's template receives only GET requests.
+[ElevenLabs' conversation-flow guidance](https://elevenlabs.io/docs/eleven-agents/customization/conversation-flow)
+recommends patient turns and longer silence timeouts for detailed information
+collection. The 12-second setting is the silence fallback, not a guaranteed
+minimum pause before every reply.
+
+Evidence from the reported call shows six interrupted agent turns and the user
+fragment "Ich hab noch kei-" at 748 seconds, followed by a reply at 754 seconds.
+The fragment was already truncated in the provider transcript; the browser
+does not finalize partial captions itself. The normal provider turn setting is
+a tuning hypothesis for that truncation, not proof of its acoustic cause.
+Offline replay covers immediate cutoff (under 300 ms), queued/late audio,
+channel controls, and a complete German utterance across virtual thinking and
+spelling pauses. Provider endpointing is supplied by the fake in that replay.
+Applying the startup policy to the live owned agent and verifying German speech
+with pauses remain coordinator checks; this builder makes no provider calls.
+
 ## Server half
 
 The `/server` export provides `createElevenLabsServer`,
@@ -384,7 +440,7 @@ server shutdown and/or reads authenticated provider closure details. Return
 `{providerSessionId, closureConfirmed:true, usage}` only with genuine final evidence.
 The host must process `storage.voiceCalls()` records with `reconciliationPending`
 on its durable scheduler, including across repeated restarts. The reference startup
-retries this port within one second per pending call; failure keeps the pending
+retries this port within five seconds per pending call; failure keeps the pending
 record and conservative charges. A confirmed reconciliation adjusts upstream and
 visitor costs while preserving the original terminal receipt. Withdrawn/erased
 sessions still permit this server-only cost reconciliation without restoring text.

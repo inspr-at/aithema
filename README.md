@@ -647,14 +647,28 @@ port may return authenticated final usage to correct cost without emitting a
 second terminal receipt. Pending records remain durable when that port fails.
 Start2/demo wires the provider's `reconcileLater` hook to an in-process retry:
 every 30 seconds after the previous batch finishes, up to 10 pending calls are
-checked through `closeOrphan`, each with a one-second deadline. Batches rotate
+checked through `closeOrphan`, each with a five-second deadline. Batches rotate
 through pending calls; processing records and outages keep their holds and retry
 without a restart. Confirmed reconciliation is recorded durably before releasing
 the cap and acknowledging the call journal, so restarts replay the recorded usage
 even if the provider's later duration differs. Shutdown stops and drains retries.
 Library hosts can wire `reconcileLater: () => handlers.reconcileVoiceLater()`
-and supply `voice.closeOrphan`; retry bounds are `voice.reconcileIntervalMs` and
-`voice.reconcileBatchSize` (defaults 30,000 ms and 10).
+and supply `voice.closeOrphan`; retry bounds are `voice.reconcileIntervalMs`,
+`voice.reconcileBatchSize` and `voice.reconcileLookupTimeoutMs` (defaults 30,000 ms,
+10 and 5,000 ms).
+
+Hangup stops local capture and playback immediately and renders the call ended.
+Browser control requests `background: true`; the close route acknowledges with
+HTTP 202 while provider confirmation continues independently. Accepted transcript
+events still drain before the browser sends close. Pending cost accounting says
+“Call ended. Costs are still being reconciled.” inside the rail's status cell,
+without a floating error panel covering later actions or treating the liability
+ceiling as a final visitor charge. Confirmed `voice.state` updates refresh the
+wallet and clear that message only for the matching ended provider generation.
+Both foreground and background conversation detail reads use a cancellable 8 MiB
+JSON bound, because details include the full transcript and telemetry; token
+receipts retain their 64 KiB bound. Start2 logs safe closure observations, lookup
+error codes, elapsed time and retained liability through its private `log` port.
 
 ## Plugins, bindings and admission
 

@@ -1417,6 +1417,8 @@ export class AithemaSession extends HTMLElement {
       const voice = this.#rail.session;
       if (voice && ['closing', 'ended'].includes(event.data.state) && event.data.reason !== 'recovery-failed' &&
         voice.callId === event.data.callId && voice.providerSessionId === event.data.providerSessionId) void this.#rail.close(event.data.reason);
+      this.#rail.settlement(event.data);
+      this.#host?.receive(event);
     } else if (event.type === 'turn.partial' && event.data.inputRevision === inputRevision(this.#session) &&
       (event.data.settingsRevision === undefined || event.data.settingsRevision >= this.#reasoningRevision)) {
       const existing = this.#partials.get(event.data.id);

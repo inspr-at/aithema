@@ -94,6 +94,33 @@ test('a crash after journalling actual voice cost replays that receipt before an
   assert.equal(ledger.breakdown(session.id).confirmedSpendMicro, 8400);
   assert.equal(ledger.breakdown(session.id).uncertainSpendMicro, 0);
 });
+test('AIT-145: background confirmation accepts a lookup slower than one second and corrects the wallet to USD 1.52', { timeout: 10_000 }, async t => {
+  const storage = new SQLiteStorage(), ledger = new SQLiteBudgetLedger(storage);
+  const session = storage.create({ ownerToken: 'owner' });
+  const { attemptId } = ledger.admit({ sessionId: session.id, lane: 'voice', maxMicro: 6_000_000,
+    requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64) });
+  const claim = ledger.claim(attemptId); claim.consume();
+  const uncertain = { attemptId, providerSessionId: call.providerSessionId, outcome: 'uncertain', closureConfirmed: false,
+    chargedMicro: 6_000_000, usage: null };
+  ledger.settleVoice(claim.claimId, uncertain);
+  storage.saveVoiceCall(session.id, { ...call, callId: 'slow-details', attemptId, claimId: claim.claimId,
+    facadeSecretRef: 'fixture', maxMicro: 6_000_000, terminal: uncertain, reconciliationPending: true });
+  const handlers = createVoiceHandlers({ storage, runtime: { budget: ledger, reconcileVoice: (id, receipt) => ledger.reconcileVoice(id, receipt) },
+    secrets: { provision() {}, resolve() {}, revoke() {} }, staticSecretRef: 'fixture', publish() {},
+    async closeOrphan(record, { signal }) {
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(resolve, 1100);
+        signal.addEventListener('abort', () => { clearTimeout(timer); reject(signal.reason); }, { once: true });
+      });
+      return reconcileUsage({ call: record, binding, maxMicro: record.maxMicro,
+        details: { ...details({ cost_fiat: 1.52, cost: 5750 }), metadata: { call_duration_secs: 784, cost_fiat: 1.52, cost: 5750 } } });
+    } });
+  t.after(async () => { await handlers.close(); storage.close(); });
+  await handlers.resume();
+  assert.equal(ledger.breakdown(session.id).confirmedSpendMicro, 1_520_000);
+  assert.equal(ledger.breakdown(session.id).uncertainSpendMicro, 0);
+  assert.equal(storage.voiceCalls()[0].reconciliationPending, false);
+});
 
 test('voice price and technical bounds are non-secret host configuration', () => {
   assert.deepEqual(voiceCostConfig({}), { maxDurationSeconds: 3600, reservationSeconds: 30, upstreamMicroPerMinute: 100_000 });
