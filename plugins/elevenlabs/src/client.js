@@ -12,7 +12,7 @@ const stopStream = stream => { for (const track of stream?.getTracks() ?? []) { 
 // onConversationCreated. Guard acquisition for the entire call, including SDK
 // device resets. A paused setup receives silence made without a physical device.
 function microphoneCapture(mediaDevices, AudioContext) {
-  let enabled = true, ended = false, released = false, operations = 0, context, destination;
+  let enabled = true, ended = false, released = false, operations = 0, acquisitionEpoch = 0, context, destination;
   const streams = new Set(), silentStreams = new Set();
   const original = mediaDevices?.getUserMedia, descriptor = mediaDevices && Object.getOwnPropertyDescriptor(mediaDevices, 'getUserMedia');
   if (original && microphoneOwners.has(mediaDevices)) throw new PluginError('unavailable', 'Microphone already owned by a live voice call');
@@ -25,9 +25,9 @@ function microphoneCapture(mediaDevices, AudioContext) {
     if (!constraints?.audio) return original.call(mediaDevices, constraints);
     if (ended) throw new PluginError('unavailable', 'Live voice capture ended');
     if (!enabled) return silence();
-    const stream = await original.call(mediaDevices, constraints);
+    const epoch = acquisitionEpoch, stream = await original.call(mediaDevices, constraints);
     // Pause/close can race the permission prompt or native device acquisition.
-    if (!enabled || ended) {
+    if (!enabled || ended || epoch !== acquisitionEpoch) {
       stopStream(stream);
       if (ended) throw new PluginError('unavailable', 'Live voice capture ended');
       return silence();
@@ -45,7 +45,9 @@ function microphoneCapture(mediaDevices, AudioContext) {
   if (original) { mediaDevices.getUserMedia = guarded; microphoneOwners.add(mediaDevices); }
   return {
     setEnabled(value) {
-      enabled = value && !ended;
+      const next = value && !ended;
+      if (enabled && !next) acquisitionEpoch++;
+      enabled = next;
       for (const stream of streams) {
         if (!enabled) stopStream(stream);
         if (stream.getTracks().every(track => track.readyState === 'ended')) streams.delete(stream);
@@ -142,13 +144,14 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
       };
       const channels = async (target = conversation) => {
         try {
-          const blocked = () => ended || paused || transportBlocked || !inputOn;
+          const retired = () => target && target !== conversation;
+          const blocked = () => ended || paused || transportBlocked || !inputOn || retired();
           capture?.setEnabled(!blocked());
           if (!target) return;
           if (typeof target.input?.setMuted !== 'function') throw new PluginError('unavailable', 'Awaitable voice input controller required');
           if (blocked()) {
             const stopped = stopCapture(target), muted = target.input.setMuted(true);
-            target.setVolume({ volume: outputVolume() });
+            target.setVolume({ volume: retired() ? 0 : outputVolume() });
             await Promise.all([stopped, muted]);
           } else {
             if (stoppedInputs.has(target)) {
@@ -159,10 +162,10 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
             await target.input.setMuted(blocked());
             // A newer pause can arrive while unmute/device acquisition is pending.
             if (blocked()) { await stopCapture(target); await target.input.setMuted(true); }
-            target.setVolume({ volume: outputVolume() });
+            target.setVolume({ volume: retired() ? 0 : outputVolume() });
           }
           if (ended) throw new PluginError('unavailable', 'Live voice capture ended');
-        } catch (error) { void close('pause-failed').catch(() => {}); throw error; }
+        } catch (error) { if (!target || target === conversation) void close('pause-failed').catch(() => {}); throw error; }
       };
       const close = (reason = 'closed', commandOptions = {}) => {
         if (['cancelled', 'turn-withdrawn', 'upload-withdrawn', 'session-erased', 'consent-revised',
@@ -226,6 +229,15 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           onConversationCreated(created) {
             if (!active()) { void capture.run(() => created.endSession()).catch(() => {}); return; }
             conversation = created;
+            const participant = created.connection?.room?.localParticipant;
+            if (typeof participant?.setMicrophoneEnabled === 'function') {
+              const setMicrophoneEnabled = participant.setMicrophoneEnabled;
+              participant.setMicrophoneEnabled = (enabled, ...args) => {
+                // An SDK unmute can reach this native port after its transport retired.
+                if (enabled && (!active() || paused || transportBlocked || !inputOn)) return Promise.resolve();
+                return setMicrophoneEnabled.call(participant, enabled, ...args);
+              };
+            }
             if (created.input?.setDevice) {
               const setDevice = created.input.setDevice;
               created.input.setDevice = (...args) => {
