@@ -1,13 +1,16 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { PluginError } from '../../../packages/core/src/invocation.js';
+import { PluginError, PLUGIN_ERROR_CODES } from '../../../packages/core/src/invocation.js';
 import { operationScope } from '../../../packages/core/src/reasoning.js';
 import { voiceOperation } from '../../../packages/core/src/live-voice.js';
 import { aiTextOrigin } from '../../../packages/core/src/text-origin.js';
 import { readJson } from './server.js';
 
 const spendReason = error => ['OpenRouter spend cap exhausted', 'OpenRouter request exceeds spend reservation'].includes(error?.message) ? error.message : undefined;
-const json = (error, status, reason) => Response.json({ error, ...(reason ? { reason } : {}) }, { status, headers: { 'cache-control': 'no-store' } });
 const digest = value => createHash('sha256').update(value).digest();
+// Observed growth (~72 KiB / 4 min) projects to ~2.1 MiB at the 120-minute voice cap.
+// 8 MiB leaves room for faster turns, JSON overhead and multibyte text, while remaining bounded.
+export const MAX_COMPLETION_REQUEST_BYTES = 8 * 1_048_576;
+const codeFor = error => error instanceof PluginError && PLUGIN_ERROR_CODES.includes(error.code) ? error.code : 'provider';
 export function bearerMatches(header, secret) {
   if (typeof secret !== 'string' || !secret || !header?.startsWith('Bearer ')) return false;
   return timingSafeEqual(digest(header.slice(7)), digest(secret));
@@ -17,46 +20,72 @@ const statusFor = error => error?.code === 'auth' ? 401 : error?.code === 'not-a
 
 /** A host resolves this private call object by route identity; body/model never select a binding. */
 export function createCompletionsHandler({ getCall, resolveSecret = ref => process.env[ref],
-  buildRequest, admitReasoning, onCompletion, staticSecretRef, now = Date.now, timeoutMs = 30_000, maxRequestBytes = 65_536 } = {}) {
+  buildRequest, admitReasoning, onCompletion, staticSecretRef, now = Date.now, timeoutMs = 30_000,
+  maxRequestBytes = MAX_COMPLETION_REQUEST_BYTES, log = console.log } = {}) {
   if (![getCall, buildRequest, admitReasoning].every(port => typeof port === 'function')) throw new TypeError('Facade call, context and admission ports required');
+  if (!Number.isSafeInteger(maxRequestBytes) || maxRequestBytes <= 0) throw new TypeError('Positive facade byte limit required');
   const active = call => call && !call.closing && !call.terminal && !call.paused && !call.signal?.aborted &&
     now() < Math.min(call.spendDeadlineAt, call.browserLivenessDeadlineAt);
   return async request => {
+    const started = performance.now();
+    let requestBytes = 0, responseBytes = 0, status = 200, callIdHash = null, logged = false;
+    const logResult = (errorCode = null) => {
+      if (logged) return; logged = true;
+      const line = JSON.stringify({ time: new Date(now()).toISOString(), level: errorCode ? 'error' : 'info',
+        event: 'voice-callback', status, latencyMs: Math.round(performance.now() - started),
+        requestBytes, responseBytes, errorCode, callIdHash });
+      // Only these value-free fields reach the logger; never error messages, headers, URLs or bodies.
+      try { log(line); } catch { console.error(line); }
+    };
+    const reply = (body, responseStatus = 200, errorCode = null) => {
+      const text = JSON.stringify(body); status = responseStatus; responseBytes = Buffer.byteLength(text);
+      const response = new Response(text, { status, headers: { 'content-type': 'application/json', 'cache-control': 'no-store' } });
+      logResult(errorCode); return response;
+    };
+    const json = (error, status, reason) => reply({ error, ...(reason ? { reason } : {}) }, status, error);
     if (request.method !== 'POST') return json('method-not-allowed', 405);
     const localCancellation = new AbortController();
     const scope = operationScope({ signal: AbortSignal.any([request.signal, localCancellation.signal]), deadlineAt: Date.now() + timeoutMs });
-    let admission, iterator, invocationOptions, reports = 0, finishPromise, callTimer, callSignal, callAbort;
+    let admission, iterator, invocationOptions, reports = 0, finishPromise, callTimer, callSignal, callAbort, streamFailure;
     const cleanup = async failed => {
       finishPromise ??= Promise.resolve().then(async () => {
-        try { await admission?.finish?.({ failed }); }
+        try { if (admission?.finish) await voiceOperation({ deadlineAt: Date.now() + 1000 }, () => admission.finish({ failed })); }
         finally { clearTimeout(callTimer); callSignal?.removeEventListener('abort', callAbort);
           invocationOptions?.signal.removeEventListener('abort', expire);
           scope.signal.removeEventListener('abort', expire); scope.dispose(); }
       });
       return finishPromise;
     };
-    const expire = () => { if (iterator) void disposeIterator(iterator).then(() => cleanup(true)).catch(() => {}); };
+    const expire = () => {
+      const signal = invocationOptions?.signal.aborted ? invocationOptions.signal : scope.signal;
+      if (streamFailure) void streamFailure(new PluginError(signal.reason?.name === 'TimeoutError' ? 'deadline' : 'cancelled'));
+      else if (iterator) void disposeIterator(iterator).then(() => cleanup(true)).catch(() => {});
+    };
     scope.signal.addEventListener('abort', expire, { once: true });
     const next = () => voiceOperation(invocationOptions, () => iterator.next());
+    const readBody = () => voiceOperation({ signal: scope.signal }, opts => readJson(request, maxRequestBytes,
+      { signal: opts.signal, onBytes: bytes => { requestBytes = bytes; } }));
     try {
       let call, body;
       if (!staticSecretRef) call = await voiceOperation({ signal: scope.signal }, opts => getCall(request, opts));
+      if (typeof call?.callId === 'string') callIdHash = digest(call.callId).toString('hex').slice(0, 16);
       const secretRef = staticSecretRef ?? call?.facadeSecretRef;
       const secret = secretRef && await voiceOperation({ signal: scope.signal }, () => resolveSecret(secretRef));
       if (!bearerMatches(request.headers.get('authorization'), secret)) { await cleanup(true); return json('unauthorized', 401); }
       if (staticSecretRef) {
         // START src/pages/api/v2/llm/chat/completions.ts: authenticate before any body read.
-        body = await voiceOperation({ signal: scope.signal }, () => readJson(request, maxRequestBytes));
+        body = await readBody();
         const identity = body?.elevenlabs_extra_body?.aithema_call;
         if (typeof identity !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(identity)) throw new PluginError('not-admitted', 'Call identity required');
         call = await voiceOperation({ signal: scope.signal }, opts => getCall(request, opts, identity));
+        if (typeof call?.callId === 'string') callIdHash = digest(call.callId).toString('hex').slice(0, 16);
       }
       if (!active(call)) throw new PluginError('not-admitted', 'Call inactive');
       if (call.signal) {
         callSignal = call.signal; callAbort = () => localCancellation.abort();
         callSignal.addEventListener('abort', callAbort, { once: true });
       }
-      body ??= await voiceOperation({ signal: scope.signal }, () => readJson(request, maxRequestBytes));
+      body ??= await readBody();
       const platformIdentity = body?.elevenlabs_extra_body?.aithema_call;
       const expectedIdentity = staticSecretRef ? call.facadeCallId : call.callId;
       if ((body?.aithema_call ?? platformIdentity) !== expectedIdentity ||
@@ -98,42 +127,64 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
           content += first.value; if (content.length > 1_048_576) throw new PluginError('limit'); first = await next();
         }
         if (reports !== 1) throw new PluginError('invalid-output', 'Reasoning omitted terminal report');
-        await onCompletion?.({ callId: call.callId, providerSessionId: call.providerSessionId, content, textOrigin, engine: admission.engine });
+        await voiceOperation(opts, () => onCompletion?.({ callId: call.callId, providerSessionId: call.providerSessionId, content, textOrigin, engine: admission.engine }));
         await cleanup(false);
-        return Response.json({ id, object: 'chat.completion', created: Math.floor(now() / 1000), model: 'session-reasoning',
-          choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }] }, { headers: { 'cache-control': 'no-store' } });
+        return reply({ id, object: 'chat.completion', created: Math.floor(now() / 1000), model: 'session-reasoning',
+          choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }] });
       }
-      const encoder = new TextEncoder(); let roleSent = false, size = 0, content = '';
+      const encoder = new TextEncoder(); let roleSent = false, size = 0, content = '', streamEnded = false, cancelled = false;
+      const enqueue = (controller, text) => {
+        const bytes = encoder.encode(text); controller.enqueue(bytes); responseBytes += bytes.byteLength;
+      };
       return new Response(new ReadableStream({
+        start(controller) {
+          streamFailure = async error => {
+            if (streamEnded) return; streamEnded = true;
+            const code = codeFor(error);
+            cancelReasoning(); await disposeIterator(iterator);
+            try { await cleanup(true); } catch { /* Preserve the original failure; settlement must not hide its JSON error. */ }
+            try {
+              if (!cancelled) { enqueue(controller, `data: ${JSON.stringify({ error: code })}\n\n`); controller.close(); }
+            } finally { logResult(code); }
+          };
+        },
         async pull(controller) {
+          if (streamEnded) return;
           try {
-            if (!roleSent) { roleSent = true; controller.enqueue(encoder.encode(`data: ${JSON.stringify(frame({ role: 'assistant' }))}\n\n`)); return; }
+            if (!roleSent) { roleSent = true; enqueue(controller, `data: ${JSON.stringify(frame({ role: 'assistant' }))}\n\n`); return; }
             const part = first; first = null;
             const item = part ?? await next();
             if (item.done) {
               if (reports !== 1) throw new PluginError('invalid-output', 'Reasoning omitted terminal report');
-              await onCompletion?.({ callId: call.callId, providerSessionId: call.providerSessionId, content, textOrigin, engine: admission.engine });
+              await voiceOperation(opts, () => onCompletion?.({ callId: call.callId, providerSessionId: call.providerSessionId, content, textOrigin, engine: admission.engine }));
               await cleanup(false);
+              if (streamEnded) return; streamEnded = true;
               const stop = frame({}); stop.choices[0].finish_reason = 'stop';
-              controller.enqueue(encoder.encode(`data: ${JSON.stringify(stop)}\n\ndata: [DONE]\n\n`)); controller.close(); return;
+              enqueue(controller, `data: ${JSON.stringify(stop)}\n\ndata: [DONE]\n\n`); controller.close(); logResult(); return;
             }
+            if (streamEnded) return;
             if (typeof item.value !== 'string') throw new PluginError('invalid-output');
             size += item.value.length; if (size > 1_048_576) throw new PluginError('limit');
             content += item.value;
-            controller.enqueue(encoder.encode(`data: ${JSON.stringify(frame({ content: item.value }))}\n\n`));
+            enqueue(controller, `data: ${JSON.stringify(frame({ content: item.value }))}\n\n`);
           } catch (error) {
-            cancelReasoning(); await disposeIterator(iterator); await cleanup(true);
-            controller.error(new PluginError(error?.code ?? 'provider', 'Reasoning stream failed'));
+            await streamFailure(error);
           }
         },
         async cancel() {
+          cancelled = true;
+          if (streamEnded) return; streamEnded = true;
           // Abort the reasoning operation before iterator.return (it may be waiting on provider I/O).
-          cancelReasoning(); await disposeIterator(iterator); await cleanup(true);
+          cancelReasoning(); await disposeIterator(iterator);
+          try { await cleanup(true); } catch { /* A disconnected client still gets one failure log. */ }
+          logResult('cancelled');
         },
       }), { headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store' } });
     } catch (error) {
-      cancelReasoning(); await disposeIterator(iterator); await cleanup(true);
-      return json(error instanceof PluginError ? error.code : 'provider', statusFor(error), spendReason(error));
+      const code = codeFor(error);
+      cancelReasoning(); await disposeIterator(iterator);
+      try { await cleanup(true); } catch { /* A failed settlement cannot replace the original JSON error with an empty 5xx. */ }
+      return json(code, statusFor({ code }), spendReason(error));
     }
     function cancelReasoning() { localCancellation.abort(); }
   };

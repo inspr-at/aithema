@@ -1,11 +1,30 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mintConversationCredential, reconcileUsage, createVoiceBinding } from '../src/server.js';
+import { mintConversationCredential, reconcileUsage, createVoiceBinding, readJson } from '../src/server.js';
 import { validateManifest, PluginRegistry } from '../../../packages/core/src/plugins.js';
 import { manifest } from '../src/manifest.js';
 import { voiceOverrides } from '../src/options.js';
 import { PluginError } from '../../../packages/core/src/invocation.js';
 import { fixture, binding, invocationOptions, flush } from './fixtures.js';
+
+test('bounded JSON reader coalesces tiny chunks and preserves split UTF-8 across slab boundaries', async () => {
+  const expected = { text: `${'x'.repeat(65_526)}ä🙂` }, bytes = new TextEncoder().encode(JSON.stringify(expected));
+  let offset = 0, observed = 0;
+  const body = new ReadableStream({ pull(controller) {
+    if (offset === bytes.length) { controller.close(); return; }
+    controller.enqueue(bytes.subarray(offset, ++offset));
+  } }, { highWaterMark: 0 });
+  assert.deepEqual(await readJson(new Response(body), bytes.length, { onBytes: count => { observed = count; } }), expected);
+  assert.equal(observed, bytes.length); assert.equal(body.locked, false);
+});
+test('bounded JSON reader cancels excess data and rejects malformed or missing JSON', async () => {
+  let cancelled = false;
+  const body = new ReadableStream({ start(controller) { controller.enqueue(new Uint8Array(11)); }, cancel() { cancelled = true; } });
+  await assert.rejects(readJson(new Response(body), 10), { code: 'limit' });
+  assert.equal(cancelled, true); assert.equal(body.locked, false);
+  await assert.rejects(readJson(new Response('{')), { code: 'invalid-output' });
+  await assert.rejects(readJson(new Response()), { code: 'invalid-output' });
+});
 
 test('token and signed URL minting use configured agent, runtime secret and a fake API', async () => {
   const local = fixture();
