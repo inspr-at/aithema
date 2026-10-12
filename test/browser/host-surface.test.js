@@ -301,6 +301,7 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     assert.equal(gone, 404, 'the deleted conversation is erased on the server');
     await page.keyboard.press('Escape');
     await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.library').open);
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.activeElement?.className === 'conversations-toggle');
     assert.equal(await inShadow(page, c => c.shadowRoot.activeElement?.className), 'conversations-toggle', 'Escape returns focus to the opener');
     tally.push('library: new, rename in place, sort, open, delete with erasure wording');
 

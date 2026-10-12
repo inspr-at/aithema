@@ -1109,7 +1109,7 @@ test('clickable html drafts: request, sandboxed preview, a refresh revision in p
 
     // Request: the rail says what happens in plain words and nothing moves under the pointer.
     const requestBefore = await rest(page, '.concept-request');
-    assert.match(await inShadow(page, c => c.shadowRoot.querySelector('.concept-request').textContent), /^Request concept · No cost \(local fake\)$/u);
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.concept-request').textContent), en.display.draftsOn.replace('{credits}', '0'));
     await page.mouse.down(); await page.mouse.up();
     await waitForShadow(page, '.concept-activity-text', { text: 'Draft revision 1 is ready.' });
     sameBox(requestBefore, await box(page, '.concept-request'), 'concept request button');

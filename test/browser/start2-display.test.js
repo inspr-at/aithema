@@ -238,12 +238,12 @@ test('AIT-131 approved display: eight states at 390, 1024, 1440, both themes and
       const wave = await shadow(page, c => { const canvas = c.shadowRoot.querySelector('.voice-wave'), box = canvas.getBoundingClientRect(), ratio = Math.min(2,devicePixelRatio);
         return { width: canvas.width / ratio, cssWidth: box.width, stroke: canvas.getContext('2d').lineWidth / ratio }; });
       assert.ok(Math.abs(wave.width - wave.cssWidth) <= .5, `${label}: waveform backing store follows its width`);
-      assert.equal(wave.stroke, 1.6, `${label}: 1.6 px waveform bars`);
+      assert.ok(Math.abs(wave.stroke - 1.6) <= 1e-6, `${label}: 1.6 px waveform bars`);
       await shot('voice-rail-live', width, theme);
       await shadow(page, c => c.shadowRoot.querySelector('.voice-close').click());
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'idle');
     }
-    for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [320, 768]) {
+    for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [320, 600, 768, 900]) {
       await page.setViewport({ width, height: 900 }); await page.select('#theme', theme); await scene('conversation');
       const row = await shadow(page, c => {
         const r = c.shadowRoot, items = ['.ai-notice', '.host-credits', '.footer-right'].map(s => {

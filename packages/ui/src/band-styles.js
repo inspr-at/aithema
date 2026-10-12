@@ -109,6 +109,9 @@ export const bandStyles = `
   .header-actions { grid-column:2; grid-row:1; }
   .edge-column { --band-height:142px; }
 }
+@media(900px <= width < 1024px) {
+  .ai-notice { font-size:11.5px; } .host-credits__track { width:44px; } .display-foot__row { gap:8px; }
+}
 @media(600px <= width < 900px) {
   .ai-notice,.host-credits,.status { font-size:11px; }
   .host-credits__track { width:44px; } .display-foot__row { gap:8px; }
