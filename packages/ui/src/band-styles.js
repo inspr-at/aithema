@@ -50,6 +50,7 @@ export const bandStyles = `
 .fold-strip:hover { background:color-mix(in srgb,var(--aithema-surface) 75%,transparent); box-shadow:0 0 0 1px var(--aithema-line-strong); }
 .fold-identity { display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--aithema-muted); white-space:nowrap; }
 .fold-text { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+.fold-strip { padding-left:max(16px,calc(54px - var(--aithema-gutter))); }
 .fold-question { color:var(--aithema-accent); font-size:12.5px; font-weight:600; }
 .drafts-canvas { position:relative; display:grid; min-width:0; min-height:300px; padding:16px;
   border-radius:16px; box-shadow:0 0 0 1px var(--aithema-line); background:color-mix(in srgb,var(--aithema-surface) 60%,transparent); }
@@ -85,6 +86,7 @@ export const bandStyles = `
 .host-credits { position:relative; justify-self:center; display:flex; flex-wrap:nowrap; align-items:center; gap:8px; min-height:44px; padding:0; font-size:12.5px; }
 .host-credits__track { display:inline-block; flex:none; width:90px; height:4px; border-radius:4px; background:var(--aithema-line); overflow:hidden; }
 .host-credits__track i { display:block; height:100%; background:var(--aithema-accent); border-radius:inherit; }
+.concept-bar { padding-left:max(0px,calc(54px - var(--aithema-gutter))); }
 .concept-preview-slot:has(.concept-preview:disabled) { display:none; }
 .concept-bar:has(.concept-preview:disabled) { grid-template-columns:minmax(0,1fr); }
 .host-credits__text { color:var(--aithema-ink); font-weight:600; white-space:nowrap; }
@@ -118,7 +120,7 @@ export const bandStyles = `
   .header-actions { gap:0; } .conversations-toggle { font-size:12px; padding:0 4px; min-width:88px; }
   .band .audio-rail { gap:4px; margin-left:-4px; width:100%; }
   .voice-state,.voice-caption { font-size:10px; padding-inline:4px; }
-  .fold-strip { gap:8px; padding-inline:12px; grid-template-columns:auto minmax(0,1fr); }
+  .fold-strip { gap:8px; padding-left:max(12px,calc(54px - var(--aithema-gutter))); padding-right:12px; grid-template-columns:auto minmax(0,1fr); }
   .fold-question { grid-column:2; }
   .composer { margin-bottom:0; }
   .drafts-canvas { min-height:60svh; }

@@ -230,7 +230,8 @@ test('a live provider host offers only its configured route: no mock, no fake vo
   const catalog = await fetch(running.url + `/api/sessions/${session.id}/settings`, { headers }).then(r => r.json());
   const best = catalog.presets.best;
   assert.deepEqual(best.models.map(o => [o.id, o.label, o.status, o.reason]), [['openrouter/anthropic/fixture',
-    'anthropic/fixture and openai/fixture via OpenRouter', 'consent', 'current processing consent required']]);
+    'This host’s model', 'consent', 'current processing consent required']]);
+  assert.equal(session.engine.model.reply, 'anthropic/fixture'); assert.equal(session.engine.model.understanding, 'openai/fixture');
   assert.deepEqual([best.voices, best.visuals], [[], []], 'no fake or mock voice or visual provider is offered');
   assert.equal(/fake|mock/u.test(JSON.stringify(best)), false);
   assert.deepEqual([catalog.presets.eu.reason, catalog.presets.custom.reason], ['not configured', 'not configured']);

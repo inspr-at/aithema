@@ -22,7 +22,7 @@ test('demo slot fills, the fake outbox and the demo handover wording appear only
     for (const key of keys.filter(key => key !== 'fetch')) globalThis[key] = window[key];
     await import('../../packages/ui/src/session-element.js');
     const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
-    const body = html.match(/<body>([\s\S]*?)<\/body>/u)[1].replace(/<script[^>]*>[\s\S]*?<\/script>/gu, '');
+    const body = html.match(/<body[^>]*>([\s\S]*?)<\/body>/u)[1].replace(/<script[^>]*>[\s\S]*?<\/script>/gu, '');
     // The page with a stubbed component: configure() records what the host passes.
     function prepare(demoHost, locale, providers = { imageLabel: 'Images off', voiceMode: 'off' }, engine = {}) {
       document.body.innerHTML = body;

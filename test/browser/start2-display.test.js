@@ -111,6 +111,7 @@ test('AIT-131 approved display: eight states at 390, 1024, 1440, both themes and
         if (stage === 'conversation') {
           s.inputRevision = 1; s.openQuestion = { stub: true };
           s.transcript = [{ id: 'a1', role: 'assistant', content: words.first }, { id: 'u1', role: 'user', content: words.answer }, { id: 'a2', role: 'assistant', content: words.reply }];
+          for (const turn of s.transcript) if (turn.role === 'assistant') turn.inputRevision = inputRevision(s);
           s.understanding = { ...s.understanding, locale, inputRevision: inputRevision(s), readinessAssessed: true, draft: false, summary: words.summary,
             signals: words.signals, openQuestions: words.questions, progress: { talk: { value: .5 }, build: { value: .2 } } };
         }
