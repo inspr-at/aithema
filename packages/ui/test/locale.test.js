@@ -120,3 +120,22 @@ test('AIT-127: device locale changes are local and never reconnect the device or
   assert.equal(await c.changeLocale('de'), true); assert.equal(posts.length, 0);
   assert.equal(c.session.locale, 'de'); assert.equal(root.querySelector('textarea'), input); assert.equal(input.value, 'Device draft');
 });
+
+test('AIT-127: a restore fetched before locale and first-turn events cannot roll them back', async t => {
+  const { c, root, session } = fixture(t), reply = Promise.withResolvers(), requested = Promise.withResolvers();
+  t.mock.method(globalThis, 'fetch', async (url, init = {}) => {
+    if (String(url).includes('/events')) return new Response(new ReadableStream({ start(controller) {
+      init.signal?.addEventListener('abort', () => controller.close(), { once: true });
+    } }));
+    requested.resolve(); return reply.promise;
+  });
+  const first = { sessionId: session.id, seq: session.seq + 2, type: 'turn.final', data: { id: 'first', role: 'user', content: 'First turn' } };
+  // A gap starts a snapshot fetch, then the missing locale event and the first turn arrive.
+  c.receive(first); await requested.promise;
+  c.receive({ sessionId: session.id, seq: session.seq + 1, type: 'session.locale-changed', data: { locale: 'de' } });
+  c.receive(first);
+  const input = root.querySelector('textarea'); input.value = 'New draft'; input.focus();
+  reply.resolve(Response.json(session)); await tick();
+  assert.equal(c.session.locale, 'de'); assert.equal(c.session.transcript[0].id, 'first'); assert.equal(c.session.seq, first.seq);
+  assert.equal(root.querySelector('textarea'), input); assert.equal(input.value, 'New draft'); assert.equal(root.activeElement, input);
+});

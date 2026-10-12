@@ -132,6 +132,7 @@ export class AithemaSession extends HTMLElement {
   get session() { return structuredClone(this.#session); }
   /** Change an unstarted conversation in place. Calls, turns and drafts keep their identity. */
   changeLocale(locale) {
+    if (!this.#session) return Promise.resolve(false);
     const sessionId = this.#session.id;
     const changing = this.#localeChanging.then(async () => {
       if (sessionId !== this.#session.id || !['en', 'de'].includes(locale) || !this.#options.copyForLocale?.(locale)) return false;
@@ -1318,8 +1319,12 @@ export class AithemaSession extends HTMLElement {
       if (!response.ok) throw new Error();
       const session = await response.json();
       if (sessionId !== this.#session.id) return;
-      // A snapshot requested before a withdrawal must never restore its content.
-      if (session.seq < this.#invalidatedAt) return;
+      // A restore already in flight cannot overwrite a newer locale acknowledgement or first
+      // turn, any more than it may restore withdrawn content. Resume from the newer cursor.
+      if (session.seq < this.#cursor || session.seq < this.#invalidatedAt) {
+        if (this.isConnected) this.#connect();
+        return;
+      }
       this.#session = session; this.#cursor = this.#session.seq; this.#partials.clear();
       this.#repaintLocale();
       this.#restoreFailure(); this.#concept.update(this.#session); this.#renderMode(); this.#dialog?.sync(); this.#host?.resync();

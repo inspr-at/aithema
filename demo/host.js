@@ -11,11 +11,11 @@ import { aiNotice } from '../packages/core/src/ai-notice.js';
 import { sessionKey as key, localeKey, preferredLocale, readPreference, remember, mountTheme, paintUtilities } from './page-preferences.js';
 const component = document.querySelector('aithema-session'), bundles = { en, de };
 mountTheme();
-let fakeVoice, liveVoiceClient, copy = bundles[preferredLocale()];
+let fakeVoice, liveVoiceClient, localeChoice = preferredLocale(), copy = bundles[localeChoice];
 // The page always speaks the current conversation's language.
 function paintPage() {
   const h = copy.host, text = (selector, value) => { const node = document.querySelector(selector); if (node) node.textContent = value; };
-  document.documentElement.lang = component.session?.locale ?? preferredLocale(); document.title = 'Aithema';
+  document.documentElement.lang = component.session?.locale ?? localeChoice; document.title = 'Aithema';
   paintUtilities(copy);
   for (const [selector, value] of [['#title', h.title], ['#new', h.newConversation], ['#resume-hint', h.resumeHint], ['#source', h.slots.source],
     ['#language-label', h.language], ['#mock-hint', h.mockHint], ['#settings-hint', h.settingsHint],
@@ -32,7 +32,7 @@ function paintPage() {
   paintVisuals();
   const choice = document.querySelector('#locale');
   // DE/EN stay compact; the language label follows the running conversation.
-  choice.value = preferredLocale();
+  choice.value = localeChoice;
   text('#language-note', choice.value === component.session?.locale ? '' : h.languageNext.replace('{language}', h.languages[choice.value]));
 }
 // The header and the mock consent name the visual kind this conversation uses (AIT-118): the
@@ -54,7 +54,7 @@ async function open(fresh = false, request = {}) {
   try {
     const saved = fresh ? null : readPreference(key);
     let response = saved ? await fetch(`/api/sessions/${saved}`) : null;
-    if (!response?.ok) response = await postJson('/api/sessions', { ...request, locale: preferredLocale() });
+    if (!response?.ok) response = await postJson('/api/sessions', { ...request, locale: localeChoice });
     if (!response.ok) throw new Error();
     await adopt(await response.json());
   } catch { document.querySelector('#error').textContent = binding.demoHost === true ? copy.host.restoreFailed : copy.host.conversationFailed; }
@@ -86,9 +86,9 @@ async function adopt(session) {
       deviceConnector: createDeviceReasoning, deviceEndpoint: 'http://127.0.0.1:8000',
       // The host surface (AIT-104 B2): library, handover and credits from the demo ports; verification
       // only where the fake mail outbox can confirm it (the mock demo).
-      host: { library: true, verification: binding.demoHost === true, handover: true, credits: true, locale: preferredLocale } });
+      host: { library: true, verification: binding.demoHost === true, handover: true, credits: true, locale: () => localeChoice } });
     // A stored choice may have changed while the initial conversation was being restored.
-    await component.changeLocale(preferredLocale());
+    await component.changeLocale(localeChoice);
     paintPage();
     document.querySelector('#error').textContent = '';
   } catch { document.querySelector('#error').textContent = binding.demoHost === true ? copy.host.restoreFailed : copy.host.conversationFailed; }
@@ -158,7 +158,7 @@ component.addEventListener('aithema-features', paintVisuals);
 component.addEventListener('aithema-locale', () => { copy = bundles[component.session.locale] ?? en; paintPage(); });
 // Remember the next-conversation choice even when a call or an existing turn prevents changing this one.
 document.querySelector('#locale').addEventListener('change', async event => {
-  const locale = event.target.value; remember(localeKey, locale);
+  const locale = event.target.value; localeChoice = locale; remember(localeKey, locale);
   await component.changeLocale(locale); paintPage();
 });
 document.querySelector('#new').addEventListener('click', () => void open(true));
