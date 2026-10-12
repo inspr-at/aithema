@@ -200,7 +200,8 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
     evidence: { qualified: true, accountRef: binding.accountRef, secretRef: binding.secretRef,
       model: binding.model, endpoint: binding.endpoint, routing: {}, verifiedAt: clock - 1000, expiresAt: clock + 100_000 } };
   const plugin = createVoiceProvider({ storage, now, binding: { agentId: binding.agentId, secretRef: binding.secretRef,
-    apiBaseUrl: binding.endpoint, upstreamMicroPerMinute: binding.upstreamMicroPerMinute, visitorMicroPerMinute: binding.visitorMicroPerMinute },
+    apiBaseUrl: binding.endpoint, upstreamMicroPerMinute: binding.upstreamMicroPerMinute, visitorMicroPerMinute: binding.visitorMicroPerMinute,
+    reservationSeconds: binding.reservationSeconds, usdPerCredit: binding.usdPerCredit },
     resolveSecret: () => { secretReads++; return 'provider-fixture-value'; }, revokeFacade: secrets.revoke,
     closureTimeoutMs: slowClosure ? 30_000 : 10_000,
     requestProviderClose: record => { closeRequests.push(record.providerSessionId); providerEvents.record({ type: 'close', id: record.providerSessionId }); },
