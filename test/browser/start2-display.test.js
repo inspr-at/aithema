@@ -57,24 +57,35 @@ function pixelRgb(png) {
   }
   return [...inflateSync(Buffer.concat(chunks)).subarray(1, 4)];
 }
-const freezeReveal = page => shadow(page, c => {
-  globalThis.displayRevealTimeline = c.shadowRoot.querySelector('.band').getAnimations({ subtree: true })
-    .filter(animation => animation.animationName !== 'aithema-prism-turn');
-  for (const animation of globalThis.displayRevealTimeline) { animation.pause(); animation.currentTime = 0; }
-});
 const finishRevealEntry = page => shadow(page, async c => {
   const animations = c.shadowRoot.querySelector('.band').getAnimations({ subtree: true });
   await Promise.all(animations.filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
 });
 const freezeRevealExit = async page => {
-  await shadow(page, c => {
-    const native = window.setTimeout;
-    window.setTimeout = fn => { globalThis.displayRevealCleanup = fn; return 0; };
-    try { c.shadowRoot.querySelector('.band').dispatchEvent(new MouseEvent('mouseleave')); }
-    finally { window.setTimeout = native; }
+  const point = await shadow(page, c => {
+    const band = c.shadowRoot.querySelector('.band'), native = window.setTimeout;
+    const holdCleanup = event => {
+      if (event.target !== band) return;
+      band.removeEventListener('mouseleave', holdCleanup, true);
+      window.setTimeout = fn => { globalThis.displayRevealCleanup = fn; return 0; };
+    };
+    band.addEventListener('mouseleave', holdCleanup, true);
+    // Registered after the reveal's close handler: capture its actual exit in this
+    // browser event, before a protocol round trip can retire a short transition.
+    band.addEventListener('mouseleave', () => {
+      window.setTimeout = native;
+      globalThis.displayRevealTimeline = band.getAnimations({ subtree: true })
+        .filter(animation => animation.animationName !== 'aithema-prism-turn');
+      for (const animation of globalThis.displayRevealTimeline) { animation.pause(); animation.currentTime = 0; }
+      globalThis.displayRevealPaused = Promise.all(globalThis.displayRevealTimeline.map(animation => animation.ready));
+    }, { once: true });
+    return [0, innerHeight - 1];
   });
-  await freezeReveal(page);
-  return shadow(page, c => {
+  // A synthetic mouseleave leaves the orb under the pointer and permits re-entry
+  // while its old exit animations are paused. Physically leave the whole band.
+  await page.mouse.move(...point);
+  return shadow(page, async c => {
+    await globalThis.displayRevealPaused;
     const band = c.shadowRoot.querySelector('.band'), row = band.querySelector('.aithema-reveal__row');
     const fade = globalThis.displayRevealTimeline.find(a => a.effect.target === row && a.transitionProperty === 'opacity');
     if (!fade) return null;
@@ -481,10 +492,14 @@ test('AIT-149: reveal exit clock survives delayed browser round trips', { timeou
     session.settings.origin = 'chosen'; localStorage.setItem('aithema-motion', 'on');
     c.configure({ copy: de, session }); c.shadowRoot.querySelector('.band-orb .orb').focus();
   });
+  await page.hover('aithema-session >>> .band-orb .orb');
   await finishRevealEntry(page);
   // Every browser-call response arrives after the brand's entire 300ms fade.
   // Capturing the exit in a later call must not silently lose that transition.
-  const slowPage = { async $eval(...args) {
+  const slowPage = { mouse: { async move(...args) {
+    await page.mouse.move(...args);
+    await new Promise(resolve => setTimeout(resolve, 400));
+  } }, async $eval(...args) {
     const result = await page.$eval(...args);
     await new Promise(resolve => setTimeout(resolve, 400));
     return result;
@@ -590,9 +605,9 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.band').dataset.aithemaRevealState), 'closed', `${label}: quick pass`);
       await page.hover(selector);
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.band').dataset.aithemaRevealState === 'open');
-      // Finish entry on its real clock. Pausing a completed CSS transition keeps its reversal
-      // bookkeeping alive in Chrome and can distort the later exit being measured here.
-      await new Promise(resolve => setTimeout(resolve, 2200));
+      // Wait for the actual finite entry effects; elapsed wall time does not prove
+      // that Chrome has finished a transition on a busy runner.
+      await finishRevealEntry(page);
       await shot('reveal-open', width, theme, true);
       const links = await shadow(page, c => [...c.shadowRoot.querySelectorAll('.band .aithema-reveal__link')].map(n => ({ href: n.href, title: n.title,
         right: n.getBoundingClientRect().right, bottom: n.getBoundingClientRect().bottom, opacity: getComputedStyle(n).opacity })));
@@ -612,17 +627,12 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
       assert.ok(phase === 'open' && controls.every(n => n.eligible ? n.inert && n.marked : !n.marked), `${label}: only visible controls dissolve (${phase}): ${JSON.stringify(controls)}`);
       // Hold only this synchronous exit's cleanup. Its genuine CSS timelines can then be sampled
       // at exact times without screenshot latency advancing them between requested frames.
-      await shadow(page, c => {
-        const native = window.setTimeout;
-        window.setTimeout = fn => { globalThis.displayRevealCleanup = fn; return 0; };
-        try { c.shadowRoot.querySelector('.band').dispatchEvent(new MouseEvent('mouseleave')); }
-        finally { window.setTimeout = native; }
-      });
-      await freezeReveal(page);
+      assert.deepEqual(await freezeRevealExit(page), { phase: 'exiting', from: '1', to: '0', duration: 300 }, `${label}: capture the genuine brand exit transition`);
       const samples = [], point = { x: 2, y: Math.floor(band[1] + band[3] - 10), width: 1, height: 1 };
       for (let ms = 0; ms <= 900; ms += 50) {
         await seekReveal(page, ms);
         const opacities = await shadow(page, c => ({
+          phase: c.shadowRoot.querySelector('.band').dataset.aithemaRevealState,
           glass: Number(getComputedStyle(c.shadowRoot.querySelector('.aithema-reveal__glass')).opacity),
           brand: Number(getComputedStyle(c.shadowRoot.querySelector('.aithema-reveal__row')).opacity),
           controls: [...c.shadowRoot.querySelectorAll('[data-aithema-reveal-control]')].map(n => {
@@ -630,6 +640,8 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
           }),
           proxies: [...c.shadowRoot.querySelectorAll('.aithema-reveal__proxy')].map(n => Number(getComputedStyle(n).opacity)),
         }));
+        assert.equal(opacities.phase, 'exiting', `${label}: every frame belongs to the captured exit`);
+        if (ms >= 300) assert.equal(opacities.brand, 0, `${label}: brand exit is complete at ${ms}ms`);
         if (opacities.brand > .25 && ![...opacities.controls.filter(n => n.visible).map(n => n.opacity), ...opacities.proxies].every(value => value <= .25)) {
           const timeline = await shadow(page, c => ({
             phase: c.shadowRoot.querySelector('.band').dataset.aithemaRevealState,
@@ -659,16 +671,24 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
       // Use the actual edge toggle for both modules, including an open reveal.
       await page.click('aithema-session >>> .motion-toggle');
       await shadow(page, c => c.shadowRoot.querySelector('.band-orb .orb').focus());
-      await new Promise(resolve => setTimeout(resolve, 250));
+      await finishRevealEntry(page);
       const calm = await shadow(page, c => ({ motion: c.getAttribute('motion'), orb: c.shadowRoot.querySelector('.band-orb .orb').dataset.orbMotion,
         reveal: c.shadowRoot.querySelector('.band').dataset.aithemaRevealMotion,
         duration: getComputedStyle(c.shadowRoot.querySelector('.aithema-reveal__glass')).transitionDuration,
+        brand: getComputedStyle(c.shadowRoot.querySelector('.aithema-reveal__row')).opacity,
+        controlsHidden: [...c.shadowRoot.querySelectorAll('[data-aithema-reveal-control]')].every(n => getComputedStyle(n).opacity === '0'),
         sparks: Boolean(c.shadowRoot.querySelector('.aithema-reveal__stars')),
         animations: c.shadowRoot.querySelector('.band').getAnimations({ subtree: true }).filter(a => a.playState === 'running').length }));
-      assert.deepEqual(calm, { motion: 'off', orb: 'off', reveal: 'off', duration: '0.2s', sparks: false, animations: 0 });
+      assert.deepEqual(calm, { motion: 'off', orb: 'off', reveal: 'off', duration: '0.2s', brand: '1', controlsHidden: true, sparks: false, animations: 0 });
       await shot('reveal-motion-off-open', width, theme, true);
-      await page.keyboard.press('Escape'); await new Promise(resolve => setTimeout(resolve, 250));
+      await page.keyboard.press('Escape');
+      await until(page, () => {
+        const band = document.querySelector('aithema-session').shadowRoot.querySelector('.band');
+        return band.dataset.aithemaRevealState === 'closed' && band.getAnimations({ subtree: true }).every(a => a.playState !== 'running');
+      });
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.band').dataset.aithemaRevealState), 'closed');
+      assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.aithema-reveal__row')).opacity), '0', `${label}: calm exit hides the brand`);
+      assert.deepEqual(await shadow(page, c => [...c.shadowRoot.querySelectorAll('.band [data-reveal]')].map(n => getComputedStyle(n).opacity)), baseline.map(n => n.opacity), `${label}: calm exit restores every control`);
       await page.click('aithema-session >>> .motion-toggle');
       reveals.push({ width, theme, locale, links, point, clock: 'paused CSS timelines; exact 50ms rendered-pixel samples', samples });
     }
