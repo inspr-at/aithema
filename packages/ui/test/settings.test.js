@@ -102,7 +102,7 @@ test('choosing a model sends ids only and the panel shows the new choice only af
   const button = h.q('[data-select="model"] .select__button');
   button.click();
   assert.equal(button.getAttribute('aria-expanded'), 'true'); assert.equal(h.q('#settings-options-model').hidden, false);
-  const declared = h.option('model', 'Declared provider');
+  const declared = h.option('model', en.display.modelUnknown);
   assert.equal(declared.getAttribute('aria-disabled'), 'true'); assert.equal(declared.querySelector('.option-status').textContent, en.settings.unavailable);
   declared.click(); await tick();
   assert.equal(h.posts.length, 0, 'an unavailable option is never sent');

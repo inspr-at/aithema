@@ -76,7 +76,7 @@ test('demo host creates owned sessions through postJson and combines consent, pa
     const eu = dialog.querySelector('.preset-option[data-preset="eu"]'), before = posts.length;
     assert.equal(eu.getAttribute('aria-disabled'), 'true'); eu.click();
     assert.equal(posts.length, before, 'an unavailable preset is never sent');
-    assert.equal(option('model', 'GPT-4.1 mini via OpenRouter').getAttribute('aria-disabled'), 'true', 'declared providers stay disabled with a reason');
+    assert.equal(option('model', 'GPT-4.1 mini').getAttribute('aria-disabled'), 'true', 'declared providers stay disabled with a reason');
     option('model', 'Deep (mock)').click();
     await wait(() => component.session.settings.model === 'mock/deep');
     assert.equal(component.session.id, previousId, 'model changes apply to this conversation');

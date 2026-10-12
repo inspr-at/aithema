@@ -9,7 +9,7 @@ const BUTTONS = { start: ['mic'], input: ['mic', true], output: ['volume', true]
 export class AudioRail {
   constructor({ root, copy, client, feature, context, onPartial, onPause, onEnd, onState, onLevel, playback, journal, ready, heartbeatMs = 10_000 }) {
     Object.assign(this, { root, copy, client, feature, context, onPartial, onPause, onEnd, onState, onLevel, playback, journal, ready, heartbeatMs });
-    this.state = 'idle'; this.input = true; this.output = true; this.generation = 0;
+    this.state = 'idle'; this.input = true; this.output = true; this.generation = 0; this.connected = true;
     const button = name => `<button data-reveal class="voice-${name}" type="button">${name === 'pause' ? `<span class="voice-icon">${icon('pause')}</span><span class="voice-icon voice-icon--resume">${icon('play')}</span>`
       : icon(BUTTONS[name][0], { slash: BUTTONS[name][1] === true })}<span class="voice-label"></span></button>`;
     root.innerHTML = `<div class="voice-cell voice-cell--output">${button('output')}${button('playback')}</div>
@@ -64,7 +64,7 @@ export class AudioRail {
     const c = this.copy, active = Boolean(this.session), available = this.feature(),
       transitional = ['connecting', 'recovering'].includes(this.state) || this.state === 'closing' && this.closingCall;
     const state = this.paused && active ? 'paused' : this.state;
-    if (this.root.dataset.state !== undefined && this.root.dataset.state !== state) queueMicrotask(() => this.onState?.(state));
+    if (this.root.dataset.state !== undefined && this.root.dataset.state !== state) queueMicrotask(() => { if (this.connected) this.onState?.(state); });
     this.root.dataset.state = state;
     this.root.dataset.call = active || transitional ? 'active' : 'none';
     this.root.toggleAttribute('data-playback-blocked', Boolean(this.playbackBlocked)); this.root.toggleAttribute('data-message', Boolean(this.error));
@@ -132,7 +132,7 @@ export class AudioRail {
         this.root.dataset.measured = '';
         if (!still && this.motion !== false) this.waveform.push(level, speaking ? 'assistant' : 'user', 80);
         // The orb reacts to the audible reply only, never to the visitor's input (START orb).
-        this.onLevel?.(speaking ? level : 0);
+        if (this.connected) this.onLevel?.(speaking ? level : 0);
       }, 80);
       void this.consume(session, generation);
       if (this.root.ownerDocument.hidden || this.hidePending) { this.hidePending = false; this.hide(); }
@@ -223,12 +223,12 @@ export class AudioRail {
     })().finally(() => { this.closing = null; this.closingSession = null; });
     return this.closing;
   }
-  quiet() { delete this.root.dataset.measured; this.waveform.baseline(); this.onLevel?.(0); }
+  quiet() { delete this.root.dataset.measured; this.waveform.baseline(); if (this.connected) this.onLevel?.(0); }
   connect() {
-    this.root.ownerDocument.addEventListener('visibilitychange', this.visibility); this.waveform.connect();
+    this.connected = true; this.root.ownerDocument.addEventListener('visibilitychange', this.visibility); this.waveform.connect();
   }
   disconnect() {
-    this.root.ownerDocument.removeEventListener('visibilitychange', this.visibility); this.waveform.destroy(); void this.close();
+    this.connected = false; this.root.ownerDocument.removeEventListener('visibilitychange', this.visibility); this.waveform.destroy(); void this.close();
   }
   destroy() {
     this.onState = null; this.onLevel = null; this.disconnect();
