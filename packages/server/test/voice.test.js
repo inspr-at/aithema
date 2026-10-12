@@ -379,10 +379,10 @@ test('voice facade uses per-call auth, route binding, session reasoning and sepa
   assert.equal((await facade()).status, 401);
 });
 
-async function voicePromptFixture(t, prepare = () => {}) {
+async function voicePromptFixture(t, prepare = () => {}, { stream } = {}) {
   const requests = [], base = createMockReasoning();
   const h = voiceFixture(t, { reasoning: { ...base, async *stream(request, options) {
-    requests.push(request); yield* base.stream(request, options);
+    requests.push(request); yield* (stream ? stream(request, options) : base.stream(request, options));
   }, async structured(request, options) {
     // Keep background understanding from adding a separate focused-question message.
     return { ...await base.structured(request, options), openQuestions: [] };
@@ -406,6 +406,122 @@ async function voicePromptFixture(t, prepare = () => {}) {
   const recorded = () => activeTurns(h.storage.get(h.session.id)).map(({ role, content }) => ({ role, content }));
   return { ...h, grant, requests, persist, callback, callbackResponse, recorded };
 }
+
+function voiceUnderstanding(h, question, { draft = false, openQuestions = [question] } = {}) {
+  const session = h.storage.get(h.session.id);
+  h.storage.append(session.id, 'understanding.updated', { ...session.understanding,
+    inputRevision: inputRevision(session), draft, openQuestions });
+  h.storage.append(session.id, 'question.focused', { question });
+}
+
+test('AIT-144: a persisted answer invalidates the old voice focus while understanding is pending', async t => {
+  const h = await voicePromptFixture(t), question = 'Sind ein bis zwei Polster am Tag insgesamt gemeint?';
+  voiceUnderstanding(h, question);
+  // Persist speech without completing the asynchronous understanding lane.
+  h.storage.postVoiceEvent(h.session.id, h.grant.callId, h.grant.providerSessionId, {
+    type: 'final', callId: h.grant.callId, turnId: `${h.grant.providerSessionId}:user:answer`,
+    role: 'user', text: 'Insgesamt gemeint.' });
+  await h.callback(h.recorded());
+  const request = h.requests.at(-1), context = JSON.parse(request.messages[0].content);
+  assert.equal(context.stale, true);
+  assert.equal(request.messages.some(m => m.content.includes('untrusted-focused-question')), false,
+    'the already answered focus must not be offered as a next question');
+  assert.match(request.system, /Never re-ask[^\n]*canonical/iu);
+});
+
+test('AIT-144: a callback answer not yet persisted makes even a current understanding stale', async t => {
+  const h = await voicePromptFixture(t), question = 'Versand nach Deutschland, Österreich und in die Schweiz?';
+  voiceUnderstanding(h, question);
+  await h.callback([{ role: 'user', content: 'Genau diese drei Länder, das passt.' }]);
+  const request = h.requests.at(-1), context = JSON.parse(request.messages[0].content);
+  assert.equal(context.stale, true, 'understanding has not seen the callback answer');
+  assert.equal(request.messages.some(m => m.content.includes('untrusted-focused-question')), false);
+  assert.equal(request.messages.at(-1).content, 'Genau diese drei Länder, das passt.');
+  assert.equal(h.storage.get(h.session.id).transcript.length, 0, 'prompt construction does not persist input');
+});
+
+test('AIT-144: only a current final open question can supply voice focus', async t => {
+  const h = await voicePromptFixture(t), question = 'Welche Domain wünschen Sie?';
+  for (const [name, options, expected] of [
+    ['current final', {}, true], ['draft', { draft: true }, false],
+    ['removed from current questions', { openQuestions: [] }, false],
+  ]) {
+    voiceUnderstanding(h, question, options);
+    await h.callback([]);
+    const messages = h.requests.at(-1).messages;
+    assert.equal(messages.some(m => m.content.includes('untrusted-focused-question')), expected, name);
+  }
+});
+
+test('AIT-144: voice guidance varies openings and limits speech to one short question', async t => {
+  const h = await voicePromptFixture(t);
+  await h.callback([{ role: 'user', content: 'Hallo' }]);
+  const { system } = h.requests.at(-1);
+  assert.match(system, /Never open[^\n]*Danke/iu);
+  assert.match(system, /Vary acknowledgements/iu);
+  assert.match(system, /two or three short sentences/iu);
+  assert.match(system, /at most one question/iu);
+  assert.match(system, /Do not read back[^\n]*summary/iu);
+  assert.match(system, /stale[^\n]*open questions/iu);
+  assert.match(system, /canonical[^\n]*latest[^\n]*take precedence/iu);
+});
+
+test('AIT-144: transcript replay keeps confirmed capacity and DACH out of fake replies', async t => {
+  // De-identified excerpts of the reported German call. Provider metadata and
+  // business identifiers are deliberately absent. The fake probes the prompt
+  // contract; its output scores are not evidence of real-model performance.
+  const capacity = 'Sind ein bis zwei Polster am Tag insgesamt oder zusätzlich gemeint?';
+  const region = 'Versand nach Deutschland, Österreich und in die Schweiz?';
+  const replay = [
+    [capacity, 'Insgesamt gemeint.', 'capacity'],
+    [capacity, 'Zwischen fünf bis zehn Werktagen.', null, 'Wie lange möchten Sie als Lieferzeit zusagen?'],
+    [capacity, 'Ja, stimmt.', 'capacity'],
+    ['Haben Sie Fotos, Beschreibungen und Preise?', 'Ja, auf jeden Fall hab ich das zur Verfügung.', null],
+    ['Wer hat die Rechte auf das Foto?', 'Der Kunde muss einfach angeben, dass er die Rechte auf das Foto hat.', null],
+    [region, 'Der Versand findet im deutschsprachigen Raum statt.', null],
+    [region, 'Genau diese drei Länder, das passt.', 'region'],
+    [region, '5 Prozent.', null, 'Wie hoch soll die Bearbeitungsgebühr sein?'],
+    ['Welche Versandkosten?', 'Versandkosten pro Polster sind 20 Euro plus zusätzlichen Polster jeweils 5 Euro.', null],
+    ['Gilt die Versandpauschale für alle Länder?', 'Ja, die Versandpauschalen gelten für alle Länder.', null],
+  ];
+  const base = createMockReasoning(), replies = [], confirmed = new Set();
+  const h = await voicePromptFixture(t, () => {}, { async *stream(request, options) {
+    const context = JSON.parse(request.messages[0].content);
+    const focus = request.messages.find(m => m.content.includes('untrusted-focused-question'));
+    // Behave like a model that picks the offered focus first; otherwise use
+    // current open questions. The production bug offers an answered old focus.
+    const question = focus ? JSON.parse(focus.content).question : context.stale ? null : context.understanding.openQuestions[0];
+    const opener = /Never open[^\n]*Danke/iu.test(request.system) ? '' : 'Danke, ';
+    const content = opener + (question ?? 'Die Einschätzung wird aktualisiert.');
+    replies.push(content);
+    // Use the admitted fake for terminal accounting, replacing only its text.
+    for await (const ignored of base.stream(request, options)) { void ignored; }
+    yield content;
+  } });
+  const record = (role, index, text) => h.storage.postVoiceEvent(h.session.id, h.grant.callId, h.grant.providerSessionId, {
+    type: 'final', callId: h.grant.callId, turnId: `${h.grant.providerSessionId}:${role}:replay-${index}`, role, text });
+  for (const [index, [question, answer, slot, heardQuestion = question]] of replay.entries()) {
+    record('assistant', index, heardQuestion);
+    const prior = h.recorded();
+    voiceUnderstanding(h, question);
+    if (slot) confirmed.add(slot);
+    const latest = { role: 'user', content: answer };
+    // Replay both arrival orders: final-event first and callback first.
+    if (index % 2 === 0) record('user', index, answer);
+    await h.callback([...h.recorded(), ...(index % 2 === 0 ? [] : [latest])]);
+    const request = h.requests.at(-1);
+    assert.equal(request.messages.filter(m => m.content === answer).length, 1);
+    assert.deepEqual(request.messages.filter(m => prior.some(t => t.content === m.content)), prior);
+    const reply = replies.at(-1);
+    if (confirmed.has('capacity')) assert.doesNotMatch(reply, /(?:insgesamt|zusätzlich)[^?]*\?/iu, `replay ${index}: capacity`);
+    if (confirmed.has('region')) assert.doesNotMatch(reply, /(?:Versand|Länder|Schweiz)[^?]*\?/iu, `replay ${index}: DACH`);
+    assert.ok((reply.match(/\?/gu) ?? []).length <= 1);
+    assert.ok(reply.split(/\s+/u).length <= 60);
+    if (index % 2 !== 0) record('user', index, answer);
+  }
+  const formulaic = replies.filter(reply => /^(?:Danke|Vielen Dank|Thanks|Thank you)\b/iu.test(reply));
+  assert.ok(formulaic.length / replies.length <= .2, `${formulaic.length}/${replies.length} formulaic openers`);
+});
 
 // Hold the actual consent evaluation, rather than wrapping an already completed check.
 // Restore the port before waiting so a concurrent persistEvent can authorize normally.
