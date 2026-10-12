@@ -32,12 +32,13 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       // The budget marker survives a crash before cap settlement or journal acknowledgement.
       // Replay that value rather than fetching a potentially changed provider duration.
       const row = runtime.budget.get(record.attemptId);
-      const result = row?.voice_reconciliation_json ? JSON.parse(row.voice_reconciliation_json)
+      const savedReconciliation = row?.voice_reconciliation_json ? JSON.parse(row.voice_reconciliation_json) : null;
+      const result = savedReconciliation && !savedReconciliation.usage?.costEstimated ? savedReconciliation
         : closeOrphan ? await voiceOperation({ deadlineAt: Date.now() + 1000 }, opts => closeOrphan(record, opts)) : null;
       if (result?.closureConfirmed === true && result.providerSessionId === record.providerSessionId) {
         runtime.reconcileVoice(record.attemptId, result);
         const saved = storage.voiceCalls(record.sessionId).find(c => c.providerSessionId === record.providerSessionId);
-        storage.saveVoiceCall(record.sessionId, { ...saved, reconciliation: result, reconciliationPending: false });
+        storage.saveVoiceCall(record.sessionId, { ...saved, reconciliation: result, reconciliationPending: result.usage?.costEstimated === true });
       }
     } catch { /* Durable pending reconciliation remains visible and retryable. */ }
   }

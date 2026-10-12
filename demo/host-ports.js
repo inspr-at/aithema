@@ -1,5 +1,6 @@
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { LibraryPortError, createFakeHandoverHost, handoverKey } from '@inspr/aithema-core';
+import { SQLiteBudgetLedger } from '../packages/server/src/budget.js';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const integer = value => Number.isSafeInteger(value) && value >= 0;
@@ -30,6 +31,43 @@ export function createDemoWallet({ limitMicro = 10_000_000, spent = () => 0 } = 
 export function createDemoHost({ storage, demo = true, demoBypass = false, verificationRequired = false, now = () => Date.now(), identityPolicy,
   walletLimitMicro = 10_000_000, durationMs } = {}) {
   const mail = [], wallets = new Map(), sink = createFakeHandoverHost(), erasures = new Map(), resets = new Map();
+  const costs = new SQLiteBudgetLedger(storage);
+  storage.db.exec(`CREATE TABLE IF NOT EXISTS owner_wallet_reservations (
+    attempt_id TEXT PRIMARY KEY, owner_hash TEXT NOT NULL, fingerprint TEXT NOT NULL,
+    max_micro INTEGER NOT NULL, released INTEGER NOT NULL DEFAULT 0);
+    CREATE INDEX IF NOT EXISTS wallet_owner ON owner_wallet_reservations(owner_hash);`);
+  const walletForHash = ownerHash => {
+    if (!wallets.has(ownerHash)) {
+      const balance = () => {
+        const breakdown = costs.breakdown(undefined, { ownerHash });
+        // A wallet reservation and its ledger row are one operation, including after restart.
+        const unjournalled = storage.db.prepare(`SELECT COALESCE(SUM(w.max_micro),0) n FROM owner_wallet_reservations w
+          LEFT JOIN budget_attempts b ON b.attempt_id=w.attempt_id WHERE w.owner_hash=? AND w.released=0 AND b.attempt_id IS NULL`).get(ownerHash).n;
+        breakdown.reservedMicro += unjournalled;
+        return { limitMicro: walletLimitMicro, ...breakdown,
+          committedMicro: breakdown.reservedMicro + breakdown.confirmedSpendMicro + breakdown.uncertainSpendMicro };
+      };
+      const canAdmit = request => integer(request?.maxMicro) && request.maxMicro <= walletLimitMicro - balance().committedMicro;
+      wallets.set(ownerHash, { balance, canAdmit,
+        async admit(request) {
+          if (typeof request?.attemptId !== 'string' || !request.attemptId || !integer(request.maxMicro) || !integer(request.maxVisitorMicro ?? 0)) throw new TypeError('Invalid wallet request');
+          const fingerprint = JSON.stringify([request.sessionId, request.lane, request.maxMicro, request.maxVisitorMicro ?? 0, request.requestSha256, request.bindingSha256]);
+          return storage.transaction(() => {
+            const previous = storage.db.prepare('SELECT * FROM owner_wallet_reservations WHERE attempt_id=?').get(request.attemptId);
+            if (previous) return previous.owner_hash === ownerHash && previous.fingerprint === fingerprint ? { ok: true } : { ok: false, reason: 'attempt-conflict' };
+            if (!canAdmit(request)) return { ok: false, reason: 'host-limit' };
+            storage.db.prepare('INSERT INTO owner_wallet_reservations(attempt_id,owner_hash,fingerprint,max_micro) VALUES (?,?,?,?)')
+              .run(request.attemptId, ownerHash, fingerprint, request.maxMicro);
+            return { ok: true };
+          });
+        },
+        async release({ attemptId }) {
+          storage.db.prepare('UPDATE owner_wallet_reservations SET released=1 WHERE attempt_id=? AND owner_hash=?').run(attemptId, ownerHash);
+        },
+      });
+    }
+    return wallets.get(ownerHash);
+  };
   const authorize = (id, ownerToken) => {
     try { return storage.authorize(id, ownerToken); } catch { throw new LibraryPortError('not-found'); }
   };
@@ -128,12 +166,12 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
     async erased({ sessionId }) {
       for (let i = mail.length - 1; i >= 0; i--) if (mail[i].sessionId === sessionId) mail.splice(i, 1);
     },
-    wallet(ownerToken) {
-      const ownerHash = hash(ownerToken);
-      if (!wallets.has(ownerHash)) wallets.set(ownerHash, createDemoWallet({ limitMicro: walletLimitMicro, spent: () => storage.db.prepare(`
-        SELECT COALESCE(SUM(CASE WHEN b.state='settled' THEN b.settled_micro ELSE b.max_micro END),0) AS n
-        FROM budget_attempts b JOIN sessions s ON s.id=b.session_id WHERE json_extract(s.snapshot,'$.ownerHash')=?`).get(ownerHash).n }));
-      return wallets.get(ownerHash);
+    wallet: ownerToken => walletForHash(hash(ownerToken)),
+    walletForSession: session => walletForHash(session.ownerHash),
+    recoverWallets() {
+      // Startup's exclusive writer knows these admissions never reached a provider ledger.
+      storage.db.prepare(`UPDATE owner_wallet_reservations SET released=1 WHERE released=0
+        AND NOT EXISTS (SELECT 1 FROM budget_attempts b WHERE b.attempt_id=owner_wallet_reservations.attempt_id)`).run();
     },
     handover(ownerToken) { return {
       async offer({ sessionId }) { storage.authorize(sessionId, ownerToken); return { available: demo, label: 'Demo only: fake handover sink' }; },

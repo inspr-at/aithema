@@ -34,10 +34,15 @@ export function providerMaxPrice(price) {
 
 export function requestCeilingMicro(body, price) {
   const bytes = new TextEncoder().encode(JSON.stringify(body.messages)).byteLength;
-  if (!Number.isSafeInteger(body.max_tokens) || body.max_tokens < 1) throw new TypeError('Invalid output token ceiling');
+  return tokenCeilingMicro(bytes, body.max_tokens, price);
+}
+
+export function tokenCeilingMicro(inputTokens, outputTokens, price) {
+  if (!Number.isSafeInteger(inputTokens) || inputTokens < 0) throw new TypeError('Invalid input token ceiling');
+  if (!Number.isSafeInteger(outputTokens) || outputTokens < 1) throw new TypeError('Invalid output token ceiling');
   const [prompt, promptScale] = decimal(price.prompt), [completion, completionScale] = decimal(price.completion);
   const denominator = promptScale * completionScale;
-  const numerator = (BigInt(bytes) * prompt * completionScale + BigInt(body.max_tokens) * completion * promptScale) * 1_000_000n;
+  const numerator = (BigInt(inputTokens) * prompt * completionScale + BigInt(outputTokens) * completion * promptScale) * 1_000_000n;
   const micro = Number((numerator + denominator - 1n) / denominator);
   if (!Number.isSafeInteger(micro)) throw new TypeError('OpenRouter request ceiling is too large');
   return micro;

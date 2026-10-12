@@ -1,4 +1,4 @@
-import { modelPrice, providerMaxPrice } from '../plugins/openrouter/src/pricing.js';
+import { modelPrice, providerMaxPrice, tokenCeilingMicro } from '../plugins/openrouter/src/pricing.js';
 import { manifest as openRouterManifest } from '../plugins/openrouter/src/index.js';
 import { usdMicro } from '../packages/server/src/spend-cap.js';
 import { qualifyStartBinding } from './processing-consent.js';
@@ -30,6 +30,7 @@ export function openRouterConfig(values) {
   const maxTokens = integer(values, 'OPENROUTER_MAX_TOKENS', 1200);
   // START found smaller ceilings truncated real analyses, including reasoning tokens.
   const analysisMaxTokens = integer(values, 'OPENROUTER_ANALYSIS_MAX_TOKENS', 8000);
+  const maxInputTokens = integer(values, 'OPENROUTER_MAX_INPUT_TOKENS', 131072);
   const analysisEffort = read(values, 'OPENROUTER_ANALYSIS_EFFORT') ?? 'none';
   const analysisEfforts = openRouterManifest.models[0].efforts;
   if (!analysisEfforts.includes(analysisEffort)) throw new TypeError(`OPENROUTER_ANALYSIS_EFFORT must be one of ${analysisEfforts.join(', ')}`);
@@ -42,7 +43,8 @@ export function openRouterConfig(values) {
     const price = modelPrice(prices, model);
     return qualifyStartBinding({ plugin: 'openrouter', model, effort,
       endpoint: 'https://openrouter.ai/api/v1/chat/completions', accountRef: 'start2-openrouter', secretRef: 'OPENROUTER_API_KEY',
-      maxMicro: 1_000_000, maxTokens, rates: { inputMicro: 0, outputMicro: 0 },
+      // Binding maximum is a technical price bound; admission holds the request estimate.
+      maxMicro: tokenCeilingMicro(maxInputTokens, maxTokens, price), maxTokens, rates: { inputMicro: 0, outputMicro: 0 },
       routing: { require_parameters: true, allow_fallbacks: false,
         ...(providerOnly?.length ? { only: [...providerOnly] } : {}),
         ...(ignore?.length ? { ignore: [...ignore] } : {}),

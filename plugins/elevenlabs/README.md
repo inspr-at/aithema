@@ -165,10 +165,19 @@ change; only `completed` and `cancelled` are accepted. The record
 contains the provider id and conservative terminal, without credentials. The
 host can later fetch final usage and correct its ledger; this hook never reports
 the admitted attempt again, and memoized close keeps its original receipt.
-Known usage records full provider seconds/minutes/credits, separate paused and
-visitor seconds, and both costs. Per-minute rates are prorated by seconds and
-rounded upward to integer micro-units, without START's commercial minimum-minute
-charge. Known upstream overruns record actual cost and an overrun flag.
+Known usage records provider seconds/minutes/credits, separate paused and
+visitor seconds, and both costs. Upstream cost prefers `metadata.cost_fiat`
+(total USD), then `metadata.cost` (total credits) converted with the private
+binding's configurable `usdPerCredit`. When the total is absent, charging
+components supply the credits: platform/call, LLM, and post-call analysis.
+The total and its components are never added together. See the provider's
+[current metadata schema](https://github.com/elevenlabs/elevenlabs-python/blob/main/src/elevenlabs/types/conversation_history_metadata_common_model.py)
+and [charging schema](https://github.com/elevenlabs/elevenlabs-python/blob/main/src/elevenlabs/types/conversation_charging_common_model.py).
+Without a usable charge/conversion, real duration × configured per-minute rate
+is recorded with `costEstimated: true` and `costSource: 'duration-estimate'`.
+Estimates stay in uncertain spend and may later be replaced by actual charges.
+USD amounts round upwards once to whole microUSD. Visitor pause accounting
+continues to use its separate per-minute rate.
 
 Known limitation: pause timestamps use the host clock while provider usage may
 use `start_time_unix_secs` from the provider clock. Clock skew can shift pause
@@ -309,7 +318,10 @@ const voiceSelection = {
 
 `createDurationBinding` validates it. `model` must equal the exact agent id, so
 account evidence cannot qualify another agent accidentally. `maxDurationSeconds`
-is 1–3600 and its upstream cost must fit `maxMicro`; visitor holds are computed
+is 1–86400. With `reservationSeconds`, only the expected segment cost must fit
+`maxMicro`; the runtime atomically extends that priced reservation while money
+remains and closes the call when an extension is refused. Without that optional
+setting the legacy full-duration bound applies. Visitor holds are computed
 from their separate rate. The token fields are common binding compatibility fields;
 voice duration never uses them as token rates. `legal.evidence` must match account,
 secret reference, agent/model, endpoint and routing, with current qualification,

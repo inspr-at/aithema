@@ -36,6 +36,7 @@ async function fixture(t, { locale = 'en', capMilliseconds, closureTimeoutMs, re
       'data: {"choices":[],"usage":{"prompt_tokens":1,"completion_tokens":2,"cost":0.00001}}\n\ndata: [DONE]\n\n');
   });
   const host = await createVoiceHost({ storage, templateAgentId: 'template-agent', publicOrigin: 'https://start2.example.test', apiBaseUrl: eleven.endpoint,
+    values: { AITHEMA_VOICE_MAX_DURATION_SECONDS: '600', AITHEMA_ELEVENLABS_USD_PER_CREDIT: '0.0001' },
     resolveSecret: () => 'local-fixture-key', log: value => logs.push(value), fetchImpl: providerFetch });
   assert.ok(host.binding);
   const configured = openRouterConfig({ OPENROUTER_MODEL: 'openai/understanding-fixture', OPENROUTER_SPEECH_MODEL: 'anthropic/speech-fixture',
@@ -50,7 +51,8 @@ async function fixture(t, { locale = 'en', capMilliseconds, closureTimeoutMs, re
     AITHEMA_OPENROUTER_PRICES: JSON.stringify({ 'anthropic/claude-fixture': { prompt: 1e-7, completion: 1e-7 } }) }).binding : null;
   const consent = createProcessingConsent({ storage, bindings: [host.binding, reaction, understanding, ...(htmlBinding ? [htmlBinding] : [])] });
   const voice = createVoiceProvider({ storage, staticFacade: true, binding: { agentId: host.binding.agentId, secretRef: host.binding.secretRef,
-    apiBaseUrl: eleven.endpoint, upstreamMicroPerMinute: 100_000, visitorMicroPerMinute: 100_000 }, resolveSecret: () => 'local-fixture-key',
+    apiBaseUrl: eleven.endpoint, upstreamMicroPerMinute: 100_000, visitorMicroPerMinute: 100_000,
+    reservationSeconds: host.binding.reservationSeconds, usdPerCredit: host.binding.usdPerCredit }, resolveSecret: () => 'local-fixture-key',
     fetchImpl: providerFetch, closureTimeoutMs, reconcileLater: () => handlers.reconcileVoiceLater() });
   const secrets = createFacadeSecrets(); secrets.resolve = ref => ref === host.staticSecretRef ? 'local-callback-fixture' : null;
   const voiceCap = capMilliseconds === undefined ? undefined : createVoiceCap({ storage, capMilliseconds });

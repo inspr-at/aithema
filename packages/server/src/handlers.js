@@ -64,7 +64,17 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     throw new TypeError('Admission and revocation require the same consent port');
   }
   const listeners = new Map(), jobs = new Map(), failures = new Map(), stop = new AbortController();
-  let recovery = null;
+  if (host?.walletForSession) pluginRuntime.setOwnerWallet?.(session => host.walletForSession(session));
+  let recovery = null, costTimer, costRecovery;
+  const reconcileCostsLater = () => {
+    if (stop.signal.aborted || costTimer || !pluginRuntime.reconcileCosts) return;
+    costTimer = setTimeout(() => {
+      costTimer = undefined;
+      costRecovery = pluginRuntime.reconcileCosts({ signal: stop.signal }).finally(() => { costRecovery = null; reconcileCostsLater(); });
+      costRecovery.catch(() => {});
+    }, 30_000);
+    costTimer.unref?.();
+  };
   const broadcast = (id, event) => {
     for (const listener of listeners.get(id) ?? []) listener(event);
   };
@@ -479,6 +489,10 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     async resume() {
       hostHandlers.resume();
       pluginRuntime.budget.recover();
+      host?.recoverWallets?.();
+      pluginRuntime.recoverCosts?.();
+      await pluginRuntime.reconcileCosts?.({ signal: stop.signal });
+      reconcileCostsLater();
       uploadHandlers.resume();
       await conceptHandlers.resume();
       await voiceHandlers?.resume();
@@ -500,12 +514,13 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       do {
         await uploadHandlers.idle();
         await recovery;
+        await costRecovery;
         while (jobs.size) await Promise.allSettled([...jobs.values()].map(job => job.promise));
         await conceptHandlers.lane.idle();
         await voiceHandlers?.idle();
         await hostHandlers.idle();
       } while (jobs.size);
     },
-    async close() { stop.abort(); await uploadHandlers.close(); await conceptHandlers.lane.close(); await voiceHandlers?.close(); await hostHandlers.idle(); await Promise.allSettled([recovery, ...[...jobs.values()].map(job => job.promise)]); },
+    async close() { stop.abort(); clearTimeout(costTimer); await uploadHandlers.close(); await conceptHandlers.lane.close(); await voiceHandlers?.close(); await hostHandlers.idle(); await Promise.allSettled([recovery, costRecovery, ...[...jobs.values()].map(job => job.promise)]); },
   };
 }

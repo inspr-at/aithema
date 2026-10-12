@@ -1,5 +1,6 @@
 import { createChatCompletions, createBinding, publicReasoningManifest, deepFreeze, PluginError } from '@inspr/aithema-core';
 import { modelPrice, providerMaxPrice, requestCeilingMicro } from './pricing.js';
+import { reconcileGeneration } from './reconcile.js';
 const base = publicReasoningManifest('openrouter', 'OpenRouter', 'https://openrouter.ai');
 // The adapter forwards reasoning.effort; values follow START's 2026-09-13 check of
 // OpenRouter reasoning.supported_efforts. Which model supports which value is the
@@ -12,7 +13,12 @@ export function createOpenRouterReasoning({ binding, resolveSecret = ref => proc
     secretRef: 'OPENROUTER_API_KEY', maxMicro: 1_000_000, maxTokens: 8000, rates: { inputMicro: 0, outputMicro: 0 } });
   if (binding.plugin !== 'openrouter' || !binding.model.includes('/')) throw new TypeError('OpenRouter binding requires model id');
   const price = modelPrice(prices, binding.model);
-  return { bind: binding => createOpenRouterReasoning({ binding, resolveSecret, fetchImpl, spendCap, prices }), ...createChatCompletions({ manifest, binding, resolveSecret, fetchImpl, spendCap,
+  return { bind: binding => createOpenRouterReasoning({ binding, resolveSecret, fetchImpl, spendCap, prices }),
+    recoverCosts: () => spendCap?.recover?.(),
+    costEvidence: attemptId => spendCap?.evidence?.(attemptId),
+    reconcileSpend: (attemptId, cost) => spendCap?.reconcileAttempt?.(attemptId, cost),
+    reconcileCost: (record, options) => reconcileGeneration(record, { resolveSecret, fetchImpl, ...options }),
+    ...createChatCompletions({ manifest, binding, resolveSecret, fetchImpl, spendCap, authoritativeCost: true,
     spendCeiling(body) {
       const ceiling = requestCeilingMicro(body, price);
       if (ceiling > binding.maxMicro) throw new PluginError('not-admitted', 'OpenRouter request exceeds spend reservation');

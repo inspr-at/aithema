@@ -15,10 +15,13 @@ function attemptError(error, attemptId) {
     wrapped.attemptId = attemptId; return wrapped;
   }
 }
-function balancePart(limitMicro, committedMicro) {
+function balancePart(limitMicro, committedMicro, costs) {
   if (!integer(limitMicro) || !integer(committedMicro)) throw new TypeError('Invalid credit balance');
+  if (costs && (!['reservedMicro', 'confirmedSpendMicro', 'uncertainSpendMicro'].every(k => integer(costs[k])) ||
+    costs.reservedMicro + costs.confirmedSpendMicro + costs.uncertainSpendMicro !== committedMicro)) throw new TypeError('Invalid credit cost breakdown');
   return { limitMicro, committedMicro, availableMicro: Math.max(0, limitMicro - committedMicro),
-    overrunMicro: Math.max(0, committedMicro - limitMicro) };
+    overrunMicro: Math.max(0, committedMicro - limitMicro), ...(costs ? {
+      reservedMicro: costs.reservedMicro, confirmedSpendMicro: costs.confirmedSpendMicro, uncertainSpendMicro: costs.uncertainSpendMicro } : {}) };
 }
 const admissionReason = (balance, maxMicro, maxVisitorMicro) =>
   maxMicro > balance.session.availableMicro || balance.session.overrunMicro ? 'session' :
@@ -46,9 +49,9 @@ export function budgetCreditView(ledger, sessionId, ownerWallet) {
     throw new TypeError('Credit ledger required');
   }
   const owner = ownerWallet.balance();
-  return { sessionId, owner: balancePart(owner?.limitMicro, owner?.committedMicro),
-    session: balancePart(ledger.sessionCapMicro, ledger.used(sessionId)),
-    voiceVisitor: balancePart(ledger.visitorCapMicro, ledger.visitorUsed(sessionId)) };
+  return { sessionId, owner: balancePart(owner?.limitMicro, owner?.committedMicro, owner?.reservedMicro === undefined ? undefined : owner),
+    session: balancePart(ledger.sessionCapMicro, ledger.used(sessionId), ledger.breakdown?.(sessionId)),
+    voiceVisitor: balancePart(ledger.visitorCapMicro, ledger.visitorUsed(sessionId), ledger.breakdown?.(sessionId, { visitor: true })) };
 }
 /** Preview only. Paid hosts MUST use admitCredits for authoritative owner
  * admission before the existing atomic ledger.admit, then claim as usual. */
@@ -210,9 +213,8 @@ export function reduceCredits(state, event) {
         const expected = balancePart(part.limitMicro, part.committedMicro);
         return part.availableMicro === expected.availableMicro && part.overrunMicro === expected.overrunMicro;
       })) throw new TypeError('Invalid credit balance event');
-      next.balance = { sessionId: view.sessionId, owner: balancePart(view.owner.limitMicro, view.owner.committedMicro),
-        session: balancePart(view.session.limitMicro, view.session.committedMicro),
-        voiceVisitor: balancePart(view.voiceVisitor.limitMicro, view.voiceVisitor.committedMicro) };
+      const project = part => balancePart(part.limitMicro, part.committedMicro, part.reservedMicro === undefined ? undefined : part);
+      next.balance = { sessionId: view.sessionId, owner: project(view.owner), session: project(view.session), voiceVisitor: project(view.voiceVisitor) };
       break;
     }
     case 'limit':

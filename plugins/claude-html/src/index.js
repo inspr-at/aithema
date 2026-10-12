@@ -1,8 +1,9 @@
-import { createBinding, deepFreeze, beginInvocation, operationScope, normalizedError, providerUsage, PluginError } from '@inspr/aithema-core';
+import { createBinding, deepFreeze, beginInvocation, operationScope, normalizedError, providerUsage, PluginError, generationId } from '@inspr/aithema-core';
 import { buildMessages } from './prompt.js';
 import { repairHTML, previousDocument, htmlArtifact } from './html-artifact.js';
 import { createSpendLedger, callCeilingMicro, costMicro, DEFAULT_CAP_MICRO } from './spend.js';
 import { providerMaxPrice } from '../../openrouter/src/pricing.js';
+import { reconcileGeneration } from '../../openrouter/src/reconcile.js';
 export { SYSTEM_PROMPT, buildMessages, revisionOf } from './prompt.js';
 export { repairHTML, htmlArtifact } from './html-artifact.js';
 export { createSpendLedger, callCeilingMicro, costMicro, DEFAULT_CAP_MICRO } from './spend.js';
@@ -26,14 +27,19 @@ function abortable(promise, signal) {
     if (signal.aborted) abort(); });
   return Promise.race([promise, cancelled]).finally(() => signal.removeEventListener('abort', abort));
 }
-async function readText(response, signal) {
+async function readText(response, signal, observeId) {
   if (!response.body) throw new PluginError('invalid-output');
   if (Number(response.headers.get('content-length')) > RESPONSE_LIMIT) { void response.body.cancel().catch(() => {}); throw new PluginError('limit'); }
-  const reader = response.body.getReader(), chunks = []; let size = 0;
+  const reader = response.body.getReader(), chunks = []; let size = 0, prefix = '';
   try {
     while (true) {
       signal.throwIfAborted(); const { value, done } = await abortable(reader.read(), signal); if (done) break;
       size += value.byteLength; if (size > RESPONSE_LIMIT) throw new PluginError('limit'); chunks.push(value);
+      if (observeId && prefix.length < 8192) {
+        prefix += Buffer.from(value).toString('utf8').slice(0, 8192 - prefix.length);
+        const id = generationId(/"id"\s*:\s*"(gen-[A-Za-z0-9-]+)"/u.exec(prefix)?.[1]);
+        if (id) { observeId(id); observeId = undefined; }
+      }
     }
     return Buffer.concat(chunks, size).toString('utf8');
   } finally { void reader.cancel().catch(() => {}); reader.releaseLock(); }
@@ -60,7 +66,7 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
     const state = await ledger.snapshot();
     if (!state || !['spentMicro', 'reservedMicro'].every(k => Number.isSafeInteger(state[k]) && state[k] >= 0) ||
       !Number.isSafeInteger(state.spentMicro + state.reservedMicro)) throw new PluginError('unavailable');
-    return { ...state, totalMicro: state.spentMicro + state.reservedMicro,
+    return { ...state, totalMicro: state.spentMicro + state.reservedMicro + (state.uncertainMicro ?? 0),
       costCeilingBreached: Boolean(state.costCeilingBreached || state.breached) };
   };
   const minimumCeiling = callCeilingMicro(buildMessages({ prompt: 'x' }, '').messages, binding);
@@ -77,12 +83,21 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
     // binding hold. Both ledgers retain the dispatched request's computed ceiling.
     const scoped = { ...options, signal: scope.signal, report: terminal => (reporting = Promise.resolve(options.report({
       ...terminal, ...(dispatched ? { chargedMicro: cost ?? ceiling } : {}) }))) };
+    const observe = payload => {
+      invocation.usage(providerUsage(payload?.usage));
+      const charge = costMicro(payload?.usage?.cost), id = generationId(payload?.id);
+      if (charge !== null) { cost = charge; invocation.cost(cost); }
+      const evidence = { ...(id ? { generationId: id } : {}), ...(charge === null ? {} : { chargedMicro: charge }) };
+      if (Object.keys(evidence).length) {
+        ledger.record?.(reservation, evidence); options.attempt?.observeCost?.(evidence);
+      }
+    };
     const checkedResponse = response => {
       try { checkLifetime(); return response; }
       catch (error) { void response.body?.cancel().catch(() => {}); throw error; }
     };
     try {
-      invocation = await beginInvocation(scoped);
+      invocation = await beginInvocation(scoped, { authoritativeCost: true });
       checkLifetime();
       const key = configured(); if (!key) throw new PluginError('auth');
       const previous = operation === 'edit' ? previousDocument(artifact) : undefined;
@@ -100,9 +115,10 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
           max_price: providerMaxPrice({ prompt: binding.rates.inputUSD, completion: binding.rates.outputUSD }) },
         reasoning: { enabled: false } });
       checkLifetime();
-      reservation = await ledger.reserve(ceiling); // atomic shared-cap hard stop before any request
+      reservation = await ledger.reserve(ceiling, { attemptId: options.attempt?.attemptId, provider: 'openrouter' });
       checkLifetime();
       invocation.dispatch(); dispatched = true;
+      options.attempt?.dispatchCost?.(); ledger.dispatch?.(reservation);
       // Close even a late response from a transport that ignores cancellation.
       const response = checkedResponse(await abortable(Promise.resolve().then(() => fetchImpl(endpoint, { method: 'POST', signal: scope.signal,
         redirect: 'error', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, body })).then(checkedResponse), scope.signal));
@@ -110,16 +126,16 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
         // An HTTP refusal can still report a charge, including an explicit zero.
         // Without that evidence a dispatched request keeps its computed ceiling.
         try {
-          const payload = JSON.parse(await readText(response, scope.signal));
-          invocation.usage(providerUsage(payload?.usage)); cost = costMicro(payload?.usage?.cost);
+          const payload = JSON.parse(await readText(response, scope.signal, id => observe({ id })));
+          observe(payload);
         } catch { /* unavailable usage remains uncertain */ }
         throw new PluginError(response.status === 401 || response.status === 403 ? 'auth' : response.status === 402 ? 'limit' :
           response.status === 429 ? 'rate-limit' : 'provider');
       }
       let payload;
-      try { payload = JSON.parse(await readText(response, scope.signal)); }
+      try { payload = JSON.parse(await readText(response, scope.signal, id => observe({ id }))); }
       catch (error) { if (error instanceof PluginError || scope.signal.aborted) throw error; throw new PluginError('invalid-output'); }
-      invocation.usage(providerUsage(payload?.usage)); cost = costMicro(payload?.usage?.cost);
+      observe(payload);
       if (cost !== null && cost > ceiling) {
         ledgerFailures.set(ledger, 'cost ceiling breached'); throw new PluginError('limit');
       }
@@ -137,7 +153,10 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
         // Unknown cost after dispatch keeps the full ceiling, including HTTP refusals.
         // Only the path before dispatch is provably unsent and may settle at zero.
         let settlementFailed = false;
-        if (reservation !== null) try { await ledger.settle(reservation, !dispatched ? 0 : cost ?? ceiling); }
+        if (reservation !== null) try {
+          if (dispatched && cost === null && ledger.uncertain) await ledger.uncertain(reservation);
+          else await ledger.settle(reservation, !dispatched ? 0 : cost ?? ceiling);
+        }
         catch { settlementFailed = true; ledgerFailures.set(ledger, 'spend ledger unreadable'); }
         if (invocation) await invocation.finish(completed && !settlementFailed); if (reporting) await reporting;
         if (settlementFailed) throw new PluginError('unavailable');
@@ -145,6 +164,9 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
     }
   }
   return { id: manifest.id, manifest, binding, billable: true, label: `Claude click-dummy — ${binding.model}`, spend: ledger, capMicro,
+    recoverCosts: () => ledger.recover?.(), costEvidence: attemptId => ledger.evidence?.(attemptId),
+    reconcileSpend: (attemptId, cost) => ledger.reconcileAttempt?.(attemptId, cost),
+    reconcileCost: (record, options) => reconcileGeneration(record, { resolveSecret, fetchImpl, ...options }),
     bind: next => createClaudeHTML({ binding: next, spend: ledger, capMicro, resolveSecret, fetchImpl, now }),
     generate: (spec, feedback, options) => run('generate', spec, feedback, options),
     edit: (artifact, spec, feedback, options) => run('edit', spec, feedback, options, artifact),

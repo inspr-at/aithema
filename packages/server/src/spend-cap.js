@@ -23,24 +23,33 @@ export function createSpendCap({ storage, account, capMicro } = {}) {
   if (!db.prepare('PRAGMA table_info(spend_reservations)').all().some(column => column.name === 'ceiling_micro')) {
     db.exec('ALTER TABLE spend_reservations ADD COLUMN ceiling_micro INTEGER CHECK(ceiling_micro >= 0)');
   }
+  const columns = db.prepare('PRAGMA table_info(spend_reservations)').all();
+  for (const [name, type] of [['state', "TEXT NOT NULL DEFAULT 'uncertain'"], ['attempt_id', 'TEXT'],
+    ['provider', 'TEXT'], ['generation_id', 'TEXT'], ['observed_micro', 'INTEGER']]) {
+    if (!columns.some(c => c.name === name)) db.exec(`ALTER TABLE spend_reservations ADD COLUMN ${name} ${type}`);
+  }
+  db.prepare("UPDATE spend_reservations SET state='confirmed' WHERE actual_micro IS NOT NULL").run();
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS spend_attempt ON spend_reservations(account,attempt_id) WHERE attempt_id IS NOT NULL');
   const snapshot = () => {
     const row = db.prepare(`SELECT COALESCE(SUM(actual_micro),0) AS spentMicro,
-      COALESCE(SUM(CASE WHEN actual_micro IS NULL THEN reserved_micro ELSE 0 END),0) AS reservedMicro
+      COALESCE(SUM(CASE WHEN actual_micro IS NULL AND state!='uncertain' THEN reserved_micro ELSE 0 END),0) AS reservedMicro,
+      COALESCE(SUM(CASE WHEN actual_micro IS NULL AND state='uncertain' THEN reserved_micro ELSE 0 END),0) AS uncertainMicro
       FROM spend_reservations WHERE account=?`).get(account);
-    if (!amount(row.spentMicro) || !amount(row.reservedMicro)) throw new PluginError('not-admitted', 'OpenRouter spend cap exhausted');
+    if (!Object.values(row).every(amount)) throw new PluginError('not-admitted', 'OpenRouter spend cap exhausted');
     const overrun = db.prepare('SELECT 1 FROM spend_reservations WHERE account=? AND actual_micro > COALESCE(ceiling_micro,reserved_micro) LIMIT 1').get(account);
     return { ...row, capMicro, breached: Boolean(overrun) || row.spentMicro > capMicro };
   };
   return { snapshot,
-    reserve(ceilingMicro) {
+    reserve(ceilingMicro, { attemptId, provider } = {}) {
       if (!amount(ceilingMicro)) throw new TypeError('Invalid spend ceiling');
       // A one-microdollar floor also supports explicitly free model prices.
       const reservedMicro = Math.max(1, ceilingMicro);
       return storage.transaction(() => {
-        const { spentMicro, reservedMicro: held, breached } = snapshot();
-        if (breached || reservedMicro > capMicro - spentMicro - held) throw new PluginError('not-admitted', 'OpenRouter spend cap exhausted');
+        const { spentMicro, reservedMicro: held, uncertainMicro, breached } = snapshot();
+        if (breached || reservedMicro > capMicro - spentMicro - held - uncertainMicro) throw new PluginError('not-admitted', 'OpenRouter spend cap exhausted');
         const id = randomUUID();
-        db.prepare('INSERT INTO spend_reservations(id,account,reserved_micro,ceiling_micro) VALUES (?,?,?,?)').run(id, account, reservedMicro, ceilingMicro);
+        db.prepare("INSERT INTO spend_reservations(id,account,reserved_micro,ceiling_micro,attempt_id,provider,state) VALUES (?,?,?,?,?,?,'reserved')")
+          .run(id, account, reservedMicro, ceilingMicro, attemptId ?? null, provider ?? null);
         return Object.freeze({ id });
       });
     },
@@ -51,8 +60,43 @@ export function createSpendCap({ storage, account, capMicro } = {}) {
         if (!row) throw new Error('Spend reservation missing');
         if (row.actual_micro !== null && row.actual_micro !== actualMicro) throw new Error('Spend already settled');
         // Record the real charge even above the hold/cap; snapshot latches the breach.
-        db.prepare('UPDATE spend_reservations SET actual_micro=? WHERE id=? AND actual_micro IS NULL').run(actualMicro, handle.id);
+        db.prepare("UPDATE spend_reservations SET actual_micro=?,state='confirmed' WHERE id=? AND actual_micro IS NULL").run(actualMicro, handle.id);
       });
+    },
+    dispatch(handle) {
+      db.prepare("UPDATE spend_reservations SET state='dispatched' WHERE id=? AND account=? AND state='reserved'").run(handle.id, account);
+    },
+    record(handle, { generationId, chargedMicro }) {
+      if (chargedMicro !== undefined && !amount(chargedMicro)) throw new TypeError('Invalid observed cost');
+      return storage.transaction(() => {
+        const row = db.prepare('SELECT * FROM spend_reservations WHERE id=? AND account=?').get(handle.id, account);
+        if (!row) throw new Error('Spend reservation missing');
+        if (row.generation_id && generationId && row.generation_id !== generationId ||
+          row.actual_micro !== null && chargedMicro !== undefined && row.actual_micro !== chargedMicro) throw new Error('Spend receipt conflict');
+        db.prepare('UPDATE spend_reservations SET generation_id=COALESCE(?,generation_id),observed_micro=COALESCE(?,observed_micro) WHERE id=?')
+          .run(generationId ?? null, chargedMicro ?? null, handle.id);
+      });
+    },
+    uncertain(handle) {
+      db.prepare("UPDATE spend_reservations SET state='uncertain' WHERE id=? AND account=? AND actual_micro IS NULL").run(handle.id, account);
+    },
+    reconcileAttempt(attemptId, actualMicro) {
+      const row = db.prepare('SELECT id FROM spend_reservations WHERE account=? AND attempt_id=?').get(account, attemptId);
+      if (row) this.settle(row, actualMicro);
+    },
+    evidence(attemptId) {
+      const row = db.prepare('SELECT * FROM spend_reservations WHERE account=? AND attempt_id=?').get(account, attemptId);
+      if (!row) return null;
+      return { ...(row.generation_id ? { generationId: row.generation_id } : {}),
+        ...(row.actual_micro !== null || row.observed_micro !== null ? { chargedMicro: row.actual_micro ?? row.observed_micro } : {}) };
+    },
+    recover() {
+      // Called once by the exclusive writer on startup, never during active work.
+      for (const row of db.prepare('SELECT * FROM spend_reservations WHERE account=? AND actual_micro IS NULL').all(account)) {
+        if (row.observed_micro !== null) this.settle(row, row.observed_micro);
+        else if (row.state === 'reserved') this.settle(row, 0);
+        else this.uncertain(row);
+      }
     },
   };
 }
