@@ -17,7 +17,7 @@ export class AgentEnsureError extends Error {}
 
 /** Only the local creation receipt authorizes future writes. Remote names confer no ownership. */
 export async function ensureAgent({ storage, templateAgentId, publicOrigin, resolveSecret,
-  apiBaseUrl = 'https://api.elevenlabs.io', fetchImpl = fetch, log = console.log, maxDurationSeconds = 600 } = {}) {
+  apiBaseUrl = 'https://api.elevenlabs.io', fetchImpl = fetch, log = console.log, maxDurationSeconds = 3600 } = {}) {
   if (!id(templateAgentId)) throw new AgentEnsureError('template-agent-required');
   const origin = new URL(publicOrigin);
   if (origin.origin !== publicOrigin || origin.protocol !== 'https:' && !(origin.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname))) throw new AgentEnsureError('public-origin-invalid');
@@ -150,6 +150,7 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
     'platform_settings.overrides.conversation_config_override.agent.language': allowed?.agent?.language === true,
     'platform_settings.overrides.conversation_config_override': leaves(allowed).every(([path, flag]) => flag === ['agent.language', 'agent.first_message'].includes(path)),
     'conversation_config.agent.language': remote?.conversation_config?.agent?.language === language,
+    'conversation_config.conversation.max_duration_seconds': remote?.conversation_config?.conversation?.max_duration_seconds === maxDurationSeconds,
     'conversation_config.agent.first_message': spoken === aiNoticeText(language),
     'conversation_config.language_presets': isDeepStrictEqual(presets, {}),
     'conversation_config.agent.prompt.llm': prompt?.llm === 'custom-llm',

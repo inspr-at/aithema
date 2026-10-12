@@ -95,7 +95,8 @@ const imageSelection = imagePlugin ? { images: imageHost?.binding ?? localImageB
 const voicePlugin = voiceMode === 'fake' ? createLocalVoiceProvider({ storage, provisionFacade: () => {}, revokeFacade: secrets.revoke })
   : voiceHost?.binding ? createVoiceProvider({ storage, binding: { agentId: voiceHost.binding.agentId, secretRef: voiceHost.binding.secretRef,
       apiBaseUrl: voiceHost.binding.endpoint, upstreamMicroPerMinute: voiceHost.binding.upstreamMicroPerMinute,
-      visitorMicroPerMinute: voiceHost.binding.visitorMicroPerMinute }, resolveSecret: ref => process.env[ref],
+      visitorMicroPerMinute: voiceHost.binding.visitorMicroPerMinute,
+      reservationSeconds: voiceHost.binding.reservationSeconds, usdPerCredit: voiceHost.binding.usdPerCredit }, resolveSecret: ref => process.env[ref],
     staticFacade: Boolean(voiceHost.staticSecretRef), provisionFacade: voiceHost.provisionFacade, revokeFacade: secrets.revoke, requestProviderClose: voiceHost.requestProviderClose,
     reconcileLater: () => handlers.reconcileVoiceLater() }) : null;
 const registry = new PluginRegistry().register(reasoning); if (voicePlugin) registry.register(voicePlugin); if (imagePlugin) registry.register(imagePlugin); if (htmlPlugin) registry.register(htmlPlugin);

@@ -15,8 +15,8 @@ export function normalizedError(error, signal) {
   return error instanceof PluginError ? error : new PluginError('provider', 'Provider request failed');
 }
 // The claim authority is an in-process closure, never a browser-supplied id.
-export async function beginInvocation(options, { billable = true } = {}) {
-  let terminal = false, dispatched = false, usage = null, cancelled = false, servedModel;
+export async function beginInvocation(options, { billable = true, authoritativeCost = false } = {}) {
+  let terminal = false, dispatched = false, usage = null, cancelled = false, servedModel, chargedMicro;
   if (billable && (!options?.attempt?.attemptId || !options.attempt.claimId || typeof options.attempt.consume !== 'function' || typeof options.report !== 'function')) {
     throw new PluginError('not-admitted');
   }
@@ -30,6 +30,7 @@ export async function beginInvocation(options, { billable = true } = {}) {
     usage(value) {
       if (value && Number.isSafeInteger(value.inputTokens) && value.inputTokens >= 0 && Number.isSafeInteger(value.outputTokens) && value.outputTokens >= 0) usage = value;
     },
+    cost(value) { if (Number.isSafeInteger(value) && value >= 0) chargedMicro = value; },
     servedModel(value) {
       if (typeof value === 'string' && value.length > 0 && value.length <= 128 && !/[^A-Za-z0-9._:/~-]/u.test(value)) servedModel = value;
     },
@@ -38,6 +39,9 @@ export async function beginInvocation(options, { billable = true } = {}) {
       terminal = true;
       options?.signal?.removeEventListener('abort', abort);
       const report = !dispatched ? { outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 } }
+        : authoritativeCost ? chargedMicro !== undefined
+          ? { outcome: completed ? 'completed' : 'cancelled', usage: usage ?? { inputTokens: 0, outputTokens: 0 }, chargedMicro }
+          : { outcome: 'uncertain' }
         : usage ? { outcome: completed ? 'completed' : 'cancelled', usage } : { outcome: 'uncertain' };
       await options?.report?.({ attemptId: options.attempt?.attemptId, ...report,
         ...(dispatched && servedModel ? { servedModel } : {}) });

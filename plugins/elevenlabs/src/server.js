@@ -3,6 +3,7 @@ import { PluginError, normalizedError } from '../../../packages/core/src/invocat
 import { beginVoiceInvocation, voiceLifetime, voiceOperation } from '../../../packages/core/src/live-voice.js';
 import { deepFreeze } from '../../../packages/core/src/plugins.js';
 import { manifest } from './manifest.js';
+import { usdCostMicro } from '../../../packages/core/src/cost.js';
 import { voiceOverrides } from './options.js';
 export { manifest } from './manifest.js';
 export { createCompletionsHandler } from './facade.js';
@@ -11,13 +12,41 @@ const identifier = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$
 const amount = value => Number.isSafeInteger(value) && value >= 0;
 export function createVoiceBinding(value) {
   if (!value || !identifier(value.agentId) || typeof value.secretRef !== 'string' || !value.secretRef ||
-    !['upstreamMicroPerMinute', 'visitorMicroPerMinute'].every(key => amount(value[key]))) throw new TypeError('Invalid private voice binding');
+    !['upstreamMicroPerMinute', 'visitorMicroPerMinute'].every(key => amount(value[key])) ||
+    value.usdPerCredit !== undefined && (typeof value.usdPerCredit !== 'number' || !Number.isFinite(value.usdPerCredit) || value.usdPerCredit < 0) ||
+    value.reservationSeconds !== undefined && (!Number.isSafeInteger(value.reservationSeconds) || value.reservationSeconds < 1)) throw new TypeError('Invalid private voice binding');
   const apiBaseUrl = new URL(value.apiBaseUrl ?? 'https://api.elevenlabs.io');
   const loopbackHttp = apiBaseUrl.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(apiBaseUrl.hostname);
   if (apiBaseUrl.protocol !== 'https:' && !loopbackHttp || apiBaseUrl.username || apiBaseUrl.password ||
     apiBaseUrl.search || apiBaseUrl.hash) throw new TypeError('Invalid ElevenLabs API base URL');
   return deepFreeze({ agentId: value.agentId, secretRef: value.secretRef, apiBaseUrl: apiBaseUrl.href.replace(/\/$/u, ''),
-    upstreamMicroPerMinute: value.upstreamMicroPerMinute, visitorMicroPerMinute: value.visitorMicroPerMinute });
+    upstreamMicroPerMinute: value.upstreamMicroPerMinute, visitorMicroPerMinute: value.visitorMicroPerMinute,
+    ...(value.usdPerCredit === undefined ? {} : { usdPerCredit: value.usdPerCredit }),
+    ...(value.reservationSeconds === undefined ? {} : { reservationSeconds: value.reservationSeconds }) });
+}
+
+// Current API schema: metadata.cost_fiat is total USD; metadata.cost is total credits.
+// charging fields are components, not an additional charge on top of either total.
+function conversationCost(metadata, binding, seconds) {
+  const fiat = usdCostMicro(metadata.cost_fiat);
+  if (fiat !== null) return { upstreamMicro: fiat, costSource: 'elevenlabs.cost_fiat', costEstimated: false };
+  const charging = metadata.charging;
+  const platform = charging?.platform_charge ?? charging?.call_charge;
+  const parts = [platform, charging?.llm_charge, charging?.analysis?.total?.charge];
+  const credits = amount(metadata.cost) ? metadata.cost
+    // Optional components are unknown when absent, including a missing analysis
+    // charge. Only an explicit total or every component can confirm even zero.
+    : parts.every(amount) ? parts.reduce((sum, n) => sum + n, 0) : null;
+  if (credits !== null && (binding.usdPerCredit !== undefined || credits === 0)) {
+    const micro = usdCostMicro(binding.usdPerCredit ?? 0, credits);
+    if (micro !== null) return { upstreamMicro: micro, providerCredits: credits,
+      costSource: amount(metadata.cost) ? 'elevenlabs.cost' : 'elevenlabs.charging', costEstimated: false,
+      usdPerCredit: binding.usdPerCredit ?? 0 };
+  }
+  return { upstreamMicro: Math.ceil(seconds * binding.upstreamMicroPerMinute / 60),
+    costSource: 'duration-estimate', costEstimated: true,
+    estimateMicroPerMinute: binding.upstreamMicroPerMinute,
+    ...(credits === null ? {} : { providerCredits: credits }) };
 }
 export async function readJson(response, maxBytes = 65_536, { signal, onBytes } = {}) {
   if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new TypeError('Positive JSON byte limit required');
@@ -117,17 +146,15 @@ export function reconcileUsage({ call, details, binding, maxMicro, outcome = 'co
     const start = typeof providerStart === 'number' && Number.isFinite(providerStart) && providerStart > 0 ? providerStart * 1000 : call.startedAt;
     const pausedSeconds = pausedMilliseconds(call.pauses ?? [], start, start + seconds * 1000) / 1000;
     const visitorSeconds = Math.max(0, seconds - pausedSeconds);
-    const upstreamMicro = Math.ceil(seconds / 60 * binding.upstreamMicroPerMinute);
+    const cost = conversationCost(details.metadata, binding, seconds), upstreamMicro = cost.upstreamMicro;
     const visitorMicro = Math.ceil(visitorSeconds / 60 * binding.visitorMicroPerMinute);
     if ([upstreamMicro, visitorMicro].every(amount)) usage = {
-      providerSeconds: seconds, providerMinutes: seconds / 60, pausedSeconds, visitorSeconds, upstreamMicro, visitorMicro,
-      ...(typeof details.metadata.cost === 'number' && Number.isFinite(details.metadata.cost) && details.metadata.cost >= 0
-        ? { providerCredits: details.metadata.cost } : {}),
+      providerSeconds: seconds, providerMinutes: seconds / 60, pausedSeconds, visitorSeconds, visitorMicro, ...cost,
     };
   }
   const closureConfirmed = identityMatches && ['done', 'failed'].includes(details?.status) && usage !== null;
   return { providerSessionId: call.providerSessionId, outcome: closureConfirmed ? outcome : 'uncertain', closureConfirmed,
-    usage, chargedMicro: closureConfirmed ? usage.upstreamMicro : maxMicro,
+    usage, chargedMicro: closureConfirmed ? usage.upstreamMicro : Math.max(maxMicro, amount(call.exposureMicro) ? call.exposureMicro : 0),
     overrun: closureConfirmed && usage.upstreamMicro > maxMicro };
 }
 
@@ -154,14 +181,22 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
       let call = { callId: request.callId, startedAt: now(), pauses: [], paused: false,
         attemptId: options.attempt.attemptId, claimId: options.attempt.claimId, maxMicro: options.attempt.maxMicro,
         spendDeadlineAt: options.spendDeadlineAt, browserLivenessDeadlineAt: options.browserLivenessDeadlineAt,
+        exposureMicro: options.attempt.exposureMicro ?? Math.ceil((options.spendDeadlineAt - now()) / 60_000 * binding.upstreamMicroPerMinute),
         facadeSecretRef: request.facadeSecretRef };
       const callCancellation = new AbortController();
-      let lifetime, closing, finished = false, delivered = false, mutation = Promise.resolve();
+      let lifetime, rollingTimer, closing, finished = false, delivered = false, mutation = Promise.resolve();
       const cancelled = () => { void close('cancelled', 'cancelled').catch(() => {}); };
       const serial = fn => { const next = mutation.then(fn); mutation = next.catch(() => {}); return next; };
       const close = (reason = 'closed', outcome = 'completed') => {
         if (!['completed', 'cancelled'].includes(outcome)) return Promise.reject(new TypeError('Invalid voice settlement'));
         if (closing) return closing;
+        // A browser hangup or host timeout cannot prove billing stopped. Replace
+        // the healthy segment with full provider liability before stopping renewal.
+        if (delivered) {
+          options.attempt.retainExposure?.();
+          call = { ...call, maxMicro: Math.max(options.attempt.maxMicro, call.exposureMicro) };
+        }
+        clearInterval(rollingTimer);
         lifetime?.dispose();
         options.signal?.removeEventListener('abort', cancelled);
         call = { ...call, closing: true, reason };
@@ -170,6 +205,8 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
           const closeOptions = { deadlineAt: Date.now() + closureTimeoutMs };
           let details, backoffMs = closurePollIntervalMs;
           if (delivered && call.providerSessionId) {
+            try { await voiceOperation({ deadlineAt: Date.now() + 1000 }, opts => saveCall(structuredClone(call), opts)); }
+            catch { /* Budget exposure is already durable; still request closure and settle exactly once. */ }
             try {
               if (requestProviderClose) await voiceOperation({ deadlineAt: Math.min(closeOptions.deadlineAt, Date.now() + 1000) },
                 opts => requestProviderClose(structuredClone(call), opts));
@@ -200,7 +237,7 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
           finally {
             try { await invocation.finish(terminal); }
             finally {
-              if (terminal.outcome === 'uncertain' && call.providerSessionId && reconcileLater) {
+              if ((terminal.outcome === 'uncertain' || terminal.usage?.costEstimated) && call.providerSessionId && reconcileLater) {
                 try { await voiceOperation({ deadlineAt: Date.now() + 1000 }, opts => reconcileLater(structuredClone(call), opts)); }
                 catch { /* The host owns durable retry scheduling; the conservative report remains settled. */ }
               }
@@ -217,7 +254,7 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
         await voiceOperation(options, async opts => {
           if (![options.spendDeadlineAt, options.browserLivenessDeadlineAt].every(value => Number.isFinite(value) && value > now())) throw new PluginError('deadline', 'Spend and browser-liveness deadlines required');
           const spendBound = Math.ceil((options.spendDeadlineAt - now()) / 60_000 * binding.upstreamMicroPerMinute);
-          if (!amount(spendBound) || spendBound > options.attempt.maxMicro) throw new PluginError('not-admitted', 'Voice spend deadline exceeds admitted maximum');
+          if (!amount(spendBound) || !options.attempt.extend && spendBound > options.attempt.maxMicro) throw new PluginError('not-admitted', 'Voice spend deadline exceeds admitted maximum');
           // Host preflight: legacy provisioning, or startup-established static callback authentication.
           await prepareCall(structuredClone(call), opts); opts.signal.throwIfAborted();
           const credential = await mintConversationCredential(binding, request, opts, { ...provider, now });
@@ -266,6 +303,21 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
         };
         // Authority is consumed before minting; billing begins at credential handoff.
         invocation.dispatch(); delivered = true;
+        if (binding.reservationSeconds && options.attempt.extend) {
+          // Healthy calls extend only a short priced segment. Closing or recovery
+          // retains the full technical exposure until authenticated closure.
+          rollingTimer = setInterval(() => {
+            void serial(async () => {
+              if (closing || finished) return;
+              const seconds = Math.min((call.spendDeadlineAt - call.startedAt) / 1000,
+                Math.max(0, (now() - call.startedAt) / 1000) + binding.reservationSeconds);
+              const extended = options.attempt.extend(seconds);
+              call = { ...call, maxMicro: extended.maxMicro };
+              await saveCall(structuredClone(call), { deadlineAt: Date.now() + 1000 });
+            }).catch(() => close('budget-limit', 'cancelled').catch(() => {}));
+          }, Math.max(10, binding.reservationSeconds * 500));
+          rollingTimer.unref?.();
+        }
         return session;
       } catch (error) {
         await close('start-failed', 'cancelled');

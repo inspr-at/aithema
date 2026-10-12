@@ -600,7 +600,9 @@ provider settlement. `handlers.idle()` and `handlers.close()` await settlements.
 Aggregate voice limits are optional: when `AITHEMA_VOICE_CAP_MINUTES` and
 `AITHEMA_VOICE_CAP_MINUTES_PER_DAY` are unset there is **no aggregate voice cap**.
 The demo reads both settings and persists its duration ledger in `AITHEMA_DB`.
-OPS must set both for start2 before wider exposure. Each admission reserves the
+Hosts may enable either as a deployment safety fuse; leave both unset to use
+money admission alone. These settings never express a visitor's USD allowance.
+Each configured duration cap reserves the
 call's maximum provider duration before facade provisioning or credential minting;
 insufficient deployment or UTC-day headroom refuses voice with a translated reason.
 Daily accounting uses the UTC date of admission, including each recovery attempt;
@@ -608,7 +610,7 @@ rollover opens a new daily bucket without deleting old holds or lifetime usage.
 Confirmed closure settles to provider seconds (rounded up to milliseconds), including
 paused time. Failed minting or startup journal writes before credential handoff
 settle both money and duration to zero: no browser conversation was billable.
-Uncertain and unreconciled attempts retain their entire hold until
+Uncertain and unreconciled duration attempts retain their entire safety hold until
 authenticated reconciliation. Recovery keeps the logical call identity and original
 deadline and reserves only the remaining duration: confirmed predecessors release
 headroom, while an overlapping unconfirmed predecessor still holds its reservation,
@@ -620,8 +622,22 @@ Library hosts pass `createVoiceCap({storage, ...voiceCapConfig(values)})` as
 `budget.visitorUsed(sessionId)` tracks voice visitor credits. Terminal usage
 retains full `providerSeconds`/`providerMinutes`, `pausedSeconds`, `visitorSeconds`,
 provider credits and both micro-unit costs. Confirmed pauses reduce visitor
-seconds and cost while upstream usage still accrues. Unknown dispatched closure
-charges both reserved maxima. Startup releases undispatched holds, conservatively
+seconds and cost while upstream usage still accrues. Healthy voice calls hold a
+renewable priced segment. Closing immediately counts the full provider duration
+ceiling × the configured rate as uncertain exposure for both money ledgers,
+even above the allowance; further admission counts that liability. Startup
+restores the same exposure from the attempt's persisted ceiling before any
+provider lookup. Only authenticated final details release it. Failed browser
+hangup, host shutdown and server crashes cannot establish stopped billing.
+ElevenLabs documents remote `end_call` through an [enterprise-only monitoring
+WebSocket](https://elevenlabs.io/docs/eleven-agents/guides/realtime-monitoring);
+the built-in self-serve host cannot assume this entitlement. Qualified hosts may
+supply `requestProviderClose`; the final authenticated record still confirms
+closure. Explicit `metadata.cost_fiat` or `metadata.cost` confirms a total.
+Component-only evidence requires platform (or legacy call), LLM and cumulative
+analysis charges, including explicit zero values. Missing components retain a
+labelled duration × rate estimate and schedule cost reconciliation.
+Startup releases undispatched holds, conservatively
 settles dispatched holds, revokes callback auth and retains pending orphan
 reconciliation under SQLite's exclusive writer. A host's bounded `closeOrphan`
 port may return authenticated final usage to correct cost without emitting a
@@ -1579,7 +1595,7 @@ computed ceiling charged. Only provably unsent requests may release it. A crash
 leaves open reservations counted.
 
 Known HTML costs are also reported as `chargedMicro` to the session credit
-ledger, replacing its USD 1 maximum hold with the same actual cost, including
+ledger, replacing its request estimate with the same actual cost, including
 invalid-output failures, cancellation after usage and HTTP errors with usage.
 Unsent work settles at zero. Dispatched work with unknown usage retains a
 conservative charge; releasing it as free would permit cap overruns.
@@ -1588,18 +1604,51 @@ AIT-113's remote red-before test (`00559d8`, mbp2606) found 4 failures out of 6:
 an actual 1,234-microdollar draft was displayed as 550 microdollars from token
 rates, and a priced HTTP error consumed its full 235,070-microdollar ceiling.
 The fix (`56285ef`) passed all 38 targeted spend/budget/plugin tests remotely.
-Normal known-cost reasoning already settles the shared OpenRouter cap; missing
-reasoning cost and incomplete streams deliberately retain their holds. The UI
-wallet sums session budget attempts across the owner's conversations, separately
-from the deployment account spend ledger. Live reasoning's generic token rates
-are zero, while an uncertain reasoning attempt charges its full USD 1 maximum.
-These differences and uncertain voice/turn attempts can explain a gap, but the
-reported start2 balance cannot be attributed without live ledger aggregates.
-Since drafts were off during that observation, the draft bugs fixed here did
-not cause that balance. This slice makes no provider
-calls and does not alter voice or historical uncertain charges.
+AIT-134 also settles reaction, understanding and drafts to `usage.cost`, asks for
+usage on every request, and persists generation IDs before settlement. Requests
+reserve `ceil((serialized message UTF-8 bytes × prompt USD/token + max output
+tokens × completion USD/token) × 1,000,000)`, rather than USD 1. The binding's
+maximum remains a technical input/output price bound. SQLite separately records
+reserved, confirmed and uncertain amounts; dispatched operations with missing
+cost leave no live reservation and retain their estimate as uncertain spend.
+Startup and a bounded 30-second retry loop reconcile returned IDs through
+`GET /api/v1/generation?id=...` using authoritative `data.total_cost`. Receipts
+repair either ledger after a crash between their writes. An interrupted request
+that never returns an ID remains uncertain; absence of an ID is never zero-cost
+evidence. Existing historical attempts without retained IDs need OPS evidence.
 
-The default `createSpendLedger({path, capMicro})` is a JSON counter. Each
+The default `createSpendLedger({path, capMicro})` is a JSON cost journal. Its
+version 2 format keeps per-attempt dispatch state, generation IDs, observed
+receipts and confirmed charges. Unknown dispatched costs remain `uncertainMicro`
+and can settle later by attempt ID without double charging. Active holds persist
+their writer ID, host, PID and a random incarnation ID shared by all ledgers in
+that process, plus `leaseExpiresAt`. A writer renews its 30-second lease
+every five seconds while the persisted lease is still valid. Renewal failures
+are logged and retry only until expiry. A stalled event loop, repeated write
+failures or a forward clock jump can lose the lease: a late tick cannot revive
+it, and correcting the clock cannot restore that handle's authority.
+Dispatch and direct settlement check the writer, process incarnation and
+unexpired deadline under the same transaction lock as their journal change.
+Lease loss returns `not-admitted` (`Spend reservation lease lost`), aborts unsent
+provider work before budget dispatch is marked, and prevents draft publication.
+Calls already dispatched retain their evidence and settle through reconciliation.
+`recover()`, snapshots and new
+reservations reclaim holds only after lease expiry, regardless of PID reuse or
+hostname changes. Reclamation replays saved receipts, releases undispatched
+holds, and converts dispatched holds without known cost to uncertainty for
+reconciliation. Pre-lease version 2 holds receive one durable 30-second grace
+period; even undispatched legacy holds become uncertainty at expiry because
+an older writer does not enforce the new lease fence. A late legacy settlement
+can replace that estimate. Terminal rows discard obsolete owner and lease
+metadata before validation, including fields retained by a still-running older
+writer, without losing charges or receipts. Renewal stops when the writer has
+no active holds, and its timer does not keep an exiting process alive.
+Dispatch rejects settled handles. Reconciliation cannot settle another writer's
+unexpired active hold, and exact receipt replays never add a second charge.
+`createSpendLedger` accepts an optional `now` clock for deterministic fixtures.
+Version 1 counters are read conservatively: old
+reservations become uncertainty because they carry no dispatch evidence; old
+aggregate spend is retained. Each
 transaction uses an `O_EXCL` lock containing the owner PID; a live, unknown or
 malformed owner fails closed. Only a provably dead PID permits stale-lock
 recovery, with an exclusive recovery guard preventing competing takeovers.
@@ -1608,9 +1657,15 @@ and its directory after rename. An unreadable/locked counter or failed
 settlement closes the plugin.
 Reset the cap only by deliberately replacing the counter's stored state.
 
-For AIT-115/part B, inject `spend: {reserve(ceilingMicro), settle(handle,
-actualMicro), snapshot()}`. Methods may be asynchronous and handles are opaque.
-`snapshot()` returns safe nonnegative `spentMicro` and `reservedMicro` integers;
+For AIT-115/part B, an injected `spend` port must implement `reserve(ceilingMicro,
+{attemptId, provider})`, `dispatch(handle)`, `record(handle, evidence)`,
+`uncertain(handle)`, `settle(handle, actualMicro)`, `snapshot()`, `recover()`,
+`evidence(attemptId)` and `reconcileAttempt(attemptId, actualMicro)`. Incomplete
+ports refuse startup with a reconciliation error. Methods may be asynchronous
+and handles are opaque. Receipts persist before settlement; reconciliation is
+acknowledged only after both budget and account ledgers settle.
+`snapshot()` returns safe nonnegative `spentMicro`, `reservedMicro` and
+`uncertainMicro` integers;
 it may also return a persisted `costCeilingBreached` flag. `reserve` must
 atomically enforce the same shared USD cap across all lanes and processes.
 The plugin's snapshot check alone does not provide interprocess admission.
@@ -1736,6 +1791,15 @@ must neither return the old hold nor change it. Retain the fingerprint after
 release. The required `release({attemptId})` hook must await removal of only
 that hold; repeated and unknown releases are harmless. The host owns wallet
 billing, reservations, settlement and recovery; core adds no billing policy.
+
+AIT-134 adds `reservedMicro`, `confirmedSpendMicro` and `uncertainSpendMicro` to
+each credits balance part (`owner`, `session`, `voiceVisitor`). Their sum is
+`committedMicro`; `availableMicro = max(0, limitMicro - committedMicro)` keeps
+the existing UI contract. Unknown dispatched costs and labelled voice duration
+estimates count as uncertain, never confirmed. The demo host's owner reservations
+are durable, share attempt IDs with the budget ledger, and count once. Financial
+totals retain owner attribution after conversation erasure; startup releases
+wallet admissions that never reached the ledger.
 
 `creditAdmission(ledger, sessionId, maxMicro, maxVisitorMicro, ownerWallet)` is a
 preview. Paid hosts must call `await admitCredits(ledger, request, ownerWallet)`:
@@ -1874,6 +1938,7 @@ Readiness of voice is separately visible in
 | `OPENROUTER_SPEECH_MODEL` | Reaction model id or latest alias for spoken and typed replies and the voice facade; defaults to `OPENROUTER_MODEL`; capped by `OPENROUTER_MAX_TOKENS`; choose for the seven-second platform timeout |
 | `OPENROUTER_MAX_TOKENS` | Reply token ceiling for reaction/speech; default `1200`; used in the per-request spend ceiling |
 | `OPENROUTER_ANALYSIS_MAX_TOKENS` | Understanding token ceiling; default `8000`; START found lower values truncated real analyses; used in the per-request spend ceiling |
+| `OPENROUTER_MAX_INPUT_TOKENS` | Hard input bound, independent of price; default `131072`; conservatively enforced from UTF-8 bytes of serialized messages before money reservation and again before dispatch, including zero prompt prices |
 | `OPENROUTER_ANALYSIS_EFFORT` | Understanding reasoning effort: `none` (default), `low`, `medium`, `high`, `xhigh`, `max`; invalid values refuse startup; reaction always uses `none` |
 | `OPENROUTER_PROVIDER_ONLY` | Comma-separated upstream allow-list sent as `provider.only` on every request; unset means no restriction; part of the legal profile; must mirror START exactly |
 | `OPENROUTER_ANALYSIS_PROVIDER_IGNORE` | Comma-separated upstream exclusions sent as `provider.ignore` on understanding/analysis and HTML; default `Azure`, whose START workspace rejects `response_format` despite advertised support |
@@ -1882,6 +1947,10 @@ Readiness of voice is separately visible in
 | `AITHEMA_VOICE_MODE` | `elevenlabs` enables startup ensure; default `fake` locally and `off` on a live host, where `fake` is refused; `off` disables voice |
 | `AITHEMA_VOICE_CAP_MINUTES` | Optional deployment lifetime voice-minute budget in `AITHEMA_DB`; nonnegative decimal minutes (up to six fractional digits); unset means no aggregate total cap; `0` refuses new calls |
 | `AITHEMA_VOICE_CAP_MINUTES_PER_DAY` | Optional deployment voice-minute budget per UTC admission day in `AITHEMA_DB`; same decimal format; unset means no aggregate daily cap; OPS sets this and the total cap for start2 |
+| `AITHEMA_VOICE_USD_PER_MINUTE` | Voice reservation and duration-estimate price; default `0.10` USD/minute; nonnegative decimal USD |
+| `AITHEMA_VOICE_RESERVATION_SECONDS` | Expected voice segment; default `30`; its priced hold extends during the call while money remains |
+| `AITHEMA_VOICE_MAX_DURATION_SECONDS` | Technical provider ceiling; default `3600` (60 minutes), configurable up to `86400`; separate from money admission |
+| `AITHEMA_ELEVENLABS_USD_PER_CREDIT` | Host's plan-specific decimal USD per provider credit; no guessed default; unnecessary when provider details report total USD |
 | `ELEVENLABS_API_KEY` | ElevenLabs account key; reference resolves server-side only |
 | `AITHEMA_ELEVENLABS_TEMPLATE_AGENT_ID` | START agent to GET for selected voice/language/ASR/turn/privacy settings; never a write target |
 | `AITHEMA_VOICE_FACADE_SECRET` | Deployment callback bearer supplied by OPS; startup creates/updates its owned workspace-secret reference |
@@ -2018,14 +2087,17 @@ array, including the system message, multiplied by the configured prompt price,
 plus `max_tokens` multiplied by the completion price. Decimal arithmetic rounds
 that sum upward to microdollars. The port reserves this ceiling (with a minimum
 one-microdollar hold for free prices), refusing before dispatch when
-`spent + reserved + ceiling > cap`. The existing per-binding USD 1 lane maximum
-also refuses oversized requests. `AITHEMA_OPENROUTER_RESERVE_USD` is removed.
+`spent + reserved + uncertain + ceiling > cap`. The configured input/output
+price bound and independent `maxInputTokens` bound refuse oversized requests;
+zero prompt prices do not relax the latter. They are separate from the small
+per-operation hold. `AITHEMA_OPENROUTER_RESERVE_USD` is removed.
 
 Every request asks for `usage.include`; final streaming or non-streaming
 `usage.cost` settles its hold in upward-rounded microdollars. Known cost remains
 billable even if structured output is invalid or the HTTP status is an error.
-Missing usage, cancellation, incomplete streams and process death retain the
-whole hold across restart. No dispatched hold is released without `usage.cost`.
+Missing costs and unconfirmed dispatched work become uncertain estimated spend
+across restart. Known `usage.cost` settles even a cancelled or incomplete result;
+returned generation IDs support durable authoritative lookup when cost is absent.
 An actual cost above its ceiling is recorded in full and permanently marks the
 account breached, refusing all further calls, even if the account cap still has
 room. Streaming stops as soon as it reports such an overrun. For example,
@@ -2046,7 +2118,7 @@ OPS reconciliation of uncertain holds:
    `GET /api/v1/generation?id=<generation-id>` through secret-aware tooling.
    Otherwise obtain the account's OpenRouter activity export. Match each billed
    generation unambiguously to its reservation using OPS request records; the
-   host does not currently persist generation ids or that correlation itself.
+   pre-AIT-134 host did not persist generation ids or that correlation itself.
    A missing export row or interrupted client stream is not proof of zero cost.
 3. Once authoritative provider evidence proves the billed USD cost for that
    reservation, round it upward to microdollars and call the spend-cap port's
@@ -2057,7 +2129,8 @@ OPS reconciliation of uncertain holds:
    cost remains uncertain, leave the full hold in place.
 4. Check `snapshot()` totals against the evidence and confirm any ceiling breach
    still refuses admission, then restart the sole writer. Reconciliation is an
-   OPS action; startup does not release dispatched holds automatically.
+   OPS action for historical uncorrelated rows. AIT-134 automatically retries
+   new correlated rows and classifies unresolved dispatched charges as uncertain.
 
 The following shapes are **verified by read-only GET 2026-10-09** in the
 coordinator's AIT-115 comment: paginated agent list and ids/names; agent GET
@@ -2107,13 +2180,13 @@ Coordinator live smoke, after its Claude approval gate:
    and language overrides enabled, and no language presets. Verify the greeting
    contains only the conversation language, matching `aiNoticeText(locale)`.
 5. Inspect value-free SQLite `spend_reservations` totals: non-stream analysis and
-   streaming reaction costs sum; missing/uncertain usage retains the hold. Restart
+   streaming reaction costs sum; missing usage retains uncertain estimated spend. Restart
    and confirm totals persist. On an isolated small-cap test database, once the
    next reservation would exceed the cap, the next call must be refused with no
    OpenRouter dispatch. Keep production ownership/cost state intact.
 
 The built-in host has no confirmed server-side hangup endpoint. Browser hangup,
-lease expiry and the owned agent's 600-second platform ceiling remain the
+lease expiry and the owned agent's configurable 3600-second technical ceiling remain the
 backstops. Until authenticated final details arrive, closure stays conservative
 and pending reconciliation survives restart. Provider write shapes and real-key
 smoke verification belong to the coordinator; none were run by the builder.

@@ -92,14 +92,15 @@ test('HTML qualification has its own processor/model/endpoint/routing evidence a
   } finally { storage.close(); }
 });
 
-test('HTML accepts the exact Claude latest alias and requires prices under that alias', () => {
+test('HTML accepts the exact Claude latest alias and requires prices under that alias', async () => {
   const alias = '~anthropic/claude-opus-latest';
   const aliasValues = { ...values, OPENROUTER_MODEL: alias,
     AITHEMA_OPENROUTER_PRICES: JSON.stringify({ [alias]: { prompt: 1.4e-6, completion: 1.4e-5 } }) };
   const configured = htmlConfig(aliasValues);
+  const spendPath = `${await temporaryDb()}.spend.json`;
   assert.equal(configured.binding.model, alias); assert.equal(configured.binding.legal.evidence.model, alias);
   assert.doesNotThrow(() => createClaudeHTML({ binding: configured.binding,
-    spend: { reserve() {}, settle() {}, snapshot() {} }, resolveSecret: () => null }));
+    spendPath, resolveSecret: () => null }));
   for (const invalid of ['~openai/gpt-latest', '~anthropic/claude-opus', '~~anthropic/claude-opus-latest', '~anthropic/path/claude-latest']) {
     assert.throws(() => htmlConfig({ ...aliasValues, AITHEMA_HTML_MODEL: invalid }), /anthropic/);
     assert.throws(() => createClaudeHTML({ binding: { ...configured.binding, model: invalid } }), /anthropic/);
@@ -169,7 +170,8 @@ test('start2 drafts run at milestones in the background; conversation and select
   await grant(['models-international', 'drafts-anthropic']); await handlers.idle();
   await turn('wish', 'Please show a clickable draft for repair requests.'); await started.promise; await reasoningFinished();
   assert.equal(storage.get(session.id).conceptStatus.phase, 'pending');
-  assert.equal(runtime.budget.used(session.id), 1_000_000, 'only the active draft holds its maximum');
+  assert.equal(runtime.budget.used(session.id), spend.snapshot().reservedMicro, 'only the active draft holds its priced request estimate');
+  assert.ok(runtime.budget.used(session.id) < 1_000_000);
   await turn('during', 'Further details: the caretaker needs a repair list.'); await reasoningFinished();
   const current = storage.get(session.id);
   assert.ok(current.transcript.some(turn => turn.role === 'assistant' && turn.inputRevision === inputRevision(current)), 'conversation answers while HTML remains stalled');
@@ -225,10 +227,11 @@ test('withdrawing only drafts aborts a dispatched render before it finishes and 
   assert.equal(await pending, 'failed'); await handlers.idle();
   assert.equal(storage.get(id).concepts.length, 0); assert.equal(spend.snapshot().reservedMicro, 0);
   const used = runtime.budget.used(id), spent = spend.snapshot().spentMicro;
-  assert.equal(used, spent, 'cancellation retains the same dispatched ceiling in both ledgers');
+  assert.equal(used, spent + spend.snapshot().uncertainMicro, 'cancellation retains the same uncertain estimate in both ledgers');
   released.resolve(); await new Promise(resolve => setImmediate(resolve));
   assert.equal(storage.get(id).concepts.length, 0, 'a transport ignoring abort cannot publish its late result');
-  assert.equal(runtime.budget.used(id), used); assert.equal(spend.snapshot().spentMicro, spent, 'late usage cannot change settled spend');
+  assert.equal(runtime.budget.used(id), 1234); assert.equal(spend.snapshot().spentMicro, 1234, 'late provider cost replaces the uncertain estimate');
+  assert.equal(spend.snapshot().uncertainMicro, 0);
   assert.equal(calls, 1);
 });
 

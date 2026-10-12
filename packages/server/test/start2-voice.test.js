@@ -36,6 +36,7 @@ async function fixture(t, { locale = 'en', capMilliseconds, closureTimeoutMs, re
       'data: {"choices":[],"usage":{"prompt_tokens":1,"completion_tokens":2,"cost":0.00001}}\n\ndata: [DONE]\n\n');
   });
   const host = await createVoiceHost({ storage, templateAgentId: 'template-agent', publicOrigin: 'https://start2.example.test', apiBaseUrl: eleven.endpoint,
+    values: { AITHEMA_VOICE_MAX_DURATION_SECONDS: '600', AITHEMA_ELEVENLABS_USD_PER_CREDIT: '0.0001' },
     resolveSecret: () => 'local-fixture-key', log: value => logs.push(value), fetchImpl: providerFetch });
   assert.ok(host.binding);
   const configured = openRouterConfig({ OPENROUTER_MODEL: 'openai/understanding-fixture', OPENROUTER_SPEECH_MODEL: 'anthropic/speech-fixture',
@@ -50,7 +51,8 @@ async function fixture(t, { locale = 'en', capMilliseconds, closureTimeoutMs, re
     AITHEMA_OPENROUTER_PRICES: JSON.stringify({ 'anthropic/claude-fixture': { prompt: 1e-7, completion: 1e-7 } }) }).binding : null;
   const consent = createProcessingConsent({ storage, bindings: [host.binding, reaction, understanding, ...(htmlBinding ? [htmlBinding] : [])] });
   const voice = createVoiceProvider({ storage, staticFacade: true, binding: { agentId: host.binding.agentId, secretRef: host.binding.secretRef,
-    apiBaseUrl: eleven.endpoint, upstreamMicroPerMinute: 100_000, visitorMicroPerMinute: 100_000 }, resolveSecret: () => 'local-fixture-key',
+    apiBaseUrl: eleven.endpoint, upstreamMicroPerMinute: 100_000, visitorMicroPerMinute: 100_000,
+    reservationSeconds: host.binding.reservationSeconds, usdPerCredit: host.binding.usdPerCredit }, resolveSecret: () => 'local-fixture-key',
     fetchImpl: providerFetch, closureTimeoutMs, reconcileLater: () => handlers.reconcileVoiceLater() });
   const secrets = createFacadeSecrets(); secrets.resolve = ref => ref === host.staticSecretRef ? 'local-callback-fixture' : null;
   const voiceCap = capMilliseconds === undefined ? undefined : createVoiceCap({ storage, capMilliseconds });
@@ -146,6 +148,21 @@ for (const withdrawn of ['models-international', 'voice-elevenlabs']) test(`with
   assert.notEqual(inputRevision(h.storage.get(h.session.id)), inputRevision(before));
   for (const { id } of content) assert.equal(h.storage.db.prepare('SELECT bytes FROM content WHERE id=?').get(id).bytes, null);
   assert.equal((await h.callback(call.facadeCallId)).status, 403, 'reasoning or voice withdrawal stops the live call');
+});
+
+test('priced voice holds extend atomically without reserving the technical ceiling', async t => {
+  const h = await fixture(t);
+  assert.equal((await h.grant(['models-international', 'voice-elevenlabs'])).status, 200);
+  const admitted = await h.runtime.admitVoice({ session: h.storage.get(h.session.id), request: { callId: 'money-test' } });
+  const attempt = admitted.options.attempt;
+  assert.equal(attempt.maxMicro, 50_000);
+  await attempt.consume();
+  assert.equal(attempt.extend(60).maxMicro, 100_000);
+  assert.equal(attempt.maxMicro, 100_000);
+  assert.equal(h.runtime.budget.breakdown(h.session.id).reservedMicro, 100_000);
+  admitted.finish();
+  assert.equal(h.runtime.budget.breakdown(h.session.id).uncertainSpendMicro, 1_000_000,
+    'losing the live invocation retains the provider ceiling, rather than its last healthy segment');
 });
 
 test('start2 retries uncertain holds in process and admits a later call without a restart', { timeout: 5000 }, async t => {

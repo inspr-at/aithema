@@ -65,7 +65,8 @@ export async function beginVoiceInvocation(options, callId) {
         : known ? { outcome: terminal.outcome, closureConfirmed: true, usage, chargedMicro: usage.upstreamMicro,
           overrun: usage.upstreamMicro > options.attempt.maxMicro, providerSessionId: terminal.providerSessionId }
           : { outcome: 'uncertain', closureConfirmed: false, usage: usage ?? null,
-            providerSessionId: terminal?.providerSessionId, chargedMicro: options.attempt.maxMicro };
+            providerSessionId: terminal?.providerSessionId, chargedMicro: Math.max(options.attempt.maxMicro,
+              Number.isSafeInteger(terminal?.chargedMicro) && terminal.chargedMicro >= 0 ? terminal.chargedMicro : 0) };
       return options.report({ ...report, attemptId: options.attempt.attemptId, callId });
     },
   };
