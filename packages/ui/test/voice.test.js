@@ -47,11 +47,13 @@ test('audio rail shows listening, speaking, paused, recovering and ended states 
   assert.ok(commands.some(c => c[0] === 'input' && c[1] === false));
   assert.ok(!root.querySelector('[class*=interrupt]'), 'native voice barge-in has no force button');
 });
-test('pause state changes only after server acknowledgement and focus never resumes it', async t => {
+test('AIT-136 pause state changes immediately in the same controls and focus never resumes it', async t => {
   let acknowledge; const { rail, root } = fixture(t, { pause: () => new Promise(resolve => { acknowledge = resolve; }) });
   await rail.start(); const pending = rail.pause(true);
-  assert.equal(root.dataset.state, 'listening'); assert.equal(rail.button('pause').disabled, true);
+  const buttons = [...root.querySelectorAll('button')];
+  assert.equal(root.dataset.state, 'paused'); assert.equal(rail.button('pause').disabled, true);
   acknowledge({ acknowledged: true, paused: true }); await pending; assert.equal(root.dataset.state, 'paused');
+  assert.deepEqual([...root.querySelectorAll('button')], buttons);
   window.dispatchEvent(new window.Event('focus')); await tick(); assert.equal(root.dataset.state, 'paused');
 });
 test('window blur keeps the call; a hidden page pauses it as START does; unacknowledged pause has distinct failure copy', async t => {
@@ -66,7 +68,7 @@ test('window blur keeps the call; a hidden page pauses it as START does; unackno
   t.mock.restoreAll();
   await rail.pause(false); assert.equal(root.dataset.state, 'listening');
   rail.session.pause = async () => ({ acknowledged: false, paused: true }); await rail.pause(true);
-  assert.equal(root.querySelector('.voice-state').textContent, en.voicePauseFailed); assert.equal(rail.paused, false);
+  assert.equal(root.querySelector('.voice-state').textContent, en.voicePauseFailed); assert.equal(rail.paused, true);
 });
 test('voice unavailable in preset disables Start with a reason and retains layout', async t => {
   const { rail, root } = fixture(t, { unavailable: true });
@@ -183,7 +185,7 @@ for (const change of [
   };
   const client = createElevenLabsClient({ control, persistEvent: async () => {}, sdk: {
     async startSession(options) { callbacks = options; return {
-      getId: () => 'consent-provider', setMicMuted() {}, setVolume() {}, sendContextualUpdate() {},
+      getId: () => 'consent-provider', input: { async setMuted() {} }, setVolume() {}, sendContextualUpdate() {},
       async endSession() { ended.push(callId); },
     }; },
   } });
@@ -238,7 +240,7 @@ test('closing notification ends the browser SDK before slow provider settlement'
     async pause() {}, async resume() {}, async heartbeat() {},
   };
   const client = createElevenLabsClient({ control, persistEvent: async () => {}, sdk: {
-    async startSession() { return { getId: () => 'slow-provider', setMicMuted() {}, setVolume() {}, sendContextualUpdate() {},
+    async startSession() { return { getId: () => 'slow-provider', input: { async setMuted() {} }, setVolume() {}, sendContextualUpdate() {},
       async endSession() { ended = true; } }; },
   } });
   const c = document.createElement('aithema-session'); c.configure({ copy: en, session, voiceClient: client });
@@ -275,7 +277,7 @@ test('failed recovered SDK connections complete all three attempts and expose Re
     async startSession(options) {
       if (++connections > 1) throw new Error('fixture SDK connect failed');
       callbacks = options;
-      return { getId: () => 'initial-provider', setMicMuted() {}, setVolume() {}, sendContextualUpdate() {}, async endSession() {} };
+      return { getId: () => 'initial-provider', input: { async setMuted() {} }, setVolume() {}, sendContextualUpdate() {}, async endSession() {} };
     },
   } });
   const render = AudioRail.prototype.render;
@@ -527,4 +529,53 @@ test('a hidden page during a pending resume pauses again once the resume is ackn
   assert.equal(rail.paused, true, 'a hidden rail never stays listening after the acknowledgement');
   assert.equal(root.dataset.state, 'paused');
   t.mock.restoreAll();
+});
+
+
+test('AIT-136 hiding during recovery keeps pause intent after a failed acknowledgement and reconnect', async t => {
+  const { rail, root, events } = fixture(t, { pause: async () => { throw new Error('recovering'); } });
+  await rail.start(); events.push({ type: 'recovering', callId: 'local-call' }); await tick();
+  t.mock.method(document, 'hidden', () => true, { getter: true });
+  const buttons = [...root.querySelectorAll('button')];
+  document.dispatchEvent(new window.Event('visibilitychange'));
+  assert.equal(root.dataset.state, 'paused');
+  await tick(); assert.equal(rail.paused, true);
+  events.push({ type: 'recovered', callId: 'local-call' }); await tick();
+  assert.equal(root.dataset.state, 'paused'); assert.deepEqual([...root.querySelectorAll('button')], buttons);
+  t.mock.restoreAll();
+});
+
+test('AIT-136 the rail forwards withdrawal to the adapter instead of draining revoked content', async t => {
+  const { rail } = fixture(t); await rail.start();
+  let options; rail.session.close = async value => { options = value; return { closureConfirmed: true }; };
+  await rail.close('turn-withdrawn'); assert.equal(options.reason, 'turn-withdrawn');
+});
+
+test('AIT-136 the persistence port carries generation, HTTP refusal status and cancellation', async t => {
+  const delivered = [], requests = [];
+  const ports = createVoiceControl({ sessionId: 's1', receive: event => delivered.push(event) });
+  const event = { type: 'final', callId: 'c1', providerSessionId: 'generation-a', turnId: 'generation-a:user:1', role: 'user', text: 'hello' };
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    requests.push({ url, options }); return Response.json({ error: 'not-admitted' }, { status: 403 });
+  });
+  await assert.rejects(ports.persistEvent(event, event), error => error.status === 403 && error.code === 'not-admitted');
+  assert.equal(JSON.parse(requests[0].options.body).providerSessionId, 'generation-a');
+  const held = Promise.withResolvers(), controller = new AbortController();
+  t.mock.method(globalThis, 'fetch', (url, options) => { requests.push({ url, options }); return held.promise; });
+  const pending = ports.persistEvent(event, event, { signal: controller.signal });
+  const rejected = assert.rejects(pending, { name: 'AbortError' });
+  controller.abort(); held.resolve(Response.json({ seq: 1, type: 'turn.final' })); await rejected;
+  assert.equal(requests.at(-1).options.signal, controller.signal); assert.deepEqual(delivered, []);
+});
+
+
+test('AIT-136 withdrawal arriving during normal end reaches the already closing adapter', async t => {
+  const { rail } = fixture(t); await rail.start();
+  const held = Promise.withResolvers(), calls = [];
+  rail.session.close = options => { calls.push(options); return held.promise; };
+  const closing = rail.close();
+  try {
+    assert.equal(rail.close('turn-withdrawn'), closing);
+    assert.deepEqual(calls.map(options => options.reason), ['closed', 'turn-withdrawn']);
+  } finally { held.resolve({ closureConfirmed: true }); await closing; }
 });
