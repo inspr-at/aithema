@@ -114,7 +114,10 @@ for (const selected of [false, true]) test(`draft-only consent ${selected ? 'wit
 
 test('draft-only consent saves keep dispatched understanding running without a second provider call', { timeout: 5000 }, async t => {
   const h = await fixture(t, { drafts: true }), call = await h.start(), held = h.holdUnderstanding();
-  assert.equal((await h.route('/turns', { clientEventId: 'needs', content: 'Repairs' })).status, 200); await held.started.promise;
+  for (let i = 0; i < h.storage.get(h.session.id).preset.anonymousTurns; i++) {
+    assert.equal((await h.route('/turns', { clientEventId: `needs-${i}`, content: 'Repairs' })).status, 200);
+  }
+  await held.started.promise;
   const revision = inputRevision(h.storage.get(h.session.id));
   assert.equal((await h.grant(['models-international', 'voice-elevenlabs', 'drafts-anthropic'])).status, 200);
   assert.equal(inputRevision(h.storage.get(h.session.id)), revision);
