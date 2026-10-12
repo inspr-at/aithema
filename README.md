@@ -1371,21 +1371,33 @@ digest describes the original stored artifact, before the export wrapper;
 generator with escaped summary and open questions. `off` removes its binding. On a
 live host (`AITHEMA_PROVIDER` set) it defaults to `off`; an explicit `fake` is offered
 only as a visuals option labelled as a demo.
-`claude` uses `AITHEMA_HTML_MODEL` (default `anthropic/claude-opus-5.5`), requires
+`claude` uses `AITHEMA_HTML_MODEL` when set, otherwise the configured Claude
+`OPENROUTER_MODEL` (including `~anthropic/claude-opus-latest`), with
+`anthropic/claude-opus-5.5` as the fallback for other reasoning models. It requires
 positive operator prices, and injects the same persistent SQLite account spend
 port used by reaction, understanding and delegated voice reasoning. There is no
 second file counter. HTML sends START's `provider.only`, analysis `ignore`,
 `require_parameters`, `allow_fallbacks:false` and decimal-exact `max_price`;
 the output ceiling is 8,000 tokens, with reasoning disabled.
 
-START has no separate HTML consent item. The demo reuses its verbatim
-`models-international` item only when the Anthropic processor, account, secret
-reference, actual endpoint and complete provider routing match an existing
-reasoning binding. Otherwise HTML stays unavailable with `HTML consent scope
-unavailable: START has no matching HTML item` until an authoritative scope covers
-it. Generate and edit have separate exact processing scopes, checked again at
-claim consumption and publication. A host with its own matching consent item
-can provide a qualified HTML binding and the existing consent port.
+Live HTML uses the separate optional `drafts-anthropic` version-1 item. It names
+OpenRouter, Inc. and Anthropic PBC in the United States and covers conversation,
+uploaded file text and the current assessment for clickable draft screens,
+without a retention guarantee. It is offered only when HTML is configured;
+the server marks it optional on the consent page. Reasoning grants do not cover
+drafts, and withholding or withdrawing only drafts leaves conversation enabled.
+The binding has its own processor, model, endpoint and routing evidence.
+Generate and edit have separate exact scopes checked again at claim consumption
+and publication. Stored grants bind to the contract that was presented; adding
+HTML changes the contract and requires a fresh decision.
+
+For start2's existing Opus/Haiku latest aliases and their two price entries,
+OPS only adds `AITHEMA_HTML_MODE=claude`. No `AITHEMA_HTML_MODEL` or third price
+entry is needed. HTML uses the Opus alias, 8,000 output tokens and disabled
+reasoning, independently of the reasoning lane's effort. With visuals selected
+and draft consent granted, an explicit visual request in the conversation arms
+background generation at understanding milestones and subsequent refinements.
+The independent concept lane keeps conversation running during rendering.
 
 All UI render attempts share persistent lifetime-session and deployment UTC-day
 limits, default 20 and 200. Counts are recorded atomically at claim consumption;
@@ -1554,6 +1566,24 @@ persists that refusal across restarts. Unknown dispatched cost, including
 401/402/403/429 responses, cancellation, deadlines and 5xx, keeps the full
 computed ceiling charged. Only provably unsent requests may release it. A crash
 leaves open reservations counted.
+
+Known HTML costs are also reported as `chargedMicro` to the session credit
+ledger, replacing its USD 1 maximum hold with the same actual cost, including
+invalid-output failures, cancellation after usage and HTTP errors with usage.
+Unsent work settles at zero. Dispatched work with unknown usage retains a
+conservative charge; releasing it as free would permit cap overruns.
+
+AIT-113's remote red-before test (`00559d8`, mbp2606) found 4 failures out of 6:
+an actual 1,234-microdollar draft was displayed as 550 microdollars from token
+rates, and a priced HTTP error consumed its full 235,070-microdollar ceiling.
+The fix (`56285ef`) passed all 38 targeted spend/budget/plugin tests remotely.
+Normal known-cost reasoning already settles the shared OpenRouter cap; missing
+reasoning cost and incomplete streams deliberately retain their holds. The UI
+wallet sums session budget attempts across the owner's conversations, separately
+from the deployment account spend ledger. These differences and uncertain
+voice/turn attempts can explain a gap, but the reported start2 balance cannot
+be attributed without live ledger aggregates. This slice makes no provider
+calls and does not alter voice or historical uncertain charges.
 
 The default `createSpendLedger({path, capMicro})` is a JSON counter. Each
 transaction uses an `O_EXCL` lock containing the owner PID; a live, unknown or
@@ -1842,8 +1872,8 @@ Readiness of voice is separately visible in
 | `AITHEMA_ELEVENLABS_TEMPLATE_AGENT_ID` | START agent to GET for selected voice/language/ASR/turn/privacy settings; never a write target |
 | `AITHEMA_VOICE_FACADE_SECRET` | Deployment callback bearer supplied by OPS; startup creates/updates its owned workspace-secret reference |
 | `AITHEMA_IMAGE_MODE` | Default `fake` locally and `off` on a live host, where `fake` is refused; `openai` requires a separate host module |
-| `AITHEMA_HTML_MODE` | `fake` (local default) generates local clickable HTML, offered on a live host only when set explicitly and labelled as a demo; `claude` uses the shared SQLite OpenRouter cap and requires current matching consent; `off` (live default) disables HTML |
-| `AITHEMA_HTML_MODEL` | `anthropic/claude-opus-5.5` (default); Claude model ID required in `AITHEMA_OPENROUTER_PRICES`; output capped at 8,000 tokens |
+| `AITHEMA_HTML_MODE` | `fake` (local default) generates local clickable HTML, offered on a live host only when set explicitly and labelled as a demo; `claude` uses the shared SQLite OpenRouter cap and requires optional `drafts-anthropic` consent; `off` (live default) disables HTML |
+| `AITHEMA_HTML_MODEL` | Optional Claude ID or `~anthropic/claude-*-latest` alias; defaults to a Claude `OPENROUTER_MODEL`, otherwise `anthropic/claude-opus-5.5`; exact ID required in `AITHEMA_OPENROUTER_PRICES`; output capped at 8,000 tokens |
 | `AITHEMA_UI_RENDERS_PER_SESSION` | Persistent lifetime limit shared by HTML and images; default `20`; `0` disables generation |
 | `AITHEMA_UI_RENDERS_PER_DAY` | Persistent deployment-wide UTC-day limit shared by HTML and images; default `200`; `0` disables generation |
 | `AITHEMA_UPLOAD_MAX_BYTES` | Document route file ceiling; default `20971520` (20 MiB), lowering only; parser input remains capped at 2 MiB |
