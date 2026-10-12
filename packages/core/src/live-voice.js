@@ -5,20 +5,6 @@ export const LIVE_VOICE_COMMANDS = Object.freeze(['close', 'pause', 'resume', 's
 export const LIVE_VOICE_EVENTS = Object.freeze(['listening', 'speaking', 'partial', 'final', 'heard', 'recovering', 'recovered', 'ended']);
 export const LIVE_VOICE_CAPABILITIES = Object.freeze([...LIVE_VOICE_COMMANDS.filter(command => command !== 'close'), 'heard']);
 
-/** Provider identifiers are opaque within their namespace, including numeric IDs. */
-export function voiceTurnIdentities(...sources) {
-  const result = [];
-  for (const [namespace, fields] of [['message', ['message_id', 'id']], ['event', ['event_id']], ['turn', ['turn_id']]]) {
-    const values = sources.flatMap(source => fields.map(field => source?.[field])).filter(value => value !== undefined);
-    if (values.some(value => !(typeof value === 'string' && value.length > 0 && value.length <= 256 ||
-      Number.isSafeInteger(value) && value >= 0))) throw new PluginError('invalid-output');
-    const ids = new Set(values.map(String));
-    if (ids.size > 1) throw new PluginError('invalid-output');
-    if (ids.size) result.push(`${namespace}:${[...ids][0]}`);
-  }
-  return result.length ? result : undefined;
-}
-
 export function assertLiveVoice(plugin) {
   if (!plugin?.manifest?.kinds?.includes('live-voice') || !plugin.manifest.liveVoice ||
     typeof plugin.start !== 'function' || typeof plugin.health !== 'function') throw new TypeError('Live voice requires manifest, start and health');

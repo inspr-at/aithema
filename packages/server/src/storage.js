@@ -10,7 +10,7 @@ import { applyEvent, createSession, inputRevision, emptyUnderstanding, isUIArtif
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 export const MAX_CONCEPT_STORAGE_BYTES = 64 * 1024 * 1024;
 export const MAX_SETTINGS_REVISIONS = 1000;
-const turnMetadata = ['id', 'role', 'at', 'inputRevision', 'contentRef', 'hash', 'erased', 'withdrawn', 'provenance', 'voiceCallId', 'voiceProviderId', 'callId', 'providerSessionId'];
+const turnMetadata = ['id', 'role', 'at', 'inputRevision', 'contentRef', 'hash', 'erased', 'withdrawn', 'provenance', 'voiceCallId', 'voiceProviderId', 'callId', 'providerSessionId', 'userTurnOrdinal'];
 
 export class ConflictError extends Error {}
 export class NotFoundError extends Error {}
@@ -218,7 +218,7 @@ export class SQLiteStorage {
     this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id,
       ['turn.final', 'turn.corrected'].includes(type) ? data.role === 'user' ? 'person' : 'reply' : 'understanding', bytes, digest, at);
     return ['turn.final', 'turn.corrected'].includes(type) ? { id: data.id, role: data.role, at,
-      ...Object.fromEntries(['inputRevision', 'provenance', 'voiceCallId', 'voiceProviderId', 'callId', 'providerSessionId'].filter(key => data[key] !== undefined).map(key => [key, data[key]])), contentRef, hash: digest }
+      ...Object.fromEntries(['inputRevision', 'provenance', 'voiceCallId', 'voiceProviderId', 'callId', 'providerSessionId', 'userTurnOrdinal'].filter(key => data[key] !== undefined).map(key => [key, data[key]])), contentRef, hash: digest }
       : { contentRef, hash: digest };
   }
   #save(session, understandingRef, focusedQuestionRef) {
@@ -406,6 +406,7 @@ export class SQLiteStorage {
       let event;
       if (type === 'final') {
         if (turn) throw new ConflictError('Voice turn already exists');
+        const userTurnOrdinal = value.role === 'user' ? value.userTurnOrdinal : guard.userTurnOrdinal;
         // Echo receipts consume typed turns durably, including across recovery
         // and process restart. Redelivery was handled above and consumes nothing.
         const consumed = value.role === 'user' ? new Set(this.db.prepare(
@@ -419,9 +420,7 @@ export class SQLiteStorage {
             // Speech provenance comes from the authenticated server call, never
             // client fields. Typed echo receipts keep their original typed turn.
             callId, providerSessionId: providerId,
-            ...(Number.isSafeInteger(value.role === 'user' ? value.userTurnOrdinal : guard.userTurnOrdinal) &&
-              (value.role === 'user' ? value.userTurnOrdinal : guard.userTurnOrdinal) > 0
-              ? { userTurnOrdinal: value.role === 'user' ? value.userTurnOrdinal : guard.userTurnOrdinal } : {}),
+            ...(Number.isSafeInteger(userTurnOrdinal) && userTurnOrdinal > 0 ? { userTurnOrdinal } : {}),
             at: new Date().toISOString(), ...(value.role === 'assistant' ? { ...aiTextOrigin({ model: guard.model, plugin: guard.provider }),
               ...(guard.engine ? { engine: guard.engine } : {}), inputRevision: inputRevision(session),
               provenance: guard.provenance === 'facade-produced' ? 'facade-produced' : 'browser-asserted' } : {}) });
