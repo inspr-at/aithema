@@ -6,6 +6,10 @@ import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
+// Do not inherit NODE_TEST_CONTEXT: Node treats a nested runner as recursive
+// and silently skips its files. Keep only these non-secret runtime settings.
+const env = Object.fromEntries(['PATH', 'HOME', 'TMPDIR', 'CHROME_PATH', 'CI', 'AITHEMA_EVIDENCE_DIR']
+  .filter(key => process.env[key] !== undefined).map(key => [key, process.env[key]]));
 const cases = [
   ['unit', 'demo/test/uploads.test.js', '^demo cookie ownership, existing consent, multipart route and durable upload snapshot$'],
   ['browser', 'test/browser/demo.test.js', '^document uploads:'],
@@ -18,7 +22,7 @@ for (const [name, file, pattern] of cases) {
     for (let run = 1; run <= 30; run++) {
       await t.test(`run ${run}/30`, async () => {
         const child = spawn(process.execPath, ['--test', '--test-reporter=spec', `--test-name-pattern=${pattern}`, file],
-          { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+          { cwd: root, env, stdio: ['ignore', 'pipe', 'pipe'] });
         let output = '';
         child.stdout.setEncoding('utf8'); child.stderr.setEncoding('utf8');
         child.stdout.on('data', chunk => { output += chunk; });
