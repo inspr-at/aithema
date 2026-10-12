@@ -34,6 +34,9 @@ export class SQLiteBudgetLedger {
     }
     this.db.prepare(`UPDATE budget_attempts SET owner_hash=(SELECT json_extract(snapshot,'$.ownerHash') FROM sessions WHERE id=session_id)
       WHERE owner_hash IS NULL`).run();
+    this.db.exec(`CREATE INDEX IF NOT EXISTS budget_owner ON budget_attempts(owner_hash);
+      CREATE INDEX IF NOT EXISTS budget_cost_pending ON budget_attempts(attempt_id)
+      WHERE state='settled' AND provider_cost_json IS NOT NULL AND COALESCE(json_extract(provider_cost_json,'$.reconciled'),0)=0;`);
   }
   breakdown(sessionId, { visitor = false, ownerHash } = {}) {
     const settled = visitor ? 'settled_visitor_micro' : 'settled_micro', maximum = visitor ? 'max_visitor_micro' : 'max_micro';

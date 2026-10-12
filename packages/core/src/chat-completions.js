@@ -90,10 +90,11 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
       finally { scope.dispose(); }
     },
     async *stream(request, options) {
-      const scope = operationScope(options); let reader, completed = false, invocation;
+      const scope = operationScope(options); let reader, completed = false;
+      const invocation = await beginInvocation({ ...options, signal: scope.signal }, { billable, authoritativeCost })
+        .catch(error => { scope.dispose(); throw error; });
       const spend = { options, metadata: { attemptId: options?.attempt?.attemptId, provider: authoritativeCost ? 'openrouter' : manifest.id } };
       try {
-        invocation = await beginInvocation({ ...options, signal: scope.signal }, { billable, authoritativeCost });
         const response = await dispatch(request, scope, { stream: true }, invocation, spend);
         if (!response.body) throw new PluginError('invalid-output');
         reader = response.body.getReader();
@@ -140,10 +141,11 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
       }
     },
     async structured(request, options) {
-      const scope = operationScope(options); let completed = false, invocation;
+      const scope = operationScope(options); let completed = false;
+      const invocation = await beginInvocation({ ...options, signal: scope.signal }, { billable, authoritativeCost })
+        .catch(error => { scope.dispose(); throw error; });
       const spend = { options, metadata: { attemptId: options?.attempt?.attemptId, provider: authoritativeCost ? 'openrouter' : manifest.id } };
       try {
-        invocation = await beginInvocation({ ...options, signal: scope.signal }, { billable, authoritativeCost });
         const response = await dispatch(request, scope, structuredExtra(request), invocation, spend);
         let payload, result;
         try {

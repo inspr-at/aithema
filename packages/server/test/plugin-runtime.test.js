@@ -421,7 +421,7 @@ for (const action of ['consent', 'withdraw', 'erase']) for (const lane of ['reac
       assert.equal(rows.length, 1);
       assert.equal(rows[0].state, 'settled', 'acknowledgement leaves no open attempt');
       assert.equal(rows[0].outcome, knownUsage ? 'cancelled' : 'uncertain');
-      assert.equal(rows[0].settled_micro, knownUsage ? 11 : 50_000);
+      assert.equal(rows[0].settled_micro, knownUsage ? 11 : rows[0].max_micro);
       await run.catch(() => {}); await handlers.idle();
       const seq = h.storage.get(h.session.id).seq;
       gate.resolve(); await new Promise(resolve => setImmediate(resolve));
@@ -451,7 +451,7 @@ for (const lane of ['reaction', 'understanding']) test(`withdrawal settles a dis
       method: 'POST', body: '{"turnId":"input"}' }));
     assert.equal(response.status, 200);
     const row = h.storage.db.prepare('SELECT * FROM budget_attempts').get();
-    assert.equal(row.state, 'settled'); assert.equal(row.outcome, 'uncertain'); assert.equal(row.settled_micro, 50_000);
+    assert.equal(row.state, 'settled'); assert.equal(row.outcome, 'uncertain'); assert.equal(row.settled_micro, row.max_micro);
     const seq = h.storage.get(h.session.id).seq;
     gate.resolve(); await run.catch(() => {}); await handlers.idle(); await new Promise(resolve => setImmediate(resolve));
     assert.equal(h.storage.get(h.session.id).seq, seq);

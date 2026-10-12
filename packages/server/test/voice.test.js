@@ -334,7 +334,8 @@ test('voice start, speak, heard correction, type, pause, resume and close share 
   const terminal = await h.route(`/voice/${grant.callId}/close`, identity).then(r => r.json());
   assert.equal(terminal.outcome, 'completed'); assert.equal(terminal.closureConfirmed, true);
   assert.deepEqual(terminal.usage, { providerSeconds: 10, providerMinutes: 10 / 60, pausedSeconds: 5, visitorSeconds: 5,
-    upstreamMicro: 10_000, visitorMicro: 10_000, providerCredits: 7 });
+    upstreamMicro: 10_000, visitorMicro: 10_000, providerCredits: 7,
+    costSource: 'duration-estimate', costEstimated: true, estimateMicroPerMinute: 60_000 });
   assert.deepEqual(await h.route(`/voice/${grant.callId}/close`, identity).then(r => r.json()), terminal);
   const budget = h.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='voice'").all();
   assert.equal(budget.length, 1); assert.equal(budget[0].settled_micro, 10_000); assert.equal(budget[0].settled_visitor_micro, 10_000);

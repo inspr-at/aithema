@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reconcileUsage, createElevenLabsServer } from '../src/server.js';
 import { voiceCostConfig } from '../../../demo/voice-cost-config.js';
-import { SQLiteStorage, SQLiteBudgetLedger } from '../../../packages/server/src/index.js';
+import { SQLiteStorage, SQLiteBudgetLedger, createVoiceHandlers } from '../../../packages/server/src/index.js';
 import { temporaryDb } from '../../../test/helpers.js';
 
 const binding = { agentId: 'agent', secretRef: 'fixture-ref', apiBaseUrl: 'https://fixture.test',
@@ -69,6 +69,26 @@ test('a refused rolling money extension closes voice before its generous technic
   const terminal = await closed.promise;
   assert.equal(extensions, 1); assert.equal(session.snapshot().reason, 'budget-limit');
   assert.equal(terminal.usage.upstreamMicro, 200); assert.equal(terminal.closureConfirmed, true);
+});
+
+test('a crash after journalling actual voice cost replays that receipt before any provider lookup', async t => {
+  const path = await temporaryDb(); let storage = new SQLiteStorage(path), ledger = new SQLiteBudgetLedger(storage);
+  t.after(() => { if (storage.db.isOpen) storage.close(); });
+  const session = storage.create({ ownerToken: 'owner' });
+  const admission = ledger.admit({ sessionId: session.id, lane: 'voice', maxMicro: 50_000,
+    requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64) });
+  const claim = ledger.claim(admission.attemptId); claim.consume();
+  const terminal = reconcileUsage({ call, details: details({ cost: 42 }), binding, maxMicro: 50_000 });
+  storage.saveVoiceCall(session.id, { ...call, callId: 'receipt-call', attemptId: admission.attemptId,
+    claimId: claim.claimId, facadeSecretRef: 'fixture-facade', maxMicro: 50_000, terminal });
+  storage.close(); storage = new SQLiteStorage(path); ledger = new SQLiteBudgetLedger(storage); ledger.recover();
+  assert.equal(ledger.breakdown(session.id).uncertainSpendMicro, 50_000);
+  const handlers = createVoiceHandlers({ storage, runtime: { budget: ledger, reconcileVoice: (id, receipt) => ledger.reconcileVoice(id, receipt) },
+    secrets: { provision() {}, resolve() {}, revoke() {} }, staticSecretRef: 'fixture-facade', publish() {},
+    closeOrphan() { assert.fail('A saved actual receipt needs no provider lookup'); } });
+  await handlers.resume(); await handlers.resume(); await handlers.close();
+  assert.equal(ledger.breakdown(session.id).confirmedSpendMicro, 8400);
+  assert.equal(ledger.breakdown(session.id).uncertainSpendMicro, 0);
 });
 
 test('voice price and technical bounds are non-secret host configuration', () => {

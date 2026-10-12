@@ -235,8 +235,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     }
     let amounts;
     try { amounts = feature === 'voice' ? voiceAmounts(binding, options) : { maxMicro:
-      ['text', 'analysis'].includes(feature) && plugin.estimateCost
-        ? plugin.estimateCost(options.costRequest ?? { system: '', messages: [] }, operation) : binding.maxMicro, maxVisitorMicro: 0 }; }
+      plugin.estimateCost ? plugin.estimateCost(feature === 'html' ? options.costRequest : options.costRequest ?? { system: '', messages: [] }, operation)
+        : binding.maxMicro, maxVisitorMicro: 0 }; }
     catch { return { reason: 'budget denied' }; }
     if (feature === 'voice' && !options.existingCall) {
       const reason = voiceCap?.reason(amounts.maxMilliseconds);

@@ -164,6 +164,11 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
     }
   }
   return { id: manifest.id, manifest, binding, billable: true, label: `Claude click-dummy — ${binding.model}`, spend: ledger, capMicro,
+    estimateCost(request) {
+      if (!request) return minimumCeiling;
+      const { feedback = '', previousArtifact, ...spec } = request;
+      return callCeilingMicro(buildMessages(spec, feedback, previousArtifact ? previousDocument(previousArtifact) : undefined).messages, binding);
+    },
     recoverCosts: () => ledger.recover?.(), costEvidence: attemptId => ledger.evidence?.(attemptId),
     reconcileSpend: (attemptId, cost) => ledger.reconcileAttempt?.(attemptId, cost),
     reconcileCost: (record, options) => reconcileGeneration(record, { resolveSecret, fetchImpl, ...options }),

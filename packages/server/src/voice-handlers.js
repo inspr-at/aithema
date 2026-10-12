@@ -288,10 +288,17 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     async resume() {
       runtime.recoverVoiceCap?.();
       // The exclusive writer has already conservatively recovered all open claims.
-      for (const record of storage.voiceCalls()) {
+      for (let record of storage.voiceCalls()) {
         if (!staticSecretRef) await secrets.revoke(record.facadeSecretRef);
-        if (record.terminal && !record.reconciliationPending) continue;
         const row = runtime.budget.get(record.attemptId);
+        // A final receipt can be journalled immediately before a crash in budget
+        // settlement. Replay its actual cost rather than abandoning that receipt.
+        if (record.terminal?.closureConfirmed === true && record.terminal.usage &&
+          !record.terminal.usage.costEstimated && row?.state === 'settled') {
+          try { runtime.reconcileVoice(record.attemptId, { ...record.terminal, providerSessionId: record.providerSessionId }); }
+          catch { record = { ...record, reconciliationPending: true }; }
+        }
+        if (record.terminal && !record.reconciliationPending) continue;
         storage.saveVoiceCall(record.sessionId, { ...record, closing: true, endedAt: record.endedAt ?? now(), reason: record.reason ?? 'server-restart',
           terminal: record.terminal ?? { attemptId: record.attemptId, outcome: row?.outcome ?? 'uncertain', closureConfirmed: false,
             chargedMicro: row?.settled_micro ?? record.maxMicro }, reconciliationPending: true });

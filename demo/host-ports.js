@@ -54,7 +54,14 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
           const fingerprint = JSON.stringify([request.sessionId, request.lane, request.maxMicro, request.maxVisitorMicro ?? 0, request.requestSha256, request.bindingSha256]);
           return storage.transaction(() => {
             const previous = storage.db.prepare('SELECT * FROM owner_wallet_reservations WHERE attempt_id=?').get(request.attemptId);
-            if (previous) return previous.owner_hash === ownerHash && previous.fingerprint === fingerprint ? { ok: true } : { ok: false, reason: 'attempt-conflict' };
+            if (previous) {
+              if (previous.owner_hash !== ownerHash || previous.fingerprint !== fingerprint) return { ok: false, reason: 'attempt-conflict' };
+              if (previous.released && !storage.db.prepare('SELECT 1 FROM budget_attempts WHERE attempt_id=?').get(request.attemptId)) {
+                if (!canAdmit(request)) return { ok: false, reason: 'host-limit' };
+                storage.db.prepare('UPDATE owner_wallet_reservations SET released=0 WHERE attempt_id=?').run(request.attemptId);
+              }
+              return { ok: true };
+            }
             if (!canAdmit(request)) return { ok: false, reason: 'host-limit' };
             storage.db.prepare('INSERT INTO owner_wallet_reservations(attempt_id,owner_hash,fingerprint,max_micro) VALUES (?,?,?,?)')
               .run(request.attemptId, ownerHash, fingerprint, request.maxMicro);
