@@ -10,7 +10,7 @@ import { createElevenLabsServer } from '../../../plugins/elevenlabs/src/server.j
 
 const test = (name, fn) => nodeTest(name, { timeout: 60_000 }, fn);
 
-export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, path, cap, reasoning = createMockReasoning(), durationBinding = {} } = {}) {
+export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, path, cap, reasoning = createMockReasoning(), durationBinding = {}, voiceOptions = {} } = {}) {
   const storage = new SQLiteStorage(path), secrets = createFacadeSecrets();
   let clock = Date.now(), sequence = 0, covered = true, secretReads = 0, coverageReads = 0, healthReads = 0, releasing = false, mintFailure;
   const opened = new Map(), ended = new Set(), waiting = new Map(), provisioned = [], traffic = [], closeRequests = [];
@@ -60,7 +60,7 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
     const admitted = await admittedRuntime.admit(args);
     return args.lane === 'voice' ? admitted : { ...admitted, plugin: reasoning };
   } };
-  const handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent, voice: { secrets, now, browserLeaseMs: leaseMs } });
+  const handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent, voice: { secrets, now, browserLeaseMs: leaseMs, ...voiceOptions } });
   t.after(async () => { releasing = true; for (const id of waiting.keys()) endClient(id); await handlers.close(); storage.close(); });
   const token = 'voice-owner', session = storage.create({ ownerToken: token, demo: true });
   const route = async (suffix, body = {}, owner = token) => handlers.handle(new Request(`http://host/api/sessions/${session.id}${suffix}`, {
@@ -1225,4 +1225,184 @@ test('slow closure: recovery retries the original identity after a new SDK conne
   const next = await response.json(); assert.notEqual(next.providerSessionId, first.providerSessionId, 'a closing credential cannot be reused');
   assert.equal(h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice' AND state='dispatched'").get().n, 3);
   h.advance(10_001); h.endClient(original.providerSessionId); h.endClient(first.providerSessionId); await closing;
+});
+
+
+// AIT-137 probes count the actual admission, dispatch and durable cost separately.
+async function turnsOnceFixture(t, { voiceOptions, path, blocked = false, failFirst = false, lateFirst = false } = {}) {
+  const base = createMockReasoning(), started = Promise.withResolvers(), release = Promise.withResolvers();
+  let models = 0, admissions = 0, lateReport;
+  t.after(() => release.resolve());
+  const h = voiceFixture(t, { path, voiceOptions, reasoning: { ...base, async *stream(request, options) {
+    await options.attempt.consume();
+    const number = ++models;
+    if (number === 1) started.resolve();
+    if (number === 1 && failFirst) {
+      options.report({ attemptId: options.attempt.attemptId, outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 }, chargedMicro: 0 });
+      throw new PluginError('provider');
+    }
+    yield `Reply ${number}`;
+    if (number === 1 && (blocked || lateFirst)) await release.promise;
+    if (number === 1 && lateFirst) lateReport = () => options.report({ attemptId: options.attempt.attemptId,
+      outcome: 'completed', usage: { inputTokens: 3, outputTokens: 2 }, chargedMicro: 17 });
+    else options.report({ attemptId: options.attempt.attemptId, outcome: 'completed', usage: { inputTokens: 3, outputTokens: 2 }, chargedMicro: 17 });
+    yield ' finished';
+  }, async structured(request, options) {
+    return { ...await base.structured(request, options), openQuestions: [] };
+  } } });
+  const admit = h.runtime.admit;
+  h.runtime.admit = async args => { if (args.lane === 'reaction') admissions++; return admit(args); };
+  const grant = await h.start(), secret = h.secrets.resolve(h.provisioned[0].facadeSecretRef);
+  const callback = (messages = [{ role: 'user', content: 'Ja' }], { signal, ...extra } = {}) => h.handlers.handle(new Request(
+    `https://facade.test/api/voice/${grant.callId}/llm/chat/completions`, {
+      method: 'POST', signal, headers: { authorization: `Bearer ${secret}` },
+      body: JSON.stringify({ aithema_call: grant.callId, messages, ...extra }) }));
+  const persist = async (role, id, text) => {
+    const response = await h.route(`/voice/${grant.callId}/events`, { providerSessionId: grant.providerSessionId,
+      event: { type: 'final', callId: grant.callId, turnId: `${grant.providerSessionId}:${role}:${id}`, role, text } });
+    assert.equal(response.status, 200); return response.json();
+  };
+  const rows = () => h.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='reaction'").all();
+  return { ...h, grant, callback, persist, rows, started: started.promise, release: () => release.resolve(),
+    counts: () => ({ admissions, models, cost: rows().reduce((sum, row) => sum + (row.settled_micro ?? 0), 0) }),
+    reportLate: () => lateReport?.() };
+}
+const completionText = async response => {
+  assert.equal(response.status, 200);
+  return (await response.json()).choices[0].message.content;
+};
+const sseReply = text => text.split('\n\n').filter(line => line.startsWith('data: {')).map(line => JSON.parse(line.slice(6)))
+  .map(frame => frame.choices?.[0].delta?.content ?? '').join('');
+
+for (const order of ['callback-first', 'persist-first', 'persist-during-admission']) {
+  test(`AIT-137 callback and transcript identify one durable turn: ${order}`, async t => {
+    const h = await turnsOnceFixture(t), messages = [{ role: 'user', content: 'Ja' }];
+    if (order === 'persist-first') await h.persist('user', 'ja', 'Ja');
+    if (order === 'persist-during-admission') {
+      const check = h.runtime.checkVoice;
+      h.runtime.checkVoice = async (...args) => { h.runtime.checkVoice = check; await check(...args); await h.persist('user', 'ja', 'Ja'); };
+    }
+    const first = await completionText(await h.callback(messages));
+    if (order === 'callback-first') await h.persist('user', 'ja', 'Ja');
+    assert.equal(await completionText(await h.callback(messages)), first);
+    assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
+    const operations = h.storage.voiceOperations(h.session.id);
+    assert.equal(operations.length, 1); assert.equal(operations[0].state, 'completed');
+    assert.equal(operations[0].turnId, `${h.grant.providerSessionId}:user:ja`);
+  });
+}
+
+for (const count of [2, 3]) {
+  test(`AIT-137 ${count} concurrent callbacks share admission, streamed reply and cost`, async t => {
+    const h = await turnsOnceFixture(t, { blocked: true });
+    const pending = Array.from({ length: count }, () => h.callback(undefined, { stream: true }));
+    await h.started;
+    const responses = await Promise.all(pending), readers = responses.map(response => response.text());
+    h.release();
+    const replies = await Promise.all(readers);
+    assert.deepEqual(replies.map(sseReply), Array(count).fill('Reply 1 finished'));
+    assert.ok(replies.every(text => text.endsWith('data: [DONE]\n\n')));
+    assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
+  });
+}
+
+test('AIT-137 completion retry replays the same response identity without another paid call', async t => {
+  const h = await turnsOnceFixture(t);
+  const first = await (await h.callback()).json(), second = await (await h.callback()).json();
+  assert.deepEqual(second, first);
+  assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
+});
+
+test('AIT-137 the configurable replay window expires without a fresh admission', async t => {
+  const h = await turnsOnceFixture(t, { voiceOptions: { turnReplayWindowMs: 2000 } });
+  await completionText(await h.callback()); h.advance(2001);
+  const response = await h.callback();
+  assert.equal(response.status, 403); assert.deepEqual(await response.json(), { error: 'not-admitted', reason: 'voice-turn-replay-expired' });
+  assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
+});
+
+test('AIT-137 failure retry needs explicit host authorization and records one concurrent replacement', async t => {
+  let authorized = false, authorizations = 0;
+  const h = await turnsOnceFixture(t, { failFirst: true, voiceOptions: { authorizeTurnReplacement: ({ operation }) => {
+    authorizations++; assert.equal(operation.state, 'failed'); return authorized;
+  } } });
+  assert.equal((await h.callback()).status, 502);
+  const refused = await h.callback(); assert.equal(refused.status, 403);
+  assert.deepEqual(await refused.json(), { error: 'not-admitted', reason: 'voice-turn-replacement-required' });
+  assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 0 });
+  authorized = true;
+  assert.deepEqual(await Promise.all([h.callback(), h.callback(), h.callback()].map(async response => completionText(await response))),
+    Array(3).fill('Reply 2 finished'));
+  assert.deepEqual(h.counts(), { admissions: 2, models: 2, cost: 17 });
+  const [operation] = h.storage.voiceOperations(h.session.id);
+  assert.equal(operation.attempts.length, 2); assert.equal(operation.attempts[1].replaces, operation.attempts[0].id);
+  assert.ok(authorizations >= 2);
+});
+
+test('AIT-137 a timed-out old result and report are fenced after an authorized replacement', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
+  const h = await turnsOnceFixture(t, { lateFirst: true, voiceOptions: { turnTimeoutMs: 40, authorizeTurnReplacement: () => true } });
+  const first = await h.callback(undefined, { stream: true }), text = first.text();
+  await new Promise(resolve => setImmediate(resolve));
+  t.mock.timers.tick(40); h.advance(40);
+  assert.ok((await text).includes('"error":"deadline"'));
+  const replacement = await completionText(await h.callback()); assert.equal(replacement, 'Reply 2 finished');
+  h.release(); await new Promise(resolve => setImmediate(resolve));
+  assert.doesNotThrow(() => h.reportLate());
+  assert.deepEqual(h.counts(), { admissions: 2, models: 2, cost: 17 });
+  assert.equal(await completionText(await h.callback()), replacement);
+  assert.equal(h.storage.voiceOperations(h.session.id)[0].state, 'completed');
+});
+
+test('AIT-137 repeated Ja after another question uses a new turn identity', async t => {
+  const h = await turnsOnceFixture(t), first = [{ role: 'user', content: 'Ja', id: 'first-ja' }];
+  await h.persist('user', 'first-ja', 'Ja'); await completionText(await h.callback(first));
+  await h.persist('assistant', 'question', 'Another question'); await h.persist('user', 'second-ja', 'Ja');
+  const second = [...first, { role: 'assistant', content: 'Another question' }, { role: 'user', content: 'Ja', id: 'second-ja' }];
+  assert.equal(await completionText(await h.callback(second)), 'Reply 2 finished');
+  assert.deepEqual(h.counts(), { admissions: 2, models: 2, cost: 34 });
+  const operations = h.storage.voiceOperations(h.session.id);
+  assert.equal(operations.length, 2); assert.notEqual(operations[0].key, operations[1].key);
+});
+
+test('AIT-137 a newer canonical user turn refuses an obsolete callback before any cost', async t => {
+  const h = await turnsOnceFixture(t);
+  await h.persist('user', 'old', 'Older input'); await h.persist('user', 'new', 'Newest input');
+  const response = await h.callback([{ role: 'user', content: 'Older input', id: 'old' }]);
+  assert.equal(response.status, 403); assert.deepEqual(await response.json(), { error: 'not-admitted', reason: 'voice-turn-obsolete' });
+  assert.deepEqual(h.counts(), { admissions: 0, models: 0, cost: 0 });
+});
+
+test('AIT-137 an obsolete completed key cannot replay after a newer turn', async t => {
+  const h = await turnsOnceFixture(t);
+  await h.persist('user', 'old', 'Old input');
+  const old = [{ role: 'user', content: 'Old input', id: 'old' }];
+  await completionText(await h.callback(old)); await h.persist('user', 'new', 'New input');
+  assert.equal((await h.callback(old)).status, 403);
+  assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
+});
+
+test('AIT-137 a disconnected follower leaves the shared operation available to a retry', async t => {
+  const h = await turnsOnceFixture(t, { blocked: true });
+  const first = await h.callback(undefined, { stream: true }), second = await h.callback(undefined, { stream: true });
+  await first.body.cancel(); const text = second.text(); h.release();
+  assert.equal(sseReply(await text), 'Reply 1 finished');
+  assert.equal(await completionText(await h.callback()), 'Reply 1 finished');
+  assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
+});
+
+test('AIT-137 restart keeps a pending operation fenced until explicit replacement authorization', async t => {
+  const { createVoiceTurnOperations } = await import('../src/voice-turns.js');
+  const temp = await temporaryDb(); t.after(temp.cleanup);
+  let storage = new SQLiteStorage(temp.path), calls = 0;
+  const session = storage.create({ ownerToken: 'restart-owner' });
+  const context = { sessionId: session.id, callId: 'restart-call', providerSessionId: 'restart-provider',
+    messages: [{ role: 'user', content: 'Restart input' }] };
+  const key = storage.claimVoiceOperation(context, { now: 1000 }).operation.key;
+  storage.close(); storage = new SQLiteStorage(temp.path); t.after(() => storage.close());
+  const turns = createVoiceTurnOperations({ storage, now: () => 1001 });
+  await assert.rejects(turns.run(context, () => { calls++; return Response.json({}); }),
+    error => error.code === 'not-admitted' && error.message === 'voice-turn-replacement-required');
+  assert.equal(calls, 0); assert.equal(storage.voiceOperations(session.id)[0].key, key);
+  assert.equal(storage.voiceOperations(session.id)[0].state, 'failed');
 });
