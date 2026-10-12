@@ -1212,7 +1212,9 @@ export class AithemaSession extends HTMLElement {
         event.type === 'upload.state' && event.data.state === 'withdrawn';
       if (invalidation) {
         this.#invalidatedAt = Math.max(this.#invalidatedAt, event.seq);
-        this.#deviceController?.abort(); void this.#rail.close();
+        this.#deviceController?.abort();
+        void this.#rail.close(event.type === 'turn.withdrawn' ? 'turn-withdrawn' : event.type === 'session.erased' ? 'session-erased'
+          : consentRevised ? 'consent-revised' : 'upload-withdrawn');
         this.#partials.clear(); this.#failure = false;
         // Redact sensitive content immediately, holding row heights while the pointer rests there.
         for (const row of this.shadowRoot.querySelectorAll('.turn')) {

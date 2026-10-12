@@ -73,12 +73,9 @@ async function adopt(session) {
     }
     if (binding.voiceMode === 'elevenlabs') {
       const ports = createVoiceControl({ sessionId: session.id, receive: event => component.receive(event) });
-      let providerSessionId;
-      const control = { ...ports.control };
-      for (const name of ['start', 'recover']) control[name] = async (...args) => { const grant = await ports.control[name](...args); providerSessionId = grant.providerSessionId; return grant; };
-      liveVoiceClient = createElevenLabsClient({ sdk: globalThis.ElevenLabsClient.Conversation, control,
+      liveVoiceClient = createElevenLabsClient({ sdk: globalThis.ElevenLabsClient.Conversation, control: ports.control,
         workletPaths: { rawAudioProcessor: '/vendor/elevenlabs/worklets/raw-audio.js', audioConcatProcessor: '/vendor/elevenlabs/worklets/audio-concat.js' },
-        persistEvent: event => ports.persistEvent(event, { providerSessionId }) });
+        persistEvent: (event, options) => ports.persistEvent(event, { providerSessionId: event.providerSessionId }, options) });
     }
     // The settings Advanced tab connects a local model through this browser-only factory.
     component.configure({ voiceClient: liveVoiceClient ?? fakeVoice?.client, copy: componentCopy(), session,
