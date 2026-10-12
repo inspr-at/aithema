@@ -79,13 +79,14 @@ test('AIT-132: approved card, hover, focus and fold at 1440/390, light/dark, DE/
             openQuestions: [deLocale ? 'Sollen Kundinnen und Kunden selbst wählen können?' : 'Should customers be able to choose for themselves?'] };
           globalThis.qcardRequests = []; globalThis.qcardCommands = []; globalThis.qcardVoiceEvents = voiceEvents();
           globalThis.qcardCopy = copy;
+          const events = globalThis.qcardVoiceEvents, commands = globalThis.qcardCommands;
           c.configure({ copy, session, voiceClient: { manifest, async start({ callId }) {
             globalThis.qcardCallId = callId;
-            return { callId, providerSessionId: 'qcard-browser', events: globalThis.qcardVoiceEvents,
-              async setInput(on) { globalThis.qcardCommands.push(['input', on]); }, async setOutput() {},
-              async updateContext(context) { globalThis.qcardCommands.push(['context', context]); },
-              async sendText(text) { globalThis.qcardCommands.push(['text', text]); },
-              async close() { globalThis.qcardVoiceEvents.end(); return { closureConfirmed: true }; } };
+            return { callId, providerSessionId: 'qcard-browser', events,
+              async setInput(on) { commands.push(['input', on]); }, async setOutput() {},
+              async updateContext(context) { commands.push(['context', context]); },
+              async sendText(text) { commands.push(['text', text]); },
+              async close() { events.end(); return { closureConfirmed: true }; } };
           } } });
           globalThis.qcardReply = {
             content: deLocale ? 'Sollen Kundinnen und Kunden Motiv, Farbe und Größe selbst wählen, oder fertige Polster kaufen?' : 'Should customers choose the design, colour and size themselves, or buy finished cushions?',
@@ -100,7 +101,7 @@ test('AIT-132: approved card, hover, focus and fold at 1440/390, light/dark, DE/
             id: `question-${c.session.seq}`, role: 'assistant', inputRevision: inputRevision(c.session), ...globalThis.qcardReply, ...patch,
           } });
           document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
-          c.shadowRoot.querySelector('textarea').scrollIntoView({ block: 'end', behavior: 'instant' });
+          c.shadowRoot.querySelector('.send').scrollIntoView({ block: 'end', behavior: 'instant' });
         }, locale);
         await page.mouse.move(0, 0); await nextFrame(page);
         const baseline = await boxes(page);
@@ -165,7 +166,7 @@ test('AIT-132: approved card, hover, focus and fold at 1440/390, light/dark, DE/
         await page.waitForFunction(() => globalThis.qcardCommands.some(([name]) => name === 'text'));
         assert.equal(await shown(page), false); assert.equal(await page.evaluate(() => globalThis.qcardCommands.filter(([name]) => name === 'text').length), 1);
         assert.equal(await page.evaluate(() => globalThis.qcardRequests[2].content), geometry.texts[0]);
-        await page.evaluate(() => { globalThis.showQuestion(); globalThis.qcardVoiceEvents.push({ type: 'partial', callId: globalThis.qcardCallId, role: 'user', text: 'Both' }); });
+        await page.evaluate(() => { globalThis.showQuestion(); globalThis.qcardVoiceEvents.push({ type: 'partial', turnId: 'spoken-answer', callId: globalThis.qcardCallId, role: 'user', text: 'Both' }); });
         await nextFrame(page); assert.equal(await shown(page), true);
         await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: {
           id: 'spoken-answer', role: 'user', content: 'Both', callId: globalThis.qcardCallId, providerSessionId: 'qcard-browser',

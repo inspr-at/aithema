@@ -128,7 +128,7 @@ test('AIT-132: card answers use active voice forwarding once, and speaking close
   assert.equal(commands.find(([name]) => name === 'text')[1], options[1].text);
   assert.ok(commands.findIndex(([name]) => name === 'persist') < commands.findIndex(([name]) => name === 'text'));
   question(c);
-  events.push({ type: 'partial', callId, providerSessionId: 'qcard-voice', role: 'user', text: 'Both' }); await tick();
+  events.push({ type: 'partial', turnId: 'spoken', callId, providerSessionId: 'qcard-voice', role: 'user', text: 'Both' }); await tick();
   assert.equal(shown(c), true, 'captions alone do not persist an answer');
   c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'spoken', role: 'user', content: 'Both', callId, providerSessionId: 'qcard-voice' } });
   assert.equal(shown(c), false); assert.equal(c.shadowRoot.querySelector('.audio-rail').dataset.call, 'active');
