@@ -323,6 +323,17 @@ export class SettingsDialog {
     target?.focus();
     this.#closing = false;
   }
+  /** The verification dialog opens only after every draft is acknowledged. */
+  async closeForVerification() {
+    if (!this.#dialog.open) return true;
+    clearTimeout(this.#timer); this.#timer = 0;
+    if (this.#failed) return false;
+    if (this.#pending() || this.#saving) await this.#save();
+    // A failed or blocked save stays in Settings; a dismissal cancels the transition.
+    if (!this.#dialog.open || this.#failed || this.#pending()) return false;
+    this.close();
+    return true;
+  }
   async #done() {
     clearTimeout(this.#timer);
     if (this.#timer) { this.#timer = 0; await this.#save(); }
@@ -442,9 +453,10 @@ export class SettingsDialog {
     const term = this.#hovered ?? this.#focused()?.closest?.('[data-help]');
     const key = term?.dataset.reason ? `${term.dataset.kind || 'unavailable'}:${term.dataset.reason}` : term?.dataset.help ?? this.#help;
     const help = this.#copy.help, [kind, ...rest] = key.split(':'), reason = rest.join(':');
+    const helpKey = key === 'general' && !this.#q('.host-verify').hidden ? 'generalEmail' : key;
     const text = term?.dataset.help === 'gauge' ? term.dataset.helpText : reason && ['unavailable', 'consent', 'limited'].includes(kind)
       ? fill(help[kind === 'unavailable' ? 'unavailable' : kind === 'consent' ? 'consentNeeded' : 'limited'], { reason: reasonText(this.#copy, reason) })
-      : help[key] ?? help[this.#help] ?? help.processing;
+      : help[helpKey] ?? help[key] ?? help[this.#help] ?? help.processing;
     this.#q('.context-message').textContent = text;
   }
   #optionStatus(option, kind) {

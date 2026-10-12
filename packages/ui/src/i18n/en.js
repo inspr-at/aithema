@@ -123,6 +123,7 @@ export const en = {
     providers: 'Providers & data processing · Details about your selection and how the gauges are computed.',
     gauges: 'Gauges · Unverified means the plugin manifest has no qualified evidence for that fact.',
     general: 'General · Start a new conversation, review consent and your defaults.',
+    generalEmail: 'General · Start a new conversation, review consent and your defaults, and verify your email.',
     local: 'Advanced · Connect an AI model running on this device. Availability depends on your browser and hardware.',
   },
   gauges: {

@@ -129,6 +129,7 @@ export const de = {
     providers: 'Anbieter und Datenverarbeitung · Details zu Ihrer Auswahl und dazu, wie die Anzeigen berechnet werden.',
     gauges: 'Anzeigen · „Ungeprüft“ heißt, dass das Plugin-Manifest für diese Angabe keinen qualifizierten Nachweis enthält.',
     general: 'Allgemein · Ein neues Gespräch beginnen, die Einwilligung prüfen und Ihre Voreinstellungen.',
+    generalEmail: 'Allgemein · Hier können Sie ein neues Gespräch beginnen, die Einwilligung und Ihre Voreinstellungen prüfen und Ihre E-Mail bestätigen.',
     local: 'Erweitert · Verbinden Sie ein KI-Modell, das auf diesem Gerät läuft. Ob das geht, hängt von Ihrem Browser und Ihrer Hardware ab.',
   },
   gauges: {
