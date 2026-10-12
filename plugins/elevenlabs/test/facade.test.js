@@ -244,6 +244,34 @@ test('AIT-130: stdout logs one value-free JSON line per success and failure', as
     assert.equal(output.join('\n').includes(secret), false, secret);
   }
 });
+test('AIT-130: rejected async callback logging falls back without an unhandled rejection', async t => {
+  const output = []; t.mock.method(console, 'error', line => output.push(line));
+  const local = facadeFixture({ log: async () => { await flush(); throw new Error('Bearer fixture-per-call-secret'); } });
+  const response = await local.handler(local.request({ stream: false }));
+  assert.equal(response.status, 200); assert.equal((await response.json()).choices[0].message.content, 'Hello world');
+  await flush(); await flush();
+  assert.equal(output.length, 1); const line = JSON.parse(output[0]);
+  assert.equal(line.status, 200); assert.equal(line.errorCode, null);
+  assert.equal(output[0].includes('fixture-per-call-secret'), false);
+});
+for (const failure of ['throw', 'reject']) {
+  test(`AIT-130: fallback callback logging can ${failure} without affecting JSON or SSE responses`, async t => {
+    const output = []; t.mock.method(console, 'error', line => {
+      output.push(line);
+      if (failure === 'throw') throw new Error('Bearer fixture-per-call-secret');
+      return Promise.reject(new Error('Bearer fixture-per-call-secret'));
+    });
+    const local = facadeFixture({ log: () => { throw new Error('Bearer fixture-per-call-secret'); } });
+    const denied = await local.handler(local.request({}, { authorization: 'Bearer wrong' }));
+    assert.equal(denied.status, 401); assert.deepEqual(await denied.json(), { error: 'unauthorized' });
+    const response = await local.handler(local.request());
+    assert.equal(response.status, 200); assert.ok((await response.text()).endsWith('data: [DONE]\n\n'));
+    await flush();
+    assert.equal(output.length, 2);
+    assert.equal(JSON.parse(output[0]).errorCode, 'unauthorized'); assert.equal(JSON.parse(output[1]).errorCode, null);
+    assert.equal(output.join('\n').includes('fixture-per-call-secret'), false);
+  });
+}
 for (const port of ['getCall', 'resolveSecret', 'buildRequest', 'admitReasoning', 'onCompletion']) {
   test(`AIT-130: ${port} failure returns a stable JSON 502 and one secret-free log`, async () => {
     const local = facadeFixture({ ports: { [port]: () => { throw new Error('Bearer fixture-per-call-secret'); } } });
@@ -423,4 +451,26 @@ test('facade preserves the admission cancellation signal and earlier deadline', 
   const unread = await unused.handler(unused.request()); await new Promise(resolve => setTimeout(resolve, 60));
   assert.equal(unused.logs.length, 1); assert.equal(JSON.parse(unused.logs[0]).errorCode, 'deadline');
   await streamError(unread, 'deadline'); assert.equal(unused.optionsList[0].reports.length, 1);
+});
+test('AIT-130: delayed nonstream completion cannot return success past the admission deadline', async () => {
+  let completions = 0;
+  const local = facadeFixture({ admissionOptions: { deadlineAt: Date.now() + 100 }, ports: {
+    async onCompletion() { completions++; await new Promise(resolve => setTimeout(resolve, 150)); },
+  } });
+  const response = await local.handler(local.request({ stream: false }));
+  assert.equal(completions, 1); assert.equal(response.status, 504);
+  assert.deepEqual(await response.json(), { error: 'deadline' });
+  assert.equal(local.optionsList[0].reports.length, 1); assert.equal(local.logs.length, 1);
+  assert.equal(JSON.parse(local.logs[0]).errorCode, 'deadline');
+});
+test('AIT-130: admission cancellation while nonstream completion awaits cannot return success', async () => {
+  const controller = new AbortController(); let completions = 0;
+  const local = facadeFixture({ admissionOptions: { signal: controller.signal }, ports: {
+    async onCompletion() { completions++; controller.abort(); await flush(); },
+  } });
+  const response = await local.handler(local.request({ stream: false }));
+  assert.equal(completions, 1); assert.equal(response.status, 502);
+  assert.deepEqual(await response.json(), { error: 'cancelled' });
+  assert.equal(local.optionsList[0].reports.length, 1); assert.equal(local.logs.length, 1);
+  assert.equal(JSON.parse(local.logs[0]).errorCode, 'cancelled');
 });
