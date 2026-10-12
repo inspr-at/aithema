@@ -407,6 +407,108 @@ function pendingVoiceConsent(t, h) {
   return { entered: entered.promise, release: () => release.resolve() };
 }
 
+test('AIT-130 round 4 keeps the newest Ja with balanced provider and typed histories', async t => {
+  const h = await voicePromptFixture(t, h => {
+    for (const [id, content] of [['typed-1', 'T1'], ['typed-2', 'T2']]) {
+      h.storage.postTurn(h.session.id, id, Buffer.from(content), content);
+    }
+  });
+  await h.persist('assistant', 'question', 'Q');
+  assert.equal((await h.route('/turns', { clientEventId: 'typed-ja', content: 'Ja',
+    voiceCallId: h.grant.callId, providerSessionId: h.grant.providerSessionId })).status, 200);
+  const recorded = h.recorded(), latest = { role: 'user', content: 'Ja' };
+  const history = [{ role: 'assistant', content: 'Greeting' }, latest, { role: 'assistant', content: 'Q' }, latest];
+  assert.equal(history.length, recorded.length);
+  assert.deepEqual(await h.callback(history), [...recorded, latest]);
+});
+
+test('AIT-130 round 4 never suppresses spoken Ja with a typed Ja during the same call', async t => {
+  const h = await voicePromptFixture(t);
+  assert.equal((await h.route('/turns', { clientEventId: 'typed-ja', content: 'Ja',
+    voiceCallId: h.grant.callId, providerSessionId: h.grant.providerSessionId })).status, 200);
+  const latest = { role: 'user', content: 'Ja' };
+  assert.deepEqual(await h.callback([latest]), [...h.recorded(), latest]);
+});
+
+for (const [name, callId, providerSessionId] of [
+  ['an earlier call', 'earlier-call', 'earlier-provider'],
+  ['an earlier provider generation of the same call', 'call-1', 'earlier-provider'],
+]) {
+  test(`AIT-130 round 4 never suppresses current Ja with Ja from ${name}`, async t => {
+    const h = await voicePromptFixture(t, h => {
+      h.storage.postVoiceEvent(h.session.id, callId, providerSessionId, {
+        type: 'final', callId, turnId: `${providerSessionId}:user:ja`, role: 'user', text: 'Ja' });
+    });
+    const latest = { role: 'user', content: 'Ja' };
+    assert.deepEqual(await h.callback([latest]), [...h.recorded(), latest]);
+  });
+}
+
+test('AIT-130 round 4 deduplicates a normalized utterance already persisted by the same call', async t => {
+  const h = await voicePromptFixture(t);
+  await h.persist('user', 'ja', ' Ja\n bitte ');
+  assert.deepEqual(await h.callback([{ role: 'user', content: 'Ja  bitte' }]), h.recorded());
+});
+
+test('AIT-130 round 4 keeps a repeated utterance after a later typed turn', async t => {
+  const h = await voicePromptFixture(t);
+  await h.persist('user', 'ja', 'Ja');
+  assert.equal((await h.route('/turns', { clientEventId: 'typed-ja', content: 'Ja',
+    voiceCallId: h.grant.callId, providerSessionId: h.grant.providerSessionId })).status, 200);
+  const recorded = h.recorded(), latest = { role: 'user', content: 'Ja' };
+  assert.deepEqual(await h.callback([latest, latest]), [...recorded, latest]);
+});
+
+test('AIT-130 round 4 keeps a repeated utterance after a later assistant turn', async t => {
+  const h = await voicePromptFixture(t);
+  await h.persist('user', 'ja', 'Ja');
+  await h.persist('assistant', 'question', 'Another question?');
+  const latest = { role: 'user', content: 'Ja' };
+  assert.deepEqual(await h.callback([...h.recorded(), latest]), [...h.recorded(), latest]);
+});
+
+test('AIT-130 round 4 includes legacy turns whose voice provenance is unknown', async t => {
+  const h = await voicePromptFixture(t, h => {
+    h.storage.append(h.session.id, 'turn.final', { id: 'legacy-voice', role: 'user', content: 'Ja' });
+  });
+  const latest = { role: 'user', content: 'Ja' };
+  assert.deepEqual(await h.callback([latest]), [...h.recorded(), latest]);
+});
+
+test('AIT-130 round 4 persists server voice provenance through receipts, heard corrections and reopen', async () => {
+  const path = await temporaryDb(); let storage = new SQLiteStorage(path);
+  try {
+    const session = storage.create(), callId = 'call', providerSessionId = 'provider';
+    const spoken = { type: 'final', callId, turnId: `${providerSessionId}:user:ja`, role: 'user', text: 'Ja',
+      providerSessionId: 'client-asserted-provider' };
+    storage.postVoiceEvent(session.id, callId, providerSessionId, spoken);
+    storage.postVoiceEvent(session.id, callId, providerSessionId, {
+      type: 'final', callId, turnId: `${providerSessionId}:assistant:reply`, role: 'assistant', text: 'Heard. Unheard.' });
+    storage.postVoiceEvent(session.id, callId, providerSessionId, {
+      type: 'heard', callId, turnId: `${providerSessionId}:assistant:reply`, prefix: 'Heard.' });
+    storage.close(); storage = new SQLiteStorage(path);
+    const identity = turn => ({ callId: turn.callId, providerSessionId: turn.providerSessionId });
+    const expected = { callId, providerSessionId };
+    assert.deepEqual(storage.get(session.id).transcript.map(identity), [expected, expected]);
+    assert.deepEqual(storage.read(session.id).filter(e => ['turn.final', 'turn.corrected'].includes(e.type))
+      .map(e => identity(e.data)), [expected, expected, expected]);
+    const replay = storage.postVoiceEvent(session.id, callId, providerSessionId, spoken);
+    assert.equal(replay.replayed, true); assert.deepEqual(identity(replay.event.data), expected);
+  } finally { storage.close(); }
+});
+
+test('AIT-130 round 4 never upgrades typed provenance when a provider echo is absorbed', async t => {
+  const h = await voicePromptFixture(t);
+  assert.equal((await h.route('/turns', { clientEventId: 'typed-ja', content: 'Ja',
+    voiceCallId: h.grant.callId, providerSessionId: h.grant.providerSessionId })).status, 200);
+  await h.persist('user', 'typed-echo', 'Ja');
+  const typed = h.storage.get(h.session.id).transcript.at(-1);
+  assert.equal(typed.id, 'typed-ja');
+  assert.equal(typed.callId, undefined); assert.equal(typed.providerSessionId, undefined);
+  const latest = { role: 'user', content: 'Ja' };
+  assert.deepEqual(await h.callback([latest]), [...h.recorded(), latest]);
+});
+
 test('AIT-130 round 3 keeps a second Ja after an identical earlier reply and a delayed newest reply', async t => {
   const h = await voicePromptFixture(t);
   await h.persist('user', 'opening', 'Ask me a question');
