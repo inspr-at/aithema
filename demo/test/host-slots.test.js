@@ -55,6 +55,19 @@ test('demo slot fills, the fake outbox and the demo handover wording appear only
         assert.doesNotMatch(page, demoCopy);
         for (const text of [...demoTexts(en), ...demoTexts(de)]) assert.ok(!page.includes(text), `demo copy on a live page: ${text}`);
         assert.equal(configured.at(-1).copy.hostSurface.handover.sent, copy.hostSurface.handover.sent, 'the live wording stays');
+        assert.equal(configured.at(-1).host.verification, false, 'no email entry is offered on a live host');
+        assert.equal(document.querySelector('[data-aithema-privacy]'), null, 'no policy link without a document');
+      });
+      await t.test(`AIT-151: configured privacy fills the legal slot on a live host (${locale})`, async () => {
+        const configured = prepare(false, locale, { voiceMode: 'off', privacy: { url: '/privacy' } });
+        await import(`../host.js?slots-privacy-${locale}`);
+        const link = document.querySelector('[data-aithema-privacy]');
+        assert.ok(link); assert.equal(link.closest('[slot="legal"]') !== null, true);
+        assert.equal(link.getAttribute('rel'), 'privacy-policy');
+        assert.equal(link.textContent, locale === 'de' ? 'Datenschutzerklärung' : 'Privacy policy');
+        assert.equal(link.getAttribute('href'), `/privacy?locale=${locale}`);
+        assert.equal(configured.at(-1).host.verification, false, 'the privacy page keeps live email entry hidden');
+        assert.equal(document.querySelector('#error').textContent, '');
       });
       await t.test(`demo host (${locale}): labelled fills, accurate handover success and an outbox confirmation described by the AI notice`, async () => {
         const configured = prepare(true, locale);

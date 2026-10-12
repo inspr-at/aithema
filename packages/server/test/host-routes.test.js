@@ -32,6 +32,22 @@ const sessionRoutes = [
   ['identity/unlock', {}], ['handover', undefined], ['handover', {}], ['handover/retry', {}],
   ['credits', undefined], ['demo/outbox', undefined],
 ];
+test('AIT-151: non-delivering identity routes require a validated host privacy document before any write', async t => {
+  const f = fixture(t, { demo: false }), session = await f.create();
+  const before = f.storage.get(session.id), events = f.storage.read(session.id);
+  let calls = 0;
+  for (const key of ['requestVerification', 'verify']) t.mock.method(f.host.identity, key, () => { calls++; throw new Error('must not reach host'); });
+  for (const [action, body] of sessionRoutes.filter(([action, body]) => action.startsWith('identity/') && body)) {
+    const response = await f.call(`/api/sessions/${session.id}/${action}`, body);
+    assert.equal(response.status, 403, action);
+    assert.deepEqual(await response.json(), { error: 'privacy-document-required' });
+    assert.deepEqual(f.storage.get(session.id), before);
+    assert.deepEqual(f.storage.read(session.id), events);
+    assert.equal((await f.call(`/api/sessions/${session.id}/${action}`, body, foreign)).status, 404);
+  }
+  assert.equal(calls, 0);
+});
+
 for (const [action, body] of sessionRoutes) test(`${body ? 'POST' : 'GET'} ${action}: ownership precedes host calls and duplicate state`, async t => {
   const f = fixture(t), session = await f.create();
   await f.call(`/api/sessions/${session.id}/identity/request`, { address: 'owner@example.test' });
