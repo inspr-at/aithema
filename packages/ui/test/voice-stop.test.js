@@ -147,7 +147,10 @@ for (const transport of ['webrtc', 'websocket']) {
     const beforeAcquisitions = acquisitions;
     pause.click(); await f.resumeEntered.promise;
     assert.equal(pause.disabled, false, 'a pending Resume can be superseded by a visitor Pause');
-    pause.click(); pause.click(); f.resumeAck.resolve(); await flush();
+    assert.equal(pause.title, en.pause, 'the visible action follows the pending Resume intent');
+    pause.click(); assert.equal(pause.title, en.resume);
+    pause.click(); assert.equal(pause.title, en.pause);
+    f.resumeAck.resolve(); await flush();
     const resumes = f.requests.filter(request => request.url.endsWith('/resume'));
     const pauses = f.requests.filter(request => request.url.endsWith('/pause'));
     assert.equal(resumes.length, 2); assert.ok(resumes.every(request => request.completed));
