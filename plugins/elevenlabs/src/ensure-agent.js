@@ -7,6 +7,12 @@ export const CUSTOM_LLM_BASE_PATH = '/api/voice/llm';
 
 export const AGENT_NAME = 'aithema-start2';
 const SECRET_NAME = 'aithema-start2-facade';
+// Detailed requirements need room for thinking pauses and spelled domains.
+// This owned-agent policy replaces START's eager settings, on every startup.
+// https://elevenlabs.io/docs/eleven-agents/customization/conversation-flow
+const TURN_POLICY = Object.freeze({ turn_eagerness: 'patient', turn_timeout: 12,
+  spelling_patience: 'auto', turn_model: 'turn_v3', speculative_turn: false });
+const ASR_KEYWORDS = Object.freeze(['Aithema', 'Hosting', 'Domain', 'Webshop', 'Schnittstelle', 'Datenschutz']);
 const id = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(value);
 // Every leaf of a provider overrides tree as [dotted path, value]; only non-empty plain objects are
 // descended, so null, arrays, strings and empty objects surface as leaves that no boolean check accepts.
@@ -102,8 +108,8 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
   const body = { name: AGENT_NAME, conversation_config: {
     tts: { ...pick(config.tts, ['voice_id', 'model_id', 'stability', 'similarity_boost', 'style', 'use_speaker_boost', 'speed', 'optimize_streaming_latency', 'agent_output_audio_format']),
       ...(config.tts.voice_settings ? { voice_settings: pick(config.tts.voice_settings, ['stability', 'similarity_boost', 'style', 'use_speaker_boost', 'speed']) } : {}) },
-    asr: pick(config.asr, ['quality', 'provider', 'user_input_audio_format', 'keywords']),
-    turn: pick(config.turn, ['turn_timeout', 'silence_end_call_timeout', 'mode']),
+    asr: { ...pick(config.asr, ['quality', 'provider', 'user_input_audio_format']), keywords: [...ASR_KEYWORDS] },
+    turn: { ...pick(config.turn, ['silence_end_call_timeout', 'mode']), ...TURN_POLICY },
     conversation: { max_duration_seconds: maxDurationSeconds },
     // UNVERIFIED API SHAPE: conversation_config.language_presets {[language]: {overrides, ...}}; empty clears them.
     language_presets: {},
@@ -153,6 +159,9 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
     'conversation_config.conversation.max_duration_seconds': remote?.conversation_config?.conversation?.max_duration_seconds === maxDurationSeconds,
     'conversation_config.agent.first_message': spoken === aiNoticeText(language),
     'conversation_config.language_presets': isDeepStrictEqual(presets, {}),
+    ...Object.fromEntries(Object.entries(TURN_POLICY).map(([field, expected]) =>
+      [`conversation_config.turn.${field}`, isDeepStrictEqual(remote?.conversation_config?.turn?.[field], expected)])),
+    'conversation_config.asr.keywords': isDeepStrictEqual(remote?.conversation_config?.asr?.keywords, ASR_KEYWORDS),
     'conversation_config.agent.prompt.llm': prompt?.llm === 'custom-llm',
     'conversation_config.agent.prompt.custom_llm.url': prompt?.custom_llm?.url === body.conversation_config.agent.prompt.custom_llm.url,
     'conversation_config.agent.prompt.custom_llm.api_key.secret_id': prompt?.custom_llm?.api_key?.secret_id === secretId,
