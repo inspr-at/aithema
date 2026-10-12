@@ -79,6 +79,7 @@ export function fakeSdk() {
           this.forgetInputStreamAndSource(); stream = replacement;
         },
       };
+      if (options.connectionType === 'webrtc') delete input.inputStream;
       const object = {
         input, transport: options.connectionType, get muted() { return muted; },
         get track() { return stream.getAudioTracks()[0]; },

@@ -14,7 +14,8 @@ export function createFakeVoice({ control, persistEvent, copy }) {
   const sdk = { async startSession(options) {
     callbacks = options; open = true; muted = false; id = options.fakeProviderSessionId;
     queueMicrotask(() => { if (open) { options.onConnect({ conversationId: id }); say('agent', currentCopy().fakeVoiceGreeting); } });
-    return { getId: () => id, getInputVolume: () => muted ? 0 : .25, getOutputVolume: () => volume * .6, setMicMuted: value => { muted = value; }, setVolume: value => { volume = value.volume; },
+    return { getId: () => id, getInputVolume: () => muted ? 0 : .25, getOutputVolume: () => volume * .6,
+      input: { async setMuted(value) { muted = value; } }, setVolume: value => { volume = value.volume; },
       sendUserMessage(text) { say('user', text); say('agent', currentCopy().fakeVoiceReply); },
       sendContextualUpdate() {}, async endSession() { open = false; } };
   } };

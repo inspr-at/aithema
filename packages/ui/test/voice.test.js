@@ -185,7 +185,7 @@ for (const change of [
   };
   const client = createElevenLabsClient({ control, persistEvent: async () => {}, sdk: {
     async startSession(options) { callbacks = options; return {
-      getId: () => 'consent-provider', setMicMuted() {}, setVolume() {}, sendContextualUpdate() {},
+      getId: () => 'consent-provider', input: { async setMuted() {} }, setVolume() {}, sendContextualUpdate() {},
       async endSession() { ended.push(callId); },
     }; },
   } });
@@ -240,7 +240,7 @@ test('closing notification ends the browser SDK before slow provider settlement'
     async pause() {}, async resume() {}, async heartbeat() {},
   };
   const client = createElevenLabsClient({ control, persistEvent: async () => {}, sdk: {
-    async startSession() { return { getId: () => 'slow-provider', setMicMuted() {}, setVolume() {}, sendContextualUpdate() {},
+    async startSession() { return { getId: () => 'slow-provider', input: { async setMuted() {} }, setVolume() {}, sendContextualUpdate() {},
       async endSession() { ended = true; } }; },
   } });
   const c = document.createElement('aithema-session'); c.configure({ copy: en, session, voiceClient: client });
@@ -277,7 +277,7 @@ test('failed recovered SDK connections complete all three attempts and expose Re
     async startSession(options) {
       if (++connections > 1) throw new Error('fixture SDK connect failed');
       callbacks = options;
-      return { getId: () => 'initial-provider', setMicMuted() {}, setVolume() {}, sendContextualUpdate() {}, async endSession() {} };
+      return { getId: () => 'initial-provider', input: { async setMuted() {} }, setVolume() {}, sendContextualUpdate() {}, async endSession() {} };
     },
   } });
   const render = AudioRail.prototype.render;

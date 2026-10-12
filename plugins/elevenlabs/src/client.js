@@ -4,8 +4,68 @@ import { manifest } from './manifest.js';
 import { voiceOverrides } from './options.js';
 export { manifest } from './manifest.js';
 
+const microphoneOwners = new WeakSet();
+const stopStream = stream => { for (const track of stream?.getTracks() ?? []) { track.enabled = false; track.stop(); } };
+
+// SDK 1.17.0 requests a preliminary stream and publishes/attaches input before
+// onConversationCreated. Guard acquisition for the entire call, including SDK
+// device resets. A paused setup receives silence made without a physical device.
+function microphoneCapture(mediaDevices, AudioContext) {
+  let enabled = true, ended = false, released = false, operations = 0, context, destination;
+  const streams = new Set(), silentStreams = new Set();
+  const original = mediaDevices?.getUserMedia, descriptor = mediaDevices && Object.getOwnPropertyDescriptor(mediaDevices, 'getUserMedia');
+  if (original && microphoneOwners.has(mediaDevices)) throw new PluginError('unavailable', 'Microphone already owned by a live voice call');
+  const silence = () => {
+    if (!AudioContext) throw new PluginError('unavailable', 'Device-free voice input unavailable');
+    context ??= new AudioContext(); destination ??= context.createMediaStreamDestination();
+    const stream = destination.stream.clone(); silentStreams.add(stream); return stream;
+  };
+  const guarded = async constraints => {
+    if (!constraints?.audio) return original.call(mediaDevices, constraints);
+    if (ended) throw new PluginError('unavailable', 'Live voice capture ended');
+    if (!enabled) return silence();
+    const stream = await original.call(mediaDevices, constraints);
+    // Pause/close can race the permission prompt or native device acquisition.
+    if (!enabled || ended) {
+      stopStream(stream);
+      if (ended) throw new PluginError('unavailable', 'Live voice capture ended');
+      return silence();
+    }
+    streams.add(stream); return stream;
+  };
+  const restore = () => {
+    if (!released || operations) return;
+    if (original && mediaDevices.getUserMedia === guarded) {
+      if (descriptor) Object.defineProperty(mediaDevices, 'getUserMedia', descriptor);
+      else delete mediaDevices.getUserMedia;
+      microphoneOwners.delete(mediaDevices);
+    }
+  };
+  if (original) { mediaDevices.getUserMedia = guarded; microphoneOwners.add(mediaDevices); }
+  return {
+    setEnabled(value) {
+      enabled = value && !ended;
+      for (const stream of streams) {
+        if (!enabled) stopStream(stream);
+        if (stream.getTracks().every(track => track.readyState === 'ended')) streams.delete(stream);
+      }
+    },
+    async run(operation) {
+      operations++;
+      try { return await operation(); } finally { operations--; restore(); }
+    },
+    end() {
+      ended = true; this.setEnabled(false);
+      for (const stream of silentStreams) stopStream(stream);
+      stopStream(destination?.stream); void context?.close().catch(() => {});
+    },
+    release() { released = true; restore(); },
+  };
+}
+
 /** Browser ESM; inject Conversation, or resolve @elevenlabs/client with a host import map. */
 export function createElevenLabsClient({ sdk, control, persistEvent, workletPaths, closeTimeoutMs = 45_000,
+  mediaDevices = globalThis.navigator?.mediaDevices, AudioContext = globalThis.AudioContext,
   persistenceTimeoutMs = 2000, persistenceRetries = 2, persistenceBackoffMs = 100, drainTimeoutMs = 5000 } = {}) {
   if (!control?.start || !control?.close || !control?.pause || !control?.resume || !control?.heartbeat ||
     typeof persistEvent !== 'function' || ![closeTimeoutMs, persistenceTimeoutMs, drainTimeoutMs].every(value => Number.isFinite(value) && value > 0) ||
@@ -17,11 +77,11 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
     async health(options) { return voiceOperation(options, async () => ({ available: typeof (await getSdk())?.startSession === 'function' })); },
     async start(request, options = {}) {
       const events = voiceEvents();
-      let conversation, grant, generation = 0, ended = false, closing, recovering, delivery = Promise.resolve(), commands = Promise.resolve(), leaseTimer;
+      let conversation, capture, grant, generation = 0, ended = false, closing, recovering, delivery = Promise.resolve(), commands = Promise.resolve(), leaseTimer;
       let inputOn = true, outputOn = true, paused = false, recoveryPending = false, sequence = 0, pauseRevision = 0, persistenceFailed = false;
       const commandCancellation = new AbortController(), interruptionWaiters = new Set();
       const persistenceCancellation = new AbortController();
-      const seen = new Set(), assistants = new Map();
+      const seen = new Set(), assistants = new Map(), stoppedInputs = new WeakSet();
       const identity = () => ({ callId: request.callId, providerSessionId: grant?.providerSessionId });
       const stopPersistence = () => persistenceCancellation.abort();
       const persist = async value => {
@@ -60,12 +120,40 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
         try { await voiceOperation({ deadlineAt: Math.min(deadlineAt, Date.now() + drainTimeoutMs) }, () => delivery); }
         catch { persistenceFailed = true; stopPersistence(); }
       };
-      const channels = async () => {
+      const stopCapture = target => {
+        const participant = target?.connection?.room?.localParticipant, removals = [];
+        for (const publication of participant?.audioTrackPublications.values() ?? []) {
+          if (!publication.track) continue;
+          publication.track.mediaStreamTrack.enabled = false; publication.track.stop();
+          removals.push(participant.unpublishTrack(publication.track, true));
+        }
+        if (target?.input?.inputStream) {
+          stopStream(target.input.inputStream);
+          target.input.mediaStreamSource?.disconnect(); stoppedInputs.add(target);
+        }
+        return Promise.all(removals);
+      };
+      const channels = async (target = conversation) => {
         try {
-          // Invoke mute synchronously; SDK 1.17.0 also reports asynchronous failure via onError.
-          const muted = conversation?.setMicMuted(paused || !inputOn);
-          conversation?.setVolume({ volume: paused || !outputOn ? 0 : 1 });
-          await muted;
+          const blocked = () => ended || paused || !inputOn;
+          capture?.setEnabled(!blocked());
+          if (!target) return;
+          if (typeof target.input?.setMuted !== 'function') throw new PluginError('unavailable', 'Awaitable voice input controller required');
+          if (blocked()) {
+            const stopped = stopCapture(target), muted = target.input.setMuted(true);
+            target.setVolume({ volume: paused || !outputOn ? 0 : 1 });
+            await Promise.all([stopped, muted]);
+          } else {
+            if (stoppedInputs.has(target)) {
+              // WebSocket input retains its AudioContext/worklet; reconnect a
+              // newly acquired stream only after an acknowledged resume.
+              await target.input.setDevice({}); stoppedInputs.delete(target);
+            }
+            await target.input.setMuted(blocked());
+            // A newer pause can arrive while unmute/device acquisition is pending.
+            if (blocked()) { await stopCapture(target); await target.input.setMuted(true); }
+            target.setVolume({ volume: paused || !outputOn ? 0 : 1 });
+          }
           if (ended) throw new PluginError('unavailable', 'Live voice capture ended');
         } catch (error) { void close('pause-failed').catch(() => {}); throw error; }
       };
@@ -83,9 +171,15 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
         const closeOptions = { ...commandOptions, deadlineAt: Math.min(commandOptions.deadlineAt ?? Infinity, Date.now() + closeTimeoutMs) };
         ended = true; generation++; clearTimeout(leaseTimer); options.signal?.removeEventListener('abort', cancel);
         commandCancellation.abort();
+        // Privacy does not depend on asynchronous SDK cleanup or provider settlement.
+        capture?.end();
+        try { void stopCapture(conversation).catch(() => {}); } catch {}
+        try { void Promise.resolve(conversation?.connection?.close?.()).catch(() => {}); } catch {}
         closing = (async () => {
-          try { await voiceOperation({ ...closeOptions, deadlineAt: Math.min(closeOptions.deadlineAt, Date.now() + 1000) }, () => conversation?.endSession()); }
+          try { await voiceOperation({ ...closeOptions, deadlineAt: Math.min(closeOptions.deadlineAt, Date.now() + 1000) },
+            () => capture ? capture.run(() => conversation?.endSession()) : conversation?.endSession()); }
           catch { /* Server closure remains authoritative. */ }
+          capture?.release();
           // Leave closure time after a bounded drain; never revoke accepted events first.
           const remaining = Math.max(0, closeOptions.deadlineAt - Date.now());
           if (!persistenceCancellation.signal.aborted) await drain(closeOptions.deadlineAt - Math.min(1000, remaining / 2));
@@ -113,12 +207,29 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           : connectionType !== 'webrtc' || typeof conversationToken !== 'string' || !conversationToken || signedUrl !== undefined) throw new PluginError('invalid-output', 'Invalid voice credential transport');
         grant = receipt; scheduleLease();
         const active = () => generation === current && !ended;
+        let creationChannels;
         const callbacks = {
           onConversationCreated(created) {
-            if (!active()) { void Promise.resolve(created.endSession()).catch(() => {}); return; }
+            if (!active()) { void capture.run(() => created.endSession()).catch(() => {}); return; }
             conversation = created;
-            // Earliest public SDK hook: retained pause is applied before onConnect.
-            void channels().catch(() => {});
+            if (created.input?.setDevice) {
+              const setDevice = created.input.setDevice;
+              created.input.setDevice = (...args) => {
+                // WebSocket permission changes also call this method. An old
+                // generation may never reacquire after its acquisition guard retires.
+                if (!active() || paused || !inputOn) return Promise.resolve();
+                return capture.run(() => setDevice.apply(created.input, args));
+              };
+            }
+            if (connectionType === 'websocket' && created.connection) {
+              const send = created.connection.sendMessage;
+              created.connection.sendMessage = function (message) {
+                // Worklet messages already queued before pause must not escape.
+                if ('user_audio_chunk' in message && (!active() || paused || !inputOn)) return;
+                return send.call(this, message);
+              };
+            }
+            creationChannels = capture.run(() => channels(created)); creationChannels.catch(() => {});
           },
           onConnect({ conversationId }) {
             if (active() && conversationId !== receipt.providerSessionId) void close('provider-identity-mismatch').catch(() => {});
@@ -168,21 +279,24 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           },
         };
         const implementation = await getSdk();
-        const pending = implementation.startSession({
+        if (!active()) throw new PluginError('cancelled');
+        capture ??= microphoneCapture(mediaDevices, AudioContext);
+        capture.setEnabled(!paused && inputOn);
+        const pending = capture.run(() => implementation.startSession({
           ...(receipt.credential.connectionType === 'websocket'
             ? { signedUrl: receipt.credential.signedUrl, connectionType: 'websocket' }
             : { conversationToken: receipt.credential.conversationToken, connectionType: 'webrtc' }),
           customLlmExtraBody: { aithema_call: receipt.facadeCallId ?? request.callId },
           ...(receipt.overrides ? { overrides: voiceOverrides(receipt.overrides) } : {}),
           ...(workletPaths ? { workletPaths } : {}), ...callbacks,
-        });
+        }));
         // A late successful SDK connection after a deadline must still be torn down.
-        Promise.resolve(pending).then(late => { if (!active()) void late.endSession().catch(() => {}); }, () => {});
+        Promise.resolve(pending).then(late => { if (!active()) void capture.run(() => late.endSession()).catch(() => {}); }, () => {});
         conversation = await voiceOperation({ ...connectOptions,
           deadlineAt: Math.min(connectOptions?.deadlineAt ?? Infinity, credentialDeadlineAt) }, () => pending);
         if (!active()) throw new PluginError('cancelled');
         if (conversation.getId() !== receipt.providerSessionId) throw new PluginError('invalid-output', 'Provider identity mismatch');
-        await channels();
+        await (creationChannels ?? capture.run(() => channels()));
         if (paused) {
           const ack = await voiceOperation(connectOptions, opts => control.pause(identity(), opts));
           if (ack?.acknowledged !== true || ack.paused !== true) throw new PluginError('invalid-output', 'Pause not acknowledged');
@@ -246,7 +360,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           pause(commandOptions) {
             if (ended) return Promise.reject(new PluginError('unavailable'));
             paused = true; pauseRevision++;
-            const muted = channels(); muted.catch(() => {});
+            const muted = capture.run(() => channels()); muted.catch(() => {});
             return command('pause', async opts => {
               await muted;
               const ack = await control.pause(identity(), opts);
@@ -260,13 +374,14 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
               const ack = await control.resume(identity(), opts);
               if (ack?.acknowledged !== true || ack.paused !== false) throw new PluginError('invalid-output', 'Resume not acknowledged');
               if (revision !== pauseRevision) throw new PluginError('unavailable', 'New pause requested while resuming');
-              paused = false; await channels();
+              paused = false; await capture.run(() => channels());
+              if (revision !== pauseRevision) throw new PluginError('unavailable', 'New pause requested while resuming');
               if (recoveryPending) queueMicrotask(() => { void recover().catch(() => {}); });
               return ack;
             })(commandOptions);
           },
-          setInput(on, opts) { return command('setInput', () => { if (typeof on !== 'boolean') throw new TypeError('Input boolean required'); inputOn = on; return channels(); })(opts); },
-          setOutput(on, opts) { return command('setOutput', () => { if (typeof on !== 'boolean') throw new TypeError('Output boolean required'); outputOn = on; return channels(); })(opts); },
+          setInput(on, opts) { return command('setInput', () => { if (typeof on !== 'boolean') throw new TypeError('Input boolean required'); inputOn = on; return capture.run(() => channels()); })(opts); },
+          setOutput(on, opts) { return command('setOutput', () => { if (typeof on !== 'boolean') throw new TypeError('Output boolean required'); outputOn = on; return capture.run(() => channels()); })(opts); },
           sendText(text, opts) { return command('sendText', () => {
             if (paused) throw new PluginError('not-admitted', 'Voice session paused');
             if (typeof text !== 'string' || !text.trim() || text.length > 16_384) throw new PluginError('limit', 'Invalid voice text');
