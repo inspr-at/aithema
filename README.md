@@ -600,7 +600,9 @@ provider settlement. `handlers.idle()` and `handlers.close()` await settlements.
 Aggregate voice limits are optional: when `AITHEMA_VOICE_CAP_MINUTES` and
 `AITHEMA_VOICE_CAP_MINUTES_PER_DAY` are unset there is **no aggregate voice cap**.
 The demo reads both settings and persists its duration ledger in `AITHEMA_DB`.
-OPS must set both for start2 before wider exposure. Each admission reserves the
+Hosts may enable either as a deployment safety fuse; leave both unset to use
+money admission alone. These settings never express a visitor's USD allowance.
+Each configured duration cap reserves the
 call's maximum provider duration before facade provisioning or credential minting;
 insufficient deployment or UTC-day headroom refuses voice with a translated reason.
 Daily accounting uses the UTC date of admission, including each recovery attempt;
@@ -608,7 +610,7 @@ rollover opens a new daily bucket without deleting old holds or lifetime usage.
 Confirmed closure settles to provider seconds (rounded up to milliseconds), including
 paused time. Failed minting or startup journal writes before credential handoff
 settle both money and duration to zero: no browser conversation was billable.
-Uncertain and unreconciled attempts retain their entire hold until
+Uncertain and unreconciled duration attempts retain their entire safety hold until
 authenticated reconciliation. Recovery keeps the logical call identity and original
 deadline and reserves only the remaining duration: confirmed predecessors release
 headroom, while an overlapping unconfirmed predecessor still holds its reservation,
@@ -1579,7 +1581,7 @@ computed ceiling charged. Only provably unsent requests may release it. A crash
 leaves open reservations counted.
 
 Known HTML costs are also reported as `chargedMicro` to the session credit
-ledger, replacing its USD 1 maximum hold with the same actual cost, including
+ledger, replacing its request estimate with the same actual cost, including
 invalid-output failures, cancellation after usage and HTTP errors with usage.
 Unsent work settles at zero. Dispatched work with unknown usage retains a
 conservative charge; releasing it as free would permit cap overruns.
@@ -2034,14 +2036,16 @@ array, including the system message, multiplied by the configured prompt price,
 plus `max_tokens` multiplied by the completion price. Decimal arithmetic rounds
 that sum upward to microdollars. The port reserves this ceiling (with a minimum
 one-microdollar hold for free prices), refusing before dispatch when
-`spent + reserved + ceiling > cap`. The existing per-binding USD 1 lane maximum
-also refuses oversized requests. `AITHEMA_OPENROUTER_RESERVE_USD` is removed.
+`spent + reserved + uncertain + ceiling > cap`. The configured input/output
+price bound also refuses oversized requests; it is separate from the small
+per-operation hold. `AITHEMA_OPENROUTER_RESERVE_USD` is removed.
 
 Every request asks for `usage.include`; final streaming or non-streaming
 `usage.cost` settles its hold in upward-rounded microdollars. Known cost remains
 billable even if structured output is invalid or the HTTP status is an error.
-Missing usage, cancellation, incomplete streams and process death retain the
-whole hold across restart. No dispatched hold is released without `usage.cost`.
+Missing costs and unconfirmed dispatched work become uncertain estimated spend
+across restart. Known `usage.cost` settles even a cancelled or incomplete result;
+returned generation IDs support durable authoritative lookup when cost is absent.
 An actual cost above its ceiling is recorded in full and permanently marks the
 account breached, refusing all further calls, even if the account cap still has
 room. Streaming stops as soon as it reports such an overrun. For example,
