@@ -64,7 +64,7 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
           if (typeof request?.attemptId !== 'string' || !request.attemptId || !integer(request.maxMicro) || !integer(request.maxVisitorMicro ?? 0)) throw new TypeError('Invalid wallet request');
           const fingerprint = JSON.stringify([request.sessionId, request.lane, request.maxMicro, request.maxVisitorMicro ?? 0, request.requestSha256, request.bindingSha256]);
           return storage.transaction(() => {
-            visitorCredits.touch(ownerHash);
+            // Only authenticated visitor actions touch inactivity, not recovery/accounting.
             const previous = storage.db.prepare('SELECT * FROM owner_wallet_reservations WHERE attempt_id=?').get(request.attemptId);
             if (previous) {
               if (previous.owner_hash !== ownerHash || previous.fingerprint !== fingerprint) return { ok: false, reason: 'attempt-conflict' };

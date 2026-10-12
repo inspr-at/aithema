@@ -114,7 +114,7 @@ const host = createDemoHost({ storage, demo: process.env.AITHEMA_PROVIDER === un
 // Demo only: AITHEMA_DEMO_HANDOVER_FAIL=n (1–10) fails the first n fake handover deliveries, to show Retry.
 const handoverFailures = Number(process.env.AITHEMA_DEMO_HANDOVER_FAIL ?? 0);
 if (host.demo && Number.isSafeInteger(handoverFailures)) for (let i = 0; i < Math.min(Math.max(handoverFailures, 0), 10); i++) host.sink.failNext();
-const handlers = createHandlers({ storage, reasoning, pluginRuntime, consent, ownership, host, uploads: { limits: uploadLimits }, voice: voicePlugin ? { secrets, closeOrphan: voiceHost?.closeOrphan, staticSecretRef: voiceHost?.staticSecretRef, presentation: voiceHost?.presentation, log: voiceHost?.log } : undefined }); await handlers.resume();
+const handlers = createHandlers({ storage, reasoning, pluginRuntime, consent, ownership, host, uploads: { limits: uploadLimits }, voice: voicePlugin ? { secrets, closeOrphan: voiceHost?.closeOrphan, staticSecretRef: voiceHost?.staticSecretRef, presentation: voiceHost?.presentation, log: voiceHost?.log } : undefined });
 const expiry = startExpiry(handlers);
 // Startup and daily bounded maintenance use the authoritative database writer.
 let visitorBatch;
@@ -132,6 +132,8 @@ const visitorRetention = setInterval(retainVisitors, 24 * 60 * 60_000);
 visitorRetention.unref();
 const admin = await listenAdmin({ host, spendCap, socketPath: process.env.AITHEMA_ADMIN_SOCKET ??
   join(dirname(resolve(process.env.AITHEMA_DB ?? defaultDb)), 'ops', 'admin') });
+// Expire old evidence before recovery can authorize fresh work.
+await handlers.resume();
 let allowedHosts = new Set();
 async function handle(request) {
   const refused = deploymentGate(request, deployment, allowedHosts); if (refused) return refused;
