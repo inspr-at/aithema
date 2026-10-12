@@ -9,7 +9,7 @@ import { applyEvent, createSession, inputRevision, emptyUnderstanding, isUIArtif
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 export const MAX_CONCEPT_STORAGE_BYTES = 64 * 1024 * 1024;
 export const MAX_SETTINGS_REVISIONS = 1000;
-const turnMetadata = ['id', 'role', 'at', 'inputRevision', 'contentRef', 'hash', 'erased', 'withdrawn', 'provenance', 'voiceCallId', 'voiceProviderId'];
+const turnMetadata = ['id', 'role', 'at', 'inputRevision', 'contentRef', 'hash', 'erased', 'withdrawn', 'provenance', 'voiceCallId', 'voiceProviderId', 'callId', 'providerSessionId'];
 
 export class ConflictError extends Error {}
 export class NotFoundError extends Error {}
@@ -216,7 +216,7 @@ export class SQLiteStorage {
     this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id,
       ['turn.final', 'turn.corrected'].includes(type) ? data.role === 'user' ? 'person' : 'reply' : 'understanding', bytes, digest, at);
     return ['turn.final', 'turn.corrected'].includes(type) ? { id: data.id, role: data.role, at,
-      ...Object.fromEntries(['inputRevision', 'provenance', 'voiceCallId', 'voiceProviderId'].filter(key => data[key] !== undefined).map(key => [key, data[key]])), contentRef, hash: digest }
+      ...Object.fromEntries(['inputRevision', 'provenance', 'voiceCallId', 'voiceProviderId', 'callId', 'providerSessionId'].filter(key => data[key] !== undefined).map(key => [key, data[key]])), contentRef, hash: digest }
       : { contentRef, hash: digest };
   }
   #save(session, understandingRef, focusedQuestionRef) {
@@ -412,6 +412,9 @@ export class SQLiteStorage {
           !consumed.has(t.id) && normalize(t.content) === normalize(value.text));
         event = typed ? this.read(id).find(e => e.type === 'turn.final' && e.data.id === typed.id)
           : this.#append(session, 'turn.final', { id: turnId, role: value.role, content: value.text,
+            // Speech provenance comes from the authenticated server call, never
+            // client fields. Typed echo receipts keep their original typed turn.
+            callId, providerSessionId: providerId,
             at: new Date().toISOString(), ...(value.role === 'assistant' ? { ...aiTextOrigin({ model: guard.model, plugin: guard.provider }),
               ...(guard.engine ? { engine: guard.engine } : {}), inputRevision: inputRevision(session),
               provenance: guard.provenance === 'facade-produced' ? 'facade-produced' : 'browser-asserted' } : {}) });
@@ -427,6 +430,7 @@ export class SQLiteStorage {
           .run(new Date().toISOString(), id, turn.contentRef);
         event = this.#append(session, 'turn.corrected', { id: turnId, role: turn.role, content: value.prefix,
           at: turn.at, inputRevision: inputRevision(session), provenance: turn.provenance,
+          callId: turn.callId, providerSessionId: turn.providerSessionId,
           ...aiTextOrigin({ model: turn.model, plugin: turn.provider }), ...(turn.engine ? { engine: turn.engine } : {}) });
       }
       const metadata = { ...event, data: this.#metadata(id, event.type, event.data) };
