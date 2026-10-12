@@ -590,6 +590,17 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
       const copy = { de, en }[locale], label = `${width}-${theme}-${locale}`;
       await scene('entrance');
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.stage), 'entrance');
+      if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)) {
+        t.diagnostic('phone overflow geometry: ' + JSON.stringify(await page.evaluate(() => {
+          const nodes = [], visit = root => { for (const n of root.querySelectorAll('*')) { nodes.push(n); if (n.shadowRoot) visit(n.shadowRoot); } }; visit(document);
+          return { viewport: innerWidth, page: document.documentElement.scrollWidth, nodes: nodes.flatMap(n => {
+            const b = n.getBoundingClientRect(), s = getComputedStyle(n);
+            if (b.right <= innerWidth + .5 || !b.width || s.display === 'none') return [];
+            return [{ tag: n.tagName, class: typeof n.className === 'string' ? n.className : n.className.baseVal, x: b.x, right: b.right, width: b.width,
+              position: s.position, visibility: s.visibility, overflow: s.overflowX, clip: s.clipPath, minWidth: s.minWidth, maxWidth: s.maxWidth, left: s.left, transform: s.transform }];
+          }).slice(0, 30) };
+        })));
+      }
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${label}: no horizontal overflow`);
       const header = await boxes(page, ['.band-orb', '.conversations-toggle', '.settings-open']);
       assert.ok(Math.abs(header[0][1] + header[0][3] / 2 - header[1][1] - header[1][3] / 2) < .5, `${label}: band orb and menu share the first row`);
@@ -652,7 +663,7 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
       await shot('conversation-scrolled', width, theme);
       const stable = ['.turn.user', '.withdraw', '.composer', '.display-foot'], before = await boxes(page, stable);
       await page.hover('aithema-session >>> .turn.user'); sameBoxes(before, await boxes(page, stable), `${label}: withdraw hover`);
-      await shadow(page, c => c.shadowRoot.querySelector('.withdraw').focus()); sameBoxes(before, await boxes(page, stable), `${label}: withdraw focus`);
+      await shadow(page, c => c.shadowRoot.querySelector('.withdraw').focus({ preventScroll: true })); sameBoxes(before, await boxes(page, stable), `${label}: withdraw focus`);
       assert.equal((await boxes(page, ['.withdraw']))[0][2], 44);
       await page.mouse.move(0, 0); await page.evaluate(() => window.scrollTo(0, 0));
       const foldBefore = await boxes(page, ['.fold', '.motion-toggle', '.band']);
