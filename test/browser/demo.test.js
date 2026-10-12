@@ -1475,7 +1475,7 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     t.diagnostic(`Uploads: ${posts()} upload POSTs via picker and drop, pending→accepted for txt and PDF, understanding refreshed, withdraw kept the chip and focus, refusal before sending; the changing row's box, name and action unchanged under the pointer for pending→accepted, pending→unreadable, unreadable→withdrawn and accepted→withdrawn at 1440 and 400 px; German, light/dark, 1440 and 400 px.`);
   });
 
-test('AIT-142: the first real picker waits for interception acknowledgement before Enter',
+test('AIT-142: the first real picker awaits interception; a replay cannot hold the next pending upload',
   { timeout: 30_000 }, async t => {
     const executablePath = await browserPath();
     const directory = await mkdtemp(join(tmpdir(), 'aithema-chooser-order-'));
@@ -1509,6 +1509,15 @@ test('AIT-142: the first real picker waits for interception acknowledgement befo
       const chooser = await uploadChooser(page, 1_000);
       assert.equal(chooser.isMultiple(), true); await chooser.cancel();
       assert.equal(order[0], 'interception acknowledged', JSON.stringify(order));
+      await hold(page, true);
+      // A withdrawal acknowledged by POST can arrive again over SSE after the
+      // next hold begins. The component already ignores that journal sequence.
+      await inShadow(page, c => c.receive({ sessionId: c.session.id, seq: c.session.seq,
+        type: 'upload.state', data: { id: 'previous-upload', state: 'withdrawn' } }));
+      assert.equal(await inShadow(page, c => c.heldUploadEvents.length), 0, 'an already-applied terminal event must not start a hold');
+      await inShadow(page, c => c.receive({ sessionId: c.session.id, seq: c.session.seq + 1,
+        type: 'upload.state', data: { id: 'next-upload', state: 'pending', filename: 'next.txt', bytes: 1, at: new Date().toISOString() } }));
+      assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.upload')?.dataset.state), 'pending', 'the next pending row renders before its terminal state');
     } finally { t.diagnostic(`Picker protocol order: ${JSON.stringify(order)}`); }
   });
 
