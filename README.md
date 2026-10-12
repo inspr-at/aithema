@@ -618,6 +618,41 @@ existing total-duration limit. START's template remains GET-only. Provider
 closure and spending remain uncertain until authenticated details confirm them;
 fake read-back tests do not qualify actual provider timing.
 
+Auto-end qualification, 2026-10-12: the official [agent update reference](https://elevenlabs.io/docs/eleven-agents/api-reference/agents/update)
+and [OpenAPI schema](https://api.elevenlabs.io/openapi.json) expose
+`TurnConfig.silence_end_call_timeout` and
+`ConversationConfig-Input.max_duration_seconds`, but no supported
+`max_duration_seconds_after_last_agent_message` or equivalent last-agent-message
+termination timeout. The provider's field definition says:
+“Maximum wait time since the user last spoke before terminating the call.”
+The pinned `@elevenlabs/client` **1.17.0**
+(`dist/utils/BaseConnection.d.ts`, `BaseSessionConfig.overrides`) and
+`@elevenlabs/types` **0.19.0**
+(`generated/types/asyncapi-types.ts`, `ConversationConfigOverrideConversation`)
+also define no such field; these browser SDK types describe conversation
+overrides, rather than REST agent management. The API's `soft_timeout_config`
+provides filler feedback while waiting for an LLM response, without terminating
+the call. No speculative provider field is written.
+
+Residual for the coordinator: continued user speech can keep a call alive even
+without an agent reply. That case has no qualified 120-second auto-end bound.
+The existing hard provider bound remains
+`conversation_config.conversation.max_duration_seconds: 3600` by default,
+with strict read-back, plus AIT-145's server-side orphan handling and background
+closure/accounting reconciliation. The 120-second user-silence bound and
+`turn_timeout: 12` remain separate. This needs provider qualification or a later
+coordinator decision; it is not resolved by the silence setting.
+
+Retry exhaustion persists `waiting` and three exhausted attempts before the
+browser's recovery flight completes. Owner-authenticated snapshots expose that
+public lifecycle state so reloads and another tab can retain Resume. Restoring
+the waiting view acquires no media: an explicit Resume admits a replacement,
+suppresses its greeting and waits for the server acknowledgement before capture.
+Closure receipts settle only their own segment; they preserve waiting or an
+active successor. Exhaustion reports cannot overwrite a newer segment or undo
+terminal intent. Waiting snapshots contain neither authority revisions nor
+operation checkpoints.
+
 AIT-138's first slice stops here. Recovery notices, exact known-reply replay,
 durable controlling-tab takeover, sleep/wake handling and server-restart
 restoration remain to be delivered. The reducer already models those transitions;

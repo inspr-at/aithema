@@ -14,6 +14,9 @@ const TURN_POLICY = Object.freeze({ turn_eagerness: 'patient', turn_timeout: 12,
   spelling_patience: 'auto', turn_model: 'turn_v3', speculative_turn: false });
 // Seconds since the user last spoke, independent of turn_timeout and total duration.
 // https://github.com/elevenlabs/elevenlabs-python/blob/ea9589784336ba9aa9fc0dc01683a15da2562080/src/elevenlabs/types/turn_config.py#L22
+// Qualified against the official agent API/OpenAPI and pinned browser SDK:
+// no supported last-agent-message timeout. README documents the remaining
+// absent-reply gap and the existing 3600-second total-duration/orphan handling.
 const SILENCE_END_CALL_TIMEOUT = 120;
 const ASR_KEYWORDS = Object.freeze(['Aithema', 'Hosting', 'Domain', 'Webshop', 'Schnittstelle', 'Datenschutz']);
 const CLIENT_EVENTS = Object.freeze(['conversation_initiation_metadata', 'asr_initiation_metadata', 'audio', 'interruption',

@@ -476,6 +476,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
       try {
         options.holdSignal?.addEventListener('abort', retainHold, { once: true });
         await voiceOperation(options, async opts => {
+          const revision = pauseRevision;
           lifecycle.dispatch({ type: 'start' });
           if (options.holdSignal?.aborted) retainHold();
           if (request.providerSessionId) { paused = true; lifecycle.pause('waiting'); }
@@ -485,7 +486,9 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           if (request.providerSessionId && !options.holdSignal?.aborted) {
             const ack = await control.resume(identity(), opts);
             if (ack?.acknowledged !== true || ack.paused !== false) throw new PluginError('invalid-output', 'Resume not acknowledged');
+            if (revision !== pauseRevision) throw new PluginError('unavailable', 'New pause requested while resuming');
             paused = false; lifecycle.resumed(); await capture.run(() => channels());
+            if (revision !== pauseRevision) throw new PluginError('unavailable', 'New pause requested while resuming');
           }
         });
         options.signal?.addEventListener('abort', cancel, { once: true });
