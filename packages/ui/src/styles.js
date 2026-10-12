@@ -75,8 +75,6 @@ svg { display:block; flex:none; }
   gap:.75rem clamp(1rem,2.5vw,2rem); width:100%; max-width:var(--aithema-shell-max); margin-inline:auto; padding:0 var(--aithema-gutter) 1rem; }
 .wordmark { margin-right:auto; color:var(--aithema-ink); font:600 24px/1.2 var(--aithema-display); letter-spacing:-.025em; }
 .header-actions { display:flex; align-items:center; gap:4px; min-width:0; }
-.host-extras { display:flex; align-items:center; gap:.5rem; width:100%; justify-content:flex-end; }
-.host-extras:has(.host-verify:empty):has(slot:not(:defined)) { display:none; }
 /* Before the conversation starts there is nothing to understand: the column is not there (START data-entry),
    unless a host verification lock needs it for its form. */
 .workspace[data-understanding="absent"]:not([data-stage="live"]) .understanding { display:none; }

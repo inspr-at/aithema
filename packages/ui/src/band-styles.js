@@ -36,8 +36,6 @@ export const bandStyles = `
 .conversations-toggle > svg:first-child { display:block; width:16px; height:16px; flex:none; }
 .conversations-toggle > svg:last-child { width:10px; height:10px; flex:none; }
 .conversations-menu { z-index:12; max-height:min(440px,70dvh); overflow-y:auto; }
-.host-extras { position:absolute; top:calc(var(--band-height,90px) + 8px); right:var(--aithema-gutter); z-index:2; width:auto; }
-.host-extras:has(.host-verify:empty) { min-height:0; }
 .header-actions > .host-account { flex:none; }
 .conversation > .head { position:absolute; width:1px; height:1px; padding:0; overflow:hidden; clip-path:inset(50%); }
 .conversation > :not(.head) :is(button,textarea) { scroll-margin-top:160px; scroll-margin-bottom:80px; }

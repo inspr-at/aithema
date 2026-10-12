@@ -214,7 +214,7 @@ export class AithemaSession extends HTMLElement {
         <div class="band-utilities" data-reveal><slot name="utilities"></slot></div><div class="host-account" data-reveal><slot name="account"></slot></div><button data-reveal class="settings-open" type="button" aria-haspopup="dialog">${icon('settings')}<span class="visually-hidden"></span></button></div>
         <div class="edge-column"><button class="motion-toggle" type="button" aria-pressed="true"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M14 3c1.1 7.6 3.4 9.9 11 11-7.6 1.1-9.9 3.4-11 11C12.9 17.4 10.6 15.1 3 14c7.6-1.1 9.9-3.4 11-11Z"/></svg></button>
           <button class="fold" type="button" aria-expanded="true" aria-controls="conversation-middle"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m6 11 6-5 6 5m-12 7 6-5 6 5"/></svg></button></div></header>
-      <div class="host-extras"><div class="host-verify"></div><div class="wordmark visually-hidden"><slot name="brand">Aithema</slot></div></div>
+      <div class="wordmark visually-hidden"><slot name="brand">Aithema</slot></div>
       <section class="conversation" id="conversation-middle" aria-labelledby="conversation-title"><header class="head"><h2 class="visually-hidden" id="conversation-title" data-copy="conversation"></h2>
 </header>
         <div class="intro" hidden><div class="intro__prompt"><div class="intro__orb"></div><div class="intro__promise"><slot name="promise"><h2 class="promise"></h2><p class="promise__lead"></p></slot></div></div>
@@ -360,6 +360,7 @@ export class AithemaSession extends HTMLElement {
     for (const pane of root.querySelectorAll(PANES)) pane.addEventListener('pointerleave', () => clearSlack(pane));
     if (this.#options.host) this.#host = new HostSurface({ root, copy: this.#copy, options: this.#options.host, baseUrl: this.#base, sessionToken: this.#sessionToken,
       session: () => this.#session, status: text => this.#status(text), adopt: (session, reason) => this.#adopt(session, reason),
+      beforeVerifyDialog: () => this.#dialog.close(), verificationOpener: () => root.querySelector('.settings-open'),
       onLock: () => { this.#render('aside'); this.#render('transcript'); },
       // Focus follows the visible stage control: Continue at the entrance, Start at readiness; live,
       // unlocking keeps a deliberate pause (Resume is offered), else the composer takes focus.

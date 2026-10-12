@@ -256,6 +256,7 @@ export const de = {
     bar: 'Ihr Gespräch',
     verify: {
       entry: 'E-Mail bestätigen', pending: 'E-Mail noch nicht bestätigt', verified: 'E-Mail bestätigt',
+      section: 'E-Mail', unverified: 'Nicht bestätigt', linkSent: 'Link gesendet', resendOrChange: 'Erneut senden oder ändern', verifiedShort: 'Bestätigt',
       title: 'E-Mail bestätigen', close: 'Zum Gespräch',
       lockTitle: 'Auswertung und Entwürfe freischalten', lockLead: 'Bestätigen Sie Ihre E-Mail-Adresse, um die Auswertung anzusehen.',
       label: 'E-Mail-Adresse', placeholder: 'name@unternehmen.at', send: 'Bestätigungslink senden',

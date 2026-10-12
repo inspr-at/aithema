@@ -1,5 +1,5 @@
 // The host surface inside <aithema-session> (AIT-104 B2): the host bar (conversation library,
-// verification entry, credits, the host's account slot), the verification lock on the
+// credits, the host's account slot), the verification entry in Settings, the verification lock on the
 // understanding pane, the handover band and the host's legal and footer slots. Each part
 // appears only when the host enables it in configure({host}); all facts come from the server.
 import { inputRevision, activeTurns } from '../../core/src/session.js';
@@ -22,7 +22,7 @@ export class HostSurface {
    * options: {library, verification, handover, credits: true | {format(micro, locale)}, locale()}.
    * session() returns the live session; adopt(session, reason) opens another conversation.
    */
-  constructor({ root, copy, options, baseUrl, sessionToken, session, status, adopt, onLock, focusAfterUnlock }) {
+  constructor({ root, copy, options, baseUrl, sessionToken, session, status, adopt, onLock, focusAfterUnlock, beforeVerifyDialog, verificationOpener }) {
     this.#root = root; this.#copy = copy; this.#options = options ?? {}; this.#base = baseUrl; this.#token = sessionToken;
     this.#session = session; this.#status = status; this.#adopt = adopt; this.#view = root.host?.ownerDocument?.defaultView ?? globalThis.window;
     const o = this.#options, bar = root.querySelector('.host-bar'), s = copy.hostSurface;
@@ -42,7 +42,8 @@ export class HostSurface {
     }
     if (o.verification) {
       this.#verification = new Verification({ root, copy, request: (path, body) => this.#call(this.#sessionPath(path), body), status, onChange: onLock,
-        focusAfterUnlock, entry: root.querySelector('.host-verify'), lock: root.querySelector('.verify-lock'), dialog: root.querySelector('dialog.verify-dialog'),
+        focusAfterUnlock, beforeOpen: beforeVerifyDialog, focusReturn: verificationOpener,
+        entry: root.querySelector('.host-verify'), lock: root.querySelector('.verify-lock'), dialog: root.querySelector('dialog.verify-dialog'),
         identity: this.#session().identity, pollMs: o.pollMs, notice: () => root.querySelector('#ai-notice')?.textContent ?? '' });
     }
     this.#mountHandover(); this.#mountFoot();

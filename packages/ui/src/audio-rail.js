@@ -63,7 +63,9 @@ export class AudioRail {
   measureLabel() {
     const wave = this.root.querySelector('.voice-wave'), caption = this.root.querySelector('.voice-caption');
     const label = caption.textContent ? caption : this.root.querySelector('.voice-state');
-    const half = label.getBoundingClientRect().width / 2;
+    const range = this.root.ownerDocument.createRange();
+    range.selectNodeContents(label);
+    const half = Math.max(0, ...Array.from(range.getClientRects(), rect => rect.width)) / 2;
     // Only paint changes: the label and every control keep their existing layout boxes.
     wave.style.setProperty('--voice-label-half', `${half}px`);
     wave.toggleAttribute('data-short-flanks', wave.getBoundingClientRect().width / 2 - half - 8 < 24);
@@ -103,6 +105,8 @@ export class AudioRail {
     this.button('input').setAttribute('aria-pressed', String(this.input));
     this.button('output').setAttribute('aria-pressed', String(this.output));
     this.button('pause').setAttribute('aria-pressed', String(Boolean(this.paused)));
+    // A different wrapped phrase can keep the same capped box, so text repaints also measure it.
+    this.measureLabel();
   }
   failure(error) {
     this.errorKey = error?.name === 'NotAllowedError' ? 'voiceMicDenied' :

@@ -252,6 +252,7 @@ export const en = {
     bar: 'Your conversation',
     verify: {
       entry: 'Verify your email', pending: 'Email not yet verified', verified: 'Email verified',
+      section: 'E-Mail', unverified: 'Not verified', linkSent: 'Link sent', resendOrChange: 'Resend or change', verifiedShort: 'Verified',
       title: 'Confirm your email', close: 'Back to the conversation',
       lockTitle: 'Unlock your assessment and concepts', lockLead: 'Confirm your email address to view the assessment.',
       label: 'Email address', placeholder: 'name@company.com', send: 'Send confirmation link',

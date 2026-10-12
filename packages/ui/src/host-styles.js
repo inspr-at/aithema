@@ -16,8 +16,11 @@ export const hostStyles = `
 .conversations-recent-item[data-current] { background:var(--aithema-accent-soft); }
 .conversations-recent-item span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .conversations-recent-item small { margin-left:auto; flex:none; font-size:12px; color:var(--aithema-muted); }
-.host-verify { min-width:0; display:flex; align-items:center; }
-.verify-entry { min-height:44px; padding:.4rem .6rem; font-size:.8rem; font-weight:600; color:var(--aithema-accent); text-align:left; }
+.host-verify { min-width:0; grid-column:1/-1; border-top:1px solid var(--aithema-line); padding-top:1.2rem; }
+.verify-entry-state { display:flex; flex-wrap:wrap; align-items:center; gap:.35rem .7rem; font-size:.85rem; color:var(--aithema-muted); }
+.verify-entry-address { overflow-wrap:anywhere; }
+.verify-entry-address:empty { display:none; }
+.verify-entry { min-height:44px; padding:.4rem .85rem; font-size:.8rem; font-weight:400; color:var(--aithema-accent); text-align:left; }
 .verify-done { display:inline-flex; align-items:center; gap:.35rem; font-size:.8rem; color:var(--aithema-muted); }
 .verify-done svg, .verify__done svg { flex:none; color:var(--aithema-accent); }
 .host-account { display:flex; align-items:center; font-size:.8125rem; }

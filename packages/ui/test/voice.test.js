@@ -101,6 +101,7 @@ test('AIT-131: label ResizeObserver measures the mask, hides short flanks and fo
   lineWidths = [184, 280]; observer.callback(); assert.equal(wave.style.getPropertyValue('--voice-label-half'), '140px', 'a wrapped label follows its widest text line, not the capped box');
   lineWidths = [440, 180]; observer.callback(); assert.equal(wave.hasAttribute('data-short-flanks'), true);
   waveWidth = 600; observer.callback(); assert.equal(wave.hasAttribute('data-short-flanks'), false);
+  lineWidths = [140, 200]; rail.render(); assert.equal(wave.style.getPropertyValue('--voice-label-half'), '100px', 'a text repaint also updates the hole when the capped box stays the same size');
   caption.textContent = 'Live words'; observer.callback(); assert.equal(wave.style.getPropertyValue('--voice-label-half'), '40px');
   assert.deepEqual([...root.querySelectorAll('button')], buttons, 'mask updates preserve the controls');
   rail.disconnect(); assert.equal(observer.targets.size, 0);

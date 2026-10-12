@@ -117,7 +117,8 @@ export class SettingsDialog {
             <section data-help="consent"><h3 data-text="consentTitle"></h3><p class="status-line general-consent"></p>
               <button type="button" class="general-consent-manage" data-text="manageConsent"></button></section>
             <section><h3 data-text="defaultsTitle"></h3><p class="note" data-text="defaultsHint"></p>
-              <button type="button" class="general-recommended" data-text="recommended"></button></section></div>
+              <button type="button" class="general-recommended" data-text="recommended"></button></section>
+            <section class="host-verify" hidden></section></div>
         </section>
         <section class="settings-panel" role="tabpanel" id="settings-panel-local" aria-labelledby="settings-tab-local" data-panel="local" hidden><div class="local-host"></div></section>
       </div>
