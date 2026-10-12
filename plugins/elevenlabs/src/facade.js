@@ -46,13 +46,13 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
     if (request.method !== 'POST') return json('method-not-allowed', 405);
     const localCancellation = new AbortController();
     const scope = operationScope({ signal: AbortSignal.any([request.signal, localCancellation.signal]), deadlineAt: Date.now() + timeoutMs });
-    let admission, iterator, invocationOptions, reports = 0, finishPromise, callTimer, callSignal, callAbort, streamFailure;
+    let admission, iterator, invocationOptions, invocationScope, reports = 0, finishPromise, callTimer, callSignal, callAbort, streamFailure;
     const cleanup = async failed => {
       finishPromise ??= Promise.resolve().then(async () => {
         try { if (admission?.finish) await voiceOperation({ deadlineAt: Date.now() + 1000 }, () => admission.finish({ failed })); }
         finally { clearTimeout(callTimer); callSignal?.removeEventListener('abort', callAbort);
           invocationOptions?.signal.removeEventListener('abort', expire);
-          scope.signal.removeEventListener('abort', expire); scope.dispose(); }
+          invocationScope?.dispose(); scope.signal.removeEventListener('abort', expire); scope.dispose(); }
       });
       return finishPromise;
     };
@@ -110,9 +110,12 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
       const textOrigin = aiTextOrigin(admission.producer ?? admission.plugin.binding ??
         { model: admission.plugin.model, plugin: admission.plugin.manifest?.id ?? admission.plugin.id });
       const report = admission.options.report;
+      const invocationDeadline = Math.min(deadlineAt, admission.options.deadlineAt ?? deadlineAt);
+      // One lifetime signal owns the earliest deadline, including a response nobody reads.
+      invocationScope = operationScope({ deadlineAt: invocationDeadline,
+        signal: admission.options.signal ? AbortSignal.any([scope.signal, admission.options.signal]) : scope.signal });
       invocationOptions = { ...admission.options,
-        signal: admission.options.signal ? AbortSignal.any([scope.signal, admission.options.signal]) : scope.signal,
-        deadlineAt: Math.min(deadlineAt, admission.options.deadlineAt ?? deadlineAt),
+        signal: invocationScope.signal, deadlineAt: invocationDeadline,
         report(terminal) { if (++reports !== 1) throw new PluginError('already-claimed'); return report(terminal); } };
       invocationOptions.signal.addEventListener('abort', expire, { once: true });
       iterator = admission.plugin.stream(input, invocationOptions)[Symbol.asyncIterator]();

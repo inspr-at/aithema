@@ -395,4 +395,8 @@ test('facade preserves the admission cancellation signal and earlier deadline', 
   const expired = facadeFixture({ mode: 'stall', admissionOptions: { deadlineAt: Date.now() + 40 } });
   const bounded = await expired.handler(expired.request()); await streamError(bounded, 'deadline');
   assert.equal(expired.optionsList[0].reports.length, 1); assert.equal(expired.optionsList[0].reports[0].outcome, 'uncertain');
+  const unused = facadeFixture({ mode: 'stall', admissionOptions: { deadlineAt: Date.now() + 30 } });
+  const unread = await unused.handler(unused.request()); await new Promise(resolve => setTimeout(resolve, 60));
+  assert.equal(unused.logs.length, 1); assert.equal(JSON.parse(unused.logs[0]).errorCode, 'deadline');
+  await streamError(unread, 'deadline'); assert.equal(unused.optionsList[0].reports.length, 1);
 });
