@@ -201,7 +201,10 @@ user/assistant messages to its trusted session prompt. The observed growth of
 voice cap, leaving nearly fourfold headroom. `readJson` counts actual bytes,
 coalesces tiny chunks into bounded 64 KiB slabs, and cancels body reads on the
 facade deadline. Parsing temporarily also requires a contiguous byte buffer,
-decoded text and the JSON object. The 30-second callback timeout, call leases
+decoded text and the JSON object. The HTTP adapter uses a bounded intermediary
+stream so reader cancellation preserves the socket until the JSON reply is sent;
+early replies close the connection without draining the remaining upload.
+The 30-second callback timeout, call leases
 and earlier admission deadline still apply; iterator disposal and settlement
 each have a separate one-second bound.
 
@@ -209,7 +212,8 @@ Failures before SSE starts return JSON `{error: code}` with `cache-control:
 no-store`: `method-not-allowed` → 405; `unauthorized`/`auth` → 401;
 `not-admitted` → 403; `invalid-output` → 400; `limit` → 413; `deadline` → 504;
 `cancelled`, `already-claimed`, `unavailable`, `rate-limit`, `provider` → 502.
-Unknown errors become `provider`. Oversized request bodies always use 413
+Unknown facade errors become `provider`; the HTTP adapter's fallback is 500
+`server-error`. Oversized request bodies always use 413
 `{"error":"limit"}`. After SSE starts, failures emit `data: {"error":"code"}`
 and close without a stop frame or `[DONE]`; the HTTP status is already 200.
 
