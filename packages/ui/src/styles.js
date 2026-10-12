@@ -73,7 +73,6 @@ svg { display:block; flex:none; }
 /* The shell (START .shell, .v2__workspace): centred, START's gutters, stacked on phones. */
 .workspace { display:grid; grid-template-columns:minmax(0,1fr); grid-template-areas:"top" "conversation" "understanding" "foot";
   gap:.75rem clamp(1rem,2.5vw,2rem); width:100%; max-width:var(--aithema-shell-max); margin-inline:auto; padding:0 var(--aithema-gutter) 1rem; }
- .toolbar { grid-area:top; display:flex; align-items:center; flex-wrap:wrap; gap:0 .5rem; min-height:4.25rem; padding-top:.5rem; }
 .wordmark { margin-right:auto; color:var(--aithema-ink); font:600 24px/1.2 var(--aithema-display); letter-spacing:-.025em; }
 .header-actions { display:flex; align-items:center; gap:4px; min-width:0; }
 .host-extras { display:flex; align-items:center; gap:.5rem; width:100%; justify-content:flex-end; }
@@ -90,25 +89,12 @@ svg { display:block; flex:none; }
 /* The conversation column (START .v2): quiet header line, then the entrance or the live conversation. */
 .conversation { position:relative; min-width:0; display:grid; grid-template-rows:auto; align-content:start; gap:.85rem; }
 .head { display:flex; align-items:baseline; justify-content:space-between; gap:.15rem 1.5rem; }
-/* The AI notice (AIT-119, GUI-27): one quiet line, no box, from the first paint on. Sticky, so it stays in view
-   wherever an interaction can begin; the hidden full notice holds its height, so it never resizes. */
-.conversation > .head { position:sticky; top:0; z-index:3; padding:.35rem 0; background-color:var(--aithema-paper); background-image:var(--aithema-lighting); background-attachment:fixed; }
-.ai-notice { display:grid; flex:1; min-width:0; margin:0; font-size:.75rem; line-height:1.35; color:var(--aithema-muted); overflow-wrap:anywhere; }
-.ai-notice > span { grid-area:1/1; } .ai-notice__sizer { visibility:hidden; }
-/* The status has a fixed width and two reserved lines (a longer one scrolls in them): a new status never
-   rewraps the notice or changes the head's height, so nothing below it moves. */
-.status[data-connected]::before { content:"●" / ""; color:var(--aithema-accent); margin-right:.35rem; }
-.status { flex:0 0 6.5rem; height:2.7em; overflow-y:auto; overscroll-behavior:contain; font-size:.75rem; line-height:1.35; color:var(--aithema-muted);
-  text-align:right; overflow-wrap:anywhere; }
-.workspace:not([data-stage="live"]) .status { visibility:hidden; }
-.conversation > :not(.head) :is(button, textarea) { scroll-margin-top:5.5rem; }
 .workspace:not([data-stage="live"]) :is(.audio-rail, .concept-bar, .transcript-shell, .composer) { display:none; }
 
 /* The conversation rail (START .v2__conversation-rail): orb dock, sound, waveform with one status phrase,
    pause, microphone and end. 44 px controls in fixed cells. */
 .audio-rail { position:relative; display:grid; grid-template-columns:48px 44px minmax(0,1fr) 44px 44px 44px; align-items:center; gap:8px; min-height:48px; }
 .audio-rail:focus { outline:none; } .audio-rail:focus-visible { outline:2px solid var(--aithema-accent-bright); outline-offset:4px; border-radius:24px; }
-.voice-orb { width:48px; height:48px; display:grid; place-items:center; } .voice-orb .orb { --orb-size:48px; }
 .voice-cell { display:grid; } .voice-cell > * { grid-area:1/1; }
 .audio-rail button { display:grid; place-items:center; width:44px; height:44px; padding:0; border:1px solid color-mix(in srgb,var(--aithema-line) 70%,transparent);
   border-radius:50%; color:var(--aithema-ink); background:color-mix(in srgb,var(--aithema-surface) 78%,transparent); }
@@ -363,18 +349,9 @@ blockquote { margin:.5rem 0 0; padding-left:.7rem; border-left:0; color:var(--ai
 @keyframes rise-in { from { opacity:0; transform:translateY(.5rem); } to { opacity:1; transform:none; } }
 @media(max-width:44rem) {
   .wordmark { font-size:20px; }
-  .toolbar { gap:0 4px; min-height:60px; }
   .header-actions { gap:0; }
-  /* Room below the composer for the sticky notice line (inside the column, since a sticky box never enters its
-     container's padding): with Attach or Send scrolled to the very top, the notice still stands above them (AIT-119). */
-  .composer { margin-bottom:2rem; }
-  .conversation > .head { align-items:flex-start; gap:.5rem; } .status { flex-basis:5.5rem; text-align:right; }
-  .audio-rail { grid-template-columns:32px 44px minmax(0,1fr) 44px 44px 44px; gap:4px; }
-  .voice-orb { width:32px; height:32px; } .voice-orb .orb { --orb-size:32px; }
-  .voice-state, .voice-caption { font-size:.6rem; padding:3px 6px; } .audio-rail[data-message] .voice-state { left:0; font-size:.78rem; padding:.55rem .75rem; }
   .turn { max-width:88%; } .upload { width:90%; }
   .concept-bar { grid-template-columns:minmax(0,1fr) auto; } .concept-rail { column-gap:.5rem; }
-  .workspace:not([data-stage="live"]) .status { display:none; }
   /* The viewer on phones: navigation in two rows and a two-line disclosure, so long (German) labels stay whole. */
   .concept-viewer[open] { grid-template-rows:4rem minmax(0,1fr) 21.5rem; }
   .concept-navigation { height:auto; display:grid; grid-template-columns:auto auto minmax(0,1fr); grid-template-rows:2.75rem 2.75rem; row-gap:.2rem; }
