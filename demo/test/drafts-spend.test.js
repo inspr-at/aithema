@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { SQLiteStorage } from '@inspr/aithema-server';
 import { SQLiteBudgetLedger } from '../../packages/server/src/budget.js';
@@ -320,7 +320,7 @@ test('AIT-134 round 3: an expired original writer cannot dispatch its unsent hol
   let clock = 1_000_000;
   const spend = createSpendLedger({ path: `${await temporaryDb()}.spend.json`, capMicro: 100, now: () => clock });
   const handle = spend.reserve(100);
-  t.after(() => spend.uncertain(handle));
+  t.after(() => spend.recover());
   clock += 30_001;
   assert.throws(() => spend.dispatch(handle), { code: 'not-admitted' });
 });
@@ -355,9 +355,189 @@ for (const legacy of ['reserved-owner', 'dispatched-owner', 'reserved-unowned'])
     clock = expiresAt + 1; spend.recover(); spend.recover();
     assert.equal(spend.snapshot().reservedMicro, 0);
     assert.equal(spend.snapshot().spentMicro, 0);
-    assert.equal(spend.snapshot().uncertainMicro, legacy === 'dispatched-owner' ? 100 : 0);
+    assert.equal(spend.snapshot().uncertainMicro, 100, 'unfenced legacy holds are never released as confirmed zero');
   });
 }
+
+for (const interruption of ['stalled renewal', 'failed renewal transactions', 'forward clock jump']) {
+  for (const stage of ['reserved', 'dispatched', 'cost-receipt']) {
+    test(`AIT-134 round 4: ${interruption} fences an expired ${stage} writer without reviving its lease`, async t => {
+      t.mock.timers.enable({ apis: ['setInterval'] });
+      const warnings = []; t.mock.method(console, 'warn', (...args) => warnings.push(args.join(' ')));
+      let clock = 1_000_000;
+      const path = `${await temporaryDb()}.spend.json`, spend = createSpendLedger({ path, capMicro: 100, now: () => clock });
+      const handle = spend.reserve(100, { attemptId: 'lost-attempt', provider: 'openrouter' });
+      if (stage !== 'reserved') spend.dispatch(handle);
+      if (stage === 'cost-receipt') spend.record(handle, { generationId: 'gen-lost-lease', chargedMicro: 37 });
+      const deadline = JSON.parse(readFileSync(path, 'utf8')).operations[handle].leaseExpiresAt;
+      if (interruption === 'failed renewal transactions') {
+        // Another live transaction prevents every renewal from persisting.
+        writeFileSync(`${path}.lock`, JSON.stringify({ pid: process.pid }), { flag: 'wx' });
+        try {
+          for (let tick = 0; tick < 6; tick++) { clock += 5_000; t.mock.timers.tick(5_000); }
+        } finally { unlinkSync(`${path}.lock`); }
+        clock++;
+      } else clock = deadline + (interruption === 'forward clock jump' ? 86_400_000 : 1);
+      // The event loop resumes before recovery or the next writer operation.
+      t.mock.timers.tick(5_000);
+      assert.equal(JSON.parse(readFileSync(path, 'utf8')).operations[handle].leaseExpiresAt, deadline,
+        'a late renewal must not resurrect expired ownership');
+      assert.throws(() => spend.dispatch(handle), { code: 'not-admitted' });
+      assert.throws(() => spend.settle(handle, 37), { code: 'not-admitted' });
+      assert.equal(JSON.parse(readFileSync(path, 'utf8')).spentMicro, 0, 'the fenced writer cannot charge');
+      if (interruption === 'failed renewal transactions') {
+        assert.ok(warnings.length >= 2, 'repeated renewal failures must be logged');
+        assert.match(warnings.join('\n'), /lease renewal failed/iu);
+      }
+      const replacement = createSpendLedger({ path, capMicro: 100, now: () => clock });
+      replacement.recover(); replacement.recover();
+      assert.equal(replacement.snapshot().reservedMicro, 0);
+      assert.equal(replacement.snapshot().spentMicro, stage === 'cost-receipt' ? 37 : 0);
+      assert.equal(replacement.snapshot().uncertainMicro, stage === 'dispatched' ? 100 : 0);
+      // Neither a clock correction nor another writer's reclamation restores authority.
+      clock = 1_000_000;
+      assert.throws(() => spend.dispatch(handle), { code: 'not-admitted' });
+      assert.throws(() => spend.settle(handle, stage === 'reserved' ? 0 : 37), { code: 'not-admitted' });
+      if (stage !== 'reserved') {
+        replacement.reconcileAttempt('lost-attempt', 37); replacement.reconcileAttempt('lost-attempt', 37);
+        assert.equal(replacement.snapshot().totalMicro, 37, 'receipt reconciliation charges exactly once');
+      }
+    });
+  }
+}
+
+for (const ownership of ['expired lease', 'different incarnation', 'different writer']) {
+  test(`AIT-134 round 4: settlement checks ${ownership} in its transaction`, async t => {
+    t.mock.timers.enable({ apis: ['setInterval'] });
+    let clock = 1_000_000;
+    const path = `${await temporaryDb()}.spend.json`, spend = createSpendLedger({ path, capMicro: 100, now: () => clock });
+    const handle = spend.reserve(100, { attemptId: 'fenced-settlement' }); spend.dispatch(handle);
+    let settler = spend;
+    if (ownership === 'expired lease') clock += 30_000;
+    else if (ownership === 'different writer') settler = createSpendLedger({ path, capMicro: 100, now: () => clock });
+    else {
+      const state = JSON.parse(readFileSync(path, 'utf8'));
+      state.operations[handle].owner.incarnationId = 'replacement-incarnation'; writeFileSync(path, JSON.stringify(state));
+    }
+    const before = readFileSync(path, 'utf8');
+    assert.throws(() => settler.settle(handle, 37), { code: 'not-admitted' });
+    assert.equal(readFileSync(path, 'utf8'), before, 'a refused settlement leaves the journal intact');
+  });
+}
+
+test('AIT-134 round 4: reconciliation cannot settle another live writer', async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const path = `${await temporaryDb()}.spend.json`, now = () => 1_000_000;
+  const writer = createSpendLedger({ path, capMicro: 100, now }), reader = createSpendLedger({ path, capMicro: 100, now });
+  const handle = writer.reserve(100, { attemptId: 'live-reconciliation' }); writer.dispatch(handle);
+  const before = readFileSync(path, 'utf8');
+  assert.throws(() => reader.reconcileAttempt('live-reconciliation', 37), { code: 'not-admitted' });
+  assert.equal(readFileSync(path, 'utf8'), before);
+  writer.settle(handle, 37); reader.reconcileAttempt('live-reconciliation', 37);
+  assert.equal(reader.snapshot().spentMicro, 37);
+});
+
+for (const lossAt of ['before dispatch', 'known-cost response', 'unknown-cost response']) {
+  test(`AIT-134 round 4: lease loss ${lossAt} refuses draft publication and fences provider work`, async t => {
+    t.mock.timers.enable({ apis: ['setInterval'] });
+    let clock = 1_000_000, calls = 0, dispatches = 0;
+    const path = `${await temporaryDb()}.spend.json`, backing = createSpendLedger({ path, now: () => clock });
+    const spend = { ...backing, reserve(micro, metadata) {
+      const handle = backing.reserve(micro, metadata);
+      if (lossAt === 'before dispatch') clock += 30_001;
+      return handle;
+    } };
+    const storage = new SQLiteStorage(); t.after(() => storage.close());
+    const budget = new SQLiteBudgetLedger(storage), session = storage.create(), { binding } = htmlConfig(values);
+    const reports = [], plugin = createClaudeHTML({ binding, spend, resolveSecret: () => 'fixture', fetchImpl: async () => {
+      calls++; clock += 30_001;
+      return Response.json({ id: 'gen-fenced-draft', usage: { prompt_tokens: 10, completion_tokens: 20,
+        ...(lossAt === 'known-cost response' ? { cost: 0.001234 } : {}) },
+      choices: [{ finish_reason: 'stop', message: { content: document } }] });
+    } });
+    const request = { prompt: 'Repairs', language: 'en' }, ceiling = plugin.estimateCost(request);
+    const { attemptId } = budget.admit({ sessionId: session.id, lane: 'concept', maxMicro: ceiling,
+      requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64) });
+    const claim = budget.claim(attemptId);
+    await assert.rejects(plugin.generate(request, '', { deadlineAt: Date.now() + 5000,
+      attempt: { ...claim, dispatchCost() { dispatches++; budget.markCostDispatch(attemptId); },
+        observeCost: evidence => budget.observeCost(attemptId, evidence) },
+      report(terminal) { reports.push(terminal); return budget.settle(claim.claimId, terminal); } }), { code: 'not-admitted' });
+    assert.equal(calls, lossAt === 'before dispatch' ? 0 : 1);
+    assert.equal(dispatches, calls, 'an unsent lease refusal cannot mark the budget dispatched');
+    assert.equal(reports.length, 1);
+    assert.equal(reports[0].outcome, lossAt === 'unknown-cost response' ? 'uncertain' : 'cancelled');
+    assert.equal(JSON.parse(readFileSync(path, 'utf8')).spentMicro, 0, 'lease loss blocks direct writer settlement');
+    backing.recover();
+    if (lossAt === 'before dispatch') {
+      assert.equal(budget.used(session.id), 0); assert.equal(backing.snapshot().totalMicro, 0);
+      assert.equal(backing.evidence(attemptId).chargedMicro, 0);
+    } else if (lossAt === 'known-cost response') {
+      backing.reconcileAttempt(attemptId, 1234); backing.reconcileAttempt(attemptId, 1234);
+      assert.equal(backing.snapshot().spentMicro, 1234); assert.equal(budget.used(session.id), 1234);
+    } else {
+      assert.equal(backing.snapshot().uncertainMicro, ceiling); assert.equal(budget.used(session.id), ceiling);
+      assert.deepEqual(backing.evidence(attemptId), { generationId: 'gen-fenced-draft' });
+    }
+  });
+}
+
+for (const terminal of ['confirmed', 'uncertain']) {
+  for (const metadata of ['persisted grace', 'unfamiliar terminal metadata']) {
+    test(`AIT-134 round 4: a pre-lease writer can finish ${terminal} after ${metadata} without poisoning the journal`, async () => {
+      const path = `${await temporaryDb()}.spend.json`, now = () => 1_000_000;
+      writeFileSync(path, JSON.stringify({ version: 2, spentMicro: 11, reservations: { legacy: 100 }, operations: {
+        legacy: { ceilingMicro: 100, state: 'dispatched', attemptId: 'legacy-attempt', generationId: 'gen-legacy-writer',
+          owner: { pid: process.pid, host: hostname(), writerId: 'pre-lease-writer' } },
+        previous: { ceilingMicro: 100, state: 'confirmed', actualMicro: 11 },
+      } }));
+      const reader = createSpendLedger({ path, capMicro: 1000, now }); reader.recover();
+      const legacyState = JSON.parse(readFileSync(path, 'utf8')), legacyRow = legacyState.operations.legacy;
+      assert.equal(legacyRow.leaseExpiresAt, now() + 30_000);
+      // Exact 7dffd3b terminal behavior: spread the current row and delete owner,
+      // leaving any fields added by the new reader intact.
+      legacyState.operations.legacy = { ...legacyRow, state: terminal,
+        ...(terminal === 'confirmed' ? { actualMicro: 37 } : {}) };
+      delete legacyState.operations.legacy.owner; delete legacyState.reservations.legacy;
+      if (terminal === 'confirmed') legacyState.spentMicro += 37;
+      if (metadata === 'unfamiliar terminal metadata') {
+        legacyState.operations.legacy.leaseExpiresAt = { obsolete: true };
+        legacyState.operations.legacy.owner = { obsolete: true };
+        legacyState.operations.legacy.futureMetadata = { retained: true };
+      }
+      writeFileSync(path, JSON.stringify(legacyState));
+      assert.deepEqual(reader.snapshot(), { spentMicro: terminal === 'confirmed' ? 48 : 11, reservedMicro: 0,
+        uncertainMicro: terminal === 'uncertain' ? 100 : 0, totalMicro: terminal === 'confirmed' ? 48 : 111,
+        costCeilingBreached: false });
+      reader.recover();
+      const normalized = JSON.parse(readFileSync(path, 'utf8')).operations.legacy;
+      assert.equal(normalized.owner, undefined); assert.equal(normalized.leaseExpiresAt, undefined);
+      assert.equal(normalized.futureMetadata?.retained, metadata === 'unfamiliar terminal metadata' ? true : undefined);
+      reader.reconcileAttempt('legacy-attempt', 37); reader.reconcileAttempt('legacy-attempt', 37);
+      assert.equal(reader.snapshot().totalMicro, 48, 'unrelated spend and the legacy receipt survive exactly once');
+    });
+  }
+}
+
+test('AIT-134 round 4: expiry never confirms zero for an unfenced legacy hold before its writer finishes', async () => {
+  let clock = 1_000_000;
+  const path = `${await temporaryDb()}.spend.json`;
+  writeFileSync(path, JSON.stringify({ version: 2, spentMicro: 0, reservations: { legacy: 100 }, operations: {
+    legacy: { ceilingMicro: 100, state: 'reserved', attemptId: 'unfenced-attempt',
+      owner: { pid: process.pid, host: hostname(), writerId: 'pre-lease-writer' } },
+  } }));
+  const reader = createSpendLedger({ path, capMicro: 100, now: () => clock }); reader.recover(); clock += 30_001;
+  assert.equal(reader.snapshot().uncertainMicro, 100, 'an unfenced legacy writer might still dispatch');
+  assert.equal(reader.evidence('unfenced-attempt').chargedMicro, undefined);
+  assert.throws(() => reader.reserve(1), { code: 'limit' });
+  // A late pre-lease settlement can replace conservative uncertainty, not conflict with zero.
+  const legacyState = JSON.parse(readFileSync(path, 'utf8'));
+  legacyState.operations.legacy = { ...legacyState.operations.legacy, state: 'confirmed', actualMicro: 37 };
+  legacyState.spentMicro += 37; delete legacyState.operations.legacy.owner; delete legacyState.reservations.legacy;
+  writeFileSync(path, JSON.stringify(legacyState));
+  reader.recover(); reader.reconcileAttempt('unfenced-attempt', 37);
+  assert.equal(reader.snapshot().totalMicro, 37);
+});
 
 for (const crash of ['reserved', 'dispatched', 'id-receipt', 'cost-receipt', 'settled']) {
   test(`AIT-134 gate: JSON account ledger recovers ${crash} without lost or duplicated cost`, { timeout: 10_000 }, async t => {
