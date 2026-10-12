@@ -24,6 +24,10 @@ export function createVoiceLifecycle(callId) {
 /** Pure browser/server policy. Checkpoints never bind, alias or mutate paid operations (Rule C). */
 export function reduceVoiceLifecycle(state, event) {
   if (!VOICE_LIFECYCLE_STATES.includes(state?.state) || typeof event?.type !== 'string') throw new TypeError('Invalid voice lifecycle event');
+  if (event.type === 'segment-closed') {
+    if (event.closureConfirmed !== true || !state.segments[event.providerSessionId]) return state;
+    return { ...state, segments: { ...state.segments, [event.providerSessionId]: { closureConfirmed: true } } };
+  }
   if (state.state === 'ended') return state;
   if (event.epoch !== undefined && event.type !== 'takeover' && event.epoch !== state.epoch) return state;
   if (event.providerGeneration !== undefined && event.type !== 'connected' && event.providerGeneration !== state.providerGeneration) return state;

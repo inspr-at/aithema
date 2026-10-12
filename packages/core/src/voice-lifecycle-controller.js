@@ -100,6 +100,10 @@ export function createVoiceLifecycleController({ callId, renew, replace, beforeR
   return {
     get state() { return state; }, get recovering() { return recovery; }, dispatch, recover, heartbeat,
     connected(receipt) { dispatch({ type: 'connected', ...receipt }); schedule(); },
+    wait(reason = 'browser-liveness-deadline') {
+      if (ended() || recovery || state.state === 'waiting') return;
+      dispatch({ type: 'lease-expired' }); stopMedia(); onEvent({ type: 'waiting', reason }); schedule();
+    },
     pause(reason = 'pause') { dispatch({ type: 'pause', reason }); },
     resumed() { dispatch({ type: 'resume-acknowledged' }); schedule(); },
     startHeartbeat(heartbeatMs = 10_000) {

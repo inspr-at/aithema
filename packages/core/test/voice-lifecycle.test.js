@@ -89,3 +89,13 @@ test('AIT-138: transcript/assessment revisions do not revoke voice, ownership/co
     assert.notEqual(voiceAuthorizationRevision({ ...session, ...data }), revision);
   }
 });
+
+test('AIT-138: late segment reconciliation cannot overwrite a successor or resurrect terminal intent', () => {
+  let state = step(step(connected(), 'transport-lost'), 'connected', { providerSessionId: 'generation-2' });
+  state = step(state, 'segment-closed', { providerSessionId: 'generation-1', closureConfirmed: true });
+  assert.equal(state.state, 'active'); assert.equal(state.providerSessionId, 'generation-2');
+  assert.deepEqual(state.segments['generation-1'], { closureConfirmed: true });
+  state = step(state, 'end');
+  state = step(state, 'segment-closed', { providerSessionId: 'generation-2', closureConfirmed: true });
+  assert.equal(state.state, 'ended'); assert.equal(state.segments['generation-2'].closureConfirmed, true);
+});

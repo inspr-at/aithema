@@ -1416,6 +1416,8 @@ export class AithemaSession extends HTMLElement {
       this.dispatchEvent(new CustomEvent('aithema-event', { detail: event, bubbles: true, composed: true }));
     } else if (event.type === 'voice.state') {
       const voice = this.#rail.session;
+      if (voice && event.data.state === 'waiting' && voice.callId === event.data.callId &&
+        voice.providerSessionId === event.data.providerSessionId) voice.lifecycle?.wait(event.data.reason);
       if (voice && ['closing', 'ended'].includes(event.data.state) && event.data.reason !== 'recovery-failed' &&
         voice.callId === event.data.callId && voice.providerSessionId === event.data.providerSessionId) void this.#rail.close(event.data.reason);
       this.#rail.settlement(event.data);

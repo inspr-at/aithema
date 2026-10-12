@@ -242,7 +242,7 @@ test('post-mint journal failure withholds the credential and durably releases th
 test('failed recovery mint releases only its own hold and permits a later call', async t => {
   const h = voiceFixture(t, { cap: { capMilliseconds: 65_000 } }), first = await h.start();
   h.advance(5000);
-  await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId });
+  await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId, reason: 'transport-lost' });
   h.failMint(500);
   assert.equal((await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId })).status, 502);
   assertUnbillableStart(h); assert.equal(h.voiceCap.snapshot().spentMilliseconds, 5000);
@@ -306,7 +306,7 @@ test('unknown closure keeps aggregate duration until authenticated reconciliatio
 test('recovery and stale reconnect replay use remaining aggregate duration under one call identity', async t => {
   const h = voiceFixture(t, { cap: { capMilliseconds: 60_000, perDayMilliseconds: 60_000 } }), first = await h.start();
   h.advance(10_000);
-  assert.equal((await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId })).status, 200);
+  assert.equal((await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId, reason: 'transport-lost' })).status, 200);
   const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId });
   assert.equal(response.status, 200); const next = await response.json();
   assert.equal(next.callId, first.callId); assert.equal(next.spendDeadlineAt, first.spendDeadlineAt);
@@ -1041,7 +1041,7 @@ test('browser lease and spend expiry settle a call even while the engine is paus
   const { waitFor } = await observeVoice(h, t);
   await h.route(`/voice/${grant.callId}/pause`, { providerSessionId: grant.providerSessionId });
   h.advance(20); t.mock.timers.tick(20);
-  await waitFor(e => e.type === 'voice.state' && e.data.state === 'ended' && e.data.reason === 'browser-liveness-deadline');
+  await waitFor(e => e.type === 'voice.state' && e.data.state === 'waiting' && e.data.reason === 'browser-liveness-deadline');
   await h.handlers.idle();
   const row = h.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='voice'").get();
   assert.equal(row.state, 'settled'); assert.equal(row.outcome, 'cancelled');
@@ -1350,13 +1350,13 @@ test('slow closure: engine pause records a new event even when the provider ackn
   assert.deepEqual(rows.filter(e => e.type === 'session.paused').map(e => e.seq), [ack.event.seq]);
 });
 
-test('slow closure: browser lease expiry publishes closing before the client ends', async t => {
+test('slow closure: browser lease expiry publishes waiting before the segment settles', async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
   const h = voiceFixture(t, { slowClosure: true, leaseMs: 20 }), grant = await h.start(), { rows, waitFor } = await observeVoice(h, t);
   h.advance(20); t.mock.timers.tick(20);
-  await waitFor(e => e.type === 'voice.state' && e.data.state === 'closing' && e.data.reason === 'browser-liveness-deadline');
+  await waitFor(e => e.type === 'voice.state' && e.data.state === 'waiting' && e.data.reason === 'browser-liveness-deadline');
   assert.equal(h.secrets.resolve(h.provisioned[0].facadeSecretRef), undefined);
-  assert.ok(rows.some(e => e.type === 'voice.state' && e.data.state === 'closing' && e.data.reason === 'browser-liveness-deadline'));
+  assert.ok(rows.some(e => e.type === 'voice.state' && e.data.state === 'waiting' && e.data.reason === 'browser-liveness-deadline'));
   assert.equal(h.storage.db.prepare("SELECT state FROM budget_attempts WHERE lane='voice'").get().state, 'dispatched');
   h.advance(10_001); h.endClient(grant.providerSessionId); await h.handlers.idle();
 });

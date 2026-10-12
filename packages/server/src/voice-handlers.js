@@ -57,7 +57,10 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
   if (presentation !== undefined && typeof presentation !== 'function') throw new TypeError('Voice presentation must be a function of the session locale');
   if (![reconcileIntervalMs, reconcileBatchSize, reconcileLookupTimeoutMs].every(value => Number.isSafeInteger(value) && value > 0) ||
     log !== undefined && typeof log !== 'function') throw new TypeError('Invalid voice reconciliation retry bounds');
-  const calls = new Map(), sessions = new Map(), settlements = new Set();
+  const calls = new Map(), sessions = new Map(), settlements = new Set(), authorities = new Map();
+  const endAuthority = (sessionId, callId) => {
+    const key = `${sessionId}:${callId}`; authorities.get(key)?.controller.abort(); authorities.delete(key);
+  };
   if (!Number.isSafeInteger(turnTimeoutMs) || turnTimeoutMs <= 0) throw new TypeError('Invalid voice turn timeout');
   const turns = createVoiceTurnOperations({ storage, now, replayWindowMs: turnReplayWindowMs,
     authorizeReplacement: authorizeTurnReplacement && (args => {
@@ -79,6 +82,8 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       const result = savedReconciliation && !savedReconciliation.usage?.costEstimated ? savedReconciliation
         : closeOrphan ? await voiceOperation({ deadlineAt: Date.now() + reconcileLookupTimeoutMs }, opts => closeOrphan(record, opts)) : null;
       if (result?.closureConfirmed === true && result.providerSessionId === record.providerSessionId) {
+        storage.transitionVoiceLifecycle(record.sessionId, record.callId,
+          { type: 'segment-closed', providerSessionId: record.providerSessionId, closureConfirmed: true });
         runtime.reconcileVoice(record.attemptId, result);
         const saved = storage.voiceCalls(record.sessionId).find(c => c.providerSessionId === record.providerSessionId);
         storage.saveVoiceCall(record.sessionId, { ...saved, reconciliation: result, reconciliationPending: result.usage?.costEstimated === true });
@@ -127,6 +132,9 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     // receipt only closes its own segment and cannot reopen the logical call.
     storage.transitionVoiceLifecycle(entry.sessionId, entry.callId, { type: resumable
       ? reason === 'browser-liveness-deadline' ? 'lease-expired' : 'transport-lost' : 'end', reason });
+    // Transport replacement ends readers/media, not already admitted reasoning.
+    // Terminal intent and revocation still stop every generation of logical work.
+    if (!resumable || reason === 'server-stopping') endAuthority(entry.sessionId, entry.callId);
     // Install the promise before close() aborts the provider signal synchronously.
     let resolve, reject;
     const closing = new Promise((yes, no) => { resolve = yes; reject = no; });
@@ -148,6 +156,8 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           pending = entry.call?.close(reason, outcome);
         }
         const terminal = await pending;
+        if (terminal?.closureConfirmed === true) storage.transitionVoiceLifecycle(entry.sessionId, entry.callId,
+          { type: 'segment-closed', providerSessionId: entry.call.providerSessionId, closureConfirmed: true });
         entry.admission?.finish();
         // An old recovery's settlement cannot publish over or remove its successor.
         if (terminal && calls.get(entry.callId) === entry) publish(entry.sessionId, { type: 'voice.state', data: {
@@ -164,9 +174,12 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
   async function start(request, sessionId, ownerToken, callId, spendDeadlineAt, continuation = false) {
     const session = storage.authorize(sessionId, ownerToken);
     if (sessions.has(sessionId)) throw new ConflictError('Voice call already active');
+    const authorityKey = `${sessionId}:${callId}`;
+    if (!authorities.has(authorityKey)) authorities.set(authorityKey, { sessionId, callId, controller: new AbortController() });
+    const authority = authorities.get(authorityKey).controller;
     const controller = new AbortController(), started = Promise.withResolvers(), entry = { callId, sessionId, ownerToken, controller, started: started.promise,
       conversationConsentRevision: session.conversationConsentRevision ?? session.consentRevision, withdrawalRevision: session.withdrawalRevision,
-      settingsRevision: session.settings?.revision ?? 0, presentation: continuation ? 'continuation' : 'opening',
+      settingsRevision: session.settings?.revision ?? 0, presentation: continuation ? 'continuation' : 'opening', authority,
       facadeSecretRef: staticSecretRef ?? 'voice-' + randomUUID(), ...(staticSecretRef ? { facadeCallId: randomUUID() } : {}) };
     sessions.set(sessionId, entry); calls.set(callId, entry);
     if (!continuation) storage.transitionVoiceLifecycle(sessionId, callId, { type: 'start' });
@@ -201,6 +214,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       return receipt(entry.call);
     } catch (error) {
       revoke(entry); controller.abort(); if (!entry.call) entry.admission?.finish();
+      if (!continuation && !entry.call) endAuthority(sessionId, callId);
       if (sessions.get(sessionId) === entry) sessions.delete(sessionId);
       if (calls.get(callId) === entry) calls.delete(callId);
       throw error;
@@ -233,7 +247,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         : calls.get(facadeRoute.exec(new URL(request.url).pathname)?.[1]);
       if (!entry?.call || entry.closing || sessions.get(entry.sessionId) !== entry) return null;
       try { sessionFor(entry); } catch { throw new PluginError('not-admitted', 'Call ownership or context revoked'); }
-      return { ...entry.call.snapshot(), facadeSecretRef: entry.facadeSecretRef, facadeCallId: entry.facadeCallId, signal: entry.call.signal };
+      return { ...entry.call.snapshot(), facadeSecretRef: entry.facadeSecretRef, facadeCallId: entry.facadeCallId, signal: entry.authority.signal };
     },
     buildRequest({ callId, messages }) {
       const entry = calls.get(callId);
@@ -302,6 +316,9 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     stopSession(id, reason = 'session-revoked') {
       const entry = sessions.get(id);
       if (entry) void close(entry, reason, 'cancelled');
+      for (const authority of authorities.values()) if (authority.sessionId === id) {
+        storage.transitionVoiceLifecycle(id, authority.callId, { type: 'end', reason }); endAuthority(id, authority.callId);
+      }
     },
     async pauseSession(id, paused, opts = {}) {
       const entry = sessions.get(id);
@@ -326,6 +343,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         const previous = storage.voiceCalls(sessionId).find(c => c.callId === callId && c.providerSessionId === body.providerSessionId);
         if (action === 'close' && previous && !recoverableVoiceEnd(body.reason ?? 'closed')) {
           storage.transitionVoiceLifecycle(sessionId, callId, { type: 'end', reason: body.reason ?? 'closed' });
+          endAuthority(sessionId, callId);
           const active = calls.get(callId);
           if (active?.sessionId === sessionId && active.ownerToken === ownerToken) void close(active, body.reason ?? 'closed');
         }
@@ -445,6 +463,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     async close() {
       stopping = true; clearTimeout(reconcileTimer);
       for (const id of sessions.keys()) this.stopSession(id, 'server-stopping');
+      for (const authority of authorities.values()) endAuthority(authority.sessionId, authority.callId);
       await this.idle(); await reconcileJob;
     },
   };

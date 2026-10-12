@@ -38,11 +38,12 @@ test('transport loss while paused waits for acknowledged resume before spending 
   const local = fixture(), options = invocationOptions(), session = await local.client.start({ callId: 'call_paused_recovery' }, options);
   let retries = 0;
   local.control.recover = async () => { retries++; throw new Error('local recovery failure'); };
-  const reader = drain(session, true);
+  const reader = drain(session);
   await session.pause(); local.sdk.starts[0].onDisconnect();
   await flush();
   assert.equal(retries, 0); assert.equal(local.sdk.closed, false);
   await assert.rejects(session.resume(), { code: 'unavailable' });
+  await session.close();
   const events = await reader; assert.equal(retries, 3); assert.equal(events.at(-1).type, 'ended');
 });
 test('relative credential TTL accepts a receipt even when the server clock is behind the browser', async () => {
