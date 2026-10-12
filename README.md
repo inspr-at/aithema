@@ -1580,9 +1580,12 @@ The fix (`56285ef`) passed all 38 targeted spend/budget/plugin tests remotely.
 Normal known-cost reasoning already settles the shared OpenRouter cap; missing
 reasoning cost and incomplete streams deliberately retain their holds. The UI
 wallet sums session budget attempts across the owner's conversations, separately
-from the deployment account spend ledger. These differences and uncertain
-voice/turn attempts can explain a gap, but the reported start2 balance cannot
-be attributed without live ledger aggregates. This slice makes no provider
+from the deployment account spend ledger. Live reasoning's generic token rates
+are zero, while an uncertain reasoning attempt charges its full USD 1 maximum.
+These differences and uncertain voice/turn attempts can explain a gap, but the
+reported start2 balance cannot be attributed without live ledger aggregates.
+Since drafts were off during that observation, the draft bugs fixed here did
+not cause that balance. This slice makes no provider
 calls and does not alter voice or historical uncertain charges.
 
 The default `createSpendLedger({path, capMicro})` is a JSON counter. Each
