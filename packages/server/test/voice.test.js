@@ -1701,14 +1701,20 @@ for (const phase of ['streaming', 'completed']) {
       assert.equal(await completionText(await h.callback([a])), 'Reply 1 finished');
       const current = await h.callback([a, b], { stream: true }), text = current.text();
       await h.waitForModel(2);
-      if (phase === 'completed') await text;
+      let replay;
+      if (phase === 'completed') {
+        assert.equal(sseReply(await text), 'Reply 2 finished');
+        replay = await h.callback([a, b], { stream: true });
+      }
       // Neither the callback nor the final supplies a matching provider ID.
       // Both receipts arrive before streaming B is allowed to finish.
       for (const [id, message] of order === 'older-first' ? [['a', a], ['b', b]] : [['b', b], ['a', a]]) {
         await h.persist('user', id, message.content);
       }
       h.release();
-      const reply = await text;
+      // An already-open completed replay must remain readable, without a new
+      // claim repairing its durable receipt binding before publication.
+      const reply = replay ? await replay.text() : await text;
       assert.equal(sseReply(reply), 'Reply 2 finished');
       assert.ok(reply.endsWith('data: [DONE]\n\n'), reply);
       assert.doesNotMatch(reply, /"error"/u, 'late receipts must not fence an admitted reply');
@@ -1753,7 +1759,12 @@ for (const order of ['older-first', 'newer-first']) {
     persist(receipts[0]); await turns.idle(); storage.close();
     storage = new SQLiteStorage(path); budget = new SQLiteBudgetLedger(storage);
     turns = createVoiceTurnOperations({ storage, now: () => 1001 });
+    const replay = await turns.run({ ...context, messages: [a, b], stream: true }, execute);
     persist(receipts[1]);
+    const reply = await replay.text();
+    assert.equal(sseReply(reply), 'Reply 2 finished');
+    assert.ok(reply.endsWith('data: [DONE]\n\n'), reply);
+    assert.doesNotMatch(reply, /"error"/u);
     assert.equal(await completionText(await callback([a, b])), 'Reply 2 finished');
     assert.equal(await completionText(await callback([a, b])), 'Reply 2 finished');
     await assert.rejects(callback([a]), error => error instanceof PluginError && error.message === 'voice-turn-obsolete');
