@@ -5,6 +5,7 @@ import { voiceOperation } from '../../core/src/live-voice.js';
 import { ConflictError, NotFoundError } from './storage.js';
 import { VOICE_CAP_REASONS } from './voice-cap.js';
 import { CUSTOM_LLM_BASE_PATH } from '../../../plugins/elevenlabs/src/ensure-agent.js';
+import { createVoiceTurnOperations } from './voice-turns.js';
 
 const json = (value, status = 200) => Response.json(value, { status, headers: { 'cache-control': 'no-store' } });
 const idPattern = '[a-zA-Z0-9_-]{1,128}';
@@ -42,11 +43,18 @@ export function createFacadeSecrets() {
 
 export function createVoiceHandlers({ storage, runtime, ownership, readBody, secrets,
   publish, onTurn, onClose, hostPrompt = '', now = Date.now, browserLeaseMs = 30_000, deadlineMs = 30_000,
-  closeOrphan, staticSecretRef, presentation, reconcileIntervalMs = 30_000, reconcileBatchSize = 10 } = {}) {
+  closeOrphan, staticSecretRef, presentation, reconcileIntervalMs = 30_000, reconcileBatchSize = 10,
+  turnReplayWindowMs, turnTimeoutMs = 30_000, authorizeTurnReplacement } = {}) {
   if (!secrets?.provision || !secrets.resolve || !secrets.revoke) throw new TypeError('Private facade secret store required');
   if (presentation !== undefined && typeof presentation !== 'function') throw new TypeError('Voice presentation must be a function of the session locale');
   if (!Number.isSafeInteger(reconcileIntervalMs) || reconcileIntervalMs <= 0 || !Number.isSafeInteger(reconcileBatchSize) || reconcileBatchSize <= 0) throw new TypeError('Invalid voice reconciliation retry bounds');
   const calls = new Map(), sessions = new Map(), settlements = new Set();
+  if (!Number.isSafeInteger(turnTimeoutMs) || turnTimeoutMs <= 0) throw new TypeError('Invalid voice turn timeout');
+  const turns = createVoiceTurnOperations({ storage, now, replayWindowMs: turnReplayWindowMs,
+    authorizeReplacement: authorizeTurnReplacement && (args => {
+      const entry = calls.get(args.operation.callId);
+      return authorizeTurnReplacement({ ...args, session: sessionFor(entry) });
+    }) });
   let reconcileTimer, reconcileJob, retryOffset = 0, stopping = false;
   const pendingReconciliations = () => storage.voiceCalls().filter(record => record.reconciliationPending);
   async function reconcile(record) {
@@ -169,7 +177,16 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       ...(session.focusedQuestion ? [{ role: 'user', content: JSON.stringify({ kind: 'untrusted-focused-question', question: session.focusedQuestion }) }] : []),
       ...unrecordedVoiceInput(session, messages, call)] };
   }
-  const facade = createCompletionsHandler({ resolveSecret: secrets.resolve, staticSecretRef,
+  const facade = createCompletionsHandler({ resolveSecret: secrets.resolve, staticSecretRef, timeoutMs: turnTimeoutMs,
+    turnOperations: {
+      run(context, execute, options) {
+        const entry = calls.get(context.callId), session = sessionFor(entry);
+        const last = session.transcript.at(-1), latest = context.messages.at(-1);
+        const recordedTurnId = latest?.role === 'user' && last?.role === 'user' &&
+          !unrecordedVoiceInput(session, context.messages, entry.call).length ? last.id : undefined;
+        return turns.run({ ...context, sessionId: entry.sessionId, recordedTurnId }, execute, options);
+      },
+    },
     getCall(request, options, identity) {
       const entry = staticSecretRef ? [...calls.values()].find(entry => entry.facadeCallId === identity)
         : calls.get(facadeRoute.exec(new URL(request.url).pathname)?.[1]);
@@ -333,6 +350,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       }
     },
     async resume() {
+      turns.recover();
       runtime.recoverVoiceCap?.();
       // The exclusive writer has already conservatively recovered all open claims.
       for (let record of storage.voiceCalls()) {
@@ -354,7 +372,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       if (pendingReconciliations().length) reconcileLater();
     },
     reconcileLater,
-    async idle() { while (settlements.size) await Promise.allSettled([...settlements]); },
+    async idle() { while (settlements.size) await Promise.allSettled([...settlements]); await turns.idle(); },
     async close() {
       stopping = true; clearTimeout(reconcileTimer);
       for (const id of sessions.keys()) this.stopSession(id, 'server-stopping');

@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { dirname, basename, resolve, join } from 'node:path';
 import { normalizeUploadLimits } from './upload-limits.js';
+import { createVoiceOperationStore } from './voice-operation-storage.js';
 import { applyEvent, createSession, inputRevision, emptyUnderstanding, isUIArtifact, isHTMLArtifact, inspectHTML, HTML_MEDIA_TYPE, imageInfo, reduceConceptIntent, createConceptIntent, MAX_IMAGE_BYTES,
   defaultSettings, normalizeSettings, sameSelection, conversationStarted, createCredits, rebindCredits, reduceCredits, aiTextOrigin, withAITextOrigin } from '@inspr/aithema-core';
 
@@ -53,6 +54,7 @@ export class SQLiteStorage {
       CREATE TRIGGER IF NOT EXISTS events_no_update BEFORE UPDATE ON events BEGIN SELECT RAISE(ABORT,'append only'); END;
       CREATE TRIGGER IF NOT EXISTS events_no_delete BEFORE DELETE ON events BEGIN SELECT RAISE(ABORT,'append only'); END;`);
     this.#migrate();
+    this.voiceTurnStore = createVoiceOperationStore(this);
     } catch (error) { this.db?.close(); this.writer?.close(); throw error; }
   }
   transaction(fn) {
@@ -381,6 +383,8 @@ export class SQLiteStorage {
     return this.db.prepare('SELECT * FROM voice_calls WHERE (? IS NULL OR session_id=?)').all(id ?? null, id ?? null)
       .map(row => ({ sessionId: row.session_id, ...JSON.parse(row.record) }));
   }
+  voiceOperations(id) { return this.voiceTurnStore.list(id); }
+  claimVoiceOperation(context, options) { return this.voiceTurnStore.claim(context, options); }
   postVoiceEvent(id, callId, providerId, value, guard = {}) {
     const transaction = value?.type === 'heard' ? fn => this.#invalidationTransaction(fn) : fn => this.transaction(fn);
     return transaction(() => {
@@ -419,6 +423,7 @@ export class SQLiteStorage {
               ...(guard.engine ? { engine: guard.engine } : {}), inputRevision: inputRevision(session),
               provenance: guard.provenance === 'facade-produced' ? 'facade-produced' : 'browser-asserted' } : {}) });
         if (typed) {
+          this.voiceTurnStore.bindTurn({ sessionId: id, callId, providerSessionId: providerId }, event.data);
           const metadata = { ...event, data: this.#metadata(id, event.type, event.data) };
           this.db.prepare('INSERT INTO receipts VALUES (?,?,?,?)').run(id, clientId, bytes, JSON.stringify(metadata));
           return { event, replayed: true };
@@ -434,6 +439,7 @@ export class SQLiteStorage {
           ...aiTextOrigin({ model: turn.model, plugin: turn.provider }), ...(turn.engine ? { engine: turn.engine } : {}) });
       }
       const metadata = { ...event, data: this.#metadata(id, event.type, event.data) };
+      if (type === 'final') this.voiceTurnStore.bindTurn({ sessionId: id, callId, providerSessionId: providerId }, event.data);
       this.db.prepare('INSERT INTO receipts VALUES (?,?,?,?)').run(id, clientId, bytes, JSON.stringify(metadata));
       return { event, replayed: false };
     });

@@ -1393,13 +1393,13 @@ test('AIT-137 a disconnected follower leaves the shared operation available to a
 
 test('AIT-137 restart keeps a pending operation fenced until explicit replacement authorization', async t => {
   const { createVoiceTurnOperations } = await import('../src/voice-turns.js');
-  const temp = await temporaryDb(); t.after(temp.cleanup);
-  let storage = new SQLiteStorage(temp.path), calls = 0;
+  const path = await temporaryDb();
+  let storage = new SQLiteStorage(path), calls = 0;
   const session = storage.create({ ownerToken: 'restart-owner' });
   const context = { sessionId: session.id, callId: 'restart-call', providerSessionId: 'restart-provider',
     messages: [{ role: 'user', content: 'Restart input' }] };
   const key = storage.claimVoiceOperation(context, { now: 1000 }).operation.key;
-  storage.close(); storage = new SQLiteStorage(temp.path); t.after(() => storage.close());
+  storage.close(); storage = new SQLiteStorage(path); t.after(() => storage.close());
   const turns = createVoiceTurnOperations({ storage, now: () => 1001 });
   await assert.rejects(turns.run(context, () => { calls++; return Response.json({}); }),
     error => error.code === 'not-admitted' && error.message === 'voice-turn-replacement-required');
