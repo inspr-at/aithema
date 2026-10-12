@@ -33,6 +33,7 @@ function paintPage() {
   const choice = document.querySelector('#locale');
   // DE/EN stay compact; the language label follows the running conversation.
   choice.value = localeChoice;
+  document.querySelector('#language-value').textContent = localeChoice.toUpperCase();
   text('#language-note', choice.value === component.session?.locale ? '' : h.languageNext.replace('{language}', h.languages[choice.value]));
 }
 // The header and the mock consent name the visual kind this conversation uses (AIT-118): the

@@ -139,7 +139,13 @@ test('keyed rows: a superseded partial loses its node, a restarted reply under i
   assert.equal(c.session.transcript.at(-1).engine.label, 'Deep (mock)', 'the producer contract stays intact');
   assert.deepEqual([...root.querySelectorAll('.turn')].map(n => n.dataset.id), ['t1', 'r']);
 });
-test('Enter inserts a newline; Ctrl/Cmd+Enter sends; failed acknowledgement retries identical id and bytes', async () => {
+const platform = (t, value) => {
+  const previous = Object.getOwnPropertyDescriptor(globalThis.navigator, 'platform');
+  Object.defineProperty(globalThis.navigator, 'platform', { configurable: true, value });
+  t.after(() => { if (previous) Object.defineProperty(globalThis.navigator, 'platform', previous); else delete globalThis.navigator.platform; });
+};
+test('Enter inserts a newline; the platform shortcut sends; failed acknowledgement retries identical id and bytes', async t => {
+  platform(t, 'Linux x86_64');
   const c = setup(), root = c.shadowRoot, input = root.querySelector('textarea'); input.value = 'Hello\nworld';
   const originalFetch = globalThis.fetch, calls = []; let fail = true;
   globalThis.fetch = async (url, options) => {
@@ -371,7 +377,7 @@ test('the engine panel keeps its fixed size, renders snapshot feature updates at
     root.querySelector('.preset-panel').dispatchEvent(new window.Event('pointerleave'));
   } finally { globalThis.fetch = originalFetch; }
   // START has no processing band: the processing line sits quietly in the top row, the features stay readable to assistive technology.
-  assert.ok(root.querySelector('.toolbar').contains(root.querySelector('.preset-panel')));
+  assert.ok(root.querySelector('.display-foot').contains(root.querySelector('.preset-panel')));
 });
 
 test('an acknowledged switch to EU gates the composer and analysis with their exact reasons and prevents posts', async () => {
@@ -426,7 +432,8 @@ test('composer gates update immediately while hovered and the aside stays in pla
 });
 
 for (const preset of ['best', 'device']) for (const trigger of ['click', 'ctrlKey', 'metaKey']) {
-  test(`hovered ${preset} composer permits consecutive sends using ${trigger} and blocks overlapping sends`, async () => {
+  test(`hovered ${preset} composer permits consecutive sends using ${trigger} and blocks overlapping sends`, async t => {
+    platform(t, trigger === 'metaKey' ? 'MacIntel' : 'Linux x86_64');
     const c = setup(), originalFetch = globalThis.fetch; let calls = 0, release;
     const held = () => new Promise(resolve => { release = resolve; });
     const device = { async connect() { calls++; await held(); }, async *stream() { yield 'Local answer'; } };
@@ -819,7 +826,7 @@ test('the AI notice is painted with the first render, ahead of the composer, in 
   }
   assert.equal(AI_NOTICE.en.text, 'You are talking to an AI assistant.');
   assert.equal(AI_NOTICE.de.text, 'Sie sprechen mit einer KI-Assistenz.');
-  assert.equal(AI_NOTICE.de.voice, 'Gesprochene Antworten verwenden eine synthetische Stimme.');
+  assert.equal(AI_NOTICE.de.voice, 'Gesprochene Antworten nutzen eine synthetische Stimme.');
 });
 test('with voice offered both sentences show; consent still pending counts as offered (AIT-119)', () => {
   const c = document.createElement('aithema-session'), session = createSession({ demo: true });

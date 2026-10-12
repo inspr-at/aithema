@@ -23,6 +23,9 @@ import { entranceStyles } from './entrance-styles.js';
 import { orbStyles, createOrb } from './orb.js';
 import { icon } from './icons.js';
 import { modelDisplayName, settingsFlag } from './display.js';
+import { bandStyles } from './band-styles.js';
+import { motionPreference, rememberMotion, ConnectionTimer, ConversationFold, FooterPopups } from './layout.js';
+import { createReveal } from './reveal-bridge.js';
 
 const PANES = '.transcript-shell, .analysis-content';
 // START's understanding reveal: 560 ms of column, 100–620 ms of the pane fading in (styles.js), with a margin.
@@ -68,6 +71,7 @@ export class AithemaSession extends HTMLElement {
   #open = []; #cleared = []; #failure = false; #sending = false;
   #pointer = null; #onTranscript = false; #follow = true; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false;
   #dialog; #connector; #createDevice; #deviceEndpoint; #chooser = { choice: null, busy: false, error: '' }; #aiNotice; #host; #options; #refocus = null;
+  #introOrb = null; #reveal = null; #fold; #timer; #popups; #motion = true; #motionMedia; #motionListener;
   #orb = null; #started = false; #inputMode = null; #microphone = 'unknown'; #permission = null;
   #localeChanging = Promise.resolve(); #copyLocale;
   #paneObserver; #scrollTimers = new Map();
@@ -93,10 +97,11 @@ export class AithemaSession extends HTMLElement {
     const { copy, baseUrl = '', session, sessionToken, deviceReasoning, deviceConnector, deviceEndpoint, voiceClient, voiceClients, voicePlayback, aiNotice } = options ?? {};
     if (!copy || !session) throw new TypeError('Host copy and session required');
     this.#copyLocale = session.locale; this.#aiNotice = aiNotice; this.#options = { ...options }; delete this.#options.session;
-    this.#host?.destroy(); this.#host = null;
+    this.#host?.destroy(); this.#host = null; this.#reveal?.destroy(); this.#timer?.destroy(); this.#popups?.destroy();
+    this.#motionMedia?.removeEventListener?.('change', this.#motionListener);
     this.#paneObserver?.disconnect(); for (const timer of this.#scrollTimers.values()) clearTimeout(timer); this.#scrollTimers.clear();
     const reopen = this.#dialog?.open;
-    this.#concept?.destroy(); this.#rail?.destroy(); this.#rail = null; this.#orb?.destroy(); this.#orb = null; this.#voiceClient = voiceClient; this.#voiceClients = voiceClients; this.#voicePlayback = voicePlayback;
+    this.#concept?.destroy(); this.#rail?.destroy(); this.#rail = null; this.#orb?.destroy(); this.#orb = null; this.#introOrb?.destroy(); this.#introOrb = null; this.#voiceClient = voiceClient; this.#voiceClients = voiceClients; this.#voicePlayback = voicePlayback;
     this.#abort?.abort(); this.#deviceController?.abort(); this.#deviceReasoning = deviceReasoning; this.#copy = copy; this.#base = baseUrl.replace(/\/$/u, '');
     // The local connection belongs to this tab, not to a conversation: it survives a new session.
     if (deviceConnector !== this.#createDevice || deviceEndpoint !== this.#deviceEndpoint) {
@@ -125,11 +130,12 @@ export class AithemaSession extends HTMLElement {
   connectedCallback() {
     if (!this.#session) return;
     this.#pings ??= answerVoicePings(() => this.#rail?.session?.callId ?? null);
-    this.#concept?.connect(); this.#connect(); this.#watchPage(true); this.#offerResume(); this.#host?.connect(); this.#orb?.mount();
+    this.#concept?.connect(); this.#connect(); this.#watchPage(true); this.#offerResume(); this.#host?.connect(); this.#orb?.mount(); this.#introOrb?.mount();
     this.#observePanes();
   }
   disconnectedCallback() {
-    this.#host?.disconnect(); this.#watchPage(false); this.#concept?.suspend(); this.#rail?.destroy(); this.#orb?.destroy(); this.#abort?.abort(); this.#deviceController?.abort();
+    this.#timer?.setConnected(false); this.#reveal?.close();
+    this.#host?.disconnect(); this.#watchPage(false); this.#concept?.suspend(); this.#rail?.destroy(); this.#orb?.destroy(); this.#introOrb?.destroy(); this.#abort?.abort(); this.#deviceController?.abort();
     this.#paneObserver?.disconnect(); for (const timer of this.#scrollTimers.values()) clearTimeout(timer); this.#scrollTimers.clear();
     this.#pings?.close(); this.#pings = null;
   }
@@ -162,7 +168,7 @@ export class AithemaSession extends HTMLElement {
     if (!copy) return;
     this.#copyLocale = this.#session.locale;
     const previous = this.#copy, root = this.shadowRoot;
-    this.#copy = copy; this.#options.copy = copy; this.#paintNotice();
+    this.#copy = copy; this.#options.copy = copy; this.#fold?.setCopy(copy); this.#paintMotion(); this.#paintNotice();
     for (const key of ['connecting', 'connected', 'reconnecting']) if (this.#connection === previous[key]) { this.#connection = copy[key]; break; }
     this.#notice = ''; this.#uploadNotice = ''; this.#chooser.error = '';
     this.#anchored(() => {
@@ -196,18 +202,20 @@ export class AithemaSession extends HTMLElement {
     // START's shell (app.css .shell, index.astro .v2__workspace): a top row, the conversation and,
     // once there is input, the understanding beside it. The entrance (promise, orb and processing
     // choice, then readiness) fills the conversation column until the conversation starts.
-    root.innerHTML = `<style>${styles}${orbStyles}${entranceStyles}${settingsStyles}${hostStyles}</style><div class="workspace" data-stage="entrance" data-understanding="absent">
-      <header class="toolbar"><div class="wordmark"><slot name="brand">Aithema</slot></div><div class="header-actions">
-        <div class="host-bar" role="group" hidden><div class="conversations-wrap"><button class="conversations-toggle" type="button" aria-haspopup="menu" aria-controls="conversations-menu" aria-expanded="false"></button>
+    root.innerHTML = `<style>${styles}${orbStyles}${entranceStyles}${settingsStyles}${hostStyles}${bandStyles}</style><div class="workspace" data-stage="entrance" data-understanding="absent">
+      <header class="toolbar band"><div class="band-orb"></div><div class="audio-rail"></div><div class="header-actions">
+        <div class="host-bar" role="group" data-reveal hidden><div class="conversations-wrap"><button class="conversations-toggle" type="button" aria-haspopup="menu" aria-controls="conversations-menu" aria-expanded="false"></button>
           <div class="conversations-menu" id="conversations-menu" role="menu" hidden><button class="conversations-new" type="button" role="menuitem" tabindex="-1" aria-describedby="ai-notice"></button>
             <div class="conversations-recent" role="group"></div><button class="library-open-dialog" type="button" role="menuitem" tabindex="-1" aria-haspopup="dialog"></button></div></div></div>
-        <slot name="utilities"></slot><button class="settings-open" type="button" aria-haspopup="dialog">${icon('settings')}<span class="visually-hidden"></span></button></div>
-        <div class="host-extras"><div class="host-verify"></div><div class="host-account"><slot name="account"></slot></div></div></header>
-      <section class="conversation" aria-labelledby="conversation-title"><header class="head"><h2 class="visually-hidden" id="conversation-title" data-copy="conversation"></h2>
-          <p class="ai-notice"><span id="ai-notice"></span><span class="ai-notice__sizer" aria-hidden="true"></span></p><span class="status" role="status"></span></header>
+        <slot name="utilities" data-reveal></slot><button data-reveal class="settings-open" type="button" aria-haspopup="dialog">${icon('settings')}<span class="visually-hidden"></span></button></div>
+        </header><div class="edge-column"><button class="motion-toggle" type="button" aria-pressed="true"><svg viewBox="0 0 28 28" aria-hidden="true"><path d="M14 3c1.1 7.6 3.4 9.9 11 11-7.6 1.1-9.9 3.4-11 11C12.9 17.4 10.6 15.1 3 14c7.6-1.1 9.9-3.4 11-11Z"/></svg></button>
+          <button class="fold" type="button" aria-expanded="true" aria-controls="conversation-middle"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m6 11 6-5 6 5m-12 7 6-5 6 5"/></svg></button></div>
+      <div class="host-extras"><div class="host-verify"></div><div class="host-account"><slot name="account"></slot></div><div class="wordmark visually-hidden"><slot name="brand">Aithema</slot></div></div>
+      <section class="conversation" id="conversation-middle" aria-labelledby="conversation-title"><header class="head"><h2 class="visually-hidden" id="conversation-title" data-copy="conversation"></h2>
+</header>
         <div class="intro" hidden><div class="intro__prompt"><div class="intro__orb"></div><div class="intro__promise"><slot name="promise"><h2 class="promise"></h2><p class="promise__lead"></p></slot></div></div>
           <div class="intro__card"></div></div>
-        <div class="audio-rail"></div><div class="concept-bar"><div class="concept-rail"></div><div class="concept-preview-slot"></div></div>
+        <div class="concept-bar"><div class="concept-rail"></div><div class="concept-preview-slot"></div></div>
         <div class="transcript-shell"><ol aria-live="polite"></ol><button class="transcript-latest" type="button" data-copy="transcriptLatest" style="visibility:hidden"></button></div>
         <form class="composer"><label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000" rows="2"></textarea>
           <div class="composer-actions"><button class="attach" type="button" aria-describedby="attach-limits ai-notice">${UPLOAD_ICONS.attach}<span class="attach__label"></span></button>
@@ -224,11 +232,14 @@ export class AithemaSession extends HTMLElement {
           <div class="handover" role="region" aria-labelledby="handover-title" hidden><h3 id="handover-title"></h3><p class="handover__offer"><slot name="handover-offer"></slot></p>
             <div class="handover__row"><button class="handover-request" type="button" aria-describedby="handover-state"></button><p class="handover__state" id="handover-state" role="status"></p></div></div></div>
         <footer class="foot"><a class="export">${icon('download')}<span data-copy="export"></span></a><button class="retry" type="button" data-copy="retry" hidden></button></footer></aside>
-      <footer class="display-foot"><div class="display-foot__row"><span class="display-version" tabindex="0" hidden></span>
-        <section class="preset-panel"><div class="engine"><button class="engine-info" type="button" aria-describedby="model-info"><span class="engine__flag"></span><span class="engine__value"></span>${icon('info')}</button>
-          <span class="engine__detail" id="model-info" role="tooltip"></span></div><ul class="features"></ul></section>
-        <p class="host-credits" tabindex="0" hidden><span class="host-credits__title"></span><strong class="host-credits__text"></strong><span class="host-credits__track" role="meter" aria-valuemin="0"><i></i></span><span class="host-credits__scope"></span><span class="host-credits__limit" hidden><slot name="credits-limit"></slot></span></p></div>
-        <div class="host-foot" hidden><slot name="legal"></slot><slot name="footer"></slot></div></footer></div>
+      <section class="fold-view" hidden><button class="fold-strip" type="button"><span class="fold-identity"><i class="speaker-sign" aria-hidden="true"></i><span class="fold-who"></span></span><span class="fold-text"></span><span class="fold-question" hidden></span></button>
+        <section class="drafts-canvas" aria-label=""><div class="canvas-empty">${icon('concept')}<span></span></div><aithema-html-preview class="canvas-html" fill hidden></aithema-html-preview><img class="canvas-image" alt="" hidden><p class="canvas-status" role="status"></p></section></section>
+      <footer class="display-foot"><div class="display-foot__row">
+        <div class="footer-info" data-footer-popup><button class="ai-notice" type="button" aria-describedby="ai-notice build-info"><i class="speaker-sign" aria-hidden="true"></i><span class="display-version"></span><span class="ai-notice__label"></span><span class="ai-notice__short"></span><span class="ai-notice__voice"></span></button>
+          <div class="footer-popup" role="tooltip"><p id="ai-notice"></p><p id="build-info"></p><div class="host-foot" hidden><slot name="legal"></slot><slot name="footer"></slot></div></div></div>
+        <div class="host-credits" tabindex="0" data-footer-popup hidden><strong class="host-credits__text"><span class="host-credits__amount"></span><span class="host-credits__total"></span><span class="host-credits__unit"></span></strong><span class="host-credits__track" role="meter" aria-valuemin="0"><i></i></span><div class="footer-popup" role="tooltip"><span class="host-credits__scope"></span><span class="host-credits__deadline"></span><span class="host-credits__limit" hidden><slot name="credits-limit"></slot></span></div></div>
+        <div class="footer-right"><section class="preset-panel"><div class="engine" data-footer-popup><button class="engine-info" type="button" aria-describedby="model-info"><span class="engine__value"></span><span class="engine__flag"></span></button><span class="engine__detail footer-popup" id="model-info" role="tooltip"></span></div><ul class="features"></ul></section>
+          <span class="status" role="status"><span class="status__label"></span><time class="connection-timer">0:00</time></span></div></div></footer></div>
       <dialog class="settings"></dialog><dialog class="library"></dialog><dialog class="verify-dialog"></dialog>`;
     // The promise is host content when the host slots it; otherwise START's three lines (contract: AIT-128/129).
     const promise = root.querySelector('.promise');
@@ -237,11 +248,18 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.send .visually-hidden').textContent = this.#copy.send;
     root.querySelector('.settings-open span').textContent = this.#copy.settings.open; root.querySelector('.settings-open').title = this.#copy.settings.open;
     root.querySelector('.settings-open').addEventListener('click', event => this.openSettings(event.currentTarget));
-    const version = this.#options.host?.version;
-    if (version?.version) {
-      const stamp = root.querySelector('.display-version'); stamp.hidden = false; stamp.textContent = `v${version.version}`;
-      stamp.title = [version.commit, version.date].filter(Boolean).join(' · '); stamp.setAttribute('aria-description', stamp.title);
-    }
+    this.#timer = new ConnectionTimer(root.querySelector('.connection-timer'));
+    this.#fold = new ConversationFold({ root, copy: this.#copy, onChange: folded => {
+      if (folded) void this.#concept?.paintCanvas();
+      this.#syncPanes();
+    } });
+    root.querySelector('.drafts-canvas').setAttribute('aria-label', this.#copy.layout.canvas);
+    this.#mountMotion();
+    this.#popups = new FooterPopups(root);
+    const version = { product: 'Aithema 2026.10', ...this.#options.host?.version };
+    setText(root.querySelector('.display-version'), version.product);
+    setText(root.querySelector('#build-info'), [version.product, version.commit, version.date].filter(Boolean).join(' · '));
+    this.#placeOrb();
     this.#dialog = new SettingsDialog({ dialog: root.querySelector('dialog.settings'), copy: this.#copy, ports: {
       // Withdrawn turns still mark a started conversation (the server's device lock agrees).
       state: () => ({ session: this.#session, voiceActive: Boolean(this.#rail?.session), hasTurns: this.#session.transcript.length > 0 || this.#partials.size > 0,
@@ -314,7 +332,7 @@ export class AithemaSession extends HTMLElement {
     // it drives the call when one runs and the acknowledged conversation pause otherwise.
     const pause = node('button', 'pause'); pause.type = 'button';
     pause.innerHTML = `<span class="voice-icon">${icon('pause')}</span><span class="voice-icon voice-icon--resume">${icon('play')}</span><span class="voice-label"></span>`;
-    root.querySelector('.voice-cell--pause').prepend(pause); root.querySelector('.audio-rail').tabIndex = -1;
+    pause.dataset.reveal = ''; root.querySelector('.voice-cell--pause').prepend(pause); root.querySelector('.audio-rail').tabIndex = -1;
     root.querySelector('.pause').addEventListener('click', async () => {
       const button = root.querySelector('.pause');
       if (this.#rail.session) { await this.#rail.pause(!this.#session.paused); return; }
@@ -347,6 +365,13 @@ export class AithemaSession extends HTMLElement {
       } });
     this.#render('transcript'); this.#render('aside'); this.#render('composer');
     this.#observePanes();
+    this.#rail.motion = this.#motion;
+    this.#reveal = createReveal({ band: root.querySelector('.band'), orb: this.#orb,
+      controls: [...root.querySelectorAll('.band [data-reveal]')],
+      links: [{ title: 'Website', subtitle: 'aithema.inspr.at', href: 'https://aithema.inspr.at' },
+        { title: 'INSPR', subtitle: this.#copy.layout.inspr, href: 'https://inspr.at' },
+        { title: 'Augmentoring', subtitle: this.#copy.layout.augmentoring, href: 'https://augmentoring.com' }],
+      version, copy: this.#copy, motion: this.#motion });
   }
   // A conversation from the library (open, new, reset, or the replacement of a deleted one). The host
   // usually handles it (its voice clients belong to one conversation); otherwise this element switches.
@@ -399,9 +424,12 @@ export class AithemaSession extends HTMLElement {
   #connectionStatus(value) { this.#connection = value; this.#notice = ''; this.#paintStatus(); }
   #clearNotice() { this.#notice = ''; this.#paintStatus(); }
   #paintStatus() {
-    const node = this.shadowRoot?.querySelector('.status'); if (!node) return;
-    node.textContent = this.#notice || (this.#session.paused ? this.#pausePrompt ? this.#copy.pausedResume : this.#copy.paused : this.#connection);
-    node.toggleAttribute('data-connected', !this.#notice && !this.#session.paused && this.#connection === this.#copy.connected);
+    const root = this.shadowRoot, status = root.querySelector('.status'), connected = this.#connection === this.#copy.connected;
+    const words = this.#notice || (this.#session.paused ? this.#copy.paused : this.#connection || this.#copy.connecting);
+    setText(status.querySelector('.status__label'), words); status.title = words;
+    status.toggleAttribute('data-connected', connected);
+    root.querySelector('.connection-timer').setAttribute('aria-hidden', 'true');
+    this.#timer?.setConnected(connected);
   }
   #scrollToLatest() {
     const shell = this.shadowRoot.querySelector('.transcript-shell');
@@ -538,7 +566,7 @@ export class AithemaSession extends HTMLElement {
   }
   #paint(part) {
     const root = this.shadowRoot, copy = this.#copy;
-    this.#paintStatus(); this.#paintNotice();
+    this.#paintStatus(); this.#paintNotice(); this.#fold?.update(this.#session);
     const pause = root.querySelector('.pause');
     if (pause) {
       setText(pause.querySelector('.voice-label'), this.#session.paused ? copy.resume : copy.pause); pause.title = pause.textContent;
@@ -614,7 +642,7 @@ export class AithemaSession extends HTMLElement {
       }
       for (const row of rows.values()) row.remove();
       const grew = list.children.length > count;
-      if (this.#follow && !hovered) this.#scrollToLatest();
+      if (this.#follow && !hovered && !this.#fold.folded) this.#scrollToLatest();
       else if (this.#follow && grew && shell.scrollHeight > shell.clientHeight) root.querySelector('.transcript-latest').style.visibility = '';
       this.#syncPanes();
       return;
@@ -696,7 +724,9 @@ export class AithemaSession extends HTMLElement {
     const root = this.shadowRoot, pick = part => [this.#aiNotice?.[part], this.#copy.aiNotice?.[part]].find(value => typeof value === 'string' && value.trim());
     const notice = aiNotice(this.#session.locale, { text: pick('text'), voice: pick('voice') });
     setText(root.querySelector('#ai-notice'), this.#voiceOffered() ? `${notice.text} ${notice.voice}` : notice.text);
-    setText(root.querySelector('.ai-notice__sizer'), `${notice.text} ${notice.voice}`);
+    setText(root.querySelector('.ai-notice__label'), this.#copy.assistant);
+    setText(root.querySelector('.ai-notice__short'), this.#copy.layout.aiShort);
+    setText(root.querySelector('.ai-notice__voice'), this.#copy.layout.syntheticVoice);
   }
   // Replies can be spoken here: voice is available now, or once consent, a resume or the provider allows it.
   #voiceOffered() {
@@ -785,12 +815,38 @@ export class AithemaSession extends HTMLElement {
     if (mode === 'ready') this.#paintReady(card.firstElementChild); else this.#paintChooser(card.firstElementChild);
     if (focus && !intro.contains(root.activeElement)) intro.querySelector(`[data-focus-key="${focus}"]`)?.focus();
   }
-  // One orb: the entrance shows it, the rail docks it as the voice avatar (START Orb.astro, v2 orb dock).
-  #placeOrb(stage) {
-    this.#orb ??= createOrb(this.ownerDocument);
-    const dock = this.shadowRoot.querySelector(stage === 'live' ? '.audio-rail .voice-orb' : '.intro__orb');
-    if (dock && this.#orb.element.parentNode !== dock) dock.append(this.#orb.element);
-    if (this.isConnected) this.#orb.mount();
+  // AIT-140's 40 px orb stays the first band item. START's entrance retains its large, quiet object.
+  #placeOrb() {
+    this.#orb ??= createOrb(this.ownerDocument, { motion: this.#motion });
+    const dock = this.shadowRoot.querySelector('.band-orb');
+    if (this.#orb.element.parentNode !== dock) dock.append(this.#orb.element);
+    this.#introOrb ??= createOrb(this.ownerDocument, { motion: this.#motion });
+    const intro = this.shadowRoot.querySelector('.intro__orb');
+    if (this.#introOrb.element.parentNode !== intro) intro.append(this.#introOrb.element);
+    if (this.isConnected) { this.#orb.mount(); this.#introOrb.mount(); }
+  }
+  #mountMotion() {
+    const view = this.ownerDocument.defaultView;
+    this.#motionMedia = view?.matchMedia?.('(prefers-reduced-motion: reduce)');
+    let storage; try { storage = view?.localStorage; } catch { /* Private browsing. */ }
+    this.#motion = motionPreference(storage, this.#motionMedia?.matches);
+    this.#motionListener = () => { this.#motion = motionPreference(storage, this.#motionMedia.matches); this.#applyMotion(); };
+    this.#motionMedia?.addEventListener?.('change', this.#motionListener);
+    this.shadowRoot.querySelector('.motion-toggle').addEventListener('click', () => {
+      this.#motion = !this.#motion; rememberMotion(storage, this.#motion); this.#applyMotion();
+    });
+    this.#applyMotion();
+  }
+  #paintMotion() {
+    const button = this.shadowRoot.querySelector('.motion-toggle'); if (!button) return;
+    button.setAttribute('aria-pressed', String(this.#motion));
+    button.title = this.#motion ? this.#copy.layout.motionOff : this.#copy.layout.motionOn;
+    button.setAttribute('aria-label', button.title);
+  }
+  #applyMotion() {
+    this.setAttribute('motion', this.#motion ? 'on' : 'off'); this.#paintMotion();
+    this.#orb?.setMotion?.(this.#motion); this.#introOrb?.setMotion?.(this.#motion); this.#reveal?.setMotion(this.#motion);
+    if (this.#rail) this.#rail.motion = this.#motion;
   }
   // A preset other than the acknowledged one is refused at the start only for host reasons;
   // Custom always opens settings.

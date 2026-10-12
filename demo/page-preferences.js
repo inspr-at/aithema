@@ -21,6 +21,7 @@ export function applyTheme(choice, document = globalThis.document) {
   document.querySelector('aithema-session')?.setAttribute('theme', choice);
   const select = document.querySelector('#theme'); if (select) select.value = choice;
   const sign = document.querySelector('#theme-icon'); if (sign) sign.innerHTML = icon({ light: 'sun', dark: 'moon', system: 'system' }[choice] ?? 'system');
+  const themeValue = document.querySelector('#theme-value'); if (themeValue) themeValue.textContent = select?.selectedOptions[0]?.textContent ?? '';
   if (select?.dataset.label) select.title = `${select.dataset.label}: ${select.selectedOptions[0]?.textContent ?? ''}`;
 }
 export function mountTheme(document = globalThis.document, storage) {
@@ -31,7 +32,9 @@ export function mountTheme(document = globalThis.document, storage) {
 }
 export function paintUtilities(copy, document = globalThis.document) {
   document.querySelector('#language-label').textContent = copy.host.language;
-  const language = document.querySelector('#locale'); language.title = copy.host.language; language.closest('label').title = copy.host.language;
+  const language = document.querySelector('#locale');
+  const languageValue = document.querySelector('#language-value'); if (languageValue) languageValue.textContent = language.value.toUpperCase();
+  language.title = copy.host.language; language.closest('label').title = copy.host.language;
   const globe = document.querySelector('#language-icon'); if (globe) globe.innerHTML = icon('globe');
   document.querySelector('#source').textContent = copy.host.slots.source;
   document.querySelector('#theme-label').textContent = copy.host.theme;
@@ -39,5 +42,6 @@ export function paintUtilities(copy, document = globalThis.document) {
   for (const option of theme.options) option.textContent = copy.host.themes[option.value];
   theme.dataset.label = copy.host.theme; theme.title = `${copy.host.theme}: ${copy.host.themes[theme.value]}`;
   theme.closest('label').title = theme.title;
+  const themeValue = document.querySelector('#theme-value'); if (themeValue) themeValue.textContent = copy.host.themes[theme.value];
   const fresh = document.querySelector('#new'); if (fresh) fresh.textContent = copy.host.newConversation;
 }

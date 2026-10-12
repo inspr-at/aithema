@@ -5,7 +5,7 @@ export const hostStyles = `
 /* One header row. The menu overlays the page, so opening it moves nothing. */
 .host-bar { display:flex; align-items:center; min-width:0; }
 .conversations-wrap { position:relative; }
-.conversations-toggle { display:inline-flex; align-items:center; gap:7px; min-height:44px; min-width:44px; padding:0 10px; font-size:14px; color:var(--aithema-ink); }
+.conversations-toggle { display:inline-flex; align-items:center; gap:7px; min-height:44px; width:168px; padding:0 10px; font-size:14px; color:var(--aithema-ink); }
 .conversations-toggle svg { width:17px; height:17px; } .conversations-toggle svg:last-child { width:10px; height:10px; }
 .conversations-menu { position:absolute; z-index:8; right:0; top:calc(100% + 6px); width:min(300px,calc(100vw - 32px)); padding:6px; border-radius:14px;
   background:var(--aithema-surface); box-shadow:0 0 0 1px var(--aithema-line),var(--aithema-shadow-raised); font-size:14px; }
@@ -41,8 +41,9 @@ export const hostStyles = `
 .host-credits[data-ended="true"] .host-credits__text { color:var(--aithema-warning); }
 .host-foot { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.5rem 1.5rem; padding:.5rem 0; font-size:.75rem; color:var(--aithema-muted); }
 @media(max-width:44rem) {
-  .conversations-toggle { gap:4px; font-size:12px; padding:0 4px; }
+  .conversations-toggle { gap:4px; width:100px; font-size:11.5px; padding:0 4px; }
   .conversations-toggle > svg:first-child { display:none; }
+  .conversations-toggle span { white-space:nowrap; }
   .display-foot__row { gap:0 12px; }
   .host-credits { flex-basis:100%; padding-top:4px; gap:4px 6px; font-size:12px; }
   .host-credits__track { width:70px; }

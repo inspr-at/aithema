@@ -1,6 +1,12 @@
 import { AI_NOTICE } from '../../../core/src/ai-notice.js';
 
 export const en = {
+  layout: {
+    fold: 'Fold conversation', unfold: 'Unfold conversation', openQuestion: 'Open question · Unfold',
+    canvas: 'Visual drafts', canvasEmpty: 'Space for your drafts.', noMessage: 'Unfold conversation',
+    motionOff: 'Turn motion off', motionOn: 'Turn motion on', aiShort: 'AI', syntheticVoice: 'synthetic voice',
+    creditsTotal: ' of {limit}', creditsUnit: ' Credits', inspr: 'The open-source family', augmentoring: 'AI consulting',
+  },
   display: {
     locale: 'en', modelInfo: 'Models and voice', modelUnknown: 'This host’s model', presetUnknown: 'This host’s selection',
     reply: 'Replies', understanding: 'Understanding', voice: 'Voice', via: 'via {provider}',

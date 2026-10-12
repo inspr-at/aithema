@@ -310,13 +310,14 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         await page.waitForFunction(() => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
         assert.equal(await shadowFocus(page), 'settings-open', 'focus returns to the Settings button');
         await waitForShadow(page, '.engine__value', { text: 'Custom' });
-        await waitForShadow(page, '.engine__detail', { text: 'Swift (mock) · Low · Voice: Off · Visuals: Off' });
+        await waitForShadow(page, '.engine__detail', { text: 'Custom, international\nReplies: Swift (mock)\nUnderstanding: Swift (mock)\nvia local test · Voice: Off' });
         // The effect: the next reply comes from the newly chosen model.
         await composer.type('What about our data?');
         const nextTurn = page.waitForResponse(`${url}/api/sessions/${id}/turns`, { signal: controller.signal });
         await Promise.all([page.click('aithema-session >>> .send'), nextTurn]);
         await waitForShadow(page, 'ol li:last-child span', { text: 'Briefly: what should improve first?' });
-        await waitForShadow(page, 'ol li:last-child .engine-tag', { text: 'Swift (mock) · Low' });
+        assert.equal(await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.engine-tag')), null);
+        assert.deepEqual(await page.$eval('aithema-session', c => ({ model: c.session.transcript.at(-1).engine.model, effort: c.session.transcript.at(-1).engine.effort })), { model: 'mock/swift', effort: 'low' });
 
         const restored = page.waitForResponse(`${url}/api/sessions/${id}`, { signal: controller.signal });
         let snapshot;
@@ -328,7 +329,7 @@ test('demo works in a real browser: consent, turn, understanding, settings, relo
         assert.equal(await page.$eval('aithema-session', component => component.session.id), id, 'Reload must restore the same session');
         await waitForShadow(page, 'aside .summary-text', { text: `${content} What about our data?` });
         assert.equal(await page.$eval('#error', node => node.textContent), '');
-        await waitForShadow(page, '.engine__detail', { text: 'Swift (mock) · Low · Voice: Off · Visuals: Off' });
+        await waitForShadow(page, '.engine__detail', { text: 'Custom, international\nReplies: Swift (mock)\nUnderstanding: Swift (mock)\nvia local test · Voice: Off' });
 
         const exported = page.waitForResponse(`${url}/api/sessions/${id}/export`, { signal: controller.signal });
         const downloaded = waitForDownload(cdp, AbortSignal.any([controller.signal, AbortSignal.timeout(waitTimeout)]));
@@ -750,7 +751,7 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
     await german.goto(demo.url, { waitUntil: 'domcontentloaded' }); await waitForShadow(german, '.composer textarea');
     assert.equal(await inShadow(german, c => c.session.locale), 'de');
     assert.equal(await german.evaluate(() => document.documentElement.lang), 'de');
-    assert.equal(await german.$eval('#new', node => node.textContent), 'Neues Gespräch beginnen');
+    assert.equal(await german.$eval('aithema-session >>> .conversations-new', node => node.textContent), 'Neues Gespräch');
     await mockConsent(german); await waitForShadow(german, '.composer textarea', { enabled: true });
     assert.equal(await inShadow(german, c => c.session.featureMatrix.best.text.available), true);
     await sendTurn(german, 'Wir sind eine Tischlerei. Betrieb: wir hosten selbst; Daten: nur intern');
@@ -785,7 +786,7 @@ test('live updates appear under a resting pointer without moving it; blur, reloa
     await german.select('#locale', 'en');
     assert.equal(await german.$eval('#language-note', node => node.textContent),
       'Neue Gespräche beginnen auf Englisch. Dieses Gespräch bleibt auf Deutsch.');
-    await german.click('#new');
+    await german.click('aithema-session >>> .conversations-toggle'); await german.click('aithema-session >>> .conversations-new');
     await until(german, () => document.querySelector('aithema-session').session.locale === 'en' && document.documentElement.lang === 'en');
     await waitForShadow(german, '.send', { text: 'Send' });
     assert.equal(await german.$eval('#language-note', node => node.textContent), '');

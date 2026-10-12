@@ -2,6 +2,12 @@ import { AI_NOTICE } from '../../../core/src/ai-notice.js';
 
 // German bundle. Wording follows START src/lib/i18n.ts (formal "Sie"; a visual concept is an "Entwurf").
 export const de = {
+  layout: {
+    fold: 'Gespräch einklappen', unfold: 'Gespräch ausklappen', openQuestion: 'Offene Frage · Ausklappen',
+    canvas: 'Visuelle Entwürfe', canvasEmpty: 'Hier ist Platz für Ihre Entwürfe.', noMessage: 'Gespräch ausklappen',
+    motionOff: 'Bewegung ausschalten', motionOn: 'Bewegung einschalten', aiShort: 'KI', syntheticVoice: 'synthetische Stimme',
+    creditsTotal: ' von {limit}', creditsUnit: ' Credits', inspr: 'Die Open-Source-Familie', augmentoring: 'KI-Beratung',
+  },
   display: {
     locale: 'de', modelInfo: 'Modelle und Stimme', modelUnknown: 'Modell dieses Hosts', presetUnknown: 'Auswahl dieses Hosts',
     reply: 'Antworten', understanding: 'Einschätzung', voice: 'Stimme', via: 'über {provider}',

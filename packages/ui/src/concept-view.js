@@ -25,6 +25,7 @@ export function conceptStateText({ copy, status = { phase: 'idle' }, feature, it
   if (status.phase === 'waiting') return copy.conceptWaiting;
   if (!items.length || !feature.available) {
     const line = draftsLine({ copy, cost, feature });
+    if (!feature.available && feature.reason && cost && line.state !== 'low' && !/not configured|not set up|not offered|not in preset|visuals off|nicht eingerichtet|nicht angeboten|ausgeschaltet/iu.test(feature.rawReason ?? feature.reason)) return sentence(feature.reason);
     return line.action ? '' : line.text;
   }
   return conceptKind(items.at(-1)) === 'html' ? copy.conceptDraftReady.replace('{number}', drafts) : copy.conceptReady;
@@ -260,7 +261,8 @@ export class ConceptView {
     const costCopy = line.action ? this.copy.display.draftsCost.replace('{credits}', new Intl.NumberFormat(this.#session.locale).format(Math.ceil(this.#session.conceptCost.maxMicro / 10_000))) : '';
     const request = this.root.querySelector('.concept-request');
     this.root.querySelector('.concept-activity').hidden = line.action && !['pending', 'failed', 'waiting'].includes(this.#session?.conceptStatus?.phase);
-    request.textContent = line.text; request.hidden = !line.action;
+    request.textContent = this.#session?.conceptStatus?.phase === 'failed' && line.action ? `${this.copy.conceptRetry} · ${costCopy}` : line.text;
+    request.hidden = !line.action;
     request.disabled = this.#busy || pending || !line.action || !source; request.title = !feature.available ? feature.reason : !source ? this.copy.conceptNeedsInput : '';
     const regenerate = this.root.querySelector('.concept-regenerate'); regenerate.textContent = `${this.copy.conceptRegenerate} · ${costCopy}`;
     regenerate.hidden = !line.action; regenerate.disabled = request.disabled || !this.current(); regenerate.title = request.title;

@@ -10,11 +10,10 @@ export class AudioRail {
   constructor({ root, copy, client, feature, context, onPartial, onPause, onEnd, onState, onLevel, playback, journal, ready, heartbeatMs = 10_000 }) {
     Object.assign(this, { root, copy, client, feature, context, onPartial, onPause, onEnd, onState, onLevel, playback, journal, ready, heartbeatMs });
     this.state = 'idle'; this.input = true; this.output = true; this.generation = 0;
-    const button = name => `<button class="voice-${name}" type="button">${name === 'pause' ? `<span class="voice-icon">${icon('pause')}</span><span class="voice-icon voice-icon--resume">${icon('play')}</span>`
+    const button = name => `<button data-reveal class="voice-${name}" type="button">${name === 'pause' ? `<span class="voice-icon">${icon('pause')}</span><span class="voice-icon voice-icon--resume">${icon('play')}</span>`
       : icon(BUTTONS[name][0], { slash: BUTTONS[name][1] === true })}<span class="voice-label"></span></button>`;
-    root.innerHTML = `<div class="voice-orb" aria-hidden="true"></div>
-      <div class="voice-cell voice-cell--output">${button('output')}${button('playback')}</div>
-      <div class="voice-signal"><canvas class="voice-wave" aria-hidden="true"></canvas><span class="voice-state" role="status"></span><span class="voice-caption"></span></div>
+    root.innerHTML = `<div class="voice-cell voice-cell--output">${button('output')}${button('playback')}</div>
+      <div class="voice-signal" data-reveal><canvas class="voice-wave" aria-hidden="true"></canvas><span class="voice-state" role="status"></span><span class="voice-caption"></span></div>
       <div class="voice-cell voice-cell--pause">${button('pause')}</div>
       <div class="voice-cell voice-cell--mic">${button('start')}${button('input')}</div>
       <div class="voice-cell voice-cell--end">${button('close')}${button('retry')}</div>`;
@@ -131,7 +130,7 @@ export class AudioRail {
         const levels = session.audioLevels?.(); if (!levels) return;
         const speaking = this.state === 'speaking', level = this.paused ? 0 : Math.min(1, Math.max(0, levels[speaking ? 'output' : 'input'] ?? 0));
         this.root.dataset.measured = '';
-        if (!still) this.waveform.push(level, speaking ? 'assistant' : 'user', 80);
+        if (!still && this.motion !== false) this.waveform.push(level, speaking ? 'assistant' : 'user', 80);
         // The orb reacts to the audible reply only, never to the visitor's input (START orb).
         this.onLevel?.(speaking ? level : 0);
       }, 80);

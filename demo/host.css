@@ -114,3 +114,15 @@ aithema-session { display:block; width:100%; --aithema-height:100dvh; --aithema-
   .conversation-page #theme { inline-size:4em; }
   .conversation-page .wordmark { font-size:20px; }
 }
+
+.conversation-page .utility-language { width:64px; }
+.conversation-page .utility-theme { width:112px; }
+.conversation-page .utility-value { white-space:nowrap; }
+.conversation-page .utility select { position:absolute; inset:0; width:100%; height:44px; opacity:0; }
+.conversation-page #theme { inline-size:100%; }
+.conversation-page .utility:has(select:focus-visible) { outline:2px solid var(--accent); outline-offset:3px; }
+@media(max-width:600px) {
+  .conversation-page .utility { gap:3px; padding:0 3px; font-size:11.5px; }
+  .conversation-page .utility-language { width:48px; }
+  .conversation-page .utility-theme { width:78px; }
+}
