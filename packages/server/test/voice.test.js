@@ -10,7 +10,7 @@ import { createElevenLabsServer } from '../../../plugins/elevenlabs/src/server.j
 
 const test = (name, fn) => nodeTest(name, { timeout: 60_000 }, fn);
 
-export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, path, cap, reasoning = createMockReasoning() } = {}) {
+export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, path, cap, reasoning = createMockReasoning(), durationBinding = {} } = {}) {
   const storage = new SQLiteStorage(path), secrets = createFacadeSecrets();
   let clock = Date.now(), sequence = 0, covered = true, secretReads = 0, coverageReads = 0, healthReads = 0, releasing = false, mintFailure;
   const opened = new Map(), ended = new Set(), waiting = new Map(), provisioned = [], traffic = [], closeRequests = [];
@@ -21,7 +21,7 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
   const binding = { plugin: 'elevenlabs', model: 'fixture-agent', agentId: 'fixture-agent', effort: 'none',
     endpoint: 'https://provider.test', accountRef: 'fixture', secretRef: 'fixture-ref', maxMicro: 60_000,
     maxTokens: 1, rates: { inputMicro: 0, outputMicro: 0 }, maxDurationSeconds: 60,
-    upstreamMicroPerMinute: 60_000, visitorMicroPerMinute: 120_000, publicFacadeBaseUrl: 'https://facade.test' };
+    upstreamMicroPerMinute: 60_000, visitorMicroPerMinute: 120_000, publicFacadeBaseUrl: 'https://facade.test', ...durationBinding };
   binding.legal = { approved: true, countries: ['AT'], training: false, retention: 'fixture', purpose: 'conversation',
     recipient: 'fixture', processors: [], dataCategories: ['conversation'], consentVersion: 1,
     evidence: { qualified: true, accountRef: binding.accountRef, secretRef: binding.secretRef,
@@ -88,9 +88,7 @@ function assertUnbillableStart(h) {
 }
 
 test('AIT-134 round 2: a padded nonrolling duration maximum admits and remains the closing exposure', async t => {
-  const h = voiceFixture(t);
-  h.presets.best.bindings.voice = { ...h.presets.best.bindings.voice, maxMicro: 200_000,
-    upstreamMicroPerMinute: 100_000 };
+  const h = voiceFixture(t, { durationBinding: { maxMicro: 200_000, upstreamMicroPerMinute: 100_000 } });
   const admitted = await h.runtime.admitVoice({ session: h.storage.get(h.session.id), request: { callId: 'padded' } });
   const attempt = admitted.options.attempt, row = h.runtime.budget.get(attempt.attemptId);
   assert.equal(row.max_micro, 200_000);
