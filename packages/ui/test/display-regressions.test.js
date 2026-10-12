@@ -113,8 +113,8 @@ test('AIT-131: durable events preserve the populated canvas iframe, width select
   for (const [type, data] of [['session.paused', { paused: true }], ['concept.feedback', { artifactId: 'draft1', vote: 'up', chips: [] }],
     ['concept.state', { intent: c.session.conceptIntent, status: { phase: 'ready' } }]]) {
     receive(c, type, data); await tick(); await tick();
-    assert.equal(canvas.shadowRoot.querySelector('iframe'), frame, `${type}: no browsing context replacement`);
-    assert.equal(canvas.artifact, shown); assert.equal(canvas.width, 'phone'); assert.equal(canvas.shadowRoot.activeElement, width);
+    assert.ok(canvas.shadowRoot.querySelector('iframe') === frame, `${type}: no browsing context replacement`);
+    assert.ok(canvas.artifact === shown); assert.equal(canvas.width, 'phone'); assert.ok(canvas.shadowRoot.activeElement === width);
   }
 });
 
@@ -122,8 +122,8 @@ test('AIT-131: translating preview copy preserves the existing frame and draft f
   const { root } = fixture(t), preview = root.querySelector('.canvas-html'); root.querySelector('.fold').click();
   const frame = await ready(preview); frame.focus();
   preview.copy = de.conceptPreview; await tick();
-  assert.equal(preview.shadowRoot.querySelector('iframe'), frame, 'a label update must not restart interactive content');
-  assert.equal(preview.shadowRoot.activeElement, frame); assert.equal(frame.title, de.conceptPreview.title);
+  assert.ok(preview.shadowRoot.querySelector('iframe') === frame, 'a label update must not restart interactive content');
+  assert.ok(preview.shadowRoot.activeElement === frame); assert.equal(frame.title, de.conceptPreview.title);
   assert.equal(preview.shadowRoot.querySelector('.label-text').textContent, de.conceptPreview.label);
 });
 
