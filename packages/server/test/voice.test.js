@@ -379,16 +379,119 @@ async function voicePromptFixture(t, prepare = () => {}) {
       event: { type: 'final', callId: grant.callId, turnId: `${grant.providerSessionId}:${role}:${id}`, role, text } });
     assert.equal(response.status, 200); return response.json();
   };
-  const callback = async messages => {
-    const response = await h.handlers.handle(new Request(`https://facade.test/api/voice/${grant.callId}/llm/chat/completions`, {
+  const callbackResponse = messages => h.handlers.handle(new Request(`https://facade.test/api/voice/${grant.callId}/llm/chat/completions`, {
       method: 'POST', headers: { authorization: `Bearer ${secret}` },
       body: JSON.stringify({ aithema_call: grant.callId, messages }) }));
+  const callback = async messages => {
+    const response = await callbackResponse(messages);
     assert.equal(response.status, 200); await response.json();
     // The first message is server-added understanding, before the conversation.
     return requests.at(-1).messages.slice(1);
   };
   const recorded = () => activeTurns(h.storage.get(h.session.id)).map(({ role, content }) => ({ role, content }));
-  return { ...h, grant, requests, persist, callback, recorded };
+  return { ...h, grant, requests, persist, callback, callbackResponse, recorded };
+}
+
+// Hold the actual consent evaluation, rather than wrapping an already completed check.
+// Restore the port before waiting so a concurrent persistEvent can authorize normally.
+function pendingVoiceConsent(t, h) {
+  const entered = Promise.withResolvers(), release = Promise.withResolvers();
+  const coverage = h.runtime.consent.coverage;
+  h.runtime.consent.coverage = async (...args) => {
+    if (args[0].scope.plugin !== 'elevenlabs') return coverage(...args);
+    h.runtime.consent.coverage = coverage;
+    entered.resolve(); await release.promise;
+    return coverage(...args);
+  };
+  t.after(() => { h.runtime.consent.coverage = coverage; release.resolve(); });
+  return { entered: entered.promise, release: () => release.resolve() };
+}
+
+test('AIT-130 round 3 keeps a second Ja after an identical earlier reply and a delayed newest reply', async t => {
+  const h = await voicePromptFixture(t);
+  await h.persist('user', 'opening', 'Ask me a question');
+  await h.persist('assistant', 'earlier-reply', 'Noch eine Frage?');
+  await h.persist('user', 'first-ja', 'Ja');
+  const recorded = h.recorded(), latest = { role: 'user', content: 'Ja' };
+  const history = [...recorded, { role: 'assistant', content: 'Noch eine Frage?' }, latest];
+  assert.deepEqual(await h.callback(history), [...recorded, latest]);
+});
+
+test('AIT-130 round 3 never matches an empty heard prefix to a provider reply', async t => {
+  const h = await voicePromptFixture(t);
+  await h.persist('assistant', 'reply', 'An entirely unheard reply');
+  assert.equal((await h.route(`/voice/${h.grant.callId}/events`, { providerSessionId: h.grant.providerSessionId,
+    event: { type: 'heard', callId: h.grant.callId, turnId: `${h.grant.providerSessionId}:assistant:reply`, prefix: '' } })).status, 200);
+  await h.persist('user', 'first-ja', 'Ja');
+  const recorded = h.recorded(), latest = { role: 'user', content: 'Ja' };
+  assert.deepEqual(await h.callback([{ role: 'assistant', content: 'A different unpersisted reply' }, latest]),
+    [...recorded, latest]);
+});
+
+test('AIT-130 round 3 accepts persistence while the actual voice consent check is pending', async t => {
+  const h = await voicePromptFixture(t);
+  await h.persist('user', 'old', 'Earlier spoken input');
+  await h.persist('assistant', 'reply', 'Earlier recorded reply');
+  const latest = { role: 'user', content: 'Persisted while consent is pending' }, history = [...h.recorded(), latest];
+  const pending = pendingVoiceConsent(t, h), callback = h.callback(history);
+  await pending.entered;
+  await h.persist('user', 'new', latest.content);
+  assert.equal(h.requests.length, 0, 'the voice check has not dispatched reasoning yet');
+  pending.release();
+  assert.deepEqual(await callback, h.recorded(), 'the newest utterance is dispatched exactly once');
+});
+
+test('AIT-130 round 3 includes a typed turn arriving between prompt build and admission', async t => {
+  const h = await voicePromptFixture(t);
+  await h.persist('user', 'old', 'Earlier spoken input');
+  await h.persist('assistant', 'reply', 'Earlier recorded reply');
+  const entered = Promise.withResolvers(), release = Promise.withResolvers(), checkVoice = h.runtime.checkVoice;
+  h.runtime.checkVoice = async (...args) => {
+    await checkVoice(...args); h.runtime.checkVoice = checkVoice;
+    entered.resolve(); await release.promise;
+  };
+  t.after(() => release.resolve());
+  const latest = { role: 'user', content: 'Newest spoken input' }, callback = h.callback([...h.recorded(), latest]);
+  await entered.promise;
+  assert.equal((await h.route('/turns', { clientEventId: 'typed-gap', content: 'Typed in the admission gap',
+    voiceCallId: h.grant.callId, providerSessionId: h.grant.providerSessionId })).status, 200);
+  assert.equal(h.requests.length, 0);
+  release.resolve();
+  assert.deepEqual(await callback, [...h.recorded(), latest]);
+});
+
+test('AIT-130 round 3 rebuilds a heard-prefix correction arriving during the voice check', async t => {
+  const h = await voicePromptFixture(t);
+  await h.persist('user', 'old', 'Earlier spoken input');
+  await h.persist('assistant', 'reply', 'Heard prefix. Unheard remainder.');
+  const latest = { role: 'user', content: 'Barge-in during admission' };
+  const pending = pendingVoiceConsent(t, h), callback = h.callback([...h.recorded(), latest]);
+  await pending.entered;
+  assert.equal((await h.route(`/voice/${h.grant.callId}/events`, { providerSessionId: h.grant.providerSessionId,
+    event: { type: 'heard', callId: h.grant.callId, turnId: `${h.grant.providerSessionId}:assistant:reply`, prefix: 'Heard prefix.' } })).status, 200);
+  pending.release();
+  assert.deepEqual(await callback, [...h.recorded(), latest]);
+  assert.ok(!JSON.stringify(h.requests.at(-1)).includes('Unheard remainder.'));
+});
+
+for (const withdrawal of ['turn', 'consent']) {
+  test(`AIT-130 round 3 refuses ${withdrawal} withdrawal while the voice check is pending`, async t => {
+    const h = await voicePromptFixture(t);
+    await h.persist('user', 'private', 'Private input to withdraw');
+    const pending = pendingVoiceConsent(t, h);
+    const callback = h.callbackResponse([...h.recorded(), { role: 'user', content: 'Newest input' }]);
+    await pending.entered;
+    const response = withdrawal === 'turn'
+      ? await h.route('/withdraw', { turnId: `${h.grant.providerSessionId}:user:private` })
+      : await h.route('/consent', { granted: false });
+    assert.equal(response.status, 200);
+    pending.release();
+    const refused = await callback;
+    assert.notEqual(refused.status, 200);
+    assert.ok(['not-admitted', 'cancelled'].includes((await refused.json()).error));
+    assert.equal(h.requests.length, 0, 'withdrawn context never reaches the reasoning plugin');
+    assert.equal(h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='reaction'").get().n, 0);
+  });
 }
 
 test('AIT-130 voice prompt contains a long provider history only once, from the session', async t => {
