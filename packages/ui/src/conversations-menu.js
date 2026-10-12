@@ -4,7 +4,7 @@ import { icon } from './icons.js';
 /** Owner-authenticated recent conversations; menu keys never bind document-wide single keys or browser shortcuts. */
 export class ConversationsMenu {
   #root; #copy; #request; #current; #locale; #newLocale; #adopt; #manage; #status; #alive = true; #load = 0; #busy = false;
-  #button; #menu; #outside;
+  #button; #menu; #outside; #connected = false;
   constructor({ root, copy, request, current, locale, newLocale, adopt, manage, status }) {
     this.#root = root; this.#copy = copy; this.#request = request; this.#current = current; this.#locale = locale; this.#newLocale = newLocale;
     this.#adopt = adopt; this.#manage = manage; this.#status = status;
@@ -31,7 +31,7 @@ export class ConversationsMenu {
     root.querySelector('.conversations-new').addEventListener('click', () => void this.#choose('/api/library', { locale: this.#newLocale() }, 'new'));
     root.querySelector('.library-open-dialog').addEventListener('click', () => { this.close(); this.#manage(this.#button); });
     this.#outside = event => { if (!event.composedPath().includes(root.querySelector('.conversations-wrap'))) this.close(); };
-    root.ownerDocument.addEventListener('click', this.#outside);
+    this.connect();
     this.#button.addEventListener('keydown', event => { if (event.key === 'Escape' && !this.#menu.hidden) { event.preventDefault(); this.close(true); } });
   }
   setCopy(copy) {
@@ -48,7 +48,14 @@ export class ConversationsMenu {
     void this.#recent();
   }
   close(focus = false) { this.#menu.hidden = true; this.#button.setAttribute('aria-expanded', 'false'); if (focus) this.#button.focus(); }
-  destroy() { this.#alive = false; this.#load++; this.close(); this.#root.ownerDocument.removeEventListener('click', this.#outside); }
+  connect() {
+    if (this.#connected || !this.#alive) return;
+    this.#connected = true; this.#root.ownerDocument.addEventListener('click', this.#outside);
+  }
+  disconnect() {
+    this.#connected = false; this.#load++; this.close(); this.#root.ownerDocument.removeEventListener('click', this.#outside);
+  }
+  destroy() { this.#alive = false; this.disconnect(); }
   async #recent() {
     const load = ++this.#load;
     try {

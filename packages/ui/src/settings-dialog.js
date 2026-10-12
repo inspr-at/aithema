@@ -2,6 +2,7 @@
 // to a native modal <dialog> inside the component (INSPR D3). The server owns every
 // verdict: this dialog sends option ids and shows only acknowledged state.
 import { settingsGauges, GAUGES, SETTINGS_OFF, preferredEffort } from '../../core/src/settings.js';
+import { modelDisplayName } from './display.js';
 
 const svg = (body, box = '0 0 24 24') => `<svg viewBox="${box}" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 const stars = Array.from({ length: 12 }, (_, i) => `<path d="m0-2 .6 1.3 1.4.2-1 1 .2 1.4L0 1.2l-1.2.7.2-1.4-1-1 1.4-.2Z" transform="translate(${(16 + 10 * Math.sin(i * Math.PI / 6)).toFixed(2)} ${(16 - 10 * Math.cos(i * Math.PI / 6)).toFixed(2)})" fill="currentColor" stroke="none"/>`).join('');
@@ -519,9 +520,9 @@ export class SettingsDialog {
     }
     const models = device ? [] : info?.models ?? [];
     const named = label => catalogLabel(this.#copy, label);
-    const modelOptions = models.map(option => ({ value: option.id, label: named(option.label), vendor: named(option.facts?.vendor),
+    const modelOptions = models.map(option => ({ value: option.id, label: modelDisplayName(option.id, this.#copy), vendor: named(option.facts?.vendor),
       status: this.#optionStatus(option), kind: option.status === 'available' ? '' : option.status, reason: option.status === 'available' ? '' : option.reason, help: 'model' }));
-    if (!device && draft.model && !models.some(o => o.id === draft.model)) modelOptions.push({ value: draft.model, label: named(state.session.engine?.model?.label) ?? draft.model,
+    if (!device && draft.model && !models.some(o => o.id === draft.model)) modelOptions.push({ value: draft.model, label: modelDisplayName(draft.model, this.#copy),
       status: c.notOffered, kind: 'unavailable', reason: 'model not offered', help: 'model' });
     const localModel = this.#ports.connector?.model;
     if (device) this.#renderSelect('model', [{ value: 'local', label: localModel ?? this.#copy.ready.notConnected, help: 'localModel' }], 'local', { disabled: true });

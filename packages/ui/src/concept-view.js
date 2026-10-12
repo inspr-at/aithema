@@ -36,6 +36,7 @@ const DRAFT_GLYPH = '<svg viewBox="0 0 48 32" aria-hidden="true"><rect x="1.5" y
 /** Generic START viewer experience, private owner-authenticated bytes only. */
 export class ConceptView {
   #session; #selected; #latest; #seen = new Set(); #urls = new Map(); #drafts = new Map(); #loads = new Map(); #epoch = 0;
+  #canvasEpoch = 0; #canvasCopy;
   #busy = false; #trigger; #timer; #touchX; #requestError = null; #statusKey = ''; #pointer = false; #pointerStage = false;
   setCopy(copy) { this.copy = copy; this.#paintCopy(); this.render(); }
   #paintCopy() {
@@ -120,7 +121,7 @@ export class ConceptView {
   suspend() {
     this.root.ownerDocument.removeEventListener('visibilitychange', this.visibility);
     this.root.ownerDocument.defaultView?.removeEventListener('pagehide', this.pagehide);
-    this.#epoch++; clearInterval(this.#timer); this.#timer = null; for (const url of this.#urls.values()) URL.revokeObjectURL(url); this.#urls.clear(); this.#drafts.clear(); this.close();
+    this.#epoch++; clearInterval(this.#timer); this.#timer = null; for (const url of this.#urls.values()) URL.revokeObjectURL(url); this.#urls.clear(); this.#drafts.clear(); this.suspendCanvas(); this.close();
   }
   async endEligibility() {
     if (!this.#session || this.#session.tombstone || this.#session.processingPreset === 'device') return;
@@ -139,6 +140,12 @@ export class ConceptView {
     if (changedOwner || session.consentWithdrawn || session.tombstone) valid.clear();
     for (const [id, url] of this.#urls) if (!valid.has(id)) { URL.revokeObjectURL(url); this.#urls.delete(id); }
     for (const id of this.#drafts.keys()) if (!valid.has(id)) this.#drafts.delete(id);
+    // Hidden surfaces are still artifact surfaces. Revoke them independently of
+    // the fold state or the modal's selected revision.
+    const canvas = this.root.querySelector('.canvas-html'), canvasImage = this.root.querySelector('.canvas-image');
+    const canvasId = canvas?.dataset.id ?? canvasImage?.dataset.id;
+    if (changedOwner || session.consentWithdrawn || session.tombstone ||
+      (canvasId || canvas?.artifact || canvasImage?.hasAttribute('src')) && !valid.has(canvasId)) this.suspendCanvas();
     // Redact revoked content immediately.
     if (changedOwner || session.consentWithdrawn || session.tombstone || this.#selected && !valid.has(this.#selected)) {
       this.#epoch++; this.root.querySelector('.concept-image').removeAttribute('src'); this.root.querySelector('.concept-disclosure').textContent = '';
@@ -237,22 +244,31 @@ export class ConceptView {
     } });
   }
   // The folded canvas uses the same authenticated loader, revocation rules and sandbox as the viewer.
+  suspendCanvas() {
+    this.#canvasEpoch++;
+    const draft = this.root.querySelector('.canvas-html'), image = this.root.querySelector('.canvas-image');
+    if (draft) { draft.artifact = null; delete draft.dataset.id; }
+    if (image) { image.removeAttribute('src'); delete image.dataset.id; }
+    this.root.querySelector('.canvas-status').textContent = '';
+  }
   async paintCanvas() {
     const draft = this.root.querySelector('.canvas-html'), image = this.root.querySelector('.canvas-image');
-    if (!draft) return;
+    if (!draft || !this.root.querySelector('.workspace')?.hasAttribute('data-folded')) return;
+    const epoch = this.#canvasEpoch, sessionId = this.#session.id;
     const empty = this.root.querySelector('.canvas-empty'), status = this.root.querySelector('.canvas-status');
     const item = this.#session?.consentWithdrawn || this.#session?.tombstone ? null : this.items.at(-1);
-    draft.copy = this.copy.conceptPreview;
+    if (this.#canvasCopy !== this.copy.conceptPreview) { draft.copy = this.copy.conceptPreview; this.#canvasCopy = this.copy.conceptPreview; }
     empty.hidden = Boolean(item); draft.hidden = !item || conceptKind(item) !== 'html'; image.hidden = !item || conceptKind(item) === 'html';
-    if (!item) { draft.artifact = null; image.removeAttribute('src'); status.textContent = ''; return; }
+    if (!item) { this.suspendCanvas(); return; }
     if (draft.dataset.id !== item.id) { draft.dataset.id = item.id; draft.artifact = null; image.removeAttribute('src'); }
     status.textContent = conceptKind(item) === 'html' ? this.copy.conceptDraftLoading : this.copy.conceptLoading;
     const bytes = await this.load(item.id);
-    if (this.#session?.consentWithdrawn || this.#session?.tombstone || this.items.at(-1)?.id !== item.id) return;
+    if (epoch !== this.#canvasEpoch || sessionId !== this.#session.id || !this.root.querySelector('.workspace')?.hasAttribute('data-folded') ||
+      this.#session?.consentWithdrawn || this.#session?.tombstone || this.items.at(-1)?.id !== item.id) return;
     if (conceptKind(item) === 'html') {
       if (bytes && draft.artifact?.bytes !== bytes) draft.artifact = { bytes, mediaType: HTML_MEDIA_TYPE };
       status.textContent = bytes ? '' : this.copy.conceptDraftFailed;
-    } else { if (bytes) image.src = bytes; status.textContent = bytes ? '' : this.copy.conceptImageFailed; }
+    } else { if (bytes) { image.src = bytes; image.dataset.id = item.id; } status.textContent = bytes ? '' : this.copy.conceptImageFailed; }
   }
   guidanceToggle(value) {
     const button = document.createElement('button'); button.type = 'button'; button.textContent = value; button.dataset.value = value;

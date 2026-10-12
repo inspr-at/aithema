@@ -31,6 +31,7 @@ export function mountTheme(document = globalThis.document, storage) {
   });
 }
 export function paintUtilities(copy, document = globalThis.document) {
+  for (const chevron of document.querySelectorAll('.utility-chevron')) chevron.innerHTML = icon('chevron');
   document.querySelector('#language-label').textContent = copy.host.language;
   const language = document.querySelector('#locale');
   const languageValue = document.querySelector('#language-value'); if (languageValue) languageValue.textContent = language.value.toUpperCase();

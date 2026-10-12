@@ -132,10 +132,11 @@ export class AithemaSession extends HTMLElement {
     this.#pings ??= answerVoicePings(() => this.#rail?.session?.callId ?? null);
     this.#concept?.connect(); this.#connect(); this.#watchPage(true); this.#offerResume(); this.#host?.connect(); this.#placeOrb();
     this.#popups?.connect(); this.#motionMedia?.addEventListener?.('change', this.#motionListener);
+    this.#reveal?.connect();
     this.#observePanes();
   }
   disconnectedCallback() {
-    this.#timer?.setConnected(false); this.#reveal?.close();
+    this.#timer?.setConnected(false); this.#reveal?.disconnect();
     this.#popups?.destroy(); this.#motionMedia?.removeEventListener?.('change', this.#motionListener);
     this.#host?.disconnect(); this.#watchPage(false); this.#concept?.suspend(); this.#rail?.destroy(); this.#orb?.destroy(); this.#introOrb?.destroy(); this.#abort?.abort(); this.#deviceController?.abort();
     this.#paneObserver?.disconnect(); for (const timer of this.#scrollTimers.values()) clearTimeout(timer); this.#scrollTimers.clear();
@@ -240,7 +241,7 @@ export class AithemaSession extends HTMLElement {
       <footer class="display-foot"><div class="display-foot__row">
         <div class="footer-info" data-footer-popup><button class="ai-notice" type="button" aria-describedby="ai-notice build-info"><i class="speaker-sign" aria-hidden="true"></i><span class="display-version"></span><span class="ai-notice__label"></span><span class="ai-notice__short"></span><span class="ai-notice__voice"></span></button>
           <div class="footer-popup" role="tooltip"><p id="ai-notice"></p><p id="build-info"></p><div class="host-foot" hidden><slot name="legal"></slot><slot name="footer"></slot></div></div></div>
-        <div class="host-credits" tabindex="0" data-footer-popup hidden><strong class="host-credits__text"><span class="host-credits__amount"></span><span class="host-credits__total"></span><span class="host-credits__unit"></span></strong><span class="host-credits__track" role="meter" aria-valuemin="0"><i></i></span><div class="footer-popup" role="tooltip"><span class="host-credits__scope"></span><span class="host-credits__deadline"></span><span class="host-credits__limit" hidden><slot name="credits-limit"></slot></span></div></div>
+        <div class="host-credits" tabindex="0" data-footer-popup hidden><span class="host-credits__text"><strong class="host-credits__amount"></strong><span class="host-credits__total"></span><span class="host-credits__unit"></span></span><span class="host-credits__track" role="meter" aria-valuemin="0"><i></i></span><div class="footer-popup" role="tooltip"><span class="host-credits__scope"></span><span class="host-credits__deadline"></span><span class="host-credits__limit" hidden><slot name="credits-limit"></slot></span></div></div>
         <div class="footer-right"><section class="preset-panel"><div class="engine" data-footer-popup><button class="engine-info" type="button" aria-describedby="model-info"><span class="engine__value"></span><span class="engine__flag"></span></button><span class="engine__detail footer-popup" id="model-info" role="tooltip"></span></div><ul class="features"></ul></section>
           <span class="status" role="status"><span class="status__label"></span><time class="connection-timer">0:00</time></span></div></div></footer></div>
       <dialog class="settings"></dialog><dialog class="library"></dialog><dialog class="verify-dialog"></dialog>`;
@@ -254,6 +255,7 @@ export class AithemaSession extends HTMLElement {
     this.#timer = new ConnectionTimer(root.querySelector('.connection-timer'));
     this.#fold = new ConversationFold({ root, copy: this.#copy, onChange: folded => {
       if (folded) void this.#concept?.paintCanvas();
+      else this.#concept?.suspendCanvas();
       this.#syncPanes();
     } });
     root.querySelector('.drafts-canvas').setAttribute('aria-label', this.#copy.layout.canvas);
@@ -1008,7 +1010,7 @@ export class AithemaSession extends HTMLElement {
     for (const button of section.querySelectorAll('.ready__mode')) setText(button.querySelector('span'), r[button.dataset.mode]);
     const consent = this.#consentState(), local = this.#device?.model, mode = this.#mode(), voiceMode = mode === 'voice';
     const visuals = device ? SETTINGS_OFF : view.visuals;
-    const effort = view.effort, model = catalogLabel(copy, view.model?.label ?? view.model?.id);
+    const effort = view.effort, model = modelDisplayName(view.model?.id, copy);
     const microphone = { granted: [r.micGranted, 'confirmed'], denied: [r.micDenied, 'pending'], prompt: [r.micPrompt, 'pending'] }[this.#microphone] ?? [r.checkOnStart, 'pending'];
     const rows = [
       ['model', 'settings', r.model, device ? local ? `${copy.engine.localModel}: ${local}` : r.notConnected

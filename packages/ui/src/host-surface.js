@@ -68,12 +68,14 @@ export class HostSurface {
   /** Starts host reads once the element is in the page. */
   connect() {
     this.#connected = true;
+    this.#menu?.connect();
     void this.#verification?.load(); this.#verification?.connect();
     if (this.#options.handover && this.#offer === null) void this.#loadHandover();
     if (this.#options.credits) { void this.#loadCredits(); this.#tickCredits(); }
   }
   disconnect() {
     this.#connected = false; this.#verification?.disconnect();
+    this.#menu?.disconnect();
     clearInterval(this.#creditsTick); this.#creditsTick = null; clearTimeout(this.#creditsTimer); this.#creditsTimer = null;
   }
   destroy() { this.#alive = false; this.disconnect(); this.#verification?.destroy(); this.#library?.destroy(); this.#menu?.destroy(); }

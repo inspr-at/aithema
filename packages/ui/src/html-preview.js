@@ -112,7 +112,7 @@ export class AithemaHTMLPreview extends HTMLElement {
     });
     this.#text(); this.#render();
   }
-  set copy(value) { this.#copy = { ...previewCopy, ...value }; this.#text(); this.#render(); }
+  set copy(value) { this.#copy = { ...previewCopy, ...value }; this.#text(); this.#show(this.state ?? 'empty'); }
   get copy() { return this.#copy; }
   get width() { return this.#width; }
   /** Whether the shown draft holds keyboard focus (someone is working inside it). */

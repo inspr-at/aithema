@@ -100,38 +100,39 @@ aithema-session { display:block; width:100%; --aithema-height:100dvh; --aithema-
 .conversation-page .host-actions { display:flex; flex-wrap:nowrap; gap:4px; font-size:14px; }
 .conversation-page .utility { position:relative; display:inline-flex; align-items:center; gap:7px; min-height:44px; padding:0 10px; border-radius:10px; }
 .conversation-page .utility:hover { background:color-mix(in srgb,var(--ink) 6%,transparent); }
-.conversation-page .utility-icon { display:flex; color:var(--muted); } .utility-icon svg { display:block; width:17px; height:17px; }
+.conversation-page .utility-icon { display:flex; color:var(--muted); } .utility-icon svg { display:block; width:16px; height:16px; }
 .conversation-page .utility select { appearance:none; min-height:44px; padding:0; border:0; background:none; font:inherit; cursor:pointer; }
 .conversation-page #theme { inline-size:4.1em; }
-.utility-chevron { pointer-events:none; color:var(--muted); }
+.utility-chevron { display:flex; align-items:center; pointer-events:none; color:var(--muted); }
+.utility-chevron svg { display:block; width:10px; height:10px; flex:none; }
 .conversation-page #language-label,.conversation-page #theme-label { inline-size:1px; }
 .conversation-page .host-status:has(#language-note:empty):has(#error:empty) { display:none; }
 .conversation-page .colophon { padding-block:8px 16px; }
-@media(max-width:600px) {
+@media(max-width:599px) {
   .conversation-page .host-actions { display:flex; gap:0; font-size:12px; }
   .conversation-page .utility { gap:4px; padding:0 4px; }
-  .conversation-page .utility-icon svg { width:14px; height:14px; }
+  .conversation-page .utility-icon svg { width:16px; height:16px; }
   .conversation-page #theme { inline-size:4em; }
   .conversation-page .wordmark { font-size:20px; }
 }
 
-.conversation-page .utility-language { width:64px; }
+.conversation-page .utility-language { width:auto; }
 .conversation-page .utility-theme { width:112px; }
 .conversation-page .utility-value { white-space:nowrap; }
 .conversation-page .utility select { position:absolute; inset:0; width:100%; height:44px; opacity:0; }
 .conversation-page #theme { inline-size:100%; }
 .conversation-page .utility:has(select:focus-visible) { outline:2px solid var(--accent); outline-offset:3px; }
-@media(max-width:600px) {
+@media(max-width:599px) {
   .conversation-page .utility { gap:3px; padding:0 3px; font-size:11.5px; }
-  .conversation-page .utility-language { width:48px; }
-  .conversation-page .utility-theme { width:78px; }
+  .conversation-page .utility-language { width:auto; }
+  .conversation-page .utility-theme { width:auto; }
 }
 
 /* Round 2 band utilities share one row; each selector retains a 44 px target. */
 @media(max-width:599px) {
   .conversation-page .utility { gap:3px; padding:0 3px; min-width:44px; }
   .conversation-page .utility select { font-size:12px; }
-  .conversation-page .utility-icon svg { width:14px; height:14px; }
+  .conversation-page .utility-icon svg { width:16px; height:16px; }
   .conversation-page #theme { inline-size:100%; }
   .conversation-page .utility-chevron { font-size:10px; }
 }
