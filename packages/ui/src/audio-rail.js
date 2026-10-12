@@ -54,6 +54,12 @@ export class AudioRail {
   }
   button(name) { return this.root.querySelector(`.voice-${name}`); }
   capability(name) { return this.client?.manifest?.liveVoice?.capabilities?.[name] !== 'unavailable'; }
+  // Keep the failure's meaning so a locale repaint also translates a retained message.
+  get error() {
+    if (!this.errorKey) return null;
+    if (this.errorKey === 'voiceAdmissionDenied' && Object.hasOwn(this.copy.reasons ?? {}, this.errorReason)) return this.copy.reasons[this.errorReason];
+    return this.copy[this.errorKey];
+  }
   render() {
     // Closing a rail that had no call (an invalidation while idle) is no call: it never marks one active.
     const c = this.copy, active = Boolean(this.session), available = this.feature(),
@@ -84,18 +90,19 @@ export class AudioRail {
     this.button('pause').setAttribute('aria-pressed', String(Boolean(this.paused)));
   }
   failure(error) {
-    this.error = error?.name === 'NotAllowedError' ? this.copy.voiceMicDenied :
-      error?.name === 'NotFoundError' ? this.copy.voiceMicMissing :
-      error?.code === 'not-admitted' ? (Object.hasOwn(this.copy.reasons ?? {}, error.reason) ? this.copy.reasons[error.reason] : this.copy.voiceAdmissionDenied) :
-      error?.code === 'voice-conflict' ? this.copy.voiceConflict :
-      error?.code === 'deadline' ? this.copy.voiceDeadline : this.copy.voiceConnectionFailed;
+    this.errorKey = error?.name === 'NotAllowedError' ? 'voiceMicDenied' :
+      error?.name === 'NotFoundError' ? 'voiceMicMissing' :
+      error?.code === 'not-admitted' ? 'voiceAdmissionDenied' :
+      error?.code === 'voice-conflict' ? 'voiceConflict' :
+      error?.code === 'deadline' ? 'voiceDeadline' : 'voiceConnectionFailed';
+    this.errorReason = error?.code === 'not-admitted' ? error.reason : null;
     // A conflict may say when the earlier call's lease ends; Retry then waits it out.
     this.retryAt = error?.code === 'voice-conflict' && error.retryAfterMs > 0 ? Date.now() + Math.min(error.retryAfterMs, 60_000) : 0;
     this.render();
   }
   async start() {
     if (this.session || this.state === 'connecting' || !this.feature().available || !this.client) return;
-    const generation = ++this.generation; this.error = null; this.state = 'connecting'; this.render();
+    const generation = ++this.generation; this.errorKey = null; this.state = 'connecting'; this.render();
     const controller = new AbortController(); this.controller = controller;
     try {
       // A reloaded page first ends the call its predecessor left behind.
@@ -144,16 +151,16 @@ export class AudioRail {
         if (event.type === 'final') this.root.querySelector('.voice-caption').textContent = '';
         if (event.type === 'recovering') this.state = 'recovering';
         if (event.type === 'recovered') {
-          this.state = 'listening'; this.error = null; this.journal?.update({ providerSessionId: session.providerSessionId });
+          this.state = 'listening'; this.errorKey = null; this.journal?.update({ providerSessionId: session.providerSessionId });
           void this.updateContext().catch(() => {});
         }
         if (event.type === 'ended') {
           clearInterval(this.heartbeat); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.session = null; this.journal?.clear();
           this.quiet(); this.onEnd?.();
           this.state = ['closed', 'cancelled'].includes(event.reason) ? 'idle' : 'failed';
-          this.error = event.reason === 'recovery-failed' ? this.copy.voiceRecoveryFailed :
-            event.reason === 'closure-uncertain' ? this.copy.voiceClosureUncertain :
-            event.reason.includes('deadline') ? this.copy.voiceDeadline : this.state === 'failed' ? this.copy.voiceConnectionFailed : null;
+          this.errorKey = event.reason === 'recovery-failed' ? 'voiceRecoveryFailed' :
+            event.reason === 'closure-uncertain' ? 'voiceClosureUncertain' :
+            event.reason.includes('deadline') ? 'voiceDeadline' : this.state === 'failed' ? 'voiceConnectionFailed' : null;
           this.root.querySelector('.voice-caption').textContent = '';
         }
         this.render();
@@ -171,9 +178,9 @@ export class AudioRail {
       const ack = await session[paused ? 'pause' : 'resume']();
       if (generation !== this.generation || session !== this.session) return;
       if (ack?.acknowledged !== true || ack.paused !== paused) throw new Error('Pause acknowledgement required');
-      this.paused = paused; this.error = null; this.onPause?.(paused);
+      this.paused = paused; this.errorKey = null; this.onPause?.(paused);
       if (!paused) { this.state = 'listening'; void this.updateContext().catch(() => {}); }
-    } catch { this.error = this.copy.voicePauseFailed; }
+    } catch { this.errorKey = 'voicePauseFailed'; }
     finally { this.busy = false; this.render(); this.settle(); }
   }
   syncPause(paused) {
@@ -188,11 +195,11 @@ export class AudioRail {
     await this.session.updateContext(this.context());
   }
   async retryPlayback() {
-    try { await this.playback?.(); await this.playbackWatcher?.retry(); this.playbackBlocked = false; this.error = null; }
-    catch { this.playbackBlocked = true; this.error = this.copy.voicePlaybackBlocked; }
+    try { await this.playback?.(); await this.playbackWatcher?.retry(); this.playbackBlocked = false; this.errorKey = null; }
+    catch { this.playbackBlocked = true; this.errorKey = 'voicePlaybackBlocked'; }
     this.render();
   }
-  reportPlaybackBlocked() { this.playbackBlocked = true; this.error = this.copy.voicePlaybackBlocked; this.render(); }
+  reportPlaybackBlocked() { this.playbackBlocked = true; this.errorKey = 'voicePlaybackBlocked'; this.render(); }
   close(reason) {
     if (this.closing) return this.closing;
     const session = this.session; this.closingCall = Boolean(session) || ['connecting', 'recovering'].includes(this.state);
@@ -204,10 +211,10 @@ export class AudioRail {
       try {
         const terminal = await session?.close({ deadlineAt: Date.now() + 45_000 });
         this.state = terminal && !terminal.closureConfirmed ? 'failed' : 'idle';
-        this.error = terminal && !terminal.closureConfirmed ? this.copy.voiceClosureUncertain : null;
-        if (reason?.includes('deadline')) { this.state = 'failed'; this.error = this.copy.voiceDeadline; }
+        this.errorKey = terminal && !terminal.closureConfirmed ? 'voiceClosureUncertain' : null;
+        if (reason?.includes('deadline')) { this.state = 'failed'; this.errorKey = 'voiceDeadline'; }
         if (session) this.journal?.clear();
-      } catch { this.state = 'failed'; this.error = this.copy.voiceClosureUncertain; }
+      } catch { this.state = 'failed'; this.errorKey = 'voiceClosureUncertain'; }
       finally { controller?.abort(); this.paused = false; this.root.querySelector('.voice-caption').textContent = ''; this.render(); }
     })().finally(() => { this.closing = null; });
     return this.closing;

@@ -12,14 +12,28 @@ const escape = id => globalThis.CSS?.escape?.(id) ?? id.replace(/["\\]/gu, '\\$&
 const time = value => { const at = typeof value === 'number' ? value : Date.parse(value); return Number.isFinite(at) ? at : 0; };
 
 export class LibraryDialog {
-  #dialog; #copy; #request; #current; #locale; #adopt; #notice; #alive = true; #opener = null;
+  #dialog; #copy; #request; #current; #locale; #newLocale; #adopt; #notice; #alive = true; #opener = null;
   #items = []; #order = []; #total = 0; #query = ''; #load = 0; #state = 'idle'; #message = '';
   #sort = { key: 'updatedAt', direction: 'descending' }; #renaming = null; #confirm = null; #busy = false; #searchTimer = null;
   /** request(path, body?) reaches /api/library{path}; adopt(session, reason) opens a conversation. */
-  constructor({ dialog, copy, request, current, locale, adopt, notice }) {
-    this.#dialog = dialog; this.#copy = copy; this.#request = request; this.#current = current; this.#locale = locale;
+  constructor({ dialog, copy, request, current, locale, newLocale = locale, adopt, notice }) {
+    this.#dialog = dialog; this.#copy = copy; this.#request = request; this.#current = current; this.#locale = locale; this.#newLocale = newLocale;
     this.#adopt = adopt; this.#notice = notice;
     this.#mount();
+  }
+  setCopy(copy) {
+    this.#copy = copy; this.#message = ''; this.#paintCopy();
+    this.#dialog.querySelectorAll('.library__sizer').forEach((n, i) => setText(n, [this.#c.deleteWarning, this.#c.resetWarning][i]));
+    setText(this.#dialog.querySelector('.library__notice'), this.#notice?.() ?? ''); this.#paint();
+  }
+  #paintCopy() {
+    const c = this.#c, d = this.#dialog;
+    const text = (selector, value) => setText(d.querySelector(selector), value);
+    text('#library-title', c.title); text('.library-close', c.close); text('.library__lead', c.lead);
+    text('.library__search label', c.search); d.querySelector('#library-search').placeholder = c.search;
+    text('[data-sort="title"] span', c.columns.title); text('[data-sort="updatedAt"] span', c.columns.updated);
+    text('.library__col-actions span', c.columns.actions); text('.library-retry', c.retry); text('.library-more', c.more);
+    text('.library-new', c.new); text('.library-reset', c.reset); text('.library-confirm-cancel', c.cancel);
   }
   get #c() { return this.#copy.hostSurface.library; }
   get open() { return this.#dialog.open; }
@@ -71,12 +85,7 @@ export class LibraryDialog {
           <p class="library__warning"></p><div class="library__confirm-actions">
           <button class="library-confirm" type="button" aria-describedby="library-confirm-warning"></button><button class="library-confirm-cancel" type="button"></button></div></div></footer></div>`;
     d.setAttribute('aria-labelledby', 'library-title');
-    const text = (selector, value) => setText(d.querySelector(selector), value);
-    text('#library-title', c.title); text('.library-close', c.close); text('.library__lead', c.lead);
-    text('.library__search label', c.search); d.querySelector('#library-search').placeholder = c.search;
-    text('[data-sort="title"] span', c.columns.title); text('[data-sort="updatedAt"] span', c.columns.updated);
-    text('.library__col-actions span', c.columns.actions); text('.library-retry', c.retry); text('.library-more', c.more);
-    text('.library-new', c.new); text('.library-reset', c.reset); text('.library-confirm-cancel', c.cancel);
+    this.#paintCopy();
     // The warning keeps the height of the longer one in this language, whichever is shown (or none).
     const warning = d.querySelector('.library__warning');
     const shown = node('span'); shown.id = 'library-confirm-warning';
@@ -148,6 +157,8 @@ export class LibraryDialog {
     const c = this.#c, current = item.id === this.#current(), renaming = this.#renaming === item.id;
     const name = this.#title(item), open = row.querySelector('.library-open'), input = row.querySelector('.library__rename input');
     input.id = `library-rename-${item.id}`; row.querySelector('.library__rename label').htmlFor = input.id;
+    setText(row.querySelector('.library__rename label'), c.renameLabel);
+    for (const key of ['rename', 'delete', 'save', 'cancel']) setText(row.querySelector(`.library-${key}`), c[key]);
     setText(row.querySelector('.library__name'), name); setText(row.querySelector('.library__current'), current ? c.current : '');
     row.dataset.current = String(current); row.dataset.untitled = String(!item.title?.trim());
     const at = time(item.updatedAt), stamp = row.querySelector('time');
@@ -249,7 +260,7 @@ export class LibraryDialog {
   async #create(reason = 'new') {
     if (this.#busy) return;
     this.#busy = true; this.#say(this.#c.opening); this.#paint();
-    const result = await this.#call('', { locale: this.#locale() });
+    const result = await this.#call('', { locale: this.#newLocale() });
     if (!this.#alive) return;
     this.#busy = false;
     if (result?.session) this.#finish(result.session, reason);

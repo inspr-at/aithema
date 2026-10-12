@@ -22,6 +22,19 @@ export class Verification {
     this.#mountEntry(); this.#mountLock(); this.#mountDialog();
     this.set(identity ?? null, { quiet: true });
   }
+  setCopy(copy) {
+    this.#copy = copy; this.#ui.message = '';
+    const v = this.#v;
+    setText(this.#dialog.querySelector('#verify-dialog-title'), v.title);
+    setText(this.#dialog.querySelector('.verify-dialog-close'), v.close);
+    setText(this.#dialog.querySelector('.verify-dialog__notice'), this.#notice?.() ?? '');
+    for (const form of this.#forms) {
+      setText(form.root.querySelector('.verify__label'), v.label); form.input.placeholder = v.placeholder;
+      setText(form.pending.querySelector('span'), v.sentTo); setText(form.done.querySelector('span'), v.confirmed);
+      for (const key of ['send', 'resend', 'cancel', 'change']) setText(form[key], v[key]);
+    }
+    this.#paint();
+  }
   get #v() { return this.#copy.hostSurface.verify; }
   /** A host identity port exists for this conversation (erased identities count as none). */
   get enabled() { return Boolean(this.#identity) && !this.#identity.erased; }
