@@ -360,8 +360,8 @@ export class AithemaSession extends HTMLElement {
     for (const pane of root.querySelectorAll(PANES)) pane.addEventListener('pointerleave', () => clearSlack(pane));
     if (this.#options.host) this.#host = new HostSurface({ root, copy: this.#copy, options: this.#options.host, baseUrl: this.#base, sessionToken: this.#sessionToken,
       session: () => this.#session, status: text => this.#status(text), adopt: (session, reason) => this.#adopt(session, reason),
-      beforeVerifyDialog: () => this.#dialog.close(), verificationOpener: () => root.querySelector('.settings-open'),
-      onLock: () => { this.#render('aside'); this.#render('transcript'); },
+      beforeVerifyDialog: () => this.#dialog.closeForVerification(), verificationOpener: () => root.querySelector('.settings-open'),
+      onLock: () => { this.#render('aside'); this.#render('transcript'); this.#dialog?.sync(); },
       // Focus follows the visible stage control: Continue at the entrance, Start at readiness; live,
       // unlocking keeps a deliberate pause (Resume is offered), else the composer takes focus.
       focusAfterUnlock: () => {

@@ -175,6 +175,89 @@ test('AIT-131 r3 demo account keeps shared gaps and its panel inside the viewpor
   if (evidence) await writeFile(join(evidence, 'r3-demo-account-evidence.json'), JSON.stringify({ ticket: 'AIT-131', commit: evidenceCommit, files, checks }, null, 2));
 });
 
+test('AIT-147 Settings footer wraps without moving controls: verification off/unverified/pending/verified, DE/EN, 1440/390, light/dark', { timeout: 120_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-settings-footer-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
+  });
+  t.after(() => demo.kill());
+  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
+    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  t.after(() => browser.close());
+  const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], checks = [];
+  if (evidence) await mkdir(evidence, { recursive: true });
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session?.id);
+  await shadow(page, c => { globalThis.footerSeed = c.session; });
+  const expected = {
+    de: 'Allgemein · Hier können Sie ein neues Gespräch beginnen, die Einwilligung und Ihre Voreinstellungen prüfen und Ihre E-Mail bestätigen.',
+    en: 'General · Start a new conversation, review consent and your defaults, and verify your email.',
+  };
+  const general = {
+    de: 'Allgemein · Hier können Sie ein neues Gespräch beginnen sowie die Einwilligung und Ihre Voreinstellungen prüfen.',
+    en: 'General · Start a new conversation, review consent and your defaults.',
+  };
+  const controls = ['.settings__tabs', '.general-new', '.general-consent-manage', '.general-recommended', '.footer-links', '.save-state', '.done'];
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
+    let baseline;
+    await page.setViewport({ width, height: width === 390 ? 844 : 900 }); await page.select('#theme', theme);
+    for (const state of ['off', 'unverified', 'pending', 'verified']) await t.test(`${locale}/${theme}/${width}/verification-${state}`, async () => {
+      const verification = state !== 'off', needsVerification = state === 'unverified' || state === 'pending';
+      await page.evaluate(async ({ locale, verification, state }) => {
+        const { de } = await import('/packages/ui/src/i18n/de.js'), { en } = await import('/packages/ui/src/i18n/en.js');
+        const { paintUtilities } = await import('/demo/page-preferences.js');
+        const c = document.querySelector('aithema-session'), session = structuredClone(globalThis.footerSeed), copy = { de, en }[locale];
+        session.locale = locale;
+        session.identity = { status: { off: 'guest', unverified: 'guest', pending: 'verification-pending', verified: 'verified' }[state],
+          address: state === 'pending' || state === 'verified' ? 'visitor@example.com' : null,
+          verificationRequired: false, assessmentUnlocked: true, pollVerification: false };
+        c.configure({ copy, session, host: { verification } });
+        document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy); window.scrollTo(0, 0);
+      }, { locale, verification, state });
+      await page.click('aithema-session >>> .settings-open'); await page.click('aithema-session >>> [data-tab="general"]');
+      await page.mouse.move(0, 0); await settle();
+      const geometry = await shadow(page, c => {
+        const root = c.shadowRoot, message = root.querySelector('.context-message'), box = message.getBoundingClientRect();
+        const range = document.createRange(); range.selectNodeContents(message);
+        const lines = [...range.getClientRects()].map(r => ({ left: r.left, right: r.right, top: r.top, bottom: r.bottom }));
+        const style = getComputedStyle(message), footer = root.querySelector('.settings__footer').getBoundingClientRect();
+        return { text: message.textContent, emailShown: !root.querySelector('.host-verify').hidden,
+          verifyButtonShown: !root.querySelector('.host-verify').hidden && !root.querySelector('.verify-entry').hidden,
+          box: { left: box.left, right: box.right, top: box.top, bottom: box.bottom }, lines, footerTop: footer.top,
+          textOverflow: style.textOverflow, fontStyle: style.fontStyle, scrollWidth: message.scrollWidth, clientWidth: message.clientWidth };
+      });
+      const positions = await boxes(page, controls), context = `${locale}/${theme}/${width}/${state}: ${JSON.stringify(geometry)}`;
+      if (!verification) baseline = positions;
+      else sameBoxes(baseline, positions, `${context}: enabling verification moves no control`);
+      const displacement = Math.max(...positions.flatMap((box, i) => box.map((value, n) => Math.abs(value - baseline[i][n]))));
+      assert.equal(displacement, 0, `${context}: control displacement stays 0 px`);
+      assert.equal(geometry.emailShown, verification, context);
+      assert.equal(geometry.verifyButtonShown, needsVerification, context);
+      assert.equal(geometry.text, needsVerification ? expected[locale] : general[locale], context);
+      assert.equal(geometry.fontStyle, 'normal'); assert.notEqual(geometry.textOverflow, 'ellipsis');
+      assert.ok(geometry.scrollWidth <= geometry.clientWidth + 1, context);
+      for (const line of geometry.lines) {
+        assert.ok(line.left >= geometry.box.left - 1 && line.right <= geometry.box.right + 1, context);
+        assert.ok(line.top >= geometry.box.top - 1 && line.bottom <= geometry.box.bottom + 1, context);
+      }
+      assert.ok(geometry.box.bottom <= geometry.footerTop, context);
+      if (width === 390 && needsVerification) assert.ok(geometry.lines.length > 1, 'the email hint wraps at phone width');
+      for (const control of ['.general-consent-manage', '.general-recommended']) {
+        await page.hover(`aithema-session >>> ${control}`);
+        sameBoxes(positions, await boxes(page, controls), `${context}: help on hover moves no control`);
+      }
+      await page.mouse.move(0, 0); await settle();
+      if (evidence) {
+        const name = `ait-147-settings-general-verification-${state}-${locale}-${width}-${theme}.png`;
+        await page.screenshot({ path: join(evidence, name) }); files.push(name);
+      }
+      checks.push({ locale, theme, width, verification, state, geometry, positions, maxControlDisplacementPx: displacement });
+      await page.keyboard.press('Escape');
+    });
+  }
+  if (evidence) await writeFile(join(evidence, 'ait-147-settings-footer-evidence.json'), JSON.stringify({ ticket: 'AIT-147', commit: evidenceCommit, files, checks }, null, 2));
+});
+
 test('AIT-131 r3 Settings email states and verification focus: DE/EN, 1440/390, light/dark', { timeout: 120_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-settings-email-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
