@@ -2356,6 +2356,7 @@ for (const change of ['consent-withdrawal', 'external-consent-withdrawal', 'sour
     await h.handlers.idle();
     const pending = pendingReplyConsumeConsent(t, h), callback = h.callback();
     await pending.entered;
+    const callbackAttemptId = h.rows().find(row => row.state === 'claimed').attempt_id;
     if (change === 'consent-withdrawal') await h.route('/consent', { granted: false });
     if (change === 'external-consent-withdrawal') h.coverage(false);
     if (change === 'source-withdrawal') await h.route('/withdraw', { turnId: `${h.grant.providerSessionId}:user:private` });
@@ -2373,8 +2374,15 @@ for (const change of ['consent-withdrawal', 'external-consent-withdrawal', 'sour
     pending.release();
     const response = await callback;
     await h.handlers.idle();
-    assert.notEqual(response.status, 200); assert.equal(h.requests.length, 0);
-    assert.deepEqual(h.counts(), { admissions: 1, models: 0, cost: 0 });
-    assert.equal(h.rows().length, 1); assert.notEqual(h.rows()[0].state, 'dispatched');
+    assert.notEqual(response.status, 200);
+    const row = h.runtime.budget.get(callbackAttemptId);
+    assert.equal(row.settled_micro ?? 0, 0); assert.notEqual(row.state, 'dispatched');
+    assert.ok(h.requests.every(request => request.messages.at(-1).content !== 'Ja'), 'the refused callback input never reaches a model');
+    // Closing voice can legitimately resume the ordinary text reaction lane.
+    // Its independent attempt is not a dispatch of this refused voice callback.
+    if (change !== 'call-close') {
+      assert.equal(h.requests.length, 0); assert.deepEqual(h.counts(), { admissions: 1, models: 0, cost: 0 });
+      assert.equal(h.rows().length, 1);
+    }
   });
 }
