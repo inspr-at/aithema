@@ -75,6 +75,10 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
     const checkLifetime = () => { scope.signal.throwIfAborted(); if (Date.now() >= options.deadlineAt) throw new PluginError('deadline'); };
     const scoped = { ...options, signal: scope.signal, report: terminal => (reporting = Promise.resolve().then(() => options.report({
       ...terminal, ...(dispatched && cost !== null ? { chargedMicro: cost } : {}) }))) };
+    const checkedResponse = response => {
+      try { checkLifetime(); return response; }
+      catch (error) { void response.body?.cancel().catch(() => {}); throw error; }
+    };
     try {
       invocation = await beginInvocation(scoped);
       checkLifetime();
@@ -97,9 +101,9 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
       reservation = await ledger.reserve(ceiling); // atomic shared-cap hard stop before any request
       checkLifetime();
       invocation.dispatch(); dispatched = true;
-      const response = await abortable(Promise.resolve().then(() => fetchImpl(endpoint, { method: 'POST', signal: scope.signal,
-        redirect: 'error', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, body })), scope.signal);
-      checkLifetime();
+      // Close even a late response from a transport that ignores cancellation.
+      const response = checkedResponse(await abortable(Promise.resolve().then(() => fetchImpl(endpoint, { method: 'POST', signal: scope.signal,
+        redirect: 'error', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, body })).then(checkedResponse), scope.signal));
       if (!response.ok) {
         // An HTTP refusal can still report a charge, including an explicit zero.
         // Without that evidence a dispatched request keeps its computed ceiling.
