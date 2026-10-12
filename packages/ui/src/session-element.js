@@ -1394,6 +1394,13 @@ export class AithemaSession extends HTMLElement {
       // the locale acknowledgement and a first turn arriving while that response is in flight.
       this.#invalidatedAt = Math.max(this.#invalidatedAt, event.seq);
       if (event.type === 'session.locale-changed') this.#repaintLocale();
+      if (event.type === 'session.paused') {
+        this.#notice = '';
+        if (!this.#rail.syncPause(event.data.paused, event.data.pauseRequestId, event.data.resumeRequestId)) {
+          this.#session.paused = Boolean(this.#rail.paused);
+        }
+        if (this.#session.paused) this.#deviceController?.abort(); else this.#pausePrompt = false;
+      }
       this.#concept.update(this.#session);
       if (event.type === 'settings.changed') {
         // A changed model, effort or preset supersedes the running reply on the server:
@@ -1406,13 +1413,6 @@ export class AithemaSession extends HTMLElement {
         if (presetBefore !== this.#session.processingPreset) this.#modeChanged(presetBefore);
         this.#renderMode(); this.#dialog?.sync();
         if (this.isConnected) void this.#refreshFeatures();
-      }
-      if (event.type === 'session.paused') {
-        this.#invalidatedAt = Math.max(this.#invalidatedAt, event.seq); this.#notice = '';
-        if (event.data.paused) this.#deviceController?.abort(); else this.#pausePrompt = false;
-        if (!this.#rail.syncPause(event.data.paused, event.data.pauseRequestId, event.data.resumeRequestId)) {
-          this.#session.paused = Boolean(this.#rail.paused);
-        }
       }
       if ((invalidation || consentRevised || event.type === 'session.paused') && this.isConnected) void this.#refreshFeatures();
       if (event.type === 'turn.final') {
