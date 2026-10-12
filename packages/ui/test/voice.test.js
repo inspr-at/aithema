@@ -557,6 +557,9 @@ test('AIT-138 fix 3: a waiting snapshot restores Resume without connecting until
   session.featureMatrix = { best: { voice: { available: true }, text: { available: true } } };
   session.voiceLifecycle = { callId: 'durable-waiting-call', providerSessionId: 'retired-provider', state: 'waiting', attempts: 3,
     needsRecovery: true, spendDeadlineAt: Date.now() + 60_000, browserLivenessDeadlineAt: Date.now() - 1000 };
+  const nativeStorage = globalThis.sessionStorage, storage = memoryStorage();
+  globalThis.sessionStorage = storage; t.after(() => { globalThis.sessionStorage = nativeStorage; });
+  voiceJournal(storage, session.id).save({ callId: 'durable-waiting-call', providerSessionId: 'retired-provider' });
   const requests = []; let connections = 0;
   const control = {
     async start() { assert.fail('Resume must continue the persisted logical call'); },

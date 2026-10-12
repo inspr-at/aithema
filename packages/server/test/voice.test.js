@@ -90,6 +90,20 @@ for (const failure of ['admission', 'SDK connection']) test(`AIT-138 fix 3: exha
   assert.equal(resumed.callId, first.callId); assert.equal(h.storage.voiceLifecycle(h.session.id, first.callId).attempts, 0);
 });
 
+test('AIT-138 fix 3: exhaustion reports are owner authenticated, validated, and fenced from successors and terminal intent', async t => {
+  const h = voiceFixture(t), first = await h.start(), close = (providerSessionId, recoveryAttempts, owner) =>
+    h.route(`/voice/${first.callId}/close`, { providerSessionId, reason: 'recovery-failed', recoveryAttempts }, owner);
+  assert.equal((await close(first.providerSessionId, 3, 'another-owner')).status, 404);
+  for (const count of [null, -1, 0, 4, '3']) assert.equal((await close(first.providerSessionId, count)).status, 400);
+  assert.equal(h.storage.voiceLifecycle(h.session.id, first.callId).state, 'active');
+  const next = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId }).then(r => r.json());
+  await close(first.providerSessionId, 3);
+  assert.equal(h.storage.voiceLifecycle(h.session.id, first.callId).state, 'active', 'an old segment cannot put its successor into waiting');
+  await h.route(`/voice/${first.callId}/close`, { providerSessionId: next.providerSessionId, reason: 'closed' });
+  await close(next.providerSessionId, 3);
+  assert.equal(h.storage.voiceLifecycle(h.session.id, first.callId).state, 'ended', 'exhaustion cannot undo explicit hang-up');
+});
+
 export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, path, cap, reasoning = createMockReasoning(), durationBinding = {}, voiceOptions = {} } = {}) {
   const storage = new SQLiteStorage(path), secrets = createFacadeSecrets();
   let clock = Date.now(), sequence = 0, covered = true, secretReads = 0, coverageReads = 0, healthReads = 0, releasing = false, mintFailure, beforeCoverage;

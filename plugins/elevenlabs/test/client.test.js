@@ -20,6 +20,19 @@ test('AIT-138 fix 3: the browser persists exhausted admission attempts before re
   assert.deepEqual(closing.at(-1), { callId: session.callId, providerSessionId: session.providerSessionId,
     reason: 'recovery-failed', recoveryAttempts: 3 });
 });
+test('AIT-138 fix 3: hiding during a restored waiting call cannot release capture after a late Resume acknowledgement', async t => {
+  const local = fixture(), hold = new AbortController(), entered = Promise.withResolvers(), release = Promise.withResolvers();
+  local.control.recover = (identity, options) => local.control.start({ callId: identity.callId }, options);
+  local.control.resume = async () => { entered.resolve(); await release.promise; return { acknowledged: true, paused: false }; };
+  const started = local.client.start({ callId: 'waiting_hide_race', providerSessionId: 'retired-provider' },
+    invocationOptions({ holdSignal: hold.signal })).then(value => value, error => error);
+  t.after(async () => { release.resolve(); const result = await started; await result.close?.(); });
+  await entered.promise; hold.abort(); release.resolve();
+  const result = await started;
+  assert.equal(result.code, 'unavailable', 'the late acknowledgement cannot erase a newer hide hold');
+  assert.ok(local.sdk.acquired.every(stream => stream.getTracks().every(track => track.readyState === 'ended')));
+  assert.equal(local.sdk.effects.filter(([name]) => name === 'setVolume').at(-1)[1], 0);
+});
 for (const transport of ['webrtc', 'websocket']) test(`AIT-145: ${transport} hangup stops playback and capture before stalled SDK cleanup`, async t => {
   const local = fixture(), session = await local.client.start({ callId: `end_${transport}`, transport }, invocationOptions());
   const conversation = local.sdk.conversations.at(-1), cleanup = conversation.endSession, released = Promise.withResolvers();
