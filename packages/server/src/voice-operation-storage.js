@@ -10,6 +10,10 @@ const overlaps = (a, b) => a?.some(identity => b?.includes(identity));
 const consistent = (a = [], b = []) => [...a, ...b].every(identity => /^(?:message|event|turn):.+$/su.test(identity)) &&
   a.every(identity => !b.some(other => namespace(identity) === namespace(other) && identity !== other));
 const providerAlias = identity => `provider:${JSON.stringify(identity)}`;
+// Receipt correlation is confined to a call's admitted sequence. This digest
+// never supplies an operation key or deduplicates equal text in another slot.
+const inputDigest = (context, content) => hash([context.sessionId, context.callId, context.providerSessionId,
+  content.trim().replace(/\s+/gu, ' ')]);
 
 /** Private durable operations. Reply bytes use the ordinary erasable content store. */
 export function createVoiceOperationStore(storage) {
@@ -51,6 +55,10 @@ export function createVoiceOperationStore(storage) {
   const saveReceipt = (context, receipt) => db.prepare(`INSERT INTO voice_turn_receipts VALUES (?,?,?,?,?)
     ON CONFLICT(session_id,call_id,provider_id,receipt_id) DO UPDATE SET record=excluded.record`)
     .run(context.sessionId, context.callId, context.providerSessionId, receipt.id, JSON.stringify(receipt));
+  const predecessorTurnId = operation => {
+    const predecessor = get(operation.afterOperationKey);
+    return predecessor?.canonical ? predecessor.turnId : operation.afterTurnId;
+  };
   function bind(operation, receipt) {
     if (!consistent(operation.providerIdentity, receipt.providerIdentity) ||
       operation.canonical && operation.turnId !== receipt.turnId) refused('voice-turn-fenced');
@@ -100,9 +108,16 @@ export function createVoiceOperationStore(storage) {
       const matching = records.filter(receipt => overlaps(providerIdentity, receipt.providerIdentity));
       if (matching.length > 1) refused('voice-turn-fenced');
       const recorded = records.find(receipt => receipt.turnId === context.recordedTurnId);
-      const positional = records.find(receipt => (receipt.ordinal ?? receipt.position) === ordinal);
-      const receipt = matching[0] ?? (recorded && consistent(providerIdentity, recorded.providerIdentity) ? recorded : undefined)
-        ?? (positional && consistent(providerIdentity, positional.providerIdentity) ? positional : undefined);
+      const positional = records.find(receipt => receipt.ordinal === ordinal);
+      const digest = users.length ? inputDigest(context, users.at(-1).content) : undefined;
+      const unbound = records.filter(receipt => digest !== undefined && !receipt.operationKey && receipt.inputDigest === digest &&
+        consistent(providerIdentity, receipt.providerIdentity));
+      // A bound receipt's ordinal is admission order, never receipt-arrival
+      // position. An unbound final can be located within the callback's slot.
+      const receipt = matching[0] ?? (positional && consistent(providerIdentity, positional.providerIdentity) ? positional : undefined)
+        ?? (recorded && (recorded.ordinal === undefined || recorded.ordinal === ordinal) &&
+          consistent(providerIdentity, recorded.providerIdentity) ? recorded : undefined)
+        ?? (unbound.length === 1 ? unbound[0] : undefined);
       if (receipt && !consistent(providerIdentity, receipt.providerIdentity)) refused('voice-turn-fenced');
       const turnId = receipt?.turnId ?? (!recorded ? context.recordedTurnId : undefined);
       const identities = providerIdentity?.map(providerAlias);
@@ -137,7 +152,10 @@ export function createVoiceOperationStore(storage) {
       key = hash([context.sessionId, context.callId, context.providerSessionId, identity]);
       operation = { key, sessionId: context.sessionId, callId: context.callId, providerSessionId: context.providerSessionId,
         turnId: turnId ?? reservedTurnId,
-        canonical: Boolean(turnId), ordinal, providerIdentity, afterTurnId: latestUser(session)?.id ?? null,
+        canonical: Boolean(turnId), ordinal, providerIdentity, inputDigest: digest,
+        afterTurnId: latestUser(session)?.id ?? null,
+        afterOperationKey: list(context.sessionId).filter(op => op.callId === context.callId &&
+          op.providerSessionId === context.providerSessionId && op.ordinal < ordinal).at(-1)?.key ?? null,
         consentRevision: session.conversationConsentRevision ?? session.consentRevision, withdrawalRevision: session.withdrawalRevision,
         state: 'pending', fence: id, createdAt: now, attempts: [{ id, startedAt: now, state: 'pending' }] };
       assertCurrent(operation);
@@ -205,18 +223,24 @@ export function createVoiceOperationStore(storage) {
   // Called inside the final-event transaction, including a typed echo receipt.
   function bindTurn(context, turn) {
     if (turn.role !== 'user') return;
-    const session = storage.get(context.sessionId), records = receipts(context);
+    const session = storage.get(context.sessionId);
     const previous = session.transcript.filter(t => t.role === 'user' && t.id !== turn.id).at(-1)?.id ?? null;
     const receiptId = context.event.turnId;
     const providerIdentity = voiceTurnIdentities(context.event) ?? [`event:${receiptId.slice(`${context.providerSessionId}:user:`.length)}`];
-    const receipt = { id: receiptId, turnId: turn.id, providerIdentity, position: records.length + 1 };
+    const receipt = { id: receiptId, turnId: turn.id, providerIdentity,
+      inputDigest: inputDigest(context, turn.content) };
     const candidates = list(context.sessionId).filter(op => op.callId === context.callId && op.providerSessionId === context.providerSessionId &&
       consistent(op.providerIdentity, providerIdentity) && (!op.canonical || op.turnId === turn.id));
     const exact = candidates.filter(op => overlaps(op.providerIdentity, providerIdentity));
+    const byInput = candidates.filter(op => op.inputDigest === receipt.inputDigest);
     // Typed echoes point at the original typed turn, not its predecessor.
-    // Positional matching is allowed only when there is no contradictory ID.
-    const operation = exact.length === 1 ? exact[0] : exact.length ? undefined : candidates.find(op =>
-      !op.canonical && op.ordinal === receipt.position && op.afterTurnId === (context.typedEcho ? turn.id : previous));
+    // Receipts may arrive in either order. Locate an admitted slot by its input,
+    // then resolve its predecessor through the durable operation chain. Binding
+    // A later changes B's predecessor's canonical ID, never B's admitted order.
+    const anchored = (byInput.length ? byInput : candidates.filter(op => op.inputDigest === undefined)).filter(op =>
+      !op.canonical && predecessorTurnId(op) === (context.typedEcho ? turn.id : previous));
+    const operation = exact.length === 1 ? exact[0] : exact.length ? undefined
+      : byInput.length === 1 ? byInput[0] : anchored.length === 1 ? anchored[0] : undefined;
     if (operation) bind(operation, receipt);
     else saveReceipt(context, receipt);
   }

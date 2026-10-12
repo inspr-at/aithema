@@ -451,11 +451,17 @@ test('AIT-144: only a current final open question can supply voice focus', async
     ['current final', {}, true], ['draft', { draft: true }, false],
     ['removed from current questions', { openQuestions: [] }, false],
   ]) {
+    // Understanding changes alone do not create a new voice operation. Give
+    // each focus case a final user turn and its own callback admission.
+    h.storage.postVoiceEvent(h.session.id, h.grant.callId, h.grant.providerSessionId, {
+      type: 'final', callId: h.grant.callId, turnId: `${h.grant.providerSessionId}:user:focus-${name}`,
+      role: 'user', text: `Input for ${name}` });
     voiceUnderstanding(h, question, options);
     await h.callback(h.recorded());
     const messages = h.requests.at(-1).messages;
     assert.equal(messages.some(m => m.content.includes('untrusted-focused-question')), expected, name);
   }
+  assert.equal(h.requests.length, 3, 'all three cases build fresh requests');
 });
 
 test('AIT-144: voice guidance varies openings and limits speech to one short question', async t => {

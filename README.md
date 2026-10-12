@@ -605,9 +605,13 @@ utterance.
 
 Private receipt bindings preserve the provider event identity and the canonical
 turn separately. A typed echo binds explicitly to its original typed turn;
-position/predecessor matching never overrides conflicting provider IDs. An older
-receipt arriving after a newer admitted callback retains its earlier operation
-ordinal, so receipt arrival order cannot make the current paid operation obsolete.
+receipt matching never overrides conflicting provider IDs. Admission records the
+user-history ordinal and predecessor operation key before either final arrives.
+Within that call and generation, an input digest locates an ID-less receipt in
+the admitted sequence; it never defines operation identity. Predecessor keys
+resolve to canonical turns as receipts arrive, including across restart. A receipt
+keeps its operation's ordinal rather than its arrival position, so late older
+finals cannot invalidate a streaming reply or an already-open completed replay.
 
 Operations move from `pending` to `completed` or `failed`. Concurrent callbacks
 join one admission and model stream; disconnecting a reader leaves the operation
