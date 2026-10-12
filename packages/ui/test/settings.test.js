@@ -5,6 +5,7 @@ import { createSession, applyEvent } from '@inspr/aithema-core';
 import { voiceEvents } from '../../core/src/live-voice.js';
 import { manifest as voiceManifest } from '../../../plugins/elevenlabs/src/manifest.js';
 import { en } from '../src/i18n/en.js';
+import { de } from '../src/i18n/de.js';
 const window = new Window();
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
 await import('../src/session-element.js');
@@ -34,8 +35,9 @@ function catalogFor(session) {
     custom: preset({ status: 'consent', reason: 'current processing consent required', defaults: { model: 'mock/deep', effort: 'high', voice: 'off', visuals: 'off' },
       models: models.slice(0, 2), voices, visuals }) } };
 }
-function fixture(t, { origin = 'default', turns = 0, voiceClient, deviceConnector, matrix = {}, respond } = {}) {
+function fixture(t, { origin = 'default', turns = 0, voiceClient, deviceConnector, matrix = {}, respond, copy = en, host, identity } = {}) {
   let session = createSession({ demo: true });
+  if (identity !== undefined) session.identity = identity;
   for (let i = 0; i < turns; i++) session = applyEvent(session, { seq: session.seq + 1, type: 'turn.final', data: { id: `t${i}`, role: 'user', content: 'Hello' } });
   session.settings = { revision: 0, model: 'mock', effort: 'none', voice: 'fake-voice', visuals: 'off', origin, at: null };
   session.engine = engineFor('best', session.settings);
@@ -61,7 +63,7 @@ function fixture(t, { origin = 'default', turns = 0, voiceClient, deviceConnecto
     if (String(url).endsWith('/events')) return new Response(new ReadableStream({ start(controller) { init.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
     return Response.json(server.session);
   };
-  c.configure({ copy: structuredClone(en), session, voiceClient, deviceConnector });
+  c.configure({ copy: structuredClone(copy), session, voiceClient, deviceConnector, host });
   // Focus only exists in a connected document; the SSE fetch above never ends.
   document.body.append(c);
   t.after(async () => { c.remove(); await tick(); globalThis.fetch = original; });
@@ -71,6 +73,78 @@ function fixture(t, { origin = 'default', turns = 0, voiceClient, deviceConnecto
   return { c, root, dialog, q, posts, option, ack, server };
 }
 async function opened(h) { h.c.openSettings(); await tick(); return h; }
+
+const guestIdentity = { status: 'guest', address: null, verificationRequired: false, assessmentUnlocked: true, pollVerification: false };
+const emailHelp = {
+  de: 'Allgemein · Hier können Sie ein neues Gespräch beginnen, die Einwilligung und Ihre Voreinstellungen prüfen und Ihre E-Mail bestätigen.',
+  en: 'General · Start a new conversation, review consent and your defaults, and verify your email.',
+};
+for (const [locale, copy] of Object.entries({ de, en })) for (const state of ['off', 'guest', 'verification-pending', 'verified']) {
+  test(`AIT-147 footer: ${locale}, verification ${state}`, async t => {
+    const h = await opened(fixture(t, { copy, host: { verification: state !== 'off' },
+      identity: { ...guestIdentity, status: state === 'off' ? 'guest' : state, address: state === 'verification-pending' || state === 'verified' ? 'visitor@example.com' : null } }));
+    h.q('[data-tab="general"]').click();
+    assert.equal(h.q('.host-verify').hidden, state === 'off');
+    assert.equal(h.q('.context-message').textContent, state === 'off' ? copy.help.general : emailHelp[locale]);
+  });
+}
+
+test('AIT-147 footer: an enabled host without an identity port keeps the original hint', async t => {
+  const h = await opened(fixture(t, { host: { verification: true }, identity: null }));
+  h.q('[data-tab="general"]').click();
+  assert.equal(h.q('.host-verify').hidden, true);
+  assert.equal(h.q('.context-message').textContent, en.help.general);
+});
+
+async function verificationDraft(t, options = {}) {
+  const h = await opened(fixture(t, { copy: de, host: { verification: true }, identity: guestIdentity, ...options }));
+  h.q('[data-select="model"] .select__button').click(); h.option('model', 'Deep (mock)').click(); await tick(6);
+  assert.equal(h.c.session.settings.effort, 'medium');
+  const effort = h.q('#settings-effort'); effort.value = '2'; effort.dispatchEvent(new window.Event('input', { bubbles: true }));
+  h.q('[data-tab="general"]').click();
+  assert.equal(h.posts.length, 1, 'the effort change is still inside the autosave debounce');
+  assert.equal(h.q('.verify-entry').textContent, 'E-Mail bestätigen');
+  return h;
+}
+
+test('AIT-147 verify: flushes a draft inside the autosave debounce and waits for its acknowledgement', async t => {
+  const held = Promise.withResolvers(); t.after(() => held.resolve());
+  const h = await verificationDraft(t, { respond: async (body, n, ack) => { if (n === 2) await held.promise; return ack(body); } });
+  h.q('.verify-entry').click(); await tick(6);
+  assert.equal(h.posts.length, 2, 'verification sends the pending draft before closing Settings');
+  assert.equal(h.posts[1].effort, 'high');
+  assert.equal(h.dialog.open, true, 'Settings stays open until the host acknowledges the draft');
+  assert.equal(h.root.querySelector('dialog.verify-dialog').open, false);
+  held.resolve(); await tick(12);
+  assert.equal(h.c.session.settings.effort, 'high'); assert.equal(h.server.session.settings.effort, 'high');
+  assert.equal(h.dialog.open, false); assert.equal(h.root.querySelector('dialog.verify-dialog').open, true);
+  h.root.querySelector('.verify-dialog-close').click(); await tick();
+  assert.equal(h.root.activeElement, h.root.querySelector('.settings-open'));
+});
+
+test('AIT-147 verify: a failed flush keeps the draft in Settings for retry', async t => {
+  const h = await verificationDraft(t, { respond: (body, n, ack) => n === 2 ? new Response(null, { status: 503 }) : ack(body) });
+  h.q('.verify-entry').click(); await tick(10);
+  assert.equal(h.dialog.open, true); assert.equal(h.root.querySelector('dialog.verify-dialog').open, false);
+  assert.equal(h.q('.save-status').textContent, de.settings.failed); assert.equal(h.q('#settings-effort').value, '2');
+  h.q('.save-retry').click(); await tick(10);
+  assert.equal(h.c.session.settings.effort, 'high');
+  h.q('.verify-entry').click(); await tick(6);
+  assert.equal(h.dialog.open, false); assert.equal(h.root.querySelector('dialog.verify-dialog').open, true);
+});
+
+test('AIT-147 verify: an explicit voice-call notice keeps the unsaved draft in Settings', async t => {
+  const events = voiceEvents();
+  const call = { callId: 'call', providerSessionId: 'provider', events, async setInput() {}, async setOutput() {}, async sendText() {},
+    async updateContext() {}, async pause() { return { acknowledged: true, paused: true }; }, async resume() { return { acknowledged: true, paused: false }; },
+    async close() { events.end(); return { closureConfirmed: true }; } };
+  const h = await verificationDraft(t, { voiceClient: { manifest: voiceManifest, async start() { return call; } } });
+  h.root.querySelector('.voice-start').click(); await tick(6);
+  h.q('.verify-entry').click(); await tick(10);
+  assert.equal(h.dialog.open, true); assert.equal(h.root.querySelector('dialog.verify-dialog').open, false);
+  assert.equal(h.posts.length, 1); assert.equal(h.q('.notice-text').textContent, de.settings.callActive);
+  assert.equal(h.q('#settings-effort').value, '2');
+});
 
 test('Settings opens a labelled modal on the AI model tab with keyboard tabs and radios; Escape returns focus to the opener', async t => {
   const h = fixture(t), opener = h.root.querySelector('.settings-open');

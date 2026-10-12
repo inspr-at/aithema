@@ -171,7 +171,7 @@ test('without the lock, verification opens from Settings General and returns foc
   assert.equal(settings.open, true);
   const button = root.querySelector('.host-verify .verify-entry');
   assert.equal(button.hidden, false); assert.equal(button.getAttribute('aria-haspopup'), 'dialog');
-  button.click();
+  button.click(); await tick();
   const dialog = root.querySelector('dialog.verify-dialog');
   assert.equal(settings.open, false);
   assert.equal(dialog.open, true);
@@ -196,7 +196,7 @@ test('AIT-131 r3: Settings email states follow identity events in DE and EN with
     assert.equal(section.querySelector('.verify-entry-address').textContent, 'visitor@example.com');
     assert.equal(section.querySelector('.verify-entry-status').textContent, words[3]);
     assert.equal(section.querySelector('.verify-entry'), button); assert.equal(button.textContent, words[4]);
-    button.click();
+    button.click(); await tick();
     assert.equal(root.querySelector('dialog.settings').open, false); assert.equal(root.querySelector('dialog.verify-dialog').open, true);
     assert.equal(root.activeElement, root.querySelector('dialog.verify-dialog .verify-resend'));
     root.querySelector('.verify-dialog-close').click(); await tick();
@@ -435,7 +435,7 @@ test('AI notice: visible inside the verification dialog; the Reset confirmation 
   await tick();
   const notice = root.querySelector('#ai-notice').textContent;
   assert.ok(notice.length > 0);
-  root.querySelector('.host-verify .verify-entry').click();
+  root.querySelector('.host-verify .verify-entry').click(); await tick();
   const dialog = root.querySelector('dialog.verify-dialog'), line = dialog.querySelector('.verify-dialog__notice');
   assert.equal(dialog.open, true);
   assert.ok(line && dialog.contains(line), 'the notice is inside the modal, not behind it');
