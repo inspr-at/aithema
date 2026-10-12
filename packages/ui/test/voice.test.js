@@ -153,6 +153,78 @@ test('component sends typed text through active voice, updates context and accep
   settle({ closureConfirmed: true }); await tick();
 });
 
+for (const change of [
+  { name: 'draft grant', draftsBefore: false, draftsAfter: true, preserved: true },
+  { name: 'draft withdrawal', draftsBefore: true, draftsAfter: false, preserved: true },
+  { name: 'reasoning withdrawal', draftsBefore: true, draftsAfter: true, preserved: false },
+  { name: 'voice withdrawal', draftsBefore: true, draftsAfter: true, preserved: false },
+]) test(`consent.revised during a call: ${change.name} ${change.preserved ? 'keeps the SDK, rail and partial reply' : 'closes the SDK and clears the partial reply'}`, async t => {
+  const session = createSession({ demo: true });
+  session.featureMatrix = { best: { voice: { available: true }, text: { available: true }, analysis: { available: true },
+    html: { available: change.draftsBefore, reason: change.draftsBefore ? null : 'current processing consent required' } } };
+  const c = document.createElement('aithema-session'), closed = [], ended = [];
+  let callId, callbacks, drafts = change.draftsBefore, refreshes = 0;
+  t.mock.method(globalThis, 'fetch', async (url, options = {}) => {
+    if (url.endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+      options.signal.addEventListener('abort', () => controller.close(), { once: true });
+    } }));
+    assert.equal(url, `/api/sessions/${session.id}`);
+    refreshes++;
+    const snapshot = c.session;
+    snapshot.featureMatrix.best.html = { available: drafts, reason: drafts ? null : 'current processing consent required' };
+    return Response.json(snapshot);
+  });
+  const control = {
+    async start(request) { callId = request.callId; return { callId, providerSessionId: 'consent-provider',
+      credential: { providerSessionId: 'consent-provider', connectionType: 'webrtc', conversationToken: 'fixture-token', ttlMs: 60_000 },
+      spendDeadlineAt: Date.now() + 60_000, browserLivenessDeadlineAt: Date.now() + 30_000 }; },
+    async close(identity) { closed.push(identity); return { closureConfirmed: true }; },
+    async pause() {}, async resume() {}, async heartbeat() {},
+  };
+  const client = createElevenLabsClient({ control, persistEvent: async () => {}, sdk: {
+    async startSession(options) { callbacks = options; return {
+      getId: () => 'consent-provider', setMicMuted() {}, setVolume() {}, sendContextualUpdate() {},
+      async endSession() { ended.push(callId); },
+    }; },
+  } });
+  c.configure({ copy: en, session, voiceClient: client }); document.body.append(c);
+  t.after(async () => { c.remove(); await tick(); });
+  const root = c.shadowRoot, rail = root.querySelector('.audio-rail');
+  root.querySelector('.voice-start').click(); await tick();
+  assert.equal(rail.dataset.state, 'listening'); assert.equal(rail.dataset.call, 'active');
+  c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'source', role: 'user', content: 'Repairs' } });
+  const revision = inputRevision(c.session);
+  c.receive({ type: 'turn.partial', data: { id: 'reply', delta: 'Unfinished', inputRevision: revision } });
+  const partial = root.querySelector('.partial'); assert.equal(partial.querySelector('span').textContent, 'Unfinished');
+
+  drafts = change.draftsAfter;
+  // The server keeps the session-wide grant on selective saves. Only a draft-only
+  // change carries its explicit conversation preservation flag.
+  c.receive({ seq: c.session.seq + 1, type: 'consent.revised', data: { granted: true,
+    ...(change.preserved ? { conversationUnchanged: true } : {}) } }); await tick();
+  assert.equal(refreshes, 1, 'every consent save refreshes the authoritative feature verdicts');
+  assert.equal(c.session.featureMatrix.best.html.available, drafts);
+  if (change.preserved) {
+    assert.deepEqual(ended, [], 'the browser SDK remains connected');
+    assert.deepEqual(closed, [], 'the live call is never closed');
+    assert.equal(root.querySelector('.audio-rail'), rail); assert.equal(rail.dataset.call, 'active');
+    assert.equal(rail.dataset.state, 'listening'); assert.equal(root.querySelector('.voice-close').disabled, false);
+    assert.equal(root.querySelector('.partial'), partial); assert.equal(partial.querySelector('span').textContent, 'Unfinished');
+    assert.equal(inputRevision(c.session), revision);
+    callbacks.onModeChange({ mode: 'speaking' }); await tick();
+    assert.equal(rail.dataset.state, 'speaking', 'the same SDK still drives the rail');
+    c.receive({ type: 'turn.partial', data: { id: 'reply', delta: ' answer', inputRevision: revision } });
+    assert.equal(root.querySelector('.partial'), partial); assert.equal(partial.querySelector('span').textContent, 'Unfinished answer');
+  } else {
+    assert.deepEqual(ended, [callId], 'required consent withdrawal disconnects the browser SDK');
+    assert.deepEqual(closed.map(({ callId: id }) => id), [callId], 'required consent withdrawal closes the live call');
+    assert.equal(rail.dataset.call, 'none'); assert.equal(rail.dataset.state, 'idle');
+    assert.equal(root.querySelector('.partial'), null);
+    c.receive({ type: 'turn.partial', data: { id: 'reply', delta: ' late', inputRevision: revision } });
+    assert.equal(root.querySelector('.partial'), null, 'invalidated fragments cannot restore a withdrawn reply');
+  }
+});
+
 test('closing notification ends the browser SDK before slow provider settlement', async t => {
   const session = createSession({ demo: true });
   session.featureMatrix = { best: { voice: { available: true }, text: { available: true }, analysis: { available: true } } };
