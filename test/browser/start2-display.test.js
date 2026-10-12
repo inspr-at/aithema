@@ -363,7 +363,8 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
       assert.deepEqual(links.map(n => n.title), copy.reveal.links.map(link => link.subtitle));
       const band = (await boxes(page, ['.band']))[0];
       assert.ok(links.every(n => n.opacity === '1' && n.right <= width + .5 && n.bottom <= band[1] + band[3]), `${label}: reveal links fit the real band`);
-      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.aithema-reveal__version code').textContent), evidenceCommit);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.aithema-reveal__version code').textContent), evidenceCommit.slice(0, 10));
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.aithema-reveal__version code').title), evidenceCommit);
       assert.match(await shadow(page, c => c.shadowRoot.querySelector('.aithema-reveal__version').title), /2026-10-12/);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.aithema-reveal__row').getAttribute('aria-label')), copy.reveal.label);
       const controls = await shadow(page, (c, baseline) => [...c.shadowRoot.querySelectorAll('.band [data-reveal]')].map((n, i) => ({

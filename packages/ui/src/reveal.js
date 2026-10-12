@@ -99,7 +99,9 @@ export function createReveal({ band, orb, controls = [], links, version = {}, co
   });
   const build = document.createElement('span'); build.className = 'aithema-reveal__version aithema-reveal__rise'; build.style.setProperty('--ar-i', (links ?? text.links ?? []).length + 1);
   build.title = (text.build ?? '{date}').replace('{date}', version.date ?? '');
-  const product = document.createElement('span'), commit = document.createElement('code'); product.textContent = version.product ?? ''; commit.textContent = version.commit ?? ''; build.append(product, commit); row.append(build);
+  const product = document.createElement('span'), commit = document.createElement('code'), sourceCommit = version.commit ?? '';
+  product.textContent = version.product ?? ''; commit.textContent = /^[a-f0-9]{40,64}$/iu.test(sourceCommit) ? sourceCommit.slice(0, 10) : sourceCommit;
+  commit.title = sourceCommit; build.append(product, commit); row.append(build);
   const bandAttributes = remember(band, ['data-aithema-reveal-state', 'data-aithema-reveal-motion', 'data-aithema-reveal-paused']);
   const triggerAttributes = remember(trigger, ['aria-hidden', 'role', 'tabindex', 'aria-label', 'aria-expanded', 'aria-controls']);
   const hadClass = band.classList.contains('aithema-reveal-band'), originalPosition = band.style.position;
