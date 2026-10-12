@@ -73,6 +73,8 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
     const scope = operationScope(options);
     let invocation, completed = false, reporting, reservation = null, dispatched = false, cost = null, ceiling = null;
     const checkLifetime = () => { scope.signal.throwIfAborted(); if (Date.now() >= options.deadlineAt) throw new PluginError('deadline'); };
+    // Report synchronously on abort before the lane can fall back to its larger
+    // binding hold. Both ledgers retain the dispatched request's computed ceiling.
     const scoped = { ...options, signal: scope.signal, report: terminal => (reporting = Promise.resolve(options.report({
       ...terminal, ...(dispatched ? { chargedMicro: cost ?? ceiling } : {}) }))) };
     const checkedResponse = response => {

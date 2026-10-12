@@ -147,12 +147,14 @@ test('concurrent calls cannot overcommit; a reservation left by a crash stays co
 test('unknown cost and dispatched HTTP refusals keep the full computed ceiling', async t => {
   const f = await fake(t, { maxMicro: 700_000 });
   f.respond((_req, res) => res.end(completion(dummy, { prompt_tokens: 5, completion_tokens: 6 })));
-  await f.plugin.generate(spec, '', options()); assert.equal(f.spent().spentMicro, f.ceiling());
+  const completed = options();
+  await f.plugin.generate(spec, '', completed); assert.equal(f.spent().spentMicro, f.ceiling());
+  assert.equal(completed.reports[0].chargedMicro, f.ceiling(), 'tokens alone do not lower the wallet below the account charge');
   for (const [status, code] of [[401, 'auth'], [402, 'limit'], [403, 'auth'], [429, 'rate-limit'], [500, 'provider']]) {
     const before = f.spent().spentMicro;
     f.respond((_req, res) => { res.writeHead(status); res.end('private-provider-detail'); });
     const o = options(); await assert.rejects(f.plugin.generate(spec, '', o), error => error.code === code && error.message === code);
-    assert.deepEqual(o.reports, [{ attemptId: o.attempt.attemptId, outcome: 'uncertain' }]);
+    assert.deepEqual(o.reports, [{ attemptId: o.attempt.attemptId, outcome: 'uncertain', chargedMicro: f.ceiling() }]);
     assert.equal(f.spent().spentMicro - before, f.ceiling(), String(status)); assert.deepEqual(f.spent().reservations, {});
   }
   assert.equal(costMicro(0.1), 100_000); assert.equal(costMicro(0.0000001), 1); assert.equal(costMicro(-1), null); assert.equal(costMicro('1'), null);
@@ -166,7 +168,7 @@ test('preflight cancellation and deadlines settle once at zero without dispatch 
   }
   assert.equal(f.requests.length, 0); assert.throws(() => f.spent(), /ENOENT/u);
 });
-test('active cancellation and deadlines end stalled calls as uncertain at the claim maximum', { timeout: 10_000 }, async t => {
+test('active cancellation and deadlines end stalled calls as uncertain at the computed request ceiling', { timeout: 10_000 }, async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
   const f = await fake(t, { maxMicro: 400_000 }), previous = await editSource(t);
   for (const operation of ['generate', 'edit']) for (const mode of ['cancelled', 'deadline']) {
@@ -190,7 +192,8 @@ test('active cancellation and deadlines end stalled calls as uncertain at the cl
       t.mock.timers.tick(1);
     } else controller.abort();
     await rejected;
-    assert.deepEqual(o.reports, [{ attemptId: o.attempt.attemptId, outcome: 'uncertain' }]);
+    assert.deepEqual(o.reports, [{ attemptId: o.attempt.attemptId, outcome: 'uncertain',
+      chargedMicro: callCeilingMicro(JSON.parse(f.requests.at(-1).init.body).messages, f.binding) }]);
   }
   assert.equal(f.requests.length, 4); assert.equal(f.records.length, 4);
   assert.equal(f.spent().spentMicro, f.requests.reduce((sum, r) => sum + callCeilingMicro(JSON.parse(r.init.body).messages, f.binding), 0));
@@ -201,7 +204,9 @@ test('ignored transport cancellation still returns promptly with one uncertain t
   const plugin = f.make({ fetchImpl() { dispatched(); return new Promise(() => {}); } });
   const controller = new AbortController(), o = options({ signal: controller.signal });
   const pending = plugin.generate(spec, '', o); await started; controller.abort();
-  await assert.rejects(pending, { code: 'cancelled' }); assert.deepEqual(o.reports, [{ attemptId: o.attempt.attemptId, outcome: 'uncertain' }]);
+  await assert.rejects(pending, { code: 'cancelled' });
+  assert.deepEqual(o.reports, [{ attemptId: o.attempt.attemptId, outcome: 'uncertain', chargedMicro: f.ceiling() }]);
+  assert.equal(f.spent().spentMicro, o.reports[0].chargedMicro);
 });
 test('authority refusal does not dispatch, reserve spend or invent a second terminal report', async t => {
   const f = await fake(t), o = options();
