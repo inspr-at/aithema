@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { request as httpRequest } from 'node:http';
 import { createCompletionsHandler, bearerMatches, MAX_COMPLETION_REQUEST_BYTES } from '../src/facade.js';
 import { beginInvocation, PluginError } from '../../../packages/core/src/invocation.js';
 import { operationScope } from '../../../packages/core/src/reasoning.js';
@@ -10,6 +11,7 @@ import { PluginRegistry } from '../../../packages/core/src/plugins.js';
 import { createOpenRouterReasoning } from '../../openrouter/src/index.js';
 import { binding, openRouterPrices } from '../../../test/plugin-fixtures.js';
 import { testToken } from '../../../test/helpers.js';
+import { listen } from '../../../packages/server/src/http.js';
 
 function runtimeFixture(t, { coverage, consentAvailable = true } = {}) {
   const storage = new SQLiteStorage(); t.after(() => storage.close());
@@ -179,6 +181,23 @@ test('AIT-130: chunked oversized bodies are bounded even without Content-Length'
   assert.equal(response.status, 413); assert.deepEqual(await response.json(), { error: 'limit' });
   assert.equal(sent, 3); assert.equal(cancelled, true); assert.equal(local.admissions.length, 0);
   assert.equal(JSON.parse(local.logs[0]).requestBytes, 1536);
+});
+test('AIT-130: HTTP callback sends JSON 413 while an oversized upload is still in progress', { timeout: 5000 }, async t => {
+  const local = facadeFixture({ maxRequestBytes: 1024 }), { server, url } = await listen(local.handler);
+  t.after(async () => { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
+  const response = await new Promise((resolve, reject) => {
+    const upload = httpRequest(url, { method: 'POST', headers: { authorization: 'Bearer fixture-per-call-secret',
+      'content-type': 'application/json', 'content-length': '100000' } }, incoming => {
+      const chunks = []; incoming.on('data', chunk => chunks.push(chunk)); incoming.on('error', reject);
+      incoming.on('end', () => { resolve({ status: incoming.statusCode, body: Buffer.concat(chunks).toString() }); upload.destroy(); });
+    });
+    upload.on('error', reject); t.after(() => upload.destroy());
+    // Keep the remainder unsent, proving reader cancellation cannot destroy the socket before the JSON reply.
+    upload.write('x'.repeat(1025));
+  });
+  assert.equal(response.status, 413); assert.deepEqual(JSON.parse(response.body), { error: 'limit' });
+  assert.equal(local.admissions.length, 0); assert.equal(local.logs.length, 1);
+  assert.equal(JSON.parse(local.logs[0]).errorCode, 'limit');
 });
 test('AIT-130: stalled body reads and cancellation hooks cannot outlive the facade deadline', async () => {
   const local = facadeFixture({ timeoutMs: 30 }); let cancelled = false;
