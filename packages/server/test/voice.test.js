@@ -144,8 +144,8 @@ test('AIT-127: a locale body overtaken by a first turn is refused; a turn body o
 
 test('AIT-127: legacy facade provisioning receives the base URL for one completion suffix', async t => {
   const h = voiceFixture(t), call = await h.start();
-  assert.equal(h.provisioned[0].facadeUrl, `https://facade.test/api/voice/${call.callId}/llm`);
-  assert.equal(new URL(`${h.provisioned[0].facadeUrl}/chat/completions`).pathname, `/api/voice/${call.callId}/llm/chat/completions`);
+  assert.equal(h.provisioned[0].url, `https://facade.test/api/voice/${call.callId}/llm`);
+  assert.equal(new URL(`${h.provisioned[0].url}/chat/completions`).pathname, `/api/voice/${call.callId}/llm/chat/completions`);
 });
 
 for (const status of [500, 429]) {
