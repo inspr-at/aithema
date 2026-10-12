@@ -103,7 +103,7 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
     deliversVerification: demo,
     configuration() { return { demoBypass, ...(identityPolicy ? { policy: identityPolicy } : {}) }; },
     project({ session }, state) { return visitorCredits.projectIdentity(session.ownerHash, state); },
-    persist({ session }, state) { visitorCredits.persistIdentity(session.ownerHash, state); },
+    persist({ session }, state) { const result = visitorCredits.persistIdentity(session.ownerHash, state); purgeMail(); return result; },
     async requestVerification({ sessionId, ownerToken, address, revision, expiresAt }) {
       const session = storage.authorize(sessionId, ownerToken);
       if (!demo) return { status: 'failed' };

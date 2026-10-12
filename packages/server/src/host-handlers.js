@@ -74,12 +74,15 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     }, ownerToken ? { ownerToken } : {}));
   }
   function identityTransition(id, ownerToken, event) {
-    return emit(id, storage.transitionHost(id, (state, session) => {
+    let erased = false;
+    const result = emit(id, storage.transitionHost(id, (state, session) => {
       const identity = host.identity.project?.({ session }, state.identity) ?? state.identity;
       const result = reduceIdentity(identity, { ...event, now: clock(identity) });
-      host.identity.persist?.({ session }, result.state);
+      erased = host.identity.persist?.({ session }, result.state)?.erased === true;
       return { ...result, state: { ...state, identity: result.state } };
     }, { ownerToken }));
+    if (erased) storage.checkpointErasure();
+    return result;
   }
   function syncPause(id, ownerToken) {
     if (!host) return;

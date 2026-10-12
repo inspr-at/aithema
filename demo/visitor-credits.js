@@ -61,12 +61,19 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
       db.prepare('INSERT INTO visitor_credit_settings VALUES (1,1,1,10000000,10000000,10000000,0,?,?)').run(iso, iso);
       insertAudit(null, settings(), { actor: 'system:migration', source: 'migration' }, at);
       // No allowance bootstrap and no changes to owner hashes, ledger rows or wallet holds.
-      for (const row of db.prepare(`SELECT json_extract(snapshot,'$.ownerHash') owner_hash FROM sessions
-        WHERE json_extract(snapshot,'$.ownerHash') IS NOT NULL GROUP BY owner_hash`).all()) ensure(row.owner_hash);
+      const owners = db.prepare(`SELECT json_extract(s.snapshot,'$.ownerHash') owner_hash,MAX(json_extract(e.event,'$.at')) last_at
+        FROM sessions s LEFT JOIN events e ON e.session_id=s.id
+        WHERE json_extract(s.snapshot,'$.ownerHash') IS NOT NULL GROUP BY owner_hash`).all();
+      for (const row of owners) ensure(row.owner_hash);
       for (const row of db.prepare(`SELECT h.record,json_extract(s.snapshot,'$.ownerHash') owner_hash
         FROM host_states h JOIN sessions s ON s.id=h.session_id ORDER BY json_extract(h.record,'$.identity.lastNow')`).all()) {
         const identity = JSON.parse(row.record).identity;
-        if (identity?.address) persistIdentity(row.owner_hash, identity);
+        if (identity?.address) persistIdentity(row.owner_hash, identity, { migration: true });
+      }
+      for (const row of owners) {
+        const identity = JSON.parse(db.prepare('SELECT identity_json FROM visitor_identities WHERE owner_hash=?').get(row.owner_hash).identity_json);
+        const lastActive = Math.min(at, Math.max(Number.isFinite(Date.parse(row.last_at)) ? Date.parse(row.last_at) : 0, identity.lastNow ?? 0));
+        db.prepare('UPDATE visitor_identities SET last_active_at=? WHERE owner_hash=?').run(lastActive, row.owner_hash);
       }
     }
   });
@@ -98,21 +105,25 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
   }
   function projectIdentity(ownerHash, state) {
     const row = db.prepare('SELECT identity_json FROM visitor_identities WHERE owner_hash=?').get(ownerHash);
-    return { ...state, ...(row ? JSON.parse(row.identity_json) : clearedIdentity((state?.verificationRevision ?? 0) + 1)),
+    const identity = row ? JSON.parse(row.identity_json) : clearedIdentity((state?.verificationRevision ?? 0) + 1);
+    return { ...state, ...identity,
       // Session pauses and lock policy stay in the conversation; evidence is visitor-wide.
-      lastNow: Math.max(state?.lastNow ?? 0, row ? JSON.parse(row.identity_json).lastNow ?? 0 : 0) };
+      lastNow: Math.max(state?.lastNow ?? 0, identity.lastNow ?? 0) };
   }
-  function persistIdentity(ownerHash, state) {
-    const row = ensure(ownerHash), at = timestamp();
+  function persistIdentity(ownerHash, state, { migration = false } = {}) {
+    const row = ensure(ownerHash), at = migration && integer(state.lastNow) ? Math.min(timestamp(), state.lastNow) : timestamp();
     const changed = row.address !== state.address;
+    const erased = changed && row.address !== null && !migration;
+    if (erased) drainOwnerProjections(ownerHash);
     const confirmed = state.status === 'verified';
     db.prepare(`UPDATE visitor_identities SET address=?,address_revision=?,saved_at=?,confirmed_at=?,pending_at=?,
       identity_json=?,updated_at=?,last_active_at=MAX(last_active_at,?) WHERE visitor_ref=?`)
       .run(state.address, state.verificationRevision, confirmed ? row.saved_at ?? at : row.saved_at,
         confirmed ? changed ? at : row.confirmed_at ?? at : null,
-        state.status === 'verification-pending' ? row.pending_at ?? at : null,
+        state.status === 'verification-pending' ? state.verificationRevision !== row.address_revision ? at : row.pending_at ?? at : null,
         JSON.stringify(fields(state)), at, at, row.visitor_ref);
     if (changed) db.prepare('DELETE FROM visitor_confirmation_tokens WHERE visitor_ref=?').run(row.visitor_ref);
+    return { erased };
   }
   const queueCleanup = ownerHash => db.prepare('INSERT OR REPLACE INTO visitor_identity_cleanup VALUES (?,?)').run(ownerHash, new Date(timestamp()).toISOString());
   function clearAddress(ownerHash) {

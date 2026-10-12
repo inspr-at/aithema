@@ -7,6 +7,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { SQLiteStorage, createSpendCap } from '../../packages/server/src/index.js';
 import { createDemoHost } from '../host-ports.js';
+import { startChild, temporaryDb, post } from '../../test/helpers.js';
 const execute = promisify(execFile);
 
 test('AIT-135 OPS socket is private, owns the audit actor, reports the cap read-only and returns 409 on replay', async t => {
@@ -32,6 +33,8 @@ test('AIT-135 OPS socket is private, owns the audit actor, reports the cap read-
     { capMicro: 100, confirmedMicro: 9, reservedMicro: 11, uncertainMicro: 12, remainingMicro: 68, breached: false });
   assert.match(cap.body.recovery, /reconcil/iu);
   assert.equal((await adminRequest(path, 'set-provider-cap', { capMicro: 1000 })).status, 404);
+  const breached = spendCap.reserve(1); spendCap.settle(breached, 2);
+  assert.equal((await adminRequest(path, 'provider-cap')).body.breached, true);
 });
 
 test('AIT-135 CLI talks only to a running host and refuses offline without opening SQLite', async t => {
@@ -49,4 +52,29 @@ test('AIT-135 CLI talks only to a running host and refuses offline without openi
     assert.equal(host.visitorCredits.settings().allowancesMicro.emailGiven, 15_000_000);
   } finally { await admin.close(); }
   await assert.rejects(execute(process.execPath, [cli.pathname, '--socket', path, 'settings']), error => /host is not running/iu.test(error.stderr));
+});
+
+test('AIT-135 the running start2 host exposes OPS only on its socket, with $1000 ledger subcaps and no owner deadline', { timeout: 15_000 }, async t => {
+  const { adminRequest } = await import('../admin-socket.js');
+  const db = await temporaryDb(), socketPath = join(db, '..', 'ops', 'aithema-admin.sock');
+  const running = await startChild(new URL('../server.js', import.meta.url), db); t.after(() => running.kill());
+  assert.equal((await stat(socketPath)).mode & 0o777, 0o600);
+  assert.equal((await adminRequest(socketPath, 'settings')).body.allowancesMicro.anonymous, 10_000_000);
+  for (const path of ['/settings', '/set-allowances', '/audit', '/provider-cap', '/api/admin/settings', '/demo/admin-socket.js']) {
+    assert.equal((await fetch(running.url + path)).status, 404);
+  }
+  const created = await post(running.url + '/api/sessions', {}), session = await created.json();
+  const headers = { cookie: created.headers.get('set-cookie').split(';')[0] };
+  const credits = await fetch(running.url + `/api/sessions/${session.id}/credits`, { headers }).then(r => r.json());
+  assert.equal(credits.limitSlot, null);
+  assert.equal(credits.balance.session.limitMicro, 1_000_000_000);
+  assert.equal(credits.balance.voiceVisitor.limitMicro, 1_000_000_000);
+  const initial = (await adminRequest(socketPath, 'settings')).body;
+  await adminRequest(socketPath, 'set-allowances', { baseRevision: initial.revision, allowancesUsd: { anonymous: '10', emailGiven: '15', emailConfirmed: '20' } });
+  const notice = await fetch(running.url + '/api/visitor/email', { headers }).then(r => r.json());
+  assert.equal(notice.notice.optional, true);
+  assert.equal((await post(running.url + '/api/visitor/email', { address: 'socket@example.test', noticeVersion: notice.notice.version }, headers)).status, 200);
+  assert.equal((await fetch(running.url + `/api/sessions/${session.id}/credits`, { headers }).then(r => r.json())).balance.owner.limitMicro, 15_000_000);
+  await running.kill();
+  await assert.rejects(adminRequest(socketPath, 'settings'), error => ['ENOENT', 'ECONNREFUSED'].includes(error.code));
 });
