@@ -10,7 +10,8 @@ export function deploymentConfig(values = process.env) {
   const port = Number(values.PORT ?? 3000);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new TypeError('Invalid PORT');
   return { publicOrigin, acceptedHost, hostname: values.AITHEMA_LISTEN_HOST ?? '127.0.0.1', port,
-    commit: values.AITHEMA_COMMIT ?? null };
+    commit: values.AITHEMA_COMMIT ?? null,
+    privacyDocuments: { default: values.AITHEMA_PRIVACY_DOCUMENT, de: values.AITHEMA_PRIVACY_DOCUMENT_DE, en: values.AITHEMA_PRIVACY_DOCUMENT_EN } };
 }
 export function deploymentGate(request, settings, localHosts) {
   const host = request.headers.get('host');

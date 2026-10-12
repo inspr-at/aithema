@@ -17,6 +17,11 @@ function paintPage() {
   const h = copy.host, text = (selector, value) => { const node = document.querySelector(selector); if (node) node.textContent = value; };
   document.documentElement.lang = component.session?.locale ?? localeChoice; document.title = 'Aithema';
   paintUtilities(copy);
+  const privacyLink = document.querySelector('[data-aithema-privacy]');
+  if (privacyLink) {
+    privacyLink.textContent = document.documentElement.lang === 'de' ? 'Datenschutzerklärung' : 'Privacy policy';
+    privacyLink.href = `${binding.privacy.url}?locale=${document.documentElement.lang}`;
+  }
   for (const [selector, value] of [['#title', h.title], ['#new', h.newConversation], ['#resume-hint', h.resumeHint], ['#source', h.slots.source],
     ['#language-label', h.language], ['#mock-hint', h.mockHint], ['#settings-hint', h.settingsHint],
     ['#fake-label', copy.fakeVoice],
@@ -95,6 +100,13 @@ const binding = await fetch('/demo/config').then(r => r.json());
 // Demo slot fills and the fake outbox speak for the local demo host only: a live provider host shows none of them.
 for (const demoOnly of document.querySelectorAll('[data-demo-only]')) {
   if (binding.demoHost !== true) demoOnly.remove(); else demoOnly.hidden = false;
+}
+if (binding.privacy?.url === '/privacy') {
+  const legal = document.querySelector('#demo-legal') ?? document.createElement('nav');
+  legal.slot = 'legal';
+  if (!legal.isConnected) component.append(legal);
+  const link = document.createElement('a');
+  link.setAttribute('data-aithema-privacy', ''); link.rel = 'privacy-policy'; legal.append(link);
 }
 // Demo only: the fake mail outbox stands in for the visitor's inbox (GET S/demo/outbox).
 const outbox = document.querySelector('#outbox');
