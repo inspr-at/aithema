@@ -1356,7 +1356,7 @@ test('slow closure: recovery retries the original identity after a new SDK conne
 
 
 // AIT-137 probes count the actual admission, dispatch and durable cost separately.
-async function turnsOnceFixture(t, { voiceOptions, path, blocked = false, blockedModel = 1, failFirst = false, lateFirst = false } = {}) {
+async function turnsOnceFixture(t, { voiceOptions, path, blocked = false, blockedModel = 1, failFirst = false, lateFirst = false, sameReply = false } = {}) {
   const base = createMockReasoning(), started = Promise.withResolvers(), release = Promise.withResolvers(), modelEvents = eventProbe();
   let models = 0, admissions = 0, finalOrdinal = 0, lateReport;
   const diagnostics = [], requests = [];
@@ -1371,7 +1371,7 @@ async function turnsOnceFixture(t, { voiceOptions, path, blocked = false, blocke
       options.report({ attemptId: options.attempt.attemptId, outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 }, chargedMicro: 0 });
       throw new PluginError('provider');
     }
-    yield `Reply ${number}`;
+    yield sameReply ? 'Same reply' : `Reply ${number}`;
     if (blocked && number === blockedModel || number === 1 && lateFirst) await release.promise;
     if (number === 1 && lateFirst) lateReport = () => options.report({ attemptId: options.attempt.attemptId,
       outcome: 'completed', usage: { inputTokens: 3, outputTokens: 2 }, chargedMicro: 17 });
@@ -2227,4 +2227,58 @@ test('AIT-137 round 4: only a known unadmitted older operation is refused as obs
   assert.throws(() => storage.voiceTurnStore.admitted(older.key, older.fence, 'unpaid-older'),
     error => error instanceof PluginError && error.code === 'not-admitted' && error.message === 'voice-turn-obsolete');
   assert.equal(storage.voiceTurnStore.get(older.key).attempts[0].attemptId, undefined);
+});
+
+function pendingReplyConsumeConsent(t, h) {
+  const entered = Promise.withResolvers(), release = Promise.withResolvers(), coverage = h.runtime.consent.coverage;
+  h.runtime.consent.coverage = async (...args) => {
+    if (args[0].scope.plugin !== 'mock' || !h.rows().some(row => row.state === 'claimed')) return coverage(...args);
+    h.runtime.consent.coverage = coverage;
+    entered.resolve(); await release.promise;
+    return coverage(...args);
+  };
+  t.after(() => { h.runtime.consent.coverage = coverage; release.resolve(); });
+  return { entered: entered.promise, release: () => release.resolve() };
+}
+
+for (const role of ['user', 'assistant']) {
+  test(`AIT-137 round 5: ${role} final during consume consent preserves one admission and identical retry`, async t => {
+    const h = await turnsOnceFixture(t), pending = pendingReplyConsumeConsent(t, h);
+    const first = h.callback();
+    await pending.entered;
+    const before = h.storage.voiceOperations(h.session.id);
+    assert.equal(before.length, 1); assert.ok(before[0].attempts[0].attemptId, 'the operation has recorded admission');
+    await h.persist(role, 'during-consume', role === 'user' ? 'Ja' : 'An ordinary assistant final');
+    assert.deepEqual(h.storage.voiceOperations(h.session.id), before, 'a final only writes transcript');
+    pending.release();
+    const response = await first, body = await response.json();
+    const retry = await h.callback(), replay = await retry.json();
+    assert.equal(response.status, 200, JSON.stringify({ body, retryStatus: retry.status, replay }));
+    assert.equal(retry.status, 200); assert.deepEqual(replay, body);
+    assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
+    assert.equal(h.rows().length, 1); assert.equal(h.rows()[0].state, 'settled');
+    const operation = h.storage.voiceOperations(h.session.id)[0];
+    assert.equal(operation.state, 'completed'); assert.equal(operation.attempts.length, 1);
+  });
+}
+
+test('AIT-137 round 5: identical replies with delayed finals keep each operation ordinal and canonical order', async t => {
+  const h = await turnsOnceFixture(t, { sameReply: true });
+  const a = { role: 'user', content: 'Input A' }, b = { role: 'user', content: 'Input B' };
+  await h.persist('user', 'a', a.content, { userTurnOrdinal: 1 });
+  const replyA = await (await h.callback([a])).json();
+  await h.persist('user', 'b', b.content, { userTurnOrdinal: 2 });
+  const replyB = await (await h.callback([a, b])).json();
+  assert.notEqual(replyA.id, replyB.id); assert.deepEqual(replyA.choices, replyB.choices);
+  const operations = h.storage.voiceOperations(h.session.id);
+  await h.persist('assistant', 'a-reply', replyA.choices[0].message.content, { replyId: replyA.id });
+  await h.persist('assistant', 'b-reply', replyB.choices[0].message.content, { replyId: replyB.id });
+  assert.deepEqual(h.storage.voiceOperations(h.session.id), operations, 'reply receipts do not mutate operations');
+  const transcript = h.storage.get(h.session.id).transcript;
+  assert.equal(transcript.find(turn => turn.id.endsWith(':a-reply')).userTurnOrdinal, 1);
+  assert.equal(transcript.find(turn => turn.id.endsWith(':b-reply')).userTurnOrdinal, 2);
+  await completionText(await h.callback([a, b, { role: 'user', content: 'Input C' }]));
+  assert.deepEqual(h.requests.at(-1).messages.slice(1).map(message => [message.role, message.content]),
+    [['user', 'Input A'], ['assistant', 'Same reply finished'], ['user', 'Input B'], ['assistant', 'Same reply finished'], ['user', 'Input C']]);
+  assert.deepEqual(h.counts(), { admissions: 3, models: 3, cost: 51 });
 });
