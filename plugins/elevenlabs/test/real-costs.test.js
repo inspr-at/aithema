@@ -179,7 +179,7 @@ for (const charging of [
   const ledger = new SQLiteBudgetLedger(storage), session = storage.create();
   const { attemptId } = ledger.admit({ sessionId: session.id, lane: 'voice', maxMicro: 50_000,
     requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64) });
-  const claim = ledger.claim(attemptId); claim.consume(); let scheduled = 0;
+  const claim = ledger.claim(attemptId); let scheduled = 0;
   const plugin = createElevenLabsServer({ binding, resolveSecret: () => 'fixture', prepareCall() {}, saveCall() {},
     reconcileLater() { scheduled++; }, fetchImpl: async url => url.includes('/token?')
       ? Response.json({ token: 'fixture', conversation_id: 'conversation' }) : Response.json(details({ charging })) });

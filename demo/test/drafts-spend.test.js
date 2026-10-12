@@ -128,6 +128,12 @@ test('AIT-134 gate: default JSON drafts ledger retains uncertain costs and recon
   assert.equal(JSON.parse(budget.get(attemptId).provider_cost_json).reconciled, 1);
 });
 
+test('AIT-134 gate: drafts reject an account port that cannot durably reconcile costs at startup', () => {
+  assert.throws(() => createClaudeHTML({ binding: htmlConfig(values).binding,
+    spend: { snapshot: () => ({ spentMicro: 0, reservedMicro: 0 }), reserve() {}, settle() {} } }),
+  /reconciliation/u);
+});
+
 for (const crash of ['reserved', 'dispatched', 'id-receipt', 'cost-receipt', 'settled']) {
   test(`AIT-134 gate: JSON account ledger recovers ${crash} without lost or duplicated cost`, async () => {
     const path = `${await temporaryDb()}.spend.json`;
