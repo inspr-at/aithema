@@ -6,6 +6,7 @@ import { constants } from 'node:fs';
 import { access, mkdir, mkdtemp, writeFile, readFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
+import { inflateSync } from 'node:zlib';
 import puppeteer from 'puppeteer-core';
 import { startChild } from '../helpers.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
@@ -27,6 +28,26 @@ const boxes = (page, selectors) => shadow(page, (c, selectors) => selectors.map(
 const sameBoxes = (before, after, context) => before.forEach((box, i) => box.forEach((value, n) =>
   assert.ok(Math.abs(value - after[i][n]) <= .5, `${context}: ${i}/${n} shifted ${value} → ${after[i][n]}`)));
 
+// A rendered 1x1 Chrome PNG, independent of its RGB/RGBA colour type and scanline filter.
+function pixelRgb(png) {
+  const chunks = [];
+  for (let offset = 8; offset < png.length;) {
+    const length = png.readUInt32BE(offset), name = png.toString('ascii', offset + 4, offset + 8), data = png.subarray(offset + 8, offset + 8 + length);
+    if (name === 'IHDR') { assert.equal(data.readUInt32BE(0), 1); assert.equal(data.readUInt32BE(4), 1); }
+    if (name === 'IDAT') chunks.push(data);
+    offset += length + 12;
+  }
+  return [...inflateSync(Buffer.concat(chunks)).subarray(1, 4)];
+}
+const freezeReveal = page => shadow(page, c => {
+  globalThis.displayRevealTimeline = c.shadowRoot.querySelector('.band').getAnimations({ subtree: true })
+    .filter(animation => animation.animationName !== 'aithema-prism-turn');
+  for (const animation of globalThis.displayRevealTimeline) { animation.pause(); animation.currentTime = 0; }
+});
+const seekReveal = (page, ms) => page.evaluate(ms => {
+  for (const animation of globalThis.displayRevealTimeline) animation.currentTime = ms;
+}, ms);
+
 const evidenceCommit = process.env.GITHUB_SHA ?? process.env.AITHEMA_COMMIT ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1] ?? 'd886da3';
 const content = {
   de: {
@@ -47,7 +68,7 @@ const content = {
   },
 };
 
-test('AIT-131 approved display: eight states at 390, 1024, 1440, both themes and languages; model hover and conversations menu',
+test('AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages',
   { timeout: 360_000 }, async t => {
     const directory = await mkdtemp(join(tmpdir(), 'aithema-display-'));
     const reply = 'anthropic/claude-haiku-5.5', understanding = 'anthropic/claude-opus-5.5';
@@ -90,11 +111,11 @@ test('AIT-131 approved display: eight states at 390, 1024, 1440, both themes and
           async close() { events.end(); return { closureConfirmed: true }; } };
       } };
     });
-    const evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [];
+    const evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], reveals = [];
     if (evidence) await mkdir(evidence, { recursive: true });
-    const shot = async (state, width, theme) => {
+    const shot = async (state, width, theme, preserveFocus = false) => {
       const name = `${state}-${width}-${theme}-${locale}.png`;
-      await shadow(page, c => { const active = c.shadowRoot.activeElement; if (active && !c.shadowRoot.querySelector('.conversations-menu').contains(active)) active.blur(); });
+      if (!preserveFocus) await shadow(page, c => { const active = c.shadowRoot.activeElement; if (active && !c.shadowRoot.querySelector('.conversations-menu').contains(active)) active.blur(); });
       if (evidence) { await page.screenshot({ path: join(evidence, name), fullPage: width === 390 }); files.push(name); }
     };
     async function scene(stage, drafts = 'off') {
@@ -123,6 +144,81 @@ test('AIT-131 approved display: eight states at 390, 1024, 1440, both themes and
       }, { stage, drafts, locale, words: content[locale], commit: evidenceCommit });
       await until(page, () => /655/.test(document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__text').textContent));
       await page.mouse.move(0, 0); await settle();
+    }
+    async function revealEvidence(width, theme, copy) {
+      const label = `${width}-${theme}-${locale}`, selector = 'aithema-session >>> .band-orb .orb';
+      const baseline = await shadow(page, c => [...c.shadowRoot.querySelectorAll('.band [data-reveal]')].map(node => {
+        const r = node.getBoundingClientRect(); return { box: [r.x, r.y, r.width, r.height], opacity: getComputedStyle(node).opacity };
+      }));
+      const orb = await shadow(page, c => { const r = c.shadowRoot.querySelector('.band-orb .orb').getBoundingClientRect(); return [r.width, r.height]; });
+      assert.deepEqual(orb, [40, 40], `${label}: real band orb`);
+      await page.hover(selector); await new Promise(resolve => setTimeout(resolve, 120));
+      await page.mouse.move(0, 300); await new Promise(resolve => setTimeout(resolve, 260));
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.band').dataset.aithemaRevealState), 'closed', `${label}: quick pass`);
+      await page.hover(selector);
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.band').dataset.aithemaRevealState === 'open');
+      await freezeReveal(page); await seekReveal(page, 2200);
+      await shot('reveal-open', width, theme, true);
+      const links = await shadow(page, c => [...c.shadowRoot.querySelectorAll('.band .aithema-reveal__link')].map(n => ({ href: n.href, title: n.title,
+        right: n.getBoundingClientRect().right, bottom: n.getBoundingClientRect().bottom, opacity: getComputedStyle(n).opacity })));
+      assert.deepEqual(links.map(n => n.href), copy.reveal.links.map(link => new URL(link.href).href));
+      assert.deepEqual(links.map(n => n.title), copy.reveal.links.map(link => link.subtitle));
+      const band = (await boxes(page, ['.band']))[0];
+      assert.ok(links.every(n => n.opacity === '1' && n.right <= width + .5 && n.bottom <= band[1] + band[3]), `${label}: reveal links fit the real band`);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.aithema-reveal__version code').textContent), evidenceCommit);
+      assert.match(await shadow(page, c => c.shadowRoot.querySelector('.aithema-reveal__version').title), /2026-10-12/);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.aithema-reveal__row').getAttribute('aria-label')), copy.reveal.label);
+      assert.equal(await shadow(page, c => [...c.shadowRoot.querySelectorAll('.band [data-reveal]')].every(n => n.inert)), true);
+      // Hold only this synchronous exit's cleanup. Its genuine CSS timelines can then be sampled
+      // at exact times without screenshot latency advancing them between requested frames.
+      await shadow(page, c => {
+        const native = window.setTimeout;
+        window.setTimeout = fn => { globalThis.displayRevealCleanup = fn; return 0; };
+        try { c.shadowRoot.querySelector('.band').dispatchEvent(new MouseEvent('mouseleave')); }
+        finally { window.setTimeout = native; }
+      });
+      await freezeReveal(page);
+      const samples = [], point = { x: 2, y: Math.floor(band[1] + band[3] - 10), width: 1, height: 1 };
+      for (let ms = 0; ms <= 900; ms += 50) {
+        await seekReveal(page, ms);
+        const opacities = await shadow(page, c => ({
+          glass: Number(getComputedStyle(c.shadowRoot.querySelector('.aithema-reveal__glass')).opacity),
+          brand: Number(getComputedStyle(c.shadowRoot.querySelector('.aithema-reveal__row')).opacity),
+          controls: [...c.shadowRoot.querySelectorAll('[data-aithema-reveal-control]')].map(n => Number(getComputedStyle(n).opacity)),
+          proxies: [...c.shadowRoot.querySelectorAll('.aithema-reveal__proxy')].map(n => Number(getComputedStyle(n).opacity)),
+        }));
+        if (opacities.brand > .25) assert.ok([...opacities.controls, ...opacities.proxies].every(value => value <= .25), `${label}: brand and controls do not overlap`);
+        samples.push({ ms, rgb: pixelRgb(Buffer.from(await page.screenshot({ clip: point }))), ...opacities });
+        if ([0, 150, 300, 450, 700].includes(ms)) await shot(`reveal-exit-${ms}ms`, width, theme, true);
+      }
+      for (let channel = 0; channel < 3; channel++) {
+        const values = samples.map(sample => sample.rgb[channel]), direction = Math.sign(values.at(-1) - values[0]);
+        if (direction === 0) assert.ok(Math.max(...values) - Math.min(...values) <= 2, `${label}: exit colour channel ${channel}`);
+        else for (let i = 1; i < values.length; i++) assert.ok((values[i] - values[i - 1]) * direction >= -2, `${label}: monotonic exit colour channel ${channel}`);
+      }
+      await seekReveal(page, 1600); await page.evaluate(() => { globalThis.displayRevealCleanup(); delete globalThis.displayRevealCleanup; });
+      const restored = await shadow(page, c => [...c.shadowRoot.querySelectorAll('.band [data-reveal]')].map(n => {
+        const r = n.getBoundingClientRect(); return { box: [r.x, r.y, r.width, r.height], opacity: getComputedStyle(n).opacity, inert: n.inert };
+      }));
+      sameBoxes(baseline.map(n => n.box), restored.map(n => n.box), `${label}: reveal restores the band`);
+      assert.deepEqual(restored.map(n => n.opacity), baseline.map(n => n.opacity));
+      assert.ok(restored.every(n => !n.inert));
+      await page.mouse.move(0, 300); await shot('reveal-restored', width, theme);
+      // Use the actual edge toggle for both modules, including an open reveal.
+      await page.click('aithema-session >>> .motion-toggle');
+      await shadow(page, c => c.shadowRoot.querySelector('.band-orb .orb').focus());
+      await new Promise(resolve => setTimeout(resolve, 250));
+      const calm = await shadow(page, c => ({ motion: c.getAttribute('motion'), orb: c.shadowRoot.querySelector('.band-orb .orb').dataset.orbMotion,
+        reveal: c.shadowRoot.querySelector('.band').dataset.aithemaRevealMotion,
+        duration: getComputedStyle(c.shadowRoot.querySelector('.aithema-reveal__glass')).transitionDuration,
+        sparks: Boolean(c.shadowRoot.querySelector('.aithema-reveal__stars')),
+        animations: c.shadowRoot.querySelector('.band').getAnimations({ subtree: true }).filter(a => a.playState === 'running').length }));
+      assert.deepEqual(calm, { motion: 'off', orb: 'off', reveal: 'off', duration: '0.2s', sparks: false, animations: 0 });
+      await shot('reveal-motion-off-open', width, theme, true);
+      await page.keyboard.press('Escape'); await new Promise(resolve => setTimeout(resolve, 250));
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.band').dataset.aithemaRevealState), 'closed');
+      await page.click('aithema-session >>> .motion-toggle');
+      reveals.push({ width, theme, locale, links, point, clock: 'paused CSS timelines; exact 50ms rendered-pixel samples', samples });
     }
     for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
       await page.setViewport({ width, height: width === 390 ? 844 : 900 });
@@ -169,6 +265,7 @@ test('AIT-131 approved display: eight states at 390, 1024, 1440, both themes and
       await scene('ready'); assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.stage), 'ready');
       await shot('readiness', width, theme);
       await scene('conversation');
+      await revealEvidence(width, theme, copy);
       const bad = await shadow(page, c => ({ sessionRow: Boolean(c.shadowRoot.querySelector('.toolbar .preset-panel')),
         tags: c.shadowRoot.querySelectorAll('.engine-tag').length, text: c.shadowRoot.querySelector('.workspace').textContent }));
       assert.equal(bad.sessionRow, false); assert.equal(bad.tags, 0);
@@ -237,6 +334,10 @@ test('AIT-131 approved display: eight states at 390, 1024, 1440, both themes and
       await scene('conversation');
       await shadow(page, c => c.shadowRoot.querySelector('.voice-start').click());
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.call === 'active');
+      const status = await shadow(page, c => { const n = c.shadowRoot.querySelector('.voice-state'), style = getComputedStyle(n);
+        return { text: n.textContent, background: style.backgroundColor, image: style.backgroundImage, shadow: style.boxShadow, border: style.borderWidth }; });
+      assert.deepEqual(status, { text: copy.voiceStates.listening, background: 'rgba(0, 0, 0, 0)', image: 'none', shadow: 'none', border: '0px' }, `${label}: voice status sits directly on the band`);
+      await shot('band-voice-listening', width, theme);
       await page.evaluate(() => globalThis.displayVoiceEvents.push({ type: 'speaking', callId: globalThis.displayCallId }));
       await new Promise(resolve => setTimeout(resolve, 700));
       const wave = await shadow(page, c => { const canvas = c.shadowRoot.querySelector('.voice-wave'), box = canvas.getBoundingClientRect(), ratio = Math.min(2,devicePixelRatio);
@@ -282,14 +383,25 @@ test('AIT-131 approved display: eight states at 390, 1024, 1440, both themes and
     await page.keyboard.press('Escape'); assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversations-menu').hidden), true);
     assert.equal(await shadow(page, c => c.shadowRoot.activeElement.className), 'conversations-toggle');
     assert.deepEqual(errors, []);
-    if (evidence) await writeFile(join(evidence, 'display-evidence.json'), JSON.stringify({ ticket: 'AIT-131', commit: evidenceCommit, createdAt: new Date().toISOString(), files }, null, 2));
+    if (evidence) {
+      await writeFile(join(evidence, 'display-evidence.json'), JSON.stringify({ ticket: 'AIT-131', commit: evidenceCommit, createdAt: new Date().toISOString(), files }, null, 2));
+      await writeFile(join(evidence, 'integrated-reveal-evidence.json'), JSON.stringify({ ticket: 'AIT-131', commit: evidenceCommit, createdAt: new Date().toISOString(), reveals }, null, 2));
+    }
     // Optional read-only design reference supplied on the remote runner; never committed to the public repo.
     if (evidence) {
       try {
         const html = await readFile('/tmp/aithema-ait-131-approved.html', 'utf8');
-        const reference = await browser.newPage(); await reference.setViewport({ width: 1440, height: 900 });
-        await reference.setContent(html); await reference.evaluate(() => { document.body.classList.add('noanno'); document.documentElement.dataset.theme = 'light'; });
-        await reference.screenshot({ path: join(evidence, 'approved-reference-1440-light-de.png'), fullPage: true }); await reference.close();
+        const reference = await browser.newPage();
+        for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+          await reference.goto('about:blank');
+          await reference.setViewport({ width, height: width === 390 ? 844 : 900 });
+          await reference.setContent(html);
+          await reference.evaluate(theme => { document.body.classList.add('noanno'); document.documentElement.dataset.theme = theme; }, theme);
+          await reference.screenshot({ path: join(evidence, `approved-reference-${width}-${theme}-de.png`), fullPage: true });
+          await reference.focus('.band .glassorb'); await new Promise(resolve => setTimeout(resolve, 2200));
+          await reference.screenshot({ path: join(evidence, `approved-reference-reveal-${width}-${theme}-de.png`), fullPage: true });
+        }
+        await reference.close();
       } catch (error) { if (error.code !== 'ENOENT') throw error; }
     }
     t.diagnostic(`AIT-131 display matrix: Round-2 state and footer screenshots; ${files.length} files written.`);

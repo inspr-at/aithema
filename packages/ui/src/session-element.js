@@ -25,7 +25,7 @@ import { icon } from './icons.js';
 import { modelDisplayName, settingsFlag } from './display.js';
 import { bandStyles } from './band-styles.js';
 import { motionPreference, rememberMotion, ConnectionTimer, ConversationFold, FooterPopups } from './layout.js';
-import { createReveal } from './reveal-bridge.js';
+import { createReveal } from './reveal.js';
 
 const PANES = '.transcript-shell, .analysis-content';
 // START's understanding reveal: 560 ms of column, 100–620 ms of the pane fading in (styles.js), with a margin.
@@ -184,6 +184,7 @@ export class AithemaSession extends HTMLElement {
       root.querySelector('.scale').setAttribute('aria-label', `${copy.talk} — ${copy.build}`);
       this.#rail.copy = copy; this.#rail.render();
       this.#dialog.setCopy(copy); this.#connector?.setCopy(copy); this.#concept.setCopy(copy); this.#host?.setCopy(copy);
+      this.#mountReveal();
       this.#paint('features'); this.#paint('transcript'); this.#paint('aside'); this.#paint('composer');
     });
     this.dispatchEvent(new CustomEvent('aithema-locale', { detail: { locale: this.#session.locale }, bubbles: true, composed: true }));
@@ -368,11 +369,14 @@ export class AithemaSession extends HTMLElement {
     this.#render('transcript'); this.#render('aside'); this.#render('composer');
     this.#observePanes();
     this.#rail.motion = this.#motion;
+    this.#mountReveal(version);
+  }
+  #mountReveal(version = { product: 'Aithema 2026.10', ...this.#options.host?.version }) {
+    const root = this.shadowRoot;
+    this.#reveal?.destroy();
     this.#reveal = createReveal({ band: root.querySelector('.band'), orb: this.#orb,
       controls: [...root.querySelectorAll('.band [data-reveal]')],
-      links: [{ title: 'Website', subtitle: 'aithema.inspr.at', href: 'https://aithema.inspr.at' },
-        { title: 'INSPR', subtitle: this.#copy.layout.inspr, href: 'https://inspr.at' },
-        { title: 'Augmentoring', subtitle: this.#copy.layout.augmentoring, href: 'https://augmentoring.com' }],
+      links: this.#copy.reveal.links,
       version, copy: this.#copy, motion: this.#motion });
   }
   // A conversation from the library (open, new, reset, or the replacement of a deleted one). The host
@@ -831,8 +835,8 @@ export class AithemaSession extends HTMLElement {
     const intro = this.shadowRoot.querySelector('.intro__orb');
     if (this.#introOrb.element.parentNode !== intro) intro.append(this.#introOrb.element);
     if (this.isConnected) {
-      if (this.#motion || this.#orb.setMotion) this.#orb.mount();
-      if (this.#motion || this.#introOrb.setMotion) this.#introOrb.mount();
+      this.#orb.mount();
+      this.#introOrb.mount();
     }
   }
   #mountMotion() {
@@ -855,10 +859,7 @@ export class AithemaSession extends HTMLElement {
   }
   #applyMotion() {
     this.setAttribute('motion', this.#motion ? 'on' : 'off'); this.#paintMotion();
-    for (const orb of [this.#orb, this.#introOrb]) {
-      if (orb?.setMotion) orb.setMotion(this.#motion);
-      else if (orb) { if (this.#motion && this.isConnected) orb.mount(); else orb.destroy(); }
-    }
+    for (const orb of [this.#orb, this.#introOrb]) orb?.setMotion(this.#motion);
     this.#reveal?.setMotion(this.#motion);
     if (this.#rail) this.#rail.motion = this.#motion;
   }
