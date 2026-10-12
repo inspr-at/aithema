@@ -237,3 +237,12 @@ test('AIT-135 failed policy reads block fresh admission while actual settlements
   f.ledger.settle(claim.claimId, { attemptId: claim.attemptId, outcome: 'completed', chargedMicro: 12, usage: { inputTokens: 0, outputTokens: 0 } });
   assert.equal(f.ledger.get(claim.attemptId).settled_micro, 12);
 });
+
+test('AIT-135 background wallet work cannot renew the inactivity retention of a visitor address', async t => {
+  const f = fixture(t), s = f.session('background-retention');
+  f.host.saveEmail(owner, { address, noticeVersion });
+  f.at(1000 + 89 * 24 * 60 * 60_000);
+  await f.host.wallet(owner).admit(f.request(s.id, 1, { attemptId: 'background-work' }));
+  f.at(1000 + 90 * 24 * 60 * 60_000); f.host.retainVisitors();
+  assert.equal(f.host.visitor(owner).address, null);
+});
