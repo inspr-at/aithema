@@ -87,13 +87,19 @@ test('AIT-131: label ResizeObserver measures the mask, hides short flanks and fo
   const { rail, root } = fixture(t), label = root.querySelector('.voice-state'), wave = root.querySelector('.voice-wave'), caption = root.querySelector('.voice-caption');
   const observer = observers.find(o => o.targets.has(label));
   assert.ok(observer); assert.ok(observer.targets.has(caption)); assert.ok(observer.targets.has(wave));
-  let labelWidth = 300, waveWidth = 500;
-  t.mock.method(label, 'getBoundingClientRect', () => ({ width: labelWidth }));
+  let lineWidths = [280], waveWidth = 500;
+  t.mock.method(label, 'getBoundingClientRect', () => ({ width: 440 }));
   t.mock.method(wave, 'getBoundingClientRect', () => ({ width: waveWidth }));
-  t.mock.method(caption, 'getBoundingClientRect', () => ({ width: 80 }));
+  t.mock.method(caption, 'getBoundingClientRect', () => ({ width: 96 }));
+  t.mock.method(document, 'createRange', () => {
+    let selected;
+    return { selectNodeContents(node) { selected = node; },
+      getClientRects: () => (selected === caption ? [80] : lineWidths).map(width => ({ width })) };
+  });
   const buttons = [...root.querySelectorAll('button')];
-  observer.callback(); assert.equal(wave.style.getPropertyValue('--voice-label-half'), '150px'); assert.equal(wave.hasAttribute('data-short-flanks'), false);
-  labelWidth = 440; observer.callback(); assert.equal(wave.hasAttribute('data-short-flanks'), true);
+  observer.callback(); assert.equal(wave.style.getPropertyValue('--voice-label-half'), '140px'); assert.equal(wave.hasAttribute('data-short-flanks'), false);
+  lineWidths = [184, 280]; observer.callback(); assert.equal(wave.style.getPropertyValue('--voice-label-half'), '140px', 'a wrapped label follows its widest text line, not the capped box');
+  lineWidths = [440, 180]; observer.callback(); assert.equal(wave.hasAttribute('data-short-flanks'), true);
   waveWidth = 600; observer.callback(); assert.equal(wave.hasAttribute('data-short-flanks'), false);
   caption.textContent = 'Live words'; observer.callback(); assert.equal(wave.style.getPropertyValue('--voice-label-half'), '40px');
   assert.deepEqual([...root.querySelectorAll('button')], buttons, 'mask updates preserve the controls');
