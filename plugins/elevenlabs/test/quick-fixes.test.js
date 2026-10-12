@@ -63,6 +63,57 @@ test('AIT-138: exhaustion stops media and waits; explicit Resume gets a fresh pe
   assert.equal(local.session.lifecycle.state.state, 'active'); assert.equal(attempts, 4);
 });
 
+test('AIT-138: tentative speech at cutover stays unconfirmed without a fabricated final', async t => {
+  const local = await setup(t);
+  local.sdk.starts[0].onDebug({ type: 'tentative_user_transcript', tentative_user_transcription_event: { user_transcript: 'still tentative' } });
+  local.sdk.starts[0].onDisconnect();
+  await until(() => local.observed.some(event => event.type === 'recovered'));
+  assert.equal(local.session.lifecycle.state.checkpoint.userUnconfirmed, true);
+  assert.equal(local.observed.some(event => event.type === 'final'), false);
+});
+
+test('AIT-138: a persisted final whose acknowledgement arrives during cutover is confirmed exactly once', async t => {
+  const ack = deferred(), entered = deferred(), local = await setup(t, { persistEvent: async event => {
+    if (event.type === 'final') { entered.resolve(); await ack.promise; }
+  }, persistenceTimeoutMs: 1000, drainTimeoutMs: 1500 });
+  local.sdk.starts[0].onDebug({ type: 'tentative_user_transcript', tentative_user_transcription_event: { user_transcript: 'message' } });
+  message(local.sdk, 1); await entered.promise; local.sdk.starts[0].onDisconnect();
+  ack.resolve(); await until(() => local.observed.some(event => event.type === 'recovered'));
+  const checkpoint = local.session.lifecycle.state.checkpoint;
+  assert.equal(checkpoint.userUnconfirmed, false); assert.deepEqual(checkpoint.acceptedTurnIds, ['conv_1:user:1']);
+  assert.equal(local.observed.filter(event => event.type === 'final').length, 1);
+});
+
+test('AIT-138: playback cutover retains only an evidenced prefix and discards old queued/late audio', async t => {
+  const local = await setup(t, { transport: 'websocket' }), original = local.sdk.starts[0];
+  original.onMessage({ role: 'agent', message: 'Known reply with a remainder.', event_id: 2 }); await flush();
+  original.onAgentResponseCorrection({ event_id: 2, original_agent_response: 'Known reply with a remainder.', corrected_agent_response: 'Known reply' }); await flush();
+  original.onDisconnect(); await until(() => local.observed.some(event => event.type === 'recovered'));
+  const checkpoint = local.session.lifecycle.state.checkpoint;
+  assert.equal(checkpoint.deliveryUncertain, true); assert.equal(checkpoint.heardPrefix, 'Known reply');
+  original.onMessage({ role: 'agent', message: 'late old reply', event_id: 3 }); await flush();
+  assert.equal(local.observed.some(event => event.text === 'late old reply'), false);
+});
+
+test('AIT-138: a late old-generation heartbeat acknowledgement cannot extend the successor lease', async t => {
+  const local = await setup(t), ack = deferred(), entered = deferred();
+  local.control.heartbeat = async () => { entered.resolve(); return ack.promise; };
+  const beat = local.session.heartbeat(); await entered.promise;
+  local.sdk.starts[0].onDisconnect(); await until(() => local.observed.some(event => event.type === 'recovered'));
+  const deadline = local.session.lifecycle.state.browserLivenessDeadlineAt;
+  ack.resolve({ acknowledged: true, browserLivenessDeadlineAt: Date.now() + 999_000 });
+  assert.equal((await beat).stale, true);
+  assert.equal(local.session.lifecycle.state.browserLivenessDeadlineAt, deadline);
+});
+
+test('AIT-138: explicit provider end_call is terminal; diagnostic disconnect reasons recover', async t => {
+  const local = await setup(t); let recoveries = 0;
+  local.control.recover = async () => { recoveries++; throw new Error('unexpected recovery'); };
+  local.sdk.starts[0].onDisconnect({ reason: 'agent', context: { type: 'end_call' } }); await local.reader;
+  assert.equal(local.session.lifecycle.state.state, 'ended'); assert.equal(recoveries, 0);
+  assert.equal(local.closed.at(-1).reason, 'provider-end');
+});
+
 test('AIT-136 pause mutes capture immediately before the HTTP acknowledgement', async t => {
   const local = await setup(t), ack = deferred();
   local.control.pause = () => ack.promise;

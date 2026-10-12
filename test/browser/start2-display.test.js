@@ -899,6 +899,16 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
       assert.ok(Math.abs(wave.width - wave.cssWidth) <= .5, `${label}: waveform backing store follows its width`);
       assert.ok(Math.abs(wave.stroke - 1.6) <= 1e-6, `${label}: 1.6 px waveform bars`);
       await shot('voice-rail-live', width, theme);
+      // AIT-138: waiting keeps the same logical call and the same fixed cells.
+      const waitingSelectors = ['.band', '.audio-rail', '.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.composer'];
+      const beforeWaiting = await layoutBoxes(page, waitingSelectors);
+      await page.evaluate(() => globalThis.displayVoiceEvents.push({ type: 'waiting', callId: globalThis.displayCallId, reason: 'recovery-failed' }));
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'waiting');
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-state').textContent), copy.voiceStates.waiting);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.pause').title), copy.resume);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.audio-rail').hasAttribute('data-message')), false);
+      sameBoxes(beforeWaiting, await layoutBoxes(page, waitingSelectors), `${label}: waiting reserves existing rail space`);
+      if ([390, 1440].includes(width)) await shot('ait-138-voice-waiting', width, theme);
       await shadow(page, c => c.shadowRoot.querySelector('.voice-close').click());
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'idle');
     }

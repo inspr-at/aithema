@@ -962,8 +962,10 @@ test('each reconnect admits a new duration claim, rotates facade auth and keeps 
     assert.equal(grant.callId, first.callId); assert.equal(grant.spendDeadlineAt, first.spendDeadlineAt);
     assert.equal(h.secrets.resolve(refs.at(-1)), undefined);
   }
-  const denied = await h.route(`/voice/${grant.callId}/recover`, { providerSessionId: grant.providerSessionId }); assert.equal(denied.status, 502);
-  assert.equal(h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n, 4);
+  const nextOutage = await h.route(`/voice/${grant.callId}/recover`, { providerSessionId: grant.providerSessionId }); assert.equal(nextOutage.status, 200);
+  assert.equal((await nextOutage.json()).spendDeadlineAt, first.spendDeadlineAt);
+  assert.equal(h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n, 5,
+    'the browser controller bounds each outage; the server never imposes a lifetime reconnect quota');
 });
 
 test('voice admission fails closed on evidence, coverage, pause, and changed consent at consume without provider traffic', async t => {

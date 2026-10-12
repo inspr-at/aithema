@@ -477,7 +477,7 @@ test('closing notification ends the browser SDK and local UI before slow provide
   settle({ closureConfirmed: true }); await tick();
 });
 
-test('failed recovered SDK connections complete all three attempts and expose Retry despite closing broadcasts', { timeout: 60_000 }, async t => {
+test('failed recovered SDK connections complete all three attempts and expose Resume despite closing broadcasts', { timeout: 60_000 }, async t => {
   const session = createSession({ demo: true });
   session.featureMatrix = { best: { voice: { available: true }, text: { available: true } } };
   const c = document.createElement('aithema-session'), notices = eventProbe();
@@ -511,12 +511,13 @@ test('failed recovered SDK connections complete all three attempts and expose Re
   const root = c.shadowRoot;
   const started = notices.waitFor(state => state === 'listening'); root.querySelector('.voice-start').click(); await started;
   const after = notices.events.length;
-  const finished = notices.waitFor(state => ['failed', 'idle'].includes(state), after);
+  const finished = notices.waitFor(state => state === 'waiting', after);
   callbacks.onDisconnect(); await finished;
   assert.equal(attempts, 3); assert.equal(connections, 4, 'recovery admission succeeds but each SDK connect fails');
-  assert.equal(root.querySelector('.audio-rail').dataset.state, 'failed');
-  assert.equal(root.querySelector('.voice-state').textContent, en.voiceRecoveryFailed);
-  assert.equal(root.querySelector('.voice-retry').disabled, false);
+  assert.equal(root.querySelector('.audio-rail').dataset.state, 'waiting');
+  assert.equal(root.querySelector('.voice-state').textContent, en.voiceStates.waiting);
+  assert.equal(root.querySelector('.pause').title, en.resume);
+  assert.equal(root.querySelector('.voice-retry').disabled, true);
   assert.equal(root.querySelector('.send').disabled, false);
 });
 
@@ -735,7 +736,7 @@ test('a hidden page during a pending microphone toggle pauses once the toggle se
   rail.button('input').click(); await tick(); assert.equal(rail.busy, true);
   t.mock.method(document, 'hidden', () => true, { getter: true });
   document.dispatchEvent(new window.Event('visibilitychange')); await tick();
-  assert.equal(root.dataset.state, 'listening', 'nothing interrupts the pending command');
+  assert.equal(root.dataset.state, 'paused', 'visibility stops media before the pending command completes');
   release(); for (let i = 0; i < 5; i++) await tick();
   assert.equal(root.dataset.state, 'paused', 'the queued visibility pause applies afterwards');
   assert.equal(rail.input, false); assert.ok(journal.read());

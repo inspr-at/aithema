@@ -1,5 +1,5 @@
 import { randomBytes, randomUUID } from 'node:crypto';
-import { PluginError, inputRevision, reasoningRequest, aiTextOrigin } from '@inspr/aithema-core';
+import { PluginError, inputRevision, reasoningRequest, aiTextOrigin, voiceAuthorizationRevision, recoverableVoiceEnd } from '@inspr/aithema-core';
 import { createCompletionsHandler } from '../../../plugins/elevenlabs/src/facade.js';
 import { voiceOperation } from '../../core/src/live-voice.js';
 import { ConflictError, NotFoundError } from './storage.js';
@@ -116,11 +116,17 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
   const receipt = call => ({ callId: call.callId, providerSessionId: call.providerSessionId, credential: call.credential,
     ...(staticSecretRef ? { facadeCallId: calls.get(call.callId)?.facadeCallId } : {}),
     spendDeadlineAt: call.spendDeadlineAt, browserLivenessDeadlineAt: call.browserLivenessDeadlineAt,
+    presentation: calls.get(call.callId)?.presentation ?? 'opening',
     ...(call.overrides ? { overrides: call.overrides } : {}) });
   const options = request => ({ signal: request.signal, deadlineAt: Date.now() + deadlineMs });
   function revoke(entry) { if (!staticSecretRef) secrets.revoke(entry.facadeSecretRef); }
   function close(entry, reason = 'closed', outcome = 'completed') {
     if (entry.closing) return entry.closing;
+    const resumable = recoverableVoiceEnd(reason);
+    // Logical terminal intent commits before abort/settlement. A provider terminal
+    // receipt only closes its own segment and cannot reopen the logical call.
+    storage.transitionVoiceLifecycle(entry.sessionId, entry.callId, { type: resumable
+      ? reason === 'browser-liveness-deadline' ? 'lease-expired' : 'transport-lost' : 'end', reason });
     // Install the promise before close() aborts the provider signal synchronously.
     let resolve, reject;
     const closing = new Promise((yes, no) => { resolve = yes; reject = no; });
@@ -131,7 +137,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     if (sessions.get(entry.sessionId) === entry) sessions.delete(entry.sessionId);
     publish(entry.sessionId, { type: 'voice.state', data: { callId: entry.callId,
       providerSessionId: entry.call?.providerSessionId,
-      state: reason === 'transport-lost' ? 'recovering' : 'closing', reason } });
+      state: resumable ? reason === 'browser-liveness-deadline' ? 'waiting' : 'recovering' : 'closing', reason } });
     const settle = async () => {
       try {
         let pending;
@@ -145,7 +151,8 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         entry.admission?.finish();
         // An old recovery's settlement cannot publish over or remove its successor.
         if (terminal && calls.get(entry.callId) === entry) publish(entry.sessionId, { type: 'voice.state', data: {
-          callId: entry.callId, providerSessionId: entry.call.providerSessionId, state: reason === 'transport-lost' ? 'recovering' : 'ended', reason,
+          callId: entry.callId, providerSessionId: entry.call.providerSessionId, state: resumable
+            ? reason === 'browser-liveness-deadline' ? 'waiting' : 'recovering' : 'ended', reason,
           reconciliationPending: terminal.outcome === 'uncertain' || terminal.usage?.costEstimated === true,
           terminal: { outcome: terminal.outcome, closureConfirmed: terminal.closureConfirmed, usage: terminal.usage ?? null } } });
         resolve(terminal);
@@ -154,26 +161,27 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     };
     void settle(); return closing;
   }
-  async function start(request, sessionId, ownerToken, callId, spendDeadlineAt) {
+  async function start(request, sessionId, ownerToken, callId, spendDeadlineAt, continuation = false) {
     const session = storage.authorize(sessionId, ownerToken);
     if (sessions.has(sessionId)) throw new ConflictError('Voice call already active');
     const controller = new AbortController(), started = Promise.withResolvers(), entry = { callId, sessionId, ownerToken, controller, started: started.promise,
       conversationConsentRevision: session.conversationConsentRevision ?? session.consentRevision, withdrawalRevision: session.withdrawalRevision,
-      settingsRevision: session.settings?.revision ?? 0,
+      settingsRevision: session.settings?.revision ?? 0, presentation: continuation ? 'continuation' : 'opening',
       facadeSecretRef: staticSecretRef ?? 'voice-' + randomUUID(), ...(staticSecretRef ? { facadeCallId: randomUUID() } : {}) };
     sessions.set(sessionId, entry); calls.set(callId, entry);
+    if (!continuation) storage.transitionVoiceLifecycle(sessionId, callId, { type: 'start' });
     const abortStartup = () => controller.abort(request.signal.reason);
     request.signal.addEventListener('abort', abortStartup, { once: true });
     if (request.signal.aborted) abortStartup();
     try {
       const opts = { ...options(request), signal: controller.signal };
-      const admitted = await runtime.admitVoice({ session, request: { callId }, options: { ...opts, spendDeadlineAt } }); entry.admission = admitted;
+      const admitted = await runtime.admitVoice({ session, request: { callId }, options: { ...opts, spendDeadlineAt, allowPaused: continuation } }); entry.admission = admitted;
       const end = spendDeadlineAt ?? now() + admitted.binding.maxDurationSeconds * 1000;
       if (end <= now()) throw new PluginError('deadline');
       if (!staticSecretRef) await secrets.provision(entry.facadeSecretRef);
       controller.signal.throwIfAborted();
       // Trusted presentation from the conversation's locale, including its AI notice (AIT-127).
-      const overrides = presentation?.(session.locale);
+      const overrides = continuation ? { agent: { language: session.locale, firstMessage: '' } } : presentation?.(session.locale);
       entry.call = await admitted.plugin.start({ callId, sessionId, ownerToken, facadeSecretRef: entry.facadeSecretRef,
         facadeUrl: `${admitted.binding.publicFacadeBaseUrl}${staticSecretRef ? CUSTOM_LLM_BASE_PATH : `/api/voice/${callId}/llm`}`,
         settingsRevision: session.settings?.revision ?? 0, ...(overrides ? { overrides } : {}) },
@@ -182,6 +190,14 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         void close(entry, entry.call.snapshot().reason ?? 'cancelled', 'cancelled');
       }, { once: true });
       if (entry.call.signal.aborted) { void close(entry, 'start-cancelled', 'cancelled'); throw new PluginError('cancelled'); }
+      const fresh = sessionFor(entry);
+      if (storage.voiceLifecycle(sessionId, callId)?.state === 'ended' || voiceAuthorizationRevision(fresh) !== voiceAuthorizationRevision(session)) {
+        void close(entry, 'call-authorization-lost', 'cancelled'); throw new PluginError('not-admitted');
+      }
+      storage.transitionVoiceLifecycle(sessionId, callId, { type: 'connected', providerSessionId: entry.call.providerSessionId,
+        authorizationRevision: voiceAuthorizationRevision(fresh), spendDeadlineAt: end,
+        browserLivenessDeadlineAt: entry.call.browserLivenessDeadlineAt });
+      if (fresh.paused) storage.transitionVoiceLifecycle(sessionId, callId, { type: 'pause' });
       return receipt(entry.call);
     } catch (error) {
       revoke(entry); controller.abort(); if (!entry.call) entry.admission?.finish();
@@ -269,7 +285,9 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     }
     const session = sessionFor(entry);
     await runtime.checkVoice(session, { ...opts, allowPaused: true, existingCall: true });
-    return entry.call.resume({ ...opts, guard: { revision: inputRevision(session) } });
+    const ack = await entry.call.resume({ ...opts, guard: { authorizationRevision: voiceAuthorizationRevision(session) } });
+    storage.transitionVoiceLifecycle(entry.sessionId, entry.callId, { type: 'resume-acknowledged' });
+    return ack;
   }
   return {
     active: id => sessions.has(id),
@@ -306,17 +324,27 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           return json(await start(request, sessionId, ownerToken, body.callId), 201);
         }
         const previous = storage.voiceCalls(sessionId).find(c => c.callId === callId && c.providerSessionId === body.providerSessionId);
+        if (action === 'close' && previous && !recoverableVoiceEnd(body.reason ?? 'closed')) {
+          storage.transitionVoiceLifecycle(sessionId, callId, { type: 'end', reason: body.reason ?? 'closed' });
+          const active = calls.get(callId);
+          if (active?.sessionId === sessionId && active.ownerToken === ownerToken) void close(active, body.reason ?? 'closed');
+        }
+        if (action === 'recover' && (storage.voiceLifecycle(sessionId, callId)?.state === 'ended' ||
+          !storage.voiceLifecycle(sessionId, callId) && previous?.reason && !recoverableVoiceEnd(previous.reason))) {
+          throw new PluginError('not-admitted', 'Logical call ended');
+        }
+        const logical = storage.voiceLifecycle(sessionId, callId);
+        if (action === 'recover' && logical?.authorizationRevision && logical.authorizationRevision !== voiceAuthorizationRevision(storage.get(sessionId))) {
+          throw new PluginError('not-admitted', 'Call authorization changed');
+        }
         if (action === 'close' && previous?.terminal) return json(previous.terminal);
         const entry = calls.get(callId);
         if (!entry && action === 'recover' && previous) {
-          const count = storage.voiceCalls(sessionId).filter(c => c.callId === callId).length;
-          if (count > 3) throw new PluginError('unavailable', 'Recovery exhausted');
           // A choice saved while the call was down applies only to an explicitly started call.
           if (Number.isSafeInteger(previous.settingsRevision) && previous.settingsRevision !== storage.get(sessionId).settings?.revision) {
             throw new PluginError('not-admitted', 'Processing settings changed');
           }
-          const next = await start(request, sessionId, ownerToken, callId, previous.spendDeadlineAt);
-          calls.get(callId).recoveryCount = count; return json(next);
+          return json(await start(request, sessionId, ownerToken, callId, previous.spendDeadlineAt, true));
         }
         if (!entry && previous && storage.get(sessionId).consentWithdrawn) throw new PluginError('not-admitted');
         if (!entry || entry.sessionId !== sessionId || entry.ownerToken !== ownerToken || !entry.call) throw new NotFoundError('Call not found');
@@ -331,12 +359,13 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         }
         if (action === 'pause') {
           const event = storage.pause(sessionId, true, { ownerToken }); publish(sessionId, event);
+          storage.transitionVoiceLifecycle(sessionId, callId, { type: 'pause' });
           return json(await changePause(entry, true, options(request)));
         }
         let session = sessionFor(entry);
         // Cleanup is always permitted. Every other command needs current binding coverage.
         try {
-          await runtime.checkVoice(session, { ...options(request), allowPaused: ['resume', 'heartbeat'].includes(action), existingCall: true });
+          await runtime.checkVoice(session, { ...options(request), allowPaused: ['resume', 'heartbeat', 'recover'].includes(action), existingCall: true });
         } catch (error) {
           if (error.message !== 'session paused') void close(entry, 'call-authorization-lost', 'cancelled');
           throw error;
@@ -347,12 +376,9 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           if (entry.settingsRevision !== session.settings?.revision) throw new PluginError('not-admitted', 'Processing settings changed');
           entry.recovering = true;
           try {
-            if ((entry.recoveryCount ?? 0) >= 3) throw new PluginError('unavailable', 'Recovery exhausted');
-            const count = (entry.recoveryCount ?? 0) + 1, end = entry.call.spendDeadlineAt;
+            const end = entry.call.spendDeadlineAt;
             void close(entry, 'transport-lost', 'cancelled');
-            entry.recoveryCount = count;
-            const next = await start(request, sessionId, ownerToken, callId, end);
-            calls.get(callId).recoveryCount = count; return json(next);
+            return json(await start(request, sessionId, ownerToken, callId, end, true));
           } finally { entry.recovering = false; }
         }
         if (entry.call.signal.aborted) throw new PluginError('unavailable');
@@ -371,11 +397,15 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
                 userTurnOrdinal: produced.userTurnOrdinal } : aiTextOrigin(entry.admission.binding)) });
           if (!result.replayed) {
             publish(sessionId, result.event); onTurn(sessionId, result.event);
+            if (body.event.type === 'final' && body.event.role === 'user') storage.transitionVoiceLifecycle(sessionId, callId,
+              { type: 'accepted', turnId: body.event.turnId });
           }
           return json(result.event);
         }
         const before = storage.get(sessionId).seq;
-        const ack = await entry.call[action]({ ...options(request), guard: { revision: inputRevision(session) } });
+        const ack = await entry.call[action]({ ...options(request), guard: { authorizationRevision: voiceAuthorizationRevision(session) } });
+        if (action === 'resume') storage.transitionVoiceLifecycle(sessionId, callId, { type: 'resume-acknowledged' });
+        if (action === 'heartbeat') storage.transitionVoiceLifecycle(sessionId, callId, { type: 'heartbeat', ...ack });
         for (const event of storage.read(sessionId, before)) publish(sessionId, event);
         return json(ack);
       } catch (error) {

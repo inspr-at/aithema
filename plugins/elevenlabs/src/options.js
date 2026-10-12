@@ -1,6 +1,6 @@
 import { AI_NOTICE, aiNoticeText } from '../../../packages/core/src/ai-notice.js';
 
-// Only language and the exact matching AI notice may cross the server/browser boundary.
+// Only language and the matching opening AI notice or silent continuation cross this boundary.
 export function voiceOverrides(value) {
   if (value === undefined) return undefined;
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => key !== 'agent') ||
@@ -9,6 +9,6 @@ export function voiceOverrides(value) {
     value.agent.language !== undefined && (typeof value.agent.language !== 'string' ||
       !/^[a-z]{2,3}(?:-[A-Za-z]{2,4})?$/u.test(value.agent.language))) throw new TypeError('Invalid voice presentation overrides');
   if (value.agent.firstMessage !== undefined && (!Object.hasOwn(AI_NOTICE, value.agent.language ?? '') ||
-    value.agent.firstMessage !== aiNoticeText(value.agent.language))) throw new TypeError('Invalid voice AI notice');
+    !['', aiNoticeText(value.agent.language)].includes(value.agent.firstMessage))) throw new TypeError('Invalid voice AI notice');
   return structuredClone(value);
 }

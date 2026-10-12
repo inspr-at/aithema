@@ -1,6 +1,7 @@
 import { watchVoicePlayback } from './voice-playback.js';
 import { icon } from './icons.js';
 import { Waveform } from './waveform.js';
+import { watchVoiceHeartbeat, voiceAuthorityLost } from '../../core/src/voice-lifecycle-controller.js';
 // START's rail lifecycle, ported to the live-voice session interface (INSPR D3). The presentation is
 // START's conversation rail (index.astro .v2__conversation-rail): an orb dock, icon controls in fixed
 // cells and the waveform with one status phrase. Alternatives share a cell (Start and the microphone,
@@ -42,11 +43,12 @@ export class AudioRail {
     // pauseOrigin "visibility"; server hold in src/pages/api/v2/pause.ts). START also binds
     // window blur to it; AIT-116 D7 deliberately does not: switching to another window while
     // the tab stays visible keeps the call running. A hide during another command
-    // (a microphone toggle or a pending resume, say) is queued and applied when that
-    // command settles, so a hidden rail never keeps listening.
+    // (a microphone toggle or a pending resume, say) stops media immediately and
+    // retains a hold through the command, so a hidden rail never keeps listening.
     this.hide = () => {
       if (this.unloading) return;
-      if (this.session && !this.busy) { if (!this.paused) void this.pause(true); }
+      this.holdController?.abort();
+      if (this.session) { if (!this.paused || this.busy) void this.pause(true); }
       else if (this.session || this.state === 'connecting') this.hidePending = true;
     };
     this.visibility = () => { if (root.ownerDocument.hidden) this.hide(); };
@@ -84,7 +86,7 @@ export class AudioRail {
     // Closing a rail that had no call (an invalidation while idle) is no call: it never marks one active.
     const c = this.copy, active = Boolean(this.session), available = this.feature(),
       transitional = ['connecting', 'recovering'].includes(this.state) || this.state === 'closing' && this.closingCall;
-    const state = this.paused && active ? 'paused' : this.state;
+    const state = this.paused && active && this.state !== 'waiting' ? 'paused' : this.state;
     if (this.root.dataset.state !== undefined && this.root.dataset.state !== state) queueMicrotask(() => { if (this.connected) this.onState?.(state); });
     this.root.dataset.state = state;
     this.root.dataset.call = active || transitional ? 'active' : 'none';
@@ -127,6 +129,8 @@ export class AudioRail {
     if (this.session || this.state === 'connecting' || !this.feature().available || !this.client) return;
     const generation = ++this.generation; this.endedCall = null; this.errorKey = null; this.state = 'connecting'; this.render();
     const controller = new AbortController(); this.controller = controller;
+    const holdController = new AbortController(); this.holdController = holdController;
+    if (this.root.ownerDocument.hidden) holdController.abort();
     let session;
     try {
       // A reloaded page first ends the call its predecessor left behind.
@@ -138,7 +142,7 @@ export class AudioRail {
       this.playbackWatcher = watchVoicePlayback(this.root.ownerDocument, () => {
         if (generation === this.generation && (session ? session === this.session : this.state === 'connecting')) this.reportPlaybackBlocked();
       });
-      session = await this.client.start({ callId: crypto.randomUUID() }, { signal: controller.signal, deadlineAt: Date.now() + 30_000 });
+      session = await this.client.start({ callId: crypto.randomUUID() }, { signal: controller.signal, holdSignal: holdController.signal, deadlineAt: Date.now() + 30_000 });
       if (generation !== this.generation) { await session.close(); return; }
       this.session = session; this.paused = false; this.state = 'listening';
       this.journal?.save({ callId: session.callId, providerSessionId: session.providerSessionId });
@@ -149,13 +153,13 @@ export class AudioRail {
       await this.updateContext();
       if (!this.current(session, generation)) return;
       this.render();
-      this.heartbeat = setInterval(() => {
-        if (!this.current(session, generation) || this.beating) return;
-        this.beating = true;
-        Promise.resolve(session.heartbeat?.({ deadlineAt: Date.now() + 5000 })).catch(error => {
-          if (this.current(session, generation)) { this.failure(error); void this.close(); }
-        }).finally(() => { if (this.current(session, generation)) this.beating = false; });
-      }, this.heartbeatMs);
+      this.stopHeartbeat = session.lifecycle?.startHeartbeat(this.heartbeatMs) ?? watchVoiceHeartbeat({
+        heartbeat: opts => session.heartbeat?.(opts), current: () => this.current(session, generation), heartbeatMs: this.heartbeatMs,
+        onFailure: error => {
+          if (voiceAuthorityLost(error)) { this.failure(error); void this.close('call-authorization-lost'); }
+          else { void this.pause(true); }
+        },
+      });
       // The waveform follows the measured level; under reduced motion it keeps its still baseline.
       const still = this.root.ownerDocument.defaultView?.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
       this.meter = setInterval(() => {
@@ -171,7 +175,7 @@ export class AudioRail {
       if (this.root.ownerDocument.hidden || this.hidePending) { this.hidePending = false; this.hide(); }
     } catch (error) {
       if (generation !== this.generation || session && session !== this.session) return;
-      clearInterval(this.heartbeat); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.session = null; controller.abort(); this.state = 'failed'; this.failure(error);
+      this.stopHeartbeat?.(); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.session = null; controller.abort(); this.state = 'failed'; this.failure(error);
     }
   }
   async consume(session, generation) {
@@ -186,8 +190,12 @@ export class AudioRail {
           this.state = 'listening'; this.errorKey = null; this.journal?.update({ providerSessionId: session.providerSessionId });
           void this.updateContext().catch(() => {});
         }
+        if (event.type === 'waiting') {
+          this.state = 'waiting'; this.paused = true; this.errorKey = null; this.quiet();
+          this.root.querySelector('.voice-caption').textContent = '';
+        }
         if (event.type === 'ended') {
-          clearInterval(this.heartbeat); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.session = null; this.journal?.clear();
+          this.stopHeartbeat?.(); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.session = null; this.journal?.clear();
           this.busy = false; this.beating = false; this.hidePending = false; this.playbackBlocked = false;
           this.quiet(); this.onEnd?.();
           this.state = ['closed', 'cancelled', 'closure-uncertain'].includes(event.reason) ? 'idle' : 'failed';
@@ -201,21 +209,22 @@ export class AudioRail {
     } catch (error) { if (this.current(session, generation)) { this.failure(error); await this.close(); } }
   }
   async pause(paused) {
-    if (!this.session || this.busy || this.paused === paused) {
+    if (!this.session || this.busy && !paused || this.paused === paused && !(paused && this.busy)) {
       if (paused && this.state === 'connecting') this.hidePending = true;
       return;
     }
     const session = this.session, generation = this.generation;
+    const revision = this.pauseRevision = (this.pauseRevision ?? 0) + 1;
     if (paused) { this.paused = true; this.onPause?.(true); }
     this.busy = true; this.render();
     try {
       const ack = await session[paused ? 'pause' : 'resume']();
-      if (!this.current(session, generation)) return;
+      if (!this.current(session, generation) || revision !== this.pauseRevision) return;
       if (ack?.acknowledged !== true || ack.paused !== paused) throw new Error('Pause acknowledgement required');
       this.paused = paused; this.errorKey = null; this.onPause?.(paused);
       if (!paused) { this.state = 'listening'; void this.updateContext().catch(() => {}); }
-    } catch { if (this.current(session, generation)) this.errorKey = 'voicePauseFailed'; }
-    finally { if (this.current(session, generation)) { this.busy = false; this.render(); this.settle(); } }
+    } catch { if (this.current(session, generation) && revision === this.pauseRevision) this.errorKey = 'voicePauseFailed'; }
+    finally { if (this.current(session, generation) && revision === this.pauseRevision) { this.busy = false; this.render(); this.settle(); } }
   }
   syncPause(paused) {
     if (this.session && this.paused !== paused && !this.busy) void this.pause(paused);
@@ -259,7 +268,7 @@ export class AudioRail {
     const session = this.session;
     this.closingSession = session;
     const generation = ++this.generation;
-    clearInterval(this.heartbeat); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.quiet();
+    this.stopHeartbeat?.(); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.quiet();
     this.endedCall = session ? { callId: session.callId, providerSessionId: session.providerSessionId } : null;
     this.session = null; this.hidePending = false; this.paused = false; this.busy = false; this.beating = false; this.playbackBlocked = false; this.state = 'idle';
     this.errorKey = session ? 'voiceClosureUncertain' : null;

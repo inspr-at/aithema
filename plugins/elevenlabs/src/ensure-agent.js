@@ -12,6 +12,9 @@ const SECRET_NAME = 'aithema-start2-facade';
 // https://elevenlabs.io/docs/eleven-agents/customization/conversation-flow
 const TURN_POLICY = Object.freeze({ turn_eagerness: 'patient', turn_timeout: 12,
   spelling_patience: 'auto', turn_model: 'turn_v3', speculative_turn: false });
+// Seconds since the user last spoke, independent of turn_timeout and total duration.
+// https://github.com/elevenlabs/elevenlabs-python/blob/ea9589784336ba9aa9fc0dc01683a15da2562080/src/elevenlabs/types/turn_config.py#L22
+const SILENCE_END_CALL_TIMEOUT = 120;
 const ASR_KEYWORDS = Object.freeze(['Aithema', 'Hosting', 'Domain', 'Webshop', 'Schnittstelle', 'Datenschutz']);
 const CLIENT_EVENTS = Object.freeze(['conversation_initiation_metadata', 'asr_initiation_metadata', 'audio', 'interruption',
   'user_transcript', 'tentative_user_transcript', 'agent_response',
@@ -112,7 +115,7 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
     tts: { ...pick(config.tts, ['voice_id', 'model_id', 'stability', 'similarity_boost', 'style', 'use_speaker_boost', 'speed', 'optimize_streaming_latency', 'agent_output_audio_format']),
       ...(config.tts.voice_settings ? { voice_settings: pick(config.tts.voice_settings, ['stability', 'similarity_boost', 'style', 'use_speaker_boost', 'speed']) } : {}) },
     asr: { ...pick(config.asr, ['quality', 'provider', 'user_input_audio_format']), keywords: [...ASR_KEYWORDS] },
-    turn: { ...pick(config.turn, ['silence_end_call_timeout', 'mode']), ...TURN_POLICY },
+    turn: { ...pick(config.turn, ['mode']), ...TURN_POLICY, silence_end_call_timeout: SILENCE_END_CALL_TIMEOUT },
     conversation: { max_duration_seconds: maxDurationSeconds, client_events: [...CLIENT_EVENTS] },
     // UNVERIFIED API SHAPE: conversation_config.language_presets {[language]: {overrides, ...}}; empty clears them.
     language_presets: {},
@@ -163,6 +166,7 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
     'conversation_config.conversation.client_events': isDeepStrictEqual(remote?.conversation_config?.conversation?.client_events, CLIENT_EVENTS),
     'conversation_config.agent.first_message': spoken === aiNoticeText(language),
     'conversation_config.language_presets': isDeepStrictEqual(presets, {}),
+    'conversation_config.turn.silence_end_call_timeout': remote?.conversation_config?.turn?.silence_end_call_timeout === SILENCE_END_CALL_TIMEOUT,
     ...Object.fromEntries(Object.entries(TURN_POLICY).map(([field, expected]) =>
       [`conversation_config.turn.${field}`, isDeepStrictEqual(remote?.conversation_config?.turn?.[field], expected)])),
     'conversation_config.asr.keywords': isDeepStrictEqual(remote?.conversation_config?.asr?.keywords, ASR_KEYWORDS),

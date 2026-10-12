@@ -5,7 +5,11 @@ import { unavailableVoiceCommand } from '../../../packages/core/src/live-voice.j
 import { fixture, invocationOptions, flush, fakeSdk } from './fixtures.js';
 
 const channelEffects = sdk => sdk.effects.filter(([name]) => ['setInputMuted', 'setVolume'].includes(name));
-async function drain(session) { const events = []; for await (const event of session.events) events.push(event); return events; }
+async function drain(session, closeOnWaiting = false) {
+  const events = [];
+  for await (const event of session.events) { events.push(event); if (closeOnWaiting && event.type === 'waiting') await session.close(); }
+  return events;
+}
 for (const transport of ['webrtc', 'websocket']) test(`AIT-145: ${transport} hangup stops playback and capture before stalled SDK cleanup`, async t => {
   const local = fixture(), session = await local.client.start({ callId: `end_${transport}`, transport }, invocationOptions());
   const conversation = local.sdk.conversations.at(-1), cleanup = conversation.endSession, released = Promise.withResolvers();
@@ -34,11 +38,11 @@ test('transport loss while paused waits for acknowledged resume before spending 
   const local = fixture(), options = invocationOptions(), session = await local.client.start({ callId: 'call_paused_recovery' }, options);
   let retries = 0;
   local.control.recover = async () => { retries++; throw new Error('local recovery failure'); };
-  const reader = drain(session);
+  const reader = drain(session, true);
   await session.pause(); local.sdk.starts[0].onDisconnect();
   await flush();
   assert.equal(retries, 0); assert.equal(local.sdk.closed, false);
-  await session.resume();
+  await assert.rejects(session.resume(), { code: 'unavailable' });
   const events = await reader; assert.equal(retries, 3); assert.equal(events.at(-1).type, 'ended');
 });
 test('relative credential TTL accepts a receipt even when the server clock is behind the browser', async () => {
@@ -70,7 +74,7 @@ test('SDK 1.17.0 onError contexts preserve the active call; onDisconnect drives 
   callbacks.onError('Failed to end session after agent end_call', new Error('fixture endSession failure'));
   await flush(); assert.equal(recoveries, 0); assert.equal(local.sdk.closed, false); assert.equal(options.reports.length, 0);
   await session.sendText('still active');
-  const reader = drain(session); callbacks.onDisconnect({ reason: 'error' });
+  const reader = drain(session, true); callbacks.onDisconnect({ reason: 'error' });
   const events = await reader; assert.equal(recoveries, 3); assert.equal(events[0].type, 'recovering');
   assert.equal(events.at(-1).type, 'ended');
 });
@@ -148,14 +152,14 @@ test('native interrupt waits for real acknowledgement; deadline/cancel/mute neve
   await session.close(); assert.deepEqual((await reader).map(event => event.type), ['ended']);
   assert.equal(local.sdk.effects.some(([method]) => method === 'nativeInterruption'), false);
 });
-test('three failed fresh recovery admissions return ended control; stale callbacks are ignored', async () => {
+test('three failed fresh recovery admissions wait for explicit Resume or hangup; stale callbacks are ignored', async () => {
   const local = fixture(); let attempts = 0;
   local.control.recover = async () => { attempts++; throw new Error('fake unavailable'); };
-  const session = await local.client.start({ callId: 'call_recover_fail' }, invocationOptions()), reader = drain(session);
+  const session = await local.client.start({ callId: 'call_recover_fail' }, invocationOptions()), reader = drain(session, true);
   local.sdk.starts[0].onDisconnect({ reason: 'error' }); await flush();
   local.sdk.starts[0].onMessage({ role: 'agent', message: 'stale words', event_id: 22 });
   const events = await reader; assert.equal(attempts, 3); assert.equal(events[0].type, 'recovering');
-  assert.equal(events.at(-1).reason, 'recovery-failed'); assert.equal(events.some(event => event.type === 'final'), false);
+  assert.equal(events.find(event => event.type === 'waiting').reason, 'recovery-failed'); assert.equal(events.some(event => event.type === 'final'), false);
 });
 test('successful reconnect uses a new admitted attempt, keeps call identity and ignores old generation', async () => {
   const local = fixture(), initial = invocationOptions(), recoverOptions = invocationOptions();

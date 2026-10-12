@@ -340,7 +340,7 @@ export class AithemaSession extends HTMLElement {
     pause.dataset.reveal = ''; root.querySelector('.voice-cell--pause').prepend(pause); root.querySelector('.audio-rail').tabIndex = -1;
     root.querySelector('.pause').addEventListener('click', async () => {
       const button = root.querySelector('.pause');
-      if (this.#rail.session) { await this.#rail.pause(!this.#session.paused); return; }
+      if (this.#rail.session) { await this.#rail.pause(!this.#rail.paused); return; }
       button.disabled = true;
       try { await this.#setPaused(!this.#session.paused); }
       finally { button.disabled = false; }
@@ -580,8 +580,9 @@ export class AithemaSession extends HTMLElement {
     this.#paintStatus(); this.#paintNotice(); this.#fold?.update(this.#session);
     const pause = root.querySelector('.pause');
     if (pause) {
-      setText(pause.querySelector('.voice-label'), this.#session.paused ? copy.resume : copy.pause); pause.title = pause.textContent;
-      pause.setAttribute('aria-pressed', String(this.#session.paused));
+      const voicePaused = this.#rail?.session ? this.#rail.paused : this.#session.paused;
+      setText(pause.querySelector('.voice-label'), voicePaused ? copy.resume : copy.pause); pause.title = pause.textContent;
+      pause.setAttribute('aria-pressed', String(Boolean(voicePaused)));
     }
     const element = (tag, value, className) => {
       const node = document.createElement(tag); if (value !== undefined) node.textContent = value;
@@ -1281,7 +1282,7 @@ export class AithemaSession extends HTMLElement {
     const content = input.value;
     if (this.#session.processingPreset === 'device') { await this.#sendDevice(content); return; }
     const sessionId = this.#session.id;
-    const voiceSession = this.#rail.session;
+    const voiceSession = !this.#rail.paused && !['recovering', 'waiting'].includes(this.#rail.state) ? this.#rail.session : null;
     if (!this.#pending || this.#pending.content !== content) this.#pending = { clientEventId: crypto.randomUUID(), content,
       ...(voiceSession ? { voiceCallId: voiceSession.callId, providerSessionId: voiceSession.providerSessionId } : {}) };
     this.#sending = true; button.disabled = true; this.#status(this.#copy.sending);

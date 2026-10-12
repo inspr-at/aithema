@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { PluginRegistry, createMockReasoning, createBinding, PluginError, isCancelledZeroReport, PROCESSING_PRESETS, FEATURES,
   deviceFeatures, featureUnavailable, bindingReason, processingScope, consentReason, MOCK_PROCESSING_SCOPE,
-  operationScope, inputRevision, untilCancelled, MAX_HTML_BYTES, isCanonicalMockReasoning, EFFORT_ORDER, SETTINGS_OFF, isOptionId,
+  operationScope, inputRevision, voiceAuthorizationRevision, untilCancelled, MAX_HTML_BYTES, isCanonicalMockReasoning, EFFORT_ORDER, SETTINGS_OFF, isOptionId,
   sortEfforts, preferredEffort, isDynamicReason, isConsentReason, CONSENT_REASON, activeUploads, beginInvocation, admitCredits } from '@inspr/aithema-core';
 import { assertExtractor, createExtractor, normalizeExtractorLimits } from '@inspr/aithema-core/extractor';
 import { createDurationBinding, durationPluginMatches } from './voice-binding.js';
@@ -172,6 +172,11 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       current.inputRevision === session.inputRevision + added.filter(turn => turn.role === 'user').length &&
       hash(transcriptBytes(current.transcript.slice(0, session.transcript.length))) === hash(transcriptBytes(session.transcript)) &&
       hash(current.uploads) === hash(session.uploads);
+  };
+  const voiceUnchanged = (session, allowPaused = false) => {
+    const current = storage.get(session.id);
+    return Boolean(session.ownerHash) && !current.tombstone && !current.consentWithdrawn && (allowPaused || !current.paused) &&
+      voiceAuthorizationRevision(current) === voiceAuthorizationRevision(session) && selectionKey(current, 'voice') === selectionKey(session, 'voice');
   };
   const coverageFor = (session, scope, options) => consent.coverage({ sessionId: session.id,
     scope: structuredClone(scope), consentRevision: session.consentRevision }, options);
@@ -554,7 +559,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         session.processingPreset ?? 'best', 'voice', options);
       const current = storage.get(session.id);
       if (result.reason || current.ownerHash !== session.ownerHash || current.tombstone || current.consentWithdrawn ||
-        (!allowPaused && current.paused) || inputRevision(current) !== inputRevision(session) ||
+        (!allowPaused && current.paused) || voiceAuthorizationRevision(current) !== voiceAuthorizationRevision(session) ||
         selectionKey(current, 'voice') !== selectionKey(session, 'voice')) throw new PluginError('not-admitted', result.reason ?? 'Session changed');
       return result;
     },
@@ -582,9 +587,9 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       catch { return null; }
     },
     async admitVoice({ session, request, options = {} }) {
-      if (!unchanged(session, 'voice')) throw new PluginError('not-admitted');
+      if (!voiceUnchanged(session, options.allowPaused)) throw new PluginError('not-admitted');
       const result = await this.checkVoice(session, options);
-      if (!unchanged(session, 'voice')) throw new PluginError('not-admitted');
+      if (!voiceUnchanged(session, options.allowPaused)) throw new PluginError('not-admitted');
       const { binding, plugin } = result;
       const { maxMicro, maxVisitorMicro, maxMilliseconds } = voiceAmounts(binding, options);
       const { attemptId } = await admitBudget(session, { sessionId: session.id, lane: 'voice', maxMicro, maxVisitorMicro,
@@ -614,7 +619,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         if (reported || consuming) throw new PluginError('already-claimed');
         consuming = true;
         try {
-          if (!unchanged(session, 'voice')) throw new PluginError('not-admitted');
+          if (!voiceUnchanged(session, options.allowPaused)) throw new PluginError('not-admitted');
           if (result.scope) {
             const scope = operationScope(options);
             try {
@@ -623,7 +628,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
             } finally { scope.dispose(); }
           }
           options.signal?.throwIfAborted();
-          if (!unchanged(session, 'voice')) throw new PluginError('not-admitted');
+          if (!voiceUnchanged(session, options.allowPaused)) throw new PluginError('not-admitted');
           claim.consume(); dispatched = true;
         } catch { zero(); throw new PluginError('not-admitted', 'Voice dispatch refused'); }
       } };

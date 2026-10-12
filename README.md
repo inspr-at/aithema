@@ -591,6 +591,38 @@ identify text provenance, without confirming playback. Understanding/focus chang
 Unsupported commands and presets stay disabled with a reason. Automatic updates
 keep the rail, composer and export targets at fixed positions.
 
+The voice lifecycle reducer distinguishes `idle`, `connecting`, `active`,
+`paused`, `recovering`, `waiting` and terminal `ended`. The browser controller
+owns heartbeat renewal, segment liveness and recovery. Transient failures join
+one recovery flight; three attempts apply per outage. Exhaustion or browser lease
+expiry stops local media and waits for explicit Resume under the same logical
+`callId`. Recovery retains the absolute spend deadline and separately admitted,
+potentially uncertain provider liabilities. Hangup commits logical terminal
+intent before background settlement; terminal calls cannot recover. Call
+authorization revisions cover ownership, conversation consent, withdrawal,
+locale and processing choices, independently of ordinary transcript revisions.
+
+The server chooses opening or continuation presentation. Openings retain the
+locale's AI notice; every replacement sets SDK `overrides.agent.firstMessage`
+to `""`. No synthetic resume utterance is sent. Each replacement is a new
+provider generation and callback key space: an input repeated there can admit
+another operation and incur another charge. Recovery never aliases receipts or
+old operations across generations, nor marks admitted work obsolete.
+
+The owned `aithema-start2` agent sets
+`conversation_config.turn.silence_end_call_timeout` to **120 seconds**, with
+strict numeric read-back after both create and PATCH. The provider measures
+time since the user last spoke ([SDK field definition](https://github.com/elevenlabs/elevenlabs-python/blob/ea9589784336ba9aa9fc0dc01683a15da2562080/src/elevenlabs/types/turn_config.py#L22)).
+This is separate from the patient turn policy's `turn_timeout: 12` and the
+existing total-duration limit. START's template remains GET-only. Provider
+closure and spending remain uncertain until authenticated details confirm them;
+fake read-back tests do not qualify actual provider timing.
+
+AIT-138's first slice stops here. Recovery notices, exact known-reply replay,
+durable controlling-tab takeover, sleep/wake handling and server-restart
+restoration remain to be delivered. The reducer already models those transitions;
+their end-to-end ports are not yet installed.
+
 Custom-LLM operation identity comes exclusively from the authenticated provider
 callback body. The key is SHA-256 of `(session, call, provider generation,
 user-turn ordinal, history digest)`. The ordinal counts original user messages

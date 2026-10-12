@@ -26,3 +26,4 @@ export * from './handover-port.js';
 export * from './credits.js';
 export * from './concept-lane.js';
 export * from './ai-notice.js';
+export * from './voice-lifecycle.js';
