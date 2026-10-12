@@ -12,6 +12,21 @@ const options = (storage, fake, logs = []) => ({ storage, apiBaseUrl: fake.endpo
   log: value => logs.push(value) });
 const writes = fake => fake.requests.filter(request => request.method !== 'GET');
 
+test('AIT-137 round 5: the owned agent enables response metadata and proves it on read-back', async t => {
+  const fake = await fakeElevenLabs(t), storage = new SQLiteStorage(); t.after(() => storage.close());
+  await ensureAgent(options(storage, fake));
+  assert.ok(fake.agents[0].conversation_config.conversation.client_events?.includes('agent_response_metadata'));
+  const host = await createVoiceHost({ ...options(storage, fake), fetchImpl: async (url, init) => {
+    const response = await fetch(url, init);
+    if (init.method !== 'GET' || !new URL(url).pathname.endsWith('/agents/owned-agent')) return response;
+    const saved = await response.json();
+    saved.conversation_config.conversation.client_events = saved.conversation_config.conversation.client_events.filter(event => event !== 'agent_response_metadata');
+    return Response.json(saved);
+  } });
+  assert.equal(host.binding, undefined); assert.equal(host.disabledReason, 'agent-readback-mismatch');
+  assert.ok(fake.requests.filter(request => request.path.endsWith('/agents/template-agent')).every(request => request.method === 'GET'));
+});
+
 test('AIT-146: long-form turn policy replaces eager template settings on create and restart, without writing START', async t => {
   const fake = await fakeElevenLabs(t), storage = new SQLiteStorage(); t.after(() => storage.close());
   Object.assign(fake.template.conversation_config.turn, { turn_eagerness: 'eager', turn_model: 'turn_v2',

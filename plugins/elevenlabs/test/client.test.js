@@ -280,3 +280,19 @@ test('AIT-137 round 3: client user-final ordinal ignores assistant finals and du
   assert.deepEqual(finals.map(event => event.event_id), [1, 3, 1]);
   assert.notEqual(finals[1].providerSessionId, finals[2].providerSessionId);
 });
+
+test('AIT-137 round 5: custom-LLM metadata identifies identical replies across delayed finals', async () => {
+  const local = fixture(), session = await local.client.start({ callId: 'reply_identity' }, invocationOptions()), events = drain(session);
+  const callbacks = local.sdk.starts[0];
+  callbacks.onMessage({ role: 'user', message: 'Input A', event_id: 1 });
+  callbacks.onDebug({ type: 'agent_response_metadata', agent_response_metadata_event: { event_id: 2, metadata: { aithema_reply_id: 'chatcmpl-a' } } });
+  callbacks.onMessage({ role: 'user', message: 'Input B', event_id: 3 });
+  callbacks.onDebug({ type: 'agent_response_metadata', agent_response_metadata_event: { event_id: 4, metadata: { aithema_reply_id: 'chatcmpl-b' } } });
+  callbacks.onMessage({ role: 'agent', message: 'Same reply', event_id: 4 });
+  callbacks.onMessage({ role: 'agent', message: 'Same reply', event_id: 2 });
+  callbacks.onMessage({ role: 'agent', message: 'Same reply', event_id: 2 });
+  await session.close(); await events;
+  const replies = local.persisted.filter(event => event.role === 'assistant');
+  assert.deepEqual(replies.map(event => [event.event_id, event.replyId]), [[4, 'chatcmpl-b'], [2, 'chatcmpl-a']]);
+  assert.ok(replies.every(event => event.userTurnOrdinal === undefined), 'the server owns operation ordinals');
+});

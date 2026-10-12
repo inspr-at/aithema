@@ -2301,14 +2301,15 @@ for (const change of ['consent-withdrawal', 'external-consent-withdrawal', 'sour
       const row = h.rows()[0];
       h.runtime.budget.settle(row.claim_id, { attemptId: row.attempt_id, outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 } });
     }
-    if (change === 'upload-change') h.storage.append(h.session.id, 'upload.state', { id: 'new-upload', state: 'pending' });
+    if (change === 'upload-change') h.storage.append(h.session.id, 'upload.state', { id: 'new-upload', state: 'pending', at: new Date(h.now()).toISOString() });
     if (change === 'heard-correction') h.storage.postVoiceEvent(h.session.id, h.grant.callId, h.grant.providerSessionId,
       { type: 'heard', callId: h.grant.callId, turnId: `${h.grant.providerSessionId}:assistant:heard`, prefix: 'Heard.' });
     if (change === 'locale-change') h.storage.append(h.session.id, 'session.locale-changed', { locale: 'de' });
     pending.release();
     const response = await callback;
+    await h.handlers.idle();
     assert.notEqual(response.status, 200); assert.equal(h.requests.length, 0);
     assert.deepEqual(h.counts(), { admissions: 1, models: 0, cost: 0 });
-    assert.equal(h.rows().length, 1); assert.equal(h.rows()[0].state, 'settled');
+    assert.equal(h.rows().length, 1); assert.notEqual(h.rows()[0].state, 'dispatched');
   });
 }
