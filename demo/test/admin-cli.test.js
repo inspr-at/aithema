@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { stat, mkdtemp } from 'node:fs/promises';
+import { stat, mkdir, mkdtemp } from 'node:fs/promises';
 import { tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -77,4 +77,14 @@ test('AIT-135 the running start2 host exposes OPS only on its socket, with $1000
   assert.equal((await fetch(running.url + `/api/sessions/${session.id}/credits`, { headers }).then(r => r.json())).balance.owner.limitMicro, 15_000_000);
   await running.kill();
   await assert.rejects(adminRequest(socketPath, 'settings'), error => ['ENOENT', 'ECONNREFUSED'].includes(error.code));
+});
+
+test('AIT-135 a long database directory still permits the default private Unix socket', { timeout: 15_000 }, async t => {
+  const root = await mkdtemp(join(tmpdir(), 'ait-135-path-'));
+  const directory = join(root, 'x'.repeat(90 - root.length - 1));
+  await mkdir(directory);
+  const running = await startChild(new URL('../server.js', import.meta.url), join(directory, 'session.sqlite'));
+  t.after(() => running.kill());
+  const response = await post(running.url + '/api/sessions', {});
+  assert.equal(response.status, 201);
 });
