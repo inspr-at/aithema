@@ -105,7 +105,7 @@ export const bandStyles = `
 .concept-bar:has(.concept-preview:disabled) { grid-template-columns:minmax(0,1fr); }
 .host-credits__text { color:var(--aithema-ink); font-weight:400; white-space:nowrap; }
 .host-credits__amount { font-weight:600; }
-.footer-popup { display:block; position:fixed; z-index:15; width:max-content; max-width:min(320px,calc(100vw - 24px));
+.footer-popup { display:block; position:fixed; left:12px; bottom:62px; z-index:15; width:max-content; max-width:min(320px,calc(100vw - 24px));
   max-height:calc(100dvh - 100px); overflow-y:auto; white-space:pre-line; overflow-wrap:anywhere; padding:10px 12px;
   border-radius:10px; background:var(--aithema-ink); color:var(--aithema-paper); font-size:12.5px; line-height:1.5;
   text-align:left; visibility:hidden; opacity:0; pointer-events:none; transition:opacity .12s; transform:none; }
