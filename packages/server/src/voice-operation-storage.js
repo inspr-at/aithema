@@ -18,6 +18,7 @@ export function createVoiceOperationStore(storage) {
     CREATE INDEX IF NOT EXISTS voice_turn_session ON voice_turn_operations(session_id);
     CREATE INDEX IF NOT EXISTS voice_turn_generation ON voice_turn_operations(session_id, call_id, provider_id);`);
   const get = key => {
+    if (!key) return null;
     const row = db.prepare('SELECT record FROM voice_turn_operations WHERE operation_key=?').get(key);
     return row ? JSON.parse(row.record) : null;
   };
