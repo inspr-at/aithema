@@ -1234,6 +1234,9 @@ export class AithemaSession extends HTMLElement {
       }
       const presetBefore = this.#session.processingPreset, settingsBefore = this.#session.settings;
       this.#session = applyEvent(this.#session, event); this.#cursor = event.seq;
+      // Every acknowledged journal event is a floor for older snapshot responses, including
+      // the locale acknowledgement and a first turn arriving while that response is in flight.
+      this.#invalidatedAt = Math.max(this.#invalidatedAt, event.seq);
       if (event.type === 'session.locale-changed') this.#repaintLocale();
       this.#concept.update(this.#session);
       if (event.type === 'settings.changed') {
@@ -1312,7 +1315,7 @@ export class AithemaSession extends HTMLElement {
       this.dispatchEvent(new CustomEvent('aithema-features', { bubbles: true, composed: true }));
     } catch { /* Existing verdicts stay closed until the host confirms coverage. */ }
   }
-  async #restore(rejectedCursor = false) {
+  async #restore() {
     const sessionId = this.#session.id, requestedCursor = this.#cursor;
     try {
       const response = await fetch(`${this.#base}/api/sessions/${sessionId}`, { headers: this.#headers() });
@@ -1321,8 +1324,10 @@ export class AithemaSession extends HTMLElement {
       if (sessionId !== this.#session.id) return;
       // A restore already in flight cannot overwrite a newer locale acknowledgement or first
       // turn, any more than it may restore withdrawn content. Resume from the newer cursor.
-      if (session.seq < this.#cursor && (!rejectedCursor || this.#cursor !== requestedCursor) || session.seq < this.#invalidatedAt) {
-        if (this.isConnected) this.#connect();
+      if (session.seq < this.#invalidatedAt) {
+        // Reconnect only when another event advanced us during this fetch. Repeating a gap
+        // against the same stale snapshot must not create a synchronous restore loop.
+        if (this.#cursor > requestedCursor && this.isConnected) this.#connect();
         return;
       }
       this.#session = session; this.#cursor = this.#session.seq; this.#partials.clear();
@@ -1353,7 +1358,7 @@ export class AithemaSession extends HTMLElement {
           signal, headers: this.#headers({ 'Last-Event-ID': String(this.#cursor) }),
         });
         if (signal.aborted) return;
-        if (response.status === 400) { await this.#restore(true); return; }
+        if (response.status === 400) { await this.#restore(); return; }
         if (!response.ok) { if (response.status === 404) void this.#rail.close(); throw new Error(); }
         this.#connectionStatus(this.#copy.connected); reader = response.body.getReader();
         // A reconnect may follow a host restart: grants held in memory may be gone (D6).
