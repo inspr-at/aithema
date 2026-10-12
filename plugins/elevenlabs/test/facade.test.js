@@ -56,7 +56,7 @@ const grantFor = ({ scope, consentRevision }) => ({ covered: true, ...scope, sco
   checkedAt: Date.now(), expiresAt: Date.now() + 10_000 });
 
 function facadeFixture({ mode = 'normal', paused = false, deadlineAt = Date.now() + 5000, timeoutMs = 1000,
-  admissionOptions = {}, maxRequestBytes, staticSecretRef, ports = {}, log } = {}) {
+  admissionOptions = {}, pluginTimeoutMs = Infinity, maxRequestBytes, staticSecretRef, ports = {}, log } = {}) {
   const call = { callId: 'call_facade', providerSessionId: 'conv_facade', facadeSecretRef: 'fixture-per-call-ref', paused,
     ...(staticSecretRef ? { facadeCallId: 'call_facade' } : {}),
     spendDeadlineAt: deadlineAt, browserLivenessDeadlineAt: deadlineAt };
@@ -69,7 +69,8 @@ function facadeFixture({ mode = 'normal', paused = false, deadlineAt = Date.now(
       assert.equal(callId, call.callId); admissions.push(request);
       const invocation = invocationOptions({ ...options, ...admissionOptions }); optionsList.push(invocation);
       const plugin = { async *stream(input, opts) {
-        const accounting = await beginInvocation(opts); const scope = operationScope(opts); let completed = false;
+        const accounting = await beginInvocation(opts);
+        const scope = operationScope({ ...opts, deadlineAt: Math.min(opts.deadlineAt, Date.now() + pluginTimeoutMs) }); let completed = false;
         try {
           scope.signal.throwIfAborted(); accounting.dispatch(); upstream.push(input);
           if (mode === 'first-broken') throw new Error('fixture-per-call-secret must not escape');
@@ -451,6 +452,16 @@ test('facade preserves the admission cancellation signal and earlier deadline', 
   const unread = await unused.handler(unused.request()); await new Promise(resolve => setTimeout(resolve, 60));
   assert.equal(unused.logs.length, 1); assert.equal(JSON.parse(unused.logs[0]).errorCode, 'deadline');
   await streamError(unread, 'deadline'); assert.equal(unused.optionsList[0].reports.length, 1);
+});
+test('facade preserves a plugin-local deadline before the invocation lifetime expires', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
+  const local = facadeFixture({ mode: 'stall', pluginTimeoutMs: 10 });
+  const response = await local.handler(local.request()), pending = streamError(response, 'deadline'); await flush();
+  t.mock.timers.tick(9); await flush();
+  assert.equal(local.optionsList[0].reports.length, 0); assert.equal(local.logs.length, 0);
+  t.mock.timers.tick(1); await pending;
+  assert.equal(local.optionsList[0].reports.length, 1); assert.equal(local.optionsList[0].reports[0].outcome, 'uncertain');
+  assert.equal(local.logs.length, 1); assert.equal(JSON.parse(local.logs[0]).errorCode, 'deadline');
 });
 test('AIT-130: delayed nonstream completion cannot return success past the admission deadline', async () => {
   let completions = 0;
