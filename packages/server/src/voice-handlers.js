@@ -87,8 +87,11 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         runtime.reconcileVoice(record.attemptId, result);
         const saved = storage.voiceCalls(record.sessionId).find(c => c.providerSessionId === record.providerSessionId);
         storage.saveVoiceCall(record.sessionId, { ...saved, reconciliation: result, reconciliationPending: result.usage?.costEstimated === true });
+        const logical = storage.voiceLifecycle(record.sessionId, record.callId);
         publish(record.sessionId, { type: 'voice.state', data: { callId: record.callId, providerSessionId: record.providerSessionId,
-          state: 'ended', reason: record.reason, reconciliationPending: result.usage?.costEstimated === true,
+          state: logical && logical.state !== 'idle' ? logical.state : recoverableVoiceEnd(record.reason)
+            ? record.reason === 'browser-liveness-deadline' ? 'waiting' : 'recovering' : 'ended',
+          reason: logical?.terminalReason ?? record.reason, reconciliationPending: result.usage?.costEstimated === true,
           terminal: { outcome: result.outcome, closureConfirmed: true, usage: result.usage } } });
         diagnostic(record, 'voice.cost-reconciled', { chargedMicro: result.usage.upstreamMicro, costEstimated: result.usage.costEstimated === true });
       }
@@ -160,9 +163,10 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           { type: 'segment-closed', providerSessionId: entry.call.providerSessionId, closureConfirmed: true });
         entry.admission?.finish();
         // An old recovery's settlement cannot publish over or remove its successor.
+        const logical = storage.voiceLifecycle(entry.sessionId, entry.callId);
         if (terminal && calls.get(entry.callId) === entry) publish(entry.sessionId, { type: 'voice.state', data: {
-          callId: entry.callId, providerSessionId: entry.call.providerSessionId, state: resumable
-            ? reason === 'browser-liveness-deadline' ? 'waiting' : 'recovering' : 'ended', reason,
+          callId: entry.callId, providerSessionId: entry.call.providerSessionId, state: logical?.state ?? (resumable ? 'recovering' : 'ended'),
+          reason: logical?.terminalReason ?? reason,
           reconciliationPending: terminal.outcome === 'uncertain' || terminal.usage?.costEstimated === true,
           terminal: { outcome: terminal.outcome, closureConfirmed: terminal.closureConfirmed, usage: terminal.usage ?? null } } });
         resolve(terminal);

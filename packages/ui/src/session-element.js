@@ -8,6 +8,7 @@ import { displayedReadinessPercent } from '../../core/src/understanding.js';
 import { FEATURES, deviceFeatures } from '../../core/src/presets.js';
 import { SETTINGS_OFF, isDynamicReason, isConsentReason } from '../../core/src/settings.js';
 import { aiNotice } from '../../core/src/ai-notice.js';
+import { recoverableVoiceEnd } from '../../core/src/voice-lifecycle.js';
 import { AudioRail } from './audio-rail.js';
 import { styles } from './styles.js';
 import { settingsStyles } from './settings-styles.js';
@@ -1418,7 +1419,7 @@ export class AithemaSession extends HTMLElement {
       const voice = this.#rail.session;
       if (voice && event.data.state === 'waiting' && voice.callId === event.data.callId &&
         voice.providerSessionId === event.data.providerSessionId) voice.lifecycle?.wait(event.data.reason);
-      if (voice && ['closing', 'ended'].includes(event.data.state) && event.data.reason !== 'recovery-failed' &&
+      if (voice && ['closing', 'ended'].includes(event.data.state) && !recoverableVoiceEnd(event.data.reason) &&
         voice.callId === event.data.callId && voice.providerSessionId === event.data.providerSessionId) void this.#rail.close(event.data.reason);
       this.#rail.settlement(event.data);
       this.#host?.receive(event);

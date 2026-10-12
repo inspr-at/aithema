@@ -79,11 +79,14 @@ export function createVoiceLifecycleController({ callId, renew, replace, beforeR
     if (options?.signal?.aborted) return Promise.reject(new PluginError('cancelled'));
     if (options?.deadlineAt <= now()) return Promise.reject(new PluginError('deadline'));
     if (renewal) return renewal;
+    // Fence at scheduling time: waiting for recovery must not make an old
+    // heartbeat (and its original deadline) belong to the replacement transport.
+    const generation = state.providerGeneration, epoch = state.epoch;
     renewal = Promise.resolve().then(async () => {
       if (recovery) await recovery;
       if (ended()) throw new PluginError('unavailable');
+      if (state.providerGeneration !== generation || state.epoch !== epoch) return { acknowledged: true, stale: true };
       if (state.needsRecovery) return { acknowledged: true, waiting: true };
-      const generation = state.providerGeneration, epoch = state.epoch;
       try {
         const ack = await renew(options);
         if (ended() || state.providerGeneration !== generation || state.epoch !== epoch || state.needsRecovery) return { acknowledged: true, stale: true };
