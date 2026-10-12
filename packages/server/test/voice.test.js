@@ -442,12 +442,15 @@ test('AIT-144: a callback answer not yet persisted makes even a current understa
 
 test('AIT-144: only a current final open question can supply voice focus', async t => {
   const h = await voicePromptFixture(t), question = 'Welche Domain wünschen Sie?';
+  h.storage.postVoiceEvent(h.session.id, h.grant.callId, h.grant.providerSessionId, {
+    type: 'final', callId: h.grant.callId, turnId: `${h.grant.providerSessionId}:assistant:question`,
+    role: 'assistant', text: question });
   for (const [name, options, expected] of [
     ['current final', {}, true], ['draft', { draft: true }, false],
     ['removed from current questions', { openQuestions: [] }, false],
   ]) {
     voiceUnderstanding(h, question, options);
-    await h.callback([]);
+    await h.callback(h.recorded());
     const messages = h.requests.at(-1).messages;
     assert.equal(messages.some(m => m.content.includes('untrusted-focused-question')), expected, name);
   }
@@ -485,7 +488,7 @@ test('AIT-144: transcript replay keeps confirmed capacity and DACH out of fake r
     ['Gilt die Versandpauschale für alle Länder?', 'Ja, die Versandpauschalen gelten für alle Länder.', null],
   ];
   const base = createMockReasoning(), replies = [], confirmed = new Set();
-  const h = await voicePromptFixture(t, () => {}, { async *stream(request, options) {
+  const h = await voicePromptFixture(t, h => h.storage.append(h.session.id, 'session.locale-changed', { locale: 'de' }), { async *stream(request, options) {
     const context = JSON.parse(request.messages[0].content);
     const focus = request.messages.find(m => m.content.includes('untrusted-focused-question'));
     // Behave like a model that picks the offered focus first; otherwise use
