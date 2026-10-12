@@ -263,7 +263,7 @@ fact comes from the routes above. Without `host` nothing changes.
 - **Host bar** in the component's top row: **Conversations** and the `account` slot,
   alongside the host utilities and Settings. Credits appear in the footer.
 - **Verification** (`verification: true`): while host policy locks the assessment,
-  the understanding pane shows the email form in its place (START EmailLock);
+  the understanding pane shows the email form in its place (START EmailLock).
   The optional entry is the last **E-Mail** section in **Settings → General**:
   not verified, address and link sent, or address and a verified check.
   **Verify your email** / **Resend or change** closes Settings and opens the
