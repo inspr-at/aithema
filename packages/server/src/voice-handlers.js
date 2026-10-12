@@ -276,7 +276,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           return json(await start(request, sessionId, ownerToken, body.callId), 201);
         }
         const previous = storage.voiceCalls(sessionId).find(c => c.callId === callId && c.providerSessionId === body.providerSessionId);
-        if (action === 'close' && previous?.terminal) return json(previous.reconciliation ?? previous.terminal);
+        if (action === 'close' && previous?.terminal) return json(previous.terminal);
         const entry = calls.get(callId);
         if (!entry && action === 'recover' && previous) {
           const count = storage.voiceCalls(sessionId).filter(c => c.callId === callId).length;

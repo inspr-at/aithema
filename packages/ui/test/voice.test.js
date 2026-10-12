@@ -297,7 +297,7 @@ for (const change of [
   }
 });
 
-test('closing notification ends the browser SDK before slow provider settlement', async t => {
+test('closing notification ends the browser SDK and local UI before slow provider settlement', async t => {
   const session = createSession({ demo: true });
   session.featureMatrix = { best: { voice: { available: true }, text: { available: true }, analysis: { available: true } } };
   let ended = false, settle, callId, providerClosed = false;
@@ -321,7 +321,8 @@ test('closing notification ends the browser SDK before slow provider settlement'
   assert.equal(ended, false, 'an old provider cannot close the current SDK');
   c.receive({ type: 'voice.state', data: { callId, providerSessionId: 'slow-provider', state: 'closing', reason: 'consent-revised' } }); await tick();
   assert.equal(ended, true, 'closing stops capture without waiting for a terminal'); assert.equal(providerClosed, true);
-  assert.equal(c.shadowRoot.querySelector('.audio-rail').dataset.state, 'closing');
+  assert.equal(c.shadowRoot.querySelector('.audio-rail').dataset.state, 'idle');
+  assert.equal(c.shadowRoot.querySelector('.voice-state').textContent, en.voiceClosureUncertain);
   settle({ closureConfirmed: true }); await tick();
 });
 
