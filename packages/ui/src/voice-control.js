@@ -15,9 +15,10 @@ export function createVoiceControl({ baseUrl = '', sessionId, sessionToken, rece
     return value;
   };
   const control = { start: (request, options) => post(base, { callId: request.callId }, options) };
-  for (const name of ['pause', 'resume', 'heartbeat', 'close', 'recover']) {
+  for (const name of ['pause', 'resume', 'heartbeat', 'recover']) {
     control[name] = (identity, options) => post(`${base}/${identity.callId}/${name}`, identity, options);
   }
+  control.close = (identity, options) => post(`${base}/${identity.callId}/close`, { ...identity, background: true }, options);
   return { control, async persistEvent(event, identity, options) {
     const value = await post(`${base}/${event.callId}/events`, { providerSessionId: identity.providerSessionId, event }, options);
     receive(value); return value;

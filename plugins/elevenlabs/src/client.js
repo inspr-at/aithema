@@ -78,11 +78,12 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
     async start(request, options = {}) {
       const events = voiceEvents();
       let conversation, capture, grant, generation = 0, ended = false, closing, recovering, delivery = Promise.resolve(), commands = Promise.resolve(), leaseTimer;
-      let inputOn = true, outputOn = true, paused = false, recoveryPending = false, sequence = 0, pauseRevision = 0, persistenceFailed = false;
+      let inputOn = true, outputOn = true, paused = false, playbackInterrupted = false, recoveryPending = false, sequence = 0, pauseRevision = 0, persistenceFailed = false;
       const commandCancellation = new AbortController(), interruptionWaiters = new Set();
       const persistenceCancellation = new AbortController();
       const seen = new Set(), assistants = new Map(), stoppedInputs = new WeakSet();
       const identity = () => ({ callId: request.callId, providerSessionId: grant?.providerSessionId });
+      const outputVolume = () => ended || paused || !outputOn || playbackInterrupted ? 0 : 1;
       const stopPersistence = () => persistenceCancellation.abort();
       const persist = async value => {
         const signal = persistenceCancellation.signal;
@@ -141,7 +142,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           if (typeof target.input?.setMuted !== 'function') throw new PluginError('unavailable', 'Awaitable voice input controller required');
           if (blocked()) {
             const stopped = stopCapture(target), muted = target.input.setMuted(true);
-            target.setVolume({ volume: paused || !outputOn ? 0 : 1 });
+            target.setVolume({ volume: outputVolume() });
             await Promise.all([stopped, muted]);
           } else {
             if (stoppedInputs.has(target)) {
@@ -152,7 +153,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
             await target.input.setMuted(blocked());
             // A newer pause can arrive while unmute/device acquisition is pending.
             if (blocked()) { await stopCapture(target); await target.input.setMuted(true); }
-            target.setVolume({ volume: paused || !outputOn ? 0 : 1 });
+            target.setVolume({ volume: outputVolume() });
           }
           if (ended) throw new PluginError('unavailable', 'Live voice capture ended');
         } catch (error) { void close('pause-failed').catch(() => {}); throw error; }
@@ -173,6 +174,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
         commandCancellation.abort();
         // Privacy does not depend on asynchronous SDK cleanup or provider settlement.
         capture?.end();
+        try { void Promise.resolve(conversation?.setVolume({ volume: outputVolume() })).catch(() => {}); } catch {}
         try { void stopCapture(conversation).catch(() => {}); } catch {}
         try { void Promise.resolve(conversation?.connection?.close?.()).catch(() => {}); } catch {}
         closing = (async () => {
@@ -198,6 +200,8 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
       const cancel = () => { void close('cancelled', { deadlineAt: Date.now() + 1000 }).catch(() => {}); };
       const connect = async (receipt, connectOptions) => {
         const current = ++generation;
+        playbackInterrupted = false;
+        let lastInterruptionId = -1, latestAssistantId = -1;
         if (receipt?.callId !== request.callId || !receipt.providerSessionId || !receipt.credential ||
           !Number.isFinite(receipt.credential.ttlMs) || receipt.credential.ttlMs <= 0 || receipt.credential.ttlMs > 60_000 ||
           receipt.credential.providerSessionId !== receipt.providerSessionId) throw new PluginError('invalid-output', 'Invalid voice credential receipt');
@@ -207,6 +211,14 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           : connectionType !== 'webrtc' || typeof conversationToken !== 'string' || !conversationToken || signedUrl !== undefined) throw new PluginError('invalid-output', 'Invalid voice credential transport');
         grant = receipt; scheduleLease();
         const active = () => generation === current && !ended;
+        const observeAssistant = eventId => {
+          if (!active() || !Number.isSafeInteger(eventId) || eventId < 0) return;
+          latestAssistantId = Math.max(latestAssistantId, eventId);
+          if (playbackInterrupted && eventId > lastInterruptionId) {
+            playbackInterrupted = false;
+            conversation?.setVolume({ volume: outputVolume() });
+          }
+        };
         let creationChannels;
         const callbacks = {
           onConversationCreated(created) {
@@ -228,6 +240,42 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
                 if ('user_audio_chunk' in message && (!active() || paused || !inputOn)) return;
                 return send.call(this, message);
               };
+              // SDK 1.17.0 keeps rendering queued PCM until clearInterrupted;
+              // its default interrupt schedules that clear after a two-second
+              // fade. Flush in the native hook, before another buffer arrives.
+              const interrupt = created.output?.interrupt;
+              if (interrupt && created.output.worklet?.port) {
+                created.output.interrupt = function () {
+                  interrupt.call(this, 0);
+                  this.worklet.port.postMessage({ type: 'clearInterrupted' });
+                  this.gain.gain.cancelScheduledValues(this.context.currentTime);
+                  this.setVolume(outputVolume());
+                };
+              }
+            }
+            if (typeof created.connection?.handleMessage === 'function') {
+              const handleMessage = created.connection.handleMessage;
+              created.connection.handleMessage = function (message) {
+                if (!active()) return;
+                const interruptedId = message?.interruption_event?.event_id;
+                // Fence the SDK as well as our callback: a duplicate native
+                // interruption would otherwise flush a newer reply's queue.
+                if (message?.type === 'interruption' && Number.isSafeInteger(interruptedId) &&
+                  (interruptedId <= lastInterruptionId || interruptedId < latestAssistantId)) return;
+                const audioId = message?.audio_event?.event_id;
+                // WebSocketConnection forwards audio to output listeners even
+                // when VoiceConversation rejects it as stale. Unlock before
+                // both paths enqueue the first fresh chunk. WebRTC data-channel
+                // audio carries alignment; its local analyser events do not
+                // (SDK WebRTCConnection.js:292-310,435-449).
+                if (message?.type === 'audio' &&
+                  (connectionType === 'websocket' || message.audio_event?.alignment)) {
+                  if (lastInterruptionId >= 0 && (!Number.isSafeInteger(audioId) ||
+                    audioId <= lastInterruptionId || audioId < latestAssistantId)) return;
+                  observeAssistant(audioId);
+                }
+                return handleMessage.call(this, message);
+              };
             }
             creationChannels = capture.run(() => channels(created)); creationChannels.catch(() => {});
           },
@@ -235,8 +283,16 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
             if (active() && conversationId !== receipt.providerSessionId) void close('provider-identity-mismatch').catch(() => {});
           },
           onModeChange({ mode }) { if (active() && ['listening', 'speaking'].includes(mode)) emit({ type: mode }); },
+          onAgentChatResponsePart({ event_id: eventId, type, text }) {
+            // Provider stream starts/deltas precede the final response and
+            // identify the reply, unlike speaking mode or analyser counters.
+            if (connectionType === 'webrtc' && typeof text === 'string' &&
+              (type === 'start' || type === 'delta' && text.trim())) observeAssistant(eventId);
+          },
           onMessage({ role, message, event_id: eventId }) {
-            if (!active() || paused || !['user', 'agent'].includes(role) || typeof message !== 'string' || !message.trim()) return;
+            if (!active() || !['user', 'agent'].includes(role) || typeof message !== 'string' || !message.trim()) return;
+            if (role === 'agent') observeAssistant(eventId);
+            if (paused) return;
             const speaker = role === 'agent' ? 'assistant' : 'user';
             const turnId = `${receipt.providerSessionId}:${speaker}:${eventId ?? `callback-${++sequence}`}`;
             if (seen.has(turnId)) return;
@@ -264,7 +320,12 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
             }
           },
           onInterruption({ event_id: eventId }) {
-            if (active() && Number.isSafeInteger(eventId)) {
+            if (active() && Number.isSafeInteger(eventId) && eventId >= 0 && eventId > lastInterruptionId && eventId >= latestAssistantId) {
+              lastInterruptionId = eventId; playbackInterrupted = true;
+              // WebRTC's native interrupt is a no-op. Mute its actual audio
+              // elements (and WebSocket gain) synchronously, outside persistence
+              // and the command queue. Only a newer agent reply lifts this gate.
+              conversation?.setVolume({ volume: outputVolume() });
               for (const waiter of interruptionWaiters) waiter();
             }
             // Only the correction callback supplies heard text; interruption never invents it.
@@ -355,7 +416,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
         if (options.signal?.aborted) { cancel(); throw new PluginError('cancelled'); }
         const session = {
           audioLevels: () => ({ input: paused || !inputOn ? 0 : conversation?.getInputVolume?.() ?? 0,
-            output: paused || !outputOn ? 0 : conversation?.getOutputVolume?.() ?? 0 }),
+            output: outputVolume() === 0 ? 0 : conversation?.getOutputVolume?.() ?? 0 }),
           callId: request.callId, get providerSessionId() { return grant.providerSessionId; }, events,
           close: commandOptions => close(commandOptions?.reason ?? 'closed', commandOptions),
           pause(commandOptions) {

@@ -55,10 +55,12 @@ export function createFacadeSecrets() {
 export function createVoiceHandlers({ storage, runtime, ownership, readBody, secrets,
   publish, onTurn, onClose, hostPrompt = '', now = Date.now, browserLeaseMs = 30_000, deadlineMs = 30_000,
   closeOrphan, staticSecretRef, presentation, reconcileIntervalMs = 30_000, reconcileBatchSize = 10,
+  reconcileLookupTimeoutMs = 5000, log,
   turnReplayWindowMs, turnTimeoutMs = 30_000, authorizeTurnReplacement } = {}) {
   if (!secrets?.provision || !secrets.resolve || !secrets.revoke) throw new TypeError('Private facade secret store required');
   if (presentation !== undefined && typeof presentation !== 'function') throw new TypeError('Voice presentation must be a function of the session locale');
-  if (!Number.isSafeInteger(reconcileIntervalMs) || reconcileIntervalMs <= 0 || !Number.isSafeInteger(reconcileBatchSize) || reconcileBatchSize <= 0) throw new TypeError('Invalid voice reconciliation retry bounds');
+  if (![reconcileIntervalMs, reconcileBatchSize, reconcileLookupTimeoutMs].every(value => Number.isSafeInteger(value) && value > 0) ||
+    log !== undefined && typeof log !== 'function') throw new TypeError('Invalid voice reconciliation retry bounds');
   const calls = new Map(), sessions = new Map(), settlements = new Set();
   if (!Number.isSafeInteger(turnTimeoutMs) || turnTimeoutMs <= 0) throw new TypeError('Invalid voice turn timeout');
   const turns = createVoiceTurnOperations({ storage, now, replayWindowMs: turnReplayWindowMs,
@@ -68,6 +70,10 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     }) });
   let reconcileTimer, reconcileJob, retryOffset = 0, stopping = false;
   const pendingReconciliations = () => storage.voiceCalls().filter(record => record.reconciliationPending);
+  const diagnostic = (record, event, fields) => {
+    try { log?.({ event, callId: record.callId, providerSessionId: record.providerSessionId, ...fields }); }
+    catch { /* Operator diagnostics must never interrupt accounting. */ }
+  };
   async function reconcile(record) {
     try {
       // The budget marker survives a crash before cap settlement or journal acknowledgement.
@@ -75,13 +81,20 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       const row = runtime.budget.get(record.attemptId);
       const savedReconciliation = row?.voice_reconciliation_json ? JSON.parse(row.voice_reconciliation_json) : null;
       const result = savedReconciliation && !savedReconciliation.usage?.costEstimated ? savedReconciliation
-        : closeOrphan ? await voiceOperation({ deadlineAt: Date.now() + 1000 }, opts => closeOrphan(record, opts)) : null;
+        : closeOrphan ? await voiceOperation({ deadlineAt: Date.now() + reconcileLookupTimeoutMs }, opts => closeOrphan(record, opts)) : null;
       if (result?.closureConfirmed === true && result.providerSessionId === record.providerSessionId) {
         runtime.reconcileVoice(record.attemptId, result);
         const saved = storage.voiceCalls(record.sessionId).find(c => c.providerSessionId === record.providerSessionId);
         storage.saveVoiceCall(record.sessionId, { ...saved, reconciliation: result, reconciliationPending: result.usage?.costEstimated === true });
+        publish(record.sessionId, { type: 'voice.state', data: { callId: record.callId, providerSessionId: record.providerSessionId,
+          state: 'ended', reason: record.reason, reconciliationPending: result.usage?.costEstimated === true,
+          terminal: { outcome: result.outcome, closureConfirmed: true, usage: result.usage } } });
+        diagnostic(record, 'voice.cost-reconciled', { chargedMicro: result.usage.upstreamMicro, costEstimated: result.usage.costEstimated === true });
       }
-    } catch { /* Durable pending reconciliation remains visible and retryable. */ }
+    } catch (error) {
+      diagnostic(record, 'voice.reconciliation-retry', { code: error instanceof PluginError ? error.code : 'provider' });
+      // Durable pending reconciliation remains visible and retryable.
+    }
   }
   function reconcileLater() {
     if (stopping || !closeOrphan || reconcileTimer || reconcileJob) return;
@@ -137,6 +150,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         // An old recovery's settlement cannot publish over or remove its successor.
         if (terminal && calls.get(entry.callId) === entry) publish(entry.sessionId, { type: 'voice.state', data: {
           callId: entry.callId, providerSessionId: entry.call.providerSessionId, state: reason === 'transport-lost' ? 'recovering' : 'ended', reason,
+          reconciliationPending: terminal.outcome === 'uncertain' || terminal.usage?.costEstimated === true,
           terminal: { outcome: terminal.outcome, closureConfirmed: terminal.closureConfirmed, usage: terminal.usage ?? null } } });
         resolve(terminal);
       } catch (error) { reject(error); }
@@ -312,7 +326,13 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         if (!entry || entry.sessionId !== sessionId || entry.ownerToken !== ownerToken || !entry.call) throw new NotFoundError('Call not found');
         const bound = entry.call.providerSessionId === body.providerSessionId;
         if (!bound && !(action === 'recover' && previous)) throw new NotFoundError('Provider identity not found');
-        if (action === 'close') return json(await close(entry, typeof body.reason === 'string' ? body.reason.slice(0, 128) : 'closed'));
+        if (action === 'close') {
+          const pending = close(entry, typeof body.reason === 'string' ? body.reason.slice(0, 128) : 'closed');
+          // Billing confirmation outlives the browser command. Exposure has already
+          // been retained synchronously; idle/shutdown still await this settlement.
+          if (body.background === true) return json({ closureConfirmed: false, reconciliationPending: true }, 202);
+          return json(await pending);
+        }
         if (action === 'pause') {
           const event = storage.pause(sessionId, true, { ownerToken }); publish(sessionId, event);
           return json(await changePause(entry, true, options(request)));
