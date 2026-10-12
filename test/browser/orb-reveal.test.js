@@ -127,22 +127,49 @@ function contrastRatio(foreground, background) {
   const luminance = channels => channels.map(value => value / 255).map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4).reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0);
   const a = luminance(foreground), b = luminance(background); return (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
 }
-async function smallTextContrast(page, label) {
-  const targets = await page.evaluate(() => {
+async function renderedTextContrast(page, label) {
+  const { targets, clip } = await page.evaluate(() => {
     const { band } = window.fixture;
-    const targets = [...band.querySelectorAll('.aithema-reveal__subtitle,.aithema-reveal__version > *')].filter(node => getComputedStyle(node).display !== 'none').map(node => {
+    const targets = [...band.querySelectorAll('.aithema-reveal__letter,.aithema-reveal__title,.aithema-reveal__subtitle,.aithema-reveal__version > *')].filter(node => getComputedStyle(node).display !== 'none').map(node => {
       const rect = node.getBoundingClientRect(), colour = getComputedStyle(node).color.match(/[\d.]+/g).map(Number);
-      return { text: node.textContent, colour, point: { x: Math.floor(rect.x + rect.width / 2), y: Math.floor(rect.y + rect.height / 2), width: 1, height: 1 } };
+      // Inspect the whole text box, conservatively including gaps and the title arrow.
+      return { element: node.className || node.tagName.toLowerCase(), text: node.textContent, colour, rect: { x: Math.floor(rect.x), y: Math.floor(rect.y), right: Math.ceil(rect.right), bottom: Math.ceil(rect.bottom) } };
     });
     band.querySelector('.aithema-reveal__row').style.visibility = 'hidden';
     band.querySelector('.aithema-reveal__stars')?.style.setProperty('visibility', 'hidden');
-    return targets;
+    const rect = band.getBoundingClientRect();
+    return { targets, clip: { x: Math.floor(rect.x), y: Math.floor(rect.y), width: Math.ceil(rect.width), height: Math.ceil(rect.height) } };
   });
   try {
-    for (const target of targets) {
-      target.background_rgb = rgb(Buffer.from(await page.screenshot({ clip: target.point })));
-      const alpha = target.colour[3] ?? 1, foreground = target.colour.slice(0, 3).map((value, i) => alpha * value + (1 - alpha) * target.background_rgb[i]);
-      target.contrast = contrastRatio(foreground, target.background_rgb);
+    for (const target of targets) assert.ok(target.rect.x >= clip.x && target.rect.y >= clip.y && target.rect.right <= clip.x + clip.width && target.rect.bottom <= clip.y + clip.height, label + ' text stays inside the sampled band');
+    // Decode one rendered backdrop in the remote browser. Glass, warm wash and white glare stay visible.
+    const png = Buffer.from(await page.screenshot({ clip })).toString('base64');
+    const pixels = await page.evaluate(async ({ png, targets, clip }) => {
+      const bytes = Uint8Array.from(atob(png), character => character.charCodeAt(0));
+      const bitmap = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+      const canvas = document.createElement('canvas'); canvas.width = bitmap.width; canvas.height = bitmap.height;
+      const context = canvas.getContext('2d'); context.drawImage(bitmap, 0, 0); bitmap.close();
+      const { data } = context.getImageData(0, 0, canvas.width, canvas.height);
+      return targets.map(target => {
+        const colours = new Map(); let sampled = 0;
+        for (let y = target.rect.y; y < target.rect.bottom; y++) for (let x = target.rect.x; x < target.rect.right; x++) {
+          const offset = ((y - clip.y) * canvas.width + x - clip.x) * 4;
+          const colour = Array.from(data.subarray(offset, offset + 3));
+          colours.set(colour.join(','), { background_rgb: colour, point: { x, y } }); sampled++;
+        }
+        return { sampled, backgrounds: [...colours.values()] };
+      });
+    }, { png, targets, clip });
+    for (const [index, target] of targets.entries()) {
+      const alpha = target.colour[3] ?? 1;
+      assert.deepEqual(target.colour.slice(0, 3), [255, 255, 255], label + ' white copy');
+      assert.ok(alpha >= (target.element.includes('title') && !target.element.includes('subtitle') ? 1 : .9), label + ' copy opacity');
+      const samples = pixels[index].backgrounds.map(sample => {
+        const foreground = target.colour.slice(0, 3).map((value, i) => alpha * value + (1 - alpha) * sample.background_rgb[i]);
+        return { ...sample, contrast: contrastRatio(foreground, sample.background_rgb) };
+      });
+      assert.ok(samples.length > 0, label + ' rendered text backdrop');
+      Object.assign(target, samples.reduce((minimum, sample) => sample.contrast < minimum.contrast ? sample : minimum), { sampled_pixels: pixels[index].sampled });
       assert.ok(target.contrast >= 4.5, `${label}: ${target.text} contrast ${target.contrast.toFixed(2)}:1`);
     }
   } finally {
@@ -151,8 +178,9 @@ async function smallTextContrast(page, label) {
   return targets;
 }
 async function assertFocusRing(page, label) {
-  const ring = await page.$eval('.orb', node => { const style = getComputedStyle(node); return { visible: node.matches(':focus-visible'), colour: style.outlineColor, width: style.outlineWidth, offset: style.outlineOffset, breathOpacity: getComputedStyle(node.querySelector('.orb__breath')).opacity }; });
-  assert.equal(ring.visible, true, label + ' keyboard focus'); assert.equal(ring.colour, 'rgba(255, 255, 255, 0.7)'); assert.equal(ring.width, '2px'); assert.equal(ring.offset, '-2px'); return ring;
+  const ring = await page.$eval('.orb', node => { const style = getComputedStyle(node); return { visible: node.matches(':focus-visible'), colour: style.outlineColor, width: style.outlineWidth, offset: style.outlineOffset, halo: style.boxShadow, breathOpacity: getComputedStyle(node.querySelector('.orb__breath')).opacity }; });
+  assert.equal(ring.visible, true, label + ' keyboard focus'); assert.equal(ring.colour, 'rgba(255, 255, 255, 0.7)'); assert.equal(ring.width, '2px'); assert.equal(ring.offset, '2px');
+  assert.equal(ring.halo, 'rgb(16, 43, 66) 0px 0px 0px 5px', label + ' 1px dark halo outside the outline'); return ring;
 }
 async function assertCalmUnderline(page, label) {
   const underline = await page.$eval('.aithema-reveal__link', node => {
@@ -199,7 +227,7 @@ for (const locale of ['de', 'en']) test(`AIT-140 glass orb and reveal evidence: 
     assert.ok(Math.abs(edge.hairlineBottom-edge.glassClipBottom)<=.5,label+' glass ends at hairline');
     assert.deepEqual(rgb(Buffer.from(await page.screenshot({clip:edgePoint}))),belowHairline,label+' no glass below hairline');
     if(evidence) { const crop={x:Math.max(0,Math.floor(width/2)-120),y:edge.hairlineBottom-8,width:Math.min(width,240),height:16,scale:3}; const {data}=await client.send('Page.captureScreenshot',{format:'png',clip:crop}); await writeFile(join(evidence,`${label}-glass-bottom-edge-3x.png`),Buffer.from(data,'base64')); }
-    const contrast=await smallTextContrast(page,label); metrics.push({label,edge,anchors,wordmark:wordmarkBox,version:versionBox,small_text_contrast:contrast});
+    const contrast=await renderedTextContrast(page,label); metrics.push({label,edge,anchors,wordmark:wordmarkBox,version:versionBox,text_contrast:contrast});
     const bandHeight=await page.$eval('#band',n=>n.getBoundingClientRect().height); assert.ok(anchors.every(n=>n.rect.bottom<=bandHeight),label+' links stay inside');
     // Hold cleanup while advancing genuine CSS transitions in 50ms steps. Every sample is a rendered pixel,
     // not an inferred CSS colour; animation time is independent of screenshot/remote-host latency.
@@ -221,8 +249,8 @@ for (const locale of ['de', 'en']) test(`AIT-140 glass orb and reveal evidence: 
     assert.deepEqual(calm.animations,[],label+' calm'); assert.equal(calm.ring,'none'); assert.equal(calm.duration,'0.2s'); assert.ok(calm.delays.every(delay=>delay==='0s')); assert.equal(calm.breath,'none');
     metrics.at(-1).motion_off_focus=await assertFocusRing(page,label+' calm'); assert.equal(metrics.at(-1).motion_off_focus.breathOpacity,'0');
     await page.keyboard.press('Tab'); await assertCalmUnderline(page,label+' calm keyboard underline'); await page.hover('.aithema-reveal__link'); await assertCalmUnderline(page,label+' calm hover underline');
-    await page.keyboard.press('Escape'); await wait(250); await shot('motion-off-closed',200); assertStill(baseline,await layout(page),label+' calm exit');
-    await page.mouse.move(0,400); await page.evaluate(()=>{window.fixture.orb.setMotion(true);window.fixture.reveal.setMotion(true);window.fixture.orb.setVoice('listening');}); await page.keyboard.press('Enter'); await freeze(page); await seek(page,2200); await shot('keyboard-focus-open',2200); metrics.at(-1).keyboard_focus=await assertFocusRing(page,label);
+    await page.keyboard.press('Escape'); await wait(250); await shot('motion-off-closed',200); assertStill(baseline,await layout(page),label+' calm exit'); metrics.at(-1).closed_focus=await assertFocusRing(page,label+' light/dark band');
+    await page.mouse.move(0,400); await page.evaluate(()=>{window.fixture.orb.setMotion(true);window.fixture.reveal.setMotion(true);window.fixture.orb.setVoice('listening');}); await page.keyboard.press('Enter'); await freeze(page); await seek(page,2200); await shot('keyboard-focus-open',2200); metrics.at(-1).keyboard_focus=await assertFocusRing(page,label); metrics.at(-1).keyboard_text_contrast=await renderedTextContrast(page,label+' keyboard');
     // A host with its hairline at the band's bottom uses the same module, with no hard-coded 6px inset.
     await page.evaluate(()=>{window.edgeOverride=document.createElement('style');window.edgeOverride.textContent='.band::after { bottom:0; }';document.head.append(window.edgeOverride);window.dispatchEvent(new Event('resize'));});
     assert.equal(await page.evaluate(()=>window.fixture.band.querySelector('.aithema-reveal__fx').getBoundingClientRect().bottom),bandHeight,label+' host hairline at bottom');

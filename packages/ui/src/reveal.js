@@ -2,9 +2,9 @@
 let nextReveal = 0;
 const css = `
 .aithema-reveal-band > .aithema-reveal__fx { position:absolute; inset:0 0 var(--ar-fx-bottom,0px); overflow:hidden; pointer-events:none; z-index:0; }
-/* White small text clears 4.5:1 even with the warm wash and sheen over light paper. */
-.aithema-reveal__glass { position:absolute; left:calc(var(--ar-x) - var(--ar-radius)); top:calc(var(--ar-y) - var(--ar-radius)); width:calc(var(--ar-radius) * 2); height:calc(var(--ar-radius) * 2); border-radius:50%; background:linear-gradient(to bottom,rgba(10,64,62,.96) var(--ar-top),rgba(12,78,74,.96) var(--ar-bottom)); backdrop-filter:blur(10px) saturate(1.1); transform:scale(0); opacity:0; transition:transform .9s cubic-bezier(.2,.7,.2,1),opacity .85s cubic-bezier(.4,0,.2,1); }
-.aithema-reveal__wash { position:absolute; inset:0; background:radial-gradient(380px 120px at var(--ar-x) 55%,rgba(255,214,160,.18),transparent 72%),linear-gradient(100deg,transparent 28%,rgba(255,255,255,.10) 44%,transparent 60%); box-shadow:inset 0 1px 0 rgba(255,255,255,.16),inset 0 -1px 0 rgba(255,255,255,.08); opacity:0; transition:opacity .85s cubic-bezier(.4,0,.2,1); }
+/* Preserve the approved soft tint; full-white copy and faint glare provide AA contrast. */
+.aithema-reveal__glass { position:absolute; left:calc(var(--ar-x) - var(--ar-radius)); top:calc(var(--ar-y) - var(--ar-radius)); width:calc(var(--ar-radius) * 2); height:calc(var(--ar-radius) * 2); border-radius:50%; background:linear-gradient(to bottom,rgba(14,86,84,.86) var(--ar-top),rgba(18,104,100,.80) var(--ar-bottom)); backdrop-filter:blur(10px) saturate(1.1); transform:scale(0); opacity:0; transition:transform .9s cubic-bezier(.2,.7,.2,1),opacity .85s cubic-bezier(.4,0,.2,1); }
+.aithema-reveal__wash { position:absolute; inset:0; background:radial-gradient(380px 120px at var(--ar-x) 55%,rgba(255,214,160,.01),transparent 72%),linear-gradient(100deg,transparent 28%,rgba(255,255,255,.01) 44%,transparent 60%); box-shadow:inset 0 1px 0 rgba(255,255,255,.16),inset 0 -1px 0 rgba(255,255,255,.08); opacity:0; transition:opacity .85s cubic-bezier(.4,0,.2,1); }
 .aithema-reveal__ring { position:absolute; left:calc(var(--ar-x) - 20px); top:calc(var(--ar-y) - 20px); width:40px; height:40px; border-radius:50%; background:radial-gradient(circle,transparent 56%,rgba(255,255,255,.5) 64%,rgba(255,230,190,.22) 68%,transparent 76%); opacity:0; }
 .aithema-reveal__stars { position:absolute; inset:0; width:100%; height:100%; }
 .aithema-reveal-band[data-aithema-reveal-state="open"] .aithema-reveal__glass { transform:scale(var(--ar-open-scale)); opacity:1; transition:transform .9s cubic-bezier(.2,.7,.2,1),opacity .12s ease; }
@@ -29,7 +29,7 @@ const css = `
 @keyframes aithema-reveal-glint-text { from { transform:translateX(140px); } to { transform:translateX(-140px); } }
 .aithema-reveal__separator { width:1px; align-self:stretch; margin:10px 0; background:linear-gradient(to bottom,transparent,rgba(255,255,255,.22),transparent); }
 .aithema-reveal__link { display:grid; gap:2px; min-height:44px; align-content:center; color:#fff; text-decoration:none !important; }
-.aithema-reveal__title { position:relative; display:inline-flex; align-items:center; gap:4px; width:max-content; padding-bottom:1px; font-size:14px; font-weight:600; line-height:1.3; }
+.aithema-reveal__title { position:relative; display:inline-flex; align-items:center; gap:4px; width:max-content; padding-bottom:1px; color:#fff; font-size:14px; font-weight:600; line-height:1.3; }
 .aithema-reveal__title::after { content:''; position:absolute; bottom:0; left:0; right:0; height:1px; background:currentColor; transform:scaleX(0); transform-origin:left; transition:transform .25s; }
 .aithema-reveal__title svg { width:11px; height:11px; color:#ffd59a; }
 .aithema-reveal__link:is(:hover,:focus-visible) .aithema-reveal__title::after { transform:scaleX(1); }

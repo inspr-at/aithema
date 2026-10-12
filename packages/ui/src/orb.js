@@ -7,7 +7,7 @@ let nextOrb = 0;
 
 export const orbStyles = `
 .orb { --orb-size:40px; --orb-energy:0; --orb-teal:var(--aithema-accent,var(--teal,#0e6f6c)); --orb-surface:var(--aithema-surface,var(--surface,#fffcf8)); position:relative; display:block; width:var(--orb-size); height:var(--orb-size); flex:none; border-radius:50%; perspective:140px; isolation:isolate; }
-.orb[role="button"]:focus-visible { outline:2px solid rgba(255,255,255,.7); outline-offset:-2px; }
+.orb[role="button"]:focus-visible { outline:2px solid rgba(255,255,255,.7); outline-offset:2px; box-shadow:0 0 0 5px #102b42; }
 .orb > span { position:absolute; border-radius:50%; pointer-events:none; }
 .orb__body { inset:0; background:radial-gradient(circle at 50% 118%,color-mix(in srgb,var(--orb-teal) 62%,transparent),color-mix(in srgb,var(--orb-teal) 16%,transparent) 48%,transparent 72%),radial-gradient(circle at 50% 50%,color-mix(in srgb,var(--orb-surface) 22%,transparent),color-mix(in srgb,var(--orb-teal) 14%,transparent)); box-shadow:inset 0 -5px 9px color-mix(in srgb,var(--orb-teal) 38%,transparent),inset 0 3px 5px rgba(255,255,255,.75),inset 0 0 0 1px rgba(255,255,255,.4),0 5px 12px -4px rgba(16,43,66,.4),0 1px 2px rgba(16,43,66,.18); backdrop-filter:blur(2px) saturate(1.3); transition:transform 120ms linear,opacity .25s; }
 .orb__breath { inset:0; box-shadow:inset 0 -5px 9px color-mix(in srgb,var(--orb-teal) 48%,transparent),0 0 0 5px color-mix(in srgb,var(--orb-teal) 12%,transparent); opacity:0; }
