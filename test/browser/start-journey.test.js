@@ -15,9 +15,9 @@ async function browserPath() {
   for (const path of candidates) { try { await access(path, constants.X_OK); return path; } catch { /* remote runner */ } }
   throw new Error('No browser available on the remote test runner');
 }
-async function setup(t) {
+async function setup(t, settings = {}, server = '../../demo/server.js') {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-start-journey-'));
-  const demo = await startChild(new URL('../../demo/server.js', import.meta.url), join(directory, 'session.sqlite'));
+  const demo = await startChild(new URL(server, import.meta.url), join(directory, 'session.sqlite'), settings);
   const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true,
     env: { PATH: process.env.PATH, HOME: homedir() }, userDataDir: join(directory, 'chrome'),
     args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
@@ -47,6 +47,46 @@ async function saveAndReturn(page, action) {
 }
 const rect = (page, selector) => page.$eval(selector, node => {
   const r = node.getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
+});
+
+test('AIT-113: live drafts consent is optional; granting and withdrawing only drafts follows the server verdict', { timeout: 120_000 }, async t => {
+  const analysis = '~anthropic/claude-opus-latest', speech = '~anthropic/claude-haiku-latest';
+  const { page, demo, voice } = await setup(t, { AITHEMA_PROVIDER: 'openrouter', AITHEMA_HTML_MODE: 'claude',
+    OPENROUTER_MODEL: analysis, OPENROUTER_SPEECH_MODEL: speech, OPENROUTER_PROVIDER_ONLY: 'Anthropic',
+    OPENROUTER_API_KEY: 'test-not-a-key', AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off',
+    AITHEMA_OPENROUTER_PRICES: JSON.stringify({ [analysis]: { prompt: 5e-6, completion: 25e-6 },
+      [speech]: { prompt: 1e-6, completion: 5e-6 } }) }, '../fixtures/no-provider-server.js');
+  await page.setViewport({ width: 390, height: 844 });
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await ready(page);
+  await visitConsent(page, demo.url);
+  const drafts = 'input[value="drafts-anthropic"]';
+  assert.equal(await page.$eval(drafts, b => b.checked), false);
+  assert.match(await page.$eval(drafts, b => b.closest('.consent-item').innerText), /KI-Entwürfe \(Anthropic\).*Optional/su);
+  const before = await rect(page, '[data-grant]');
+  await page.click('input[value="models-international"]');
+  assert.deepEqual(await rect(page, '[data-grant]'), before);
+  await saveAndReturn(page, '[data-grant]');
+  await page.waitForFunction(() => document.querySelector('aithema-session').session.featureMatrix.best.text.available);
+  assert.equal(await page.$eval('aithema-session', c => c.session.featureMatrix.best.html.available), false);
+  await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('[data-ready="consent"]')?.dataset.state === 'confirmed');
+  await visitConsent(page, demo.url); await page.click(drafts); await saveAndReturn(page, '[data-grant]');
+  await page.waitForFunction(() => document.querySelector('aithema-session').session.featureMatrix.best.html.available);
+  await page.reload({ waitUntil: 'domcontentloaded' }); await ready(page);
+  assert.equal(await page.$eval('aithema-session', c => c.session.featureMatrix.best.html.available), true);
+  await visitConsent(page, demo.url);
+  assert.equal(await page.$eval(drafts, b => b.checked), true);
+  await page.click(drafts); await saveAndReturn(page, '[data-grant]');
+  await page.waitForFunction(() => !document.querySelector('aithema-session').session.featureMatrix.best.html.available);
+  assert.equal(await page.$eval('aithema-session', c => c.session.featureMatrix.best.text.available), true);
+  await visitConsent(page, demo.url);
+  assert.equal(await page.$eval(drafts, b => b.checked), false);
+  assert.equal(await page.$eval('input[value="models-international"]', b => b.checked), true);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth), 0);
+  assert.equal(await page.evaluate(() => globalThis.__microphoneRequests), 0); assert.deepEqual(voice, []);
+  if (process.env.AITHEMA_EVIDENCE_DIR) {
+    await mkdir(process.env.AITHEMA_EVIDENCE_DIR, { recursive: true });
+    await page.screenshot({ path: join(process.env.AITHEMA_EVIDENCE_DIR, 'ait-113-optional-drafts-phone.png'), fullPage: true });
+  }
 });
 
 test('AIT-129: German entrance → mock consent → readiness, withdrawal, stored language and theme, without audio', { timeout: 120_000 }, async t => {

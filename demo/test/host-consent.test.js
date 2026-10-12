@@ -20,7 +20,7 @@ async function page(t, options = {}) {
   window.document.write(html.replace(/<script[^>]*>[\s\S]*?<\/script>/gu, ''));
   const session = options.session ?? { id: 's', locale: 'de', engine: { visuals: 'off' } };
   const contract = { contract: 'rendered-v1', intro: CONSENT_INTRO, withdrawal: CONSENT_WITHDRAWAL,
-    items: options.items ?? CONSENT_ITEMS };
+    items: options.items ?? CONSENT_ITEMS, ...(options.optional ? { optional: options.optional } : {}) };
   let selected = options.selected ?? [], currentContract = contract.contract, fail = options.fail;
   const posts = [], returns = [];
   const fetchImpl = async path => {
@@ -50,6 +50,17 @@ test('consent return normalizes paths and rejects external or disguised network 
   for (const path of ['//evil', 'https://evil/', '/\\evil/', '/\nevil', '/.//evil/', '/a/..//evil/', '/%2e//evil/', '/\0']) assert.equal(consentReturnPath(path, 'http://localhost'), '/');
   for (const path of ['/', '/?x=1#settings', '/local/#settings']) assert.equal(consentReturnPath(path, 'http://localhost'), path);
   assert.equal(consentReturnPath('/?context=✓&existing=%C3%A4#übersicht', 'http://localhost'), '/?context=%E2%9C%93&existing=%C3%A4#%C3%BCbersicht');
+});
+
+for (const locale of ['de', 'en']) test(`draft consent uses matching ${locale} copy and the server optional marking`, async t => {
+  const copy = { de, en }[locale];
+  const p = await page(t, { session: { id: 's', locale, engine: {} }, optional: ['drafts-anthropic'] });
+  const row = p.document.querySelector('input[value="drafts-anthropic"]').closest('.consent-item');
+  assert.equal(row.querySelector('label span').textContent, copy.processingConsent.items['drafts-anthropic'].title);
+  assert.equal(row.querySelector('.consent-item__mark').textContent, copy.host.consentPage.optional);
+  const changed = { ...CONSENT_ITEMS.find(item => item.id === 'drafts-anthropic'), version: 2, text: 'New server draft terms.' };
+  const q = await page(t, { session: { id: 's', locale, engine: {} }, items: [changed] });
+  assert.equal(q.document.querySelectorAll('.consent-item p')[1].textContent, changed.text);
 });
 
 test('consent renders contract items, uses only matching translations and current server grants', async t => {
@@ -85,7 +96,7 @@ test('English consent renders every item and keeps unversioned and duplicate-id 
     assert.deepEqual([...rows[index].querySelectorAll('p')].map(p => p.textContent), [expected.recipients, expected.text]);
   }
   assert.deepEqual([...p.document.querySelectorAll('input')].map(b => b.value), items.map(i => i.id));
-  assert.deepEqual([...p.document.querySelectorAll('input')].map(b => b.checked), [false, true, false, false]);
+  assert.deepEqual([...p.document.querySelectorAll('input')].map(b => b.checked), [false, true, false, false, false]);
   assert.equal(p.document.querySelector('b'), null);
 });
 
@@ -168,7 +179,7 @@ test('missing or unknown conversations offer a way back and cannot grant', async
 
 test('processing document remains readable when its server verdict cannot be loaded', async t => {
   const pending = Promise.withResolvers(), p = await page(t, { pending });
-  await tick(() => p.document.querySelectorAll('.consent-item').length === 2);
+  await tick(() => p.document.querySelectorAll('.consent-item').length === CONSENT_ITEMS.length);
   assert.equal(p.document.querySelector('[data-grant]').disabled, true);
   pending.reject(new Error('Read failed')); await p.mounting;
   assert.equal(p.document.querySelector('#consent-status').dataset.state, 'failed');

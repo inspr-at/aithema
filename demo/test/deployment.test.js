@@ -143,18 +143,21 @@ test('alias route ids are stable, valid and distinct from concrete models and ot
 for (const htmlMode of ['off', 'claude']) test(`start2 alias environment reaches ready with HTML ${htmlMode} and no provider calls`, { timeout: 15_000 }, async t => {
   const analysis = '~anthropic/claude-opus-latest', speech = '~anthropic/claude-haiku-latest';
   const analysisPrice = { prompt: 5e-6, completion: 25e-6 };
-  const running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb(), {
+  const running = await startChild(new URL('../../test/fixtures/no-provider-server.js', import.meta.url), await temporaryDb(), {
     AITHEMA_PROVIDER: 'openrouter', OPENROUTER_MODEL: analysis, OPENROUTER_ANALYSIS_EFFORT: 'low',
     OPENROUTER_SPEECH_MODEL: speech, OPENROUTER_PROVIDER_ONLY: 'Anthropic',
-    AITHEMA_OPENROUTER_PRICES: JSON.stringify({ [analysis]: analysisPrice, [speech]: { prompt: 1e-6, completion: 5e-6 },
-      ...(htmlMode === 'claude' ? { 'anthropic/claude-opus-5.5': analysisPrice } : {}) }),
+    AITHEMA_OPENROUTER_PRICES: JSON.stringify({ [analysis]: analysisPrice, [speech]: { prompt: 1e-6, completion: 5e-6 } }),
     OPENROUTER_API_KEY: 'test-not-a-key', AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: htmlMode,
   });
   t.after(() => running.kill());
   const config = await fetch(running.url + '/demo/config').then(r => r.json());
   assert.ok(config.label.includes(speech)); assert.equal(config.voiceMode, 'off'); assert.equal(config.imageMode, 'off');
   assert.equal(config.htmlMode, htmlMode); assert.equal(config.htmlDisabledReason, null);
-  assert.deepEqual(config.processingConsent.items.map(item => item.id), ['models-international']);
+  assert.deepEqual(config.processingConsent.items.map(item => item.id), htmlMode === 'claude' ? ['models-international', 'drafts-anthropic'] : ['models-international']);
+  if (htmlMode === 'claude') {
+    assert.ok(config.htmlLabel.includes(analysis));
+    assert.deepEqual(config.processingConsent.optional, ['drafts-anthropic']);
+  }
   // Creating a session and reading choices never grants consent or dispatches a lane.
   const created = await post(running.url + '/api/sessions', {}); assert.equal(created.status, 201);
   const session = await created.json(), headers = { cookie: created.headers.get('set-cookie').split(';')[0] };

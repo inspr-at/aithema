@@ -398,6 +398,12 @@ export const de = {
     // START src/lib/i18n.ts:2747 (consentCopy.de.withdrawal).
     withdrawal: 'Sie können Freigaben hier jederzeit widerrufen. Bereits erfolgte Übermittlungen werden dadurch nicht rückgängig gemacht.',
     items: {
+      'drafts-anthropic': {
+        version: 1,
+        title: 'KI-Entwürfe (Anthropic)',
+        recipients: 'OpenRouter, Inc. und Anthropic PBC, USA.',
+        text: 'Ihr Gespräch, der aus hochgeladenen Dateien gelesene Text und die aktuelle Einschätzung werden übermittelt, um klickbare Entwurfsseiten zu erzeugen. Eine Verarbeitung ohne Speicherung ist nicht zugesichert.',
+      },
       'models-international': {
         version: 1,
         // START src/lib/i18n.ts:2751 (consentCopy.de.items.models-international.title).

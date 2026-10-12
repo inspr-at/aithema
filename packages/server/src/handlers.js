@@ -379,7 +379,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         const current = storage.get(id), featureMatrix = await pluginRuntime.matrix(current);
         const features = FEATURES.filter(feature => isConsentReason(featureMatrix[current.processingPreset]?.[feature]?.reason));
         return json({ processingPreset: current.processingPreset, settings: current.settings, engine: pluginRuntime.describe(current),
-          event: change.event, unchanged: !change.event, featureMatrix, consent: { required: features.length > 0, features } });
+          event: change.event, unchanged: !change.event, featureMatrix, consent: { required: features.some(feature => feature !== 'html'), features } });
       }
       if (action === 'consent' && request.method === 'POST') {
         const body = JSON.parse(Buffer.from(await readBody(request)).toString('utf8'));

@@ -47,7 +47,7 @@ async function readText(response, signal) {
 export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro = DEFAULT_CAP_MICRO,
   resolveSecret = ref => process.env[ref], fetchImpl = globalThis.fetch, now = Date.now } = {}) {
   binding = createBinding(binding);
-  if (binding.plugin !== manifest.id || !/^anthropic\/claude-[a-z0-9.:-]+$/u.test(binding.model) ||
+  if (binding.plugin !== manifest.id || !/^(?:anthropic\/claude-[a-z0-9.:-]+|~anthropic\/claude-[a-z0-9.:-]+-latest)$/u.test(binding.model) ||
     !manifest.models[0].efforts.includes(binding.effort)) throw new TypeError('Claude HTML binding requires an anthropic/claude-* model and effort none');
   if (!['inputUSD', 'outputUSD'].every(k => typeof binding.rates[k] === 'number' && Number.isFinite(binding.rates[k]) && binding.rates[k] > 0)) {
     throw new TypeError('Claude HTML binding requires explicit positive per-token USD rates');

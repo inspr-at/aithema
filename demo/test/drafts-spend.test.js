@@ -5,7 +5,6 @@ import { SQLiteBudgetLedger } from '../../packages/server/src/budget.js';
 import { createClaudeHTML } from '@inspr/aithema-plugin-claude-html';
 import { createSpendCap } from '../../packages/server/src/spend-cap.js';
 import { htmlConfig } from '../html-config.js';
-import { openRouterConfig } from '../openrouter-config.js';
 
 const model = 'anthropic/claude-opus-5.5';
 const values = { AITHEMA_HTML_MODE: 'claude', OPENROUTER_MODEL: model,
@@ -16,7 +15,7 @@ for (const mode of ['completed', 'invalid-output', 'http-error', 'cancelled-know
   test(`draft holds settle both ledgers: ${mode}`, async t => {
     const storage = new SQLiteStorage(); t.after(() => storage.close());
     const session = storage.create(), budget = new SQLiteBudgetLedger(storage);
-    const configured = htmlConfig(values, [openRouterConfig(values).understanding]);
+    const configured = htmlConfig(values);
     const binding = configured.binding, spend = createSpendCap({ storage, account: binding.accountRef, capMicro: 10_000_000 });
     const { attemptId } = budget.admit({ sessionId: session.id, lane: 'concept', maxMicro: binding.maxMicro,
       requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64) });

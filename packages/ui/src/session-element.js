@@ -411,7 +411,8 @@ export class AithemaSession extends HTMLElement {
     if ((this.#session.processingPreset ?? 'best') === 'device') return 'device';
     if (this.#session.consentWithdrawn) return 'withdrawn';
     const matrix = this.#session.featureMatrix?.[this.#session.processingPreset ?? 'best'] ?? {};
-    return FEATURES.some(feature => isConsentReason(matrix[feature]?.reason)) ? 'missing' : 'granted';
+    // Drafts have an optional grant; their verdict never makes conversation consent missing.
+    return FEATURES.some(feature => feature !== 'html' && isConsentReason(matrix[feature]?.reason)) ? 'missing' : 'granted';
   }
   // Mode-dependent controls; a choice made at conversation start can switch the mode in place.
   #renderMode() {

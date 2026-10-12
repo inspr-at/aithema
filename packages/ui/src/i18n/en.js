@@ -395,6 +395,12 @@ export const en = {
     intro: 'Choose once which processing you allow. Your choice applies in this browser until you change or withdraw it, for at most twelve months. As long as the selected processing is covered here, you can change settings without agreeing again. Items with different recipients or purposes are listed separately. Unselected items are not granted.',
     withdrawal: 'You can withdraw consent here at any time. Withdrawal does not undo transfers that have already taken place.',
     items: {
+      'drafts-anthropic': {
+        version: 1,
+        title: 'AI drafts (Anthropic)',
+        recipients: 'OpenRouter, Inc. and Anthropic PBC, United States.',
+        text: 'Your conversation, text read from uploaded files and the current assessment are sent to generate clickable draft screens. Processing without retention is not guaranteed.',
+      },
       'models-international': {
         version: 1,
         title: 'AI models, international',
