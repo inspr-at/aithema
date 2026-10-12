@@ -87,6 +87,22 @@ function assertUnbillableStart(h) {
   assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 0);
 }
 
+test('AIT-134 round 2: a padded nonrolling duration maximum admits and remains the closing exposure', async t => {
+  const h = voiceFixture(t);
+  h.presets.best.bindings.voice = { ...h.presets.best.bindings.voice, maxMicro: 200_000,
+    upstreamMicroPerMinute: 100_000 };
+  const admitted = await h.runtime.admitVoice({ session: h.storage.get(h.session.id), request: { callId: 'padded' } });
+  const attempt = admitted.options.attempt, row = h.runtime.budget.get(attempt.attemptId);
+  assert.equal(row.max_micro, 200_000);
+  assert.equal(row.voice_exposure_micro, 200_000, 'the padded maximum exceeds the computed 100,000 exposure');
+  assert.equal(row.max_visitor_micro, 120_000);
+  assert.equal(row.voice_visitor_exposure_micro, 120_000);
+  await attempt.consume(); admitted.finish();
+  assert.equal(h.runtime.budget.used(h.session.id), 200_000);
+  assert.equal(h.runtime.budget.breakdown(h.session.id).uncertainSpendMicro, 200_000);
+  assert.equal(h.runtime.budget.visitorUsed(h.session.id), 120_000);
+});
+
 test('AIT-127: locale is authenticated, durable, in place, and refused after any turn', async t => {
   const h = voiceFixture(t), id = h.session.id;
   assert.equal((await h.route('/locale', { locale: 'de' }, 'stranger')).status, 404);

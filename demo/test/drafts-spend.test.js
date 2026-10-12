@@ -1,5 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { SQLiteStorage } from '@inspr/aithema-server';
 import { SQLiteBudgetLedger } from '../../packages/server/src/budget.js';
 import { createClaudeHTML, createSpendLedger } from '@inspr/aithema-plugin-claude-html';
@@ -134,17 +136,79 @@ test('AIT-134 gate: drafts reject an account port that cannot durably reconcile 
   /reconciliation/u);
 });
 
+async function jsonWriter(t, path, stage) {
+  const module = new URL('../../plugins/claude-html/src/spend.js', import.meta.url).href;
+  const child = spawn(process.execPath, ['--input-type=module', '-e', `
+    import { createSpendLedger } from ${JSON.stringify(module)};
+    const ledger = createSpendLedger({path: process.argv[1], capMicro: 100});
+    const stage = process.argv[2];
+    const handle = ledger.reserve(100, {attemptId: 'draft-attempt', provider: 'openrouter'});
+    if (stage !== 'reserved') ledger.dispatch(handle);
+    if (['id-receipt', 'cost-receipt', 'settled'].includes(stage)) ledger.record(handle,
+      {generationId: 'gen-json-crash', ...(stage === 'id-receipt' ? {} : {chargedMicro: 37})});
+    if (stage === 'settled') ledger.settle(handle, 37);
+    process.send('ready');
+    process.once('message', action => {
+      if (action === 'finish') {
+        try {
+          ledger.dispatch(handle); ledger.record(handle, {chargedMicro: 37}); ledger.settle(handle, 37);
+          process.send('settled');
+        } catch (error) { process.send({error: error.code, message: error.message}); }
+      }
+      process.disconnect();
+    });
+  `, path, stage], { stdio: ['ignore', 'ignore', 'pipe', 'ipc'], env: {} });
+  t.after(async () => {
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    const exited = once(child, 'exit'); child.kill(); await exited;
+  });
+  await once(child, 'message');
+  return child;
+}
+
+for (const stage of ['reserved', 'dispatched', 'cost-receipt']) {
+  test(`AIT-134 round 2: JSON recovery preserves another live writer's ${stage} hold and ledger parity`, { timeout: 10_000 }, async t => {
+    const path = `${await temporaryDb()}.spend.json`, child = await jsonWriter(t, path, stage);
+    const storage = new SQLiteStorage(); t.after(() => storage.close());
+    const session = storage.create(), budget = new SQLiteBudgetLedger(storage);
+    budget.admit({ attemptId: 'draft-attempt', sessionId: session.id, lane: 'concept', maxMicro: 100,
+      requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64) });
+    const claim = budget.claim('draft-attempt');
+    const spend = createSpendLedger({ path, capMicro: 100 });
+    spend.recover(); spend.recover();
+    assert.equal(spend.snapshot().reservedMicro, 100, 'startup must not settle a live writer');
+    assert.equal(spend.snapshot().spentMicro, 0);
+    assert.equal(spend.snapshot().totalMicro, budget.used(session.id));
+    assert.throws(() => spend.reserve(1), { code: 'limit' }, 'the live hold still consumes the shared cap');
+    const result = once(child, 'message'), exited = once(child, 'exit'); child.send('finish');
+    assert.deepEqual((await result)[0], 'settled'); await exited;
+    claim.consume(); budget.settle(claim.claimId, { attemptId: 'draft-attempt', outcome: 'completed',
+      usage: { inputTokens: 1, outputTokens: 1 }, chargedMicro: 37 });
+    spend.recover();
+    assert.equal(spend.snapshot().reservedMicro, 0);
+    assert.equal(spend.snapshot().spentMicro, 37);
+    assert.equal(spend.snapshot().totalMicro, budget.used(session.id));
+  });
+}
+
+for (const state of ['confirmed', 'uncertain']) {
+  test(`AIT-134 round 2: JSON dispatch refuses a ${state} handle`, async () => {
+    const spend = createSpendLedger({ path: `${await temporaryDb()}.spend.json`, capMicro: 100 });
+    const handle = spend.reserve(100);
+    if (state === 'confirmed') spend.settle(handle, 0);
+    else { spend.dispatch(handle); spend.uncertain(handle); }
+    const before = spend.snapshot();
+    assert.throws(() => spend.dispatch(handle), { code: 'already-claimed' });
+    assert.deepEqual(spend.snapshot(), before);
+  });
+}
+
 for (const crash of ['reserved', 'dispatched', 'id-receipt', 'cost-receipt', 'settled']) {
-  test(`AIT-134 gate: JSON account ledger recovers ${crash} without lost or duplicated cost`, async () => {
+  test(`AIT-134 gate: JSON account ledger recovers ${crash} without lost or duplicated cost`, { timeout: 10_000 }, async t => {
     const path = `${await temporaryDb()}.spend.json`;
-    let spend = createSpendLedger({ path, capMicro: 1000 });
-    const handle = spend.reserve(100, { attemptId: 'draft-attempt', provider: 'openrouter' });
-    assert.equal(typeof spend.dispatch, 'function', 'default ledger needs durable dispatch state');
-    if (crash !== 'reserved') spend.dispatch(handle);
-    if (['id-receipt', 'cost-receipt', 'settled'].includes(crash)) spend.record(handle,
-      { generationId: 'gen-json-crash', ...(crash === 'id-receipt' ? {} : { chargedMicro: 37 }) });
-    if (crash === 'settled') spend.settle(handle, 37);
-    spend = createSpendLedger({ path, capMicro: 1000 }); spend.recover(); spend.recover();
+    const child = await jsonWriter(t, path, crash), exited = once(child, 'exit');
+    child.send('exit'); await exited;
+    const spend = createSpendLedger({ path, capMicro: 1000 }); spend.recover(); spend.recover();
     assert.equal(spend.snapshot().reservedMicro, 0);
     assert.equal(spend.snapshot().spentMicro, ['cost-receipt', 'settled'].includes(crash) ? 37 : 0);
     assert.equal(spend.snapshot().uncertainMicro, ['dispatched', 'id-receipt'].includes(crash) ? 100 : 0);
