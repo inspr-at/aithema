@@ -27,6 +27,7 @@ export function fakeSdk() {
         sendUserMessage(text) { effects.push(['sendUserMessage', text]); },
         sendContextualUpdate(text) { effects.push(['sendContextualUpdate', text]); },
       };
+      options.onConversationCreated?.(object);
       options.onConnect({ conversationId: providerSessionId }); return object;
     },
   };
