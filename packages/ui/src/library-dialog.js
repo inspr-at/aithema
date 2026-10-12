@@ -21,6 +21,20 @@ export class LibraryDialog {
     this.#adopt = adopt; this.#notice = notice;
     this.#mount();
   }
+  setCopy(copy) {
+    this.#copy = copy; this.#message = ''; this.#paintCopy();
+    this.#dialog.querySelectorAll('.library__sizer').forEach((n, i) => setText(n, [this.#c.deleteWarning, this.#c.resetWarning][i]));
+    setText(this.#dialog.querySelector('.library__notice'), this.#notice?.() ?? ''); this.#paint();
+  }
+  #paintCopy() {
+    const c = this.#c, d = this.#dialog;
+    const text = (selector, value) => setText(d.querySelector(selector), value);
+    text('#library-title', c.title); text('.library-close', c.close); text('.library__lead', c.lead);
+    text('.library__search label', c.search); d.querySelector('#library-search').placeholder = c.search;
+    text('[data-sort="title"] span', c.columns.title); text('[data-sort="updatedAt"] span', c.columns.updated);
+    text('.library__col-actions span', c.columns.actions); text('.library-retry', c.retry); text('.library-more', c.more);
+    text('.library-new', c.new); text('.library-reset', c.reset); text('.library-confirm-cancel', c.cancel);
+  }
   get #c() { return this.#copy.hostSurface.library; }
   get open() { return this.#dialog.open; }
   destroy() { this.#alive = false; clearTimeout(this.#searchTimer); if (this.#dialog.open) this.#dialog.close(); }
@@ -71,12 +85,7 @@ export class LibraryDialog {
           <p class="library__warning"></p><div class="library__confirm-actions">
           <button class="library-confirm" type="button" aria-describedby="library-confirm-warning"></button><button class="library-confirm-cancel" type="button"></button></div></div></footer></div>`;
     d.setAttribute('aria-labelledby', 'library-title');
-    const text = (selector, value) => setText(d.querySelector(selector), value);
-    text('#library-title', c.title); text('.library-close', c.close); text('.library__lead', c.lead);
-    text('.library__search label', c.search); d.querySelector('#library-search').placeholder = c.search;
-    text('[data-sort="title"] span', c.columns.title); text('[data-sort="updatedAt"] span', c.columns.updated);
-    text('.library__col-actions span', c.columns.actions); text('.library-retry', c.retry); text('.library-more', c.more);
-    text('.library-new', c.new); text('.library-reset', c.reset); text('.library-confirm-cancel', c.cancel);
+    this.#paintCopy();
     // The warning keeps the height of the longer one in this language, whichever is shown (or none).
     const warning = d.querySelector('.library__warning');
     const shown = node('span'); shown.id = 'library-confirm-warning';

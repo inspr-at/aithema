@@ -12,7 +12,7 @@ import { sessionKey as key, localeKey, preferredLocale, readPreference, remember
 const component = document.querySelector('aithema-session'), bundles = { en, de };
 mountTheme();
 let fakeVoice, liveVoiceClient, copy = bundles[preferredLocale()];
-// The page speaks the conversation's language; a new choice applies to the next conversation.
+// The page always speaks the current conversation's language.
 function paintPage() {
   const h = copy.host, text = (selector, value) => { const node = document.querySelector(selector); if (node) node.textContent = value; };
   document.documentElement.lang = component.session?.locale ?? preferredLocale(); document.title = 'Aithema';
@@ -60,8 +60,8 @@ async function open(fresh = false, request = {}) {
   } catch { document.querySelector('#error').textContent = binding.demoHost === true ? copy.host.restoreFailed : copy.host.conversationFailed; }
 }
 // The demo handover reaches a local fake recipient, so its success line says nobody calls back.
-const componentCopy = () => binding.demoHost !== true ? copy
-  : { ...copy, hostSurface: { ...copy.hostSurface, handover: { ...copy.hostSurface.handover, ...copy.host.handover } } };
+const componentCopy = (bundle = copy) => binding.demoHost !== true ? bundle
+  : { ...bundle, hostSurface: { ...bundle.hostSurface, handover: { ...bundle.hostSurface.handover, ...bundle.host.handover } } };
 // Shows a conversation: one from storage or a new one, or one the library opened, created or reset.
 async function adopt(session) {
   try {
@@ -69,7 +69,7 @@ async function adopt(session) {
     copy = bundles[session.locale] ?? en;
     if (binding.voiceMode === 'fake') {
       const ports = createVoiceControl({ sessionId: session.id, receive: event => component.receive(event) });
-      fakeVoice = createFakeVoice({ ...ports, copy });
+      fakeVoice = createFakeVoice({ ...ports, copy: () => copy });
     }
     if (binding.voiceMode === 'elevenlabs') {
       const ports = createVoiceControl({ sessionId: session.id, receive: event => component.receive(event) });
@@ -82,10 +82,13 @@ async function adopt(session) {
     }
     // The settings Advanced tab connects a local model through this browser-only factory.
     component.configure({ voiceClient: liveVoiceClient ?? fakeVoice?.client, copy: componentCopy(), session,
+      copyForLocale: locale => bundles[locale] && componentCopy(bundles[locale]),
       deviceConnector: createDeviceReasoning, deviceEndpoint: 'http://127.0.0.1:8000',
       // The host surface (AIT-104 B2): library, handover and credits from the demo ports; verification
       // only where the fake mail outbox can confirm it (the mock demo).
       host: { library: true, verification: binding.demoHost === true, handover: true, credits: true, locale: preferredLocale } });
+    // A stored choice may have changed while the initial conversation was being restored.
+    await component.changeLocale(preferredLocale());
     paintPage();
     document.querySelector('#error').textContent = '';
   } catch { document.querySelector('#error').textContent = binding.demoHost === true ? copy.host.restoreFailed : copy.host.conversationFailed; }
@@ -152,6 +155,11 @@ component.addEventListener('aithema-consent', () => {
   if (component.session?.id) globalThis.location.assign(`/consent/?session=${encodeURIComponent(component.session.id)}&return=/`);
 });
 component.addEventListener('aithema-features', paintVisuals);
-document.querySelector('#locale').addEventListener('change', event => { remember(localeKey, event.target.value); paintPage(); });
+component.addEventListener('aithema-locale', () => { copy = bundles[component.session.locale] ?? en; paintPage(); });
+// Remember the next-conversation choice even when a call or an existing turn prevents changing this one.
+document.querySelector('#locale').addEventListener('change', async event => {
+  const locale = event.target.value; remember(localeKey, locale);
+  await component.changeLocale(locale); paintPage();
+});
 document.querySelector('#new').addEventListener('click', () => void open(true));
 await open();

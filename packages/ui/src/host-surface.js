@@ -46,6 +46,17 @@ export class HostSurface {
     this.#handover = this.#session().handover ?? null;
     this.#paintCredits(); this.#paintHandover();
   }
+  setCopy(copy) {
+    this.#copy = copy;
+    const s = copy.hostSurface, root = this.#root;
+    root.querySelector('.host-bar').setAttribute('aria-label', s.bar);
+    if (this.#library) setText(root.querySelector('.library-open-dialog span'), s.library.open);
+    this.#verification?.setCopy(copy); this.#library?.setCopy(copy);
+    setText(root.querySelector('.handover h3'), s.handover.title);
+    setText(root.querySelector('slot[name="handover-offer"]'), s.handover.offer);
+    root.querySelectorAll('.handover__sizer').forEach((n, i) => setText(n, [s.handover.request, s.handover.update, s.handover.retry][i]));
+    this.update();
+  }
   get locked() { return this.#verification?.locked ?? false; }
   /** The understanding pane holds host controls: the verification form while locked, or the handover band. */
   get holdsControls() { return this.locked || Boolean(this.#options.handover); }

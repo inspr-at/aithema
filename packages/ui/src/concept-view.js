@@ -33,6 +33,18 @@ const DRAFT_GLYPH = '<svg viewBox="0 0 48 32" aria-hidden="true"><rect x="1.5" y
 export class ConceptView {
   #session; #selected; #latest; #seen = new Set(); #urls = new Map(); #drafts = new Map(); #loads = new Map(); #epoch = 0;
   #busy = false; #trigger; #timer; #touchX; #requestError = null; #statusKey = ''; #pointer = false; #pointerStage = false;
+  setCopy(copy) { this.copy = copy; this.#paintCopy(); this.render(); }
+  #paintCopy() {
+    const { root, copy } = this;
+    const [image, draft] = root.querySelectorAll('.concept-preview-sizer');
+    image.textContent = copy.conceptView; draft.textContent = copy.conceptDraftView ?? '';
+    const labels = { '.concept-close': 'conceptClose', '.concept-previous': 'conceptPrevious', '.concept-next': 'conceptNext',
+      '.concept-download': 'conceptDownload', '.concept-up': 'conceptUp', '.concept-down': 'conceptDown', '.concept-reject': 'conceptReject', '.concept-preview-label': 'conceptView' };
+    for (const [selector, key] of Object.entries(labels)) root.querySelector(selector).textContent = copy[key];
+    root.querySelector('.concept-image').alt = copy.conceptImageAlt;
+    if (copy.conceptPreview) root.querySelector('.concept-html').copy = copy.conceptPreview;
+    root.querySelectorAll('.concept-guidance-options button').forEach((button, i) => { button.dataset.value = copy.conceptGuidance[i] ?? ''; button.textContent = button.dataset.value; });
+  }
   constructor({ root, copy, baseUrl, sessionToken, receive, feature }) {
     Object.assign(this, { root, copy, baseUrl, sessionToken, receive, feature });
     this.visibility = () => { if (root.ownerDocument.hidden) void this.endEligibility(); };
@@ -50,11 +62,7 @@ export class ConceptView {
         <p class="concept-disclosure"></p><div class="concept-feedback"><button class="concept-up" type="button"></button><button class="concept-down" type="button"></button><button class="concept-reject" type="button"></button></div>
         <div class="concept-guidance-options"></div><p class="concept-viewer-message" role="status"></p></footer>`;
     root.append(dialog); this.dialog = dialog;
-    const labels = { '.concept-close': 'conceptClose', '.concept-previous': 'conceptPrevious', '.concept-next': 'conceptNext',
-      '.concept-download': 'conceptDownload', '.concept-up': 'conceptUp', '.concept-down': 'conceptDown', '.concept-reject': 'conceptReject', '.concept-preview-label': 'conceptView' };
-    for (const [selector, key] of Object.entries(labels)) root.querySelector(selector).textContent = copy[key];
-    root.querySelector('.concept-image').alt = copy.conceptImageAlt;
-    if (copy.conceptPreview) root.querySelector('.concept-html').copy = copy.conceptPreview;
+    this.#paintCopy();
     root.querySelector('.concept-request').addEventListener('click', () => void this.request());
     root.querySelector('.concept-regenerate').addEventListener('click', () => void this.request(this.#selected));
     root.querySelector('.concept-tab').addEventListener('click', () => this.open());
@@ -226,7 +234,7 @@ export class ConceptView {
   guidanceToggle(value) {
     const button = document.createElement('button'); button.type = 'button'; button.textContent = value; button.dataset.value = value;
     button.setAttribute('aria-pressed', 'false');
-    button.addEventListener('click', () => { const current = this.current(), chips = current?.feedback?.chips ?? [];
+    button.addEventListener('click', () => { const value = button.dataset.value, current = this.current(), chips = current?.feedback?.chips ?? [];
       void this.feedback(current?.feedback?.vote ?? 'clear', chips.includes(value) ? chips.filter(c => c !== value) : [...chips, value]); });
     return button;
   }
