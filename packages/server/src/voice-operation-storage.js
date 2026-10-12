@@ -110,6 +110,7 @@ export function createVoiceOperationStore(storage) {
       const recorded = records.find(receipt => receipt.turnId === context.recordedTurnId);
       const positional = records.find(receipt => receipt.ordinal === ordinal);
       const digest = users.length ? inputDigest(context, users.at(-1).content) : undefined;
+      const uniqueInput = digest !== undefined && users.filter(message => inputDigest(context, message.content) === digest).length === 1;
       const unbound = records.filter(receipt => digest !== undefined && !receipt.operationKey && receipt.inputDigest === digest &&
         consistent(providerIdentity, receipt.providerIdentity));
       // A bound receipt's ordinal is admission order, never receipt-arrival
@@ -117,7 +118,9 @@ export function createVoiceOperationStore(storage) {
       const receipt = matching[0] ?? (positional && consistent(providerIdentity, positional.providerIdentity) ? positional : undefined)
         ?? (recorded && (recorded.ordinal === undefined || recorded.ordinal === ordinal) &&
           consistent(providerIdentity, recorded.providerIdentity) ? recorded : undefined)
-        ?? (unbound.length === 1 ? unbound[0] : undefined);
+        // Repeated answers occupy different slots. An old unbound receipt's
+        // matching text alone cannot identify the callback's newest occurrence.
+        ?? (uniqueInput && unbound.length === 1 ? unbound[0] : undefined);
       if (receipt && !consistent(providerIdentity, receipt.providerIdentity)) refused('voice-turn-fenced');
       const turnId = receipt?.turnId ?? (!recorded ? context.recordedTurnId : undefined);
       const identities = providerIdentity?.map(providerAlias);
