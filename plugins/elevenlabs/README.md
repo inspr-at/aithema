@@ -262,8 +262,13 @@ success. `stream:false` or omitted `stream` uses the same admission for a normal
 chat completion; only `stream:true` selects SSE.
 
 The callback body limit is **8 MiB (8,388,608 bytes)**, configurable with
-`maxRequestBytes`. ElevenLabs sends full history each turn; the host appends
-user/assistant messages to its trusted session prompt. The observed growth of
+`maxRequestBytes`. The current integration observes cumulative per-generation
+history in the callback `messages` array. The [custom-LLM documentation](https://elevenlabs.io/docs/eleven-agents/customization/llm/custom-llm)
+describes OpenAI-compatible chat requests; it does not promise untruncated
+history in every configuration. The [full-history fixture](test/facade.test.js)
+passes 36 user/assistant entries above 64 KiB and checks that every entry survives
+the facade unchanged. The host uses its canonical session history for reasoning,
+plus only the newest unrecorded callback input. The observed growth of
 72,176 bytes after about four minutes projects to about 2.1 MiB at the 120-minute
 voice cap, leaving nearly fourfold headroom. `readJson` counts actual bytes,
 coalesces tiny chunks into bounded 64 KiB slabs, and cancels body reads on the
@@ -271,6 +276,23 @@ facade deadline. Parsing temporarily also requires a contiguous byte buffer,
 decoded text and the JSON object. The HTTP adapter uses a bounded intermediary
 stream so reader cancellation preserves the socket until the JSON reply is sent;
 early replies close the connection without draining the remaining upload.
+For AIT-137, the ordinal is the count of original user entries, before content
+filtering. Null/empty user entries, explicit `history_truncated` or
+`messages_truncated` indicators (top-level or in `elevenlabs_extra_body`), an
+inconsistent history beginning/user prefix, or missing predecessor evidence
+select the independent, non-deduplicated path. The server stores only scoped
+content/prefix digests for this check. Incomplete history is never text-correlated.
+A silently truncated body byte-identical to an earlier full retry cannot be
+identified from that body alone; the full-history transport contract is required
+for ordinal deduplication, and an integration that truncates must signal it.
+
+The client stamps each unique user final with `userTurnOrdinal` in capture order
+within the call and provider generation, before enqueueing persistence. Assistant
+finals and duplicate event IDs do not advance it. Finals suppressed while paused
+leave gaps, and recovery starts the new generation at one. `event_id` is retained.
+Missing, invalid or conflicting ordinals never capture or invalidate paid work;
+the structured `voice.turn.correlation_ambiguous` event explains the fallback.
+
 The 30-second callback timeout, call leases
 and earlier admission deadline still apply; iterator disposal and settlement
 each have a separate one-second bound.

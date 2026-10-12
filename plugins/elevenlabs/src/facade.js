@@ -106,11 +106,16 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
       const messages = providerMessages
         .map(({ role, content }) => ({ role, content }));
       if (turnOperations) {
+        // Count the original user entries; filtering null/unsupported content
+        // must never turn a partial history into a plausible earlier ordinal.
+        const historyUnknownReason = [body, body.elevenlabs_extra_body].some(source =>
+          source?.history_truncated === true || source?.messages_truncated === true) ? 'truncated'
+          : body.messages.some(message => message.role === 'user' && typeof message.content !== 'string') ? 'null-user' : undefined;
         const newest = providerMessages.findLast(message => message.role === 'user');
         const turnIdentity = voiceTurnIdentities(newest, ...[body, body.elevenlabs_extra_body].map(source =>
           ({ message_id: source?.message_id, event_id: source?.event_id, turn_id: source?.turn_id })));
         const response = await voiceOperation(opts, bounded => turnOperations.run({ callId: call.callId,
-          providerSessionId: call.providerSessionId, messages, turnIdentity, stream: body.stream }, async operation => {
+          providerSessionId: call.providerSessionId, messages, historyUnknownReason, turnIdentity, stream: body.stream }, async operation => {
           // The durable operation owns its lifetime; an HTTP retry owns only a reader.
           const worker = createCompletionsHandler({ getCall, resolveSecret, buildRequest, admitReasoning,
             onCompletion, staticSecretRef, now, timeoutMs, maxRequestBytes, log: () => {},

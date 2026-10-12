@@ -201,7 +201,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
       const connect = async (receipt, connectOptions) => {
         const current = ++generation;
         playbackInterrupted = false;
-        let lastInterruptionId = -1, latestAssistantId = -1;
+        let lastInterruptionId = -1, latestAssistantId = -1, userTurnOrdinal = 0;
         if (receipt?.callId !== request.callId || !receipt.providerSessionId || !receipt.credential ||
           !Number.isFinite(receipt.credential.ttlMs) || receipt.credential.ttlMs <= 0 || receipt.credential.ttlMs > 60_000 ||
           receipt.credential.providerSessionId !== receipt.providerSessionId) throw new PluginError('invalid-output', 'Invalid voice credential receipt');
@@ -292,17 +292,21 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           onMessage({ role, message, event_id: eventId }) {
             if (!active() || !['user', 'agent'].includes(role) || typeof message !== 'string' || !message.trim()) return;
             if (role === 'agent') observeAssistant(eventId);
-            if (paused) return;
             const speaker = role === 'agent' ? 'assistant' : 'user';
             const turnId = `${receipt.providerSessionId}:${speaker}:${eventId ?? `callback-${++sequence}`}`;
             if (seen.has(turnId)) return;
             if (seen.size >= 4096) { void close('transcript-limit').catch(() => {}); return; }
             seen.add(turnId);
+            // Capture order belongs to this provider generation, before async
+            // persistence. Paused finals leave a gap instead of shifting IDs.
+            const ordinal = speaker === 'user' ? ++userTurnOrdinal : undefined;
+            if (paused) return;
             if (speaker === 'assistant') {
               assistants.set(turnId, { text: message, eventId });
               if (assistants.size > 256) assistants.delete(assistants.keys().next().value);
             }
             emit({ type: 'final', turnId, role: speaker, text: message,
+              ...(ordinal !== undefined ? { userTurnOrdinal: ordinal } : {}),
               ...(eventId !== undefined ? { event_id: eventId } : {}) });
           },
           onAgentResponseCorrection({ event_id: eventId, original_agent_response: original, corrected_agent_response: prefix }) {

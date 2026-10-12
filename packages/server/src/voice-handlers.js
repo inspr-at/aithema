@@ -63,7 +63,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     log !== undefined && typeof log !== 'function') throw new TypeError('Invalid voice reconciliation retry bounds');
   const calls = new Map(), sessions = new Map(), settlements = new Set();
   if (!Number.isSafeInteger(turnTimeoutMs) || turnTimeoutMs <= 0) throw new TypeError('Invalid voice turn timeout');
-  const turns = createVoiceTurnOperations({ storage, now, replayWindowMs: turnReplayWindowMs,
+  const turns = createVoiceTurnOperations({ storage, now, replayWindowMs: turnReplayWindowMs, log,
     authorizeReplacement: authorizeTurnReplacement && (args => {
       const entry = calls.get(args.operation.callId);
       return authorizeTurnReplacement({ ...args, session: sessionFor(entry) });
@@ -211,11 +211,9 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
   const facade = createCompletionsHandler({ resolveSecret: secrets.resolve, staticSecretRef, timeoutMs: turnTimeoutMs,
     turnOperations: {
       run(context, execute, options) {
-        const entry = calls.get(context.callId), session = sessionFor(entry);
-        const last = session.transcript.at(-1), latest = context.messages.at(-1);
-        const recordedTurnId = latest?.role === 'user' && last?.role === 'user' &&
-          !unrecordedVoiceInput(session, context.messages, entry.call).length ? last.id : undefined;
-        return turns.run({ ...context, sessionId: entry.sessionId, recordedTurnId }, execute, options);
+        const entry = calls.get(context.callId);
+        sessionFor(entry);
+        return turns.run({ ...context, sessionId: entry.sessionId }, execute, options);
       },
     },
     getCall(request, options, identity) {
