@@ -205,6 +205,38 @@ Cancellation, deadlines, broken streams and omitted usage cannot fabricate
 success. `stream:false` or omitted `stream` uses the same admission for a normal
 chat completion; only `stream:true` selects SSE.
 
+The callback body limit is **8 MiB (8,388,608 bytes)**, configurable with
+`maxRequestBytes`. ElevenLabs sends full history each turn; the host appends
+user/assistant messages to its trusted session prompt. The observed growth of
+72,176 bytes after about four minutes projects to about 2.1 MiB at the 120-minute
+voice cap, leaving nearly fourfold headroom. `readJson` counts actual bytes,
+coalesces tiny chunks into bounded 64 KiB slabs, and cancels body reads on the
+facade deadline. Parsing temporarily also requires a contiguous byte buffer,
+decoded text and the JSON object. The HTTP adapter uses a bounded intermediary
+stream so reader cancellation preserves the socket until the JSON reply is sent;
+early replies close the connection without draining the remaining upload.
+The 30-second callback timeout, call leases
+and earlier admission deadline still apply; iterator disposal and settlement
+each have a separate one-second bound.
+
+Failures before SSE starts return JSON `{error: code}` with `cache-control:
+no-store`: `method-not-allowed` → 405; `unauthorized`/`auth` → 401;
+`not-admitted` → 403; `invalid-output` → 400; `limit` → 413; `deadline` → 504;
+`cancelled`, `already-claimed`, `unavailable`, `rate-limit`, `provider` → 502.
+Unknown facade errors become `provider`; the HTTP adapter's fallback is 500
+`server-error`. Oversized request bodies always use 413
+`{"error":"limit"}`. After SSE starts, failures emit `data: {"error":"code"}`
+and close without a stop frame or `[DONE]`; the HTTP status is already 200.
+
+The optional `log` port defaults to stdout JSON lines, one per completed,
+failed or cancelled callback: `{time,level,event:"voice-callback",status,
+latencyMs,requestBytes,responseBytes,errorCode,callIdHash}`. Bytes mean observed
+request bytes and serialized/enqueued response bytes; rejected unread bodies
+count as zero. `callIdHash` is the first 16 SHA-256 hex characters of the resolved
+call id, or null before resolution. Success uses info/null; every failure uses
+error/a stable code. Bodies, URLs, raw identities, error messages, authorization,
+cookies and keys never enter these lines.
+
 ## Browser half
 
 Import `createElevenLabsClient` from `/client`. Native browser ESM needs no

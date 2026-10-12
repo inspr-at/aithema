@@ -46,22 +46,42 @@ function conversationCost(metadata, binding, seconds) {
     estimateMicroPerMinute: binding.upstreamMicroPerMinute,
     ...(credits === null ? {} : { providerCredits: credits }) };
 }
-export async function readJson(response, maxBytes = 65_536) {
+export async function readJson(response, maxBytes = 65_536, { signal, onBytes } = {}) {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) throw new TypeError('Positive JSON byte limit required');
   const reader = response.body?.getReader();
   if (!reader) throw new PluginError('invalid-output', 'Missing JSON body');
-  const chunks = []; let length = 0;
+  // Coalesce tiny transport chunks into slabs: both retained bytes and chunk metadata stay bounded.
+  const chunks = []; let length = 0, slab, used = 0;
+  const cancel = () => { void reader.cancel().catch(() => {}); };
+  signal?.addEventListener('abort', cancel, { once: true });
   try {
+    signal?.throwIfAborted();
     for (;;) {
-      const { value, done } = await reader.read(); if (done) break;
-      length += value.byteLength;
-      if (length > maxBytes) throw new PluginError('limit', 'JSON body exceeds limit');
-      chunks.push(value);
+      const { value, done } = await reader.read();
+      signal?.throwIfAborted(); if (done) break;
+      onBytes?.(length + value.byteLength);
+      if (length + value.byteLength > maxBytes) throw new PluginError('limit', 'JSON body exceeds limit');
+      for (let offset = 0; offset < value.byteLength;) {
+        if (!slab || used === slab.byteLength) {
+          slab = new Uint8Array(Math.min(65_536, maxBytes - length)); chunks.push(slab); used = 0;
+        }
+        const count = Math.min(slab.byteLength - used, value.byteLength - offset);
+        slab.set(value.subarray(offset, offset + count), used);
+        used += count; offset += count; length += count;
+      }
     }
     const bytes = new Uint8Array(length); let offset = 0;
-    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength; }
+    for (const chunk of chunks) {
+      const part = chunk.subarray(0, Math.min(chunk.byteLength, length - offset));
+      bytes.set(part, offset); offset += part.byteLength;
+    }
     try { return JSON.parse(new TextDecoder().decode(bytes)); }
     catch { throw new PluginError('invalid-output', 'Invalid JSON body'); }
-  } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
+  } finally {
+    signal?.removeEventListener('abort', cancel);
+    // A stalled source's cancel hook must not keep the callback alive beyond its deadline.
+    cancel(); reader.releaseLock();
+  }
 }
 async function providerJson(binding, path, { fetchImpl, resolveSecret }, options) {
   return voiceOperation(options, async ({ signal }) => {
