@@ -1326,6 +1326,8 @@ export class AithemaSession extends HTMLElement {
         if (this.#cursor > requestedCursor && this.isConnected) this.#connect();
         return;
       }
+      // An accepted snapshot protects its state from older responses to concurrent restores.
+      this.#invalidatedAt = Math.max(this.#invalidatedAt, session.seq);
       this.#session = session; this.#cursor = this.#session.seq; this.#partials.clear();
       this.#repaintLocale();
       this.#restoreFailure(); this.#concept.update(this.#session); this.#renderMode(); this.#dialog?.sync(); this.#host?.resync();
