@@ -128,6 +128,7 @@ test('AIT-146: late WebSocket audio cannot queue an interrupted reply ahead of a
 });
 
 test('AIT-146: replay a German utterance with pauses and spelling as one complete final; corrections alone define heard text', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.now() });
   const saved = [], local = await playbackFixture(t, 'webrtc', { persistEvent: async event => { saved.push(event); } });
   const events = []; const reader = (async () => { for await (const event of local.session.events) events.push(event); })();
   // Virtual timestamps include two thinking pauses and a spelled domain. The
@@ -139,7 +140,9 @@ test('AIT-146: replay a German utterance with pauses and spelling as one complet
     [9700, 'Ich hab noch keinen Hosting-Anbieter ausgewählt, weil ich zuerst den Webshop und die Domain klären möchte.'],
     [11200, 'Die Domain lautet m e i n w u n s c h p o l s t e r Punkt a t.'],
   ];
+  let previousMs = 0;
   for (const [atMs, text] of replay) {
+    t.mock.timers.tick(atMs - previousMs); previousMs = atMs;
     local.sdk.starts[0].onDebug({ type: 'tentative_user_transcript', tentative_user_transcription_event: { user_transcript: text } });
     await flush(); assert.deepEqual(saved, [], `no final during the utterance at ${atMs} ms`);
   }

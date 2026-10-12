@@ -87,6 +87,40 @@ Fakes drive that real callback rather than inventing an SDK force-interrupt
 method. The declaration follows the concept's native audio barge-in column;
 Part B must present it as audio barge-in, not a force-interrupt button.
 
+AIT-146 repairs playback at that native callback, synchronously and independently
+of transcript persistence. SDK 1.17.0's WebRTC output `interrupt()` is a no-op;
+its WebSocket output fades for two seconds and the concat worklet continues
+rendering queued PCM until `clearInterrupted`. The adapter mutes through the
+SDK's volume path, clears the WebSocket worklet immediately, and fences late
+audio before the connection can forward it to the queue. A newer assistant
+response lifts the interruption mute while preserving the visitor's output
+selection and pause. Listening/speaking notifications alone cannot lift it.
+The SDK internals used here are covered by replay against the pinned SDK and
+its actual generated worklet. Updating the SDK requires requalifying that path.
+Only the existing correction callback supplies a genuine heard prefix.
+
+The owned `aithema-start2` startup policy uses `turn_eagerness: patient`,
+`turn_timeout: 12`, `spelling_patience: auto`, `turn_model: turn_v3`, and
+`speculative_turn: false`. It replaces template ASR keywords with Aithema,
+Hosting, Domain, Webshop, Schnittstelle and Datenschutz. Each policy field and
+the exact keyword list must match the provider GET after create/PATCH; otherwise
+voice remains disabled. START's template receives only GET requests.
+[ElevenLabs' conversation-flow guidance](https://elevenlabs.io/docs/eleven-agents/customization/conversation-flow)
+recommends patient turns and longer silence timeouts for detailed information
+collection. The 12-second setting is the silence fallback, not a guaranteed
+minimum pause before every reply.
+
+Evidence from the reported call shows six interrupted agent turns and the user
+fragment "Ich hab noch kei-" at 748 seconds, followed by a reply at 754 seconds.
+The fragment was already truncated in the provider transcript; the browser
+does not finalize partial captions itself. The normal provider turn setting is
+a tuning hypothesis for that truncation, not proof of its acoustic cause.
+Offline replay covers immediate cutoff (under 300 ms), queued/late audio,
+channel controls, and a complete German utterance across virtual thinking and
+spelling pauses. Provider endpointing is supplied by the fake in that replay.
+Applying the startup policy to the live owned agent and verifying German speech
+with pauses remain coordinator checks; this builder makes no provider calls.
+
 ## Server half
 
 The `/server` export provides `createElevenLabsServer`,
