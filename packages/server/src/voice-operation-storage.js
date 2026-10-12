@@ -51,14 +51,17 @@ export function createVoiceOperationStore(storage) {
       const session = storage.get(context.sessionId);
       const users = context.messages.filter(message => message.role === 'user');
       const ordinal = users.length;
-      const slot = `slot:${ordinal}:${context.messages.filter(message => message.role === 'assistant').length}`;
+      // Full provider user history supplies position until its canonical final
+      // arrives. Assistant text/counts never create another user operation.
+      const slot = `slot:${ordinal}`;
       const providerIdentity = context.turnIdentity;
       const providerTurn = providerIdentity && session.transcript.find(t => t.role === 'user' &&
         t.callId === context.callId && t.providerSessionId === context.providerSessionId &&
         providerIdentity.some(identity => t.id === identity || t.id === `${context.providerSessionId}:user:${identity}`));
       const turnId = providerTurn?.id ?? context.recordedTurnId;
       const identities = providerIdentity?.map(identity => `provider:${JSON.stringify(identity)}`);
-      const identity = identities?.[0] ?? (turnId ? `canonical:${turnId}` : slot);
+      const reservedTurnId = `${context.providerSessionId}:user:operation-${hash([context.sessionId, context.callId, context.providerSessionId, slot])}`;
+      const identity = identities?.[0] ?? `canonical:${turnId ?? reservedTurnId}`;
       // Optional provider metadata can appear/disappear on retry. Each stable id
       // is an alias, rather than a different combination defining a new turn.
       const keys = new Set((identities ?? [identity]).map(identity => alias(context, identity)).filter(Boolean));
@@ -87,7 +90,7 @@ export function createVoiceOperationStore(storage) {
       const id = randomUUID();
       key = hash([context.sessionId, context.callId, context.providerSessionId, identity]);
       operation = { key, sessionId: context.sessionId, callId: context.callId, providerSessionId: context.providerSessionId,
-        turnId: turnId ?? (providerIdentity ? `${context.providerSessionId}:user:${providerIdentity[0]}` : `${context.providerSessionId}:user:operation-${key}`),
+        turnId: turnId ?? (providerIdentity ? `${context.providerSessionId}:user:${providerIdentity[0]}` : reservedTurnId),
         canonical: Boolean(turnId), ordinal, providerIdentity, afterTurnId: latestUser(session)?.id ?? null,
         consentRevision: session.conversationConsentRevision ?? session.consentRevision, withdrawalRevision: session.withdrawalRevision,
         state: 'pending', fence: id, createdAt: now, attempts: [{ id, startedAt: now, state: 'pending' }] };

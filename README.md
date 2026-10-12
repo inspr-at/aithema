@@ -588,6 +588,43 @@ identify text provenance, without confirming playback. Understanding/focus chang
 Unsupported commands and presets stay disabled with a reason. Automatic updates
 keep the rail, composer and export targets at fixed positions.
 
+Custom-LLM callbacks share a durable turn operation. Its key is SHA-256 of the
+session, call, provider generation and provider message/turn identity; each
+available provider identity is an alias for that operation. Without provider
+IDs, the key uses the canonical user turn and its call/generation provenance.
+If the callback arrives first, the server reserves a private turn identity from
+the ordered provider user-history position; the final transcript receipt binds
+the actual canonical turn ID atomically. Only transcript persistence publishes
+the person turn. Assistant history changes and text equality do not define
+operation identity. ID-less callbacks require ordered user history; stale or
+ambiguous positions are refused instead of being attached to a later identical
+utterance.
+
+Operations move from `pending` to `completed` or `failed`. Concurrent callbacks
+join one admission and model stream; disconnecting a reader leaves the operation
+running under its own deadline. Completion stores the reply in erasable content
+in the same transaction as its terminal operation state, before publishing the
+successful stream terminator. Retries replay that reply and completion ID without
+admission or spending. `voice.turnReplayWindowMs` defaults to **120,000 ms** from
+completion; `voice.turnTimeoutMs` defaults to **30,000 ms**. The call must remain
+authorized and the turn current. Expired and obsolete callbacks return JSON 403
+with `error: "not-admitted"` and respectively `reason: "voice-turn-replay-expired"`
+or `"voice-turn-obsolete"`, without another claim.
+
+A failed operation requires explicit host authorization. Configure
+`voice.authorizeTurnReplacement({operation, session, options})` to return exactly
+`true` only when the host authorizes a new paid attempt. The default denies with
+`reason: "voice-turn-replacement-required"`; callback payloads cannot authorize
+replacement. One atomic replacement records `replaces` against the failed
+attempt's fence and attaches its new budget attempt. Old streams and terminal
+reports cannot publish or settle a second result over the successor. Startup
+recovers unowned pending operations as failed; it never dispatches them on an
+ordinary retry. Existing budget recovery retains uncertain dispatched spending,
+and an explicitly authorized replacement reserves separately. Completed replies
+survive restart for replay within their window; normal orphan-call credential
+revocation and closure still apply. Withdrawal and erasure remove reply bytes
+through the existing content tombstones and WAL checkpoint.
+
 Duration holds reserve provider and visitor ceilings separately.
 Set the upstream session cap to at least the voice maximum plus the delegated
 reaction maximum (`cap ≥ voice max + reaction max`), since the open voice hold
