@@ -291,7 +291,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         else response.headers.set('x-aithema-session-token', ownerToken);
         return response;
       }
-      const match = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})(?:\/(turns|events|export|retry|pause|withdraw|consent|erase|settings))?$/u.exec(url.pathname);
+      const match = /^\/api\/sessions\/([a-zA-Z0-9_-]{1,128})(?:\/(turns|events|export|retry|pause|withdraw|consent|erase|settings|locale))?$/u.exec(url.pathname);
       if (!match) return json({ error: 'not-found' }, 404);
       const [, id, action] = match;
       const ownerToken = ownership.token(request), authorized = storage.authorize(id, ownerToken);
@@ -299,6 +299,17 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       const guard = { ownerToken, revision: inputRevision(authorized) };
       if (!action && request.method === 'GET') return json(await snapshot(id));
       if (action === 'events' && request.method === 'GET') return events(request, id);
+      if (action === 'locale' && request.method === 'POST') {
+        const body = JSON.parse(Buffer.from(await readBody(request)).toString('utf8'));
+        if (!body || !['en', 'de'].includes(body.locale)) return json({ error: 'invalid-locale' }, 400);
+        // No await between the connecting-call check and the transactional turn/call check.
+        if (voiceHandlers?.active(id)) return json({ error: 'locale-conflict' }, 409);
+        let event;
+        try { event = storage.changeLocale(id, body.locale, { ownerToken }); }
+        catch (error) { if (error instanceof ConflictError) return json({ error: 'locale-conflict' }, 409); throw error; }
+        if (event) broadcast(id, event);
+        return json({ event, session: await snapshot(id) });
+      }
       if (action === 'turns' && request.method === 'POST') {
         // Bound the wire separately so JSON escapes do not consume the content budget.
         const bytes = await readBody(request, REQUEST_LIMIT * 2);
@@ -312,7 +323,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         const voiceContext = body.voiceCallId === undefined ? {} : voiceHandlers?.typedContext(id, ownerToken, body.voiceCallId, body.providerSessionId);
         if (body.voiceCallId !== undefined && !voiceContext) return json({ error: 'voice-unavailable' }, 403);
         const { event, replayed } = storage.postTurn(id, body.clientEventId, bytes, body.content,
-          { ...guard, ...voiceContext, revision: body.inputRevision ?? guard.revision });
+          { ...guard, ...voiceContext, revision: body.inputRevision ?? guard.revision,
+            ...(body.inputRevision === undefined && authorized.transcript.length === 0 ? { initialLocaleSeq: authorized.seq } : {}) });
         if (!replayed) lanes.supersede(id);
         if (!replayed) broadcast(id, event);
         if (!replayed) conceptHandlers.onTurn(id, event.data.id);
