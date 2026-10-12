@@ -1229,20 +1229,21 @@ test('slow closure: recovery retries the original identity after a new SDK conne
 
 
 // AIT-137 probes count the actual admission, dispatch and durable cost separately.
-async function turnsOnceFixture(t, { voiceOptions, path, blocked = false, failFirst = false, lateFirst = false } = {}) {
-  const base = createMockReasoning(), started = Promise.withResolvers(), release = Promise.withResolvers();
+async function turnsOnceFixture(t, { voiceOptions, path, blocked = false, blockedModel = 1, failFirst = false, lateFirst = false } = {}) {
+  const base = createMockReasoning(), started = Promise.withResolvers(), release = Promise.withResolvers(), modelEvents = eventProbe();
   let models = 0, admissions = 0, lateReport;
   t.after(() => release.resolve());
   const h = voiceFixture(t, { path, voiceOptions, reasoning: { ...base, async *stream(request, options) {
     await options.attempt.consume();
     const number = ++models;
+    modelEvents.record(number);
     if (number === 1) started.resolve();
     if (number === 1 && failFirst) {
       options.report({ attemptId: options.attempt.attemptId, outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 }, chargedMicro: 0 });
       throw new PluginError('provider');
     }
     yield `Reply ${number}`;
-    if (number === 1 && (blocked || lateFirst)) await release.promise;
+    if (blocked && number === blockedModel || number === 1 && lateFirst) await release.promise;
     if (number === 1 && lateFirst) lateReport = () => options.report({ attemptId: options.attempt.attemptId,
       outcome: 'completed', usage: { inputTokens: 3, outputTokens: 2 }, chargedMicro: 17 });
     else options.report({ attemptId: options.attempt.attemptId, outcome: 'completed', usage: { inputTokens: 3, outputTokens: 2 }, chargedMicro: 17 });
@@ -1257,13 +1258,14 @@ async function turnsOnceFixture(t, { voiceOptions, path, blocked = false, failFi
     `https://facade.test/api/voice/${grant.callId}/llm/chat/completions`, {
       method: 'POST', signal, headers: { authorization: `Bearer ${secret}` },
       body: JSON.stringify({ aithema_call: grant.callId, messages, ...extra }) }));
-  const persist = async (role, id, text) => {
+  const persist = async (role, id, text, identity = {}) => {
     const response = await h.route(`/voice/${grant.callId}/events`, { providerSessionId: grant.providerSessionId,
-      event: { type: 'final', callId: grant.callId, turnId: `${grant.providerSessionId}:${role}:${id}`, role, text } });
+      event: { type: 'final', callId: grant.callId, turnId: `${grant.providerSessionId}:${role}:${id}`, role, text, ...identity } });
     assert.equal(response.status, 200); return response.json();
   };
   const rows = () => h.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='reaction'").all();
   return { ...h, grant, callback, persist, rows, started: started.promise, release: () => release.resolve(),
+    waitForModel: number => modelEvents.waitFor(value => value === number),
     counts: () => ({ admissions, models, cost: rows().reduce((sum, row) => sum + (row.settled_micro ?? 0), 0) }),
     reportLate: () => lateReport?.() };
 }
@@ -1465,4 +1467,159 @@ test('AIT-137 assistant history changes do not create another operation for the 
   const first = await completionText(await h.callback(messages));
   assert.equal(await completionText(await h.callback([...messages, { role: 'assistant', content: 'Provider partial reply' }])), first);
   assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
+});
+
+test('AIT-137 round 1: a pending ID-less callback coalesces when its retry gains provider IDs', async t => {
+  const h = await turnsOnceFixture(t, { blocked: true });
+  const first = await h.callback(undefined, { stream: true });
+  const retry = await h.callback([{ role: 'user', content: 'Ja', message_id: 'm1', turn_id: 't1' }], { stream: true });
+  const texts = [first.text(), retry.text()]; h.release();
+  assert.deepEqual((await Promise.all(texts)).map(sseReply), ['Reply 1 finished', 'Reply 1 finished']);
+  assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
+});
+
+test('AIT-137 round 1: a completed provisional reply replays when its retry gains a provider ID', async t => {
+  const h = await turnsOnceFixture(t), first = await (await h.callback()).json();
+  const retry = await (await h.callback([{ role: 'user', content: 'Ja', event_id: 'e1' }])).json();
+  assert.deepEqual(retry, first);
+  assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
+});
+
+test('AIT-137 round 1: adding an ID to a failed provisional turn cannot bypass replacement authorization', async t => {
+  const h = await turnsOnceFixture(t, { failFirst: true });
+  assert.equal((await h.callback()).status, 502);
+  const retry = await h.callback([{ role: 'user', content: 'Ja', message_id: 'm1' }]);
+  assert.equal(retry.status, 403);
+  assert.deepEqual(await retry.json(), { error: 'not-admitted', reason: 'voice-turn-replacement-required' });
+  assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 0 });
+});
+
+test('AIT-137 round 1: message 2 turn 1 and message 3 turn 2 never share an alias before receipts', async t => {
+  const h = await turnsOnceFixture(t), first = { role: 'user', content: 'Ja', message_id: 2, turn_id: 1 };
+  const second = { role: 'user', content: 'Ja', message_id: 3, turn_id: 2 };
+  assert.equal(await completionText(await h.callback([first])), 'Reply 1 finished');
+  assert.equal(await completionText(await h.callback([first, { role: 'assistant', content: 'Again?' }, second])), 'Reply 2 finished');
+  assert.deepEqual(h.counts(), { admissions: 2, models: 2, cost: 34 });
+});
+
+test('AIT-137 round 1: a shared message alias cannot attach a contradictory turn ID', async t => {
+  const h = await turnsOnceFixture(t), message = { role: 'user', content: 'Ja', message_id: 'm1' };
+  await completionText(await h.callback([message], { turn_id: 't1' }));
+  const retry = await h.callback([message], { turn_id: 't2' });
+  assert.equal(retry.status, 403);
+  assert.deepEqual(await retry.json(), { error: 'not-admitted', reason: 'voice-turn-fenced' });
+  assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
+});
+
+test('AIT-137 round 1: a typed echo binds its own reply before the next spoken final', async t => {
+  const h = await turnsOnceFixture(t);
+  const typed = await h.route('/turns', { clientEventId: 'typed', content: 'Typed input',
+    voiceCallId: h.grant.callId, providerSessionId: h.grant.providerSessionId });
+  assert.equal(typed.status, 200); await h.handlers.idle();
+  const echo = { role: 'user', content: 'Typed input', event_id: 'echo' };
+  assert.equal(await completionText(await h.callback([echo])), 'Reply 1 finished');
+  assert.equal((await h.persist('user', 'echo', echo.content, { event_id: 'echo' })).data.id, 'typed');
+  await h.persist('user', 'spoken', 'Spoken input', { event_id: 'spoken' });
+  const spoken = { role: 'user', content: 'Spoken input', event_id: 'spoken' };
+  assert.equal(await completionText(await h.callback([echo, spoken])), 'Reply 2 finished');
+  assert.equal((await h.callback([echo])).status, 403, 'the typed reply is now obsolete');
+  assert.deepEqual(h.counts(), { admissions: 2, models: 2, cost: 34 });
+});
+
+test('AIT-137 round 1: a contradictory receipt cannot capture a completed provider operation by predecessor', async t => {
+  const h = await turnsOnceFixture(t), old = { role: 'user', content: 'Older input', event_id: 'old' };
+  await completionText(await h.callback([old]));
+  await h.persist('user', 'new', 'New input', { event_id: 'new' });
+  const current = { role: 'user', content: 'New input', event_id: 'new' };
+  assert.equal(await completionText(await h.callback([old, current])), 'Reply 2 finished');
+  assert.equal((await h.callback([old])).status, 403);
+  assert.deepEqual(h.counts(), { admissions: 2, models: 2, cost: 34 });
+});
+
+for (const order of ['older-first', 'newer-first']) {
+  test(`AIT-137 round 1: late receipts do not fence admitted B (${order})`, async t => {
+    const h = await turnsOnceFixture(t, { blocked: true, blockedModel: 2 });
+    const a = { role: 'user', content: 'Input A', event_id: 'a' }, b = { role: 'user', content: 'Input B', event_id: 'b' };
+    await completionText(await h.callback([a]));
+    const current = await h.callback([a, b], { stream: true }), text = current.text();
+    await h.waitForModel(2);
+    if (order === 'newer-first') await h.persist('user', 'b', b.content, { event_id: 'b' });
+    await h.persist('user', 'a', a.content, { event_id: 'a' });
+    h.release(); const reply = await text;
+    assert.equal(sseReply(reply), 'Reply 2 finished');
+    assert.ok(reply.endsWith('data: [DONE]\n\n'), reply);
+    if (order === 'older-first') await h.persist('user', 'b', b.content, { event_id: 'b' });
+    assert.equal(await completionText(await h.callback([a, b])), 'Reply 2 finished');
+    assert.equal((await h.callback([a])).status, 403);
+    assert.deepEqual(h.counts(), { admissions: 2, models: 2, cost: 34 });
+  });
+}
+
+test('AIT-137 round 1: repeated Ja without operation inspection still buys two distinct replies', async t => {
+  const h = await turnsOnceFixture(t), first = { role: 'user', content: 'Ja', event_id: 'first-ja' };
+  await h.persist('user', 'first-ja', 'Ja', { event_id: 'first-ja' });
+  const reply = await completionText(await h.callback([first]));
+  await h.persist('assistant', 'question', 'Again?');
+  await h.persist('user', 'second-ja', 'Ja', { event_id: 'second-ja' });
+  const next = await completionText(await h.callback([first, { role: 'assistant', content: 'Again?' },
+    { role: 'user', content: 'Ja', event_id: 'second-ja' }]));
+  assert.notEqual(next, reply);
+  assert.deepEqual(h.counts(), { admissions: 2, models: 2, cost: 34 });
+});
+
+async function fanoutFixture(t) {
+  const { createVoiceTurnOperations } = await import('../src/voice-turns.js');
+  const storage = new SQLiteStorage(), session = storage.create(), source = Promise.withResolvers();
+  const finished = Promise.withResolvers(); let models = 0;
+  const turns = createVoiceTurnOperations({ storage });
+  t.after(async () => { source.resolve(); finished.resolve(); await turns.idle(); storage.close(); });
+  const context = { sessionId: session.id, callId: 'fanout', providerSessionId: 'provider',
+    messages: [{ role: 'user', content: 'Input' }], stream: true };
+  let writer;
+  const encode = (content, finish = null) => new TextEncoder().encode(`data: ${JSON.stringify({ id: 'shared-reply', created: 1,
+    choices: [{ delta: content === null ? {} : { content }, finish_reason: finish }] })}\n\n`);
+  const execute = async () => {
+    models++;
+    return new Response(new ReadableStream({ start(controller) { writer = controller; controller.enqueue(encode('first')); },
+      async pull(controller) {
+        await source.promise;
+        if (!writer) return;
+        writer = null; controller.enqueue(encode('x'.repeat(65_536)));
+        await finished.promise; controller.enqueue(encode(null, 'stop'));
+        controller.enqueue(new TextEncoder().encode('data: [DONE]\n\n')); controller.close();
+      } }, { highWaterMark: 0 }));
+  };
+  return { join: () => turns.run(context, execute), produce: () => source.resolve(), finish: () => finished.resolve(),
+    idle: () => turns.idle(), models: () => models };
+}
+
+test('AIT-137 round 1: a slow fan-out reader gets bounded frames while a fast reader completes', async t => {
+  const h = await fanoutFixture(t), slow = await h.join(), fast = await h.join();
+  const fastText = fast.text(); h.produce(); h.finish();
+  assert.equal(sseReply(await fastText), 'first' + 'x'.repeat(65_536));
+  await h.idle();
+  const reader = slow.body.getReader(); let text = '';
+  for (;;) {
+    const item = await reader.read(); if (item.done) break;
+    const chunk = new TextDecoder().decode(item.value); text += chunk;
+    for (const line of chunk.split('\n\n').filter(line => line.startsWith('data: {'))) {
+      const content = JSON.parse(line.slice(6)).choices?.[0].delta?.content;
+      assert.ok(!content || content.length <= 16_384, 'backpressure must bound each lagging-reader content frame');
+    }
+  }
+  assert.equal(sseReply(text), 'first' + 'x'.repeat(65_536));
+  assert.ok(text.endsWith('data: [DONE]\n\n')); assert.equal(h.models(), 1);
+});
+
+test('AIT-137 round 1: cancelling one waiter during its pending pull leaves the other reader and replay intact', async t => {
+  const h = await fanoutFixture(t), cancelled = await h.join(), other = await h.join();
+  const reader = cancelled.body.getReader();
+  await reader.read(); await reader.read();
+  let settled = false; const pending = reader.read().then(item => { settled = true; return item; });
+  await new Promise(resolve => setImmediate(resolve)); assert.equal(settled, false, 'the cancelled reader has a pending pull');
+  await reader.cancel(); assert.equal((await pending).done, true);
+  const text = other.text(); h.produce(); h.finish();
+  assert.equal(sseReply(await text), 'first' + 'x'.repeat(65_536));
+  const replay = await h.join(); assert.equal(sseReply(await replay.text()), 'first' + 'x'.repeat(65_536));
+  assert.equal(h.models(), 1);
 });
