@@ -245,7 +245,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     if (visual(feature) && !options.existingCall && !storage.canStoreConcept(session.id, feature === 'html' ? MAX_HTML_BYTES : undefined)) return { reason: 'concept storage limit' };
     if (visual(feature) && !options.existingCall && renderLimiter.reason(session.id)) return { reason: renderLimiter.reason(session.id) };
     if (!options.existingCall && (!budget.canAdmit(session.id, amounts.maxMicro, amounts.maxVisitorMicro) ||
-      ownerWallet?.(session)?.canAdmit(amounts) === false)) return { reason: 'budget denied' };
+      session.ownerHash && ownerWallet?.(session)?.canAdmit(amounts) === false)) return { reason: 'budget denied' };
     return { binding, plugin, operation, coverage, scope };
   }
   async function evaluateUploads(session, preset, options = {}) {

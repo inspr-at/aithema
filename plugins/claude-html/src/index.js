@@ -94,7 +94,18 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
     };
     const checkedResponse = response => {
       try { checkLifetime(); return response; }
-      catch (error) { void response.body?.cancel().catch(() => {}); throw error; }
+      catch (error) {
+        // A late paid response cannot publish a draft, but its receipt still repairs costs.
+        const late = operationScope({ deadlineAt: Date.now() + 1000 });
+        void (async () => {
+          try {
+            observe(JSON.parse(await readText(response, late.signal, id => observe({ id }))));
+            if (cost !== null) await ledger.settle(reservation, cost);
+          } catch { /* Durable unknown costs remain retryable. */ }
+          finally { late.dispose(); }
+        })();
+        throw error;
+      }
     };
     try {
       invocation = await beginInvocation(scoped, { authoritativeCost: true });
