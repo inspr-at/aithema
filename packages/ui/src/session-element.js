@@ -422,9 +422,13 @@ export class AithemaSession extends HTMLElement {
     if (this.#pausePrompt && this.#session.paused) this.shadowRoot.querySelector('.pause')?.focus();
   }
   #pagehide = () => {
-    const record = this.#journal?.read();
-    if (!record || !this.#rail?.session) return;
-    this.#rail.unloading = true;
+    const record = this.#journal?.read(), rail = this.#rail;
+    if (!rail || !rail.session && !rail.waitingCall && rail.state !== 'connecting') return;
+    rail.unloading = true;
+    // Unloading may enter the back/forward cache. Local media and pending Resume
+    // must end immediately, even without storage or a working keepalive POST.
+    void rail.close('page-hidden');
+    if (!record) return;
     void closeVoiceCall({ baseUrl: this.#base, sessionId: this.#session.id, sessionToken: this.#sessionToken, record, reason: 'page-hidden' }).catch(() => {});
   };
   #pageshow = () => { if (this.#rail) this.#rail.unloading = false; };

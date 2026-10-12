@@ -277,6 +277,9 @@ export class AudioRail {
       close: options => this.client.closeWaiting(waiting, options) } : null);
     this.closingSession = session;
     const generation = ++this.generation;
+    // A restored Resume has capture guards but no returned session yet. Fence
+    // startup before its late acknowledgement or the waiting-call POST can run.
+    if (!this.session) { this.holdController?.abort(); this.controller?.abort(); }
     this.stopHeartbeat?.(); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.quiet();
     this.endedCall = session ? { callId: session.callId, providerSessionId: session.providerSessionId } : null;
     this.session = null; this.waitingCall = null; this.hidePending = false; this.paused = false; this.busy = false; this.beating = false; this.playbackBlocked = false; this.state = 'idle';

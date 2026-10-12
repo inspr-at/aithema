@@ -168,7 +168,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           if (ended) throw new PluginError('unavailable', 'Live voice capture ended');
         } catch (error) { if (!target || target === conversation) void close('pause-failed').catch(() => {}); throw error; }
       };
-      const close = (reason = 'closed', commandOptions = {}) => {
+      const close = (reason = 'closed', commandOptions = {}, recoveryAttempts) => {
         if (['cancelled', 'turn-withdrawn', 'upload-withdrawn', 'session-erased', 'consent-revised',
           'call-authorization-lost', 'session-revoked', 'transcript-persistence-failed'].includes(reason)) stopPersistence();
         if (closing) return closing;
@@ -192,7 +192,8 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           stopPersistence();
           if (persistenceFailed) reason = 'transcript-persistence-failed';
           let terminal;
-          try { if (grant) terminal = await voiceOperation(closeOptions, opts => control.close({ ...identity(), reason }, opts)); }
+          try { if (grant) terminal = await voiceOperation(closeOptions, opts => control.close({ ...identity(), reason,
+            ...(recoveryAttempts !== undefined ? { recoveryAttempts } : {}) }, opts)); }
           finally {
             events.push({ type: 'ended', callId: request.callId,
               reason: terminal?.closureConfirmed ? reason : 'closure-uncertain' }); events.end();
@@ -474,6 +475,10 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
         }); }); commands = run.catch(() => {}); return run;
       };
       try {
+        // Cancellation owns media teardown throughout startup, including the
+        // restored call's pending server Resume acknowledgement.
+        options.signal?.addEventListener('abort', cancel, { once: true });
+        if (options.signal?.aborted) { cancel(); throw new PluginError('cancelled'); }
         options.holdSignal?.addEventListener('abort', retainHold, { once: true });
         await voiceOperation(options, async opts => {
           const revision = pauseRevision;
@@ -485,13 +490,13 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           await connect(receipt, opts); lifecycle.connected(receipt);
           if (request.providerSessionId && !options.holdSignal?.aborted) {
             const ack = await control.resume(identity(), opts);
+            if (ended || opts.signal.aborted) throw new PluginError('cancelled');
             if (ack?.acknowledged !== true || ack.paused !== false) throw new PluginError('invalid-output', 'Resume not acknowledged');
             if (revision !== pauseRevision) throw new PluginError('unavailable', 'New pause requested while resuming');
             paused = false; lifecycle.resumed(); await capture.run(() => channels());
             if (revision !== pauseRevision) throw new PluginError('unavailable', 'New pause requested while resuming');
           }
         });
-        options.signal?.addEventListener('abort', cancel, { once: true });
         if (options.signal?.aborted) { cancel(); throw new PluginError('cancelled'); }
         const session = {
           audioLevels: () => ({ input: paused || transportBlocked || !inputOn ? 0 : conversation?.getInputVolume?.() ?? 0,
@@ -518,6 +523,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
                 if (!await lifecycle.recover({ explicit: true })) throw new PluginError('unavailable');
               }
               const ack = await control.resume(identity(), opts);
+              if (ended || opts.signal.aborted) throw new PluginError('cancelled');
               if (ack?.acknowledged !== true || ack.paused !== false) throw new PluginError('invalid-output', 'Resume not acknowledged');
               if (revision !== pauseRevision) throw new PluginError('unavailable', 'New pause requested while resuming');
               paused = false; lifecycle.resumed(); await capture.run(() => channels());
@@ -555,11 +561,12 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
         };
         return assertVoiceSession(session);
       } catch (error) {
-        if (request.providerSessionId && grant && !ended) {
-          try { await voiceOperation({ deadlineAt: Date.now() + 1000 }, opts => control.close({ ...identity(),
-            reason: 'recovery-failed', recoveryAttempts: 3 }, opts)); } catch {}
-        }
-        await close(request.providerSessionId ? 'recovery-failed' : 'start-failed', { deadlineAt: Date.now() + 1000 }); throw error;
+        // Stop media before any failed-start/exhaustion POST. Preserve durable
+        // waiting on restored startup failure; explicit cancellation is terminal.
+        const attempts = request.providerSessionId && grant && !ended ? 3 : undefined;
+        try { await close(request.providerSessionId ? 'recovery-failed' : 'start-failed', { deadlineAt: Date.now() + 1000 }, attempts); }
+        catch { /* The server lease and reconciliation retain unresolved closure. */ }
+        throw error;
       }
     },
   };
