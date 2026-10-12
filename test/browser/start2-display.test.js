@@ -157,7 +157,9 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.band').dataset.aithemaRevealState), 'closed', `${label}: quick pass`);
       await page.hover(selector);
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.band').dataset.aithemaRevealState === 'open');
-      await freezeReveal(page); await seekReveal(page, 2200);
+      // Finish entry on its real clock. Pausing a completed CSS transition keeps its reversal
+      // bookkeeping alive in Chrome and can distort the later exit being measured here.
+      await new Promise(resolve => setTimeout(resolve, 2200));
       await shot('reveal-open', width, theme, true);
       const links = await shadow(page, c => [...c.shadowRoot.querySelectorAll('.band .aithema-reveal__link')].map(n => ({ href: n.href, title: n.title,
         right: n.getBoundingClientRect().right, bottom: n.getBoundingClientRect().bottom, opacity: getComputedStyle(n).opacity })));
@@ -188,10 +190,12 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
         const opacities = await shadow(page, c => ({
           glass: Number(getComputedStyle(c.shadowRoot.querySelector('.aithema-reveal__glass')).opacity),
           brand: Number(getComputedStyle(c.shadowRoot.querySelector('.aithema-reveal__row')).opacity),
-          controls: [...c.shadowRoot.querySelectorAll('[data-aithema-reveal-control]')].map(n => Number(getComputedStyle(n).opacity)),
+          controls: [...c.shadowRoot.querySelectorAll('[data-aithema-reveal-control]')].map(n => {
+            const style = getComputedStyle(n); return { name: n.className, opacity: Number(style.opacity), visible: style.visibility !== 'hidden' && n.getClientRects().length > 0 };
+          }),
           proxies: [...c.shadowRoot.querySelectorAll('.aithema-reveal__proxy')].map(n => Number(getComputedStyle(n).opacity)),
         }));
-        if (opacities.brand > .25) assert.ok([...opacities.controls, ...opacities.proxies].every(value => value <= .25), `${label}: brand and controls do not overlap`);
+        if (opacities.brand > .25) assert.ok([...opacities.controls.filter(n => n.visible).map(n => n.opacity), ...opacities.proxies].every(value => value <= .25), `${label}: brand and visible controls do not overlap: ${JSON.stringify({ ms, ...opacities })}`);
         samples.push({ ms, rgb: pixelRgb(Buffer.from(await page.screenshot({ clip: point }))), ...opacities });
         if ([0, 150, 300, 450, 700].includes(ms)) await shot(`reveal-exit-${ms}ms`, width, theme, true);
       }
