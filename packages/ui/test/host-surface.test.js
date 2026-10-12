@@ -476,14 +476,15 @@ test('locked understanding pane: the verification controls sit under no aria-dis
 
 // AIT-135 A2: all amounts are acknowledged host values (USD millionths).
 const a2Allowances = { anonymous: 12_000_000, emailGiven: 18_000_000, emailConfirmed: 24_000_000 };
-function a2Setup(t, { copy = en, address = null, spent = 3_450_000, delivery = false, privacy = true, handover = false, save, openQuestion } = {}) {
+function a2Setup(t, { copy = en, address = null, spent = 3_450_000, delivery = false, privacy = true, handover = false, save, openQuestion, blocked = false } = {}) {
   let saved = address;
   const tiers = () => ({ allowancesMicro: a2Allowances, current: saved ? 'emailGiven' : 'anonymous',
     next: privacy ? saved ? delivery ? 'emailConfirmed' : null : 'emailGiven' : null,
     delta: privacy ? saved ? delivery ? 6_000_000 : 0 : 6_000_000 : 0, canConfirm: delivery && privacy });
   const visitor = () => ({ address: saved, tier: saved ? 'emailGiven' : 'anonymous', limitMicro: saved ? 18_000_000 : 12_000_000 });
   const h = setup(t, { copy, host: { verification: { delivery, privacyDocumentConfigured: privacy }, credits: true, handover },
-    session: { demo: false, openQuestion, identity: identity({ address: saved }), settings: { origin: 'chosen', voice: 'off', visuals: 'off' } }, routes: {
+    session: { demo: false, openQuestion, ...(blocked ? { featureMatrix: { best: { text: { available: false, reason: 'budget denied' }, analysis: { available: false, reason: 'budget denied' } } } } : {}), identity: identity({ address: saved }), settings: { origin: 'chosen', voice: 'off', visuals: 'off' } }, routes: {
+      'GET ': () => Response.json({ ...h.c.session, featureMatrix: { best: { text: { available: Boolean(saved), reason: saved ? null : 'budget denied' }, analysis: { available: Boolean(saved), reason: saved ? null : 'budget denied' } } } }),
       'GET /identity': () => Response.json({ identity: identity({ address: saved }), delivery, privacyDocumentConfigured: privacy }),
       'GET /visitor/email': () => Response.json({ visitor: visitor(), notice: { version: 'ait-135-v1', deliveryEnabled: delivery }, privacyDocumentConfigured: privacy }),
       'GET /credits': () => { const limitMicro = visitor().limitMicro; return Response.json({ balance: { owner: { limitMicro, committedMicro: spent,
@@ -654,4 +655,27 @@ test('AIT-135 A2 C: equal allowances and disabled confirmation never promise an 
   assert.equal(root.querySelector('.credits-email').hidden, true);
   root.querySelector('.verify-entry').click(); await tick();
   assert.equal(root.querySelector('.verify__lead-mail').textContent, 'Credit: 500 Credits');
+});
+
+
+test('AIT-135 A2 B: saving after exhaustion refreshes the authoritative verdict instead of keeping budget denied', async t => {
+  const { root, calls } = a2Setup(t, { spent: 12_000_000, blocked: true }); await tick(8);
+  assert.equal(root.querySelector('textarea').disabled, true);
+  root.querySelector('#email-input').value = 'reader@example.test'; root.querySelector('.m-form').requestSubmit(); await tick(16);
+  assert.ok(calls.some(call => call.path === ''), 'the host snapshot is read after the allowance rises');
+  assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'true');
+  assert.equal(root.querySelector('textarea').disabled, false);
+});
+
+test('AIT-135 A2 B: an exhausted visible app notices a CLI allowance increase without an SSE event', async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  let raised = false;
+  const { c, root, calls } = setup(t, { host: { credits: true }, routes: {
+    'GET /credits': () => Response.json({ balance: { owner: { limitMicro: raised ? 18_000_000 : 12_000_000, committedMicro: 12_000_000, availableMicro: raised ? 6_000_000 : 0 } }, limitSlot: null }),
+  } }); await tick(8);
+  assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'false');
+  raised = true; t.mock.timers.tick(15_001); await tick(12);
+  assert.equal(calls.filter(call => call.path === '/credits').length, 2);
+  assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'true');
+  c.remove(); const reads = calls.length; t.mock.timers.tick(15_001); await tick(); assert.equal(calls.length, reads, 'detached apps stop polling');
 });
