@@ -133,7 +133,7 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     await preparePage(page, ['en-GB', 'en'], problems, (status, path) => status === 404 && path.startsWith('/api/library/'));
     await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
-    const v = en.hostSurface.verify, l = en.hostSurface.library, h = en.hostSurface.handover, cr = en.hostSurface.credits;
+    const v = en.hostSurface.verify, l = en.hostSurface.library, h = en.hostSurface.handover;
     // The demo handover reaches a local fake recipient: its success line promises no contact.
     const demoSent = en.host.handover.sent;
 
@@ -188,11 +188,11 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     // A manual pause before confirming: unlocking keeps it (START v2-verification-recovery).
     await click(page, '.pause');
     await until(page, () => document.querySelector('aithema-session').session.paused === true);
-    // The host deadline keeps running while paused: the countdown stays and the line says what pausing does.
-    await until(page, paused => {
-      const line = document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__deadline').textContent;
-      return / min left in this conversation · /u.test(line) && line.endsWith(paused);
-    }, cr.paused);
+    // AIT-135: START keeps the monetary wallet and manual pause without an owner clock.
+    await until(page, () => {
+      const deadline = document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__deadline');
+      return deadline.hidden && deadline.textContent === '';
+    });
     // The fake mail outbox (demo only) stands in for the inbox.
     assert.equal(await page.$eval('#outbox-open', b => [b.hidden, b.textContent]).then(([hidden, label]) => !hidden && label), en.host.outbox.open);
     await page.click('#outbox-open');
@@ -249,6 +249,7 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     await click(page, '.library-new');
     await until(page, first => document.querySelector('aithema-session').session.id !== first, first);
     const second = await inShadow(page, c => c.session.id);
+    assert.equal(await inShadow(page, c => c.session.identity.status), 'verified', 'AIT-135: new conversations inherit visitor evidence');
     assert.equal(await page.evaluate(() => localStorage.getItem('aithema-reset-slice-1-session')), second, 'the host adopted the new conversation');
     await shadow(page, '.chooser__continue');
     await until(page, () => document.querySelector('aithema-session').shadowRoot.activeElement?.classList.contains('conversations-toggle'));
