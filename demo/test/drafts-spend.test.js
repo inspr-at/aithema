@@ -2,6 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { hostname } from 'node:os';
 import { SQLiteStorage } from '@inspr/aithema-server';
 import { SQLiteBudgetLedger } from '../../packages/server/src/budget.js';
 import { createClaudeHTML, createSpendLedger } from '@inspr/aithema-plugin-claude-html';
@@ -136,10 +138,13 @@ test('AIT-134 gate: drafts reject an account port that cannot durably reconcile 
   /reconciliation/u);
 });
 
-async function jsonWriter(t, path, stage) {
+async function jsonWriter(t, path, stage, { clock } = {}) {
   const module = new URL('../../plugins/claude-html/src/spend.js', import.meta.url).href;
   const child = spawn(process.execPath, ['--input-type=module', '-e', `
     import { createSpendLedger } from ${JSON.stringify(module)};
+    import { readFileSync } from 'node:fs';
+    import { mock } from 'node:test';
+    if (process.argv[3]) mock.timers.enable({apis: ['Date', 'setInterval'], now: Number(process.argv[3])});
     const ledger = createSpendLedger({path: process.argv[1], capMicro: 100});
     const stage = process.argv[2];
     const handle = ledger.reserve(100, {attemptId: 'draft-attempt', provider: 'openrouter'});
@@ -148,7 +153,12 @@ async function jsonWriter(t, path, stage) {
       {generationId: 'gen-json-crash', ...(stage === 'id-receipt' ? {} : {chargedMicro: 37})});
     if (stage === 'settled') ledger.settle(handle, 37);
     process.send('ready');
-    process.once('message', action => {
+    process.on('message', action => {
+      if (action.advance) {
+        mock.timers.tick(action.advance);
+        process.send({now: Date.now(), row: JSON.parse(readFileSync(process.argv[1], 'utf8')).operations[handle]});
+        return;
+      }
       if (action === 'finish') {
         try {
           ledger.dispatch(handle); ledger.record(handle, {chargedMicro: 37}); ledger.settle(handle, 37);
@@ -157,7 +167,7 @@ async function jsonWriter(t, path, stage) {
       }
       process.disconnect();
     });
-  `, path, stage], { stdio: ['ignore', 'ignore', 'pipe', 'ipc'], env: {} });
+  `, path, stage, clock === undefined ? '' : String(clock)], { stdio: ['ignore', 'ignore', 'pipe', 'ipc'], env: {} });
   t.after(async () => {
     if (child.exitCode !== null || child.signalCode !== null) return;
     const exited = once(child, 'exit'); child.kill(); await exited;
@@ -203,12 +213,139 @@ for (const state of ['confirmed', 'uncertain']) {
   });
 }
 
+for (const replacement of ['reused PID', 'changed hostname']) {
+  for (const stage of ['reserved', 'dispatched', 'id-receipt', 'cost-receipt']) {
+    test(`AIT-134 round 3: ${replacement} reclaims expired ${stage} ownership safely`, async () => {
+      const path = `${await temporaryDb()}.spend.json`, expiresAt = 1_000_000;
+      const state = { version: 2, spentMicro: 0, reservations: { abandoned: 100 }, operations: {
+        abandoned: { ceilingMicro: 100, state: stage === 'reserved' ? 'reserved' : 'dispatched',
+          attemptId: 'draft-attempt', provider: 'openrouter', leaseExpiresAt: expiresAt,
+          owner: { pid: process.pid, host: replacement === 'reused PID' ? hostname() : 'previous-container',
+            writerId: 'previous-writer', incarnationId: 'previous-process-incarnation' },
+          ...(['id-receipt', 'cost-receipt'].includes(stage) ? { generationId: 'gen-json-replaced' } : {}),
+          ...(stage === 'cost-receipt' ? { observedMicro: 37 } : {}) },
+      } };
+      writeFileSync(path, JSON.stringify(state));
+      let clock = expiresAt - 1;
+      const spend = createSpendLedger({ path, capMicro: 100, now: () => clock });
+      spend.recover();
+      assert.equal(spend.snapshot().reservedMicro, 100, 'even a replacement must wait for lease expiry');
+      assert.throws(() => spend.reserve(1), { code: 'limit' });
+      clock = expiresAt + 1;
+      spend.recover(); spend.recover();
+      assert.equal(spend.snapshot().reservedMicro, 0, 'an expired hold must not depend on PID or hostname');
+      assert.equal(spend.snapshot().spentMicro, stage === 'cost-receipt' ? 37 : 0);
+      assert.equal(spend.snapshot().uncertainMicro, ['dispatched', 'id-receipt'].includes(stage) ? 100 : 0);
+      const recovered = JSON.parse(readFileSync(path, 'utf8')).operations.abandoned;
+      assert.equal(recovered.state, ['reserved', 'cost-receipt'].includes(stage) ? 'confirmed' : 'uncertain');
+      assert.equal(recovered.owner, undefined); assert.equal(recovered.leaseExpiresAt, undefined);
+      assert.throws(() => spend.dispatch('abandoned'), { code: 'already-claimed' });
+      if (['dispatched', 'id-receipt'].includes(stage)) {
+        assert.equal(recovered.actualMicro, undefined, 'unknown dispatched cost cannot be confirmed zero');
+        if (stage === 'id-receipt') assert.deepEqual(spend.evidence('draft-attempt'), { generationId: 'gen-json-replaced' });
+        spend.reconcileAttempt('draft-attempt', 37); spend.reconcileAttempt('draft-attempt', 37);
+        assert.equal(spend.snapshot().totalMicro, 37);
+      }
+    });
+  }
+}
+
+for (const stage of ['reserved', 'dispatched', 'cost-receipt']) {
+  test(`AIT-134 round 3: a live writer renews its ${stage} lease across repeated recovery`, { timeout: 10_000 }, async t => {
+    let clock = 1_000_000;
+    const path = `${await temporaryDb()}.spend.json`, child = await jsonWriter(t, path, stage, { clock });
+    const initial = Object.values(JSON.parse(readFileSync(path, 'utf8')).operations)[0];
+    assert.equal(initial.leaseExpiresAt, clock + 30_000, 'a new hold gets a bounded 30-second lease');
+    assert.match(initial.owner.incarnationId, /^[a-zA-Z0-9_-]{1,128}$/u);
+    const spend = createSpendLedger({ path, capMicro: 100, now: () => clock });
+    let previousExpiry = initial.leaseExpiresAt;
+    for (let renewal = 0; renewal < 10; renewal++) {
+      const message = once(child, 'message'); child.send({ advance: 5_000 });
+      const [{ now, row }] = await message; clock = now;
+      assert.ok(row.leaseExpiresAt > previousExpiry, 'the idle writer renews every five seconds');
+      assert.equal(row.leaseExpiresAt, clock + 30_000);
+      assert.equal(row.owner.incarnationId, initial.owner.incarnationId);
+      previousExpiry = row.leaseExpiresAt;
+      spend.recover(); spend.recover();
+      assert.equal(spend.snapshot().reservedMicro, 100, 'renewal protects ownership past its initial expiry');
+      assert.equal(spend.snapshot().spentMicro, 0);
+      assert.throws(() => spend.reserve(1), { code: 'limit' });
+    }
+    assert.ok(clock > initial.leaseExpiresAt);
+    const result = once(child, 'message'), exited = once(child, 'exit'); child.send('finish');
+    assert.deepEqual((await result)[0], 'settled'); await exited;
+    spend.recover();
+    assert.equal(spend.snapshot().reservedMicro, 0);
+    assert.equal(spend.snapshot().spentMicro, 37);
+  });
+}
+
+test('AIT-134 round 3: an exited owner retains its hold until the lease expires', { timeout: 10_000 }, async t => {
+  const path = `${await temporaryDb()}.spend.json`, child = await jsonWriter(t, path, 'reserved');
+  const exited = once(child, 'exit'); child.send('exit'); await exited;
+  const state = JSON.parse(readFileSync(path, 'utf8'));
+  const row = Object.values(state.operations)[0];
+  row.leaseExpiresAt = 1_000_000; row.owner.incarnationId = 'exited-process';
+  writeFileSync(path, JSON.stringify(state));
+  let clock = row.leaseExpiresAt - 1;
+  const spend = createSpendLedger({ path, capMicro: 100, now: () => clock });
+  spend.recover();
+  assert.equal(spend.snapshot().reservedMicro, 100, 'a dead PID does not shorten an unexpired lease');
+  clock = row.leaseExpiresAt + 1; spend.recover();
+  assert.equal(spend.snapshot().totalMicro, 0);
+});
+
+test('AIT-134 round 3: an expired original writer cannot dispatch its unsent hold', async t => {
+  let clock = 1_000_000;
+  const spend = createSpendLedger({ path: `${await temporaryDb()}.spend.json`, capMicro: 100, now: () => clock });
+  const handle = spend.reserve(100);
+  t.after(() => spend.uncertain(handle));
+  clock += 30_001;
+  assert.throws(() => spend.dispatch(handle), { code: 'not-admitted' });
+});
+
+test('AIT-134 round 3: ledger writers share a process incarnation while keeping separate writer IDs', async () => {
+  const path = `${await temporaryDb()}.spend.json`;
+  const first = createSpendLedger({ path, capMicro: 200 }), second = createSpendLedger({ path, capMicro: 200 });
+  const one = first.reserve(100), two = second.reserve(100);
+  try {
+    const rows = JSON.parse(readFileSync(path, 'utf8')).operations;
+    assert.match(rows[one].owner.incarnationId, /^[a-zA-Z0-9_-]{1,128}$/u);
+    assert.equal(rows[one].owner.incarnationId, rows[two].owner.incarnationId);
+    assert.notEqual(rows[one].owner.writerId, rows[two].owner.writerId);
+    assert.throws(() => second.dispatch(one), { code: 'not-admitted' });
+  } finally { first.settle(one, 0); second.settle(two, 0); }
+});
+
+for (const legacy of ['reserved-owner', 'dispatched-owner', 'reserved-unowned']) {
+  test(`AIT-134 round 3: ${legacy} without a lease gets one durable recovery grace period`, async () => {
+    const path = `${await temporaryDb()}.spend.json`;
+    const row = { ceilingMicro: 100, state: legacy === 'dispatched-owner' ? 'dispatched' : 'reserved',
+      ...(legacy === 'reserved-unowned' ? {} : { owner: { pid: process.pid, host: 'previous-container', writerId: 'legacy-writer' } }) };
+    writeFileSync(path, JSON.stringify({ version: 2, spentMicro: 0, reservations: { legacy: 100 }, operations: { legacy: row } }));
+    let clock = 1_000_000;
+    const spend = createSpendLedger({ path, capMicro: 100, now: () => clock });
+    spend.recover();
+    const expiresAt = JSON.parse(readFileSync(path, 'utf8')).operations.legacy.leaseExpiresAt;
+    assert.equal(expiresAt, clock + 30_000);
+    assert.equal(spend.snapshot().reservedMicro, 100);
+    clock += 10_000; spend.recover();
+    assert.equal(JSON.parse(readFileSync(path, 'utf8')).operations.legacy.leaseExpiresAt, expiresAt, 'restarts cannot extend legacy ownership forever');
+    clock = expiresAt + 1; spend.recover(); spend.recover();
+    assert.equal(spend.snapshot().reservedMicro, 0);
+    assert.equal(spend.snapshot().spentMicro, 0);
+    assert.equal(spend.snapshot().uncertainMicro, legacy === 'dispatched-owner' ? 100 : 0);
+  });
+}
+
 for (const crash of ['reserved', 'dispatched', 'id-receipt', 'cost-receipt', 'settled']) {
   test(`AIT-134 gate: JSON account ledger recovers ${crash} without lost or duplicated cost`, { timeout: 10_000 }, async t => {
     const path = `${await temporaryDb()}.spend.json`;
     const child = await jsonWriter(t, path, crash), exited = once(child, 'exit');
     child.send('exit'); await exited;
-    const spend = createSpendLedger({ path, capMicro: 1000 }); spend.recover(); spend.recover();
+    const rows = Object.values(JSON.parse(readFileSync(path, 'utf8')).operations);
+    const recoveryAt = Math.max(Date.now(), ...rows.map(row => (row.leaseExpiresAt ?? 0) + 1));
+    const spend = createSpendLedger({ path, capMicro: 1000, now: () => recoveryAt }); spend.recover(); spend.recover();
     assert.equal(spend.snapshot().reservedMicro, 0);
     assert.equal(spend.snapshot().spentMicro, ['cost-receipt', 'settled'].includes(crash) ? 37 : 0);
     assert.equal(spend.snapshot().uncertainMicro, ['dispatched', 'id-receipt'].includes(crash) ? 100 : 0);
