@@ -68,6 +68,7 @@ test('AIT-113: live drafts consent is optional; granting and withdrawing only dr
   await saveAndReturn(page, '[data-grant]');
   await page.waitForFunction(() => document.querySelector('aithema-session').session.featureMatrix.best.text.available);
   assert.equal(await page.$eval('aithema-session', c => c.session.featureMatrix.best.html.available), false);
+  await page.click('aithema-session >>> .chooser__continue');
   await page.waitForFunction(() => document.querySelector('aithema-session').shadowRoot.querySelector('[data-ready="consent"]')?.dataset.state === 'confirmed');
   await visitConsent(page, demo.url); await page.click(drafts); await saveAndReturn(page, '[data-grant]');
   await page.waitForFunction(() => document.querySelector('aithema-session').session.featureMatrix.best.html.available);
