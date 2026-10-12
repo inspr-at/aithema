@@ -597,6 +597,16 @@ async function unreadableThenWithdrawn(page, path, width, shot, shotName) {
 }
 const until = (page, fn, arg) => page.waitForFunction(fn, { polling: 50, timeout: waitTimeout }, arg);
 async function uploadChooser(page, timeout = waitTimeout) {
+  // The input is deliberately hidden behind Attach. Wait for its attachment
+  // and the visible, available button, then keep focus through geometry probes.
+  await page.waitForSelector('aithema-session >>> .attach-input');
+  await page.waitForSelector('aithema-session >>> .attach', { visible: true });
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.attach').getAttribute('aria-disabled') === 'false');
+  await inShadow(page, c => c.shadowRoot.querySelector('.attach').focus({ preventScroll: true }));
+  assert.equal(await inShadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('.attach')), true, 'Attach owns keyboard focus');
+  // waitForFileChooser starts interception asynchronously. Its own CDP session
+  // must acknowledge interception before Enter can open the native picker.
+  await page._client().send('Page.setInterceptFileChooserDialog', { enabled: true });
   const [chooser] = await Promise.all([page.waitForFileChooser({ timeout }), page.keyboard.press('Enter')]);
   return chooser;
 }

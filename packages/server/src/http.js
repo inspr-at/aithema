@@ -2,6 +2,28 @@ import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { PassThrough, Readable } from 'node:stream';
 
+const DISCARD_BYTES = 65_536, DISCARD_MS = 1_000;
+// A small FormData body is sent in several writes. Closing on an early 4xx
+// races its final boundary and can turn the refusal into a client-side EPIPE.
+// Discard only a bounded declared body, without retaining it, and never let a
+// stalled sender or an unbounded upload hold the response indefinitely.
+function finishSmallRequest(incoming, body) {
+  const length = incoming.headers['content-length'];
+  if (!/^\d+$/u.test(length ?? '') || Number(length) > DISCARD_BYTES || incoming.destroyed) return false;
+  return new Promise(resolve => {
+    const ended = () => done(true), refused = () => done(false);
+    const done = complete => {
+      clearTimeout(timer);
+      incoming.off('end', ended); incoming.off('aborted', refused); incoming.off('error', refused);
+      if (!complete) incoming.pause();
+      resolve(complete);
+    };
+    const timer = setTimeout(refused, DISCARD_MS);
+    incoming.once('end', ended); incoming.once('aborted', refused); incoming.once('error', refused);
+    incoming.unpipe(body); body.destroy(); incoming.resume();
+  });
+}
+
 export function httpAdapter(handle) {
   return async (incoming, outgoing) => {
     const controller = new AbortController();
@@ -24,8 +46,9 @@ export function httpAdapter(handle) {
         } : {}) });
       const response = await handle(request);
       const responseHeaders = Object.fromEntries(response.headers);
-      // An early rejection must send its JSON before closing, without buffering/draining an unbounded upload.
-      if (body && !incoming.complete) responseHeaders.connection = 'close';
+      // Finish small declared bodies before responding. Oversized, undeclared
+      // or stalled uploads still get their JSON refusal followed by a close.
+      if (body && !incoming.complete && !await finishSmallRequest(incoming, body)) responseHeaders.connection = 'close';
       outgoing.writeHead(response.status, responseHeaders);
       if (!response.body) { outgoing.end(); return; }
       const reader = response.body.getReader();

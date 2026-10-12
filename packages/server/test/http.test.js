@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { PassThrough } from 'node:stream';
 import { SQLiteStorage, createHandlers } from '../src/index.js';
-import { listen } from '../src/http.js';
+import { httpAdapter, listen } from '../src/http.js';
 import { mockConsent, testToken, sessionFetch as fetch, startChild, temporaryDb, post, waitForSession, readEvents, unzip } from '../../../test/helpers.js';
 
 test('HTTP vertical: create, turns, understanding events, kill/restart, resume exactly, export', { timeout: 15_000 }, async t => {
@@ -68,3 +69,40 @@ for (const status of [403, 404]) test(`AIT-142: early ${status} preserves a boun
     assert.equal(response.status, status); assert.deepEqual(await response.json(), { error: 'refused' });
     assert.equal(response.headers.get('connection'), 'keep-alive', 'small rejected uploads must finish sending before the socket can close');
   });
+
+test('AIT-142: a stalled small rejection has a controlled discard deadline', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const incoming = new PassThrough(), outgoing = new PassThrough();
+  Object.assign(incoming, { method: 'POST', url: '/uploads', complete: false,
+    headers: { 'content-length': '128' }, rawHeaders: ['content-length', '128'] });
+  let response; const chunks = [];
+  outgoing.writeHead = (status, headers) => { response = { status, headers }; };
+  outgoing.on('data', chunk => chunks.push(chunk));
+  t.after(() => { incoming.destroy(); outgoing.destroy(); });
+  const serving = httpAdapter(() => Response.json({ error: 'refused' }, { status: 404 }))(incoming, outgoing);
+  // Let the handler install its deadline; network and elapsed time play no role.
+  await new Promise(resolve => setImmediate(resolve));
+  t.mock.timers.tick(999); assert.equal(response, undefined);
+  t.mock.timers.tick(1); await serving;
+  assert.equal(response.status, 404); assert.equal(response.headers.connection, 'close');
+  assert.deepEqual(JSON.parse(Buffer.concat(chunks)), { error: 'refused' });
+  assert.equal(incoming.isPaused(), true, 'the deadline stops discarding more bytes');
+});
+
+for (const length of [undefined, '65537']) test(`AIT-142: early rejection does not drain ${length ?? 'undeclared'} bytes`, async t => {
+  const incoming = new PassThrough(), outgoing = new PassThrough();
+  const headers = length === undefined ? {} : { 'content-length': length };
+  Object.assign(incoming, { method: 'POST', url: '/uploads', complete: false, headers,
+    rawHeaders: Object.entries(headers).flat() });
+  let response, resumed = false;
+  outgoing.writeHead = (status, headers) => { response = { status, headers }; };
+  outgoing.resume();
+  t.after(() => { incoming.destroy(); outgoing.destroy(); });
+  const serving = httpAdapter(() => {
+    incoming.on('resume', () => { resumed = true; });
+    return Response.json({ error: 'refused' }, { status: 413 });
+  })(incoming, outgoing);
+  await serving; await new Promise(resolve => setImmediate(resolve));
+  assert.equal(response.status, 413); assert.equal(response.headers.connection, 'close');
+  assert.equal(resumed, false, 'rejection must not resume an unbounded body');
+});
