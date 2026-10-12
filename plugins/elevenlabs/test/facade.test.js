@@ -120,6 +120,18 @@ test('facade supports nonstream completions through the same admitted stream bin
   const body = await response.json(); assert.equal(body.object, 'chat.completion');
   assert.deepEqual(body.choices[0].message, { role: 'assistant', content: 'Hello world' }); assert.equal(local.optionsList[0].reports.length, 1);
 });
+test('AIT-130: facade accepts full conversation history above 64 KiB', async () => {
+  const local = facadeFixture();
+  const messages = Array.from({ length: 36 }, (_, index) => ({
+    role: index % 2 ? 'assistant' : 'user', content: `Turn ${index}: ${'spoken history '.repeat(150)}`,
+  }));
+  const request = local.request({ stream: false, messages });
+  assert.ok(Buffer.byteLength(await request.clone().text()) > 65_536);
+  const response = await local.handler(request);
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).choices[0].message.content, 'Hello world');
+  assert.deepEqual(local.upstream[0].messages, messages);
+});
 test('facade accepts ElevenLabs platform and direct callback identities and rejects conflicting identities', async () => {
   const local = facadeFixture();
   for (const body of [{}, { elevenlabs_extra_body: undefined, aithema_call: local.call.callId }, { aithema_call: local.call.callId }]) {
