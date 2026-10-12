@@ -292,6 +292,7 @@ export const en = {
       failed: 'The email address could not be saved just now. Please try again.',
       deleteFailed: 'The email address could not be deleted just now. Please try again.',
     },
+    question: { title: 'Open question', suggested: 'Suggested', hint: 'One click sends the answer. Or just speak or type.' },
     usedUp: {
       title: 'Your credits are used up.', body: 'Your conversation stays saved. You can read and export it.',
       give: 'Add your email address to get {delta} more Credits.', confirm: 'Confirm your email address to get {delta} more Credits.',

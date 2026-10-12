@@ -223,6 +223,7 @@ export class AithemaSession extends HTMLElement {
           <div class="intro__card"></div></div>
         <div class="concept-bar"><div class="concept-rail"></div><div class="concept-preview-slot"></div></div>
         <div class="transcript-shell"><ol aria-live="polite"></ol><button class="transcript-latest" type="button" data-copy="transcriptLatest" style="visibility:hidden"></button></div>
+        <section class="question-card qcard" role="group" aria-labelledby="active-question-title" hidden><h3 class="qhead" id="active-question-title"></h3><p class="qtext"></p><div class="qopts"></div><p class="qhint"></p></section>
         <div class="composer-shell"><form class="composer"><label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000" rows="2"></textarea>
           <div class="composer-actions"><button class="attach" type="button" aria-describedby="attach-limits ai-notice">${UPLOAD_ICONS.attach}<span class="attach__label"></span></button>
             <span class="sr-only" id="attach-limits"></span><input class="attach-input" type="file" multiple hidden tabindex="-1" accept="${UPLOAD_ACCEPT}">
@@ -516,6 +517,27 @@ export class AithemaSession extends HTMLElement {
     } catch { if (sessionId === this.#session.id) this.#status(this.#copy.controlFailed); }
     finally { if (url) URL.revokeObjectURL(url); }
   }
+  #renderQuestion() {
+    const card = this.shadowRoot.querySelector('.question-card'), question = this.#session.openQuestion;
+    const options = Array.isArray(question?.options) ? question.options.filter(option => typeof option === 'string' || typeof option?.text === 'string') : [];
+    const shown = typeof question?.text === 'string' && question.text.length > 0 && options.length > 0;
+    card.hidden = !shown;
+    if (!shown) return;
+    const copy = this.#copy.hostSurface.question;
+    setText(card.querySelector('.qhead'), copy.title); setText(card.querySelector('.qtext'), question.text); setText(card.querySelector('.qhint'), copy.hint);
+    reconcile(card.querySelector('.qopts'), options.map((option, i) => [String(i), option]), () => {
+      const button = node('button', 'qopt'); button.type = 'button';
+      button.append(node('span', 't'), node('span', 'tag'));
+      const go = node('span', 'go'); go.setAttribute('aria-hidden', 'true'); go.innerHTML = icon('arrowRight'); button.append(go);
+      button.addEventListener('click', () => { if (this.#host?.usedUp || !this.#feature('text').available) return; this.shadowRoot.querySelector('textarea').value = button.querySelector('.t').textContent; void this.#send(); });
+      return button;
+    }, (button, option) => {
+      setText(button.querySelector('.t'), typeof option === 'string' ? option : option.text);
+      setText(button.querySelector('.tag'), option.suggested ? copy.suggested : ''); button.classList.toggle('likely', option.suggested === true);
+      button.disabled = Boolean(this.#host?.usedUp);
+    });
+    card.inert = Boolean(this.#host?.usedUp); card.toggleAttribute('data-used-up', Boolean(this.#host?.usedUp));
+  }
   #creditsChanged() {
     if (!this.#host) return;
     const usedUp = this.#host.usedUp;
@@ -648,7 +670,7 @@ export class AithemaSession extends HTMLElement {
       out.querySelector('.composer-out__export').href = `${this.#base}/api/sessions/${this.#session.id}/export`;
       for (const node of out.querySelectorAll('[data-next]')) { const shown = node.dataset.next === kind; node.setAttribute('aria-hidden', String(!shown)); node.inert = !shown; }
       const upgrade = out.querySelector('.composer-out__upgrade'); upgrade.inert = kind === 'none'; upgrade.setAttribute('aria-hidden', String(kind === 'none'));
-      for (const card of root.querySelectorAll('.qcard, .question-card')) { card.inert = usedUp; card.toggleAttribute('data-used-up', usedUp); }
+      for (const card of root.querySelectorAll('.qcard, .question-card')) { card.inert = usedUp; card.toggleAttribute('data-used-up', usedUp); for (const button of card.querySelectorAll('button')) button.disabled = usedUp; }
       return;
     }
     if (part === 'features') {
@@ -664,7 +686,7 @@ export class AithemaSession extends HTMLElement {
       return;
     }
     if (part === 'transcript') {
-      this.#renderIntro();
+      this.#renderIntro(); this.#renderQuestion();
       // Rows are keyed by turn id (uploads by "upload:" and their id) and updated in place: new turns
       // append below, and focus and the hovered row survive updates. Superseded partials lose their rows.
       const list = root.querySelector('ol'), shell = root.querySelector('.transcript-shell');

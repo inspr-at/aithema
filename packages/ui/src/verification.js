@@ -226,6 +226,7 @@ export class Verification {
     // Settings owns the optional entry; the policy lock below remains in the understanding pane.
     this.#entry.hidden = !this.enabled;
     this.#email.set({ identity: this.#identity });
+    if (!this.enabled) { this.#entry.querySelector('.verify-entry').hidden = true; this.#entry.querySelector('.verify-done').hidden = true; }
     // Lock pane: shown exactly while host policy holds the assessment.
     this.#lock.hidden = !this.locked || !this.canCollect;
     if (!this.canCollect && this.#dialog.open) this.#dialog.close();

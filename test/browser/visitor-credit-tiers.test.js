@@ -62,6 +62,7 @@ async function fixture(page, locale, { address = null, spent = 3_450_000, delive
     const session = structuredClone(c.session); session.locale = locale; session.demo = false; session.paused = false; session.identity = identity();
     session.settings = { ...session.settings, origin: 'chosen', voice: 'off', visuals: 'off' };
     session.transcript = [{ id: 'visitor-fixture-turn', role: 'user', content: locale === 'de' ? 'Ich möchte meine Anforderungen besprechen.' : 'I would like to discuss my requirements.' }];
+    session.openQuestion = { text: locale === 'de' ? 'Welche Anforderungen möchten Sie besprechen?' : 'Which requirements would you like to discuss?', options: [{ text: locale === 'de' ? 'Ziele' : 'Goals', suggested: true }, locale === 'de' ? 'Ressourcen' : 'Resources'] };
     session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, voice: { available: true } } };
     c.setAttribute('motion', 'off');
     c.configure({ session, copy, host: { credits: true, verification: { delivery, privacyDocumentConfigured: privacy }, handover } });
@@ -97,6 +98,11 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
       const before = await boxes(page, fixed);
       const check = async state => { await settle(); const displacementPx = unchanged(before, await boxes(page, fixed), `${label}/${state}`); passLines.push({ locale, theme, width, state, displacementPx, pass: true }); await shot(state); };
       await check('no-email');
+      const targets = await shadow(page, c => ['.m-in', '.m-save', '.m-pp'].map(selector => {
+        const n = c.shadowRoot.querySelector(selector), rect = n.getBoundingClientRect(), after = getComputedStyle(n, '::after');
+        return rect.height + Math.max(0, -(parseFloat(after.top) || 0)) + Math.max(0, -(parseFloat(after.bottom) || 0));
+      }));
+      assert.ok(targets.every(height => height >= 44), `44 px capture and privacy targets: ${targets}`);
       await shadow(page, c => { c.shadowRoot.querySelector('#email-input').value = 'reader@example.test'; }); await check('typing');
       await shadow(page, c => { c.shadowRoot.querySelector('#email-input').value = 'reader'; c.shadowRoot.querySelector('.m-form').requestSubmit(); }); await check('invalid');
       await shadow(page, c => { const input = c.shadowRoot.querySelector('#email-input'); input.value = 'reader@example.test'; input.dispatchEvent(new Event('input', { bubbles: true })); window.a2.saving = true; c.shadowRoot.querySelector('.m-form').requestSubmit(); }); await check('saving');
@@ -123,10 +129,16 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
       await fixture(page, locale, { delivery: true, address: 'reader@example.test', confirmed: true }); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(); await shot('mail-confirmed'); await click(page, 'dialog.settings .done'); await click(page, '.host-credits__button'); await shot('credits-mail-confirmed');
       await fixture(page, locale, { delivery: true, address: 'reader@example.test', spent: 18_000_000 }); await shot('credit-used-up-confirm');
       await fixture(page, locale, { spent: 11_990_000 });
-      const liveFixed = ['.band', '.composer-shell', '.display-foot', '.export', '.concept-bar'];
+      const liveFixed = ['.band', '.question-card', '.composer-shell', '.display-foot', '.export', '.concept-bar'];
       const liveBefore = await boxes(page, liveFixed);
       await shadow(page, c => { window.a2.spent = 12_000_000; c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } }); });
       await settle(); await settle();
+      const calm = await shadow(page, c => {
+        const r = c.shadowRoot, ink = getComputedStyle(r.querySelector('.composer-out__title')).color;
+        return { questionReadable: !r.querySelector('.question-card').hidden, answersRest: r.querySelector('.question-card').inert,
+          pauseDisabled: r.querySelector('.pause').disabled, neutral: ['.voice-close', '.pause', '.host-credits__used-up'].every(selector => getComputedStyle(r.querySelector(selector)).color === ink) };
+      });
+      assert.deepEqual(calm, { questionReadable: true, answersRest: true, pauseDisabled: true, neutral: true });
       passLines.push({ locale, theme, width, state: 'run-out', displacementPx: unchanged(liveBefore, await boxes(page, liveFixed), `${label}/run-out`), pass: true }); await shot('run-out');
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), 0, 'no horizontal overflow');
     }

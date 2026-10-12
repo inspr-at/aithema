@@ -191,8 +191,8 @@ test('without the lock, verification opens from Settings General and returns foc
 });
 
 test('AIT-131 r3: Settings email states follow identity events in DE and EN without replacing the action', async t => {
-  for (const [copy, words] of [[de, ['E-Mail', 'Nicht bestätigt', 'E-Mail bestätigen', 'Link gesendet', 'Erneut senden oder ändern', 'Bestätigt']],
-    [en, ['E-Mail', 'Not verified', 'Verify your email', 'Link sent', 'Resend or change', 'Verified']]]) await t.test(copy.display.locale, async t => {
+  for (const [copy, words] of [[de, ['E-Mail', 'Nicht bestätigt', 'E-Mail-Adresse bestätigen', 'Link gesendet', 'Erneut senden oder ändern', 'Bestätigt']],
+    [en, ['E-Mail', 'Not verified', 'Confirm your email address', 'Link sent', 'Resend or change', 'Verified']]]) await t.test(copy.display.locale, async t => {
     const { c, root } = setup(t, { copy, session: { identity: identity() } }); await tick();
     c.openSettings(undefined, { tab: 'general' });
     const section = root.querySelector('.host-verify'), button = section.querySelector('.verify-entry');
@@ -476,14 +476,14 @@ test('locked understanding pane: the verification controls sit under no aria-dis
 
 // AIT-135 A2: all amounts are acknowledged host values (USD millionths).
 const a2Allowances = { anonymous: 12_000_000, emailGiven: 18_000_000, emailConfirmed: 24_000_000 };
-function a2Setup(t, { copy = en, address = null, spent = 3_450_000, delivery = false, privacy = true, handover = false, save } = {}) {
+function a2Setup(t, { copy = en, address = null, spent = 3_450_000, delivery = false, privacy = true, handover = false, save, openQuestion } = {}) {
   let saved = address;
   const tiers = () => ({ allowancesMicro: a2Allowances, current: saved ? 'emailGiven' : 'anonymous',
     next: privacy ? saved ? delivery ? 'emailConfirmed' : null : 'emailGiven' : null,
     delta: privacy ? saved ? delivery ? 6_000_000 : 0 : 6_000_000 : 0, canConfirm: delivery && privacy });
   const visitor = () => ({ address: saved, tier: saved ? 'emailGiven' : 'anonymous', limitMicro: saved ? 18_000_000 : 12_000_000 });
   const h = setup(t, { copy, host: { verification: { delivery, privacyDocumentConfigured: privacy }, credits: true, handover },
-    session: { demo: false, identity: identity({ address: saved }), settings: { origin: 'chosen', voice: 'off', visuals: 'off' } }, routes: {
+    session: { demo: false, openQuestion, identity: identity({ address: saved }), settings: { origin: 'chosen', voice: 'off', visuals: 'off' } }, routes: {
       'GET /identity': () => Response.json({ identity: identity({ address: saved }), delivery, privacyDocumentConfigured: privacy }),
       'GET /visitor/email': () => Response.json({ visitor: visitor(), notice: { version: 'ait-135-v1', deliveryEnabled: delivery }, privacyDocumentConfigured: privacy }),
       'GET /credits': () => { const limitMicro = visitor().limitMicro; return Response.json({ balance: { owner: { limitMicro, committedMicro: spent,
@@ -603,4 +603,43 @@ test('AIT-135 A2 C: handover purpose and the 90-day definition accompany the hos
   assert.match(root.querySelector('.m-notice').textContent, /For a personal follow-up we ask you separately\./u);
   assert.match(root.querySelector('.m-notice').textContent, /cookie.*app.*conversation.*message.*voice turn/u);
   assert.equal(root.querySelector('.m-pp').getAttribute('href'), '/privacy?locale=en');
+});
+
+
+test('AIT-135 A2 B: the supplied open question stays readable and its answers rest when credit runs out', async t => {
+  const { root } = a2Setup(t, { spent: 12_000_000, openQuestion: { text: 'What would help next?', options: [{ text: 'Discuss the goals', suggested: true }, 'Discuss resources'] } }); await tick(8);
+  const card = root.querySelector('.question-card');
+  assert.equal(card.hidden, false); assert.equal(card.inert, true);
+  assert.equal(card.querySelector('.qtext').textContent, 'What would help next?');
+  assert.ok([...card.querySelectorAll('button')].every(button => button.disabled));
+  assert.equal(root.querySelector('.pause').disabled, true);
+});
+
+test('AIT-135 A2 C: an address saved before the privacy gate closes remains deletable', async t => {
+  const { root, calls } = a2Setup(t, { privacy: false, address: 'reader@example.test', spent: 18_000_000 }); await tick(8);
+  root.querySelector('.m-change').click();
+  assert.equal(root.querySelector('.host-verify').dataset.emailState, 'saved');
+  root.querySelector('.m-delete').click(); root.querySelector('.m-del').click(); await tick(10);
+  assert.equal(calls.filter(call => call.method === 'DELETE').length, 1);
+  assert.equal(root.querySelector('.host-verify').dataset.emailState, 'unavailable');
+});
+
+
+for (const copy of [de, en]) test(`AIT-135 A2 C: delivery saves the given tier before AIT-131 sends the confirmation (${copy.display.locale})`, async t => {
+  let address = null, status = 'guest';
+  const h = setup(t, { copy, session: { identity: identity(), demo: true }, host: { verification: true, credits: true }, routes: {
+    'GET /visitor/email': () => Response.json({ visitor: { address }, notice: { version: 'ait-135-v1', deliveryEnabled: true } }),
+    'GET /identity': () => Response.json({ identity: identity({ address, status }), delivery: true }),
+    'GET /credits': () => Response.json({ balance, limitSlot: null, tiers: { allowancesMicro: a2Allowances, current: address ? 'emailGiven' : 'anonymous', next: 'emailConfirmed', delta: 6_000_000, canConfirm: true } }),
+    'PUT /visitor/email': body => { address = body.address; return Response.json({ visitor: { address } }); },
+    'POST /identity/request': body => { address = body.address; status = 'verification-pending'; return Response.json({ identity: identity({ address, status }) }); },
+  } }); await tick(10);
+  h.root.querySelector('.verify-entry').click(); await tick(6);
+  const dialog = h.root.querySelector('dialog.verify-dialog');
+  assert.match(dialog.querySelector('.verify__lead').textContent, copy === de ? /1\.800.*2\.400/u : /1,800.*2,400/u);
+  assert.match(dialog.querySelector('.m-notice').textContent, /90/u);
+  dialog.querySelector('input').value = 'reader@example.test'; dialog.querySelector('form').requestSubmit(); await tick(12);
+  const writes = h.calls.filter(call => ['PUT', 'POST'].includes(call.method) && ['/visitor/email', '/identity/request'].includes(call.path));
+  assert.deepEqual(writes.map(call => [call.method, call.path]), [['PUT', '/visitor/email'], ['POST', '/identity/request']]);
+  assert.equal(h.root.querySelector('.host-verify').dataset.emailState, 'pending');
 });

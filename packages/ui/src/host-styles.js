@@ -130,8 +130,19 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
   .library__actions button { padding-inline:.5rem; } }
 @media(pointer:coarse) { .library-sort { min-height:2.75rem; } }
 
+.question-card { display:grid; gap:8px; padding:14px 16px 12px; border-radius:18px 18px 0 0; background:color-mix(in srgb,var(--aithema-accent) 7%,var(--aithema-surface)); border:1px solid color-mix(in srgb,var(--aithema-accent) 28%,transparent); margin-bottom:-.85rem; }
+.question-card + .composer-shell { border-radius:0 0 18px 18px; }
+.question-card[hidden] + .composer-shell { border-radius:var(--aithema-radius-lg); }
+.qhead { font-size:13px; font-weight:600; color:var(--aithema-accent); margin:0; }
+.qtext { font-size:15.5px; line-height:1.4; margin:0; }
+.qopts { display:grid; gap:2px; }
+.qopt { display:grid; grid-template-columns:minmax(0,1fr) auto 30px; align-items:center; gap:10px; min-height:44px; padding:0 10px; border-radius:10px; text-align:left; font-size:14.5px; }
+.qopt.likely { background:var(--aithema-accent-soft); font-weight:600; }
+.qopt .go { display:grid; place-items:center; width:30px; height:30px; border-radius:50%; color:var(--aithema-accent); border:1px solid var(--aithema-line); }
+.qopt .go svg { width:14px; height:14px; } .qopt .tag { font-size:11.5px; font-weight:500; color:var(--aithema-accent); }
+.qhint { font-size:12.5px; color:var(--aithema-muted); margin:0; padding-left:10px; }
 /* AIT-135 B: the existing composer surface reserves both states. */
-.workspace:not([data-stage="live"]) .composer-shell { display:none; }
+.workspace:not([data-stage="live"]) :is(.composer-shell,.question-card) { display:none; }
 .composer-shell { position:relative; display:grid; grid-template-areas:"composer"; min-width:0; padding:clamp(.85rem,2vw,1.25rem);
   border:1px solid var(--aithema-line); border-radius:var(--aithema-radius-lg); background:color-mix(in srgb,var(--aithema-surface) 88%,transparent);
   box-shadow:var(--aithema-shadow-raised); backdrop-filter:blur(20px) saturate(1.2); }

@@ -296,6 +296,7 @@ export const de = {
       failed: 'Die E-Mail-Adresse konnte gerade nicht gespeichert werden. Bitte versuchen Sie es erneut.',
       deleteFailed: 'Die E-Mail-Adresse konnte gerade nicht gelöscht werden. Bitte versuchen Sie es erneut.',
     },
+    question: { title: 'Offene Frage', suggested: 'Vorschlag', hint: 'Ein Klick sendet die Antwort. Oder sprechen oder tippen Sie einfach.' },
     usedUp: {
       title: 'Ihre Credits sind aufgebraucht.', body: 'Ihr Gespräch bleibt gespeichert. Sie können es lesen und exportieren.',
       give: 'Mit Ihrer E-Mail-Adresse erhalten Sie {delta} Credits mehr.', confirm: 'Mit bestätigter E-Mail-Adresse erhalten Sie {delta} Credits mehr.',
