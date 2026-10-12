@@ -240,7 +240,9 @@ test('AIT-136 pause state changes immediately in the same controls and focus nev
   let acknowledge; const { rail, root } = fixture(t, { pause: () => new Promise(resolve => { acknowledge = resolve; }) });
   await rail.start(); const pending = rail.pause(true);
   const buttons = [...root.querySelectorAll('button')];
-  assert.equal(root.dataset.state, 'paused'); assert.equal(rail.button('pause').disabled, true);
+  assert.equal(root.dataset.state, 'paused');
+  assert.equal(rail.button('pause').disabled, false, 'a newer visitor intent may supersede a pending Pause');
+  assert.equal(rail.button('pause').title, en.resume);
   acknowledge({ acknowledged: true, paused: true }); await pending; assert.equal(root.dataset.state, 'paused');
   assert.deepEqual([...root.querySelectorAll('button')], buttons);
   window.dispatchEvent(new window.Event('focus')); await tick(); assert.equal(root.dataset.state, 'paused');
