@@ -341,7 +341,6 @@ export const en = {
     'device browser only': 'Runs on this device in the browser only',
     'visual kind invalid': 'Visual concept type invalid',
     'HTML format unsupported': 'Provider does not support HTML concepts',
-    'HTML consent scope unavailable: START has no matching HTML item': 'HTML processing consent unavailable: START has no matching item',
     'UI render limit reached for this session': 'Visual concept limit reached for this conversation',
     'UI render limit reached for this UTC day': 'Visual concept limit reached for today (UTC)',
     'credential unavailable': 'Provider access unavailable',

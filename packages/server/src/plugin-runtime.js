@@ -195,7 +195,6 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     let coverage, scope;
     // The non-billable deterministic demo has no external processing scope.
     if (!mock) {
-      if (feature === 'html' && !binding.legal) return { reason: 'HTML consent scope unavailable: START has no matching HTML item' };
       const reason = bindingReason({ binding, plugin, preset, policy: config.policy, now: now() });
       if (reason) return { reason };
       scope = processingScope(binding, operation);

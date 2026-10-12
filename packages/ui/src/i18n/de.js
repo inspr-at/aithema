@@ -343,7 +343,6 @@ export const de = {
     'device browser only': 'Läuft auf diesem Gerät nur im Browser',
     'visual kind invalid': 'Art des visuellen Entwurfs ungültig',
     'HTML format unsupported': 'Anbieter unterstützt keine HTML-Entwürfe',
-    'HTML consent scope unavailable: START has no matching HTML item': 'Einwilligung zur HTML-Verarbeitung nicht verfügbar: START hat keinen passenden Einwilligungspunkt',
     'UI render limit reached for this session': 'Limit für visuelle Entwürfe in diesem Gespräch erreicht',
     'UI render limit reached for this UTC day': 'Limit für visuelle Entwürfe für heute (UTC) erreicht',
     'credential unavailable': 'Anbieterzugang nicht verfügbar',

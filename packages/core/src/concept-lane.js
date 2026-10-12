@@ -116,7 +116,7 @@ export class ConceptLane {
           // Stable machine reasons the viewer explains in plain words.
           const reason = ['UI render limit reached for this session', 'UI render limit reached for this UTC day',
             'OpenRouter spend cap exhausted', 'OpenRouter request exceeds spend reservation',
-            'HTML consent scope unavailable: START has no matching HTML item', 'current processing consent required'].includes(error?.message) ? error.message : undefined;
+            'current processing consent required'].includes(error?.message) ? error.message : undefined;
           this.persist(id, { intent, status: { phase: 'failed', requestId, error: error?.code === 'rate-limit' ? 'rate-limit' : 'concept-unavailable',
             ...(reason ? { reason } : {}), retryable: true } });
         }

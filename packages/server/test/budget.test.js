@@ -21,6 +21,15 @@ test('actual provider costs settle once, reject invalid costs and expose overrun
     }
   } finally { storage.close(); }
 });
+test('an explicitly undefined optional cost uses token rates and replays as an absent cost', () => {
+  const storage = new SQLiteStorage(), session = storage.create(), ledger = new SQLiteBudgetLedger(storage);
+  try {
+    const a = admit(ledger, session.id), claim = ledger.claim(a.attemptId); claim.consume();
+    const terminal = { attemptId: a.attemptId, outcome: 'completed', usage: { inputTokens: 1, outputTokens: 2 } };
+    assert.equal(ledger.settle(claim.claimId, { ...terminal, chargedMicro: undefined }, { inputMicro: 1, outputMicro: 2 }).settled_micro, 5);
+    assert.equal(ledger.settle(claim.claimId, terminal).settled_micro, 5);
+  } finally { storage.close(); }
+});
 test('budget atomically reserves maxima across both lanes and burns durable single-use claims', () => {
   const storage = new SQLiteStorage(), s = storage.create(), ledger = new SQLiteBudgetLedger(storage, { sessionCapMicro: 60 });
   try {

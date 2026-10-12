@@ -69,7 +69,7 @@ export class SQLiteBudgetLedger {
   settle(claimId, terminal, rates = { inputMicro: 0, outputMicro: 0 }) {
     if (!terminal || !['completed', 'cancelled', 'uncertain'].includes(terminal.outcome) ||
       !['inputMicro', 'outputMicro'].every(k => integer(rates[k])) ||
-      Object.hasOwn(terminal, 'chargedMicro') && !integer(terminal.chargedMicro)) throw new TypeError('Invalid terminal report');
+      terminal.chargedMicro !== undefined && !integer(terminal.chargedMicro)) throw new TypeError('Invalid terminal report');
     if (terminal.outcome !== 'uncertain' && (!terminal.usage || !['inputTokens', 'outputTokens'].every(k => integer(terminal.usage[k])))) throw new TypeError('Invalid usage');
     return this.storage.transaction(() => {
       const row = this.db.prepare('SELECT * FROM budget_attempts WHERE claim_id=?').get(claimId);

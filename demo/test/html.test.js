@@ -19,6 +19,8 @@ const values = { AITHEMA_HTML_MODE: 'claude', OPENROUTER_MODEL: model, OPENROUTE
 
 test('HTML defaults to a local fake; live mode validates Claude model and operator prices', () => {
   assert.deepEqual(htmlConfig({}), { mode: 'fake' }); assert.deepEqual(htmlConfig({ AITHEMA_HTML_MODE: 'off' }), { mode: 'off' });
+  assert.deepEqual(htmlConfig({}, { live: true }), { mode: 'off' });
+  assert.deepEqual(htmlConfig({ AITHEMA_HTML_MODE: 'fake' }, { live: true }), { mode: 'fake', demo: true });
   assert.throws(() => htmlConfig({ AITHEMA_HTML_MODE: 'unknown' }), TypeError);
   assert.throws(() => htmlConfig({ AITHEMA_HTML_MODE: 'claude' }), /PRICES/);
   assert.throws(() => htmlConfig({ ...values, AITHEMA_HTML_MODEL: 'openai/fixture' }), /anthropic/);

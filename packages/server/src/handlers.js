@@ -435,7 +435,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       if (error instanceof RangeError) return json({ error: 'size-limit' }, 413);
       if (error instanceof PluginError) return json({ error: error.code,
         ...(['OpenRouter spend cap exhausted', 'OpenRouter request exceeds spend reservation', 'UI render limit reached for this session',
-          'UI render limit reached for this UTC day', 'HTML consent scope unavailable: START has no matching HTML item',
+          'UI render limit reached for this UTC day',
           'current processing consent required'].includes(error.message) ? { reason: error.message } : {}) }, error.code === 'not-admitted' ? 403 : error.code === 'rate-limit' ? 429 : 502);
       return json({ error: 'server-error' }, 500);
     }

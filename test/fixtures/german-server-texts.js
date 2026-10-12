@@ -39,7 +39,6 @@ export const FEATURE_REASON_CODES = [
   'plugin kind unsupported', 'operation unsupported', 'invalid mock budget', 'plugin unhealthy', 'admission deadline',
   'budget denied', 'concept storage limit', 'voice off', 'visuals off', 'visual kind not selected', 'visual kind invalid',
   'model not offered', 'effort not offered', 'voice not offered', 'visuals not offered', 'HTML format unsupported',
-  'HTML consent scope unavailable: START has no matching HTML item',
   // server ui-render-limits/spend-cap and OpenRouter plugin/facade.
   'UI render limit reached for this session', 'UI render limit reached for this UTC day',
   'OpenRouter spend cap exhausted', 'OpenRouter request exceeds spend reservation',
