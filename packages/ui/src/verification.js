@@ -60,9 +60,9 @@ export class Verification {
     const wasLocked = this.#locked, focusInLock = this.#lock.contains(this.#root.activeElement);
     this.#locked = this.locked;
     this.#paint(); this.#schedule();
-    if (wasLocked !== this.#locked && !quiet) {
+    if (!quiet) {
       this.#onChange?.();
-      if (!this.#locked && focusInLock) this.#focusAfterUnlock?.();
+      if (wasLocked && !this.#locked && focusInLock) this.#focusAfterUnlock?.();
     }
   }
   receive(event) {

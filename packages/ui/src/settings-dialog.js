@@ -453,7 +453,7 @@ export class SettingsDialog {
     const term = this.#hovered ?? this.#focused()?.closest?.('[data-help]');
     const key = term?.dataset.reason ? `${term.dataset.kind || 'unavailable'}:${term.dataset.reason}` : term?.dataset.help ?? this.#help;
     const help = this.#copy.help, [kind, ...rest] = key.split(':'), reason = rest.join(':');
-    const helpKey = key === 'general' && !this.#q('.host-verify').hidden ? 'generalEmail' : key;
+    const helpKey = key === 'general' && !this.#q('.host-verify').hidden && this.#q('.verify-entry')?.hidden === false ? 'generalEmail' : key;
     const text = term?.dataset.help === 'gauge' ? term.dataset.helpText : reason && ['unavailable', 'consent', 'limited'].includes(kind)
       ? fill(help[kind === 'unavailable' ? 'unavailable' : kind === 'consent' ? 'consentNeeded' : 'limited'], { reason: reasonText(this.#copy, reason) })
       : help[helpKey] ?? help[key] ?? help[this.#help] ?? help.processing;
