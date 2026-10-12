@@ -884,7 +884,9 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
         sameBoxes(footerBefore, await boxes(page, footerStable), `${label}: ${name}`);
         const popup = await shadow(page, (c, selector) => {
           const p = c.shadowRoot.querySelector(selector).closest('[data-footer-popup]').querySelector('.footer-popup'), b = p.getBoundingClientRect();
-          return { visible: getComputedStyle(p).visibility, left: b.left, right: b.right, top: b.top, bottom: b.bottom, clipped: p.scrollHeight > p.clientHeight + 1, painted: [b.top + 4, b.bottom - 4].every(y => p.contains(c.shadowRoot.elementFromPoint(b.left + b.width / 2, y))) };
+          const range = document.createRange(); range.selectNodeContents(p);
+          const clipped = [...range.getClientRects()].filter(r => r.width && r.height).some(r => r.left < b.left - 1 || r.right > b.right + 1 || r.top < b.top - 1 || r.bottom > b.bottom + 1);
+          return { visible: getComputedStyle(p).visibility, left: b.left, right: b.right, top: b.top, bottom: b.bottom, clipped, painted: [b.top + 4, b.bottom - 4].every(y => p.contains(c.shadowRoot.elementFromPoint(b.left + b.width / 2, y))) };
         }, selector);
         assert.equal(popup.visible, 'visible'); assert.equal(popup.clipped, false, `${label}: every popup line is readable`); assert.equal(popup.painted, true, `${label}: popup is painted through its whole height`);
         assert.ok(popup.left >= 0 && popup.right <= width + .5 && popup.top >= 0 && popup.bottom <= (width === 390 ? 844 : 900), `${label}: unclipped popup ${JSON.stringify(popup)}`);
