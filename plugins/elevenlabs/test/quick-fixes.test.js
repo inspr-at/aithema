@@ -11,12 +11,14 @@ async function until(predicate) {
   }
   assert.fail('Expected progress within 500 ms');
 }
-async function setup(t, { sdk = fakeSdk(), persistEvent = async () => {}, ...settings } = {}) {
+async function setup(t, { sdk = fakeSdk(), transport = 'webrtc', persistEvent = async () => {}, ...settings } = {}) {
   const closed = [], pauses = [], resumes = []; let generation = 0;
   const receipt = ({ callId }) => {
     const providerSessionId = `conv_${++generation}`;
     return { callId, providerSessionId,
-      credential: { providerSessionId, connectionType: 'webrtc', conversationToken: `fixture-token-${providerSessionId}`, ttlMs: 60_000 },
+      credential: { providerSessionId, connectionType: transport, ttlMs: 60_000,
+        ...(transport === 'webrtc' ? { conversationToken: `fixture-token-${providerSessionId}` }
+          : { signedUrl: `wss://socket.example.test/call?conversation_id=${providerSessionId}` }) },
       spendDeadlineAt: Date.now() + 10_000, browserLivenessDeadlineAt: Date.now() + 10_000 };
   };
   const control = {
@@ -27,6 +29,7 @@ async function setup(t, { sdk = fakeSdk(), persistEvent = async () => {}, ...set
     heartbeat: async () => ({ acknowledged: true, browserLivenessDeadlineAt: Date.now() + 10_000 }),
   };
   const client = createElevenLabsClient({ sdk, control, persistEvent, closeTimeoutMs: 150,
+    mediaDevices: sdk.mediaDevices, AudioContext: sdk.AudioContext,
     persistenceTimeoutMs: 20, persistenceRetries: 2, persistenceBackoffMs: 5, drainTimeoutMs: 100, ...settings });
   const session = await client.start({ callId: 'call_quick_fix' });
   const observed = [], reader = (async () => { for await (const event of session.events) observed.push(event); })();
@@ -34,13 +37,14 @@ async function setup(t, { sdk = fakeSdk(), persistEvent = async () => {}, ...set
   return { session, sdk, control, closed, pauses, resumes, observed, reader };
 }
 const message = (sdk, id) => sdk.starts.at(-1).onMessage({ role: 'user', message: `message ${id}`, event_id: id });
+const channelEffects = sdk => sdk.effects.filter(([name]) => ['setInputMuted', 'setVolume'].includes(name));
 
 test('AIT-136 pause mutes capture immediately before the HTTP acknowledgement', async t => {
   const local = await setup(t), ack = deferred();
   local.control.pause = () => ack.promise;
   const pending = local.session.pause();
   try {
-    assert.deepEqual(local.sdk.effects.slice(-2), [['setMicMuted', true], ['setVolume', 0]]);
+    assert.deepEqual(channelEffects(local.sdk).slice(-2), [['setInputMuted', true], ['setVolume', 0]]);
     await flush(); assert.equal(local.sdk.closed, false);
   } finally { ack.resolve({ acknowledged: true, paused: true }); await pending; }
 });
@@ -49,30 +53,23 @@ test('AIT-136 a refused pause stays muted; only an acknowledged resume unmutes',
   const local = await setup(t);
   local.control.pause = async () => { throw new Error('HTTP pause failed'); };
   await assert.rejects(local.session.pause());
-  assert.deepEqual(local.sdk.effects.slice(-2), [['setMicMuted', true], ['setVolume', 0]]);
+  assert.deepEqual(channelEffects(local.sdk).slice(-2), [['setInputMuted', true], ['setVolume', 0]]);
   await local.session.setInput(true);
-  assert.equal(local.sdk.effects.filter(([name]) => name === 'setMicMuted').at(-1)[1], true);
+  assert.equal(channelEffects(local.sdk).filter(([name]) => name === 'setInputMuted').at(-1)[1], true);
   local.control.resume = async () => ({ acknowledged: false, paused: false });
   await assert.rejects(local.session.resume());
-  assert.equal(local.sdk.effects.filter(([name]) => name === 'setMicMuted').at(-1)[1], true);
+  assert.equal(channelEffects(local.sdk).filter(([name]) => name === 'setInputMuted').at(-1)[1], true);
   const ack = deferred(); local.control.resume = () => ack.promise;
   const pending = local.session.resume(); await flush();
-  assert.equal(local.sdk.effects.filter(([name]) => name === 'setMicMuted').at(-1)[1], true);
+  assert.equal(channelEffects(local.sdk).filter(([name]) => name === 'setInputMuted').at(-1)[1], true);
   ack.resolve({ acknowledged: true, paused: false }); await pending;
-  assert.deepEqual(local.sdk.effects.slice(-2), [['setMicMuted', false], ['setVolume', 1]]);
+  assert.deepEqual(channelEffects(local.sdk).slice(-2), [['setInputMuted', false], ['setVolume', 1]]);
 });
 
 test('AIT-136 SDK asynchronous mute error ends capture and transport without acknowledging pause', async t => {
-  const sdk = fakeSdk(), start = sdk.startSession;
-  sdk.startSession = async options => {
-    const conversation = await start(options), mute = conversation.setMicMuted;
-    conversation.setMicMuted = muted => {
-      mute(muted);
-      if (muted) queueMicrotask(() => options.onError('Failed to set input muted state', new Error('fixture mute failure')));
-    };
-    return conversation;
-  };
+  const sdk = fakeSdk();
   const local = await setup(t, { sdk });
+  sdk.muteHook = async muted => { if (muted) throw new Error('fixture mute failure'); };
   await assert.rejects(local.session.pause()); await local.reader;
   assert.equal(sdk.closed, true);
   assert.ok(sdk.effects.some(([name]) => name === 'endSession'));
@@ -83,7 +80,7 @@ test('AIT-136 SDK asynchronous mute error ends capture and transport without ack
 test('AIT-136 pause during recovery survives into the replacement before onConnect', async t => {
   const sdk = fakeSdk(), start = sdk.startSession, atConnect = [];
   sdk.startSession = options => start({ ...options, onConnect: identity => {
-    atConnect.push(sdk.effects.filter(([name]) => name === 'setMicMuted').at(-1)?.[1]);
+    atConnect.push(channelEffects(sdk).filter(([name]) => name === 'setInputMuted').at(-1)?.[1]);
     options.onConnect(identity);
   } });
   const local = await setup(t, { sdk }), ready = deferred(), recover = local.control.recover;
@@ -93,14 +90,112 @@ test('AIT-136 pause during recovery survives into the replacement before onConne
   // Attach the rejection handler before releasing recovery, including on the old implementation.
   const result = paused.then(value => value, error => error);
   try {
-    assert.equal(sdk.effects.filter(([name]) => name === 'setMicMuted').at(-1)[1], true);
+    assert.equal(channelEffects(sdk).filter(([name]) => name === 'setInputMuted').at(-1)[1], true);
   } finally { ready.resolve(); }
   assert.deepEqual(await result, { acknowledged: true, paused: true });
   await until(() => local.observed.some(event => event.type === 'recovered'));
   assert.equal(atConnect.at(-1), true);
   assert.equal(local.pauses.at(-1).providerSessionId, local.session.providerSessionId);
   message(sdk, 1); await flush(); assert.equal(local.observed.some(event => event.type === 'final'), false);
-  await local.session.resume(); assert.equal(sdk.effects.filter(([name]) => name === 'setMicMuted').at(-1)[1], false);
+  await local.session.resume(); assert.equal(channelEffects(sdk).filter(([name]) => name === 'setInputMuted').at(-1)[1], false);
+});
+
+for (const transport of ['webrtc', 'websocket']) {
+  test(`AIT-136 ${transport} capture lifetime stops before pause acknowledgement and resumes with a fresh track`, async t => {
+    const local = await setup(t, { transport }), ack = deferred(), track = local.sdk.conversations[0].track;
+    const acquired = local.sdk.acquired.length; local.control.pause = () => ack.promise;
+    local.sdk.outgoing.length = 0;
+    const pending = local.session.pause();
+    try {
+      assert.equal(track.readyState, 'ended', 'pause synchronously releases the microphone');
+      local.sdk.sample(); assert.deepEqual(local.sdk.outgoing, []);
+    } finally { ack.reject(new Error('HTTP pause refused')); await assert.rejects(pending); }
+    await local.session.setInput(true);
+    assert.equal(local.sdk.acquired.length, acquired, 'a retained pause cannot reacquire capture');
+    const resumeAck = deferred(); local.control.resume = () => resumeAck.promise;
+    const resuming = local.session.resume(); await flush();
+    try { assert.equal(local.sdk.acquired.length, acquired, 'resume must wait for the server'); }
+    finally { resumeAck.resolve({ acknowledged: true, paused: false }); await resuming; }
+    assert.notEqual(local.sdk.conversations[0].track, track);
+    assert.equal(local.sdk.conversations[0].track.readyState, 'live');
+    assert.equal(local.sdk.conversations[0].track.source, 'microphone');
+  });
+
+  test(`AIT-136 ${transport} late mute rejection cannot arrive after a successful pause acknowledgement`, async t => {
+    const local = await setup(t, { transport }), mute = deferred(); let settled = false;
+    local.sdk.muteHook = value => value ? mute.promise : Promise.resolve();
+    const pending = local.session.pause().then(value => { settled = true; return value; }, error => { settled = true; return error; });
+    try {
+      await flush();
+      assert.deepEqual(local.pauses, [], 'the HTTP request must wait for the actual mute promise');
+      assert.equal(settled, false);
+      assert.ok(local.sdk.acquired.every(stream => stream.getTracks().every(track => track.readyState === 'ended')));
+    } finally { mute.reject(new Error('delayed SDK mute failure')); await pending; }
+    await local.reader;
+    assert.equal(local.sdk.closed, true); assert.deepEqual(local.pauses, []);
+    assert.equal(local.closed.at(-1).reason, 'pause-failed');
+  });
+
+  test(`AIT-136 ${transport} actual mute completion precedes the pause request`, async t => {
+    const local = await setup(t, { transport }), mute = deferred();
+    local.sdk.muteHook = value => value ? mute.promise : Promise.resolve();
+    const pending = local.session.pause();
+    try { await flush(); assert.deepEqual(local.pauses, []); }
+    finally { mute.resolve(); await pending; }
+    assert.equal(local.pauses.length, 1);
+    assert.equal(local.sdk.conversations[0].track.readyState, 'ended');
+  });
+
+  test(`AIT-136 ${transport} retained pause blocks capture and publication before the recovery hook`, async t => {
+    const local = await setup(t, { transport }), ready = deferred(), recover = local.control.recover;
+    const acquired = local.sdk.acquired.length, beforeHook = [];
+    local.control.recover = async (...args) => { await ready.promise; return recover(...args); };
+    local.sdk.beforeCreated = object => beforeHook.push({ source: object.track.source, acquired: local.sdk.acquired.length });
+    local.sdk.starts[0].onDisconnect(); await until(() => local.closed.length === 1);
+    const pending = local.session.pause().then(value => value, error => error);
+    local.sdk.outgoing.length = 0; ready.resolve();
+    assert.deepEqual(await pending, { acknowledged: true, paused: true });
+    await until(() => local.observed.some(event => event.type === 'recovered'));
+    assert.deepEqual(beforeHook, [{ source: 'silence', acquired }], 'replacement setup has no microphone stream');
+    assert.deepEqual(local.sdk.outgoing, [], 'no captured audio is published before the hook');
+    await local.session.resume();
+    assert.equal(local.sdk.conversations.at(-1).track.source, 'microphone');
+    assert.equal(local.sdk.conversations.at(-1).track.readyState, 'live');
+  });
+
+  test(`AIT-136 ${transport} pause stops replacement capture while SDK setup is pending`, async t => {
+    const local = await setup(t, { transport }), created = deferred(); let replacement;
+    local.sdk.beforeCreated = object => { replacement = object; return created.promise; };
+    local.sdk.starts[0].onDisconnect(); await until(() => replacement);
+    const pending = local.session.pause().then(value => value, error => error);
+    try {
+      assert.equal(replacement.track.readyState, 'ended', 'pause reaches streams before a Conversation exists');
+      local.sdk.outgoing.length = 0; local.sdk.sample(); assert.deepEqual(local.sdk.outgoing, []);
+    } finally { created.resolve(); await pending; }
+    assert.ok(local.sdk.acquired.every(stream => stream.getTracks().every(track => track.readyState === 'ended')));
+  });
+
+  test(`AIT-136 ${transport} a new pause fences a pending resume acquisition`, async t => {
+    const local = await setup(t, { transport }), acquired = deferred(); let waiting = false;
+    await local.session.pause();
+    local.sdk.beforeAcquire = () => { waiting = true; return acquired.promise; };
+    const resuming = local.session.resume().then(value => value, error => error);
+    await until(() => waiting);
+    const pausing = local.session.pause().then(value => value, error => error);
+    acquired.resolve(); await resuming; await pausing;
+    assert.ok(local.sdk.acquired.every(stream => stream.getTracks().every(track => track.readyState === 'ended')));
+    local.sdk.outgoing.length = 0; local.sdk.sample(); assert.deepEqual(local.sdk.outgoing, []);
+    assert.equal(local.sdk.conversations.at(-1).input.isMuted(), true);
+  });
+}
+
+test('AIT-136 websocket pause discards buffered audio while actual mute is pending', async t => {
+  const local = await setup(t, { transport: 'websocket' }), mute = deferred();
+  local.sdk.muteHook = value => value ? mute.promise : Promise.resolve();
+  local.sdk.outgoing.length = 0;
+  const pending = local.session.pause();
+  try { local.sdk.sample({ buffered: true }); assert.deepEqual(local.sdk.outgoing, []); }
+  finally { mute.resolve(); await pending; }
 });
 
 test('AIT-136 events queued before recovery retain their emission generation and drain before revocation', async t => {

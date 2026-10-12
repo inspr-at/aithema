@@ -4,6 +4,7 @@ import { liveVoiceConformance } from '../../../packages/core/src/live-voice-conf
 import { unavailableVoiceCommand } from '../../../packages/core/src/live-voice.js';
 import { fixture, invocationOptions, flush, fakeSdk } from './fixtures.js';
 
+const channelEffects = sdk => sdk.effects.filter(([name]) => ['setInputMuted', 'setVolume'].includes(name));
 async function drain(session) { const events = []; for await (const event of session.events) events.push(event); return events; }
 test('transport loss while paused waits for acknowledged resume before spending on recovery', { timeout: 60_000 }, async () => {
   const local = fixture(), options = invocationOptions(), session = await local.client.start({ callId: 'call_paused_recovery' }, options);
@@ -63,11 +64,11 @@ test('SDK commands preserve independent channels; pause mutes before acknowledge
   assert.ok(local.sdk.effects.some(([name]) => name === 'nativeInterruption'));
   const before = local.sdk.effects.length, pending = session.pause(); await flush();
   assert.ok(local.sdk.effects.length > before); release(); assert.deepEqual(await pending, { acknowledged: true, paused: true });
-  assert.deepEqual(local.sdk.effects.slice(-2), [['setMicMuted', true], ['setVolume', 0]]);
+  assert.deepEqual(channelEffects(local.sdk).slice(-2), [['setInputMuted', true], ['setVolume', 0]]);
   await assert.rejects(session.sendText('while paused'), { code: 'not-admitted' });
-  await session.resume(); assert.deepEqual(local.sdk.effects.slice(-2), [['setMicMuted', true], ['setVolume', 0]]);
-  await session.setInput(true); assert.deepEqual(local.sdk.effects.slice(-2), [['setMicMuted', false], ['setVolume', 0]]);
-  await session.setOutput(true); assert.deepEqual(local.sdk.effects.slice(-2), [['setMicMuted', false], ['setVolume', 1]]);
+  await session.resume(); assert.deepEqual(channelEffects(local.sdk).slice(-2), [['setInputMuted', true], ['setVolume', 0]]);
+  await session.setInput(true); assert.deepEqual(channelEffects(local.sdk).slice(-2), [['setInputMuted', false], ['setVolume', 0]]);
+  await session.setOutput(true); assert.deepEqual(channelEffects(local.sdk).slice(-2), [['setInputMuted', false], ['setVolume', 1]]);
   const reader = drain(session); const terminal = await session.close(); assert.equal(terminal.closureConfirmed, true);
   assert.equal((await reader).at(-1).type, 'ended');
   await assert.rejects(session.sendText('ended'), { code: 'unavailable' });
@@ -160,7 +161,7 @@ function conformanceFixture(local) {
     probe(command, session, { phase, before } = {}) {
       if (command === 'close') return { providerOpen: !local.sdk.closed };
       if (phase === 'before') return { effects: local.sdk.effects.length, saved: local.saved.length };
-      const sdkMethod = { sendText: 'sendUserMessage', updateContext: 'sendContextualUpdate', setInput: 'setMicMuted',
+      const sdkMethod = { sendText: 'sendUserMessage', updateContext: 'sendContextualUpdate', setInput: 'setInputMuted',
         setOutput: 'setVolume', interrupt: 'nativeInterruption' }[command];
       return { capability: ['pause', 'resume', 'setOutput'].includes(command) ? 'emulated' : 'native',
         applied: sdkMethod ? local.sdk.effects.slice(before.effects).some(([method]) => method === sdkMethod)
