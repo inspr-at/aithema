@@ -1,5 +1,6 @@
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { hostname } from 'node:os';
 import { PluginError, generationId } from '@inspr/aithema-core';
 export const DEFAULT_CAP_MICRO = 10_000_000; // USD 10 in micro-dollars
 // Decimal arithmetic rounds upward without losing small fractions to binary floats.
@@ -27,21 +28,23 @@ export function callCeilingMicro(messages, binding) {
 /**
  * Default spend port: reserve/dispatch/record/uncertain/settle, durable attempt
  * evidence/reconciliation/recovery, and snapshots separating unknown costs.
- * Every transaction takes an exclusive process lock. Crashed reservations stay
- * counted; only a lock whose owner PID is provably dead may be recovered.
+ * Every transaction takes an exclusive process lock. Active reservations carry
+ * a process-lifetime lease: recovery requires a provably dead local owner, or
+ * an unowned legacy hold. Elapsed time never expires a live writer's ownership.
  */
 export function createSpendLedger({ path, capMicro = DEFAULT_CAP_MICRO }) {
   if (typeof path !== 'string' || !path) throw new TypeError('Spend ledger requires a file path');
   if (!Number.isSafeInteger(capMicro) || capMicro < 0) throw new TypeError('Invalid spend cap');
   const lockPath = `${path}.lock`, recoveryPath = `${lockPath}.recovery`;
+  const owner = { pid: process.pid, host: hostname(), writerId: crypto.randomUUID() };
   const unavailable = () => new PluginError('unavailable', 'Spend ledger unreadable or locked');
   const amount = n => Number.isSafeInteger(n) && n >= 0;
   const object = value => value && typeof value === 'object' && !Array.isArray(value);
-  const deadOwner = file => {
-    const pid = JSON.parse(readFileSync(file, 'utf8')).pid;
+  const deadPid = pid => {
     if (!Number.isSafeInteger(pid) || pid < 1) throw unavailable();
     try { process.kill(pid, 0); return false; } catch (error) { return error.code === 'ESRCH'; }
   };
+  const deadOwner = file => deadPid(JSON.parse(readFileSync(file, 'utf8')).pid);
   const exclusive = file => {
     const fd = openSync(file, 'wx', 0o600);
     try { writeFileSync(fd, `${JSON.stringify({ pid: process.pid })}\n`); fsyncSync(fd); }
@@ -94,6 +97,10 @@ export function createSpendLedger({ path, capMicro = DEFAULT_CAP_MICRO }) {
           row.actualMicro !== undefined && !amount(row.actualMicro) ||
           row.observedMicro !== undefined && !amount(row.observedMicro) ||
           row.generationId !== undefined && !generationId(row.generationId) ||
+          row.owner !== undefined && (!object(row.owner) || !Number.isSafeInteger(row.owner.pid) || row.owner.pid < 1 ||
+            typeof row.owner.host !== 'string' || !row.owner.host || row.owner.host.length > 253 ||
+            typeof row.owner.writerId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(row.owner.writerId) ||
+            !['reserved', 'dispatched'].includes(row.state)) ||
           (row.state === 'confirmed') !== (row.actualMicro !== undefined)) throw new Error();
         if (row.attemptId !== undefined) {
           if (typeof row.attemptId !== 'string' || !/^[a-zA-Z0-9_-]{1,128}$/u.test(row.attemptId) || attempts.has(row.attemptId)) throw new Error();
@@ -133,6 +140,7 @@ export function createSpendLedger({ path, capMicro = DEFAULT_CAP_MICRO }) {
     if (!amount(state.spentMicro + micro)) throw unavailable();
     delete state.reservations[id]; state.spentMicro += micro;
     state.operations[id] = { ...row, state: 'confirmed', actualMicro: micro };
+    delete state.operations[id].owner;
   };
   const operation = (state, id) => {
     if (!Object.hasOwn(state.operations, id)) throw new PluginError('not-admitted', 'Spend reservation missing');
@@ -150,7 +158,7 @@ export function createSpendLedger({ path, capMicro = DEFAULT_CAP_MICRO }) {
         if (current.costCeilingBreached || micro > capMicro - current.totalMicro) throw new PluginError('limit', 'Spend cap reached');
         if (attemptId && Object.values(state.operations).some(row => row.attemptId === attemptId)) throw new PluginError('already-claimed');
         const id = crypto.randomUUID(); state.reservations[id] = micro;
-        state.operations[id] = { ceilingMicro: micro, state: 'reserved',
+        state.operations[id] = { ceilingMicro: micro, state: 'reserved', owner,
           ...(attemptId ? { attemptId } : {}), ...(provider ? { provider } : {}) };
         write(state); return id;
       });
@@ -165,6 +173,10 @@ export function createSpendLedger({ path, capMicro = DEFAULT_CAP_MICRO }) {
     dispatch(id) {
       return locked(() => {
         const state = read(), row = operation(state, id);
+        if (!['reserved', 'dispatched'].includes(row.state)) throw new PluginError('already-claimed', 'Spend already settled');
+        if (row.owner?.writerId !== owner.writerId || row.owner.pid !== owner.pid || row.owner.host !== owner.host) {
+          throw new PluginError('not-admitted', 'Spend reservation belongs to another writer');
+        }
         if (row.state === 'reserved') { row.state = 'dispatched'; write(state); }
       });
     },
@@ -185,7 +197,7 @@ export function createSpendLedger({ path, capMicro = DEFAULT_CAP_MICRO }) {
       return locked(() => {
         const state = read(), row = operation(state, id);
         if (row.state === 'confirmed') return;
-        row.state = 'uncertain'; delete state.reservations[id]; write(state);
+        row.state = 'uncertain'; delete row.owner; delete state.reservations[id]; write(state);
       });
     },
     evidence(attemptId) {
@@ -205,14 +217,17 @@ export function createSpendLedger({ path, capMicro = DEFAULT_CAP_MICRO }) {
       });
     },
     recover() {
-      // Exclusive startup recovery; never call while this writer has live work.
+      // The transaction lock serializes edits, not calls. A live process keeps
+      // its reservation lease across transactions, including other startups.
       return locked(() => {
         const state = read();
         for (const [id, row] of Object.entries(state.operations)) {
           if (row.state === 'confirmed') continue;
+          // Unknown hosts/PIDs and reused live PIDs retain the hold conservatively.
+          if (row.owner && (row.owner.host !== owner.host || !deadPid(row.owner.pid))) continue;
           if (row.observedMicro !== undefined) settle(state, id, row.observedMicro);
           else if (row.state === 'reserved') settle(state, id, 0);
-          else { row.state = 'uncertain'; delete state.reservations[id]; }
+          else { row.state = 'uncertain'; delete row.owner; delete state.reservations[id]; }
         }
         write(state);
       });

@@ -1620,9 +1620,13 @@ evidence. Existing historical attempts without retained IDs need OPS evidence.
 The default `createSpendLedger({path, capMicro})` is a JSON cost journal. Its
 version 2 format keeps per-attempt dispatch state, generation IDs, observed
 receipts and confirmed charges. Unknown dispatched costs remain `uncertainMicro`
-and can settle later by attempt ID without double charging. Startup `recover()`
-replays saved receipts, releases provably undispatched holds and preserves
-unknown dispatched exposure. Version 1 counters are read conservatively: old
+and can settle later by attempt ID without double charging. Active holds persist
+their writer ID, host and PID as a process-lifetime lease. Startup `recover()`
+leaves another live writer's holds intact; only a provably dead local process or
+an unowned legacy operation permits receipt replay, release of undispatched
+holds, or conversion of dispatched holds to uncertainty. A live or unverifiable
+owner never loses its hold to a timeout. Dispatch rejects settled handles and
+handles belonging to another writer. Version 1 counters are read conservatively: old
 reservations become uncertainty because they carry no dispatch evidence; old
 aggregate spend is retained. Each
 transaction uses an `O_EXCL` lock containing the owner PID; a live, unknown or
