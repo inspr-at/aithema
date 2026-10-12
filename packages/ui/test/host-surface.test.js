@@ -385,21 +385,16 @@ test('verification copy names what B1 sends: a confirmation link, not the assess
   assert.match(de.hostSurface.verify.sentTo, /Bestätigungslink/u); assert.doesNotMatch(de.hostSurface.verify.sentTo, /Auswertung|Einschätzung/u);
 });
 
-test('credits: a pause never freezes the countdown (the host deadline keeps running) and says what pausing does', async t => {
+test('credits: pause and elapsed time never add a countdown to lifetime credit', async t => {
   const { c, root } = setup(t, { session: { paused: true }, routes: {
     'GET /credits': () => Response.json({ balance, limitSlot: { status: 'active', remainingMs: 30 * 60_000, canStartPaidWork: false } }),
   } });
   await tick();
-  const text = () => root.querySelector('.host-credits__deadline').textContent;
   assert.equal(root.querySelector('.host-credits__text').textContent, '425 of 500 Credits');
-  assert.equal(text(), `30 min left in this conversation · ${cr.paused}`);
-  assert.match(cr.paused, /time keeps running/u); assert.match(de.hostSurface.credits.paused, /Zeit läuft aber weiter/u);
-  // Ten minutes later, still paused: the line counts down like the server's deadline.
-  const now = Date.now(); t.mock.method(Date, 'now', () => now + 10 * 60_000);
-  c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
-  assert.equal(text(), `20 min left in this conversation · ${cr.paused}`);
+  assert.equal(root.querySelector('.host-credits__deadline').textContent, '');
   c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
-  assert.equal(text(), '20 min left in this conversation');
+  assert.equal(root.querySelector('.host-credits__deadline').textContent, '');
+  assert.equal(cr.remaining, undefined); assert.equal(cr.paused, undefined);
 });
 
 test('library: saving a rename keeps every row in place; a background reload too; the next load or search sorts afresh', async t => {
@@ -562,8 +557,8 @@ for (const copy of [de, en]) test(`AIT-135 A2 C: inline save, edit and normal de
   assert.match(section.querySelector('.m-tier').textContent, copy === de ? /Guthaben: 1\.800 Credits/u : /Credit: 1,800 Credits/u);
   assert.doesNotMatch(section.querySelector('.m-tier').textContent, /1[.,]455/u, 'Settings shows the tier only');
   assert.equal(root.activeElement, section.querySelector('.m-change'));
-  section.querySelector('.m-change').click();
-  assert.equal(input.value, 'reader@example.test'); assert.equal(input.selectionStart, 0); assert.equal(input.selectionEnd, input.value.length);
+  const select = t.mock.method(input, 'select'); section.querySelector('.m-change').click();
+  assert.equal(input.value, 'reader@example.test'); assert.equal(root.activeElement, input); assert.equal(select.mock.callCount(), 1);
   section.querySelector('.m-cancel').click(); section.querySelector('.m-delete').click();
   assert.equal(root.activeElement, section.querySelector('.m-keep'));
   assert.match(section.querySelector('.m-delete-normal').textContent, copy === de ? /1\.200.*855/u : /1,200.*855/u);

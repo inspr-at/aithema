@@ -37,7 +37,7 @@ export class VisitorEmail {
     entry.setAttribute('aria-labelledby', 'email-heading');
     this.q('.m-form').addEventListener('submit', event => { event.preventDefault(); void this.save(); });
     this.q('#email-input').addEventListener('input', () => { if (!this.ui.busy) { this.ui.invalid = false; this.ui.message = ''; this.paint(); } });
-    this.q('.m-change').addEventListener('click', () => { this.ui.editing = true; this.ui.message = ''; this.paint(); const input = this.q('#email-input'); input.value = this.address; input.focus({ preventScroll: true }); input.select(); });
+    this.q('.m-change').addEventListener('click', () => { if (!this.canCollect || this.ui.busy) return; this.ui.editing = true; this.ui.message = ''; this.paint(); const input = this.q('#email-input'); input.value = this.address; input.focus({ preventScroll: true }); input.select(); });
     this.q('.m-cancel').addEventListener('click', () => { if (this.ui.busy) return; this.ui.editing = false; this.ui.message = ''; this.paint(); this.q('.m-change').focus({ preventScroll: true }); });
     for (const selector of ['.m-delete', '.m-delete-mail']) this.q(selector).addEventListener('click', () => { this.ui.deleting = true; this.ui.message = ''; this.paint(); this.q('.m-keep').focus({ preventScroll: true }); });
     this.q('.m-keep').addEventListener('click', () => { if (this.ui.busy) return; this.ui.deleting = false; this.ui.message = ''; this.paint(); this.q(this.delivery ? '.m-delete-mail' : '.m-delete').focus({ preventScroll: true }); });

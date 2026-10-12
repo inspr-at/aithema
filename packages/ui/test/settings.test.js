@@ -108,7 +108,7 @@ for (const [locale, copy] of Object.entries({ de, en })) {
     assert.equal(h.q('[data-tab="general"]').getAttribute('aria-selected'), 'true');
     assert.equal(h.q('.host-verify').hidden, false);
     assert.equal(h.q('.verify-entry').hidden, status === 'verified');
-    assert.equal(h.q('.context-message').textContent, status === 'guest' ? emailHelp[locale] : generalHelp[locale]);
+    assert.equal(h.q('.context-message').textContent, status === 'guest' ? emailHelp[locale] : copy.help.generalEmailManage);
   });
   test(`AIT-147 footer repaint: ${locale}, identity state changes while General is open`, async t => {
     const h = await opened(fixture(t, { copy, host: { verification: true }, identity: guestIdentity }));
@@ -122,7 +122,7 @@ for (const [locale, copy] of Object.entries({ de, en })) {
       assert.equal(h.q('[data-tab="general"]').getAttribute('aria-selected'), 'true');
       assert.equal(h.q('.host-verify').hidden, status === 'erased');
       assert.equal(h.q('.verify-entry').hidden, !needsVerification);
-      assert.equal(h.q('.context-message').textContent, state === 'verified' ? copy.help.generalEmailManage : needsVerification ? emailHelp[locale] : generalHelp[locale], status);
+      assert.equal(h.q('.context-message').textContent, status === 'verified' ? copy.help.generalEmailManage : needsVerification ? emailHelp[locale] : generalHelp[locale], status);
     }
   });
 }
@@ -141,7 +141,7 @@ async function verificationDraft(t, options = {}) {
   const effort = h.q('#settings-effort'); effort.value = '2'; effort.dispatchEvent(new window.Event('input', { bubbles: true }));
   h.q('[data-tab="general"]').click();
   assert.equal(h.posts.length, 1, 'the effort change is still inside the autosave debounce');
-  assert.equal(h.q('.verify-entry').textContent, 'E-Mail bestätigen');
+  assert.equal(h.q('.verify-entry').textContent, 'E-Mail-Adresse bestätigen');
   return h;
 }
 

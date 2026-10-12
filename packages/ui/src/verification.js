@@ -26,7 +26,7 @@ export class Verification {
     this.#email = new VisitorEmail({ root, entry, copy, request, demo, delivery, privacyDocumentConfigured, handover, locale,
       openDialog: opener => this.openDialog(opener), changed: async ({ refresh }) => {
         if (refresh) { this.#identity = structuredClone(this.#email.identity); await this.#creditsChanged?.(); }
-        this.#onChange?.();
+        this.#paint(); this.#onChange?.();
       } });
     this.#mountLock(); this.#mountDialog();
     this.set(identity ?? null, { quiet: true });
@@ -101,6 +101,9 @@ export class Verification {
   async openDialog(opener = this.#entry.querySelector('button')) {
     if (!this.enabled || !this.canCollect || !this.#email.delivery) return;
     if (await this.#beforeOpen?.() === false || !this.#alive || !this.enabled) return;
+    this.#ui.editing = this.#identity?.status === 'verified' || opener?.classList.contains('m-change-mail');
+    const form = this.#forms.find(f => f.root.closest('dialog'));
+    if (this.#ui.editing && form) form.input.value = this.#identity?.address ?? '';
     this.#opener = this.#focusReturn?.() ?? opener;
     this.#paint();
     setText(this.#dialog.querySelector('.verify-dialog__notice'), this.#notice?.() ?? '');
@@ -111,7 +114,7 @@ export class Verification {
   #cooldown() { return Math.max(0, Math.ceil(((this.#identity?.resendAfterMs ?? 0) - (Date.now() - this.#at)) / 1000)); }
   #mode() {
     const status = this.#identity?.status;
-    if (status === 'verified') return 'verified';
+    if (status === 'verified' && !this.#ui.editing) return 'verified';
     return status === 'verification-pending' && this.#identity.address && !this.#ui.editing ? 'pending' : 'capture';
   }
   #mountLock() {
@@ -225,6 +228,7 @@ export class Verification {
     this.#email.set({ identity: this.#identity });
     // Lock pane: shown exactly while host policy holds the assessment.
     this.#lock.hidden = !this.locked || !this.canCollect;
+    if (!this.canCollect && this.#dialog.open) this.#dialog.close();
     setText(this.#lock.querySelector('.verify-lock__title'), v.lockTitle);
     setText(this.#lock.querySelector('.verify-lock__lead'), v.lockLead);
     const text = this.#stateText(), note = mode === 'pending' && cooldown > 0 ? fill(v.cooldown, { seconds: cooldown }) : mode === 'verified' ? '' : v.hint;
