@@ -196,7 +196,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .audio-rail[data-used-up] .voice-state { color:var(--aithema-ink); }
 .audio-rail[data-credit-ending] .voice-wave,.audio-rail[data-used-up] .voice-wave { transform:scaleY(.07); transition:transform .6s; }
 .audio-rail[data-credit-ending] button:disabled { opacity:1; }
-.audio-rail button { transition:opacity .3s, background-color .3s, color .3s; }
+.audio-rail:is([data-used-up],[data-credit-ending]) button { transition:opacity .3s, background-color .3s, color .3s; }
 /* AIT-135 C: all address states share one grid cell. Inactive controls are also inert. */
 .host-mail { display:grid; gap:.55rem; align-content:start; }
 .m-stack { display:grid; max-width:36rem; }
@@ -245,6 +245,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
   .composer-out__export { max-width:132px; line-height:1.25; }
   .host-credits__used-up-full { display:none; } .host-credits__used-up-short { display:inline; }
 }
+@media(width < 360px) { .host-credits .host-credits__track { display:none; } }
 @media(max-width:40rem) {
   .m-form { grid-template-columns:auto auto minmax(0,1fr); grid-template-areas:"lead lead lead" "label label label" "in in in" "msg msg msg" "notice notice notice" "save cancel ."; row-gap:.35rem; }
   .m-save,.m-cancel { margin-top:.3rem; } .m-msg { font-size:.75rem; }

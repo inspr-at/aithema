@@ -70,7 +70,7 @@ export class AithemaSession extends HTMLElement {
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
   #open = []; #cleared = []; #failure = false; #sending = false;
   #pointer = null; #onTranscript = false; #follow = true; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false;
-  #creditEnding = false; #creditEndTimer = null; #creditAnnounced = false;
+  #creditEnding = false; #creditEndTimer = null; #creditAnnounced = false; #creditWasUsedUp = false;
   #dialog; #connector; #createDevice; #deviceEndpoint; #chooser = { choice: null, busy: false, error: '' }; #aiNotice; #host; #options; #refocus = null;
   #introOrb = null; #reveal = null; #fold; #timer; #popups; #motion = true; #motionMedia; #motionListener;
   #orb = null; #started = false; #inputMode = null; #microphone = 'unknown'; #permission = null;
@@ -98,7 +98,7 @@ export class AithemaSession extends HTMLElement {
     const { copy, baseUrl = '', session, sessionToken, deviceReasoning, deviceConnector, deviceEndpoint, voiceClient, voiceClients, voicePlayback, aiNotice } = options ?? {};
     if (!copy || !session) throw new TypeError('Host copy and session required');
     this.#copyLocale = session.locale; this.#aiNotice = aiNotice; this.#options = { ...options }; delete this.#options.session;
-    clearTimeout(this.#creditEndTimer); this.#creditEnding = false; this.#creditAnnounced = false;
+    clearTimeout(this.#creditEndTimer); this.#creditEnding = false; this.#creditAnnounced = false; this.#creditWasUsedUp = false;
     this.#host?.destroy(); this.#host = null; this.#reveal?.destroy(); this.#timer?.destroy(); this.#popups?.destroy();
     this.#motionMedia?.removeEventListener?.('change', this.#motionListener);
     this.#paneObserver?.disconnect(); for (const timer of this.#scrollTimers.values()) clearTimeout(timer); this.#scrollTimers.clear();
@@ -541,7 +541,8 @@ export class AithemaSession extends HTMLElement {
   }
   #creditsChanged() {
     if (!this.#host) return;
-    const usedUp = this.#host.usedUp;
+    const usedUp = this.#host.usedUp, recovered = this.#creditWasUsedUp && !usedUp; this.#creditWasUsedUp = usedUp;
+    if (recovered && this.isConnected) void this.#refreshFeatures();
     if (usedUp && this.#rail?.session && !this.#creditEnding) {
       this.#creditEnding = true;
       void this.#rail.close('host-limit');
@@ -1465,7 +1466,7 @@ export class AithemaSession extends HTMLElement {
         if (event.data.paused) this.#deviceController?.abort(); else this.#pausePrompt = false;
         this.#rail.syncPause(event.data.paused);
       }
-      if ((invalidation || consentRevised || event.type === 'session.paused') && this.isConnected) void this.#refreshFeatures();
+      if ((invalidation || consentRevised || ['session.paused', 'identity.state', 'identity.unlocked'].includes(event.type)) && this.isConnected) void this.#refreshFeatures();
       if (event.type === 'turn.final') {
         this.#partials.delete(event.data.id);
         if (event.data.role === 'user') { this.#partials.clear(); this.#failure = false; }

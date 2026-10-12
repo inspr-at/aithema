@@ -9,6 +9,7 @@ import { delimiter, join } from 'node:path';
 import { inflateSync } from 'node:zlib';
 import puppeteer from 'puppeteer-core';
 import { startChild } from '../helpers.js';
+import { samePaint } from './png-pixels.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
 
@@ -22,6 +23,21 @@ async function browserPath() {
 const shadow = (page, fn, ...args) => page.$eval('aithema-session', fn, ...args);
 const until = (page, fn, arg) => page.waitForFunction(fn, { polling: 50, timeout: 30_000 }, arg);
 const settle = () => new Promise(resolve => setTimeout(resolve, 120));
+
+async function mockIdentityReads(page) {
+  await page.evaluateOnNewDocument(() => {
+    const original = window.fetch.bind(window);
+    window.fetch = async (url, init = {}) => {
+      const path = new URL(url, location.href).pathname, identity = document.querySelector('aithema-session')?.session?.identity;
+      if ((init.method ?? 'GET') === 'GET' && identity) {
+        if (path.endsWith('/identity')) return Response.json({ identity, delivery: true, privacyDocumentConfigured: false });
+        if (path === '/api/visitor/email') return Response.json({ visitor: { address: identity.address ?? null }, notice: { version: 'ait-135-v1', deliveryEnabled: true }, privacyDocumentConfigured: false });
+      }
+      return original(url, init);
+    };
+  });
+}
+
 const boxes = (page, selectors) => shadow(page, (c, selectors) => selectors.map(selector => {
   const r = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
 }), selectors);
@@ -186,12 +202,12 @@ test('AIT-147 Settings footer wraps without moving controls: verification off/un
   t.after(() => browser.close());
   const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], checks = [];
   if (evidence) await mkdir(evidence, { recursive: true });
-  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await mockIdentityReads(page); await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
   await shadow(page, c => { globalThis.footerSeed = c.session; });
   const expected = {
-    de: 'Allgemein · Hier können Sie ein neues Gespräch beginnen, die Einwilligung und Ihre Voreinstellungen prüfen und Ihre E-Mail bestätigen.',
-    en: 'General · Start a new conversation, review consent and your defaults, and verify your email.',
+    de: 'Allgemein · Hier können Sie ein neues Gespräch beginnen, die Einwilligung und Ihre Voreinstellungen prüfen und Ihre E-Mail-Adresse bestätigen.',
+    en: 'General · Start a new conversation, review consent and your defaults, and confirm your email address.',
   };
   const general = {
     de: 'Allgemein · Hier können Sie ein neues Gespräch beginnen sowie die Einwilligung und Ihre Voreinstellungen prüfen.',
@@ -233,7 +249,7 @@ test('AIT-147 Settings footer wraps without moving controls: verification off/un
       assert.equal(displacement, 0, `${context}: control displacement stays 0 px`);
       assert.equal(geometry.emailShown, verification, context);
       assert.equal(geometry.verifyButtonShown, needsVerification, context);
-      assert.equal(geometry.text, needsVerification ? expected[locale] : general[locale], context);
+      assert.equal(geometry.text, state === 'verified' ? { de, en }[locale].help.generalEmailManage : needsVerification ? expected[locale] : general[locale], context);
       assert.equal(geometry.fontStyle, 'normal'); assert.notEqual(geometry.textOverflow, 'ellipsis');
       assert.ok(geometry.scrollWidth <= geometry.clientWidth + 1, context);
       for (const line of geometry.lines) {
@@ -268,7 +284,7 @@ test('AIT-131 r3 Settings email states and verification focus: DE/EN, 1440/390, 
   t.after(async () => { await browser.close(); await demo.kill(); });
   const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], checks = [];
   if (evidence) await mkdir(evidence, { recursive: true });
-  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await mockIdentityReads(page); await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
   await shadow(page, c => { globalThis.emailSeed = c.session; });
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 390]) for (const state of ['unverified', 'pending', 'verified']) {
@@ -761,7 +777,7 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
           }
           await writeFile(join(evidence, `r3-consent-geometry-${width}-${theme}-${locale}.json`), JSON.stringify({ single, consent: label }, null, 2));
         }
-        assert.ok(painted.equals(clear), `${width}/${theme}/${locale}: no flank pixel under the rendered text`);
+        assert.ok(samePaint(painted, clear), `${width}/${theme}/${locale}: no flank pixel under the rendered text`);
       }
     });
     for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {

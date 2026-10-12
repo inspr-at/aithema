@@ -12,7 +12,7 @@ const CHECK = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" strok
 export const POLL_MS = 4000;
 
 export class Verification {
-  #email; #creditsChanged;
+  #email; #creditsChanged; #identityGeneration = 0;
   #copy; #request; #status; #onChange; #focusAfterUnlock; #pollMs; #root; #notice; #beforeOpen; #focusReturn;
   #identity = null; #at = 0; #ui = { editing: false, busy: false, message: '', error: false };
   #forms = []; #entry; #lock; #dialog; #opener = null; #tick = null; #poll = null; #alive = true; #connected = false; #locked = false;
@@ -25,7 +25,7 @@ export class Verification {
     this.#creditsChanged = creditsChanged;
     this.#email = new VisitorEmail({ root, entry, copy, request, demo, delivery, privacyDocumentConfigured, handover, locale,
       openDialog: opener => this.openDialog(opener), changed: async ({ refresh }) => {
-        if (refresh) { this.#identity = structuredClone(this.#email.identity); await this.#creditsChanged?.(); }
+        if (refresh) { this.#identityGeneration++; this.#identity = structuredClone(this.#email.identity); await this.#creditsChanged?.(); }
         this.#paint(); this.#onChange?.({ saved: refresh });
       } });
     this.#mountLock(); this.#mountDialog();
@@ -51,17 +51,19 @@ export class Verification {
   get locked() { return this.enabled && this.#identity.verificationRequired === true && this.#identity.assessmentUnlocked !== true; }
   get identity() { return this.#identity ? structuredClone(this.#identity) : null; }
   async load() {
+    const generation = this.#identityGeneration;
     try {
       const response = await this.#request('identity');
       if (this.#alive && response.ok && response.body?.identity) {
         this.#email.set({ ...(typeof response.body.delivery === 'boolean' ? { delivery: response.body.delivery } : {}),
           ...(typeof response.body.privacyDocumentConfigured === 'boolean' ? { privacyDocumentConfigured: response.body.privacyDocumentConfigured } : {}) });
-        this.set(response.body.identity);
+        if (generation === this.#identityGeneration) this.set(response.body.identity);
       }
     } catch { /* No identity port: the entry stays away. */ }
+    const visitorGeneration = this.#identityGeneration;
     try {
       const response = await this.#request('/api/visitor/email');
-      if (this.#alive && response.ok && response.body?.visitor) {
+      if (this.#alive && visitorGeneration === this.#identityGeneration && response.ok && response.body?.visitor) {
         this.#email.set({ visitor: response.body.visitor, notice: response.body.notice,
           ...(typeof response.body.notice?.deliveryEnabled === 'boolean' ? { delivery: response.body.notice.deliveryEnabled } : {}),
           ...(typeof response.body.privacyDocumentConfigured === 'boolean' ? { privacyDocumentConfigured: response.body.privacyDocumentConfigured } : {}) });
@@ -74,6 +76,7 @@ export class Verification {
   get delivery() { return this.#email.delivery; }
   get canCollect() { return this.#email.canCollect; }
   set(identity, { quiet = false } = {}) {
+    this.#identityGeneration++;
     const before = this.#identity;
     this.#identity = identity && !identity.erased ? structuredClone(identity) : null; this.#at = Date.now();
     this.#email.set({ identity: this.#identity,

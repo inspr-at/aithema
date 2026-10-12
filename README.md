@@ -2171,6 +2171,11 @@ privacy exemption retains its local fake-mail flow. Delivery saves the address
 with the versioned notice before requesting its confirmation link, so pending
 addresses receive the given tier. Equal allowances and disabled confirmation
 never promise extra credit. No sample address or allowance is rendered by the UI.
+An exhausted visible app rechecks its read-only wallet every 15 seconds, so a CLI
+allowance increase can restore it without a reload. Recovery and identity events
+refresh authoritative feature verdicts; a stale budget denial cannot keep the
+composer disabled after the host grants coverage. Hidden and detached apps stop
+those wallet checks.
 
 Hosts with delivery retain the existing request/send/confirm flow, including
 30-minute tokens, resend cooldown and five-attempt limit. Tokens are stored only

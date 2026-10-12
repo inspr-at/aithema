@@ -42,6 +42,7 @@ async function fixture(page, locale, { address = null, spent = 3_450_000, delive
     const visitor = () => ({ address: state.address, tier: current(), limitMicro: allowancesMicro[current()] });
     window.fetch = async (url, init = {}) => {
       const path = new URL(url, location.href).pathname, method = init.method ?? 'GET';
+      if (method === 'GET' && path === `/api/sessions/${c.session.id}`) return Response.json({ ...c.session, featureMatrix: { best: Object.fromEntries(['text', 'analysis', 'voice'].map(key => [key, { available: allowancesMicro[current()] > state.spent, reason: allowancesMicro[current()] > state.spent ? null : 'budget denied' }])) } });
       if (path.endsWith('/credits')) {
         const tier = current(), next = !privacy ? null : !state.address ? 'emailGiven' : delivery && !state.confirmed ? 'emailConfirmed' : null;
         const limitMicro = allowancesMicro[tier];

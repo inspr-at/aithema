@@ -15,7 +15,7 @@ export const defaultCreditFormat = formatCredits;
 export class HostSurface {
   #root; #copy; #options; #base; #token; #session; #status; #adopt; #view; #alive = true; #connected = false;
   #verification = null; #library = null; #offer = null; #handover = null; #requesting = false; #limit = null;
-  #credits = null; #creditsLoad = 0; #creditsTimer = null; #ended = null;
+  #credits = null; #creditsLoad = 0; #creditsTimer = null; #creditsPoll = null; #ended = null;
   #menu = null; #openSettings; #onCredits; #creditEnding;
   /**
    * options: {library, verification, handover, credits: true | {format(micro, locale)}, locale()}.
@@ -79,12 +79,16 @@ export class HostSurface {
     this.#menu?.connect();
     void this.#verification?.load(); this.#verification?.connect();
     if (this.#options.handover && this.#offer === null) void this.#loadHandover();
-    if (this.#options.credits) { void this.#loadCredits(); }
+    if (this.#options.credits) {
+      void this.#loadCredits(); clearInterval(this.#creditsPoll);
+      this.#creditsPoll = setInterval(() => { if (this.#alive && this.#connected && this.usedUp && this.#root.ownerDocument.visibilityState !== 'hidden') void this.#loadCredits(); }, 15_000);
+      this.#creditsPoll.unref?.();
+    }
   }
   disconnect() {
     this.#connected = false; this.#verification?.disconnect();
     this.#menu?.disconnect();
-    clearTimeout(this.#creditsTimer); this.#creditsTimer = null;
+    clearTimeout(this.#creditsTimer); this.#creditsTimer = null; clearInterval(this.#creditsPoll); this.#creditsPoll = null;
   }
   destroy() { this.#alive = false; this.disconnect(); this.#verification?.destroy(); this.#library?.destroy(); this.#menu?.destroy(); }
   /** Durable host events (already applied to the session projection) and the turns that change balances. */
