@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { request as httpRequest } from 'node:http';
 import { createCompletionsHandler, bearerMatches, MAX_COMPLETION_REQUEST_BYTES } from '../src/facade.js';
-import { beginInvocation, PluginError } from '../../../packages/core/src/invocation.js';
+import { beginInvocation, normalizedError, PluginError } from '../../../packages/core/src/invocation.js';
 import { operationScope } from '../../../packages/core/src/reasoning.js';
 import { invocationOptions, flush } from './fixtures.js';
 import { SQLiteStorage, createPluginRuntime } from '../../../packages/server/src/index.js';
@@ -56,7 +56,7 @@ const grantFor = ({ scope, consentRevision }) => ({ covered: true, ...scope, sco
   checkedAt: Date.now(), expiresAt: Date.now() + 10_000 });
 
 function facadeFixture({ mode = 'normal', paused = false, deadlineAt = Date.now() + 5000, timeoutMs = 1000,
-  admissionOptions = {}, maxRequestBytes, staticSecretRef, ports = {}, log } = {}) {
+  admissionOptions = {}, pluginTimeoutMs = Infinity, maxRequestBytes, staticSecretRef, ports = {}, log } = {}) {
   const call = { callId: 'call_facade', providerSessionId: 'conv_facade', facadeSecretRef: 'fixture-per-call-ref', paused,
     ...(staticSecretRef ? { facadeCallId: 'call_facade' } : {}),
     spendDeadlineAt: deadlineAt, browserLivenessDeadlineAt: deadlineAt };
@@ -69,7 +69,8 @@ function facadeFixture({ mode = 'normal', paused = false, deadlineAt = Date.now(
       assert.equal(callId, call.callId); admissions.push(request);
       const invocation = invocationOptions({ ...options, ...admissionOptions }); optionsList.push(invocation);
       const plugin = { async *stream(input, opts) {
-        const accounting = await beginInvocation(opts); const scope = operationScope(opts); let completed = false;
+        const accounting = await beginInvocation(opts);
+        const scope = operationScope({ ...opts, deadlineAt: Math.min(opts.deadlineAt, Date.now() + pluginTimeoutMs) }); let completed = false;
         try {
           scope.signal.throwIfAborted(); accounting.dispatch(); upstream.push(input);
           if (mode === 'first-broken') throw new Error('fixture-per-call-secret must not escape');
@@ -83,7 +84,8 @@ function facadeFixture({ mode = 'normal', paused = false, deadlineAt = Date.now(
           // The broken fixture withholds usage too: AIT-97 cancels known usage, retaining uncertainty only without usage.
           if (mode !== 'omit-report') accounting.usage({ inputTokens: 13, outputTokens: 2 });
           completed = true;
-        } finally { scope.dispose(); if (mode !== 'omit-report') await accounting.finish(completed); }
+        } catch (error) { throw normalizedError(error, scope.signal); }
+        finally { scope.dispose(); if (mode !== 'omit-report') await accounting.finish(completed); }
       } };
       return { plugin, options: invocation, finish() {
         if (mode === 'finish-broken') throw new Error('fixture-per-call-secret settlement failed');
@@ -204,12 +206,16 @@ for (const [name, status, error, authorization, sent] of [
   assert.equal(local.admissions.length, 0); assert.equal(local.logs.length, 1);
   assert.equal(JSON.parse(local.logs[0]).errorCode, error);
 });
-test('AIT-130: stalled body reads and cancellation hooks cannot outlive the facade deadline', async () => {
+test('AIT-130: stalled body reads and cancellation hooks cannot outlive the facade deadline', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
+  const entered = Promise.withResolvers();
   const local = facadeFixture({ timeoutMs: 30 }); let cancelled = false;
-  const body = new ReadableStream({ pull() { return new Promise(() => {}); },
+  const body = new ReadableStream({ pull() { entered.resolve(); return new Promise(() => {}); },
     cancel() { cancelled = true; return new Promise(() => {}); } }, { highWaterMark: 0 });
   const request = new Request(local.request().url, { method: 'POST', headers: local.request().headers, body, duplex: 'half' });
-  const response = await local.handler(request);
+  const pending = local.handler(request); await entered.promise;
+  t.mock.timers.tick(29); await flush(); assert.equal(cancelled, false); assert.equal(local.logs.length, 0);
+  t.mock.timers.tick(1); const response = await pending;
   assert.equal(response.status, 504); assert.deepEqual(await response.json(), { error: 'deadline' });
   assert.equal(cancelled, true); assert.equal(body.locked, false); assert.equal(local.admissions.length, 0);
   assert.equal(local.logs.length, 1); assert.equal(JSON.parse(local.logs[0]).errorCode, 'deadline');
@@ -359,20 +365,32 @@ test('cancelling a stalled streamed response aborts reasoning and reports uncert
   assert.equal(local.optionsList[0].reports.length, 1); assert.equal(local.optionsList[0].reports[0].outcome, 'uncertain');
   assert.equal(local.logs.length, 1); assert.equal(JSON.parse(local.logs[0]).errorCode, 'cancelled');
 });
-test('facade deadline and unused response each settle a delegated attempt once', async () => {
+test('facade deadline and unused response each settle a delegated attempt once', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
   const local = facadeFixture({ mode: 'stall', timeoutMs: 50 }), response = await local.handler(local.request());
-  await streamError(response, 'deadline');
+  const pending = streamError(response, 'deadline'); await flush();
+  t.mock.timers.tick(49); await flush();
+  assert.equal(local.optionsList[0].reports.length, 0); assert.equal(local.logs.length, 0);
+  t.mock.timers.tick(1); await pending;
   assert.equal(local.logs.length, 1); assert.equal(JSON.parse(local.logs[0]).errorCode, 'deadline');
   assert.equal(local.optionsList[0].reports.length, 1); assert.equal(local.optionsList[0].reports[0].outcome, 'uncertain');
-  const unused = facadeFixture({ timeoutMs: 40 }); await unused.handler(unused.request());
-  await new Promise(resolve => setTimeout(resolve, 70));
+  const unused = facadeFixture({ timeoutMs: 40 }), unread = await unused.handler(unused.request());
+  t.mock.timers.tick(39); await flush();
+  assert.equal(unused.optionsList[0].reports.length, 0); assert.equal(unused.logs.length, 0);
+  t.mock.timers.tick(1); await flush();
   assert.equal(unused.optionsList[0].reports.length, 1); assert.equal(unused.optionsList[0].reports[0].outcome, 'uncertain');
   assert.equal(unused.logs.length, 1); assert.equal(JSON.parse(unused.logs[0]).errorCode, 'deadline');
+  await streamError(unread, 'deadline'); assert.equal(unused.optionsList[0].reports.length, 1); assert.equal(unused.logs.length, 1);
 });
-test('call lifetime deadline also bounds a delegated response even when facade timeout is longer', async () => {
+test('call lifetime deadline also bounds a delegated response even when facade timeout is longer', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
   const local = facadeFixture({ mode: 'stall', deadlineAt: Date.now() + 35, timeoutMs: 1000 });
-  const response = await local.handler(local.request()); await streamError(response, 'deadline');
+  const response = await local.handler(local.request()), pending = streamError(response, 'deadline'); await flush();
+  t.mock.timers.tick(34); await flush();
+  assert.equal(local.optionsList[0].reports.length, 0); assert.equal(local.logs.length, 0);
+  t.mock.timers.tick(1); await pending;
   assert.equal(local.optionsList[0].reports.length, 1); assert.equal(local.optionsList[0].reports[0].outcome, 'uncertain');
+  assert.equal(local.logs.length, 1); assert.equal(JSON.parse(local.logs[0]).errorCode, 'deadline');
 });
 test('call closure signal cancels an active delegated response and refuses later callbacks', async () => {
   const local = facadeFixture({ mode: 'stall' }), controller = new AbortController(); local.call.signal = controller.signal;
@@ -439,29 +457,56 @@ test('facade runtime admission requires authoritative consent and an owned sessi
     assert.equal(local.upstream.length, 0); assert.equal(local.queries.length, 0); assert.equal(local.rows().length, 0);
   }
 });
-test('facade preserves the admission cancellation signal and earlier deadline', async () => {
+test('facade preserves the admission cancellation signal and earlier deadline', async t => {
+  // Freeze admission time too: only advance after the response has reached the phase under test.
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
   const controller = new AbortController(), cancelled = facadeFixture({ mode: 'stall', admissionOptions: { signal: controller.signal } });
   const response = await cancelled.handler(cancelled.request()), pending = streamError(response, 'cancelled'); await flush(); controller.abort();
   await pending; assert.equal(cancelled.optionsList[0].reports.length, 1);
   assert.equal(cancelled.optionsList[0].reports[0].outcome, 'uncertain');
+  assert.equal(cancelled.logs.length, 1); assert.equal(JSON.parse(cancelled.logs[0]).errorCode, 'cancelled');
   const expired = facadeFixture({ mode: 'stall', admissionOptions: { deadlineAt: Date.now() + 40 } });
-  const bounded = await expired.handler(expired.request()); await streamError(bounded, 'deadline');
+  const bounded = await expired.handler(expired.request()), deadline = streamError(bounded, 'deadline'); await flush();
+  t.mock.timers.tick(39); await flush();
+  assert.equal(expired.optionsList[0].reports.length, 0); assert.equal(expired.logs.length, 0);
+  t.mock.timers.tick(1); await deadline;
   assert.equal(expired.optionsList[0].reports.length, 1); assert.equal(expired.optionsList[0].reports[0].outcome, 'uncertain');
+  assert.equal(expired.logs.length, 1); assert.equal(JSON.parse(expired.logs[0]).errorCode, 'deadline');
   const unused = facadeFixture({ mode: 'stall', admissionOptions: { deadlineAt: Date.now() + 30 } });
-  const unread = await unused.handler(unused.request()); await new Promise(resolve => setTimeout(resolve, 60));
+  const unread = await unused.handler(unused.request());
+  t.mock.timers.tick(29); await flush();
+  assert.equal(unused.optionsList[0].reports.length, 0); assert.equal(unused.logs.length, 0);
+  t.mock.timers.tick(1); await flush();
   assert.equal(unused.logs.length, 1); assert.equal(JSON.parse(unused.logs[0]).errorCode, 'deadline');
-  await streamError(unread, 'deadline'); assert.equal(unused.optionsList[0].reports.length, 1);
+  assert.equal(unused.optionsList[0].reports.length, 1); assert.equal(unused.optionsList[0].reports[0].outcome, 'uncertain');
+  await streamError(unread, 'deadline'); assert.equal(unused.optionsList[0].reports.length, 1); assert.equal(unused.logs.length, 1);
 });
-test('AIT-130: delayed nonstream completion cannot return success past the admission deadline', async () => {
+test('facade preserves a plugin-local deadline before the invocation lifetime expires', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
+  const local = facadeFixture({ mode: 'stall', pluginTimeoutMs: 10 });
+  const response = await local.handler(local.request()), pending = streamError(response, 'deadline'); await flush();
+  t.mock.timers.tick(9); await flush();
+  assert.equal(local.optionsList[0].reports.length, 0); assert.equal(local.logs.length, 0);
+  t.mock.timers.tick(1); await pending;
+  assert.equal(local.optionsList[0].reports.length, 1); assert.equal(local.optionsList[0].reports[0].outcome, 'uncertain');
+  assert.equal(local.logs.length, 1); assert.equal(JSON.parse(local.logs[0]).errorCode, 'deadline');
+});
+test('AIT-130: delayed nonstream completion cannot return success past the admission deadline', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 1_000_000 });
+  const entered = Promise.withResolvers(), completion = Promise.withResolvers();
   let completions = 0;
   const local = facadeFixture({ admissionOptions: { deadlineAt: Date.now() + 100 }, ports: {
-    async onCompletion() { completions++; await new Promise(resolve => setTimeout(resolve, 150)); },
+    async onCompletion() { completions++; entered.resolve(); await completion.promise; },
   } });
-  const response = await local.handler(local.request({ stream: false }));
+  const pending = local.handler(local.request({ stream: false })); await entered.promise;
+  t.mock.timers.tick(99); await flush(); assert.equal(local.logs.length, 0);
+  t.mock.timers.tick(1); const response = await pending;
   assert.equal(completions, 1); assert.equal(response.status, 504);
   assert.deepEqual(await response.json(), { error: 'deadline' });
   assert.equal(local.optionsList[0].reports.length, 1); assert.equal(local.logs.length, 1);
   assert.equal(JSON.parse(local.logs[0]).errorCode, 'deadline');
+  completion.resolve(); await flush();
+  assert.equal(local.optionsList[0].reports.length, 1); assert.equal(local.logs.length, 1);
 });
 test('AIT-130: admission cancellation while nonstream completion awaits cannot return success', async () => {
   const controller = new AbortController(); let completions = 0;
