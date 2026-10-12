@@ -46,6 +46,19 @@ test('AIT-140: a quick pass on the orb never opens the reveal', t => {
   const f = fixture(t); f.event(f.orb.element, 'mouseenter'); f.advance(200); f.event(f.orb.element, 'mouseleave'); f.advance(1000); assert.equal(f.state(), 'closed');
 });
 
+test('AIT-140: assistive activation opens without DOM focus and is removed on destroy', t => {
+  const f = fixture(t); const before = f.document.activeElement;
+  f.orb.element.click(); assert.equal(f.state(), 'open'); assert.equal(f.document.activeElement, before);
+  assert.equal(f.orb.element.getAttribute('aria-expanded'), 'true'); assert.ok(f.controls.every(node => node.inert));
+  f.reveal.destroy(); f.orb.element.click(); assert.equal(f.band.querySelector('nav'), null); assert.equal(f.timers.size, 0);
+});
+
+test('AIT-140: exit waits for the last control to finish its delayed 800ms return', t => {
+  const f = fixture(t); f.orb.element.focus(); f.reveal.close();
+  f.advance(1161); assert.equal(f.state(), 'exiting'); assert.ok(f.controls.every(node => node.hasAttribute('data-aithema-reveal-control')));
+  f.advance(1); assert.equal(f.state(), 'closed'); assert.ok(f.controls.every(node => !node.inert && !node.hasAttribute('data-aithema-reveal-control')));
+});
+
 test('AIT-140: leaving the band cancels pending intent', t => {
   const f = fixture(t); f.event(f.orb.element, 'mouseenter'); f.advance(300); f.event(f.band, 'mouseleave'); f.advance(1000); assert.equal(f.state(), 'closed');
 });
@@ -64,6 +77,7 @@ for (const [locale, copy] of [['en', en], ['de', de]]) test(`AIT-140: focus open
   const row = f.band.querySelector('nav'), links = [...row.querySelectorAll('a')];
   assert.equal(row.inert, false); assert.equal(row.getAttribute('aria-label'), copy.reveal.label);
   assert.deepEqual(links.map(link => [link.querySelector('.aithema-reveal__title').textContent, link.querySelector('.aithema-reveal__subtitle').textContent, link.href.replace(/\/$/u, '')]), copy.reveal.links.map(({ title, subtitle, href }) => [title, subtitle, href]));
+  assert.deepEqual(links.map(link => link.title), copy.reveal.links.map(link => link.subtitle));
   assert.equal(row.querySelector('code').textContent, 'd886da3'); assert.ok(row.textContent.includes('Aithema 2026.10'));
   links[0].focus(); assert.equal(f.root.getRootNode().activeElement, links[0]); assert.equal(f.state(), 'open');
 });

@@ -95,12 +95,79 @@ const freeze = page => page.evaluate(() => {
 });
 const seek = (page, ms) => page.evaluate(ms => { window.timeline.forEach(animation => animation.currentTime = ms); }, ms);
 
+function assertMonotonicRgb(samples, label) {
+  for (let channel = 0; channel < 3; channel++) {
+    const values = samples.map(sample => sample.rgb[channel]), direction = Math.sign(values.at(-1) - values[0]);
+    if (direction === 0) {
+      assert.ok(Math.max(...values) - Math.min(...values) <= 2, `${label}: equal endpoints hide a variation in channel ${channel}: ${values}`);
+    } else {
+      for (let i = 1; i < values.length; i++) assert.ok((values[i] - values[i - 1]) * direction >= -2, `${label}: exit channel ${channel} changed direction at sample ${i}: ${values}`);
+    }
+  }
+}
+
+test('AIT-140: monotonic RGB checks reject excursions with equal endpoints', () => {
+  const samples = values => values.map(value => ({ rgb: [100, value, 100] }));
+  assert.doesNotThrow(() => assertMonotonicRgb(samples([100, 101, 100]), 'quantisation'));
+  assert.doesNotThrow(() => assertMonotonicRgb(samples([100, 150, 200]), 'rising'));
+  assert.doesNotThrow(() => assertMonotonicRgb(samples([200, 150, 100]), 'falling'));
+  assert.throws(() => assertMonotonicRgb(samples([100, 200, 100]), 'excursion'), /equal endpoints/);
+  assert.throws(() => assertMonotonicRgb(samples([100, 80, 100]), 'dip'), /equal endpoints/);
+});
+
+const exitOpacities = page => page.evaluate(() => ({
+  brand_row_opacity: Number(getComputedStyle(window.fixture.band.querySelector('.aithema-reveal__row')).opacity),
+  control_opacities: window.fixture.controls.map(node => Number(getComputedStyle(node).opacity)),
+  proxy_opacities: [...window.fixture.band.querySelectorAll('.aithema-reveal__proxy')].map(node => Number(getComputedStyle(node).opacity)),
+}));
+function assertExitOverlap(sample, label) {
+  if (sample.brand_row_opacity > .25) assert.ok([...sample.control_opacities, ...sample.proxy_opacities].every(value => value <= .25), `${label}: brand and returning controls exceed 25% together: ${JSON.stringify(sample)}`);
+}
+function contrastRatio(foreground, background) {
+  const luminance = channels => channels.map(value => value / 255).map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4).reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0);
+  const a = luminance(foreground), b = luminance(background); return (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
+}
+async function smallTextContrast(page, label) {
+  const targets = await page.evaluate(() => {
+    const { band } = window.fixture;
+    const targets = [...band.querySelectorAll('.aithema-reveal__subtitle,.aithema-reveal__version > *')].filter(node => getComputedStyle(node).display !== 'none').map(node => {
+      const rect = node.getBoundingClientRect(), colour = getComputedStyle(node).color.match(/[\d.]+/g).map(Number);
+      return { text: node.textContent, colour, point: { x: Math.floor(rect.x + rect.width / 2), y: Math.floor(rect.y + rect.height / 2), width: 1, height: 1 } };
+    });
+    band.querySelector('.aithema-reveal__row').style.visibility = 'hidden';
+    band.querySelector('.aithema-reveal__stars')?.style.setProperty('visibility', 'hidden');
+    return targets;
+  });
+  try {
+    for (const target of targets) {
+      target.background_rgb = rgb(Buffer.from(await page.screenshot({ clip: target.point })));
+      const alpha = target.colour[3] ?? 1, foreground = target.colour.slice(0, 3).map((value, i) => alpha * value + (1 - alpha) * target.background_rgb[i]);
+      target.contrast = contrastRatio(foreground, target.background_rgb);
+      assert.ok(target.contrast >= 4.5, `${label}: ${target.text} contrast ${target.contrast.toFixed(2)}:1`);
+    }
+  } finally {
+    await page.evaluate(() => { window.fixture.band.querySelector('.aithema-reveal__row').style.removeProperty('visibility'); window.fixture.band.querySelector('.aithema-reveal__stars')?.style.removeProperty('visibility'); });
+  }
+  return targets;
+}
+async function assertFocusRing(page, label) {
+  const ring = await page.$eval('.orb', node => { const style = getComputedStyle(node); return { visible: node.matches(':focus-visible'), colour: style.outlineColor, width: style.outlineWidth, offset: style.outlineOffset, breathOpacity: getComputedStyle(node.querySelector('.orb__breath')).opacity }; });
+  assert.equal(ring.visible, true, label + ' keyboard focus'); assert.equal(ring.colour, 'rgba(255, 255, 255, 0.7)'); assert.equal(ring.width, '2px'); assert.equal(ring.offset, '-2px'); return ring;
+}
+async function assertCalmUnderline(page, label) {
+  const underline = await page.$eval('.aithema-reveal__link', node => {
+    const title = node.querySelector('.aithema-reveal__title'), style = getComputedStyle(title, '::after');
+    return { duration: style.transitionDuration, transform: style.transform, animations: title.getAnimations({ subtree: true }).filter(animation => animation.playState === 'running').map(animation => animation.transitionProperty) };
+  });
+  assert.equal(underline.duration, '0s', label); assert.equal(underline.transform, 'matrix(1, 0, 0, 1, 0, 0)', label); assert.deepEqual(underline.animations, [], label);
+}
+
 for (const locale of ['de', 'en']) test(`AIT-140 glass orb and reveal evidence: ${locale}, light/dark, 1440/1024/390`, { timeout: 240_000 }, async t => {
   const url = await server(t), evidence = process.env.AITHEMA_EVIDENCE_DIR, executablePath = await browserPath();
   const directory = await mkdtemp(join(tmpdir(), 'aithema-orb-'));
   const browser = await puppeteer.launch({ executablePath, headless: true, userDataDir: directory, env: { PATH:process.env.PATH, HOME:homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
   t.after(() => browser.close()); if (evidence) await mkdir(evidence, {recursive:true});
-  const page = await browser.newPage(), problems = [], colours = [], frames = [];
+  const page = await browser.newPage(), problems = [], colours = [], frames = [], metrics = [], client = await page.createCDPSession();
   page.on('pageerror', error => problems.push(error.message)); page.setDefaultTimeout(30_000);
   for (const theme of ['light','dark']) for (const width of [1440,1024,390]) {
     const label = `${locale}-${theme}-${width}`; await page.setViewport({width,height:width===390?844:900,deviceScaleFactor:1});
@@ -108,6 +175,8 @@ for (const locale of ['de', 'en']) test(`AIT-140 glass orb and reveal evidence: 
     await page.goto(`${url}/?locale=${locale}&theme=${theme}`); await page.waitForFunction(() => window.ready); await page.mouse.move(0,400);
     const shot = async (name, ms) => { if(evidence) await page.screenshot({path:join(evidence,`${label}-${name}.png`),clip:{x:0,y:0,width,height:240}}); frames.push({label,name,animation_ms:ms}); };
     const baseline = await layout(page); assert.equal(await page.$eval('.orb', node => node.getBoundingClientRect().width),40);
+    const edgePoint = await page.$eval('#band', node => ({ x: Math.floor(node.getBoundingClientRect().width / 2), y: Math.round(node.getBoundingClientRect().bottom - parseFloat(getComputedStyle(node, '::after').bottom) + 1), width: 1, height: 1 }));
+    const belowHairline = rgb(Buffer.from(await page.screenshot({ clip: edgePoint })));
     await page.evaluate(() => { const turn=window.fixture.orb.element.querySelector('.orb__prism').getAnimations()[0]; turn.pause(); turn.currentTime=0; }); await shot('orb-rest',0);
     await page.evaluate(() => { window.fixture.orb.element.querySelector('.orb__prism').getAnimations()[0].currentTime=2450; }); await shot('orb-turning',2450);
     await page.evaluate(() => { window.fixture.orb.setVoice('speaking'); window.fixture.orb.setEnergy(.7); window.fixture.orb.element.getAnimations({subtree:true}).forEach(a=>{if(a.animationName?.startsWith('aithema-glass')) {a.pause();a.currentTime=1200;}}); }); await shot('orb-speaking',1200);
@@ -120,29 +189,46 @@ for (const locale of ['de', 'en']) test(`AIT-140 glass orb and reveal evidence: 
     await page.mouse.move(orbBox.x,orbBox.y); await page.waitForFunction(()=>window.fixture.band.dataset.aithemaRevealState==='open',{polling:10}); await freeze(page);
     for(const ms of [0,300,700,1200]) { await seek(page,ms); await shot(`reveal-${ms}ms`,ms); }
     await seek(page,2200); await shot('reveal-open',2200);
-    const anchors=await page.$$eval('.aithema-reveal__link',nodes=>nodes.map(n=>({href:n.href,visible:getComputedStyle(n).opacity,rect:{x:n.getBoundingClientRect().x,right:n.getBoundingClientRect().right,bottom:n.getBoundingClientRect().bottom},title:n.querySelector('.aithema-reveal__title').textContent,subtitleFits:n.querySelector('.aithema-reveal__subtitle').scrollWidth<=n.querySelector('.aithema-reveal__subtitle').clientWidth})));
+    const anchors=await page.$$eval('.aithema-reveal__link',nodes=>nodes.map(n=>{const title=n.querySelector('.aithema-reveal__title'), subtitle=n.querySelector('.aithema-reveal__subtitle'), rect=title.getBoundingClientRect();return {href:n.href,visible:getComputedStyle(n).opacity,rect:{x:n.getBoundingClientRect().x,right:n.getBoundingClientRect().right,bottom:n.getBoundingClientRect().bottom},title:title.textContent,tooltip:n.title,subtitle:subtitle.textContent,subtitleDisplay:getComputedStyle(subtitle).display,titleRect:{x:rect.x,y:rect.y,right:rect.right,height:rect.height,lineHeight:parseFloat(getComputedStyle(title).lineHeight)},subtitleFits:subtitle.scrollWidth<=subtitle.clientWidth};}));
     assert.equal(anchors.length,3); assert.ok(anchors.every(n=>n.visible==='1'&&n.href.startsWith('https://')&&n.rect.right<=width+.5),label+' accessible links fit the band');
     assert.ok(anchors.every(n=>n.subtitleFits),label+' subtitles fit their columns');
+    assert.ok(anchors.every(n=>n.tooltip===n.subtitle),label+' subtitles remain available as link titles');
+    const wordmarkBox=await page.$eval('.aithema-reveal__wordmark',n=>({bottom:n.getBoundingClientRect().bottom})), versionBox=await page.$eval('.aithema-reveal__version',n=>({top:n.getBoundingClientRect().top,right:n.getBoundingClientRect().right}));
+    if(width<600) { assert.ok(anchors.every(n=>n.subtitleDisplay==='none'&&n.titleRect.height<=n.titleRect.lineHeight+.5&&n.titleRect.right<=width),label+' mobile titles only'); assert.ok(anchors.every(n=>Math.abs(n.titleRect.y-anchors[0].titleRect.y)<=.5&&n.titleRect.y>wordmarkBox.bottom),label+' one link row under wordmark'); assert.ok(versionBox.top<anchors[0].titleRect.y&&versionBox.right>=anchors.at(-1).titleRect.right,label+' version at top right'); }
+    const edge=await page.evaluate(()=>{const {band}=window.fixture,fx=band.querySelector('.aithema-reveal__fx'),b=band.getBoundingClientRect();return {hairlineBottom:b.bottom-parseFloat(getComputedStyle(band,'::after').bottom),glassClipBottom:fx.getBoundingClientRect().bottom};});
+    assert.ok(Math.abs(edge.hairlineBottom-edge.glassClipBottom)<=.5,label+' glass ends at hairline');
+    assert.deepEqual(rgb(Buffer.from(await page.screenshot({clip:edgePoint}))),belowHairline,label+' no glass below hairline');
+    if(evidence) { const crop={x:Math.max(0,Math.floor(width/2)-120),y:edge.hairlineBottom-8,width:Math.min(width,240),height:16,scale:3}; const {data}=await client.send('Page.captureScreenshot',{format:'png',clip:crop}); await writeFile(join(evidence,`${label}-glass-bottom-edge-3x.png`),Buffer.from(data,'base64')); }
+    const contrast=await smallTextContrast(page,label); metrics.push({label,edge,anchors,wordmark:wordmarkBox,version:versionBox,small_text_contrast:contrast});
     const bandHeight=await page.$eval('#band',n=>n.getBoundingClientRect().height); assert.ok(anchors.every(n=>n.rect.bottom<=bandHeight),label+' links stay inside');
     // Hold cleanup while advancing genuine CSS transitions in 50ms steps. Every sample is a rendered pixel,
     // not an inferred CSS colour; animation time is independent of screenshot/remote-host latency.
     await page.evaluate(()=>{ const native=window.setTimeout; window.setTimeout=(fn)=>{window.exitCleanup=fn;return 0;}; window.fixture.reveal.close(); window.setTimeout=native; }); await freeze(page);
+    const overlapSamples=[];
+    for(let ms=0;ms<=300;ms+=10) { await seek(page,ms); const sample={ms,...await exitOpacities(page)}; assertExitOverlap(sample,label); overlapSamples.push(sample); }
     const samples=[], samplePoint={x:width-8,y:bandHeight-10,width:1,height:1};
-    for(let ms=0;ms<=900;ms+=50) { await seek(page,ms); const pixel=rgb(Buffer.from(await page.screenshot({clip:samplePoint}))); const opacity=await page.$eval('.aithema-reveal__glass',n=>Number(getComputedStyle(n).opacity)); samples.push({ms,rgb:pixel,glass_opacity:opacity}); if([0,300,700,900].includes(ms)) await shot(`exit-${ms}ms`,ms); }
-    colours.push({label,source:'rendered 1x1 PNG pixels',clock:'paused CSS timeline advanced in exactly 50ms steps',point:samplePoint,samples});
+    for(let ms=0;ms<=900;ms+=50) { await seek(page,ms); const pixel=rgb(Buffer.from(await page.screenshot({clip:samplePoint}))); const opacity=await page.$eval('.aithema-reveal__glass',n=>Number(getComputedStyle(n).opacity)); const sample={ms,rgb:pixel,glass_opacity:opacity,...await exitOpacities(page)}; assertExitOverlap(sample,label); samples.push(sample); if([0,150,300,450,700,900].includes(ms)) await shot(`exit-${ms}ms`,ms); }
+    colours.push({label,source:'rendered 1x1 PNG pixels and computed brand/control opacities',clock:'paused CSS timeline advanced in exactly 50ms steps; overlap also checked every 10ms through 300ms',point:samplePoint,control_labels:await page.evaluate(()=>window.fixture.controls.map(n=>n.getAttribute('aria-label')||n.textContent)),overlap_samples:overlapSamples,samples});
     if(evidence) await writeFile(join(evidence,`exit-colour-samples-${locale}.json`),JSON.stringify(colours,null,2)+'\n');
-    for(let channel=0;channel<3;channel++) { const direction=Math.sign(samples.at(-1).rgb[channel]-samples[0].rgb[channel]); for(let i=1;i<samples.length;i++) assert.ok((samples[i].rgb[channel]-samples[i-1].rgb[channel])*direction>=-2,`${label}: exit channel ${channel} changed direction at ${samples[i].ms}ms: ${JSON.stringify(samples)}`); }
+    assertMonotonicRgb(samples,label);
     for(let i=1;i<samples.length;i++) assert.ok(samples[i].glass_opacity<=samples[i-1].glass_opacity+.0001);
     await seek(page,1500); await page.evaluate(()=>window.exitCleanup()); await shot('exit-restored',1500); assertStill(baseline,await layout(page),label+' after exit');
     assert.ok(await page.evaluate(()=>window.fixture.controls.every(n=>!n.inert&&getComputedStyle(n).opacity==='1'))); assert.equal(await page.$('.aithema-reveal__stars'),null);
     // Explicit motion off is a 200ms opacity-only crossfade with no decorative animation.
-    await page.mouse.move(0,400); await page.evaluate(()=>{window.fixture.orb.setMotion(false);window.fixture.reveal.setMotion(false);window.fixture.orb.setVoice('speaking');window.fixture.orb.element.focus();}); await wait(250); await shot('motion-off-open',200);
+    await page.mouse.move(0,400); await page.evaluate(()=>{window.fixture.orb.setMotion(false);window.fixture.reveal.setMotion(false);window.fixture.orb.setVoice('speaking');}); await page.keyboard.press('Tab'); await wait(250); await shot('motion-off-open',200);
     assert.equal(await page.$('.aithema-reveal__stars'),null);
     const calm=await page.evaluate(()=>{const {band,orb,controls}=window.fixture;return {animations:band.getAnimations({subtree:true}).filter(a=>a.playState==='running').map(a=>({target:a.effect.target.className,name:a.animationName,property:a.transitionProperty})),ring:getComputedStyle(band.querySelector('.aithema-reveal__ring')).display,duration:getComputedStyle(band.querySelector('.aithema-reveal__glass')).transitionDuration,delays:controls.map(n=>getComputedStyle(n).transitionDelay),breath:getComputedStyle(orb.element.querySelector('.orb__body')).animationName};});
     assert.deepEqual(calm.animations,[],label+' calm'); assert.equal(calm.ring,'none'); assert.equal(calm.duration,'0.2s'); assert.ok(calm.delays.every(delay=>delay==='0s')); assert.equal(calm.breath,'none');
+    metrics.at(-1).motion_off_focus=await assertFocusRing(page,label+' calm'); assert.equal(metrics.at(-1).motion_off_focus.breathOpacity,'0');
+    await page.keyboard.press('Tab'); await assertCalmUnderline(page,label+' calm keyboard underline'); await page.hover('.aithema-reveal__link'); await assertCalmUnderline(page,label+' calm hover underline');
     await page.keyboard.press('Escape'); await wait(250); await shot('motion-off-closed',200); assertStill(baseline,await layout(page),label+' calm exit');
+    await page.mouse.move(0,400); await page.evaluate(()=>{window.fixture.orb.setMotion(true);window.fixture.reveal.setMotion(true);window.fixture.orb.setVoice('listening');}); await page.keyboard.press('Enter'); await freeze(page); await seek(page,2200); await shot('keyboard-focus-open',2200); metrics.at(-1).keyboard_focus=await assertFocusRing(page,label);
+    // A host with its hairline at the band's bottom uses the same module, with no hard-coded 6px inset.
+    await page.evaluate(()=>{window.edgeOverride=document.createElement('style');window.edgeOverride.textContent='.band::after { bottom:0; }';document.head.append(window.edgeOverride);window.dispatchEvent(new Event('resize'));});
+    assert.equal(await page.evaluate(()=>window.fixture.band.querySelector('.aithema-reveal__fx').getBoundingClientRect().bottom),bandHeight,label+' host hairline at bottom');
+    await page.evaluate(()=>window.edgeOverride.remove());
   }
-  if(evidence) { await writeFile(join(evidence,`exit-colour-samples-${locale}.json`),JSON.stringify(colours,null,2)+'\n'); await writeFile(join(evidence,`timeline-${locale}.json`),JSON.stringify(frames,null,2)+'\n'); }
+  if(evidence) { await writeFile(join(evidence,`exit-colour-samples-${locale}.json`),JSON.stringify(colours,null,2)+'\n'); await writeFile(join(evidence,`timeline-${locale}.json`),JSON.stringify(frames,null,2)+'\n'); await writeFile(join(evidence,`qa-metrics-${locale}.json`),JSON.stringify(metrics,null,2)+'\n'); }
   assert.deepEqual(problems,[]); t.diagnostic(`${frames.length} frames; ${colours.length*19} rendered colour samples; all exit RGB channels monotonic within 2/255 quantisation tolerance.`);
 });
 
@@ -153,7 +239,8 @@ test('AIT-140: real keyboard navigation, reduced-motion preference, hidden tab a
   await page.goto(`${url}/?locale=en&theme=light&component=1`); await page.waitForFunction(()=>window.ready&&window.component); await wait(250);
   assert.equal(await page.$eval('.orb',n=>n.dataset.orbMotion),'off'); assert.equal(await page.$eval('#band',n=>n.dataset.aithemaRevealMotion),'off');
   await page.keyboard.press('Tab'); assert.equal(await page.$eval('.orb',n=>document.activeElement===n),true); await wait(250);
-  for(const href of ['https://aithema.inspr.at/','https://inspr.at/','https://augmentoring.com/']) {await page.keyboard.press('Tab');assert.equal(await page.evaluate(()=>document.activeElement.href),href);}
+  for(const href of ['https://aithema.inspr.at/','https://inspr.at/','https://augmentoring.com/']) {await page.keyboard.press('Tab');assert.equal(await page.evaluate(()=>document.activeElement.href),href);if(href==='https://aithema.inspr.at/')await assertCalmUnderline(page,'system reduced-motion keyboard underline');}
+  await page.hover('.aithema-reveal__link'); await assertCalmUnderline(page,'system reduced-motion hover underline');
   await page.keyboard.press('Escape'); assert.equal(await page.$eval('.orb',n=>document.activeElement===n),true); await wait(250);
   assert.equal(await page.$eval('#band',n=>n.dataset.aithemaRevealState),'closed');
   await page.keyboard.press('Space'); await wait(250); assert.equal(await page.$eval('#band',n=>n.dataset.aithemaRevealState),'open');
@@ -185,11 +272,11 @@ test('AIT-140: early leave holds the circle; live exit colour samples every 50ms
     for(let ms=0;ms<=900;ms+=50) {
       await wait(Math.max(0,start+ms-performance.now()));
       const before=performance.now(), pixel=rgb(Buffer.from(await page.screenshot({clip:point}))), after=performance.now();
-      samples.push({scheduled_ms:ms,capture_start_ms:Math.round(before-start),capture_end_ms:Math.round(after-start),rgb:pixel});
+      const sample={scheduled_ms:ms,capture_start_ms:Math.round(before-start),capture_end_ms:Math.round(after-start),rgb:pixel,...await exitOpacities(page)}; assertExitOverlap(sample,`${theme}-${width} live`); samples.push(sample);
     }
     records.push({theme,width,clock:'live, unfrozen CSS and ordinary exit cleanup; 50ms schedule with actual capture times',point,circle,samples});
     if(evidence) await writeFile(join(evidence,'exit-colour-samples-live.json'),JSON.stringify(records,null,2)+'\n');
-    for(let channel=0;channel<3;channel++) {const direction=Math.sign(samples.at(-1).rgb[channel]-samples[0].rgb[channel]);for(let i=1;i<samples.length;i++) assert.ok((samples[i].rgb[channel]-samples[i-1].rgb[channel])*direction>=-2,`${theme}-${width} live exit channel ${channel} at ${samples[i].scheduled_ms}ms`);}
+    assertMonotonicRgb(samples,`${theme}-${width} live`);
     await page.waitForFunction(()=>window.fixture.band.dataset.aithemaRevealState==='closed');assert.ok(await page.evaluate(()=>window.fixture.controls.every(n=>!n.inert&&getComputedStyle(n).opacity==='1')));
   }
   t.diagnostic('76 live rendered-pixel colour samples, four early-leave checks; actual capture timestamps retained.');

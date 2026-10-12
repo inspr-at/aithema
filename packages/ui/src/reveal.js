@@ -1,8 +1,9 @@
 // AIT-140: About Aithema. Styles and visual layers belong to this module; the band keeps its layout.
 let nextReveal = 0;
 const css = `
-.aithema-reveal-band > .aithema-reveal__fx { position:absolute; inset:0; overflow:hidden; pointer-events:none; z-index:0; }
-.aithema-reveal__glass { position:absolute; left:calc(var(--ar-x) - var(--ar-radius)); top:calc(var(--ar-y) - var(--ar-radius)); width:calc(var(--ar-radius) * 2); height:calc(var(--ar-radius) * 2); border-radius:50%; background:linear-gradient(to bottom,rgba(14,86,84,.86) var(--ar-top),rgba(18,104,100,.80) var(--ar-bottom)); backdrop-filter:blur(10px) saturate(1.1); transform:scale(0); opacity:0; transition:transform .9s cubic-bezier(.2,.7,.2,1),opacity .85s cubic-bezier(.4,0,.2,1); }
+.aithema-reveal-band > .aithema-reveal__fx { position:absolute; inset:0 0 var(--ar-fx-bottom,0px); overflow:hidden; pointer-events:none; z-index:0; }
+/* White small text clears 4.5:1 even with the warm wash and sheen over light paper. */
+.aithema-reveal__glass { position:absolute; left:calc(var(--ar-x) - var(--ar-radius)); top:calc(var(--ar-y) - var(--ar-radius)); width:calc(var(--ar-radius) * 2); height:calc(var(--ar-radius) * 2); border-radius:50%; background:linear-gradient(to bottom,rgba(10,64,62,.96) var(--ar-top),rgba(12,78,74,.96) var(--ar-bottom)); backdrop-filter:blur(10px) saturate(1.1); transform:scale(0); opacity:0; transition:transform .9s cubic-bezier(.2,.7,.2,1),opacity .85s cubic-bezier(.4,0,.2,1); }
 .aithema-reveal__wash { position:absolute; inset:0; background:radial-gradient(380px 120px at var(--ar-x) 55%,rgba(255,214,160,.18),transparent 72%),linear-gradient(100deg,transparent 28%,rgba(255,255,255,.10) 44%,transparent 60%); box-shadow:inset 0 1px 0 rgba(255,255,255,.16),inset 0 -1px 0 rgba(255,255,255,.08); opacity:0; transition:opacity .85s cubic-bezier(.4,0,.2,1); }
 .aithema-reveal__ring { position:absolute; left:calc(var(--ar-x) - 20px); top:calc(var(--ar-y) - 20px); width:40px; height:40px; border-radius:50%; background:radial-gradient(circle,transparent 56%,rgba(255,255,255,.5) 64%,rgba(255,230,190,.22) 68%,transparent 76%); opacity:0; }
 .aithema-reveal__stars { position:absolute; inset:0; width:100%; height:100%; }
@@ -13,6 +14,7 @@ const css = `
 .aithema-reveal-band[data-aithema-reveal-state="exiting"] .aithema-reveal__glass { transform:scale(var(--ar-open-scale)); opacity:0; transition:opacity .85s cubic-bezier(.4,0,.2,1); }
 .aithema-reveal-band > .aithema-reveal__row { position:absolute; left:var(--ar-row-left,108px); right:var(--ar-row-right,24px); top:0; bottom:6px; display:flex; align-items:center; gap:26px; color:#fff; font-family:var(--aithema-font,var(--ui,system-ui,sans-serif)); white-space:nowrap; opacity:0; pointer-events:none; z-index:3; transition:opacity .5s ease; }
 .aithema-reveal-band[data-aithema-reveal-state="open"] > .aithema-reveal__row { opacity:1; pointer-events:auto; }
+.aithema-reveal-band[data-aithema-reveal-state="exiting"] > .aithema-reveal__row { transition:opacity .3s ease-out; }
 .aithema-reveal__wordmark { position:relative; display:inline-block; overflow:hidden; font:600 24px/1.15 var(--aithema-display,var(--display,Georgia,serif)); letter-spacing:-.025em; color:#fff; }
 .aithema-reveal__wordmark > .aithema-reveal__letter { position:relative; display:inline-block; opacity:0; transform:translateY(9px) scale(.9); transition:opacity .55s,transform .65s cubic-bezier(.2,.9,.25,1.25); transition-delay:calc(120ms + var(--ar-i) * 45ms); }
 .aithema-reveal-band[data-aithema-reveal-state="open"] .aithema-reveal__letter { opacity:1; transform:none; }
@@ -32,23 +34,24 @@ const css = `
 .aithema-reveal__title svg { width:11px; height:11px; color:#ffd59a; }
 .aithema-reveal__link:is(:hover,:focus-visible) .aithema-reveal__title::after { transform:scaleX(1); }
 .aithema-reveal__link:focus-visible { outline:2px solid #ffd59a; outline-offset:3px; border-radius:3px; }
-.aithema-reveal__subtitle { font-size:11.5px; line-height:1.3; color:rgba(255,255,255,.66); }
-.aithema-reveal__version { margin-left:auto; display:grid; justify-items:end; gap:2px; color:rgba(255,255,255,.66); font-size:12.5px; line-height:1.3; font-variant-numeric:tabular-nums; }
+.aithema-reveal__subtitle { font-size:11.5px; line-height:1.3; color:#fff; }
+.aithema-reveal__version { margin-left:auto; display:grid; justify-items:end; gap:2px; color:#fff; font-size:12.5px; line-height:1.3; font-variant-numeric:tabular-nums; }
 .aithema-reveal__version code { font:11px/1.3 var(--aithema-mono,var(--mono,monospace)); color:inherit; }
 .aithema-reveal__rise { opacity:0; transform:translateY(8px); transition:opacity .5s,transform .6s cubic-bezier(.2,.9,.25,1.15); transition-delay:calc(330ms + var(--ar-i) * 85ms); }
 .aithema-reveal-band[data-aithema-reveal-state="open"] .aithema-reveal__rise { opacity:1; transform:none; }
 .aithema-reveal-band[data-aithema-reveal-state="exiting"] :is(.aithema-reveal__letter,.aithema-reveal__rise) { opacity:1; transform:none; transition:none; }
-.aithema-reveal-band [data-aithema-reveal-control] { opacity:var(--ar-opacity,1); transform:var(--ar-transform,none); transition:opacity .7s cubic-bezier(.2,.7,.2,1),transform .8s cubic-bezier(.2,.7,.2,1); transition-delay:calc(160ms + var(--ar-delay,0ms) * .55); }
+.aithema-reveal-band [data-aithema-reveal-control] { opacity:var(--ar-opacity,1); transform:var(--ar-transform,none); transition:opacity .7s cubic-bezier(.2,.7,.2,1),transform .8s cubic-bezier(.2,.7,.2,1); transition-delay:calc(220ms + var(--ar-delay,0ms) * .55); }
 .aithema-reveal-band[data-aithema-reveal-state="open"] [data-aithema-reveal-control] { opacity:0; transform:translateX(14px) scale(.94); pointer-events:none; transition:opacity .32s ease-in,transform .38s ease-in; transition-delay:var(--ar-delay,0ms); }
 /* A fixed 7px blur on a short-lived visual copy gives the approved dissolve without animating filters. */
 .aithema-reveal-band > .aithema-reveal__dissolves { position:absolute; inset:0; pointer-events:none; overflow:hidden; z-index:2; }
-.aithema-reveal__proxy { position:absolute !important; margin:0 !important; opacity:0; pointer-events:none !important; filter:blur(7px); animation:aithema-reveal-return .8s calc(160ms + var(--ar-delay) * .55) cubic-bezier(.2,.7,.2,1) both; }
+.aithema-reveal__proxy { position:absolute !important; margin:0 !important; opacity:0; pointer-events:none !important; filter:blur(7px); animation:aithema-reveal-return .8s calc(220ms + var(--ar-delay) * .55) cubic-bezier(.2,.7,.2,1) both; }
 .aithema-reveal-band[data-aithema-reveal-state="open"] .aithema-reveal__proxy { animation:aithema-reveal-dissolve .38s var(--ar-delay) ease-in both; }
 @keyframes aithema-reveal-dissolve { 0% { opacity:0; transform:none; } 35% { opacity:.4; } 100% { opacity:0; transform:translateX(14px) scale(.94); } }
 @keyframes aithema-reveal-return { 0% { opacity:0; transform:translateX(14px) scale(.94); } 30% { opacity:.25; } 100% { opacity:0; transform:none; } }
 .aithema-reveal-band[data-aithema-reveal-paused] :is(.aithema-reveal__ring,.aithema-reveal__glint,.aithema-reveal__glint > span,.aithema-reveal__proxy) { animation-play-state:paused; }
 .aithema-reveal-band[data-aithema-reveal-motion="off"] :is(.aithema-reveal__ring,.aithema-reveal__stars,.aithema-reveal__glint,.aithema-reveal__dissolves) { display:none; animation:none !important; }
 .aithema-reveal-band[data-aithema-reveal-motion="off"] .aithema-reveal__letter::after { display:none; animation:none !important; }
+.aithema-reveal-band[data-aithema-reveal-motion="off"] .aithema-reveal__title::after { transition:none; }
 .aithema-reveal-band[data-aithema-reveal-motion="off"] :is(.aithema-reveal__glass,.aithema-reveal__wash,.aithema-reveal__row,.aithema-reveal__letter,.aithema-reveal__rise,[data-aithema-reveal-control]) { transition:opacity .2s ease !important; transition-delay:0s !important; animation:none !important; }
 .aithema-reveal-band[data-aithema-reveal-motion="off"] .aithema-reveal__glass { transform:scale(var(--ar-open-scale)); }
 .aithema-reveal-band[data-aithema-reveal-motion="off"] :is(.aithema-reveal__letter,.aithema-reveal__rise) { transform:none; opacity:1; }
@@ -62,6 +65,10 @@ const css = `
   .aithema-reveal__title { font-size:12px; }
   .aithema-reveal__subtitle { font-size:10px; overflow-wrap:anywhere; }
   .aithema-reveal__link:first-of-type .aithema-reveal__subtitle { white-space:nowrap; }
+}
+@media(max-width:599px) {
+  .aithema-reveal-band > .aithema-reveal__row { grid-template-columns:max-content max-content minmax(0,1fr); gap:6px 12px; white-space:nowrap; }
+  .aithema-reveal__subtitle { display:none; }
 }
 `;
 
@@ -85,7 +92,7 @@ export function createReveal({ band, orb, controls = [], links, version = {}, co
   const separator = document.createElement('span'); separator.className = 'aithema-reveal__separator'; separator.setAttribute('aria-hidden', 'true'); row.append(wordmark, separator);
   (links ?? text.links ?? []).forEach((link, index) => {
     const url = new URL(link.href, document.baseURI); if (!['http:', 'https:'].includes(url.protocol)) throw new TypeError('Reveal links must use HTTP or HTTPS');
-    const anchor = document.createElement('a'); anchor.href = url.href; anchor.className = 'aithema-reveal__link aithema-reveal__rise'; anchor.style.setProperty('--ar-i', index + 1);
+    const anchor = document.createElement('a'); anchor.href = url.href; anchor.title = link.subtitle ?? ''; anchor.className = 'aithema-reveal__link aithema-reveal__rise'; anchor.style.setProperty('--ar-i', index + 1);
     const title = document.createElement('span'); title.className = 'aithema-reveal__title'; title.textContent = link.title;
     title.insertAdjacentHTML('beforeend', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17 17 7M9 7h8v8"/></svg>');
     const subtitle = document.createElement('span'); subtitle.className = 'aithema-reveal__subtitle'; subtitle.textContent = link.subtitle; anchor.append(title, subtitle); row.append(anchor);
@@ -113,18 +120,20 @@ export function createReveal({ band, orb, controls = [], links, version = {}, co
   // All geometry/style reads precede writes. Sparks reuse this snapshot, never measure on a frame.
   const measure = () => {
     const b = band.getBoundingClientRect(), r = trigger.getBoundingClientRect();
+    // The host owns the hairline. Clip all glass effects at its lower edge, including an inset line.
+    const bottom = Math.max(0, parseFloat(view.getComputedStyle(band, '::after').bottom) || 0), height = Math.max(0, b.height - bottom);
     const x = r.left + r.width / 2 - b.left, y = r.top + r.height / 2 - b.top;
     const sizes = items.map(node => {
       const rect = node.getBoundingClientRect(), style = view.getComputedStyle(node);
       const visual = ['display', 'align-items', 'justify-content', 'gap', 'padding', 'border', 'border-radius', 'background', 'color', 'font', 'line-height', 'box-shadow'].map(name => [name, style.getPropertyValue(name)]);
       return { node, rect, opacity: style.opacity, transform: style.transform, visual };
     });
-    const radius = Math.max(1, Math.hypot(x, y), Math.hypot(b.width - x, y), Math.hypot(x, b.height - y), Math.hypot(b.width - x, b.height - y));
+    const radius = Math.max(1, Math.hypot(x, y), Math.hypot(b.width - x, y), Math.hypot(x, height - y), Math.hypot(b.width - x, height - y));
     // Match the reference's 2400px circle without allocating a 4800px backing element.
     const openRadius = Math.max(2400, radius);
-    geometry = { x, y, left: b.left, top: b.top, width: b.width, height: b.height, sizes, radius };
-    Object.entries({ '--ar-x': `${x}px`, '--ar-y': `${y}px`, '--ar-radius': `${radius}px`, '--ar-open-scale': openRadius / radius, '--ar-ring-scale': 70,
-      '--ar-top': `${(openRadius - y) / (2 * openRadius) * 100}%`, '--ar-bottom': `${(openRadius - y + b.height) / (2 * openRadius) * 100}%`,
+    geometry = { x, y, left: b.left, top: b.top, width: b.width, height, sizes, radius };
+    Object.entries({ '--ar-x': `${x}px`, '--ar-y': `${y}px`, '--ar-radius': `${radius}px`, '--ar-open-scale': openRadius / radius, '--ar-ring-scale': 70, '--ar-fx-bottom': `${bottom}px`,
+      '--ar-top': `${(openRadius - y) / (2 * openRadius) * 100}%`, '--ar-bottom': `${(openRadius - y + height) / (2 * openRadius) * 100}%`,
       '--ar-row-left': `${r.right - b.left + 14}px`, '--ar-row-right': `${b.width < 760 ? 14 : 24}px` }).forEach(([name, value]) => setVariable(name, value));
   };
   const restoreControls = () => {
@@ -196,7 +205,7 @@ export function createReveal({ band, orb, controls = [], links, version = {}, co
     exitTimer = 0; if (phase !== 'exiting' || destroyed) return;
     restoreControls(); stopParticles(true); setPhase('closed'); glass.style.transform = ''; paused.clear();
   };
-  const exitDuration = () => moving() ? Math.max(850, ...[...saved.values()].map(({ delay }) => 960 + delay * .55)) : 200;
+  const exitDuration = () => moving() ? Math.max(850, ...[...saved.values()].map(({ delay }) => 1020 + delay * .55)) : 200;
   const close = () => {
     cancelIntent(); if (destroyed || phase !== 'open') return;
     // Early leave holds the actual circle too. Expanding it to the final radius here would flash teal.
@@ -240,7 +249,7 @@ export function createReveal({ band, orb, controls = [], links, version = {}, co
     else if (event.composedPath().includes(trigger) && ['Enter', ' '].includes(event.key)) { event.preventDefault(); open(); }
   };
   const resize = () => { if (phase === 'open') { measure(); stopParticles(true); startParticles(); } };
-  trigger.addEventListener('mouseenter', enter); trigger.addEventListener('mouseleave', cancelIntent); trigger.addEventListener('focus', focus);
+  trigger.addEventListener('mouseenter', enter); trigger.addEventListener('mouseleave', cancelIntent); trigger.addEventListener('focus', focus); trigger.addEventListener('click', open);
   band.addEventListener('mouseleave', close); band.addEventListener('focusout', blur); document.addEventListener('keydown', keydown);
   document.addEventListener('visibilitychange', visibility); view.addEventListener('resize', resize); preference?.addEventListener('change', syncMotion);
   syncMotion(); visibility();
@@ -249,7 +258,7 @@ export function createReveal({ band, orb, controls = [], links, version = {}, co
     setMotion(on) { if (!destroyed) { requested = Boolean(on); syncMotion(); } },
     destroy() {
       if (destroyed) return; if (row.contains(active())) focusOrb(); destroyed = true; cancelIntent(); view.clearTimeout(exitTimer); stopParticles(true); restoreControls();
-      trigger.removeEventListener('mouseenter', enter); trigger.removeEventListener('mouseleave', cancelIntent); trigger.removeEventListener('focus', focus);
+      trigger.removeEventListener('mouseenter', enter); trigger.removeEventListener('mouseleave', cancelIntent); trigger.removeEventListener('focus', focus); trigger.removeEventListener('click', open);
       band.removeEventListener('mouseleave', close); band.removeEventListener('focusout', blur); document.removeEventListener('keydown', keydown);
       document.removeEventListener('visibilitychange', visibility); view.removeEventListener('resize', resize); preference?.removeEventListener('change', syncMotion);
       trigger.dispatchEvent(new view.CustomEvent('aithema-orb-reveal', { detail: false })); restore(trigger, triggerAttributes); restore(band, bandAttributes);
