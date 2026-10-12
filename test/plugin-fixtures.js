@@ -32,7 +32,7 @@ export async function chatServer(t, { handler } = {}) {
     if (body.messages[0].content === 'stall') {
       res.writeHead(200); res.write(body.stream ? 'data: {"choices":[{"delta":{"content":"first"}}]}\n\n' : '{'); return;
     }
-    const usage = { prompt_tokens: 3, completion_tokens: 4 };
+    const usage = { prompt_tokens: 3, completion_tokens: 4, cost: 0.000011 };
     res.end(body.stream ? 'data: {"choices":[{"delta":{"content":"Hello"},"finish_reason":"stop"}]}\r\n\r\n' +
       `data: ${JSON.stringify({ choices: [], usage })}\r\n\r\ndata: [DONE]\r\n\r\n`
       : JSON.stringify({ usage, choices: [{ finish_reason: 'stop', message: { content: '{"summary":"Known"}' } }] }));

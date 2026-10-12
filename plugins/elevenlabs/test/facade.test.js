@@ -28,7 +28,7 @@ function runtimeFixture(t, { coverage, consentAvailable = true } = {}) {
     fetchImpl: async (url, options) => {
       assert.equal(url, raw.endpoint); upstream.push(JSON.parse(options.body));
       return new Response('data: {"choices":[{"delta":{"content":"Hello"},"finish_reason":"stop"}]}\n\n' +
-        'data: {"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":4}}\n\ndata: [DONE]\n\n');
+        'data: {"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":4,"cost":0.000011}}\n\ndata: [DONE]\n\n');
     } });
   const consent = { async coverage(query, options) {
     queries.push(query);

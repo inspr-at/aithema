@@ -103,8 +103,8 @@ for (const invalidModel of [false, true]) test(`alias resolutions ${invalidModel
       // Streaming supplies the model before its separate, model-less usage frame.
       if (body.stream) return new Response(`data: ${JSON.stringify({ model: reactionModel,
         choices: [{ delta: { content: 'Hello' }, finish_reason: 'stop' }] })}\n\n` +
-        'data: {"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":4}}\n\ndata: [DONE]\n\n');
-      return Response.json({ model: analysisModel, usage: { prompt_tokens: 3, completion_tokens: 4 },
+        'data: {"choices":[],"usage":{"prompt_tokens":3,"completion_tokens":4,"cost":0.000011}}\n\ndata: [DONE]\n\n');
+      return Response.json({ model: analysisModel, usage: { prompt_tokens: 3, completion_tokens: 4, cost: 0.000011 },
         choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(raw) } }] });
     } });
   for (let i = 0; i < 3; i++) h.storage.append(h.session.id, 'turn.final', { id: `user-${i}`, role: 'user', content: 'systems: API' });
@@ -186,12 +186,12 @@ for (const anonymousTurns of [3, 4]) test(`unlocked guests defer live assessment
   assert.equal(storage.get(short.id).understanding.inputRevision, inputRevision(storage.get(short.id)));
 });
 test('admission timeout and budget denial never open providers; a missing terminal settles conservatively', async t => {
-  const h = setup(t), budget = new SQLiteBudgetLedger(h.storage, { sessionCapMicro: 1500 });
+  const h = setup(t), budget = new SQLiteBudgetLedger(h.storage, { sessionCapMicro: 1 });
   const runtime = createPluginRuntime({ storage: h.storage, registry: h.registry, presets: h.presets, consent: h.consent, budget });
   const invocation = await runtime.admit({ session: h.session, lane: 'reaction', operation: 'stream', request,
     options: { signal: new AbortController().signal, deadlineAt: Date.now() + 1000 } });
   await invocation.options.attempt.consume(); assert.throws(() => invocation.finish(), /omitted its terminal report/);
-  assert.equal(budget.used(h.session.id), 1000); assert.equal((await runtime.matrix(h.session)).best.text.reason, 'budget denied');
+  assert.equal(budget.used(h.session.id), 1); assert.equal((await runtime.matrix(h.session)).best.text.reason, 'budget denied');
   const stalled = createPluginRuntime({ storage: h.storage, registry: h.registry, presets: h.presets,
     consent: { coverage: () => new Promise(() => {}) }, healthMs: 5 });
   assert.equal((await stalled.matrix(h.session)).best.text.reason, 'admission deadline');
@@ -421,7 +421,7 @@ for (const action of ['consent', 'withdraw', 'erase']) for (const lane of ['reac
       assert.equal(rows.length, 1);
       assert.equal(rows[0].state, 'settled', 'acknowledgement leaves no open attempt');
       assert.equal(rows[0].outcome, knownUsage ? 'cancelled' : 'uncertain');
-      assert.equal(rows[0].settled_micro, knownUsage ? 11 : 50_000);
+      assert.equal(rows[0].settled_micro, knownUsage ? 11 : rows[0].max_micro);
       await run.catch(() => {}); await handlers.idle();
       const seq = h.storage.get(h.session.id).seq;
       gate.resolve(); await new Promise(resolve => setImmediate(resolve));
@@ -451,7 +451,7 @@ for (const lane of ['reaction', 'understanding']) test(`withdrawal settles a dis
       method: 'POST', body: '{"turnId":"input"}' }));
     assert.equal(response.status, 200);
     const row = h.storage.db.prepare('SELECT * FROM budget_attempts').get();
-    assert.equal(row.state, 'settled'); assert.equal(row.outcome, 'uncertain'); assert.equal(row.settled_micro, 50_000);
+    assert.equal(row.state, 'settled'); assert.equal(row.outcome, 'uncertain'); assert.equal(row.settled_micro, row.max_micro);
     const seq = h.storage.get(h.session.id).seq;
     gate.resolve(); await run.catch(() => {}); await handlers.idle(); await new Promise(resolve => setImmediate(resolve));
     assert.equal(h.storage.get(h.session.id).seq, seq);

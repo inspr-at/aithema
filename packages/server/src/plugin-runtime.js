@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { PluginRegistry, createMockReasoning, createBinding, PluginError, isCancelledZeroReport, PROCESSING_PRESETS, FEATURES,
   deviceFeatures, featureUnavailable, bindingReason, processingScope, consentReason, MOCK_PROCESSING_SCOPE,
   operationScope, inputRevision, untilCancelled, MAX_HTML_BYTES, isCanonicalMockReasoning, EFFORT_ORDER, SETTINGS_OFF, isOptionId,
-  sortEfforts, preferredEffort, isDynamicReason, isConsentReason, CONSENT_REASON, activeUploads, beginInvocation } from '@inspr/aithema-core';
+  sortEfforts, preferredEffort, isDynamicReason, isConsentReason, CONSENT_REASON, activeUploads, beginInvocation, admitCredits } from '@inspr/aithema-core';
 import { assertExtractor, createExtractor, normalizeExtractorLimits } from '@inspr/aithema-core/extractor';
 import { createDurationBinding, durationPluginMatches } from './voice-binding.js';
 import { isLocalVoice } from './local-voice.js';
@@ -92,6 +92,14 @@ export function mockPresets() {
 export function createPluginRuntime({ storage, reasoning = createMockReasoning(), registry = new PluginRegistry().register(reasoning),
   presets = mockPresets(), consent, budget = new SQLiteBudgetLedger(storage), voiceCap, healthMs = 1000, now = () => Date.now(), uiRenderLimits = {},
   renderLimiter = createUIRenderLimiter({ storage, now, ...uiRenderLimits }) } = {}) {
+  let ownerWallet, costRetryOffset = 0;
+  const admitBudget = async (session, request) => {
+    const wallet = ownerWallet?.(session);
+    if (!wallet) return budget.admit(request);
+    const verdict = await admitCredits(budget, request, wallet);
+    if (!verdict.ok) throw new PluginError('not-admitted', verdict.reason);
+    return verdict.admission;
+  };
   // Invalid host choices fail at startup instead of at a visitor's first request.
   for (const preset of PROCESSING_PRESETS) if (preset !== 'device') normalizeChoices(presets[preset]);
   const choicesFor = preset => { try { return normalizeChoices(presets[preset]); } catch { return null; } };
@@ -158,8 +166,11 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   const voiceAmounts = (binding, options) => {
     const milliseconds = options.spendDeadlineAt === undefined ? binding.maxDurationSeconds * 1000
       : Math.min(binding.maxDurationSeconds * 1000, Math.max(0, options.spendDeadlineAt - now()));
-    return { maxMilliseconds: Math.ceil(milliseconds), maxMicro: options.spendDeadlineAt === undefined ? binding.maxMicro : Math.ceil(milliseconds / 60_000 * binding.upstreamMicroPerMinute),
-      maxVisitorMicro: Math.ceil(milliseconds / 60_000 * binding.visitorMicroPerMinute) };
+    const reservedMs = binding.reservationSeconds ? Math.min(milliseconds, binding.reservationSeconds * 1000) : milliseconds;
+    return { maxMilliseconds: Math.ceil(milliseconds), maxMicro: binding.reservationSeconds
+      ? Math.ceil(reservedMs / 60_000 * binding.upstreamMicroPerMinute)
+      : options.spendDeadlineAt === undefined ? binding.maxMicro : Math.ceil(milliseconds / 60_000 * binding.upstreamMicroPerMinute),
+      maxVisitorMicro: Math.ceil(reservedMs / 60_000 * binding.visitorMicroPerMinute) };
   };
   async function evaluate(session, preset, feature, options) {
     if (session.identity?.verificationRequired === true && ((feature === 'analysis' && !session.identity.assessmentUnlocked) ||
@@ -222,14 +233,19 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const reaction = await evaluate(session, preset, 'text', { ...options, raw: undefined, existingCall: false });
       if (reaction.reason) return { reason: `delegated reasoning: ${reaction.reason}` };
     }
-    const amounts = feature === 'voice' ? voiceAmounts(binding, options) : { maxMicro: binding.maxMicro, maxVisitorMicro: 0 };
+    let amounts;
+    try { amounts = feature === 'voice' ? voiceAmounts(binding, options) : { maxMicro:
+      plugin.estimateCost ? plugin.estimateCost(feature === 'html' ? options.costRequest : options.costRequest ?? { system: '', messages: [] }, operation)
+        : binding.maxMicro, maxVisitorMicro: 0 }; }
+    catch { return { reason: 'budget denied' }; }
     if (feature === 'voice' && !options.existingCall) {
       const reason = voiceCap?.reason(amounts.maxMilliseconds);
       if (reason) return { reason };
     }
     if (visual(feature) && !options.existingCall && !storage.canStoreConcept(session.id, feature === 'html' ? MAX_HTML_BYTES : undefined)) return { reason: 'concept storage limit' };
     if (visual(feature) && !options.existingCall && renderLimiter.reason(session.id)) return { reason: renderLimiter.reason(session.id) };
-    if (!options.existingCall && !budget.canAdmit(session.id, amounts.maxMicro, amounts.maxVisitorMicro)) return { reason: 'budget denied' };
+    if (!options.existingCall && (!budget.canAdmit(session.id, amounts.maxMicro, amounts.maxVisitorMicro) ||
+      session.ownerHash && ownerWallet?.(session)?.canAdmit(amounts) === false)) return { reason: 'budget denied' };
     return { binding, plugin, operation, coverage, scope };
   }
   async function evaluateUploads(session, preset, options = {}) {
@@ -304,6 +320,31 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   }
   const runtime = {
     budget, voiceCap, consent, visualKind, renderLimiter, selectionKey, choicesFor,
+    setOwnerWallet(provider) { ownerWallet = provider; },
+    recoverCosts() { return Promise.all(registry.list().map(plugin => plugin.recoverCosts?.())); },
+    async reconcileCosts(options = {}) {
+      const rows = budget.pendingCosts(), count = Math.min(10, rows.length);
+      for (let i = 0; i < count && !options.signal?.aborted; i++) {
+        const row = rows[(costRetryOffset + i) % rows.length]; let record = JSON.parse(row.provider_cost_json);
+        const plugin = registry.get(record.plugin);
+        if (!plugin?.reconcileCost) continue;
+        try {
+          const saved = await plugin.costEvidence?.(row.attempt_id);
+          if (saved && Object.keys(saved).length) {
+            budget.observeCost(row.attempt_id, saved); record = { ...record, ...saved };
+          }
+          const evidence = row.cost_reconciliation_json ? JSON.parse(row.cost_reconciliation_json)
+            : record.chargedMicro !== undefined ? { chargedMicro: record.chargedMicro, ...(record.generationId ? { generationId: record.generationId } : {}) }
+            : row.outcome !== 'uncertain' ? { chargedMicro: row.settled_micro, ...(record.generationId ? { generationId: record.generationId } : {}) }
+            : await plugin.reconcileCost(record, { ...options, deadlineAt: Date.now() + 5000 });
+          if (!evidence) continue;
+          budget.reconcileCost(row.attempt_id, evidence);
+          await plugin.reconcileSpend?.(row.attempt_id, evidence.chargedMicro);
+          budget.acknowledgeCost(row.attempt_id);
+        } catch { /* The durable unknown remains visible and retryable. */ }
+      }
+      costRetryOffset = rows.length ? (costRetryOffset + count) % rows.length : 0;
+    },
     /** Revalidate a dispatched operation's admitted scope against the current grant. */
     async processingAllowed(session, consentScope, options = {}) {
       const scope = operationScope({ ...options, deadlineAt: Math.min(options.deadlineAt ?? Infinity, now() + healthMs) });
@@ -533,7 +574,9 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       if (!unchanged(session, 'voice')) throw new PluginError('not-admitted');
       const { binding, plugin } = result;
       const { maxMicro, maxVisitorMicro, maxMilliseconds } = voiceAmounts(binding, options);
-      const { attemptId } = budget.admit({ sessionId: session.id, lane: 'voice', maxMicro, maxVisitorMicro,
+      const { attemptId } = await admitBudget(session, { sessionId: session.id, lane: 'voice', maxMicro, maxVisitorMicro,
+        voiceExposure: { maxMicro: Math.max(maxMicro, Math.ceil(binding.maxDurationSeconds / 60 * binding.upstreamMicroPerMinute)),
+          maxVisitorMicro: Math.max(maxVisitorMicro, Math.ceil(binding.maxDurationSeconds / 60 * binding.visitorMicroPerMinute)) },
         requestSha256: hash(request), bindingSha256: hash(binding) });
       const claim = budget.claim(attemptId); let reported = false, consuming = false, dispatched = false, reservation;
       const report = terminal => {
@@ -548,7 +591,13 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       // Atomic aggregate admission precedes facade provisioning and provider credentials.
       try { reservation = voiceCap?.reserve({ attemptId, sessionId: session.id, callId: request.callId, maxMilliseconds }); }
       catch (error) { zero(); throw error; }
-      const attempt = { ...claim, maxMicro, async consume() {
+      const attempt = { ...claim, get maxMicro() { return budget.get(attemptId).max_micro; },
+        get exposureMicro() { return budget.get(attemptId).voice_exposure_micro; },
+        retainExposure: () => budget.retainVoiceExposure(attemptId),
+        ...(binding.reservationSeconds ? { extend(seconds) {
+          return budget.extendVoice(attemptId, { maxMicro: Math.ceil(seconds / 60 * binding.upstreamMicroPerMinute),
+            maxVisitorMicro: Math.ceil(seconds / 60 * binding.visitorMicroPerMinute) }, extra => ownerWallet?.(session)?.canAdmit(extra));
+        } } : {}), async consume() {
         if (reported || consuming) throw new PluginError('already-claimed');
         consuming = true;
         try {
@@ -566,7 +615,10 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         } catch { zero(); throw new PluginError('not-admitted', 'Voice dispatch refused'); }
       } };
       return { plugin, binding, options: { ...options, attempt, report }, finish() {
-        if (!reported) report({ attemptId, outcome: 'uncertain', closureConfirmed: false, chargedMicro: maxMicro });
+        if (!reported) {
+          if (dispatched) attempt.retainExposure();
+          report({ attemptId, outcome: 'uncertain', closureConfirmed: false, chargedMicro: attempt.maxMicro });
+        }
       } };
     },
     recoverVoiceCap() { voiceCap?.recover(); },
@@ -587,7 +639,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         storage.get(session.id).conceptIntent?.pending?.id !== session.conceptIntent.pending.id)) throw new PluginError('not-admitted', 'Visual intent required');
       const selected = visualKind(session), html = lane === 'concept' && selected === 'html';
       if (lane === 'concept' && options.visualKind && options.visualKind !== selected) throw new PluginError('not-admitted', 'Visual kind changed');
-      const result = await boundedEvaluate(session, session.processingPreset ?? 'best', lane === 'concept' ? selected : lane === 'reaction' ? 'text' : 'analysis', { ...options, operation });
+      const result = await boundedEvaluate(session, session.processingPreset ?? 'best', lane === 'concept' ? selected : lane === 'reaction' ? 'text' : 'analysis', { ...options, operation, costRequest: request });
       if (result.reason) throw new PluginError(result.reason.startsWith('UI render limit reached') ? 'rate-limit' : 'not-admitted', result.reason);
       options.signal?.throwIfAborted();
       if (!invocationCurrent()) throw new PluginError('not-admitted', 'Session changed during admission');
@@ -609,10 +661,13 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         htmlCeiling = binding.maxMicro === 0 ? 0 : callCeilingMicro(messages, binding);
       }
       const ceiling = html ? htmlCeiling : lane === 'concept' ? rates.maxInputTokens * rates.inputMicro + rates.maxOutputTokens * rates.outputMicro
+        : plugin.estimateCost ? plugin.estimateCost(request, operation)
         : (promptBytes + 256 + (request.messages?.length ?? 0) * 64) * rates.inputMicro + binding.maxTokens * rates.outputMicro;
-      if (!Number.isSafeInteger(ceiling) || ceiling > binding.maxMicro) throw new PluginError('not-admitted', 'Request exceeds binding cost ceiling');
+      const tokenCeiling = lane === 'concept' ? ceiling : (promptBytes + 256 + (request.messages?.length ?? 0) * 64) * rates.inputMicro + binding.maxTokens * rates.outputMicro;
+      if (![ceiling, tokenCeiling].every(Number.isSafeInteger) || Math.max(ceiling, tokenCeiling) > binding.maxMicro) throw new PluginError('not-admitted', 'Request exceeds binding cost ceiling');
       if (operation !== result.operation) throw new PluginError('not-admitted');
-      const { attemptId } = budget.admit({ sessionId: session.id, lane, maxMicro: binding.maxMicro,
+      const { attemptId } = await admitBudget(session, { sessionId: session.id, lane, maxMicro: html || plugin.estimateCost ? ceiling : binding.maxMicro,
+        ...(plugin.reconcileCost ? { providerCost: { plugin: binding.plugin, endpoint: binding.endpoint, secretRef: binding.secretRef, accountRef: binding.accountRef } } : {}),
         requestSha256: hash(html ? { ...request, previousArtifact: request.previousArtifact?.provenance.subject.contentDigest } : lane === 'concept' ? { prompt: request.prompt, feedback: request.feedback, references: request.references?.map(r => ({
           mediaType: r.mediaType, role: r.role, sha256: createHash('sha256').update(r.bytes).digest('hex') })) } : request), bindingSha256: hash(binding) });
       const claim = budget.claim(attemptId); let reported = false, refused = false, consuming = false, detached = false;
@@ -640,7 +695,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
           report({ attemptId, outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 } }); refused = true; throw error;
         }
       };
-      const attempt = Object.freeze({ ...claim, consume() {
+      const attempt = Object.freeze({ ...claim, ...(plugin.reconcileCost ? {
+        observeCost: evidence => budget.observeCost(attemptId, evidence), dispatchCost: () => budget.markCostDispatch(attemptId) } : {}), consume() {
         if (reported || consuming) throw new PluginError('already-claimed');
         if (!invocationCurrent() || options.signal?.aborted) return refuse('Session changed before dispatch');
         consuming = true;

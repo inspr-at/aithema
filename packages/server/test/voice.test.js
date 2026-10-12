@@ -10,7 +10,7 @@ import { createElevenLabsServer } from '../../../plugins/elevenlabs/src/server.j
 
 const test = (name, fn) => nodeTest(name, { timeout: 60_000 }, fn);
 
-export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, path, cap, reasoning = createMockReasoning() } = {}) {
+export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, path, cap, reasoning = createMockReasoning(), durationBinding = {} } = {}) {
   const storage = new SQLiteStorage(path), secrets = createFacadeSecrets();
   let clock = Date.now(), sequence = 0, covered = true, secretReads = 0, coverageReads = 0, healthReads = 0, releasing = false, mintFailure;
   const opened = new Map(), ended = new Set(), waiting = new Map(), provisioned = [], traffic = [], closeRequests = [];
@@ -21,7 +21,7 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
   const binding = { plugin: 'elevenlabs', model: 'fixture-agent', agentId: 'fixture-agent', effort: 'none',
     endpoint: 'https://provider.test', accountRef: 'fixture', secretRef: 'fixture-ref', maxMicro: 60_000,
     maxTokens: 1, rates: { inputMicro: 0, outputMicro: 0 }, maxDurationSeconds: 60,
-    upstreamMicroPerMinute: 60_000, visitorMicroPerMinute: 120_000, publicFacadeBaseUrl: 'https://facade.test' };
+    upstreamMicroPerMinute: 60_000, visitorMicroPerMinute: 120_000, publicFacadeBaseUrl: 'https://facade.test', ...durationBinding };
   binding.legal = { approved: true, countries: ['AT'], training: false, retention: 'fixture', purpose: 'conversation',
     recipient: 'fixture', processors: [], dataCategories: ['conversation'], consentVersion: 1,
     evidence: { qualified: true, accountRef: binding.accountRef, secretRef: binding.secretRef,
@@ -86,6 +86,20 @@ function assertUnbillableStart(h) {
   assert.equal(h.storage.db.prepare('SELECT actual_ms FROM voice_cap_reservations WHERE attempt_id=?').get(row.attempt_id).actual_ms, 0);
   assert.equal(h.voiceCap.snapshot().reservedMilliseconds, 0);
 }
+
+test('AIT-134 round 2: a padded nonrolling duration maximum admits and remains the closing exposure', async t => {
+  const h = voiceFixture(t, { durationBinding: { maxMicro: 200_000, upstreamMicroPerMinute: 100_000 } });
+  const admitted = await h.runtime.admitVoice({ session: h.storage.get(h.session.id), request: { callId: 'padded' } });
+  const attempt = admitted.options.attempt, row = h.runtime.budget.get(attempt.attemptId);
+  assert.equal(row.max_micro, 200_000);
+  assert.equal(row.voice_exposure_micro, 200_000, 'the padded maximum exceeds the computed 100,000 exposure');
+  assert.equal(row.max_visitor_micro, 120_000);
+  assert.equal(row.voice_visitor_exposure_micro, 120_000);
+  await attempt.consume(); admitted.finish();
+  assert.equal(h.runtime.budget.used(h.session.id), 200_000);
+  assert.equal(h.runtime.budget.breakdown(h.session.id).uncertainSpendMicro, 200_000);
+  assert.equal(h.runtime.budget.visitorUsed(h.session.id), 120_000);
+});
 
 test('AIT-127: locale is authenticated, durable, in place, and refused after any turn', async t => {
   const h = voiceFixture(t), id = h.session.id;
@@ -334,7 +348,8 @@ test('voice start, speak, heard correction, type, pause, resume and close share 
   const terminal = await h.route(`/voice/${grant.callId}/close`, identity).then(r => r.json());
   assert.equal(terminal.outcome, 'completed'); assert.equal(terminal.closureConfirmed, true);
   assert.deepEqual(terminal.usage, { providerSeconds: 10, providerMinutes: 10 / 60, pausedSeconds: 5, visitorSeconds: 5,
-    upstreamMicro: 10_000, visitorMicro: 10_000, providerCredits: 7 });
+    upstreamMicro: 10_000, visitorMicro: 10_000, providerCredits: 7,
+    costSource: 'duration-estimate', costEstimated: true, estimateMicroPerMinute: 60_000 });
   assert.deepEqual(await h.route(`/voice/${grant.callId}/close`, identity).then(r => r.json()), terminal);
   const budget = h.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='voice'").all();
   assert.equal(budget.length, 1); assert.equal(budget[0].settled_micro, 10_000); assert.equal(budget[0].settled_visitor_micro, 10_000);

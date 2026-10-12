@@ -46,7 +46,7 @@ test('latest alias uses its configured price ceiling and the same account cap, r
           choices: [{ finish_reason: 'stop', message: { content: '{"summary":"ok"}' } }] });
       } });
     for (let i = 0; i < 3; i++) await plugin.structured(request, opts());
-    assert.deepEqual(cap.snapshot(), { spentMicro: 90, reservedMicro: 0, capMicro: 100, breached: false });
+    assert.deepEqual(cap.snapshot(), { spentMicro: 90, reservedMicro: 0, uncertainMicro: 0, capMicro: 100, breached: false });
     await assert.rejects(plugin.structured(request, opts()), /spend cap exhausted/);
     assert.equal(bodies.length, 3);
     assert.equal(requestCeilingMicro(bodies[0], price), 40);
@@ -70,14 +70,14 @@ test('sums non-stream usage.cost; all dispatches ask for usage; refuses before p
 test('final streaming usage settles one cumulative cost and includes usage request fields', async t => {
   const h = await provider(t); h.state.cost = 0.00002;
   assert.equal(await collect(h.plugin()), 'Hello');
-  assert.deepEqual(h.totals(), { spentMicro: 20, reservedMicro: 0, capMicro: 100, breached: false });
+  assert.deepEqual(h.totals(), { spentMicro: 20, reservedMicro: 0, uncertainMicro: 0, capMicro: 100, breached: false });
   assert.deepEqual(h.state.bodies[0].usage, { include: true }); assert.equal(h.state.bodies[0].stream_options.include_usage, true);
 });
-test('missing usage holds survive a restart and are shared by another plugin/account counter', async t => {
+test('missing costs remain uncertain across restart and share the account counter', async t => {
   const h = await provider(t, { path: await temporaryDb() }); h.state.missing = true;
   await h.plugin().structured(request, opts()); await collect(h.plugin());
-  assert.deepEqual(h.totals(), { spentMicro: 0, reservedMicro: 80, capMicro: 100, breached: false });
-  h.restart(); assert.equal(h.cap().snapshot().reservedMicro, 80);
+  assert.deepEqual(h.totals(), { spentMicro: 0, reservedMicro: 0, uncertainMicro: 80, capMicro: 100, breached: false });
+  h.restart(); assert.equal(h.cap().snapshot().uncertainMicro, 80);
   assert.throws(() => h.cap().reserve(40), /spend cap exhausted/);
   await assert.rejects(h.plugin().structured(request, opts()), /spend cap exhausted/); assert.equal(h.state.bodies.length, 2);
 });
@@ -95,15 +95,15 @@ test('parallel requests cannot overshoot reservations; rejected request never re
   assert.equal(h.state.bodies.length, 1); assert.equal(h.totals().reservedMicro, 60);
   h.state.stall = false; h.state.release(); await first; assert.equal(h.totals().spentMicro, 10);
 });
-test('uncertain or cancelled responses keep reservation even when a partial stream supplied cost', async t => {
+test('known partial-stream costs settle; cancelled requests with unknown cost remain uncertain', async t => {
   const h = await provider(t); h.state.truncated = true;
   await assert.rejects(collect(h.plugin()), /Incomplete/);
-  assert.equal(h.totals().reservedMicro, 40);
+  assert.equal(h.totals().reservedMicro, 0); assert.equal(h.totals().spentMicro, 10);
   h.state.truncated = false; h.state.stall = true;
   const controller = new AbortController(), pending = h.plugin().structured(request, opts({ signal: controller.signal }));
   while (!h.state.release) await new Promise(resolve => setImmediate(resolve));
   controller.abort(); await assert.rejects(pending, /abort/i); h.state.release();
-  assert.equal(h.totals().reservedMicro, 80); assert.equal(h.totals().spentMicro, 0);
+  assert.equal(h.totals().uncertainMicro, 40); assert.equal(h.totals().spentMicro, 10);
 });
 test('USD configuration rejects ambiguous or unsafe amounts', () => {
   assert.equal(usdMicro('10'), 10_000_000); assert.equal(usdMicro('0.000001'), 1);
@@ -118,7 +118,7 @@ test('request price/byte ceiling refuses before dispatch and creates no spend ho
 test('ceiling includes every message and uses UTF-8 bytes and upward decimal rounding', async t => {
   const h = await provider(t); h.state.missing = true;
   await h.plugin().structured({ ...request, system: 'Ä', messages: [{ role: 'user', content: '🌍' }] }, opts());
-  assert.equal(h.totals().reservedMicro, 41); // 67 UTF-8 bytes * 0.5 micro + 5 * 1.4 micro
+  assert.equal(h.totals().uncertainMicro, 41); // 67 UTF-8 bytes * 0.5 micro + 5 * 1.4 micro
   assert.equal(requestCeilingMicro({ messages: [], max_tokens: 1 }, { prompt: 1e-7, completion: 0 }), 1);
   assert.equal(requestCeilingMicro({ messages: [], max_tokens: 1 }, { prompt: 1e-7, completion: 8e-7 }), 1);
 });
@@ -127,7 +127,7 @@ test('$9.50 spent plus a $1.00 ceiling refuses before dispatch', async t => {
   const h = await provider(t, { capMicro: 10_000_000, maxTokens: 714_262 });
   const seed = h.cap().reserve(9_500_000); h.cap().settle(seed, 9_500_000);
   await assert.rejects(h.plugin().structured(request, opts()), /spend cap exhausted/);
-  assert.deepEqual(h.totals(), { spentMicro: 9_500_000, reservedMicro: 0, capMicro: 10_000_000, breached: false });
+  assert.deepEqual(h.totals(), { spentMicro: 9_500_000, reservedMicro: 0, uncertainMicro: 0, capMicro: 10_000_000, breached: false });
   assert.equal(h.state.bodies.length, 0);
 });
 
@@ -135,7 +135,7 @@ test('$9.50 spent plus an unexpected $1.00 actual charge records $10.50 and lock
   const h = await provider(t, { path: await temporaryDb(), capMicro: 10_000_000 });
   const seed = h.cap().reserve(9_500_000); h.cap().settle(seed, 9_500_000);
   h.state.cost = 1; await h.plugin().structured(request, opts());
-  assert.deepEqual(h.totals(), { spentMicro: 10_500_000, reservedMicro: 0, capMicro: 10_000_000, breached: true });
+  assert.deepEqual(h.totals(), { spentMicro: 10_500_000, reservedMicro: 0, uncertainMicro: 0, capMicro: 10_000_000, breached: true });
   h.restart(); await assert.rejects(h.plugin().structured(request, opts()), /spend cap exhausted/);
   assert.equal(h.state.bodies.length, 1);
 });
@@ -143,7 +143,7 @@ test('$9.50 spent plus an unexpected $1.00 actual charge records $10.50 and lock
 test('an over-ceiling stream closes the cap even below the account maximum and without DONE', async t => {
   const h = await provider(t, { path: await temporaryDb() }); h.state.cost = 0.00005; h.state.truncated = true;
   await assert.rejects(collect(h.plugin()), /spend cap exhausted/);
-  assert.deepEqual(h.totals(), { spentMicro: 50, reservedMicro: 0, capMicro: 100, breached: true });
+  assert.deepEqual(h.totals(), { spentMicro: 50, reservedMicro: 0, uncertainMicro: 0, capMicro: 100, breached: true });
   h.restart(); await assert.rejects(h.plugin().structured(request, opts()), /spend cap exhausted/);
   assert.equal(h.state.bodies.length, 1);
 });
@@ -151,10 +151,10 @@ test('an over-ceiling stream closes the cap even below the account maximum and w
 test('HTTP errors retain dispatched holds unless usage.cost explicitly settles them, including zero', async t => {
   const h = await provider(t); h.state.status = 500; h.state.missing = true;
   await assert.rejects(h.plugin().structured(request, opts()), /request failed/);
-  assert.equal(h.totals().reservedMicro, 40);
+  assert.equal(h.totals().uncertainMicro, 40);
   h.state.missing = false; h.state.cost = 0;
   await assert.rejects(collect(h.plugin()), /request failed/);
-  assert.equal(h.totals().reservedMicro, 40); assert.equal(h.totals().spentMicro, 0);
+  assert.equal(h.totals().uncertainMicro, 40); assert.equal(h.totals().spentMicro, 0);
 });
 
 test('malformed output still records known actual charges and cannot hide a breach', async t => {
@@ -198,10 +198,10 @@ test('upgrade preserves existing spend/unknown holds and a free-model charge bre
       reserved_micro INTEGER NOT NULL CHECK(reserved_micro > 0), actual_micro INTEGER CHECK(actual_micro >= 0));
       INSERT INTO spend_reservations VALUES ('spent','shared',40,20), ('unknown','shared',40,NULL);`);
     const cap = createSpendCap({ storage, account: 'shared', capMicro: 100 });
-    assert.deepEqual(cap.snapshot(), { spentMicro: 20, reservedMicro: 40, capMicro: 100, breached: false });
+    assert.deepEqual(cap.snapshot(), { spentMicro: 20, reservedMicro: 0, uncertainMicro: 40, capMicro: 100, breached: false });
     const free = cap.reserve(0); cap.settle(free, 1);
     assert.equal(cap.snapshot().breached, true); assert.equal(cap.snapshot().spentMicro, 21);
-    assert.equal(cap.snapshot().reservedMicro, 40);
+    assert.equal(cap.snapshot().uncertainMicro, 40);
     assert.throws(() => cap.reserve(1), /spend cap exhausted/);
   } finally { storage.close(); }
 });
