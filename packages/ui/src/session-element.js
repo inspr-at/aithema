@@ -430,6 +430,7 @@ export class AithemaSession extends HTMLElement {
     const words = this.#notice || (this.#session.paused ? this.#pausePrompt ? this.#copy.pausedResume : this.#copy.paused : this.#connection || this.#copy.connecting);
     setText(status.querySelector('.status__label'), words); status.title = words;
     status.toggleAttribute('data-connected', connected);
+    status.toggleAttribute('data-message', Boolean(this.#notice || this.#session.paused && this.#pausePrompt));
     root.querySelector('.connection-timer').setAttribute('aria-hidden', 'true');
     this.#timer?.setConnected(connected);
   }

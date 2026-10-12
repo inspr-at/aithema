@@ -79,10 +79,13 @@ export const bandStyles = `
 .engine-info .engine__value { position:absolute; right:calc(100% + 2px); white-space:nowrap; opacity:0; transform:translateX(8px); pointer-events:none;
   font:400 12.5px/1.4 var(--aithema-font); color:var(--aithema-muted); background:var(--aithema-paper); transition:opacity .18s,transform .18s; }
 .engine-info:hover .engine__value, .engine-info:focus-visible .engine__value { opacity:1; transform:translateX(0); }
-.status { display:flex; align-items:center; gap:8px; flex:none; width:auto; height:44px; overflow:visible; font-size:12.5px; line-height:1.4; visibility:visible !important; }
+.status { display:grid; grid-template-columns:6.5em 8ch; align-items:center; gap:8px; flex:none; width:auto; height:44px; overflow:visible; font-size:12.5px; line-height:1.4; visibility:visible !important; }
 .status[data-connected]::before { content:none; }
 .status__label { display:block; max-width:8em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.connection-timer { display:inline-block; width:8ch; flex:none; text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.connection-timer { grid-column:2; display:inline-block; width:8ch; flex:none; text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.status[data-message] .status__label { display:block; position:absolute; right:12px; bottom:calc(100% + 6px); z-index:15;
+  max-width:min(320px,calc(100vw - 24px)); padding:9px 12px; background:var(--aithema-ink); color:var(--aithema-paper);
+  border-radius:10px; white-space:normal; overflow:visible; overflow-wrap:anywhere; }
 .host-credits { position:relative; justify-self:center; display:flex; flex-wrap:nowrap; align-items:center; gap:8px; min-height:44px; padding:0; font-size:12.5px; }
 .host-credits__track { display:inline-block; flex:none; width:90px; height:4px; border-radius:4px; background:var(--aithema-line); overflow:hidden; }
 .host-credits__track i { display:block; height:100%; background:var(--aithema-accent); border-radius:inherit; }
@@ -106,6 +109,10 @@ export const bandStyles = `
   .header-actions { grid-column:2; grid-row:1; }
   .edge-column { --band-height:142px; }
 }
+@media(600px <= width < 900px) {
+  .ai-notice,.host-credits,.status { font-size:11px; }
+  .host-credits__track { width:44px; } .display-foot__row { gap:8px; }
+}
 @media(width < ${FOOTER_WIDTHS.voice}px) { .ai-notice__voice { display:none; } }
 @media(width < ${FOOTER_WIDTHS.compact}px) {
   .display-version, .ai-notice__label, .ai-notice__voice, .status__label, .host-credits__total { display:none; }
@@ -113,6 +120,7 @@ export const bandStyles = `
   .host-credits__track { width:60px; }
   .display-foot__row { gap:8px; }
   .footer-right { gap:0; }
+  .status { grid-template-columns:8ch; gap:0; } .connection-timer { grid-column:1; }
 }
 @media(width < ${FOOTER_WIDTHS.number}px) { .host-credits__unit { display:none; } .host-credits__track { width:48px; } }
 @media(max-width:599px) {
