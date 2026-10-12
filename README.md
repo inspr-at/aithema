@@ -2095,11 +2095,43 @@ the credits API returns `limitSlot:null` and the UI hides the empty countdown.
 Other hosts can retain the guard; `host.credits.ownerGuard:false` disables it.
 Pause, consent, per-call duration and liveness safeguards remain in force.
 
+Address collection and persistence use the internal
+`assertAddressCollectionAllowed()` entry point in `host-handlers.js`. It currently
+allows collection; its TODO names AIT-151, which will wire
+`privacyDocumentConfigured()` into that one function. The complete route/effect
+inventory for that wiring is:
+
+- `POST` and `PUT /api/visitor/email`: save or replace the visitor address.
+- `POST /api/sessions/:id/identity/request` and `/identity/change`: collect an
+  address, persist its new revision and queue verification.
+- `POST /api/sessions/:id/identity/resend`: persist the existing address with a
+  new pending revision and queue verification.
+- `POST /api/sessions/:id/identity/confirm` and `/identity/unlock`: reserve a
+  confirmation attempt, redeem/check evidence and persist the existing address.
+- Identity projection during conversation creation/opening and startup adoption:
+  persist inherited addresses in conversation state and journal projections.
+- Identity transitions, including policy removal, pause synchronization, delivery
+  results and verification results: persist address-bearing visitor/session state.
+- `POST /api/sessions/:id/handover`, `/handover/retry` and startup handover
+  recovery: persist the host state containing the existing identity projection.
+- The queued `verification.requested` effect (`requestVerification`) and
+  confirmation/polling effect (`verify`): issue/redeem address-revision tokens and
+  persist delivery/evidence. Both re-enter the same guard at dispatch.
+
+Token issuance checks the current stored address and revision in the same
+transaction. A stale effect returns `stale-verification` (HTTP 409) without
+restoring identity, replacing a current token or sending an old-address message.
+
 Bounded, idempotent cleanup runs at startup and daily through the host writer:
 addresses after 90 days of visitor inactivity, pending records/tokens after
 24 hours, and settings audit after 180 days. Pending cleanup preserves an
 independently saved address and its email-given tier. Explicit visitor erasure
 drains address-projection cleanup before acknowledging and truncates the WAL.
+Only authenticated app/conversation opening, a message or a visitor voice turn
+updates address inactivity. The app opens its saved conversation or creates one;
+identity persistence, polling, policy changes, expiry and recovery do not renew
+the deadline. Legacy migration counts session creation and visitor turns only,
+excluding assistant turns and reducer clocks.
 Do not restore erased addresses from backups: OPS must keep backup expiry within
 the 90-day address retention window, retain an erasure record outside restored
 snapshots, and reapply erasures before serving a restored database.

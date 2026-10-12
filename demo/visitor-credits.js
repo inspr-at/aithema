@@ -61,8 +61,12 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
       db.prepare('INSERT INTO visitor_credit_settings VALUES (1,1,1,10000000,10000000,10000000,0,?,?)').run(iso, iso);
       insertAudit(null, settings(), { actor: 'system:migration', source: 'migration' }, at);
       // No allowance bootstrap and no changes to owner hashes, ledger rows or wallet holds.
+      // Session creation and visitor turns prove activity. Expiry, recovery,
+      // assistant replies and identity reducer clocks do not prove a visit.
       const owners = db.prepare(`SELECT json_extract(s.snapshot,'$.ownerHash') owner_hash,MAX(json_extract(e.event,'$.at')) last_at
-        FROM sessions s LEFT JOIN events e ON e.session_id=s.id
+        FROM sessions s LEFT JOIN events e ON e.session_id=s.id AND (
+          json_extract(e.event,'$.type')='session.created' OR
+          (json_extract(e.event,'$.type') IN ('turn.final','turn.corrected') AND json_extract(e.event,'$.data.role')='user'))
         WHERE json_extract(s.snapshot,'$.ownerHash') IS NOT NULL GROUP BY owner_hash`).all();
       for (const row of owners) ensure(row.owner_hash);
       for (const row of db.prepare(`SELECT h.record,json_extract(s.snapshot,'$.ownerHash') owner_hash
@@ -71,8 +75,7 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
         if (identity?.address) persistIdentity(row.owner_hash, identity, { migration: true });
       }
       for (const row of owners) {
-        const identity = JSON.parse(db.prepare('SELECT identity_json FROM visitor_identities WHERE owner_hash=?').get(row.owner_hash).identity_json);
-        const lastActive = Math.min(at, Math.max(Number.isFinite(Date.parse(row.last_at)) ? Date.parse(row.last_at) : 0, identity.lastNow ?? 0));
+        const lastActive = Math.min(at, Number.isFinite(Date.parse(row.last_at)) ? Date.parse(row.last_at) : 0);
         db.prepare('UPDATE visitor_identities SET last_active_at=? WHERE owner_hash=?').run(lastActive, row.owner_hash);
       }
     }
@@ -117,11 +120,11 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
     if (erased) drainOwnerProjections(ownerHash);
     const confirmed = state.status === 'verified';
     db.prepare(`UPDATE visitor_identities SET address=?,address_revision=?,saved_at=?,confirmed_at=?,pending_at=?,
-      identity_json=?,updated_at=?,last_active_at=MAX(last_active_at,?) WHERE visitor_ref=?`)
+      identity_json=?,updated_at=? WHERE visitor_ref=?`)
       .run(state.address, state.verificationRevision, confirmed ? row.saved_at ?? at : row.saved_at,
         confirmed ? changed ? at : row.confirmed_at ?? at : null,
         state.status === 'verification-pending' ? state.verificationRevision !== row.address_revision ? at : row.pending_at ?? at : null,
-        JSON.stringify(fields(state)), at, at, row.visitor_ref);
+        JSON.stringify(fields(state)), at, row.visitor_ref);
     if (changed) db.prepare('DELETE FROM visitor_confirmation_tokens WHERE visitor_ref=?').run(row.visitor_ref);
     return { erased };
   }
@@ -190,9 +193,9 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
         const identity = changed ? { ...clearedIdentity(row.address_revision + 1), address: input.address } : JSON.parse(row.identity_json);
         if (changed) { db.prepare('DELETE FROM visitor_confirmation_tokens WHERE visitor_ref=?').run(row.visitor_ref); drainOwnerProjections(ownerHash); }
         db.prepare(`UPDATE visitor_identities SET address=?,address_revision=?,saved_at=COALESCE(saved_at,?),confirmed_at=?,
-          pending_at=?,notice_version=?,identity_json=?,updated_at=?,last_active_at=? WHERE visitor_ref=?`)
+          pending_at=?,notice_version=?,identity_json=?,updated_at=? WHERE visitor_ref=?`)
           .run(input.address, identity.verificationRevision, at, changed ? null : row.confirmed_at, changed ? null : row.pending_at,
-            input.noticeVersion, JSON.stringify(identity), at, at, row.visitor_ref);
+            input.noticeVersion, JSON.stringify(identity), at, row.visitor_ref);
         return visitor(ownerHash);
       });
       storage.checkpointErasure(); return result;
@@ -203,9 +206,13 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
     },
     createToken({ ownerHash, sessionId, address, revision, expiresAt, token }) {
       atomic(() => {
-        const row = ensure(ownerHash), at = timestamp();
-        if (row.address !== address || row.address_revision !== revision) persistIdentity(ownerHash,
-          { ...clearedIdentity(revision), status: 'verification-pending', address, expiresAt });
+        // Validate in the token transaction without creating/restoring identity:
+        // a queued effect can outlive address replacement or visitor erasure.
+        const row = db.prepare('SELECT * FROM visitor_identities WHERE owner_hash=?').get(ownerHash);
+        if (!row || row.address !== address || row.address_revision !== revision) {
+          throw Object.assign(new Error('stale-verification'), { code: 'stale-verification' });
+        }
+        const at = timestamp();
         db.prepare('DELETE FROM visitor_confirmation_tokens WHERE visitor_ref=?').run(row.visitor_ref);
         db.prepare('INSERT INTO visitor_confirmation_tokens VALUES (?,?,?,?,?,?,NULL)').run(hash(token), row.visitor_ref, sessionId, revision, expiresAt, at);
       });

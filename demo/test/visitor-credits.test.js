@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { SQLiteStorage, SQLiteBudgetLedger, createHandlers, createPluginRuntime } from '../../packages/server/src/index.js';
-import { admitCredits, createIdentity, createHandover, reduceHandover } from '@inspr/aithema-core';
+import { admitCredits, createIdentity, reduceIdentity, createHandover, reduceHandover } from '@inspr/aithema-core';
 import { createDemoHost } from '../host-ports.js';
 import { mockConsent, temporaryDb } from '../../test/helpers.js';
 
@@ -34,6 +34,15 @@ function api(t, f) {
     ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
   }));
   return { handlers, call };
+}
+function verificationRequest(f, session, event = { type: 'request-verification', address }) {
+  f.host.visitor(owner);
+  const identity = f.host.identity.project({ session }, createIdentity());
+  const result = reduceIdentity(identity, { ...event, now: f.host.now() });
+  // The accepted transition owns identity changes; the queued effect only
+  // issues a token for that already-persisted address revision.
+  f.host.identity.persist({ session }, result.state);
+  return { sessionId: session.id, ownerToken: owner, ...result.events.find(e => e.type === 'verification.requested').data };
 }
 
 for (const method of ['DELETE', 'PUT']) test(`AIT-135 fix round 1 ${method} during pending verification cannot restore the old address or issue its token`, { timeout: 5_000 }, async t => {
@@ -260,9 +269,9 @@ test('AIT-135 migration seeds $10/$10/$10 and preserves owner hashes, settled sp
 });
 
 test('AIT-135 bounded retention expires addresses, pending tokens and audit independently, and is idempotent', async t => {
-  const f = fixture(t, { demo: true }); f.session('tiers-retention');
+  const f = fixture(t, { demo: true }), s = f.session('tiers-retention');
   f.settings('10', '15', '20'); f.host.saveEmail(owner, { address, noticeVersion });
-  await f.host.identity.requestVerification({ sessionId: 'tiers-retention', ownerToken: owner, address, revision: 2, expiresAt: 1_801_000 });
+  await f.host.identity.requestVerification(verificationRequest(f, s));
   f.at(1_000 + 24 * 60 * 60_000); f.host.retainVisitors({ limit: 2 });
   assert.equal(f.host.visitor(owner).tier, 'emailGiven');
   assert.equal(f.host.outbox({ sessionId: 'tiers-retention', ownerToken: owner }).length, 0);
@@ -356,10 +365,10 @@ test('AIT-135 migration does not restart the inactivity retention window of a le
 
 test('AIT-135 a resend receives its own pending retention window; pending-only addresses still expire', async t => {
   const f = fixture(t, { demo: true }), s = f.session('pending-only');
-  const request = { sessionId: s.id, ownerToken: owner, address, revision: 1, expiresAt: 1_801_000 };
+  const request = verificationRequest(f, s);
   await f.host.identity.requestVerification(request);
   f.at(1000 + 23 * 60 * 60_000);
-  await f.host.identity.requestVerification({ ...request, revision: 2, expiresAt: 1000 + 23 * 60 * 60_000 + 1_800_000 });
+  await f.host.identity.requestVerification(verificationRequest(f, s, { type: 'resend' }));
   f.at(1000 + 24 * 60 * 60_000); f.host.retainVisitors();
   assert.equal(f.host.visitor(owner).address, address);
   assert.equal(f.storage.db.prepare('SELECT COUNT(*) n FROM visitor_confirmation_tokens').get().n, 1);

@@ -20,6 +20,11 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
   }
   const deliveries = new Map();
   const clock = state => Math.max(now(), state?.lastNow ?? 0);
+  function assertAddressCollectionAllowed() {
+    // TODO(AIT-151): require privacyDocumentConfigured() here before collecting
+    // or persisting addresses. This is the single guard entry point to wire.
+    return true;
+  }
   async function callHost(fn) {
     const deadlineAt = Date.now() + deadlineMs, scope = operationScope({ signal, deadlineAt });
     try { return await untilCancelled(Promise.resolve().then(() => fn({ signal: scope.signal, deadlineAt })), scope.signal); }
@@ -42,12 +47,13 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
   }
   function initialize(id, ownerToken, { newSession = false } = {}) {
     if (!host) return;
-    if (ownerToken) host.touchVisitor?.(storage.get(id));
+    if (newSession && ownerToken) host.touchVisitor?.(storage.get(id));
     const state = storage.hostState(id);
     if (state) {
       if (state.identity && host.identity?.project) {
         const projected = host.identity.project({ session: storage.get(id) }, state.identity);
         if (!storage.get(id).identity || JSON.stringify(identityView(projected, clock(projected))) !== JSON.stringify(identityView(state.identity, clock(state.identity)))) {
+          if (projected.address) assertAddressCollectionAllowed();
           emit(id, storage.transitionHost(id, current => ({ state: { ...current, identity: projected },
             events: [{ type: 'identity.state', data: identityView(projected, clock(projected)) }] }), ownerToken ? { ownerToken } : {}));
         }
@@ -66,6 +72,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     emit(id, storage.transitionHost(id, () => {
       // Older conversations retain their admission policy when adopted by B1.
       const identity = initialIdentity(id, ownerToken, newSession);
+      if (identity?.address) assertAddressCollectionAllowed();
       const handover = createHandover({ sessionId: id });
       return { state: { identity, handover }, events: [
         ...(identity ? [{ type: 'identity.state', data: identityView(identity, clock(identity)) }] : []),
@@ -78,6 +85,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     const result = emit(id, storage.transitionHost(id, (state, session) => {
       const identity = host.identity.project?.({ session }, state.identity) ?? state.identity;
       const result = reduceIdentity(identity, { ...event, now: clock(identity) });
+      if (result.state.address) assertAddressCollectionAllowed();
       erased = host.identity.persist?.({ session }, result.state)?.erased === true;
       return { ...result, state: { ...state, identity: result.state } };
     }, { ownerToken }));
@@ -127,6 +135,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
   const handoverPort = ownerToken => assertHandoverPort(host.handover(ownerToken));
   function handoverTransition(id, ownerToken, event) {
     return emit(id, storage.transitionHost(id, state => {
+      if (state.identity?.address) assertAddressCollectionAllowed();
       const result = reduceHandover(state.handover, event);
       return { ...result, state: { ...state, handover: result.state } };
     }, { ownerToken }));
@@ -169,7 +178,10 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
         if (!host.visitor || !host.saveEmail || !host.deleteEmail || !host.eraseVisitor) return json({ error: 'visitor-unavailable' }, 503);
         if (url.pathname === '/api/visitor/email') {
           if (request.method === 'GET') return json({ visitor: host.visitor(ownerToken), notice: host.emailNotice ?? null });
-          if (request.method === 'POST' || request.method === 'PUT') return json({ visitor: host.saveEmail(ownerToken, await body(request, ['address', 'noticeVersion'])) });
+          if (request.method === 'POST' || request.method === 'PUT') {
+            assertAddressCollectionAllowed();
+            return json({ visitor: host.saveEmail(ownerToken, await body(request, ['address', 'noticeVersion'])) });
+          }
           if (request.method === 'DELETE') { await body(request, []); return json({ visitor: host.deleteEmail(ownerToken) }); }
         } else if (request.method === 'POST') {
           await body(request, []);
@@ -200,6 +212,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
         }
         if (id && !action && request.method === 'GET') {
           const entry = await port.open(id); storage.authorize(id, ownerToken);
+          host.touchVisitor?.(storage.get(id));
           return json({ ...entry, session: await snapshot(id) });
         }
         if (action === 'rename' && request.method === 'POST') {
@@ -235,6 +248,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
         if (!host.wallet) return json({ error: 'credits-unavailable' }, 503);
         return json(creditResult(id, ownerToken));
       }
+      if (action.startsWith('identity/') && request.method === 'POST') assertAddressCollectionAllowed();
       initialize(id, ownerToken);
       if (action.startsWith('identity')) {
         if (!host.identity) return json({ error: 'identity-unavailable' }, 503);
@@ -255,8 +269,11 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
           }
           let evidence;
           try {
-            evidence = await callHost(callOptions => host.identity.verify({ sessionId: id, ownerToken, address: state.address,
-              revision: state.verificationRevision, ...(command === 'confirm' ? { token: options.token } : {}) }, callOptions));
+            evidence = await callHost(callOptions => {
+              assertAddressCollectionAllowed();
+              return host.identity.verify({ sessionId: id, ownerToken, address: state.address,
+                revision: state.verificationRevision, ...(command === 'confirm' ? { token: options.token } : {}) }, callOptions);
+            });
           } catch (error) {
             if (signal?.aborted) return json({ error: 'server-stopping' }, 503);
             throw error;
@@ -275,8 +292,17 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
         const effect = result.events.find(e => e.type === 'verification.requested');
         if (effect) {
           let delivery;
-          try { delivery = await callHost(callOptions => host.identity.requestVerification({ sessionId: id, ownerToken, ...effect.data }, callOptions)); }
-          catch { delivery = { status: 'failed' }; }
+          try { delivery = await callHost(callOptions => {
+            assertAddressCollectionAllowed();
+            return host.identity.requestVerification({ sessionId: id, ownerToken, ...effect.data }, callOptions);
+          }); }
+          catch (error) {
+            if (error?.code === 'stale-verification') {
+              storage.authorize(id, ownerToken);
+              return json(identityResult(id, { error: error.code }, ownerToken), 409);
+            }
+            delivery = { status: 'failed' };
+          }
           if (signal?.aborted) return json({ error: 'server-stopping' }, 503);
           storage.authorize(id, ownerToken);
           identityTransition(id, ownerToken, { type: 'delivery', revision: effect.data.revision, address: effect.data.address,

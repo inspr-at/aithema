@@ -121,7 +121,10 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   const voiceHandlers = voice ? createVoiceHandlers({ storage, runtime: pluginRuntime, ownership, readBody, hostPrompt,
     ...voice, publish: broadcast, onClose: id => conceptHandlers.ended(id), onTurn(id, event) {
       lanes.supersede(id);
-      if (event?.data.role === 'user') conceptHandlers.onTurn(id, event.data.id);
+      if (event?.data.role === 'user') {
+        host?.touchVisitor?.(storage.get(id));
+        conceptHandlers.onTurn(id, event.data.id);
+      }
       scheduleLane(id, 'understanding'); status(id);
     } }) : null;
   const uploadHandlers = createUploadHandlers({ storage, runtime: pluginRuntime, ownership, readBody, publish: broadcast, signal: stop.signal,
@@ -307,7 +310,10 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       const ownerToken = ownership.token(request), authorized = storage.authorize(id, ownerToken);
       hostHandlers.initialize(id, ownerToken);
       const guard = { ownerToken, revision: inputRevision(authorized) };
-      if (!action && request.method === 'GET') return json(await snapshot(id));
+      if (!action && request.method === 'GET') {
+        host?.touchVisitor?.(authorized);
+        return json(await snapshot(id));
+      }
       if (action === 'events' && request.method === 'GET') return events(request, id);
       if (action === 'locale' && request.method === 'POST') {
         const body = JSON.parse(Buffer.from(await readBody(request)).toString('utf8'));
@@ -338,6 +344,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         if (!replayed) lanes.supersede(id);
         if (!replayed) broadcast(id, event);
         if (!replayed) conceptHandlers.onTurn(id, event.data.id);
+        if (!replayed) host?.touchVisitor?.(storage.get(id));
         if (!replayed) hostHandlers.startCredits(id, ownerToken);
         schedule(id);
         return json(event, 200);
