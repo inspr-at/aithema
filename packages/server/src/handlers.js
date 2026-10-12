@@ -391,11 +391,12 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         const current = storage.get(id), featureMatrix = await pluginRuntime.matrix(current);
         const features = FEATURES.filter(feature => isConsentReason(featureMatrix[current.processingPreset]?.[feature]?.reason));
         return json({ processingPreset: current.processingPreset, settings: current.settings, engine: pluginRuntime.describe(current),
-          event: change.event, unchanged: !change.event, featureMatrix, consent: { required: features.length > 0, features } });
+          event: change.event, unchanged: !change.event, featureMatrix, consent: { required: features.some(feature => feature !== 'html'), features } });
       }
       if (action === 'consent' && request.method === 'POST') {
         const body = JSON.parse(Buffer.from(await readBody(request)).toString('utf8'));
         if (typeof body?.granted !== 'boolean') return json({ error: 'invalid-consent' }, 400);
+        const conversationUnchanged = body.granted && await consent.conversationUnchanged?.({ sessionId: id, decision: body.processing }) === true;
         if (body.granted) {
           if (!consent?.grant) return json({ error: 'host-consent-required' }, 409);
           // The host ledger learns exactly which processing the current choice needs.
@@ -403,9 +404,11 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
             scopes: pluginRuntime.scopes?.(authorized) ?? [] });
           if (granted === false) return json({ error: 'host-consent-required' }, 409);
         }
-        const event = storage.reviseConsent(id, body.granted, guard);
-        await invalidate(id, event, 'consent-revised');
-        if (body.granted) schedule(id);
+        const event = storage.reviseConsent(id, body.granted, guard, { conversationUnchanged });
+        if (event.data.conversationUnchanged) {
+          broadcast(id, event); await conceptHandlers.lane.invalidate(id);
+        } else await invalidate(id, event, 'consent-revised');
+        if (body.granted) { schedule(id); conceptHandlers.schedule(id); }
         else await consent?.withdraw?.({ sessionId: id });
         return json({ granted: body.granted, consentRevision: storage.get(id).consentRevision, event });
       }
@@ -447,7 +450,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       if (error instanceof RangeError) return json({ error: 'size-limit' }, 413);
       if (error instanceof PluginError) return json({ error: error.code,
         ...(['OpenRouter spend cap exhausted', 'OpenRouter request exceeds spend reservation', 'UI render limit reached for this session',
-          'UI render limit reached for this UTC day', 'HTML consent scope unavailable: START has no matching HTML item',
+          'UI render limit reached for this UTC day',
           'current processing consent required'].includes(error.message) ? { reason: error.message } : {}) }, error.code === 'not-admitted' ? 403 : error.code === 'rate-limit' ? 429 : 502);
       return json({ error: 'server-error' }, 500);
     }

@@ -39,7 +39,8 @@ export function createConceptHandlers({ storage, runtime, ownership, readBody, p
       feedback };
   };
   const lane = new ConceptLane({ getSession: id => storage.get(id), prepare, policy, deadlineMs, estimateMs,
-    admit: args => runtime.admit(args), publicationAllowed: (session, options) => runtime.publicationAllowed(session, options),
+    admit: args => runtime.admit(args), processingAllowed: (session, scope, options) => runtime.processingAllowed(session, scope, options),
+    publicationAllowed: (session, options) => runtime.publicationAllowed(session, options),
     persist(id, data) { const event = storage.append(id, 'concept.state', data); if (event) publish(id, event); return event; },
     complete(id, artifact, metadata, data) { const event = storage.completeConcept(id, artifact, metadata, data); publish(id, event); return event; } });
   const schedule = (id, trigger = 'progress') => lane.run(id, { trigger, signal }).catch(() => {});

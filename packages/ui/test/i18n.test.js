@@ -7,12 +7,14 @@ import { demoPresets } from '../../../demo/choices.js';
 import { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL } from '../../../demo/processing-consent.js';
 import { START_GERMAN_CONSENT, FEATURE_REASON_CODES, VOICE_REASON_CODES } from '../../../test/fixtures/german-server-texts.js';
 
-test('German processing consent is verbatim START legal copy; English equals the server fallback', () => {
+test('existing German consent stays verbatim START copy; all item versions and English server copy match', () => {
   const { items, ...legal } = de.processingConsent;
-  assert.deepEqual({ ...legal, items: Object.fromEntries(Object.entries(items).map(([id, { version, ...copy }]) => [id, copy])) }, START_GERMAN_CONSENT);
+  const { 'drafts-anthropic': drafts, ...startItems } = items;
+  assert.ok(drafts, 'AIT-113 adds a separate host-authored draft item');
+  assert.deepEqual({ ...legal, items: Object.fromEntries(Object.entries(startItems).map(([id, { version, ...copy }]) => [id, copy])) }, START_GERMAN_CONSENT);
   assert.equal(en.processingConsent.intro, CONSENT_INTRO);
   assert.equal(en.processingConsent.withdrawal, CONSENT_WITHDRAWAL);
-  assert.deepEqual(CONSENT_ITEMS.map(item => item.id).sort(), Object.keys(START_GERMAN_CONSENT.items).sort());
+  assert.deepEqual(CONSENT_ITEMS.map(item => item.id).sort(), Object.keys(items).sort());
   assert.equal(new Set(CONSENT_ITEMS.map(item => item.id)).size, CONSENT_ITEMS.length);
   for (const { id, version, ...item } of CONSENT_ITEMS) {
     assert.ok(id && version > 0);

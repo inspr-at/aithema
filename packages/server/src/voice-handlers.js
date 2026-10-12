@@ -58,7 +58,8 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
   }
   const sessionFor = entry => {
     const session = storage.authorize(entry.sessionId, entry.ownerToken);
-    if (session.consentRevision !== entry.consentRevision || session.withdrawalRevision !== entry.withdrawalRevision) throw new PluginError('not-admitted', 'Call context revoked');
+    if ((session.conversationConsentRevision ?? session.consentRevision) !== entry.conversationConsentRevision ||
+      session.withdrawalRevision !== entry.withdrawalRevision) throw new PluginError('not-admitted', 'Call context revoked');
     return session;
   };
   const receipt = call => ({ callId: call.callId, providerSessionId: call.providerSessionId, credential: call.credential,
@@ -105,7 +106,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     const session = storage.authorize(sessionId, ownerToken);
     if (sessions.has(sessionId)) throw new ConflictError('Voice call already active');
     const controller = new AbortController(), started = Promise.withResolvers(), entry = { callId, sessionId, ownerToken, controller, started: started.promise,
-      consentRevision: session.consentRevision, withdrawalRevision: session.withdrawalRevision,
+      conversationConsentRevision: session.conversationConsentRevision ?? session.consentRevision, withdrawalRevision: session.withdrawalRevision,
       settingsRevision: session.settings?.revision ?? 0,
       facadeSecretRef: staticSecretRef ?? 'voice-' + randomUUID(), ...(staticSecretRef ? { facadeCallId: randomUUID() } : {}) };
     sessions.set(sessionId, entry); calls.set(callId, entry);

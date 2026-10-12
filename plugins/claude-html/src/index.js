@@ -47,7 +47,7 @@ async function readText(response, signal) {
 export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro = DEFAULT_CAP_MICRO,
   resolveSecret = ref => process.env[ref], fetchImpl = globalThis.fetch, now = Date.now } = {}) {
   binding = createBinding(binding);
-  if (binding.plugin !== manifest.id || !/^anthropic\/claude-[a-z0-9.:-]+$/u.test(binding.model) ||
+  if (binding.plugin !== manifest.id || !/^(?:anthropic\/claude-[a-z0-9.:-]+|~anthropic\/claude-[a-z0-9.:-]+-latest)$/u.test(binding.model) ||
     !manifest.models[0].efforts.includes(binding.effort)) throw new TypeError('Claude HTML binding requires an anthropic/claude-* model and effort none');
   if (!['inputUSD', 'outputUSD'].every(k => typeof binding.rates[k] === 'number' && Number.isFinite(binding.rates[k]) && binding.rates[k] > 0)) {
     throw new TypeError('Claude HTML binding requires explicit positive per-token USD rates');
@@ -73,7 +73,14 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
     const scope = operationScope(options);
     let invocation, completed = false, reporting, reservation = null, dispatched = false, cost = null, ceiling = null;
     const checkLifetime = () => { scope.signal.throwIfAborted(); if (Date.now() >= options.deadlineAt) throw new PluginError('deadline'); };
-    const scoped = { ...options, signal: scope.signal, report: terminal => (reporting = Promise.resolve().then(() => options.report(terminal))) };
+    // Report synchronously on abort before the lane can fall back to its larger
+    // binding hold. Both ledgers retain the dispatched request's computed ceiling.
+    const scoped = { ...options, signal: scope.signal, report: terminal => (reporting = Promise.resolve(options.report({
+      ...terminal, ...(dispatched ? { chargedMicro: cost ?? ceiling } : {}) }))) };
+    const checkedResponse = response => {
+      try { checkLifetime(); return response; }
+      catch (error) { void response.body?.cancel().catch(() => {}); throw error; }
+    };
     try {
       invocation = await beginInvocation(scoped);
       checkLifetime();
@@ -96,12 +103,16 @@ export function createClaudeHTML({ binding, baseUrl, spend, spendPath, capMicro 
       reservation = await ledger.reserve(ceiling); // atomic shared-cap hard stop before any request
       checkLifetime();
       invocation.dispatch(); dispatched = true;
-      const response = await abortable(Promise.resolve().then(() => fetchImpl(endpoint, { method: 'POST', signal: scope.signal,
-        redirect: 'error', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, body })), scope.signal);
-      checkLifetime();
+      // Close even a late response from a transport that ignores cancellation.
+      const response = checkedResponse(await abortable(Promise.resolve().then(() => fetchImpl(endpoint, { method: 'POST', signal: scope.signal,
+        redirect: 'error', headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' }, body })).then(checkedResponse), scope.signal));
       if (!response.ok) {
-        void response.body?.cancel().catch(() => {});
-        // A dispatched refusal is not proof that the socket was never written.
+        // An HTTP refusal can still report a charge, including an explicit zero.
+        // Without that evidence a dispatched request keeps its computed ceiling.
+        try {
+          const payload = JSON.parse(await readText(response, scope.signal));
+          invocation.usage(providerUsage(payload?.usage)); cost = costMicro(payload?.usage?.cost);
+        } catch { /* unavailable usage remains uncertain */ }
         throw new PluginError(response.status === 401 || response.status === 403 ? 'auth' : response.status === 402 ? 'limit' :
           response.status === 429 ? 'rate-limit' : 'provider');
       }

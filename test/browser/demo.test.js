@@ -441,8 +441,8 @@ test('AIT-117: a German processing-consent page contains START German copy and n
     const page = await browser.newPage(); await preparePage(page, ['de-DE', 'de']);
     const problems = [], external = [];
     page.on('pageerror', error => problems.push(error.message));
-    // The production host module receives English server copy with both START
-    // item ids. Provider setup and calls are replaced by this local fixture.
+    // English server copy includes START's items and the host's separate draft item.
+    // Provider setup and calls are replaced by this local fixture.
     await page.setRequestInterception(true);
     page.on('request', request => {
       const url = new URL(request.url());
@@ -473,11 +473,11 @@ test('AIT-117: a German processing-consent page contains START German copy and n
     assert.equal(await page.$eval('#consent-info', node => node.textContent), START_GERMAN_CONSENT.withdrawal);
     assert.equal(await page.$eval('#consent-title', node => node.textContent), de.host.processingTitle);
     for (const item of consent.items) {
-      const expected = START_GERMAN_CONSENT.items[item.id];
+      const expected = item.id === 'drafts-anthropic' ? de.processingConsent.items[item.id] : START_GERMAN_CONSENT.items[item.id];
       assert.equal(item.title, expected.title);
       assert.equal(item.text, `${expected.recipients} ${expected.text}`);
     }
-    assert.deepEqual(consent.items.map(item => [item.id, item.checked]), [['models-international', false], ['voice-elevenlabs', true]]);
+    assert.deepEqual(consent.items.map(item => [item.id, item.checked]), [['models-international', false], ['voice-elevenlabs', true], ['drafts-anthropic', false]]);
     for (const english of [CONSENT_INTRO, CONSENT_WITHDRAWAL, ...CONSENT_ITEMS.flatMap(item => [item.title, item.recipients, item.text])]) {
       assert.equal(consent.visible.includes(english), false, english);
     }
@@ -513,7 +513,7 @@ test('AIT-117: a German processing-consent page contains START German copy and n
       assert.ok(rendered[index].reasons.every(text => text !== english), `English reason leaked: ${code}`);
     }
     assert.deepEqual(problems, []); assert.deepEqual(external, []);
-    t.diagnostic(`START German consent: 2 items plus intro/withdrawal; ${codes.length} reason cases rendered in German, no provider requests.`);
+    t.diagnostic(`START German consent plus optional drafts: 3 items and intro/withdrawal; ${codes.length} reason cases rendered in German, no provider requests.`);
   });
 async function preparePage(page, languages) {
   await page.setViewport({ width: 1440, height: 1000 });

@@ -32,7 +32,7 @@ if (!['mock', 'openrouter', 'mistral'].includes(provider)) throw new TypeError('
 const openrouter = provider === 'openrouter' ? openRouterConfig(process.env) : undefined;
 // A live provider host never runs fake voice or images; fake HTML only as an explicit demo.
 const live = provider !== 'mock';
-const html = htmlConfig(process.env, openrouter ? [openrouter.reaction, openrouter.understanding] : [], { live });
+const html = htmlConfig(process.env, { live });
 const uiRenderLimits = uiRenderLimitConfig(process.env);
 const uploadLimits = uploadLimitConfig(process.env);
 const voiceCaps = voiceCapConfig(process.env);

@@ -2,26 +2,36 @@ import { aiNoticeText } from '../../core/src/ai-notice.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers, createPluginRuntime, createVoiceProvider, createFacadeSecrets, createSpendCap, createVoiceCap } from '../src/index.js';
-import { PluginRegistry } from '@inspr/aithema-core';
+import { PluginRegistry, inputRevision, reduceUnderstanding, applyEvent, createSession } from '@inspr/aithema-core';
 import { listen } from '../src/http.js';
 import { createOpenRouterReasoning } from '../../../plugins/openrouter/src/index.js';
 import { createVoiceHost } from '../../../demo/start2-voice-host.js';
 import { createProcessingConsent, qualifyStartBinding, CONSENT_VALIDITY_MS } from '../../../demo/processing-consent.js';
 import { fakeElevenLabs } from '../../../test/start2-fakes.js';
 import { openRouterConfig } from '../../../demo/openrouter-config.js';
+import { htmlConfig } from '../../../demo/html-config.js';
+import { createClaudeHTML } from '@inspr/aithema-plugin-claude-html';
 import { temporaryDb } from '../../../test/helpers.js';
 
-async function fixture(t, { locale = 'en', capMilliseconds, closureTimeoutMs, reconcileIntervalMs } = {}) {
+async function fixture(t, { locale = 'en', capMilliseconds, closureTimeoutMs, reconcileIntervalMs, drafts = false } = {}) {
   let cleanup; t.after(() => cleanup?.());
   const storage = new SQLiteStorage(), eleven = await fakeElevenLabs(t), logs = [], upstream = [];
-  let processing = false;
+  let processing = false, heldUnderstanding;
   const reconciled = Promise.withResolvers();
   const providerFetch = (input, options) => new URL(input).pathname.startsWith('/v1/convai/conversations/') && processing
     ? Promise.resolve(Response.json({ conversation_id: new URL(input).pathname.split('/').at(-1), status: 'processing' })) : fetch(input, options);
   const openrouter = await listen(async req => {
     const body = await req.json(); upstream.push(body);
-    if (!body.stream) return Response.json({ choices: [{ finish_reason: 'stop', message: { content: '{"summary":"Local understanding"}' } }],
-      usage: { prompt_tokens: 1, completion_tokens: 2, cost: 0.00001 } });
+    if (!body.stream) {
+      if (heldUnderstanding) { heldUnderstanding.started.resolve(); await heldUnderstanding.released.promise; }
+      const assessment = { summary: 'Local understanding' }, schema = body.response_format.json_schema.schema;
+      if (schema.properties.constraints) Object.assign(assessment, { signals: [], openQuestions: [],
+        constraints: Object.fromEntries(Object.keys(schema.properties.constraints.properties).map(key => [key, null])),
+        progress: { talk: { value: .2, reasoning: '' }, build: { value: 0, reasoning: '' } },
+        actor: null, engagement: null, conceptIntent: null });
+      return Response.json({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify(assessment) } }],
+        usage: { prompt_tokens: 1, completion_tokens: 2, cost: 0.00001 } });
+    }
     return new Response('data: {"choices":[{"delta":{"content":"Local reasoning"},"finish_reason":"stop"}]}\n\n' +
       'data: {"choices":[],"usage":{"prompt_tokens":1,"completion_tokens":2,"cost":0.00001}}\n\ndata: [DONE]\n\n');
   });
@@ -36,19 +46,27 @@ async function fixture(t, { locale = 'en', capMilliseconds, closureTimeoutMs, re
   const reaction = rebind(configured.reaction), understanding = rebind(configured.understanding);
   const reasoning = createOpenRouterReasoning({ binding: reaction, prices: configured.prices, resolveSecret: () => 'local-fixture-key',
     spendCap: createSpendCap({ storage, account: reaction.accountRef, capMicro: 2_000_000 }) });
-  const consent = createProcessingConsent({ storage, bindings: [host.binding, reaction, understanding] });
+  const htmlBinding = drafts ? htmlConfig({ AITHEMA_HTML_MODE: 'claude', OPENROUTER_MODEL: 'anthropic/claude-fixture',
+    AITHEMA_OPENROUTER_PRICES: JSON.stringify({ 'anthropic/claude-fixture': { prompt: 1e-7, completion: 1e-7 } }) }).binding : null;
+  const consent = createProcessingConsent({ storage, bindings: [host.binding, reaction, understanding, ...(htmlBinding ? [htmlBinding] : [])] });
   const voice = createVoiceProvider({ storage, staticFacade: true, binding: { agentId: host.binding.agentId, secretRef: host.binding.secretRef,
     apiBaseUrl: eleven.endpoint, upstreamMicroPerMinute: 100_000, visitorMicroPerMinute: 100_000 }, resolveSecret: () => 'local-fixture-key',
     fetchImpl: providerFetch, closureTimeoutMs, reconcileLater: () => handlers.reconcileVoiceLater() });
   const secrets = createFacadeSecrets(); secrets.resolve = ref => ref === host.staticSecretRef ? 'local-callback-fixture' : null;
   const voiceCap = capMilliseconds === undefined ? undefined : createVoiceCap({ storage, capMilliseconds });
-  const runtime = createPluginRuntime({ storage, consent, voiceCap, registry: new PluginRegistry().register(reasoning).register(voice),
-    presets: { best: { plugins: ['elevenlabs', 'openrouter'], bindings: { voice: host.binding, reaction, understanding }, policy: { endpoints: [eleven.endpoint, reaction.endpoint] } } } });
+  const registry = new PluginRegistry().register(reasoning).register(voice);
+  if (htmlBinding) registry.register(createClaudeHTML({ binding: htmlBinding,
+    spend: createSpendCap({ storage, account: htmlBinding.accountRef, capMicro: 2_000_000 }), resolveSecret: () => 'local-fixture-key',
+    fetchImpl: () => { throw new Error('No draft was requested'); } }));
+  const runtime = createPluginRuntime({ storage, consent, voiceCap, registry,
+    presets: { best: { plugins: ['elevenlabs', 'openrouter', ...(htmlBinding ? ['claude-html'] : [])],
+      bindings: { voice: host.binding, reaction, understanding, ...(htmlBinding ? { html: htmlBinding } : {}) },
+      policy: { endpoints: [eleven.endpoint, reaction.endpoint, ...(htmlBinding ? [htmlBinding.endpoint] : [])] } } } });
   const reconcile = runtime.reconcileVoice;
   runtime.reconcileVoice = (...args) => { const result = reconcile(...args); reconciled.resolve(); return result; };
   const handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent,
     voice: { secrets, staticSecretRef: host.staticSecretRef, presentation: host.presentation, closeOrphan: host.closeOrphan, reconcileIntervalMs } });
-  cleanup = async () => { await handlers.close(); storage.close(); openrouter.server.closeAllConnections(); await new Promise(resolve => openrouter.server.close(resolve)); };
+  cleanup = async () => { heldUnderstanding?.released.resolve(); await handlers.close(); storage.close(); openrouter.server.closeAllConnections(); await new Promise(resolve => openrouter.server.close(resolve)); };
   const session = storage.create({ ownerToken: 'local-owner', locale });
   const route = (suffix, body = {}, owner = 'local-owner') => handlers.handle(new Request(`https://start2.example.test/api/sessions/${session.id}${suffix}`, {
     method: 'POST', headers: { 'x-aithema-session-token': owner }, body: JSON.stringify(body) }));
@@ -67,8 +85,68 @@ async function fixture(t, { locale = 'en', capMilliseconds, closureTimeoutMs, re
     method: 'POST', headers: bearer === null ? {} : { authorization: `Bearer ${bearer}` },
     body: JSON.stringify({ elevenlabs_extra_body: { aithema_call: identity }, messages: [{ role: 'user', content: 'Hello' }], ...extra }) }));
   return { storage, eleven, handlers, runtime, session, route, grant, start, callback, consent, upstream, voiceCap,
+    holdUnderstanding() { heldUnderstanding = { started: Promise.withResolvers(), released: Promise.withResolvers() }; return heldUnderstanding; },
     processing: value => { processing = value; }, reconciled: reconciled.promise };
 }
+
+function savedConversation(h) {
+  const id = h.session.id;
+  h.storage.postTurn(id, 'requirements', Buffer.from('Repairs'), 'Repairs');
+  const session = h.storage.get(id), revision = inputRevision(session);
+  h.storage.append(id, 'turn.final', { id: 'saved-reply', role: 'assistant', content: 'Saved answer', at: new Date().toISOString(),
+    inputRevision: revision, model: 'anthropic/speech-fixture', provider: 'openrouter' });
+  h.storage.append(id, 'understanding.updated', reduceUnderstanding(session.understanding, { summary: 'Saved assessment', constraints: {},
+    openQuestions: ['Who approves repairs?'], progress: { talk: { value: .65 }, build: { value: 0 } } },
+  { transcript: session.transcript, inputRevision: revision, preset: session.preset, locale: session.locale }));
+  return h.storage.get(id);
+}
+
+for (const selected of [false, true]) test(`draft-only consent ${selected ? 'withdrawal' : 'grant'} preserves active voice and saved conversation`, { timeout: 5000 }, async t => {
+  const h = await fixture(t, { drafts: true }), items = ['models-international', 'voice-elevenlabs'];
+  assert.equal((await h.grant([...items, ...(selected ? ['drafts-anthropic'] : [])])).status, 200); await h.handlers.idle();
+  const response = await h.route('/voice', { callId: 'ongoing' }); assert.equal(response.status, 201); const call = await response.json();
+  const before = savedConversation(h), content = h.storage.db.prepare('SELECT id,bytes FROM content WHERE session_id=? AND tombstone IS NULL').all(h.session.id);
+  assert.equal((await h.grant([...items, ...(!selected ? ['drafts-anthropic'] : [])])).status, 200); await h.handlers.idle();
+  const after = h.storage.get(h.session.id);
+  assert.deepEqual(after.transcript, before.transcript, 'draft-only changes retain the original replies');
+  assert.deepEqual(after.understanding, before.understanding, 'draft-only changes retain the original assessment');
+  assert.equal(inputRevision(after), inputRevision(before), 'conversation work keeps its input identity');
+  assert.deepEqual(h.storage.db.prepare('SELECT id,bytes FROM content WHERE session_id=? AND tombstone IS NULL').all(h.session.id), content);
+  const replay = h.storage.read(h.session.id).reduce(applyEvent, createSession({ id: h.session.id }));
+  assert.deepEqual(replay.transcript, after.transcript); assert.deepEqual(replay.understanding, after.understanding);
+  assert.equal((await h.callback(call.facadeCallId)).status, 200, 'the same live voice call can still admit reasoning');
+  assert.equal((await h.route(`/voice/${call.callId}/heartbeat`, { providerSessionId: call.providerSessionId })).status, 200);
+});
+
+test('draft-only consent saves keep dispatched understanding running without a second provider call', { timeout: 5000 }, async t => {
+  const h = await fixture(t, { drafts: true }), call = await h.start(), held = h.holdUnderstanding();
+  for (let i = 0; i < h.storage.get(h.session.id).preset.anonymousTurns; i++) {
+    assert.equal((await h.route('/turns', { clientEventId: `needs-${i}`, content: 'Repairs' })).status, 200);
+  }
+  await held.started.promise;
+  const revision = inputRevision(h.storage.get(h.session.id));
+  assert.equal((await h.grant(['models-international', 'voice-elevenlabs', 'drafts-anthropic'])).status, 200);
+  assert.equal(inputRevision(h.storage.get(h.session.id)), revision);
+  held.released.resolve(); await h.handlers.idle();
+  assert.equal(h.upstream.filter(body => !body.stream).length, 1, 'the original assessment completes instead of being aborted and rerun');
+  assert.equal(h.storage.get(h.session.id).understanding.summary, 'Local understanding');
+  assert.equal(h.storage.get(h.session.id).understanding.inputRevision, revision);
+  assert.equal((await h.callback(call.facadeCallId)).status, 200);
+});
+
+for (const withdrawn of ['models-international', 'voice-elevenlabs']) test(`withdrawing ${withdrawn} keeps the conversation withdrawal cascade`, { timeout: 5000 }, async t => {
+  const h = await fixture(t, { drafts: true }), items = ['models-international', 'voice-elevenlabs', 'drafts-anthropic'];
+  assert.equal((await h.grant(items)).status, 200); await h.handlers.idle();
+  const response = await h.route('/voice', { callId: 'ongoing' }); assert.equal(response.status, 201); const call = await response.json();
+  const before = savedConversation(h);
+  const content = h.storage.db.prepare("SELECT id FROM content WHERE session_id=? AND kind IN ('reply','understanding','actor') AND tombstone IS NULL").all(h.session.id);
+  assert.ok(content.length >= 2);
+  assert.equal((await h.grant(items.filter(item => item !== withdrawn))).status, 200); await h.handlers.idle();
+  assert.equal(h.storage.get(h.session.id).transcript.find(turn => turn.id === 'saved-reply').erased, true);
+  assert.notEqual(inputRevision(h.storage.get(h.session.id)), inputRevision(before));
+  for (const { id } of content) assert.equal(h.storage.db.prepare('SELECT bytes FROM content WHERE id=?').get(id).bytes, null);
+  assert.equal((await h.callback(call.facadeCallId)).status, 403, 'reasoning or voice withdrawal stops the live call');
+});
 
 test('start2 retries uncertain holds in process and admits a later call without a restart', { timeout: 5000 }, async t => {
   const h = await fixture(t, { capMilliseconds: 601_000, closureTimeoutMs: 10, reconcileIntervalMs: 10 }), call = await h.start();

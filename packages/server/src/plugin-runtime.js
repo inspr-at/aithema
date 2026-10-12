@@ -195,7 +195,6 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     let coverage, scope;
     // The non-billable deterministic demo has no external processing scope.
     if (!mock) {
-      if (feature === 'html' && !binding.legal) return { reason: 'HTML consent scope unavailable: START has no matching HTML item' };
       const reason = bindingReason({ binding, plugin, preset, policy: config.policy, now: now() });
       if (reason) return { reason };
       scope = processingScope(binding, operation);
@@ -305,6 +304,22 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   }
   const runtime = {
     budget, voiceCap, consent, visualKind, renderLimiter, selectionKey, choicesFor,
+    /** Revalidate a dispatched operation's admitted scope against the current grant. */
+    async processingAllowed(session, consentScope, options = {}) {
+      const scope = operationScope({ ...options, deadlineAt: Math.min(options.deadlineAt ?? Infinity, now() + healthMs) });
+      try {
+        const current = storage.get(session.id);
+        if (current.tombstone || current.consentWithdrawn || current.ownerHash !== session.ownerHash) return false;
+        if (consentScope) {
+          const coverage = await untilCancelled(coverageFor(current, consentScope, { ...options, signal: scope.signal }), scope.signal);
+          if (consentReason(coverage, consentScope, now(), current.consentRevision)) return false;
+        }
+        const latest = storage.get(session.id);
+        return !scope.signal.aborted && !latest.tombstone && !latest.consentWithdrawn && latest.ownerHash === session.ownerHash &&
+          latest.consentRevision === current.consentRevision;
+      } catch { return false; }
+      finally { scope.dispose(); }
+    },
     async uploadAvailability(session, options = {}) {
       return boundedEvaluate(session, session.processingPreset ?? 'best', 'uploads', options);
     },
@@ -312,7 +327,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const current = () => {
         const latest = storage.get(session.id);
         return !latest.tombstone && !latest.consentWithdrawn && latest.ownerHash === session.ownerHash &&
-          latest.consentRevision === session.consentRevision && selectionKey(latest, 'reaction') === selectionKey(session, 'reaction') &&
+          (latest.conversationConsentRevision ?? latest.consentRevision) === (session.conversationConsentRevision ?? session.consentRevision) &&
+          selectionKey(latest, 'reaction') === selectionKey(session, 'reaction') &&
           latest.uploads.some(u => u.id === uploadId && u.state === 'pending');
       };
       if (!current()) throw new PluginError('not-admitted');
@@ -643,7 +659,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         })();
       } });
       const described = runtime.describe(session);
-      return { plugin, ...(lane === 'concept' ? { visuals: described.visuals?.id ?? null } : { producer, engine: { preset: described.preset, model: described.model?.id ?? null,
+      return { plugin, consentScope: result.scope ? structuredClone(result.scope) : null,
+        ...(lane === 'concept' ? { visuals: described.visuals?.id ?? null } : { producer, engine: { preset: described.preset, model: described.model?.id ?? null,
         label: described.model?.label ?? null, effort: binding.effort } }), options: { ...options, attempt, report }, finish({ failed = false } = {}) {
         try {
           if (!reported) {

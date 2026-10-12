@@ -343,7 +343,6 @@ export const de = {
     'device browser only': 'Läuft auf diesem Gerät nur im Browser',
     'visual kind invalid': 'Art des visuellen Entwurfs ungültig',
     'HTML format unsupported': 'Anbieter unterstützt keine HTML-Entwürfe',
-    'HTML consent scope unavailable: START has no matching HTML item': 'Einwilligung zur HTML-Verarbeitung nicht verfügbar: START hat keinen passenden Einwilligungspunkt',
     'UI render limit reached for this session': 'Limit für visuelle Entwürfe in diesem Gespräch erreicht',
     'UI render limit reached for this UTC day': 'Limit für visuelle Entwürfe für heute (UTC) erreicht',
     'credential unavailable': 'Anbieterzugang nicht verfügbar',
@@ -398,6 +397,12 @@ export const de = {
     // START src/lib/i18n.ts:2747 (consentCopy.de.withdrawal).
     withdrawal: 'Sie können Freigaben hier jederzeit widerrufen. Bereits erfolgte Übermittlungen werden dadurch nicht rückgängig gemacht.',
     items: {
+      'drafts-anthropic': {
+        version: 1,
+        title: 'KI-Entwürfe (Anthropic)',
+        recipients: 'OpenRouter, Inc. und Anthropic PBC, USA.',
+        text: 'Ihr Gespräch, der aus hochgeladenen Dateien gelesene Text und die aktuelle Einschätzung werden übermittelt, um klickbare Entwurfsseiten zu erzeugen. Eine Verarbeitung ohne Speicherung ist nicht zugesichert.',
+      },
       'models-international': {
         version: 1,
         // START src/lib/i18n.ts:2751 (consentCopy.de.items.models-international.title).
