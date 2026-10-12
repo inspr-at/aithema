@@ -588,60 +588,60 @@ identify text provenance, without confirming playback. Understanding/focus chang
 Unsupported commands and presets stay disabled with a reason. Automatic updates
 keep the rail, composer and export targets at fixed positions.
 
-Custom-LLM callbacks share a durable turn operation only after independently
-establishing the user-turn ordinal within `(session, call, provider generation)`.
-The callback ordinal counts the user entries in the provider's cumulative message
-history. The key is SHA-256 of that scope and ordinal. Client user finals carry
-`userTurnOrdinal`, captured before asynchronous persistence; assistant finals and
-duplicate event IDs do not advance it, and recovery resets it for the new provider
-generation. Receipt delivery order never supplies an ordinal. Each content digest
-also includes the ordinal; equal text in different turns can never correlate.
+Custom-LLM operation identity comes exclusively from the authenticated provider
+callback body. The key is SHA-256 of `(session, call, provider generation,
+user-turn ordinal, history digest)`. The ordinal counts original user messages
+in that generation's callback history. The digest covers the exact callback
+body with its message history through the last user message, including system
+and assistant entries, whitespace and optional provider metadata. `stream`
+only selects the response representation and is excluded. A suffix after the
+last user message is outside that turn's prefix. Identical bodies share a key;
+a different prefix or metadata creates a new operation, even at the same ordinal.
+A later repeated “Ja” therefore has its own key.
 
-A final binds only the unique operation at its independently supplied ordinal,
-with matching content and consistent namespaced provider IDs (`message:`,
-`event:`, `turn:`). A typed echo retains its original typed canonical turn ID.
-Provider IDs are optional aliases; gaining an ID on retry preserves the same
-operation, including replay and failed-attempt replacement authorization. Only
-transcript persistence publishes person turns.
+Client finals are persisted as transcript only. They cannot bind, alias,
+validate, obsolete, fence or otherwise modify any operation. The client still
+captures `userTurnOrdinal` before asynchronous persistence; assistant finals and
+duplicate event IDs do not advance it, and recovery resets it for the generation.
+User finals retain that ordinal as transcript metadata. For a facade-produced
+assistant final, the server retains the originating callback's ordinal instead
+of accepting a client-supplied ordinal. Canonical prompts order those transcript
+entries by ordinal within the call and generation, with each user before its
+reply, even when an older admitted reply finishes after a newer one. Typed echo
+receipts retain the original typed turn; they do not bind an operation.
 
-The facade preserves the provider history rather than slicing it to the newest
-message. The ElevenLabs plugin documentation records the observed cumulative
-history and links the custom-LLM contract and fixture evidence. Because that
-contract does not guarantee history can never truncate, missing/null user entries,
-truncation indicators, changed history beginnings or user prefixes, and missing
-predecessor evidence make the callback ordinal unknown. Persisted scoped digests
-allow these checks after restart; assistant reply changes do not create a new
-turn. Missing or invalid client ordinals are unknown receipts, including finals
-from older clients. Old correlation records are not silently promoted to the new
-ordinal contract.
-
-Ambiguity uses the ordinary independent paid-attempt behavior: a fresh operation
-with no deduplication or identity aliases. Unknown ordinals, multiple candidates,
-conflicting receipts and unavailable predecessor evidence emit the structured
-`voice.turn.correlation_ambiguous` event with a coded `reason` and hashed call and
-generation IDs; no text, request body or credentials enter the diagnostic.
-An ambiguous final cannot fence a paid stream or completed replay, rebind an
-operation, or transfer its canonical/provider identity. Unknown attempts never
-make another operation obsolete. A truly ambiguous retry can therefore charge
-again, deliberately favoring an intact reply over an incorrect fence. Known,
-identical retry histories still share one admission, model call and settlement.
-Explicit provider-identity contradictions retain the coded
-`voice-turn-fenced` refusal and `voice.turn.identity_contradiction` diagnostic.
-Definite newer ordinals still obsolete older callbacks; a gapped final sequence
-cannot establish obsolescence until its predecessors are known.
+The facade preserves the original provider history for identity and uses the
+canonical session history for reasoning. The ElevenLabs plugin documentation
+records the observed cumulative history and the transport limitation. Explicit
+truncation indicators, null/empty user entries and absent user entries make the
+ordinal unknown. Their body still has a stable digest, so identical retries
+coalesce and replay. A previously unseen regressed history starts a new operation;
+it cannot refuse fresh work as obsolete or fence already admitted work. A changed
+truncated body may consequently incur another charge. Byte-identical silent
+truncation cannot be distinguished from an identical retry by this interface;
+integrations that truncate must signal it. No receipt or predecessor evidence is
+used to infer completeness. The receipt-correlation ambiguity and provider-alias
+contradiction paths and their logs have been removed.
 
 Operations move from `pending` to `completed` or `failed`. Concurrent callbacks
 join one admission and model stream; disconnecting a reader leaves the operation
 running under its own deadline. Each reader requests frames independently; unread
 readers queue no frames, and lagging readers catch up in content frames of at most
-16,384 UTF-16 code units without splitting a surrogate pair. Completion stores the reply in erasable content
-in the same transaction as its terminal operation state, before publishing the
-successful stream terminator. Retries replay that reply and completion ID without
-admission or spending. `voice.turnReplayWindowMs` defaults to **120,000 ms** from
-completion; `voice.turnTimeoutMs` defaults to **30,000 ms**. The call must remain
-authorized and the turn current. Expired and obsolete callbacks return JSON 403
-with `error: "not-admitted"` and respectively `reason: "voice-turn-replay-expired"`
-or `"voice-turn-obsolete"`, without another claim.
+16,384 UTF-16 code units without splitting a surrogate pair. Completion stores
+the reply in erasable content with the operation's ordinal and terminal state
+before publishing the successful stream terminator. Retries replay that reply
+and completion ID without admission or spending. `voice.turnReplayWindowMs`
+defaults to **120,000 ms** from completion; `voice.turnTimeoutMs` defaults to
+**30,000 ms**. Expired callbacks return JSON 403 with `error: "not-admitted"`
+and `reason: "voice-turn-replay-expired"`, without another claim.
+
+Obsolescence applies only before admission: a known pending operation overtaken
+by an admitted higher ordinal in the same call and generation is refused with
+`reason: "voice-turn-obsolete"` and no charge. A mere claim does not obsolete
+another claim. Admitted operations finish, settle and publish even if newer
+operations are admitted; their completed replies remain replayable within the
+window. Consent withdrawal, erasure, pause and call cancellation retain their
+ordinary revocation controls.
 
 A failed operation requires explicit host authorization. Configure
 `voice.authorizeTurnReplacement({operation, session, options})` to return exactly

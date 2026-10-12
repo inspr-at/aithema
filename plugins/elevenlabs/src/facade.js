@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { PluginError, PLUGIN_ERROR_CODES } from '../../../packages/core/src/invocation.js';
 import { operationScope } from '../../../packages/core/src/reasoning.js';
-import { voiceOperation, voiceTurnIdentities } from '../../../packages/core/src/live-voice.js';
+import { voiceOperation } from '../../../packages/core/src/live-voice.js';
 import { aiTextOrigin } from '../../../packages/core/src/text-origin.js';
 import { readJson } from './server.js';
 
@@ -23,7 +23,7 @@ const statusFor = error => error?.code === 'auth' ? 401 : error?.code === 'not-a
 export function createCompletionsHandler({ getCall, resolveSecret = ref => process.env[ref],
   buildRequest, admitReasoning, onCompletion, staticSecretRef, now = Date.now, timeoutMs = 30_000,
   maxRequestBytes = MAX_COMPLETION_REQUEST_BYTES, log = console.log, turnOperations,
-  beforeOutput, onAdmission, reportAllowed } = {}) {
+  beforeAdmission, beforeOutput, onAdmission, reportAllowed } = {}) {
   if (![getCall, buildRequest, admitReasoning].every(port => typeof port === 'function')) throw new TypeError('Facade call, context and admission ports required');
   if (!Number.isSafeInteger(maxRequestBytes) || maxRequestBytes <= 0) throw new TypeError('Positive facade byte limit required');
   const active = call => call && !call.closing && !call.terminal && !call.paused && !call.signal?.aborted &&
@@ -111,15 +111,14 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
         const historyUnknownReason = [body, body.elevenlabs_extra_body].some(source =>
           source?.history_truncated === true || source?.messages_truncated === true) ? 'truncated'
           : body.messages.some(message => message.role === 'user' && typeof message.content !== 'string') ? 'null-user' : undefined;
-        const newest = providerMessages.findLast(message => message.role === 'user');
-        const turnIdentity = voiceTurnIdentities(newest, ...[body, body.elevenlabs_extra_body].map(source =>
-          ({ message_id: source?.message_id, event_id: source?.event_id, turn_id: source?.turn_id })));
         const response = await voiceOperation(opts, bounded => turnOperations.run({ callId: call.callId,
-          providerSessionId: call.providerSessionId, messages, historyUnknownReason, turnIdentity, stream: body.stream }, async operation => {
+          providerSessionId: call.providerSessionId, messages, callbackBody: body, historyUnknownReason, stream: body.stream }, async operation => {
           // The durable operation owns its lifetime; an HTTP retry owns only a reader.
           const worker = createCompletionsHandler({ getCall, resolveSecret, buildRequest, admitReasoning,
-            onCompletion, staticSecretRef, now, timeoutMs, maxRequestBytes, log: () => {},
-            beforeOutput: operation.assertCurrent, onAdmission: operation.admitted, reportAllowed: operation.reportAllowed });
+            onCompletion: event => onCompletion?.({ ...event, userTurnOrdinal: operation.ordinal }),
+            staticSecretRef, now, timeoutMs, maxRequestBytes, log: () => {},
+            beforeAdmission: operation.beforeAdmission, beforeOutput: operation.assertCurrent,
+            onAdmission: operation.admitted, reportAllowed: operation.reportAllowed });
           return worker(new Request(request.url, { method: 'POST', headers: request.headers,
             body: JSON.stringify({ ...body, stream: true }), signal: operation.signal }));
         }, { ...bounded, signal: request.signal }));
@@ -155,7 +154,8 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
       const latest = await voiceOperation(opts, bounded => getCall(request, bounded, expectedIdentity));
       if (!active(latest) || latest.callId !== call.callId || latest.providerSessionId !== call.providerSessionId ||
         latest.facadeSecretRef !== call.facadeSecretRef || latest.facadeCallId !== call.facadeCallId) throw new PluginError('not-admitted', 'Call changed');
-      admission = await voiceOperation(opts, bounded => admitReasoning({ callId: call.callId, request: input, messages, options: bounded }));
+      beforeAdmission?.();
+      admission = await voiceOperation(opts, bounded => admitReasoning({ callId: call.callId, request: input, messages, options: bounded, beforeAdmission }));
       if (!admission?.plugin?.stream || !admission.options?.attempt || typeof admission.options.report !== 'function' ||
         typeof admission.finish !== 'function') throw new PluginError('not-admitted', 'Reasoning admission required');
       beforeOutput?.();

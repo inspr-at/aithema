@@ -13,11 +13,10 @@ const frame = (flight, delta, finishReason = null) => `data: ${JSON.stringify({ 
 
 /** One writer owns execution; HTTP readers own only their subscriptions. */
 export function createVoiceTurnOperations({ storage, now = Date.now, replayWindowMs = DEFAULT_VOICE_TURN_REPLAY_MS,
-  authorizeReplacement, log } = {}) {
+  authorizeReplacement } = {}) {
   if (!Number.isSafeInteger(replayWindowMs) || replayWindowMs <= 0 ||
     authorizeReplacement !== undefined && typeof authorizeReplacement !== 'function') throw new TypeError('Invalid voice turn policy');
   const store = storage.voiceTurnStore, flights = new Map();
-  store.setLogger(log);
   function wake(flight) { for (const resolve of flight.waiters) resolve(); flight.waiters.clear(); }
   function start(operation, execute) {
     const ready = Promise.withResolvers(), done = Promise.withResolvers(), controller = new AbortController();
@@ -28,6 +27,7 @@ export function createVoiceTurnOperations({ storage, now = Date.now, replayWindo
     flight.job = (async () => {
       try {
         const response = await execute({ signal: controller.signal, assertCurrent,
+          ordinal: operation.ordinal, beforeAdmission: () => store.beforeAdmission(operation.key, operation.fence),
           admitted: attemptId => store.admitted(operation.key, operation.fence, attemptId),
           reportAllowed: () => {
             const current = store.get(operation.key);

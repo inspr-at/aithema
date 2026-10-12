@@ -63,7 +63,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     log !== undefined && typeof log !== 'function') throw new TypeError('Invalid voice reconciliation retry bounds');
   const calls = new Map(), sessions = new Map(), settlements = new Set();
   if (!Number.isSafeInteger(turnTimeoutMs) || turnTimeoutMs <= 0) throw new TypeError('Invalid voice turn timeout');
-  const turns = createVoiceTurnOperations({ storage, now, replayWindowMs: turnReplayWindowMs, log,
+  const turns = createVoiceTurnOperations({ storage, now, replayWindowMs: turnReplayWindowMs,
     authorizeReplacement: authorizeTurnReplacement && (args => {
       const entry = calls.get(args.operation.callId);
       return authorizeTurnReplacement({ ...args, session: sessionFor(entry) });
@@ -227,7 +227,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       const entry = calls.get(callId);
       return buildVoiceRequest(sessionFor(entry), messages, entry.call);
     },
-    async admitReasoning({ callId, messages, options }) {
+    async admitReasoning({ callId, messages, options, beforeAdmission }) {
       const entry = calls.get(callId);
       let session = sessionFor(entry);
       for (let retry = 0; ; retry++) {
@@ -237,6 +237,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           // voice check awaited. The facade must dispatch this admitted request.
           session = sessionFor(entry);
           const request = buildVoiceRequest(session, messages, entry.call);
+          beforeAdmission?.();
           return { ...await runtime.admit({ session, lane: 'reaction', operation: 'stream', request, options }), request };
         } catch (error) {
           // sessionFor strictly fences ownership, consent and withdrawal before
@@ -252,11 +253,11 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         }
       }
     },
-    onCompletion({ callId, providerSessionId, content, textOrigin, engine }) {
+    onCompletion({ callId, providerSessionId, content, textOrigin, engine, userTurnOrdinal }) {
       const entry = calls.get(callId);
       if (!entry?.call || entry.closing || entry.call.providerSessionId !== providerSessionId) return;
       entry.produced ??= [];
-      entry.produced.push({ content, textOrigin, engine });
+      entry.produced.push({ content, textOrigin, engine, userTurnOrdinal });
       while (entry.produced.length > 256 || entry.produced.reduce((n, reply) => n + reply.content.length, 0) > 1_048_576) entry.produced.shift();
     },
   });
@@ -364,7 +365,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           const provenance = produced ? 'facade-produced' : 'browser-asserted';
           const result = storage.postVoiceEvent(sessionId, callId, entry.call.providerSessionId, body.event,
             { ownerToken, revision: inputRevision(fresh), provenance,
-              ...(produced ? { ...produced.textOrigin, engine: produced.engine } : aiTextOrigin(entry.admission.binding)) });
+              ...(produced ? { ...produced.textOrigin, engine: produced.engine, userTurnOrdinal: produced.userTurnOrdinal } : aiTextOrigin(entry.admission.binding)) });
           if (!result.replayed) {
             publish(sessionId, result.event); onTurn(sessionId, result.event);
           }

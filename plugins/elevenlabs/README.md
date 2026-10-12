@@ -276,22 +276,33 @@ facade deadline. Parsing temporarily also requires a contiguous byte buffer,
 decoded text and the JSON object. The HTTP adapter uses a bounded intermediary
 stream so reader cancellation preserves the socket until the JSON reply is sent;
 early replies close the connection without draining the remaining upload.
-For AIT-137, the ordinal is the count of original user entries, before content
-filtering. Null/empty user entries, explicit `history_truncated` or
-`messages_truncated` indicators (top-level or in `elevenlabs_extra_body`), an
-inconsistent history beginning/user prefix, or missing predecessor evidence
-select the independent, non-deduplicated path. The server stores only scoped
-content/prefix digests for this check. Incomplete history is never text-correlated.
-A silently truncated body byte-identical to an earlier full retry cannot be
-identified from that body alone; the full-history transport contract is required
-for ordinal deduplication, and an integration that truncates must signal it.
+For AIT-137, operation identity uses only this authenticated callback body:
+SHA-256 of session, call, provider generation, original user-message count and
+the digest of the exact body/history prefix through its last user message.
+System/assistant history, exact text and provider metadata remain in the digest;
+`stream` is a reader representation and is excluded. Client finals never modify
+operation identity or state. A different prefix starts a new operation;
+identical retry bodies coalesce and replay.
+
+Null/empty user entries, absent user entries, explicit `history_truncated` or
+`messages_truncated` indicators (top-level or in `elevenlabs_extra_body`) make the
+ordinal unknown. Identical unknown bodies still have the same key. A previously
+unseen lower ordinal is treated as possibly regressed/truncated and starts new
+work. Truncation that changes the body can cause an additional operation and
+charge; it cannot capture an old ordinal slot, refuse new work as obsolete or
+fence paid work. A silently truncated body byte-identical to an earlier full
+retry cannot be identified from that body alone; integrations that truncate
+must signal incompleteness. No history completeness is inferred from client
+receipts or predecessor operations.
 
 The client stamps each unique user final with `userTurnOrdinal` in capture order
 within the call and provider generation, before enqueueing persistence. Assistant
 finals and duplicate event IDs do not advance it. Finals suppressed while paused
 leave gaps, and recovery starts the new generation at one. `event_id` is retained.
-Missing, invalid or conflicting ordinals never capture or invalidate paid work;
-the structured `voice.turn.correlation_ambiguous` event explains the fallback.
+These fields are transcript metadata only. The server stamps facade-produced
+assistant transcript finals with their callback ordinal so late replies can be
+ordered correctly in the canonical prompt. No receipt-correlating aliases,
+binding or ambiguity log remain.
 
 The 30-second callback timeout, call leases
 and earlier admission deadline still apply; iterator disposal and settlement

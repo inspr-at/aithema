@@ -419,11 +419,13 @@ export class SQLiteStorage {
             // Speech provenance comes from the authenticated server call, never
             // client fields. Typed echo receipts keep their original typed turn.
             callId, providerSessionId: providerId,
+            ...(Number.isSafeInteger(value.role === 'user' ? value.userTurnOrdinal : guard.userTurnOrdinal) &&
+              (value.role === 'user' ? value.userTurnOrdinal : guard.userTurnOrdinal) > 0
+              ? { userTurnOrdinal: value.role === 'user' ? value.userTurnOrdinal : guard.userTurnOrdinal } : {}),
             at: new Date().toISOString(), ...(value.role === 'assistant' ? { ...aiTextOrigin({ model: guard.model, plugin: guard.provider }),
               ...(guard.engine ? { engine: guard.engine } : {}), inputRevision: inputRevision(session),
               provenance: guard.provenance === 'facade-produced' ? 'facade-produced' : 'browser-asserted' } : {}) });
         if (typed) {
-          this.voiceTurnStore.bindTurn({ sessionId: id, callId, providerSessionId: providerId, event: value, typedEcho: true }, event.data);
           const metadata = { ...event, data: this.#metadata(id, event.type, event.data) };
           this.db.prepare('INSERT INTO receipts VALUES (?,?,?,?)').run(id, clientId, bytes, JSON.stringify(metadata));
           return { event, replayed: true };
@@ -436,10 +438,10 @@ export class SQLiteStorage {
         event = this.#append(session, 'turn.corrected', { id: turnId, role: turn.role, content: value.prefix,
           at: turn.at, inputRevision: inputRevision(session), provenance: turn.provenance,
           callId: turn.callId, providerSessionId: turn.providerSessionId,
+          ...(turn.userTurnOrdinal ? { userTurnOrdinal: turn.userTurnOrdinal } : {}),
           ...aiTextOrigin({ model: turn.model, plugin: turn.provider }), ...(turn.engine ? { engine: turn.engine } : {}) });
       }
       const metadata = { ...event, data: this.#metadata(id, event.type, event.data) };
-      if (type === 'final') this.voiceTurnStore.bindTurn({ sessionId: id, callId, providerSessionId: providerId, event: value }, event.data);
       this.db.prepare('INSERT INTO receipts VALUES (?,?,?,?)').run(id, clientId, bytes, JSON.stringify(metadata));
       return { event, replayed: false };
     });
