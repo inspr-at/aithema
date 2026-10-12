@@ -35,7 +35,10 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
         event: 'voice-callback', status, latencyMs: Math.round(performance.now() - started),
         requestBytes, responseBytes, errorCode, callIdHash });
       // Only these value-free fields reach the logger; never error messages, headers, URLs or bodies.
-      try { log(line); } catch { console.error(line); }
+      const fallback = () => {
+        try { Promise.resolve(console.error(line)).catch(() => {}); } catch { /* Logging cannot change the response. */ }
+      };
+      try { Promise.resolve(log(line)).catch(fallback); } catch { fallback(); }
     };
     const reply = (body, responseStatus = 200, errorCode = null) => {
       const text = JSON.stringify(body); status = responseStatus; responseBytes = Buffer.byteLength(text);
@@ -130,7 +133,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
           content += first.value; if (content.length > 1_048_576) throw new PluginError('limit'); first = await next();
         }
         if (reports !== 1) throw new PluginError('invalid-output', 'Reasoning omitted terminal report');
-        await voiceOperation(opts, () => onCompletion?.({ callId: call.callId, providerSessionId: call.providerSessionId, content, textOrigin, engine: admission.engine }));
+        await voiceOperation(invocationOptions, () => onCompletion?.({ callId: call.callId, providerSessionId: call.providerSessionId, content, textOrigin, engine: admission.engine }));
         await cleanup(false);
         return reply({ id, object: 'chat.completion', created: Math.floor(now() / 1000), model: 'session-reasoning',
           choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }] });
