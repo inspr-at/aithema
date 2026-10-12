@@ -52,7 +52,7 @@ export const de = {
   voiceConflict: 'Für dieses Gespräch läuft bereits ein Anruf in einem anderen Tab oder Fenster. Beenden Sie ihn dort oder wählen Sie gleich „Erneut anrufen“.',
   voiceDeadline: 'Der Anruf hat sein Zeit- oder Verbindungslimit erreicht.', voiceConnectionFailed: 'Die Sprachverbindung ist fehlgeschlagen. Versuchen Sie es erneut oder tippen Sie weiter.',
   voiceRecoveryFailed: 'Drei Versuche, die Verbindung wiederherzustellen, sind fehlgeschlagen. Rufen Sie erneut an oder tippen Sie weiter.',
-  voiceClosureUncertain: 'Anruf beendet. Der Anbieter hat das Ende nicht bestätigt; der reservierte Höchstbetrag ist verbucht.',
+  voiceClosureUncertain: 'Anruf beendet. Kosten werden noch abgeglichen.', voiceEnded: 'Anruf beendet.',
   voicePauseFailed: 'Die Pause wurde nicht bestätigt. Versuchen Sie es erneut.',
   voicePlaybackBlocked: 'Der Browser hat den Ton blockiert. Wählen Sie „Ton aktivieren“.', voiceTextSent: 'An den Sprachassistenten gesendet',
   consentForSelection: 'Ihre Auswahl braucht eine Einwilligung. Erlauben Sie die Verarbeitung, um fortzufahren.', voiceHostConsentTitle: 'Einwilligung für Sprache beim Host', voiceHostConsent: 'Live-Sprache braucht eine aktuelle Einwilligung im Einwilligungsregister des Hosts. Die lokale Mock-Einwilligung kann sie nicht erteilen.',

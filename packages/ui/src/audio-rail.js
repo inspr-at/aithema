@@ -102,7 +102,7 @@ export class AudioRail {
   }
   async start() {
     if (this.session || this.state === 'connecting' || !this.feature().available || !this.client) return;
-    const generation = ++this.generation; this.errorKey = null; this.state = 'connecting'; this.render();
+    const generation = ++this.generation; this.endedCall = null; this.errorKey = null; this.state = 'connecting'; this.render();
     const controller = new AbortController(); this.controller = controller;
     try {
       // A reloaded page first ends the call its predecessor left behind.
@@ -157,7 +157,7 @@ export class AudioRail {
         if (event.type === 'ended') {
           clearInterval(this.heartbeat); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.session = null; this.journal?.clear();
           this.quiet(); this.onEnd?.();
-          this.state = ['closed', 'cancelled'].includes(event.reason) ? 'idle' : 'failed';
+          this.state = ['closed', 'cancelled', 'closure-uncertain'].includes(event.reason) ? 'idle' : 'failed';
           this.errorKey = event.reason === 'recovery-failed' ? 'voiceRecoveryFailed' :
             event.reason === 'closure-uncertain' ? 'voiceClosureUncertain' :
             event.reason.includes('deadline') ? 'voiceDeadline' : this.state === 'failed' ? 'voiceConnectionFailed' : null;
@@ -201,28 +201,40 @@ export class AudioRail {
     this.render();
   }
   reportPlaybackBlocked() { this.playbackBlocked = true; this.errorKey = 'voicePlaybackBlocked'; this.render(); }
+  settlement(data) {
+    const ended = this.endedCall;
+    if (this.session || !ended || data.callId !== ended.callId || data.providerSessionId !== ended.providerSessionId ||
+      data.terminal?.closureConfirmed !== true || !data.terminal.usage || data.terminal.usage.costEstimated === true) return;
+    ended.settled = true;
+    if (this.errorKey === 'voiceClosureUncertain') { this.errorKey = 'voiceEnded'; this.render(); }
+  }
   close(reason) {
-    if (this.closing) {
+    if (this.closing && !this.session && this.state !== 'connecting') {
       if (reason) void this.closingSession?.close({ reason }).catch(() => {});
       return this.closing;
     }
-    const session = this.session; this.closingCall = Boolean(session) || ['connecting', 'recovering'].includes(this.state);
+    const session = this.session;
     this.closingSession = session;
-    ++this.generation; clearInterval(this.heartbeat); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.quiet();
-    this.session = null; this.hidePending = false; this.state = 'closing'; this.render();
+    const generation = ++this.generation;
+    clearInterval(this.heartbeat); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.quiet();
+    this.endedCall = session ? { callId: session.callId, providerSessionId: session.providerSessionId } : null;
+    this.session = null; this.hidePending = false; this.paused = false; this.state = 'idle';
+    this.errorKey = session ? 'voiceClosureUncertain' : null;
+    if (reason?.includes('deadline')) { this.state = 'failed'; this.errorKey = 'voiceDeadline'; }
+    this.root.querySelector('.voice-caption').textContent = ''; this.render();
     this.onEnd?.();
     const controller = this.controller;
-    this.closing = (async () => {
+    const closing = (async () => {
       try {
         const terminal = await session?.close({ deadlineAt: Date.now() + 45_000, reason: reason ?? 'closed' });
-        this.state = terminal && !terminal.closureConfirmed ? 'failed' : 'idle';
-        this.errorKey = terminal && !terminal.closureConfirmed ? 'voiceClosureUncertain' : null;
-        if (reason?.includes('deadline')) { this.state = 'failed'; this.errorKey = 'voiceDeadline'; }
+        if (generation !== this.generation) return;
         if (session) this.journal?.clear();
-      } catch { this.state = 'failed'; this.errorKey = 'voiceClosureUncertain'; }
-      finally { controller?.abort(); this.paused = false; this.root.querySelector('.voice-caption').textContent = ''; this.render(); }
-    })().finally(() => { this.closing = null; this.closingSession = null; });
-    return this.closing;
+        if (session && !reason?.includes('deadline') && !this.endedCall?.settled) this.errorKey =
+          terminal?.closureConfirmed && !terminal.usage?.costEstimated ? 'voiceEnded' : 'voiceClosureUncertain';
+      } catch { /* Local hangup is complete; the durable server lease and journal retain unresolved closure. */ }
+      finally { controller?.abort(); if (generation === this.generation) this.render(); }
+    })().finally(() => { if (this.closing === closing) { this.closing = null; this.closingSession = null; } });
+    this.closing = closing; return closing;
   }
   quiet() { delete this.root.dataset.measured; this.waveform.baseline(); this.onLevel?.(0); }
   destroy() {

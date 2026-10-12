@@ -96,7 +96,7 @@ const voicePlugin = voiceMode === 'fake' ? createLocalVoiceProvider({ storage, p
       visitorMicroPerMinute: voiceHost.binding.visitorMicroPerMinute,
       reservationSeconds: voiceHost.binding.reservationSeconds, usdPerCredit: voiceHost.binding.usdPerCredit }, resolveSecret: ref => process.env[ref],
     staticFacade: Boolean(voiceHost.staticSecretRef), provisionFacade: voiceHost.provisionFacade, revokeFacade: secrets.revoke, requestProviderClose: voiceHost.requestProviderClose,
-    reconcileLater: () => handlers.reconcileVoiceLater() }) : null;
+    reconcileLater: () => handlers.reconcileVoiceLater(), log: voiceHost.log }) : null;
 const registry = new PluginRegistry().register(reasoning); if (voicePlugin) registry.register(voicePlugin); if (imagePlugin) registry.register(imagePlugin); if (htmlPlugin) registry.register(htmlPlugin);
 // The operator allowlist visitors choose from in settings (demo/choices.js).
 const presets = demoPresets({ provider, reaction: privateBinding, understanding: understandingBinding, voicePlugin,
@@ -108,7 +108,7 @@ const host = createDemoHost({ storage, demo: process.env.AITHEMA_PROVIDER === un
 // Demo only: AITHEMA_DEMO_HANDOVER_FAIL=n (1–10) fails the first n fake handover deliveries, to show Retry.
 const handoverFailures = Number(process.env.AITHEMA_DEMO_HANDOVER_FAIL ?? 0);
 if (host.demo && Number.isSafeInteger(handoverFailures)) for (let i = 0; i < Math.min(Math.max(handoverFailures, 0), 10); i++) host.sink.failNext();
-const handlers = createHandlers({ storage, reasoning, pluginRuntime, consent, ownership, host, uploads: { limits: uploadLimits }, voice: voicePlugin ? { secrets, closeOrphan: voiceHost?.closeOrphan, staticSecretRef: voiceHost?.staticSecretRef, presentation: voiceHost?.presentation } : undefined }); await handlers.resume();
+const handlers = createHandlers({ storage, reasoning, pluginRuntime, consent, ownership, host, uploads: { limits: uploadLimits }, voice: voicePlugin ? { secrets, closeOrphan: voiceHost?.closeOrphan, staticSecretRef: voiceHost?.staticSecretRef, presentation: voiceHost?.presentation, log: voiceHost?.log } : undefined }); await handlers.resume();
 const expiry = startExpiry(handlers);
 let allowedHosts = new Set();
 async function handle(request) {

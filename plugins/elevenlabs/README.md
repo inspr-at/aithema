@@ -384,7 +384,7 @@ server shutdown and/or reads authenticated provider closure details. Return
 `{providerSessionId, closureConfirmed:true, usage}` only with genuine final evidence.
 The host must process `storage.voiceCalls()` records with `reconciliationPending`
 on its durable scheduler, including across repeated restarts. The reference startup
-retries this port within one second per pending call; failure keeps the pending
+retries this port within five seconds per pending call; failure keeps the pending
 record and conservative charges. A confirmed reconciliation adjusts upstream and
 visitor costs while preserving the original terminal receipt. Withdrawn/erased
 sessions still permit this server-only cost reconciliation without restoring text.

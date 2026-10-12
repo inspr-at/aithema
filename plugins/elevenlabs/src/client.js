@@ -141,7 +141,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           if (typeof target.input?.setMuted !== 'function') throw new PluginError('unavailable', 'Awaitable voice input controller required');
           if (blocked()) {
             const stopped = stopCapture(target), muted = target.input.setMuted(true);
-            target.setVolume({ volume: paused || !outputOn ? 0 : 1 });
+            target.setVolume({ volume: ended || paused || !outputOn ? 0 : 1 });
             await Promise.all([stopped, muted]);
           } else {
             if (stoppedInputs.has(target)) {
@@ -152,7 +152,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
             await target.input.setMuted(blocked());
             // A newer pause can arrive while unmute/device acquisition is pending.
             if (blocked()) { await stopCapture(target); await target.input.setMuted(true); }
-            target.setVolume({ volume: paused || !outputOn ? 0 : 1 });
+            target.setVolume({ volume: ended || paused || !outputOn ? 0 : 1 });
           }
           if (ended) throw new PluginError('unavailable', 'Live voice capture ended');
         } catch (error) { void close('pause-failed').catch(() => {}); throw error; }
@@ -173,6 +173,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
         commandCancellation.abort();
         // Privacy does not depend on asynchronous SDK cleanup or provider settlement.
         capture?.end();
+        try { void Promise.resolve(conversation?.setVolume({ volume: 0 })).catch(() => {}); } catch {}
         try { void stopCapture(conversation).catch(() => {}); } catch {}
         try { void Promise.resolve(conversation?.connection?.close?.()).catch(() => {}); } catch {}
         closing = (async () => {
