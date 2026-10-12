@@ -16,8 +16,9 @@ function promptTurns(session) {
     if (!generations.has(key)) generations.set(key, []);
     generations.get(key).push(index);
   }
-  // Paid replies may finish out of order. Ordinals order transcript context
-  // only; receipt metadata never participates in operation identity or state.
+  // Paid replies may finish out of order. Each reply ID carries its operation's
+  // ordinal into transcript metadata; text never supplies that association.
+  // These ordinals order context only and never change operation identity/state.
   for (const positions of generations.values()) {
     const ordered = positions.map(index => turns[index]).sort((a, b) =>
       a.userTurnOrdinal - b.userTurnOrdinal || Number(a.role === 'assistant') - Number(b.role === 'assistant'));

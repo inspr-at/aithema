@@ -179,7 +179,8 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
       let first = await next(); // Dispatch/auth failures can still be returned as HTTP errors.
       const id = `chatcmpl-${crypto.randomUUID()}`;
       const frame = delta => ({ id, object: 'chat.completion.chunk', created: Math.floor(now() / 1000),
-        model: 'session-reasoning', choices: [{ index: 0, delta, finish_reason: null }] });
+        model: 'session-reasoning', ...(delta.role === 'assistant' ? { metadata: { aithema_reply_id: id } } : {}),
+        choices: [{ index: 0, delta, finish_reason: null }] });
       if (body.stream !== true) {
         let content = '';
         while (!first.done) {
@@ -188,7 +189,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
         }
         if (reports !== 1) throw new PluginError('invalid-output', 'Reasoning omitted terminal report');
         beforeOutput?.();
-        await voiceOperation(invocationOptions, () => onCompletion?.({ callId: call.callId, providerSessionId: call.providerSessionId, content, textOrigin, engine: admission.engine }));
+        await voiceOperation(invocationOptions, () => onCompletion?.({ callId: call.callId, providerSessionId: call.providerSessionId, replyId: id, content, textOrigin, engine: admission.engine }));
         await cleanup(false);
         return reply({ id, object: 'chat.completion', created: Math.floor(now() / 1000), model: 'session-reasoning',
           choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }] });
@@ -219,7 +220,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
             if (item.done) {
               if (reports !== 1) throw new PluginError('invalid-output', 'Reasoning omitted terminal report');
               beforeOutput?.();
-              await voiceOperation(opts, () => onCompletion?.({ callId: call.callId, providerSessionId: call.providerSessionId, content, textOrigin, engine: admission.engine }));
+              await voiceOperation(opts, () => onCompletion?.({ callId: call.callId, providerSessionId: call.providerSessionId, replyId: id, content, textOrigin, engine: admission.engine }));
               await cleanup(false);
               if (streamEnded) return; streamEnded = true;
               const stop = frame({}); stop.choices[0].finish_reason = 'stop';

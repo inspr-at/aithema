@@ -30,6 +30,9 @@ export function applyEvent(session, event) {
   if (event.type === 'turn.final') {
     next.transcript.push(withAITextOrigin(event.data));
     if (event.data.role === 'user') next.inputRevision += 1;
+  } else if (event.type === 'turn.annotated') {
+    // Reply identity/ordering annotates transcript only, never operation state.
+    next.transcript = next.transcript.map(turn => turn.id === event.data.id ? { ...turn, ...event.data } : turn);
   } else if (event.type === 'upload.state') {
     const upload = event.data;
     next.uploads = [...(next.uploads ?? []).filter(u => u.id !== upload.id),

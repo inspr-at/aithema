@@ -10,7 +10,7 @@ import { applyEvent, createSession, inputRevision, emptyUnderstanding, isUIArtif
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 export const MAX_CONCEPT_STORAGE_BYTES = 64 * 1024 * 1024;
 export const MAX_SETTINGS_REVISIONS = 1000;
-const turnMetadata = ['id', 'role', 'at', 'inputRevision', 'contentRef', 'hash', 'erased', 'withdrawn', 'provenance', 'voiceCallId', 'voiceProviderId', 'callId', 'providerSessionId', 'userTurnOrdinal'];
+const turnMetadata = ['id', 'role', 'at', 'inputRevision', 'contentRef', 'hash', 'erased', 'withdrawn', 'provenance', 'voiceCallId', 'voiceProviderId', 'callId', 'providerSessionId', 'userTurnOrdinal', 'replyId'];
 
 export class ConflictError extends Error {}
 export class NotFoundError extends Error {}
@@ -218,7 +218,7 @@ export class SQLiteStorage {
     this.db.prepare('INSERT INTO content VALUES (?,?,?,?,?,?,NULL)').run(contentRef, id,
       ['turn.final', 'turn.corrected'].includes(type) ? data.role === 'user' ? 'person' : 'reply' : 'understanding', bytes, digest, at);
     return ['turn.final', 'turn.corrected'].includes(type) ? { id: data.id, role: data.role, at,
-      ...Object.fromEntries(['inputRevision', 'provenance', 'voiceCallId', 'voiceProviderId', 'callId', 'providerSessionId', 'userTurnOrdinal'].filter(key => data[key] !== undefined).map(key => [key, data[key]])), contentRef, hash: digest }
+      ...Object.fromEntries(['inputRevision', 'provenance', 'voiceCallId', 'voiceProviderId', 'callId', 'providerSessionId', 'userTurnOrdinal', 'replyId'].filter(key => data[key] !== undefined).map(key => [key, data[key]])), contentRef, hash: digest }
       : { contentRef, hash: digest };
   }
   #save(session, understandingRef, focusedQuestionRef) {
@@ -391,10 +391,11 @@ export class SQLiteStorage {
       const session = this.get(id); this.#check(session, guard);
       if (session.paused || session.consentWithdrawn) throw new ConflictError('Voice publication blocked');
       const { type, turnId } = value;
-      if (!['final', 'heard'].includes(type) || typeof turnId !== 'string' || turnId.length > 256 ||
+      if (!['final', 'heard', 'reply'].includes(type) || typeof turnId !== 'string' || turnId.length > 256 ||
         !turnId.startsWith(providerId + ':') || value.callId !== callId ||
         (type === 'final' && (!['user', 'assistant'].includes(value.role) || typeof value.text !== 'string' || !value.text.trim() || value.text.length > 16000)) ||
-        (type === 'heard' && (typeof value.prefix !== 'string' || value.prefix.length > 16000))) throw new TypeError('Invalid voice event');
+        (type === 'heard' && (typeof value.prefix !== 'string' || value.prefix.length > 16000)) ||
+        (type === 'reply' && (typeof value.replyId !== 'string' || !/^chatcmpl-[a-zA-Z0-9_-]{1,100}$/u.test(value.replyId)))) throw new TypeError('Invalid voice event');
       const clientId = 'voice:' + hash(JSON.stringify({ callId, turnId, type, ...(type === 'heard' ? { prefix: value.prefix } : {}) }));
       const bytes = hash(JSON.stringify(value));
       const receipt = this.db.prepare('SELECT bytes,result FROM receipts WHERE session_id=? AND client_id=?').get(id, clientId);
@@ -404,7 +405,14 @@ export class SQLiteStorage {
       }
       const turn = session.transcript.find(t => t.id === turnId);
       let event;
-      if (type === 'final') {
+      if (type === 'reply') {
+        if (!turn || turn.role !== 'assistant' || turn.erased || turn.withdrawn) throw new ConflictError('Reply transcript missing');
+        if (!guard.replyId || turn.replyId === guard.replyId) return { event: this.read(id).findLast(event =>
+          ['turn.final', 'turn.corrected', 'turn.annotated'].includes(event.type) && event.data.id === turnId), replayed: true };
+        if (turn.replyId) throw new ConflictError('Reply identity already recorded');
+        event = this.#append(session, 'turn.annotated', { id: turnId, replyId: guard.replyId,
+          ...(Number.isSafeInteger(guard.userTurnOrdinal) && guard.userTurnOrdinal > 0 ? { userTurnOrdinal: guard.userTurnOrdinal } : {}) });
+      } else if (type === 'final') {
         if (turn) throw new ConflictError('Voice turn already exists');
         const userTurnOrdinal = value.role === 'user' ? value.userTurnOrdinal : guard.userTurnOrdinal;
         // Echo receipts consume typed turns durably, including across recovery
@@ -421,6 +429,7 @@ export class SQLiteStorage {
             // client fields. Typed echo receipts keep their original typed turn.
             callId, providerSessionId: providerId,
             ...(Number.isSafeInteger(userTurnOrdinal) && userTurnOrdinal > 0 ? { userTurnOrdinal } : {}),
+            ...(value.role === 'assistant' && guard.replyId ? { replyId: guard.replyId } : {}),
             at: new Date().toISOString(), ...(value.role === 'assistant' ? { ...aiTextOrigin({ model: guard.model, plugin: guard.provider }),
               ...(guard.engine ? { engine: guard.engine } : {}), inputRevision: inputRevision(session),
               provenance: guard.provenance === 'facade-produced' ? 'facade-produced' : 'browser-asserted' } : {}) });
@@ -438,6 +447,7 @@ export class SQLiteStorage {
           at: turn.at, inputRevision: inputRevision(session), provenance: turn.provenance,
           callId: turn.callId, providerSessionId: turn.providerSessionId,
           ...(turn.userTurnOrdinal ? { userTurnOrdinal: turn.userTurnOrdinal } : {}),
+          ...(turn.replyId ? { replyId: turn.replyId } : {}),
           ...aiTextOrigin({ model: turn.model, plugin: turn.provider }), ...(turn.engine ? { engine: turn.engine } : {}) });
       }
       const metadata = { ...event, data: this.#metadata(id, event.type, event.data) };

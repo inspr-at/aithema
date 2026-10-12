@@ -299,10 +299,28 @@ The client stamps each unique user final with `userTurnOrdinal` in capture order
 within the call and provider generation, before enqueueing persistence. Assistant
 finals and duplicate event IDs do not advance it. Finals suppressed while paused
 leave gaps, and recovery starts the new generation at one. `event_id` is retained.
-These fields are transcript metadata only. The server stamps facade-produced
-assistant transcript finals with their callback ordinal so late replies can be
-ordered correctly in the canonical prompt. No receipt-correlating aliases,
-binding or ambiguity log remain.
+These fields are transcript metadata only. Every completion has an opaque reply
+ID belonging to its operation, including coalesced readers and replays. The
+first SSE frame carries `metadata.aithema_reply_id`. The owned agent enables and
+read-back verifies the [custom-LLM `agent_response_metadata` event](https://elevenlabs.io/docs/eleven-agents/customization/events/client-events).
+SDK 1.17.0 forwards it through `onDebug`; its provider `event_id` lets the client
+carry `replyId` on that exact assistant final. The server looks up the reply ID
+and stamps its operation's ordinal. Text only checks that receipt's bytes.
+Missing or unknown IDs never select an ordinal by text. If metadata arrives
+after its final, a `reply` persistence receipt adds a `turn.annotated` event with
+the reply ID and ordinal. This changes transcript metadata only, is idempotent,
+and keeps heard corrections on the same turn. No receipt-correlating operation
+aliases, binding or ambiguity log remain.
+
+For an already admitted voice reply, append-only ordinary user/assistant finals
+and reply-identity annotations are benign. User finals must exactly account for
+the numeric input-revision increment; prior transcript bytes and uploads must
+remain unchanged. Consent/conversation-consent, withdrawal, locale and session
+revision changes, ownership loss, pause, erasure, processing-choice changes and
+call cancellation retain their dispatch fences. Upload changes and heard-prefix
+corrections are not append-only finals. Fresh consent coverage and the budget's
+single-use claim still refuse withdrawal or revoked spend. Other reasoning
+lanes keep their strict input-revision checks.
 
 The 30-second callback timeout, call leases
 and earlier admission deadline still apply; iterator disposal and settlement
@@ -347,7 +365,7 @@ AI notice come from the server host's `presentation(session.locale)` configurati
 Browsers never supply server authority, API keys or
 facade secrets; joined tests carry authority in-process solely for conformance.
 
-`persistEvent(event)` writes final/heard events durably with idempotent turn ids.
+`persistEvent(event)` writes final/heard events and late `reply` annotations durably with idempotent turn ids.
 Persistence failure ends the call rather than claiming a durable turn.
 Consume `session.events`; SDK activity signals are not transcript evidence.
 After transport loss, fence old callbacks and reconcile the old attempt.

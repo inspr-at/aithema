@@ -296,3 +296,16 @@ test('AIT-137 round 5: custom-LLM metadata identifies identical replies across d
   assert.deepEqual(replies.map(event => [event.event_id, event.replyId]), [[4, 'chatcmpl-b'], [2, 'chatcmpl-a']]);
   assert.ok(replies.every(event => event.userTurnOrdinal === undefined), 'the server owns operation ordinals');
 });
+
+test('AIT-137 round 5: metadata after a final annotates that transcript exactly once', async () => {
+  const local = fixture(), session = await local.client.start({ callId: 'late_reply_metadata' }, invocationOptions()), events = drain(session);
+  const callbacks = local.sdk.starts[0];
+  callbacks.onMessage({ role: 'agent', message: 'Same reply', event_id: 2 });
+  await flush();
+  const metadata = { type: 'agent_response_metadata', agent_response_metadata_event: { event_id: 2, metadata: { aithema_reply_id: 'chatcmpl-a' } } };
+  callbacks.onDebug(metadata); callbacks.onDebug(metadata);
+  await session.close();
+  assert.deepEqual(local.persisted.map(event => [event.type, event.turnId, event.replyId]),
+    [['final', `${session.providerSessionId}:assistant:2`, undefined], ['reply', `${session.providerSessionId}:assistant:2`, 'chatcmpl-a']]);
+  assert.deepEqual((await events).map(event => event.type), ['final', 'ended']);
+});

@@ -238,10 +238,11 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           session = sessionFor(entry);
           const request = buildVoiceRequest(session, messages, entry.call);
           beforeAdmission?.();
-          return { ...await runtime.admit({ session, lane: 'reaction', operation: 'stream', request, options }), request };
+          return { ...await runtime.admit({ session, lane: 'reaction', operation: 'stream', request,
+            options: { ...options, voiceReply: true } }), request };
         } catch (error) {
           // sessionFor strictly fences ownership, consent and withdrawal before
-          // considering a retry. Never relax runtime's revision/dispatch checks.
+          // considering a retry. Only append-only finals are benign at dispatch.
           const fresh = sessionFor(entry);
           if (retry || !(error instanceof PluginError) || error.code !== 'not-admitted' ||
             !['Session changed', 'Session changed during admission'].includes(error.message) ||
@@ -253,11 +254,11 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         }
       }
     },
-    onCompletion({ callId, providerSessionId, content, textOrigin, engine, userTurnOrdinal }) {
+    onCompletion({ callId, providerSessionId, replyId, content, textOrigin, engine, userTurnOrdinal }) {
       const entry = calls.get(callId);
       if (!entry?.call || entry.closing || entry.call.providerSessionId !== providerSessionId) return;
       entry.produced ??= [];
-      entry.produced.push({ content, textOrigin, engine, userTurnOrdinal });
+      entry.produced.push({ replyId, content, textOrigin, engine, userTurnOrdinal });
       while (entry.produced.length > 256 || entry.produced.reduce((n, reply) => n + reply.content.length, 0) > 1_048_576) entry.produced.shift();
     },
   });
@@ -361,11 +362,17 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         if (entry.call.signal.aborted) throw new PluginError('unavailable');
         if (action === 'events') {
           const fresh = sessionFor(entry);
-          const produced = body.event?.role === 'assistant' && entry.produced?.findLast(reply => reply.content === body.event.text);
+          // The completion ID belongs to one operation. Text only attests that
+          // receipt's bytes; it never selects a reply or supplies an ordinal.
+          const prior = body.event?.type === 'reply' && fresh.transcript.find(turn => turn.id === body.event.turnId && turn.role === 'assistant');
+          const produced = (body.event?.role === 'assistant' || prior) && typeof body.event.replyId === 'string' &&
+            entry.produced?.find(reply => reply.replyId === body.event.replyId &&
+              (prior ? Boolean(prior.content) && reply.content.startsWith(prior.content) : reply.content === body.event.text));
           const provenance = produced ? 'facade-produced' : 'browser-asserted';
           const result = storage.postVoiceEvent(sessionId, callId, entry.call.providerSessionId, body.event,
             { ownerToken, revision: inputRevision(fresh), provenance,
-              ...(produced ? { ...produced.textOrigin, engine: produced.engine, userTurnOrdinal: produced.userTurnOrdinal } : aiTextOrigin(entry.admission.binding)) });
+              ...(produced ? { ...produced.textOrigin, engine: produced.engine, replyId: produced.replyId,
+                userTurnOrdinal: produced.userTurnOrdinal } : aiTextOrigin(entry.admission.binding)) });
           if (!result.replayed) {
             publish(sessionId, result.event); onTurn(sessionId, result.event);
           }

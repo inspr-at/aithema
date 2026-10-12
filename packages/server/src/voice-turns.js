@@ -6,9 +6,11 @@ export const DEFAULT_VOICE_TURN_REPLAY_MS = 120_000;
 const codeFor = error => error instanceof PluginError && PLUGIN_ERROR_CODES.includes(error.code) ? error.code : 'provider';
 const statusFor = code => code === 'not-admitted' ? 403 : code === 'deadline' ? 504 : code === 'limit' ? 413 : 502;
 const completion = flight => ({ id: flight.id, object: 'chat.completion', created: flight.created, model: 'session-reasoning',
+  metadata: { aithema_reply_id: flight.id },
   choices: [{ index: 0, message: { role: 'assistant', content: flight.content }, finish_reason: 'stop' }] });
 const frame = (flight, delta, finishReason = null) => `data: ${JSON.stringify({ id: flight.id,
   object: 'chat.completion.chunk', created: flight.created, model: 'session-reasoning',
+  ...(delta.role === 'assistant' ? { metadata: { aithema_reply_id: flight.id } } : {}),
   choices: [{ index: 0, delta, finish_reason: finishReason }] })}\n\n`;
 
 /** One writer owns execution; HTTP readers own only their subscriptions. */

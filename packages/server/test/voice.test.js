@@ -1244,13 +1244,14 @@ test('assistant voice finals retain facade-produced or browser-asserted provenan
   const h = voiceFixture(t, { slowClosure: true }), grant = await h.start(), secret = h.secrets.resolve(h.provisioned[0].facadeSecretRef);
   const completion = await h.handlers.handle(new Request(`https://facade.test/api/voice/${grant.callId}/llm/chat/completions`, {
     method: 'POST', headers: { authorization: `Bearer ${secret}` }, body: JSON.stringify({ aithema_call: grant.callId, messages: [{ role: 'user', content: 'Hello' }] }) }));
-  const produced = (await completion.json()).choices[0].message.content;
+  const completed = await completion.json(), produced = completed.choices[0].message.content;
   // A transcript callback must use the completion's producer, even if the
   // runtime's next reaction would use a different binding.
   h.presets.best.bindings.reaction = { ...h.presets.best.bindings.reaction, model: 'next-model' };
   for (const [index, text] of [produced, 'Browser invented assistant speech'].entries()) {
     const response = await h.route(`/voice/${grant.callId}/events`, { providerSessionId: grant.providerSessionId,
-      event: { type: 'final', callId: grant.callId, turnId: `${grant.providerSessionId}:assistant:${index}`, role: 'assistant', text, provenance: 'facade-produced' } });
+      event: { type: 'final', callId: grant.callId, turnId: `${grant.providerSessionId}:assistant:${index}`, role: 'assistant', text,
+        ...(index === 0 ? { replyId: completed.id } : {}), provenance: 'facade-produced' } });
     assert.equal(response.status, 200);
   }
   const snapshot = await h.handlers.handle(new Request(`http://host/api/sessions/${h.session.id}`, { headers: { 'x-aithema-session-token': 'voice-owner' } })).then(r => r.json());
@@ -2162,12 +2163,14 @@ test('AIT-137 round 4: an admitted older reply completes after a newer admission
   const older = await h.callback([a], { stream: true }), reading = older.text();
   await h.waitForModel(1);
   await h.persist('user', 'b', b.content, { userTurnOrdinal: 2 });
-  assert.equal(await completionText(await h.callback([a, b])), 'Reply 2 finished');
-  await h.persist('assistant', 'b-reply', 'Reply 2 finished', { userTurnOrdinal: 99 });
+  const newer = await (await h.callback([a, b])).json();
+  assert.equal(newer.choices[0].message.content, 'Reply 2 finished');
+  await h.persist('assistant', 'b-reply', 'Reply 2 finished', { replyId: newer.id, userTurnOrdinal: 99 });
   h.release(); const reply = await reading;
   assert.equal(sseReply(reply), 'Reply 1 finished');
   assert.ok(reply.endsWith('data: [DONE]\n\n')); assert.doesNotMatch(reply, /"error"/u);
-  await h.persist('assistant', 'a-reply', 'Reply 1 finished', { userTurnOrdinal: 99 });
+  const olderId = JSON.parse(reply.split('\n\n').find(frame => frame.startsWith('data: {')).slice(6)).id;
+  await h.persist('assistant', 'a-reply', 'Reply 1 finished', { replyId: olderId, userTurnOrdinal: 99 });
   const transcript = h.storage.get(h.session.id).transcript;
   assert.equal(transcript.find(turn => turn.content === 'Reply 1 finished').userTurnOrdinal, 1);
   assert.equal(transcript.find(turn => turn.content === 'Reply 2 finished').userTurnOrdinal, 2);
@@ -2281,6 +2284,68 @@ test('AIT-137 round 5: identical replies with delayed finals keep each operation
   assert.deepEqual(h.requests.at(-1).messages.slice(1).map(message => [message.role, message.content]),
     [['user', 'Input A'], ['assistant', 'Same reply finished'], ['user', 'Input B'], ['assistant', 'Same reply finished'], ['user', 'Input C']]);
   assert.deepEqual(h.counts(), { admissions: 3, models: 3, cost: 51 });
+});
+
+test('AIT-137 round 5: late reply metadata orders identical finals without mutating operations', async t => {
+  const h = await turnsOnceFixture(t, { sameReply: true });
+  const a = { role: 'user', content: 'Input A' }, b = { role: 'user', content: 'Input B' };
+  await h.persist('user', 'a', a.content, { userTurnOrdinal: 1 });
+  const replyA = await (await h.callback([a])).json();
+  await h.persist('user', 'b', b.content, { userTurnOrdinal: 2 });
+  const replyB = await (await h.callback([a, b])).json(), operations = h.storage.voiceOperations(h.session.id);
+  await h.persist('assistant', 'b-reply', replyB.choices[0].message.content);
+  await h.persist('assistant', 'a-reply', replyA.choices[0].message.content);
+  const identify = (id, replyId) => h.route(`/voice/${h.grant.callId}/events`, { providerSessionId: h.grant.providerSessionId,
+    event: { type: 'reply', callId: h.grant.callId, turnId: `${h.grant.providerSessionId}:assistant:${id}-reply`, replyId } });
+  assert.equal((await identify('a', replyA.id)).status, 200);
+  assert.equal((await identify('b', replyB.id)).status, 200);
+  const seq = h.storage.get(h.session.id).seq;
+  assert.equal((await identify('a', replyA.id)).status, 200);
+  assert.equal(h.storage.get(h.session.id).seq, seq, 'late metadata retries are transcript-idempotent');
+  assert.deepEqual(h.storage.voiceOperations(h.session.id), operations);
+  await completionText(await h.callback([a, b, { role: 'user', content: 'Input C' }]));
+  assert.deepEqual(h.requests.at(-1).messages.slice(1).map(message => [message.role, message.content]),
+    [['user', 'Input A'], ['assistant', 'Same reply finished'], ['user', 'Input B'], ['assistant', 'Same reply finished'], ['user', 'Input C']]);
+});
+
+test('AIT-137 round 5: absent or unknown reply identity never selects an ordinal by identical text', async t => {
+  const h = await turnsOnceFixture(t, { sameReply: true }), a = { role: 'user', content: 'Input A' }, b = { role: 'user', content: 'Input B' };
+  await completionText(await h.callback([a])); await completionText(await h.callback([a, b]));
+  const operations = h.storage.voiceOperations(h.session.id);
+  await h.persist('assistant', 'unknown', 'Same reply finished', { replyId: 'chatcmpl-unknown', userTurnOrdinal: 1 });
+  await h.persist('assistant', 'absent', 'Same reply finished', { userTurnOrdinal: 2 });
+  assert.ok(h.storage.get(h.session.id).transcript.every(turn => turn.userTurnOrdinal === undefined && turn.replyId === undefined));
+  assert.deepEqual(h.storage.voiceOperations(h.session.id), operations);
+});
+
+test('AIT-137 round 5: coalesced streams and replay carry the same operation reply metadata', async t => {
+  const h = await turnsOnceFixture(t, { blocked: true });
+  const responses = await Promise.all([h.callback(undefined, { stream: true }), h.callback(undefined, { stream: true })]);
+  const bodies = responses.map(response => response.text()); h.release();
+  const frames = (await Promise.all(bodies)).map(text => JSON.parse(text.split('\n\n').find(frame => frame.startsWith('data: {')).slice(6)));
+  assert.equal(frames[0].id, frames[1].id);
+  assert.deepEqual(frames.map(frame => frame.metadata), [{ aithema_reply_id: frames[0].id }, { aithema_reply_id: frames[0].id }]);
+  const replayed = await (await h.callback()).json();
+  assert.equal(replayed.id, frames[0].id); assert.deepEqual(replayed.metadata, frames[0].metadata);
+  assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
+});
+
+test('AIT-137 round 5: reply annotations plus a user final during consume remain benign', async t => {
+  const h = await turnsOnceFixture(t), a = { role: 'user', content: 'Input A' }, b = { role: 'user', content: 'Input B' };
+  await h.persist('user', 'a', a.content);
+  const replyA = await (await h.callback([a])).json();
+  await h.persist('assistant', 'a-reply', replyA.choices[0].message.content); await h.handlers.idle();
+  const pending = pendingReplyConsumeConsent(t, h), callback = h.callback([a, b]);
+  await pending.entered;
+  const before = h.storage.voiceOperations(h.session.id);
+  assert.equal((await h.route(`/voice/${h.grant.callId}/events`, { providerSessionId: h.grant.providerSessionId,
+    event: { type: 'reply', callId: h.grant.callId, turnId: `${h.grant.providerSessionId}:assistant:a-reply`, replyId: replyA.id } })).status, 200);
+  await h.persist('user', 'b', b.content);
+  assert.deepEqual(h.storage.voiceOperations(h.session.id), before);
+  pending.release();
+  const completed = await (await callback).json(), replayed = await (await h.callback([a, b])).json();
+  assert.deepEqual(replayed, completed); assert.equal(completed.choices[0].message.content, 'Reply 2 finished');
+  assert.deepEqual(h.counts(), { admissions: 2, models: 2, cost: 34 });
 });
 
 for (const change of ['consent-withdrawal', 'external-consent-withdrawal', 'source-withdrawal', 'erasure', 'pause', 'call-close', 'budget-revocation', 'upload-change', 'heard-correction', 'locale-change']) {
