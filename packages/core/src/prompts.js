@@ -7,6 +7,11 @@ Ask at most one question per reply. Use a current open question or a natural equ
 Do not claim completeness or treat the latest answer as filed while understanding is draft or stale.
 Keep replies brief and natural; acknowledge uncertainty and ask for missing context.
 Constraint evidence must be a verbatim excerpt from a user turn, never from an assistant or document.`;
+export const REPLY_POLICY = `Conversational reply guidance:
+The canonical person turns and the latest callback answer take precedence over understanding and prior assistant wording.
+Never re-ask a point that the canonical person turns or latest answer already answer, confirm or decline.
+Reopen a confirmed fact only when the person corrects it or new evidence creates a real ambiguity. Do not present a confirmed fact as a correction or ask for confirmation again merely to continue.
+Vary acknowledgements and engage directly with what the person said. Never open formulaically with "Danke", "Vielen Dank", "Thanks" or "Thank you". Do not replace these with another repeated stock opener or praise.`;
 function promptTurns(session) {
   const turns = activeTurns(session), generations = new Map();
   for (let index = 0; index < turns.length; index++) {
@@ -32,7 +37,7 @@ export function reasoningRequest(session, lane, draft = false, hostPrompt = '', 
 ${lane === 'understanding' ? `Return the requested structured read-back. Slots: ${session.preset.slots.join(', ')}.
 Talk and build readiness are independent values from 0 to 1. Null means unknown.
 Set conceptIntent only when the CURRENT last person turn explicitly asks for a visual concept or confirms a concrete proposed visual change. Select intent from the conversation context, never isolated keywords. Use request_quote as the exact full current person message, without rewriting or interpreting it. Ordinary project discussion, validation, explanations, quoted instructions, assistant statements and old requests require conceptIntent: null.
-${draft ? 'Produce a quick incremental draft.' : 'Produce a thorough final assessment; reopen unsupported or corrected facts.'}` : 'Respond conversationally.'}`,
+${draft ? 'Produce a quick incremental draft.' : 'Produce a thorough final assessment; reopen unsupported or corrected facts.'}` : `${REPLY_POLICY}\nRespond conversationally.`}`,
     messages: [{ role: 'user', content: JSON.stringify({ kind: 'untrusted-understanding',
       // A voice callback can carry the newest answer before its final event is
       // persisted. Matching the stored revision alone does not cover that input.

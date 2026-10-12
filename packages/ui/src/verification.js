@@ -60,9 +60,9 @@ export class Verification {
     const wasLocked = this.#locked, focusInLock = this.#lock.contains(this.#root.activeElement);
     this.#locked = this.locked;
     this.#paint(); this.#schedule();
-    if (wasLocked !== this.#locked && !quiet) {
+    if (!quiet) {
       this.#onChange?.();
-      if (!this.#locked && focusInLock) this.#focusAfterUnlock?.();
+      if (wasLocked && !this.#locked && focusInLock) this.#focusAfterUnlock?.();
     }
   }
   receive(event) {
@@ -73,10 +73,11 @@ export class Verification {
   connect() { this.#connected = true; this.#schedule(); }
   disconnect() { this.#connected = false; clearTimeout(this.#poll); this.#poll = null; }
   destroy() { this.#alive = false; this.disconnect(); clearInterval(this.#tick); this.#tick = null; if (this.#dialog.open) this.#dialog.close(); }
-  openDialog(opener = this.#entry.querySelector('button')) {
+  async openDialog(opener = this.#entry.querySelector('button')) {
     if (!this.enabled) return;
+    if (await this.#beforeOpen?.() === false || !this.#alive || !this.enabled) return;
     this.#opener = this.#focusReturn?.() ?? opener;
-    this.#beforeOpen?.(); this.#paint();
+    this.#paint();
     setText(this.#dialog.querySelector('.verify-dialog__notice'), this.#notice?.() ?? '');
     if (!this.#dialog.open) this.#dialog.showModal?.();
     this.#focusForm(this.#forms.find(f => f.root.closest('dialog')));

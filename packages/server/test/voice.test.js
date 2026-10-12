@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers, createPluginRuntime, createVoiceProvider, createFacadeSecrets, mockPresets,
   SQLiteBudgetLedger, createVoiceCap, VOICE_CAP_REASON, VOICE_DAY_CAP_REASON } from '../src/index.js';
 import { PluginRegistry, createMockReasoning, activeTurns, PluginError, inputRevision } from '@inspr/aithema-core';
+import * as core from '@inspr/aithema-core';
 import { readFile } from 'node:fs/promises';
 import { temporaryDb, unzip } from '../../../test/helpers.js';
 import { eventProbe } from '../../../test/voice-test-events.js';
@@ -476,6 +477,25 @@ test('AIT-144: voice guidance varies openings and limits speech to one short que
   assert.match(system, /stale[^\n]*open questions/iu);
   assert.match(system, /canonical[^\n]*latest[^\n]*take precedence/iu);
 });
+
+for (const locale of ['de', 'en']) {
+  test(`AIT-148: ${locale} voice replies compose the shared core policy with voice-only guidance`, async t => {
+    const h = await voicePromptFixture(t, h => h.storage.append(h.session.id, 'session.locale-changed', { locale }));
+    await h.callback([{ role: 'user', content: locale === 'de' ? 'Hallo' : 'Hello' }]);
+    const { system } = h.requests.at(-1);
+    assert.equal(typeof core.REPLY_POLICY, 'string');
+    assert.ok(core.REPLY_POLICY.length > 0);
+    assert.equal(system.split(core.REPLY_POLICY).length, 2);
+    assert.match(system, /Never open formulaically with "Danke", "Vielen Dank", "Thanks" or "Thank you"/u);
+    assert.match(system, /Do not replace these with another repeated stock opener or praise/u);
+    assert.match(system, /Vary acknowledgements and engage directly/u);
+    assert.match(system, /Never re-ask[^\n]*canonical person turns/iu);
+    assert.match(system, /two or three short sentences[^\n]*at most 60 words[^\n]*at most one question/iu);
+    assert.match(system, /Do not read back[^\n]*summary/iu);
+    assert.match(system, /stale or draft, ignore its open questions/iu);
+    assert.match(system, /focused question is only a suggestion/iu);
+  });
+}
 
 test('AIT-144: transcript replay keeps confirmed capacity and DACH out of fake replies', async t => {
   // De-identified excerpts of the reported German call. Provider metadata and
@@ -2283,6 +2303,32 @@ test('AIT-137 round 5: identical replies with delayed finals keep each operation
   assert.equal(transcript.find(turn => turn.id.endsWith(':b-reply')).userTurnOrdinal, 2);
   await completionText(await h.callback([a, b, { role: 'user', content: 'Input C' }]));
   assert.deepEqual(h.requests.at(-1).messages.slice(1).map(message => [message.role, message.content]),
+    [['user', 'Input A'], ['assistant', 'Same reply finished'], ['user', 'Input B'], ['assistant', 'Same reply finished'], ['user', 'Input C']]);
+  assert.deepEqual(h.counts(), { admissions: 3, models: 3, cost: 51 });
+});
+
+test('AIT-137/AIT-148: shared voice guidance preserves identity order for identical delayed replies', async t => {
+  const h = await turnsOnceFixture(t, { sameReply: true });
+  const a = { role: 'user', content: 'Input A' }, b = { role: 'user', content: 'Input B' };
+  await h.persist('user', 'a', a.content, { userTurnOrdinal: 1 });
+  const replyA = await (await h.callback([a])).json();
+  await h.persist('user', 'b', b.content, { userTurnOrdinal: 2 });
+  const replyB = await (await h.callback([a, b])).json();
+  assert.notEqual(replyA.id, replyB.id); assert.deepEqual(replyA.choices, replyB.choices);
+  // Both finals are delayed; B arrives first despite identical reply text.
+  await h.persist('assistant', 'b-reply', replyB.choices[0].message.content, { replyId: replyB.id });
+  await h.persist('assistant', 'a-reply', replyA.choices[0].message.content, { replyId: replyA.id });
+  const transcript = h.storage.get(h.session.id).transcript;
+  assert.equal(transcript.find(turn => turn.replyId === replyA.id).userTurnOrdinal, 1);
+  assert.equal(transcript.find(turn => turn.replyId === replyB.id).userTurnOrdinal, 2);
+  await completionText(await h.callback([a, b, { role: 'user', content: 'Input C' }]));
+  const request = h.requests.at(-1);
+  assert.equal(request.system.split(core.REPLY_POLICY).length, 2);
+  assert.match(request.system, /Ask at most one question per reply/u);
+  assert.match(request.system, /canonical person turns and the latest callback answer take precedence/u);
+  assert.match(request.system, /two or three short sentences[^\n]*at most 60 words[^\n]*at most one question/iu);
+  assert.match(request.system, /focused question is only a suggestion/iu);
+  assert.deepEqual(request.messages.slice(1).map(message => [message.role, message.content]),
     [['user', 'Input A'], ['assistant', 'Same reply finished'], ['user', 'Input B'], ['assistant', 'Same reply finished'], ['user', 'Input C']]);
   assert.deepEqual(h.counts(), { admissions: 3, models: 3, cost: 51 });
 });
