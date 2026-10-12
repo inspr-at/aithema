@@ -37,7 +37,9 @@ test('AIT-132: reply JSON, fenced JSON and legacy plain replies parse without le
   for (const input of [reply, JSON.stringify(reply), `\`\`\`json\n${JSON.stringify(reply)}\n\`\`\``]) {
     assert.deepEqual(core.parseReply(input), reply);
   }
-  assert.deepEqual(core.parseReply('A plain question?'), { content: 'A plain question?', question_short: null, options: [] });
+  for (const content of ['A plain question?', '[A label] Follow-up?', '```js\nconst value = 1;\n```']) {
+    assert.deepEqual(core.parseReply(content), { content, question_short: null, options: [] });
+  }
 });
 
 test('AIT-132: schema validation enforces answer types, length, four options and a single likely', () => {

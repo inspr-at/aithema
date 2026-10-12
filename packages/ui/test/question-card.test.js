@@ -81,6 +81,28 @@ test('AIT-132: a failed answer retains the card and retries the same visitor-tur
   assert.equal(bodies.length, 2); assert.equal(bodies[0], bodies[1]); assert.equal(shown(c), false);
 });
 
+test('AIT-132: device streams use the same card contract while retaining canonical local turns and the draft', async t => {
+  const requests = [], c = document.createElement('aithema-session');
+  t.mock.method(globalThis, 'fetch', async () => assert.fail('Device answers stay in this tab'));
+  c.configure({ copy: en, session: createSession({ processingPreset: 'device' }), deviceReasoning: {
+    model: 'local-fixture', id: 'device', async connect() {}, async *stream(request) {
+      requests.push(request); assert.match(request.system, /question_short/u);
+      const answer = requests.length === 1 ? { content: 'Choose a design?', question_short: 'Choose a design?', options }
+        : { content: 'That answers the question.', question_short: null, options: [] };
+      const wire = JSON.stringify(answer);
+      for (let i = 0; i < wire.length; i += 12) yield wire.slice(i, i + 12);
+    },
+  } });
+  const root = c.shadowRoot, input = root.querySelector('textarea'); input.value = 'I sell cushions.';
+  root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick();
+  assert.equal(shown(c), true); assert.deepEqual(requests[0].messages, [{ role: 'user', content: 'I sell cushions.' }]);
+  assert.equal(root.querySelectorAll('.partial').length, 0);
+  input.value = 'A separate draft'; root.querySelector('.qopt').click(); await tick();
+  assert.equal(c.session.transcript.filter(turn => turn.role === 'user').at(-1).content, options[1].text);
+  assert.equal(requests[1].messages.at(-1).content, options[1].text); assert.equal(input.value, 'A separate draft');
+  assert.equal(shown(c), false);
+});
+
 test('AIT-132: card text is inert and keyed answer focus survives unrelated updates', async t => {
   t.mock.method(globalThis, 'fetch', async (url, request = {}) => new Response(new ReadableStream({ start(controller) {
     request.signal?.addEventListener('abort', () => controller.close(), { once: true });

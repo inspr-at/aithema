@@ -61,7 +61,7 @@ test('AIT-132: approved card, hover, focus and fold at 1440/390, light/dark, DE/
     for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
       await t.test(`${locale}/${theme}/${width}`, async () => {
         const label = `${locale}-${theme}-${width}`;
-        await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
+        await page.setViewport({ width, height: width === 390 ? 844 : 900 });
         await page.select('#theme', theme);
         await page.evaluate(async locale => {
           const { en } = await import('/packages/ui/src/i18n/en.js'), { de } = await import('/packages/ui/src/i18n/de.js');

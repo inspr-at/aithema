@@ -53,7 +53,7 @@ function streamedContent(wire) {
 /** Invalid card metadata never fails a valid conversational reply; old plain replies still work. */
 export function parseReply(raw) {
   if (typeof raw === 'string') {
-    if (!/^\s*(?:\{|\[|```)/u.test(raw)) return { content: raw, question_short: null, options: [] };
+    if (!/^\s*(?:\{|```(?:json)?\s*\{)/iu.test(raw)) return { content: raw, question_short: null, options: [] };
     const wire = unfence(raw);
     try { raw = JSON.parse(wire); }
     catch { return { content: streamedContent(wire), question_short: null, options: [] }; }

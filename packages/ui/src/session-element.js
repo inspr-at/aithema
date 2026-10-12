@@ -1324,7 +1324,10 @@ export class AithemaSession extends HTMLElement {
       this.receive({ seq: this.#cursor + 1, type: 'turn.final', data: { id: crypto.randomUUID(), role: 'user', content } });
       if (clearInput && input.value === content) input.value = '';
       const id = crypto.randomUUID(), revision = inputRevision(this.#session), origin = aiTextOrigin({ model: device.model, plugin: device.id }), reply = new ReplyStream();
-      for await (const delta of device.stream(reasoningRequest(this.#session, 'reaction'),
+      // The device has no assessment lane: retain its canonical-turns-only context contract.
+      const request = { ...reasoningRequest(this.#session, 'reaction'), documentMessageIndex: null,
+        messages: activeTurns(this.#session).map(({ role, content }) => ({ role, content })) };
+      for await (const delta of device.stream(request,
         { signal: controller.signal, deadlineAt })) {
         if (!current()) return;
         const text = reply.push(delta);
