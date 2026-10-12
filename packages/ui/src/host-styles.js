@@ -250,5 +250,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
   .m-form { grid-template-columns:auto auto minmax(0,1fr); grid-template-areas:"lead lead lead" "label label label" "in in in" "msg msg msg" "notice notice notice" "save cancel ."; row-gap:.35rem; }
   .m-save,.m-cancel { margin-top:.3rem; } .m-msg { font-size:.75rem; }
 }
+:host([theme="dark"]) .composer-out__upgrade { background:var(--aithema-accent-bright); }
+@media(prefers-color-scheme:dark) { :host(:not([theme="light"])) .composer-out__upgrade { background:var(--aithema-accent-bright); } }
 @media(prefers-reduced-motion:reduce) { .composer-shell *, .host-credits *, .audio-rail[data-used-up] * { transition:none; } }
 `;
