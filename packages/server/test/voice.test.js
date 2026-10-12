@@ -369,6 +369,7 @@ for (const order of ['callback-first', 'persist-first', 'persist-during-voice-ch
     if (order === 'persist-during-voice-check') {
       h.runtime.checkVoice = async (...args) => {
         await checkVoice(...args);
+        h.runtime.checkVoice = checkVoice;
         await h.persist('user', 'new', latest.content);
       };
     }
