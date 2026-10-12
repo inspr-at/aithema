@@ -73,6 +73,7 @@ test('AIT-131 approved display: eight states at 390, 1024, 1440, both themes and
         return request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: content[locale].recent.map((title, i) =>
           ({ id: i === 0 ? id : `recent-${i}`, title, updatedAt: `2026-10-${12 - i}T09:00:00Z` })), total: 3 }) });
       }
+      if (url.pathname.endsWith('/features')) return request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify(await shadow(page, c => c.session.featureMatrix)) });
       return request.continue();
     });
     await page.setViewport({ width: 1440, height: 900 }); await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
@@ -92,11 +93,13 @@ test('AIT-131 approved display: eight states at 390, 1024, 1440, both themes and
     if (evidence) await mkdir(evidence, { recursive: true });
     const shot = async (state, width, theme) => {
       const name = `${state}-${width}-${theme}-${locale}.png`;
+      await shadow(page, c => c.shadowRoot.activeElement?.blur());
       if (evidence) { await page.screenshot({ path: join(evidence, name), fullPage: width === 390 }); files.push(name); }
     };
     async function scene(stage, drafts = 'off') {
       await page.evaluate(async ({ stage, drafts, locale, words }) => {
         const { en } = await import('/packages/ui/src/i18n/en.js'), { de } = await import('/packages/ui/src/i18n/de.js');
+        const { inputRevision } = await import('/packages/core/src/session.js');
         const copy = { en, de }[locale], c = document.querySelector('aithema-session'), s = structuredClone(globalThis.displaySeed);
         s.locale = locale; s.settings.origin = stage === 'entrance' ? 'default' : 'chosen'; s.settings.voice = 'elevenlabs';
         s.engine.voice = { id: 'elevenlabs', label: 'ElevenLabs', offered: true };
@@ -107,7 +110,7 @@ test('AIT-131 approved display: eight states at 390, 1024, 1440, both themes and
         if (stage === 'conversation') {
           s.inputRevision = 1; s.openQuestion = { stub: true };
           s.transcript = [{ id: 'a1', role: 'assistant', content: words.first }, { id: 'u1', role: 'user', content: words.answer }, { id: 'a2', role: 'assistant', content: words.reply }];
-          s.understanding = { ...s.understanding, locale, inputRevision: 1, readinessAssessed: true, draft: false, summary: words.summary,
+          s.understanding = { ...s.understanding, locale, inputRevision: inputRevision(s), readinessAssessed: true, draft: false, summary: words.summary,
             signals: words.signals, openQuestions: words.questions, progress: { talk: { value: .5 }, build: { value: .2 } } };
         }
         c.configure({ copy, copyForLocale: value => ({ en, de })[value], session: s, voiceClient: globalThis.displayClient,
@@ -132,6 +135,28 @@ test('AIT-131 approved display: eight states at 390, 1024, 1440, both themes and
       for (const selector of ['#locale', '#theme']) {
         const target = await page.$eval(selector, n => ({ width: n.getBoundingClientRect().width, height: n.getBoundingClientRect().height, title: n.title }));
         assert.ok(target.width >= 44 && target.height >= 44 && target.title, `${label}: ${selector} target and tooltip`);
+      }
+      if (locale === 'de' && theme === 'light' && width === 390) {
+        await page.evaluate(() => localStorage.removeItem('aithema-motion'));
+        await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]); await scene('entrance');
+        assert.equal(await shadow(page, c => c.getAttribute('motion')), 'off', 'system default follows reduced motion');
+        await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
+        assert.equal(await shadow(page, c => c.getAttribute('motion')), 'on');
+        await page.click('aithema-session >>> .motion-toggle');
+        assert.equal(await page.evaluate(() => localStorage.getItem('aithema-motion')), 'off');
+        await page.reload({ waitUntil: 'domcontentloaded' }); await until(page, () => document.querySelector('aithema-session')?.session?.id);
+        assert.equal(await shadow(page, c => c.getAttribute('motion')), 'off', 'a stored choice survives a reload');
+        // Seed the same deterministic fixture after the reload; it never acquires a microphone.
+        await page.evaluate(async () => {
+          const { voiceEvents } = await import('/packages/core/src/live-voice.js'), { manifest } = await import('/plugins/elevenlabs/src/manifest.js');
+          globalThis.displaySeed = document.querySelector('aithema-session').session;
+          globalThis.displayClient = { manifest, async start({ callId }) {
+            const events = voiceEvents(); globalThis.displayVoiceEvents = events; globalThis.displayCallId = callId;
+            return { callId, providerSessionId: 'local-evidence', events, async setInput() {}, async setOutput() {}, async updateContext() {}, async sendText() {},
+              audioLevels: () => ({ input: .3, output: .65 }), async close() { events.end(); return { closureConfirmed: true }; } };
+          } };
+        });
+        await page.click('aithema-session >>> .motion-toggle'); await scene('entrance');
       }
       await shot('entrance', width, theme);
       await scene('ready'); assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.stage), 'ready');
@@ -174,14 +199,16 @@ test('AIT-131 approved display: eight states at 390, 1024, 1440, both themes and
       await shadow(page, c => c.shadowRoot.querySelector('.fold-strip').click()); await settle();
       assert.deepEqual(await shadow(page, c => [...c.shadowRoot.querySelectorAll('.transcript-shell,.analysis-content')].map(p => p.scrollTop)), scrollBefore, `${label}: restore pane scroll`);
       const footerStable = ['.display-foot', '.engine-info', '.connection-timer'], footerBefore = await boxes(page, footerStable);
+      await shadow(page, c => { c.shadowRoot.querySelector('.connection-timer').textContent = '1:00:00'; });
+      sameBoxes(footerBefore, await boxes(page, footerStable), `${label}: timer hour boundary keeps its width`);
       for (const [selector, name] of [['.engine-info', 'flag-hover-open'], ['.ai-notice', 'footer-popup-open'], ['.host-credits', 'credits-popup-open']]) {
         await page.hover(`aithema-session >>> ${selector}`); await settle();
         sameBoxes(footerBefore, await boxes(page, footerStable), `${label}: ${name}`);
         const popup = await shadow(page, (c, selector) => {
           const p = c.shadowRoot.querySelector(selector).closest('[data-footer-popup]').querySelector('.footer-popup'), b = p.getBoundingClientRect();
-          return { visible: getComputedStyle(p).visibility, left: b.left, right: b.right, top: b.top, bottom: b.bottom };
+          return { visible: getComputedStyle(p).visibility, left: b.left, right: b.right, top: b.top, bottom: b.bottom, painted: [b.top + 4, b.bottom - 4].every(y => p.contains(c.shadowRoot.elementFromPoint(b.left + b.width / 2, y))) };
         }, selector);
-        assert.equal(popup.visible, 'visible');
+        assert.equal(popup.visible, 'visible'); assert.equal(popup.painted, true, `${label}: popup is painted through its whole height`);
         assert.ok(popup.left >= 0 && popup.right <= width + .5 && popup.top >= 0 && popup.bottom <= (width === 390 ? 844 : 900), `${label}: unclipped popup ${JSON.stringify(popup)}`);
         await shot(name, width, theme); await page.mouse.move(0, 0);
       }

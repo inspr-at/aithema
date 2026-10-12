@@ -130,7 +130,7 @@ export class AithemaSession extends HTMLElement {
   connectedCallback() {
     if (!this.#session) return;
     this.#pings ??= answerVoicePings(() => this.#rail?.session?.callId ?? null);
-    this.#concept?.connect(); this.#connect(); this.#watchPage(true); this.#offerResume(); this.#host?.connect(); this.#orb?.mount(); this.#introOrb?.mount();
+    this.#concept?.connect(); this.#connect(); this.#watchPage(true); this.#offerResume(); this.#host?.connect(); this.#placeOrb();
     this.#popups?.connect(); this.#motionMedia?.addEventListener?.('change', this.#motionListener);
     this.#observePanes();
   }
