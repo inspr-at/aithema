@@ -532,7 +532,7 @@ turn/upload or while a call is connecting or active. Withdrawn turns still count
 `changeLocale(locale)` port. Acknowledged locale events repaint the existing
 nodes: audio, composer text, selection and focus survive. A late response never
 replaces the session snapshot or a first turn. Rapid choices are serialized;
-On my device applies the same event locally before any input. The host remembers
+On my device updates this server metadata too, keeping its text in the tab. The host remembers
 the choice for the next conversation when this one cannot change language.
 
 ## Voice host integration

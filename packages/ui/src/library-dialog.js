@@ -12,12 +12,12 @@ const escape = id => globalThis.CSS?.escape?.(id) ?? id.replace(/["\\]/gu, '\\$&
 const time = value => { const at = typeof value === 'number' ? value : Date.parse(value); return Number.isFinite(at) ? at : 0; };
 
 export class LibraryDialog {
-  #dialog; #copy; #request; #current; #locale; #adopt; #notice; #alive = true; #opener = null;
+  #dialog; #copy; #request; #current; #locale; #newLocale; #adopt; #notice; #alive = true; #opener = null;
   #items = []; #order = []; #total = 0; #query = ''; #load = 0; #state = 'idle'; #message = '';
   #sort = { key: 'updatedAt', direction: 'descending' }; #renaming = null; #confirm = null; #busy = false; #searchTimer = null;
   /** request(path, body?) reaches /api/library{path}; adopt(session, reason) opens a conversation. */
-  constructor({ dialog, copy, request, current, locale, adopt, notice }) {
-    this.#dialog = dialog; this.#copy = copy; this.#request = request; this.#current = current; this.#locale = locale;
+  constructor({ dialog, copy, request, current, locale, newLocale = locale, adopt, notice }) {
+    this.#dialog = dialog; this.#copy = copy; this.#request = request; this.#current = current; this.#locale = locale; this.#newLocale = newLocale;
     this.#adopt = adopt; this.#notice = notice;
     this.#mount();
   }
@@ -258,7 +258,7 @@ export class LibraryDialog {
   async #create(reason = 'new') {
     if (this.#busy) return;
     this.#busy = true; this.#say(this.#c.opening); this.#paint();
-    const result = await this.#call('', { locale: this.#locale() });
+    const result = await this.#call('', { locale: this.#newLocale() });
     if (!this.#alive) return;
     this.#busy = false;
     if (result?.session) this.#finish(result.session, reason);

@@ -138,10 +138,6 @@ export class AithemaSession extends HTMLElement {
       if (sessionId !== this.#session.id || !['en', 'de'].includes(locale) || !this.#options.copyForLocale?.(locale)) return false;
       if (locale === this.#session.locale) return true;
       if (this.#hasInput() || this.#sending || this.#uploading || this.#rail?.root.dataset.call === 'active') return false;
-      if (this.#session.processingPreset === 'device') {
-        this.receive({ sessionId, seq: this.#cursor + 1, type: 'session.locale-changed', data: { locale } });
-        return true;
-      }
       try {
         const response = await postJson(`${this.#base}/api/sessions/${sessionId}/locale`, { locale }, { sessionToken: this.#sessionToken });
         if (!response.ok || sessionId !== this.#session.id) return false;

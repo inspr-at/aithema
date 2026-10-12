@@ -33,7 +33,8 @@ export class HostSurface {
     if (o.library) {
       open.innerHTML = LIBRARY_ICON; open.append(node('span', '', s.library.open));
       this.#library = new LibraryDialog({ dialog: root.querySelector('dialog.library'), copy, request: (path, body) => this.#call(`/api/library${path}`, body),
-        current: () => this.#session().id, locale: () => o.locale?.() ?? this.#session().locale ?? 'en', adopt: (next, reason) => this.#adopt(next, reason),
+        current: () => this.#session().id, locale: () => this.#session().locale ?? 'en',
+        newLocale: () => o.locale?.() ?? this.#session().locale ?? 'en', adopt: (next, reason) => this.#adopt(next, reason),
         notice: () => root.querySelector('#ai-notice')?.textContent ?? '' });
       open.addEventListener('click', () => this.#library.show(open));
     }
