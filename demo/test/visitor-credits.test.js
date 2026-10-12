@@ -46,6 +46,99 @@ function verificationRequest(f, session, event = { type: 'request-verification',
   return { sessionId: session.id, ownerToken: owner, ...result.events.find(e => e.type === 'verification.requested').data };
 }
 
+for (const [name, options, allowed] of [
+  ['non-demo without a document', { demo: false }, false],
+  ['non-demo with a document', { demo: false, privacyDocumentConfigured: () => true }, true],
+  ['demo without a document', { demo: true, privacyDocumentConfigured: () => { throw new Error('demo is exempt'); } }, true],
+]) for (const status of ['verified', 'verification-pending']) {
+  test(`AIT-135 fix round 2 migration: ${name}, legacy ${status}`, async t => {
+    const db = await temporaryDb(), old = new SQLiteStorage(db);
+    const s = old.create({ id: 'legacy-privacy', ownerToken: owner });
+    const identity = { ...createIdentity(), status, address, verificationRevision: 1, lastNow: 1_000,
+      ...(status === 'verification-pending' ? { expiresAt: 1_801_000 } : {}) };
+    old.transitionHost(s.id, () => ({ state: { identity, handover: createHandover({ sessionId: s.id }) },
+      events: [{ type: 'identity.state', data: identity }] }));
+    const original = old.hostState(s.id), events = old.read(s.id);
+    old.close();
+    const storage = new SQLiteStorage(db); t.after(() => storage.close());
+    const host = createDemoHost({ storage, now: () => 1_000, ...options });
+    const row = storage.db.prepare('SELECT * FROM visitor_identities WHERE owner_hash=?').get(ownerHash);
+    assert.equal(host.visitor(owner).address, allowed ? address : null, 'construction must not copy a protected address');
+    assert.equal(host.visitor(owner).tier, allowed && status === 'verified' ? 'emailGiven' : 'anonymous');
+    if (!allowed) {
+      assert.equal(JSON.stringify(row).includes(address), false);
+      assert.equal(row.saved_at, null); assert.equal(row.confirmed_at, null); assert.equal(row.pending_at, null);
+    }
+    assert.deepEqual(storage.hostState(s.id), original, 'migration leaves the original legacy store untouched');
+    assert.deepEqual(storage.read(s.id), events);
+  });
+}
+
+for (const [name, options] of [
+  ['non-demo without a document', { demo: false }],
+  ['non-demo with a document', { demo: false, privacyDocumentConfigured: () => true }],
+  ['demo without a document', { demo: true }],
+]) test(`AIT-135 fix round 2 startup cleanup: ${name} deletes expired evidence without rewriting addresses`, async t => {
+  const db = await temporaryDb(), old = new SQLiteStorage(db);
+  let time = 1_000;
+  const before = createDemoHost({ storage: old, demo: true, now: () => time });
+  const expiredOwner = 'expired-owner', expiredAddress = 'expired@example.test';
+  const expiredSession = old.create({ id: 'expired-saved', ownerToken: expiredOwner });
+  before.saveEmail(expiredOwner, { address: expiredAddress, noticeVersion });
+  const expiredIdentity = before.identity.project({ session: expiredSession }, createIdentity());
+  old.transitionHost(expiredSession.id, () => ({ state: { identity: expiredIdentity },
+    events: [{ type: 'identity.state', data: expiredIdentity }] }));
+  time += 89 * DAY;
+  const pendingOwner = 'pending-owner', pendingAddress = 'pending@example.test';
+  for (const [token, email, saved] of [[owner, address, true], [pendingOwner, pendingAddress, false]]) {
+    const session = old.create({ id: saved ? 'saved-pending' : 'pending-only', ownerToken: token });
+    if (saved) before.saveEmail(token, { address: email, noticeVersion });
+    const result = reduceIdentity(before.identity.project({ session }, createIdentity()),
+      { type: 'request-verification', address: email, now: time });
+    before.identity.persist({ session }, result.state);
+    old.transitionHost(session.id, () => ({ state: { identity: result.state }, events: result.events }));
+    await before.identity.requestVerification({ sessionId: session.id, ownerToken: token,
+      ...result.events.find(e => e.type === 'verification.requested').data });
+  }
+  assert.equal(old.db.prepare('SELECT COUNT(*) n FROM visitor_confirmation_tokens').get().n, 2);
+  const saved = old.db.prepare('SELECT * FROM visitor_identities WHERE owner_hash=?').get(ownerHash);
+  old.close();
+  const storage = new SQLiteStorage(db); t.after(() => storage.close());
+  const host = createDemoHost({ storage, now: () => time + DAY, ...options });
+  // Observe writes even when the address bytes happen to be unchanged. A
+  // retained address column is allowed; putting it into a new JSON write is not.
+  storage.db.exec(`CREATE TABLE address_writes (target TEXT NOT NULL);
+    CREATE TRIGGER observe_address_column AFTER UPDATE OF address ON visitor_identities
+      WHEN NEW.address IS NOT NULL BEGIN INSERT INTO address_writes VALUES ('address'); END;
+    CREATE TRIGGER observe_identity_json AFTER UPDATE OF identity_json ON visitor_identities
+      WHEN json_extract(NEW.identity_json,'$.address') IS NOT NULL
+      BEGIN INSERT INTO address_writes VALUES ('identity_json'); END;
+    CREATE TRIGGER observe_host_identity AFTER UPDATE ON host_states
+      WHEN json_extract(NEW.record,'$.identity.address') IS NOT NULL
+      BEGIN INSERT INTO address_writes VALUES ('host_states'); END;`);
+  const result = host.retainVisitors();
+  assert.equal(result.addresses, 1); assert.ok(result.pending >= 2);
+  assert.equal(storage.db.prepare('SELECT COUNT(*) n FROM visitor_confirmation_tokens').get().n, 0);
+  assert.equal(storage.db.prepare('SELECT COUNT(*) n FROM visitor_identities WHERE pending_at IS NOT NULL').get().n, 0);
+  for (const token of [expiredOwner, pendingOwner]) {
+    assert.equal(host.visitor(token).address, null); assert.equal(host.visitor(token).tier, 'anonymous');
+  }
+  for (const id of ['expired-saved', 'pending-only', 'saved-pending']) {
+    assert.equal(storage.hostState(id).identity.address, null);
+    assert.equal(JSON.stringify(storage.read(id)).includes(id === 'expired-saved' ? expiredAddress : id === 'pending-only' ? pendingAddress : address), false);
+  }
+  const retained = storage.db.prepare('SELECT * FROM visitor_identities WHERE owner_hash=?').get(ownerHash);
+  assert.equal(retained.address, address); assert.equal(retained.saved_at, saved.saved_at);
+  assert.equal(retained.last_active_at, saved.last_active_at);
+  assert.equal(host.visitor(owner).tier, 'emailGiven');
+  const projected = host.identity.project({ session: storage.get('saved-pending') }, createIdentity());
+  assert.equal(projected.address, address); assert.equal(projected.status, 'guest');
+  assert.equal(projected.verificationRevision, saved.address_revision + 1);
+  assert.equal(projected.expiresAt, null);
+  assert.deepEqual(storage.db.prepare('SELECT * FROM address_writes').all(), [], 'cleanup must not persist an address');
+  assert.deepEqual(host.retainVisitors(), { addresses: 0, pending: 0, audit: 0, projections: 0 });
+});
+
 for (const method of ['DELETE', 'PUT']) test(`AIT-135 fix round 1 ${method} during pending verification cannot restore the old address or issue its token`, { timeout: 5_000 }, async t => {
   const f = fixture(t, { demo: true, verificationRequired: true }), { call } = api(t, f);
   const s = await (await call('/api/sessions', {})).json();

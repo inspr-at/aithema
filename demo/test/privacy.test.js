@@ -5,11 +5,36 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { SQLiteStorage } from '../../packages/server/src/index.js';
+import { createIdentity, createHandover } from '@inspr/aithema-core';
 import { deploymentConfig } from '../deployment.js';
 import { startChild, temporaryDb, post } from '../../test/helpers.js';
 
 const fixture = fileURLToPath(new URL('./fixtures/privacy.html', import.meta.url));
 const server = new URL('../server.js', import.meta.url);
+for (const [name, settings, allowed] of [
+  ['non-demo without a document', { AITHEMA_PROVIDER: 'mock' }, false],
+  ['non-demo with a document', { AITHEMA_PROVIDER: 'mock', AITHEMA_PRIVACY_DOCUMENT: fixture }, true],
+  ['demo without a document', {}, true],
+]) test(`AIT-135 fix round 2 server upgrade: ${name} applies privacy before constructing visitor credits`, async t => {
+  const db = await temporaryDb(), old = new SQLiteStorage(db), owner = 'upgrade-owner', address = 'upgrade@example.test';
+  const s = old.create({ id: 'server-legacy', ownerToken: owner });
+  const identity = { ...createIdentity(), status: 'verified', address, verificationRevision: 1, lastNow: Date.now() };
+  old.transitionHost(s.id, () => ({ state: { identity, handover: createHandover({ sessionId: s.id }) },
+    events: [{ type: 'identity.state', data: identity }] }));
+  old.close();
+  const running = await startChild(server, db, settings); t.after(() => running.kill());
+  const response = await fetch(running.url + '/api/visitor/email', { headers: { cookie: `aithema-visitor=${owner}` } });
+  assert.equal(response.status, 200);
+  const { visitor } = await response.json();
+  assert.equal(visitor.address, allowed ? address : null);
+  assert.equal(visitor.tier, allowed ? 'emailGiven' : 'anonymous');
+  await running.kill();
+  const storage = new SQLiteStorage(db); t.after(() => storage.close());
+  const row = storage.db.prepare('SELECT * FROM visitor_identities WHERE owner_hash=?').get(s.ownerHash);
+  assert.equal(JSON.stringify(row).includes(address), allowed, 'check the persisted construction result');
+});
+
 async function documentFile(content) {
   const dir = await mkdtemp(join(tmpdir(), 'aithema-privacy-'));
   const path = join(dir, 'privacy.html');
