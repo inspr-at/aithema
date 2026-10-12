@@ -2,10 +2,45 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createVoiceLifecycle, reduceVoiceLifecycle, voiceAuthorizationRevision } from '../src/voice-lifecycle.js';
 import { createSession, applyEvent } from '../src/session.js';
+import { createVoiceLifecycleController } from '../src/voice-lifecycle-controller.js';
+import { PluginError } from '../src/invocation.js';
 
 const step = (state, type, data = {}) => reduceVoiceLifecycle(state, { type, ...data });
 const connected = () => step(step(createVoiceLifecycle('logical-call'), 'start'), 'connected', {
   providerSessionId: 'generation-1', authorizationRevision: 'auth-1', spendDeadlineAt: 5000, browserLivenessDeadlineAt: 3000,
+});
+
+for (const timing of ['before recovery', 'during recovery']) test(`AIT-138 fix 1: heartbeat scheduled ${timing} cannot cut off a restored transport after its deadline`, async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
+  const entered = Promise.withResolvers(), release = Promise.withResolvers();
+  let replacements = 0, renewals = 0, mediaStops = 0;
+  const controller = createVoiceLifecycleController({ callId: 'logical-call',
+    stopMedia() { mediaStops++; },
+    async replace() { replacements++; entered.resolve(); return release.promise; },
+    async renew(options) {
+      renewals++;
+      if (options.deadlineAt <= Date.now()) throw new PluginError('deadline');
+      return { acknowledged: true, browserLivenessDeadlineAt: Date.now() + 30_000 };
+    },
+  });
+  t.after(() => { release.resolve(); controller.end('closed'); });
+  controller.connected({ providerSessionId: 'generation-1', spendDeadlineAt: 160_000, browserLivenessDeadlineAt: 130_000 });
+  let beat;
+  if (timing === 'before recovery') beat = controller.heartbeat({ deadlineAt: Date.now() + 5000 });
+  const recovering = controller.recover(); await entered.promise;
+  if (timing === 'during recovery') {
+    controller.startHeartbeat(10_000); t.mock.timers.tick(10_000);
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  t.mock.timers.tick(6000);
+  release.resolve({ providerSessionId: 'generation-2', browserLivenessDeadlineAt: Date.now() + 30_000 });
+  assert.equal(await recovering, true); await beat; await new Promise(resolve => setImmediate(resolve));
+  assert.equal(renewals, 0, 'the heartbeat from the retired transport is discarded before renewal');
+  assert.equal(replacements, 1, 'the expired heartbeat must not initiate another cutover');
+  assert.equal(mediaStops, 1); assert.equal(controller.state.state, 'active');
+  assert.equal(controller.state.providerSessionId, 'generation-2');
+  await controller.heartbeat({ deadlineAt: Date.now() + 5000 });
+  assert.equal(renewals, 1, 'a fresh heartbeat renews the replacement normally');
 });
 
 test('AIT-138: start and replacements retain logical identity, deadlines and independent generation keys', () => {

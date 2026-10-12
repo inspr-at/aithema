@@ -521,6 +521,37 @@ test('failed recovered SDK connections complete all three attempts and expose Re
   assert.equal(root.querySelector('.send').disabled, false);
 });
 
+test('AIT-138 fix 2: a recoverable segment confirmation keeps waiting and Resume in the browser', async t => {
+  const session = createSession({ demo: true });
+  session.featureMatrix = { best: { voice: { available: true }, text: { available: true } } };
+  let callId, sdkEnds = 0, serverCloses = 0;
+  const receipt = providerSessionId => ({ callId, providerSessionId,
+    credential: { providerSessionId, connectionType: 'webrtc', conversationToken: 'fixture-token', ttlMs: 60_000 },
+    spendDeadlineAt: Date.now() + 60_000, browserLivenessDeadlineAt: Date.now() + 30_000 });
+  const control = {
+    async start(request) { callId = request.callId; return receipt('waiting-provider'); },
+    async recover() { return receipt('resumed-provider'); },
+    async close() { serverCloses++; return { closureConfirmed: true }; },
+    async pause() {}, async resume() { return { acknowledged: true, paused: false }; }, async heartbeat() {},
+  };
+  const client = createElevenLabsClient({ control, persistEvent: async () => {}, sdk: {
+    async startSession(options) { const id = options.conversationToken && sdkEnds ? 'resumed-provider' : 'waiting-provider';
+      return { getId: () => id, input: { async setMuted() {} }, setVolume() {}, sendContextualUpdate() {}, async endSession() { sdkEnds++; } };
+    },
+  } });
+  const c = document.createElement('aithema-session'); c.configure({ copy: en, session, voiceClient: client });
+  t.after(async () => { c.configure({ copy: en, session }); c.remove(); await tick(); });
+  const root = c.shadowRoot; root.querySelector('.voice-start').click(); await tick();
+  c.receive({ type: 'voice.state', data: { callId, providerSessionId: 'waiting-provider', state: 'waiting', reason: 'browser-liveness-deadline' } }); await tick();
+  c.receive({ type: 'voice.state', data: { callId, providerSessionId: 'waiting-provider', state: 'ended', reason: 'browser-liveness-deadline',
+    terminal: { closureConfirmed: true } } }); await tick();
+  assert.equal(serverCloses, 0, 'provider settlement must not send a logical hang-up command');
+  assert.equal(sdkEnds, 0); assert.equal(root.querySelector('.audio-rail').dataset.state, 'waiting');
+  assert.equal(root.querySelector('.pause').title, en.resume); assert.equal(root.querySelector('.pause').disabled, false);
+  root.querySelector('.pause').click(); await tick(); await tick();
+  assert.equal(root.querySelector('.audio-rail').dataset.state, 'listening');
+});
+
 test('resending failed typed input after voice ends drops its stale call identity', async t => {
   const session = createSession({ demo: true });
   session.featureMatrix = { best: { voice: { available: true }, text: { available: true } } };

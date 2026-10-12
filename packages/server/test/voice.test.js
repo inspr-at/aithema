@@ -41,6 +41,53 @@ test('AIT-138: explicit hangup cannot be resurrected by a recover request', asyn
   assert.equal(response.status, 403); assert.equal(h.traffic.length, before);
 });
 
+test('AIT-138 fix 2: background closure confirmation preserves a waiting logical call', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
+  const h = voiceFixture(t, { unknown: true, leaseMs: 20, voiceOptions: { reconcileIntervalMs: 10,
+    async closeOrphan(record) { return { providerSessionId: record.providerSessionId, outcome: 'completed', closureConfirmed: true,
+      usage: { providerSeconds: 1, providerMinutes: 1 / 60, pausedSeconds: 0, visitorSeconds: 1, upstreamMicro: 1000, visitorMicro: 2000 } }; },
+  } });
+  const grant = await h.start(), { waitFor } = await observeVoice(h, t);
+  h.advance(20); t.mock.timers.tick(20);
+  await waitFor(e => e.type === 'voice.state' && e.data.state === 'waiting'); await h.handlers.idle();
+  h.handlers.reconcileVoiceLater(); t.mock.timers.tick(10);
+  const confirmed = await waitFor(e => e.type === 'voice.state' && e.data.terminal?.closureConfirmed === true);
+  assert.equal(confirmed.data.state, 'waiting', 'settling the segment must not end the resumable logical call');
+  const logical = h.storage.voiceLifecycle(h.session.id, grant.callId);
+  assert.equal(logical.state, 'waiting'); assert.equal(logical.segments[grant.providerSessionId].closureConfirmed, true);
+  assert.equal(h.storage.voiceCalls()[0].reconciliationPending, false);
+  const resumed = await h.route(`/voice/${grant.callId}/recover`, { providerSessionId: grant.providerSessionId });
+  assert.equal(resumed.status, 200); assert.equal((await resumed.json()).callId, grant.callId);
+});
+
+for (const failure of ['admission', 'SDK connection']) test(`AIT-138 fix 3: exhausted ${failure} attempts persist waiting for another reader`, async t => {
+  const path = await temporaryDb(), h = voiceFixture(t, { path }), first = await h.start();
+  let current = first;
+  if (failure === 'admission') h.failMint(503);
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId });
+    assert.equal(response.status, failure === 'admission' ? 502 : 200);
+    if (failure === 'SDK connection') {
+      current = await response.json();
+      await h.route(`/voice/${first.callId}/close`, { providerSessionId: current.providerSessionId,
+        reason: 'recovery-failed', recoveryAttempts: attempt });
+    }
+  }
+  await h.route(`/voice/${first.callId}/close`, { providerSessionId: current.providerSessionId,
+    reason: 'recovery-failed', recoveryAttempts: 3 });
+  const waiting = h.storage.voiceLifecycle(h.session.id, first.callId);
+  assert.equal(waiting.state, 'waiting'); assert.equal(waiting.attempts, 3); assert.equal(waiting.needsRecovery, true);
+  const reader = new SQLiteStorage(path); t.after(() => reader.close());
+  assert.deepEqual(reader.voiceLifecycle(h.session.id, first.callId), waiting, 'a reload reads the exhausted state from SQLite');
+  const snapshot = await h.handlers.handle(new Request(`http://host/api/sessions/${h.session.id}`, {
+    headers: { 'x-aithema-session-token': 'voice-owner' } })).then(r => r.json());
+  assert.equal(snapshot.voiceLifecycle.state, 'waiting'); assert.equal(snapshot.voiceLifecycle.attempts, 3);
+  assert.equal(snapshot.voiceLifecycle.callId, first.callId);
+  h.failMint();
+  const resumed = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: current.providerSessionId }).then(r => r.json());
+  assert.equal(resumed.callId, first.callId); assert.equal(h.storage.voiceLifecycle(h.session.id, first.callId).attempts, 0);
+});
+
 export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, path, cap, reasoning = createMockReasoning(), durationBinding = {}, voiceOptions = {} } = {}) {
   const storage = new SQLiteStorage(path), secrets = createFacadeSecrets();
   let clock = Date.now(), sequence = 0, covered = true, secretReads = 0, coverageReads = 0, healthReads = 0, releasing = false, mintFailure, beforeCoverage;
