@@ -157,7 +157,10 @@ export function createVoiceOperationStore(storage) {
         if (keys.size > 1 || slots.length > 1) reason = 'multiple-candidates';
         else if ([...keys].some(key => !deduplicated(get(key)))) reason = 'legacy-operation';
         else if ([...keys].some(key => get(key).ordinal !== ordinal)) contradiction(context, 'provider-ordinal-conflict');
-        else if (slots[0] && !consistent(slots[0].providerIdentity, providerIdentity)) contradiction(context, 'provider-namespace-conflict');
+        else if (slots[0] && !consistent(slots[0].providerIdentity, providerIdentity)) {
+          if (overlaps(slots[0].providerIdentity, providerIdentity)) contradiction(context, 'provider-namespace-conflict');
+          reason = 'provider-position-ambiguous';
+        }
         else if (positional.length > 1 || positional.some(receipt => receipt.ambiguous)) reason = 'multiple-receipts';
         else if (positional[0] && positional[0].inputDigest !== historyDigests.at(-1)) reason = 'ordinal-input-mismatch';
         else if (positional[0] && !consistent(positional[0].providerIdentity, providerIdentity)) {
@@ -169,7 +172,7 @@ export function createVoiceOperationStore(storage) {
         if (!reason) operation = slots[0];
         if (!reason && alias(context, `slot:${ordinal}`) && !operation) reason = 'legacy-operation';
       }
-      const verifiedOrdinal = ['history-discontinuity', 'missing-predecessors'].includes(reason) ? null : ordinal;
+      const verifiedOrdinal = ['history-discontinuity', 'missing-predecessors', 'provider-position-ambiguous'].includes(reason) ? null : ordinal;
       if (reason) { diagnostic(context, reason, { ordinal: verifiedOrdinal }); operation = undefined; receipt = undefined; }
       if (operation) {
         assertCurrent(operation);
@@ -181,11 +184,12 @@ export function createVoiceOperationStore(storage) {
         return { operation, claimed: false };
       }
       const id = randomUUID(), deduplicate = !reason;
-      const key = hash([context.sessionId, context.callId, context.providerSessionId, deduplicate ? ['ordinal', ordinal] : ['independent', id]]);
+      const key = hash([context.sessionId, context.callId, context.providerSessionId,
+        deduplicate ? ['ordinal', ordinal] : ['independent', verifiedOrdinal, id]]);
       operation = { key, sessionId: context.sessionId, callId: context.callId, providerSessionId: context.providerSessionId,
         turnId: `${context.providerSessionId}:user:operation-${key}`, canonical: false,
         correlationVersion: 3, deduplicate, ordinal: verifiedOrdinal,
-        providerIdentity, historyStartDigest: deduplicate ? historyStartDigest : null,
+        providerIdentity: deduplicate ? providerIdentity : undefined, historyStartDigest: deduplicate ? historyStartDigest : null,
         inputDigest: deduplicate ? historyDigests.at(-1) : null, ...(reason ? { correlationReason: reason } : {}),
         afterTurnId: latestUser(session)?.id ?? null,
         consentRevision: session.conversationConsentRevision ?? session.consentRevision, withdrawalRevision: session.withdrawalRevision,
