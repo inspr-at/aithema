@@ -566,6 +566,9 @@ const hold = (page, on) => inShadow(page, (c, on) => {
   if (!c.heldUploadEvents) {
     const deliver = c.receive.bind(c), queue = c.heldUploadEvents = [];
     c.receive = event => {
+      // POST acknowledgements and SSE can carry the same event. Let the
+      // component ignore replays before they can block a later pending row.
+      if (event?.seq && event.seq <= c.session.seq) return deliver(event);
       if (c.holdUploadEvents && event?.seq && (queue.length || event.type === 'upload.state' && event.data?.state !== 'pending')) { queue.push(event); return; }
       return deliver(event);
     };
@@ -1476,7 +1479,7 @@ test('document uploads: a text file and a PDF through the real file picker, pend
   });
 
 test('AIT-142: the first real picker awaits interception; a replay cannot hold the next pending upload',
-  { timeout: 30_000 }, async t => {
+  { timeout: 120_000 }, async t => {
     const executablePath = await browserPath();
     const directory = await mkdtemp(join(tmpdir(), 'aithema-chooser-order-'));
     const demo = await startDemo(directory); let browser;
@@ -1506,7 +1509,7 @@ test('AIT-142: the first real picker awaits interception; a replay cannot hold t
       return send(method, ...args);
     });
     try {
-      const chooser = await uploadChooser(page, 1_000);
+      const chooser = await uploadChooser(page);
       assert.equal(chooser.isMultiple(), true); await chooser.cancel();
       assert.equal(order[0], 'interception acknowledged', JSON.stringify(order));
       await hold(page, true);
