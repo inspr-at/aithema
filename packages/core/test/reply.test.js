@@ -108,6 +108,46 @@ test('AIT-132: a reaction persists the parsed card once and publishes only conve
   assert.equal(await lanes.run(session.id, 'reaction'), 'cached');
 });
 
+const boundaryReplies = [
+  { name: 'two maximum-length options', value: { ...reply, options: [{ text: 'a'.repeat(8000) }, { text: 'b'.repeat(8000), likely: true }] } },
+  { name: 'the full content, question and four-option budget', value: { content: 'c'.repeat(16000), question_short: 'q'.repeat(500),
+    options: Array.from({ length: 4 }, (_, i) => ({ text: String(i).repeat(8000) })) } },
+  { name: 'maximum-length JSON-escaped fields', value: { content: '\u0001'.repeat(16000), question_short: '\u0001'.repeat(500),
+    options: Array.from({ length: 4 }, () => ({ text: '\u0001'.repeat(8000) })) } },
+  { name: 'an oversized option beside a valid option', value: { ...reply, options: [{ text: 'x'.repeat(8001) }, { text: 'Keep this', likely: true }] },
+    answers: [{ text: 'Keep this', likely: true }] },
+  { name: 'malformed options beside a valid option', value: { ...reply, options: [null, { text: 7 }, { text: 'x'.repeat(16001), likely: 'yes' }, { text: 'Keep this' }] },
+    answers: [{ text: 'Keep this' }] },
+  { name: 'option metadata beyond the hard envelope budget', value: { ...reply, options: [{ text: 'x'.repeat(1_000_000) }] }, answers: [] },
+  { name: 'oversized metadata before the reply text', value: { options: [{ text: 'x'.repeat(1_000_000) }], question_short: reply.question_short,
+    content: 'Still usable: "yes".\nChoose \\ a colour? 😃' }, answers: [] },
+  { name: 'syntactically malformed option metadata', value: { ...reply, options: [] },
+    wire: `${JSON.stringify({ content: reply.content }).slice(0, -1)},"question_short":"Choose?","options":[{"text":broken}`, answers: [] },
+];
+
+for (const fixture of boundaryReplies) test(`AIT-132 streamed boundary: ${fixture.name}`, async () => {
+  const wire = fixture.wire ?? JSON.stringify(fixture.value), expected = fixture.answers ?? fixture.value.options;
+  // Include one provider delta, splits around the former limit, and many chunks.
+  const layouts = [[wire], [wire.slice(0, 15999), wire.slice(15999, 16001), wire.slice(16001)],
+    Array.from({ length: Math.ceil(wire.length / 997) }, (_, i) => wire.slice(i * 997, (i + 1) * 997))];
+  for (const chunks of layouts) {
+    let session = core.applyEvent(core.createSession({ demo: true }), { seq: 1, type: 'turn.final', data: { role: 'user', content: 'I sell cushions.' } });
+    const partials = [], published = [];
+    const reasoning = { ...core.createMockReasoning(), async *stream() { yield* chunks; } };
+    const lanes = new core.SessionLanes({ reasoning, beforeDispatch: async () => true, getSession: () => session,
+      transient: (id, event) => partials.push(event), publish(id, type, data) {
+        const event = { seq: session.seq + 1, type, data }; published.push(event); session = core.applyEvent(session, event); return true;
+      } });
+    assert.equal(await lanes.run(session.id, 'reaction'), 'completed', `${chunks.length} provider chunks`);
+    assert.equal(published.length, 1, 'one durable reply survives');
+    assert.equal(published[0].type, 'turn.final');
+    assert.equal(session.transcript.at(-1).content, fixture.value.content, 'valid reply text survives optional metadata');
+    assert.deepEqual(session.transcript.at(-1).options, expected);
+    assert.equal(partials.map(event => event.data.delta).join(''), fixture.value.content, 'only conversational text is streamed');
+    if (!expected.length) assert.equal(core.currentQuestionCard(session), null);
+  }
+});
+
 test('AIT-132: a current final reply owns the card; partials, later input and stale replies cannot reopen it', () => {
   assert.equal(typeof core.currentQuestionCard, 'function');
   let session = core.createSession();
