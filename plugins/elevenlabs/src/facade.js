@@ -100,14 +100,14 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
       const deadlineAt = Math.min(Date.now() + timeoutMs, call.spendDeadlineAt, call.browserLivenessDeadlineAt);
       callTimer = setTimeout(() => localCancellation.abort(new DOMException('Voice call deadline', 'TimeoutError')), Math.max(0, deadlineAt - now()));
       const opts = { signal: scope.signal, deadlineAt };
+      const messages = body.messages.filter(message => ['user', 'assistant'].includes(message.role) && typeof message.content === 'string')
+        .map(({ role, content }) => ({ role, content }));
       // Rebuild the trusted session prompt. Discard provider system/model/options and private callback fields.
-      const input = await voiceOperation(opts, bounded => buildRequest({ callId: call.callId,
-        messages: body.messages.filter(message => ['user', 'assistant'].includes(message.role) && typeof message.content === 'string')
-          .map(({ role, content }) => ({ role, content })) }, bounded));
+      const input = await voiceOperation(opts, bounded => buildRequest({ callId: call.callId, messages }, bounded));
       const latest = await voiceOperation(opts, bounded => getCall(request, bounded, expectedIdentity));
       if (!active(latest) || latest.callId !== call.callId || latest.providerSessionId !== call.providerSessionId ||
         latest.facadeSecretRef !== call.facadeSecretRef || latest.facadeCallId !== call.facadeCallId) throw new PluginError('not-admitted', 'Call changed');
-      admission = await voiceOperation(opts, bounded => admitReasoning({ callId: call.callId, request: input, options: bounded }));
+      admission = await voiceOperation(opts, bounded => admitReasoning({ callId: call.callId, request: input, messages, options: bounded }));
       if (!admission?.plugin?.stream || !admission.options?.attempt || typeof admission.options.report !== 'function' ||
         typeof admission.finish !== 'function') throw new PluginError('not-admitted', 'Reasoning admission required');
       const textOrigin = aiTextOrigin(admission.producer ?? admission.plugin.binding ??
@@ -121,7 +121,8 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
         signal: invocationScope.signal, deadlineAt: invocationDeadline,
         report(terminal) { if (++reports !== 1) throw new PluginError('already-claimed'); return report(terminal); } };
       invocationOptions.signal.addEventListener('abort', expire, { once: true });
-      iterator = admission.plugin.stream(input, invocationOptions)[Symbol.asyncIterator]();
+      // Admission may rebuild against a newer session snapshot after async checks.
+      iterator = admission.plugin.stream(admission.request ?? input, invocationOptions)[Symbol.asyncIterator]();
       let first = await next(); // Dispatch/auth failures can still be returned as HTTP errors.
       const id = `chatcmpl-${crypto.randomUUID()}`;
       const frame = delta => ({ id, object: 'chat.completion.chunk', created: Math.floor(now() / 1000),

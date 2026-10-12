@@ -20,12 +20,16 @@ function unrecordedVoiceInput(session, messages) {
   const last = session.transcript.at(-1), before = session.transcript.at(-2), previous = messages.at(-2);
   const sameTurn = last?.role === 'user' && typeof last.content === 'string' &&
     normalize(last.content) === normalize(latest.content);
-  // Without a shared event id, match the tail position as well as the text.
-  // A repeated answer after a new reply is a new turn; a heard prefix still
-  // identifies the preceding reply, whose prompt text comes only from our record.
-  const samePosition = !previous || previous.role === before?.role && typeof before.content === 'string' &&
-    (previous.role === 'assistant' ? normalize(previous.content).startsWith(normalize(before.content))
-      : normalize(previous.content) === normalize(before.content));
+  // Equal text alone cannot place a repeated answer at the persisted tail.
+  // A delayed reply or server-only typed context leaves the positions uncertain.
+  // A nonempty heard prefix can anchor a reply only if it is unambiguous in
+  // provider history. When uncertain, keep the newest person utterance once.
+  const matchesBefore = message => message?.role === before?.role && typeof before?.content === 'string' &&
+    Boolean(normalize(before.content)) && (message.role === 'assistant'
+      ? normalize(message.content).startsWith(normalize(before.content))
+      : normalize(message.content) === normalize(before.content));
+  const samePosition = messages.length === session.transcript.length && (!previous ? !before
+    : matchesBefore(previous) && !messages.slice(0, -2).some(matchesBefore));
   return sameTurn && samePosition ? [] : [{ role: 'user', content: latest.content }];
 }
 
@@ -154,6 +158,14 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       throw error;
     } finally { started.resolve(); request.signal.removeEventListener('abort', abortStartup); }
   }
+  function buildVoiceRequest(session, messages) {
+    const trusted = reasoningRequest(session, 'reaction', false, hostPrompt);
+    // The session owns history, including typed turns, withdrawals and heard
+    // prefixes. Provider text supplies only the newest unrecorded person input.
+    return { ...trusted, messages: [...trusted.messages,
+      ...(session.focusedQuestion ? [{ role: 'user', content: JSON.stringify({ kind: 'untrusted-focused-question', question: session.focusedQuestion }) }] : []),
+      ...unrecordedVoiceInput(session, messages)] };
+  }
   const facade = createCompletionsHandler({ resolveSecret: secrets.resolve, staticSecretRef,
     getCall(request, options, identity) {
       const entry = staticSecretRef ? [...calls.values()].find(entry => entry.facadeCallId === identity)
@@ -163,20 +175,32 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       return { ...entry.call.snapshot(), facadeSecretRef: entry.facadeSecretRef, facadeCallId: entry.facadeCallId, signal: entry.call.signal };
     },
     buildRequest({ callId, messages }) {
-      const session = sessionFor(calls.get(callId)), trusted = reasoningRequest(session, 'reaction', false, hostPrompt);
-      // persistEvent and the provider callback can arrive in either order. The
-      // session owns history (including typed turns, withdrawals and heard prefixes);
-      // provider text supplies at most the newest, not-yet-recorded person utterance.
-      return { ...trusted, messages: [...trusted.messages,
-        ...(session.focusedQuestion ? [{ role: 'user', content: JSON.stringify({ kind: 'untrusted-focused-question', question: session.focusedQuestion }) }] : []),
-        ...unrecordedVoiceInput(session, messages)] };
+      return buildVoiceRequest(sessionFor(calls.get(callId)), messages);
     },
-    async admitReasoning({ callId, request, options }) {
-      const session = sessionFor(calls.get(callId));
-      await runtime.checkVoice(session, { ...options, existingCall: true });
-      // The newest utterance may have persisted while the voice check awaited.
-      // Admission still checks current ownership, context and revision at dispatch.
-      return runtime.admit({ session: sessionFor(calls.get(callId)), lane: 'reaction', operation: 'stream', request, options });
+    async admitReasoning({ callId, messages, options }) {
+      const entry = calls.get(callId);
+      let session = sessionFor(entry);
+      for (let retry = 0; ; retry++) {
+        try {
+          await runtime.checkVoice(session, { ...options, existingCall: true });
+          // Build and admit from one snapshot, including input saved while the
+          // voice check awaited. The facade must dispatch this admitted request.
+          session = sessionFor(entry);
+          const request = buildVoiceRequest(session, messages);
+          return { ...await runtime.admit({ session, lane: 'reaction', operation: 'stream', request, options }), request };
+        } catch (error) {
+          // sessionFor strictly fences ownership, consent and withdrawal before
+          // considering a retry. Never relax runtime's revision/dispatch checks.
+          const fresh = sessionFor(entry);
+          if (retry || !(error instanceof PluginError) || error.code !== 'not-admitted' ||
+            !['Session changed', 'Session changed during admission'].includes(error.message) ||
+            inputRevision(fresh) === inputRevision(session) || fresh.paused || fresh.locale !== session.locale ||
+            fresh.settings?.revision !== session.settings?.revision ||
+            runtime.selectionKey(fresh, 'voice') !== runtime.selectionKey(session, 'voice')) throw error;
+          options.signal?.throwIfAborted();
+          session = fresh;
+        }
+      }
     },
     onCompletion({ callId, providerSessionId, content, textOrigin, engine }) {
       const entry = calls.get(callId);
