@@ -136,9 +136,9 @@ test('component sends typed text through active voice, updates context and accep
   assert.ok(commands.some(([name, value]) => name === 'text' && value === 'typed during voice'));
   assert.equal(c.session.transcript.length, 1, 'typed text persists even when the provider never echoes');
   assert.ok(commands.findIndex(([name]) => name === 'persist') < commands.findIndex(([name]) => name === 'text'));
-  assert.equal(root.querySelector('.status').textContent, en.voiceTextSent);
+  assert.equal(root.querySelector('.status__label').textContent, en.voiceTextSent);
   events.push({ callId: activeCall, type: 'speaking' }); await tick();
-  assert.notEqual(root.querySelector('.status').textContent, en.voiceTextSent, 'the status line follows the call state (D11)');
+  assert.notEqual(root.querySelector('.status__label').textContent, en.voiceTextSent, 'the status line follows the call state (D11)');
   c.receive({ seq: c.session.seq + 1, type: 'question.focused', data: { question: 'Which systems?' } }); await tick();
   assert.equal(commands.at(-1)[1].focusedQuestion, 'Which systems?');
   c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: { ...c.session.understanding, summary: 'New context', inputRevision: inputRevision(c.session) } }); await tick();
@@ -148,7 +148,7 @@ test('component sends typed text through active voice, updates context and accep
   root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick();
   assert.equal(c.session.transcript.at(-1).content, 'plain while closing');
   assert.equal(commands.filter(([name]) => name === 'text').length, 1, 'a plain acknowledgement is not forwarded to the closing SDK');
-  assert.equal(root.querySelector('textarea').value, ''); assert.equal(root.querySelector('.status').textContent, en.saved);
+  assert.equal(root.querySelector('textarea').value, ''); assert.equal(root.querySelector('.status__label').textContent, en.saved);
   root.querySelector('.voice-close').click(); await tick();
   settle({ closureConfirmed: true }); await tick();
 });
@@ -314,7 +314,7 @@ test('resending failed typed input after voice ends drops its stale call identit
   root.querySelector('.voice-start').click(); await tick();
   root.querySelector('textarea').value = 'yes';
   root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick();
-  assert.ok(requests[0].voiceCallId); assert.equal(root.querySelector('.status').textContent, en.failed);
+  assert.ok(requests[0].voiceCallId); assert.equal(root.querySelector('.status__label').textContent, en.failed);
   events.push({ type: 'ended', callId: requests[0].voiceCallId, reason: 'closed' }); events.end(); await tick();
   root.querySelector('form').dispatchEvent(new window.Event('submit', { cancelable: true })); await tick();
   assert.equal(requests[1].voiceCallId, undefined); assert.equal(requests[1].providerSessionId, undefined);
@@ -406,7 +406,7 @@ test('a reload never sends paused:false by itself: it stays paused behind one fo
     assert.deepEqual(resumes(calls), [], `${name}: no pause change without the person`);
     assert.equal(c.session.paused, true, `${name}: still paused`);
     const root = c.shadowRoot, resume = root.querySelector('.pause');
-    assert.equal(root.querySelector('.status').textContent, probe.status ?? en.pausedResume, `${name}: a clear Resume prompt`);
+    assert.equal(root.querySelector('.status__label').textContent, probe.status ?? en.pausedResume, `${name}: a clear Resume prompt`);
     assert.equal(resume.textContent, en.resume); assert.equal(root.activeElement, resume, `${name}: Resume has focus`);
     c.remove();
   }
@@ -414,7 +414,7 @@ test('a reload never sends paused:false by itself: it stays paused behind one fo
   c.shadowRoot.querySelector('.pause').click(); await until(() => !c.session.paused, 'one click resumes');
   assert.deepEqual(resumes(calls).map(call => call.body), [{ paused: false }]);
   c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } });
-  assert.equal(c.shadowRoot.querySelector('.status').textContent, en.paused, 'the prompt ends with that pause');
+  assert.equal(c.shadowRoot.querySelector('.status__label').textContent, en.paused, 'the prompt ends with that pause');
 });
 test('without BroadcastChannel a reload never closes the journaled call; the lease ends it (AIT-116 D4)', async t => {
   const { c, calls, storage, session } = await reloadOrphan(t, { record: { callId: 'old-call', providerSessionId: 'old-provider' }, channel: false });

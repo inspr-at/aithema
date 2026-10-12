@@ -30,6 +30,8 @@ export class Waveform {
     canvas.width = WIDTH * ratio; canvas.height = HEIGHT * ratio; this.canvas = canvas; this.ratio = ratio;
     try { this.#context = canvas.getContext('2d'); } catch { this.#context = null; }
     this.baseline();
+    const Observer = canvas.ownerDocument.defaultView?.ResizeObserver;
+    if (Observer) { this.sizes = new Observer(() => this.#draw()); this.sizes.observe(canvas); }
   }
   get direction() { return this.#direction; }
   /** One measured level (0 to 1); a change of direction starts a fresh history. */
@@ -39,15 +41,21 @@ export class Waveform {
     this.#history.copyWithin(0, 1); this.#history[HISTORY - 1] = this.#levels[direction].sample(value, value / Math.SQRT2, elapsedMs);
     this.#draw();
   }
+  destroy() { this.sizes?.disconnect(); }
   baseline() { this.#history.fill(0); this.#levels.user.reset(); this.#levels.assistant.reset(); this.#draw(); }
   #draw() {
     const context = this.#context; if (!context) return;
-    const { width, height } = this.canvas, middle = height / 2, amplitude = height * .47;
+    // Match the backing store to its CSS box: 1.6 px bars stay 1.6 px on a phone and a desktop.
+    const rect = this.canvas.getBoundingClientRect(), displayWidth = rect.width || WIDTH, displayHeight = rect.height || HEIGHT;
+    const width = Math.max(1, Math.round(displayWidth * this.ratio)), height = Math.max(1, Math.round(displayHeight * this.ratio));
+    if (this.canvas.width !== width) this.canvas.width = width;
+    if (this.canvas.height !== height) this.canvas.height = height;
+    const middle = height / 2, amplitude = height * .47;
     context.clearRect(0, 0, width, height); context.beginPath();
     context.lineCap = 'round'; context.lineJoin = 'round'; context.lineWidth = 1.6 * this.ratio; context.strokeStyle = COLOUR[this.#direction];
     context.moveTo(0, middle); context.lineTo(width, middle);
     // Interpolate the same 64 samples: 3 px pitch, while direction, rolling history and sampling stay unchanged.
-    const bars = Math.ceil((this.canvas.getBoundingClientRect().width || WIDTH) / 3);
+    const bars = Math.ceil(displayWidth / 3);
     for (let index = 0; index <= bars; index++) {
       const position = index / bars, sample = position * (HISTORY - 1), lower = Math.floor(sample), share = sample - lower;
       const level = this.#history[lower] * (1 - share) + this.#history[Math.min(HISTORY - 1, lower + 1)] * share;

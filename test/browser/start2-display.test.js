@@ -230,7 +230,12 @@ test('AIT-131 approved display: eight states at 390, 1024, 1440, both themes and
       await shadow(page, c => c.shadowRoot.querySelector('.voice-start').click());
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.call === 'active');
       await page.evaluate(() => globalThis.displayVoiceEvents.push({ type: 'speaking', callId: globalThis.displayCallId }));
-      await new Promise(resolve => setTimeout(resolve, 700)); await shot('voice-rail-live', width, theme);
+      await new Promise(resolve => setTimeout(resolve, 700));
+      const wave = await shadow(page, c => { const canvas = c.shadowRoot.querySelector('.voice-wave'), box = canvas.getBoundingClientRect(), ratio = Math.min(2,devicePixelRatio);
+        return { width: canvas.width / ratio, cssWidth: box.width, stroke: canvas.getContext('2d').lineWidth / ratio }; });
+      assert.ok(Math.abs(wave.width - wave.cssWidth) <= .5, `${label}: waveform backing store follows its width`);
+      assert.equal(wave.stroke, 1.6, `${label}: 1.6 px waveform bars`);
+      await shot('voice-rail-live', width, theme);
       await shadow(page, c => c.shadowRoot.querySelector('.voice-close').click());
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'idle');
     }

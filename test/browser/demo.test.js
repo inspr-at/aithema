@@ -1313,7 +1313,7 @@ test('document uploads: a text file and a PDF through the real file picker, pend
         if (states.at(-1) !== row.dataset.state) states.push(row.dataset.state);
       } };
       new MutationObserver(record).observe(list, { subtree: true, childList: true, attributes: true, characterData: true });
-      const status = c.shadowRoot.querySelector('.status'), said = window.statusLog = [];
+      const status = c.shadowRoot.querySelector('.status__label'), said = window.statusLog = [];
       new MutationObserver(() => { if (said.at(-1) !== status.textContent) said.push(status.textContent); }).observe(status, { subtree: true, childList: true, characterData: true });
     });
 
@@ -1352,7 +1352,7 @@ test('document uploads: a text file and a PDF through the real file picker, pend
     assert.equal(await inShadow(page, c => [...c.shadowRoot.querySelectorAll('.upload')].some(row => row.innerHTML.includes('Kundinnen bestellen'))), false, 'extracted text never renders in a chip');
     // Uploading was announced through the existing status region; "reading them…" ends once both files are read.
     assert.ok((await page.evaluate(() => window.statusLog)).includes('2 Dateien werden hochgeladen …'), JSON.stringify(await page.evaluate(() => window.statusLog)));
-    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.status').textContent), 'Verbunden');
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.status__label').textContent), 'Verbunden');
 
     // The understanding refreshes for the new input revision.
     await until(page, async () => {

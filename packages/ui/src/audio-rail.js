@@ -220,7 +220,7 @@ export class AudioRail {
   }
   quiet() { delete this.root.dataset.measured; this.waveform.baseline(); this.onLevel?.(0); }
   destroy() {
-    this.onState = null; this.onLevel = null;
+    this.onState = null; this.onLevel = null; this.waveform.destroy();
     this.root.ownerDocument.removeEventListener('visibilitychange', this.visibility);
     void this.close();
   }

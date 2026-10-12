@@ -24,6 +24,7 @@ export const bandStyles = `
 .workspace:not([data-stage="live"]) .band .audio-rail { display:grid; }
 .workspace:not([data-stage="live"]) .band .audio-rail { opacity:.65; }
 .header-actions { justify-self:end; }
+.band-utilities { display:flex; align-items:center; }
 .conversations-toggle { width:auto; white-space:nowrap; }
 .conversations-toggle > svg:first-child { display:none; }
 .conversations-menu { max-height:min(440px,70dvh); overflow-y:auto; }
