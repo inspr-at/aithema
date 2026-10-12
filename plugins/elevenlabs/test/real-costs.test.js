@@ -2,7 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { reconcileUsage, createElevenLabsServer } from '../src/server.js';
 import { voiceCostConfig } from '../../../demo/voice-cost-config.js';
-import { SQLiteStorage, SQLiteBudgetLedger, createVoiceHandlers } from '../../../packages/server/src/index.js';
+import { SQLiteStorage, SQLiteBudgetLedger, createVoiceHandlers, createVoiceProvider, createPluginRuntime, mockPresets } from '../../../packages/server/src/index.js';
+import { PluginRegistry, createMockReasoning, budgetCreditView } from '@inspr/aithema-core';
+import { qualifyStartBinding } from '../../../demo/processing-consent.js';
+import { createDemoHost } from '../../../demo/host-ports.js';
 import { temporaryDb } from '../../../test/helpers.js';
 
 const binding = { agentId: 'agent', secretRef: 'fixture-ref', apiBaseUrl: 'https://fixture.test',
@@ -98,4 +101,94 @@ test('voice price and technical bounds are non-secret host configuration', () =>
   assert.deepEqual(configured, { maxDurationSeconds: 7200, reservationSeconds: 15, upstreamMicroPerMinute: 60_000, usdPerCredit: 0.0002 });
   for (const value of ['-1', 'NaN', '', '1e-4']) assert.throws(() => voiceCostConfig({ AITHEMA_ELEVENLABS_USD_PER_CREDIT: value }));
   assert.throws(() => voiceCostConfig({ AITHEMA_VOICE_MAX_DURATION_SECONDS: '20', AITHEMA_VOICE_RESERVATION_SECONDS: '30' }));
+});
+
+async function exposureFixture(t, { path, state = { final: false }, closeHook } = {}) {
+  const storage = new SQLiteStorage(path); t.after(() => { if (storage.db.isOpen) storage.close(); });
+  const configured = qualifyStartBinding({ plugin: 'elevenlabs', model: 'agent', effort: 'none',
+    endpoint: binding.apiBaseUrl, accountRef: 'voice-fixture', secretRef: binding.secretRef,
+    agentId: 'agent', maxMicro: 50_000, maxTokens: 1, rates: { inputMicro: 0, outputMicro: 0 },
+    maxDurationSeconds: 3600, reservationSeconds: 30, usdPerCredit: binding.usdPerCredit,
+    upstreamMicroPerMinute: 100_000, visitorMicroPerMinute: 100_000, publicFacadeBaseUrl: 'https://fixture.test' });
+  const queried = Promise.withResolvers();
+  const plugin = createVoiceProvider({ storage, binding: { ...binding, reservationSeconds: 30 }, staticFacade: true,
+    resolveSecret: () => 'fixture', requestProviderClose: closeHook, closureTimeoutMs: 20,
+    fetchImpl: async url => {
+      if (url.includes('/token?')) return Response.json({ token: 'fixture', conversation_id: 'conversation' });
+      queried.resolve();
+      return Response.json(state.final ? details({ cost: 42 }) : { ...details({}), status: 'in-progress' });
+    } });
+  const presets = mockPresets(); presets.best.plugins.push('elevenlabs'); presets.best.bindings.voice = configured;
+  presets.best.policy = { endpoints: [binding.apiBaseUrl] };
+  const consent = { coverage: ({ scope, consentRevision }) => ({ covered: true, scope, ...scope, consentRevision,
+    checkedAt: Date.now(), expiresAt: Date.now() + 60_000 }) };
+  const budget = new SQLiteBudgetLedger(storage, { sessionCapMicro: 1_000_000 });
+  const runtime = createPluginRuntime({ storage, budget, consent, presets,
+    registry: new PluginRegistry().register(createMockReasoning()).register(plugin) });
+  const host = createDemoHost({ storage, walletLimitMicro: 1_000_000 }); runtime.setOwnerWallet(session => host.walletForSession(session));
+  const session = storage.list().length ? storage.get(storage.list()[0]) : storage.create({ ownerToken: 'voice-owner', demo: true });
+  const admit = () => runtime.admitVoice({ session: storage.get(session.id), request: { callId: 'exposure-call' },
+    options: { deadlineAt: Date.now() + 1000, spendDeadlineAt: Date.now() + 3600_000, browserLivenessDeadlineAt: Date.now() + 30_000 } });
+  const start = async () => {
+    const admission = await admit();
+    const live = await admission.plugin.start({ callId: 'exposure-call', sessionId: session.id,
+      ownerToken: 'voice-owner', facadeSecretRef: 'fixture-facade' }, admission.options);
+    return { admission, live };
+  };
+  const balance = () => budgetCreditView(budget, session.id, host.wallet('voice-owner'));
+  return { storage, runtime, session, admit, start, balance, queried, state };
+}
+
+for (const hook of ['absent', 'failed']) test(`AIT-134 gate: ${hook} hangup holds ceiling exposure before closure and blocks admission`, async t => {
+  const h = await exposureFixture(t, { closeHook: hook === 'failed' ? () => { throw new Error('hangup failed'); } : undefined });
+  const { live, admission } = await h.start(); t.after(() => live.close());
+  assert.equal(h.balance().owner.reservedMicro, 50_000, 'healthy live calls hold only the expected segment');
+  const pending = live.close('transport-lost', 'cancelled'); await h.queried.promise;
+  const during = h.balance();
+  const terminal = await pending;
+  assert.equal(during.owner.uncertainSpendMicro, 6_000_000, 'closing must account for billing through the provider ceiling immediately');
+  assert.equal(terminal.closureConfirmed, false); assert.equal(terminal.chargedMicro, 6_000_000);
+  assert.equal(h.balance().session.uncertainSpendMicro, 6_000_000);
+  assert.equal(h.balance().voiceVisitor.uncertainSpendMicro, 6_000_000);
+  assert.equal(h.balance().owner.availableMicro, 0);
+  await assert.rejects(h.admit(), { code: 'not-admitted' });
+  h.runtime.reconcileVoice(admission.options.attempt.attemptId,
+    reconcileUsage({ call: live.snapshot(), details: details({ cost: 42 }), binding, maxMicro: 6_000_000 }));
+  assert.equal(h.balance().owner.confirmedSpendMicro, 8400); assert.equal(h.balance().owner.uncertainSpendMicro, 0);
+});
+
+test('AIT-134 gate: a crashed live voice restores ceiling exposure before any retry or admission', async t => {
+  const path = await temporaryDb(); let h = await exposureFixture(t, { path });
+  const admitted = await h.admit(); await admitted.options.attempt.consume();
+  h.storage.saveVoiceCall(h.session.id, { ...call, callId: 'crashed-call',
+    attemptId: admitted.options.attempt.attemptId, claimId: admitted.options.attempt.claimId,
+    maxMicro: 50_000, facadeSecretRef: 'fixture-facade', spendDeadlineAt: Date.now() + 3600_000 });
+  h.storage.close(); h = await exposureFixture(t, { path }); h.runtime.budget.recover();
+  assert.equal(h.balance().owner.uncertainSpendMicro, 6_000_000);
+  assert.equal(h.balance().voiceVisitor.uncertainSpendMicro, 6_000_000);
+  await assert.rejects(h.admit(), { code: 'not-admitted' });
+  h.runtime.budget.recover(); assert.equal(h.balance().owner.uncertainSpendMicro, 6_000_000);
+});
+
+for (const charging of [
+  { llm_charge: 0 }, { call_charge: 0 }, { platform_charge: 0, llm_charge: 0 },
+  { call_charge: 12, llm_charge: 3, analysis: { total: {} } },
+  { call_charge: 12, analysis: { total: { charge: 0 } } },
+]) test(`AIT-134 gate: incomplete charging stays estimated and retryable ${JSON.stringify(charging)}`, async t => {
+  const storage = new SQLiteStorage(); t.after(() => storage.close());
+  const ledger = new SQLiteBudgetLedger(storage), session = storage.create();
+  const { attemptId } = ledger.admit({ sessionId: session.id, lane: 'voice', maxMicro: 50_000,
+    requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64) });
+  const claim = ledger.claim(attemptId); claim.consume(); let scheduled = 0;
+  const plugin = createElevenLabsServer({ binding, resolveSecret: () => 'fixture', prepareCall() {}, saveCall() {},
+    reconcileLater() { scheduled++; }, fetchImpl: async url => url.includes('/token?')
+      ? Response.json({ token: 'fixture', conversation_id: 'conversation' }) : Response.json(details({ charging })) });
+  const live = await plugin.start({ callId: 'partial-cost', facadeSecretRef: 'fixture' }, {
+    deadlineAt: Date.now() + 1000, spendDeadlineAt: Date.now() + 30_000, browserLivenessDeadlineAt: Date.now() + 30_000,
+    attempt: { ...claim, maxMicro: 50_000 }, report: terminal => ledger.settleVoice(claim.claimId, terminal) });
+  const terminal = await live.close();
+  assert.equal(terminal.closureConfirmed, true);
+  assert.equal(terminal.usage.costEstimated, true); assert.equal(terminal.usage.costSource, 'duration-estimate');
+  assert.equal(ledger.breakdown(session.id).confirmedSpendMicro, 0);
+  assert.equal(ledger.breakdown(session.id).uncertainSpendMicro, 200_000); assert.equal(scheduled, 1);
 });

@@ -236,3 +236,36 @@ for (const stalled of [false, true]) test(`a transport ignoring cancellation ret
   assert.equal(reports, 1); assert.equal(h.balance().owner.uncertainSpendMicro, 0);
   assert.equal(h.cap.snapshot().uncertainMicro, 0);
 });
+
+for (const operation of ['stream', 'structured']) for (const promptPrice of [0, 1e-7]) {
+  test(`AIT-134 gate: input bound blocks ${operation} before reservation and dispatch at prompt price ${promptPrice}`, async t => {
+    const storage = new SQLiteStorage(); t.after(() => storage.close());
+    const configured = openRouterConfig({ OPENROUTER_MODEL: 'openai/fixture', OPENROUTER_MAX_INPUT_TOKENS: '96',
+      AITHEMA_OPENROUTER_PRICES: JSON.stringify({ 'openai/fixture': { prompt: promptPrice, completion: 1e-7 } }) });
+    const binding = configured[operation === 'stream' ? 'reaction' : 'understanding'];
+    const cap = createSpendCap({ storage, account: binding.accountRef, capMicro: 10_000_000 });
+    let dispatches = 0, reserves = 0; const reserve = cap.reserve;
+    cap.reserve = (...args) => { reserves++; return reserve(...args); };
+    const plugin = createOpenRouterReasoning({ binding, prices: configured.prices, spendCap: cap, resolveSecret: () => 'fixture',
+      fetchImpl() { dispatches++; throw new Error('oversize input reached provider'); } });
+    const consent = createProcessingConsent({ storage, bindings: [binding] });
+    const runtime = createPluginRuntime({ storage, consent, registry: new PluginRegistry().register(plugin),
+      presets: { best: { plugins: ['openrouter'], bindings: { reaction: binding, understanding: binding },
+        policy: { endpoints: [binding.endpoint] } } } });
+    const session = storage.create({ ownerToken: 'owner' });
+    consent.grant({ sessionId: session.id, consentRevision: session.consentRevision + 1,
+      decision: { contract: consent.describe().contract, items: ['models-international'] } });
+    storage.reviseConsent(session.id, true);
+    const oversized = { ...request, messages: [{ role: 'user', content: 'ö'.repeat(100) }] };
+    await assert.rejects(runtime.admit({ session: storage.get(session.id),
+      lane: operation === 'stream' ? 'reaction' : 'understanding', operation, request: oversized }), { code: 'not-admitted' });
+    assert.equal(storage.db.prepare('SELECT count(*) n FROM budget_attempts').get().n, 0, 'no session hold for an oversized input');
+    const options = { deadlineAt: Date.now() + 1000, attempt: { attemptId: 'direct', claimId: 'claim', consume() {} }, report() {} };
+    await assert.rejects(operation === 'structured' ? plugin.structured(oversized, options) : (async () => {
+      for await (const chunk of plugin.stream(oversized, options)) assert.fail(chunk);
+    })(), { code: 'not-admitted' });
+    assert.equal(reserves, 0); assert.equal(dispatches, 0);
+    const sized = { ...request, messages: [{ role: 'user', content: 'x' }] };
+    assert.doesNotThrow(() => plugin.estimateCost(sized, operation), 'a bounded input still prices normally');
+  });
+}

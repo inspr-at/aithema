@@ -2,7 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage } from '@inspr/aithema-server';
 import { SQLiteBudgetLedger } from '../../packages/server/src/budget.js';
-import { createClaudeHTML } from '@inspr/aithema-plugin-claude-html';
+import { createClaudeHTML, createSpendLedger } from '@inspr/aithema-plugin-claude-html';
+import { createPluginRuntime } from '@inspr/aithema-server';
+import { PluginRegistry } from '@inspr/aithema-core';
+import { temporaryDb } from '../../test/helpers.js';
 import { createSpendCap } from '../../packages/server/src/spend-cap.js';
 import { htmlConfig } from '../html-config.js';
 
@@ -84,3 +87,66 @@ for (const mode of ['cancelled', 'deadline', 'oversized']) test(`HTTP error body
   assert.equal(cancelled, true); assert.equal(reports.length, 1); assert.equal(reports[0].outcome, 'uncertain');
   assert.equal(spend.snapshot().reservedMicro, 0); assert.equal(spend.snapshot().spentMicro, 0); assert.ok(spend.snapshot().uncertainMicro > 0);
 });
+
+test('AIT-134 gate: default JSON drafts ledger retains uncertain costs and reconciles in parity after restart', async t => {
+  const path = await temporaryDb(), spendPath = `${path}.spend.json`, state = { final: false, queries: 0 };
+  let storage, budget, plugin, runtime, spend;
+  const reopen = () => {
+    storage = new SQLiteStorage(path); budget = new SQLiteBudgetLedger(storage);
+    const { binding } = htmlConfig(values);
+    plugin = createClaudeHTML({ binding, spendPath, resolveSecret: () => 'fixture',
+      fetchImpl: async (url, options) => {
+        if (options.method === 'POST') return Response.json({ id: 'gen-json-ledger',
+          usage: { prompt_tokens: 10, completion_tokens: 20 },
+          choices: [{ finish_reason: 'stop', message: { content: document } }] });
+        state.queries++; assert.equal(new URL(url).searchParams.get('id'), 'gen-json-ledger');
+        return Response.json(state.final ? { data: { id: 'gen-json-ledger', total_cost: 0.001234 } } : {},
+          { status: state.final ? 200 : 404 });
+      } });
+    spend = plugin.spend;
+    runtime = createPluginRuntime({ storage, budget, registry: new PluginRegistry().register(plugin) });
+  };
+  reopen(); t.after(() => { if (storage.db.isOpen) storage.close(); });
+  const session = storage.create(), { binding } = htmlConfig(values), request = { prompt: 'Repairs', language: 'en' };
+  const ceiling = plugin.estimateCost(request);
+  const { attemptId } = budget.admit({ sessionId: session.id, lane: 'concept', maxMicro: ceiling,
+    requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64),
+    providerCost: { plugin: plugin.id, endpoint: binding.endpoint, secretRef: binding.secretRef } });
+  const claim = budget.claim(attemptId);
+  await plugin.generate(request, '', { deadlineAt: Date.now() + 1000,
+    attempt: { ...claim, dispatchCost: () => budget.markCostDispatch(attemptId), observeCost: evidence => budget.observeCost(attemptId, evidence) },
+    report: terminal => budget.settle(claim.claimId, terminal) });
+  assert.equal(spend.snapshot().spentMicro, 0, 'unknown cost cannot become confirmed account spend');
+  assert.equal(spend.snapshot().reservedMicro, 0); assert.equal(spend.snapshot().uncertainMicro, ceiling);
+  assert.equal(budget.breakdown(session.id).uncertainSpendMicro, ceiling);
+  assert.deepEqual(spend.evidence(attemptId), { generationId: 'gen-json-ledger' });
+  await runtime.reconcileCosts(); assert.equal(spend.snapshot().uncertainMicro, ceiling);
+  storage.close(); state.final = true; reopen(); runtime.recoverCosts();
+  await runtime.reconcileCosts(); await runtime.reconcileCosts();
+  assert.equal(spend.snapshot().spentMicro, 1234); assert.equal(spend.snapshot().uncertainMicro, 0);
+  assert.equal(budget.breakdown(session.id).confirmedSpendMicro, 1234); assert.equal(state.queries, 2);
+  assert.equal(JSON.parse(budget.get(attemptId).provider_cost_json).reconciled, 1);
+});
+
+for (const crash of ['reserved', 'dispatched', 'id-receipt', 'cost-receipt', 'settled']) {
+  test(`AIT-134 gate: JSON account ledger recovers ${crash} without lost or duplicated cost`, async () => {
+    const path = `${await temporaryDb()}.spend.json`;
+    let spend = createSpendLedger({ path, capMicro: 1000 });
+    const handle = spend.reserve(100, { attemptId: 'draft-attempt', provider: 'openrouter' });
+    assert.equal(typeof spend.dispatch, 'function', 'default ledger needs durable dispatch state');
+    if (crash !== 'reserved') spend.dispatch(handle);
+    if (['id-receipt', 'cost-receipt', 'settled'].includes(crash)) spend.record(handle,
+      { generationId: 'gen-json-crash', ...(crash === 'id-receipt' ? {} : { chargedMicro: 37 }) });
+    if (crash === 'settled') spend.settle(handle, 37);
+    spend = createSpendLedger({ path, capMicro: 1000 }); spend.recover(); spend.recover();
+    assert.equal(spend.snapshot().reservedMicro, 0);
+    assert.equal(spend.snapshot().spentMicro, ['cost-receipt', 'settled'].includes(crash) ? 37 : 0);
+    assert.equal(spend.snapshot().uncertainMicro, ['dispatched', 'id-receipt'].includes(crash) ? 100 : 0);
+    if (crash === 'id-receipt') {
+      assert.deepEqual(spend.evidence('draft-attempt'), { generationId: 'gen-json-crash' });
+      spend.reconcileAttempt('draft-attempt', 37); spend.reconcileAttempt('draft-attempt', 37);
+      assert.equal(spend.snapshot().totalMicro, 37);
+      assert.throws(() => spend.reconcileAttempt('draft-attempt', 38), /already settled/u);
+    }
+  });
+}
