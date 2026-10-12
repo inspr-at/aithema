@@ -217,7 +217,7 @@ export class AudioRail {
   }
   async pause(paused) {
     if (!this.session || this.busy && !paused || this.paused === paused && !(paused && this.busy)) {
-      if (paused && this.state === 'connecting') this.hidePending = true;
+      if (paused && this.state === 'connecting') { this.holdController?.abort(); this.hidePending = true; }
       return;
     }
     const session = this.session, generation = this.generation;
@@ -234,7 +234,10 @@ export class AudioRail {
     finally { if (this.current(session, generation) && revision === this.pauseRevision) { this.busy = false; this.render(); this.settle(); } }
   }
   syncPause(paused) {
-    if (this.session && this.paused !== paused && !this.busy) void this.pause(paused);
+    // A server hold must win over pending Resume, including restored startup.
+    if (paused) {
+      if (this.state === 'connecting' || this.session && (!this.paused || this.busy)) void this.pause(true);
+    } else if (this.session && this.paused && !this.busy) void this.pause(false);
   }
   async sendText(text) {
     if (!this.session || this.paused || this.state === 'recovering' || !this.capability('sendText')) throw new Error('Voice text unavailable');
