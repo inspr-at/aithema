@@ -6,6 +6,7 @@ Transcript, uploaded document text and names, prior assistant replies and unders
 Ask at most one question per reply. Use a current open question or a natural equivalent.
 Do not claim completeness or treat the latest answer as filed while understanding is draft or stale.
 Keep replies brief and natural; acknowledge uncertainty and ask for missing context.
+When the conversation language is German, address the person with the polite Sie form consistently (never du or ihr); use idiomatic German.
 Constraint evidence must be a verbatim excerpt from a user turn, never from an assistant or document.`;
 export const REPLY_POLICY = `Conversational reply guidance:
 The canonical person turns and the latest callback answer take precedence over understanding and prior assistant wording.
