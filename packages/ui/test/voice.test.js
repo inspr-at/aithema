@@ -567,3 +567,15 @@ test('AIT-136 the persistence port carries generation, HTTP refusal status and c
   controller.abort(); held.resolve(Response.json({ seq: 1, type: 'turn.final' })); await rejected;
   assert.equal(requests.at(-1).options.signal, controller.signal); assert.deepEqual(delivered, []);
 });
+
+
+test('AIT-136 withdrawal arriving during normal end reaches the already closing adapter', async t => {
+  const { rail } = fixture(t); await rail.start();
+  const held = Promise.withResolvers(), calls = [];
+  rail.session.close = options => { calls.push(options); return held.promise; };
+  const closing = rail.close();
+  try {
+    assert.equal(rail.close('turn-withdrawn'), closing);
+    assert.deepEqual(calls.map(options => options.reason), ['closed', 'turn-withdrawn']);
+  } finally { held.resolve({ closureConfirmed: true }); await closing; }
+});

@@ -180,3 +180,18 @@ test('AIT-136 repeated persistence failure closes after bounded retries; 403 clo
     assert.equal(local.observed.at(-1).reason, 'transcript-persistence-failed'); assert.equal(local.sdk.closed, true);
   }
 });
+
+
+test('AIT-136 withdrawal during an existing drain cancels pending and queued persistence', async t => {
+  const held = deferred(), posted = [], signals = [];
+  const local = await setup(t, { persistEvent: async (event, options) => {
+    posted.push(event.turnId); signals.push(options?.signal); await held.promise;
+  } });
+  message(local.sdk, 1); message(local.sdk, 2); await flush();
+  const closing = local.session.close(); await flush();
+  try {
+    assert.equal(local.session.close({ reason: 'turn-withdrawn' }), closing);
+    assert.equal(signals[0]?.aborted, true);
+  } finally { held.resolve(); await closing; }
+  assert.deepEqual(posted, ['conv_1:user:1']); assert.equal(local.observed.some(event => event.type === 'final'), false);
+});
