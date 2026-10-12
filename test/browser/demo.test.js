@@ -463,7 +463,8 @@ test('AIT-117: a German processing-consent page contains START German copy and n
     assert.equal(await inShadow(page, c => c.session.locale), 'de');
     const consentSessionId = await inShadow(page, c => c.session.id);
     await page.goto(`${demo.url}/consent/?session=${consentSessionId}&return=/`, { waitUntil: 'domcontentloaded' });
-    await until(page, () => document.querySelector('#processing-items span')?.textContent === 'KI-Modelle international');
+    await until(page, () => document.querySelector('#consent-status')?.dataset.state === 'ready' &&
+      document.querySelector('#processing-items span')?.textContent === 'KI-Modelle international');
     const consent = await page.evaluate(() => ({
       intro: document.querySelector('#consent-text').textContent,
       items: [...document.querySelectorAll('#processing-items input')].map(input => ({ id: input.value,

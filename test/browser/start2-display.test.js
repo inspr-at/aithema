@@ -140,7 +140,15 @@ test('AIT-131 r3 demo account keeps shared gaps and its panel inside the viewpor
       for (const gap of control.gaps) assert.ok(Math.abs(gap - control.gap) <= .5, `icon · label · chevron share the menu gap: ${context}`);
     }
     const previous = checks.find(n => n.width === width && n.theme === theme && n.folded === folded);
-    if (previous) for (const key of ['left', 'top', 'width', 'height']) assert.ok(Math.abs(previous.control.box[key] - control.box[key]) <= .5, `locale preserves the account reserve: ${context}`);
+    if (previous) for (const key of ['left', 'top', 'width', 'height']) assert.ok(Math.abs(previous.control.box[key] - control.box[key]) <= .5, `locale preserves the account reserve from ${JSON.stringify(previous.control.box)}: ${context}`);
+    if (width === 320) {
+      const selectors = ['.host-account', '.settings-open'], before = await boxes(page, selectors);
+      // Exercise a wider font's intrinsic label width without changing the evidence's typography.
+      await page.$eval('#theme-value', n => { n.style.fontSize = '16px'; });
+      const stressed = await boxes(page, selectors);
+      await page.$eval('#theme-value', n => n.style.removeProperty('font-size'));
+      sameBoxes(before, stressed, 'wider theme glyphs preserve the account and gear reserve');
+    }
     const shot = async suffix => {
       if (!evidence) return;
       const name = `r3-demo-account-${folded ? 'folded' : 'unfolded'}-${suffix}-${width}-${theme}-${locale}.png`;
