@@ -71,6 +71,7 @@ export class Verification {
   }
   setCredits(credits) { this.#email.set({ tiers: credits?.tiers, balance: credits?.balance?.owner }); this.#paint(); }
   focusEntry() { this.#email.focus(); }
+  get delivery() { return this.#email.delivery; }
   get canCollect() { return this.#email.canCollect; }
   set(identity, { quiet = false } = {}) {
     const before = this.#identity;

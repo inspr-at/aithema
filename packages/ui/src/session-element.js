@@ -274,7 +274,6 @@ export class AithemaSession extends HTMLElement {
     } });
     root.querySelector('.drafts-canvas').setAttribute('aria-label', this.#copy.layout.canvas);
     this.#mountMotion();
-    this.#popups = new FooterPopups(root);
     const version = { product: 'Aithema 2026.10', ...this.#options.host?.version };
     setText(root.querySelector('.display-version'), version.product);
     setText(root.querySelector('#build-info'), [version.product, version.commit, version.date].filter(Boolean).join(' · '));
@@ -387,6 +386,7 @@ export class AithemaSession extends HTMLElement {
         (stage === 'entrance' ? root.querySelector('.chooser__continue') : stage === 'ready' ? root.querySelector('.ready__start')
           : this.#session.paused || input.disabled ? root.querySelector('.pause') : input)?.focus();
       } });
+    this.#popups = new FooterPopups(root);
     this.#render('transcript'); this.#render('aside'); this.#render('composer');
     this.#observePanes();
     this.#rail.motion = this.#motion;
@@ -662,7 +662,7 @@ export class AithemaSession extends HTMLElement {
       shell.toggleAttribute('data-used-up', usedUp); form.inert = usedUp; form.setAttribute('aria-hidden', String(usedUp));
       out.inert = !usedUp; out.setAttribute('aria-hidden', String(!usedUp));
       const next = this.#host?.nextTier, kind = next === 'emailGiven' ? 'give' : next === 'emailConfirmed' ? 'confirm' : 'none';
-      out.dataset.next = kind; out.dataset.delivery = String(this.#host?.tiers?.canConfirm === true);
+      out.dataset.next = kind; out.dataset.delivery = String(this.#host?.verification?.delivery === true);
       setText(out.querySelector('.composer-out__title'), u.title); setText(out.querySelector('.composer-out__body'), u.body);
       const delta = this.#host?.deltaCredits ?? '';
       setText(out.querySelector('.composer-out__give'), u.give.replace('{delta}', delta)); setText(out.querySelector('.composer-out__confirm'), u.confirm.replace('{delta}', delta));

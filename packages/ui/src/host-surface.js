@@ -41,7 +41,7 @@ export class HostSurface {
         adopt: (next, reason) => this.#adopt(next, reason), manage: opener => this.#library.show(opener), status });
     }
     if (o.verification) {
-      this.#verification = new Verification({ root, copy, request: (path, body, method) => this.#call(path.startsWith('/api/') ? path : this.#sessionPath(path), body, method), status, onChange: info => { this.#paintCredits(); onLock?.(info); this.#onCredits?.(); },
+      this.#verification = new Verification({ root, copy, request: (path, body, verb) => this.#call(path.startsWith('/api/') ? path : this.#sessionPath(path), body, verb), status, onChange: info => { this.#paintCredits(); onLock?.(info); this.#onCredits?.(); },
         creditsChanged: () => this.#loadCredits(), demo: this.#session().demo === true, handover: Boolean(o.handover),
         ...(typeof o.verification === 'object' ? o.verification : {}), locale: () => this.#session().locale ?? 'en',
         focusAfterUnlock, beforeOpen: beforeVerifyDialog, focusReturn: verificationOpener,
@@ -114,11 +114,11 @@ export class HostSurface {
   update() { this.#paintHandover(); this.#paintCredits(); }
   #sessionPath(path) { return `/api/sessions/${encodeURIComponent(this.#session().id)}/${path}`; }
   // Owner routes: same origin only; the owner cookie or the session token authenticates them.
-  async #call(path, body, method = 'POST') {
+  async #call(path, body, verb = 'POST') {
     const sessionId = this.#session().id, url = sameOrigin(this.#view, `${this.#base}${path}`);
     const response = body === undefined
       ? await fetch(url, { headers: this.#token ? { 'x-aithema-session-token': this.#token } : {}, cache: 'no-store' })
-      : await postJson(url, body, { sessionToken: this.#token, method });
+      : await postJson(url, body, { sessionToken: this.#token, verb });
     let value = null; try { value = await response.json(); } catch { /* A body-less reply carries its status only. */ }
     if (!this.#alive || sessionId !== this.#session().id) throw new Error('Conversation changed');
     return { ok: response.ok, status: response.status, body: value };

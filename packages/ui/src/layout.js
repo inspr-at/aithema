@@ -113,7 +113,7 @@ export class FooterPopups {
   }
   expanded(entry, value) { entry.querySelector('.host-credits__button')?.setAttribute('aria-expanded', String(value)); }
   connect() {
-    this.root.ownerDocument.addEventListener('click', this.outside);
+    if (this.entries.some(entry => entry.matches('.host-credits') && !entry.hidden)) this.root.ownerDocument.addEventListener('click', this.outside);
     this.root.addEventListener('keydown', this.key); this.view?.addEventListener('resize', this.resize);
     this.view?.addEventListener('scroll', this.resize, { passive: true });
   }
