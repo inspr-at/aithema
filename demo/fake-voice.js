@@ -13,7 +13,11 @@ export function createFakeVoice({ control, persistEvent, copy }) {
   };
   const sdk = { async startSession(options) {
     callbacks = options; open = true; muted = false; id = options.fakeProviderSessionId;
-    queueMicrotask(() => { if (open) { options.onConnect({ conversationId: id }); say('agent', currentCopy().fakeVoiceGreeting); } });
+    queueMicrotask(() => { if (open) {
+      options.onConnect({ conversationId: id });
+      if (options.overrides?.agent?.firstMessage === '') options.onModeChange({ mode: 'listening' });
+      else say('agent', currentCopy().fakeVoiceGreeting);
+    } });
     return { getId: () => id, getInputVolume: () => muted ? 0 : .25, getOutputVolume: () => volume * .6,
       input: { async setMuted(value) { muted = value; } }, setVolume: value => { volume = value.volume; },
       sendUserMessage(text) { say('user', text); say('agent', currentCopy().fakeVoiceReply); },
@@ -25,7 +29,7 @@ export function createFakeVoice({ control, persistEvent, copy }) {
     async recover(...args) { const grant = await control.recover(...args); providerSessionId = grant.providerSessionId; return grant; },
   };
   const client = createElevenLabsClient({ sdk: { startSession: options => sdk.startSession({ ...options, fakeProviderSessionId: providerSessionId }) },
-    control: wrappedControl, persistEvent: event => persistEvent(event, { providerSessionId }) });
+    control: wrappedControl, persistEvent: (event, options) => persistEvent(event, { providerSessionId: event.providerSessionId }, options) });
   return { client,
     speak(text = currentCopy().fakeVoiceStatement) { say('user', text); say('agent', currentCopy().fakeVoiceReply); },
     bargeIn(prefix = currentCopy().fakeVoiceHeard) {

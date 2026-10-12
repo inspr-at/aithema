@@ -1716,17 +1716,22 @@ test('the AI notice is in view wherever an interaction can begin, without scroll
         await page.setViewport({ width, height });
         tally[`conversation ${width}`] = await noticeAtEntryPoints(page, 'conversation', full, `${locale} conversation ${width} px`);
       }
-      // A failed call: the fake voice drops and every recovery is refused, so the call ends failed and
-      // offers Retry call.
+      // AIT-138: an outage waits for Resume. Retry call belongs to a failed initial startup.
       await page.setViewport({ width: 1440, height: 1000 });
       await startCall(page);
+      let refuseStart = false;
       const refuseRecovery = request => {
         if (request.isInterceptResolutionHandled()) return;
-        if (/\/voice\/[^/]+\/recover$/u.test(new URL(request.url()).pathname)) void request.respond({ status: 503, contentType: 'application/json', body: '{}' });
+        if (refuseStart ? /\/voice$/u.test(new URL(request.url()).pathname) : /\/voice\/[^/]+\/recover$/u.test(new URL(request.url()).pathname)) void request.respond({ status: 503, contentType: 'application/json', body: '{}' });
         else void request.continue();
       };
       await page.setRequestInterception(true); page.on('request', refuseRecovery);
       await page.evaluate(() => document.querySelector('#fake-disconnect').click());
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'waiting');
+      await inShadow(page, c => c.shadowRoot.querySelector('.voice-close').click());
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'idle');
+      refuseStart = true;
+      await inShadow(page, c => c.shadowRoot.querySelector('.voice-start').click());
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'failed');
       page.off('request', refuseRecovery); await page.setRequestInterception(false);
       assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.voice-retry').disabled), false, `${locale}: Retry call is offered`);

@@ -74,13 +74,13 @@ test('labelled fake agent exercises speech, voice barge-in, typing, acknowledged
     assert.ok(paths.some(p => p.endsWith('/recover')));
     assert.ok(['listening', 'speaking'].includes(root.querySelector('.audio-rail').dataset.state));
     failRecovery = true; const attempts = paths.filter(p => p.endsWith('/recover')).length;
-    await act(() => document.querySelector('#fake-disconnect').click(), voice('ended', e => e.reason === 'recovery-failed'));
-    assert.equal(root.querySelector('.voice-retry').disabled, false);
+    await act(() => document.querySelector('#fake-disconnect').click(), voice('waiting', e => e.reason === 'recovery-failed'));
+    assert.equal(root.querySelector('.voice-retry').disabled, true);
     assert.equal(paths.filter(p => p.endsWith('/recover')).length - attempts, 3);
-    assert.match(root.querySelector('.voice-state').textContent, /Three reconnect attempts failed/);
+    assert.match(root.querySelector('.voice-state').textContent, /Voice paused.*select Resume/);
     assert.equal(root.querySelector('.send').disabled, false, 'typing remains available after exhausted recovery');
     failRecovery = false;
-    await act(() => root.querySelector('.voice-retry').click(), voice('final', e => e.role === 'assistant'));
+    await act(() => root.querySelector('.voice-pause').click(), voice('recovered'), rendered(n => n.state === 'listening' && !n.busy));
     assert.equal(root.querySelector('.voice-close').disabled, false);
     await act(() => root.querySelector('.voice-close').click(), rendered(n => n.state === 'idle'));
     assert.ok(paths.some(p => p.endsWith('/close')));
