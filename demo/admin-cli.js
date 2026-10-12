@@ -6,7 +6,7 @@ const usage = 'Usage: node demo/admin-cli.js [--socket PATH] settings | audit [-
   + 'set-allowances --base-revision N --anonymous USD --email-given USD --email-confirmed USD';
 try {
   const args = process.argv.slice(2);
-  let socket = process.env.AITHEMA_ADMIN_SOCKET ?? join(dirname(resolve(process.env.AITHEMA_DB ?? '.data/session.sqlite')), 'ops', 'aithema-admin.sock');
+  let socket = process.env.AITHEMA_ADMIN_SOCKET ?? join(dirname(resolve(process.env.AITHEMA_DB ?? '.data/session.sqlite')), 'ops', 'admin');
   if (args[0] === '--socket') { args.shift(); socket = args.shift(); }
   const command = args.shift();
   if (!['settings', 'set-allowances', 'audit', 'provider-cap'].includes(command)) throw new Error(usage);

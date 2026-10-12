@@ -2030,7 +2030,10 @@ old revision cannot append a second audit record. There is no environment
 bootstrap layer for allowances.
 
 The running host listens on a separate Unix socket, defaulting to
-`<database-directory>/ops/aithema-admin.sock`. The directory is 0700, the socket
+`<database-directory>/ops/admin`. The short name leaves room for database paths
+within the operating system's Unix socket path limit; oversized overrides
+refuse startup with a request to set a shorter `AITHEMA_ADMIN_SOCKET` path.
+The directory is 0700, the socket
 is 0600, and both belong to the host account. `AITHEMA_ADMIN_SOCKET` overrides
 the path on server and CLI. The public listener has no settings, audit or OPS
 endpoint. The actor is `ops-cli:<socket-owner-account>`; Node cannot identify
@@ -2132,7 +2135,7 @@ Readiness of voice is separately visible in
 | `AITHEMA_LISTEN_HOST` | Bind address; local `127.0.0.1`, image `0.0.0.0` |
 | `AITHEMA_PUBLIC_ORIGIN` | Canonical origin, e.g. `https://start2.augmentoring.com`, without trailing slash; accepted Host, facade base URL and Secure cookies |
 | `AITHEMA_DB` | Persistent SQLite path; local `.data/session.sqlite`, image `/data/session.sqlite` |
-| `AITHEMA_ADMIN_SOCKET` | Private OPS Unix socket; default `<database-directory>/ops/aithema-admin.sock`, directory 0700 and socket 0600 |
+| `AITHEMA_ADMIN_SOCKET` | Private OPS Unix socket; default `<database-directory>/ops/admin`, directory 0700 and socket 0600 |
 | `AITHEMA_COMMIT` | Deployed source SHA; `/healthz` reports this or `null` |
 | `AITHEMA_PROVIDER` | `openrouter` for live reasoning; defaults to `mock` |
 | `OPENROUTER_API_KEY` | Account credential supplied by OPS through its secret service |

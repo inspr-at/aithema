@@ -11,6 +11,9 @@ export const CAP_RECOVERY = 'Investigate provider receipts, reconcile confirmed 
 /** Dedicated local transport. It is never mounted on the public host listener. */
 export async function listenAdmin({ host, spendCap, socketPath }) {
   if (!host?.visitorCredits || !isAbsolute(socketPath)) throw new TypeError('Invalid admin socket');
+  if (Buffer.byteLength(socketPath) > (process.platform === 'linux' ? 107 : 103)) {
+    throw new TypeError('Admin socket path is too long; set AITHEMA_ADMIN_SOCKET to a shorter absolute path');
+  }
   const account = userInfo(), directory = dirname(socketPath);
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const dir = await lstat(directory);

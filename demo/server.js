@@ -131,7 +131,7 @@ retainVisitors();
 const visitorRetention = setInterval(retainVisitors, 24 * 60 * 60_000);
 visitorRetention.unref();
 const admin = await listenAdmin({ host, spendCap, socketPath: process.env.AITHEMA_ADMIN_SOCKET ??
-  join(dirname(resolve(process.env.AITHEMA_DB ?? defaultDb)), 'ops', 'aithema-admin.sock') });
+  join(dirname(resolve(process.env.AITHEMA_DB ?? defaultDb)), 'ops', 'admin') });
 let allowedHosts = new Set();
 async function handle(request) {
   const refused = deploymentGate(request, deployment, allowedHosts); if (refused) return refused;

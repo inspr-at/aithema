@@ -56,7 +56,7 @@ test('AIT-135 CLI talks only to a running host and refuses offline without openi
 
 test('AIT-135 the running start2 host exposes OPS only on its socket, with $1000 ledger subcaps and no owner deadline', { timeout: 15_000 }, async t => {
   const { adminRequest } = await import('../admin-socket.js');
-  const db = await temporaryDb(), socketPath = join(db, '..', 'ops', 'aithema-admin.sock');
+  const db = await temporaryDb(), socketPath = join(db, '..', 'ops', 'admin');
   const running = await startChild(new URL('../server.js', import.meta.url), db); t.after(() => running.kill());
   assert.equal((await stat(socketPath)).mode & 0o777, 0o600);
   assert.equal((await adminRequest(socketPath, 'settings')).body.allowancesMicro.anonymous, 10_000_000);
