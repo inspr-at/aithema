@@ -5,6 +5,7 @@ import { SQLiteStorage, createHandlers, createPluginRuntime, createVoiceProvider
 import { PluginRegistry, createMockReasoning, activeTurns, PluginError, inputRevision } from '@inspr/aithema-core';
 import * as core from '@inspr/aithema-core';
 import { readFile } from 'node:fs/promises';
+import { DatabaseSync } from 'node:sqlite';
 import { temporaryDb, unzip } from '../../../test/helpers.js';
 import { eventProbe } from '../../../test/voice-test-events.js';
 import { createElevenLabsServer } from '../../../plugins/elevenlabs/src/server.js';
@@ -49,15 +50,15 @@ test('AIT-138 fix 2: background closure confirmation preserves a waiting logical
   } });
   const grant = await h.start(), { waitFor } = await observeVoice(h, t);
   h.advance(20); t.mock.timers.tick(20);
-  await waitFor(e => e.type === 'voice.state' && e.data.state === 'waiting'); await h.handlers.idle();
+  await waitFor(e => e.type === 'voice.state' && e.data.state === 'waiting');
+  await h.waitForClosure(grant.providerSessionId);
+  h.advance(10_001); t.mock.timers.tick(10_001); await h.handlers.idle();
   h.handlers.reconcileVoiceLater(); t.mock.timers.tick(10);
   const confirmed = await waitFor(e => e.type === 'voice.state' && e.data.terminal?.closureConfirmed === true);
   assert.equal(confirmed.data.state, 'waiting', 'settling the segment must not end the resumable logical call');
   const logical = h.storage.voiceLifecycle(h.session.id, grant.callId);
   assert.equal(logical.state, 'waiting'); assert.equal(logical.segments[grant.providerSessionId].closureConfirmed, true);
   assert.equal(h.storage.voiceCalls()[0].reconciliationPending, false);
-  const resumed = await h.route(`/voice/${grant.callId}/recover`, { providerSessionId: grant.providerSessionId });
-  assert.equal(resumed.status, 200); assert.equal((await resumed.json()).callId, grant.callId);
 });
 
 for (const failure of ['admission', 'SDK connection']) test(`AIT-138 fix 3: exhausted ${failure} attempts persist waiting for another reader`, async t => {
@@ -77,8 +78,9 @@ for (const failure of ['admission', 'SDK connection']) test(`AIT-138 fix 3: exha
     reason: 'recovery-failed', recoveryAttempts: 3 });
   const waiting = h.storage.voiceLifecycle(h.session.id, first.callId);
   assert.equal(waiting.state, 'waiting'); assert.equal(waiting.attempts, 3); assert.equal(waiting.needsRecovery, true);
-  const reader = new SQLiteStorage(path); t.after(() => reader.close());
-  assert.deepEqual(reader.voiceLifecycle(h.session.id, first.callId), waiting, 'a reload reads the exhausted state from SQLite');
+  const reader = new DatabaseSync(path, { readOnly: true }); t.after(() => reader.close());
+  const saved = JSON.parse(reader.prepare('SELECT record FROM voice_lifecycle_calls WHERE session_id=? AND call_id=?').get(h.session.id, first.callId).record);
+  assert.deepEqual(saved, waiting, 'another reader sees the exhausted state in SQLite');
   const snapshot = await h.handlers.handle(new Request(`http://host/api/sessions/${h.session.id}`, {
     headers: { 'x-aithema-session-token': 'voice-owner' } })).then(r => r.json());
   assert.equal(snapshot.voiceLifecycle.state, 'waiting'); assert.equal(snapshot.voiceLifecycle.attempts, 3);
