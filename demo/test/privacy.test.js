@@ -60,6 +60,25 @@ test('AIT-151: configured privacy is served in host styling with script-free CSP
   assert.equal(request.status, 200, 'a validated document releases the privacy guard');
 });
 
+test('AIT-135/AIT-151: restart without a document keeps erasure available for a stored demo address', async t => {
+  const db = await temporaryDb();
+  const demo = await startChild(server, db, { AITHEMA_DEMO_VERIFY: '1' });
+  t.after(() => demo.kill());
+  const created = await post(demo.url + '/api/sessions', {}), session = await created.json();
+  const headers = { cookie: created.headers.get('set-cookie').split(';')[0] };
+  const pending = await post(demo.url + `/api/sessions/${session.id}/identity/request`, { address: 'restart@example.test' }, headers);
+  assert.equal(pending.status, 200);
+  await demo.kill();
+  const live = await startChild(server, db, { AITHEMA_PROVIDER: 'mock' });
+  t.after(() => live.kill());
+  const refused = await post(live.url + `/api/sessions/${session.id}/identity/unlock`, {}, headers);
+  assert.equal(refused.status, 403);
+  assert.deepEqual(await refused.json(), { error: 'privacy-document-required' });
+  const erased = await post(live.url + '/api/visitor/erase', {}, headers);
+  assert.equal(erased.status, 200); assert.equal((await erased.json()).erased, true);
+  assert.equal((await fetch(live.url + `/api/sessions/${session.id}/identity`, { headers })).status, 404);
+});
+
 test('AIT-151: locale variants and safe fallback are loaded once at startup', async t => {
   const de = await documentFile('<h1>Beispiel-Datenschutzhinweis für Tests</h1>');
   const en = await documentFile('<h1>Example localized privacy notice for tests</h1>');

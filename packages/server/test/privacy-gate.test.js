@@ -151,7 +151,7 @@ for (const transition of ['policy', 'pause', 'handover', 'retry', 'recovery']) t
   const before = f.snapshot();
   if (transition === 'policy') assert.throws(() => f.commands.initialize(id, owner), refused);
   else if (transition === 'pause') assert.throws(() => f.commands.syncPause(id, owner), refused);
-  else if (transition === 'recovery') assert.throws(() => f.commands.resume(), refused);
+  else if (transition === 'recovery') assert.doesNotThrow(() => f.commands.resume());
   else {
     const port = f.host.handover(owner);
     t.mock.method(f.host, 'handover', () => ({ ...port, offer: () => ({ available: true }) }));
