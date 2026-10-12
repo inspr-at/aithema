@@ -228,6 +228,22 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
       await page.click('aithema-session >>> .motion-toggle');
       reveals.push({ width, theme, locale, links, point, clock: 'paused CSS timelines; exact 50ms rendered-pixel samples', samples });
     }
+    async function menuEvidence(width, theme) {
+      const selectors = ['.band-orb', '.conversations-toggle', '.settings-open'], before = await boxes(page, selectors);
+      await page.click('aithema-session >>> .conversations-toggle');
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('.conversations-recent button').length === 3);
+      const menu = await shadow(page, c => {
+        const n = c.shadowRoot.querySelector('.conversations-menu'), b = n.getBoundingClientRect();
+        return { left: b.left, right: b.right, top: b.top, bottom: b.bottom,
+          painted: [[b.left + 8, b.top + 8], [b.right - 8, b.top + 8], [b.left + 8, b.bottom - 8], [b.right - 8, b.bottom - 8]]
+            .every(([x, y]) => n.contains(c.shadowRoot.elementFromPoint(x, y))) };
+      });
+      assert.ok(menu.left >= 0 && menu.right <= width + .5 && menu.top >= 0 && menu.bottom <= (width === 390 ? 844 : 900), `${width}-${theme}-${locale}: conversations menu fits ${JSON.stringify(menu)}`);
+      assert.equal(menu.painted, true, 'every menu corner is visible');
+      sameBoxes(before, await boxes(page, selectors), 'opening the menu keeps the band fixed');
+      await shot('conversations-menu-open', width, theme); await page.keyboard.press('Escape');
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversations-menu').hidden), true);
+    }
     for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
       await page.setViewport({ width, height: width === 390 ? 844 : 900 });
       await page.select('#theme', theme);
@@ -325,10 +341,7 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
         assert.ok(popup.left >= 0 && popup.right <= width + .5 && popup.top >= 0 && popup.bottom <= (width === 390 ? 844 : 900), `${label}: unclipped popup ${JSON.stringify(popup)}`);
         await shot(name, width, theme); await page.mouse.move(0, 0);
       }
-      await page.click('aithema-session >>> .conversations-toggle');
-      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelectorAll('.conversations-recent button').length === 3);
-      await shot('conversations-menu-open', width, theme); await page.keyboard.press('Escape');
-      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversations-menu').hidden), true);
+      await menuEvidence(width, theme);
       await scene('conversation', 'off');
 
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.concept-activity-text').textContent), copy.display.draftsOff);
@@ -376,6 +389,7 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
         assert.ok(popup[0] >= 0 && popup[1] <= width + .5 && popup[2] >= 0 && popup[3] <= 900, 'narrow popup fits');
         await shot(name, width, theme); await page.mouse.move(0, 0);
       }
+      await menuEvidence(width, theme);
     }
     locale = 'de'; await page.setViewport({ width: 1440, height: 900 }); await page.select('#theme', 'light'); await scene('conversation');
     const footer = await boxes(page, ['.display-foot', '.engine-info', '.composer']);

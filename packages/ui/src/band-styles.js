@@ -133,6 +133,8 @@ export const bandStyles = `
 @media(max-width:599px) {
   .band { gap:6px 8px; padding-right:8px; }
   .header-actions { gap:0; } .conversations-toggle { font-size:12px; padding:0 4px; min-width:88px; }
+  .conversations-wrap { position:static; }
+  .conversations-menu { z-index:12; left:12px; right:12px; top:62px; width:auto; }
   .band .audio-rail { gap:4px; margin-left:-4px; width:100%; }
   .voice-state,.voice-caption { font-size:10px; padding-inline:4px; }
   .voice-wave { --voice-label-half:60px; }
