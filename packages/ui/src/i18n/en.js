@@ -1,6 +1,14 @@
 import { AI_NOTICE } from '../../../core/src/ai-notice.js';
 
 export const en = {
+  reveal: {
+    label: 'About Aithema', wordmark: 'Aithema', build: 'Build {date}',
+    links: [
+      { title: 'Website', subtitle: 'aithema.inspr.at', href: 'https://aithema.inspr.at' },
+      { title: 'INSPR', subtitle: 'The open-source family', href: 'https://inspr.at' },
+      { title: 'Augmentoring', subtitle: 'AI consulting', href: 'https://augmentoring.com' },
+    ],
+  },
   conceptTab: 'Concept', conceptView: 'View concept', conceptTitle: 'Visual concept {number}', conceptCount: '{current} of {count}',
   conceptClose: 'Back to conversation', conceptPrevious: 'Previous', conceptNext: 'Next', conceptDownload: 'Download image',
   conceptRequest: 'Request concept', conceptRegenerate: 'Regenerate', conceptRetry: 'Retry concept', conceptUp: 'Like', conceptDown: 'Dislike',
