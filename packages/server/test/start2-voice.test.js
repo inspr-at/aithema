@@ -150,6 +150,20 @@ for (const withdrawn of ['models-international', 'voice-elevenlabs']) test(`with
   assert.equal((await h.callback(call.facadeCallId)).status, 403, 'reasoning or voice withdrawal stops the live call');
 });
 
+test('priced voice holds extend atomically without reserving the technical ceiling', async t => {
+  const h = await fixture(t);
+  assert.equal((await h.grant(['models-international', 'voice-elevenlabs'])).status, 200);
+  const admitted = await h.runtime.admitVoice({ session: h.storage.get(h.session.id), request: { callId: 'money-test' } });
+  const attempt = admitted.options.attempt;
+  assert.equal(attempt.maxMicro, 50_000);
+  await attempt.consume();
+  assert.equal(attempt.extend(60).maxMicro, 100_000);
+  assert.equal(attempt.maxMicro, 100_000);
+  assert.equal(h.runtime.budget.breakdown(h.session.id).reservedMicro, 100_000);
+  admitted.finish();
+  assert.equal(h.runtime.budget.breakdown(h.session.id).uncertainSpendMicro, 100_000);
+});
+
 test('start2 retries uncertain holds in process and admits a later call without a restart', { timeout: 5000 }, async t => {
   const h = await fixture(t, { capMilliseconds: 601_000, closureTimeoutMs: 10, reconcileIntervalMs: 10 }), call = await h.start();
   h.processing(true);

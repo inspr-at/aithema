@@ -50,13 +50,13 @@ for (const mode of ['completed', 'invalid-output', 'http-error', 'http-zero', 'h
     assert.equal(row.state, 'settled'); assert.equal(account.reservedMicro, 0);
     if (['cancelled-unknown', 'http-unknown-json', 'http-non-json'].includes(mode)) {
       assert.equal(row.outcome, 'uncertain');
-      assert.ok(account.spentMicro > 0, 'unknown dispatched spend remains conservatively charged');
+      assert.equal(account.spentMicro, 0); assert.ok(account.uncertainMicro > 0, 'unknown dispatch is an estimate, not confirmed spend');
       const reservation = storage.db.prepare('SELECT ceiling_micro FROM spend_reservations').get();
-      assert.equal(account.spentMicro, reservation.ceiling_micro);
-      assert.equal(row.settled_micro, account.spentMicro, 'unknown dispatched spend uses the same conservative ceiling in both ledgers');
+      assert.equal(account.uncertainMicro, reservation.ceiling_micro);
+      assert.equal(row.settled_micro, account.uncertainMicro, 'unknown spend uses the same estimate in both ledgers');
     } else if (mode === 'http-tokens-only') {
-      assert.equal(account.spentMicro, storage.db.prepare('SELECT ceiling_micro FROM spend_reservations').get().ceiling_micro);
-      assert.equal(row.settled_micro, account.spentMicro, 'tokens without cost evidence use the account ceiling in the wallet too');
+      assert.equal(account.uncertainMicro, storage.db.prepare('SELECT ceiling_micro FROM spend_reservations').get().ceiling_micro);
+      assert.equal(row.settled_micro, account.uncertainMicro, 'tokens without cost evidence stay uncertain in the wallet too');
     } else {
       const actual = ['unsent', 'http-zero'].includes(mode) ? 0 : 1234;
       assert.equal(account.spentMicro, actual);
@@ -82,5 +82,5 @@ for (const mode of ['cancelled', 'deadline', 'oversized']) test(`HTTP error body
   if (mode === 'cancelled') { await reading.promise; controller.abort(); }
   await rejected;
   assert.equal(cancelled, true); assert.equal(reports.length, 1); assert.equal(reports[0].outcome, 'uncertain');
-  assert.equal(spend.snapshot().reservedMicro, 0); assert.ok(spend.snapshot().spentMicro > 0);
+  assert.equal(spend.snapshot().reservedMicro, 0); assert.equal(spend.snapshot().spentMicro, 0); assert.ok(spend.snapshot().uncertainMicro > 0);
 });

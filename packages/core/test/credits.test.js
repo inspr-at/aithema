@@ -50,8 +50,10 @@ function withLedger(fn) {
 test('credit view reserves admitted maxima without making a new charge', () => withLedger((ledger, session) => {
   admit(ledger, session.id);
   const view = viewOf(ledger, session.id);
-  assert.deepEqual(view.session, { limitMicro: 100, committedMicro: 40, availableMicro: 60, overrunMicro: 0 });
-  assert.deepEqual(view.voiceVisitor, { limitMicro: 50, committedMicro: 0, availableMicro: 50, overrunMicro: 0 });
+  assert.deepEqual(view.session, { limitMicro: 100, committedMicro: 40, availableMicro: 60, overrunMicro: 0,
+    reservedMicro: 40, confirmedSpendMicro: 0, uncertainSpendMicro: 0 });
+  assert.deepEqual(view.voiceVisitor, { limitMicro: 50, committedMicro: 0, availableMicro: 50, overrunMicro: 0,
+    reservedMicro: 0, confirmedSpendMicro: 0, uncertainSpendMicro: 0 });
   const preview = previewOf(ledger, session.id, 61);
   assert.equal(preview.ok, false); assert.equal(preview.reason, 'session');
   assert.equal(previewOf(ledger, session.id, 60).ok, true);
@@ -70,7 +72,8 @@ test('credit view follows actual settlement, preserves uncertain maxima and expo
   ledger.settle(overrun.claimId, { attemptId: c.attemptId, outcome: 'completed', usage: { inputTokens: 100, outputTokens: 0 } },
     { inputMicro: 1, outputMicro: 0 });
   assert.deepEqual(viewOf(ledger, session.id).session,
-    { limitMicro: 100, committedMicro: 151, availableMicro: 0, overrunMicro: 51 });
+    { limitMicro: 100, committedMicro: 151, availableMicro: 0, overrunMicro: 51,
+      reservedMicro: 0, confirmedSpendMicro: 111, uncertainSpendMicro: 40 });
   assert.equal(previewOf(ledger, session.id, 0).ok, false);
 }));
 

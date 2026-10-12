@@ -591,11 +591,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       catch (error) { zero(); throw error; }
       const attempt = { ...claim, get maxMicro() { return budget.get(attemptId).max_micro; },
         ...(binding.reservationSeconds ? { extend(seconds) {
-          return storage.transaction(() => {
-            const current = budget.get(attemptId), maximum = Math.ceil(seconds / 60 * binding.upstreamMicroPerMinute);
-            if (ownerWallet?.(session)?.canAdmit({ maxMicro: Math.max(0, maximum - current.max_micro) }) === false) throw new PluginError('not-admitted', 'Owner budget denied');
-            return budget.extendVoice(attemptId, { maxMicro: maximum, maxVisitorMicro: Math.ceil(seconds / 60 * binding.visitorMicroPerMinute) });
-          });
+          return budget.extendVoice(attemptId, { maxMicro: Math.ceil(seconds / 60 * binding.upstreamMicroPerMinute),
+            maxVisitorMicro: Math.ceil(seconds / 60 * binding.visitorMicroPerMinute) }, extra => ownerWallet?.(session)?.canAdmit(extra));
         } } : {}), async consume() {
         if (reported || consuming) throw new PluginError('already-claimed');
         consuming = true;

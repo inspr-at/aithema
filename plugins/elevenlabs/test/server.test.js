@@ -46,7 +46,8 @@ test('closure polls processing with backoff until done and excludes acknowledged
   assert.equal(observations, 3); assert.ok(observedAt[2] - observedAt[1] >= 8);
   assert.equal(terminal.outcome, 'completed'); assert.equal(terminal.closureConfirmed, true);
   assert.deepEqual(terminal.usage, { providerSeconds: 120, providerMinutes: 2, pausedSeconds: 40, visitorSeconds: 80,
-    upstreamMicro: 1200, visitorMicro: 400, providerCredits: 17 });
+    upstreamMicro: 1200, visitorMicro: 400, providerCredits: 17,
+    costSource: 'duration-estimate', costEstimated: true, estimateMicroPerMinute: 600 });
   assert.equal(options.reports.length, 1); assert.equal(options.reports[0].chargedMicro, 1200);
   assert.equal(await session.close(), terminal); assert.equal(observations, 3);
 });
@@ -172,7 +173,8 @@ test('reconciliation clips and unions acknowledged pause intervals; records full
     details: { conversation_id: 'conv_math', status: 'done', metadata: { call_duration_secs: 120, start_time_unix_secs: 100, cost: 15 } } });
   assert.equal(terminal.closureConfirmed, true); assert.equal(terminal.outcome, 'completed');
   assert.deepEqual(terminal.usage, { providerSeconds: 120, providerMinutes: 2, pausedSeconds: 80, visitorSeconds: 40,
-    upstreamMicro: 1200, visitorMicro: 200, providerCredits: 15 }); assert.equal(terminal.chargedMicro, 1200);
+    upstreamMicro: 1200, visitorMicro: 200, providerCredits: 15,
+    costSource: 'duration-estimate', costEstimated: true, estimateMicroPerMinute: 600 }); assert.equal(terminal.chargedMicro, 1200);
   const allPaused = reconcileUsage({ call: { ...call, pauses: [{ from: 0, to: null }] }, binding, maxMicro: 2000,
     details: { conversation_id: 'conv_math', status: 'failed', metadata: { call_duration_secs: 120 } } });
   assert.equal(allPaused.usage.visitorMicro, 0); assert.equal(allPaused.usage.upstreamMicro, 1200);

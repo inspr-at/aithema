@@ -74,16 +74,17 @@ export class SQLiteBudgetLedger {
   observeCost(attemptId, evidence) {
     if (evidence.generationId !== undefined && !generationId(evidence.generationId) ||
       evidence.chargedMicro !== undefined && !integer(evidence.chargedMicro)) throw new TypeError('Invalid provider cost evidence');
-    return this.storage.transaction(() => {
+    const lateReceipt = this.storage.transaction(() => {
       const row = this.get(attemptId);
       if (!row?.provider_cost_json) throw new PluginError('not-admitted');
       const previous = JSON.parse(row.provider_cost_json);
       if (previous.generationId && evidence.generationId && previous.generationId !== evidence.generationId) throw new PluginError('already-claimed');
       this.db.prepare('UPDATE budget_attempts SET provider_cost_json=? WHERE attempt_id=?')
         .run(JSON.stringify({ ...previous, ...evidence }), attemptId);
-      if (row.state === 'settled' && evidence.chargedMicro !== undefined) this.reconcileCost(attemptId,
-        { ...evidence, ...(previous.generationId ? { generationId: previous.generationId } : {}) });
+      return row.state === 'settled' && evidence.chargedMicro !== undefined
+        ? { ...evidence, ...(previous.generationId ? { generationId: previous.generationId } : {}) } : null;
     });
+    if (lateReceipt) this.reconcileCost(attemptId, lateReceipt);
   }
   markCostDispatch(attemptId) {
     this.db.prepare("UPDATE budget_attempts SET provider_cost_json=json_set(provider_cost_json,'$.dispatchStarted',1) WHERE attempt_id=? AND state='dispatched'").run(attemptId);
@@ -113,13 +114,14 @@ export class SQLiteBudgetLedger {
   acknowledgeCost(attemptId) {
     this.db.prepare("UPDATE budget_attempts SET provider_cost_json=json_set(provider_cost_json,'$.reconciled',1) WHERE attempt_id=?").run(attemptId);
   }
-  extendVoice(attemptId, { maxMicro, maxVisitorMicro }) {
+  extendVoice(attemptId, { maxMicro, maxVisitorMicro }, ownerCanAdmit) {
     if (![maxMicro, maxVisitorMicro].every(integer)) throw new TypeError('Invalid voice extension');
     return this.storage.transaction(() => {
       const row = this.get(attemptId);
       if (!row || row.lane !== 'voice' || row.state !== 'dispatched') throw new PluginError('not-admitted');
       maxMicro = Math.max(maxMicro, row.max_micro); maxVisitorMicro = Math.max(maxVisitorMicro, row.max_visitor_micro);
-      if (!this.canAdmit(row.session_id, maxMicro - row.max_micro, maxVisitorMicro - row.max_visitor_micro)) throw new PluginError('not-admitted', 'Budget denied');
+      const extra = { maxMicro: maxMicro - row.max_micro, maxVisitorMicro: maxVisitorMicro - row.max_visitor_micro };
+      if (!this.canAdmit(row.session_id, extra.maxMicro, extra.maxVisitorMicro) || ownerCanAdmit?.(extra) === false) throw new PluginError('not-admitted', 'Budget denied');
       this.db.prepare('UPDATE budget_attempts SET max_micro=?,max_visitor_micro=? WHERE attempt_id=?').run(maxMicro, maxVisitorMicro, attemptId);
       return { maxMicro, maxVisitorMicro };
     });
