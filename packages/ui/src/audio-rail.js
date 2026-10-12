@@ -173,6 +173,7 @@ export class AudioRail {
       return;
     }
     const session = this.session, generation = this.generation;
+    if (paused) { this.paused = true; this.onPause?.(true); }
     this.busy = true; this.render();
     try {
       const ack = await session[paused ? 'pause' : 'resume']();
@@ -201,22 +202,26 @@ export class AudioRail {
   }
   reportPlaybackBlocked() { this.playbackBlocked = true; this.errorKey = 'voicePlaybackBlocked'; this.render(); }
   close(reason) {
-    if (this.closing) return this.closing;
+    if (this.closing) {
+      if (reason) void this.closingSession?.close({ reason }).catch(() => {});
+      return this.closing;
+    }
     const session = this.session; this.closingCall = Boolean(session) || ['connecting', 'recovering'].includes(this.state);
+    this.closingSession = session;
     ++this.generation; clearInterval(this.heartbeat); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.quiet();
     this.session = null; this.hidePending = false; this.state = 'closing'; this.render();
     this.onEnd?.();
     const controller = this.controller;
     this.closing = (async () => {
       try {
-        const terminal = await session?.close({ deadlineAt: Date.now() + 45_000 });
+        const terminal = await session?.close({ deadlineAt: Date.now() + 45_000, reason: reason ?? 'closed' });
         this.state = terminal && !terminal.closureConfirmed ? 'failed' : 'idle';
         this.errorKey = terminal && !terminal.closureConfirmed ? 'voiceClosureUncertain' : null;
         if (reason?.includes('deadline')) { this.state = 'failed'; this.errorKey = 'voiceDeadline'; }
         if (session) this.journal?.clear();
       } catch { this.state = 'failed'; this.errorKey = 'voiceClosureUncertain'; }
       finally { controller?.abort(); this.paused = false; this.root.querySelector('.voice-caption').textContent = ''; this.render(); }
-    })().finally(() => { this.closing = null; });
+    })().finally(() => { this.closing = null; this.closingSession = null; });
     return this.closing;
   }
   quiet() { delete this.root.dataset.measured; this.waveform.baseline(); this.onLevel?.(0); }

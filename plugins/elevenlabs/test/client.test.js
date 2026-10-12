@@ -4,6 +4,7 @@ import { liveVoiceConformance } from '../../../packages/core/src/live-voice-conf
 import { unavailableVoiceCommand } from '../../../packages/core/src/live-voice.js';
 import { fixture, invocationOptions, flush, fakeSdk } from './fixtures.js';
 
+const channelEffects = sdk => sdk.effects.filter(([name]) => ['setInputMuted', 'setVolume'].includes(name));
 async function drain(session) { const events = []; for await (const event of session.events) events.push(event); return events; }
 test('transport loss while paused waits for acknowledged resume before spending on recovery', { timeout: 60_000 }, async () => {
   const local = fixture(), options = invocationOptions(), session = await local.client.start({ callId: 'call_paused_recovery' }, options);
@@ -49,7 +50,7 @@ test('SDK 1.17.0 onError contexts preserve the active call; onDisconnect drives 
   const events = await reader; assert.equal(recoveries, 3); assert.equal(events[0].type, 'recovering');
   assert.equal(events.at(-1).type, 'ended');
 });
-test('SDK commands preserve independent channels; pause/resume change them only after server acknowledgement', async () => {
+test('SDK commands preserve independent channels; pause mutes before acknowledgement and resume waits for it', async () => {
   let release; const local = fixture();
   const pause = local.control.pause;
   local.control.pause = async (...args) => { await new Promise(resolve => { release = resolve; }); return pause(...args); };
@@ -62,12 +63,12 @@ test('SDK commands preserve independent channels; pause/resume change them only 
   assert.ok(local.sdk.effects.some(([name, value]) => name === 'sendContextualUpdate' && JSON.parse(value).focus === 'next'));
   assert.ok(local.sdk.effects.some(([name]) => name === 'nativeInterruption'));
   const before = local.sdk.effects.length, pending = session.pause(); await flush();
-  assert.equal(local.sdk.effects.length, before); release(); assert.deepEqual(await pending, { acknowledged: true, paused: true });
-  assert.deepEqual(local.sdk.effects.slice(-2), [['setMicMuted', true], ['setVolume', 0]]);
+  assert.ok(local.sdk.effects.length > before); release(); assert.deepEqual(await pending, { acknowledged: true, paused: true });
+  assert.deepEqual(channelEffects(local.sdk).slice(-2), [['setInputMuted', true], ['setVolume', 0]]);
   await assert.rejects(session.sendText('while paused'), { code: 'not-admitted' });
-  await session.resume(); assert.deepEqual(local.sdk.effects.slice(-2), [['setMicMuted', true], ['setVolume', 0]]);
-  await session.setInput(true); assert.deepEqual(local.sdk.effects.slice(-2), [['setMicMuted', false], ['setVolume', 0]]);
-  await session.setOutput(true); assert.deepEqual(local.sdk.effects.slice(-2), [['setMicMuted', false], ['setVolume', 1]]);
+  await session.resume(); assert.deepEqual(channelEffects(local.sdk).slice(-2), [['setInputMuted', true], ['setVolume', 0]]);
+  await session.setInput(true); assert.deepEqual(channelEffects(local.sdk).slice(-2), [['setInputMuted', false], ['setVolume', 0]]);
+  await session.setOutput(true); assert.deepEqual(channelEffects(local.sdk).slice(-2), [['setInputMuted', false], ['setVolume', 1]]);
   const reader = drain(session); const terminal = await session.close(); assert.equal(terminal.closureConfirmed, true);
   assert.equal((await reader).at(-1).type, 'ended');
   await assert.rejects(session.sendText('ended'), { code: 'unavailable' });
@@ -160,7 +161,7 @@ function conformanceFixture(local) {
     probe(command, session, { phase, before } = {}) {
       if (command === 'close') return { providerOpen: !local.sdk.closed };
       if (phase === 'before') return { effects: local.sdk.effects.length, saved: local.saved.length };
-      const sdkMethod = { sendText: 'sendUserMessage', updateContext: 'sendContextualUpdate', setInput: 'setMicMuted',
+      const sdkMethod = { sendText: 'sendUserMessage', updateContext: 'sendContextualUpdate', setInput: 'setInputMuted',
         setOutput: 'setVolume', interrupt: 'nativeInterruption' }[command];
       return { capability: ['pause', 'resume', 'setOutput'].includes(command) ? 'emulated' : 'native',
         applied: sdkMethod ? local.sdk.effects.slice(before.effects).some(([method]) => method === sdkMethod)
@@ -174,10 +175,10 @@ function conformanceFixture(local) {
       callbacks.onMessage({ role: 'agent', message: 'Hello there', event_id: 11 });
       callbacks.onAgentResponseCorrection({ event_id: 11, original_agent_response: 'Hello there', corrected_agent_response: 'Hello' });
       return [
-        { type: 'partial', turnId: `${provider}:user:pending`, role: 'user', text: 'hel', callId },
-        { type: 'final', turnId: `${provider}:user:10`, role: 'user', text: 'hello', callId },
-        { type: 'final', turnId: `${provider}:assistant:11`, role: 'assistant', text: 'Hello there', callId },
-        { type: 'heard', turnId: `${provider}:assistant:11`, prefix: 'Hello', callId },
+        { type: 'partial', turnId: `${provider}:user:pending`, role: 'user', text: 'hel', callId, providerSessionId: provider },
+        { type: 'final', turnId: `${provider}:user:10`, role: 'user', text: 'hello', callId, providerSessionId: provider },
+        { type: 'final', turnId: `${provider}:assistant:11`, role: 'assistant', text: 'Hello there', callId, providerSessionId: provider },
+        { type: 'heard', turnId: `${provider}:assistant:11`, prefix: 'Hello', callId, providerSessionId: provider },
       ];
     },
   };
