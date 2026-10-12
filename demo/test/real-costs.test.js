@@ -75,6 +75,7 @@ async function costFixture(t, { mode = 'known', path, state = { queries: 0, read
         return Response.json(state.ready ? { data: { id: 'gen-fixture', total_cost: 0.000053 } } : {}, { status: state.ready ? 200 : 404 });
       }
       const body = JSON.parse(init.body); assert.equal(body.usage.include, true);
+      if (mode === 'late-response') { state.sent.resolve(); return state.lateResponse.promise; }
       if (mode === 'transport-failure') throw new Error('injected transport failure');
       if (mode === 'cancel-body') return new Response(new ReadableStream({
         start(controller) { controller.enqueue(new TextEncoder().encode('{"id":"gen-fixture",')); },
@@ -208,4 +209,30 @@ test('credits HTTP exposes real cost categories and preserves the existing avail
   assert.equal(balance.owner.confirmedSpendMicro, 37);
   assert.equal(balance.owner.availableMicro, balance.owner.limitMicro - 37);
   assert.equal(balance.owner.reservedMicro, 0); assert.equal(balance.owner.uncertainSpendMicro, 0);
+});
+
+for (const stalled of [false, true]) test(`a transport ignoring cancellation retains late ${stalled ? 'identity with a bounded body' : 'actual billing'} without a second terminal`, { timeout: 2500 }, async t => {
+  const state = { ready: true, queries: 0, sent: Promise.withResolvers(), lateResponse: Promise.withResolvers() };
+  const h = await costFixture(t, { mode: 'late-response', state }), controller = new AbortController();
+  const admitted = await h.admit('structured', { signal: controller.signal });
+  let reports = 0; const report = admitted.options.report;
+  admitted.options.report = terminal => { reports++; return report(terminal); };
+  const pending = h.invoke(admitted), rejected = assert.rejects(pending, { code: 'cancelled' });
+  await state.sent.promise; controller.abort(); await rejected;
+  assert.ok(h.balance().owner.uncertainSpendMicro > 0);
+  if (stalled) {
+    const cancelled = Promise.withResolvers();
+    state.lateResponse.resolve(new Response(new ReadableStream({
+      start(controller) { controller.enqueue(new TextEncoder().encode('{"id":"gen-fixture",')); },
+      cancel() { cancelled.resolve(); },
+    })));
+    await cancelled.promise;
+    await h.runtime.reconcileCosts(); assert.equal(h.balance().owner.confirmedSpendMicro, 53);
+  } else {
+    state.lateResponse.resolve(Response.json({ id: 'gen-fixture', usage: { cost: 0.000037 } }));
+    for (let i = 0; i < 100 && h.balance().owner.confirmedSpendMicro !== 37; i++) await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.balance().owner.confirmedSpendMicro, 37);
+  }
+  assert.equal(reports, 1); assert.equal(h.balance().owner.uncertainSpendMicro, 0);
+  assert.equal(h.cap.snapshot().uncertainMicro, 0);
 });

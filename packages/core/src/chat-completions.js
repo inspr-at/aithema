@@ -64,8 +64,11 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
     // A late non-stream response may still provide billed cost after cancellation.
     const tracked = pending.then(async response => {
       if (scope.signal.aborted) {
-        try { observe(JSON.parse(await responseText(response)), spend.options, invocation, spend); } catch { /* unknown */ }
-        settleSpend(spend);
+        const late = operationScope({ deadlineAt: Date.now() + 1000 });
+        try { observe(JSON.parse(await responseText(response, 1_000_000, { signal: late.signal,
+          observeId: id => observe({ id }, spend.options, invocation, spend) })), spend.options, invocation, spend); }
+        catch { /* Durable unknown costs remain retryable. */ }
+        finally { settleSpend(spend); late.dispose(); }
       }
       return response;
     });
