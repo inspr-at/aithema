@@ -15,6 +15,7 @@ import { HTML_PREVIEW_HOST_CSP } from '../packages/core/src/ui-html.js';
 import { createOwnership, startExpiry } from './session-lifecycle.js';
 
 import { deploymentConfig, deploymentGate } from './deployment.js';
+import { loadPrivacyDocuments } from './privacy.js';
 import { buildInfo } from './build-info.js';
 import { createVoiceHost as createStart2VoiceHost } from './start2-voice-host.js';
 import { createMockConsent } from './mock-consent.js';
@@ -26,6 +27,7 @@ import { registerDemoExtractors } from './uploads.js';
 import { createDemoHost } from './host-ports.js';
 
 const deployment = deploymentConfig();
+const privacy = await loadPrivacyDocuments(deployment.privacyDocuments);
 const build = buildInfo();
 // The demo is deterministic unless the operator explicitly selects a provider.
 // Validate models/prices before any database or live voice startup work.
@@ -107,6 +109,7 @@ registerDemoExtractors(registry, presets);
 const pluginRuntime = createPluginRuntime({ storage, reasoning, consent, registry, uiRenderLimits, presets, voiceCap });
 const host = createDemoHost({ storage, demo: process.env.AITHEMA_PROVIDER === undefined,
   verificationRequired: process.env.AITHEMA_DEMO_VERIFY === '1' });
+host.privacyDocumentConfigured = privacy.privacyDocumentConfigured;
 // Demo only: AITHEMA_DEMO_HANDOVER_FAIL=n (1–10) fails the first n fake handover deliveries, to show Retry.
 const handoverFailures = Number(process.env.AITHEMA_DEMO_HANDOVER_FAIL ?? 0);
 if (host.demo && Number.isSafeInteger(handoverFailures)) for (let i = 0; i < Math.min(Math.max(handoverFailures, 0), 10); i++) host.sink.failNext();
@@ -121,12 +124,13 @@ async function handle(request) {
     return new Response(null, { status: 415 });
   }
   const url = new URL(request.url);
+  const privacyResponse = privacy.handle(request); if (privacyResponse) return privacyResponse;
   if (url.pathname.startsWith('/api/')) return handlers.handle(request);
   if (!['GET', 'HEAD'].includes(request.method)) return new Response(null, { status: 405 });
   if (url.pathname === '/demo/config') return Response.json({ label: reasoning.label, defaultPreset: 'best', voiceMode: voiceMode === 'elevenlabs' && !voiceHost?.binding ? 'off' : voiceMode,
     voiceDisabledReason: voiceHost?.disabledReason ?? null, processingConsent: consent.describe?.().contract ? consent.describe() : undefined, imageMode, imageLabel: imagePlugin?.label ?? 'Images off',
     htmlMode: html.mode, htmlLabel: htmlPlugin?.label ?? 'HTML off', htmlDisabledReason: html.disabledReason ?? null, hostLabel: host.label, demoHost: host.demo,
-    verificationRequired: host.policy.verificationRequired, build });
+    verificationRequired: host.policy.verificationRequired, privacy: privacy.config, build });
   if (url.pathname.startsWith('/vendor/elevenlabs/worklets/')) {
     const bytes = await voiceAsset(url.pathname.slice('/vendor/elevenlabs/worklets/'.length));
     return bytes ? new Response(request.method === 'HEAD' ? null : bytes, { headers: { 'content-type': 'text/javascript; charset=utf-8', 'x-content-type-options': 'nosniff' } }) : new Response(null, { status: 404 });
