@@ -307,6 +307,9 @@ async function voicePromptFixture(t, prepare = () => {}) {
   const requests = [], base = createMockReasoning();
   const h = voiceFixture(t, { reasoning: { ...base, async *stream(request, options) {
     requests.push(request); yield* base.stream(request, options);
+  }, async structured(request, options) {
+    // Keep background understanding from adding a separate focused-question message.
+    return { ...await base.structured(request, options), openQuestions: [] };
   } } });
   prepare(h);
   const grant = await h.start(), secret = h.secrets.resolve(h.provisioned[0].facadeSecretRef);
