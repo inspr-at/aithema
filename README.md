@@ -1814,6 +1814,10 @@ configured file, including an invalid locale variant, refuses startup with
 restart after changing it. `/privacy` serves the default, and
 `/privacy?locale=de` or `?locale=en` selects a variant with fallback to the default
 (or the first configured DE/EN document when only variants are supplied). The
+page's `lang` and title follow the document served, including fallback. Variant
+files use their DE/EN language unless their outer container declares `lang`.
+A default fragment uses German unless its outer container declares its language,
+for example `<article lang="en">…</article>` for an English default. The
 host supplies styling, a script-free CSP and GET/HEAD responses. No legal text
 or sample policy is bundled in the product.
 
@@ -1826,13 +1830,15 @@ Server integrations provide the trusted `host.privacyDocumentConfigured()`
 capability **only after** validating and serving their document. The server
 exports `privacyDocumentConfigured(host)` for future save-email routes; check
 it before reading or persisting an address. Without this capability returning
-exactly `true`, non-delivering hosts refuse POST identity request, change,
+exactly `true`, every non-demo host refuses POST identity request, change,
 resend, confirm and unlock with HTTP 403 and
 `{ "error": "privacy-document-required" }`, before body parsing, identity
-writes or host calls. Ownership checks still run first. Delivering hosts keep
-their existing confirmation flow; the local demo's fake outbox is a test flow,
-not a production delivery adapter. Configuring a document alone does not enable
-the future save-email UI or establish the host's legal compliance.
+writes or host calls, regardless of mail delivery. Ownership checks still run
+first. Only an explicit trusted `host.demo === true` exempts the development
+demo's fake-outbox flow; `identity.deliversVerification` never exempts a host.
+The demo flag must not be used by production delivery adapters. Configuring a
+document alone does not enable the future save-email UI or establish the host's
+legal compliance.
 
 `createIdentity({roles?, role?, demoBypass?, policy?})` starts a guest. Default
 roles are `private`, `company`, `representative`, `agency`; hosts may replace the

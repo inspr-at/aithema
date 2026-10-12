@@ -22,6 +22,8 @@ function safeLink(value) {
 function validateHTML(html) {
   if (!html.trim() || /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(html)) invalid();
   const stack = [], output = [];
+  const start = html.search(/\S/u);
+  let language;
   const tagPattern = /<(\/?)([a-z][a-z0-9]*)([^<>]*)>/iy;
   const attrPattern = /\s+([a-z][a-z0-9-]*)\s*=\s*(?:"([^"<>]*)"|'([^'<>]*)')/iy;
   let offset = 0;
@@ -47,6 +49,8 @@ function validateHTML(html) {
         if (seen.has(name) || !['id', 'lang', 'title', ...(tag === 'a' ? ['href'] : [])].includes(name)) invalid();
         if (name === 'href' && !safeLink(value) || name === 'id' && !/^[a-z][a-z0-9_-]*$/iu.test(value) ||
           name === 'lang' && !/^[a-z]{2}(?:-[a-z]{2})?$/iu.test(value)) invalid();
+        // A default fragment can declare its language on its outer container.
+        if (name === 'lang' && next === start) language = value;
         seen.add(name); attrs.push(` ${name}="${escape(value)}"`); at = attrPattern.lastIndex;
       }
       output.push(`<${tag}${attrs.join('')}>`);
@@ -55,7 +59,7 @@ function validateHTML(html) {
     offset = tagPattern.lastIndex;
   }
   if (stack.length || !output.join('').replace(/<[^>]*>/gu, '').trim()) invalid();
-  return output.join('');
+  return { content: output.join(''), language };
 }
 async function readDocument(path) {
   if (typeof path !== 'string' || !path.trim()) invalid();
@@ -83,7 +87,10 @@ async function readDocument(path) {
  * paths never appear in the public config; a restart applies document changes. */
 export async function loadPrivacyDocuments(paths = {}) {
   const documents = new Map();
-  for (const [locale, path] of Object.entries(paths)) if (path !== undefined) documents.set(locale, await readDocument(path));
+  for (const [locale, path] of Object.entries(paths)) if (path !== undefined) {
+    const document = await readDocument(path);
+    documents.set(locale, { ...document, language: document.language ?? (locale === 'en' ? 'en' : 'de') });
+  }
   const configured = documents.size > 0;
   const config = configured ? Object.freeze({ url: '/privacy' }) : null;
   return { config, privacyDocumentConfigured: () => configured,
@@ -92,9 +99,8 @@ export async function loadPrivacyDocuments(paths = {}) {
       if (!['/privacy', '/privacy/'].includes(url.pathname)) return null;
       if (!configured) return new Response(null, { status: 404 });
       if (!['GET', 'HEAD'].includes(request.method)) return new Response(null, { status: 405, headers: { allow: 'GET, HEAD' } });
-      const locale = url.searchParams.get('locale') === 'en' ? 'en' : 'de';
-      const content = documents.get(url.searchParams.get('locale')) ?? documents.get('default') ?? documents.get('de') ?? documents.get('en');
-      const title = locale === 'de' ? 'Datenschutzerklärung' : 'Privacy policy';
+      const { content, language: locale } = documents.get(url.searchParams.get('locale')) ?? documents.get('default') ?? documents.get('de') ?? documents.get('en');
+      const title = locale.toLowerCase().startsWith('de') ? 'Datenschutzerklärung' : 'Privacy policy';
       const html = `<!doctype html><html lang="${locale}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title><link rel="stylesheet" href="/demo/host.css"></head><body><header class="masthead"><a class="wordmark" href="/">Aithema</a></header><main class="privacy-page">${content}</main></body></html>`;
       return new Response(request.method === 'HEAD' ? null : html, { headers: { 'content-type': 'text/html; charset=utf-8',
         'content-security-policy': PRIVACY_CSP, 'x-content-type-options': 'nosniff', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } });

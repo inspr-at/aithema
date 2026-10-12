@@ -194,7 +194,9 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
       storage.authorize(id, ownerToken);
       // Ownership precedes the release gate. Refuse before initialize, body
       // parsing, journal transitions or host calls can collect an address.
-      if (request.method === 'POST' && action.startsWith('identity/') && host.identity?.deliversVerification !== true &&
+      // Only the explicitly flagged development demo (fake outbox) is exempt;
+      // real mail delivery never exempts collection from the privacy notice.
+      if (request.method === 'POST' && action.startsWith('identity/') && host.demo !== true &&
           !privacyDocumentConfigured(host)) return json({ error: 'privacy-document-required' }, 403);
       if (action === 'demo/outbox') {
         if (host.demo !== true || typeof host.outbox !== 'function') return json({ error: 'not-found' }, 404);
