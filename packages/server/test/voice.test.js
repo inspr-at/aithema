@@ -1360,12 +1360,13 @@ test('slow closure: recovery retries the original identity after a new SDK conne
 async function turnsOnceFixture(t, { voiceOptions, path, blocked = false, blockedModel = 1, failFirst = false, lateFirst = false, sameReply = false } = {}) {
   const base = createMockReasoning(), started = Promise.withResolvers(), release = Promise.withResolvers(), modelEvents = eventProbe();
   let models = 0, admissions = 0, finalOrdinal = 0, lateReport;
-  const diagnostics = [], requests = [];
+  const diagnostics = [], requests = [], dispatches = [];
   t.after(() => release.resolve());
   const h = voiceFixture(t, { path, voiceOptions: { log: entry => diagnostics.push(entry), ...voiceOptions }, reasoning: { ...base, async *stream(request, options) {
     await options.attempt.consume();
     const number = ++models;
     requests.push(request);
+    dispatches.push(options.attempt.attemptId);
     modelEvents.record(number);
     if (number === 1) started.resolve();
     if (number === 1 && failFirst) {
@@ -1396,7 +1397,7 @@ async function turnsOnceFixture(t, { voiceOptions, path, blocked = false, blocke
   };
   const rows = () => h.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='reaction'").all();
   return { ...h, grant, callback, persist, rows, started: started.promise, release: () => release.resolve(),
-    diagnostics, requests, waitForModel: number => modelEvents.waitFor(value => value === number),
+    diagnostics, requests, dispatches, waitForModel: number => modelEvents.waitFor(value => value === number),
     counts: () => ({ admissions, models, cost: rows().reduce((sum, row) => sum + (row.settled_micro ?? 0), 0) }),
     reportLate: () => lateReport?.() };
 }
@@ -2377,7 +2378,7 @@ for (const change of ['consent-withdrawal', 'external-consent-withdrawal', 'sour
     assert.notEqual(response.status, 200);
     const row = h.runtime.budget.get(callbackAttemptId);
     assert.equal(row.settled_micro ?? 0, 0); assert.notEqual(row.state, 'dispatched');
-    assert.ok(h.requests.every(request => request.messages.at(-1).content !== 'Ja'), 'the refused callback input never reaches a model');
+    assert.ok(!h.dispatches.includes(callbackAttemptId), 'the refused callback attempt never reaches a model');
     // Closing voice can legitimately resume the ordinary text reaction lane.
     // Its independent attempt is not a dispatch of this refused voice callback.
     if (change !== 'call-close') {

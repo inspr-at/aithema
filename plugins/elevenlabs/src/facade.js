@@ -155,7 +155,10 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
       if (!active(latest) || latest.callId !== call.callId || latest.providerSessionId !== call.providerSessionId ||
         latest.facadeSecretRef !== call.facadeSecretRef || latest.facadeCallId !== call.facadeCallId) throw new PluginError('not-admitted', 'Call changed');
       beforeAdmission?.();
-      admission = await voiceOperation(opts, bounded => admitReasoning({ callId: call.callId, request: input, messages, options: bounded, beforeAdmission }));
+      // The consume check outlives this bounded admission call. Retain the
+      // operation lifetime signal so closing/revoking the call still cancels it.
+      admission = await voiceOperation(opts, bounded => admitReasoning({ callId: call.callId, request: input, messages,
+        options: { ...bounded, signal: opts.signal }, beforeAdmission }));
       if (!admission?.plugin?.stream || !admission.options?.attempt || typeof admission.options.report !== 'function' ||
         typeof admission.finish !== 'function') throw new PluginError('not-admitted', 'Reasoning admission required');
       beforeOutput?.();
