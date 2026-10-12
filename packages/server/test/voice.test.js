@@ -2232,7 +2232,7 @@ test('AIT-137 round 4: only a known unadmitted older operation is refused as obs
 function pendingReplyConsumeConsent(t, h) {
   const entered = Promise.withResolvers(), release = Promise.withResolvers(), coverage = h.runtime.consent.coverage;
   h.runtime.consent.coverage = async (...args) => {
-    if (args[0].scope.plugin !== 'mock' || !h.rows().some(row => row.state === 'claimed')) return coverage(...args);
+    if (args[0].scope.purpose !== 'mock-conversation' || !h.rows().some(row => row.state === 'claimed')) return coverage(...args);
     h.runtime.consent.coverage = coverage;
     entered.resolve(); await release.promise;
     return coverage(...args);
@@ -2282,3 +2282,33 @@ test('AIT-137 round 5: identical replies with delayed finals keep each operation
     [['user', 'Input A'], ['assistant', 'Same reply finished'], ['user', 'Input B'], ['assistant', 'Same reply finished'], ['user', 'Input C']]);
   assert.deepEqual(h.counts(), { admissions: 3, models: 3, cost: 51 });
 });
+
+for (const change of ['consent-withdrawal', 'external-consent-withdrawal', 'source-withdrawal', 'erasure', 'pause', 'call-close', 'budget-revocation', 'upload-change', 'heard-correction', 'locale-change']) {
+  test(`AIT-137 round 5: ${change} during consume still refuses dispatch and costs zero`, async t => {
+    const h = await turnsOnceFixture(t);
+    await h.persist('user', 'private', 'Private earlier input');
+    await h.persist('assistant', 'heard', 'Heard. Unheard.');
+    await h.handlers.idle();
+    const pending = pendingReplyConsumeConsent(t, h), callback = h.callback();
+    await pending.entered;
+    if (change === 'consent-withdrawal') await h.route('/consent', { granted: false });
+    if (change === 'external-consent-withdrawal') h.coverage(false);
+    if (change === 'source-withdrawal') await h.route('/withdraw', { turnId: `${h.grant.providerSessionId}:user:private` });
+    if (change === 'erasure') await h.route('/erase');
+    if (change === 'pause') await h.route('/pause', { paused: true });
+    if (change === 'call-close') await h.route(`/voice/${h.grant.callId}/close`, { providerSessionId: h.grant.providerSessionId });
+    if (change === 'budget-revocation') {
+      const row = h.rows()[0];
+      h.runtime.budget.settle(row.claim_id, { attemptId: row.attempt_id, outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 } });
+    }
+    if (change === 'upload-change') h.storage.append(h.session.id, 'upload.state', { id: 'new-upload', state: 'pending' });
+    if (change === 'heard-correction') h.storage.postVoiceEvent(h.session.id, h.grant.callId, h.grant.providerSessionId,
+      { type: 'heard', callId: h.grant.callId, turnId: `${h.grant.providerSessionId}:assistant:heard`, prefix: 'Heard.' });
+    if (change === 'locale-change') h.storage.append(h.session.id, 'session.locale-changed', { locale: 'de' });
+    pending.release();
+    const response = await callback;
+    assert.notEqual(response.status, 200); assert.equal(h.requests.length, 0);
+    assert.deepEqual(h.counts(), { admissions: 1, models: 0, cost: 0 });
+    assert.equal(h.rows().length, 1); assert.equal(h.rows()[0].state, 'settled');
+  });
+}
