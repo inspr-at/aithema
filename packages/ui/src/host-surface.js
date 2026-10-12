@@ -99,7 +99,7 @@ export class HostSurface {
     if (event.type === 'library.state' || event.type === 'session.erased') this.#library?.changed();
     if (event.type === 'credits.limit-reached' || event.type === 'conversation.end-requested') {
       const reason = event.data?.reason;
-      if (event.type === 'credits.limit-reached') this.#status(this.#copy.hostSurface.credits.ended[reason] ?? this.#copy.hostSurface.credits.ended.session);
+      if (event.type === 'credits.limit-reached' && (reason !== 'host-limit' || !this.#onCredits)) this.#status(this.#copy.hostSurface.credits.ended[reason] ?? this.#copy.hostSurface.credits.ended.session);
       this.#ended = reason ?? this.#ended ?? 'session';
     }
     if (['identity.state', 'identity.unlocked', 'credits.state', 'credits.limit-reached', 'conversation.end-requested', 'session.paused'].includes(event.type) ||

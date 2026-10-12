@@ -340,10 +340,12 @@ test('credits: only the monetary balance is shown, and host-limit uses the calm 
   assert.equal(line.hidden, false);
   assert.equal(line.querySelector('.host-credits__text').textContent, '425 of 500 Credits');
   assert.equal(line.querySelector('.host-credits__deadline').textContent, '');
+  const statusBefore = root.querySelector('.status__label').textContent;
   c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
   assert.equal(line.querySelector('.host-credits__used-up-full').textContent, cr.usedUp);
   assert.equal(line.querySelector('.host-credits__limit').hidden, false);
-  assert.equal(root.querySelector('.status__label').textContent, cr.ended['host-limit']);
+  assert.equal(root.querySelector('.status__label').textContent, statusBefore, 'the footer does not duplicate the live exhaustion announcement');
+  assert.equal(root.querySelector('.credit-announcement').textContent, en.hostSurface.usedUp.announce);
 });
 
 test('host slots: account, credits limit, handover offer, legal and footer are named slots; the footer row shows only when filled', async t => {
@@ -521,6 +523,7 @@ test('AIT-135 A2 B: used-up composer preserves the form, offers the actual delta
   assert.equal(root.querySelector('form.composer').inert, true);
   assert.match(root.querySelector('.composer-out__give').textContent, /600 more Credits/u);
   assert.equal(root.querySelector('.voice-state').textContent, 'Credits used up');
+  assert.equal(root.querySelector('.voice-state').getAttribute('aria-live'), 'off', 'one region announces exhaustion');
   assert.equal(root.querySelector('.voice-start').disabled, true);
   assert.equal(root.querySelector('.host-credits__amount').textContent, '0');
   assert.equal(root.querySelector('.host-credits__used-up').getAttribute('aria-hidden'), 'false');
