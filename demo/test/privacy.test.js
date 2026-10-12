@@ -76,6 +76,35 @@ test('AIT-151: locale variants and safe fallback are loaded once at startup', as
   }
 });
 
+test('AIT-151: privacy language and title describe the served document after locale fallback', async t => {
+  const { loadPrivacyDocuments } = await import('../privacy.js');
+  const de = await documentFile('<h1>Beispiel-Datenschutzhinweis</h1>');
+  const en = await documentFile('<h1>Example privacy notice</h1>');
+  const declared = await documentFile('<article lang="en"><h1>Default English notice</h1></article>');
+  for (const [name, paths, language, content] of [
+    ['German only', { de }, 'de', 'Beispiel-Datenschutzhinweis'],
+    ['English only', { en }, 'en', 'Example privacy notice'],
+    ['declared default', { default: declared, de }, 'en', 'Default English notice'],
+  ]) {
+    await t.test(name, async () => {
+      const privacy = await loadPrivacyDocuments(paths);
+      const locales = name === 'declared default' ? ['', '?locale=en', '?locale=default', '?locale=unknown']
+        : ['', '?locale=de', '?locale=en', '?locale=unknown'];
+      for (const query of locales) {
+        const html = await privacy.handle(new Request(`http://local/privacy${query}`)).text();
+        assert.ok(html.includes(`<html lang="${language}">`), `${name}${query}`);
+        assert.ok(html.includes(`<title>${language === 'de' ? 'Datenschutzerklärung' : 'Privacy policy'}</title>`));
+        assert.ok(html.includes(content));
+      }
+    });
+  }
+  const variants = await loadPrivacyDocuments({ de, en });
+  for (const locale of ['de', 'en']) {
+    const html = await variants.handle(new Request(`http://local/privacy?locale=${locale}`)).text();
+    assert.ok(html.includes(`<html lang="${locale}">`));
+  }
+});
+
 test('AIT-151: startup rejects invalid documents before creating the database', async () => {
   const bad = await documentFile('<p onclick="alert(1)">Example privacy notice for tests</p>');
   const db = await temporaryDb();

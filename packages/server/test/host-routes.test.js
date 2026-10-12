@@ -32,20 +32,50 @@ const sessionRoutes = [
   ['identity/unlock', {}], ['handover', undefined], ['handover', {}], ['handover/retry', {}],
   ['credits', undefined], ['demo/outbox', undefined],
 ];
-test('AIT-151: non-delivering identity routes require a validated host privacy document before any write', async t => {
+for (const deliversVerification of [false, true]) test(`AIT-151: non-demo identity routes require privacy before collection (delivery: ${deliversVerification})`, async t => {
   const f = fixture(t, { demo: false }), session = await f.create();
+  f.host.identity.deliversVerification = deliversVerification;
   const before = f.storage.get(session.id), events = f.storage.read(session.id);
   let calls = 0;
   for (const key of ['requestVerification', 'verify']) t.mock.method(f.host.identity, key, () => { calls++; throw new Error('must not reach host'); });
   for (const [action, body] of sessionRoutes.filter(([action, body]) => action.startsWith('identity/') && body)) {
-    const response = await f.call(`/api/sessions/${session.id}/${action}`, body);
-    assert.equal(response.status, 403, action);
-    assert.deepEqual(await response.json(), { error: 'privacy-document-required' });
-    assert.deepEqual(f.storage.get(session.id), before);
-    assert.deepEqual(f.storage.read(session.id), events);
-    assert.equal((await f.call(`/api/sessions/${session.id}/${action}`, body, foreign)).status, 404);
+    await t.test(action, async () => {
+      const path = `/api/sessions/${session.id}/${action}`;
+      const response = await f.call(path, body);
+      assert.equal(response.status, 403, action);
+      assert.deepEqual(await response.json(), { error: 'privacy-document-required' });
+      const malformed = await f.handlers.handle(new Request(`http://local${path}`, {
+        method: 'POST', headers: { 'x-aithema-session-token': owner, 'content-type': 'application/json' }, body: '{',
+      }));
+      assert.equal(malformed.status, 403, 'refusal precedes body parsing');
+      assert.deepEqual(f.storage.get(session.id), before);
+      assert.deepEqual(f.storage.read(session.id), events);
+      assert.equal((await f.call(path, body, foreign)).status, 404);
+      assert.equal(calls, 0);
+    });
   }
-  assert.equal(calls, 0);
+});
+
+test('AIT-151: the explicit demo flag permits the development flow without privacy, independently of delivery', async t => {
+  const f = fixture(t, { verificationRequired: false }), session = await f.create();
+  f.host.identity.deliversVerification = false;
+  const response = await f.call(`/api/sessions/${session.id}/identity/request`, { address: 'demo@example.test' });
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).identity.address, 'demo@example.test');
+});
+
+test('AIT-151: a validated privacy document releases a non-demo delivering identity flow', async t => {
+  const f = fixture(t, { demo: false }), session = await f.create();
+  f.host.privacyDocumentConfigured = () => true;
+  f.host.identity.deliversVerification = true;
+  let delivery;
+  t.mock.method(f.host.identity, 'requestVerification', async effect => { delivery = effect; return { status: 'sent' }; });
+  t.mock.method(f.host.identity, 'verify', async () => ({ verified: true, address: delivery.address, revision: delivery.revision }));
+  const base = `/api/sessions/${session.id}/identity`;
+  assert.equal((await f.call(`${base}/request`, { address: 'live@example.test' })).status, 200);
+  const confirmed = await f.call(`${base}/confirm`, { token: 'host-evidence' });
+  assert.equal(confirmed.status, 200);
+  assert.equal((await confirmed.json()).identity.status, 'verified');
 });
 
 for (const [action, body] of sessionRoutes) test(`${body ? 'POST' : 'GET'} ${action}: ownership precedes host calls and duplicate state`, async t => {
