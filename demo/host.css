@@ -23,6 +23,12 @@ button:disabled { cursor:default; opacity:.55; }
 .wordmark a { color:inherit; text-decoration:none; }
 .host-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:center; gap:8px 16px; font-size:13px; }
 .host-actions label { display:inline-flex; align-items:center; gap:6px; }
+/* Reserve the longest DE/EN label in each existing header slot. A locale repaint never
+   moves the selector sideways, or wraps the actions while the pointer rests on it (AIT-127). */
+#language-label { min-inline-size:4.75em; }
+#theme-label { min-inline-size:6.5em; }
+#theme { inline-size:5em; }
+#new { min-inline-size:13em; text-align:right; }
 .host-actions button,.host-actions select { background:transparent; color:var(--ink); border:0; border-radius:0; padding:8px 0; min-height:44px; }
 .host-actions button:hover,.host-actions select:hover { color:var(--accent); }
 .host-actions select option { color:var(--ink); background:var(--paper); }

@@ -141,6 +141,7 @@ In this table, `S` is `/api/sessions/:id` and `L` is `/api/library`.
 
 | Method and route | JSON payload / query | Response |
 | --- | --- | --- |
+| `POST S/locale` | `{locale: "de" or "en"}` | `{event,session}`; 409 after input or during a connecting/active call |
 | `GET S/identity` | — | `{identity}` |
 | `POST S/identity/request` | `{address}` | `{identity}` after requesting host mail |
 | `POST S/identity/resend` | `{}` | `{identity}`; cooldown returns 429 with `error: "resend-rate-limit"` |
@@ -510,19 +511,29 @@ over the bundle. Each part that is missing, empty or only whitespace falls back,
 first to the bundle, then to the default for the session language. The defaults
 live in `packages/core/src/ai-notice.js` (`AI_NOTICE`, `aiNotice`, `aiNoticeText`).
 
-The start2 voice host speaks the notice as the agent's first message, set
-server-side at startup and fixed: "Sie sprechen mit einem KI-Assistenten;
-Antworten sind synthetisch gesprochen. You are talking to an AI assistant with a
-synthetic voice." (`SPOKEN_AI_NOTICE`). It is bilingual, German first, because a
-call's language may differ from the agent's, and it is not host- or
-browser-configurable: the agent refuses a `first_message` conversation override,
-the plugin rejects a `firstMessage` override on the server and in the browser,
-and the agent has no language presets, the only other way a language could pick
-a greeting. Each call overrides only the language (`presentation(locale)`,
-passed as `voice.presentation` to `createHandlers`), which changes speech
-recognition and voice, not the greeting text. **Unverified live:** that a call
-speaks this greeting first, and that the language override leaves it unchanged,
-rests on the read-back and provider documentation; see the live smoke below.
+The start2 voice host speaks `aiNoticeText(session.locale)` as its first message
+(AIT-127): German or English only, matching the component's notice word for word.
+The host supplies `presentation(locale)` as `voice.presentation` to
+`createHandlers`: `{agent: {language: locale, firstMessage: aiNoticeText(locale)}}`.
+[ElevenLabs documents both overrides](https://elevenlabs.io/docs/eleven-agents/customization/personalization/overrides).
+The plugin accepts a first message only when it exactly matches that locale's
+fixed AI notice; model, prompt and credential overrides remain refused.
+Startup enables `agent.language` and `agent.first_message` on the owned
+`aithema-start2` agent, clears language presets and checks the exact read-back.
+Its fallback first message matches its DE/EN base language. START's template is
+read only. **Unverified live:** the provider speaking this notice before all
+other output must be checked by the coordinator's live smoke below.
+
+The language selector updates an empty current conversation through the
+owner-authenticated `POST /api/sessions/:id/locale` route with `{locale: "de"|"en"}`.
+It returns `{event, session}` and refuses with `409 locale-conflict` after any
+turn/upload or while a call is connecting or active. Withdrawn turns still count.
+`configure({copyForLocale: locale => bundles[locale], ...})` enables the component's
+`changeLocale(locale)` port. Acknowledged locale events repaint the existing
+nodes: audio, composer text, selection and focus survive. A late response never
+replaces the session snapshot or a first turn. Rapid choices are serialized;
+On my device applies the same event locally before any input. The host remembers
+the choice for the next conversation when this one cannot change language.
 
 ## Voice host integration
 
@@ -1884,17 +1895,18 @@ Template prompts, personas, first messages, knowledge bases and tools are exclud
 The host's custom LLM has an empty prompt and no tools or knowledge base;
 Aithema rebuilds the trusted session prompt at each callback. Its greeting is
 Aithema's own fixed spoken AI notice (see "AI notice" above), never START's, and
-its language presets are cleared. The agent allows only a per-conversation
-`language` override; `first_message` is explicitly disabled
+its language presets are cleared. Only the per-conversation `language` and
+matching AI-notice `first_message` overrides are enabled
 (`platform_settings.overrides.conversation_config_override.agent`, the shape
 verified on START's agent by read-only GET 2026-10-09).
 After every agent create or PATCH, startup GETs the owned agent and verifies
 its name/id, auth enabled, exactly one allowlist hostname equal to the public
 origin's host (including any port), the extra-body override, explicit
 conversation override flags (`agent.language` exactly `true`,
-`agent.first_message` exactly `false`, every other flag exactly `false`; an
+`agent.first_message` exactly `true`, every other flag exactly `false`; an
 omitted, null or string flag disables voice), a first message equal to the
-notice, `language_presets` exactly `{}` (omitted or null disables voice),
+notice in its exact DE/EN base language, `language_presets` exactly `{}`
+(omitted or null disables voice),
 `custom-llm` selection, callback URL, owned secret id and every copied
 privacy field.
 Any mismatch disables voice with `agent-readback-mismatch`; logs contain only
@@ -2059,7 +2071,8 @@ Coordinator live smoke, after its Claude approval gate:
    **AI notice (AIT-119, unverified until this step):** in an English and a German
    conversation, verify live that the spoken greeting is the notice, word for
    word, before anything else is said; the agent GET shows the first-message
-   override disabled and no language presets.
+   and language overrides enabled, and no language presets. Verify the greeting
+   contains only the conversation language, matching `aiNoticeText(locale)`.
 5. Inspect value-free SQLite `spend_reservations` totals: non-stream analysis and
    streaming reaction costs sum; missing/uncertain usage retains the hold. Restart
    and confirm totals persist. On an isolated small-cap test database, once the
