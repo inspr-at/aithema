@@ -16,15 +16,15 @@ async function browserPath() {
   throw new Error('No browser available on the remote test runner');
 }
 const shadow = (page, fn, ...args) => page.$eval('aithema-session', fn, ...args);
-const controls = ['textarea', '.attach', '.send'];
-const boxes = page => shadow(page, (c, selectors) => selectors.map(selector => {
+const controls = ['textarea', '.attach', '.send', '.composer'];
+const boxes = (page, selectors = controls) => shadow(page, (c, selectors) => selectors.map(selector => {
   const r = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
-}), controls);
+}), selectors);
 const nextFrame = page => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 const shown = page => shadow(page, c => Boolean(c.shadowRoot.querySelector('.qcard:not([hidden])')));
 const still = (before, after, label) => assert.deepEqual(after, before, `${label}: composer controls shift exactly 0 px`);
 
-test('AIT-132: approved card, hover, focus and fold at 1440/390, light/dark, DE/EN; mouse, keyboard, voice and zero layout shift',
+test('AIT-132: approved card, hover, focus, fold and no card at 1440/1024/390, light/dark, DE/EN; mouse, keyboard, voice and zero layout shift',
   { timeout: 120_000 }, async t => {
     const directory = await mkdtemp(join(tmpdir(), 'aithema-qcard-'));
     const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
@@ -58,9 +58,12 @@ test('AIT-132: approved card, hover, focus and fold at 1440/390, light/dark, DE/
     await page.waitForFunction(() => document.querySelector('aithema-session')?.session?.id);
     await shadow(page, c => { globalThis.qcardSeed = c.session; });
 
-    for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 390]) {
+    for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390]) {
       await t.test(`${locale}/${theme}/${width}`, async () => {
         const label = `${locale}-${theme}-${width}`;
+        const shot = async state => { if (evidence) {
+          const file = `ait-132-${label}-${state}.png`; await page.screenshot({ path: join(evidence, file), fullPage: true }); files.push(file);
+        } };
         await page.setViewport({ width, height: width === 390 ? 844 : 900 });
         await page.select('#theme', theme);
         await page.evaluate(async locale => {
@@ -107,9 +110,11 @@ test('AIT-132: approved card, hover, focus and fold at 1440/390, light/dark, DE/
         const baseline = await boxes(page);
         await page.evaluate(() => globalThis.showQuestion({ options: [] })); await nextFrame(page);
         assert.equal(await shown(page), false, 'a question without answers has no card'); still(baseline, await boxes(page), 'no options');
+        await shot('no-card');
         await page.evaluate(() => globalThis.showQuestion()); await nextFrame(page);
         assert.equal(await shown(page), true, 'the card renders only from a final reply with answers');
         still(baseline, await boxes(page), 'appearance');
+        const docked = await boxes(page, ['.qcard', '.composer']);
         const geometry = await shadow(page, c => {
           const root = c.shadowRoot, card = root.querySelector('.qcard'), composer = root.querySelector('.composer');
           const r = card.getBoundingClientRect(), f = composer.getBoundingClientRect(), rows = [...card.querySelectorAll('.qopt')];
@@ -126,20 +131,19 @@ test('AIT-132: approved card, hover, focus and fold at 1440/390, light/dark, DE/
         assert.deepEqual(geometry.likely, [true, false, false]); assert.ok(geometry.arrows.every(arrow => arrow[0] === 30 && arrow[1] === 30));
         assert.equal(geometry.heading, locale === 'de' ? 'Offene Frage' : 'Open question');
         assert.equal(geometry.horizontalOverflow, false); assert.notEqual(geometry.arrowFills[0], geometry.arrowFills[1]);
-        const shot = async state => { if (evidence) {
-          const file = `ait-132-${label}-${state}.png`; await page.screenshot({ path: join(evidence, file), fullPage: true }); files.push(file);
-        } };
         await shot('card');
         const point = await shadow(page, c => { const b = c.shadowRoot.querySelectorAll('.qopt')[1].getBoundingClientRect(); return [b.x + b.width / 2, b.y + b.height / 2]; });
         await page.mouse.move(...point); await nextFrame(page);
         const hoverFill = await shadow(page, c => getComputedStyle(c.shadowRoot.querySelectorAll('.qopt .go')[1]).backgroundColor);
         assert.equal(hoverFill, geometry.arrowFills[0]); still(baseline, await boxes(page), 'hover'); await shot('hover');
+        assert.deepEqual(await boxes(page, ['.qcard', '.composer']), docked, 'hover: card plus composer move exactly 0 px');
         await page.mouse.move(0, 0); await shadow(page, c => c.shadowRoot.querySelector('.qopt').focus({ preventScroll: true }));
         await page.keyboard.press('Tab'); await nextFrame(page);
         assert.equal(await shadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelectorAll('.qopt')[1]), true);
         assert.equal(await shadow(page, c => c.shadowRoot.activeElement.matches(':focus-visible')), true);
         assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.activeElement.querySelector('.go')).backgroundColor), geometry.arrowFills[0]);
         still(baseline, await boxes(page), 'focus'); await shot('focus');
+        assert.deepEqual(await boxes(page, ['.qcard', '.composer']), docked, 'keyboard focus: card plus composer move exactly 0 px');
 
         // Real keyboard activation: no synthetic click handler or custom key event stands in for the browser.
         await page.keyboard.press('Enter');
@@ -181,6 +185,13 @@ test('AIT-132: approved card, hover, focus and fold at 1440/390, light/dark, DE/
       });
     }
     if (globalThis.interceptionError) throw globalThis.interceptionError;
-    if (evidence) await writeFile(join(evidence, 'ait-132-evidence.json'), JSON.stringify({ ticket: 'AIT-132',
-      commit: process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1], files, checks }, null, 2));
+    if (evidence) {
+      const commit = process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1];
+      await writeFile(join(evidence, 'ait-132-evidence.json'), JSON.stringify({ ticket: 'AIT-132', commit, files, checks }, null, 2));
+      await writeFile(join(evidence, 'ait-132-pass-lines.json'), JSON.stringify({ ticket: 'AIT-132', commit,
+        passLines: checks.map(({ locale, theme, width, controlShiftPx }) => ({ locale, theme, width, pass: true,
+          states: ['card-with-likely-and-others', 'hover', 'keyboard-focus', 'fold', 'question-without-options-no-card'],
+          foldStrip: locale === 'de' ? 'Offene Frage · Ausklappen' : 'Open question · Unfold',
+          composerControlShiftPx: controlShiftPx, cardAndComposerShiftPx: 0, dockGapPx: 0 })) }, null, 2));
+    }
   });

@@ -265,6 +265,10 @@ structured-output capability is required. The decoder streams only reply text,
 accepts existing plain-text replies, drops malformed choices and caps valid
 ones. Question text is bounded to 500 characters and answer text to the existing
 8,000-character visitor-turn limit. No production answer choices are seeded.
+Reply content retains its 16,000-character limit. The bounded JSON envelope
+accommodates all four maximum-length options, including JSON escaping. Metadata
+that exceeds this budget is discarded while reply text survives, even if the
+provider places `content` after the options.
 
 The final, current assistant turn owns the composer card. The likely answer is
 first; each native button sends its exact text through the same idempotent

@@ -3,7 +3,7 @@
 export const replySchema = {
   type: 'object', additionalProperties: false, required: ['content', 'question_short', 'options'],
   properties: {
-    content: { type: 'string' },
+    content: { type: 'string', maxLength: 16000 },
     question_short: { anyOf: [{ type: 'string', minLength: 1, maxLength: 500 }, { type: 'null' }] },
     options: { type: 'array', maxItems: 4, minContains: 0, maxContains: 1,
       contains: { type: 'object', required: ['likely'], properties: { likely: { type: 'boolean', enum: [true] } } }, items: {
@@ -12,6 +12,11 @@ export const replySchema = {
     } },
   },
 };
+const MAX_CONTENT = replySchema.properties.content.maxLength;
+// JSON may encode each character as six wire characters (\uXXXX). Leave room
+// for keys, punctuation, optional flags, whitespace and a markdown fence.
+const MAX_ENVELOPE = 6 * (MAX_CONTENT + replySchema.properties.question_short.anyOf[0].maxLength +
+  replySchema.properties.options.maxItems * replySchema.properties.options.items.properties.text.maxLength) + 1024;
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const shortQuestion = value => typeof value === 'string' && value.trim() && value.length <= 500 ? value : null;
 
@@ -63,17 +68,74 @@ export function parseReply(raw) {
   return { content: typeof raw.content === 'string' ? raw.content : '', question_short, options: card?.options ?? [] };
 }
 
+// Once metadata exceeds the envelope budget, retain only the top-level content
+// string. Scan discarded metadata without buffering it, including content-last
+// replies; quoted/nested "content" fields must never become conversational text.
+class ContentRecovery {
+  #depth = 0; #key = null; #quoted = false; #escaped = false; #capture = null; #token = ''; #content = '';
+  push(delta) {
+    for (const char of delta) {
+      if (this.#quoted) {
+        if (char === '"' && !this.#escaped) {
+          if (this.#capture) {
+            let value = '';
+            try { value = JSON.parse(`"${this.#token}"`); } catch { /* malformed metadata is disposable */ }
+            if (this.#capture === 'key') this.#key = value;
+            else {
+              if (value.length > MAX_CONTENT) throw new TypeError('Invalid reasoning stream');
+              this.#content = value;
+            }
+          }
+          this.#quoted = false; this.#capture = null; this.#token = ''; continue;
+        }
+        if (this.#capture) {
+          this.#token += char;
+          if (this.#token.length > (this.#capture === 'key' ? 6 * 'content'.length : 6 * MAX_CONTENT)) {
+            if (this.#capture === 'content') throw new TypeError('Invalid reasoning stream');
+            this.#key = ''; this.#capture = null; this.#token = '';
+          }
+        }
+        this.#escaped = char === '\\' && !this.#escaped;
+      } else if (char === '"') {
+        this.#quoted = true; this.#escaped = false;
+        this.#capture = this.#depth === 1 ? (this.#key === null ? 'key' : this.#key === 'content' ? 'content' : null) : null;
+      } else if (char === '{' || char === '[') this.#depth++;
+      else if (char === '}' || char === ']') this.#depth--;
+      else if (char === ',' && this.#depth === 1) this.#key = null;
+    }
+  }
+  get content() {
+    const text = this.#capture === 'content' ? streamedContent(`{"content":"${this.#token}`) : this.#content;
+    if (text.length > MAX_CONTENT) throw new TypeError('Invalid reasoning stream');
+    return text;
+  }
+}
+
 /** Decode just reply text while streaming; the final envelope alone can open a card. */
 export class ReplyStream {
-  #wire = ''; #shown = ''; #structured = null;
+  #wire = ''; #shown = ''; #structured = null; #recovery = null;
   push(delta) {
-    if (typeof delta !== 'string' || this.#wire.length + delta.length > 16_000) throw new TypeError('Invalid reasoning stream');
-    this.#wire += delta;
+    if (typeof delta !== 'string') throw new TypeError('Invalid reasoning stream');
+    const available = MAX_ENVELOPE - this.#wire.length;
+    if (this.#recovery) this.#recovery.push(delta);
+    else this.#wire += delta.slice(0, available);
     if (this.#structured === null && this.#wire.trim()) this.#structured = /^[{\[`]/u.test(this.#wire.trimStart());
     if (this.#structured === null) return '';
-    const text = this.#structured ? streamedContent(unfence(this.#wire)) : this.#wire;
+    if (this.#structured && !this.#recovery && delta.length > available) {
+      this.#recovery = new ContentRecovery();
+      this.#recovery.push(unfence(this.#wire)); this.#recovery.push(delta.slice(available)); this.#wire = '';
+    }
+    const text = this.#structured ? (this.#recovery?.content ?? streamedContent(unfence(this.#wire))) : this.#wire;
+    if (text.length > MAX_CONTENT) throw new TypeError('Invalid reasoning stream');
     if (!text.startsWith(this.#shown)) return '';
     const next = text.slice(this.#shown.length); this.#shown = text; return next;
   }
-  finish() { return parseReply(this.#wire); }
+  finish() {
+    const reply = this.#recovery ? { content: this.#recovery.content, question_short: null, options: [] } : parseReply(this.#wire);
+    if (this.#structured && !reply.content) {
+      const recovery = new ContentRecovery(); recovery.push(unfence(this.#wire)); reply.content = recovery.content;
+    }
+    if (reply.content.length > MAX_CONTENT) throw new TypeError('Invalid reasoning stream');
+    return reply;
+  }
 }
