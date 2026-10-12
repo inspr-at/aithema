@@ -532,7 +532,7 @@ test('AIT-138 fix 2: a recoverable segment confirmation keeps waiting and Resume
     async start(request) { callId = request.callId; return receipt('waiting-provider'); },
     async recover() { return receipt('resumed-provider'); },
     async close() { serverCloses++; return { closureConfirmed: true }; },
-    async pause() {}, async resume() { return { acknowledged: true, paused: false }; }, async heartbeat() {},
+    async pause() { return { acknowledged: true, paused: true }; }, async resume() { return { acknowledged: true, paused: false }; }, async heartbeat() {},
   };
   const client = createElevenLabsClient({ control, persistEvent: async () => {}, sdk: {
     async startSession(options) { const id = options.conversationToken && sdkEnds ? 'resumed-provider' : 'waiting-provider';
@@ -550,6 +550,37 @@ test('AIT-138 fix 2: a recoverable segment confirmation keeps waiting and Resume
   assert.equal(root.querySelector('.pause').title, en.resume); assert.equal(root.querySelector('.pause').disabled, false);
   root.querySelector('.pause').click(); await tick(); await tick();
   assert.equal(root.querySelector('.audio-rail').dataset.state, 'listening');
+});
+
+test('AIT-138 fix 3: a waiting snapshot restores Resume without connecting until an explicit click', async t => {
+  const session = createSession({ demo: true });
+  session.featureMatrix = { best: { voice: { available: true }, text: { available: true } } };
+  session.voiceLifecycle = { callId: 'durable-waiting-call', providerSessionId: 'retired-provider', state: 'waiting', attempts: 3,
+    needsRecovery: true, spendDeadlineAt: Date.now() + 60_000, browserLivenessDeadlineAt: Date.now() - 1000 };
+  const requests = []; let connections = 0;
+  const control = {
+    async start() { assert.fail('Resume must continue the persisted logical call'); },
+    async recover(identity) { requests.push(identity); return { callId: identity.callId, providerSessionId: 'resumed-provider', presentation: 'continuation',
+      credential: { providerSessionId: 'resumed-provider', connectionType: 'webrtc', conversationToken: 'fixture-token', ttlMs: 60_000 },
+      overrides: { agent: { language: 'en', firstMessage: '' } }, spendDeadlineAt: session.voiceLifecycle.spendDeadlineAt,
+      browserLivenessDeadlineAt: Date.now() + 30_000 }; },
+    async close() { return { closureConfirmed: true }; },
+    async pause() { return { acknowledged: true, paused: true }; },
+    async resume() { return { acknowledged: true, paused: false }; }, async heartbeat() {},
+  };
+  const client = createElevenLabsClient({ control, persistEvent: async () => {}, sdk: {
+    async startSession(options) { connections++; assert.equal(options.overrides.agent.firstMessage, '');
+      return { getId: () => 'resumed-provider', input: { async setMuted() {} }, setVolume() {}, sendContextualUpdate() {}, async endSession() {} };
+    },
+  } });
+  const c = document.createElement('aithema-session'); c.configure({ copy: en, session, voiceClient: client });
+  t.after(async () => { c.configure({ copy: en, session: createSession() }); c.remove(); await tick(); });
+  const root = c.shadowRoot; await tick();
+  assert.equal(root.querySelector('.audio-rail').dataset.state, 'waiting'); assert.equal(root.querySelector('.pause').title, en.resume);
+  assert.equal(root.querySelector('.pause').disabled, false); assert.equal(connections, 0); assert.deepEqual(requests, []);
+  root.querySelector('.pause').click(); await tick(); await tick();
+  assert.equal(root.querySelector('.audio-rail').dataset.state, 'listening'); assert.equal(connections, 1);
+  assert.deepEqual(requests, [{ callId: 'durable-waiting-call', providerSessionId: 'retired-provider' }]);
 });
 
 test('resending failed typed input after voice ends drops its stale call identity', async t => {

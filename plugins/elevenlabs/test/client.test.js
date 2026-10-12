@@ -10,6 +10,16 @@ async function drain(session, closeOnWaiting = false) {
   for await (const event of session.events) { events.push(event); if (closeOnWaiting && event.type === 'waiting') await session.close(); }
   return events;
 }
+test('AIT-138 fix 3: the browser persists exhausted admission attempts before recovery finishes', async t => {
+  const local = fixture(), closing = [], originalClose = local.control.close;
+  local.control.recover = async () => { throw new Error('provider unavailable'); };
+  local.control.close = (identity, options) => { closing.push(identity); return originalClose(identity, options); };
+  const session = await local.client.start({ callId: 'durable_exhaustion' }, invocationOptions());
+  t.after(() => session.close());
+  assert.equal(await session.lifecycle.recover(), false); assert.equal(session.lifecycle.state.state, 'waiting');
+  assert.deepEqual(closing.at(-1), { callId: session.callId, providerSessionId: session.providerSessionId,
+    reason: 'recovery-failed', recoveryAttempts: 3 });
+});
 for (const transport of ['webrtc', 'websocket']) test(`AIT-145: ${transport} hangup stops playback and capture before stalled SDK cleanup`, async t => {
   const local = fixture(), session = await local.client.start({ callId: `end_${transport}`, transport }, invocationOptions());
   const conversation = local.sdk.conversations.at(-1), cleanup = conversation.endSession, released = Promise.withResolvers();
