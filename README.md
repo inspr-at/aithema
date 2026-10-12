@@ -2160,8 +2160,18 @@ and `privacy-document-required` before body parsing or address persistence.
 DELETE email and visitor erasure bypass the funnel so deletion remains
 available without a document. Startup skips protected address-bearing host
 transitions until the document is configured, keeping the erasure API reachable.
+The validated privacy capability is passed into host and visitor-credit
+construction, before legacy migration. On a non-demo upgrade without a document,
+migration leaves legacy addresses untouched in their original store, under that
+store's existing erasure and retention, and creates anonymous visitor records
+without copying address or saved/confirmed/pending evidence. It does not defer a
+backfill: adding a document later requires a fresh explicit email save to grant
+email-given credit. A configured document or the explicit demo preserves the
+previous address migration behavior.
 The complete guarded route/effect inventory is:
 
+- Constructor migration of legacy addresses into visitor records, using the
+  same strict demo exemption and trusted privacy-document predicate.
 - `POST` and `PUT /api/visitor/email`: save or replace the visitor address.
 - `POST /api/sessions/:id/identity/request` and `/identity/change`: collect an
   address, persist its new revision and queue verification.
@@ -2186,7 +2196,12 @@ restoring identity, replacing a current token or sending an old-address message.
 Bounded, idempotent cleanup runs at startup and daily through the host writer:
 addresses after 90 days of visitor inactivity, pending records/tokens after
 24 hours, and settings audit after 180 days. Pending cleanup preserves an
-independently saved address and its email-given tier. Explicit visitor erasure
+independently saved address column and its email-given tier, deletes expired
+tokens, and replaces pending verification state with address-free cleared state.
+It never reserializes an address, even with a document; reads project any retained
+saved address in memory. The 90-day inactivity deadline still deletes the saved
+address. Cleanup and deletion remain available without a document.
+Explicit visitor erasure
 drains address-projection cleanup before acknowledging and truncates the WAL.
 Only authenticated app/conversation opening, a message or a visitor voice turn
 updates address inactivity. The app opens its saved conversation or creates one;

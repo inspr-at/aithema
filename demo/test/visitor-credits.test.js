@@ -12,8 +12,7 @@ function fixture(t, options = {}) {
   const storage = options.storage ?? new SQLiteStorage();
   const ledger = new SQLiteBudgetLedger(storage, { sessionCapMicro: 1_000_000_000, visitorCapMicro: 1_000_000_000 });
   let time = 1_000;
-  const host = createDemoHost({ storage, demo: false, ownerGuard: false, now: () => time, ...options });
-  host.privacyDocumentConfigured = () => true;
+  const host = createDemoHost({ storage, demo: false, ownerGuard: false, now: () => time, privacyDocumentConfigured: () => true, ...options });
   t.after(() => storage.close());
   const session = id => storage.create({ id, ownerToken: owner });
   const settings = (anonymous, emailGiven = anonymous, emailConfirmed = emailGiven) => host.visitorCredits.saveSettings({

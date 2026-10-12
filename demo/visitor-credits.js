@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { usdMicro } from '../packages/server/src/spend-cap.js';
+import { privacyDocumentConfigured as hasPrivacyDocument } from '../packages/server/src/host-handlers.js';
 
 export const VISITOR_CREDIT_CEILING_MICRO = 1_000_000_000;
 export const EMAIL_NOTICE_VERSION = 'ait-135-v1';
@@ -15,7 +16,7 @@ const fields = state => Object.fromEntries(identityFields.map(key => [key, state
 
 /** START-owned policy and evidence. Accounting remains keyed by the existing owner hash. */
 export function createVisitorCredits({ storage, now = () => Date.now(), deliveryEnabled = false,
-  ceilingMicro = VISITOR_CREDIT_CEILING_MICRO } = {}) {
+  ceilingMicro = VISITOR_CREDIT_CEILING_MICRO, demo = false, privacyDocumentConfigured } = {}) {
   if (!integer(ceilingMicro) || ceilingMicro < 10_000_000) throw new TypeError('Invalid visitor credit ceiling');
   const db = storage.db;
   const atomic = fn => db.isTransaction ? fn() : storage.transaction(fn);
@@ -69,10 +70,15 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
           (json_extract(e.event,'$.type') IN ('turn.final','turn.corrected') AND json_extract(e.event,'$.data.role')='user'))
         WHERE json_extract(s.snapshot,'$.ownerHash') IS NOT NULL GROUP BY owner_hash`).all();
       for (const row of owners) ensure(row.owner_hash);
-      for (const row of db.prepare(`SELECT h.record,json_extract(s.snapshot,'$.ownerHash') owner_hash
-        FROM host_states h JOIN sessions s ON s.id=h.session_id ORDER BY json_extract(h.record,'$.identity.lastNow')`).all()) {
-        const identity = JSON.parse(row.record).identity;
-        if (identity?.address) persistIdentity(row.owner_hash, identity, { migration: true });
+      // The capability must exist before this constructor runs. Without it,
+      // leave legacy addresses in their original erasable store: no new copy,
+      // saved/confirmed evidence or deferred backfill into the visitor profile.
+      if (demo === true || hasPrivacyDocument({ privacyDocumentConfigured })) {
+        for (const row of db.prepare(`SELECT h.record,json_extract(s.snapshot,'$.ownerHash') owner_hash
+          FROM host_states h JOIN sessions s ON s.id=h.session_id ORDER BY json_extract(h.record,'$.identity.lastNow')`).all()) {
+          const identity = JSON.parse(row.record).identity;
+          if (identity?.address) persistIdentity(row.owner_hash, identity, { migration: true });
+        }
       }
       for (const row of owners) {
         const lastActive = Math.min(at, Number.isFinite(Date.parse(row.last_at)) ? Date.parse(row.last_at) : 0);
@@ -107,8 +113,10 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
     db.prepare('UPDATE visitor_identities SET last_active_at=MAX(last_active_at,?) WHERE visitor_ref=?').run(timestamp(), row.visitor_ref);
   }
   function projectIdentity(ownerHash, state) {
-    const row = db.prepare('SELECT identity_json FROM visitor_identities WHERE owner_hash=?').get(ownerHash);
-    const identity = row ? JSON.parse(row.identity_json) : clearedIdentity((state?.verificationRevision ?? 0) + 1);
+    const row = db.prepare('SELECT address,identity_json FROM visitor_identities WHERE owner_hash=?').get(ownerHash);
+    // Pending cleanup stores only cleared, address-free verification state.
+    // The independent address column supplies an in-memory projection.
+    const identity = row ? { ...JSON.parse(row.identity_json), address: row.address } : clearedIdentity((state?.verificationRevision ?? 0) + 1);
     return { ...state, ...identity,
       // Session pauses and lock policy stay in the conversation; evidence is visitor-wide.
       lastNow: Math.max(state?.lastNow ?? 0, identity.lastNow ?? 0) };
@@ -243,16 +251,21 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
         for (const row of db.prepare('SELECT owner_hash FROM visitor_identities WHERE address IS NOT NULL AND last_active_at<=? LIMIT ?').all(at - 90 * DAY, limit)) {
           clearAddress(row.owner_hash); addresses++;
         }
-        const pendingRows = db.prepare('SELECT * FROM visitor_identities WHERE pending_at<=? LIMIT ?').all(at - DAY, limit);
+        const pendingRows = db.prepare('SELECT visitor_ref,owner_hash,address_revision,saved_at FROM visitor_identities WHERE pending_at<=? LIMIT ?').all(at - DAY, limit);
+        let pendingTokens = 0;
         for (const row of pendingRows) {
           if (row.saved_at === null) clearAddress(row.owner_hash);
           else {
-            const identity = { ...clearedIdentity(row.address_revision + 1), address: row.address };
+            // Retain the saved address column without reading or writing it.
+            // Expiry removes pending state/tokens; a read can project the saved
+            // address, while any later address-bearing write uses the funnel.
             db.prepare('UPDATE visitor_identities SET pending_at=NULL,address_revision=address_revision+1,identity_json=? WHERE visitor_ref=?')
-              .run(JSON.stringify(identity), row.visitor_ref); queueCleanup(row.owner_hash);
+              .run(JSON.stringify(clearedIdentity(row.address_revision + 1)), row.visitor_ref);
+            pendingTokens += db.prepare('DELETE FROM visitor_confirmation_tokens WHERE visitor_ref=?').run(row.visitor_ref).changes;
+            queueCleanup(row.owner_hash);
           }
         }
-        const tokens = db.prepare('DELETE FROM visitor_confirmation_tokens WHERE token_hash IN (SELECT token_hash FROM visitor_confirmation_tokens WHERE created_at<=? LIMIT ?)').run(at - DAY, limit).changes;
+        const tokens = pendingTokens + db.prepare('DELETE FROM visitor_confirmation_tokens WHERE token_hash IN (SELECT token_hash FROM visitor_confirmation_tokens WHERE created_at<=? LIMIT ?)').run(at - DAY, limit).changes;
         const audit = db.prepare('DELETE FROM visitor_credit_audit WHERE id IN (SELECT id FROM visitor_credit_audit WHERE at_ms<=? LIMIT ?)').run(at - 180 * DAY, limit).changes;
         return { addresses, pending: pendingRows.length + tokens, audit, projections: cleanupProjections(limit) };
       });

@@ -112,8 +112,8 @@ registerDemoExtractors(registry, presets);
 const budget = new SQLiteBudgetLedger(storage, { sessionCapMicro: VISITOR_CREDIT_CEILING_MICRO, visitorCapMicro: VISITOR_CREDIT_CEILING_MICRO });
 const pluginRuntime = createPluginRuntime({ storage, reasoning, consent, registry, uiRenderLimits, presets, voiceCap, budget });
 const host = createDemoHost({ storage, demo: process.env.AITHEMA_PROVIDER === undefined,
-  verificationRequired: process.env.AITHEMA_DEMO_VERIFY === '1', ownerGuard: false });
-host.privacyDocumentConfigured = privacy.privacyDocumentConfigured;
+  verificationRequired: process.env.AITHEMA_DEMO_VERIFY === '1', ownerGuard: false,
+  privacyDocumentConfigured: privacy.privacyDocumentConfigured });
 // Demo only: AITHEMA_DEMO_HANDOVER_FAIL=n (1–10) fails the first n fake handover deliveries, to show Retry.
 const handoverFailures = Number(process.env.AITHEMA_DEMO_HANDOVER_FAIL ?? 0);
 if (host.demo && Number.isSafeInteger(handoverFailures)) for (let i = 0; i < Math.min(Math.max(handoverFailures, 0), 10); i++) host.sink.failNext();
