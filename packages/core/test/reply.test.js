@@ -40,6 +40,16 @@ test('AIT-132: reply JSON, fenced JSON and legacy plain replies parse without le
   assert.deepEqual(core.parseReply('A plain question?'), { content: 'A plain question?', question_short: null, options: [] });
 });
 
+test('AIT-132: schema validation enforces answer types, length, four options and a single likely', () => {
+  assert.equal(core.matchesSchema(reply, core.replySchema), true);
+  assert.equal(core.matchesSchema({ ...reply, options: Array.from({ length: 5 }, () => ({ text: 'Five' })) }, core.replySchema), false);
+  assert.equal(core.matchesSchema({ ...reply, options: [{ text: 'One', likely: true }, { text: 'Two', likely: true }] }, core.replySchema), false);
+  for (const option of [{ text: '', likely: false }, { text: 7 }, { text: 'No', likely: 'true' }, { text: 'No', extra: true }, { text: 'x'.repeat(8001) }]) {
+    assert.equal(core.matchesSchema({ ...reply, options: [option] }, core.replySchema), false);
+  }
+  assert.equal(core.matchesSchema({ content: 'Hello', question_short: null, options: [] }, core.replySchema), true);
+});
+
 test('AIT-132: malformed answers are dropped strictly, four valid answers survive, only the first likely survives', () => {
   assert.equal(typeof core.normalizeQuestionCard, 'function');
   const options = [null, 'wrong', {}, { text: '' }, { text: '  ' }, { text: 7 }, { text: 'Bad likely', likely: 'true' },
@@ -70,6 +80,10 @@ test('AIT-132: structured streams decode escaped content at every chunk boundary
     assert.equal(first + last, value.content, `boundary ${boundary}`);
     assert.deepEqual(stream.finish(), value);
   }
+  const spaced = new core.ReplyStream();
+  assert.equal(spaced.push('\n '), '');
+  assert.equal(spaced.push(wire), value.content);
+  assert.deepEqual(spaced.finish(), value);
 });
 
 test('AIT-132: a reaction persists the parsed card once and publishes only conversational partials', async () => {
@@ -113,5 +127,13 @@ test('AIT-132: withdrawal removes question and answer content from the core proj
   apply('turn.final', { id: 'a', role: 'assistant', inputRevision: core.inputRevision(session), ...reply });
   apply('turn.withdrawn', { turnId: 'u' });
   assert.equal(session.transcript.at(-1).question_short, undefined);
+  assert.equal(session.transcript.at(-1).options, undefined);
+});
+
+test('AIT-132: a heard-prefix correction cannot keep an unheard question or its answers', () => {
+  let session = core.applyEvent(core.createSession(), { seq: 1, type: 'turn.final', data: { id: 'u', role: 'user', content: 'Cushions' } });
+  session = core.applyEvent(session, { seq: 2, type: 'turn.final', data: { id: 'a', role: 'assistant', inputRevision: core.inputRevision(session), ...reply } });
+  session = core.applyEvent(session, { seq: 3, type: 'turn.corrected', data: { id: 'a', role: 'assistant', content: 'Heard prefix.' } });
+  assert.equal(core.currentQuestionCard(session), null);
   assert.equal(session.transcript.at(-1).options, undefined);
 });

@@ -1,6 +1,8 @@
 import { ConceptView } from './concept-view.js';
 import './html-preview.js'; // <aithema-html-preview>, the concept viewer's stage for drafts
-import { applyEvent, inputRevision, activeTurns } from '../../core/src/session.js';
+import { applyEvent, inputRevision, activeTurns, currentQuestionCard, hasOpenReplyQuestion } from '../../core/src/session.js';
+import { ReplyStream } from '../../core/src/reply.js';
+import { reasoningRequest } from '../../core/src/prompts.js';
 import { understandingDeferred } from '../../core/src/document-context.js';
 import { aiTextOrigin } from '../../core/src/text-origin.js';
 import { readinessScalePercent, readinessListItems, readinessListWindow, newlyClearedFirst } from '../../core/src/readiness.js';
@@ -26,6 +28,7 @@ import { modelDisplayName, settingsFlag } from './display.js';
 import { bandStyles } from './band-styles.js';
 import { motionPreference, rememberMotion, ConnectionTimer, ConversationFold, FooterPopups } from './layout.js';
 import { createReveal } from './reveal.js';
+import { QuestionCard, questionCardMarkup, questionCardStyles } from './question-card.js';
 
 const PANES = '.transcript-shell, .analysis-content';
 // START's understanding reveal: 560 ms of column, 100–620 ms of the pane fading in (styles.js), with a margin.
@@ -75,6 +78,7 @@ export class AithemaSession extends HTMLElement {
   #orb = null; #started = false; #inputMode = null; #microphone = 'unknown'; #permission = null;
   #localeChanging = Promise.resolve(); #copyLocale;
   #paneObserver; #scrollTimers = new Map();
+  #questionCard;
   #uploadAt = new Map(); #uploading = false; #uploadNotice = ''; #reading = ''; #limits = UPLOAD_LIMITS; #limitsLoad = null; #dragDepth = 0;
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
@@ -98,6 +102,7 @@ export class AithemaSession extends HTMLElement {
     if (!copy || !session) throw new TypeError('Host copy and session required');
     this.#copyLocale = session.locale; this.#aiNotice = aiNotice; this.#options = { ...options }; delete this.#options.session;
     this.#host?.destroy(); this.#host = null; this.#reveal?.destroy(); this.#timer?.destroy(); this.#popups?.destroy();
+    this.#questionCard?.destroy();
     this.#motionMedia?.removeEventListener?.('change', this.#motionListener);
     this.#paneObserver?.disconnect(); for (const timer of this.#scrollTimers.values()) clearTimeout(timer); this.#scrollTimers.clear();
     const reopen = this.#dialog?.open;
@@ -133,10 +138,12 @@ export class AithemaSession extends HTMLElement {
     this.#concept?.connect(); this.#connect(); this.#watchPage(true); this.#offerResume(); this.#host?.connect(); this.#placeOrb();
     this.#popups?.connect(); this.#motionMedia?.addEventListener?.('change', this.#motionListener);
     this.#rail?.connect(); this.#reveal?.connect();
+    this.#questionCard?.connect();
     this.#observePanes();
   }
   disconnectedCallback() {
     this.#timer?.setConnected(false); this.#reveal?.disconnect();
+    this.#questionCard?.destroy();
     this.#popups?.destroy(); this.#motionMedia?.removeEventListener?.('change', this.#motionListener);
     this.#host?.disconnect(); this.#watchPage(false); this.#concept?.suspend(); this.#rail?.disconnect(); this.#orb?.destroy(); this.#introOrb?.destroy(); this.#abort?.abort(); this.#deviceController?.abort();
     this.#paneObserver?.disconnect(); for (const timer of this.#scrollTimers.values()) clearTimeout(timer); this.#scrollTimers.clear();
@@ -206,7 +213,7 @@ export class AithemaSession extends HTMLElement {
     // START's shell (app.css .shell, index.astro .v2__workspace): a top row, the conversation and,
     // once there is input, the understanding beside it. The entrance (promise, orb and processing
     // choice, then readiness) fills the conversation column until the conversation starts.
-    root.innerHTML = `<style>${styles}${orbStyles}${entranceStyles}${settingsStyles}${hostStyles}${bandStyles}</style><div class="workspace" data-stage="entrance" data-understanding="absent">
+    root.innerHTML = `<style>${styles}${orbStyles}${entranceStyles}${settingsStyles}${hostStyles}${bandStyles}${questionCardStyles}</style><div class="workspace" data-stage="entrance" data-understanding="absent">
       <header class="toolbar band"><div class="band-orb"></div><div class="audio-rail"></div><div class="header-actions">
         <div class="host-bar" role="group" data-reveal hidden><div class="conversations-wrap"><button class="conversations-toggle" type="button" aria-haspopup="menu" aria-controls="conversations-menu" aria-expanded="false"></button>
           <div class="conversations-menu" id="conversations-menu" role="menu" hidden><button class="conversations-new" type="button" role="menuitem" tabindex="-1" aria-describedby="ai-notice"></button>
@@ -221,10 +228,10 @@ export class AithemaSession extends HTMLElement {
           <div class="intro__card"></div></div>
         <div class="concept-bar"><div class="concept-rail"></div><div class="concept-preview-slot"></div></div>
         <div class="transcript-shell"><ol aria-live="polite"></ol><button class="transcript-latest" type="button" data-copy="transcriptLatest" style="visibility:hidden"></button></div>
-        <form class="composer"><label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000" rows="2"></textarea>
+        <div class="composer-dock">${questionCardMarkup}<form class="composer"><label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000" rows="2"></textarea>
           <div class="composer-actions"><button class="attach" type="button" aria-describedby="attach-limits ai-notice">${UPLOAD_ICONS.attach}<span class="attach__label"></span></button>
             <span class="sr-only" id="attach-limits"></span><input class="attach-input" type="file" multiple hidden tabindex="-1" accept="${UPLOAD_ACCEPT}">
-            <small class="composer-reason" role="status" id="composer-reason"></small><button class="send" aria-describedby="ai-notice">${icon('arrowRight')}<span class="visually-hidden"></span></button></div></form>
+            <small class="composer-reason" role="status" id="composer-reason"></small><button class="send" aria-describedby="ai-notice">${icon('arrowRight')}<span class="visually-hidden"></span></button></div></form></div>
         <div class="drop-overlay" aria-hidden="true"><p><strong></strong><span></span></p></div></section>
       <aside class="understanding" aria-labelledby="understanding-title"><header class="head"><h2 id="understanding-title" data-copy="understanding"></h2><button class="concept-tab" type="button" data-copy="conceptTab"></button></header>
         <section class="readiness"><div class="scale" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span class="fill"></span><span class="marker"></span></div>
@@ -245,6 +252,8 @@ export class AithemaSession extends HTMLElement {
         <div class="footer-right"><section class="preset-panel"><div class="engine" data-footer-popup><button class="engine-info" type="button" aria-describedby="model-info"><span class="engine__value"></span><span class="engine__flag"></span></button><span class="engine__detail footer-popup" id="model-info" role="tooltip"></span></div><ul class="features"></ul></section>
           <span class="status" role="status"><span class="status__label"></span><time class="connection-timer">0:00</time></span></div></div></footer></div>
       <dialog class="settings"></dialog><dialog class="library"></dialog><dialog class="verify-dialog"></dialog>`;
+    this.#questionCard = new QuestionCard({ root, send: text => { void this.#send(text); },
+      onResize: () => { if (this.#follow && !this.#onTranscript) this.#scrollToLatest(); } });
     // The promise is host content when the host slots it; otherwise START's three lines (contract: AIT-128/129).
     const promise = root.querySelector('.promise');
     for (const [index, line] of (this.#copy.entrance?.promise ?? []).entries()) { if (index) promise.append(' '); promise.append(node('span', '', line)); }
@@ -577,7 +586,8 @@ export class AithemaSession extends HTMLElement {
   }
   #paint(part) {
     const root = this.shadowRoot, copy = this.#copy;
-    this.#paintStatus(); this.#paintNotice(); this.#fold?.update(this.#session);
+    this.#paintStatus(); this.#paintNotice(); this.#fold?.update(this.#session, hasOpenReplyQuestion(this.#session));
+    this.#questionCard?.update(currentQuestionCard(this.#session), copy, this.#sending || !this.#feature('text').available);
     const pause = root.querySelector('.pause');
     if (pause) {
       setText(pause.querySelector('.voice-label'), this.#session.paused ? copy.resume : copy.pause); pause.title = pause.textContent;
@@ -1275,16 +1285,16 @@ export class AithemaSession extends HTMLElement {
     button.textContent = details.length && details.every(d => d.open) ? this.#copy.collapse : this.#copy.expand;
     button.disabled = !details.length;
   }
-  async #send() {
+  async #send(answer) {
     const root = this.shadowRoot, input = root.querySelector('textarea'), button = root.querySelector('.send');
-    if (this.#sending || !this.#feature('text').available || !input.value.trim()) return;
-    const content = input.value;
-    if (this.#session.processingPreset === 'device') { await this.#sendDevice(content); return; }
+    const option = typeof answer === 'string', content = option ? answer : input.value;
+    if (this.#sending || !this.#feature('text').available || !content.trim()) return;
+    if (this.#session.processingPreset === 'device') { await this.#sendDevice(content, !option); return; }
     const sessionId = this.#session.id;
     const voiceSession = this.#rail.session;
     if (!this.#pending || this.#pending.content !== content) this.#pending = { clientEventId: crypto.randomUUID(), content,
       ...(voiceSession ? { voiceCallId: voiceSession.callId, providerSessionId: voiceSession.providerSessionId } : {}) };
-    this.#sending = true; button.disabled = true; this.#status(this.#copy.sending);
+    this.#sending = true; button.disabled = true; this.#render('composer'); this.#status(this.#copy.sending);
     try {
       const response = await postJson(`${this.#base}/api/sessions/${sessionId}/turns`, this.#pending, { sessionToken: this.#sessionToken });
       if (!response.ok) throw new Error();
@@ -1296,29 +1306,31 @@ export class AithemaSession extends HTMLElement {
         await this.#rail.sendText(content);
         if (sessionId !== this.#session.id) return;
       }
-      if (input.value === content) input.value = '';
+      if (!option && input.value === content) input.value = '';
       this.#pending = null; this.#status(voiceText ? this.#copy.voiceTextSent : this.#copy.saved);
     } catch { if (sessionId === this.#session.id) this.#status(this.#copy.failed); }
     finally { if (sessionId === this.#session.id) { this.#sending = false; button.disabled = !this.#feature('text').available; this.#render('composer'); } }
   }
-  async #sendDevice(content) {
+  async #sendDevice(content, clearInput = true) {
     const root = this.shadowRoot, button = root.querySelector('.send'), input = root.querySelector('textarea'), device = this.#device;
     if (!device) { this.#status(this.#copy.deviceConnectFirst); return; }
     this.#sending = true; button.disabled = true; const controller = new AbortController(); this.#deviceController = controller;
+    this.#render('composer');
     const sessionId = this.#session.id, deadlineAt = Date.now() + 180_000;
     const current = () => !controller.signal.aborted && sessionId === this.#session.id;
     try {
       await device.connect({ signal: controller.signal, deadlineAt });
       if (!current()) return;
       this.receive({ seq: this.#cursor + 1, type: 'turn.final', data: { id: crypto.randomUUID(), role: 'user', content } });
-      input.value = '';
-      const id = crypto.randomUUID(), revision = inputRevision(this.#session), origin = aiTextOrigin({ model: device.model, plugin: device.id }); let answer = '';
-      for await (const delta of device.stream({ messages: activeTurns(this.#session).map(({ role, content }) => ({ role, content })) },
+      if (clearInput && input.value === content) input.value = '';
+      const id = crypto.randomUUID(), revision = inputRevision(this.#session), origin = aiTextOrigin({ model: device.model, plugin: device.id }), reply = new ReplyStream();
+      for await (const delta of device.stream(reasoningRequest(this.#session, 'reaction'),
         { signal: controller.signal, deadlineAt })) {
-        if (!current()) return; answer += delta;
-        this.receive({ type: 'turn.partial', data: { id, delta, ...origin, inputRevision: revision } });
+        if (!current()) return;
+        const text = reply.push(delta);
+        if (text) this.receive({ type: 'turn.partial', data: { id, delta: text, ...origin, inputRevision: revision } });
       }
-      if (current()) this.receive({ seq: this.#cursor + 1, type: 'turn.final', data: { id, role: 'assistant', content: answer, ...origin, inputRevision: revision } });
+      if (current()) this.receive({ seq: this.#cursor + 1, type: 'turn.final', data: { id, role: 'assistant', ...reply.finish(), ...origin, inputRevision: revision } });
       if (current()) this.#status(this.#copy.deviceConversation);
     } catch { if (current()) { this.#partials.clear(); this.#render('transcript'); this.#status(this.#copy.deviceUnavailable); } }
     finally { if (sessionId === this.#session.id) { this.#sending = false; button.disabled = !this.#feature('text').available; this.#render('composer'); } }

@@ -1,6 +1,10 @@
 import { AI_NOTICE } from '../../../core/src/ai-notice.js';
 
 export const en = {
+  questionCard: {
+    heading: 'Open question', suggestion: 'Suggestion', likely: 'Most likely, based on the conversation so far',
+    hint: 'One click sends the answer. Or just speak or type.',
+  },
   layout: {
     fold: 'Fold conversation', unfold: 'Unfold conversation', openQuestion: 'Open question · Unfold',
     canvas: 'Visual drafts', canvasEmpty: 'Space for your drafts.', noMessage: 'Unfold conversation',

@@ -3,12 +3,30 @@ import { PROCESSING_PRESETS } from './presets.js';
 import { START_PRESET, capBuildReadiness, createPreset } from './understanding.js';
 import { normalizeSettings, defaultSettings } from './settings.js';
 import { withAITextOrigin } from './text-origin.js';
+import { parseReply, normalizeQuestionCard } from './reply.js';
 // An erased choice falls back to the core default preset, like createSession's default.
 const ERASED_PRESET = 'best';
 const erasedTurn = turn => Object.fromEntries(Object.entries(turn).filter(([key]) =>
-  !['content', 'origin', 'model', 'provider', 'engine'].includes(key)));
+  !['content', 'question_short', 'options', 'origin', 'model', 'provider', 'engine'].includes(key)));
 export const inputRevision = session => `${session.inputRevision}:${session.conversationConsentRevision ?? session.consentRevision}:${session.withdrawalRevision}:${session.locale}:${session.sessionRevision ?? 0}:${Boolean(session.tombstone)}`;
 export const activeTurns = session => session.transcript.filter(t => !t.erased && !t.withdrawn);
+function latestReply(session) {
+  if (session.tombstone || session.consentWithdrawn) return null;
+  const turn = activeTurns(session).at(-1);
+  if (turn?.role !== 'assistant' || turn.inputRevision !== undefined && turn.inputRevision !== inputRevision(session)) return null;
+  return turn;
+}
+export function currentQuestionCard(session) {
+  const turn = latestReply(session);
+  if (!turn || turn.inputRevision !== inputRevision(session)) return null;
+  const card = normalizeQuestionCard(turn);
+  return card ? { turnId: turn.id, ...card } : null;
+}
+/** Plain and spoken questions also qualify for the fold strip, even without answer choices. */
+export function hasOpenReplyQuestion(session) {
+  const turn = latestReply(session);
+  return Boolean(turn && (parseReply(turn).question_short || /[?？]\s*$/u.test(turn.content ?? '')));
+}
 /** Durable: withdrawal and expiry mark turns but never remove their transcript entries. */
 export const conversationStarted = session => session.transcript.length > 0 || (session.uploads?.length ?? 0) > 0;
 export const emptyUnderstanding = session => ({ ...capBuildReadiness({}, [], session.preset), version: 1,
@@ -28,7 +46,9 @@ export function createSession({ id = crypto.randomUUID(), locale = 'en', identif
 export function applyEvent(session, event) {
   const next = structuredClone(session);
   if (event.type === 'turn.final') {
-    next.transcript.push(withAITextOrigin(event.data));
+    const data = event.data.role === 'assistant' && ('question_short' in event.data || 'options' in event.data)
+      ? { ...event.data, ...parseReply(event.data) } : event.data;
+    next.transcript.push(withAITextOrigin(data));
     if (event.data.role === 'user') next.inputRevision += 1;
   } else if (event.type === 'turn.annotated') {
     // Reply identity/ordering annotates transcript only, never operation state.
@@ -50,7 +70,12 @@ export function applyEvent(session, event) {
       next.conceptStatus = { phase: 'idle' };
     }
   } else if (event.type === 'turn.corrected') {
-    next.transcript = next.transcript.map(t => t.id === event.data.id ? { ...t, ...event.data, erased: Boolean(event.data.erased), withdrawn: Boolean(event.data.withdrawn) } : t);
+    next.transcript = next.transcript.map(t => {
+      if (t.id !== event.data.id) return t;
+      // A heard prefix cannot inherit choices from an unheard question.
+      const { question_short, options, ...prior } = t;
+      return { ...prior, ...event.data, erased: Boolean(event.data.erased), withdrawn: Boolean(event.data.withdrawn) };
+    });
     next.sessionRevision += 1; next.understanding = emptyUnderstanding(next); next.actor = null; next.focusedQuestion = null;
   } else if (event.type === 'question.focused') {
     // Focus is derived from understanding, so it does not invalidate that input.
