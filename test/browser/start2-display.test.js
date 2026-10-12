@@ -68,6 +68,115 @@ const content = {
   },
 };
 
+test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-display-regressions-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
+  });
+  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
+    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  t.after(async () => { await browser.close(); await demo.kill(); });
+  const page = await browser.newPage(); page.setDefaultTimeout(15_000);
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], checks = [];
+  if (evidence) await mkdir(evidence, { recursive: true });
+  const draft = copy => `<!doctype html><html lang="${copy.display.locale}"><head><meta charset="utf-8"><title>${copy.layout.canvas}</title>
+    <style>body{margin:0;padding:32px;background:#f7f5ef;color:#243b40;font:16px system-ui}h1{font:32px Georgia}input,button{font:inherit;padding:12px;border:1px solid #b4c9c1;border-radius:6px}button{background:#1d6e6a;color:white}p{line-height:1.5}</style></head>
+    <body><h1>${copy === de ? 'Ihr Website-Entwurf' : 'Your website draft'}</h1><p>${copy === de ? 'Eine geschätzte Lieferzeit für handgestickte Polster.' : 'Estimated delivery times for hand-embroidered cushions.'}</p>
+    <label>${copy === de ? 'Ihr Motiv' : 'Your design'} <input id="design" value="Blumen"></label>
+    <p><button id="count">${copy === de ? 'Entwurf ausprobieren' : 'Try the draft'}</button> <output id="value">0</output></p>
+    <script>document.querySelector('#count').addEventListener('click',()=>{document.querySelector('#value').textContent=String(Number(document.querySelector('#value').textContent)+1)});</script></body></html>`;
+  let copy = de;
+  await page.setRequestInterception(true);
+  page.on('request', request => {
+    const url = new URL(request.url());
+    if (url.pathname.endsWith('/concepts/canvas1/html')) return request.respond({ status: 200, contentType: 'application/octet-stream', body: draft(copy) });
+    if (url.pathname.endsWith('/features')) return request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify({
+      best: Object.fromEntries(['text', 'analysis', 'html', 'images'].map(key => [key, { available: true }])) }) });
+    return request.continue();
+  });
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session?.id);
+  await shadow(page, c => { globalThis.regressionSeed = c.session; });
+  async function scene(locale, theme, width) {
+    copy = { en, de }[locale]; await page.setViewport({ width, height: width === 390 ? 844 : 900 }); await page.select('#theme', theme);
+    await page.evaluate(async locale => {
+      const { en } = await import('/packages/ui/src/i18n/en.js'), { de } = await import('/packages/ui/src/i18n/de.js');
+      const c = document.querySelector('aithema-session'), s = structuredClone(globalThis.regressionSeed);
+      s.locale = locale; s.settings.origin = 'chosen'; s.conceptVisualKind = 'html'; s.conceptCost = { maxMicro: 400_000 };
+      s.transcript = [{ id: 'source', role: 'user', content: locale === 'de' ? 'Eine Website für meine handgestickten Polster.' : 'A website for my hand-embroidered cushions.' }];
+      s.inputRevision = 1; s.concepts = [{ id: 'canvas1', mediaType: 'text/html', turnIds: ['source'], referenceIds: [], archived: false,
+        feedback: { vote: 'clear', chips: [] }, provenance: { origin: 'ai-generated', generator: { provider: 'local-demo-fake' } } }];
+      s.featureMatrix.best = Object.fromEntries(['text', 'analysis', 'html', 'images'].map(key => [key, { available: true }]));
+      c.configure({ copy: { en, de }[locale], session: s }); document.documentElement.lang = locale;
+      c.shadowRoot.querySelector('.fold').click();
+    }, locale);
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.canvas-html').state === 'ready');
+    await page.mouse.move(0, 300);
+  }
+  async function shot(state, locale, theme, width) {
+    const name = `${state}-${width}-${theme}-${locale}.png`;
+    if (evidence) { await page.screenshot({ path: join(evidence, name), fullPage: true }); files.push(name); }
+  }
+  const canvasFrame = async () => (await page.$('aithema-session >>> .canvas-html >>> iframe')).contentFrame();
+  await t.test('populated canvas keeps interactive state and focus through durable events', async () => {
+    await scene('de', 'light', 1440);
+    const frame = await canvasFrame(); await frame.click('#count'); await frame.focus('#design'); await frame.type('#design', ' · geändert');
+    const before = await frame.$eval('#design', n => n.value);
+    await shadow(page, c => { globalThis.canvasFrameBefore = c.shadowRoot.querySelector('.canvas-html').shadowRoot.querySelector('iframe');
+      c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } }); });
+    await settle();
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.canvas-html').shadowRoot.querySelector('iframe') === globalThis.canvasFrameBefore), true);
+    assert.equal(await frame.$eval('#value', n => n.textContent), '1'); assert.equal(await frame.$eval('#design', n => n.value), before);
+    assert.equal(await frame.evaluate(() => document.activeElement.id), 'design', 'typing focus stays in the same browsing context');
+    await shot('folded-populated-state-preserved', 'de', 'light', 1440);
+  });
+  await t.test('unfold unloads the populated executable iframe', async () => {
+    await scene('en', 'light', 1440); await canvasFrame();
+    await shadow(page, c => c.shadowRoot.querySelector('.fold-strip').click());
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.canvas-html').artifact), null);
+    assert.equal(await shadow(page, c => Boolean(c.shadowRoot.querySelector('.canvas-html').shadowRoot.querySelector('iframe'))), false);
+  });
+  await t.test('populated canvas and every modal frame are redacted on consent or source withdrawal', async () => {
+    for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+      for (const cause of ['consent', 'source']) for (const folded of [true, false]) {
+        await scene(locale, theme, width);
+        await shot('folded-populated-canvas', locale, theme, width);
+        if (!folded) await shadow(page, c => c.shadowRoot.querySelector('.fold-strip').click());
+        await shadow(page, c => c.shadowRoot.querySelector('.concept-tab').click());
+        await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.concept-html').state === 'ready');
+        await shadow(page, (c, cause) => c.receive({ seq: c.session.seq + 1,
+          type: cause === 'consent' ? 'consent.revised' : 'turn.withdrawn', data: cause === 'consent' ? { granted: false } : { turnId: 'source' } }), cause);
+        const surfaces = await shadow(page, c => ['.canvas-html', '.concept-html'].map(selector => {
+          const n = c.shadowRoot.querySelector(selector); return { bytes: n.artifact, frame: Boolean(n.shadowRoot.querySelector('iframe')) };
+        }));
+        assert.deepEqual(surfaces, [{ bytes: null, frame: false }, { bytes: null, frame: false }], `${locale}/${theme}/${width}/${cause}/${folded}`);
+        await shot(`revocation-${cause}-${folded ? 'folded' : 'unfolded'}`, locale, theme, width);
+        checks.push({ locale, theme, width, cause, folded, surfaces });
+      }
+    }
+  });
+  await t.test('the reveal orb has a 44px hit area around its 40px visual', async () => {
+    for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+      await scene(locale, theme, width);
+      const visual = (await boxes(page, ['.band-orb .orb__body']))[0];
+      const target = await shadow(page, c => {
+        const n = c.shadowRoot.querySelector('.band-orb [role="button"]'), r = n.getBoundingClientRect();
+        return [r.x, r.y, r.width, r.height];
+      });
+      assert.equal(visual[2], 40); assert.equal(visual[3], 40); assert.equal(target[2], 44); assert.equal(target[3], 44);
+      const bandBefore = await boxes(page, ['.band-orb', '.band', '.settings-open']);
+      // The point is in the target's outer ring, beyond the painted 40px orb.
+      await page.mouse.click(target[0] + 1, target[1] + 22);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.band').dataset.aithemaRevealState), 'open');
+      await settle(); sameBoxes(bandBefore, await boxes(page, ['.band-orb', '.band', '.settings-open']), 'orb activation does not shift the band');
+      await shot('orb-hit-area-open', locale, theme, width);
+      checks.push({ locale, theme, width, visual, target });
+    }
+  });
+  if (evidence) await writeFile(join(evidence, 'display-regressions-evidence.json'), JSON.stringify({ ticket: 'AIT-131', commit: evidenceCommit,
+    createdAt: new Date().toISOString(), files, checks }, null, 2));
+});
+
 test('AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages',
   { timeout: 360_000 }, async t => {
     const directory = await mkdtemp(join(tmpdir(), 'aithema-display-'));
