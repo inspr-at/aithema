@@ -120,8 +120,9 @@ for (const locale of ['de', 'en']) test(`AIT-140 glass orb and reveal evidence: 
     await page.mouse.move(orbBox.x,orbBox.y); await page.waitForFunction(()=>window.fixture.band.dataset.aithemaRevealState==='open',{polling:10}); await freeze(page);
     for(const ms of [0,300,700,1200]) { await seek(page,ms); await shot(`reveal-${ms}ms`,ms); }
     await seek(page,2200); await shot('reveal-open',2200);
-    const anchors=await page.$$eval('.aithema-reveal__link',nodes=>nodes.map(n=>({href:n.href,visible:getComputedStyle(n).opacity,rect:{x:n.getBoundingClientRect().x,right:n.getBoundingClientRect().right,bottom:n.getBoundingClientRect().bottom},title:n.querySelector('.aithema-reveal__title').textContent})));
+    const anchors=await page.$$eval('.aithema-reveal__link',nodes=>nodes.map(n=>({href:n.href,visible:getComputedStyle(n).opacity,rect:{x:n.getBoundingClientRect().x,right:n.getBoundingClientRect().right,bottom:n.getBoundingClientRect().bottom},title:n.querySelector('.aithema-reveal__title').textContent,subtitleFits:n.querySelector('.aithema-reveal__subtitle').scrollWidth<=n.querySelector('.aithema-reveal__subtitle').clientWidth})));
     assert.equal(anchors.length,3); assert.ok(anchors.every(n=>n.visible==='1'&&n.href.startsWith('https://')&&n.rect.right<=width+.5),label+' accessible links fit the band');
+    assert.ok(anchors.every(n=>n.subtitleFits),label+' subtitles fit their columns');
     const bandHeight=await page.$eval('#band',n=>n.getBoundingClientRect().height); assert.ok(anchors.every(n=>n.rect.bottom<=bandHeight),label+' links stay inside');
     // Hold cleanup while advancing genuine CSS transitions in 50ms steps. Every sample is a rendered pixel,
     // not an inferred CSS colour; animation time is independent of screenshot/remote-host latency.

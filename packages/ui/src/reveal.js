@@ -6,14 +6,14 @@ const css = `
 .aithema-reveal__wash { position:absolute; inset:0; background:radial-gradient(380px 120px at var(--ar-x) 55%,rgba(255,214,160,.18),transparent 72%),linear-gradient(100deg,transparent 28%,rgba(255,255,255,.10) 44%,transparent 60%); box-shadow:inset 0 1px 0 rgba(255,255,255,.16),inset 0 -1px 0 rgba(255,255,255,.08); opacity:0; transition:opacity .85s cubic-bezier(.4,0,.2,1); }
 .aithema-reveal__ring { position:absolute; left:calc(var(--ar-x) - 20px); top:calc(var(--ar-y) - 20px); width:40px; height:40px; border-radius:50%; background:radial-gradient(circle,transparent 56%,rgba(255,255,255,.5) 64%,rgba(255,230,190,.22) 68%,transparent 76%); opacity:0; }
 .aithema-reveal__stars { position:absolute; inset:0; width:100%; height:100%; }
-.aithema-reveal-band[data-aithema-reveal-state="open"] .aithema-reveal__glass { transform:scale(1); opacity:1; transition:transform .9s cubic-bezier(.2,.7,.2,1),opacity .12s ease; }
+.aithema-reveal-band[data-aithema-reveal-state="open"] .aithema-reveal__glass { transform:scale(var(--ar-open-scale)); opacity:1; transition:transform .9s cubic-bezier(.2,.7,.2,1),opacity .12s ease; }
 .aithema-reveal-band[data-aithema-reveal-state="open"] .aithema-reveal__wash { opacity:1; transition:opacity .7s ease; }
 .aithema-reveal-band[data-aithema-reveal-state="open"] .aithema-reveal__ring { animation:aithema-reveal-ring 1.15s cubic-bezier(.16,.7,.2,1) both; }
 @keyframes aithema-reveal-ring { 0% { transform:scale(.7); opacity:1; } 60% { opacity:.55; } 100% { transform:scale(var(--ar-ring-scale)); opacity:0; } }
-.aithema-reveal-band[data-aithema-reveal-state="exiting"] .aithema-reveal__glass { transform:scale(1); opacity:0; transition:opacity .85s cubic-bezier(.4,0,.2,1); }
+.aithema-reveal-band[data-aithema-reveal-state="exiting"] .aithema-reveal__glass { transform:scale(var(--ar-open-scale)); opacity:0; transition:opacity .85s cubic-bezier(.4,0,.2,1); }
 .aithema-reveal-band > .aithema-reveal__row { position:absolute; left:var(--ar-row-left,108px); right:var(--ar-row-right,24px); top:0; bottom:6px; display:flex; align-items:center; gap:26px; color:#fff; font-family:var(--aithema-font,var(--ui,system-ui,sans-serif)); white-space:nowrap; opacity:0; pointer-events:none; z-index:3; transition:opacity .5s ease; }
 .aithema-reveal-band[data-aithema-reveal-state="open"] > .aithema-reveal__row { opacity:1; pointer-events:auto; }
-.aithema-reveal__wordmark { position:relative; display:inline-block; overflow:hidden; font:600 27px/1.15 var(--aithema-display,var(--display,Georgia,serif)); letter-spacing:-.03em; color:#fff; }
+.aithema-reveal__wordmark { position:relative; display:inline-block; overflow:hidden; font:600 24px/1.15 var(--aithema-display,var(--display,Georgia,serif)); letter-spacing:-.025em; color:#fff; }
 .aithema-reveal__wordmark > .aithema-reveal__letter { position:relative; display:inline-block; opacity:0; transform:translateY(9px) scale(.9); transition:opacity .55s,transform .65s cubic-bezier(.2,.9,.25,1.25); transition-delay:calc(120ms + var(--ar-i) * 45ms); }
 .aithema-reveal-band[data-aithema-reveal-state="open"] .aithema-reveal__letter { opacity:1; transform:none; }
 .aithema-reveal__letter::after { content:attr(data-letter); position:absolute; inset:0; filter:blur(9px); opacity:0; }
@@ -50,17 +50,18 @@ const css = `
 .aithema-reveal-band[data-aithema-reveal-motion="off"] :is(.aithema-reveal__ring,.aithema-reveal__stars,.aithema-reveal__glint,.aithema-reveal__dissolves) { display:none; animation:none !important; }
 .aithema-reveal-band[data-aithema-reveal-motion="off"] .aithema-reveal__letter::after { display:none; animation:none !important; }
 .aithema-reveal-band[data-aithema-reveal-motion="off"] :is(.aithema-reveal__glass,.aithema-reveal__wash,.aithema-reveal__row,.aithema-reveal__letter,.aithema-reveal__rise,[data-aithema-reveal-control]) { transition:opacity .2s ease !important; transition-delay:0s !important; animation:none !important; }
-.aithema-reveal-band[data-aithema-reveal-motion="off"] .aithema-reveal__glass { transform:scale(1); }
+.aithema-reveal-band[data-aithema-reveal-motion="off"] .aithema-reveal__glass { transform:scale(var(--ar-open-scale)); }
 .aithema-reveal-band[data-aithema-reveal-motion="off"] :is(.aithema-reveal__letter,.aithema-reveal__rise) { transform:none; opacity:1; }
 .aithema-reveal-band[data-aithema-reveal-motion="off"] [data-aithema-reveal-control] { transform:var(--ar-transform,none); }
 @media(max-width:760px) {
-  .aithema-reveal-band > .aithema-reveal__row { display:grid; grid-template-columns:1fr .85fr 1.4fr; align-content:center; gap:8px 10px; white-space:normal; }
-  .aithema-reveal__wordmark { grid-column:1 / 3; width:max-content; font-size:26px; }
+  .aithema-reveal-band > .aithema-reveal__row { display:grid; grid-template-columns:minmax(84px,1fr) minmax(64px,.8fr) minmax(100px,1.2fr); align-content:center; gap:8px 10px; white-space:normal; }
+  .aithema-reveal__wordmark { grid-column:1 / 3; width:max-content; }
   .aithema-reveal__separator { display:none; }
   .aithema-reveal__version { grid-column:3; grid-row:1; margin:0; font-size:10.5px; text-align:right; }
   .aithema-reveal__version code { font-size:10px; }
   .aithema-reveal__title { font-size:12px; }
   .aithema-reveal__subtitle { font-size:10px; overflow-wrap:anywhere; }
+  .aithema-reveal__link:first-of-type .aithema-reveal__subtitle { white-space:nowrap; }
 }
 `;
 
@@ -118,9 +119,11 @@ export function createReveal({ band, orb, controls = [], links, version = {}, co
       return { node, rect, opacity: style.opacity, transform: style.transform, visual };
     });
     const radius = Math.max(1, Math.hypot(x, y), Math.hypot(b.width - x, y), Math.hypot(x, b.height - y), Math.hypot(b.width - x, b.height - y));
+    // Match the reference's 2400px circle without allocating a 4800px backing element.
+    const openRadius = Math.max(2400, radius);
     geometry = { x, y, left: b.left, top: b.top, width: b.width, height: b.height, sizes, radius };
-    Object.entries({ '--ar-x': `${x}px`, '--ar-y': `${y}px`, '--ar-radius': `${radius}px`, '--ar-ring-scale': radius / 20,
-      '--ar-top': `${(radius - y) / (2 * radius) * 100}%`, '--ar-bottom': `${(radius - y + b.height) / (2 * radius) * 100}%`,
+    Object.entries({ '--ar-x': `${x}px`, '--ar-y': `${y}px`, '--ar-radius': `${radius}px`, '--ar-open-scale': openRadius / radius, '--ar-ring-scale': 70,
+      '--ar-top': `${(openRadius - y) / (2 * openRadius) * 100}%`, '--ar-bottom': `${(openRadius - y + b.height) / (2 * openRadius) * 100}%`,
       '--ar-row-left': `${r.right - b.left + 14}px`, '--ar-row-right': `${b.width < 760 ? 14 : 24}px` }).forEach(([name, value]) => setVariable(name, value));
   };
   const restoreControls = () => {
@@ -202,7 +205,7 @@ export function createReveal({ band, orb, controls = [], links, version = {}, co
     view.clearInterval(ambient); ambient = 0; exitTimer = view.setTimeout(finishExit, exitDuration());
   };
   const open = () => {
-    cancelIntent(); if (destroyed || phase === 'open') return;
+    cancelIntent(); if (destroyed || document.hidden || phase === 'open') return;
     view.clearTimeout(exitTimer); exitTimer = 0;
     if (items.some(node => node.contains(active()))) focusOrb();
     if (phase === 'closed') { measure(); dissolveControls(); }
