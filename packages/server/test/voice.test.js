@@ -357,24 +357,24 @@ test('AIT-130 voice prompt never restores withdrawn history from the provider', 
   assert.ok(!JSON.stringify(h.requests.at(-1)).includes(old.content));
 });
 
-for (const order of ['callback-first', 'persist-first', 'persist-during-admission']) {
+for (const order of ['callback-first', 'persist-first', 'persist-during-voice-check']) {
   test(`AIT-130 voice prompt includes the newest utterance once: ${order}`, async t => {
     const h = await voicePromptFixture(t);
     await h.persist('user', 'old', 'Earlier spoken input');
     await h.persist('assistant', 'reply', 'Earlier recorded reply');
     const latest = { role: 'user', content: 'Newest not-yet-persisted utterance' }, history = [...h.recorded(), latest];
     const expected = [...h.recorded(), latest];
-    const admit = h.runtime.admit;
+    const checkVoice = h.runtime.checkVoice;
     if (order === 'persist-first') await h.persist('user', 'new', latest.content);
-    if (order === 'persist-during-admission') {
-      h.runtime.admit = async args => {
-        if (args.operation === 'stream') await h.persist('user', 'new', latest.content);
-        return admit(args);
+    if (order === 'persist-during-voice-check') {
+      h.runtime.checkVoice = async (...args) => {
+        await checkVoice(...args);
+        await h.persist('user', 'new', latest.content);
       };
     }
     assert.deepEqual(await h.callback(history), expected);
     if (order === 'callback-first') await h.persist('user', 'new', latest.content);
-    h.runtime.admit = admit;
+    h.runtime.checkVoice = checkVoice;
     assert.deepEqual(h.recorded(), expected, 'only persistEvent writes the new person turn');
   });
 }
