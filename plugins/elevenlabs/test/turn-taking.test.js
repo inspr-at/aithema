@@ -7,6 +7,7 @@ import { WebRTCConnection } from '../../../node_modules/@elevenlabs/client/dist/
 import { attachConnectionToOutput } from '../../../node_modules/@elevenlabs/client/dist/utils/attachConnectionToOutput.js';
 import { MediaDeviceOutput } from '../../../node_modules/@elevenlabs/client/dist/platform/web/output.js';
 import { WebAudioAdapter } from '../../../node_modules/@elevenlabs/client/dist/platform/web/webAudioAdapter.js';
+import { RoomEvent } from 'livekit-client';
 import { voiceAsset } from '../../../demo/voice-assets.js';
 import { createElevenLabsClient } from '../src/client.js';
 import { fakeSdk, flush } from './fixtures.js';
@@ -16,6 +17,7 @@ import { fakeSdk, flush } from './fixtures.js';
 async function playbackFixture(t, transport, { persistEvent = async () => {} } = {}) {
   const sdk = fakeSdk(), start = sdk.startSession.bind(sdk), element = { volume: 1, pause() {} };
   let conversation, connection, output, processor, gain, detach;
+  const roomEvents = new Map(), queuedVolumes = [], alignments = [];
   if (transport === 'websocket') {
     let Processor;
     runInNewContext(new TextDecoder().decode(await voiceAsset('audio-concat.js')), {
@@ -29,6 +31,8 @@ async function playbackFixture(t, transport, { persistEvent = async () => {} } =
       postMessage: data => processor.port.onmessage({ data }) };
     output = new MediaDeviceOutput({ currentTime: 0, sampleRate: 16_000, async close() {} },
       { frequencyBinCount: 16, getByteFrequencyData: bytes => bytes.fill(128) }, gain, { port }, element);
+    const playAudio = output.playAudio.bind(output);
+    output.playAudio = chunk => { queuedVolumes.push(gain.gain.value); playAudio(chunk); };
   }
   sdk.startSession = async options => {
     const device = await start({ ...options, onConversationCreated: undefined, onConnect() {}, onDisconnect() {} });
@@ -38,12 +42,13 @@ async function playbackFixture(t, transport, { persistEvent = async () => {} } =
       connection = new WebSocketConnection(socket, 'conv_replay', format, format);
       detach = attachConnectionToOutput(connection, output);
     } else {
-      const room = { localParticipant: device.connection.room.localParticipant, on() {}, async disconnect() {} };
+      const room = { localParticipant: device.connection.room.localParticipant,
+        on(name, callback) { roomEvents.set(name, callback); }, async disconnect() {} };
       connection = new WebRTCConnection(room, 'conv_replay', format, format);
       connection.audioAdapter = new WebAudioAdapter(); connection.audioAdapter.audioElements.push(element);
       output = connection.output;
     }
-    conversation = new VoiceConversation(options, connection, device.input, output, null, async () => {
+    conversation = new VoiceConversation({ ...options, onAudioAlignment: value => alignments.push(value) }, connection, device.input, output, null, async () => {
       detach?.(); await device.endSession();
     });
     conversation.markConnected(); options.onConversationCreated(conversation);
@@ -63,15 +68,26 @@ async function playbackFixture(t, transport, { persistEvent = async () => {} } =
     },
   });
   const session = await client.start({ callId: 'call_replay' }); t.after(() => session.close());
-  const wire = event => connection.handleMessage(event);
+  const wire = event => transport === 'websocket' ? connection.handleMessage(event)
+    : roomEvents.get(RoomEvent.DataReceived)(new TextEncoder().encode(JSON.stringify(event)));
   const agent = (id, text = 'Eine Antwort zum Hosting.') => wire({ type: 'agent_response',
     agent_response_event: { event_id: id, agent_response: text } });
-  const audio = id => wire({ type: 'audio', audio_event: { event_id: id,
-    audio_base_64: Buffer.from(new Int16Array(512).fill(16384).buffer).toString('base64') } });
+  const audio = (id, sample = 16384) => wire({ type: 'audio', audio_event: { event_id: id,
+    ...(transport === 'websocket'
+      ? { audio_base_64: Buffer.from(new Int16Array(512).fill(sample).buffer).toString('base64') }
+      : { alignment: { chars: ['H'], char_start_times_ms: [0], char_durations_ms: [32] } }) } });
+  // The SDK's WebRTC analyser synthesizes these IDs locally, after track audio.
+  const analysedAudio = id => connection.handleMessage({ type: 'audio', audio_event: { event_id: id,
+    audio_base_64: Buffer.from(new Int16Array(128).fill(16384).buffer).toString('base64') } });
+  const part = (id, type = 'start', text = '') => wire({ type: 'agent_chat_response_part',
+    text_response_part: { event_id: id, type, text } });
   const interrupt = id => wire({ type: 'interruption', interruption_event: { event_id: id } });
   const volume = () => transport === 'websocket' ? gain.gain.value : element.volume;
-  const samples = () => { const frame = new Float32Array(128); processor.process([], [[frame]]); return [...frame]; };
-  return { session, sdk, agent, audio, interrupt, wire, volume, samples };
+  const samples = () => {
+    if (transport === 'webrtc') return Array(128).fill(0.5 * element.volume);
+    const frame = new Float32Array(128); processor.process([], [[frame]]); return [...frame];
+  };
+  return { session, sdk, agent, audio, analysedAudio, part, interrupt, wire, volume, samples, queuedVolumes, alignments };
 }
 
 for (const transport of ['webrtc', 'websocket']) {
@@ -107,11 +123,82 @@ for (const transport of ['webrtc', 'websocket']) {
     agent(10); audio(10); interrupt(10); await session.setOutput(false);
     agent(11); audio(11); assert.equal(volume(), 0);
     await session.setOutput(true); assert.equal(volume(), 1);
-    interrupt(11); await session.pause(); agent(12); audio(12); assert.equal(volume(), 0);
+    interrupt(11); await session.pause(); agent(11); audio(11); assert.equal(volume(), 0);
     await session.resume(); assert.equal(volume(), 0, 'resume cannot revive an interrupted reply');
     agent(13); audio(13); assert.equal(volume(), 1);
   });
+
+  test(`AIT-146: ${transport} first fresh audio unlocks before the complete agent response`, async t => {
+    const local = await playbackFixture(t, transport);
+    local.agent(10); local.audio(10, -16384); local.interrupt(10);
+    local.audio(10, -16384); assert.equal(local.volume(), 0, 'stale audio stays muted');
+    assert.ok(local.samples().every(sample => sample === 0));
+    local.audio(11);
+    assert.equal(local.volume(), 1, 'fresh audio must unlock synchronously before agent_response');
+    if (transport === 'websocket') assert.equal(local.queuedVolumes.at(-1), 1, 'gain is restored before enqueueing the first fresh chunk');
+    assert.ok(local.samples().every(sample => sample > 0), 'the first fresh frame is audible with no interrupted samples');
+    local.agent(11); assert.equal(local.volume(), 1);
+  });
+
+  test(`AIT-146: ${transport} fresh audio during pause restores playback on resume before agent response`, async t => {
+    const local = await playbackFixture(t, transport);
+    local.agent(10); local.audio(10); local.interrupt(10); await local.session.pause();
+    local.audio(11); assert.equal(local.volume(), 0, 'pause remains dominant over the fresh audio signal');
+    await local.session.resume();
+    assert.equal(local.volume(), 1, 'resume must not retain the interruption mute after a fresh audio id');
+    local.audio(11); assert.ok(local.samples().some(sample => sample > 0));
+  });
+
+  test(`AIT-146: ${transport} fresh final during pause records the id without persisting a paused turn`, async t => {
+    const saved = [], local = await playbackFixture(t, transport, { persistEvent: async event => { saved.push(event); } });
+    local.agent(10); local.interrupt(10); await local.session.pause();
+    local.agent(11); assert.equal(local.volume(), 0);
+    await local.session.resume();
+    assert.equal(local.volume(), 1, 'a final received during pause must clear the interruption state');
+    local.interrupt(10); assert.equal(local.volume(), 1, 'the paused fresh id also fences stale interruptions');
+    await flush(); assert.deepEqual(saved.map(event => event.turnId), ['conv_replay:assistant:10']);
+  });
+
+  test(`AIT-146: ${transport} fresh audio respects output-off through pause and resume`, async t => {
+    const local = await playbackFixture(t, transport);
+    local.agent(10); local.interrupt(10); await local.session.setOutput(false); await local.session.pause();
+    local.audio(11); await local.session.resume(); assert.equal(local.volume(), 0);
+    await local.session.setOutput(true); assert.equal(local.volume(), 1, 'output-on exposes the fresh reply without a stuck interruption mute');
+  });
+
+  test(`AIT-146: ${transport} stale events after an audio unlock cannot re-mute or forward old audio`, async t => {
+    const local = await playbackFixture(t, transport);
+    local.agent(10); local.audio(10, -16384); local.interrupt(10); local.audio(12);
+    const queued = local.queuedVolumes.length, aligned = local.alignments.length;
+    local.interrupt(10); local.interrupt(11); local.agent(10); local.part(10);
+    for (const id of [9, 10, undefined, -1, 10.5]) local.audio(id, -16384);
+    assert.equal(local.volume(), 1, 'even a delayed interruption newer than the previous interruption cannot mute a newer audio reply');
+    assert.equal(local.queuedVolumes.length, queued, 'no old WebSocket chunk reaches output');
+    assert.equal(local.alignments.length, aligned, 'no old WebRTC provider audio reaches the SDK');
+    assert.ok(local.samples().every(sample => sample > 0));
+    local.audio(12); assert.equal(local.volume(), 1, 'another chunk of the fresh reply remains audible');
+    local.interrupt(12); assert.equal(local.volume(), 0, 'a real interruption of the fresh reply still mutes');
+    local.audio(10); local.part(10); local.agent(10); assert.equal(local.volume(), 0, 'old signals cannot unlock a subsequent interruption');
+  });
 }
+
+test('AIT-146: WebRTC streamed reply start and delta unlock before track audio and complete response', async t => {
+  const local = await playbackFixture(t, 'webrtc');
+  local.agent(10); local.interrupt(10);
+  local.part(10); local.part(11, 'stop'); local.part(undefined); assert.equal(local.volume(), 0);
+  local.part(11); assert.equal(local.volume(), 1, 'a newer streamed start precedes TTS track audio');
+  assert.ok(local.samples().every(sample => sample > 0));
+  local.interrupt(11); await local.session.pause(); local.part(12, 'delta', 'Hosting'); assert.equal(local.volume(), 0);
+  await local.session.resume(); assert.equal(local.volume(), 1, 'streamed deltas during pause also record the fresh reply');
+});
+
+test('AIT-146: WebRTC local analyser ids and speaking modes cannot unlock an interrupted reply', async t => {
+  const local = await playbackFixture(t, 'webrtc');
+  local.agent(10); local.interrupt(10);
+  local.analysedAudio(500); local.sdk.starts[0].onModeChange({ mode: 'speaking' });
+  assert.equal(local.volume(), 0, 'capture counters and mode notifications have no provider turn identity');
+  local.audio(11); assert.equal(local.volume(), 1, 'provider alignment carries a trustworthy fresh turn id');
+});
 
 test('AIT-146: WebSocket interruption clears queued PCM immediately in the pinned worklet', async t => {
   const local = await playbackFixture(t, 'websocket');
