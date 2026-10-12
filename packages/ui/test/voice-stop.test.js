@@ -80,7 +80,7 @@ function fixture(t, { transport, restored = true, component = false } = {}) {
     if (!element) root.remove();
     await Promise.all(returned.map(value => value.close())); await flush();
   });
-  return { sdk, client, root, rail, returned, failures, requests, waiting, journal,
+  return { sdk, client, root, rail, element, returned, failures, requests, waiting, journal,
     resumeEntered, resumeAck, closeEntered, closeAck };
 }
 
@@ -117,6 +117,32 @@ for (const transport of ['webrtc', 'websocket']) {
     f.closeAck.resolve(); assert.equal((await starting).code, 'deadline');
     assert.ok(f.requests.some(request => request.body.reason === 'recovery-failed' && request.body.recoveryAttempts === 3 && request.completed));
   });
+
+  for (const restored of [false, true]) {
+    test(`AIT-138 fix 2: ${transport} a server pause fences ${restored ? 'restored startup' : 'active Resume'} before its acknowledgement`, async t => {
+      const f = fixture(t, { transport, restored, component: true });
+      f.root.querySelector(restored ? '.pause' : '.voice-start').click();
+      if (!restored) {
+        await flush(); f.root.querySelector('.pause').click(); await flush();
+        f.root.querySelector('.pause').click();
+      }
+      await f.resumeEntered.promise;
+      const acquired = f.sdk.acquired.length, before = f.sdk.effects.length;
+      f.element.receive({ seq: 1, type: 'session.paused', data: { paused: true } });
+      const mutedImmediately = f.sdk.effects.slice(before).some(([name, volume]) => name === 'setVolume' && volume === 0);
+      f.resumeAck.resolve(); await flush();
+      assert.deepEqual({ mutedImmediately, acquisitions: f.sdk.acquired.length,
+        unmuted: f.sdk.effects.slice(before).filter(([name, volume]) => name === 'setVolume' && volume > 0),
+        state: f.root.querySelector('.audio-rail').dataset.state },
+      { mutedImmediately: true, acquisitions: acquired, unmuted: [], state: 'paused' });
+      if (!restored) assert.equal(f.returned[0].lifecycle.state.state, 'paused');
+      f.closeAck.resolve(); await flush();
+      if (restored) {
+        assert.equal(f.returned.length, 0); assert.equal(f.failures[0]?.code, 'unavailable');
+        assert.equal(f.root.querySelector('.audio-rail').dataset.state, 'waiting');
+      }
+    });
+  }
 
   for (const restored of [false, true]) {
     test(`AIT-138 fix 2: ${transport} pagehide stops ${restored ? 'restored Resume' : 'an active call'} before stalled closure`, async t => {
