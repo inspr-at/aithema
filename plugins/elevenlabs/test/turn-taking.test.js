@@ -41,7 +41,7 @@ async function playbackFixture(t, transport, { persistEvent = async () => {} } =
       const room = { localParticipant: device.connection.room.localParticipant, on() {}, async disconnect() {} };
       connection = new WebRTCConnection(room, 'conv_replay', format, format);
       connection.audioAdapter = new WebAudioAdapter(); connection.audioAdapter.audioElements.push(element);
-      output = connection.outputController;
+      output = connection.output;
     }
     conversation = new VoiceConversation(options, connection, device.input, output, null, async () => {
       detach?.(); await device.endSession();
@@ -112,6 +112,20 @@ for (const transport of ['webrtc', 'websocket']) {
     agent(13); audio(13); assert.equal(volume(), 1);
   });
 }
+
+test('AIT-146: WebSocket interruption clears queued PCM immediately in the pinned worklet', async t => {
+  const local = await playbackFixture(t, 'websocket');
+  local.agent(10); local.audio(10); local.interrupt(10);
+  assert.ok(local.samples().every(sample => sample === 0), 'interrupt must discard every queued sample');
+});
+
+test('AIT-146: late WebSocket audio cannot queue an interrupted reply ahead of a fresh reply', async t => {
+  const local = await playbackFixture(t, 'websocket');
+  local.agent(10); local.audio(10); local.interrupt(10);
+  for (let frame = 0; frame < 5; frame++) local.samples();
+  local.audio(10);
+  assert.ok(local.samples().every(sample => sample === 0), 'late interrupted PCM must not enter the worklet');
+});
 
 test('AIT-146: replay a German utterance with pauses and spelling as one complete final; corrections alone define heard text', async t => {
   const saved = [], local = await playbackFixture(t, 'webrtc', { persistEvent: async event => { saved.push(event); } });
