@@ -26,6 +26,7 @@ function fixture(t, { motion = true, reduced = false, copy = en, shadow = false 
   for (let index = 0; index < 4; index++) {
     const node = document.createElement('button'); node.textContent = `control ${index}`; node.setAttribute('data-reveal', '');
     node.getBoundingClientRect = () => ({ left: 108 + index * 200, top: 16, width: 44, height: 44 }); band.append(node); controls.push(node);
+    node.getClientRects = () => [node.getBoundingClientRect()];
   }
   root.append(band); orb.mount(); const version = { product: 'Aithema 2026.10', commit: 'd886da3', date: '2026-10-12' };
   const reveal = createReveal({ band, orb, controls, links: copy.reveal.links, version, copy, motion });
@@ -40,6 +41,19 @@ test('AIT-140: hover requires a full 350ms rest', t => {
   const f = fixture(t); f.event(f.orb.element, 'mouseenter'); f.advance(349); assert.equal(f.state(), 'closed');
   f.advance(1); assert.equal(f.state(), 'open'); assert.equal(f.orb.element.getAttribute('aria-expanded'), 'true');
   assert.ok(f.controls.every(node => node.inert));
+});
+
+for (const kind of ['hidden', 'transparent', 'no rects']) test(`AIT-131 B6: ${kind} controls get no dissolve proxy or stagger and stay untouched`, t => {
+  const f = fixture(t), node = f.controls[0];
+  if (kind === 'hidden') node.style.visibility = 'hidden';
+  if (kind === 'transparent') node.style.opacity = '0';
+  if (kind === 'no rects') node.getClientRects = () => [];
+  const before = node.outerHTML;
+  f.orb.element.click();
+  assert.equal(node.outerHTML, before, 'skipped controls retain their own attributes and styles');
+  assert.ok(![...f.band.querySelectorAll('.aithema-reveal__proxy')].some(proxy => proxy.textContent === node.textContent));
+  assert.equal(f.band.querySelectorAll('.aithema-reveal__proxy').length, 3, 'visible controls still dissolve');
+  f.reveal.close(); f.advance(1500); assert.equal(node.outerHTML, before);
 });
 
 test('AIT-140: a quick pass on the orb never opens the reveal', t => {

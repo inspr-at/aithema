@@ -257,10 +257,13 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
     async function revealEvidence(width, theme, copy) {
       const label = `${width}-${theme}-${locale}`, selector = 'aithema-session >>> .band-orb .orb';
       const baseline = await shadow(page, c => [...c.shadowRoot.querySelectorAll('.band [data-reveal]')].map(node => {
-        const r = node.getBoundingClientRect(); return { box: [r.x, r.y, r.width, r.height], opacity: getComputedStyle(node).opacity };
+        const r = node.getBoundingClientRect(), style = getComputedStyle(node);
+        return { box: [r.x, r.y, r.width, r.height], opacity: style.opacity,
+          eligible: style.visibility !== 'hidden' && Number(style.opacity) !== 0 && node.getClientRects().length > 0 };
       }));
       const orb = await shadow(page, c => { const r = c.shadowRoot.querySelector('.band-orb .orb').getBoundingClientRect(); return [r.width, r.height]; });
-      assert.deepEqual(orb, [40, 40], `${label}: real band orb`);
+      assert.deepEqual(orb, [44, 44], `${label}: real band orb hit target`);
+      assert.deepEqual((await boxes(page, ['.band-orb .orb__body']))[0].slice(2), [40, 40], `${label}: 40px visual`);
       await page.hover(selector); await new Promise(resolve => setTimeout(resolve, 120));
       await page.mouse.move(0, 300); await new Promise(resolve => setTimeout(resolve, 260));
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.band').dataset.aithemaRevealState), 'closed', `${label}: quick pass`);
@@ -279,11 +282,12 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.aithema-reveal__version code').textContent), evidenceCommit);
       assert.match(await shadow(page, c => c.shadowRoot.querySelector('.aithema-reveal__version').title), /2026-10-12/);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.aithema-reveal__row').getAttribute('aria-label')), copy.reveal.label);
-      const controls = await shadow(page, c => [...c.shadowRoot.querySelectorAll('.band [data-reveal]')].map(n => ({
+      const controls = await shadow(page, (c, baseline) => [...c.shadowRoot.querySelectorAll('.band [data-reveal]')].map((n, i) => ({
         name: n.className, inert: n.inert, proxy: Boolean(n.closest('.aithema-reveal__dissolves')), marked: n.hasAttribute('data-aithema-reveal-control'),
-      })));
+        eligible: baseline[i].eligible,
+      })), baseline);
       const phase = await shadow(page, c => c.shadowRoot.querySelector('.band').dataset.aithemaRevealState);
-      assert.ok(phase === 'open' && controls.every(n => n.inert), `${label}: revealed controls (${phase}): ${JSON.stringify(controls)}`);
+      assert.ok(phase === 'open' && controls.every(n => n.eligible ? n.inert && n.marked : !n.marked), `${label}: only visible controls dissolve (${phase}): ${JSON.stringify(controls)}`);
       // Hold only this synchronous exit's cleanup. Its genuine CSS timelines can then be sampled
       // at exact times without screenshot latency advancing them between requested frames.
       await shadow(page, c => {
@@ -353,6 +357,87 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
       await shot('conversations-menu-open', width, theme); await page.keyboard.press('Escape');
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.conversations-menu').hidden), true);
     }
+    await t.test('B1/B2: all band menus share centred chevrons, icon sizes and gaps at every width', async () => {
+      for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [320, 321, 390, 600, 680, 768, 900, 1000, 1024, 1440]) {
+        await page.setViewport({ width, height: 900 }); await page.select('#theme', theme); await scene('conversation');
+        const menus = await page.evaluate(() => {
+          const root = document.querySelector('aithema-session').shadowRoot;
+          const button = root.querySelector('.conversations-toggle');
+          const rect = n => { const b = n.getBoundingClientRect(); return { left: b.left, right: b.right, cy: b.top + b.height / 2, width: b.width, height: b.height }; };
+          return [{ host: button, glyph: button.firstElementChild, label: button.querySelector('span'), chevron: button.lastElementChild },
+            ...[...document.querySelectorAll('.utility')].map(host => ({ host, glyph: host.querySelector('.utility-icon svg'), label: host.querySelector('.utility-value'), chevron: host.querySelector('.utility-chevron svg') }))]
+            .map(({ host, glyph, label, chevron }) => ({ glyph: rect(glyph), label: rect(label), chevron: chevron ? rect(chevron) : null,
+              path: chevron?.querySelector('path')?.getAttribute('d'), gap: getComputedStyle(host).gap, bounds: rect(host) }));
+        });
+        assert.ok(menus.every(n => n.bounds.left >= 0 && n.bounds.right <= width + .5), `${width}/${theme}/${locale}: menus fit`);
+        assert.ok(menus.every(n => n.chevron), 'language and appearance use the shared SVG chevron');
+        for (const menu of menus.slice(width === 320 ? 1 : 0)) {
+          assert.equal(menu.chevron.width, 10); assert.equal(menu.chevron.height, 10);
+          assert.ok(Math.abs(menu.chevron.cy - menu.label.cy) <= .5, 'chevron is centred on its label');
+          assert.equal(menu.path, menus[1].path); assert.equal(menu.gap, menus[1].gap);
+          assert.equal(menu.glyph.width, 16); assert.equal(menu.glyph.height, 16);
+        }
+        assert.equal(menus[0].glyph.width, 16, 'the conversations icon is visible even at 320');
+      }
+    });
+    await t.test('B3/B4/B8: footer zones stay 24px apart, digits start after 6px, and only the credit number is bold', async () => {
+      for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1000, 900, 768, 680, 600, 390, 320]) {
+        await page.setViewport({ width, height: 900 }); await page.select('#theme', theme); await scene('conversation');
+        await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.status').hasAttribute('data-connected'));
+        const footer = await shadow(page, c => {
+          const root = c.shadowRoot, rect = s => { const b = root.querySelector(s).getBoundingClientRect(); return { left: b.left, right: b.right, top: b.top }; };
+          const visible = s => getComputedStyle(root.querySelector(s)).display !== 'none';
+          const weight = s => Number(getComputedStyle(root.querySelector(s)).fontWeight);
+          const timer = root.querySelector('.connection-timer'), style = getComputedStyle(timer);
+          const digits = document.createRange(); digits.selectNodeContents(timer);
+          return { zones: ['.ai-notice', '.host-credits', '.footer-right'].map(rect), flag: rect('.engine__flag'), label: rect('.status__label'),
+            digits: digits.getBoundingClientRect().left, timer: rect('.connection-timer'), align: style.textAlign, numeric: style.fontVariantNumeric,
+            amount: weight('.host-credits__amount'), total: weight('.host-credits__total'), unit: weight('.host-credits__unit'),
+            voice: visible('.ai-notice__voice'), short: visible('.ai-notice__short'), connected: visible('.status__label') };
+        });
+        const context = `${width}/${theme}/${locale}: ${JSON.stringify(footer)}`;
+        assert.ok(footer.zones[1].left - footer.zones[0].right >= 23.5 && footer.zones[2].left - footer.zones[1].right >= 23.5, context);
+        assert.ok(footer.zones.every(n => n.left >= 0 && n.right <= width + .5 && Math.abs(n.top - footer.zones[0].top) <= .5), context);
+        if (footer.connected) { assert.ok(Math.abs(footer.digits - footer.label.right - 6) <= .5, context); assert.ok(Math.abs(footer.label.left - footer.flag.right - 12) <= .5, context); }
+        assert.equal(footer.align, 'start'); assert.equal(footer.numeric, 'tabular-nums');
+        assert.ok(footer.amount >= 600); assert.equal(footer.total, 400); assert.equal(footer.unit, 400);
+        assert.equal(footer.voice, width >= 1000); assert.equal(footer.short, width < 680);
+        const before = await boxes(page, ['.connection-timer', '.engine-info', '.ai-notice', '.host-credits']);
+        await shadow(page, c => { c.shadowRoot.querySelector('.connection-timer').textContent = '1:00:00'; });
+        sameBoxes(before, await boxes(page, ['.connection-timer', '.engine-info', '.ai-notice', '.host-credits']), 'reserve after digits prevents jitter');
+        await shot('footer-amended', width, theme);
+      }
+    });
+    await t.test('B5: 320 flag hover has no slide-in label; 390 retains it without moving the credits', async () => {
+      for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [320, 390]) {
+        await page.setViewport({ width, height: 900 }); await page.select('#theme', theme); await scene('conversation');
+        const before = await boxes(page, ['.engine-info', '.host-credits__amount', '.connection-timer']);
+        await page.hover('aithema-session >>> .engine-info'); await settle();
+        const label = await shadow(page, c => { const n = c.shadowRoot.querySelector('.engine__value'), style = getComputedStyle(n);
+          return { displayed: style.display !== 'none', popup: getComputedStyle(c.shadowRoot.querySelector('.engine__detail')).visibility }; });
+        assert.equal(label.displayed, width >= 360); assert.equal(label.popup, 'visible');
+        sameBoxes(before, await boxes(page, ['.engine-info', '.host-credits__amount', '.connection-timer']), 'flag hover');
+        await shot('flag-hover-amended', width, theme);
+      }
+    });
+    await t.test('B6: the hidden stop slot never gets a reveal proxy or stagger', async () => {
+      locale = 'de'; await page.setViewport({ width: 1440, height: 900 }); await scene('conversation');
+      const before = await shadow(page, c => c.shadowRoot.querySelector('.audio-rail .voice-pause').outerHTML);
+      await shadow(page, c => c.shadowRoot.querySelector('.band-orb .orb').click());
+      assert.equal(await shadow(page, c => Boolean(c.shadowRoot.querySelector('.aithema-reveal__proxy.voice-pause'))), false);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.audio-rail .voice-pause').outerHTML), before, 'hidden control is untouched');
+      await scene('conversation');
+    });
+    await t.test('B7: status flanks hide together below 24px without removing the waveform box', async () => {
+      for (locale of ['de', 'en']) for (const width of [320, 390, 1440]) {
+        await page.setViewport({ width, height: 900 }); await scene('ready');
+        const wave = await shadow(page, c => { const n = c.shadowRoot.querySelector('.voice-wave'), style = getComputedStyle(n), rect = n.getBoundingClientRect();
+          return { width: rect.width, height: rect.height, flank: rect.width / 2 - parseFloat(style.getPropertyValue('--voice-label-half')) - 8, visibility: style.visibility }; });
+        assert.ok(wave.width > 0 && wave.height === 30, 'visibility keeps the reserved box');
+        assert.equal(wave.visibility, wave.flank >= 24 ? 'visible' : 'hidden', JSON.stringify({ width, locale, ...wave }));
+        await shot('band-amended', width, 'light');
+      }
+    });
     for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
       await page.setViewport({ width, height: width === 390 ? 844 : 900 });
       await page.select('#theme', theme);
@@ -478,7 +563,7 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
       await shadow(page, c => c.shadowRoot.querySelector('.voice-close').click());
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'idle');
     }
-    for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [320, 600, 768, 900]) {
+    for (locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [320, 600, 680, 768, 900, 1000]) {
       await page.setViewport({ width, height: 900 }); await page.select('#theme', theme); await scene('conversation');
       const row = await shadow(page, c => {
         const r = c.shadowRoot, items = ['.ai-notice', '.host-credits', '.footer-right'].map(s => {
@@ -490,7 +575,7 @@ test('AIT-131 integrated display: real band, reveal, voice and display matrix at
       assert.ok(row.items.every(b => b.left >= 0 && b.right <= width + .5), `${width}-${theme}-${locale}: footer fits`);
       assert.ok(row.items.every(b => Math.abs(b.top - row.items[0].top) <= .5), 'one footer line');
       assert.ok(row.items[0].right <= row.items[1].left + .5 && row.items[1].right <= row.items[2].left + .5, 'footer zones never overlap');
-      assert.equal(row.short, width < 600); assert.equal(row.version, width >= 600); assert.equal(row.unit, width >= 360);
+      assert.equal(row.short, width < 680); assert.equal(row.version, width >= 680); assert.equal(row.unit, width >= 360);
       await shot('footer-narrow', width, theme);
       for (const [selector, name] of [['.engine-info', 'flag-hover-open'], ['.ai-notice', 'footer-popup-open'], ['.host-credits', 'credits-popup-open']]) {
         await page.hover(`aithema-session >>> ${selector}`); await settle();
