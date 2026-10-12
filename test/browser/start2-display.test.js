@@ -25,6 +25,11 @@ const settle = () => new Promise(resolve => setTimeout(resolve, 120));
 const boxes = (page, selectors) => shadow(page, (c, selectors) => selectors.map(selector => {
   const r = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
 }), selectors);
+// Dissolve transforms intentionally drift the painted controls. Offset geometry
+// checks the actual layout underneath that animation.
+const layoutBoxes = (page, selectors) => shadow(page, (c, selectors) => selectors.map(selector => {
+  const n = c.shadowRoot.querySelector(selector); return [n.offsetLeft, n.offsetTop, n.offsetWidth, n.offsetHeight];
+}), selectors);
 const sameBoxes = (before, after, context) => before.forEach((box, i) => box.forEach((value, n) =>
   assert.ok(Math.abs(value - after[i][n]) <= .5, `${context}: ${i}/${n} shifted ${value} → ${after[i][n]}`)));
 
@@ -164,11 +169,11 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
         return [r.x, r.y, r.width, r.height];
       });
       assert.equal(visual[2], 40); assert.equal(visual[3], 40); assert.equal(target[2], 44); assert.equal(target[3], 44);
-      const bandBefore = await boxes(page, ['.band-orb', '.band', '.settings-open']);
+      const bandBefore = await layoutBoxes(page, ['.band-orb', '.band', '.settings-open']);
       // The point is in the target's outer ring, beyond the painted 40px orb.
       await page.mouse.click(target[0] + 1, target[1] + 22);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.band').dataset.aithemaRevealState), 'open');
-      await settle(); sameBoxes(bandBefore, await boxes(page, ['.band-orb', '.band', '.settings-open']), 'orb activation does not shift the band');
+      await settle(); sameBoxes(bandBefore, await layoutBoxes(page, ['.band-orb', '.band', '.settings-open']), 'orb activation does not shift the band layout');
       await shot('orb-hit-area-open', locale, theme, width);
       checks.push({ locale, theme, width, visual, target });
     }
