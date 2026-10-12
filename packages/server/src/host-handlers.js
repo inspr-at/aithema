@@ -120,17 +120,21 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     let state = storage.hostState(id)?.identity ?? initialIdentity(id, ownerToken);
     state = host.identity.project?.({ session: storage.get(id) }, state) ?? state;
     state.manualPaused = storage.get(id).paused;
-    return { identity: identityView(state, clock(state)), ...extra };
+    return { identity: identityView(state, clock(state)), delivery: host.identity.deliversVerification === true,
+      privacyDocumentConfigured: privacyDocumentConfigured(host), ...extra };
   }
   function creditResult(id, ownerToken) {
     const balance = budgetCreditView(budget, id, host.wallet(ownerToken));
-    if (host.credits?.ownerGuard === false) return { balance, limitSlot: null };
+    const projection = host.creditTiers?.(ownerToken) ?? null;
+    const collectionAllowed = host.demo === true || privacyDocumentConfigured(host);
+    const tiers = projection && (collectionAllowed ? projection : { ...projection, next: null, delta: 0, canConfirm: false });
+    if (host.credits?.ownerGuard === false) return { balance, limitSlot: null, tiers };
     const guard = storage.ownerCreditState(ownerToken);
     const state = guard ? guard.sessionId === id ? guard : rebindCredits(guard, id) : createCredits({ sessionId: id, ...host.credits });
     // Project live balances, expiry and pause without persisting read results.
     const current = reduceCredits(state, { type: 'balance', balance, now: clock(state) }).state;
     const projected = reduceCredits(current, { type: 'pause', paused: storage.get(id).paused, now: clock(current) }).state;
-    return { balance, limitSlot: creditsView(projected, clock(projected)) };
+    return { balance, limitSlot: creditsView(projected, clock(projected)), tiers };
   }
   function startCredits(id, ownerToken) {
     const balance = budgetCreditView(budget, id, host.wallet(ownerToken));
@@ -190,7 +194,8 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
         if (!ownerToken) return json({ error: 'owner-required' }, 401);
         if (!host.visitor || !host.saveEmail || !host.deleteEmail || !host.eraseVisitor) return json({ error: 'visitor-unavailable' }, 503);
         if (url.pathname === '/api/visitor/email') {
-          if (request.method === 'GET') return json({ visitor: host.visitor(ownerToken), notice: host.emailNotice ?? null });
+          if (request.method === 'GET') return json({ visitor: host.visitor(ownerToken), notice: host.emailNotice ?? null,
+            privacyDocumentConfigured: privacyDocumentConfigured(host) });
           if (request.method === 'POST' || request.method === 'PUT') {
             assertAddressCollectionAllowed();
             return json({ visitor: host.saveEmail(ownerToken, await body(request, ['address', 'noticeVersion'])) });

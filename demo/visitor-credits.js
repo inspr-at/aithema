@@ -162,6 +162,13 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
     db.prepare('DELETE FROM visitor_identity_cleanup WHERE owner_hash=?').run(ownerHash);
   }
   return { settings, policy, visitor, touch, projectIdentity, persistIdentity,
+    creditTiers(ownerHash) {
+      const { allowancesMicro, confirmationEnabled } = settings(), current = policy(ownerHash).tier;
+      const canConfirm = confirmationEnabled && deliveryEnabled;
+      const candidate = current === 'anonymous' ? 'emailGiven' : current === 'emailGiven' && canConfirm ? 'emailConfirmed' : null;
+      const next = candidate && allowancesMicro[candidate] > allowancesMicro[current] ? candidate : null;
+      return { current, next, delta: next ? allowancesMicro[next] - allowancesMicro[current] : 0, canConfirm, allowancesMicro };
+    },
     saveSettings(input, { actor = 'system:host', source = 'host' } = {}) {
       if (!object(input, ['baseRevision', 'allowancesUsd', 'confirmationEnabled']) || !integer(input.baseRevision) || !input.baseRevision ||
         input.allowancesUsd === undefined && input.confirmationEnabled === undefined ||

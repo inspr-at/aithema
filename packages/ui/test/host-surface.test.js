@@ -331,7 +331,7 @@ test('handover stays away when the host offers none', async t => {
   assert.equal(root.querySelector('.handover').hidden, true);
 });
 
-test('credits: the owner balance and time slot from the server; limit-reached shows the host slot and plain words', async t => {
+test('credits: only the monetary balance is shown, and host-limit uses the calm stacked state', async t => {
   const { c, root } = setup(t, { routes: {
     'GET /credits': () => Response.json({ balance, limitSlot: { status: 'active', remainingMs: 30 * 60_000, canStartPaidWork: true } }),
   } });
@@ -339,11 +339,11 @@ test('credits: the owner balance and time slot from the server; limit-reached sh
   const line = root.querySelector('.host-credits');
   assert.equal(line.hidden, false);
   assert.equal(line.querySelector('.host-credits__text').textContent, '425 of 500 Credits');
-  assert.equal(line.querySelector('.host-credits__limit').hidden, true);
-  c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'one-hour' } });
-  assert.equal(line.querySelector('.host-credits__deadline').textContent, cr.ended['one-hour']);
+  assert.equal(line.querySelector('.host-credits__deadline').textContent, '');
+  c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
+  assert.equal(line.querySelector('.host-credits__used-up-full').textContent, cr.usedUp);
   assert.equal(line.querySelector('.host-credits__limit').hidden, false);
-  assert.equal(root.querySelector('.status__label').textContent, cr.ended['one-hour']);
+  assert.equal(root.querySelector('.status__label').textContent, cr.ended['host-limit']);
 });
 
 test('host slots: account, credits limit, handover offer, legal and footer are named slots; the footer row shows only when filled', async t => {

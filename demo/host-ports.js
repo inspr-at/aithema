@@ -190,6 +190,7 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
       text: { en: 'Saving an email is optional. It changes your visitor credit tier without resetting spend. We delete the address after 90 days without activity. Saving does not subscribe you to marketing.',
         de: 'Das Speichern einer E-Mail-Adresse ist freiwillig. Es ändert dein Besucherguthaben, ohne Ausgaben zurückzusetzen. Wir löschen die Adresse nach 90 Tagen ohne Aktivität. Das Speichern ist keine Anmeldung für Werbung.' } },
     visitor: ownerToken => visitorCredits.visitor(hash(ownerToken)),
+    creditTiers: ownerToken => visitorCredits.creditTiers(hash(ownerToken)),
     touchVisitor: session => visitorCredits.touch(session.ownerHash),
     saveEmail(ownerToken, input) { const result = visitorCredits.saveEmail(hash(ownerToken), input); purgeMail(); return result; },
     deleteEmail(ownerToken) { const result = visitorCredits.deleteEmail(hash(ownerToken)); purgeMail(); return result; },

@@ -70,6 +70,7 @@ export class AithemaSession extends HTMLElement {
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
   #open = []; #cleared = []; #failure = false; #sending = false;
   #pointer = null; #onTranscript = false; #follow = true; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false;
+  #creditEnding = false; #creditEndTimer = null; #creditAnnounced = false;
   #dialog; #connector; #createDevice; #deviceEndpoint; #chooser = { choice: null, busy: false, error: '' }; #aiNotice; #host; #options; #refocus = null;
   #introOrb = null; #reveal = null; #fold; #timer; #popups; #motion = true; #motionMedia; #motionListener;
   #orb = null; #started = false; #inputMode = null; #microphone = 'unknown'; #permission = null;
@@ -138,7 +139,7 @@ export class AithemaSession extends HTMLElement {
   disconnectedCallback() {
     this.#timer?.setConnected(false); this.#reveal?.disconnect();
     this.#popups?.destroy(); this.#motionMedia?.removeEventListener?.('change', this.#motionListener);
-    this.#host?.disconnect(); this.#watchPage(false); this.#concept?.suspend(); this.#rail?.disconnect(); this.#orb?.destroy(); this.#introOrb?.destroy(); this.#abort?.abort(); this.#deviceController?.abort();
+    clearTimeout(this.#creditEndTimer); this.#host?.disconnect(); this.#watchPage(false); this.#concept?.suspend(); this.#rail?.disconnect(); this.#orb?.destroy(); this.#introOrb?.destroy(); this.#abort?.abort(); this.#deviceController?.abort();
     this.#paneObserver?.disconnect(); for (const timer of this.#scrollTimers.values()) clearTimeout(timer); this.#scrollTimers.clear();
     this.#pings?.close(); this.#pings = null;
   }
@@ -197,8 +198,9 @@ export class AithemaSession extends HTMLElement {
     return this.#voiceClients?.[voice?.id] ?? this.#voiceClient;
   }
   /** Opens the settings dialog; `preset` preselects a preset (the chooser's Custom path). */
-  openSettings(opener = this.shadowRoot.querySelector('.settings-open'), { tab = 'model', continueLabel = false, preset } = {}) {
-    this.#dialog.open(opener, { tab, continueLabel, preset });
+  openSettings(opener = this.shadowRoot.querySelector('.settings-open'), { tab = 'model', continueLabel = false, preset, anchor } = {}) {
+    if (anchor) { this.#dialog.openAt(tab, anchor, opener); if (anchor === '#email') this.#host?.verification?.focusEntry(); }
+    else this.#dialog.open(opener, { tab, continueLabel, preset });
   }
   #mount() {
     const root = this.shadowRoot;
@@ -221,10 +223,15 @@ export class AithemaSession extends HTMLElement {
           <div class="intro__card"></div></div>
         <div class="concept-bar"><div class="concept-rail"></div><div class="concept-preview-slot"></div></div>
         <div class="transcript-shell"><ol aria-live="polite"></ol><button class="transcript-latest" type="button" data-copy="transcriptLatest" style="visibility:hidden"></button></div>
-        <form class="composer"><label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000" rows="2"></textarea>
+        <div class="composer-shell"><form class="composer"><label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000" rows="2"></textarea>
           <div class="composer-actions"><button class="attach" type="button" aria-describedby="attach-limits ai-notice">${UPLOAD_ICONS.attach}<span class="attach__label"></span></button>
             <span class="sr-only" id="attach-limits"></span><input class="attach-input" type="file" multiple hidden tabindex="-1" accept="${UPLOAD_ACCEPT}">
             <small class="composer-reason" role="status" id="composer-reason"></small><button class="send" aria-describedby="ai-notice">${icon('arrowRight')}<span class="visually-hidden"></span></button></div></form>
+          <div class="composer-out" aria-hidden="true" inert><p class="composer-out__title"></p><p class="composer-out__body"></p>
+            <div class="composer-out__bar"><span class="composer-out__steps"><span class="composer-out__give" data-next="give"></span><span class="composer-out__confirm" data-next="confirm"></span><span class="composer-out__none" data-next="none"></span></span>
+              <span class="composer-out__actions"><button class="composer-out__upgrade" type="button" aria-haspopup="dialog"><span data-next="give"></span><span data-next="confirm"></span></button>
+                <a class="composer-out__export" data-next="none">${icon('download')}<span></span></a></span></div></div></div>
+        <p class="credit-announcement sr-only" role="status" aria-live="polite"></p>
         <div class="drop-overlay" aria-hidden="true"><p><strong></strong><span></span></p></div></section>
       <aside class="understanding" aria-labelledby="understanding-title"><header class="head"><h2 id="understanding-title" data-copy="understanding"></h2><button class="concept-tab" type="button" data-copy="conceptTab"></button></header>
         <section class="readiness"><div class="scale" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span class="fill"></span><span class="marker"></span></div>
@@ -241,7 +248,12 @@ export class AithemaSession extends HTMLElement {
       <footer class="display-foot"><div class="display-foot__row">
         <div class="footer-info" data-footer-popup><button class="ai-notice" type="button" aria-describedby="ai-notice build-info"><i class="speaker-sign" aria-hidden="true"></i><span class="display-version"></span><span class="ai-notice__label"></span><span class="ai-notice__short"></span><span class="ai-notice__voice"></span></button>
           <div class="footer-popup" role="tooltip"><p id="ai-notice"></p><p id="build-info"></p><div class="host-foot" hidden><slot name="legal"></slot><slot name="footer"></slot></div></div></div>
-        <div class="host-credits" tabindex="0" data-footer-popup hidden><span class="host-credits__text"><strong class="host-credits__amount"></strong><span class="host-credits__total"></span><span class="host-credits__unit"></span></span><span class="host-credits__track" role="meter" aria-valuemin="0"><i></i></span><div class="footer-popup" role="tooltip"><span class="host-credits__scope"></span><span class="host-credits__deadline"></span><span class="host-credits__limit" hidden><slot name="credits-limit"></slot></span></div></div>
+        <div class="host-credits" data-footer-popup hidden><button class="host-credits__button" type="button" aria-expanded="false" aria-controls="credits-popup"><span class="host-credits__stack"><span class="host-credits__text"><strong class="host-credits__amount"></strong><span class="host-credits__total"></span><span class="host-credits__unit"></span></span>
+          <span class="host-credits__used-up" aria-hidden="true"><span class="host-credits__used-up-full"></span><span class="host-credits__used-up-short"></span></span></span><span class="host-credits__track" role="meter" aria-valuemin="0"><i></i></span></button>
+          <div class="footer-popup credits-popup" id="credits-popup" role="group" aria-labelledby="credits-balance"><p class="host-credits__scope" id="credits-balance"></p>
+            <p class="host-credits__current"><span class="credits-check" aria-hidden="true">${ICONS.check}</span><span></span></p>
+            <p class="host-credits__next"></p><a class="credits-email" href="#email"></a><p class="host-credits__equivalence"></p>
+            <span class="host-credits__deadline" hidden></span><span class="host-credits__limit" hidden><slot name="credits-limit"></slot></span></div></div>
         <div class="footer-right"><section class="preset-panel"><div class="engine" data-footer-popup><button class="engine-info" type="button" aria-describedby="model-info"><span class="engine__value"></span><span class="engine__flag"></span></button><span class="engine__detail footer-popup" id="model-info" role="tooltip"></span></div><ul class="features"></ul></section>
           <span class="status" role="status"><span class="status__label"></span><time class="connection-timer">0:00</time></span></div></div></footer></div>
       <dialog class="settings"></dialog><dialog class="library"></dialog><dialog class="verify-dialog"></dialog>`;
@@ -291,6 +303,8 @@ export class AithemaSession extends HTMLElement {
       if (!this.#sessionToken || this.#session.processingPreset === 'device') return;
       e.preventDefault(); void this.#export();
     });
+    root.querySelector('.composer-out__upgrade').addEventListener('click', event => this.openSettings(event.currentTarget, { tab: 'general', anchor: '#email' }));
+    root.querySelector('.composer-out__export').addEventListener('click', event => { event.preventDefault(); if (this.#session.processingPreset !== 'device') void this.#export(); });
     root.querySelector('form').addEventListener('submit', e => { e.preventDefault(); void this.#send(); });
     root.querySelector('textarea').addEventListener('keydown', e => {
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');
@@ -311,7 +325,7 @@ export class AithemaSession extends HTMLElement {
       } catch { this.#status(this.#copy.reasoningFailed); }
     });
     this.#rail = new AudioRail({ root: root.querySelector('.audio-rail'), copy: this.#copy, client: this.#voiceClientFor(),
-      feature: () => this.#feature('voice', true), playback: this.#voicePlayback, journal: this.#journal ?? undefined,
+      feature: () => this.#feature('voice', true), usedUp: () => this.#host?.usedUp ?? false, ending: () => this.#creditEnding, playback: this.#voicePlayback, journal: this.#journal ?? undefined,
       ready: () => this.#orphan, onLevel: level => this.#orb?.setEnergy(level),
       // A call that starts, ends or fails moves the stage and the avatar with it.
       onState: state => {
@@ -359,6 +373,7 @@ export class AithemaSession extends HTMLElement {
     });
     for (const pane of root.querySelectorAll(PANES)) pane.addEventListener('pointerleave', () => clearSlack(pane));
     if (this.#options.host) this.#host = new HostSurface({ root, copy: this.#copy, options: this.#options.host, baseUrl: this.#base, sessionToken: this.#sessionToken,
+      openSettings: () => this.openSettings(root.querySelector('.host-credits__button'), { tab: 'general', anchor: '#email' }), onCredits: () => this.#creditsChanged(),
       session: () => this.#session, status: text => this.#status(text), adopt: (session, reason) => this.#adopt(session, reason),
       beforeVerifyDialog: () => this.#dialog.closeForVerification(), verificationOpener: () => root.querySelector('.settings-open'),
       onLock: () => { this.#render('aside'); this.#render('transcript'); this.#dialog?.sync(); },
@@ -500,8 +515,24 @@ export class AithemaSession extends HTMLElement {
     } catch { if (sessionId === this.#session.id) this.#status(this.#copy.controlFailed); }
     finally { if (url) URL.revokeObjectURL(url); }
   }
+  #creditsChanged() {
+    if (!this.#host) return;
+    const usedUp = this.#host.usedUp;
+    if (usedUp && this.#rail?.session && !this.#creditEnding) {
+      this.#creditEnding = true;
+      void this.#rail.close('host-limit');
+      this.#creditEndTimer = setTimeout(() => { this.#creditEnding = false; this.#creditsChanged(); }, 600);
+    }
+    if (!usedUp) { clearTimeout(this.#creditEndTimer); this.#creditEnding = false; this.#creditAnnounced = false; }
+    if (usedUp && !this.#creditEnding && !this.#creditAnnounced) {
+      this.#creditAnnounced = true; setText(this.shadowRoot.querySelector('.credit-announcement'), this.#copy.hostSurface.usedUp.announce);
+    }
+    if (usedUp && this.shadowRoot.querySelector('.workspace').dataset.stage !== 'live') this.#render('transcript');
+    this.#render('composer'); this.#rail?.render(); this.#dialog?.sync();
+  }
   #feature(feature, visitor = false) {
     const preset = this.#session.processingPreset ?? 'best';
+    if (this.#host?.usedUp && preset !== 'device') return { available: false, reason: this.#copy.voiceStates.usedUp, rawReason: 'host-limit' };
     if (this.#session.paused) return { available: false, reason: this.#copy.paused };
     if (this.#session.consentWithdrawn || this.#session.tombstone) return { available: false, reason: this.#copy.consentRequired };
     const matrix = this.#session.featureMatrix?.[preset] ?? (preset === 'device' ? deviceFeatures() : {});
@@ -599,6 +630,22 @@ export class AithemaSession extends HTMLElement {
       const words = this.#uploadNotice || (text.available ? copy.shortcut.replace('{key}', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '') : text.reason);
       setText(reason, words); reason.title = this.#uploadNotice || text.available ? '' : text.reason;
       this.#paintAttach();
+      const out = root.querySelector('.composer-out'), usedUp = Boolean(this.#host?.usedUp) && !this.#creditEnding;
+      const shell = root.querySelector('.composer-shell'), form = root.querySelector('form.composer'), u = copy.hostSurface.usedUp, credits = copy.hostSurface.credits;
+      shell.toggleAttribute('data-used-up', usedUp); form.inert = usedUp; form.setAttribute('aria-hidden', String(usedUp));
+      out.inert = !usedUp; out.setAttribute('aria-hidden', String(!usedUp));
+      const next = this.#host?.nextTier, kind = next === 'emailGiven' ? 'give' : next === 'emailConfirmed' ? 'confirm' : 'none';
+      out.dataset.next = kind; out.dataset.delivery = String(this.#host?.tiers?.canConfirm === true);
+      setText(out.querySelector('.composer-out__title'), u.title); setText(out.querySelector('.composer-out__body'), u.body);
+      const delta = this.#host?.deltaCredits ?? '';
+      setText(out.querySelector('.composer-out__give'), u.give.replace('{delta}', delta)); setText(out.querySelector('.composer-out__confirm'), u.confirm.replace('{delta}', delta));
+      setText(out.querySelector('.composer-out__none'), u.none);
+      setText(out.querySelector('.composer-out__upgrade [data-next="give"]'), credits.give); setText(out.querySelector('.composer-out__upgrade [data-next="confirm"]'), credits.confirm);
+      setText(out.querySelector('.composer-out__export span'), u.export);
+      out.querySelector('.composer-out__export').href = `${this.#base}/api/sessions/${this.#session.id}/export`;
+      for (const node of out.querySelectorAll('[data-next]')) { const shown = node.dataset.next === kind; node.setAttribute('aria-hidden', String(!shown)); node.inert = !shown; }
+      const upgrade = out.querySelector('.composer-out__upgrade'); upgrade.inert = kind === 'none'; upgrade.setAttribute('aria-hidden', String(kind === 'none'));
+      for (const card of root.querySelectorAll('.qcard, .question-card')) { card.inert = usedUp; card.toggleAttribute('data-used-up', usedUp); }
       return;
     }
     if (part === 'features') {
@@ -659,7 +706,7 @@ export class AithemaSession extends HTMLElement {
       return;
     }
     const analysis = this.#feature('analysis', true), locked = this.#host?.locked ?? false;
-    const cached = this.#session.paused && this.#session.understanding.inputRevision !== null;
+    const cached = (this.#session.paused || this.#host?.usedUp) && this.#session.understanding.inputRevision !== null;
     for (const node of root.querySelectorAll('.analysis-content [data-redacted]')) {
       node.style.minHeight = ''; delete node.dataset.redacted;
     }
@@ -801,6 +848,7 @@ export class AithemaSession extends HTMLElement {
   // choice, readiness once a choice is confirmed, then the live conversation after an explicit start or
   // once the conversation has input. A pause or a running call also shows the live view (its controls).
   #stage() {
+    if (this.#host?.usedUp) return 'live';
     if (this.#hasInput() || this.#started || this.#session.paused || this.#rail?.root.dataset.call === 'active') return 'live';
     return (this.#session.settings?.origin ?? 'default') === 'chosen' ? 'ready' : 'entrance';
   }

@@ -1,8 +1,8 @@
 // Every non-GET request from the client goes through here. The server accepts
 // POST bodies only as application/json and answers anything else with 415,
 // except the document upload route, which takes multipart/form-data (postForm).
-export function postJson(url, body = {}, { sessionToken, signal, keepalive = false } = {}) {
-  return fetch(url, { method: 'POST', signal, keepalive, headers: { 'content-type': 'application/json',
+export function postJson(url, body = {}, { sessionToken, signal, keepalive = false, method = 'POST' } = {}) {
+  return fetch(url, { method, signal, keepalive, headers: { 'content-type': 'application/json',
     ...(sessionToken ? { 'x-aithema-session-token': sessionToken } : {}) }, body: JSON.stringify(body) });
 }
 // The browser sets the multipart boundary itself, so no content-type is given here.

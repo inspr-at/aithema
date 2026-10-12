@@ -74,7 +74,7 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
   const directory = await mkdtemp(join(tmpdir(), 'aithema-a2-browser-')), evidence = process.env.AITHEMA_EVIDENCE_DIR;
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
   let browser;
-  t.after(async () => { try { await browser?.close(); } finally { await demo.close(); await rm(directory, { recursive: true, force: true }); } });
+  t.after(async () => { try { await browser?.close(); } finally { await demo.kill(); await rm(directory, { recursive: true, force: true }); } });
   if (evidence) await mkdir(evidence, { recursive: true });
   const passLines = [], states = [];
   for (const locale of ['de', 'en']) {

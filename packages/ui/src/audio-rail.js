@@ -7,8 +7,8 @@ import { Waveform } from './waveform.js';
 // End and Retry call, Sound and Enable sound), so no state change moves a control.
 const BUTTONS = { start: ['mic'], input: ['mic', true], output: ['volume', true], playback: ['volume'], close: ['stop'], retry: ['refresh'] };
 export class AudioRail {
-  constructor({ root, copy, client, feature, context, onPartial, onPause, onEnd, onState, onLevel, playback, journal, ready, heartbeatMs = 10_000 }) {
-    Object.assign(this, { root, copy, client, feature, context, onPartial, onPause, onEnd, onState, onLevel, playback, journal, ready, heartbeatMs });
+  constructor({ root, copy, client, feature, context, onPartial, onPause, onEnd, onState, onLevel, playback, journal, ready, usedUp, ending, heartbeatMs = 10_000 }) {
+    Object.assign(this, { root, copy, client, feature, context, onPartial, onPause, onEnd, onState, onLevel, playback, journal, ready, usedUp, ending, heartbeatMs });
     this.state = 'idle'; this.input = true; this.output = true; this.generation = 0; this.connected = true;
     const button = name => `<button data-reveal class="voice-${name}" type="button">${name === 'pause' ? `<span class="voice-icon">${icon('pause')}</span><span class="voice-icon voice-icon--resume">${icon('play')}</span>`
       : icon(BUTTONS[name][0], { slash: BUTTONS[name][1] === true })}<span class="voice-label"></span></button>`;
@@ -84,14 +84,17 @@ export class AudioRail {
     // Closing a rail that had no call (an invalidation while idle) is no call: it never marks one active.
     const c = this.copy, active = Boolean(this.session), available = this.feature(),
       transitional = ['connecting', 'recovering'].includes(this.state) || this.state === 'closing' && this.closingCall;
+    const usedUp = Boolean(this.usedUp?.()) || ['host-limit', 'budget denied'].includes(available.rawReason ?? available.reason) || ['host-limit', 'budget denied'].includes(this.errorReason);
+    const creditEnding = Boolean(this.ending?.());
+    this.root.toggleAttribute('data-used-up', usedUp); this.root.toggleAttribute('data-credit-ending', creditEnding);
     const state = this.paused && active ? 'paused' : this.state;
     if (this.root.dataset.state !== undefined && this.root.dataset.state !== state) queueMicrotask(() => { if (this.connected) this.onState?.(state); });
     this.root.dataset.state = state;
     this.root.dataset.call = active || transitional ? 'active' : 'none';
     this.root.toggleAttribute('data-playback-blocked', Boolean(this.playbackBlocked));
-    this.root.toggleAttribute('data-message', Boolean(this.error) && !['voiceClosureUncertain', 'voiceEnded'].includes(this.errorKey));
+    this.root.toggleAttribute('data-message', !usedUp && Boolean(this.error) && !['voiceClosureUncertain', 'voiceEnded'].includes(this.errorKey));
     this.root.setAttribute('role', 'group'); this.root.setAttribute('aria-label', c.voiceRail);
-    this.root.querySelector('.voice-state').textContent = this.error ?? (active || transitional ? c.voiceStates[this.root.dataset.state] :
+    this.root.querySelector('.voice-state').textContent = usedUp ? c.voiceStates[creditEnding ? 'creditEnding' : 'usedUp'] : this.error ?? (active || transitional ? c.voiceStates[this.root.dataset.state] :
       available.available && this.client ? c.voiceStates[this.state] : available.reason ?? c.notConfigured);
     const labels = { start: c.voiceStart, close: c.voiceClose, input: this.input ? c.voiceMicOn : c.voiceMicOff,
       output: this.output ? c.voiceSpeakerOn : c.voiceSpeakerOff, pause: this.paused ? c.resume : c.pause,
@@ -103,8 +106,9 @@ export class AudioRail {
         : name === 'retry' ? active || this.state !== 'failed' || !available.available
         : name === 'playback' ? !this.playbackBlocked
         : name === 'close' ? !active && this.state !== 'connecting' : !active || name !== 'close' && (this.busy || transitional || command && !this.capability(command));
-      if (name === 'start' && button.disabled && !active) button.title = available.reason ?? c.notConfigured;
-      if (command && !this.capability(command)) button.title = c.voiceCommandUnavailable;
+      if (usedUp) { button.disabled = true; button.title = c.voiceStates.usedUp; }
+      if (!usedUp && name === 'start' && button.disabled && !active) button.title = available.reason ?? c.notConfigured;
+      if (!usedUp && command && !this.capability(command)) button.title = c.voiceCommandUnavailable;
     }
     this.button('input').setAttribute('aria-pressed', String(this.input));
     this.button('output').setAttribute('aria-pressed', String(this.output));

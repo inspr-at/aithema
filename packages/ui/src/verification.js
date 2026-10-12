@@ -4,6 +4,7 @@
 // One form is built twice: inline on the understanding pane while host policy locks the
 // assessment, and in a small dialog behind the quiet entry in Settings otherwise.
 import { node, setText, showOne, fill } from './dom.js';
+import { VisitorEmail } from './visitor-email.js';
 
 // START EmailLock, without its motion: a closed padlock in the accent colour.
 const LOCK = '<svg viewBox="0 0 32 36" width="22" height="25" fill="none" aria-hidden="true"><path d="M9 16V10a7 7 0 0 1 14 0v6" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><rect x="4" y="15" width="24" height="18" rx="5" fill="currentColor"/><path d="M16 22v4" stroke="var(--aithema-surface)" stroke-width="2.6" stroke-linecap="round"/></svg>';
@@ -11,20 +12,27 @@ const CHECK = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" strok
 export const POLL_MS = 4000;
 
 export class Verification {
+  #email; #creditsChanged;
   #copy; #request; #status; #onChange; #focusAfterUnlock; #pollMs; #root; #notice; #beforeOpen; #focusReturn;
   #identity = null; #at = 0; #ui = { editing: false, busy: false, message: '', error: false };
   #forms = []; #entry; #lock; #dialog; #opener = null; #tick = null; #poll = null; #alive = true; #connected = false; #locked = false;
   /** request(path, body?) reaches the session's own host routes and resolves {ok,status,body}; notice() is the AI notice line. */
-  constructor({ root, copy, request, status, onChange, focusAfterUnlock, beforeOpen, focusReturn, entry, lock, dialog, identity, pollMs = POLL_MS, notice }) {
+  constructor({ root, copy, request, status, onChange, focusAfterUnlock, beforeOpen, focusReturn, entry, lock, dialog, identity, pollMs = POLL_MS, notice, demo = false, delivery = true, privacyDocumentConfigured, handover = false, locale, creditsChanged }) {
     this.#root = root; this.#copy = copy; this.#request = request; this.#status = status; this.#onChange = onChange;
     this.#focusAfterUnlock = focusAfterUnlock; this.#pollMs = pollMs; this.#notice = notice;
     this.#beforeOpen = beforeOpen; this.#focusReturn = focusReturn;
     this.#entry = entry; this.#lock = lock; this.#dialog = dialog;
-    this.#mountEntry(); this.#mountLock(); this.#mountDialog();
+    this.#creditsChanged = creditsChanged;
+    this.#email = new VisitorEmail({ root, entry, copy, request, demo, delivery, privacyDocumentConfigured, handover, locale,
+      openDialog: opener => this.openDialog(opener), changed: async ({ refresh }) => {
+        if (refresh) { this.#identity = structuredClone(this.#email.identity); await this.#creditsChanged?.(); }
+        this.#onChange?.();
+      } });
+    this.#mountLock(); this.#mountDialog();
     this.set(identity ?? null, { quiet: true });
   }
   setCopy(copy) {
-    this.#copy = copy; this.#ui.message = '';
+    this.#copy = copy; this.#email.set({ copy }); this.#ui.message = '';
     const v = this.#v;
     setText(this.#dialog.querySelector('#verify-dialog-title'), v.title);
     setText(this.#dialog.querySelector('.verify-dialog-close'), v.close);
@@ -43,15 +51,32 @@ export class Verification {
   get locked() { return this.enabled && this.#identity.verificationRequired === true && this.#identity.assessmentUnlocked !== true; }
   get identity() { return this.#identity ? structuredClone(this.#identity) : null; }
   async load() {
-    if (this.enabled) return;
     try {
       const response = await this.#request('identity');
-      if (this.#alive && response.ok && response.body?.identity) this.set(response.body.identity);
+      if (this.#alive && response.ok && response.body?.identity) {
+        this.#email.set({ ...(typeof response.body.delivery === 'boolean' ? { delivery: response.body.delivery } : {}),
+          ...(typeof response.body.privacyDocumentConfigured === 'boolean' ? { privacyDocumentConfigured: response.body.privacyDocumentConfigured } : {}) });
+        this.set(response.body.identity);
+      }
     } catch { /* No identity port: the entry stays away. */ }
+    try {
+      const response = await this.#request('/api/visitor/email');
+      if (this.#alive && response.ok && response.body?.visitor) {
+        this.#email.set({ visitor: response.body.visitor, notice: response.body.notice,
+          ...(typeof response.body.notice?.deliveryEnabled === 'boolean' ? { delivery: response.body.notice.deliveryEnabled } : {}),
+          ...(typeof response.body.privacyDocumentConfigured === 'boolean' ? { privacyDocumentConfigured: response.body.privacyDocumentConfigured } : {}) });
+        this.#paint(); this.#onChange?.();
+      }
+    } catch { /* Hosts without the optional visitor port keep verification. */ }
   }
+  setCredits(credits) { this.#email.set({ tiers: credits?.tiers, balance: credits?.balance?.owner }); this.#paint(); }
+  focusEntry() { this.#email.focus(); }
+  get canCollect() { return this.#email.canCollect; }
   set(identity, { quiet = false } = {}) {
     const before = this.#identity;
     this.#identity = identity && !identity.erased ? structuredClone(identity) : null; this.#at = Date.now();
+    this.#email.set({ identity: this.#identity,
+      ...(this.#email.visitor && before && before.address !== this.#identity?.address ? { visitor: { ...this.#email.visitor, address: this.#identity?.address ?? null } } : {}) });
     // A new verification round or a changed address ends a stale message.
     if (before?.verificationRevision !== this.#identity?.verificationRevision || before?.status !== this.#identity?.status) {
       if (!this.#ui.busy) this.#ui.message = '';
@@ -72,9 +97,9 @@ export class Verification {
   }
   connect() { this.#connected = true; this.#schedule(); }
   disconnect() { this.#connected = false; clearTimeout(this.#poll); this.#poll = null; }
-  destroy() { this.#alive = false; this.disconnect(); clearInterval(this.#tick); this.#tick = null; if (this.#dialog.open) this.#dialog.close(); }
+  destroy() { this.#alive = false; this.#email.destroy(); this.disconnect(); clearInterval(this.#tick); this.#tick = null; if (this.#dialog.open) this.#dialog.close(); }
   async openDialog(opener = this.#entry.querySelector('button')) {
-    if (!this.enabled) return;
+    if (!this.enabled || !this.canCollect || !this.#email.delivery) return;
     if (await this.#beforeOpen?.() === false || !this.#alive || !this.enabled) return;
     this.#opener = this.#focusReturn?.() ?? opener;
     this.#paint();
@@ -88,15 +113,6 @@ export class Verification {
     const status = this.#identity?.status;
     if (status === 'verified') return 'verified';
     return status === 'verification-pending' && this.#identity.address && !this.#ui.editing ? 'pending' : 'capture';
-  }
-  #mountEntry() {
-    const title = node('h3', 'verify-entry-title');
-    const state = node('p', 'verify-entry-state');
-    state.append(node('span', 'verify-entry-address'), node('span', 'verify-entry-status'));
-    const button = node('button', 'verify-entry'); button.type = 'button'; button.setAttribute('aria-haspopup', 'dialog');
-    button.addEventListener('click', () => this.openDialog(button));
-    const done = node('span', 'verify-done'); done.innerHTML = CHECK; done.append(node('span'));
-    state.append(done); this.#entry.replaceChildren(title, state, button);
   }
   #mountLock() {
     const icon = node('span', 'verify-lock__icon'); icon.innerHTML = LOCK;
@@ -135,7 +151,13 @@ export class Verification {
     primary.append(send, resend); actions.append(primary, cancel);
     const message = node('p', 'verify__message'); message.id = `${prefix}-message`; message.setAttribute('role', 'status');
     const note = node('p', 'verify__note'); note.id = `${prefix}-note`;
-    form.append(field, actions, message, note);
+    const lead = node('p', 'verify__lead m-two'); lead.append(node('span', 'verify__lead-mail'), node('span', 'verify__lead-reconfirm'));
+    const privacy = node('p', 'm-notice'); privacy.id = `${prefix}-privacy`;
+    const privacyText = node('span', 'm-notice-text'), privacyLink = node('a', 'm-pp'); privacyLink.target = '_blank'; privacyLink.rel = 'noopener';
+    privacy.append(privacyText, ' ', privacyLink);
+    input.setAttribute('aria-describedby', `${prefix}-message ${prefix}-privacy`);
+    input.addEventListener('input', () => { if (this.#ui.error) { this.#ui.error = false; this.#ui.message = ''; this.#paint(); } });
+    form.append(lead, field, actions, message, note, privacy);
     form.addEventListener('submit', event => { event.preventDefault(); void this.#send(entry); });
     resend.addEventListener('click', () => void this.#resend(entry));
     change.addEventListener('click', () => { this.#ui = { ...this.#ui, editing: true, message: '' }; input.value = this.#identity?.address ?? ''; this.#paint(); input.focus(); input.select?.(); });
@@ -151,16 +173,25 @@ export class Verification {
   }
   async #send(entry) {
     const v = this.#v, address = entry.input.value.trim();
-    if (this.#ui.busy) return;
+    if (this.#ui.busy || !this.canCollect) return;
     if (!address || !entry.input.checkValidity?.() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(address)) {
       this.#ui = { ...this.#ui, message: v.invalid, error: true }; this.#paint(); entry.input.focus(); return;
     }
-    const command = this.#identity?.status === 'guest' || !this.#identity?.address ? 'request' : 'change';
+    // A given address already earns the saved tier while the confirmation link is pending.
+    if (this.#email.notice?.version) {
+      this.#ui = { ...this.#ui, busy: true, message: v.sending, error: false }; this.#paint();
+      let response; try { response = await this.#request('/api/visitor/email', { address, noticeVersion: this.#email.notice.version }, 'PUT'); } catch { /* No acknowledgement. */ }
+      if (!this.#alive) return;
+      this.#ui.busy = false;
+      if (!response?.ok || !response.body?.visitor) { this.#ui.message = response?.status === 400 ? v.invalid : v.failed; this.#ui.error = true; this.#paint(); return; }
+      this.#email.set({ visitor: response.body.visitor }); await this.#creditsChanged?.();
+    }
+    const command = this.#identity?.status === 'guest'  || !this.#identity?.address ? 'request' : 'change';
     await this.#post(`identity/${command}`, { address }, () => { this.#ui.editing = false; entry.input.value = ''; });
     if (this.#alive) this.#focusForm(entry);
   }
   async #resend(entry) {
-    if (this.#ui.busy) return;
+    if (this.#ui.busy || !this.canCollect) return;
     if (this.#cooldown() > 0) { this.#ui = { ...this.#ui, message: this.#v.rateLimited, error: true }; this.#paint(); return; }
     await this.#post('identity/resend', {});
     if (this.#alive && entry.root.isConnected && this.#mode() === 'pending') entry.resend.focus();
@@ -191,21 +222,20 @@ export class Verification {
     const v = this.#v, identity = this.#identity, mode = this.#mode(), cooldown = this.#cooldown();
     // Settings owns the optional entry; the policy lock below remains in the understanding pane.
     this.#entry.hidden = !this.enabled;
-    const button = this.#entry.querySelector('.verify-entry'), done = this.#entry.querySelector('.verify-done');
-    const verified = identity?.status === 'verified', pending = identity?.status === 'verification-pending';
-    setText(this.#entry.querySelector('h3'), v.section);
-    setText(this.#entry.querySelector('.verify-entry-address'), identity?.address ?? '');
-    const entryStatus = this.#entry.querySelector('.verify-entry-status');
-    setText(entryStatus, pending ? v.linkSent : v.unverified); entryStatus.hidden = verified;
-    button.hidden = !this.enabled || verified; done.hidden = !this.enabled || !verified;
-    setText(button, pending ? v.resendOrChange : v.entry); setText(done.lastChild, v.verifiedShort);
+    this.#email.set({ identity: this.#identity });
     // Lock pane: shown exactly while host policy holds the assessment.
-    this.#lock.hidden = !this.locked;
+    this.#lock.hidden = !this.locked || !this.canCollect;
     setText(this.#lock.querySelector('.verify-lock__title'), v.lockTitle);
     setText(this.#lock.querySelector('.verify-lock__lead'), v.lockLead);
     const text = this.#stateText(), note = mode === 'pending' && cooldown > 0 ? fill(v.cooldown, { seconds: cooldown }) : mode === 'verified' ? '' : v.hint;
     for (const form of this.#forms) {
       form.root.dataset.mode = mode;
+      const nums = this.#email.numbers, e = this.#copy.hostSurface.email;
+      setText(form.root.querySelector('.verify__lead-mail'), this.#email.tiers ? fill(e.leadMail, nums) : '');
+      setText(form.root.querySelector('.verify__lead-reconfirm'), this.#email.tiers ? fill(e.leadReconfirm, nums) : '');
+      form.root.querySelector('.verify__lead').classList.toggle('reconfirm', identity?.status === 'verified');
+      this.#email.paintNotice(form.root.querySelector('.m-notice'));
+      form.input.setAttribute('aria-invalid', String(Boolean(this.#ui.error && this.#ui.message === v.invalid)));
       const shown = { capture: form.capture, pending: form.pending, verified: form.done }[mode];
       showOne(shown, ...[form.capture, form.pending, form.done].filter(n => n !== shown));
       setText(form.root.querySelector('.verify__address'), identity?.address ?? '');
@@ -227,7 +257,7 @@ export class Verification {
     if (counting && !this.#tick) this.#tick = setInterval(() => { if (!this.#alive) return; this.#paint(); if (this.#cooldown() === 0) { clearInterval(this.#tick); this.#tick = null; } }, 1000);
     if (!counting && this.#tick) { clearInterval(this.#tick); this.#tick = null; }
     clearTimeout(this.#poll); this.#poll = null;
-    if (!this.#alive || !this.#connected || !this.#identity?.pollVerification) return;
+    if (!this.#alive || !this.#connected || !this.canCollect || !this.#email.delivery || !this.#identity?.pollVerification) return;
     this.#poll = setTimeout(async () => {
       this.#poll = null;
       if (globalThis.document?.visibilityState !== 'hidden') {

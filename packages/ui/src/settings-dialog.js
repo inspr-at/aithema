@@ -286,6 +286,14 @@ export class SettingsDialog {
     // The chooser's Custom card preselects the host's Custom preset with its defaults.
     void this.reload().then(() => { if (preset && this.#dialog.open && preset !== this.#draft?.processingPreset) this.#choosePreset(preset); });
   }
+  /** The credits action opens General and scrolls to the existing E-Mail cell. */
+  openAt(tab, anchor, opener) {
+    this.open(opener, { tab });
+    this.#setTab(tab);
+    const target = this.#q(anchor), body = this.#q('.settings__body');
+    if (target && body) body.scrollTop = Math.max(0, target.offsetTop - body.offsetTop - 12);
+    this.#help = tab; this.#showHelp();
+  }
   async reload() {
     try { this.setCatalog(await this.#ports.catalog()); }
     catch { this.#loadFailed = true; this.#render(); }
@@ -453,7 +461,7 @@ export class SettingsDialog {
     const term = this.#hovered ?? this.#focused()?.closest?.('[data-help]');
     const key = term?.dataset.reason ? `${term.dataset.kind || 'unavailable'}:${term.dataset.reason}` : term?.dataset.help ?? this.#help;
     const help = this.#copy.help, [kind, ...rest] = key.split(':'), reason = rest.join(':');
-    const helpKey = key === 'general' && !this.#q('.host-verify').hidden && this.#q('.verify-entry')?.hidden === false ? 'generalEmail' : key;
+    const helpKey = key === 'general' && !this.#q('.host-verify').hidden ? this.#q('.host-verify').dataset.emailHelp ?? key : key;
     const text = term?.dataset.help === 'gauge' ? term.dataset.helpText : reason && ['unavailable', 'consent', 'limited'].includes(kind)
       ? fill(help[kind === 'unavailable' ? 'unavailable' : kind === 'consent' ? 'consentNeeded' : 'limited'], { reason: reasonText(this.#copy, reason) })
       : help[helpKey] ?? help[key] ?? help[this.#help] ?? help.processing;
