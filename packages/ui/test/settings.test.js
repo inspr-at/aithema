@@ -35,7 +35,7 @@ function catalogFor(session) {
     custom: preset({ status: 'consent', reason: 'current processing consent required', defaults: { model: 'mock/deep', effort: 'high', voice: 'off', visuals: 'off' },
       models: models.slice(0, 2), voices, visuals }) } };
 }
-function fixture(t, { origin = 'default', turns = 0, voiceClient, deviceConnector, matrix = {}, respond, copy = en, host, identity } = {}) {
+function fixture(t, { origin = 'default', turns = 0, voiceClient, deviceConnector, matrix = {}, respond, copy = en, host, identity, loadIdentity } = {}) {
   let session = createSession({ demo: true });
   if (identity !== undefined) session.identity = identity;
   for (let i = 0; i < turns; i++) session = applyEvent(session, { seq: session.seq + 1, type: 'turn.final', data: { id: `t${i}`, role: 'user', content: 'Hello' } });
@@ -58,6 +58,7 @@ function fixture(t, { origin = 'default', turns = 0, voiceClient, deviceConnecto
       featureMatrix: current.featureMatrix, consent: { required: false, features: [] }, ...extra });
   };
   globalThis.fetch = async (url, init = {}) => {
+    if (String(url).endsWith('/identity')) return Response.json({ identity: await loadIdentity?.() ?? null });
     if (String(url).endsWith('/settings') && init.method !== 'POST') return Response.json(catalogFor(server.session));
     if (String(url).endsWith('/settings')) { const body = JSON.parse(init.body); posts.push(body); return respond ? respond(body, posts.length, ack, server) : ack(body); }
     if (String(url).endsWith('/events')) return new Response(new ReadableStream({ start(controller) { init.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }));
@@ -79,13 +80,50 @@ const emailHelp = {
   de: 'Allgemein · Hier können Sie ein neues Gespräch beginnen, die Einwilligung und Ihre Voreinstellungen prüfen und Ihre E-Mail bestätigen.',
   en: 'General · Start a new conversation, review consent and your defaults, and verify your email.',
 };
+const generalHelp = {
+  de: 'Allgemein · Hier können Sie ein neues Gespräch beginnen sowie die Einwilligung und Ihre Voreinstellungen prüfen.',
+  en: 'General · Start a new conversation, review consent and your defaults.',
+};
 for (const [locale, copy] of Object.entries({ de, en })) for (const state of ['off', 'guest', 'verification-pending', 'verified']) {
   test(`AIT-147 footer: ${locale}, verification ${state}`, async t => {
     const h = await opened(fixture(t, { copy, host: { verification: state !== 'off' },
       identity: { ...guestIdentity, status: state === 'off' ? 'guest' : state, address: state === 'verification-pending' || state === 'verified' ? 'visitor@example.com' : null } }));
     h.q('[data-tab="general"]').click();
     assert.equal(h.q('.host-verify').hidden, state === 'off');
-    assert.equal(h.q('.context-message').textContent, state === 'off' ? copy.help.general : emailHelp[locale]);
+    const needsVerification = state === 'guest' || state === 'verification-pending';
+    if (state !== 'off') assert.equal(h.q('.verify-entry').hidden, !needsVerification);
+    assert.equal(h.q('.context-message').textContent, needsVerification ? emailHelp[locale] : generalHelp[locale]);
+  });
+}
+
+for (const [locale, copy] of Object.entries({ de, en })) {
+  for (const status of ['guest', 'verified']) test(`AIT-147 footer repaint: ${locale}, delayed identity loads ${status} while General is open`, async t => {
+    const held = Promise.withResolvers(); t.after(() => held.resolve(null));
+    const h = await opened(fixture(t, { copy, host: { verification: true }, identity: null, loadIdentity: () => held.promise }));
+    h.q('[data-tab="general"]').click();
+    assert.equal(h.q('.host-verify').hidden, true);
+    const identity = { ...guestIdentity, status, address: status === 'verified' ? 'visitor@example.com' : null };
+    held.resolve(identity); await tick();
+    assert.equal(h.dialog.open, true);
+    assert.equal(h.q('[data-tab="general"]').getAttribute('aria-selected'), 'true');
+    assert.equal(h.q('.host-verify').hidden, false);
+    assert.equal(h.q('.verify-entry').hidden, status === 'verified');
+    assert.equal(h.q('.context-message').textContent, status === 'guest' ? emailHelp[locale] : generalHelp[locale]);
+  });
+  test(`AIT-147 footer repaint: ${locale}, identity state changes while General is open`, async t => {
+    const h = await opened(fixture(t, { copy, host: { verification: true }, identity: guestIdentity }));
+    h.q('[data-tab="general"]').click();
+    for (const status of ['verification-pending', 'verified', 'guest', 'erased']) {
+      const identity = status === 'erased' ? { erased: true } : { ...guestIdentity, status,
+        address: status === 'guest' ? null : 'visitor@example.com' };
+      h.c.receive({ sessionId: h.c.session.id, seq: h.c.session.seq + 1, type: 'identity.state', data: identity });
+      const needsVerification = status === 'guest' || status === 'verification-pending';
+      assert.equal(h.dialog.open, true);
+      assert.equal(h.q('[data-tab="general"]').getAttribute('aria-selected'), 'true');
+      assert.equal(h.q('.host-verify').hidden, status === 'erased');
+      assert.equal(h.q('.verify-entry').hidden, !needsVerification);
+      assert.equal(h.q('.context-message').textContent, needsVerification ? emailHelp[locale] : generalHelp[locale], status);
+    }
   });
 }
 
