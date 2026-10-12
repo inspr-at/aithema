@@ -145,12 +145,14 @@ test('AIT-132: approved card, hover, focus and fold at 1440/390, light/dark, DE/
         await page.keyboard.press('Enter');
         await page.waitForFunction(() => globalThis.qcardRequests.length === 1 && document.querySelector('aithema-session').session.transcript.at(-1).role === 'user');
         assert.equal(await shown(page), false); still(baseline, await boxes(page), 'Enter disappearance');
+        assert.equal(await shadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('textarea')), true, 'Enter returns focus to the composer');
         assert.equal(await page.evaluate(() => globalThis.qcardRequests[0].content), geometry.texts[1]);
         await page.evaluate(() => globalThis.showQuestion());
         await shadow(page, c => c.shadowRoot.querySelector('.qopt').focus({ preventScroll: true }));
         await page.keyboard.press('Space');
         await page.waitForFunction(() => globalThis.qcardRequests.length === 2 && document.querySelector('aithema-session').session.transcript.at(-1).role === 'user');
         assert.equal(await shown(page), false); still(baseline, await boxes(page), 'Space disappearance');
+        assert.equal(await shadow(page, c => c.shadowRoot.activeElement === c.shadowRoot.querySelector('textarea')), true, 'Space returns focus to the composer');
         assert.equal(await page.evaluate(() => globalThis.qcardRequests[1].content), geometry.texts[0]);
         await page.evaluate(() => globalThis.showQuestion());
         await shadow(page, c => c.shadowRoot.querySelector('.fold').click()); await nextFrame(page); await shot('fold');
