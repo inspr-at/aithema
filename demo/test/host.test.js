@@ -34,6 +34,15 @@ test('demo host creates owned sessions through postJson and combines consent, pa
     };
     assert.ok(component.session.id);
     assert.equal(document.querySelector('#error').textContent, '');
+    const firstId = component.session.id, input = root.querySelector('textarea');
+    input.value = 'A draft before language choice';
+    const language = document.querySelector('#locale');
+    language.value = 'de'; language.dispatchEvent(new window.Event('change'));
+    await wait(() => component.session.locale === 'de' && document.documentElement.lang === 'de');
+    assert.equal(component.session.id, firstId); assert.equal(root.querySelector('textarea'), input);
+    assert.equal(input.value, 'A draft before language choice'); assert.equal(document.querySelector('#language-note').textContent, '');
+    language.value = 'en'; language.dispatchEvent(new window.Event('change'));
+    await wait(() => component.session.locale === 'en' && document.documentElement.lang === 'en');
     assert.equal(root.querySelector('.intro').dataset.mode, 'chooser', 'a new conversation starts with the preset chooser');
     assert.equal(root.querySelector('.engine__value').textContent, 'Best models');
     assert.equal(root.querySelector('.send').disabled, true, 'initial mock admission waits for consent');

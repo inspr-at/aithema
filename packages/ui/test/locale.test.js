@@ -17,7 +17,8 @@ function fixture(t, { startGate } = {}) {
   session.featureMatrix = { best: Object.fromEntries(['text', 'analysis', 'voice'].map(key => [key, { available: true }])) };
   const call = { callId: 'call', providerSessionId: 'provider', events,
     async close() { calls.push('close'); events.end(); return { closureConfirmed: true }; },
-    async heartbeat() {}, async updateContext() {} };
+    async heartbeat() {}, async updateContext() {}, async setInput() {}, async setOutput() {},
+    async pause() { return { acknowledged: true, paused: true }; } };
   const c = document.createElement('aithema-session');
   c.configure({ session, copy: en, copyForLocale: locale => ({ en, de })[locale],
     voiceClient: { manifest, async start() { calls.push('start'); if (startGate) await startGate.promise; return call; } } });
@@ -89,4 +90,33 @@ test('AIT-127: a first turn before locale commit leaves the running language and
   reply.resolve(Response.json({ error: 'locale-conflict' }, { status: 409 }));
   assert.equal(await changing, false); assert.equal(c.session.locale, 'en'); assert.equal(c.session.transcript[0].id, 'first');
   assert.equal(root.querySelector('textarea'), input); assert.equal(input.value, 'Keep this'); assert.equal(root.activeElement, input);
+});
+
+test('AIT-127: a call started during a pending locale acknowledgement is kept', async t => {
+  const { c, root, session, calls } = fixture(t), reply = Promise.withResolvers(), requested = Promise.withResolvers();
+  t.mock.method(globalThis, 'fetch', async () => { requested.resolve(); return reply.promise; });
+  const changing = c.changeLocale('de'); await requested.promise;
+  root.querySelector('.voice-start').click(); await tick();
+  assert.equal(root.querySelector('.audio-rail').dataset.call, 'active');
+  reply.resolve(Response.json({ event: { sessionId: session.id, seq: session.seq + 1, type: 'session.locale-changed', data: { locale: 'de' } } }));
+  await changing;
+  assert.deepEqual(calls, ['start']); assert.equal(root.querySelector('.audio-rail').dataset.call, 'active');
+});
+
+test('AIT-127: rapid choices are serialized and a queued choice never changes a different conversation', async t => {
+  const { c, session, posts } = fixture(t);
+  await Promise.all([c.changeLocale('de'), c.changeLocale('en'), c.changeLocale('de')]);
+  assert.equal(c.session.locale, 'de'); assert.deepEqual(posts.map(p => p.body.locale), ['de', 'en', 'de']);
+  const next = c.changeLocale('en');
+  const other = createSession(); other.featureMatrix = session.featureMatrix;
+  c.configure({ session: other, copy: en, copyForLocale: locale => ({ en, de })[locale] });
+  assert.equal(await next, false); assert.equal(c.session.id, other.id); assert.equal(posts.length, 3);
+});
+
+test('AIT-127: device locale changes are local and never reconnect the device or replace its draft', async t => {
+  const { c, root, session, posts } = fixture(t);
+  c.configure({ session: { ...session, processingPreset: 'device' }, copy: en, copyForLocale: locale => ({ en, de })[locale] });
+  const input = root.querySelector('textarea'); input.value = 'Device draft';
+  assert.equal(await c.changeLocale('de'), true); assert.equal(posts.length, 0);
+  assert.equal(c.session.locale, 'de'); assert.equal(root.querySelector('textarea'), input); assert.equal(input.value, 'Device draft');
 });

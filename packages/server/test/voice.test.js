@@ -105,7 +105,7 @@ test('AIT-127: locale is authenticated, durable, in place, and refused after any
 
 test('AIT-127: locale cannot interrupt a connecting or active call with no turns', async t => {
   const h = voiceFixture(t), entered = Promise.withResolvers(), release = Promise.withResolvers();
-  const admit = h.runtime.admitVoice;
+  const admit = h.runtime.admitVoice.bind(h.runtime);
   h.runtime.admitVoice = async (...args) => { entered.resolve(); await release.promise; return admit(...args); };
   const pending = h.route('/voice', { callId: 'connecting' }); await entered.promise;
   const refused = await h.route('/locale', { locale: 'de' });
