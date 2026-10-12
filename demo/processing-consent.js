@@ -58,6 +58,8 @@ export function createProcessingConsent({ storage, bindings, now = Date.now }) {
   const items = CONSENT_ITEMS.filter(item => coveredBindings.some(binding => binding.legal?.purpose === item.id &&
     (item.id !== 'drafts-anthropic' || binding.plugin === 'claude-html')));
   const contract = [CONSENT_COPY_VERSION, items.map(item => `${item.id}:${item.version}`).join(','), modelProviders.join(',')].join('|');
+  const validDecision = decision => decision?.contract === contract && Array.isArray(decision.items) &&
+    new Set(decision.items).size === decision.items.length && decision.items.every(id => items.some(item => item.id === id));
   const db = storage.db;
   db.exec(`CREATE TABLE IF NOT EXISTS processing_consents (session_id TEXT PRIMARY KEY REFERENCES sessions(id), revision INTEGER NOT NULL,
     grants TEXT NOT NULL);
@@ -73,9 +75,16 @@ export function createProcessingConsent({ storage, bindings, now = Date.now }) {
       intro: CONSENT_INTRO, withdrawal: CONSENT_WITHDRAWAL, selected };
   };
   return { describe,
+    conversationUnchanged({ sessionId, decision }) {
+      if (!validDecision(decision)) return false;
+      // Only the separate draft item may change without the conversation's D5
+      // cascade. Expired or withdrawn grants cannot authorize preservation.
+      const conversation = selected => selected.filter(id => id !== 'drafts-anthropic').sort();
+      const before = conversation(describe(sessionId).selected), after = conversation(decision.items);
+      return before.length > 0 && JSON.stringify(before) === JSON.stringify(after);
+    },
     grant({ sessionId, consentRevision, decision }) {
-      if (!decision || decision.contract !== contract || !Array.isArray(decision.items) ||
-        new Set(decision.items).size !== decision.items.length || decision.items.some(id => !items.some(item => item.id === id))) return false;
+      if (!validDecision(decision)) return false;
       storage.transaction(() => {
         const session = storage.get(sessionId);
         if (session.tombstone || consentRevision !== session.consentRevision + 1) throw new Error('Consent revision changed');

@@ -225,6 +225,7 @@ test('withdrawing only drafts aborts a dispatched render before it finishes and 
   assert.equal(await pending, 'failed'); await handlers.idle();
   assert.equal(storage.get(id).concepts.length, 0); assert.equal(spend.snapshot().reservedMicro, 0);
   const used = runtime.budget.used(id), spent = spend.snapshot().spentMicro;
+  assert.equal(used, spent, 'cancellation retains the same dispatched ceiling in both ledgers');
   released.resolve(); await new Promise(resolve => setImmediate(resolve));
   assert.equal(storage.get(id).concepts.length, 0, 'a transport ignoring abort cannot publish its late result');
   assert.equal(runtime.budget.used(id), used); assert.equal(spend.snapshot().spentMicro, spent, 'late usage cannot change settled spend');

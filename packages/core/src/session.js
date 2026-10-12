@@ -7,7 +7,7 @@ import { withAITextOrigin } from './text-origin.js';
 const ERASED_PRESET = 'best';
 const erasedTurn = turn => Object.fromEntries(Object.entries(turn).filter(([key]) =>
   !['content', 'origin', 'model', 'provider', 'engine'].includes(key)));
-export const inputRevision = session => `${session.inputRevision}:${session.consentRevision}:${session.withdrawalRevision}:${session.locale}:${session.sessionRevision ?? 0}:${Boolean(session.tombstone)}`;
+export const inputRevision = session => `${session.inputRevision}:${session.conversationConsentRevision ?? session.consentRevision}:${session.withdrawalRevision}:${session.locale}:${session.sessionRevision ?? 0}:${Boolean(session.tombstone)}`;
 export const activeTurns = session => session.transcript.filter(t => !t.erased && !t.withdrawn);
 /** Durable: withdrawal and expiry mark turns but never remove their transcript entries. */
 export const conversationStarted = session => session.transcript.length > 0 || (session.uploads?.length ?? 0) > 0;
@@ -83,12 +83,22 @@ export function applyEvent(session, event) {
       next.settings = normalizeSettings(event.data.settings);
     }
   } else if (['turn.withdrawn', 'session.erased', 'consent.revised'].includes(event.type)) {
-    next.sessionRevision += 1;
-    next.understanding = emptyUnderstanding(next); next.actor = null; next.focusedQuestion = null;
+    const conversationUnchanged = event.type === 'consent.revised' && event.data.granted &&
+      event.data.conversationUnchanged === true && !session.consentWithdrawn;
+    if (!conversationUnchanged) {
+      next.sessionRevision += 1;
+      next.understanding = emptyUnderstanding(next); next.actor = null; next.focusedQuestion = null;
+    }
     if (event.type === 'consent.revised') {
       next.consentRevision += 1; next.consentWithdrawn = !event.data.granted;
-      next.transcript = next.transcript.map(t => t.role === 'assistant'
-        ? { ...erasedTurn(t), erased: true } : t);
+      // The ledger revision always advances; draft-only edits keep the input
+      // identity of unaffected replies, assessments and live voice processing.
+      if (conversationUnchanged) next.conversationConsentRevision = session.conversationConsentRevision ?? session.consentRevision;
+      else {
+        if (next.conversationConsentRevision !== undefined) next.conversationConsentRevision = next.consentRevision;
+        next.transcript = next.transcript.map(t => t.role === 'assistant'
+          ? { ...erasedTurn(t), erased: true } : t);
+      }
     } else {
       next.withdrawalRevision += 1;
       next.transcript = next.transcript.map(t => t.id === event.data.turnId || t.role === 'assistant' || event.type === 'session.erased'

@@ -13,7 +13,7 @@ export function syncConceptIntent(session, referenceIds = [], { now = Date.now()
   const covered = !session.consentWithdrawn && !session.tombstone;
   if (state.consented !== covered || state.consentRevision !== session.consentRevision) reduce({ type: 'consent', covered, revision: session.consentRevision });
   if (state.paused !== session.paused) reduce({ type: 'pause', paused: session.paused });
-  const revision = `${inputRevision(session)}:intent:${state.visualIntent?.id ?? ''}`;
+  const revision = `${inputRevision(session)}:consent:${session.consentRevision}:intent:${state.visualIntent?.id ?? ''}`;
   const turnIds = activeTurns(session).filter(t => t.role === 'user').map(t => t.id);
   if (revision !== state.inputRevision || JSON.stringify(turnIds) !== JSON.stringify(state.turnIds) || JSON.stringify(referenceIds) !== JSON.stringify(state.referenceIds)) {
     reduce({ type: 'input-recorded', revision, turnIds, referenceIds });
@@ -51,8 +51,8 @@ export function conceptHTMLSpec(session) {
 /** A separate single-flight lane: ordinary input advance keeps paid history. */
 export class ConceptLane {
   #flights = new Map();
-  constructor({ getSession, prepare, admit, publicationAllowed, persist, complete, policy, deadlineMs = 120_000, estimateMs = 45_000, now = Date.now }) {
-    Object.assign(this, { getSession, prepare, admit, publicationAllowed, persist, complete, policy, deadlineMs, estimateMs, now });
+  constructor({ getSession, prepare, admit, processingAllowed, publicationAllowed, persist, complete, policy, deadlineMs = 120_000, estimateMs = 45_000, now = Date.now }) {
+    Object.assign(this, { getSession, prepare, admit, processingAllowed, publicationAllowed, persist, complete, policy, deadlineMs, estimateMs, now });
   }
   recordIntent(id, { intentId, sourceTurnId }) {
     const session = this.getSession(id), prepared = this.prepare(session);
@@ -92,6 +92,7 @@ export class ConceptLane {
         const spec = visualKind === 'html' ? conceptHTMLSpec(session) : { prompt: conceptPrompt(session), references };
         const request = { ...spec, feedback: prepared.feedback, ...(previousArtifact ? { previousArtifact } : {}) };
         admitted = await this.admit({ session: { ...session, conceptIntent: intent }, lane: 'concept', operation: options.operation, request, options });
+        flight.admission = admitted;
         let artifact;
         try { artifact = await untilCancelled(visualKind === 'html' && previousArtifact
           ? admitted.plugin.edit(previousArtifact, spec, request.feedback, admitted.options)
@@ -99,7 +100,8 @@ export class ConceptLane {
         catch (error) { failed = true; throw error; }
         finally { admitted.finish({ failed }); }
         const producer = admitted.visuals ? { visuals: admitted.visuals } : {};
-        if (!await untilCancelled(this.publicationAllowed(session, { ...options, ...producer }), scope.signal)) throw new PluginError('not-admitted');
+        if (this.processingAllowed && !await this.processingAllowed(session, admitted.consentScope, options)) throw new PluginError('not-admitted');
+        if (!await untilCancelled(this.publicationAllowed(this.getSession(id), { ...options, ...producer }), scope.signal)) throw new PluginError('not-admitted');
         const latest = this.getSession(id), latestPrepared = this.prepare(latest), current = syncConceptIntent(latest, latestPrepared.referenceIds, { now: this.now(), policy: this.policy, refreshReferenceIds: latestPrepared.refreshReferenceIds });
         const disposition = conceptResultDisposition(current, job, this.policy);
         if (disposition.kind === 'reject') throw new PluginError('cancelled');
@@ -123,14 +125,20 @@ export class ConceptLane {
         return 'failed';
       } finally { scope.dispose(); signal?.removeEventListener('abort', abort); }
     };
-    const flight = { controller, promise: null, job };
+    const flight = { controller, promise: null, job, session, options, admission: null };
     flight.promise = Promise.resolve().then(work).finally(() => { if (this.#flights.get(id) === flight) this.#flights.delete(id); });
     this.#flights.set(id, flight); return flight.promise;
   }
-  invalidate(id) {
+  async invalidate(id) {
     const flight = this.#flights.get(id); if (!flight) return Promise.resolve();
     const session = this.getSession(id), prepared = this.prepare(session), state = syncConceptIntent(session, prepared.referenceIds, { now: this.now(), policy: this.policy, refreshReferenceIds: prepared.refreshReferenceIds });
-    if (conceptResultDisposition(state, flight.job, this.policy).kind !== 'reject') return Promise.resolve();
+    let rejected = conceptResultDisposition(state, flight.job, this.policy).kind === 'reject';
+    // A remaining reasoning/voice grant says nothing about the render's actual
+    // processing scope. Recheck the scope frozen at admission, never a new choice.
+    if (!rejected && this.processingAllowed) rejected = flight.admission
+      ? !await this.processingAllowed(flight.session, flight.admission.consentScope, flight.options)
+      : session.consentRevision !== flight.session.consentRevision;
+    if (!rejected) return;
     flight.controller.abort(new DOMException('Concept source revoked', 'AbortError')); return flight.promise;
   }
   /** A changed visuals choice stops the in-flight render; its late result is never published. */

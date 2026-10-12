@@ -384,6 +384,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       if (action === 'consent' && request.method === 'POST') {
         const body = JSON.parse(Buffer.from(await readBody(request)).toString('utf8'));
         if (typeof body?.granted !== 'boolean') return json({ error: 'invalid-consent' }, 400);
+        const conversationUnchanged = body.granted && await consent.conversationUnchanged?.({ sessionId: id, decision: body.processing }) === true;
         if (body.granted) {
           if (!consent?.grant) return json({ error: 'host-consent-required' }, 409);
           // The host ledger learns exactly which processing the current choice needs.
@@ -391,9 +392,11 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
             scopes: pluginRuntime.scopes?.(authorized) ?? [] });
           if (granted === false) return json({ error: 'host-consent-required' }, 409);
         }
-        const event = storage.reviseConsent(id, body.granted, guard);
-        await invalidate(id, event, 'consent-revised');
-        if (body.granted) schedule(id);
+        const event = storage.reviseConsent(id, body.granted, guard, { conversationUnchanged });
+        if (event.data.conversationUnchanged) {
+          broadcast(id, event); await conceptHandlers.lane.invalidate(id);
+        } else await invalidate(id, event, 'consent-revised');
+        if (body.granted) { schedule(id); conceptHandlers.schedule(id); }
         else await consent?.withdraw?.({ sessionId: id });
         return json({ granted: body.granted, consentRevision: storage.get(id).consentRevision, event });
       }

@@ -474,10 +474,13 @@ export class SQLiteStorage {
       return this.#append(session, 'session.erased', { at: new Date().toISOString() });
     });
   }
-  reviseConsent(id, granted, guard = {}) {
+  reviseConsent(id, granted, guard = {}, { conversationUnchanged = false } = {}) {
     return this.#invalidationTransaction(() => {
-      const session = this.get(id); this.#check(session, guard); this.#invalidate(id, undefined, false, !granted);
-      return this.#append(session, 'consent.revised', { granted, at: new Date().toISOString() });
+      const session = this.get(id); this.#check(session, guard);
+      conversationUnchanged = conversationUnchanged === true && granted && !session.consentWithdrawn;
+      if (!conversationUnchanged) this.#invalidate(id, undefined, false, !granted);
+      return this.#append(session, 'consent.revised', { granted, at: new Date().toISOString(),
+        ...(conversationUnchanged ? { conversationUnchanged: true } : {}) });
     });
   }
   pause(id, paused, guard = {}) {
