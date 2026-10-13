@@ -61,6 +61,7 @@ const geometry = page => shadow(page, c => {
     ['.footer-info', '.host-credits', '.footer-right'],
     ['.ai-notice .speaker-sign', '.display-version', '.ai-notice__label', '.ai-notice__short', '.ai-notice__voice'],
     ['.host-credits__stack', '.host-credits__track'],
+    ['.host-credits__amount', '.host-credits__total', '.host-credits__unit'],
     ['.engine', '.status'],
     ['.status__label', '.connection-timer'],
   ];
