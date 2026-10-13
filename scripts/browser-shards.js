@@ -14,12 +14,12 @@ export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 export const browserShards = [
   // 402.566s CI; 350.166s mbp2606
   ['test/browser/visitor-credit-tiers.test.js'],
-  // 373.275s CI (footer-fit failure)
+  // Full run at 4fc6a22: 400.823s tests, 537s whole job. Move the 105.447s
+  // continuity matrix to shard 4 so setup and artifact upload fit below 8min.
   [
     'test/browser/start2-display-matrix.test.js',
     'test/browser/demo.test.js',
     'test/browser/start-look.test.js',
-    'test/browser/start2-display-continuity.test.js',
   ],
   // 394.868s CI
   [
@@ -31,8 +31,12 @@ export const browserShards = [
     'test/browser/host-surface.test.js',
     'test/browser/confirmation-design.test.js',
   ],
-  // 189.105s CI; 153.965s mbp2606
-  ['test/browser/email-ask.test.js', 'test/browser/footer-width-sweep.test.js'],
+  // 201.358s CI at 4fc6a22 including the sweep, plus 105.447s continuity.
+  [
+    'test/browser/email-ask.test.js',
+    'test/browser/footer-width-sweep.test.js',
+    'test/browser/start2-display-continuity.test.js',
+  ],
 ];
 
 export function discoverBrowserTests() {
