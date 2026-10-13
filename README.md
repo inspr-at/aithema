@@ -2440,7 +2440,10 @@ Credits come from the server allowances and use the visitor’s locale.
 button. `POST /confirm-email` requires the configured origin and a signed,
 token-bound CSRF form plus HttpOnly SameSite=Strict cookie; HTTPS uses a Secure
 `__Host-` cookie. Redemption, the attempt count, `confirmed_at` and audit event
-commit together exactly once. DE/EN copy keys cover valid, confirmed,
+commit together exactly once. The response retains `Referrer-Policy: no-referrer`;
+the document selects `strict-origin` so native form POSTs carry the configured
+Origin while their Referer contains only the origin, never the bearer token.
+This also works without JavaScript. DE/EN copy keys cover valid, confirmed,
 already-used (address confirmed or link used), expired (with new-link instructions),
 invalid and too-many-attempts (with the rounded resend wait). The designed page
 uses host-served CSS and `confirm-email.js`; without script the form still posts.

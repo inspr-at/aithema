@@ -45,6 +45,8 @@ for (const locale of ['de', 'en']) for (const [state, key, extra] of states) tes
     assert.equal(d.querySelectorAll('[style], style, script:not([src])').length, 0);
     assert.deepEqual([...d.querySelectorAll('script')].map(x => x.getAttribute('src')), ['/demo/theme-init.js', '/demo/confirm-email.js']);
     assert.equal(response.status, 200); assert.equal(redeems, 0);
+    assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
+    assert.equal(d.querySelector('meta[name=referrer]').content, 'strict-origin');
     assert.ok(response.headers.get('content-security-policy').includes("script-src 'self'"));
     assert.doesNotMatch(html, /lena\.gruber|2[.,]400|Almost done/u);
   } finally { await window.happyDOM.close(); }
