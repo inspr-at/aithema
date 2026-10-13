@@ -66,6 +66,7 @@ test('AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN', { timeo
         c.shadowRoot.activeElement?.blur(); document.documentElement.lang = locale;
         document.querySelector('#locale').value = locale; paintUtilities(copy); scrollTo(0, 0);
       }, { locale, state });
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.status').hasAttribute('data-connected'));
       await page.mouse.move(0, 500); await settle();
       assert.equal(await shadow(page, c => c.getAttribute('motion')), 'off');
       await shadow(page, c => { c.shadowRoot.querySelector('.connection-timer').textContent = '0:00'; });
