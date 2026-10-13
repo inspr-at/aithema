@@ -215,7 +215,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     try {
       const opts = { ...options(request), signal: controller.signal };
       const admitted = await runtime.admitVoice({ session, request: { callId }, options: {
-        ...opts, spendDeadlineAt, allowPaused: continuation, existingCall: continuation,
+        ...opts, spendDeadlineAt, allowPaused: continuation, voiceContinuation: continuation,
       } }); entry.admission = admitted;
       const end = spendDeadlineAt ?? now() + admitted.binding.maxDurationSeconds * 1000;
       if (end <= now()) throw new PluginError('deadline');
