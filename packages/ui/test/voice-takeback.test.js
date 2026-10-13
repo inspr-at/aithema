@@ -100,6 +100,60 @@ function tabsFixture(t, transport) {
 }
 
 for (const transport of ['webrtc', 'websocket']) {
+  for (const cancellation of ['hide', 'visibility-hidden', 'pagehide']) for (const restore of ['voice.state', 'snapshot']) for (const owner of ['this-tab', 'other-tab']) {
+    test(`AIT-158: ${transport} ${cancellation} during accepted take-back reconciles late ${restore} for ${owner} without auto-resume`, { timeout: 10_000 }, async t => {
+      const f = tabsFixture(t, transport); await f.newcomer();
+      const retired = f.a.returned.at(-1), resume = t.mock.method(retired, 'resume'), before = f.snapshot();
+      const captures = f.a.sdk.acquired.length;
+      f.a.deferNotifications = true; f.a.takeoverAck = Promise.withResolvers();
+      f.a.rail.button('pause').click(); await flush();
+      const accepted = f.snapshot();
+      assert.equal(accepted.controllingTabId, 'A'); assert.equal(accepted.epoch, before.epoch + 1);
+      assert.equal(f.a.rail.takeoverController.signal.aborted, false, 'the accepted request is still in flight');
+      if (cancellation === 'visibility-hidden') {
+        let hidden = true;
+        t.mock.method(f.a.root.ownerDocument, 'hidden', () => hidden, { getter: true });
+        f.a.root.ownerDocument.dispatchEvent(new f.a.root.ownerDocument.defaultView.Event('visibilitychange'));
+        await flush(); hidden = false;
+      } else if (cancellation === 'pagehide') {
+        const view = f.a.root.ownerDocument.defaultView;
+        view.dispatchEvent(new view.PageTransitionEvent('pagehide', { persisted: true }));
+      } else f.a.rail.hide();
+      await flush();
+      f.a.takeoverAck.resolve(); await flush();
+      assert.equal(f.a.rail.moved, true, 'an aborted receipt cannot assume ownership');
+      if (owner === 'other-tab') {
+        f.b.rail.button('pause').click(); await flush();
+        assert.equal(f.snapshot().controllingTabId, 'B'); assert.equal(f.snapshot().epoch, accepted.epoch + 1);
+      }
+      const commands = f.commands.length;
+      if (restore === 'snapshot') f.a.rail.receiveState(f.snapshot());
+      else f.a.deliverNotifications();
+      await flush();
+      assert.equal(f.a.root.dataset.state, 'waiting'); assert.equal(f.a.rail.paused, true);
+      assert.equal(f.a.rail.session, null); assert.equal(f.a.sdk.acquired.length, captures);
+      assert.ok(f.a.sdk.acquired.every(stream => stream.getTracks().every(track => track.readyState === 'ended')));
+      assert.deepEqual(f.commands.slice(commands), [], 'reconciliation never replays the aborted click');
+      assert.equal(resume.mock.callCount(), 0, 'the retired SDK session never receives Resume');
+      if (owner === 'other-tab') {
+        f.held(f.a); assert.equal(f.a.rail.moved, true); assert.equal(f.a.rail.requiresTakeover, true);
+        f.a.rail.receiveState(accepted); await flush(); f.held(f.a);
+        assert.equal(f.a.rail.waitingCall.epoch, f.snapshot().epoch, 'a stale self-owned epoch cannot clear the old-tab state');
+        assert.equal(f.commands.length, commands);
+        return;
+      }
+      assert.equal(f.a.rail.moved, false, 'authoritative ownership clears the redundant take-back');
+      assert.equal(f.a.root.hasAttribute('data-moved'), false); assert.equal(f.a.rail.requiresTakeover, false);
+      assert.equal(f.a.root.querySelector('.voice-state').textContent, en.voiceStates.waiting);
+      assert.equal(f.a.rail.button('pause').title, en.resume); assert.equal(f.a.rail.button('pause').disabled, false);
+      f.a.rail.button('pause').click(); await flush();
+      assert.deepEqual(f.commands.slice(commands).filter(c => c.tab === 'A' && ['takeover', 'recover', 'resume'].includes(c.name)).map(c => c.name),
+        ['recover', 'resume'], 'the next visitor click sends one Resume and zero takeover requests');
+      assert.equal(f.snapshot().epoch, accepted.epoch); assert.equal(f.a.root.dataset.state, 'listening');
+      assert.equal(resume.mock.callCount(), 0); f.held(f.b);
+    });
+  }
+
   for (const refusal of ['exhausted', 'admission', 'full-hold']) test(`AIT-138 d merge: ${transport} old-tab take-back respects ${refusal} and recovers explicitly`, { timeout: 10_000 }, async t => {
     const f = tabsFixture(t, transport); await f.newcomer();
     const before = f.snapshot(), commands = f.commands.length;
