@@ -29,7 +29,7 @@ test('AIT-139: independent v1 callback fixtures replay growth, truncation, retry
 test('AIT-139: independent delayed closure and usage fixtures replay through an injected wire port', async t => {
   t.mock.method(globalThis, 'fetch', () => assert.fail('Offline replay must never access a provider'));
   const fixture = JSON.parse(await load('voice-observability-reconciliation'));
-  const binding = { apiBaseUrl: 'https://api.example.test', secretRef: 'fixture-ref', upstreamMicroPerMinute: 600, visitorMicroPerMinute: 300 };
+  const binding = { agentId: 'agent_observability', apiBaseUrl: 'https://api.example.test', secretRef: 'fixture-ref', upstreamMicroPerMinute: 600, visitorMicroPerMinute: 300 };
   for (const record of fixture.reconciliation) {
     let requests = 0;
     const details = await readConversationDetails(binding, record.call.providerSessionId, { deadlineAt: Date.now() + 1000 }, {
