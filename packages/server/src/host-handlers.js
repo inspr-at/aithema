@@ -141,7 +141,9 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     const projection = host.creditTiers?.(ownerToken) ?? null;
     const collectionAllowed = host.demo === true || privacyDocumentConfigured(host);
     const tiers = projection && (collectionAllowed ? projection : { ...projection, next: null, delta: 0, canConfirm: false });
-    const warning = { lowAtMicro: lowCreditThreshold(balance.owner.limitMicro, host.visitorMicroPerMinute?.(storage.get(id)) ?? 0),
+    const voiceRate = host.visitorMicroPerMinute?.(storage.get(id)) ?? 0;
+    const largestTier = Math.max(balance.owner.limitMicro, ...Object.values(tiers?.allowancesMicro ?? {}).filter(Number.isSafeInteger));
+    const warning = { lowAtMicro: lowCreditThreshold(balance.owner.limitMicro, voiceRate), lowAtMaxMicro: lowCreditThreshold(largestTier, voiceRate),
       emailAsk: storage.hostState(id)?.emailAsk ?? {}, emailAskAfter: host.emailAskAfter?.(ownerToken) ?? 0, nowMs: now() };
     if (host.credits?.ownerGuard === false) return { balance, limitSlot: null, tiers, exhausted, ...warning };
     const guard = storage.ownerCreditState(ownerToken);

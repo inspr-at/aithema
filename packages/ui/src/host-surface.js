@@ -232,6 +232,8 @@ export class HostSurface {
     const format = typeof this.#options.credits?.format === 'function' ? this.#options.credits.format : defaultCreditFormat;
     const owner = this.#credits?.balance?.owner, tiers = this.tiers, exhausted = this.usedUp, out = exhausted;
     const reservedLimit = owner ? Math.max(owner.limitMicro, ...Object.values(tiers?.allowancesMicro ?? {}).filter(Number.isSafeInteger)) : null;
+    const warningLimit = this.#credits?.lowAtMaxMicro ?? this.#credits?.lowAtMicro;
+    const warningAvailable = owner && Number.isSafeInteger(warningLimit) ? Math.min(owner.availableMicro, warningLimit) : 0;
     const low = this.low; line.dataset.low = String(low);
     const amount = line.querySelector('.host-credits__amount'), total = line.querySelector('.host-credits__total'), unit = line.querySelector('.host-credits__unit');
     const button = line.querySelector('.host-credits__button'), track = line.querySelector('.host-credits__track');
@@ -239,15 +241,17 @@ export class HostSurface {
     line.dataset.ended = String(out); line.querySelector('.host-credits__text').setAttribute('aria-hidden', String(out));
     line.querySelector('.host-credits__used-up').setAttribute('aria-hidden', String(!out));
     line.querySelector('.host-credits__low').setAttribute('aria-hidden', String(!low));
-    setText(line.querySelector('.host-credits__low-full'), owner ? fill(c.low, { available: format(owner.availableMicro, locale) }) : '');
-    setText(line.querySelector('.host-credits__low-short'), owner ? fill(c.lowShort, { available: format(owner.availableMicro, locale) }) : '');
+    line.querySelector('.host-credits__low').hidden = !Number.isSafeInteger(warningLimit);
+    line.querySelector('.host-credits__measure-low').hidden = !Number.isSafeInteger(warningLimit);
+    setText(line.querySelector('.host-credits__low-full'), owner ? fill(c.low, { available: format(warningAvailable, locale) }) : '');
+    setText(line.querySelector('.host-credits__low-short'), owner ? fill(c.lowShort, { available: format(warningAvailable, locale) }) : '');
     // Reserve the width using the highest server tier; digit changes never
     // narrow the cell, including EN where the used-up label is shorter.
     setText(line.querySelector('.host-credits__measure-amount'), owner ? format(reservedLimit, locale) : '…');
     setText(line.querySelector('.host-credits__measure-total'), owner ? fill(layout.creditsTotal, { limit: format(reservedLimit, locale) }) : '');
     setText(line.querySelector('.host-credits__measure-unit'), owner ? layout.creditsUnit : '');
-    setText(line.querySelector('.host-credits__measure-low-full'), owner ? fill(c.low, { available: format(reservedLimit, locale) }) : '');
-    setText(line.querySelector('.host-credits__measure-low-short'), owner ? fill(c.lowShort, { available: format(reservedLimit, locale) }) : '');
+    setText(line.querySelector('.host-credits__measure-low-full'), owner && Number.isSafeInteger(warningLimit) ? fill(c.low, { available: format(warningLimit, locale) }) : '');
+    setText(line.querySelector('.host-credits__measure-low-short'), owner && Number.isSafeInteger(warningLimit) ? fill(c.lowShort, { available: format(warningLimit, locale) }) : '');
     setText(line.querySelector('.host-credits__used-up-full'), c.usedUp); setText(line.querySelector('.host-credits__used-up-short'), c.usedUpShort);
     setText(line.querySelector('.host-credits__equivalence'), c.unit);
     setText(amount, owner ? format(exhausted ? 0 : owner.availableMicro, locale) : '…');

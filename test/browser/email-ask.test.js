@@ -34,7 +34,7 @@ async function fixture(page, locale, { delivery = false, address = null, confirm
     if (low || out) state.spent = allowancesMicro[tier()] - (out ? 0 : 980_000);
     const credits = () => { const current = tier(), limitMicro = allowancesMicro[current], next = !state.address ? 'emailGiven' : delivery && !state.confirmed ? 'emailConfirmed' : null;
       return { tiers: { current, next, delta: next ? allowancesMicro[next] - limitMicro : 0, canConfirm: delivery, allowancesMicro },
-        exhausted: state.spent >= limitMicro, lowAtMicro: Math.max(limitMicro / 10, 5 * 100_000),
+        exhausted: state.spent >= limitMicro, lowAtMicro: Math.max(limitMicro / 10, 5 * 100_000), lowAtMaxMicro: Math.max(allowancesMicro.emailConfirmed / 10, 5 * 100_000),
         emailAsk: state.ask, emailAskAfter: state.after, nowMs: Date.now(), limitSlot: null,
         balance: { owner: { limitMicro, committedMicro: state.spent, confirmedSpendMicro: state.spent, reservedMicro: 0, uncertainSpendMicro: 0, availableMicro: Math.max(0, limitMicro - state.spent) } } }; };
     state.credits = credits;
