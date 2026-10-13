@@ -405,6 +405,8 @@ export class AithemaSession extends HTMLElement {
     this.#observePanes();
     this.#rail.motion = this.#motion;
     this.#mountReveal(version);
+    // Recompute with the assigned rail, visible command and host credit surface.
+    this.#rail.render();
   }
   #mountReveal(version = { product: 'Aithema 2026.10', ...this.#options.host?.version }) {
     const root = this.shadowRoot;

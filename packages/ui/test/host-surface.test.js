@@ -879,7 +879,7 @@ for (const copy of [de, en]) test(`AIT-138 d merge: ${copy.display.locale} exhau
   const f = a2Setup(t, { copy, spent: 0, voiceClient }); await tick(8);
   f.root.querySelector('.voice-start').click(); await tick(8);
   const callId = requests[0].callId;
-  f.c.receive({ seq: f.c.session.seq + 1, type: 'voice.state', data: {
+  f.c.receive({ type: 'voice.state', data: {
     callId, providerSessionId: 'other-provider', epoch: 2, controllingTabId: 'other-tab', state: 'active', reason: 'tab-takeover' } });
   assert.equal(f.root.querySelector('.pause').disabled, false);
   f.setSpent(12_000_000);
