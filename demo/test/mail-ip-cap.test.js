@@ -190,6 +190,60 @@ test('AIT-167 IP reservation rolls back atomically with C1, global cap and token
   }
 });
 
+test('AIT-167 reserve physically deletes expired IP rows in bounded, idempotent batches', async t => {
+  const f = await fixture(t), db = f.storage.db;
+  for (let i = 0; i < 101; i++) {
+    db.prepare('INSERT INTO host_mail_ip_slots VALUES (?,?,1)').run(`expired-${i}`, 1_000);
+    db.prepare('INSERT INTO host_mail_ip_alerts VALUES (?,\'day\',?)').run(`expired-${i}`, 1_000);
+  }
+  db.prepare('INSERT INTO host_mail_ip_slots VALUES (?, ?, 1)').run('fresh', 1_002);
+  db.prepare('INSERT INTO host_mail_ip_alerts VALUES (?,\'day\',?)').run('fresh', 1_002);
+  f.at(DAY + 1_001);
+  for (let pass = 0; pass < 3; pass++) {
+    await f.call(`cleanup-${pass}`, { xff: '203.0.113.99' }); await f.handlers.idle();
+    for (const table of ['host_mail_ip_slots', 'host_mail_ip_alerts']) {
+      assert.equal(db.prepare(`SELECT COUNT(*) n FROM ${table} WHERE bucket_key LIKE 'expired-%'`).get().n,
+        pass === 0 ? 1 : 0, `${table}: at most 100 expired rows removed per reservation`);
+      assert.equal(db.prepare(`SELECT COUNT(*) n FROM ${table} WHERE bucket_key='fresh'`).get().n, 1);
+    }
+  }
+  assert.equal(f.messages.length, 3);
+});
+
+test('AIT-167 hourly maintenance physically deletes idle IP rows by 25h and drains bounded batches', async t => {
+  const { startVisitorRetention } = await import('../session-lifecycle.js');
+  t.mock.timers.enable({ apis: ['Date', 'setInterval', 'setTimeout'], now: 1_000 });
+  const f = await fixture(t, { now: () => Date.now() }), db = f.storage.db;
+  const maintenance = startVisitorRetention(f.host);
+  t.after(() => maintenance.close());
+  // Created immediately after startup: the 24h tick is one millisecond early.
+  for (let i = 0; i < 205; i++) {
+    db.prepare('INSERT INTO host_mail_ip_slots VALUES (?,?,1)').run(`idle-${i}`, 1_001);
+    db.prepare('INSERT INTO host_mail_ip_alerts VALUES (?,\'day\',?)').run(`idle-${i}`, 1_001);
+  }
+  t.mock.timers.tick(DAY);
+  for (const table of ['host_mail_ip_slots', 'host_mail_ip_alerts']) {
+    assert.equal(db.prepare(`SELECT COUNT(*) n FROM ${table}`).get().n, 205);
+  }
+  const batches = [];
+  const retain = f.host.retainVisitors.bind(f.host);
+  t.mock.method(f.host, 'retainVisitors', options => { const result = retain(options); batches.push(result); return result; });
+  t.mock.timers.tick(HOUR);
+  assert.equal(batches.length, 1);
+  for (const table of ['host_mail_ip_slots', 'host_mail_ip_alerts']) {
+    assert.equal(db.prepare(`SELECT COUNT(*) n FROM ${table}`).get().n, 105, 'hourly batch is bounded');
+  }
+  t.mock.timers.tick(10); t.mock.timers.tick(10);
+  assert.deepEqual(batches.map(result => result.pending), [200, 200, 10]);
+  for (const table of ['host_mail_ip_slots', 'host_mail_ip_alerts']) {
+    assert.equal(db.prepare(`SELECT COUNT(*) n FROM ${table}`).get().n, 0);
+  }
+  t.mock.timers.tick(HOUR);
+  assert.equal(batches.at(-1).pending, 0, 'repeated hourly sweep is idempotent');
+  maintenance.close(); const count = batches.length;
+  t.mock.timers.tick(HOUR); assert.equal(batches.length, count, 'shutdown stops maintenance');
+});
+
 test('AIT-167 an IP log window remains claimed when an earlier slot expires', async t => {
   const logs = []; t.mock.method(console, 'warn', line => logs.push(JSON.parse(line)));
   const f = await fixture(t); f.set({ hour: 2, day: 20 });
