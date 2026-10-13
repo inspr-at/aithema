@@ -63,6 +63,37 @@ test('AIT-138 d takeback: visible Resume follows a pending takeover and its rece
   assert.equal(root.querySelector('.audio-rail').dataset.state, 'waiting'); assert.equal(starts, 0);
   assert.equal(pause.textContent.trim(), en.resume); assert.equal(pause.disabled, false);
 });
+for (const [locale, copy] of [['de', de], ['en', en]]) test(`AIT-138 d takeback: ${locale} visible Resume preserves an ownership-lost click before voice.state`, async t => {
+  const session = createSession({ demo: true, locale }), events = voiceEvents(), callId = 'response-first-call';
+  session.featureMatrix = { best: { voice: { available: true }, text: { available: true } } };
+  let starts = 0, takeovers = 0, retiredResumes = 0;
+  const client = { manifest, tabId: 'old-tab', async takeover(identity) {
+    takeovers++; assert.equal(identity.epoch, 2); return { ...identity, epoch: 3, controllingTabId: 'old-tab' };
+  }, async start(request) {
+    starts++; if (starts > 1) assert.equal(request.epoch, 3, 'startup belongs to the taken-back epoch');
+    const stream = starts === 1 ? events : voiceEvents();
+    return { callId, providerSessionId: 'response-first-provider', epoch: request.epoch ?? 1, events: stream,
+      async setInput() {}, async setOutput() {}, async updateContext() {},
+      async resume() { retiredResumes++; throw new Error('Retired session'); },
+      async close() { stream.end(); return { closureConfirmed: true }; } };
+  } };
+  const element = document.createElement('aithema-session'); element.configure({ copy, session, voiceClient: client });
+  t.after(async () => { element.configure({ copy, session: createSession() }); element.remove(); await tick(); });
+  const root = element.shadowRoot, pause = root.querySelector('.pause');
+  root.querySelector('.voice-start').click(); await tick();
+  events.push({ type: 'waiting', callId, reason: 'ownership-lost' }); await tick();
+  element.receive({ seq: 1, type: 'session.paused', data: { paused: true } });
+  assert.equal(pause.disabled, false); assert.equal(pause.title, copy.voiceTakeover);
+  pause.click(); pause.click(); await tick();
+  assert.equal(retiredResumes, 0, 'the visible button never calls the retired Resume');
+  assert.equal(takeovers, 0); assert.equal(starts, 1);
+  element.receive({ type: 'voice.state', data: { callId, providerSessionId: 'response-first-provider', epoch: 2,
+    controllingTabId: 'other-tab', state: 'active', reason: 'tab-takeover' } });
+  await tick(); await tick();
+  assert.equal(takeovers, 1); assert.equal(starts, 2, 'the original click takes over and resumes after the delayed notification');
+  assert.equal(root.querySelector('.audio-rail').dataset.state, 'listening');
+  assert.equal(root.querySelector('.audio-rail').hasAttribute('data-moved'), false);
+});
 for (const [locale, copy] of [['de', de], ['en', en]]) test(`AIT-138 UI: ${locale} composer invites speech only while listening, including a waiting reload`, async t => {
   const session = createSession({ demo: true, locale });
   session.featureMatrix = { best: { voice: { available: true }, text: { available: true } } };

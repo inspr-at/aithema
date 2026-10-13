@@ -15,7 +15,11 @@ function tabsFixture(t, transport) {
   const tabs = [], commands = [], published = [];
   let state, mint = 0;
   const snapshot = () => ({ ...state });
-  const broadcast = () => tabs.forEach(tab => tab.rail.receiveState(snapshot()));
+  const broadcast = () => tabs.forEach(tab => {
+    const notification = snapshot();
+    if (tab.deferNotifications) tab.notifications.push(notification);
+    else tab.rail.receiveState(notification);
+  });
   const check = (tab, identity) => {
     if (identity.epoch !== state.epoch || tab.id !== state.controllingTabId) throw lost();
   };
@@ -26,7 +30,11 @@ function tabsFixture(t, transport) {
     spendDeadlineAt: Date.now() + 60_000, browserLivenessDeadlineAt: Date.now() + 30_000 });
   for (const id of ['A', 'B']) {
     const window = new Window(), root = window.document.createElement('div'); window.document.body.append(root);
-    const sdk = fakeSdk(), tab = { id, sdk, returned: [] }; tabs.push(tab);
+    const sdk = fakeSdk(), tab = { id, sdk, returned: [], notifications: [] }; tabs.push(tab);
+    tab.deliverNotifications = () => {
+      tab.deferNotifications = false;
+      for (const notification of tab.notifications.splice(0)) tab.rail.receiveState(notification);
+    };
     const record = (name, identity) => commands.push({ tab: id, name, ...identity });
     const control = { tabId: id,
       async start(request) {
@@ -92,6 +100,39 @@ function tabsFixture(t, transport) {
 }
 
 for (const transport of ['webrtc', 'websocket']) {
+  for (const repeated of [false, true]) test(`AIT-138 d takeback: ${transport} ownership-lost response before voice.state ${repeated ? 'coalesces repeated clicks' : 'preserves one click until the authoritative epoch'}`, { timeout: 10_000 }, async t => {
+    const f = tabsFixture(t, transport); await f.a.rail.start();
+    const retired = f.a.returned.at(-1), oldState = f.snapshot(), resume = t.mock.method(retired, 'resume');
+    f.a.deferNotifications = true;
+    await f.b.rail.start(); await f.b.rail.start(); await flush();
+    assert.ok(f.a.notifications.length > 0, 'voice.state is queued independently of the command response');
+    assert.equal(f.a.rail.moved, undefined, 'the losing tab has not received the notification');
+    await retired.heartbeat(); await flush();
+    f.held(f.a);
+    const before = f.snapshot(), commands = f.commands.length;
+    if (repeated) f.a.takeoverAck = Promise.withResolvers();
+    f.a.rail.button('pause').click();
+    if (repeated) { f.a.rail.button('pause').click(); void f.a.rail.start(); }
+    await flush();
+    assert.equal(resume.mock.callCount(), 0, 'Resume must never be called on the retired SDK session');
+    assert.equal(f.commands.slice(commands).filter(c => c.name === 'takeover').length, 0, 'the click waits for an authoritative epoch');
+    f.a.rail.receiveState(oldState); await flush();
+    assert.equal(f.commands.slice(commands).filter(c => c.name === 'takeover').length, 0, 'a stale notification cannot consume the click');
+    f.a.deliverNotifications(); await flush();
+    if (repeated) {
+      assert.equal(f.snapshot().epoch, before.epoch + 1);
+      f.a.rail.button('pause').click(); void f.a.rail.start(); await flush();
+      assert.equal(f.commands.slice(commands).filter(c => c.name === 'takeover').length, 1, 'repeat clicks during the takeover receipt coalesce');
+      f.a.takeoverAck.resolve(); await flush();
+    }
+    assert.equal(f.snapshot().epoch, before.epoch + 1, 'the preserved click performs exactly one server takeover');
+    assert.equal(f.snapshot().controllingTabId, 'A'); assert.equal(f.a.root.dataset.state, 'listening'); f.held(f.b);
+    assert.deepEqual(f.commands.slice(commands).filter(c => c.tab === 'A' && ['takeover', 'recover', 'resume'].includes(c.name)).map(c => c.name),
+      ['takeover', 'recover', 'resume'], 'takeover is followed by one recovery and Resume without another confirmation');
+    assert.equal(resume.mock.callCount(), 0);
+    assert.ok(f.a.sdk.acquired.some(stream => stream.getTracks().some(track => track.readyState === 'live')));
+  });
+
   test(`AIT-138 d takeback: ${transport} one old-tab click takes over and resumes without double confirmation`, { timeout: 10_000 }, async t => {
     const f = tabsFixture(t, transport); await f.newcomer();
     const before = f.snapshot(), commands = f.commands.length;
