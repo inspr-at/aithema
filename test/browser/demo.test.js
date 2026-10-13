@@ -544,8 +544,31 @@ function sameBox(before, after, label) {
 }
 // Rest the pointer on the visible part of an element and leave it there.
 async function rest(page, selector) {
-  await inShadow(page, (c, selector) => c.shadowRoot.querySelector(selector).scrollIntoView({ block: 'nearest' }), selector);
-  const target = await box(page, selector);
+  // A row's 220 ms turn-in transform can outlive DOM readiness. Its remaining travel
+  // must finish before the live-update baseline; keep sameBox's strict check unchanged.
+  const target = await inShadow(page, async (c, selector, timeout) => {
+    await document.fonts.ready;
+    const node = c.shadowRoot.querySelector(selector);
+    node.scrollIntoView({ block: 'nearest' });
+    return new Promise((resolve, reject) => {
+      let previous, frame;
+      const timer = setTimeout(() => {
+        cancelAnimationFrame(frame); reject(new Error(`Resting-pointer target did not settle: ${selector}`));
+      }, timeout);
+      const measure = () => {
+        const rect = node.getBoundingClientRect();
+        const current = { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+        const animating = node.getAnimations().some(animation => animation.pending || animation.playState !== 'finished');
+        // Require exact equality on two consecutive frames after the animation ends.
+        if (!animating && previous && Object.keys(current).every(key => current[key] === previous[key])) {
+          clearTimeout(timer); resolve(current); return;
+        }
+        previous = animating ? null : current;
+        frame = requestAnimationFrame(measure);
+      };
+      frame = requestAnimationFrame(measure);
+    });
+  }, selector, waitTimeout);
   await page.mouse.move(target.x + Math.min(target.width / 2, 40), target.y + Math.min(target.height / 2, 10));
   return target;
 }
