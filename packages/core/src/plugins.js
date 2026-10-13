@@ -1,4 +1,5 @@
 import { isCanonicalMockReasoning } from './reasoning.js';
+import { assertVoicePorts } from './live-voice.js';
 // Public technical metadata only. Legal qualification and account evidence are host-private (D4).
 export const PLUGIN_KINDS = Object.freeze(['reasoning', 'stt', 'tts', 'live-voice', 'ui-generation', 'extractor', 'exporter']);
 export const KIND_OPERATIONS = Object.freeze({ reasoning: ['stream', 'structured'], stt: ['transcribe'], tts: ['speak'],
@@ -27,7 +28,9 @@ export const MANIFEST_SCHEMA = object({
     capabilities: object(Object.fromEntries(['sendText', 'updateContext', 'setInput', 'setOutput', 'pause', 'resume', 'interrupt', 'heard']
       .map(k => [k, capability]))),
     billing: object({ visitor: string, upstream: string }),
-  }),
+    ownership: object(Object.fromEntries(['stt', 'tts', 'turnTaking'].map(k => [k, { enum: ['provider', 'server', 'browser'] }]))),
+    optionalCapabilities: object(Object.fromEntries(['forceInterrupt', 'alignment', 'playbackRetry', 'metering'].map(k => [k, capability])), []),
+  }, ['reasoning', 'transcript', 'capabilities', 'billing']),
 }, ['id', 'version', 'apiVersion', 'kinds', 'placement', 'entrypoints', 'configSchema', 'vendor', 'models']);
 
 // Deliberately small dependency-free JSON Schema subset used by the manifest contract.
@@ -114,6 +117,7 @@ export class PluginRegistry {
     if (typeof plugin.health !== 'function' || plugin.manifest.kinds.flatMap(k => KIND_OPERATIONS[k]).some(k => typeof plugin[k] !== 'function')) {
       throw new TypeError('Missing plugin operation or health');
     }
+    if (plugin.ports !== undefined) assertVoicePorts(plugin.ports);
     const entry = { ...plugin, manifest: deeplyFrozen(plugin.manifest) ? plugin.manifest : deepFreeze(structuredClone(plugin.manifest)) };
     if (isCanonicalMockReasoning(plugin)) { Object.freeze(entry); this.#mockInstances.add(entry); }
     this.#entries.set(entry.manifest.id, entry); return this;

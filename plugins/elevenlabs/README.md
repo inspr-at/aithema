@@ -83,6 +83,42 @@ substitutes the previous answer for that interrupted reply.
 ## Contract and controls
 
 Core exports the runtime contract at `@inspr/aithema-core/live-voice`.
+AIT-102 PR 1 adds optional `ports.serverAdapter`, `ports.browserMedia`,
+`ports.replyExecutor` and `ports.components` contracts alongside the existing
+session API. Server adapters validate private configuration, start admitted
+segments, stop them and return authenticated reconciliation evidence. Browser
+media consumes `{callId, providerSessionId, expiresAt, opaque}` grants; only the
+adapter interprets `opaque`. Capture, playback and teardown delegate to the
+existing client and retain its lifecycle, interruption and hold fences.
+
+`createElevenLabsConfig({agentId, publicFacadeBaseUrl?, usdPerCredit?})` owns the
+private adapter fields. Both duration and server bindings accept `adapterConfig`;
+their legacy fields are enumerable getters, preserving existing JSON and binding
+hashes. `adapterConfig` is non-enumerable and frozen. `model === agentId` remains
+required until PR 2b; public routes and facade wiring remain in place until PR 2a.
+The server adapter exposes this private config through `ports.serverAdapter.config`.
+
+`createElevenLabsReplyExecutor({execute})` reads today's operation SSE response
+into operation identity, text deltas and completion. Inject the existing admitted
+operation execution in-process, returning `{operation, response}` with identity
+from the Rule C store; input envelopes never supply operation keys. The envelope's source label is no authentication
+mechanism. Provider callbacks must pass today's bearer and owned-call checks first.
+A future server coordinator must remain in-process, with no browser fields or
+network route. The shared executor's SSE implementation is unchanged in this PR.
+STT/TTS belong to the agent platform: their separate component ports return coded
+`unavailable`. Future independent kits negotiate audio format and report component
+usage with explicit attempt, role, unit, quantity, cost, source and estimate status;
+this bridge invents neither component usage nor a second parent charge.
+
+The baseline at `test/fixtures/elevenlabs-wire.json` was captured remotely from
+unchanged main `550b4de`. `test/voice-wire-fixtures.js` records synthetic callback
+request/response bytes, SSE, retries, history growth/truncation, partial failure,
+the opener guard, token/signed-URL minting and delayed closure/usage reconciliation.
+Only generated reply UUIDs are normalized; frame boundaries, JSON field order,
+whitespace, headers and cost precedence are compared byte for byte. Its versioned
+`aithema-voice-wire` format is available to PRs 2a/2b and AIT-139. Default maximum
+duration remains 3600 seconds; a new-host default change requires the later OPS pin.
+
 `liveVoiceConformance` is re-exported by core's existing conformance export.
 A joined local fixture supplies a dispatch counter, command-effect probes,
 provider events and durable persistence observations. After closing every
