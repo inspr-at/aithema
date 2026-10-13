@@ -120,6 +120,8 @@ for (const [locale, copy] of [['de', de], ['en', en]]) test(`AIT-138 Tick UI: ${
   root.querySelector('.pause').click(); await tick(); await tick();
   assert.equal(takeovers, 1); assert.equal(starts, 2, 'one old-tab click takes over and resumes');
   assert.equal(rail.dataset.state, 'listening'); assert.equal(rail.hasAttribute('data-moved'), false);
+  assert.notEqual(root.querySelector('.composer-reason').textContent, copy.voiceInAnotherTab);
+  assert.notEqual(root.querySelector('.notice').textContent, copy.voiceInAnotherTab);
 });
 test('AIT-138 UI: waiting resets an assistant waveform to the calm baseline even with motion off', async t => {
   const { rail, events, root } = fixture(t); await rail.start();

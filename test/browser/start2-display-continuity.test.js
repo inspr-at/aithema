@@ -126,6 +126,8 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
             enabledResumeStyle: pauseStyle.opacity === '1' && pauseStyle.backgroundColor === getComputedStyle(root.querySelector('.voice-pause')).backgroundColor &&
               pauseStyle.color === getComputedStyle(root.querySelector('.voice-pause')).color,
             resumeLabel: pause.textContent.trim(), resumeTooltip: pause.title, resumeDisabled: pause.disabled, resumeCursor: pauseStyle.cursor,
+            moved: rail.hasAttribute('data-moved'), composerHint: root.querySelector('.composer-reason').textContent,
+            panelStatus: root.querySelector('.notice').textContent,
             footerUntruncated: footerBoxes.every(box => box.left >= 0 && box.right <= innerWidth && box.top >= footer.top && box.bottom <= footer.bottom) &&
               (compactFooter || textBox.width <= statusBox.width + .5 && status.scrollWidth <= status.clientWidth && statusBox.right <= innerWidth),
             footerLabel: status.textContent, compactFooter,
@@ -135,6 +137,11 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
           assert.ok(presentation[key], `${label}/${name}: ${key}: ${JSON.stringify(presentation)}`);
         }
         assert.ok(composer.fullyVisible, `${label}/${name}: settled composer must be fully visible: ${JSON.stringify(composer)}`);
+        if (name === 'takeback-here') {
+          assert.equal(presentation.moved, false);
+          assert.notEqual(presentation.composerHint, { de, en }[locale].voiceInAnotherTab, 'the controlling tab clears its old composer hint');
+          assert.notEqual(presentation.panelStatus, { de, en }[locale].voiceInAnotherTab, 'the controlling tab clears its old panel status');
+        }
         if (['old-tab', 'takeback-other-tab'].includes(name)) {
           const copy = { de, en }[locale];
           assert.equal(presentation.label, copy.voiceMoved); assert.equal(presentation.resumeLabel, copy.voiceTakeover);
