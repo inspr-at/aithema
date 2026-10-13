@@ -8,6 +8,7 @@ import { watchVoiceHeartbeat, voiceAuthorityLost } from '../../core/src/voice-li
 // cells and the waveform with one status phrase. Alternatives share a cell (Start and the microphone,
 // End and Retry call, Sound and Enable sound), so no state change moves a control.
 const BUTTONS = { start: ['mic'], input: ['mic', true], output: ['volume', true], playback: ['volume'], close: ['stop'], retry: ['refresh'] };
+const TAKEOVER_DEADLINE_MS = 10_000;
 export class AudioRail {
   constructor({ root, noticesRoot, copy, client, feature, context, onPartial, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, ending, waitingCall, heartbeatMs = 10_000 }) {
     Object.assign(this, { root, copy, client, feature, context, onPartial, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, ending, heartbeatMs });
@@ -62,13 +63,16 @@ export class AudioRail {
     // (a microphone toggle or a pending resume, say) stops media immediately and
     // retains a hold through the command, so a hidden rail never keeps listening.
     this.hide = () => {
+      this.takeoverController?.abort();
       if (this.unloading) return;
       this.holdController?.abort();
       if (this.session) { if (!this.paused || this.busy) void this.pause(true); }
       else if (this.state === 'connecting') { this.pauseRevision++; this.hidePending = true; }
     };
     this.visibility = () => { if (root.ownerDocument.hidden) this.hide(); };
+    this.pagehide = () => this.takeoverController?.abort();
     root.ownerDocument.addEventListener('visibilitychange', this.visibility);
+    root.ownerDocument.defaultView?.addEventListener('pagehide', this.pagehide);
     this.render();
   }
   settle() {
@@ -188,7 +192,8 @@ export class AudioRail {
     this.retryAt = error?.code === 'voice-conflict' && error.retryAfterMs > 0 ? Date.now() + Math.min(error.retryAfterMs, 60_000) : 0;
     this.render();
   }
-  async takeoverIdentity(retired, signal) {
+  async takeoverIdentity(retired, controller, deadlineAt) {
+    const { signal } = controller;
     const authoritative = () => {
       const state = this.ownershipState;
       return state?.callId === retired.callId && state.providerSessionId && Number.isSafeInteger(state.epoch) &&
@@ -198,17 +203,22 @@ export class AudioRail {
     const known = authoritative();
     if (known) return known;
     // An ownership-lost response proves retirement, but carries no new epoch.
-    // Keep this click until voice.state (or a restored snapshot) supplies it.
+    // Keep this click only until its own deadline, independently of the request
+    // deadline that starts once voice.state (or a snapshot) supplies the epoch.
     const notification = Promise.withResolvers(), wait = { callId: retired.callId, epoch: retired.epoch, resolve: notification.resolve };
     const cancel = () => notification.reject(new Error('Voice takeover cancelled'));
     signal.throwIfAborted(); signal.addEventListener('abort', cancel, { once: true });
+    const timer = setTimeout(() => controller.abort(), Math.max(0, deadlineAt - Date.now()));
     this.ownershipWait = wait;
     try {
       await notification.promise;
+      signal.throwIfAborted();
+      if (Date.now() >= deadlineAt || this.root.ownerDocument.hidden) { controller.abort(); signal.throwIfAborted(); }
       const identity = authoritative();
       if (!identity) throw new Error('Authoritative voice ownership required');
       return identity;
     } finally {
+      clearTimeout(timer);
       signal.removeEventListener('abort', cancel);
       if (this.ownershipWait === wait) this.ownershipWait = null;
     }
@@ -225,23 +235,24 @@ export class AudioRail {
       // this click is about to claim, and it must release the device guard first.
       const retirement = retired?.close({ reason: 'tab-takeover', deadlineAt: Date.now() + 1000 }).catch(() => {});
       const controller = new AbortController();
+      const waitDeadlineAt = Date.now() + TAKEOVER_DEADLINE_MS;
       this.takeoverController = controller; this.busy = true; this.render();
       try {
-        const identity = takingBack && this.retiredOwnership ? await this.takeoverIdentity(this.retiredOwnership, controller.signal) : this.waitingCall;
+        const identity = takingBack && this.retiredOwnership ? await this.takeoverIdentity(this.retiredOwnership, controller, waitDeadlineAt) : this.waitingCall;
         // A credit verdict can change while the original click waits for voice.state.
-        if (generation !== this.generation || !this.canContinue()) return;
-        const held = await this.client.takeover(identity, { signal: controller.signal, deadlineAt: Date.now() + 10_000 });
-        if (generation !== this.generation || held.epoch < this.ownershipState?.epoch) return;
+        if (generation !== this.generation || controller.signal.aborted || Date.now() >= waitDeadlineAt || this.root.ownerDocument.hidden || !this.canContinue()) return;
+        const held = await this.client.takeover(identity, { signal: controller.signal, deadlineAt: Date.now() + TAKEOVER_DEADLINE_MS });
+        if (generation !== this.generation || controller.signal.aborted || this.root.ownerDocument.hidden || held.epoch < this.ownershipState?.epoch) return;
         this.waitingCall = { callId: held.callId, providerSessionId: held.providerSessionId, epoch: held.epoch };
         this.ownershipState = held; this.requiresTakeover = false; this.moved = false; this.retiredOwnership = null; this.errorKey = null;
         if (takingBack) {
           await retirement; await opening?.catch(() => {});
-          if (generation !== this.generation) return;
+          if (generation !== this.generation || controller.signal.aborted || this.root.ownerDocument.hidden) return;
           // This click is already the explicit visitor intent. A newcomer still
           // stops at the held takeover; an old tab continues straight to Resume.
           this.busy = false; await this.start();
         }
-      } catch (error) { if (generation === this.generation) this.failure(error); }
+      } catch (error) { if (generation === this.generation && !controller.signal.aborted) this.failure(error); }
       finally {
         if (this.takeoverController === controller) this.takeoverController = null;
         if (generation === this.generation) { this.busy = false; this.render(); }
@@ -321,12 +332,18 @@ export class AudioRail {
     if (!state?.callId) return;
     const known = this.ownershipState;
     if (known?.callId === state.callId && state.epoch < known.epoch) return;
+    const foreign = state.controllingTabId && state.controllingTabId !== this.client?.tabId;
+    // The first missing epoch can satisfy the saved click. A further takeover
+    // belongs to a newer visitor intent and must retire this one immediately.
+    if (this.takeoverController && known?.callId === state.callId && (state.state === 'ended' ||
+      foreign && state.epoch > known.epoch && (this.retiredOwnership ? known.epoch > this.retiredOwnership.epoch : known.controllingTabId === this.client?.tabId))) {
+      this.takeoverController.abort();
+    }
     this.ownershipState = state;
     if (this.ownershipWait?.callId === state.callId && Number.isSafeInteger(state.epoch) && state.epoch > this.ownershipWait.epoch) {
       if (state.state === 'ended') this.takeoverController?.abort();
       else if (state.providerSessionId) this.ownershipWait.resolve();
     }
-    const foreign = state.controllingTabId && state.controllingTabId !== this.client?.tabId;
     if (this.session) {
       const session = this.session;
       session.receiveState?.(state); // Synchronous media hold precedes the repaint.
@@ -518,10 +535,12 @@ export class AudioRail {
   quiet() { delete this.root.dataset.measured; this.waveform.baseline(); if (this.connected) this.onLevel?.(0); }
   connect() {
     this.connected = true; this.root.ownerDocument.addEventListener('visibilitychange', this.visibility); this.waveform.connect();
+    this.root.ownerDocument.defaultView?.addEventListener('pagehide', this.pagehide);
     this.observeLabel();
   }
   disconnect() {
     this.connected = false; this.root.ownerDocument.removeEventListener('visibilitychange', this.visibility); this.waveform.destroy(); this.labelSizes?.disconnect();
+    this.root.ownerDocument.defaultView?.removeEventListener('pagehide', this.pagehide);
     if (this.session || this.takeoverController || this.state === 'connecting') void this.close();
   }
   destroy() {
