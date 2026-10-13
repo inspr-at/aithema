@@ -414,7 +414,8 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           throw new PluginError('not-admitted', 'Call authorization changed');
         }
         if (action === 'close' && previous?.terminal) return json(previous.terminal);
-        const entry = calls.get(callId);
+        const currentEntry = calls.get(callId);
+        const entry = currentEntry?.epoch === logical?.epoch ? currentEntry : undefined;
         if (!entry && action === 'recover' && previous) {
           // A choice saved while the call was down applies only to an explicitly started call.
           if (Number.isSafeInteger(previous.settingsRevision) && previous.settingsRevision !== storage.get(sessionId).settings?.revision) {

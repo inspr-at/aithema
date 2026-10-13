@@ -1,7 +1,8 @@
-import { test } from 'node:test';
+import { test as nodeTest } from 'node:test';
 import assert from 'node:assert/strict';
 import { createElevenLabsClient } from '../src/client.js';
 import { fixture, invocationOptions } from './fixtures.js';
+const test = (name, fn) => nodeTest(name, { timeout: 10_000 }, fn);
 
 for (const transport of ['webrtc', 'websocket']) {
   for (const cause of ['ownership', 'sleep', 'lease']) test(`AIT-138 d: ${transport} ${cause} holds capture and playback synchronously`, async t => {

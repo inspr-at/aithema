@@ -11,6 +11,7 @@ import puppeteer from 'puppeteer-core';
 import { startChild } from '../helpers.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
+import { mockConsent } from './consent-helpers.js';
 
 async function browserPath() {
   const paths = process.env.CHROME_PATH ? [process.env.CHROME_PATH] : [
@@ -589,6 +590,80 @@ test('AIT-138 UI: held-call copy, placeholders, calm lines and disabled controls
   assert.deepEqual(errors, []);
   if (evidence) await writeFile(join(evidence, 'ait-138-ui-pass-lines.json'), JSON.stringify({ ticket: 'AIT-138', commit: evidenceCommit,
     createdAt: new Date().toISOString(), capture: 'viewport', files, checks }, null, 2));
+});
+
+test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport evidence', { timeout: 240_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-continuity-'));
+  const db = join(directory, 'session.sqlite');
+  const settings = { AITHEMA_VOICE_MODE: 'fake', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit };
+  let demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), db, settings);
+  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
+    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  t.after(async () => { await browser.close(); await demo.kill(); });
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], checks = [], errors = [];
+  if (evidence) await mkdir(evidence, { recursive: true });
+  const state = (page, expected) => until(page, expected => document.querySelector('aithema-session')?.shadowRoot.querySelector('.audio-rail').dataset.state === expected, expected);
+  const click = (page, selector) => shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).click(), selector);
+  const selectors = ['.band', '.audio-rail', '.voice-notices', '.concept-bar', '.transcript-shell', '.composer-dock'];
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390]) {
+    await t.test(`${width} ${theme} ${locale}`, async () => {
+      const context = await browser.createBrowserContext(), page = await context.newPage();
+      page.on('pageerror', error => errors.push(error.message));
+      await page.setViewport({ width, height: width === 390 ? 844 : 900 });
+      await page.evaluateOnNewDocument(locale => {
+        localStorage.setItem('aithema-locale', locale); localStorage.setItem('aithema-motion', 'off');
+      }, locale);
+      await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+      await until(page, () => document.querySelector('aithema-session')?.session?.id);
+      await page.select('#locale', locale); await page.select('#theme', theme); await mockConsent(page);
+      await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.voice-start').disabled);
+      await click(page, '.voice-start');
+      await until(page, () => ['speaking', 'listening'].includes(document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state));
+      await page.evaluate(async () => { await document.fonts.ready; }); await settle();
+      const label = `${width}-${theme}-${locale}`, before = await layoutBoxes(page, selectors);
+      const call = await page.evaluate(() => JSON.parse(sessionStorage.getItem(`aithema-voice-call:${document.querySelector('aithema-session').session.id}`)));
+      const other = await context.newPage(); other.on('pageerror', error => errors.push(error.message));
+      await other.setViewport({ width, height: width === 390 ? 844 : 900 });
+      await other.goto(demo.url, { waitUntil: 'domcontentloaded' }); await state(other, 'waiting');
+      assert.equal(await shadow(other, c => c.shadowRoot.querySelector('.pause').textContent.trim()), { de, en }[locale].voiceTakeover);
+      await click(other, '.pause'); await until(other, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.pause').textContent.includes('übernehmen') &&
+        !document.querySelector('aithema-session').shadowRoot.querySelector('.pause').textContent.includes('Take over'));
+      assert.equal(await shadow(other, c => c.shadowRoot.querySelector('.audio-rail').dataset.state), 'waiting', 'takeover has no automatic capture');
+      await state(page, 'waiting'); await page.bringToFront(); await settle();
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-state').textContent), { de, en }[locale].voiceMoved);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.pause').disabled), true);
+      sameBoxes(before, await layoutBoxes(page, selectors), `${label}: old-tab notice`);
+      const shot = async (target, name) => { const file = `ait-138-d-${name}-${label}.png`; files.push(file);
+        if (evidence) await target.screenshot({ path: join(evidence, file), fullPage: false }); };
+      await shot(page, 'old-tab');
+      await other.bringToFront(); await click(other, '.pause'); await state(other, 'listening');
+      const next = await other.evaluate(() => JSON.parse(sessionStorage.getItem(`aithema-voice-call:${document.querySelector('aithema-session').session.id}`)));
+      assert.equal(next.callId, call.callId); assert.equal(next.epoch, call.epoch + 1);
+      const heldBefore = await layoutBoxes(other, selectors);
+      await other.evaluate(() => { document.dispatchEvent(new Event('freeze')); document.dispatchEvent(new Event('resume')); });
+      await state(other, 'waiting'); await settle();
+      assert.equal(await shadow(other, c => c.shadowRoot.querySelector('textarea').placeholder), { de, en }[locale].placeholder);
+      sameBoxes(heldBefore, await layoutBoxes(other, selectors), `${label}: wake waiting`); await shot(other, 'wake-waiting');
+      await click(other, '.pause'); await state(other, 'listening');
+      const restarted = await other.evaluate(() => JSON.parse(sessionStorage.getItem(`aithema-voice-call:${document.querySelector('aithema-session').session.id}`)));
+      const port = new URL(demo.url).port;
+      await demo.kill('SIGKILL'); demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), db, { ...settings, PORT: port });
+      await state(other, 'waiting');
+      await mockConsent(other);
+      await until(other, () => document.querySelector('aithema-session').session.featureMatrix.best.voice.available);
+      await click(other, '.pause'); await state(other, 'listening');
+      await until(other, () => document.querySelector('aithema-session').shadowRoot.querySelector('.voice-notice--recovered').textContent);
+      const restored = await other.evaluate(() => JSON.parse(sessionStorage.getItem(`aithema-voice-call:${document.querySelector('aithema-session').session.id}`)));
+      assert.equal(restored.callId, restarted.callId); assert.notEqual(restored.providerSessionId, restarted.providerSessionId);
+      await settle(); sameBoxes(heldBefore, await layoutBoxes(other, selectors), `${label}: restart recovered`); await shot(other, 'restart-recovered');
+      checks.push({ width, theme, locale, callIdPreserved: true, epochAdvanced: true, captureRequiresResume: true,
+        restart: 'SIGKILL and durable SQLite reload', layoutShiftPx: 0, pass: true });
+      await click(other, '.voice-close'); await state(other, 'idle'); await context.close();
+    });
+  }
+  assert.deepEqual(errors, []);
+  if (evidence) await writeFile(join(evidence, 'ait-138-d-pass-lines.json'), JSON.stringify({ ticket: 'AIT-138 d', commit: evidenceCommit,
+    createdAt: new Date().toISOString(), capture: 'viewport', provider: 'local fake; actual server and browser controller', files, checks }, null, 2));
 });
 
 test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips in all viewports', { timeout: 180_000 }, async t => {
