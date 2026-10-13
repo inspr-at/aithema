@@ -133,12 +133,12 @@ for (const transport of ['webrtc', 'websocket']) {
     assert.ok(f.a.sdk.acquired.some(stream => stream.getTracks().some(track => track.readyState === 'live')));
   });
 
-  test(`AIT-138 d takeback: ${transport} closing cancels a click awaiting voice.state`, { timeout: 10_000 }, async t => {
+  for (const action of ['close', 'disconnect']) test(`AIT-138 d takeback: ${transport} ${action} cancels a click awaiting voice.state`, { timeout: 10_000 }, async t => {
     const f = tabsFixture(t, transport); await f.a.rail.start();
     const retired = f.a.returned.at(-1); f.a.deferNotifications = true;
     await f.b.rail.start(); await f.b.rail.start(); await retired.heartbeat(); await flush();
     const before = f.snapshot(), commands = f.commands.length;
-    f.a.rail.button('pause').click(); await flush(); await f.a.rail.close();
+    f.a.rail.button('pause').click(); await flush(); await f.a.rail[action]();
     f.a.deliverNotifications(); await flush();
     assert.equal(f.snapshot().epoch, before.epoch); assert.equal(f.snapshot().controllingTabId, 'B');
     assert.equal(f.b.root.dataset.state, 'listening');

@@ -3,7 +3,6 @@ import { icon } from './icons.js';
 import { Waveform } from './waveform.js';
 import { RecoveryNotices } from './recovery-notices.js';
 import { watchVoiceHeartbeat, voiceAuthorityLost } from '../../core/src/voice-lifecycle-controller.js';
-import { voiceOperation } from '../../core/src/live-voice.js';
 // START's rail lifecycle, ported to the live-voice session interface (INSPR D3). The presentation is
 // START's conversation rail (index.astro .v2__conversation-rail): an orb dock, icon controls in fixed
 // cells and the waveform with one status phrase. Alternatives share a cell (Start and the microphone,
@@ -172,7 +171,7 @@ export class AudioRail {
     this.retryAt = error?.code === 'voice-conflict' && error.retryAfterMs > 0 ? Date.now() + Math.min(error.retryAfterMs, 60_000) : 0;
     this.render();
   }
-  async takeoverIdentity(retired, options) {
+  async takeoverIdentity(retired, signal) {
     const authoritative = () => {
       const state = this.ownershipState;
       return state?.callId === retired.callId && state.providerSessionId && Number.isSafeInteger(state.epoch) &&
@@ -184,13 +183,18 @@ export class AudioRail {
     // An ownership-lost response proves retirement, but carries no new epoch.
     // Keep this click until voice.state (or a restored snapshot) supplies it.
     const notification = Promise.withResolvers(), wait = { callId: retired.callId, epoch: retired.epoch, resolve: notification.resolve };
+    const cancel = () => notification.reject(new Error('Voice takeover cancelled'));
+    signal.throwIfAborted(); signal.addEventListener('abort', cancel, { once: true });
     this.ownershipWait = wait;
     try {
-      await voiceOperation(options, () => notification.promise);
+      await notification.promise;
       const identity = authoritative();
       if (!identity) throw new Error('Authoritative voice ownership required');
       return identity;
-    } finally { if (this.ownershipWait === wait) this.ownershipWait = null; }
+    } finally {
+      signal.removeEventListener('abort', cancel);
+      if (this.ownershipWait === wait) this.ownershipWait = null;
+    }
   }
   async start() {
     if (this.state === 'connecting' || !this.canContinue() || !this.client) return;
@@ -203,12 +207,12 @@ export class AudioRail {
       // Retired SDK cleanup keeps its original epoch. It cannot close the call
       // this click is about to claim, and it must release the device guard first.
       const retirement = retired?.close({ reason: 'tab-takeover', deadlineAt: Date.now() + 1000 }).catch(() => {});
-      const controller = new AbortController(), options = { signal: controller.signal, deadlineAt: Date.now() + 10_000 };
+      const controller = new AbortController();
       this.takeoverController = controller; this.busy = true; this.render();
       try {
-        const identity = takingBack && this.retiredOwnership ? await this.takeoverIdentity(this.retiredOwnership, options) : this.waitingCall;
+        const identity = takingBack && this.retiredOwnership ? await this.takeoverIdentity(this.retiredOwnership, controller.signal) : this.waitingCall;
         if (generation !== this.generation) return;
-        const held = await this.client.takeover(identity, options);
+        const held = await this.client.takeover(identity, { signal: controller.signal, deadlineAt: Date.now() + 10_000 });
         if (generation !== this.generation || held.epoch < this.ownershipState?.epoch) return;
         this.waitingCall = { callId: held.callId, providerSessionId: held.providerSessionId, epoch: held.epoch };
         this.ownershipState = held; this.requiresTakeover = false; this.moved = false; this.retiredOwnership = null; this.errorKey = null;
@@ -300,8 +304,9 @@ export class AudioRail {
     const known = this.ownershipState;
     if (known?.callId === state.callId && state.epoch < known.epoch) return;
     this.ownershipState = state;
-    if (this.ownershipWait?.callId === state.callId && state.epoch > this.ownershipWait.epoch && state.providerSessionId && state.state !== 'ended') {
-      this.ownershipWait.resolve();
+    if (this.ownershipWait?.callId === state.callId && Number.isSafeInteger(state.epoch) && state.epoch > this.ownershipWait.epoch) {
+      if (state.state === 'ended') this.takeoverController?.abort();
+      else if (state.providerSessionId) this.ownershipWait.resolve();
     }
     const foreign = state.controllingTabId && state.controllingTabId !== this.client?.tabId;
     if (this.session) {
@@ -498,7 +503,7 @@ export class AudioRail {
   }
   disconnect() {
     this.connected = false; this.root.ownerDocument.removeEventListener('visibilitychange', this.visibility); this.waveform.destroy(); this.labelSizes?.disconnect();
-    if (this.session || this.state === 'connecting') void this.close();
+    if (this.session || this.takeoverController || this.state === 'connecting') void this.close();
   }
   destroy() {
     this.onState = null; this.onRender = null; this.onLevel = null; this.disconnect();
