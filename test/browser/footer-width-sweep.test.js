@@ -30,7 +30,9 @@ const geometry = page => shadow(page, c => {
       const style = getComputedStyle(parent);
       if (style.display === 'none' || Number(style.opacity) === 0) return false;
     }
-    return !node.closest('.footer-popup');
+    // The feature list is an intentional 1px screen-reader-only description,
+    // not a painted footer item. Keep clipping checks for all visible labels.
+    return !node.closest('.footer-popup, .features');
   };
   const outside = (inner, outer) => Math.max(0, outer.left - inner.left, inner.right - outer.right,
     outer.top - inner.top, inner.bottom - outer.bottom);
