@@ -4,6 +4,8 @@
 import { settingsGauges, GAUGES, SETTINGS_OFF, preferredEffort } from '../../core/src/settings.js';
 import { modelDisplayName } from './display.js';
 
+const SAVE_MESSAGES = ['autosave', 'saving', 'saved', 'failed', 'closePending'];
+
 const svg = (body, box = '0 0 24 24') => `<svg viewBox="${box}" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 const stars = Array.from({ length: 12 }, (_, i) => `<path d="m0-2 .6 1.3 1.4.2-1 1 .2 1.4L0 1.2l-1.2.7.2-1.4-1-1 1.4-.2Z" transform="translate(${(16 + 10 * Math.sin(i * Math.PI / 6)).toFixed(2)} ${(16 - 10 * Math.cos(i * Math.PI / 6)).toFixed(2)})" fill="currentColor" stroke="none"/>`).join('');
 export const ICONS = Object.freeze({
@@ -136,6 +138,7 @@ export class SettingsDialog {
       const node = document.createElement('p'); node.className = className; node.setAttribute('aria-hidden', 'true'); node.textContent = text; return node;
     }));
     measure(this.#q('.context-text'), Object.values(this.#copy.help).map(text => fill(text, { reason: '' })), 'context-measure');
+    measure(this.#q('.save-state'), SAVE_MESSAGES.map(key => c[key]), 'save-state-measure');
     const notices = [c.callActive, c.toDevice, c.fromDevice, c.consentRequired, c.running, c.conflict, fill(c.notAllowed, { reason: '' })];
     const box = document.createElement('div'); box.className = 'notice-measure'; box.setAttribute('aria-hidden', 'true');
     const tallest = document.createElement('p'); tallest.className = 'notice-text';
@@ -148,6 +151,7 @@ export class SettingsDialog {
     const old = this.#copy.settings;
     for (const key of Object.keys(old)) if (typeof old[key] === 'string' && this.#status === old[key]) { this.#status = copy.settings[key]; break; }
     this.#copy = copy; this.#notice = null; this.#paintCopy();
+    this.#all('.save-state-measure').forEach((n, i) => { n.textContent = copy.settings[SAVE_MESSAGES[i]]; });
     this.#all('.context-measure').forEach((n, i) => { n.textContent = fill(Object.values(copy.help)[i] ?? '', { reason: '' }); });
     const c = copy.settings, notices = [c.callActive, c.toDevice, c.fromDevice, c.consentRequired, c.running, c.conflict, fill(c.notAllowed, { reason: '' })];
     this.#q('.notice-measure .notice-text').textContent = notices.reduce((a, b) => b.length > a.length ? b : a);

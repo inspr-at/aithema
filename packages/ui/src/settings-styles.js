@@ -137,11 +137,13 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
   box-shadow:0 10px 28px #10233530; font-size:.75rem; line-height:1.5; }
 .save-state { display:grid; grid-template-columns:1rem minmax(0,auto) auto; align-items:center; gap:.45rem; min-width:0; max-width:26rem;
   color:var(--aithema-muted); font-size:.72rem; }
-.save-check { color:var(--aithema-accent); visibility:hidden; }
+.save-check { grid-area:1/1; color:var(--aithema-accent); visibility:hidden; }
 .settings[data-save-state=saved] .save-check { visibility:visible; }
 .settings[data-save-state=failed] .save-state { color:var(--aithema-error); }
-.save-status { min-height:2.2em; display:flex; align-items:center; overflow-wrap:anywhere; }
-.save-retry { min-height:2rem; padding:.2rem .6rem; font-size:.72rem; }
+/* Reserve every acknowledgment label so the footer links never rewrap after a save. */
+.save-status, .save-state-measure { grid-area:1/2; min-height:2.2em; display:flex; align-items:center; overflow-wrap:anywhere; }
+.save-state-measure { visibility:hidden; user-select:none; pointer-events:none; }
+.save-retry { grid-area:1/3; min-height:2rem; padding:.2rem .6rem; font-size:.72rem; }
 .save-retry[data-visible=false] { visibility:hidden; }
 .done { justify-self:end; display:inline-flex; align-items:center; justify-content:center; gap:.6rem; min-width:7rem; padding:.6rem 1.1rem;
   border:1px solid color-mix(in srgb,var(--aithema-ink) 70%,transparent); border-radius:.9rem; color:var(--aithema-on-ink); font-weight:600;

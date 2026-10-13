@@ -130,9 +130,25 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
                 const box = n.getBoundingClientRect(), pane = n.closest('.settings__body'), bounds = pane?.getBoundingClientRect();
                 const top = bounds?.top ?? c.shadowRoot.querySelector('.band').getBoundingClientRect().bottom, bottom = bounds?.bottom ?? innerHeight;
                 if (box.top >= top && box.bottom <= bottom) return false;
-                n.scrollIntoView({ block: 'end', behavior: 'instant' }); return true;
+                n.scrollIntoView({ block: 'center', behavior: 'instant' });
+                if (!pane && selector === '.composer-shell') {
+                  // The card grows above the dock: centre their combined region between sticky controls.
+                  const r = c.shadowRoot, card = r.querySelector('.question-card'), composer = n.getBoundingClientRect();
+                  const start = card.hidden ? composer.top : card.getBoundingClientRect().top, height = composer.bottom - start;
+                  const clearTop = r.querySelector('.band').getBoundingClientRect().bottom + 12;
+                  const clearBottom = r.querySelector('.display-foot').getBoundingClientRect().top - 12;
+                  scrollBy({ top: start - (clearTop + (clearBottom - clearTop - height) / 2), behavior: 'instant' });
+                }
+                return true;
               }, selector);
-              if (scrolled) { await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))); await capture(suffix); }
+              if (scrolled) {
+                await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+                if (selector === '.composer-shell') assert.equal(await shadow(page, c => {
+                  const r = c.shadowRoot, card = r.querySelector('.question-card').getBoundingClientRect(), composer = r.querySelector('.composer-shell').getBoundingClientRect();
+                  return card.top >= r.querySelector('.band').getBoundingClientRect().bottom && composer.bottom <= r.querySelector('.display-foot').getBoundingClientRect().top;
+                }), true, `${label}/${state}: the scrolled card and composer clear the sticky band and footer`);
+                await capture(suffix);
+              }
             }
           }
         } finally {
