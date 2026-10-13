@@ -7,16 +7,31 @@ const FORMS = ['danke', 'danke schön', 'danke sehr', 'vielen dank', 'vielen her
   'thank you so much', 'thanks a lot', 'dankeschön', 'vielen lieben dank', 'danke vielmals'];
 const PREFIXES = [...FORMS, ...FORMS.map(form => `**${form}**`)];
 const MAX_BUFFER = 160;
-// Conservative finite-verb evidence, rather than mistaking a noun phrase for a reply.
-// Unknown constructions are kept; this guard must never create a broken fragment.
-const VERB = /^(?:ist|sind|war|waren|hat|haben|wird|werden|kann|können|könnte|könnten|soll|sollen|sollte|sollten|möchte|möchten|muss|müssen|darf|dürfen|klingt|klingen|hilft|helfen|passt|passen|ergibt|ergeben|macht|machen|zeigt|zeigen|fehlt|fehlen|braucht|brauchen|benötigt|benötigen|geht|gehen|lässt|lassen|steht|stehen|beginnt|beginnen|startet|starten|beschreiben|beschreibt|planen|plant|reicht|stimmt|is|are|was|were|has|have|can|could|should|would|will|must|do|does|sounds|sound|seems|seem|helps|help|works|work|means|mean|makes|make|needs|need|lets|let|matters|agree|start|starts)$/iu;
-const COMPLETE_VERB = /^(?:hilft|passt|reicht|stimmt|beginnt|beginnen|startet|starten|helps|works|matters|agree|start|starts)$/iu;
+// Only closed, subject-specific lists establish finite-verb evidence. In
+// particular, plural/infinitive forms must never establish "das/es" clauses.
+const DE_SINGULAR = /^(?:ist|klingt|hilft|passt|macht|zeigt|wirkt|geht|bleibt|reicht|stimmt|funktioniert|scheint|sieht|hat|wird|kann|lässt)$/iu;
+const DE_FIRST = /^(?:bin|war|habe|werde|kann|könnte|soll|sollte|möchte|muss|darf|klinge|helfe|passe|mache|zeige|wirke|gehe|bleibe|reiche|stimme|funktioniere|scheine|sehe|lasse|beginne|starte|beschreibe|plane)$/iu;
+const DE_PLURAL = /^(?:sind|waren|haben|werden|können|könnten|sollen|sollten|möchten|müssen|dürfen|klingen|helfen|passen|machen|zeigen|wirken|gehen|bleiben|reichen|stimmen|funktionieren|scheinen|sehen|lassen|beginnen|starten|beschreiben|planen)$/iu;
+const EN_SINGULAR = /^(?:is|was|has|can|could|should|would|will|must|does|sounds|seems|helps|works|means|makes|needs|lets|matters|starts)$/iu;
+const EN_FIRST = /^(?:am|was|have|can|could|should|would|will|must|do|sound|seem|help|work|mean|make|need|let|agree|start)$/iu;
+const EN_PLURAL = /^(?:are|were|have|can|could|should|would|will|must|do|sound|seem|help|work|mean|make|need|let|agree|start)$/iu;
+const FINITE_BY_SUBJECT = { das: DE_SINGULAR, es: DE_SINGULAR, ich: DE_FIRST, wir: DE_PLURAL, sie: DE_PLURAL,
+  er: DE_SINGULAR, it: EN_SINGULAR, this: EN_SINGULAR, that: EN_SINGULAR, he: EN_SINGULAR, she: EN_SINGULAR,
+  i: EN_FIRST, we: EN_PLURAL, you: EN_PLURAL, they: EN_PLURAL };
+// This broader list rejects uncertain adjacent verbs; it is never acceptance
+// evidence. A modal + listed infinitive ("das kann helfen") is the exception.
+const VERB = /^(?:ist|sind|war|waren|hat|haben|wird|werden|kann|können|könnte|könnten|soll|sollen|sollte|sollten|möchte|möchten|muss|müssen|darf|dürfen|klingt|klingen|hilft|helfen|passt|passen|ergibt|ergeben|macht|machen|zeigt|zeigen|fehlt|fehlen|braucht|brauchen|benötigt|benötigen|geht|gehen|lässt|lassen|steht|stehen|beginnt|beginnen|startet|starten|beschreiben|beschreibt|planen|plant|reicht|reichen|stimmt|stimmen|wirkt|wirken|bleibt|bleiben|funktioniert|funktionieren|scheint|scheinen|sieht|sehen|bin|habe|werde|klinge|helfe|passe|mache|zeige|wirke|gehe|bleibe|reiche|stimme|funktioniere|scheine|sehe|lasse|beginne|starte|beschreibe|plane|am|is|are|was|were|has|have|can|could|should|would|will|must|do|does|sounds|sound|seems|seem|helps|help|works|work|means|mean|makes|make|needs|need|lets|let|matters|agree|start|starts)$/iu;
+const DE_MODAL = /^(?:kann|können|könnte|könnten|soll|sollen|sollte|sollten|möchte|möchten|muss|müssen|darf|dürfen|wird|werden|werde)$/iu;
+const DE_INFINITIVE = /^(?:helfen|passen|machen|zeigen|wirken|gehen|bleiben|reichen|stimmen|funktionieren|scheinen|sehen|haben|lassen|beginnen|starten|beschreiben|planen)$/iu;
+const EN_MODAL = /^(?:can|could|should|would|will|must)$/iu;
+const EN_INFINITIVE = /^(?:sound|seem|help|work|mean|make|need|let|agree|start|have)$/iu;
+const COMPLETE_VERB = /^(?:hilft|passt|reicht|stimmt|funktioniert|beginnt|beginnen|startet|starten|helps|works|matters|agree|start|starts)$/iu;
 const DANGLING = /^(?:für|for|mit|with|to|of|in|an|auf|nach|ein|eine|einen|einem|einer|der|die|das|the|a|an|and|und|or|oder)$/iu;
 const SUBJECT = /^(?:das|es|ich|wir|sie|du|ihr|er|it|i|we|you|he|she|they|this|that)$/iu;
 const POSSESSIVE = /^(?:ihr|ihre|unser|unsere|your|our|my|their)$/iu;
 const RELATIVE = /^(?:der|die|das|den|dem|deren|dessen|welche\p{L}*|which|that)$/iu;
 const SUBORDINATE = /^(?:dass|daß|wenn|weil|ob|wie|als|damit|sodass|which|who|whom|whose|where|when|if|because|how)$/iu;
-const INTERJECTION = /^(?:gut|okay|ok|äh|well)$/iu;
+const INTERJECTION = /^(?:gut|okay|ok|äh|also|nun|well|so)$/iu;
 
 function possibleThanks(text) {
   const prefix = text.trimStart().toLocaleLowerCase('en').replace(/\s+/gu, ' ');
@@ -36,9 +51,9 @@ function opener(text) {
 function fullClause(text, opening) {
   // Exact conservative rule: inspect only the first remainder clause. Strip
   // only a subject pronoun immediately followed by a listed finite verb, a
-  // possessive + one noun + listed finite verb, a complete "What <modal>
-  // <subject> ...?" question, or a short interjection (optionally followed by
-  // one of those starts). Never search later words/clauses for a verb. After a
+  // possessive + one noun + listed finite verb, or a complete "What <modal>
+  // <subject> ...?" question. An interjection still requires one of those
+  // starts in the same clause. Never search later words/clauses for a verb. After a
   // für/for complement, relative-pronoun starts are kept ("Das <finite verb>"
   // is already a grammatical main-clause start); subordinate and preposition-
   // led starts are kept too. "That <subject> ..." is subordinate;
@@ -46,18 +61,25 @@ function fullClause(text, opening) {
   // Missing finite-verb/completion evidence means keep the whole reply.
   const boundary = BOUNDARY.exec(text), clause = boundary ? text.slice(0, boundary.index) : text;
   const words = clause.match(/[\p{L}]+(?:['’][\p{L}]+)?/gu) ?? [];
+  if (INTERJECTION.test(words[0])) words.shift();
   if (!words.length || SUBORDINATE.test(words[0])) return false;
-  if (opening.complement && RELATIVE.test(words[0]) && !(/^das$/iu.test(words[0]) && VERB.test(words[1]))) return false;
-  if (INTERJECTION.test(words[0])) {
-    if (words.length === 1) return Boolean(boundary);
-    words.shift();
-  }
+  if (opening.complement && RELATIVE.test(words[0]) && !(/^das$/iu.test(words[0]) && DE_SINGULAR.test(words[1]))) return false;
   const englishQuestion = boundary?.[0] === '?' && /^what$/iu.test(words[0]) &&
     /^(?:can|could|should|would|will|must|do|does)$/iu.test(words[1]) && SUBJECT.test(words[2]);
   if (DANGLING.test(words.at(-1)) && !englishQuestion) return false;
-  const verb = englishQuestion ? 1 : SUBJECT.test(words[0]) && VERB.test(words[1]) ? 1
-    : POSSESSIVE.test(words[0]) && words.length >= 3 && VERB.test(words[2]) ? 2 : -1;
+  const finite = SUBJECT.test(words[0]) ? FINITE_BY_SUBJECT[words[0].toLocaleLowerCase('en')] : null;
+  const possessiveFinite = /^(?:ihr|ihre|unser|unsere)$/iu.test(words[0]) ? DE_SINGULAR : EN_SINGULAR;
+  const verb = englishQuestion ? 1 : finite?.test(words[1]) ? 1
+    : POSSESSIVE.test(words[0]) && words.length >= 3 && possessiveFinite.test(words[2]) ? 2 : -1;
   if (verb < 0 || words.length < 2) return false;
+  // Reject inverted or uncertain verb pairs, including relative infinitives.
+  // Permit only a finite modal followed by a listed infinitive, with no third
+  // adjacent verb; e.g. "das kann helfen" and "we can start" are main clauses.
+  if (VERB.test(words[verb + 1])) {
+    const modalInfinitive = DE_MODAL.test(words[verb]) && DE_INFINITIVE.test(words[verb + 1]) ||
+      EN_MODAL.test(words[verb]) && EN_INFINITIVE.test(words[verb + 1]);
+    if (!modalInfinitive || VERB.test(words[verb + 2])) return false;
+  }
   // A trailing copula/modal or unfinished complement is not a complete reaction.
   if (verb === words.length - 1) return COMPLETE_VERB.test(words[verb]);
   return words.length >= 3 && words.at(-1).length >= 2;
