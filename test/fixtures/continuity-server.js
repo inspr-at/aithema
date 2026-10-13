@@ -25,7 +25,8 @@ const consent = {
   },
   describe(sessionId) { return { selected: sessionId && this.coverage({ sessionId }).covered ? ['mock-processing'] : [] }; },
 };
-const reasoning = createMockReasoning(), secrets = createFacadeSecrets(), voicePlugin = createLocalVoiceProvider({ storage, revokeFacade: secrets.revoke });
+const reasoning = createMockReasoning(), secrets = createFacadeSecrets(), voicePlugin = createLocalVoiceProvider({ storage,
+  provisionFacade: () => {}, revokeFacade: secrets.revoke });
 const presets = demoPresets({ provider: 'mock', reaction: { plugin: 'mock', model: 'mock', effort: 'none', maxMicro: 0, maxTokens: 4096,
   rates: { inputMicro: 0, outputMicro: 0 } }, voicePlugin, voiceBinding: localVoiceBinding, policy: { endpoints: [] } });
 const registry = new PluginRegistry().register(reasoning).register(voicePlugin);
