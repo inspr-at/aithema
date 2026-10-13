@@ -28,9 +28,9 @@ test('connection time crosses minute and hour boundaries, pads fields and uses e
   now += 1000; timer.setConnected(true); timer.paint(); assert.equal(element.textContent, '0:00', 'a reconnect starts a new interval'); timer.destroy();
 });
 
-test('footer narrowing uses amended 1000/680 boundaries while retaining credits and connection until 600', () => {
+test('footer narrowing reserves the 1024 credit gap with 1100/680 boundaries', () => {
   assert.deepEqual(footerMode(1440), { voice: true, identity: true, limit: true, connected: true, unit: true });
-  assert.equal(footerMode(1000).voice, true); assert.equal(footerMode(999).voice, false);
+  assert.equal(footerMode(1100).voice, true); assert.equal(footerMode(1099).voice, false); assert.equal(footerMode(1024).voice, false);
   assert.deepEqual(footerMode(768), { voice: false, identity: true, limit: true, connected: true, unit: true });
   assert.equal(footerMode(680).identity, true); assert.equal(footerMode(679).identity, false);
   assert.deepEqual(footerMode(600), { voice: false, identity: false, limit: true, connected: true, unit: true });

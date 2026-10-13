@@ -30,6 +30,7 @@ import { bandStyles } from './band-styles.js';
 import { motionPreference, rememberMotion, ConnectionTimer, ConversationFold, FooterPopups } from './layout.js';
 import { createReveal } from './reveal.js';
 import { QuestionCard, questionCardMarkup, questionCardStyles } from './question-card.js';
+import { emailAskStyles } from './email-ask-styles.js';
 
 const PANES = '.transcript-shell, .analysis-content';
 // START's understanding reveal: 560 ms of column, 100–620 ms of the pane fading in (styles.js), with a margin.
@@ -217,7 +218,7 @@ export class AithemaSession extends HTMLElement {
     // START's shell (app.css .shell, index.astro .v2__workspace): a top row, the conversation and,
     // once there is input, the understanding beside it. The entrance (promise, orb and processing
     // choice, then readiness) fills the conversation column until the conversation starts.
-    root.innerHTML = `<style>${styles}${orbStyles}${entranceStyles}${settingsStyles}${hostStyles}${bandStyles}${questionCardStyles}</style><div class="workspace" data-stage="entrance" data-understanding="absent">
+    root.innerHTML = `<style>${styles}${orbStyles}${entranceStyles}${settingsStyles}${hostStyles}${bandStyles}${questionCardStyles}${emailAskStyles}</style><div class="workspace" data-stage="entrance" data-understanding="absent">
       <header class="toolbar band"><div class="band-orb"></div><div class="audio-rail"></div><div class="header-actions">
         <div class="host-bar" role="group" data-reveal hidden><div class="conversations-wrap"><button class="conversations-toggle" type="button" aria-haspopup="menu" aria-controls="conversations-menu" aria-expanded="false"></button>
           <div class="conversations-menu" id="conversations-menu" role="menu" hidden><button class="conversations-new" type="button" role="menuitem" tabindex="-1" aria-describedby="ai-notice"></button>
@@ -240,17 +241,17 @@ export class AithemaSession extends HTMLElement {
             <div class="composer-out__bar"><span class="composer-out__steps"><span class="composer-out__give" data-next="give"></span><span class="composer-out__confirm" data-next="confirm"></span><span class="composer-out__none" data-next="none"></span></span>
               <span class="composer-out__actions"><button class="composer-out__upgrade" type="button" aria-haspopup="dialog"><span data-next="give"></span><span data-next="confirm"></span></button>
                 <a class="composer-out__export" data-next="none">${icon('download')}<span></span></a></span></div></div></div>
-        <p class="credit-announcement sr-only" role="status" aria-live="polite"></p></div>
+        <div class="email-ask-dock"></div><p class="credit-announcement sr-only" role="status" aria-live="polite"></p><p class="email-ask-announcement sr-only" role="status" aria-live="polite"></p></div>
         <div class="drop-overlay" aria-hidden="true"><p><strong></strong><span></span></p></div></section>
       <aside class="understanding" aria-labelledby="understanding-title"><header class="head"><h2 id="understanding-title" data-copy="understanding"></h2><button class="concept-tab" type="button" data-copy="conceptTab"></button></header>
         <section class="readiness"><div class="scale" role="progressbar" aria-valuemin="0" aria-valuemax="100"><span class="fill"></span><span class="marker"></span></div>
           <div class="scale-labels" aria-hidden="true"><span data-copy="talk"></span><span data-copy="build"></span></div><p class="talk-progress"></p><p class="build-progress"></p></section>
-        <div class="analysis-content" tabindex="0"><p class="notice" role="status"></p><div class="verify-lock" hidden></div><section class="summary"><h3 data-copy="summary"></h3><p class="summary-text"></p></section>
+        <div class="analysis-stack"><div class="analysis-content" tabindex="0"><p class="notice" role="status"></p><div class="verify-lock" hidden></div><section class="summary"><h3 data-copy="summary"></h3><p class="summary-text"></p></section>
           <section><h3 data-copy="signals"></h3><ul class="signals"></ul></section><section><h3 data-copy="questions"></h3><ul class="questions"></ul></section>
           <section><h3 data-copy="missing"></h3><ul class="missing"></ul><p class="overflow"></p></section>
           <section><div class="cleared-head"><h3 data-copy="clarified"></h3><button class="expand" type="button"></button></div><div class="cleared"></div></section>
           <div class="handover" role="region" aria-labelledby="handover-title" hidden><h3 id="handover-title"></h3><p class="handover__offer"><slot name="handover-offer"></slot></p>
-            <div class="handover__row"><button class="handover-request" type="button" aria-describedby="handover-state"></button><p class="handover__state" id="handover-state" role="status"></p></div></div></div>
+            <div class="handover__row"><button class="handover-request" type="button" aria-describedby="handover-state"></button><p class="handover__state" id="handover-state" role="status"></p></div></div></div><div class="email-ask-pane"></div><button class="email-ask-fold" type="button" inert></button></div>
         <footer class="foot"><a class="export">${icon('download')}<span data-copy="export"></span></a><button class="retry" type="button" data-copy="retry" hidden></button></footer></aside>
       <section class="fold-view" hidden><button class="fold-strip" type="button"><span class="fold-identity"><i class="speaker-sign" aria-hidden="true"></i><span class="fold-who"></span></span><span class="fold-text"></span><span class="fold-question" hidden></span></button>
         <section class="drafts-canvas" aria-label=""><div class="canvas-empty">${icon('concept')}<span></span></div><aithema-html-preview class="canvas-html" fill hidden></aithema-html-preview><img class="canvas-image" alt="" hidden><p class="canvas-status" role="status"></p></section></section>
@@ -258,6 +259,8 @@ export class AithemaSession extends HTMLElement {
         <div class="footer-info" data-footer-popup><button class="ai-notice" type="button" aria-describedby="ai-notice build-info"><i class="speaker-sign" aria-hidden="true"></i><span class="display-version"></span><span class="ai-notice__label"></span><span class="ai-notice__short"></span><span class="ai-notice__voice"></span></button>
           <div class="footer-popup" role="tooltip"><p id="ai-notice"></p><p id="build-info"></p><div class="host-foot" hidden><slot name="legal"></slot><slot name="footer"></slot></div></div></div>
         <div class="host-credits" data-footer-popup hidden><button class="host-credits__button" type="button" aria-expanded="false" aria-controls="credits-popup"><span class="host-credits__stack"><span class="host-credits__text"><strong class="host-credits__amount"></strong><span class="host-credits__total"></span><span class="host-credits__unit"></span></span>
+          <span class="host-credits__low" aria-hidden="true"><span class="host-credits__low-full"></span><span class="host-credits__low-short"></span></span>
+          <span class="host-credits__measure" aria-hidden="true"><strong class="host-credits__measure-amount"></strong><span class="host-credits__measure-total"></span><span class="host-credits__measure-unit"></span></span>
           <span class="host-credits__used-up" aria-hidden="true"><span class="host-credits__used-up-full"></span><span class="host-credits__used-up-short"></span></span></span><span class="host-credits__track" role="meter" aria-valuemin="0"><i></i></span></button>
           <div class="footer-popup credits-popup" id="credits-popup" role="group" aria-labelledby="credits-balance"><p class="host-credits__scope" id="credits-balance"></p>
             <p class="host-credits__current"><span class="credits-check" aria-hidden="true">${ICONS.check}</span><span></span></p>
@@ -337,7 +340,7 @@ export class AithemaSession extends HTMLElement {
     this.#rail = new AudioRail({ root: root.querySelector('.audio-rail'), copy: this.#copy, client: this.#voiceClientFor(),
       noticesRoot: root.querySelector('.voice-notices'),
       waitingCall: this.#session.voiceLifecycle,
-      feature: () => this.#feature('voice', true), usedUp: () => this.#host?.usedUp ?? false, ending: () => this.#creditEnding, playback: this.#voicePlayback, journal: this.#journal ?? undefined,
+      feature: () => this.#feature('voice', true), usedUp: () => this.#host?.usedUp ?? false, lowCredit: () => this.#host?.low ?? false, ending: () => this.#creditEnding, playback: this.#voicePlayback, journal: this.#journal ?? undefined,
       ready: () => this.#orphan, onLevel: level => this.#orb?.setEnergy(level),
       onRender: rail => this.#syncVoicePause(rail),
       // A call that starts, ends or fails moves the stage and the avatar with it.
@@ -346,6 +349,7 @@ export class AithemaSession extends HTMLElement {
         // an invalidation closes the rail without one, and its brief closing state starts nothing.
         if (this.#rail?.session) this.#started = true;
         this.#orb?.setVoice(state); this.#clearNotice(); this.#render('transcript'); this.#render('composer');
+        this.#host?.update();
       },
       context: () => ({ understanding: this.#session.understanding, focusedQuestion: this.#session.focusedQuestion ?? null }),
       onEnd: () => {
@@ -354,6 +358,7 @@ export class AithemaSession extends HTMLElement {
       onPause: paused => {
         this.#session.paused = paused; this.#clearNotice();
         this.#render('features'); this.#render('composer'); this.#render('aside');
+        this.#host?.update();
         if (this.isConnected) void this.#refreshFeatures();
       } });
     // Screen readers hear the AI notice with every control that begins an interaction (Art. 50(1)),
@@ -390,6 +395,7 @@ export class AithemaSession extends HTMLElement {
     if (this.#options.host) this.#host = new HostSurface({ root, copy: this.#copy, options: this.#options.host, baseUrl: this.#base, sessionToken: this.#sessionToken,
       openSettings: () => this.openSettings(root.querySelector('.host-credits__button'), { tab: 'general', anchor: '#email' }), onCredits: info => this.#creditsChanged(info), creditEnding: () => this.#creditEnding,
       admissionDenied: () => this.#rail?.allowanceDenied ?? false,
+      streaming: () => this.#sending || this.#partials.size > 0 || activeTurns(this.#session).at(-1)?.role === 'user',
       session: () => this.#session, status: text => this.#status(text), adopt: (session, reason) => this.#adopt(session, reason),
       beforeVerifyDialog: () => this.#dialog.closeForVerification(), verificationOpener: () => root.querySelector('.settings-open'),
       onLock: info => { this.#render('aside'); this.#render('transcript'); if (info?.saved) this.#dialog?.acknowledgeSave(); else this.#dialog?.sync(); },
@@ -570,7 +576,7 @@ export class AithemaSession extends HTMLElement {
       this.#creditAnnounced = true; setText(this.shadowRoot.querySelector('.credit-announcement'), this.#copy.hostSurface.usedUp.announce);
     }
     if (usedUp && this.shadowRoot.querySelector('.workspace').dataset.stage !== 'live') this.#render('transcript');
-    this.#render('composer'); this.#rail?.render(); this.#dialog?.sync();
+    this.#render('composer'); this.#render('transcript'); this.#rail?.render(); this.#dialog?.sync();
     return refresh;
   }
   #feature(feature, visitor = false) {
@@ -715,6 +721,7 @@ export class AithemaSession extends HTMLElement {
       for (const node of out.querySelectorAll('[data-next]')) { const shown = node.dataset.next === kind; node.setAttribute('aria-hidden', String(!shown)); node.inert = !shown; }
       const upgrade = out.querySelector('.composer-out__upgrade'); upgrade.inert = kind === 'none'; upgrade.setAttribute('aria-hidden', String(kind === 'none'));
       const card = root.querySelector('.qcard'); card.inert = Boolean(this.#host?.usedUp); card.toggleAttribute('data-used-up', usedUp);
+      this.#host?.emailAsk?.paint();
       return;
     }
     if (part === 'features') {
@@ -740,8 +747,14 @@ export class AithemaSession extends HTMLElement {
       // Rows that go are removed first, so a surviving row never moves past them: moving a node drops its focus.
       for (const [key, row] of rows) if (!kept.has(key)) { row.remove(); rows.delete(key); }
       let next = list.firstElementChild;
-      for (const { key, turn: t, upload } of entries) {
+      for (const { key, turn: t, upload, lowLine } of entries) {
         let row = rows.get(key); rows.delete(key);
+        if (lowLine) {
+          if (!row) { row = node('li', 'email-low-line'); row.dataset.id = key; }
+          this.#host.emailAsk.paintLine(row, lowLine);
+          if (row !== next) list.insertBefore(row, next); else next = next.nextElementSibling;
+          continue;
+        }
         if (upload) {
           if (!row) { row = this.#uploadRow(upload.id); row.dataset.id = key; }
           this.#paintUpload(row, upload);
@@ -1211,6 +1224,8 @@ export class AithemaSession extends HTMLElement {
     for (const turn of turns) {
       if (turn.at) while (next < uploads.length && uploads[next].at < turn.at) entries.push(uploads[next++]);
       entries.push({ key: turn.id, turn });
+      const lowLine = this.#host?.emailAsk?.state.lowLine;
+      if (lowLine?.at === turn.id) entries.push({ key: `email-low:${turn.id}`, lowLine });
     }
     entries.push(...uploads.slice(next));
     for (const turn of this.#partials.values()) entries.push({ key: turn.id, turn });
@@ -1419,7 +1434,7 @@ export class AithemaSession extends HTMLElement {
       if (!option && input.value === content) input.value = '';
       this.#pending = null; this.#status(voiceText ? this.#copy.voiceTextSent : this.#copy.saved);
     } catch { if (sessionId === this.#session.id) this.#status(this.#copy.failed); }
-    finally { if (sessionId === this.#session.id) { this.#sending = false; button.disabled = !this.#feature('text').available; this.#render('composer'); } }
+    finally { if (sessionId === this.#session.id) { this.#sending = false; button.disabled = !this.#feature('text').available; this.#render('composer'); this.#host?.update(); } }
   }
   async #sendDevice(content, clearInput = true) {
     const root = this.shadowRoot, button = root.querySelector('.send'), input = root.querySelector('textarea'), device = this.#device;

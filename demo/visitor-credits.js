@@ -57,6 +57,9 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
       token_hash TEXT PRIMARY KEY, visitor_ref TEXT NOT NULL REFERENCES visitor_identities(visitor_ref) ON DELETE CASCADE,
       session_id TEXT NOT NULL, address_revision INTEGER NOT NULL, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL, redeemed_at INTEGER);
       CREATE INDEX IF NOT EXISTS visitor_token_retention ON visitor_confirmation_tokens(created_at);
+      CREATE TABLE IF NOT EXISTS visitor_email_asks (
+        visitor_ref TEXT PRIMARY KEY REFERENCES visitor_identities(visitor_ref) ON DELETE CASCADE,
+        shown_at INTEGER NOT NULL);
       CREATE TABLE IF NOT EXISTS visitor_identity_cleanup (owner_hash TEXT PRIMARY KEY, at TEXT NOT NULL);`);
     if (!db.prepare('SELECT 1 FROM visitor_credit_settings WHERE id=1').get()) {
       const at = timestamp(), iso = new Date(at).toISOString();
@@ -164,6 +167,20 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
     db.prepare('DELETE FROM visitor_identity_cleanup WHERE owner_hash=?').run(ownerHash);
   }
   return { settings, policy, visitor, touch, projectIdentity, persistIdentity,
+    emailAskAfter(ownerHash) {
+      const row = db.prepare(`SELECT shown_at FROM visitor_email_asks a JOIN visitor_identities v USING(visitor_ref) WHERE v.owner_hash=?`).get(ownerHash);
+      return row ? row.shown_at + DAY : 0;
+    },
+    // One rolling day per visitor, shared by all conversations and tabs. The
+    // surrounding host transaction commits this claim with the gate record.
+    claimEmailAsk(ownerHash) {
+      return atomic(() => {
+        const row = ensure(ownerHash), at = timestamp();
+        return db.prepare(`INSERT INTO visitor_email_asks VALUES (?,?)
+          ON CONFLICT(visitor_ref) DO UPDATE SET shown_at=excluded.shown_at
+          WHERE visitor_email_asks.shown_at<=excluded.shown_at-?`).run(row.visitor_ref, at, DAY).changes === 1;
+      });
+    },
     auditEvent(event, evidence) {
       // Mail evidence is deliberately address/token-free; callers supply only
       // an opaque visitor reference, outcome and event name.

@@ -5,6 +5,7 @@ import { SQLiteStorage, SQLiteBudgetLedger, createHandlers, createPluginRuntime 
 import { admitCredits, createIdentity, reduceIdentity, createHandover, reduceHandover } from '@inspr/aithema-core';
 import { createDemoHost } from '../host-ports.js';
 import { mockConsent, temporaryDb } from '../../test/helpers.js';
+import { lowCreditThreshold } from '../../packages/server/src/host-handlers.js';
 
 const owner = 'tier-owner', address = 'visitor@example.test', noticeVersion = 'ait-135-v1';
 const ownerHash = createHash('sha256').update(owner).digest('hex');
@@ -24,6 +25,48 @@ function fixture(t, options = {}) {
 }
 
 const DAY = 24 * 60 * 60_000;
+test('AIT-164: server thresholds use 10% of the tier and a five-minute voice floor', () => {
+  for (const [tier, expected] of [[10_000_000, 1_000_000], [15_000_000, 1_500_000], [20_000_000, 2_000_000], [3_000_000, 500_000]]) {
+    assert.equal(lowCreditThreshold(tier, 100_000), expected);
+  }
+  assert.equal(lowCreditThreshold(3_000_000, 200_000), 1_000_000, 'changed server rate changes the voice floor');
+  assert.equal(lowCreditThreshold(1_234_567, 0), 130_000, 'round up to a whole Credit');
+});
+test('AIT-164: a fifth-turn ask is shared by the visitor for a rolling 24h, including after restart', async t => {
+  const db = await temporaryDb(), f = fixture(t, { storage: new SQLiteStorage(db) });
+  assert.equal(f.host.claimEmailAsk(owner), true);
+  assert.equal(f.host.claimEmailAsk(owner), false);
+  f.at(1_000 + DAY - 1); assert.equal(f.host.claimEmailAsk(owner), false);
+  f.at(1_000 + DAY); assert.equal(f.host.claimEmailAsk(owner), true);
+  const other = 'separate-visitor'; assert.equal(f.host.claimEmailAsk(other), true);
+  f.storage.close();
+  const reopened = new SQLiteStorage(db); t.after(() => reopened.close());
+  const host = createDemoHost({ storage: reopened, demo: false, now: () => 1_000 + DAY, ownerGuard: false });
+  assert.equal(host.claimEmailAsk(owner), false);
+  host.eraseVisitor(owner); assert.equal(host.emailAskAfter(owner), 0);
+});
+test('AIT-164: owner-bound gate and low line survive reads without entering transcript or exports', async t => {
+  const f = fixture(t, { visitorMicroPerMinute: () => 100_000 }); f.settings('10', '15', '20');
+  const a = f.session('ask-a'), b = f.session('ask-b'), { call } = api(t, f);
+  const reply = (id, i) => { f.storage.append(id, 'turn.final', { id: `u${i}`, role: 'user', content: 'A requirement.' }); f.storage.append(id, 'turn.final', { id: `a${i}`, role: 'assistant', content: 'A question.' }); };
+  for (let i = 0; i < 4; i++) reply(a.id, i);
+  const show = id => call(`/api/sessions/${id}/email-ask`, { action: 'show', why: 'turn5' });
+  assert.equal((await (await show(a.id)).json()).accepted, false);
+  reply(a.id, 4); assert.equal((await (await show(a.id)).json()).accepted, true);
+  await call(`/api/sessions/${a.id}/email-ask`, { action: 'dismiss' });
+  for (let i = 0; i < 5; i++) reply(b.id, i);
+  assert.equal((await (await show(b.id)).json()).accepted, false, 'another conversation has the same day limit');
+  const attempt = f.ledger.admit(f.request(b.id, 9_050_000)); f.ledger.claim(attempt.attemptId, { sideEffecting: false });
+  const credits = await (await call(`/api/sessions/${b.id}/credits`)).json(); assert.equal(credits.lowAtMicro, 1_000_000);
+  assert.equal((await (await call(`/api/sessions/${b.id}/email-ask`, { action: 'line' })).json()).accepted, true);
+  const low = await (await call(`/api/sessions/${b.id}/email-ask`, { action: 'show', why: 'low' })).json(); assert.equal(low.accepted, true);
+  assert.equal(low.emailAsk.lowLine.kind, 'give'); assert.equal(low.emailAsk.lowLine.deltaMicro, 5_000_000);
+  await call(`/api/sessions/${b.id}/email-ask`, { action: 'dismiss' });
+  assert.equal((await (await call(`/api/sessions/${b.id}/email-ask`, { action: 'show', why: 'low' })).json()).accepted, false);
+  assert.equal(f.storage.get(b.id).transcript.length, 10);
+  assert.equal(f.storage.read(b.id).some(e => /email-ask/u.test(e.type)), false);
+  const foreign = await call('/api/sessions/foreign/email-ask', { action: 'show', why: 'low' }); assert.equal(foreign.status, 404);
+});
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 function api(t, f) {
   const runtime = createPluginRuntime({ storage: f.storage, consent: mockConsent, budget: f.ledger });

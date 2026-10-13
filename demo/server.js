@@ -125,7 +125,8 @@ const budget = new SQLiteBudgetLedger(storage, { sessionCapMicro: VISITOR_CREDIT
 const pluginRuntime = createPluginRuntime({ storage, reasoning, consent, registry: runtimePorts.registry, uiRenderLimits, presets: runtimePorts.presets, voiceCap, budget });
 const host = createDemoHost({ storage, demo: process.env.AITHEMA_PROVIDER === undefined && process.env.NODE_ENV !== 'production', mailPlugin,
   verificationRequired: process.env.AITHEMA_DEMO_VERIFY === '1', ownerGuard: false,
-  privacyDocumentConfigured: privacy.privacyDocumentConfigured });
+  privacyDocumentConfigured: privacy.privacyDocumentConfigured,
+  visitorMicroPerMinute: () => readVoiceState().binding?.visitorMicroPerMinute ?? 0 });
 const confirmationPage = mailPlugin ? createConfirmationPage({ host, publicOrigin: deployment.publicOrigin }) : null;
 // Demo only: AITHEMA_DEMO_HANDOVER_FAIL=n (1–10) fails the first n fake handover deliveries, to show Retry.
 const handoverFailures = Number(process.env.AITHEMA_DEMO_HANDOVER_FAIL ?? 0);

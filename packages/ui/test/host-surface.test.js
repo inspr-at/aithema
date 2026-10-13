@@ -478,7 +478,7 @@ test('locked understanding pane: the verification controls sit under no aria-dis
 
 // AIT-135 A2: all amounts are acknowledged host values (USD millionths).
 const a2Allowances = { anonymous: 12_000_000, emailGiven: 18_000_000, emailConfirmed: 24_000_000 };
-function a2Setup(t, { copy = en, address = null, spent = 3_450_000, reserved = 0, delivery = false, privacy = true, handover = false, save, question, blocked = false, voiceClient, waitingCall } = {}) {
+function a2Setup(t, { copy = en, address = null, spent = 3_450_000, reserved = 0, delivery = false, privacy = true, handover = false, save, link, question, blocked = false, voiceClient, waitingCall } = {}) {
   let saved = address, raised = false;
   const allowances = () => ({ ...a2Allowances, anonymous: raised ? 18_000_000 : 12_000_000 });
   const tiers = () => ({ allowancesMicro: allowances(), current: saved ? 'emailGiven' : 'anonymous',
@@ -496,6 +496,7 @@ function a2Setup(t, { copy = en, address = null, spent = 3_450_000, reserved = 0
       'GET /credits': () => { const limitMicro = visitor().limitMicro; return Response.json({ balance: { owner: { limitMicro, committedMicro: spent + reserved,
         confirmedSpendMicro: spent, reservedMicro: reserved, uncertainSpendMicro: 0, availableMicro: Math.max(0, limitMicro - spent - reserved) } }, exhausted: spent >= limitMicro, limitSlot: null, tiers: tiers() }); },
       'PUT /visitor/email': async body => { await save?.(body); saved = body.address; return Response.json({ visitor: visitor() }); },
+      ...(link ? { 'POST /identity/request': body => link(body), 'POST /identity/change': body => link(body) } : {}),
       'DELETE /visitor/email': () => { saved = null; return Response.json({ visitor: visitor() }); },
     } });
   if (question) h.c.receive({ seq: h.c.session.seq + 1, type: 'turn.final', data: { id: 'a2-question', role: 'assistant',
@@ -507,6 +508,21 @@ function a2Setup(t, { copy = en, address = null, spent = 3_450_000, reserved = 0
   }
   return { ...h, setSpent: value => { spent = value; }, setReserved: value => { reserved = value; }, topUp: () => { raised = true; } };
 }
+
+test('AIT-164: mail Settings saves and raises the tier before the confirmation request finishes', async t => {
+  let finish, requested;
+  const waiting = new Promise(resolve => { finish = resolve; });
+  const { root, c, calls } = a2Setup(t, { delivery: true, link: async body => { requested = body; await waiting; return Response.json({ identity: identity({ status: 'verification-pending', address: body.address, delivery: 'sent' }) }); } });
+  await tick(10); c.openSettings(undefined, { tab: 'general', anchor: '#email' }); await tick();
+  root.querySelector('.verify-entry').click(); await tick();
+  const form = root.querySelector('.verify-dialog .verify-form'); form.querySelector('input').value = 'mail-reader@example.test'; form.requestSubmit();
+  await tick(12);
+  assert.deepEqual(requested, { address: 'mail-reader@example.test' });
+  assert.ok(calls.findIndex(call => call.method === 'PUT') < calls.findIndex(call => call.path === '/identity/request' && call.method === 'POST'));
+  assert.match(root.querySelector('.host-credits__total').textContent, /1,800/u);
+  assert.equal(form.querySelector('.verify-send').textContent, en.hostSurface.email.save);
+  finish(); await tick(12); assert.equal(root.querySelector('.host-verify').dataset.emailState, 'pending');
+});
 
 for (const copy of [de, en]) test(`AIT-135 A2 B: server tiers in a group, one unit line, no countdown (${copy === de ? 'de' : 'en'})`, async t => {
   const { c, root } = a2Setup(t, { copy }); await tick(8);

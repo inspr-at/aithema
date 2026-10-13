@@ -9,6 +9,7 @@ import { Verification } from './verification.js';
 import { LibraryDialog } from './library-dialog.js';
 import { ConversationsMenu } from './conversations-menu.js';
 import { formatCredits, wholeCredits } from './display.js';
+import { EmailAsk, lowCredit } from './email-ask.js';
 
 export const defaultCreditFormat = formatCredits;
 
@@ -17,11 +18,12 @@ export class HostSurface {
   #verification = null; #library = null; #offer = null; #handover = null; #requesting = false; #limit = null;
   #credits = null; #creditsLoad = 0; #creditsReads = 0; #creditsTimer = null; #creditsPoll = null; #ended = null;
   #menu = null; #openSettings; #onCredits; #creditEnding; #admissionDenied;
+  #emailAsk = null;
   /**
    * options: {library, verification, handover, credits: true | {format(micro, locale)}, locale()}.
    * session() returns the live session; adopt(session, reason) opens another conversation.
    */
-  constructor({ root, copy, options, baseUrl, sessionToken, session, status, adopt, onLock, focusAfterUnlock, beforeVerifyDialog, verificationOpener, openSettings, onCredits, creditEnding, admissionDenied }) {
+  constructor({ root, copy, options, baseUrl, sessionToken, session, status, adopt, onLock, focusAfterUnlock, beforeVerifyDialog, verificationOpener, openSettings, onCredits, creditEnding, admissionDenied, streaming }) {
     this.#root = root; this.#copy = copy; this.#options = options ?? {}; this.#base = baseUrl; this.#token = sessionToken;
     this.#openSettings = openSettings; this.#onCredits = onCredits; this.#creditEnding = creditEnding;
     this.#admissionDenied = admissionDenied;
@@ -49,6 +51,9 @@ export class HostSurface {
         entry: root.querySelector('.host-verify'), lock: root.querySelector('.verify-lock'), dialog: root.querySelector('dialog.verify-dialog'),
         identity: this.#session().identity, pollMs: o.pollMs, notice: () => root.querySelector('#ai-notice')?.textContent ?? '' });
     }
+    if (o.credits && this.#verification) this.#emailAsk = new EmailAsk({ root, copy, verification: this.#verification,
+      request: (path, body) => this.#call(this.#sessionPath(path), body), session, streaming,
+      changed: info => { if (info?.settings) this.#openSettings?.(); else this.#onCredits?.(); } });
     this.#mountHandover(); this.#mountFoot();
     root.querySelector('.credits-email').addEventListener('click', event => { event.preventDefault(); this.#openSettings?.(); });
     this.#handover = this.#session().handover ?? null;
@@ -60,12 +65,15 @@ export class HostSurface {
     root.querySelector('.host-bar').setAttribute('aria-label', s.bar);
     this.#menu?.setCopy(copy);
     this.#verification?.setCopy(copy); this.#library?.setCopy(copy);
+    this.#emailAsk?.setCopy(copy);
     setText(root.querySelector('.handover h3'), s.handover.title);
     setText(root.querySelector('slot[name="handover-offer"]'), s.handover.offer);
     root.querySelectorAll('.handover__sizer').forEach((n, i) => setText(n, [s.handover.request, s.handover.update, s.handover.retry][i]));
     this.update();
   }
   get tiers() { return this.#credits?.tiers ?? null; }
+  get low() { return !this.usedUp && lowCredit(this.#credits); }
+  get emailAsk() { return this.#emailAsk; }
   get usedUp() { return this.#ended === 'host-limit' || this.#credits?.exhausted === true; }
   get fullHold() {
     const owner = this.#credits?.balance?.owner;
@@ -81,6 +89,7 @@ export class HostSurface {
   /** Starts host reads once the element is in the page. */
   connect() {
     this.#connected = true;
+    this.#emailAsk?.connect();
     this.#menu?.connect();
     void this.#verification?.load(); this.#verification?.connect();
     if (this.#options.handover && this.#offer === null) void this.#loadHandover();
@@ -94,10 +103,11 @@ export class HostSurface {
   }
   disconnect() {
     this.#connected = false; this.#verification?.disconnect();
+    this.#emailAsk?.disconnect();
     this.#menu?.disconnect();
     clearTimeout(this.#creditsTimer); this.#creditsTimer = null; clearInterval(this.#creditsPoll); this.#creditsPoll = null;
   }
-  destroy() { this.#alive = false; this.disconnect(); this.#verification?.destroy(); this.#library?.destroy(); this.#menu?.destroy(); }
+  destroy() { this.#alive = false; this.disconnect(); this.#emailAsk?.destroy(); this.#verification?.destroy(); this.#library?.destroy(); this.#menu?.destroy(); }
   /** Durable host events (already applied to the session projection) and the turns that change balances. */
   receive(event) {
     this.#verification?.receive(event);
@@ -122,7 +132,7 @@ export class HostSurface {
     this.#refreshCredits(); this.update();
   }
   /** Repaints parts that follow the session (person turns, revisions, pause). */
-  update() { this.#paintHandover(); this.#paintCredits(); }
+  update() { this.#paintHandover(); this.#paintCredits(); this.#emailAsk?.update(); }
   #sessionPath(path) { return `/api/sessions/${encodeURIComponent(this.#session().id)}/${path}`; }
   // Owner routes: same origin only; the owner cookie or the session token authenticates them.
   async #call(path, body, verb = 'POST') {
@@ -209,6 +219,7 @@ export class HostSurface {
       if (this.#ended === 'host-limit' ? recovered : slot === null) this.#ended = null;
       if (['ending', 'ended'].includes(slot?.status) && !(slot.endReason === 'host-limit' && recovered)) this.#ended = slot.endReason ?? this.#ended ?? 'session';
       this.#verification?.setCredits(this.#credits); this.#paintCredits(); await this.#onCredits?.({ allowanceChanged });
+      this.#emailAsk?.setCredits(this.#credits);
     } catch { /* The last acknowledged values stay until the next read. */ }
     finally { this.#creditsReads--; }
   }
@@ -218,17 +229,27 @@ export class HostSurface {
     const c = this.#copy.hostSurface.credits, layout = this.#copy.layout, locale = this.#session().locale ?? 'en';
     const format = typeof this.#options.credits?.format === 'function' ? this.#options.credits.format : defaultCreditFormat;
     const owner = this.#credits?.balance?.owner, tiers = this.tiers, exhausted = this.usedUp, out = exhausted;
+    const low = this.low; line.dataset.low = String(low);
     const amount = line.querySelector('.host-credits__amount'), total = line.querySelector('.host-credits__total'), unit = line.querySelector('.host-credits__unit');
     const button = line.querySelector('.host-credits__button'), track = line.querySelector('.host-credits__track');
     const scope = line.querySelector('.host-credits__scope'), current = line.querySelector('.host-credits__current');
     line.dataset.ended = String(out); line.querySelector('.host-credits__text').setAttribute('aria-hidden', String(out));
     line.querySelector('.host-credits__used-up').setAttribute('aria-hidden', String(!out));
+    line.querySelector('.host-credits__low').setAttribute('aria-hidden', String(!low));
+    setText(line.querySelector('.host-credits__low-full'), owner ? fill(c.low, { available: format(owner.availableMicro, locale) }) : '');
+    setText(line.querySelector('.host-credits__low-short'), owner ? fill(c.lowShort, { available: format(owner.availableMicro, locale) }) : '');
+    // Reserve the width using the current server limit; digit changes never
+    // narrow the cell, including EN where the used-up label is shorter.
+    setText(line.querySelector('.host-credits__measure-amount'), owner ? format(owner.limitMicro, locale) : '…');
+    setText(line.querySelector('.host-credits__measure-total'), owner ? fill(layout.creditsTotal, { limit: format(owner.limitMicro, locale) }) : '');
+    setText(line.querySelector('.host-credits__measure-unit'), owner ? layout.creditsUnit : '');
     setText(line.querySelector('.host-credits__used-up-full'), c.usedUp); setText(line.querySelector('.host-credits__used-up-short'), c.usedUpShort);
     setText(line.querySelector('.host-credits__equivalence'), c.unit);
     setText(amount, owner ? format(exhausted ? 0 : owner.availableMicro, locale) : '…');
     setText(total, owner ? fill(layout.creditsTotal, { limit: format(owner.limitMicro, locale) }) : ''); setText(unit, owner ? layout.creditsUnit : '');
     const balance = owner ? fill(exhausted ? c.balanceOut : c.balance, { available: format(owner.availableMicro, locale), limit: format(owner.limitMicro, locale) }) : `${c.title}: ${c.loading}`;
     setText(scope, balance); button.setAttribute('aria-label', balance);
+    if (low) button.setAttribute('aria-label', fill(c.low, { available: format(owner.availableMicro, locale) }) + ' · ' + balance);
     current.hidden = !tiers || tiers.current === 'anonymous';
     if (tiers) setText(current.querySelector('span:last-child'), fill(c[tiers.current === 'emailConfirmed' ? 'withConfirmed' : tiers.current === 'emailGiven' ? 'withEmail' : 'anonymous'], { tier: format(tiers.allowancesMicro?.[tiers.current], locale) }));
     const next = this.nextTier, nextLine = line.querySelector('.host-credits__next'), link = line.querySelector('.credits-email');
