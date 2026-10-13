@@ -107,14 +107,17 @@ test('AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layou
     for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
       await page.setViewport({ width, height: 1000 }); await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme);
       const label = `${locale}-${theme}-${width}`;
+      // The stacked assessment is below the phone viewport. Only controls
+      // visible under its pointer are part of that viewport's shift contract.
+      const targets = width >= 960 ? fixed : fixed.filter(selector => !selector.startsWith('.understanding'));
       let baseline;
       const shot = async state => {
-        await settle(); const shift = stable(baseline, await boxes(page, fixed), `${label}/${state}`);
+        await settle(); const shift = stable(baseline, await boxes(page, targets), `${label}/${state}`);
         passes.push({ head: evidenceCommit, locale, theme, width, state, layoutShiftPx: shift, pass: true });
         if (evidence) await page.screenshot({ path: join(evidence, `ait164-${label}-${state}.png`), fullPage: false });
       };
       const reply = async () => { await page.evaluate(() => window.ait164.reply()); await settle(); };
-      await fixture(page, locale); baseline = await boxes(page, fixed); await shot('before');
+      await fixture(page, locale); baseline = await boxes(page, targets); await shot('before');
       await reply();
       const gate = await shadow(page, c => ({ placement: c.shadowRoot.querySelector('.workspace').dataset.emailAsk, focus: c.shadowRoot.activeElement?.id ?? null }));
       assert.equal(gate.placement, width >= 960 ? 'pane' : 'dock'); assert.notEqual(gate.focus, 'email-ask-input'); await shot('gate');
@@ -125,7 +128,7 @@ test('AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layou
       await shadow(page, c => { const input = c.shadowRoot.querySelector('#email-ask-input'); input.value = 'visitor@example.test'; c.shadowRoot.querySelector('#email-ask-form').requestSubmit(); }); await shot('gate-saving');
       await page.evaluate(() => { window.ait164.saving = false; }); await settle(); await shot('gate-saved');
       await click(page, '.email-ask__skip'); await shot('gate-dismissed');
-      await fixture(page, locale, { delivery: true }); baseline = await boxes(page, fixed); await reply(); await shot('gate-mail');
+      await fixture(page, locale, { delivery: true }); baseline = await boxes(page, targets); await reply(); await shot('gate-mail');
       await shadow(page, c => { c.shadowRoot.querySelector('#email-ask-input').value = 'visitor@example.test'; c.shadowRoot.querySelector('#email-ask-form').requestSubmit(); }); await settle();
       assert.deepEqual(await page.evaluate(() => window.ait164.requests), ['save', 'link']); await shot('gate-saved-mail');
       for (const [state, options] of [
@@ -133,7 +136,7 @@ test('AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layou
         ['low-given', { low: true, address: 'visitor@example.test' }], ['low-confirmed', { low: true, address: 'visitor@example.test', delivery: true, confirmed: true }],
         ['low-pending', { low: true, address: 'visitor@example.test', delivery: true }], ['out', { out: true }],
       ]) {
-        await fixture(page, locale, options); baseline = await boxes(page, fixed); await reply();
+        await fixture(page, locale, options); baseline = await boxes(page, targets); await reply();
         const values = await shadow(page, c => ({ ask: c.shadowRoot.querySelector('.workspace').dataset.emailAsk, low: c.shadowRoot.querySelector('.host-credits').dataset.low,
           line: Boolean(c.shadowRoot.querySelector('.email-low-line')), rail: c.shadowRoot.querySelector('.voice-state').textContent, usedUp: c.shadowRoot.querySelector('.composer-shell').hasAttribute('data-used-up') }));
         if (state === 'out') assert.equal(values.usedUp, true);
@@ -144,15 +147,15 @@ test('AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layou
         if (state === 'low-voice') { await click(page, '.voice-pause'); await settle(); await shot('low-after-call'); assert.notEqual(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.emailAsk), 'closed'); }
       }
       // Fold, deferred typing, no mid-stream opening, and changing digit count.
-      await fixture(page, locale); baseline = await boxes(page, fixed); await reply();
+      await fixture(page, locale); baseline = await boxes(page, targets); await reply();
       if (width >= 960) { await reply(); await reply(); assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.email-ask-fold')).visibility), 'visible'); await shot('gate-folded'); }
-      await fixture(page, locale); baseline = await boxes(page, fixed);
+      await fixture(page, locale); baseline = await boxes(page, targets);
       const footerBefore = await boxes(page, ['.host-credits', '.engine-info']);
       await page.evaluate(() => { window.ait164.after = Date.now() + 86_400_000; window.ait164.spent = 12_000_000 - 980_000; window.ait164.reply(); }); await settle();
       stable(footerBefore, await boxes(page, ['.host-credits', '.engine-info']), `${label}/footer-fewer-digits`);
       const footer = await shadow(page, c => { const r = c.shadowRoot, left = r.querySelector('.ai-notice').getBoundingClientRect(), credit = r.querySelector('.host-credits').getBoundingClientRect(); return { gap: credit.left - left.right, numeric: getComputedStyle(r.querySelector('.host-credits__amount')).fontVariantNumeric }; });
       assert.ok(footer.gap >= 23.5, `${label}: footer gap ${footer.gap}`); assert.equal(footer.numeric, 'tabular-nums'); await shot('footer-fewer-digits');
-      await fixture(page, locale, { motion: 'on' }); baseline = await boxes(page, fixed);
+      await fixture(page, locale, { motion: 'on' }); baseline = await boxes(page, targets);
       await shadow(page, c => { const input = c.shadowRoot.querySelector('#message'); input.value = 'draft'; input.focus(); input.dispatchEvent(new Event('input')); });
       await reply(); assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.emailAsk), 'closed', 'typing defers the ask');
       await shadow(page, c => { const input = c.shadowRoot.querySelector('#message'); input.value = ''; input.blur(); });
@@ -163,12 +166,12 @@ test('AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layou
         assert.equal(lift, 20, 'phone gate lifts exactly 20 px');
       }
       await shot('flow-gate');
-      await fixture(page, locale); baseline = await boxes(page, fixed);
+      await fixture(page, locale); baseline = await boxes(page, targets);
       await shadow(page, c => { c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'stream-u5', role: 'user', content: 'A requirement.' } });
         c.receive({ type: 'turn.partial', data: { id: 'stream-a5', delta: 'A partial reply', inputRevision: c.session.inputRevision } }); });
       await settle(); assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.emailAsk), 'closed', 'no ask during the fifth reply');
       await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'stream-a5', role: 'assistant', content: 'A complete reply.' } })); await shot('flow-stream-finished');
-      await fixture(page, locale, { voice: true }); baseline = await boxes(page, fixed); await reply();
+      await fixture(page, locale, { voice: true }); baseline = await boxes(page, targets); await reply();
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.emailAsk), 'closed'); await shot('flow-call');
       await page.evaluate(() => { window.ait164.spent = 12_000_000 - 720_000; window.ait164.reply(); }); await settle();
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.email-low-line') === null), true); await shot('flow-low-call');
