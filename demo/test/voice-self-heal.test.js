@@ -292,7 +292,14 @@ for (const provider of ['mock', 'openrouter']) test(`AIT-161 fix1 ${provider}: o
   const recovered = await fetch(sessionUrl, { headers }).then(r => r.json());
   assert.equal(recovered.consentRevision, granted.consentRevision, 'recovery does not revise consent');
   assert.equal(recovered.featureMatrix.best.text.available, true, recovered.featureMatrix.best.text.reason);
-  assert.equal(recovered.featureMatrix.best.voice.available, true, recovered.featureMatrix.best.voice.reason);
+  assert.deepEqual(recovered.settings, granted.settings, 'recovery preserves the existing page\'s settings');
+  const saved = await fetch(sessionUrl + '/consent', { headers }).then(r => r.json());
+  assert.equal(saved.contract, decision.contract); assert.deepEqual(saved.selected, decision.items);
+  const selection = await post(sessionUrl + '/settings', { voice: 'elevenlabs', baseRevision: recovered.settings.revision }, headers);
+  assert.equal(selection.status, 200, await selection.text());
+  const enabled = await fetch(sessionUrl, { headers }).then(r => r.json());
+  assert.equal(enabled.consentRevision, granted.consentRevision, 'selecting voice needs no replacement grant');
+  assert.equal(enabled.featureMatrix.best.voice.available, true, enabled.featureMatrix.best.voice.reason);
   assert.equal((await post(running.url + `/api/sessions/${session.id}/voice`, { callId: 'outage-grant-call', tabId: 'fixture-tab' }, headers)).status, 201);
 });
 
