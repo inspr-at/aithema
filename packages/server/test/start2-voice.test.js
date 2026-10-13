@@ -157,7 +157,8 @@ test('priced voice holds fund the runway and extend atomically without reserving
   const attempt = admitted.options.attempt;
   assert.equal(attempt.maxMicro, 200_000);
   await attempt.consume();
-  assert.equal(attempt.extend(60).maxMicro, 250_000);
+  assert.equal(attempt.extend(60).maxMicro, 200_000, 'the initial runway already funds the requested segment');
+  assert.equal(attempt.extend(150).maxMicro, 250_000, 'later extensions reserve only the requested total duration');
   assert.equal(attempt.maxMicro, 250_000);
   assert.equal(h.runtime.budget.breakdown(h.session.id).reservedMicro, 250_000);
   admitted.finish();
