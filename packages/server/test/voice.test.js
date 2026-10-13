@@ -1641,7 +1641,7 @@ test('slow closure: recovery retries the original identity after a new SDK conne
 
 // AIT-137 probes count the actual admission, dispatch and durable cost separately.
 async function turnsOnceFixture(t, { voiceOptions, path, blocked = false, blockedModel = 1, failFirst = false, lateFirst = false, sameReply = false,
-  replyChunks, chunkDelayMs = 0, reactionReservationMicro = 0, failAfterChunks = false } = {}) {
+  replyChunks, chunkDelayMs = 0, reactionReservationMicro = 0, failAfterChunks = false, replyTail = ' finished' } = {}) {
   const base = createMockReasoning(), started = Promise.withResolvers(), release = Promise.withResolvers(), modelEvents = eventProbe();
   let models = 0, admissions = 0, finalOrdinal = 0, lateReport;
   const diagnostics = [], requests = [], dispatches = [], chunkTimes = [];
@@ -1671,7 +1671,7 @@ async function turnsOnceFixture(t, { voiceOptions, path, blocked = false, blocke
     if (number === 1 && lateFirst) lateReport = () => options.report({ attemptId: options.attempt.attemptId,
       outcome: 'completed', usage: { inputTokens: 3, outputTokens: 2 }, chargedMicro: 17 });
     else options.report({ attemptId: options.attempt.attemptId, outcome: 'completed', usage: { inputTokens: 3, outputTokens: 2 }, chargedMicro: 17 });
-    yield ' finished';
+    yield replyTail;
   }, async structured(request, options) {
     return { ...await base.structured(request, options), openQuestions: [] };
   } } });
@@ -1778,7 +1778,7 @@ for (const text of [
   assert.deepEqual(h.diagnostics.filter(entry => entry.event === 'reply.opener-stripped'), []);
 });
 
-test('AIT-157 fix1: provider error preserves the buffered prefix once with one admission and charge', async t => {
+test('AIT-157 fix1: provider error while buffered emits no fragment and settles once', async t => {
   const prefix = 'Danke, das klingt', messages = [{ role: 'user', content: 'Beschreibung' }];
   const h = await turnsOnceFixture(t, { replyChunks: [prefix], blocked: true, failAfterChunks: true });
   const response = await h.callback(messages, { stream: true }), reader = response.body.getReader();
@@ -1789,11 +1789,12 @@ test('AIT-157 fix1: provider error preserves the buffered prefix once with one a
   let wire = first;
   while (true) { const item = await reader.read(); if (item.done) break; wire += new TextDecoder().decode(item.value); }
   reader.releaseLock(); await h.handlers.idle();
-  assert.equal(sseReply(wire), prefix, 'already generated text is flushed unchanged exactly once');
+  assert.equal(sseReply(wire), '', 'an incomplete buffered clause is never spoken');
   assert.ok(wire.endsWith('data: {"error":"provider"}\n\n'));
   assert.equal(wire.includes('[DONE]'), false);
   const retry = await h.callback(messages, { stream: true });
-  assert.equal(sseReply(await retry.text()), prefix, 'failure replay preserves the same spoken bytes');
+  assert.equal(retry.status, 403, 'a failed generation cannot be silently repeated');
+  assert.equal((await retry.json()).reason, 'voice-turn-replacement-required');
   assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
   assert.equal(h.dispatches.length, 1);
   assert.deepEqual(h.rows().map(row => [row.state, row.outcome, row.settled_micro]), [['settled', 'cancelled', 17]]);
@@ -1803,22 +1804,23 @@ test('AIT-157 fix1: provider error preserves the buffered prefix once with one a
 
 test('AIT-157 fix1: cancel while opener is buffered preserves paid work and one replayed reply', async t => {
   const prefix = 'Vielen Dank, ', messages = [{ role: 'user', content: 'Beschreibung' }];
-  const h = await turnsOnceFixture(t, { replyChunks: [prefix], blocked: true });
+  const h = await turnsOnceFixture(t, { replyChunks: [prefix], blocked: true, replyTail: 'das klingt gut.' });
   const response = await h.callback(messages, { stream: true }), reader = response.body.getReader();
   const first = new TextDecoder().decode((await reader.read()).value);
   assert.equal(sseReply(first), '', 'nothing has been spoken while buffered');
   await reader.cancel();
   assert.equal(h.rows()[0].state, 'dispatched', 'reader cancellation preserves paid generation');
   h.release(); await h.handlers.idle();
-  const retry = await h.callback(messages, { stream: true }), wire = await retry.text(), expected = prefix + ' finished';
-  assert.equal(sseReply(wire), expected, 'unrecognised remainder and buffered opener survive exactly once');
+  const retry = await h.callback(messages, { stream: true }), wire = await retry.text(), expected = 'Das klingt gut.';
+  assert.equal(sseReply(wire), expected, 'the completed reply survives cancellation exactly once');
   const replyId = JSON.parse(wire.split('\n\n')[0].slice(6)).id;
   await h.persist('assistant', 'cancelled-buffer-replay', expected, { replyId });
   assert.equal(h.storage.get(h.session.id).transcript.at(-1).content, expected);
   assert.equal(sseReply(await (await h.callback(messages, { stream: true })).text()), expected);
   assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
   assert.equal(h.dispatches.length, 1);
-  assert.deepEqual(h.diagnostics.filter(entry => entry.event === 'reply.opener-stripped'), []);
+  assert.deepEqual(h.diagnostics.filter(entry => entry.event === 'reply.opener-stripped'),
+    [{ event: 'reply.opener-stripped', count: 1, lane: 'voice' }]);
 });
 
 for (const boundary of ['admission', 'dispatch authorization']) {
