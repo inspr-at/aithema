@@ -44,6 +44,25 @@ test('AIT-138 d: newcomer must Take over, then separately Resume; takeover acqui
   assert.equal(root.dataset.state, 'waiting'); assert.equal(rail.button('pause').title, en.resume);
   await rail.start(); assert.equal(starts, 1);
 });
+test('AIT-138 d takeback: visible Resume follows a pending takeover and its receipt without another repaint', async t => {
+  const session = createSession({ demo: true }), ack = Promise.withResolvers(); let starts = 0;
+  session.paused = true;
+  session.featureMatrix = { best: { voice: { available: true }, text: { available: true } } };
+  session.voiceLifecycle = { callId: 'visible-takeover', providerSessionId: 'visible-provider', epoch: 1,
+    controllingTabId: 'other-tab', state: 'waiting' };
+  const client = { manifest, tabId: 'here', async takeover() { return ack.promise; }, async start() { starts++; } };
+  const element = document.createElement('aithema-session'); element.configure({ copy: en, session, voiceClient: client });
+  t.after(() => { ack.resolve(); element.configure({ copy: en, session: createSession() }); element.remove(); });
+  const root = element.shadowRoot, pause = root.querySelector('.pause');
+  pause.click(); await tick();
+  // A durable echo repaints during the pending command. Its disabled snapshot
+  // must not survive the receipt just because the rail remains in Waiting.
+  element.receive({ seq: 1, type: 'session.paused', data: { paused: true } });
+  assert.equal(pause.disabled, true);
+  ack.resolve({ ...session.voiceLifecycle, epoch: 2, controllingTabId: client.tabId }); await tick(); await tick();
+  assert.equal(root.querySelector('.audio-rail').dataset.state, 'waiting'); assert.equal(starts, 0);
+  assert.equal(pause.textContent.trim(), en.resume); assert.equal(pause.disabled, false);
+});
 for (const [locale, copy] of [['de', de], ['en', en]]) test(`AIT-138 UI: ${locale} composer invites speech only while listening, including a waiting reload`, async t => {
   const session = createSession({ demo: true, locale });
   session.featureMatrix = { best: { voice: { available: true }, text: { available: true } } };
