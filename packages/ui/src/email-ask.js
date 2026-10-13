@@ -155,7 +155,7 @@ export class EmailAsk {
     const a = this.copy.hostSurface.emailAsk;
     setText(row.querySelector('.email-low-line__text'), fill(a[line.kind === 'give' ? 'lineGive' : line.kind === 'confirm' ? 'lineConfirm' : 'lineNone'], { delta: this.format(line.deltaMicro), available: this.format(line.availableMicro) }));
     const button = row.querySelector('button'), next = this.credits?.tiers?.next;
-    button.hidden = line.kind === 'none' || (line.kind === 'give' ? !this.eligible : next !== 'emailConfirmed');
+    button.hidden = line.resolved === true || line.kind === 'none' || (line.kind === 'give' ? !this.eligible : next !== 'emailConfirmed');
     setText(button, line.kind === 'confirm' ? a.lineConfirmAction : a.lineGiveAction);
     button.onclick = () => { if (line.kind === 'confirm') this.changed?.({ settings: true }); else { this.manual = true; this.open = true; this.step = 'idle'; this.paint(); this.input.focus({ preventScroll: true }); } };
   }

@@ -68,6 +68,10 @@ test('AIT-164: owner-bound gate and low line survive reads without entering tran
   assert.equal((await (await call(`/api/sessions/${b.id}/email-ask`, { action: 'show', why: 'low' })).json()).accepted, false);
   assert.equal(f.storage.get(b.id).transcript.length, 10);
   assert.equal(f.storage.read(b.id).some(e => /email-ask/u.test(e.type)), false);
+  await call('/api/visitor/email', { address, noticeVersion }, 'PUT');
+  assert.equal(f.storage.hostState(b.id).emailAsk.lowLine.resolved, true, 'giving an address retires its historical action');
+  await call('/api/visitor/email', {}, 'DELETE');
+  assert.equal(f.storage.hostState(b.id).emailAsk.lowLine.resolved, true, 'deletion never restores a historical offer');
   const foreign = await call('/api/sessions/foreign/email-ask', { action: 'show', why: 'low' }); assert.equal(foreign.status, 404);
 });
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };

@@ -139,7 +139,16 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
         state.status === 'verification-pending' ? state.verificationRevision !== row.address_revision ? at : row.pending_at ?? at : null,
         JSON.stringify(fields(state)), at, row.visitor_ref);
     if (changed) db.prepare('DELETE FROM visitor_confirmation_tokens WHERE visitor_ref=?').run(row.visitor_ref);
+    if (confirmed) resolveLowLines(ownerHash, 'confirm');
     return { erased };
+  }
+  function resolveLowLines(ownerHash, kind) {
+    for (const row of db.prepare(`SELECT h.session_id FROM host_states h JOIN sessions s ON s.id=h.session_id
+      WHERE json_extract(s.snapshot,'$.ownerHash')=? AND json_extract(h.record,'$.emailAsk.lowLine.kind')=?
+      AND COALESCE(json_extract(h.record,'$.emailAsk.lowLine.resolved'),0)=0`).all(ownerHash, kind)) {
+      storage.transitionHost(row.session_id, state => ({ state: { ...state, emailAsk: { ...state.emailAsk,
+        revision: (state.emailAsk.revision ?? 0) + 1, lowLine: { ...state.emailAsk.lowLine, resolved: true } } } }));
+    }
   }
   const queueCleanup = ownerHash => db.prepare('INSERT OR REPLACE INTO visitor_identity_cleanup VALUES (?,?)').run(ownerHash, new Date(timestamp()).toISOString());
   function clearAddress(ownerHash) {
@@ -241,6 +250,7 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
           pending_at=?,notice_version=?,identity_json=?,updated_at=? WHERE visitor_ref=?`)
           .run(input.address, identity.verificationRevision, at, changed ? null : row.confirmed_at, changed ? null : row.pending_at,
             input.noticeVersion, JSON.stringify(identity), at, row.visitor_ref);
+        resolveLowLines(ownerHash, 'give');
         return visitor(ownerHash);
       });
       storage.checkpointErasure(); return result;
