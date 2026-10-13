@@ -74,6 +74,23 @@ test('AIT-164: owner-bound gate and low line survive reads without entering tran
   assert.equal(f.storage.hostState(b.id).emailAsk.lowLine.resolved, true, 'deletion never restores a historical offer');
   const foreign = await call('/api/sessions/foreign/email-ask', { action: 'show', why: 'low' }); assert.equal(foreign.status, 404);
 });
+test('AIT-164: C1 confirmation retires the pending-email line in the current host transaction', async t => {
+  const f = fixture(t, { demo: true }); f.settings('10', '15', '20');
+  f.host.visitorCredits.saveSettings({ baseRevision: f.host.visitorCredits.settings().revision, confirmationEnabled: true }, { actor: 'ops-cli:fixture', source: 'ops-cli' });
+  const s = f.session('confirm-ask'), { call } = api(t, f);
+  await call('/api/visitor/email', { address, noticeVersion }, 'PUT');
+  f.storage.append(s.id, 'turn.final', { id: 'confirm-user', role: 'user', content: 'A requirement.' });
+  f.storage.append(s.id, 'turn.final', { id: 'confirm-reply', role: 'assistant', content: 'A question.' });
+  f.ledger.admit(f.request(s.id, 14_050_000));
+  await call(`/api/sessions/${s.id}/email-ask`, { action: 'line' });
+  assert.equal(f.storage.hostState(s.id).emailAsk.lowLine.kind, 'confirm');
+  await call(`/api/sessions/${s.id}/identity/request`, { address });
+  const mail = (await f.host.outbox({ sessionId: s.id, ownerToken: owner })).at(-1);
+  await call(`/api/sessions/${s.id}/identity/confirm`, { token: mail.token });
+  assert.equal(f.storage.hostState(s.id).emailAsk.lowLine.resolved, true);
+  await call('/api/visitor/email', {}, 'DELETE');
+  assert.equal(f.storage.hostState(s.id).emailAsk.lowLine.resolved, true);
+});
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 function api(t, f) {
   const runtime = createPluginRuntime({ storage: f.storage, consent: mockConsent, budget: f.ledger });

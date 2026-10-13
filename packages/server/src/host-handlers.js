@@ -106,7 +106,10 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
       const result = reduceIdentity(identity, { ...event, now: clock(identity) });
       if (result.state.address) assertAddressCollectionAllowed();
       erased = host.identity.persist?.({ session }, result.state)?.erased === true;
-      return { ...result, state: { ...state, identity: result.state } };
+      // Visitor-wide confirmation may retire historical line actions in this
+      // same transaction. Keep that updated record in the identity projection.
+      const emailAsk = storage.hostState(id)?.emailAsk;
+      return { ...result, state: { ...state, ...(emailAsk ? { emailAsk } : {}), identity: result.state } };
     }, { ownerToken }));
     if (erased) storage.checkpointErasure();
     return result;
