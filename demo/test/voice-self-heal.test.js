@@ -186,7 +186,7 @@ for (const failure of ['timeout', '503', 'network', '401']) test(`AIT-161 server
     processing: { contract: after.processingConsent.contract, items: ['voice-elevenlabs'] } }, headers);
   assert.equal(consent.status, 200);
   const updated = await fetch(running.url + `/api/sessions/${session.id}`, { headers }).then(r => r.json());
-  assert.equal(updated.featureMatrix.best.voice.status, 'available');
+  assert.equal(updated.featureMatrix.best.voice.available, true, updated.featureMatrix.best.voice.reason);
   const voice = await post(running.url + `/api/sessions/${session.id}/voice`, { callId: 'fixture-call', tabId: 'fixture-tab' }, headers);
   assert.equal(voice.status, 201, await voice.text());
 });
