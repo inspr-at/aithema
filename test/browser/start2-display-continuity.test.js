@@ -150,6 +150,21 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
         if (evidence) {
           await target.screenshot({ path: join(evidence, file), fullPage: false });
           await writeFile(join(evidence, `${file}.json`), JSON.stringify({ name, width, theme, locale, composer, presentation }, null, 2));
+          if (evidence.includes('paint-probe') && locale === 'de' && theme === 'light' && width >= 960) {
+            const paint = await shadow(target, c => {
+              const nodes = []; for (let n = c.shadowRoot.querySelector('.composer'); n; n = n.parentElement) {
+                const s = getComputedStyle(n); nodes.push({ class: n.className, opacity: s.opacity, visibility: s.visibility,
+                  transform: s.transform, clipPath: s.clipPath, maskImage: s.maskImage, overflow: s.overflow,
+                  backdropFilter: s.backdropFilter, filter: s.filter });
+              }
+              return { nodes, animations: c.shadowRoot.querySelector('.workspace').getAnimations({ subtree: true }).map(a => ({
+                target: a.effect.target.className, state: a.playState, timing: a.effect.getComputedTiming() })) };
+            });
+            await writeFile(join(evidence, `${file}.paint.json`), JSON.stringify(paint, null, 2));
+            await target.screenshot({ path: join(evidence, `surface-false-${file}`), fullPage: false, fromSurface: false });
+            await new Promise(resolve => setTimeout(resolve, 1200));
+            await target.screenshot({ path: join(evidence, `delayed-${file}`), fullPage: false });
+          }
         }
         // Compare state transitions at the same scroll offset; sticky offsets follow capture scrolling.
         await target.evaluate(top => { window.scrollTo(0, top); }, scrollBefore);
