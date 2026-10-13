@@ -10,7 +10,7 @@ const normalize = text => text.replace(/chatcmpl-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-
 // The worker loses permission or expires after returning its unread SSE body.
 // Reader authority stays current, isolating the pre-first-frame worker failure
 // from the separate voice-turn-* claim/replay/reader refusals.
-export async function recordInitialErrorWire(t, cause) {
+export async function recordInitialErrorWire(t, cause, runReply) {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: INITIAL_ERROR_EPOCH });
   const storage = new SQLiteStorage(), session = storage.create({ ownerToken: 'fixture-owner' });
   const turns = createVoiceTurnOperations({ storage, now: () => INITIAL_ERROR_EPOCH });
@@ -19,22 +19,10 @@ export async function recordInitialErrorWire(t, cause) {
   let blocked = false, admissions = 0, finishes = 0, completions = 0;
   const call = { callId: 'call_initial_error', providerSessionId: 'conv_initial_error', facadeSecretRef: 'fixture-ref',
     spendDeadlineAt: Date.now() + 60_000, browserLivenessDeadlineAt: Date.now() + 60_000 };
-  const handler = createCompletionsHandler({ now: () => INITIAL_ERROR_EPOCH, log: () => {},
+  const ports = { now: () => INITIAL_ERROR_EPOCH, log: () => {},
     getCall: () => call, resolveSecret: () => 'fixture-value',
     buildRequest: ({ messages }) => ({ locale: 'de', messages }),
     onCompletion() { completions++; },
-    turnOperations: { run(context, execute, options) {
-      return turns.run({ ...context, sessionId: session.id }, async worker => {
-        const response = await execute({ ...worker, assertCurrent() {
-          worker.assertCurrent();
-          if (blocked) throw new PluginError('not-admitted', `worker-${cause}`);
-        } });
-        if (cause === 'deadline') t.mock.timers.tick(100);
-        else if (cause === 'cancel') cancellation.abort();
-        else blocked = true;
-        return response;
-      }, options);
-    } },
     admitReasoning({ request, options, beforeAdmission }) {
       beforeAdmission(); admissions++;
       return { request, producer: { plugin: 'fixture', model: 'fixture-model' },
@@ -47,12 +35,27 @@ export async function recordInitialErrorWire(t, cause) {
           finally { await invocation.finish(false); }
         } }, finish() { finishes++; } };
     },
+  };
+  const body = { elevenlabs_extra_body: { aithema_call: call.callId }, stream: true,
+    messages: [{ role: 'user', content: 'Ja' }] };
+  const context = { sessionId: session.id, callId: call.callId, providerSessionId: call.providerSessionId,
+    callbackBody: body, stream: true };
+  const response = await runReply(turns, context, async worker => {
+    const handler = createCompletionsHandler({ ...ports, beforeAdmission: worker.beforeAdmission,
+      onAdmission: worker.admitted, reportAllowed: worker.reportAllowed,
+      beforeOutput() {
+        worker.assertCurrent();
+        if (blocked) throw new PluginError('not-admitted', `worker-${cause}`);
+      } });
+    const response = await handler(new Request('https://host.example.test/voice/call_initial_error/completions', {
+      method: 'POST', headers: { authorization: 'Bearer fixture-value', 'content-type': 'application/json' },
+      body: JSON.stringify(body), signal: worker.signal,
+    }));
+    if (cause === 'deadline') t.mock.timers.tick(100);
+    else if (cause === 'cancel') cancellation.abort();
+    else blocked = true;
+    return response;
   });
-  const response = await handler(new Request('https://host.example.test/voice/call_initial_error/completions', {
-    method: 'POST', headers: { authorization: 'Bearer fixture-value', 'content-type': 'application/json' },
-    body: JSON.stringify({ elevenlabs_extra_body: { aithema_call: call.callId }, stream: true,
-      messages: [{ role: 'user', content: 'Ja' }] }),
-  }));
   const wire = { status: response.status, headers: Object.fromEntries(response.headers), body: normalize(await response.text()) };
   await turns.idle();
   return { wire, admissions, finishes, completions, reports,
