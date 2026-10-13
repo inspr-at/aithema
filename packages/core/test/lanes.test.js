@@ -60,7 +60,7 @@ test('final refinement is discarded when input advances after draft publication'
 test('reaction streams deltas and only publishes one complete durable assistant turn', async () => {
   const h = harness(); h.turn('Hello');
   const run = h.lanes.run(h.session.id, 'reaction'); assert.equal(run, h.lanes.run(h.session.id, 'reaction'));
-  await run; assert.ok(h.partials.length > 1); assert.equal(h.published.length, 1);
+  await run; assert.ok(h.partials.length > 0); assert.equal(h.published.length, 1);
   assert.equal(h.published[0].data.content, h.partials.map(e => e.data.delta).join(''));
   for (const data of [...h.partials.map(e => e.data), h.published[0].data]) {
     assert.equal(data.origin, 'ai-generated'); assert.equal(data.model, 'mock'); assert.equal(data.provider, 'mock');

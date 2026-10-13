@@ -57,7 +57,7 @@ export async function readBody(request, limit = REQUEST_LIMIT) {
 
 export function createHandlers({ storage, reasoning = createMockReasoning(), sessionOptions = { demo: true },
   deadlineMs = 30_000, hostPrompt = '', pluginRuntime, consent = pluginRuntime?.consent,
-  ownership = { token: request => request.headers.get('x-aithema-session-token') }, voice, concepts = {}, uploads = {}, host }) {
+  ownership = { token: request => request.headers.get('x-aithema-session-token') }, voice, concepts = {}, uploads = {}, host, log = console.log }) {
   pluginRuntime ??= createPluginRuntime({ storage, reasoning, consent: consent ?? { coverage: () => ({ covered: false }) } });
   consent ??= pluginRuntime.consent;
   if (typeof consent?.coverage !== 'function' || consent !== pluginRuntime.consent) {
@@ -101,6 +101,10 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   const laneKey = (session, lane) => `${inputRevision(session)}|${selection(session, lane)}`;
   const lanes = new SessionLanes({ reasoning, getSession: id => storage.get(id), deadlineMs, hostPrompt, selection,
     admit: args => pluginRuntime.admit(args),
+    onOpenerStripped() {
+      try { log({ event: 'reply.opener-stripped', count: 1, lane: 'reaction' }); }
+      catch { /* Diagnostics cannot interrupt a reply. */ }
+    },
     publish(id, type, data, revision) {
       if (stop.signal.aborted) return false;
       const event = storage.append(id, type, data, revision);
