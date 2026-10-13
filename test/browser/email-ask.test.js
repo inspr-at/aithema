@@ -85,6 +85,13 @@ async function fixture(page, locale, { delivery = false, address = null, confirm
     if (voice) c.shadowRoot.querySelector('.voice-start').click();
   }, { locale, delivery, address, confirmed, low, out, voice, motion });
   await settle();
+  // Capture the live dock above the fixed footer, with the sticky band still
+  // in the viewport. A full-page capture would repaint that band over content.
+  if (page.viewport().width < 960) {
+    await shadow(page, c => c.shadowRoot.querySelector('.composer-dock').scrollIntoView({ block: 'end' }));
+    await page.evaluate(() => window.scrollBy(0, 72));
+    await settle();
+  }
 }
 
 test('AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layout shift', { timeout: 480_000 }, async t => {

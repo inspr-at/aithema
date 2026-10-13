@@ -54,13 +54,15 @@ export const emailAskStyles = `
 .email-low-line__action::after { content:""; position:absolute; inset:-12px -6px; }
 .host-credits__stack { font-variant-numeric:tabular-nums; }
 .host-credits__measure { visibility:hidden; white-space:nowrap; }
+.host-credits__measure-low { visibility:hidden; white-space:nowrap; }
+.host-credits__measure-low-short { display:none; }
 .host-credits__low { visibility:hidden; white-space:nowrap; color:var(--aithema-warning); }
 .host-credits__low-short { display:none; }
 .host-credits[data-low="true"]:not([data-ended="true"]) .host-credits__text { visibility:hidden; }
 .host-credits[data-low="true"]:not([data-ended="true"]) .host-credits__low { visibility:visible; }
 .host-credits[data-low="true"]:not([data-ended="true"]) .host-credits__track i { background:var(--aithema-amber); }
 @media(width < 600px) { .host-credits__measure-total { display:none; } }
-@media(width < 360px) { .host-credits__measure-unit { display:none; } .host-credits__low-full { display:none; } .host-credits__low-short { display:inline; } }
+@media(width < 360px) { .host-credits__measure-unit { display:none; } .host-credits__low-full,.host-credits__measure-low-full { display:none; } .host-credits__low-short,.host-credits__measure-low-short { display:inline; } }
 @media(max-width:600px) { .email-ask h2 { font-size:22px; } .email-ask { gap:11px; } }
 :host([motion="off"]) :is(.email-ask,.email-ask > *,.analysis-content,.email-ask-pane,.transcript-shell,.concept-bar,.qcard) { transition:none !important; }
 :host([motion="off"]) .workspace[data-email-ask="dock"] .email-ask { transform:none; }

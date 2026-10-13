@@ -245,6 +245,8 @@ export class HostSurface {
     setText(line.querySelector('.host-credits__measure-amount'), owner ? format(owner.limitMicro, locale) : '…');
     setText(line.querySelector('.host-credits__measure-total'), owner ? fill(layout.creditsTotal, { limit: format(owner.limitMicro, locale) }) : '');
     setText(line.querySelector('.host-credits__measure-unit'), owner ? layout.creditsUnit : '');
+    setText(line.querySelector('.host-credits__measure-low-full'), owner ? fill(c.low, { available: format(owner.limitMicro, locale) }) : '');
+    setText(line.querySelector('.host-credits__measure-low-short'), owner ? fill(c.lowShort, { available: format(owner.limitMicro, locale) }) : '');
     setText(line.querySelector('.host-credits__used-up-full'), c.usedUp); setText(line.querySelector('.host-credits__used-up-short'), c.usedUpShort);
     setText(line.querySelector('.host-credits__equivalence'), c.unit);
     setText(amount, owner ? format(exhausted ? 0 : owner.availableMicro, locale) : '…');
