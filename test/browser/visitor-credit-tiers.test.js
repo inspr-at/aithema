@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { constants } from 'node:fs';
-import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import puppeteer from 'puppeteer-core';
@@ -104,6 +104,9 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
   let browser;
   t.after(async () => { try { await browser?.close(); } finally { await demo.kill(); await rm(directory, { recursive: true, force: true }); } });
   if (evidence) await mkdir(evidence, { recursive: true });
+  const head = process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1];
+  const event = process.env.GITHUB_EVENT_PATH ? JSON.parse(await readFile(process.env.GITHUB_EVENT_PATH, 'utf8')) : null;
+  const branchHead = event?.pull_request?.head?.sha ?? head;
   const passLines = [], states = [], captures = [], uiChecks = [];
   for (const locale of ['de', 'en']) {
     browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome-' + locale),
@@ -125,10 +128,23 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
           const r = c.shadowRoot, row = r.querySelector('.m-view.on .m-acts');
           const buttons = [...row.querySelectorAll('button')].filter(n => !n.hidden), dot = row.querySelector('.m-dot');
           const boxes = buttons.map(n => n.getBoundingClientRect());
-          return { gapPx: boxes[1].left - boxes[0].right, sameRow: boxes[0].top === boxes[1].top,
-            dot: dot.textContent, dotVisible: !dot.hidden, targets44: boxes.every(box => box.height >= 44) };
+          const sameRow = boxes[0].top === boxes[1].top;
+          return { gapPx: sameRow ? boxes[1].left - boxes[0].right : boxes[1].top - boxes[0].bottom, sameRow,
+            pairFits: boxes[0].width + boxes[1].width + 24 <= row.getBoundingClientRect().width,
+            linkBelow: boxes[1].top >= boxes[0].bottom && boxes[1].left === boxes[0].left,
+            dot: dot?.textContent ?? null, dotVisible: Boolean(dot && !dot.hidden), targets44: boxes.every(box => box.height >= 44),
+            labels: buttons.map(n => {
+              const range = document.createRange(); range.selectNodeContents(n);
+              return { text: n.textContent, lines: new Set([...range.getClientRects()].map(rect => rect.top)).size };
+            }) };
         });
-        assert.deepEqual(metrics, { gapPx: 24, sameRow: true, dot: '·', dotVisible: true, targets44: true }, `${label}/${state}: separated actions`);
+        assert.equal(metrics.gapPx, 24, `${label}/${state}: 24 px between actions`);
+        assert.equal(metrics.sameRow, metrics.pairFits, `${label}/${state}: link moves below when the pair does not fit`);
+        if (!metrics.sameRow) assert.equal(metrics.linkBelow, true, `${label}/${state}: link below the button`);
+        assert.equal(metrics.dot, state === 'deleting' ? null : '·', `${label}/${state}: dot only between text actions`);
+        assert.equal(metrics.dotVisible, state !== 'deleting');
+        assert.equal(metrics.targets44, true);
+        for (const button of metrics.labels) assert.equal(button.lines, 1, `${label}/${state}: "${button.text}" is one line`);
         uiChecks.push({ locale, theme, width, state, pass: true, ...metrics });
       };
       const shot = async state => {
@@ -275,7 +291,16 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
         return ['.verify__field', '.verify__note', '.m-notice', '.verify__actions'].map(selector => form.querySelector(selector).getBoundingClientRect().top);
       });
       assert.ok(order.every((top, i) => i === 0 || top > order[i - 1]), `${label}: field, helper, notice, submit`);
-      uiChecks.push({ locale, theme, width, state: 'mail-confirm-dialog', pass: true, order });
+      const sendLabel = await shadow(page, c => {
+        const form = c.shadowRoot.querySelector('dialog.verify-dialog form'), button = form.querySelector('.verify-send');
+        const range = document.createRange(); range.selectNodeContents(button);
+        const bounds = button.getBoundingClientRect(), field = form.getBoundingClientRect(), text = range.getBoundingClientRect();
+        return { text: button.textContent, lines: new Set([...range.getClientRects()].map(rect => rect.top)).size,
+          fits: bounds.left >= field.left && bounds.right <= field.right && text.left >= bounds.left && text.right <= bounds.right };
+      });
+      assert.equal(sendLabel.lines, 1, `${label}/mail-confirm-dialog: "${sendLabel.text}" is one line`);
+      assert.equal(sendLabel.fits, true, `${label}/mail-confirm-dialog: label and button fit the form`);
+      uiChecks.push({ locale, theme, width, state: 'mail-confirm-dialog', pass: true, order, sendLabel });
       await shadow(page, c => { c.shadowRoot.querySelector('#verify-dialog-email').value = 'reader@example.test'; c.shadowRoot.querySelector('dialog.verify-dialog form').requestSubmit(); }); await settle(); await shot('mail-link-sent');
       const sent = await shadow(page, c => {
         const form = c.shadowRoot.querySelector('dialog.verify-dialog form'), pending = form.querySelector('.verify__pending'),
@@ -335,7 +360,13 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
           newVoiceAvailable: c.session.featureMatrix.best.voice.available };
       });
       assert.deepEqual(held, { voiceCloses: 0, voiceState: 'listening', availableCredits: '0', railUsedUp: false, creditsUsedUp: false, composerUsedUp: false, closeDisabled: false, newVoiceAvailable: false });
-      passLines.push({ locale, theme, width, state: 'full-hold-call', displacementPx: unchanged(heldBefore, await boxes(page, liveFixed), `${label}/full-hold-call`), pass: true, ...held });
+      const heldCopy = await shadow(page, c => {
+        const r = c.shadowRoot;
+        return { composerHint: r.querySelector('.composer-reason').textContent, panelStatus: r.querySelector('.analysis-content .notice').textContent };
+      });
+      const afterCall = locale === 'de' ? 'Schreiben geht nach dem Anruf wieder' : 'You can type again after the call';
+      assert.deepEqual(heldCopy, { composerHint: afterCall, panelStatus: afterCall }, `${label}/full-hold-call: visitor copy`);
+      passLines.push({ locale, theme, width, state: 'full-hold-call', displacementPx: unchanged(heldBefore, await boxes(page, liveFixed), `${label}/full-hold-call`), pass: true, ...held, ...heldCopy });
       await shot('full-hold-call'); await click(page, '.host-credits__button'); await shot('full-hold-credits');
       for (const waitingCall of [false, true]) {
         await fixture(page, locale, { spent: 11_990_000, voiceAdmissionFailure: true, waitingCall });
@@ -391,6 +422,10 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
     assert.deepEqual(problems, []);
     await browser.close(); browser = null;
   }
-  if (evidence) await writeFile(join(evidence, 'a2-pass-lines.json'), JSON.stringify({ head: process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1], runner: 'remote/CI', source: 'shipped component with owner-route fixtures; language selected through the picker', passLines, uiChecks, states, captures }, null, 2));
+  const stamp = rows => rows.map(row => ({ head, branchHead, ...row }));
+  if (evidence) await writeFile(join(evidence, 'a2-pass-lines.json'), JSON.stringify({ head, branchHead, runner: 'remote/CI', source: 'shipped component with owner-route fixtures; language selected through the picker', passLines: stamp(passLines), uiChecks: stamp(uiChecks), states, captures }, null, 2));
+  for (const row of [...passLines, ...uiChecks].filter(row => [390, 1440].includes(row.width) && ['full-hold-call', 'deleting', 'mail-confirm-dialog'].includes(row.state))) {
+    t.diagnostic(`PASS branch-head=${branchHead} source-head=${head} ${row.locale}-${row.theme}-${row.width}/${row.state} ${JSON.stringify(row)}`);
+  }
   t.diagnostic(`${passLines.length} zero-displacement checks; ${states.length} states; ${captures.length} viewport screenshots across all 12 viewport/theme/language combinations`);
 });

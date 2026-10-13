@@ -33,7 +33,7 @@ export class VisitorEmail {
         <div class="m-acts"><button class="m-act m-change" type="button"></button><span class="m-dot" aria-hidden="true">·</span><button class="m-act m-delete" type="button"></button></div></div>
       <div class="m-view" data-view="confirm" role="group" aria-labelledby="email-delete-question"><p class="m-q" id="email-delete-question"></p>
         <p class="m-cons m-two"><span class="m-delete-normal"></span><span class="m-delete-over"></span></p>
-        <div class="m-acts"><button class="m-del" type="button"></button><span class="m-dot" aria-hidden="true">·</span><button class="m-act m-keep" type="button"></button></div>
+        <div class="m-acts"><button class="m-del" type="button"></button><button class="m-act m-keep" type="button"></button></div>
         <p class="m-delete-message" role="status"></p></div>
       <div class="m-view" data-view="mail"><div class="m-mail-stack">
         <p class="m-lead m-lead-mail"></p><p class="verify-entry-state m-addr"><span class="m-sent-prefix"></span><span class="verify-entry-address"></span></p></div>

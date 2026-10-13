@@ -59,9 +59,12 @@ export const hostStyles = `
 .verify__actions { display:flex; flex-wrap:wrap; align-items:center; gap:.25rem .5rem; }
 /* Keep the sending action's reservation while each label hugs its own button. */
 .verify__primary { display:grid; } .verify__primary > * { grid-area:1/1; justify-self:stretch; min-height:2.75rem; }
-/* The hidden Cancel reservation must not create another dialog action row. */
-.verify-dialog .verify__actions { flex-wrap:nowrap; }
+/* Labels keep one line; Cancel moves below the button when the pair does not fit. */
+.verify-dialog .verify__actions { gap:24px; }
+.verify-dialog .verify__primary, .verify-dialog .verify-cancel { flex:none; white-space:nowrap; }
 .verify-dialog .verify__primary > * { justify-self:start; }
+/* Pending has no Cancel action; its hidden reservation must not add a row above the message. */
+.verify-dialog .verify-form[data-mode=pending] .verify-cancel { display:none; }
 .verify-resend { text-align:left; } .verify-cancel { font-size:.85rem; }
 .verify-dialog .verify-form[data-mode=pending] { row-gap:12px; grid-template-areas:"lead" "field" "actions" "message" "note" "privacy"; }
 .verify-dialog .verify-form[data-mode=pending] > .verify__lead { grid-area:lead; }
@@ -225,8 +228,9 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .m-addr { margin:0; min-height:2.8em; max-height:2.8em; overflow:auto; font-size:.95rem; color:var(--aithema-ink); font-weight:600; overflow-wrap:anywhere; }
 .m-tier { display:flex; align-items:center; gap:.4rem; margin:0; font-size:.85rem; color:var(--aithema-muted); font-variant-numeric:tabular-nums; }
 .m-tier svg { flex:none; color:var(--aithema-accent); }
-/* Paired actions share a row; longer localized labels shrink within their button. */
-.m-acts { display:flex; align-items:center; flex-wrap:nowrap; gap:0 24px; margin-top:.15rem; }
+/* Keep labels on one line and let the second action move below when needed. */
+.m-acts { display:flex; align-items:center; flex-wrap:wrap; gap:24px; margin-top:.15rem; }
+.m-acts > button { flex:none; white-space:nowrap; }
 .m-act { min-height:44px; padding:0 .85rem; border-radius:.6rem; color:var(--aithema-accent); font-weight:600; font-size:.85rem; }
 .m-act:hover { background:color-mix(in srgb,var(--aithema-accent) 8%,transparent); }
 .host-mail .m-acts > button { margin-left:0; }
