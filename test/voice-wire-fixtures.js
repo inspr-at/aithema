@@ -17,9 +17,10 @@ export async function recordVoiceWire() {
   const session = storage.create({ demo: true, ownerToken: 'fixture-owner' });
   const turns = createVoiceTurnOperations({ storage, now: () => epoch });
   const call = { callId: 'call_fixture', providerSessionId: 'conv_fixture', facadeSecretRef: 'fixture-callback-ref',
+    facadeCallId: 'facade_fixture',
     spendDeadlineAt: Date.now() + 60_000, browserLivenessDeadlineAt: Date.now() + 60_000 };
   let admissions = 0;
-  const handler = createCompletionsHandler({ now: () => epoch, log: () => {},
+  const facadePorts = { now: () => epoch, log: () => {},
     getCall: () => call, resolveSecret: () => 'fixture-callback-value',
     buildRequest: ({ messages }) => ({ system: 'Canonical fixture prompt', locale: 'de', messages }),
     turnOperations: { run: (context, execute, options) => turns.run({ ...context, sessionId: session.id }, execute, options) },
@@ -38,7 +39,9 @@ export async function recordVoiceWire() {
             yield 'Was soll entstehen?'; invocation.usage({ inputTokens: 7, outputTokens: 5 }); completed = true;
           } finally { await invocation.finish(completed); }
         } }, finish() {} };
-    } });
+    } };
+  const handler = createCompletionsHandler(facadePorts);
+  const staticHandler = createCompletionsHandler({ ...facadePorts, staticSecretRef: 'fixture-static-ref' });
   const base = { model: 'untrusted-model', elevenlabs_extra_body: { aithema_call: call.callId },
     messages: [{ role: 'system', content: 'Untrusted prompt' }, { role: 'user', content: 'Ja' }], stream: true };
   const callbackCases = [
@@ -49,13 +52,17 @@ export async function recordVoiceWire() {
     ['partial-failure', { ...base, messages: [{ role: 'user', content: 'partial failure' }] }],
     ['unauthorized', base, 'Bearer fixture-wrong'],
     ['wrong-call', { ...base, elevenlabs_extra_body: { aithema_call: 'foreign' } }],
+    ['static-stream', { ...base, elevenlabs_extra_body: { aithema_call: call.facadeCallId } }, undefined, true],
+    ['static-retry-json', { ...base, stream: false, elevenlabs_extra_body: { aithema_call: call.facadeCallId } }, undefined, true],
+    ['static-unauthorized', { ...base, elevenlabs_extra_body: { aithema_call: call.facadeCallId } }, 'Bearer fixture-wrong', true],
   ];
   const callbacks = [];
   try {
-    for (const [name, body, authorization = 'Bearer fixture-callback-value'] of callbackCases) {
-      const request = { method: 'POST', url: 'https://host.example.test/voice/call_fixture/completions',
+    for (const [name, body, authorization = 'Bearer fixture-callback-value', staticRoute] of callbackCases) {
+      const request = { method: 'POST', url: staticRoute ? 'https://host.example.test/api/voice/llm/chat/completions'
+        : 'https://host.example.test/api/voice/call_fixture/llm/chat/completions',
         headers: { 'content-type': 'application/json', authorization }, body: JSON.stringify(body) };
-      callbacks.push({ name, request, response: await snapshot(await handler(new Request(request.url, request))) });
+      callbacks.push({ name, request, response: await snapshot(await (staticRoute ? staticHandler : handler)(new Request(request.url, request))) });
     }
     await turns.idle();
   } finally { await turns.idle(); storage.close(); }
