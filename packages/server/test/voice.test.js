@@ -1775,6 +1775,23 @@ test('AIT-138 d fix 1: a retired reader gets no frames while its paid operation 
   assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
 });
 
+test('AIT-138 d fix 1: takeover closes a waiting reader before its paid model finishes', async t => {
+  const h = await turnsOnceFixture(t, { blocked: true, reactionReservationMicro: 50 });
+  const response = await h.callback([{ role: 'user', content: 'An already streaming reply' }], { stream: true });
+  const reader = response.body.getReader();
+  assert.match(new TextDecoder().decode((await reader.read()).value), /"role":"assistant"/u);
+  assert.match(new TextDecoder().decode((await reader.read()).value), /"content":"Reply 1"/u);
+  const pending = reader.read();
+  assert.equal((await h.route(`/voice/${h.grant.callId}/takeover`, {
+    epoch: h.grant.epoch, tabId: 'successor-tab', explicit: true })).status, 200);
+  assert.deepEqual(await pending, { value: undefined, done: true }); reader.releaseLock();
+  assert.equal(h.rows()[0].state, 'dispatched', 'closing the reader does not cancel or settle the paid model');
+  assert.equal(h.storage.voiceOperations(h.session.id)[0].state, 'pending');
+  h.release(); await h.handlers.idle();
+  assert.equal(h.storage.voiceOperations(h.session.id)[0].state, 'completed');
+  assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
+});
+
 test('AIT-138: transport recovery preserves paid generation work; repeated input in the successor is a new operation', async t => {
   const h = await turnsOnceFixture(t, { blocked: true }), messages = [{ role: 'user', content: 'Accepted input' }];
   const first = await h.callback(messages, { stream: true }), oldReply = first.text();
