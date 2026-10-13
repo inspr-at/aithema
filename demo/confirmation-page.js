@@ -108,7 +108,7 @@ export function confirmationWait(retryAt, locale, now = Date.now()) {
 }
 const icons = {
   ready: '<rect x="3.25" y="5.25" width="17.5" height="13.5" rx="2.5"/><path d="m4 7.25 8 5.75 8-5.75"/>',
-  confirmed: '<rect x="3.25" y="5.25" width="17.5" height="13.5" rx="2.5"/><path d="m4 7.25 8 5.75 8-5.75"/>',
+  confirmed: '<path d="M5.75 12.5l4.1 4.1 8.4-8.6"/>',
   usedConfirmed: '<path d="M5.75 12.5l4.1 4.1 8.4-8.6"/>',
   usedLink: '<path d="M3.5 10.25 12 4.75l8.5 5.5v8a1.75 1.75 0 0 1-1.75 1.75H5.25A1.75 1.75 0 0 1 3.5 18.25Z"/><path d="m3.75 10.5 8.25 5.25 8.25-5.25"/>',
   expired: '<circle cx="12" cy="12" r="8.25"/><path d="M12 7.75V12l2.75 1.75"/>',
