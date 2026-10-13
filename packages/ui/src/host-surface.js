@@ -241,7 +241,7 @@ export class HostSurface {
     line.querySelector('.host-credits__low').setAttribute('aria-hidden', String(!low));
     setText(line.querySelector('.host-credits__low-full'), owner ? fill(c.low, { available: format(owner.availableMicro, locale) }) : '');
     setText(line.querySelector('.host-credits__low-short'), owner ? fill(c.lowShort, { available: format(owner.availableMicro, locale) }) : '');
-    // Reserve the width using the current server limit; digit changes never
+    // Reserve the width using the highest server tier; digit changes never
     // narrow the cell, including EN where the used-up label is shorter.
     setText(line.querySelector('.host-credits__measure-amount'), owner ? format(reservedLimit, locale) : '…');
     setText(line.querySelector('.host-credits__measure-total'), owner ? fill(layout.creditsTotal, { limit: format(reservedLimit, locale) }) : '');

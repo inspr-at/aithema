@@ -478,7 +478,7 @@ test('locked understanding pane: the verification controls sit under no aria-dis
 
 // AIT-135 A2: all amounts are acknowledged host values (USD millionths).
 const a2Allowances = { anonymous: 12_000_000, emailGiven: 18_000_000, emailConfirmed: 24_000_000 };
-function a2Setup(t, { copy = en, address = null, spent = 3_450_000, reserved = 0, delivery = false, privacy = true, handover = false, save, link, question, blocked = false, voiceClient, waitingCall } = {}) {
+function a2Setup(t, { copy = en, address = null, spent = 3_450_000, reserved = 0, delivery = false, privacy = true, handover = false, save, link, visitorRead, question, blocked = false, voiceClient, waitingCall } = {}) {
   let saved = address, raised = false;
   const allowances = () => ({ ...a2Allowances, anonymous: raised ? 18_000_000 : 12_000_000 });
   const tiers = () => ({ allowancesMicro: allowances(), current: saved ? 'emailGiven' : 'anonymous',
@@ -492,7 +492,7 @@ function a2Setup(t, { copy = en, address = null, spent = 3_450_000, reserved = 0
     session: { demo: false, ...(blocked || voiceClient ? { featureMatrix: features() } : {}), ...(waitingCall ? { voiceLifecycle: waitingCall } : {}), identity: identity({ address: saved }), settings: { origin: 'chosen', voice: 'off', visuals: 'off' } }, routes: {
       'GET ': () => Response.json({ ...h.c.session, featureMatrix: features() }),
       'GET /identity': () => Response.json({ identity: identity({ address: saved }), delivery, privacyDocumentConfigured: privacy }),
-      'GET /visitor/email': () => Response.json({ visitor: visitor(), notice: { version: 'ait-135-v1', deliveryEnabled: delivery }, privacyDocumentConfigured: privacy }),
+      'GET /visitor/email': () => { const read = () => Response.json({ visitor: visitor(), notice: { version: 'ait-135-v1', deliveryEnabled: delivery }, privacyDocumentConfigured: privacy }); return visitorRead ? visitorRead(read) : read(); },
       'GET /credits': () => { const limitMicro = visitor().limitMicro; return Response.json({ balance: { owner: { limitMicro, committedMicro: spent + reserved,
         confirmedSpendMicro: spent, reservedMicro: reserved, uncertainSpendMicro: 0, availableMicro: Math.max(0, limitMicro - spent - reserved) } }, exhausted: spent >= limitMicro, limitSlot: null, tiers: tiers() }); },
       'PUT /visitor/email': async body => { await save?.(body); saved = body.address; return Response.json({ visitor: visitor() }); },
@@ -522,6 +522,23 @@ test('AIT-164: mail Settings saves and raises the tier before the confirmation r
   assert.match(root.querySelector('.host-credits__total').textContent, /1,800/u);
   assert.equal(form.querySelector('.verify-send').textContent, en.hostSurface.email.save);
   finish(); await tick(12); assert.equal(root.querySelector('.host-verify').dataset.emailState, 'pending');
+});
+
+test('AIT-164: mail Settings cannot bypass saving while its first privacy-notice read is still pending', async t => {
+  let release, reads = 0;
+  const first = new Promise(resolve => { release = resolve; });
+  const { root, c, calls } = a2Setup(t, { delivery: true,
+    visitorRead: read => ++reads === 1 ? first.then(read) : read(),
+    link: body => Response.json({ identity: identity({ status: 'verification-pending', address: body.address, delivery: 'sent' }) }),
+  });
+  await tick(8); c.openSettings(undefined, { tab: 'general', anchor: '#email' }); await tick();
+  root.querySelector('.verify-entry').click(); await tick();
+  const form = root.querySelector('.verify-dialog .verify-form'); form.querySelector('input').value = 'mail-reader@example.test'; form.requestSubmit(); await tick(12);
+  const put = calls.findIndex(call => call.method === 'PUT'), link = calls.findIndex(call => call.method === 'POST' && call.path === '/identity/request');
+  assert.ok(put >= 0 && link > put, 'the saved-tier acknowledgement must precede C1');
+  assert.deepEqual(calls[put].body, { address: 'mail-reader@example.test', noticeVersion: 'ait-135-v1' });
+  assert.match(root.querySelector('.host-credits__total').textContent, /1,800/u);
+  release(); await tick(8);
 });
 
 for (const copy of [de, en]) test(`AIT-135 A2 B: server tiers in a group, one unit line, no countdown (${copy === de ? 'de' : 'en'})`, async t => {
