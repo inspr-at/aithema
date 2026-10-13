@@ -602,7 +602,7 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
   t.after(async () => { await browser.close(); await demo.kill(); });
   const evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], checks = [], errors = [];
   if (evidence) await mkdir(evidence, { recursive: true });
-  const state = (page, expected) => until(page, expected => document.querySelector('aithema-session')?.shadowRoot.querySelector('.audio-rail').dataset.state === expected, expected);
+  const state = (page, expected) => until(page, expected => document.querySelector('aithema-session')?.shadowRoot?.querySelector('.audio-rail')?.dataset.state === expected, expected);
   const click = (page, selector) => shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).click(), selector);
   const selectors = ['.band', '.audio-rail', '.voice-notices', '.concept-bar', '.transcript-shell', '.composer-dock'];
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390]) {
@@ -619,7 +619,7 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
         }
         await context.close();
       });
-      page.on('pageerror', error => errors.push(error.message));
+      page.on('pageerror', error => errors.push(error.stack ?? error.message));
       await page.setViewport({ width, height: width === 390 ? 844 : 900 });
       await page.evaluateOnNewDocument(locale => {
         localStorage.setItem('aithema-locale', locale); localStorage.setItem('aithema-motion', 'off');
@@ -640,7 +640,7 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
       st?.diagnostic('Started original call');
       const label = `${width}-${theme}-${locale}`, before = await layoutBoxes(page, selectors);
       const call = await page.evaluate(() => JSON.parse(sessionStorage.getItem(`aithema-voice-call:${document.querySelector('aithema-session').session.id}`)));
-      other = await context.newPage(); other.on('pageerror', error => errors.push(error.message));
+      other = await context.newPage(); other.on('pageerror', error => errors.push(error.stack ?? error.message));
       await other.setViewport({ width, height: width === 390 ? 844 : 900 });
       await other.goto(demo.url, { waitUntil: 'domcontentloaded' }); await state(other, 'waiting');
       st?.diagnostic('Newcomer offers takeover');
