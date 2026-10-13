@@ -108,6 +108,8 @@ export interface VoiceReconciliationEvidence {
 }
 export interface VoiceCallbackRoute {
   method: string; path: string; handle(request: Request): Promise<Response>;
+  /** Preserve an adapter's hidden-path rejection without invoking a mismatched handler. */
+  methodNotAllowedStatus?: 404 | 405;
 }
 /** Private adapter data; the generic server only forwards it at segment start. */
 export interface VoiceCallbackContext {

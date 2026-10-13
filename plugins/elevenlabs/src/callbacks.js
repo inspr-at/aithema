@@ -33,7 +33,8 @@ function bindCallbacks({ secrets, staticSecretRef, presentation, timeoutMs, log,
     } });
   return Object.freeze({
     callbackRoutes: Object.freeze([
-      { method: 'POST', path: perCallPath, handle: staticSecretRef ? async () => notFound() : facade },
+      { method: 'POST', path: perCallPath, handle: staticSecretRef ? async () => notFound() : facade,
+        ...(staticSecretRef ? { methodNotAllowedStatus: 404 } : {}) },
       ...(staticSecretRef ? [{ method: 'POST', path: staticPath, handle: facade }] : []),
     ]),
     prepareCallback({ callId, binding, locale, continuation }) {

@@ -13,6 +13,15 @@ const matchesCallback = (route, path) => {
   return declared.length === actual.length && declared.every((part, i) => part.startsWith(':')
     ? new RegExp(`^${idPattern}$`, 'u').test(actual[i]) : part === actual[i]);
 };
+const reservedCallbackPrefixes = ['/api/sessions', '/api/library', '/api/visitor'];
+function registerCallbacks(callbacks) {
+  for (const route of callbacks?.callbackRoutes ?? []) {
+    const declared = route.path.split('/');
+    if (reservedCallbackPrefixes.some(prefix => prefix.split('/').every((part, i) =>
+      declared[i] === part || declared[i]?.startsWith(':')))) throw new TypeError('Reserved core route prefix');
+  }
+  return callbacks;
+}
 
 // Voice-only guidance composes with core's shared policies via reasoningRequest.
 const VOICE_REPLY_POLICY = `Voice reply guidance:
@@ -211,8 +220,9 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       entry.callbackContext = callbacks?.prepareCallback?.({ callId, binding: admitted.binding, locale: session.locale, continuation });
       await entry.callbackContext?.prepare();
       controller.signal.throwIfAborted();
-      entry.call = await admitted.plugin.start({ callId, sessionId, ownerToken, ...entry.callbackContext?.request,
-        settingsRevision: session.settings?.revision ?? 0 },
+      const callbackRequest = entry.callbackContext?.request ?? {}, { overrides, ...startRequest } = callbackRequest;
+      entry.call = await admitted.plugin.start({ callId, sessionId, ownerToken, ...startRequest,
+        settingsRevision: session.settings?.revision ?? 0, ...(Object.hasOwn(callbackRequest, 'overrides') ? { overrides } : {}) },
         { ...admitted.options, spendDeadlineAt: end, browserLivenessDeadlineAt: Math.min(end, now() + browserLeaseMs) });
       entry.call.signal.addEventListener('abort', () => {
         void close(entry, entry.call.snapshot().reason ?? 'cancelled', 'cancelled');
@@ -324,11 +334,15 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
   };
   const boundCallbacks = new WeakMap();
   function adapterCallbacks(adapter = callbackAdapter ?? secrets?.serverAdapter) {
-    if (!adapter?.bindCallbacks) return adapter;
-    if (!boundCallbacks.has(adapter)) boundCallbacks.set(adapter, adapter.bindCallbacks(callbackOperations));
+    if (!adapter) return;
+    if (!boundCallbacks.has(adapter)) boundCallbacks.set(adapter,
+      registerCallbacks(adapter.bindCallbacks ? adapter.bindCallbacks(callbackOperations) : adapter));
     return boundCallbacks.get(adapter);
   }
-  adapterCallbacks();
+  const callbackAdapters = () => [...new Set([...(runtime?.voiceServerAdapters?.() ?? []),
+    callbackAdapter ?? secrets?.serverAdapter])].filter(Boolean).map(adapter => adapterCallbacks(adapter));
+  // Validate configured adapters and register their routes before accepting traffic.
+  callbackAdapters();
   async function changePause(entry, paused, opts = {}) {
     if (paused) {
       try {
@@ -381,13 +395,15 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     },
     async handle(request) {
       const path = new URL(request.url).pathname;
-      const adapters = [...(runtime.voiceServerAdapters?.() ?? []), callbackAdapter ?? secrets?.serverAdapter];
-      for (const adapter of adapters) {
-        for (const route of adapterCallbacks(adapter)?.callbackRoutes ?? []) {
-          // The adapter preserves method rejection and authentication ordering.
-          if (matchesCallback(route, path)) return route.handle(request);
+      let methodNotAllowedStatus;
+      for (const callbacks of callbackAdapters()) {
+        for (const route of callbacks?.callbackRoutes ?? []) {
+          if (!matchesCallback(route, path)) continue;
+          if (route.method === request.method) return route.handle(request);
+          methodNotAllowedStatus ??= route.methodNotAllowedStatus ?? 405;
         }
       }
+      if (methodNotAllowedStatus) return json({ error: methodNotAllowedStatus === 404 ? 'not-found' : 'method-not-allowed' }, methodNotAllowedStatus);
       const match = routes.exec(path); if (!match) return null;
       try {
         const [, sessionId, callId, action] = match, ownerToken = ownership.token(request);
@@ -567,7 +583,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       }
       // The exclusive writer has already conservatively recovered all open claims.
       for (let record of storage.voiceCalls()) {
-        await adapterCallbacks()?.revokeRecord?.(record);
+        for (const callbacks of callbackAdapters()) await callbacks?.revokeRecord?.(record);
         const row = runtime.budget.get(record.attemptId);
         // A final receipt can be journalled immediately before a crash in budget
         // settlement. Replay its actual cost rather than abandoning that receipt.
