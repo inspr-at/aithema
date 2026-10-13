@@ -85,24 +85,30 @@ for (const [locale, copy] of [['de', de], ['en', en]]) test(`AIT-138 UI: ${local
 for (const [locale, copy] of [['de', de], ['en', en]]) test(`AIT-138 Tick UI: ${locale} retired tab shows ownership copy without an error popup`, async t => {
   const session = createSession({ demo: true, locale });
   session.featureMatrix = { best: { voice: { available: true }, text: { available: true } } };
-  const events = voiceEvents(), callId = 'tick-ui-call';
-  const client = { manifest, async start() {
-    return { callId, providerSessionId: 'tick-ui-provider', events,
+  const events = voiceEvents(), callId = 'tick-ui-call'; let starts = 0, takeovers = 0;
+  const client = { manifest, tabId: 'old-tab', async takeover(identity) {
+    takeovers++; assert.equal(identity.epoch, 2); return { ...identity, epoch: 3 };
+  }, async start(request) {
+    starts++; const stream = starts === 1 ? events : voiceEvents();
+    return { callId, providerSessionId: 'tick-ui-provider', epoch: request.epoch ?? 1, events: stream,
       async setInput() {}, async setOutput() {}, async updateContext() {},
       async pause() { return { acknowledged: true, paused: true }; },
-      async close() { events.end(); return { closureConfirmed: true }; } };
+      async close() { stream.end(); return { closureConfirmed: true }; } };
   } };
   const element = document.createElement('aithema-session'); element.configure({ copy, session, voiceClient: client });
   t.after(async () => { element.configure({ copy, session: createSession() }); element.remove(); await tick(); });
   const root = element.shadowRoot, rail = root.querySelector('.audio-rail');
   root.querySelector('.voice-start').click(); await tick();
   events.push({ type: 'waiting', callId, reason: 'ownership-lost' }); await tick();
+  element.receive({ type: 'voice.state', data: { callId, providerSessionId: 'tick-ui-provider', epoch: 2,
+    controllingTabId: 'other-tab', state: 'waiting', reason: 'tab-takeover' } });
   element.receive({ seq: 1, type: 'session.paused', data: { paused: true } }); await tick();
   assert.equal(rail.dataset.state, 'waiting'); assert.equal(rail.hasAttribute('data-message'), false);
   assert.equal(rail.hasAttribute('data-moved'), true); assert.equal(root.querySelector('.voice-state').textContent, copy.voiceMoved);
   assert.equal(root.querySelector('.pause').title, copy.voiceTakeover);
   assert.equal(root.querySelector('.pause .voice-label').textContent, copy.voiceTakeover);
-  assert.equal(root.querySelector('.pause').disabled, true, 'the existing retired-tab command fence stays in place');
+  assert.equal(root.querySelector('.pause').disabled, false, 'the old tab offers explicit takeover and Resume');
+  assert.equal(root.querySelector('.voice-pause').disabled, false);
   for (const selector of ['.voice-input', '.voice-output']) {
     assert.equal(root.querySelector(selector).disabled, true);
     assert.equal(root.querySelector(selector).title, copy.voiceResumeHereFirst);
@@ -111,6 +117,9 @@ for (const [locale, copy] of [['de', de], ['en', en]]) test(`AIT-138 Tick UI: ${
   for (const selector of ['.composer-reason', '.notice', '.status__label']) assert.equal(root.querySelector(selector).textContent, copy.voiceInAnotherTab);
   assert.equal(root.querySelector('.status').hasAttribute('data-message'), false);
   assert.ok([...root.querySelectorAll('.status__sizer > span')].some(span => span.textContent === copy.voiceInAnotherTab));
+  root.querySelector('.pause').click(); await tick(); await tick();
+  assert.equal(takeovers, 1); assert.equal(starts, 2, 'one old-tab click takes over and resumes');
+  assert.equal(rail.dataset.state, 'listening'); assert.equal(rail.hasAttribute('data-moved'), false);
 });
 test('AIT-138 UI: waiting resets an assistant waveform to the calm baseline even with motion off', async t => {
   const { rail, events, root } = fixture(t); await rail.start();

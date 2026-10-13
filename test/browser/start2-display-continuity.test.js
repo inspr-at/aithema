@@ -18,7 +18,7 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
   let demo = await startChild(new URL('../fixtures/continuity-server.js', import.meta.url), db, settings);
   let browser;
   t.after(async () => { await browser?.close(); await demo.kill(); });
-  const evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], checks = [], errors = [];
+  const evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], checks = [], errors = [], takebacks = [];
   if (evidence) await mkdir(evidence, { recursive: true });
   const state = (page, expected) => until(page, expected => document.querySelector('aithema-session')?.shadowRoot?.querySelector('.audio-rail')?.dataset.state === expected, expected);
   const click = (page, selector) => shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).click(), selector);
@@ -73,7 +73,7 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
       assert.equal(await shadow(other, c => c.shadowRoot.querySelector('.audio-rail').dataset.state), 'waiting', 'takeover has no automatic capture');
       await state(page, 'waiting'); await page.bringToFront(); await settle();
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-state').textContent), { de, en }[locale].voiceMoved);
-      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.pause').disabled), true);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.pause').disabled), false, 'old-tab Resume explicitly takes the call back');
       sameBoxes(before, await layoutBoxes(page, selectors), `${label}: old-tab notice`);
       const shot = async (target, name) => {
         const scrollBefore = await target.evaluate(() => scrollY);
@@ -122,7 +122,7 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
               ['Top', 'Right', 'Bottom', 'Left'].every(side => parseFloat(railStyle[`border${side}Width`]) === 0),
             enabledResumeStyle: pauseStyle.opacity === '1' && pauseStyle.backgroundColor === getComputedStyle(root.querySelector('.voice-pause')).backgroundColor &&
               pauseStyle.color === getComputedStyle(root.querySelector('.voice-pause')).color,
-            resumeLabel: pause.textContent.trim(), resumeTooltip: pause.title, resumeDisabled: pause.disabled,
+            resumeLabel: pause.textContent.trim(), resumeTooltip: pause.title, resumeDisabled: pause.disabled, resumeCursor: pauseStyle.cursor,
             footerUntruncated: footerBoxes.every(box => box.left >= 0 && box.right <= innerWidth && box.top >= footer.top && box.bottom <= footer.bottom) &&
               (compactFooter || textBox.width <= statusBox.width + .5 && status.scrollWidth <= status.clientWidth && statusBox.right <= innerWidth),
             footerLabel: status.textContent, compactFooter,
@@ -132,10 +132,11 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
           assert.ok(presentation[key], `${label}/${name}: ${key}: ${JSON.stringify(presentation)}`);
         }
         assert.ok(composer.fullyVisible, `${label}/${name}: settled composer must be fully visible: ${JSON.stringify(composer)}`);
-        if (name === 'old-tab') {
+        if (['old-tab', 'takeback-other-tab'].includes(name)) {
           const copy = { de, en }[locale];
           assert.equal(presentation.label, copy.voiceMoved); assert.equal(presentation.resumeLabel, copy.voiceTakeover);
           assert.equal(presentation.resumeTooltip, copy.voiceTakeover); assert.equal(presentation.footerLabel, copy.voiceInAnotherTab);
+          assert.equal(presentation.resumeDisabled, false); assert.equal(presentation.resumeCursor, 'pointer');
           const oldTab = await shadow(target, c => ({
             composerHint: c.shadowRoot.querySelector('.composer-reason').textContent,
             panelStatus: c.shadowRoot.querySelector('.notice').textContent,
@@ -189,6 +190,29 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
       await finishRevealEntry(other);
       const next = await other.evaluate(() => JSON.parse(sessionStorage.getItem(`aithema-voice-call:${document.querySelector('aithema-session').session.id}`)));
       assert.equal(next.callId, call.callId); assert.equal(next.epoch, call.epoch + 1);
+      let dialogs = 0;
+      for (const target of [page, other]) target.on('dialog', async dialog => { dialogs++; await dialog.dismiss(); });
+      const takeback = async (winner, loser, epoch) => {
+        const response = winner.waitForResponse(r => r.url().endsWith(`/${call.callId}/takeover`) && r.request().method() === 'POST');
+        await winner.bringToFront(); await click(winner, '.pause');
+        const receipt = await response; assert.equal(receipt.status(), 200); const held = await receipt.json();
+        assert.equal(held.epoch, epoch + 1); assert.equal(held.callId, call.callId);
+        await state(winner, 'listening'); await state(loser, 'waiting'); await settle();
+        const controlling = await winner.evaluate(() => JSON.parse(sessionStorage.getItem(`aithema-voice-call:${document.querySelector('aithema-session').session.id}`)));
+        assert.equal(controlling.epoch, held.epoch); assert.equal(controlling.tabId, held.controllingTabId);
+        assert.equal(await shadow(loser, c => c.shadowRoot.querySelector('.voice-state').textContent), { de, en }[locale].voiceMoved);
+        const states = [await shadow(winner, c => c.shadowRoot.querySelector('.audio-rail').dataset.state),
+          await shadow(loser, c => c.shadowRoot.querySelector('.audio-rail').dataset.state)];
+        assert.equal(states.filter(s => ['listening', 'speaking'].includes(s)).length, 1);
+        assert.equal(dialogs, 0, 'the old-tab click requires no second confirmation');
+        takebacks.push({ width, theme, locale, epoch: held.epoch, controllingTabId: held.controllingTabId,
+          oneClick: true, controllingTabs: 1, otherTabHeldAndLabelled: true, confirmations: dialogs, pass: true });
+        return held.epoch;
+      };
+      let epoch = await takeback(page, other, next.epoch);
+      await shot(page, 'takeback-here'); await shot(other, 'takeback-other-tab');
+      for (let i = 0; i < 3; i++) epoch = i % 2 === 0 ? await takeback(other, page, epoch) : await takeback(page, other, epoch);
+      st.diagnostic(`PASS ${evidenceCommit} ${label}: old-tab ▶ enabled, pointer and ink; one click takeover + Resume; A→B→A→B ping-pong; one controlling tab, other held and labelled; no double confirm`);
       const heldBefore = await layoutBoxes(other, selectors);
       await other.evaluate(() => { document.dispatchEvent(new Event('freeze')); document.dispatchEvent(new Event('resume')); });
       await state(other, 'waiting'); await settle();
@@ -221,5 +245,5 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
   }
   assert.deepEqual(errors, []);
   if (evidence) await writeFile(join(evidence, 'ait-138-d-pass-lines.json'), JSON.stringify({ ticket: 'AIT-138 d', commit: evidenceCommit,
-    createdAt: new Date().toISOString(), capture: 'viewport', provider: 'local fake; actual server and browser controller', files, checks }, null, 2));
+    createdAt: new Date().toISOString(), capture: 'viewport', provider: 'local fake; actual server and browser controller', files, checks, takebacks }, null, 2));
 });

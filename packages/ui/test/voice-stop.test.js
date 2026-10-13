@@ -113,7 +113,7 @@ for (const transport of ['webrtc', 'websocket']) {
       sentAfterTakeover: f.sdk.outgoing.length - outgoing },
     { synchronousState: 'waiting', state: 'waiting', returned: 0, captures: 0, unmuted: [], sentAfterTakeover: 0 });
     assert.equal(root.querySelector('.voice-state').textContent, en.voiceMoved);
-    assert.equal(root.querySelector('.voice-pause').disabled, true, 'the retired tab cannot Resume');
+    assert.equal(root.querySelector('.voice-pause').disabled, false, 'the retired tab offers a fresh explicit takeover');
     assert.ok(f.requests.filter(request => request.url.endsWith('/close')).every(request =>
       request.body.epoch === 1 && request.body.reason === 'recovery-failed'), 'cleanup retains only the retired epoch');
   });
