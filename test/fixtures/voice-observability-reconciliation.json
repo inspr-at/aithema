@@ -1,0 +1,129 @@
+{
+  "format": "aithema-voice-wire",
+  "version": 1,
+  "baseline": "e6a4168",
+  "sanitization": "independently authored synthetic inputs; generated reply UUID only",
+  "callbacks": [],
+  "admissions": 0,
+  "mints": [],
+  "reconciliation": [
+    {
+      "name": "delayed-closure",
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.test/v1/convai/conversations/conv_observability",
+        "headers": {
+          "xi-api-key": "fixture-observability-value"
+        },
+        "redirect": "error"
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"conversation_id\":\"conv_observability\",\"status\":\"processing\",\"metadata\":{\"call_duration_secs\":90,\"start_time_unix_secs\":1790000010,\"cost_fiat\":0.00072}}"
+      },
+      "call": {
+        "providerSessionId": "conv_observability",
+        "startedAt": 1790000010000,
+        "endedAt": 1790000100000,
+        "pauses": [],
+        "exposureMicro": 1000
+      },
+      "terminal": {
+        "providerSessionId": "conv_observability",
+        "outcome": "uncertain",
+        "closureConfirmed": false,
+        "usage": {
+          "providerSeconds": 90,
+          "providerMinutes": 1.5,
+          "pausedSeconds": 0,
+          "visitorSeconds": 90,
+          "visitorMicro": 450,
+          "upstreamMicro": 720,
+          "costSource": "elevenlabs.cost_fiat",
+          "costEstimated": false
+        },
+        "chargedMicro": 1000,
+        "overrun": false
+      }
+    },
+    {
+      "name": "delayed-usage",
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.test/v1/convai/conversations/conv_observability",
+        "headers": {
+          "xi-api-key": "fixture-observability-value"
+        },
+        "redirect": "error"
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"conversation_id\":\"conv_observability\",\"status\":\"done\",\"metadata\":{\"call_duration_secs\":90,\"start_time_unix_secs\":1790000010}}"
+      },
+      "call": {
+        "providerSessionId": "conv_observability",
+        "startedAt": 1790000010000,
+        "endedAt": 1790000100000,
+        "pauses": [],
+        "exposureMicro": 1000
+      },
+      "terminal": {
+        "providerSessionId": "conv_observability",
+        "outcome": "completed",
+        "closureConfirmed": true,
+        "usage": {
+          "providerSeconds": 90,
+          "providerMinutes": 1.5,
+          "pausedSeconds": 0,
+          "visitorSeconds": 90,
+          "visitorMicro": 450,
+          "upstreamMicro": 900,
+          "costSource": "duration-estimate",
+          "costEstimated": true,
+          "estimateMicroPerMinute": 600
+        },
+        "chargedMicro": 900,
+        "overrun": false
+      }
+    },
+    {
+      "name": "confirmed-usage",
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.test/v1/convai/conversations/conv_observability",
+        "headers": {
+          "xi-api-key": "fixture-observability-value"
+        },
+        "redirect": "error"
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"conversation_id\":\"conv_observability\",\"status\":\"done\",\"metadata\":{\"call_duration_secs\":90,\"start_time_unix_secs\":1790000010,\"cost_fiat\":0.00072}}"
+      },
+      "call": {
+        "providerSessionId": "conv_observability",
+        "startedAt": 1790000010000,
+        "endedAt": 1790000100000,
+        "pauses": [],
+        "exposureMicro": 1000
+      },
+      "terminal": {
+        "providerSessionId": "conv_observability",
+        "outcome": "completed",
+        "closureConfirmed": true,
+        "usage": {
+          "providerSeconds": 90,
+          "providerMinutes": 1.5,
+          "pausedSeconds": 0,
+          "visitorSeconds": 90,
+          "visitorMicro": 450,
+          "upstreamMicro": 720,
+          "costSource": "elevenlabs.cost_fiat",
+          "costEstimated": false
+        },
+        "chargedMicro": 720,
+        "overrun": false
+      }
+    }
+  ]
+}

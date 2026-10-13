@@ -119,6 +119,15 @@ whitespace, headers and cost precedence are compared byte for byte. Its versione
 `aithema-voice-wire` format is available to PRs 2a/2b and AIT-139. Default maximum
 duration remains 3600 seconds; a new-host default change requires the later OPS pin.
 
+AIT-139 adds independent synthetic v1 oracles in
+`test/fixtures/voice-observability-callbacks.json` and
+`test/fixtures/voice-observability-reconciliation.json`. The offline replay in
+`test/voice-observability-wire.js` covers growth, truncation, duplicate stream/JSON
+readers and partial failure; reconciliation tests inject the exact recorded GET
+responses for pending closure, estimated usage and confirmed usage. These
+expectations are authored independently of the production recorder. The original
+`elevenlabs-wire.json` remains byte-identical.
+
 `liveVoiceConformance` is re-exported by core's existing conformance export.
 A joined local fixture supplies a dispatch counter, command-effect probes,
 provider events and durable persistence observations. After closing every
@@ -406,6 +415,44 @@ Unknown facade errors become `provider`; the HTTP adapter's fallback is 500
 `server-error`. Oversized request bodies always use 413
 `{"error":"limit"}`. After SSE starts, failures emit `data: {"error":"code"}`
 and close without a stop frame or `[DONE]`; the HTTP status is already 200.
+
+The provider-neutral turn executor and server lifecycle share the host's
+`voice.log` port. New stage records are JSON strings, one line per stage, with
+`event`, `callHash`, `generationHash`, `turnHash` and `attemptHash`. IDs are SHA-256
+hashes with separate domains for generations, turns and attempts; the turn uses
+the first random operation-attempt ID rather than speech or a history digest.
+Correlation survives explicit replacement and server restart. Transport
+reconnect records contain call/generation hashes only.
+
+| Event | Additional allowlisted fields |
+| --- | --- |
+| `voice.turn.admission` | `admissionMs` |
+| `voice.turn.first-token` | `firstTokenMs` |
+| `voice.turn.completion` | `totalMs`, `outcome` (`completed`/`failed`), optional bounded `cause` |
+| `voice.turn.retry` | bounded `cause` (duplicate callback, replay, benign admission race or failed-attempt code) |
+| `voice.turn.closure` | `closureConfirmed`, `costEstimated`, `reconciliationAgeMs` |
+| `voice.segment.reconnect` | bounded `cause` |
+
+Times are nonnegative milliseconds from writer start, including admission time.
+First token means the first nonempty validated executor delta; it is recorded
+once per attempt, regardless of chunk or reader count. Completion follows the
+durable terminal write. Segment closure is reported for each settled turn in
+that generation; pending writers receive it after their terminal write. An
+uncertain closure can later receive one confirmation. Diagnostic deduplication
+is bounded to 4096 entries per executor; it is not durable across restarts.
+Reconciliation age starts at segment end, or segment start for an open orphan.
+Existing object records `voice.cost-reconciled` and `voice.reconciliation-retry`
+retain their fields and add generation correlation and reconciliation age.
+
+For example (hashes abbreviated here; records contain 64 hex characters):
+
+```json
+{"event":"voice.turn.first-token","callHash":"ab…","generationHash":"cd…","turnHash":"ef…","attemptHash":"12…","firstTokenMs":230}
+```
+
+The closed field/value allowlist omits speech, prompts, email addresses,
+credentials, headers, URLs and exception messages. Logging failures cannot
+change execution or accounting. There are no per-chunk turn records.
 
 The optional `log` port defaults to stdout JSON lines, one per completed,
 failed or cancelled callback: `{time,level,event:"voice-callback",status,

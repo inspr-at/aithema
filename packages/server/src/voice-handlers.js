@@ -1,9 +1,9 @@
-import { createHash } from 'node:crypto';
 import { PluginError, inputRevision, reasoningRequest, aiTextOrigin, voiceAuthorizationRevision, recoverableVoiceEnd } from '@inspr/aithema-core';
 import { voiceOperation } from '../../core/src/live-voice.js';
 import { ConflictError, NotFoundError } from './storage.js';
 import { VOICE_CAP_REASONS } from './voice-cap.js';
 import { createVoiceTurnOperations } from './voice-turns.js';
+import { createVoiceDiagnostics, voiceReconciliationAge } from './voice-observability.js';
 
 const json = (value, status = 200) => Response.json(value, { status, headers: { 'cache-control': 'no-store' } });
 const idPattern = '[a-zA-Z0-9_-]{1,128}';
@@ -72,7 +72,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     const key = `${sessionId}:${callId}`; authorities.get(key)?.controller.abort(); authorities.delete(key);
   };
   if (!Number.isSafeInteger(turnTimeoutMs) || turnTimeoutMs <= 0) throw new TypeError('Invalid voice turn timeout');
-  const turns = createVoiceTurnOperations({ storage, now, replayWindowMs: turnReplayWindowMs,
+  const turns = createVoiceTurnOperations({ storage, now, log, replayWindowMs: turnReplayWindowMs,
     authorizeReplacement: authorizeTurnReplacement && (args => {
       const entry = calls.get(args.operation.callId);
       return authorizeTurnReplacement({ ...args, session: sessionFor(entry) });
@@ -82,11 +82,9 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     const terminal = record.reconciliation ?? record.terminal;
     return record.reconciliationPending || terminal?.closureConfirmed === false || terminal?.usage?.costEstimated === true;
   });
-  const diagnostic = (record, event, fields) => {
-    try { log?.({ event, callHash: createHash('sha256').update(record.callId).digest('hex'),
-      ...(record.providerSessionId ? { providerHash: createHash('sha256').update(record.providerSessionId).digest('hex') } : {}), ...fields }); }
-    catch { /* Operator diagnostics must never interrupt accounting. */ }
-  };
+  const emitDiagnostic = createVoiceDiagnostics({ log });
+  const diagnostic = (record, event, fields) => emitDiagnostic(event, record,
+    { ...fields, reconciliationAgeMs: voiceReconciliationAge(record, now()) });
   async function reconcile(record) {
     try {
       // The budget marker survives a crash before cap settlement or journal acknowledgement.
@@ -108,10 +106,11 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
             ? record.reason === 'browser-liveness-deadline' ? 'waiting' : 'recovering' : 'ended',
           reason: logical?.terminalReason ?? record.reason, reconciliationPending: result.usage?.costEstimated === true,
           terminal: { outcome: result.outcome, closureConfirmed: true, usage: result.usage } } });
-        diagnostic(record, 'voice.cost-reconciled', { chargedMicro: result.usage.upstreamMicro, costEstimated: result.usage.costEstimated === true });
+        turns.observeClosure(record, result);
+        diagnostic(record, 'voice.cost-reconciled', { chargedMicro: result.usage.upstreamMicro, costEstimated: result.usage.costEstimated === true, closureConfirmed: true });
       }
     } catch (error) {
-      diagnostic(record, 'voice.reconciliation-retry', { code: error instanceof PluginError ? error.code : 'provider' });
+      diagnostic(record, 'voice.reconciliation-retry', { code: error instanceof PluginError ? error.code : 'provider', cause: error instanceof PluginError ? error.code : 'provider' });
       // Durable pending reconciliation remains visible and retryable.
     }
   }
@@ -185,6 +184,13 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         const terminal = await pending;
         if (terminal?.closureConfirmed === true) storage.transitionVoiceLifecycle(entry.sessionId, entry.callId,
           { type: 'segment-closed', providerSessionId: entry.call.providerSessionId, closureConfirmed: true });
+        try {
+          if (terminal) {
+            const record = storage.voiceCalls(entry.sessionId).find(call => call.callId === entry.callId && call.providerSessionId === entry.call?.providerSessionId);
+            turns.observeClosure(record ?? { sessionId: entry.sessionId, callId: entry.callId,
+              providerSessionId: entry.call?.providerSessionId, endedAt: now() }, terminal);
+          }
+        } catch { /* Diagnostics cannot interrupt settlement. */ }
         entry.admission?.finish();
         // An old recovery's settlement cannot publish over or remove its successor.
         const logical = storage.voiceLifecycle(entry.sessionId, entry.callId);
@@ -244,6 +250,12 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         browserLivenessDeadlineAt: entry.call.browserLivenessDeadlineAt });
       if (fresh.paused) storage.transitionVoiceLifecycle(sessionId, callId, { type: 'pause' });
       const state = storage.voiceLifecycle(sessionId, callId);
+      if (continuation) {
+        try {
+          const previous = storage.voiceCalls(sessionId).findLast(record => record.callId === callId && record.providerSessionId !== state.providerSessionId);
+          emitDiagnostic('voice.segment.reconnect', { callId, providerSessionId: state.providerSessionId }, { cause: previous?.reason ?? 'transport-lost' });
+        } catch { /* Diagnostics cannot interrupt recovery. */ }
+      }
       publish(sessionId, { type: 'voice.state', data: { callId, providerSessionId: state.providerSessionId,
         epoch: state.epoch, controllingTabId: state.controllingTabId, state: state.state } });
       return receipt(entry.call);
@@ -289,7 +301,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       const entry = calls.get(callId);
       return buildVoiceRequest(sessionFor(entry), messages, entry.call);
     },
-    async admitReasoning({ callId, messages, options, beforeAdmission }) {
+    async admitReasoning({ callId, messages, options, beforeAdmission, onRetry }) {
       const entry = calls.get(callId);
       let session = sessionFor(entry);
       for (let retry = 0; ; retry++) {
@@ -327,6 +339,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
             fresh.settings?.revision !== session.settings?.revision ||
             runtime.selectionKey(fresh, 'voice') !== runtime.selectionKey(session, 'voice')) throw error;
           options.signal?.throwIfAborted();
+          onRetry?.('session-changed');
           session = fresh;
         }
       }
