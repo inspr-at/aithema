@@ -251,7 +251,7 @@ export class AithemaSession extends HTMLElement {
           <div class="footer-popup" role="tooltip"><p id="ai-notice"></p><p id="build-info"></p><div class="host-foot" hidden><slot name="legal"></slot><slot name="footer"></slot></div></div></div>
         <div class="host-credits" tabindex="0" data-footer-popup hidden><span class="host-credits__text"><strong class="host-credits__amount"></strong><span class="host-credits__total"></span><span class="host-credits__unit"></span></span><span class="host-credits__track" role="meter" aria-valuemin="0"><i></i></span><div class="footer-popup" role="tooltip"><span class="host-credits__scope"></span><span class="host-credits__deadline"></span><span class="host-credits__limit" hidden><slot name="credits-limit"></slot></span></div></div>
         <div class="footer-right"><section class="preset-panel"><div class="engine" data-footer-popup><button class="engine-info" type="button" aria-describedby="model-info"><span class="engine__value"></span><span class="engine__flag"></span></button><span class="engine__detail footer-popup" id="model-info" role="tooltip"></span></div><ul class="features"></ul></section>
-          <span class="status" role="status"><span class="status__label"></span><time class="connection-timer">0:00</time></span></div></div></footer></div>
+          <span class="status" role="status"><span class="status__sizer" aria-hidden="true"></span><span class="status__label"></span><time class="connection-timer">0:00</time></span></div></div></footer></div>
       <dialog class="settings"></dialog><dialog class="library"></dialog><dialog class="verify-dialog"></dialog>`;
     this.#questionCard = new QuestionCard({ root, send: text => { void this.#send(text); },
       onResize: () => { if (this.#follow && !this.#onTranscript) this.#scrollToLatest(); } });
@@ -455,10 +455,13 @@ export class AithemaSession extends HTMLElement {
   #clearNotice() { this.#notice = ''; this.#paintStatus(); }
   #paintStatus() {
     const root = this.shadowRoot, status = root.querySelector('.status'), connected = this.#connection === this.#copy.connected;
-    const words = this.#notice || (this.#session.paused ? this.#pausePrompt ? this.#copy.pausedResume : this.#copy.paused : this.#connection || this.#copy.connecting);
+    const words = this.#rail?.moved ? this.#copy.voiceInAnotherTab : this.#notice || (this.#session.paused ? this.#pausePrompt ? this.#copy.pausedResume : this.#copy.paused : this.#connection || this.#copy.connecting);
+    // Reserve the longest steady status in this locale; action messages use the existing popup.
+    reconcile(status.querySelector('.status__sizer'), [this.#copy.connected, this.#copy.paused, this.#copy.voiceInAnotherTab].map(words => [words, words]),
+      words => node('span', '', words), (span, words) => setText(span, words));
     setText(status.querySelector('.status__label'), words); status.title = words;
     status.toggleAttribute('data-connected', connected);
-    status.toggleAttribute('data-message', Boolean(this.#notice || this.#session.paused && this.#pausePrompt));
+    status.toggleAttribute('data-message', !this.#rail?.moved && Boolean(this.#notice || this.#session.paused && this.#pausePrompt));
     root.querySelector('.connection-timer').setAttribute('aria-hidden', 'true');
     this.#timer?.setConnected(connected);
   }
@@ -603,7 +606,7 @@ export class AithemaSession extends HTMLElement {
     const pause = root.querySelector('.pause');
     if (pause) {
       const voicePaused = this.#rail?.session || this.#rail?.waitingCall ? this.#rail.pauseIntent : this.#session.paused;
-      setText(pause.querySelector('.voice-label'), this.#rail?.requiresTakeover ? copy.voiceTakeover : voicePaused ? copy.resume : copy.pause); pause.title = pause.textContent;
+      setText(pause.querySelector('.voice-label'), this.#rail?.requiresTakeover || this.#rail?.moved ? copy.voiceTakeover : voicePaused ? copy.resume : copy.pause); pause.title = pause.textContent;
       pause.setAttribute('aria-pressed', String(Boolean(voicePaused)));
       if (this.#rail?.moved) { pause.disabled = true; pause.dataset.ownershipLost = ''; }
       else if (pause.hasAttribute('data-ownership-lost')) { pause.disabled = false; delete pause.dataset.ownershipLost; }
@@ -622,8 +625,9 @@ export class AithemaSession extends HTMLElement {
       const reason = root.querySelector('.composer-reason');
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');
       // An upload refusal stands until the person types or attaches again.
-      const words = this.#uploadNotice || (text.available ? copy.shortcut.replace('{key}', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '') : text.reason);
-      setText(reason, words); reason.title = this.#uploadNotice || text.available ? '' : text.reason;
+      const unavailable = this.#rail?.moved ? copy.voiceInAnotherTab : text.reason;
+      const words = this.#uploadNotice || (text.available ? copy.shortcut.replace('{key}', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '') : unavailable);
+      setText(reason, words); reason.title = this.#uploadNotice || text.available ? '' : unavailable;
       this.#paintAttach();
       return;
     }
@@ -635,7 +639,7 @@ export class AithemaSession extends HTMLElement {
         const value = this.#feature(feature, true);
         row.className = value.available ? '' : 'unavailable'; row.firstChild.nodeValue = copy.features[feature];
         const reason = row.querySelector('span');
-        if (value.available) reason?.remove(); else (reason ?? row.appendChild(element('span'))).textContent = value.reason;
+        if (value.available) reason?.remove(); else (reason ?? row.appendChild(element('span'))).textContent = this.#rail?.moved ? copy.voiceInAnotherTab : value.reason;
       });
       return;
     }
@@ -710,7 +714,7 @@ export class AithemaSession extends HTMLElement {
       ? copy.talkProgress.replace('{percent}', displayedReadinessPercent(u.progress.talk.value)) : copy.notAssessed;
     root.querySelector('.build-progress').textContent = u.readinessAssessed
       ? copy.buildProgress.replace('{percent}', displayedReadinessPercent(u.progress.build.value)) : '';
-    root.querySelector('.notice').textContent = !analysis.available ? analysis.reason : this.#failure ? copy.reasoningFailed : !u.readinessAssessed ? copy.empty
+    root.querySelector('.notice').textContent = !analysis.available ? this.#rail?.moved ? copy.voiceInAnotherTab : analysis.reason : this.#failure ? copy.reasoningFailed : !u.readinessAssessed ? copy.empty
       : stale ? copy.stale : u.draft ? copy.draft : copy.final;
     const revision = inputRevision(this.#session), operations = this.#session.operations;
     const running = operations?.inputRevision === revision && operations.running.length > 0;

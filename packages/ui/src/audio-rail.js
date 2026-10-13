@@ -117,12 +117,13 @@ export class AudioRail {
     this.root.dataset.state = state;
     this.root.dataset.call = active || transitional ? 'active' : 'none';
     this.root.toggleAttribute('data-playback-blocked', Boolean(this.playbackBlocked));
-    this.root.toggleAttribute('data-message', Boolean(this.error) && !['voiceClosureUncertain', 'voiceEnded'].includes(this.errorKey));
+    this.root.toggleAttribute('data-moved', Boolean(this.moved));
+    this.root.toggleAttribute('data-message', Boolean(this.error) && !['voiceClosureUncertain', 'voiceEnded', 'voiceMoved'].includes(this.errorKey));
     this.root.setAttribute('role', 'group'); this.root.setAttribute('aria-label', c.voiceRail);
     this.root.querySelector('.voice-state').textContent = this.error ?? (active || transitional ? c.voiceStates[this.root.dataset.state] :
       available.available && this.client ? c.voiceStates[this.state] : available.reason ?? c.notConfigured);
     const labels = { start: c.voiceStart, close: c.voiceClose, input: this.input ? c.voiceMicOn : c.voiceMicOff,
-      output: this.output ? c.voiceSpeakerOn : c.voiceSpeakerOff, pause: this.requiresTakeover ? c.voiceTakeover : this.pauseIntent ? c.resume : c.pause,
+      output: this.output ? c.voiceSpeakerOn : c.voiceSpeakerOff, pause: this.requiresTakeover || this.moved ? c.voiceTakeover : this.pauseIntent ? c.resume : c.pause,
       retry: c.voiceRetry, playback: c.voicePlaybackRetry };
     for (const [name, label] of Object.entries(labels)) {
       const button = this.button(name); button.querySelector('.voice-label').textContent = label; button.title = label;
@@ -133,7 +134,10 @@ export class AudioRail {
         : name === 'close' ? !active && this.state !== 'connecting' : !active || name !== 'close' && (this.busy && !(name === 'pause' && this.pauseCommand) || transitional || command && !this.capability(command));
       if (name === 'start' && button.disabled && !active) button.title = available.reason ?? c.notConfigured;
       if (command && !this.capability(command)) button.title = c.voiceCommandUnavailable;
-      if (state === 'waiting' && ['input', 'output'].includes(name)) { button.disabled = true; button.title = c.voiceResumeFirst; }
+      if (state === 'waiting' && ['input', 'output'].includes(name)) {
+        button.disabled = true; button.title = this.moved ? c.voiceResumeHereFirst : c.voiceResumeFirst;
+        button.querySelector('.voice-label').textContent = button.title;
+      }
       if (this.waitingCall && name === 'pause') button.disabled = Boolean(this.busy || transitional || !this.canContinue() || !this.client);
       if (this.moved && name === 'pause') button.disabled = true;
     }
@@ -142,9 +146,10 @@ export class AudioRail {
     this.button('pause').setAttribute('aria-pressed', String(Boolean(this.paused)));
     for (const [name, cellName] of [['input', 'mic'], ['output', 'output']]) {
       const cell = this.root.querySelector(`.voice-cell--${cellName}`), help = cell.querySelector('.voice-waiting-help'), waiting = state === 'waiting';
-      help.textContent = c.voiceResumeFirst; help.hidden = !waiting;
+      const resumeFirst = this.moved ? c.voiceResumeHereFirst : c.voiceResumeFirst;
+      help.textContent = resumeFirst; help.hidden = !waiting;
       if (waiting) {
-        cell.tabIndex = 0; cell.setAttribute('aria-label', `${labels[name]}. ${c.voiceResumeFirst}`);
+        cell.tabIndex = 0; cell.setAttribute('aria-label', `${labels[name]}. ${resumeFirst}`);
         cell.setAttribute('aria-describedby', help.id); this.button(name).setAttribute('aria-describedby', help.id);
       } else {
         cell.removeAttribute('tabindex'); cell.removeAttribute('aria-label'); cell.removeAttribute('aria-describedby'); this.button(name).removeAttribute('aria-describedby');

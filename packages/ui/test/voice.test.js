@@ -82,6 +82,36 @@ for (const [locale, copy] of [['de', de], ['en', en]]) test(`AIT-138 UI: ${local
     assert.equal(reloaded.shadowRoot.querySelector(selector).disabled, true); assert.ok(reloaded.shadowRoot.querySelector(selector).title);
   }
 });
+for (const [locale, copy] of [['de', de], ['en', en]]) test(`AIT-138 Tick UI: ${locale} retired tab shows ownership copy without an error popup`, async t => {
+  const session = createSession({ demo: true, locale });
+  session.featureMatrix = { best: { voice: { available: true }, text: { available: true } } };
+  const events = voiceEvents(), callId = 'tick-ui-call';
+  const client = { manifest, async start() {
+    return { callId, providerSessionId: 'tick-ui-provider', events,
+      async setInput() {}, async setOutput() {}, async updateContext() {},
+      async pause() { return { acknowledged: true, paused: true }; },
+      async close() { events.end(); return { closureConfirmed: true }; } };
+  } };
+  const element = document.createElement('aithema-session'); element.configure({ copy, session, voiceClient: client });
+  t.after(async () => { element.configure({ copy, session: createSession() }); element.remove(); await tick(); });
+  const root = element.shadowRoot, rail = root.querySelector('.audio-rail');
+  root.querySelector('.voice-start').click(); await tick();
+  events.push({ type: 'waiting', callId, reason: 'ownership-lost' }); await tick();
+  element.receive({ seq: 1, type: 'session.paused', data: { paused: true } }); await tick();
+  assert.equal(rail.dataset.state, 'waiting'); assert.equal(rail.hasAttribute('data-message'), false);
+  assert.equal(rail.hasAttribute('data-moved'), true); assert.equal(root.querySelector('.voice-state').textContent, copy.voiceMoved);
+  assert.equal(root.querySelector('.pause').title, copy.voiceTakeover);
+  assert.equal(root.querySelector('.pause .voice-label').textContent, copy.voiceTakeover);
+  assert.equal(root.querySelector('.pause').disabled, true, 'the existing retired-tab command fence stays in place');
+  for (const selector of ['.voice-input', '.voice-output']) {
+    assert.equal(root.querySelector(selector).disabled, true);
+    assert.equal(root.querySelector(selector).title, copy.voiceResumeHereFirst);
+    assert.equal(root.querySelector(`${selector} .voice-label`).textContent, copy.voiceResumeHereFirst);
+  }
+  for (const selector of ['.composer-reason', '.notice', '.status__label']) assert.equal(root.querySelector(selector).textContent, copy.voiceInAnotherTab);
+  assert.equal(root.querySelector('.status').hasAttribute('data-message'), false);
+  assert.ok([...root.querySelectorAll('.status__sizer > span')].some(span => span.textContent === copy.voiceInAnotherTab));
+});
 test('AIT-138 UI: waiting resets an assistant waveform to the calm baseline even with motion off', async t => {
   const { rail, events, root } = fixture(t); await rail.start();
   rail.waveform.push(.6, 'assistant', 80); assert.equal(rail.waveform.direction, 'assistant');

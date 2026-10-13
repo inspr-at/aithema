@@ -73,6 +73,10 @@ export const hostStyles = `
 .handover-request > * { grid-area:1/1; } .handover__sizer { visibility:hidden; }
 /* Three reserved lines (a longer state scrolls in them): failed, retried and sent states never resize the row under the pointer. */
 .handover__state { margin:0; font-size:.72rem; line-height:1.3; color:var(--aithema-muted); height:3.9em; overflow-y:auto; overflow-wrap:anywhere; }
+@media(60rem <= width < 70rem) {
+  .handover__row { grid-template-columns:minmax(0,1fr); gap:.25rem; }
+  .handover__state { overflow-wrap:normal; }
+}
 
 /* Dialogs: the settings dialog's frame, smaller. */
 :is(dialog.library, dialog.verify-dialog) { padding:0; margin:auto; border:1px solid var(--aithema-line); border-radius:var(--aithema-radius-lg); color:var(--aithema-ink);
