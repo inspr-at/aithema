@@ -490,17 +490,16 @@ test('voice admission cap races carry the reason through control and render plai
   }
 });
 
-test('blocked SDK playback retries on a real user gesture and clears the message only after success', { timeout: 60_000 }, async t => {
-  const { rail, root } = fixture(t); await rail.start(); let tries = 0;
-  const blocked = Promise.withResolvers(), retried = Promise.withResolvers();
-  const report = rail.reportPlaybackBlocked, retry = rail.retryPlayback;
-  t.mock.method(rail, 'reportPlaybackBlocked', function () { report.call(this); blocked.resolve(); });
-  t.mock.method(rail, 'retryPlayback', function () { const pending = retry.call(this); retried.resolve(pending); return pending; });
-  const audio = document.createElement('audio'); audio.autoplay = true;
-  audio.play = async () => { if (++tries === 1) throw new window.DOMException('policy', 'NotAllowedError'); };
-  document.body.append(audio); await blocked.promise;
+test('host playback notifications and retry clear the message only after success', async t => {
+  const { rail, root } = fixture(t); let tries = 0, notify;
+  const start = rail.client.start;
+  rail.client.start = (request, options) => { notify = options.onPlaybackBlocked; return start(request, options); };
+  await rail.start();
+  rail.session.retryPlayback = async () => { if (++tries === 1) throw new Error('blocked'); };
+  notify();
   assert.equal(rail.playbackBlocked, true); assert.equal(root.querySelector('.voice-state').textContent, en.voicePlaybackBlocked);
-  rail.button('playback').click(); await retried.promise; assert.equal(tries, 2); assert.equal(rail.playbackBlocked, false); audio.remove();
+  await rail.retryPlayback(); assert.equal(rail.playbackBlocked, true);
+  await rail.retryPlayback(); assert.equal(tries, 2); assert.equal(rail.playbackBlocked, false);
 });
 test('component sends typed text through active voice, updates context and accepts a durable plain fallback', async t => {
   const session = createSession({ demo: true });

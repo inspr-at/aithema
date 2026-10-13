@@ -485,15 +485,6 @@ export const de = {
         // START src/lib/i18n.ts:2753 (consentCopy.de.items.models-international.text).
         text: 'Ihre Nachrichten, der aus hochgeladenen Dateien gelesene Text, der Gesprächsverlauf und die daraus erstellte Einschätzung werden übermittelt, um Antworten und Einschätzungen zu erzeugen. Eine Verarbeitung ohne Speicherung ist nicht zugesichert.',
       },
-      'voice-elevenlabs': {
-        version: 1,
-        // START src/lib/i18n.ts:2761 (consentCopy.de.items.voice-elevenlabs.title).
-        title: 'Sprache mit ElevenLabs',
-        // START src/lib/i18n.ts:2762 (consentCopy.de.items.voice-elevenlabs.recipients).
-        recipients: 'ElevenLabs, Inc., USA.',
-        // START src/lib/i18n.ts:2763 (consentCopy.de.items.voice-elevenlabs.text).
-        text: 'Ihre Spracheingabe, die Live-Transkription und die gesprochenen Antworten verarbeitet ElevenLabs. Die Antworten selbst entstehen über den Punkt KI-Modelle international.',
-      },
     },
   },
   host: {

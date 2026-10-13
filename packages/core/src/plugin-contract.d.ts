@@ -84,6 +84,7 @@ export interface VoiceSession {
   sendText(text: string, options: VoiceCommandOptions): Promise<void>;
   updateContext(context: object | string, options: VoiceCommandOptions): Promise<void>;
   interrupt(options: VoiceCommandOptions): Promise<void>;
+  retryPlayback?(options: VoiceCommandOptions): Promise<void>;
   heartbeat(options: VoiceCommandOptions): Promise<{ acknowledged: true; browserLivenessDeadlineAt: number }>;
 }
 // Joined contract: server consumes authority; browser receives only a short-lived credential.
@@ -142,6 +143,7 @@ export interface VoiceBrowserMedia {
   connect(grant: VoiceMediaGrant, options: VoiceCommandOptions): Promise<VoiceSession>;
   capture(session: VoiceSession, on: boolean, options: VoiceCommandOptions): Promise<void>;
   playback(session: VoiceSession, on: boolean, options: VoiceCommandOptions): Promise<void>;
+  retryPlayback?(session: VoiceSession, options: VoiceCommandOptions): Promise<void>;
   teardown(session: VoiceSession, options: VoiceCommandOptions): ReturnType<VoiceSession['close']>;
 }
 export interface VoiceOperationIdentity {

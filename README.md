@@ -392,7 +392,11 @@ Hosts configure the web component with `{copy, baseUrl, session, sessionToken}`
 core imports, as the demo does. Copy and CSS tokens belong to the host. Optional
 `deviceConnector` (the browser device plugin factory, `createDeviceReasoning`) and
 `deviceEndpoint` enable the settings Advanced tab; `voiceClients` maps host voice
-option ids to browser voice clients, falling back to `voiceClient`. The component
+option ids to browser voice clients, falling back to `voiceClient`. Optional
+`voicePresentation` supplies a label and localized `translations` from the host;
+otherwise the UI uses the selected client manifest presentation or the host option
+label. Adapter manifests own voice labels and versioned consent wording; start2
+passes those through without changing the displayed strings. The component
 emits `aithema-new-conversation` with `{processingPreset, settings, previousSessionId}`
 when the visitor starts a separate conversation (General tab, or crossing into or
 out of On my device once a conversation has started), and `aithema-consent` with
@@ -612,7 +616,13 @@ The rail reads optional `audioLevels()` input/output measurements: the waveform
 draws the visitor's level while listening and the reply's while speaking, and the
 orb (docked in the rail as the voice avatar) reacts to the audible reply only; its
 outer size remains fixed. Call messages open under the rail without moving it. Blocked SDK audio playback offers a user-gesture retry.
+The browser-media adapter owns playback discovery, retry and teardown. The rail
+receives `onPlaybackBlocked(retry)` during startup and invokes the adapter retry
+port after a user gesture. SDK DOM audio discovery lives in the ElevenLabs adapter.
 Hosts with an additional Web Audio context can supply `voicePlayback` to resume it.
+The local fake uses its own manifest, server adapter and browser-media factory in
+`plugins/fake-voice`; it has no provider imports, SDK, token exchange or callbacks.
+It retains shared admission, durable pause acknowledgements and lifecycle recovery.
 
 Voice finals are ordinary durable `turn.final` events. A genuine heard prefix is
 an idempotent `turn.corrected`, with the unspoken suffix removed from projection,

@@ -479,12 +479,6 @@ export const en = {
         recipients: 'OpenRouter, Inc. and the model provider you select: OpenAI, Anthropic or xAI. Processing can take place outside Europe, including in the United States.',
         text: 'Your messages, text read from uploaded files, the conversation history and the resulting assessment are sent to generate answers and assessments. Processing without retention is not guaranteed.',
       },
-      'voice-elevenlabs': {
-        version: 1,
-        title: 'Voice with ElevenLabs',
-        recipients: 'ElevenLabs, Inc., United States.',
-        text: 'Your speech input, the live transcription and the spoken answers are processed by ElevenLabs. The answers themselves are generated under the item AI models, international.',
-      },
     },
   },
   // Demo host page. Embedding hosts supply their own page copy.

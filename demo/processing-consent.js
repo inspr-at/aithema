@@ -1,4 +1,5 @@
 import { processingScope, MOCK_PROCESSING_SCOPE } from '@inspr/aithema-core';
+import { manifest as voiceManifest } from '../plugins/elevenlabs/src/manifest.js';
 import { modelProvider } from './model-provider.js';
 
 // Reasoning/voice copy is ported verbatim from START consentCopy.en. The separate
@@ -9,9 +10,7 @@ export const CONSENT_ITEMS = [
   { id: 'models-international', version: 1, title: 'AI models, international',
     recipients: 'OpenRouter, Inc. and the model provider you select: OpenAI, Anthropic or xAI. Processing can take place outside Europe, including in the United States.',
     text: 'Your messages, text read from uploaded files, the conversation history and the resulting assessment are sent to generate answers and assessments. Processing without retention is not guaranteed.' },
-  { id: 'voice-elevenlabs', version: 1, title: 'Voice with ElevenLabs',
-    recipients: 'ElevenLabs, Inc., United States.',
-    text: 'Your speech input, the live transcription and the spoken answers are processed by ElevenLabs. The answers themselves are generated under the item AI models, international.' },
+  voiceManifest.presentation.translations.find(item => item.locale === 'en').consentItem,
   { id: 'drafts-anthropic', version: 1, title: 'AI drafts (Anthropic)',
     recipients: 'OpenRouter, Inc. and Anthropic PBC, United States.',
     text: 'Your conversation, text read from uploaded files and the current assessment are sent to generate clickable draft screens. Processing without retention is not guaranteed.' },
