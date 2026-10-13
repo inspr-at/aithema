@@ -63,7 +63,7 @@ test('C1 SMTP config has value-free secret references, safe TLS defaults and mis
   assert.equal(options.auth.pass, 'synthetic-secret-do-not-log'); plugin.close();
 });
 
-const effect = { address: 'visitor@example.test', token: 'opaque', locale: 'en', expiresAt: 1_801_000 };
+const effect = { address: 'visitor@example.test', token: 'opaque', locale: 'en', expiresAt: Date.now() + 1_800_000 };
 for (const host of ['10.attacker.example', '127.attacker.example', '192.168.attacker.example', '172.16.attacker.example', 'relay.local', 'relay']) {
   test(`C1 fix1 plaintext refuses public DNS addresses for ${host}`, async () => {
     const { smtpConfig, createSmtpMail } = await import('../src/index.js');
