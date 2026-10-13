@@ -261,8 +261,8 @@ export class AithemaSession extends HTMLElement {
           <span class="host-credits__used-up" aria-hidden="true"><span class="host-credits__used-up-full"></span><span class="host-credits__used-up-short"></span></span></span><span class="host-credits__track" role="meter" aria-valuemin="0"><i></i></span></button>
           <div class="footer-popup credits-popup" id="credits-popup" role="group" aria-labelledby="credits-balance"><p class="host-credits__scope" id="credits-balance"></p>
             <p class="host-credits__current"><span class="credits-check" aria-hidden="true">${ICONS.check}</span><span></span></p>
-            <p class="host-credits__next"></p><a class="credits-email" href="#email"></a><p class="host-credits__equivalence"></p>
-            <span class="host-credits__deadline" hidden></span><span class="host-credits__limit" hidden><slot name="credits-limit"></slot></span></div></div>
+            <p class="host-credits__next"></p><a class="credits-email" href="#email"></a>
+            <span class="host-credits__deadline" hidden></span><span class="host-credits__limit" hidden><slot name="credits-limit"></slot></span><p class="host-credits__equivalence"></p></div></div>
         <div class="footer-right"><section class="preset-panel"><div class="engine" data-footer-popup><button class="engine-info" type="button" aria-describedby="model-info"><span class="engine__value"></span><span class="engine__flag"></span></button><span class="engine__detail footer-popup" id="model-info" role="tooltip"></span></div><ul class="features"></ul></section>
           <span class="status" role="status"><span class="status__label"></span><time class="connection-timer">0:00</time></span></div></div></footer></div>
       <dialog class="settings"></dialog><dialog class="library"></dialog><dialog class="verify-dialog"></dialog>`;

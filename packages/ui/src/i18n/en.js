@@ -259,7 +259,7 @@ export const en = {
     bar: 'Your conversation',
     verify: {
       entry: 'Confirm your email address', pending: 'Email not yet verified', verified: 'Email verified',
-      section: 'E-Mail', unverified: 'Not verified', linkSent: 'Link sent', resendOrChange: 'Resend or change', verifiedShort: 'Verified',
+      section: 'Email', unverified: 'Not verified', linkSent: 'Link sent', resendOrChange: 'Resend or change', verifiedShort: 'Verified',
       title: 'Confirm your email address', close: 'Back to the conversation',
       lockTitle: 'Unlock your assessment and concepts', lockLead: 'Confirm your email address to view the assessment.',
       label: 'Email address', placeholder: 'name@company.com', send: 'Send confirmation link',
@@ -291,7 +291,6 @@ export const en = {
       notice: 'We use your email address only for your credit and, later, a confirmation email. Never for advertising. After 90 days without use, we delete it automatically.',
       noticeMail: 'We use your email address only for your credit and the confirmation email. Never for advertising. After 90 days without use, we delete it automatically.',
       noticeHandover: 'For a personal follow-up we ask you separately.',
-      noticeUse: 'Use means a visit with your cookie that opens the app or a conversation, or any message or voice turn.',
       privacy: 'Privacy policy', unavailable: 'Adding an email address is currently unavailable here.',
       failed: 'The email address could not be saved just now. Please try again.',
       deleteFailed: 'The email address could not be deleted just now. Please try again.',

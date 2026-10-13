@@ -51,15 +51,21 @@ export const hostStyles = `
 .verify__input, .library input { width:100%; min-height:2.75rem; padding:.4rem .65rem; border:1px solid var(--aithema-line); border-radius:.45rem;
   color:inherit; background:var(--aithema-paper); font:inherit; }
 :is(.verify__input, .library input)::placeholder { color:var(--aithema-muted); opacity:1; }
-.analysis-content .verify__pending, .verify__pending { margin:0; min-height:2.75rem; display:flex; flex-wrap:wrap; align-items:center; gap:0 .35rem;
+.analysis-content .verify__pending, .verify__pending { margin:0; min-height:2.75rem; display:block;
   font-size:.85rem; overflow-wrap:anywhere; }
-.verify__address { font-weight:650; } .verify-change { padding:.4rem .5rem; font-size:.8rem; }
+.verify__address { font-weight:650; } .verify-change { min-height:44px; padding:0; font-size:.8rem; }
 .analysis-content .verify__done, .verify__done { display:flex; align-items:center; gap:.4rem; margin:0; min-height:2.75rem; font-size:.87rem; }
 .verify__actions { display:flex; flex-wrap:wrap; align-items:center; gap:.25rem .5rem; }
-/* Send and Send link again share one cell and one box: the pending state puts its action exactly where the
-   pointer pressed Send. */
-.verify__primary { display:grid; } .verify__primary > * { grid-area:1/1; justify-self:stretch; min-height:2.75rem; }
+/* Keep the sending action's reservation while each label hugs its own button. */
+.verify__primary { display:grid; } .verify__primary > * { grid-area:1/1; justify-self:start; min-height:2.75rem; }
 .verify-resend { text-align:left; } .verify-cancel { font-size:.85rem; }
+.verify-form[data-mode=pending] { grid-template-areas:"lead" "field" "actions" "message" "note" "privacy"; }
+.verify-form[data-mode=pending] > .verify__lead { grid-area:lead; }
+.verify-form[data-mode=pending] > .verify__field { grid-area:field; }
+.verify-form[data-mode=pending] > .verify__actions { grid-area:actions; margin-bottom:calc(12px - .45rem); }
+.verify-form[data-mode=pending] > .verify__message { grid-area:message; }
+.verify-form[data-mode=pending] > .verify__note { grid-area:note; }
+.verify-form[data-mode=pending] > .m-notice { grid-area:privacy; }
 .analysis-content .verify__message, .verify__message { margin:0; min-height:2.6em; font-size:.8rem; line-height:1.3; }
 .verify__message[data-error="true"] { color:var(--aithema-ink); }
 .analysis-content .verify__note, .verify__note { margin:0; min-height:1.3em; font-size:.75rem; line-height:1.3; color:var(--aithema-muted); font-variant-numeric:tabular-nums; }
@@ -214,13 +220,17 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .m-addr { margin:0; min-height:2.8em; max-height:2.8em; overflow:auto; font-size:.95rem; color:var(--aithema-ink); font-weight:600; overflow-wrap:anywhere; }
 .m-tier { display:flex; align-items:center; gap:.4rem; margin:0; font-size:.85rem; color:var(--aithema-muted); font-variant-numeric:tabular-nums; }
 .m-tier svg { flex:none; color:var(--aithema-accent); }
-.m-acts { display:flex; align-items:center; flex-wrap:wrap; gap:0 .1rem; margin-top:.15rem; }
+.m-acts { display:flex; align-items:center; flex-wrap:wrap; gap:0 24px; margin-top:.15rem; }
 .m-act { min-height:44px; padding:0 .85rem; border-radius:.6rem; color:var(--aithema-accent); font-weight:600; font-size:.85rem; }
 .m-act:hover { background:color-mix(in srgb,var(--aithema-accent) 8%,transparent); }
-.m-acts > .m-act:first-child { margin-left:-.85rem; } .m-dot { color:var(--aithema-muted); opacity:.6; }
+.m-acts > .m-act:first-child { margin-left:-.85rem; }
+/* The separator sits in the middle of the 24 px between the two button boxes. */
+.m-dot { flex:none; display:flex; justify-content:center; width:0; margin-inline:-12px; color:var(--aithema-muted); opacity:.6; }
+.m-mail-tier { gap:0; white-space:pre-wrap; }
+.host-mail .verify-entry-state { display:block; }
 .m-q { font-size:.95rem; font-weight:600; margin:0; min-height:1.5rem; }
 .m-cons { font-size:.85rem; line-height:1.45; margin:0; max-width:34rem; }
-.host-mail .m-del { min-height:44px; margin-left:0; padding:0 1rem; margin-right:.5rem; border-radius:.55rem; border:1px solid var(--aithema-line); color:var(--aithema-ink); font-weight:600; font-size:.85rem; }
+.host-mail .m-del { min-height:44px; margin-left:0; padding:0 1rem; border-radius:.55rem; border:1px solid var(--aithema-line); color:var(--aithema-ink); font-weight:600; font-size:.85rem; }
 .m-delete-message,.m-unavailable-message { min-height:2.6em; margin:0; font-size:.8rem; }
 .m-mail-stack { display:grid; } .m-mail-stack > * { grid-area:1/1; }
 [data-view="mail"][data-address="true"] .m-lead-mail,[data-view="mail"][data-address="false"] .verify-entry-state { visibility:hidden; }

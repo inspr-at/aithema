@@ -21,6 +21,8 @@ dialog.settings { padding:0; margin:auto; border:1px solid var(--aithema-line); 
 dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur(6px); }
 .settings__frame { display:flex; flex-direction:column; height:100%; min-height:0; }
 .settings :is(button,input,select,textarea,summary,a,[tabindex]):focus-visible { outline:3px solid var(--aithema-accent); outline-offset:2px; }
+/* The unavailable email section retains programmatic screen-reader focus. */
+.settings #email-heading:focus { outline:none; }
 .settings :is(button,select,summary,.select__button) { min-height:2.75rem; }
 .settings button:disabled { cursor:not-allowed; }
 .settings h2, .settings h3, .settings h4, .settings h5, .settings p, .settings figure { margin:0; }
@@ -196,6 +198,13 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
   .option-status { width:6.2rem; }
   .settings-context { margin:0 .8rem .3rem; padding:.45rem .6rem; font-size:.68rem; }
   .settings__footer { grid-template-columns:minmax(0,1fr); gap:.3rem; padding:.2rem .8rem .7rem; }
+  .save-state { max-width:none; grid-template-columns:1rem minmax(0,1fr); }
+  .save-retry { grid-area:1/2; justify-self:end; }
+  .save-status, .save-state-measure { grid-area:1/1/2/-1; }
+  .settings[data-save-state=saved] .save-status { padding-left:1.45rem; }
+  .settings[data-save-state=failed] .save-status { padding-right:7rem; }
+  /* The failed label is followed by closePending in the reserved message list. */
+  .save-state-measure:nth-last-child(2) { padding-right:7rem; }
   .done { justify-self:stretch; width:100%; } .disclosure__body { left:.8rem; width:calc(100% - 1.6rem); }
   .gauges { gap:.7rem .3rem; } .gauge__glass { width:3.3rem; height:6.6rem; } .gauge__value { font-size:1rem; }
 }

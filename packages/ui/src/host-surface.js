@@ -206,7 +206,7 @@ export class HostSurface {
     if (!this.#options.credits) return;
     const c = this.#copy.hostSurface.credits, layout = this.#copy.layout, locale = this.#session().locale ?? 'en';
     const format = typeof this.#options.credits?.format === 'function' ? this.#options.credits.format : defaultCreditFormat;
-    const owner = this.#credits?.balance?.owner, tiers = this.tiers, exhausted = this.usedUp, out = exhausted && !this.#creditEnding?.();
+    const owner = this.#credits?.balance?.owner, tiers = this.tiers, exhausted = this.usedUp, out = exhausted;
     const amount = line.querySelector('.host-credits__amount'), total = line.querySelector('.host-credits__total'), unit = line.querySelector('.host-credits__unit');
     const button = line.querySelector('.host-credits__button'), track = line.querySelector('.host-credits__track');
     const scope = line.querySelector('.host-credits__scope'), current = line.querySelector('.host-credits__current');

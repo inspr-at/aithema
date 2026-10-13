@@ -192,7 +192,7 @@ test('without the lock, verification opens from Settings General and returns foc
 
 test('AIT-131 r3: Settings email states follow identity events in DE and EN without replacing the action', async t => {
   for (const [copy, words] of [[de, ['E-Mail', 'Nicht bestätigt', 'E-Mail-Adresse bestätigen', 'Link gesendet', 'Erneut senden oder ändern', 'Bestätigt']],
-    [en, ['E-Mail', 'Not verified', 'Confirm your email address', 'Link sent', 'Resend or change', 'Verified']]]) await t.test(copy.display.locale, async t => {
+    [en, ['Email', 'Not verified', 'Confirm your email address', 'Link sent', 'Resend or change', 'Verified']]]) await t.test(copy.display.locale, async t => {
     const { c, root } = setup(t, { copy, session: { identity: identity() } }); await tick();
     c.openSettings(undefined, { tab: 'general' });
     const section = root.querySelector('.host-verify'), button = section.querySelector('.verify-entry');

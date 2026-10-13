@@ -295,7 +295,6 @@ export const de = {
       notice: 'Wir nutzen Ihre E-Mail-Adresse nur für Ihr Guthaben und später für eine Bestätigungsmail. Nie für Werbung. Nach 90 Tagen ohne Nutzung löschen wir sie automatisch.',
       noticeMail: 'Wir nutzen Ihre E-Mail-Adresse nur für Ihr Guthaben und die Bestätigungsmail. Nie für Werbung. Nach 90 Tagen ohne Nutzung löschen wir sie automatisch.',
       noticeHandover: 'Für eine persönliche Weiterführung fragen wir Sie gesondert.',
-      noticeUse: 'Als Nutzung zählt ein Besuch mit Ihrem Cookie, der die App oder ein Gespräch öffnet, oder jede Nachricht oder Sprachrunde.',
       privacy: 'Datenschutzerklärung', unavailable: 'Eine E-Mail-Adresse können Sie hier derzeit nicht angeben.',
       failed: 'Die E-Mail-Adresse konnte gerade nicht gespeichert werden. Bitte versuchen Sie es erneut.',
       deleteFailed: 'Die E-Mail-Adresse konnte gerade nicht gelöscht werden. Bitte versuchen Sie es erneut.',

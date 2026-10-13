@@ -5,6 +5,16 @@ const CHECK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" strok
 const INFO = '<svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="10" cy="10" r="8"/><path d="M10 9v5"/><circle cx="10" cy="6" r=".8" fill="currentColor"/></svg>';
 const valid = value => value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(value);
 
+// Emphasize the server's tier amounts without treating copy or values as HTML.
+export function setTierText(container, template, values) {
+  if (container.textContent === fill(template, values)) return;
+  container.replaceChildren(...template.split(/(\{\w+\})/u).map(part => {
+    const key = /^\{(\w+)\}$/u.exec(part)?.[1];
+    if (!key || !Object.hasOwn(values, key)) return container.ownerDocument.createTextNode(part);
+    const strong = container.ownerDocument.createElement('strong'); strong.textContent = values[key]; return strong;
+  }));
+}
+
 /** Identity is the verification evidence; visitor is the owner-wide saved address. */
 export class VisitorEmail {
   constructor({ root, entry, copy, request, openDialog, changed, demo = false, delivery = true, privacyDocumentConfigured, handover = false, locale }) {
@@ -23,7 +33,7 @@ export class VisitorEmail {
         <div class="m-acts"><button class="m-act m-change" type="button"></button><span class="m-dot" aria-hidden="true">·</span><button class="m-act m-delete" type="button"></button></div></div>
       <div class="m-view" data-view="confirm" role="group" aria-labelledby="email-delete-question"><p class="m-q" id="email-delete-question"></p>
         <p class="m-cons m-two"><span class="m-delete-normal"></span><span class="m-delete-over"></span></p>
-        <div class="m-acts"><button class="m-del" type="button"></button><button class="m-act m-keep" type="button"></button></div>
+        <div class="m-acts"><button class="m-del" type="button"></button><span class="m-dot" aria-hidden="true">·</span><button class="m-act m-keep" type="button"></button></div>
         <p class="m-delete-message" role="status"></p></div>
       <div class="m-view" data-view="mail"><div class="m-mail-stack">
         <p class="m-lead m-lead-mail"></p><p class="verify-entry-state m-addr"><span class="m-sent-prefix"></span><span class="verify-entry-address"></span></p></div>
@@ -67,7 +77,7 @@ export class VisitorEmail {
   set(values) { Object.assign(this, values); this.paint(); }
   format(value) { return Number.isFinite(value) ? formatCredits(value, this.locale?.() ?? this.copy.display.locale) : ''; }
   get numbers() { const a = this.tiers?.allowancesMicro; return { base: this.format(a?.anonymous), email: this.format(a?.emailGiven), confirmed: this.format(a?.emailConfirmed) }; }
-  noticeText() { return [this.delivery ? this.e.noticeMail : this.e.notice, this.handover ? this.e.noticeHandover : '', this.e.noticeUse].filter(Boolean).join(' '); }
+  noticeText() { return [this.delivery ? this.e.noticeMail : this.e.notice, this.handover ? this.e.noticeHandover : ''].filter(Boolean).join(' '); }
   paintNotice(container) {
     setText(container.querySelector('.m-notice-text'), this.noticeText());
     const link = container.querySelector('.m-pp'), href = this.privacyLink;
@@ -83,8 +93,8 @@ export class VisitorEmail {
     for (const view of this.entry.querySelectorAll('.m-stack > .m-view')) { const shown = view.dataset.view === state; view.classList.toggle('on', shown); view.inert = !shown; view.setAttribute('aria-hidden', String(!shown)); }
     this.q('.m-form').classList.toggle('editing', this.ui.editing);
     const givenRaises = this.tiers?.allowancesMicro?.emailGiven > this.tiers?.allowancesMicro?.anonymous;
-    const leadSave = this.tiers ? givenRaises ? fill(e.leadSave, n) : fill(e.tier, { tier: n.email }) : '';
-    setText(this.q('.m-lead-save'), leadSave); setText(this.q('.m-lead-edit'), this.tiers ? fill(e.leadEdit, n) : '');
+    setTierText(this.q('.m-lead-save'), this.tiers ? givenRaises ? e.leadSave : e.tier : '', { ...n, tier: n.email });
+    setTierText(this.q('.m-lead-edit'), this.tiers ? e.leadEdit : '', n);
     setText(this.q('.m-label'), v.label); this.q('#email-input').placeholder = v.placeholder;
     this.q('#email-input').setAttribute('aria-invalid', String(this.ui.invalid));
     for (const [selector, key] of [['.m-save', 'save'], ['.m-cancel', 'cancel'], ['.m-change', 'change'], ['.m-delete', 'delete'], ['.m-q', 'deleteQuestion'], ['.m-del', 'deleteConfirm'], ['.m-keep', 'cancel'], ['.m-change-mail', 'change'], ['.m-delete-mail', 'delete'], ['.m-unavailable', 'unavailable']]) setText(this.q(selector), e[key]);
@@ -96,21 +106,21 @@ export class VisitorEmail {
     this.q('.m-cons').classList.toggle('over', over);
     setText(this.q('.m-delete-normal'), this.tiers && Number.isFinite(spent) ? fill(e.deleteDrop, { ...n, available: this.format(Math.max(0, base - spent)) }) : '');
     setText(this.q('.m-delete-over'), Number.isFinite(spent) ? fill(e.deleteOver, { spent: this.format(spent) }) : '');
-    setText(this.q('.m-msg-text'), this.ui.message); this.q('.m-ico').innerHTML = this.ui.message ? this.ui.invalid || this.ui.busy || this.ui.failed ? INFO : CHECK : '';
+    setText(this.q('.m-msg-text'), this.ui.message); this.q('.m-ico').innerHTML = this.ui.message && !this.ui.busy ? this.ui.invalid || this.ui.failed ? INFO : CHECK : '';
     setText(this.q('.m-delete-message'), this.ui.deleting ? this.ui.message : '');
     setText(this.q('.m-unavailable-message'), state === 'unavailable' ? this.ui.message : '');
     this.paintNotice(this.q('#email-notice')); this.paintNotice(this.q('.m-mail-notice'));
     const verified = this.identity?.status === 'verified', pending = this.identity?.status === 'verification-pending';
     this.q('[data-view="mail"]').dataset.address = String(Boolean(this.address));
-    setText(this.q('.m-lead-mail'), this.tiers?.canConfirm ? fill(e.leadMail, n) : leadSave);
+    setTierText(this.q('.m-lead-mail'), this.tiers ? this.tiers.canConfirm ? e.leadMail : givenRaises ? e.leadSave : e.tier : '', { ...n, tier: n.email });
     setText(this.q('.m-sent-prefix'), pending ? e.sentTo + ' ' : ''); setText(this.q('.verify-entry-address'), this.address);
     setText(this.q('.verify-entry-status'), pending ? v.linkSent : v.unverified); this.q('.verify-entry-status').hidden = verified;
     setText(this.q('.verify-done > span'), this.tiers ? e.confirmedLabel : v.verifiedShort); this.q('.verify-done').hidden = !verified;
-    setText(this.q('.m-mail-tier-text'), this.tiers && this.address ? verified ? '· ' + fill(e.tier, { tier: this.format(this.tiers.allowancesMicro[this.tiers.current]) }) : this.tiers.canConfirm ? fill(e.pendingTier, n) : fill(e.tier, { tier: n.email }) : '');
+    setText(this.q('.m-mail-tier-text'), this.tiers && this.address ? verified ? ' · ' + fill(e.tier, { tier: this.format(this.tiers.allowancesMicro[this.tiers.current]) }) : this.tiers.canConfirm ? fill(e.pendingTier, n) : fill(e.tier, { tier: n.email }) : '');
     const button = this.q('.verify-entry'); button.hidden = !this.delivery || !this.canCollect || verified;
     setText(button, pending ? v.resendOrChange : v.entry);
     this.q('.m-change-mail').hidden = !verified || !this.canCollect;
-    this.q('.m-delete-mail').hidden = !this.address; this.q('.m-mail-dot').hidden = !verified;
+    this.q('.m-delete-mail').hidden = !this.address; this.q('.m-mail-dot').hidden = !this.address;
     this.q('.m-mail-notice').style.visibility = this.address ? 'hidden' : '';
     this.q('.m-mail-notice').inert = Boolean(this.address);
     this.q('.m-change').setAttribute('aria-disabled', String(!this.canCollect));

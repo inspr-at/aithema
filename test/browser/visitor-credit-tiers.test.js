@@ -93,7 +93,6 @@ async function fixture(page, locale, { address = null, spent = 3_450_000, reserv
         } };
     }
     c.configure({ session, copy, voiceClient, host: { credits: true, verification: { delivery, privacyDocumentConfigured: privacy }, handover } });
-    document.documentElement.lang = locale;
     if (voiceRunning) c.shadowRoot.querySelector('.voice-start').click();
   }, { locale, address, spent, reserved, delivery, privacy, handover, confirmed, voiceRunning, voiceAdmissionFailure, waitingCall });
   await settle();
@@ -105,7 +104,7 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
   let browser;
   t.after(async () => { try { await browser?.close(); } finally { await demo.kill(); await rm(directory, { recursive: true, force: true }); } });
   if (evidence) await mkdir(evidence, { recursive: true });
-  const passLines = [], states = [], captures = [];
+  const passLines = [], states = [], captures = [], uiChecks = [];
   for (const locale of ['de', 'en']) {
     browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome-' + locale),
       env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
@@ -113,12 +112,38 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
     const problems = []; page.on('pageerror', error => problems.push(error.message));
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
     await until(page, () => document.querySelector('aithema-session')?.session);
+    // Exercise the visitor's real picker path so the host slots change with the component.
+    await page.select('#locale', locale);
+    await page.waitForFunction(locale => document.querySelector('aithema-session')?.session.locale === locale
+      && document.documentElement.lang === locale && document.querySelector('#language-value').textContent === locale.toUpperCase(), { timeout: 20_000 }, locale);
     for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390]) {
       await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
       await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
       const label = `${locale}-${theme}-${width}`;
+      const actions = async state => {
+        const metrics = await shadow(page, c => {
+          const r = c.shadowRoot, row = r.querySelector('.m-view.on .m-acts');
+          const buttons = [...row.querySelectorAll('button')].filter(n => !n.hidden), dot = row.querySelector('.m-dot');
+          const boxes = buttons.map(n => n.getBoundingClientRect());
+          return { gapPx: boxes[1].left - boxes[0].right, sameRow: boxes[0].top === boxes[1].top,
+            dot: dot.textContent, dotVisible: !dot.hidden, targets44: boxes.every(box => box.height >= 44) };
+        });
+        assert.deepEqual(metrics, { gapPx: 24, sameRow: true, dot: '·', dotVisible: true, targets44: true }, `${label}/${state}: separated actions`);
+        uiChecks.push({ locale, theme, width, state, pass: true, ...metrics });
+      };
       const shot = async state => {
         await new Promise(resolve => setTimeout(resolve, 160)); states.push({ locale, theme, width, state });
+        const language = await page.evaluate(() => ({ picker: document.querySelector('#locale').value,
+          language: document.documentElement.lang, account: document.querySelector('#demo-account-label').textContent,
+          limitNote: document.querySelector('#demo-credits-limit').textContent,
+          heading: document.querySelector('aithema-session').shadowRoot.querySelector('#email-heading').textContent }));
+        assert.equal(language.picker, locale); assert.equal(language.language, locale);
+        assert.equal(language.heading, locale === 'en' ? 'Email' : 'E-Mail');
+        assert.match(language.account, locale === 'en' ? /^Account/u : /^Konto/u);
+        assert.match(language.limitNote, locale === 'en' ? /^Demo only/u : /^Nur Demo/u);
+        if (locale === 'en') assert.doesNotMatch(await page.evaluate(() => {
+          const c = document.querySelector('aithema-session'); return c.shadowRoot.textContent + c.textContent;
+        }), /E-Mail|Konto|Nur Demo|Als Nutzung zählt/u, `${label}/${state}: no German in English captures`);
         if (!evidence) return;
         // Capture actual viewports: full-page painting moves sticky band/dock content over the page.
         await shadow(page, c => {
@@ -187,6 +212,17 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
       const before = await boxes(page, fixed);
       const check = async state => { await settle(); const displacementPx = unchanged(before, await boxes(page, fixed), `${label}/${state}`); passLines.push({ locale, theme, width, state, displacementPx, pass: true }); await shot(state); };
       await check('no-email');
+      const footer = await shadow(page, c => {
+        const r = c.shadowRoot, status = r.querySelector('.save-status'), range = document.createRange(); range.selectNodeContents(status);
+        return { lines: range.getClientRects().length, reservation: r.querySelectorAll('.save-state-measure').length,
+          left: status.getBoundingClientRect().left - r.querySelector('.save-state').getBoundingClientRect().left,
+          notice: r.querySelector('#email-notice .m-notice-text').textContent,
+          boldAmounts: [...r.querySelectorAll('.m-lead-save strong')].map(n => n.textContent) };
+      });
+      if (width === 390) { assert.equal(footer.lines, 1, `${label}: automatic-save footer fits one line`); assert.equal(footer.left, 0); }
+      assert.equal(footer.reservation, 5); assert.doesNotMatch(footer.notice, /Als Nutzung zählt|Use means/u);
+      assert.deepEqual(footer.boldAmounts, locale === 'de' ? ['1.200', '1.800'] : ['1,200', '1,800']);
+      uiChecks.push({ locale, theme, width, state: 'no-email', pass: true, ...footer });
       const targets = await shadow(page, c => ['.m-in', '.m-save', '#email-notice .m-pp'].map(selector => {
         const n = c.shadowRoot.querySelector(selector), rect = n.getBoundingClientRect(), after = getComputedStyle(n, '::after');
         return rect.height + Math.max(0, -(parseFloat(after.top) || 0)) + Math.max(0, -(parseFloat(after.bottom) || 0));
@@ -198,10 +234,12 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
       await shadow(page, c => { c.shadowRoot.querySelector('#email-input').value = 'reader'; c.shadowRoot.querySelector('.m-form').requestSubmit(); }); await check('invalid');
       await shadow(page, c => { const input = c.shadowRoot.querySelector('#email-input'); input.value = 'reader@example.test'; input.dispatchEvent(new Event('input', { bubbles: true })); window.a2.saving = true; c.shadowRoot.querySelector('.m-form').requestSubmit(); }); await check('saving');
       await page.evaluate(() => { window.a2.saving = false; }); await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.host-verify').dataset.emailState === 'saved'); await check('email-saved');
+      await actions('email-saved');
       await click(page, 'dialog.settings .done'); await click(page, '.host-credits__button'); await shot('credits-email-saved');
       await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle();
       await click(page, '.m-change'); await check('editing'); await click(page, '.m-cancel');
       await click(page, '.m-delete'); await check('deleting');
+      await actions('deleting');
       assert.equal(await shadow(page, c => c.shadowRoot.activeElement?.className), 'm-act m-keep');
       await click(page, '.m-del'); await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.host-verify').dataset.emailState === 'capture');
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('#email-input').value), '', 'acknowledged deletion clears the cancelled edit');
@@ -213,15 +251,58 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
       await click(page, '.host-credits__button'); await shot('credits-used-up-give');
       await fixture(page, locale, { address: 'reader@example.test', spent: 18_000_000 }); await shot('credit-used-up-none'); await click(page, '.host-credits__button'); await shot('credits-used-up-none');
       await fixture(page, locale, { privacy: false, spent: 12_000_000 });
-      await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(); await shot('privacy-gate'); await click(page, 'dialog.settings .done'); await shot('privacy-gate-used-up');
+      await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle();
+      const focus = await shadow(page, c => { const heading = c.shadowRoot.querySelector('#email-heading'); return {
+        focused: c.shadowRoot.activeElement === heading, outline: getComputedStyle(heading).outlineStyle, tabindex: heading.tabIndex }; });
+      assert.deepEqual(focus, { focused: true, outline: 'none', tabindex: -1 }, `${label}: privacy gate retains heading focus without a ring`);
+      uiChecks.push({ locale, theme, width, state: 'privacy-gate', pass: true, ...focus });
+      await shot('privacy-gate'); await click(page, 'dialog.settings .done'); await shot('privacy-gate-used-up');
       await fixture(page, locale, { handover: true }); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(); await shot('handover-notice');
       await click(page, 'dialog.settings .done');
       await fixture(page, locale, { delivery: true }); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(); await shot('mail-no-email');
       await click(page, '.verify-entry'); await settle(); await shot('mail-confirm-dialog');
+      const order = await shadow(page, c => {
+        const form = c.shadowRoot.querySelector('dialog.verify-dialog form');
+        return ['.verify__field', '.verify__note', '.m-notice', '.verify__actions'].map(selector => form.querySelector(selector).getBoundingClientRect().top);
+      });
+      assert.ok(order.every((top, i) => i === 0 || top > order[i - 1]), `${label}: field, helper, notice, submit`);
+      uiChecks.push({ locale, theme, width, state: 'mail-confirm-dialog', pass: true, order });
       await shadow(page, c => { c.shadowRoot.querySelector('#verify-dialog-email').value = 'reader@example.test'; c.shadowRoot.querySelector('dialog.verify-dialog form').requestSubmit(); }); await settle(); await shot('mail-link-sent');
+      const sent = await shadow(page, c => {
+        const form = c.shadowRoot.querySelector('dialog.verify-dialog form'), pending = form.querySelector('.verify__pending'),
+          button = form.querySelector('.verify-resend'), message = form.querySelector('.verify__message');
+        const text = document.createRange(); text.selectNodeContents(pending.querySelector('.verify__address'));
+        const address = text.getBoundingClientRect(), change = pending.querySelector('.verify-change').getBoundingClientRect();
+        return { confirmation: message.textContent, helper: form.querySelector('.verify__note').textContent,
+          inlineChange: Math.abs(address.top + address.height / 2 - change.top - change.height / 2) < 12,
+          separator: pending.childNodes[3].textContent, gapPx: message.getBoundingClientRect().top - button.getBoundingClientRect().bottom,
+          widthPx: button.getBoundingClientRect().width, primaryWidthPx: form.querySelector('.verify__primary').getBoundingClientRect().width };
+      });
+      assert.equal(sent.helper, ''); assert.equal(sent.separator, ' · '); assert.equal(sent.inlineChange, true, `${label}: Change stays inline`);
+      assert.equal(sent.gapPx, 12); assert.ok(sent.widthPx < sent.primaryWidthPx, `${label}: resend hugs its label`);
+      assert.match(sent.confirmation, locale === 'de' ? /^Wir haben Ihnen einen Bestätigungslink geschickt/u : /^We sent you a confirmation link/u);
+      uiChecks.push({ locale, theme, width, state: 'mail-link-sent', pass: true, ...sent });
       await page.keyboard.press('Escape');
-      await fixture(page, locale, { delivery: true, address: 'reader@example.test' }); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(); await shot('mail-pending'); await click(page, 'dialog.settings .done'); await click(page, '.host-credits__button'); await shot('credits-mail-pending');
-      await fixture(page, locale, { delivery: true, address: 'reader@example.test', confirmed: true }); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(); await shot('mail-confirmed'); await click(page, 'dialog.settings .done'); await click(page, '.host-credits__button'); await shot('credits-mail-confirmed');
+      await fixture(page, locale, { delivery: true, address: 'reader@example.test' }); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle();
+      await actions('mail-pending');
+      assert.equal(await shadow(page, c => {
+        const r = c.shadowRoot, prefix = r.querySelector('.m-sent-prefix'), address = r.querySelector('.verify-entry-address');
+        const range = document.createRange(); range.selectNodeContents(prefix); const textRight = range.getBoundingClientRect().right;
+        return { text: prefix.textContent + address.textContent, display: getComputedStyle(prefix.parentElement).display,
+          addressGap: address.getBoundingClientRect().left - textRight };
+      }).then(m => m.display === 'block' && m.addressGap === 0 && m.text === (locale === 'de' ? 'Link gesendet an ' : 'Link sent to ') + 'reader@example.test'), true, `${label}: one normal space before pending address`);
+      await shot('mail-pending'); await click(page, 'dialog.settings .done'); await click(page, '.host-credits__button'); await shot('credits-mail-pending');
+      await fixture(page, locale, { delivery: true, address: 'reader@example.test', confirmed: true }); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle();
+      await actions('mail-confirmed');
+      const alignment = await shadow(page, c => {
+        const r = c.shadowRoot, address = r.querySelector('.verify-entry-address'), heading = r.querySelector('#email-heading');
+        return { indentPx: address.getBoundingClientRect().left - heading.getBoundingClientRect().left,
+          tierText: r.querySelector('.m-mail-tier').textContent, gapPx: parseFloat(getComputedStyle(r.querySelector('.m-mail-tier')).gap) };
+      });
+      assert.equal(alignment.indentPx, 0); assert.equal(alignment.gapPx, 0);
+      assert.match(alignment.tierText, locale === 'de' ? /Bestätigt · Guthaben: 2\.400 Credits/u : /Confirmed · Credit: 2,400 Credits/u);
+      uiChecks.push({ locale, theme, width, state: 'mail-confirmed', pass: true, ...alignment });
+      await shot('mail-confirmed'); await click(page, 'dialog.settings .done'); await click(page, '.host-credits__button'); await shot('credits-mail-confirmed');
       await fixture(page, locale, { delivery: true, address: 'reader@example.test', spent: 18_000_000 }); await shot('credit-used-up-confirm');
       const liveFixed = ['.band', '.question-card', '.composer-dock', '.composer-shell', '.display-foot', '.export', '.concept-bar'];
       await fixture(page, locale, { spent: 0, voiceRunning: true });
@@ -285,6 +366,7 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
       const liveBefore = await boxes(page, liveFixed);
       await shadow(page, c => { window.a2.spent = 12_000_000; c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } }); });
       const endingDisplacement = unchanged(liveBefore, await boxes(page, liveFixed), `${label}/call-ending`);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-credits').dataset.ended), 'true', `${label}: footer shows used-up during call ending`);
       passLines.push({ locale, theme, width, state: 'call-ending', displacementPx: endingDisplacement, pass: true }); await shot('call-ending');
       await settle(); await settle();
       const calm = await shadow(page, c => {
@@ -300,6 +382,6 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
     assert.deepEqual(problems, []);
     await browser.close(); browser = null;
   }
-  if (evidence) await writeFile(join(evidence, 'a2-pass-lines.json'), JSON.stringify({ head: process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1], runner: 'remote/CI', source: 'shipped component with owner-route fixtures', passLines, states, captures }, null, 2));
+  if (evidence) await writeFile(join(evidence, 'a2-pass-lines.json'), JSON.stringify({ head: process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1], runner: 'remote/CI', source: 'shipped component with owner-route fixtures; language selected through the picker', passLines, uiChecks, states, captures }, null, 2));
   t.diagnostic(`${passLines.length} zero-displacement checks; ${states.length} states; ${captures.length} viewport screenshots across all 12 viewport/theme/language combinations`);
 });

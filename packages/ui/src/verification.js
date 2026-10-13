@@ -4,7 +4,7 @@
 // One form is built twice: inline on the understanding pane while host policy locks the
 // assessment, and in a small dialog behind the quiet entry in Settings otherwise.
 import { node, setText, showOne, fill } from './dom.js';
-import { VisitorEmail } from './visitor-email.js';
+import { VisitorEmail, setTierText } from './visitor-email.js';
 
 // START EmailLock, without its motion: a closed padlock in the accent colour.
 const LOCK = '<svg viewBox="0 0 32 36" width="22" height="25" fill="none" aria-hidden="true"><path d="M9 16V10a7 7 0 0 1 14 0v6" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/><rect x="4" y="15" width="24" height="18" rx="5" fill="currentColor"/><path d="M16 22v4" stroke="var(--aithema-surface)" stroke-width="2.6" stroke-linecap="round"/></svg>';
@@ -147,7 +147,7 @@ export class Verification {
     input.placeholder = v.placeholder; input.setAttribute('aria-describedby', `${prefix}-message`);
     capture.append(label, input);
     const pending = node('p', 'verify__pending'), change = node('button', 'verify-change', v.change); change.type = 'button';
-    pending.append(node('span', '', v.sentTo), ' ', node('strong', 'verify__address'), ' ', change);
+    pending.append(node('span', '', v.sentTo), ' ', node('strong', 'verify__address'), ' · ', change);
     const done = node('p', 'verify__done'); done.innerHTML = CHECK; done.append(node('span', '', v.confirmed));
     field.append(capture, pending, done);
     const actions = node('div', 'verify__actions'), primary = node('div', 'verify__primary');
@@ -164,7 +164,7 @@ export class Verification {
     privacy.append(privacyText, ' ', privacyLink);
     input.setAttribute('aria-describedby', `${prefix}-message ${prefix}-privacy`);
     input.addEventListener('input', () => { if (this.#ui.error) { this.#ui.error = false; this.#ui.message = ''; this.#paint(); } });
-    form.append(lead, field, actions, message, note, privacy);
+    form.append(lead, field, note, privacy, actions, message);
     form.addEventListener('submit', event => { event.preventDefault(); void this.#send(entry); });
     resend.addEventListener('click', () => void this.#resend(entry));
     change.addEventListener('click', () => { this.#ui = { ...this.#ui, editing: true, message: '' }; input.value = this.#identity?.address ?? ''; this.#paint(); input.focus(); input.select?.(); });
@@ -236,12 +236,12 @@ export class Verification {
     if (!this.canCollect && this.#dialog.open) this.#dialog.close();
     setText(this.#lock.querySelector('.verify-lock__title'), v.lockTitle);
     setText(this.#lock.querySelector('.verify-lock__lead'), v.lockLead);
-    const text = this.#stateText(), note = mode === 'pending' && cooldown > 0 ? fill(v.cooldown, { seconds: cooldown }) : mode === 'verified' ? '' : v.hint;
+    const text = this.#stateText(), note = mode === 'pending' ? cooldown > 0 ? fill(v.cooldown, { seconds: cooldown }) : '' : mode === 'verified' ? '' : v.hint;
     for (const form of this.#forms) {
       form.root.dataset.mode = mode;
       const nums = this.#email.numbers, e = this.#copy.hostSurface.email;
-      setText(form.root.querySelector('.verify__lead-mail'), this.#email.tiers ? this.#email.tiers.canConfirm ? fill(e.leadMail, nums) : this.#email.tiers.allowancesMicro.emailGiven > this.#email.tiers.allowancesMicro.anonymous ? fill(e.leadSave, nums) : fill(e.tier, { tier: nums.email }) : '');
-      setText(form.root.querySelector('.verify__lead-reconfirm'), this.#email.tiers ? fill(this.#email.tiers.canConfirm ? e.leadReconfirm : e.leadEdit, nums) : '');
+      setTierText(form.root.querySelector('.verify__lead-mail'), this.#email.tiers ? this.#email.tiers.canConfirm ? e.leadMail : this.#email.tiers.allowancesMicro.emailGiven > this.#email.tiers.allowancesMicro.anonymous ? e.leadSave : e.tier : '', { ...nums, tier: nums.email });
+      setTierText(form.root.querySelector('.verify__lead-reconfirm'), this.#email.tiers ? this.#email.tiers.canConfirm ? e.leadReconfirm : e.leadEdit : '', nums);
       form.root.querySelector('.verify__lead').classList.toggle('reconfirm', identity?.status === 'verified');
       this.#email.paintNotice(form.root.querySelector('.m-notice'));
       form.input.setAttribute('aria-invalid', String(Boolean(this.#ui.error && this.#ui.message === v.invalid)));
