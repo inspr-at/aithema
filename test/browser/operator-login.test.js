@@ -32,7 +32,10 @@ const geometry = page => shadow(page, c => {
 const openGeneral = async page => {
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
   await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '.operator-section' }));
-  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.host-verify').dataset.emailState === 'unavailable');
+  await until(page, () => {
+    const entry = document.querySelector('aithema-session').shadowRoot.querySelector('.host-verify');
+    return entry.dataset.emailState && entry.querySelector('.m-lead-save')?.textContent;
+  });
   // Scroll the last section into view; the footer stays fixed.
   await shadow(page, c => { const s = c.shadowRoot; s.querySelector('.settings__body').scrollTop = s.querySelector('.settings__body').scrollHeight; });
   await page.evaluate(() => document.fonts.ready);
