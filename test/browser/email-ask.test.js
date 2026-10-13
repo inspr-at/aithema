@@ -26,7 +26,7 @@ async function fixture(page, locale, { delivery = false, address = null, confirm
     const { voiceEvents } = await import('/packages/core/src/live-voice.js');
     window.ait164Fetch ??= window.fetch.bind(window);
     const allowancesMicro = { anonymous: 12_000_000, emailGiven: 18_000_000, emailConfirmed: 24_000_000 };
-    const state = window.ait164 = { address, confirmed, spent: 3_450_000, ask: {}, after: 0, saving: false, linkFails: false, requests: [], voiceEvents: null };
+    const state = window.ait164 = { address, confirmed, spent: 3_450_000, ask: {}, after: 0, saving: false, saveFails: false, linkFails: false, requests: [], voiceEvents: null };
     const tier = () => state.confirmed ? 'emailConfirmed' : state.address ? 'emailGiven' : 'anonymous';
     const identity = () => ({ ...c.session.identity, address: state.address, status: state.confirmed ? 'verified' : state.address && delivery ? 'verification-pending' : 'guest',
       assessmentUnlocked: true, conceptsUnlocked: true, verificationRequired: false, pollVerification: false, resendAfterMs: 0, delivery: 'sent' });
@@ -44,7 +44,7 @@ async function fixture(page, locale, { delivery = false, address = null, confirm
       if (path.endsWith('/credits')) return Response.json(credits());
       if (path === `/api/sessions/${c.session.id}`) return Response.json({ ...c.session, identity: identity(), featureMatrix: c.session.featureMatrix });
       if (path.endsWith('/visitor/email')) {
-        if (method === 'PUT') { state.requests.push('save'); while (state.saving) await new Promise(resolve => setTimeout(resolve, 20)); state.address = JSON.parse(init.body).address; state.confirmed = false; }
+        if (method === 'PUT') { state.requests.push('save'); while (state.saving) await new Promise(resolve => setTimeout(resolve, 20)); if (state.saveFails) return Response.json({ error: 'unavailable' }, { status: 503 }); state.address = JSON.parse(init.body).address; state.confirmed = false; }
         return Response.json({ visitor: visitor(), notice: { version: 'ait-135-v1', deliveryEnabled: delivery }, privacyDocumentConfigured: true });
       }
       if (path.endsWith('/identity')) return Response.json({ identity: identity(), delivery, privacyDocumentConfigured: true });
@@ -133,6 +133,15 @@ test('AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layou
       await fixture(page, locale, { delivery: true }); baseline = await boxes(page, targets); await reply(); await shot('gate-mail');
       await shadow(page, c => { c.shadowRoot.querySelector('#email-ask-input').value = 'visitor@example.test'; c.shadowRoot.querySelector('#email-ask-form').requestSubmit(); }); await settle();
       assert.deepEqual(await page.evaluate(() => window.ait164.requests), ['save', 'link']); await shot('gate-saved-mail');
+      await fixture(page, locale); baseline = await boxes(page, targets); await reply();
+      await page.evaluate(() => { window.ait164.saveFails = true; });
+      await shadow(page, c => { c.shadowRoot.querySelector('#email-ask-input').value = 'visitor@example.test'; c.shadowRoot.querySelector('#email-ask-form').requestSubmit(); }); await shot('gate-save-failed');
+      assert.equal(await page.evaluate(() => window.ait164.address), null);
+      await fixture(page, locale, { delivery: true }); baseline = await boxes(page, targets); await reply();
+      await page.evaluate(() => { window.ait164.linkFails = true; });
+      await shadow(page, c => { c.shadowRoot.querySelector('#email-ask-input').value = 'visitor@example.test'; c.shadowRoot.querySelector('#email-ask-form').requestSubmit(); }); await shot('gate-saved-delivery-failed');
+      assert.equal(await page.evaluate(() => window.ait164.credits().tiers.current), 'emailGiven');
+      assert.match(await shadow(page, c => c.shadowRoot.querySelector('.email-ask__hint').textContent), locale === 'de' ? /konnte.*nicht/u : /could not/u);
       for (const [state, options] of [
         ['low-text', { low: true }], ['low-voice', { low: true, voice: true }],
         ['low-given', { low: true, address: 'visitor@example.test' }], ['low-confirmed', { low: true, address: 'visitor@example.test', delivery: true, confirmed: true }],
