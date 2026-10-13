@@ -606,7 +606,7 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
   const click = (page, selector) => shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).click(), selector);
   const selectors = ['.band', '.audio-rail', '.voice-notices', '.concept-bar', '.transcript-shell', '.composer-dock'];
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390]) {
-    await t.test(`${width} ${theme} ${locale}`, async () => {
+    await t.test(`${width} ${theme} ${locale}`, async st => {
       const context = await browser.createBrowserContext(), page = await context.newPage();
       page.on('pageerror', error => errors.push(error.message));
       await page.setViewport({ width, height: width === 390 ? 844 : 900 });
@@ -616,15 +616,20 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
       await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
       await until(page, () => document.querySelector('aithema-session')?.session?.id);
       await page.select('#locale', locale); await page.select('#theme', theme); await mockConsent(page);
+      st?.diagnostic('Loaded conversation and consent');
+      await click(page, '.chooser__continue');
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').dataset.stage === 'ready');
       await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.voice-start').disabled);
-      await click(page, '.voice-start');
+      await click(page, '.ready__mode[data-mode="voice"]'); await click(page, '.ready__start');
       await until(page, () => ['speaking', 'listening'].includes(document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state));
       await page.evaluate(async () => { await document.fonts.ready; }); await settle();
+      st?.diagnostic('Started original call');
       const label = `${width}-${theme}-${locale}`, before = await layoutBoxes(page, selectors);
       const call = await page.evaluate(() => JSON.parse(sessionStorage.getItem(`aithema-voice-call:${document.querySelector('aithema-session').session.id}`)));
       const other = await context.newPage(); other.on('pageerror', error => errors.push(error.message));
       await other.setViewport({ width, height: width === 390 ? 844 : 900 });
       await other.goto(demo.url, { waitUntil: 'domcontentloaded' }); await state(other, 'waiting');
+      st?.diagnostic('Newcomer offers takeover');
       assert.equal(await shadow(other, c => c.shadowRoot.querySelector('.pause').textContent.trim()), { de, en }[locale].voiceTakeover);
       await click(other, '.pause'); await until(other, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.pause').textContent.includes('übernehmen') &&
         !document.querySelector('aithema-session').shadowRoot.querySelector('.pause').textContent.includes('Take over'));
@@ -636,6 +641,7 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
       const shot = async (target, name) => { const file = `ait-138-d-${name}-${label}.png`; files.push(file);
         if (evidence) await target.screenshot({ path: join(evidence, file), fullPage: false }); };
       await shot(page, 'old-tab');
+      st?.diagnostic('Captured old-tab notice');
       await other.bringToFront(); await click(other, '.pause'); await state(other, 'listening');
       const next = await other.evaluate(() => JSON.parse(sessionStorage.getItem(`aithema-voice-call:${document.querySelector('aithema-session').session.id}`)));
       assert.equal(next.callId, call.callId); assert.equal(next.epoch, call.epoch + 1);
@@ -644,6 +650,7 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
       await state(other, 'waiting'); await settle();
       assert.equal(await shadow(other, c => c.shadowRoot.querySelector('textarea').placeholder), { de, en }[locale].placeholder);
       sameBoxes(heldBefore, await layoutBoxes(other, selectors), `${label}: wake waiting`); await shot(other, 'wake-waiting');
+      st?.diagnostic('Captured wake waiting');
       await click(other, '.pause'); await state(other, 'listening');
       const restarted = await other.evaluate(() => JSON.parse(sessionStorage.getItem(`aithema-voice-call:${document.querySelector('aithema-session').session.id}`)));
       const port = new URL(demo.url).port;
@@ -656,6 +663,7 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
       const restored = await other.evaluate(() => JSON.parse(sessionStorage.getItem(`aithema-voice-call:${document.querySelector('aithema-session').session.id}`)));
       assert.equal(restored.callId, restarted.callId); assert.notEqual(restored.providerSessionId, restarted.providerSessionId);
       await settle(); sameBoxes(heldBefore, await layoutBoxes(other, selectors), `${label}: restart recovered`); await shot(other, 'restart-recovered');
+      st?.diagnostic('Captured recovery after SIGKILL/reload');
       checks.push({ width, theme, locale, callIdPreserved: true, epochAdvanced: true, captureRequiresResume: true,
         restart: 'SIGKILL and durable SQLite reload', layoutShiftPx: 0, pass: true });
       await click(other, '.voice-close'); await state(other, 'idle'); await context.close();
