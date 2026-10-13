@@ -223,7 +223,8 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .m-addr { margin:0; min-height:2.8em; max-height:2.8em; overflow:auto; font-size:.95rem; color:var(--aithema-ink); font-weight:600; overflow-wrap:anywhere; }
 .m-tier { display:flex; align-items:center; gap:.4rem; margin:0; font-size:.85rem; color:var(--aithema-muted); font-variant-numeric:tabular-nums; }
 .m-tier svg { flex:none; color:var(--aithema-accent); }
-.m-acts { display:flex; align-items:center; flex-wrap:wrap; gap:0 24px; margin-top:.15rem; }
+/* Paired actions share a row; longer localized labels shrink within their button. */
+.m-acts { display:flex; align-items:center; flex-wrap:nowrap; gap:0 24px; margin-top:.15rem; }
 .m-act { min-height:44px; padding:0 .85rem; border-radius:.6rem; color:var(--aithema-accent); font-weight:600; font-size:.85rem; }
 .m-act:hover { background:color-mix(in srgb,var(--aithema-accent) 8%,transparent); }
 .host-mail .m-acts > button { margin-left:0; }
