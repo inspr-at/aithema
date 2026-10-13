@@ -264,6 +264,7 @@ export class AudioRail {
           this.pauseRevision++; this.pauseCommand = null; this.busy = false;
           this.state = 'waiting'; this.paused = true; this.moved = event.reason === 'ownership-lost';
           this.errorKey = this.moved ? 'voiceMoved' : null; this.quiet();
+          if (this.moved) this.notices.clear();
           this.root.querySelector('.voice-caption').textContent = '';
         }
         if (event.type === 'ended') {

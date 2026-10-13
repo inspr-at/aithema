@@ -367,6 +367,10 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           body.epoch !== undefined && (!Number.isSafeInteger(body.epoch) || body.epoch < 0)) throw new TypeError('Invalid tab authority');
         if (action === 'recover' && body.explicit !== undefined && typeof body.explicit !== 'boolean') throw new TypeError('Invalid recovery intent');
         if (!action) {
+          const current = storage.voiceLifecycle(sessionId);
+          if (current?.state !== 'ended' && current?.controllingTabId && current.controllingTabId !== body.tabId) {
+            throw new ConflictError('Voice ownership lost');
+          }
           if (typeof body.callId !== 'string' || !new RegExp(`^${idPattern}$`, 'u').test(body.callId) || calls.has(body.callId) || storage.voiceCalls(sessionId).some(c => c.callId === body.callId)) throw new ConflictError('Call identity reused');
           onActivity?.(storage.get(sessionId));
           return json(await start(request, sessionId, ownerToken, body.callId, undefined, false, body.tabId), 201);
@@ -525,8 +529,6 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         if (logical?.state === 'ended') continue;
         storage.transitionVoiceLifecycle(record.sessionId, record.callId, { type: 'server-restart' });
         endAuthority(record.sessionId, record.callId);
-        const entry = calls.get(record.callId);
-        if (entry) await close(entry, 'server-restart', 'cancelled');
         publish(record.sessionId, { type: 'voice.state', data: { ...this.snapshot(record.sessionId), reason: 'server-restart' } });
       }
       // The exclusive writer has already conservatively recovered all open claims.

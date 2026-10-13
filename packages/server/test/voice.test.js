@@ -18,6 +18,7 @@ test('AIT-138 d: concurrent tab denied; explicit atomic takeover holds both tabs
   const first = await h.route('/voice', { callId: 'tabs', tabId: 'old-tab' }).then(r => r.json());
   const old = { providerSessionId: first.providerSessionId, tabId: 'old-tab', epoch: first.epoch };
   assert.equal((await h.route('/voice/tabs/recover', { ...old, tabId: 'new-tab', explicit: true })).status, 409);
+  assert.equal((await h.route('/voice', { callId: 'other-call', tabId: 'new-tab' })).status, 409, 'a new callId cannot bypass ownership');
   const takeover = await h.route('/voice/tabs/takeover', { ...old, tabId: 'new-tab', explicit: true });
   assert.equal(takeover.status, 200);
   const held = await takeover.json();
