@@ -74,3 +74,21 @@ test('AIT-165 no issuer/client/subjects/origin means no plugin; invalid complete
     assert.throws(() => zitadelOperatorConfig({ ...full, AITHEMA_OPERATOR_ISSUER: issuer }), TypeError);
   }
 });
+
+test('AIT-165 a second sign-in revokes the previous grant and logout clears independent cookies', async t => {
+  const f = await fixture(t);
+  const signIn = async () => {
+    const p = await f.login(), response = await f.port.handle(f.req(p.callback.pathname + p.callback.search, p.cookie));
+    return response.headers.getSetCookie().find(v => v.startsWith(OPERATOR_COOKIE + '=')).split(';')[0];
+  };
+  const first = await signIn(), second = await signIn();
+  // Supersession is bound to the browser presenting its old grant.
+  const p = await f.login(), response = await f.port.handle(f.req(p.callback.pathname + p.callback.search, p.cookie + '; ' + first));
+  assert.equal(f.port.session(f.req('/', first)), null);
+  assert.deepEqual(f.port.session(f.req('/', second)), { name: 'Ada' }, 'a separate browser remains signed in');
+  const latest = response.headers.getSetCookie().find(v => v.startsWith(OPERATOR_COOKIE + '=')).split(';')[0];
+  const logout = await f.port.handle(f.req('/api/operator/logout/', latest, { method: 'POST', headers: { origin: f.config.publicOrigin } }));
+  assert.equal(logout.headers.getSetCookie().length, 2);
+  assert.ok(logout.headers.getSetCookie().every(c => c.includes('Max-Age=0')));
+  assert.equal(f.port.session(f.req('/', latest)), null);
+});

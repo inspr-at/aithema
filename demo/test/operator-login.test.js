@@ -107,3 +107,20 @@ for (const key of ['AITHEMA_OPERATOR_ISSUER', 'AITHEMA_OPERATOR_CLIENT_ID', 'AIT
     assert.equal(f.issuer.exchanges.length, 0); assert.equal(f.issuer.keysRead(), 0);
   });
 }
+
+for (const claims of [{ sub: 'second-operator' }, { aud: ['fixture-client', 'other'], azp: 'fixture-client' }]) {
+  test('AIT-165 accepts explicitly allowed subjects and authorized multiple audiences', async t => {
+    const f = await fixture(t), response = await f.callback(await f.login(claims));
+    assert.ok(f.grant(response));
+    assert.deepEqual((await (await f.call('/demo/config', f.grant(response))).json()).operator, { name: 'Ada' });
+  });
+}
+
+test('AIT-165 host/Origin guards run before operator routes; a header or query cannot impersonate a grant', async t => {
+  const f = await fixture(t);
+  for (const headers of [{ host: 'evil.test' }, { origin: 'https://evil.test' }]) {
+    assert.equal((await f.call('/api/operator/login/', '', { headers })).status, 403);
+  }
+  const visitor = await (await f.call('/demo/config?operator=Ada', '', { headers: { 'x-aithema-session-token': 'allowed-operator' } })).json();
+  assert.equal(Object.hasOwn(visitor, 'operator'), false); assert.equal(f.issuer.exchanges.length, 0);
+});
