@@ -609,7 +609,16 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
     let complete = false;
     await t.test(`${width} ${theme} ${locale}`, async st => {
       const context = await browser.createBrowserContext(), page = await context.newPage();
-      st.after(() => context.close());
+      let other;
+      st.after(async () => {
+        if (!complete) {
+          const inspect = target => target?.evaluate(() => { const c = document.querySelector('aithema-session'); return {
+            session: c?.session?.id, voice: c?.session?.voiceLifecycle, state: c?.shadowRoot?.querySelector('.audio-rail')?.dataset.state,
+            message: c?.shadowRoot?.querySelector('.voice-state')?.textContent, errors: document.querySelector('#error')?.textContent }; }).catch(() => null);
+          st.diagnostic(JSON.stringify({ original: await inspect(page), newcomer: await inspect(other), errors }));
+        }
+        await context.close();
+      });
       page.on('pageerror', error => errors.push(error.message));
       await page.setViewport({ width, height: width === 390 ? 844 : 900 });
       await page.evaluateOnNewDocument(locale => {
@@ -631,7 +640,7 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
       st?.diagnostic('Started original call');
       const label = `${width}-${theme}-${locale}`, before = await layoutBoxes(page, selectors);
       const call = await page.evaluate(() => JSON.parse(sessionStorage.getItem(`aithema-voice-call:${document.querySelector('aithema-session').session.id}`)));
-      const other = await context.newPage(); other.on('pageerror', error => errors.push(error.message));
+      other = await context.newPage(); other.on('pageerror', error => errors.push(error.message));
       await other.setViewport({ width, height: width === 390 ? 844 : 900 });
       await other.goto(demo.url, { waitUntil: 'domcontentloaded' }); await state(other, 'waiting');
       st?.diagnostic('Newcomer offers takeover');
