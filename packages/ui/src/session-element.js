@@ -325,6 +325,7 @@ export class AithemaSession extends HTMLElement {
       waitingCall: this.#session.voiceLifecycle,
       feature: () => this.#feature('voice', true), playback: this.#voicePlayback, journal: this.#journal ?? undefined,
       ready: () => this.#orphan, onLevel: level => this.#orb?.setEnergy(level),
+      onRender: rail => this.#syncVoicePause(rail),
       // A call that starts, ends or fails moves the stage and the avatar with it.
       onState: state => {
         // A call the visitor started keeps the conversation open after it ends. Only a running call counts:
@@ -599,6 +600,20 @@ export class AithemaSession extends HTMLElement {
     if (['features', 'transcript', 'aside'].includes(part)) { this.#anchored(() => this.#paint(part)); return; }
     this.#paint(part);
   }
+  #syncVoicePause(rail = this.#rail) {
+    const pause = this.shadowRoot.querySelector('.pause');
+    if (!pause) return;
+    if (rail?.session || rail?.waitingCall || rail?.state === 'connecting') {
+      const command = rail.button('pause'); pause.dataset.voiceCommand = '';
+      // Waiting can stay Waiting while a takeover receipt changes its command.
+      // Mirror every rail render instead of waiting for a state transition.
+      pause.disabled = command.disabled; pause.title = command.title;
+      setText(pause.querySelector('.voice-label'), command.querySelector('.voice-label').textContent);
+      pause.setAttribute('aria-pressed', command.getAttribute('aria-pressed'));
+    } else if (pause.hasAttribute('data-voice-command')) {
+      pause.disabled = false; delete pause.dataset.voiceCommand;
+    }
+  }
   #paint(part) {
     const root = this.shadowRoot, copy = this.#copy;
     this.#paintStatus(); this.#paintNotice(); this.#fold?.update(this.#session, hasOpenReplyQuestion(this.#session));
@@ -608,7 +623,7 @@ export class AithemaSession extends HTMLElement {
       const voicePaused = this.#rail?.session || this.#rail?.waitingCall ? this.#rail.pauseIntent : this.#session.paused;
       setText(pause.querySelector('.voice-label'), this.#rail?.requiresTakeover || this.#rail?.moved ? copy.voiceTakeover : voicePaused ? copy.resume : copy.pause); pause.title = pause.textContent;
       pause.setAttribute('aria-pressed', String(Boolean(voicePaused)));
-      if (this.#rail?.session || this.#rail?.waitingCall || this.#rail?.state === 'connecting') pause.disabled = this.#rail.button('pause').disabled;
+      this.#syncVoicePause();
     }
     const element = (tag, value, className) => {
       const node = document.createElement(tag); if (value !== undefined) node.textContent = value;

@@ -9,8 +9,8 @@ import { watchVoiceHeartbeat, voiceAuthorityLost } from '../../core/src/voice-li
 // End and Retry call, Sound and Enable sound), so no state change moves a control.
 const BUTTONS = { start: ['mic'], input: ['mic', true], output: ['volume', true], playback: ['volume'], close: ['stop'], retry: ['refresh'] };
 export class AudioRail {
-  constructor({ root, noticesRoot, copy, client, feature, context, onPartial, onPause, onEnd, onState, onLevel, playback, journal, ready, waitingCall, heartbeatMs = 10_000 }) {
-    Object.assign(this, { root, copy, client, feature, context, onPartial, onPause, onEnd, onState, onLevel, playback, journal, ready, heartbeatMs });
+  constructor({ root, noticesRoot, copy, client, feature, context, onPartial, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, waitingCall, heartbeatMs = 10_000 }) {
+    Object.assign(this, { root, copy, client, feature, context, onPartial, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, heartbeatMs });
     this.state = 'idle'; this.input = true; this.output = true; this.generation = 0; this.connected = true;
     this.pauseRequests = new Set(); this.resumeRequests = new Map(); this.pauseRevision = 0;
     this.ownershipState = waitingCall;
@@ -158,6 +158,7 @@ export class AudioRail {
     this.notices.copy = c; this.notices.render();
     // A different wrapped phrase can keep the same capped box, so text repaints also measure it.
     this.measureLabel();
+    this.onRender?.(this);
   }
   failure(error) {
     this.errorKey = error?.name === 'NotAllowedError' ? 'voiceMicDenied' :
@@ -463,6 +464,6 @@ export class AudioRail {
     if (this.session || this.state === 'connecting') void this.close();
   }
   destroy() {
-    this.onState = null; this.onLevel = null; this.disconnect();
+    this.onState = null; this.onRender = null; this.onLevel = null; this.disconnect();
   }
 }
