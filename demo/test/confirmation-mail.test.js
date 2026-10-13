@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import crypto, { createHash } from 'node:crypto';
+import { syncBuiltinESMExports } from 'node:module';
+import { readFile, stat } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { createIdentity, reduceIdentity } from '@inspr/aithema-core';
 import { SQLiteStorage, createHandlers } from '../../packages/server/src/index.js';
 import { createDemoHost } from '../host-ports.js';
@@ -110,7 +113,7 @@ test('C1 24h cleanup deletes pending tokens/delivery metadata while preserving a
   f.at(181 * DAY); f.host.retainVisitors(); assert.deepEqual(f.host.visitorCredits.audit(), []);
 });
 
-test('C1 visitor erasure cascades tokens, HMAC throttle rows and delivery metadata', async t => {
+test('C1 visitor erasure cascades tokens and delivery metadata', async t => {
   const f = await fixture(t), s = f.session(); await f.request(s); const token = f.messages[0].token;
   f.host.eraseVisitor('owner'); assert.equal(f.host.confirmation.inspect(token).state, 'invalid');
   for (const table of ['visitor_confirmation_tokens', 'visitor_mail_deliveries']) assert.equal(f.storage.db.prepare(`SELECT COUNT(*) n FROM ${table}`).get().n, 0);
@@ -120,11 +123,11 @@ test('C1 address HMAC throttle permits three mails per rolling 24h across visito
   const f = await fixture(t);
   for (let i = 0; i < 4; i++) {
     const owner = `owner-${i}`, s = f.session(owner);
-    const result = await f.request(s, owner, i % 2 ? ' VISITOR@example.test '.trim() : address);
+    const result = await f.request(s, owner, i % 2 ? 'visitor@EXAMPLE.TEST' : address);
     assert.equal(result.status, i < 3 ? 'sent' : 'rate-limited');
   }
   assert.equal(f.messages.length, 3);
-  const rows = f.storage.db.prepare('SELECT * FROM visitor_mail_deliveries').all();
+  const rows = f.storage.db.prepare('SELECT * FROM visitor_mail_abuse').all();
   assert.equal(new Set(rows.map(r => r.address_key)).size, 1); assert.match(rows[0].address_key, /^[a-f0-9]{64}$/u);
   assert.notEqual(rows[0].address_key, rows[0].token_hash);
   assert.equal(JSON.stringify(rows).toLowerCase().includes(address), false);
@@ -139,20 +142,149 @@ for (const [name, headers] of [['cross-origin', { origin: 'https://evil.example.
   });
 }
 
-test('C1 real plugin obeys AIT-151 privacy funnel and cross-visitor address throttle returns existing rate limit', async t => {
+test('C1 real plugin obeys AIT-151 privacy funnel and hides the shared address limit', async t => {
   const f = await fixture(t), handlers = createHandlers({ storage: f.storage, host: f.host, consent: mockConsent }); t.after(() => handlers.close());
   const call = (path, owner, payload) => handlers.handle(new Request(`http://local${path}`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-aithema-session-token': owner }, body: JSON.stringify(payload) }));
   for (let i = 0; i < 4; i++) {
     const owner = `api-owner-${i}`, s = f.session(owner);
     const response = await call(`/api/sessions/${s.id}/identity/request`, owner, { address });
-    assert.equal(response.status, i < 3 ? 200 : 429);
-    if (i === 3) assert.equal((await response.json()).error, 'confirmation-rate-limit');
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).identity.delivery, 'sent');
+    await handlers.idle();
   }
   f.host.privacyDocumentConfigured = () => false;
   const s = f.session('privacy-owner');
   assert.equal((await call(`/api/sessions/${s.id}/identity/request`, 'privacy-owner', { address })).status, 403);
   assert.equal((await f.post(f.messages[0].token)).status, 403);
   assert.equal(f.messages.length, 3);
+});
+
+test('C1 fix1 erase-and-recreate preserves the three-mail limit and erases all visitor-linked rows', async t => {
+  const f = await fixture(t), erasedRefs = [];
+  for (let i = 0; i < 5; i++) {
+    const owner = `erased-${i}`, s = f.session(owner);
+    await f.request(s, owner);
+    const ref = f.host.visitor(owner).visitorRef;
+    erasedRefs.push(ref);
+    f.host.eraseVisitor(owner);
+    for (const table of ['visitor_identities', 'visitor_confirmation_tokens', 'visitor_mail_deliveries']) {
+      assert.equal(f.storage.db.prepare(`SELECT COUNT(*) n FROM ${table}`).get().n, 0);
+    }
+  }
+  assert.equal(f.messages.length, 3, 'erasure must not reset the shared quota');
+  for (const ref of erasedRefs) assert.equal(JSON.stringify(f.host.visitorCredits.audit()).includes(ref), false);
+  const rows = f.storage.db.prepare('SELECT * FROM visitor_mail_abuse').all();
+  assert.equal(rows.length, 3);
+  assert.deepEqual(Object.keys(rows[0]).sort(), ['address_key', 'created_at']);
+  assert.equal(f.storage.db.prepare('PRAGMA foreign_key_list(visitor_mail_abuse)').all().length, 0);
+  f.at(DAY + 1_000);
+  f.host.retainVisitors({ limit: 1 });
+  assert.equal(f.storage.db.prepare('SELECT COUNT(*) n FROM visitor_mail_abuse').get().n, 2, 'cleanup remains bounded');
+  f.host.retainVisitors();
+  assert.equal(f.storage.db.prepare('SELECT COUNT(*) n FROM visitor_mail_abuse').get().n, 0);
+  assert.equal((await f.request(f.session('after-expiry'), 'after-expiry')).status, 'sent');
+});
+
+test('C1 fix1 Unicode and punycode recipients share a quota and one stored/delivered canonical form', async t => {
+  const f = await fixture(t), canonical = 'visitor@xn--bcher-kva.test';
+  for (let i = 0; i < 4; i++) {
+    const owner = `idn-${i}`, email = i % 2 ? canonical : ' visitor@BÜCHER.test ';
+    // Exercise the HTTP boundary, including trimming before core validation.
+    const s = f.session(owner), handlers = createHandlers({ storage: f.storage, host: f.host, consent: mockConsent });
+    const response = await handlers.handle(new Request(`http://local/api/sessions/${s.id}/identity/request`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-aithema-session-token': owner }, body: JSON.stringify({ address: email }),
+    }));
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).identity.address, canonical);
+    await handlers.idle(); await handlers.close();
+    assert.equal(f.host.visitor(owner).address, canonical);
+  }
+  assert.equal(f.messages.length, 3);
+  assert.ok(f.messages.every(message => message.address === canonical));
+  const keys = f.storage.db.prepare('SELECT address_key FROM visitor_mail_abuse').all();
+  assert.equal(new Set(keys.map(row => row.address_key)).size, 1);
+  f.host.saveEmail('idn-0', { address: ' visitor@BÜCHER.test ', noticeVersion: 'ait-135-v1' });
+  const revision = f.host.visitor('idn-0').addressRevision;
+  f.host.saveEmail('idn-0', { address: canonical, noticeVersion: 'ait-135-v1' });
+  assert.equal(f.host.visitor('idn-0').addressRevision, revision);
+});
+
+for (const email of ['visitor@\u200d.test', 'visitor@xn--.test', 'visitor\u0001@example.test', 'visitor@example.test\u007f']) {
+  test(`C1 fix1 rejects invalid IDN/control address ${JSON.stringify(email)}`, async t => {
+    const f = await fixture(t);
+    assert.throws(() => f.host.saveEmail('owner', { address: email, noticeVersion: 'ait-135-v1' }), /Invalid/iu);
+  });
+}
+
+test('C1 fix1 the host HMAC secret is create-once, private and survives a database restart', async t => {
+  const db = await temporaryDb(), f = await fixture(t, { storage: new SQLiteStorage(db) });
+  const secretPath = join(dirname(db), 'confirmation-hmac.key');
+  const key = await readFile(secretPath);
+  assert.equal(key.length, 32);
+  assert.equal((await stat(secretPath)).mode & 0o777, 0o600);
+  for (let i = 0; i < 3; i++) { const owner = `persistent-${i}`; await f.request(f.session(owner), owner); f.host.eraseVisitor(owner); }
+  f.storage.close();
+  const reopened = new SQLiteStorage(db), again = await fixture(t, { storage: reopened });
+  assert.ok(key.equals(await readFile(secretPath)), 'restart must not rotate the host secret');
+  assert.equal((await again.request(again.session('restart'), 'restart')).status, 'rate-limited');
+  assert.equal(reopened.db.prepare("SELECT 1 FROM sqlite_master WHERE name='visitor_mail_key'").get(), undefined);
+});
+
+test('C1 fix1 accepted/suppressed HTTP responses match and finish before SMTP; outage stays private', async t => {
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  const messages = [];
+  const f = await fixture(t, { mailPlugin: { id: 'smtp', deliversVerification: true, async requestVerification(effect) {
+    messages.push(effect); await held; throw new Error('relay unavailable');
+  } } });
+  const handlers = createHandlers({ storage: f.storage, host: f.host, consent: mockConsent });
+  t.after(() => handlers.close());
+  const call = (s, owner, command = 'request') => handlers.handle(new Request(`http://local/api/sessions/${s.id}/identity/${command}`, {
+    method: 'POST', headers: { 'content-type': 'application/json', 'x-aithema-session-token': owner },
+    body: JSON.stringify(command === 'request' ? { address } : {}),
+  }));
+  const responseBeforeMail = async (s, owner) => {
+    let timer;
+    const response = await Promise.race([call(s, owner), new Promise(resolve => { timer = setTimeout(() => resolve(null), 250); })]);
+    clearTimeout(timer);
+    assert.ok(response, 'HTTP must not wait for SMTP');
+    return { status: response.status, headers: [...response.headers], body: await response.json() };
+  };
+  try {
+    const first = f.session('async-0'), accepted = await responseBeforeMail(first, 'async-0');
+    assert.equal(messages.length, 0, 'SMTP starts after the response');
+    assert.equal(accepted.body.identity.delivery, 'sent');
+    // Let queued reservations complete without waiting on the held SMTP calls.
+    await new Promise(resolve => setImmediate(resolve));
+    for (let i = 1; i < 3; i++) { await responseBeforeMail(f.session(`async-${i}`), `async-${i}`); await new Promise(resolve => setImmediate(resolve)); }
+    const suppressed = await responseBeforeMail(f.session('async-3'), 'async-3');
+    assert.deepEqual(suppressed, accepted);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(messages.length, 3);
+    assert.equal((await call(first, 'async-0', 'resend')).status, 429, 'own cooldown stays observable');
+    release(); await handlers.idle();
+    for (const owner of ['async-0', 'async-3']) assert.equal(f.host.identity.project({ session: f.storage.get(f.storage.ownedIds(owner)[0]) }, createIdentity()).delivery, 'sent');
+  } finally { release(); }
+});
+
+test('C1 fix1 inspection and redemption use fixed-length timingSafeEqual and handle malformed lengths', async t => {
+  const f = await fixture(t); await f.request(f.session()); const token = f.messages[0].token;
+  const original = crypto.timingSafeEqual, calls = [];
+  const mocked = t.mock.method(crypto, 'timingSafeEqual', (left, right) => {
+    calls.push([left.length, right.length]); return original(left, right);
+  });
+  syncBuiltinESMExports();
+  t.after(() => { mocked.mock.restore(); syncBuiltinESMExports(); });
+  assert.equal(f.host.confirmation.inspect(token).state, 'valid');
+  assert.deepEqual(calls.pop(), [32, 32]);
+  assert.equal(f.host.confirmation.redeem(token.split('.')[0] + '.short').state, 'invalid');
+  assert.deepEqual(calls.pop(), [32, 32], 'redemption hashes even a short supplied bearer');
+  const digest = createHash('sha256').update(token).digest('hex');
+  f.storage.db.prepare('UPDATE visitor_confirmation_tokens SET token_hash=? WHERE token_hash=?').run('aa', digest);
+  f.storage.db.prepare('UPDATE visitor_mail_deliveries SET token_hash=? WHERE token_hash=?').run('aa', digest);
+  assert.equal(f.host.confirmation.inspect(token).state, 'invalid');
+  assert.equal(f.host.confirmation.redeem(token).state, 'invalid');
+  assert.ok(calls.every(([a, b]) => a === 32 && b === 32), 'malformed stored length must never reach timingSafeEqual');
 });
 
 test('C1 production host rejects a mock mail transport and absent config stays at email-given', async t => {
