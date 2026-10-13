@@ -48,6 +48,7 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
       c.configure({ copy, session, host: { library: true } });
       c.shadowRoot.activeElement?.blur();
       document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
+      for (const [selector, value] of [['#demo-account-label', copy.host.slots.account], ['#demo-account-note', copy.host.slots.accountNote], ['#demo-account-source', copy.host.slots.source]]) document.querySelector(selector).textContent = value;
       c.shadowRoot.querySelector('.transcript-shell').scrollTop = 0; scrollTo(0, 0);
     }, locale);
     await page.mouse.move(0, 500); await settle();
