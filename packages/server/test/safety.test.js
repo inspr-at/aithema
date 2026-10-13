@@ -336,7 +336,7 @@ test('consent withdrawal stops reaction deltas and ignores a stream that returns
   const storage = new SQLiteStorage(), mock = createMockReasoning(), held = deferred(), started = deferred();
   let signal;
   const handlers = handlersWith({ storage, consent, reasoning: { ...mock, async *stream(req, options) {
-    signal = options.signal; yield 'Before revocation'; started.resolve(); await held.promise; yield 'Late private delta';
+    signal = options.signal; yield 'Before revocation.'; started.resolve(); await held.promise; yield 'Late private delta';
   } } });
   let subscription, collected = '';
   try {

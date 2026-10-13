@@ -98,19 +98,20 @@ export class SessionLanes {
         if (this.beforeDispatch && !await untilCancelled(this.beforeDispatch(id, lane, this.reasoning, revision, options), scope.signal)) return 'blocked';
         if (!current() || this.getSession(id).paused) return 'stale';
         const turnId = crypto.randomUUID();
-        const reply = new ReplyStream(), opener = new ReplyOpenerStream(session.locale); let decoded = '', shown = '';
+        const reply = new ReplyStream(), opener = new ReplyOpenerStream(session.locale); let decoded = '', shown = '', draftProducer;
         const request = reasoningRequest(session, lane, false, this.hostPrompt);
         const admitted = await this.admit?.({ session: this.getSession(id), lane, operation: 'stream', request, options });
         let failed = false;
         try { for await (const delta of cancellableStream((admitted?.plugin ?? this.reasoning).stream(request, admitted?.options ?? options), scope.signal)) {
           if (!current()) return 'stale';
           const chunk = reply.push(delta); decoded += chunk;
+          if (chunk) draftProducer = producer(admitted, admitted?.plugin ?? this.reasoning);
           const text = opener.push(chunk);
           if (!text) continue;
           shown += text;
           // Tagged with the settings revision it started under, so a client never shows a
           // superseded stream beside its replacement.
-          this.transient(id, { type: 'turn.partial', data: { id: turnId, delta: text, ...producer(admitted, admitted?.plugin ?? this.reasoning),
+          this.transient(id, { type: 'turn.partial', data: { id: turnId, delta: text, ...draftProducer,
             inputRevision: revision, settingsRevision: session.settings?.revision ?? 0 } });
         } } catch (error) { failed = true; throw error; }
         finally { admitted?.finish({ failed }); }
@@ -120,7 +121,7 @@ export class SessionLanes {
         // A provider may reorder JSON properties; reveal its remaining text only after parsing.
         const tail = (rawContent.startsWith(decoded) ? opener.push(rawContent.slice(decoded.length)) : '') + opener.finish();
         if (tail) this.transient(id, { type: 'turn.partial', data: {
-          id: turnId, delta: tail, ...producer(admitted, admitted?.plugin ?? this.reasoning),
+          id: turnId, delta: tail, ...(draftProducer ?? producer(admitted, admitted?.plugin ?? this.reasoning)),
           inputRevision: revision, settingsRevision: session.settings?.revision ?? 0 } });
         const content = shown + tail;
         if (opener.stripped) this.onOpenerStripped();

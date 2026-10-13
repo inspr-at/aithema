@@ -80,8 +80,8 @@ test('AIT-157: long recognised opener stays private beyond the soft buffer cap',
 
 test('AIT-157: voice forwards ordinary replies as soon as the prefix is unambiguous', () => {
   const stream = new core.ReplyOpenerStream('en', { bufferNormal: false });
-  assert.equal(stream.push('H'), 'H');
-  assert.equal(stream.push('ello'), 'ello');
+  assert.equal(stream.push('H'), '', 'H can still become Herzlichen Dank');
+  assert.equal(stream.push('ello'), 'Hello');
   assert.equal(stream.finish(), '');
 });
 for (const input of ['Gut, dann beginnen wir. Danke für Ihre Nachricht.', 'Das hilft uns. Vielen Dank.',
