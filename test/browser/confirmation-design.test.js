@@ -156,6 +156,7 @@ test('C2 viewport evidence: DE/EN mail and every landing state, light/dark, zero
             duplicateBlocked: !form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true })) });
         }, { once: true }));
         const postCount = f.posts();
+        const postResponse = page.waitForResponse(response => response.request().method() === 'POST' && new URL(response.url()).pathname === '/confirm-email');
         await page.click('button[type=submit]');
         await held.arrived;
         const submitted = await submission, during = submitted.geometry;
@@ -163,7 +164,8 @@ test('C2 viewport evidence: DE/EN mail and every landing state, light/dark, zero
         assert.equal(submitted.status, confirmationCopy[locale].ready.busy); assert.equal(submitted.duplicateBlocked, true);
         await shot(`c2-landing-confirming-${locale}-${theme}-${width}`);
         const navigation = page.waitForNavigation({ waitUntil: 'networkidle0' });
-        held.release(); const response = await navigation;
+        held.release(); const [response] = await Promise.all([postResponse, navigation]);
+        await page.waitForSelector('[data-confirmation-state=confirmed]');
         assert.equal(f.lastPost().origin, f.url, 'the native form carries the configured Origin');
         assert.equal(f.lastPost().referer, f.url + '/', 'the bearer token never enters the Referer');
         assert.equal(response.status(), 200, 'the real form POST succeeds');
@@ -189,7 +191,9 @@ test('C2 viewport evidence: DE/EN mail and every landing state, light/dark, zero
   }
   // Reduced motion disables both the spinner and one-time check animation.
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
-  const reduced = await f.prepare('confirmed', 'en'); await page.goto(reduced.url, { waitUntil: 'networkidle0' });
+  const reduced = await f.prepare('ready', 'en'); await page.goto(reduced.url, { waitUntil: 'networkidle0' });
+  await Promise.all([page.waitForNavigation({ waitUntil: 'networkidle0' }), page.click('button[type=submit]')]);
+  await page.waitForSelector('[data-confirmation-state=confirmed]');
   assert.equal(await page.$eval('.confirm-icon--draw path', el => getComputedStyle(el).animationName), 'none');
   assert.equal(await page.$eval('.confirm-icon--draw path', el => getComputedStyle(el).strokeDashoffset), '0px');
   // Without JavaScript, the original form still sends a real CSRF-safe POST.
