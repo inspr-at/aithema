@@ -104,6 +104,8 @@ test('AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layou
     browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, locale), env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
     const page = await browser.newPage(), errors = []; page.on('pageerror', error => errors.push(error.message));
     await page.goto(demo.url, { waitUntil: 'domcontentloaded' }); await until(page, () => document.querySelector('aithema-session')?.session);
+    await page.select('#locale', locale);
+    await until(page, locale => document.querySelector('aithema-session')?.session.locale === locale, locale);
     for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
       await page.setViewport({ width, height: 1000 }); await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme);
       const label = `${locale}-${theme}-${width}`;
