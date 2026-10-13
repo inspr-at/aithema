@@ -28,7 +28,7 @@ async function browserPath() {
 
 async function fixture() {
   const storage = new SQLiteStorage(), messages = [];
-  let time = 1_000, counter = 0, page, posts = 0;
+  let time = 1_000, counter = 0, page, posts = 0, postGate, lastPost;
   const host = createDemoHost({ storage, demo: false, now: () => time, privacyDocumentConfigured: () => true,
     mailPlugin: { id: 'smtp', deliversVerification: true, async requestVerification(effect) { messages.push(effect); return { status: 'sent' }; } } });
   host.visitorCredits.saveSettings({ baseRevision: 1, allowancesUsd: { anonymous: '10', emailGiven: '15', emailConfirmed: '20' }, confirmationEnabled: true }, { actor: 'ops-cli:test', source: 'ops-cli' });
@@ -41,7 +41,11 @@ async function fixture() {
       const locale = u.searchParams.get('lang') === 'de' ? 'de' : 'en';
       return new Response(mail(locale).html, { headers: { 'content-type': 'text/html' } });
     }
-    if (request.method === 'POST') posts++;
+    if (request.method === 'POST') {
+      posts++;
+      lastPost = { origin: request.headers.get('origin'), referer: request.headers.get('referer') };
+      if (postGate) { const held = postGate; postGate = undefined; held.arrive(); await held.pending; }
+    }
     return await page.handle(request) ?? new Response(null, { status: 404 });
   });
   page = createConfirmationPage({ host, publicOrigin: server.url, now: () => time });
@@ -67,7 +71,13 @@ async function fixture() {
     }
     return { url: server.url + '/confirm-email?token=' + (state === 'invalid' ? 'invalid' : token) + '&lang=' + locale, token, owner, address };
   }
-  return { url: server.url, host, mail, prepare, posts: () => posts,
+  return { url: server.url, host, mail, prepare, posts: () => posts, lastPost: () => lastPost,
+    holdNextPost() {
+      let arrive, release;
+      const arrived = new Promise(resolve => { arrive = resolve; }), pending = new Promise(resolve => { release = resolve; });
+      postGate = { arrive, pending };
+      return { arrived, release };
+    },
     async close() { await new Promise(resolve => { server.server.close(resolve); server.server.closeAllConnections(); }); storage.close(); } };
 }
 
@@ -85,6 +95,8 @@ test('C2 viewport evidence: DE/EN mail and every landing state, light/dark, zero
     env: { PATH: process.env.PATH, HOME: homedir() }, userDataDir: join(directory, 'chrome'),
     args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
   const page = await browser.newPage(); page.setDefaultTimeout(15_000);
+  let resolveSubmission;
+  await page.exposeFunction('recordConfirmationSubmit', result => resolveSubmission(result));
   const evidence = process.env.AITHEMA_EVIDENCE_DIR, pass = [], shots = [], errors = [], external = [];
   const head = process.env.GITHUB_SHA ?? basename(dirname(process.cwd())).match(/^[a-f0-9]{10}(?=-)/u)?.[0] ?? 'working-tree';
   if (evidence) await mkdir(evidence, { recursive: true });
@@ -131,31 +143,36 @@ test('C2 viewport evidence: DE/EN mail and every landing state, light/dark, zero
           dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
           return [duplicateBlocked, !document.querySelector('.confirm-card').hasAttribute('data-busy'), !form.querySelector('button').hasAttribute('aria-disabled'), document.querySelector('[role=status]').textContent];
         }), [true, true, true, '']);
-        // Hold the genuine POST at the browser boundary to capture the busy viewport.
-        await page.setRequestInterception(true);
-        let release;
-        const intercepted = new Promise(resolve => { release = resolve; });
-        const handleRequest = request => {
-          if (request.method() === 'POST') { release(request); } else void request.continue();
-        };
-        page.on('request', handleRequest);
+        // Hold the server response while the genuine POST is pending.
+        const held = f.holdNextPost();
+        const submission = new Promise(resolve => { resolveSubmission = resolve; });
+        await page.$eval('form', form => form.addEventListener('submit', () => {
+          // The product handler ran first. Measure its pending state before the
+          // browser discards this document for the form navigation.
+          const rect = node => { const r = node.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; };
+          const card = form.closest('.confirm-card'), button = form.querySelector('button');
+          void window.recordConfirmationSubmit({ geometry: { card: rect(card), button: rect(button) }, busy: card.dataset.busy,
+            disabled: button.getAttribute('aria-disabled'), status: card.querySelector('[role=status]').textContent,
+            duplicateBlocked: !form.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true })) });
+        }, { once: true }));
         const postCount = f.posts();
         await page.click('button[type=submit]');
-        const post = await intercepted;
-        await page.waitForSelector('.confirm-card[data-busy]');
-        const during = await geometry(page);
-        assert.equal(await page.$eval('button', el => el.getAttribute('aria-disabled')), 'true');
-        assert.equal(await page.$eval('[role=status]', el => el.textContent), confirmationCopy[locale].ready.busy);
-        assert.equal(await page.$eval('form', el => !el.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }))), true);
+        await held.arrived;
+        const submitted = await submission, during = submitted.geometry;
+        assert.equal(submitted.busy, 'true'); assert.equal(submitted.disabled, 'true');
+        assert.equal(submitted.status, confirmationCopy[locale].ready.busy); assert.equal(submitted.duplicateBlocked, true);
         await shot(`c2-landing-confirming-${locale}-${theme}-${width}`);
         const navigation = page.waitForNavigation({ waitUntil: 'networkidle0' });
-        await post.continue(); await navigation;
-        page.off('request', handleRequest); await page.setRequestInterception(false);
+        held.release(); const response = await navigation;
+        assert.equal(f.lastPost().origin, f.url, 'the native form carries the configured Origin');
+        assert.equal(f.lastPost().referer, f.url + '/', 'the bearer token never enters the Referer');
+        assert.equal(response.status(), 200, 'the real form POST succeeds');
         assert.equal(f.posts(), postCount + 1);
         assert.equal(f.host.visitor(ready.owner).tier, 'emailConfirmed');
         assert.equal(await page.$eval('h1', el => el.textContent), confirmationCopy[locale].confirmed.h1);
         const after = await geometry(page);
         assert.deepEqual(during, before, 'confirming retains exact geometry'); assert.deepEqual(after, before, 'confirmed retains exact geometry');
+        await page.waitForFunction(() => getComputedStyle(document.querySelector('.confirm-icon--draw path')).strokeDashoffset === '0px');
         await shot(`c2-landing-confirmed-${locale}-${theme}-${width}`);
         pass.push(`PASS head=${head} landing ${locale} ${theme} ${width}: ready → confirming → confirmed card/button layout shift 0.00 px`);
         for (const [state, key] of variants) {
@@ -181,6 +198,7 @@ test('C2 viewport evidence: DE/EN mail and every landing state, light/dark, zero
   await Promise.all([page.waitForNavigation({ waitUntil: 'networkidle0' }), page.click('button[type=submit]')]);
   assert.equal(f.host.confirmation.inspect(plain.token).state, 'alreadyUsed');
   assert.equal(f.host.visitor(plain.owner).tier, 'emailConfirmed');
+  assert.equal(f.lastPost().origin, f.url); assert.equal(f.lastPost().referer, f.url + '/');
   assert.deepEqual(errors, []); assert.deepEqual(external, []);
   assert.equal(shots.length, 80);
   pass.push(`PASS head=${head} 80 viewport shots; all 9 landing states; CSP; GET never redeems; one POST; BFCache reset; reduced motion; no-script confirmation; no remote requests`);
