@@ -61,7 +61,8 @@ test('AIT-134 red-before: owner holds count once and credits distinguish reserve
   assert.equal(view.owner.availableMicro, view.owner.limitMicro - 37);
 });
 
-async function costFixture(t, { mode = 'known', path, state = { queries: 0, ready: true }, storage: previous } = {}) {
+async function costFixture(t, { mode = 'known', path, state = { queries: 0, ready: true }, storage: previous,
+  output = 'Known', usageTokens = { prompt_tokens: 10, completion_tokens: 20 }, reasoningDetails } = {}) {
   const storage = previous ?? new SQLiteStorage(path); t.after(() => { if (storage.db.isOpen) storage.close(); });
   const configured = openRouterConfig({ OPENROUTER_MODEL: 'openai/fixture', AITHEMA_OPENROUTER_PRICES: JSON.stringify(prices) });
   const binding = configured.reaction;
@@ -81,10 +82,11 @@ async function costFixture(t, { mode = 'known', path, state = { queries: 0, read
       if (mode === 'cancel-body') return new Response(new ReadableStream({
         start(controller) { controller.enqueue(new TextEncoder().encode('{"id":"gen-fixture",')); },
       }));
-      const usage = { prompt_tokens: 10, completion_tokens: 20,
+      const usage = usageTokens && { ...usageTokens,
         ...(['unknown', 'partial'].includes(mode) ? {} : { cost: mode === 'zero' ? 0 : 0.000037 }) };
       const payload = { id: 'gen-fixture', usage, choices: [{ finish_reason: mode === 'invalid' ? 'length' : 'stop',
-        message: { content: '{"summary":"Known"}' }, delta: { content: 'Known' } }] };
+        message: { content: JSON.stringify({ summary: output }), reasoning_details: reasoningDetails },
+        delta: { content: output, reasoning_details: reasoningDetails } }] };
       if (!body.stream || mode === 'http-error') return Response.json(payload, { status: mode === 'http-error' ? 500 : 200 });
       return new Response(`data: ${JSON.stringify(payload)}\n\n${mode === 'partial' ? '' : 'data: [DONE]\n\n'}`);
     } });
@@ -105,7 +107,7 @@ async function costFixture(t, { mode = 'known', path, state = { queries: 0, read
     lane: operation === 'stream' ? 'reaction' : 'understanding', operation, request, options });
   const invoke = async (admitted, operation = 'structured') => {
     try {
-      if (operation === 'stream') { for await (const chunk of admitted.plugin.stream(request, admitted.options)) assert.equal(chunk, 'Known'); }
+      if (operation === 'stream') { for await (const chunk of admitted.plugin.stream(request, admitted.options)) assert.equal(chunk, output); }
       else await admitted.plugin.structured(request, admitted.options);
     } finally { admitted.finish({ failed: true }); }
   };
@@ -366,4 +368,64 @@ test('AIT-163 fix1: estimated identity receipts retry after the slower window an
   assert.equal(h.balance().owner.confirmedSpendMicro, 53);
   assert.equal(h.balance().owner.uncertainSpendMicro, 0);
   assert.equal(h.cap.snapshot().uncertainMicro, 0);
+});
+
+for (const operation of ['stream', 'structured']) for (const [language, output] of [
+  ['German', 'Übergrößen ändern Wünsche. '.repeat(1000)], ['emoji', '👩🏽‍💻🌍✨'.repeat(1000)],
+]) test(`AIT-163 fix2: ${operation} ${language} byte estimate never exceeds its reservation without usage`, async t => {
+  const h = await costFixture(t, { mode: 'unknown', output, usageTokens: null, state: { ready: false, queries: 0 } });
+  const admitted = await h.admit(operation); await h.invoke(admitted, operation);
+  const id = admitted.options.attempt.attemptId, before = h.runtime.budget.get(id);
+  h.runtime.budget.observeCost(id, { settledAt: Date.now() - 600_000 });
+  await h.runtime.reconcileCosts();
+  const row = h.runtime.budget.get(id);
+  assert.equal(row.settled_micro, before.max_micro, 'bytes are a capped estimate, not evidence of extra tokens');
+  assert.equal(row.overrun, 0); assert.equal(row.terminal_json, before.terminal_json);
+  assert.equal(h.balance().owner.uncertainSpendMicro, before.max_micro);
+  assert.equal(h.cap.snapshot().uncertainMicro, before.max_micro, 'an estimate does not release the provider liability');
+});
+
+for (const operation of ['stream', 'structured']) test(`AIT-163 fix2: ${operation} provider usage above the reservation remains uncapped`, async t => {
+  const usageTokens = { prompt_tokens: 100_000, completion_tokens: 20_000 };
+  const h = await costFixture(t, { mode: 'unknown', usageTokens, state: { ready: false, queries: 0 } });
+  const admitted = await h.admit(operation); await h.invoke(admitted, operation);
+  const id = admitted.options.attempt.attemptId, bound = h.runtime.budget.get(id).max_micro;
+  h.runtime.budget.observeCost(id, { settledAt: Date.now() - 600_000 });
+  await h.runtime.reconcileCosts();
+  assert.equal(h.runtime.budget.get(id).settled_micro, 12_000);
+  assert.ok(12_000 > bound); assert.equal(h.runtime.budget.get(id).overrun, 1);
+});
+
+for (const failLookup of [false, true]) test(`AIT-163 fix2: unresolved generation retries stop after twelve estimate attempts across restart (throws=${failLookup})`, async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  const path = await temporaryDb(), state = { ready: false, queries: 0, failLookup };
+  let h = await costFixture(t, { mode: 'unknown', path, state });
+  const admitted = await h.admit(); await h.invoke(admitted);
+  const id = admitted.options.attempt.attemptId, original = h.runtime.budget.get(id).terminal_json;
+  h.runtime.budget.observeCost(id, { settledAt: Date.now() - 600_000 });
+  for (let i = 0; i < 12; i++) {
+    await h.runtime.reconcileCosts();
+    assert.equal(state.queries, i + 1);
+    if (i === 5) {
+      h.storage.close(); h = await costFixture(t, { mode: 'unknown', path, state });
+      h.runtime.budget.recover(); await h.runtime.recoverCosts();
+    }
+    t.mock.timers.tick(300_000);
+  }
+  assert.equal(h.runtime.budget.pendingCosts().length, 0);
+  assert.equal(h.runtime.budget.deferredCosts(Date.now()).length, 0, 'exhausted IDs leave the scheduled retry set');
+  const row = h.runtime.budget.get(id);
+  assert.equal(row.settled_micro, row.max_micro); assert.equal(row.terminal_json, original);
+  const record = JSON.parse(row.provider_cost_json);
+  assert.equal(record.retryAt, null); assert.equal(record.retryAttempts, 12);
+  assert.ok(h.cap.snapshot().uncertainMicro > 0, 'retry exhaustion cannot release the provider cap');
+  t.mock.timers.tick(3_600_000);
+  await h.runtime.reconcileCosts(); await h.runtime.reconcileCosts({ dryRun: true });
+  assert.equal(state.queries, 12); assert.deepEqual(h.runtime.budget.get(id), row);
+  assert.equal(h.storage.db.prepare('SELECT COUNT(*) n FROM budget_corrections WHERE attempt_id=?').get(id).n, 1);
+  h.runtime.budget.observeCost(id, { chargedMicro: 53 });
+  await h.runtime.reconcileCosts();
+  assert.equal(h.balance().owner.confirmedSpendMicro, 53); assert.equal(h.cap.snapshot().uncertainMicro, 0);
+  assert.equal(h.runtime.budget.get(id).terminal_json, original);
+  assert.equal(h.storage.db.prepare('SELECT COUNT(*) n FROM budget_corrections WHERE attempt_id=?').get(id).n, 2);
 });

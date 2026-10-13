@@ -55,8 +55,8 @@ for (const ending of ['complete', 'broken', 'cancelled']) test(`AIT-163 fix1: re
     if (ending === 'cancelled') controller.abort(); else streamController.close();
     await assert.rejects(pending);
   }
-  const expected = plugin.usageCost({ inputTokens: inputBytes, outputTokens: 10_202 });
-  assert.equal(floors.at(-1), expected, 'all visible and reasoning evidence is persisted at the end');
+  const expected = plugin.usageCost({ inputTokens: inputBytes, outputTokens: plugin.binding.maxTokens });
+  assert.equal(floors.at(-1), expected, 'visible and reasoning bytes remain bounded by max_tokens');
   assert.ok(floors.length <= 3, `at most two timed writes plus the final flush, got ${floors.length}`);
 });
 const options = (extra = {}) => {
@@ -64,6 +64,28 @@ const options = (extra = {}) => {
   return { signal: new AbortController().signal, deadlineAt: Date.now() + 2000,
     attempt: { attemptId: crypto.randomUUID(), claimId: crypto.randomUUID(), consume() { assert.equal(consumed, false); consumed = true; } }, report() {}, ...extra };
 };
+
+for (const operation of ['stream', 'structured']) test(`AIT-163 fix2: ${operation} encrypted reasoning blobs do not enter the byte estimate`, async () => {
+  const floors = [];
+  const plugin = createOpenRouterReasoning({ model: 'fixture/model', prices: openRouterPrices, resolveSecret: () => 'fixture',
+    fetchImpl: async (url, init) => {
+      const message = { content: '{"summary":"Known"}', reasoning_details: [
+        { type: 'reasoning.encrypted', data: 'encrypted-fixture'.repeat(1000) },
+        { type: 'reasoning.text', text: 'Plain reasoning' }, { type: 'reasoning.summary', summary: 'Summary' },
+      ] };
+      return JSON.parse(init.body).stream
+        ? new Response(`data: ${JSON.stringify({ choices: [{ delta: message, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`)
+        : Response.json({ choices: [{ message, finish_reason: 'stop' }] });
+    } });
+  const opts = options(); opts.attempt.observeCost = evidence => {
+    if (evidence.observedCostMicro !== undefined) floors.push(evidence.observedCostMicro);
+  };
+  if (operation === 'stream') { for await (const chunk of plugin.stream(request, opts)) assert.equal(chunk, '{"summary":"Known"}'); }
+  else assert.deepEqual(await plugin.structured(request, opts), { summary: 'Known' });
+  const inputBytes = new TextEncoder().encode(JSON.stringify([{ role: 'system', content: request.system }, ...request.messages])).byteLength;
+  const outputBytes = new TextEncoder().encode('{"summary":"Known"}Plain reasoningSummary').byteLength;
+  assert.equal(floors.at(-1), plugin.usageCost({ inputTokens: inputBytes, outputTokens: outputBytes }));
+});
 async function fake(t, handler) {
   const server = createServer(handler); server.listen(0, '127.0.0.1'); await once(server, 'listening');
   t.after(async () => { server.closeAllConnections(); await new Promise(r => server.close(r)); });

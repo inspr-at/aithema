@@ -2960,6 +2960,25 @@ test('AIT-163: less than the minimum runway refuses before provisioning or minti
   assert.equal(h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n, 0);
 });
 
+test('AIT-163 fix2: recovery with less than 120 seconds remaining reserves one segment and preserves the deadline', async t => {
+  const h = voiceFixture(t, { leaseMs: 300_000, durationBinding: {
+    maxDurationSeconds: 180, reservationSeconds: 30, minRunwaySeconds: 120,
+  } });
+  h.presets.best.bindings.voice.legal.evidence.expiresAt = h.now() + 300_000;
+  const first = await h.start(); h.advance(90_000);
+  const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId });
+  const recovered = await response.json(); assert.equal(response.status, 200, JSON.stringify(recovered));
+  assert.equal(recovered.callId, first.callId); assert.equal(recovered.spendDeadlineAt, first.spendDeadlineAt);
+  assert.notEqual(recovered.providerSessionId, first.providerSessionId);
+  const row = h.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='voice' ORDER BY rowid DESC LIMIT 1").get();
+  assert.equal(row.max_micro, 30_000); assert.equal(row.max_visitor_micro, 60_000);
+  h.advance(70_000);
+  const last = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: recovered.providerSessionId });
+  const tail = await last.json(); assert.equal(last.status, 200, JSON.stringify(tail));
+  assert.equal(tail.spendDeadlineAt, first.spendDeadlineAt);
+  assert.equal(h.storage.db.prepare("SELECT max_micro FROM budget_attempts WHERE lane='voice' ORDER BY rowid DESC LIMIT 1").get().max_micro, 20_000);
+});
+
 test('AIT-163: legacy unconfirmed voice rows without the pending flag reconcile on schedule', async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
   const h = voiceFixture(t, { voiceOptions: { reconcileIntervalMs: 10,
