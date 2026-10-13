@@ -2,6 +2,8 @@ import { PluginError } from './invocation.js';
 import { createVoiceLifecycle, reduceVoiceLifecycle } from './voice-lifecycle.js';
 
 export const voiceAuthorityLost = error => error?.status === 403 || error?.code === 'not-admitted' || error?.code === 'auth';
+const continuityLoss = error => error?.code === 'voice-ownership-lost' ? 'ownership-lost'
+  : error?.code === 'voice-restart-required' ? 'server-restart' : null;
 
 /** Scheduling lives with transport recovery, never in the view. */
 export function watchVoiceHeartbeat({ heartbeat, current = () => true, onFailure = () => {}, heartbeatMs = 10_000 }) {
@@ -20,9 +22,21 @@ export function watchVoiceHeartbeat({ heartbeat, current = () => true, onFailure
 /** Transport ports own SDK effects; this controller owns outage policy, holds and deadlines. */
 export function createVoiceLifecycleController({ callId, renew, replace, beforeRecovery = async () => {},
   failedReplacement = async () => {}, persistWaiting = async () => {}, stopMedia = () => {}, terminal = () => {}, onEvent = () => {}, now = Date.now } = {}) {
-  let state = createVoiceLifecycle(callId), recovery, renewal, timer, stopHeartbeat;
+  let state = createVoiceLifecycle(callId), recovery, renewal, timer, clockTimer, stopHeartbeat, continuityRevision = 0, lastClock = now();
   const dispatch = event => { state = reduceVoiceLifecycle(state, event); return state; };
   const ended = () => state.state === 'ended';
+  const hold = reason => {
+    if (ended()) return;
+    continuityRevision++;
+    dispatch({ type: reason }); stopMedia(reason);
+    onEvent({ type: 'waiting', reason }); schedule();
+  };
+  const checkClock = () => {
+    const current = now(), gap = current - lastClock; lastClock = current;
+    if (!ended() && state.state !== 'idle' && !state.needsRecovery && (gap > 15_000 || gap < -15_000)) {
+      dispatch({ type: 'sleep' }); hold('wake');
+    }
+  };
   const exhausted = async () => {
     dispatch({ type: 'recovery-exhausted' }); stopMedia();
     try { await persistWaiting({ reason: 'recovery-failed', attempts: state.attempts }); }
@@ -36,9 +50,10 @@ export function createVoiceLifecycleController({ callId, renew, replace, beforeR
       : Math.min(state.spendDeadlineAt, state.browserLivenessDeadlineAt);
     timer = setTimeout(() => {
       if (ended()) return;
+      checkClock();
       if (now() >= state.spendDeadlineAt) { dispatch({ type: 'budget-end' }); terminal('spend-deadline'); }
-      else {
-        dispatch({ type: 'lease-expired' }); stopMedia();
+      else if (!state.needsRecovery) {
+        dispatch({ type: 'lease-expired' }); stopMedia('browser-liveness-deadline');
         onEvent({ type: 'waiting', reason: 'browser-liveness-deadline' }); schedule();
       }
     }, Math.max(0, Math.min(2_147_483_647, deadline - now())));
@@ -52,27 +67,29 @@ export function createVoiceLifecycleController({ callId, renew, replace, beforeR
     dispatch({ type: 'transport-lost' }); stopMedia();
     if (state.holds.length && !explicit) return Promise.resolve(false);
     onEvent({ type: 'recovering' });
+    const revision = continuityRevision;
     // Install the flight before invoking a port that can synchronously report another drop.
     recovery = Promise.resolve().then(async () => {
       await beforeRecovery();
-      for (let attempt = 0; attempt < 3 && !ended(); attempt++) {
+      for (let attempt = 0; attempt < 3 && !ended() && revision === continuityRevision; attempt++) {
         dispatch({ type: 'recovery-attempt' });
         try {
           const receipt = await replace({ explicit });
-          if (ended()) return false;
+          if (ended() || revision !== continuityRevision) return false;
           dispatch({ type: 'connected', ...receipt });
           onEvent({ type: 'recovered' }); return true;
         } catch (error) {
           await failedReplacement();
-          if (ended()) return false;
+          if (ended() || revision !== continuityRevision) return false;
+          if (continuityLoss(error)) { hold(continuityLoss(error)); return false; }
           if (voiceAuthorityLost(error)) { dispatch({ type: 'withdraw' }); terminal('call-authorization-lost'); return false; }
           dispatch({ type: 'recovery-failed' });
         }
       }
-      if (!ended()) await exhausted();
+      if (!ended() && revision === continuityRevision) await exhausted();
       return false;
     }).catch(async () => {
-      if (!ended()) await exhausted();
+      if (!ended() && revision === continuityRevision) await exhausted();
       return false;
     }).finally(() => { recovery = undefined; schedule(); });
     schedule(); return recovery;
@@ -97,6 +114,7 @@ export function createVoiceLifecycleController({ callId, renew, replace, beforeR
         dispatch({ type: 'heartbeat', ...ack }); schedule(); return ack;
       } catch (error) {
         if (ended() || state.providerGeneration !== generation || state.epoch !== epoch || state.needsRecovery) return { acknowledged: true, stale: true };
+        if (continuityLoss(error)) { hold(continuityLoss(error)); return { acknowledged: true, waiting: true }; }
         if (voiceAuthorityLost(error)) { dispatch({ type: 'withdraw' }); terminal('call-authorization-lost'); throw error; }
         await recover(); return { acknowledged: true, waiting: state.state === 'waiting' };
       }
@@ -104,18 +122,27 @@ export function createVoiceLifecycleController({ callId, renew, replace, beforeR
     return renewal;
   };
   return {
-    get state() { return state; }, get recovering() { return recovery; }, dispatch, recover, heartbeat,
-    connected(receipt) { dispatch({ type: 'connected', ...receipt }); schedule(); },
+    get state() { return state; }, get recovering() { return recovery; }, dispatch, recover, heartbeat, checkClock,
+    connected(receipt) {
+      if (!state.providerSessionId) state = { ...state, epoch: receipt.epoch ?? 0, controllingTabId: receipt.controllingTabId ?? null };
+      dispatch({ type: 'connected', ...receipt }); lastClock = now();
+      if (!clockTimer) { clockTimer = setInterval(checkClock, 1000); clockTimer.unref?.(); }
+      schedule();
+    },
+    ownershipLost() { hold('ownership-lost'); },
+    restart() { hold('server-restart'); },
+    sleep() { if (!ended()) { continuityRevision++; dispatch({ type: 'sleep' }); stopMedia('sleep'); onEvent({ type: 'waiting', reason: 'sleep' }); } },
+    wake() { if (state.holds.includes('sleep')) hold('wake'); },
     wait(reason = 'browser-liveness-deadline') {
       if (ended() || recovery || state.state === 'waiting') return;
-      dispatch({ type: 'lease-expired' }); stopMedia(); onEvent({ type: 'waiting', reason }); schedule();
+      dispatch({ type: 'lease-expired' }); stopMedia(reason); onEvent({ type: 'waiting', reason }); schedule();
     },
     pause(reason = 'pause') { dispatch({ type: 'pause', reason }); },
-    resumed() { dispatch({ type: 'resume-acknowledged' }); schedule(); },
+    resumed() { dispatch({ type: 'resume-acknowledged' }); lastClock = now(); schedule(); },
     startHeartbeat(heartbeatMs = 10_000) {
       stopHeartbeat?.(); stopHeartbeat = watchVoiceHeartbeat({ heartbeat, current: () => !ended(), heartbeatMs });
       return () => { stopHeartbeat?.(); stopHeartbeat = undefined; };
     },
-    end(reason) { dispatch({ type: 'end', reason }); clearTimeout(timer); stopHeartbeat?.(); },
+    end(reason) { dispatch({ type: 'end', reason }); clearTimeout(timer); clearInterval(clockTimer); stopHeartbeat?.(); },
   };
 }

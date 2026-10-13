@@ -600,8 +600,10 @@ export class AithemaSession extends HTMLElement {
     const pause = root.querySelector('.pause');
     if (pause) {
       const voicePaused = this.#rail?.session || this.#rail?.waitingCall ? this.#rail.pauseIntent : this.#session.paused;
-      setText(pause.querySelector('.voice-label'), voicePaused ? copy.resume : copy.pause); pause.title = pause.textContent;
+      setText(pause.querySelector('.voice-label'), this.#rail?.requiresTakeover ? copy.voiceTakeover : voicePaused ? copy.resume : copy.pause); pause.title = pause.textContent;
       pause.setAttribute('aria-pressed', String(Boolean(voicePaused)));
+      if (this.#rail?.moved) { pause.disabled = true; pause.dataset.ownershipLost = ''; }
+      else if (pause.hasAttribute('data-ownership-lost')) { pause.disabled = false; delete pause.dataset.ownershipLost; }
     }
     const element = (tag, value, className) => {
       const node = document.createElement(tag); if (value !== undefined) node.textContent = value;
@@ -1444,8 +1446,9 @@ export class AithemaSession extends HTMLElement {
       this.dispatchEvent(new CustomEvent('aithema-event', { detail: event, bubbles: true, composed: true }));
     } else if (event.type === 'voice.state') {
       const voice = this.#rail.session;
+      this.#rail.receiveState(event.data);
       if (voice && event.data.state === 'waiting' && voice.callId === event.data.callId &&
-        voice.providerSessionId === event.data.providerSessionId) voice.lifecycle?.wait(event.data.reason);
+        voice.providerSessionId === event.data.providerSessionId && !['tab-takeover', 'server-restart'].includes(event.data.reason)) voice.lifecycle?.wait(event.data.reason);
       if (voice && ['closing', 'ended'].includes(event.data.state) && !recoverableVoiceEnd(event.data.reason) &&
         voice.callId === event.data.callId && voice.providerSessionId === event.data.providerSessionId) void this.#rail.close(event.data.reason);
       this.#rail.settlement(event.data);
@@ -1471,6 +1474,7 @@ export class AithemaSession extends HTMLElement {
       const session = await response.json();
       if (sessionId !== this.#session.id || session.seq !== this.#cursor || session.id !== sessionId) return;
       this.#session.featureMatrix = session.featureMatrix;
+      if (session.voiceLifecycle) this.#rail.receiveState(session.voiceLifecycle);
       if (session.engine) this.#session.engine = session.engine;
       // A changed visuals choice can switch between images and drafts, and their cost.
       if (session.conceptVisualKind) this.#session.conceptVisualKind = session.conceptVisualKind;
@@ -1498,6 +1502,7 @@ export class AithemaSession extends HTMLElement {
       // An accepted snapshot protects its state from older responses to concurrent restores.
       this.#invalidatedAt = Math.max(this.#invalidatedAt, session.seq);
       this.#session = session; this.#cursor = this.#session.seq; this.#partials.clear();
+      if (session.voiceLifecycle) this.#rail.receiveState(session.voiceLifecycle);
       this.#repaintLocale();
       this.#restoreFailure(); this.#concept.update(this.#session); this.#renderMode(); this.#dialog?.sync(); this.#host?.resync();
       this.#render('features'); this.#render('transcript'); this.#render('aside'); this.#render('composer');

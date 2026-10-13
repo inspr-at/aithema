@@ -701,10 +701,24 @@ cannot lift that hold; events never start Resume commands. A fresh visitor actio
 and its HTTP acknowledgement unlock media. Fast Resume → Pause → Resume clicks
 retain the last visitor intent while earlier commands finish muted.
 
-AIT-138's first slice stops here. Recovery notices, exact known-reply replay,
-durable controlling-tab takeover, sleep/wake handling and server-restart
-restoration remain to be delivered. The reducer already models those transitions;
-their end-to-end ports are not yet installed.
+Each browser document has a fresh tab identity. The server persists its controlling
+tab and epoch with the logical call; every browser command carries that authority.
+Another tab offers an explicit Take over call action. The server atomically compares
+and advances the epoch, revokes the predecessor's transport and returns `waiting`
+without credentials. A separate Resume admits a silent continuation and checks
+authorization before capture. Old commands, including delayed eligibility results,
+cannot renew, publish or end the successor. The old tab stops capture and playback
+synchronously on the server notification or its 30-second lease expiry and displays
+a calm notice in the fixed rail. BroadcastChannel pings are advisory only.
+
+Browser freeze and clock gaps over 15 seconds stop media immediately. Wake enters
+`waiting`; only explicit Resume rechecks ownership, authorization and transport.
+Server startup reloads durable logical calls into waiting, fences old callback and
+transport authority and reconciles each segment independently. Nonterminal calls
+keep their `callId` and original spend deadline; terminal calls remain ended.
+Restart recovery retains uncertain liabilities and uses fresh admission. Operation
+restart/replacement still requires the host's explicit authorization: Rule C's
+provider callback identities and A1's money admission are unchanged.
 
 Custom-LLM operation identity comes exclusively from the authenticated provider
 callback body. The key is SHA-256 of `(session, call, provider generation,

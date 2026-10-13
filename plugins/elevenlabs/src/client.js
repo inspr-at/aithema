@@ -69,6 +69,7 @@ function microphoneCapture(mediaDevices, AudioContext) {
 /** Browser ESM; inject Conversation, or resolve @elevenlabs/client with a host import map. */
 export function createElevenLabsClient({ sdk, control, persistEvent, workletPaths, closeTimeoutMs = 45_000,
   mediaDevices = globalThis.navigator?.mediaDevices, AudioContext = globalThis.AudioContext,
+  document = globalThis.document,
   persistenceTimeoutMs = 2000, persistenceRetries = 2, persistenceBackoffMs = 100, drainTimeoutMs = 5000 } = {}) {
   if (!control?.start || !control?.close || !control?.pause || !control?.resume || !control?.heartbeat ||
     typeof persistEvent !== 'function' || ![closeTimeoutMs, persistenceTimeoutMs, drainTimeoutMs].every(value => Number.isFinite(value) && value > 0) ||
@@ -77,6 +78,8 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
   const getSdk = async () => sdk ?? (await import('@elevenlabs/client')).Conversation;
   return {
     manifest,
+    tabId: control.tabId,
+    takeover: (identity, options) => voiceOperation(options, opts => control.takeover({ ...identity, explicit: true }, opts)),
     async health(options) { return voiceOperation(options, async () => ({ available: typeof (await getSdk())?.startSession === 'function' })); },
     closeWaiting: (identity, options) => voiceOperation(options, opts => control.close({ ...identity, reason: options?.reason ?? 'closed' }, opts)),
     async start(request, options = {}) {
@@ -87,7 +90,8 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
       const persistenceCancellation = new AbortController();
       const seen = new Set(), assistants = new Map(), stoppedInputs = new WeakSet();
       let lastReply, lastPlaybackTurnId;
-      const identity = () => ({ callId: request.callId, providerSessionId: grant?.providerSessionId });
+      const identity = () => ({ callId: request.callId, providerSessionId: grant?.providerSessionId,
+        ...(grant?.epoch !== undefined ? { epoch: grant.epoch } : {}) });
       const pauseControl = opts => {
         const pauseRequestId = crypto.randomUUID();
         options.onPauseRequest?.(pauseRequestId);
@@ -199,6 +203,8 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
         const closeOptions = { ...commandOptions, deadlineAt: Math.min(commandOptions.deadlineAt ?? Infinity, Date.now() + closeTimeoutMs) };
         ended = true; generation++; lifecycle.end(reason); options.signal?.removeEventListener('abort', cancel);
         options.holdSignal?.removeEventListener('abort', retainHold);
+        document?.removeEventListener('freeze', freeze); document?.removeEventListener('resume', wake);
+        document?.removeEventListener('visibilitychange', visible);
         commandCancellation.abort();
         // Privacy does not depend on asynchronous SDK cleanup or provider settlement.
         capture?.end();
@@ -437,7 +443,10 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
         }
       };
       let recoveryIdentity;
-      const stopMedia = () => {
+      const stopMedia = reason => {
+        if (['sleep', 'wake', 'ownership-lost', 'server-restart', 'browser-liveness-deadline'].includes(reason)) {
+          paused = true; pauseRevision++;
+        }
         transportBlocked = true; generation++;
         capture?.setEnabled(false);
         try { conversation?.setVolume({ volume: outputVolume() }); } catch {}
@@ -471,6 +480,9 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           const opts = { signal: commandCancellation.signal, deadlineAt: Math.min(grant.spendDeadlineAt, Date.now() + 10_000) };
           const receipt = await voiceOperation(opts, bounded => control.recover({ ...recoveryIdentity, explicit }, bounded));
           if (ended) throw new PluginError('cancelled');
+          if (lifecycle.state.holds.includes('ownership-lost') || receipt.epoch !== undefined && receipt.epoch !== lifecycle.state.epoch) {
+            throw Object.assign(new PluginError('unavailable'), { code: 'voice-ownership-lost' });
+          }
           await connect(receipt, opts); return receipt;
         },
         async failedReplacement() {
@@ -484,6 +496,8 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           await voiceOperation({ deadlineAt: Date.now() + 5000 }, opts => control.close({ ...identity(), reason, recoveryAttempts: attempts }, opts));
         },
       });
+      const freeze = () => lifecycle.sleep(), wake = () => lifecycle.wake();
+      const visible = () => { if (!document.hidden) wake(); };
       const retainHold = () => {
         if (ended) return;
         paused = true; pauseRevision++; lifecycle.pause('hide');
@@ -509,13 +523,16 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
         options.signal?.addEventListener('abort', cancel, { once: true });
         if (options.signal?.aborted) { cancel(); throw new PluginError('cancelled'); }
         options.holdSignal?.addEventListener('abort', retainHold, { once: true });
+        document?.addEventListener('freeze', freeze); document?.addEventListener('resume', wake);
+        document?.addEventListener('visibilitychange', visible);
         await voiceOperation(options, async opts => {
           const revision = pauseRevision;
           lifecycle.dispatch({ type: 'start' });
           if (options.holdSignal?.aborted) retainHold();
           if (request.providerSessionId) { paused = true; lifecycle.pause('waiting'); }
           const receipt = request.providerSessionId
-            ? await control.recover({ callId: request.callId, providerSessionId: request.providerSessionId, explicit: true }, opts) : await control.start(request, opts);
+            ? await control.recover({ callId: request.callId, providerSessionId: request.providerSessionId,
+              ...(request.epoch !== undefined ? { epoch: request.epoch } : {}), explicit: true }, opts) : await control.start(request, opts);
           await connect(receipt, opts); lifecycle.connected(receipt);
           if (request.providerSessionId && !options.holdSignal?.aborted) {
             const ack = await resumeControl(opts);
@@ -532,6 +549,12 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           audioLevels: () => ({ input: paused || transportBlocked || !inputOn ? 0 : conversation?.getInputVolume?.() ?? 0,
             output: outputVolume() === 0 ? 0 : conversation?.getOutputVolume?.() ?? 0 }),
           callId: request.callId, get providerSessionId() { return grant.providerSessionId; }, events, lifecycle,
+          get epoch() { return grant.epoch; }, get tabId() { return control.tabId; },
+          receiveState(state) {
+            if (state.callId !== request.callId) return;
+            if (state.epoch > grant.epoch || state.controllingTabId && state.controllingTabId !== control.tabId) lifecycle.ownershipLost();
+            else if (state.reason === 'server-restart' && state.providerSessionId === grant.providerSessionId) lifecycle.restart();
+          },
           close: commandOptions => close(commandOptions?.reason ?? 'closed', commandOptions),
           pause(commandOptions) {
             if (ended) return Promise.reject(new PluginError('unavailable'));
@@ -545,6 +568,8 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
             }, true)(commandOptions);
           },
           resume(commandOptions) {
+            lifecycle.checkClock();
+            if (lifecycle.state.holds.includes('ownership-lost')) return Promise.reject(Object.assign(new PluginError('unavailable'), { code: 'voice-ownership-lost' }));
             const revision = pauseRevision;
             return command('resume', async opts => {
               if (lifecycle.state.needsRecovery) {

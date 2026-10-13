@@ -13,8 +13,10 @@ export class AudioRail {
     Object.assign(this, { root, copy, client, feature, context, onPartial, onPause, onEnd, onState, onLevel, playback, journal, ready, heartbeatMs });
     this.state = 'idle'; this.input = true; this.output = true; this.generation = 0; this.connected = true;
     this.pauseRequests = new Set(); this.resumeRequests = new Map(); this.pauseRevision = 0;
-    if (waitingCall?.state === 'waiting' && waitingCall.providerSessionId) {
-      this.waitingCall = { callId: waitingCall.callId, providerSessionId: waitingCall.providerSessionId };
+    if (waitingCall?.providerSessionId && (waitingCall.state === 'waiting' || waitingCall.controllingTabId &&
+      waitingCall.state !== 'ended' && waitingCall.controllingTabId !== client?.tabId)) {
+      this.waitingCall = { callId: waitingCall.callId, providerSessionId: waitingCall.providerSessionId, epoch: waitingCall.epoch };
+      this.requiresTakeover = Boolean(waitingCall.controllingTabId && waitingCall.controllingTabId !== client?.tabId);
       this.state = 'waiting'; this.paused = true;
     }
     const button = name => `<button data-reveal class="voice-${name}" type="button">${name === 'pause' ? `<span class="voice-icon">${icon('pause')}</span><span class="voice-icon voice-icon--resume">${icon('play')}</span>`
@@ -114,7 +116,7 @@ export class AudioRail {
     this.root.querySelector('.voice-state').textContent = this.error ?? (active || transitional ? c.voiceStates[this.root.dataset.state] :
       available.available && this.client ? c.voiceStates[this.state] : available.reason ?? c.notConfigured);
     const labels = { start: c.voiceStart, close: c.voiceClose, input: this.input ? c.voiceMicOn : c.voiceMicOff,
-      output: this.output ? c.voiceSpeakerOn : c.voiceSpeakerOff, pause: this.pauseIntent ? c.resume : c.pause,
+      output: this.output ? c.voiceSpeakerOn : c.voiceSpeakerOff, pause: this.requiresTakeover ? c.voiceTakeover : this.pauseIntent ? c.resume : c.pause,
       retry: c.voiceRetry, playback: c.voicePlaybackRetry };
     for (const [name, label] of Object.entries(labels)) {
       const button = this.button(name); button.querySelector('.voice-label').textContent = label; button.title = label;
@@ -127,6 +129,7 @@ export class AudioRail {
       if (command && !this.capability(command)) button.title = c.voiceCommandUnavailable;
       if (state === 'waiting' && ['input', 'output'].includes(name)) { button.disabled = true; button.title = c.voiceResumeFirst; }
       if (this.waitingCall && name === 'pause') button.disabled = Boolean(this.busy || transitional || !available.available || !this.client);
+      if (this.moved && name === 'pause') button.disabled = true;
     }
     this.button('input').setAttribute('aria-pressed', String(this.input));
     this.button('output').setAttribute('aria-pressed', String(this.output));
@@ -158,6 +161,17 @@ export class AudioRail {
   }
   async start() {
     if (this.session || this.state === 'connecting' || !this.feature().available || !this.client) return;
+    if (this.requiresTakeover) {
+      if (this.busy) return;
+      this.busy = true; this.render();
+      try {
+        const held = await this.client.takeover(this.waitingCall, { deadlineAt: Date.now() + 10_000 });
+        this.waitingCall = { callId: held.callId, providerSessionId: held.providerSessionId, epoch: held.epoch };
+        this.requiresTakeover = false; this.errorKey = null;
+      } catch (error) { this.failure(error); }
+      finally { this.busy = false; this.render(); }
+      return;
+    }
     const generation = ++this.generation, revision = this.pauseRevision, resuming = Boolean(this.waitingCall);
     this.resumeRequests.clear(); this.endedCall = null; this.errorKey = null; this.state = 'connecting'; this.render();
     this.notices.clear();
@@ -186,7 +200,7 @@ export class AudioRail {
       });
       if (generation !== this.generation) { await session.close(); return; }
       this.session = session; this.waitingCall = null; this.paused = false; this.state = 'listening';
-      this.journal?.save({ callId: session.callId, providerSessionId: session.providerSessionId });
+      this.journal?.save({ callId: session.callId, providerSessionId: session.providerSessionId, tabId: session.tabId, epoch: session.epoch });
       await session.setInput(this.input);
       if (!this.current(session, generation)) return;
       await session.setOutput(this.output);
@@ -223,6 +237,15 @@ export class AudioRail {
       this.state = this.waitingCall ? 'waiting' : 'failed'; this.failure(error);
     }
   }
+  receiveState(state) {
+    if (this.session) { this.session.receiveState?.(state); return; }
+    if (!state?.providerSessionId || state.state === 'ended' || this.state === 'connecting') return;
+    if (state.controllingTabId && state.controllingTabId !== this.client?.tabId || state.state === 'waiting') {
+      this.waitingCall = { callId: state.callId, providerSessionId: state.providerSessionId, epoch: state.epoch };
+      this.requiresTakeover = Boolean(state.controllingTabId && state.controllingTabId !== this.client?.tabId);
+      this.state = 'waiting'; this.paused = true; this.render();
+    }
+  }
   async consume(session, generation) {
     try {
       for await (const event of session.events) {
@@ -239,7 +262,8 @@ export class AudioRail {
         }
         if (event.type === 'waiting') {
           this.pauseRevision++; this.pauseCommand = null; this.busy = false;
-          this.state = 'waiting'; this.paused = true; this.errorKey = null; this.quiet();
+          this.state = 'waiting'; this.paused = true; this.moved = event.reason === 'ownership-lost';
+          this.errorKey = this.moved ? 'voiceMoved' : null; this.quiet();
           this.root.querySelector('.voice-caption').textContent = '';
         }
         if (event.type === 'ended') {
@@ -348,7 +372,8 @@ export class AudioRail {
     if (!this.session) { this.holdController?.abort(); this.controller?.abort(); }
     this.stopHeartbeat?.(); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.quiet();
     this.endedCall = session ? { callId: session.callId, providerSessionId: session.providerSessionId } : null;
-    this.session = null; this.waitingCall = null; this.hidePending = false; this.paused = false; this.busy = false; this.beating = false; this.playbackBlocked = false; this.state = 'idle';
+    this.session = null; this.waitingCall = null; this.requiresTakeover = false; this.moved = false;
+    this.hidePending = false; this.paused = false; this.busy = false; this.beating = false; this.playbackBlocked = false; this.state = 'idle';
     this.notices.clear();
     this.errorKey = session ? 'voiceClosureUncertain' : null;
     if (reason?.includes('deadline')) { this.state = 'failed'; this.errorKey = 'voiceDeadline'; }

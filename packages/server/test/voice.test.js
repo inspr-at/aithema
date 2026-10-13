@@ -208,6 +208,7 @@ test('AIT-138 fix 2: background closure confirmation preserves a waiting logical
 });
 
 for (const failure of ['admission', 'SDK connection']) test(`AIT-138 fix 3: exhausted ${failure} attempts persist waiting for another reader`, async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
   const path = await temporaryDb(), h = voiceFixture(t, { path }), first = await h.start();
   let current = first;
   if (failure === 'admission') h.failMint(503);
@@ -218,6 +219,7 @@ for (const failure of ['admission', 'SDK connection']) test(`AIT-138 fix 3: exha
       current = await response.json();
       await h.route(`/voice/${first.callId}/close`, { providerSessionId: current.providerSessionId,
         reason: 'recovery-failed', recoveryAttempts: attempt });
+      await h.handlers.idle();
     }
   }
   await h.route(`/voice/${first.callId}/close`, { providerSessionId: current.providerSessionId,

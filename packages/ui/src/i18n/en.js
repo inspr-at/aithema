@@ -70,6 +70,7 @@ export const en = {
   voiceRecovered: 'Connection restored', voiceUserUnconfirmed: 'Last statement not confirmed – please repeat',
   voiceReplyIncomplete: 'Last reply may not have played in full', voiceRepeatReply: 'Read full reply',
   voiceResumeFirst: 'Resume first', voiceLastReply: 'Last reply',
+  voiceTakeover: 'Take over call', voiceMoved: 'Call moved to another tab',
   voiceReplayClose: 'Close',
   voiceReplyUnavailable: 'The complete reply is not available yet.',
   voiceReplayTextOnly: 'The full text of the last reply, word for word.',
