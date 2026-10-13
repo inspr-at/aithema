@@ -18,7 +18,6 @@ export const browserShards = [
     'test/browser/start2-display-matrix.test.js',
     'test/browser/demo.test.js',
     'test/browser/start-look.test.js',
-    'test/browser/start2-display-continuity.test.js',
   ],
   // 279.185s
   [
@@ -30,6 +29,7 @@ export const browserShards = [
     'test/browser/host-surface.test.js',
     'test/browser/confirmation-design.test.js',
   ],
+  ['test/browser/start2-display-continuity.test.js', 'test/browser/voice-presentation.test.js'],
 ];
 
 export function discoverBrowserTests() {
