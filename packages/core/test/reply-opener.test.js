@@ -26,7 +26,6 @@ for (const [input, expected] of [
   ['Danke, äh das hilft uns.', 'Äh das hilft uns.'],
   ['Danke, wir planen einen Pilotversuch.', 'Wir planen einen Pilotversuch.'],
   ['Thanks, we start.', 'We start.'],
-  ['Vielen Dank für Ihre Nachricht. Gut, dann beginnen wir.', 'Gut, dann beginnen wir.'],
 ]) test(`AIT-157: clause, sentence, case and quote handling: ${input}`, () => {
   assert.equal(typeof core.stripThanksOpener, 'function');
   assert.deepEqual(core.stripThanksOpener(input, 'de'), { text: expected, stripped: true });
@@ -40,6 +39,118 @@ for (const input of ['Danke.', 'Vielen Dank für Ihre Nachricht.', 'Danke, sehr 
     assert.deepEqual(core.stripThanksOpener(input, 'de'), { text: input, stripped: false, kept: true });
   });
 }
+
+const unsafeVerbStarts = [
+  // The three gate2 examples: infinitives must not count as singular finite verbs.
+  'Vielen Dank für das Beispiel, das helfen kann, den Ablauf zu verstehen.',
+  'Vielen Dank für das Beispiel, das starten soll, sobald die Daten vorliegen.',
+  'Vielen Dank für das Beispiel, das beginnen wird, wenn Sie bereit sind.',
+  // More relative clauses and inverted or uncertain infinitive constructions.
+  'Danke für das Beispiel, das machen kann, was Sie benötigen.',
+  'Danke für das Beispiel, das zeigen soll, wie der Ablauf funktioniert.',
+  'Danke für das Beispiel, das passen könnte, wenn Sie es anpassen.',
+  'Danke für das Beispiel, das gehen muss, sobald die Freigabe vorliegt.',
+  'Danke für das Beispiel, das reichen sollte, um den Ablauf zu prüfen.',
+  'Danke für das Beispiel, das funktionieren kann, wenn die Daten vorliegen.',
+  'Danke für das Beispiel, das bleiben darf, solange Sie es benötigen.',
+  'Danke für das Beispiel, das wirken soll, sobald der Ablauf beginnt.',
+  'Danke für das Beispiel, das helfen zu können scheint.',
+  'Danke für das Beispiel, das zu starten ist.',
+  'Danke, es helfen kann, den Ablauf zu verstehen.',
+  'Danke, ich helfen kann, wenn Sie bereit sind.',
+  'Danke, wir helfen können, sobald die Daten vorliegen.',
+  'Danke, Sie starten sollen, sobald die Daten vorliegen.',
+  'Danke für das Beispiel, das hilft können, den Ablauf zu verstehen.',
+  'Danke für das Beispiel, das hat helfen können.',
+  'Danke, ich haben einen Plan.',
+  'Danke, wir ist bereit.',
+  'Danke, Sie beschreibt den Ablauf.',
+  'Danke, Ihr Vorhaben beginnen wird, wenn Sie bereit sind.',
+  'Thanks, that help can clarify the process.',
+  'Thanks, this start should simplify the process.',
+  'Thanks, it work can simplify the process.',
+  'Thanks, I helps with the process.',
+  'Thanks, we helps with the process.',
+  'Thanks, we help can clarify the process.',
+  'Danke, das kann helfen müssen.',
+  'Thanks, we can help should clarify the process.',
+  'Danke, jetzt sehe ich den Ablauf.',
+  'Thanks for the details, that sounds useful.',
+  "Thanks, that's useful.",
+];
+const unsafeInterjections = [
+  'Danke, äh, dass Sie das geteilt haben, wir können starten.',
+  'Danke, äh dass Sie das geteilt haben, wir können starten.',
+  'Danke, also, dass Sie das geteilt haben, wir können starten.',
+  'Danke, also dass Sie das geteilt haben, wir können starten.',
+  'Danke, nun, das helfen kann, den Ablauf zu verstehen.',
+  'Danke, nun das helfen kann, den Ablauf zu verstehen.',
+  'Thanks, well, that you have shared the details, we can start.',
+  'Thanks, well that you have shared the details, we can start.',
+  'Thanks, so, that help can clarify the process.',
+  'Thanks, so that help can clarify the process.',
+  'Thanks for the details, well that sounds useful.',
+  'Vielen Dank für Ihre Nachricht. Gut, dann beginnen wir.',
+  'Danke, okay, wir helfen können, sobald Sie bereit sind.',
+  'Danke, äh.',
+  'Thanks, well.',
+];
+for (const input of [...unsafeVerbStarts, ...unsafeInterjections]) {
+  test(`AIT-157 fix2: keep uncertain verb or interjection clause: ${input}`, () => {
+    for (const locale of ['de', 'en']) {
+      assert.deepEqual(core.stripThanksOpener(input, locale), { text: input, stripped: false, kept: true });
+      // Verify preservation in text and voice, independently of the pure guard.
+      for (const bufferNormal of [true, false]) {
+        for (let split = 0; split <= input.length; split++) {
+          const stream = new core.ReplyOpenerStream(locale, { bufferNormal });
+          assert.equal(stream.push(input.slice(0, split)) + stream.push(input.slice(split)) + stream.finish(), input);
+          assert.equal(stream.stripped, false);
+        }
+        const stream = new core.ReplyOpenerStream(locale, { bufferNormal });
+        assert.equal([...input].map(char => stream.push(char)).join('') + stream.finish(), input);
+        assert.equal(stream.stripped, false);
+      }
+    }
+  });
+}
+for (const [input, expected] of [
+  ['Danke! Das hilft.', 'Das hilft.'],
+  ['Thanks — that helps.', 'That helps.'],
+  ['Danke, das kann helfen.', 'Das kann helfen.'],
+  ['Danke, es kann helfen.', 'Es kann helfen.'],
+  ['Danke, ich kann helfen.', 'Ich kann helfen.'],
+  ['Danke, wir können helfen.', 'Wir können helfen.'],
+  ['Danke, Sie können helfen.', 'Sie können helfen.'],
+  ['Thanks, that can help.', 'That can help.'],
+  ['Thanks, I can help.', 'I can help.'],
+  ['Danke, es funktioniert.', 'Es funktioniert.'],
+  ['Danke, das wirkt klar.', 'Das wirkt klar.'],
+  ['Danke, es bleibt überschaubar.', 'Es bleibt überschaubar.'],
+  ['Danke, das scheint machbar.', 'Das scheint machbar.'],
+  ['Danke, das sieht gut aus.', 'Das sieht gut aus.'],
+  ['Danke, ich sehe den Ablauf.', 'Ich sehe den Ablauf.'],
+  ['Danke, wir helfen beim Einstieg.', 'Wir helfen beim Einstieg.'],
+  ['Danke, Sie beschreiben den Ablauf klar.', 'Sie beschreiben den Ablauf klar.'],
+  ['Danke, äh das hilft uns.', 'Äh das hilft uns.'],
+  ['Danke, also das hilft uns.', 'Also das hilft uns.'],
+  ['Danke, nun das hilft uns.', 'Nun das hilft uns.'],
+  ['Thanks, well that helps us.', 'Well that helps us.'],
+  ['Thanks, so that helps us.', 'So that helps us.'],
+]) test(`AIT-157 fix2: strip only confirmed finite main-clause starts: ${input}`, () => {
+  for (const locale of ['de', 'en']) {
+    assert.deepEqual(core.stripThanksOpener(input, locale), { text: expected, stripped: true });
+    for (const bufferNormal of [true, false]) {
+      for (let split = 0; split <= input.length; split++) {
+        const stream = new core.ReplyOpenerStream(locale, { bufferNormal });
+        assert.equal(stream.push(input.slice(0, split)) + stream.push(input.slice(split)) + stream.finish(), expected);
+        assert.equal(stream.stripped, true);
+      }
+      const stream = new core.ReplyOpenerStream(locale, { bufferNormal });
+      assert.equal([...input].map(char => stream.push(char)).join('') + stream.finish(), expected);
+      assert.equal(stream.stripped, true);
+    }
+  }
+});
 
 for (const input of [
   ...de.map(form => `${form} für Ihre Nachricht, das klingt nach einem klaren Vorhaben.`),
@@ -146,7 +257,8 @@ test('AIT-157: voice forwards ordinary replies as soon as the prefix is unambigu
   assert.equal(stream.finish(), '');
 });
 for (const input of ['Gut, dann beginnen wir. Danke für Ihre Nachricht.', 'Das hilft uns. Vielen Dank.',
-  'Thanksville is a place.', 'Dankeschönes Design ist ungewöhnlich.', 'Gut, dann …', '', '  "Ein klarer Plan."']) {
+  'Thanksville is a place.', 'Dankeschönes Design ist ungewöhnlich.', 'Gut, dann …', '', '  "Ein klarer Plan."',
+  '**Danke!** Das hilft.', 'Danke\nDas hilft.']) {
   test(`AIT-157: preserve other openers and later thanks: ${input}`, () => {
     assert.equal(typeof core.stripThanksOpener, 'function');
     assert.deepEqual(core.stripThanksOpener(input, 'en'), { text: input, stripped: false });
