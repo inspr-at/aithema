@@ -11,14 +11,16 @@ export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 // orb 86.337s; demo 51.826s; look 26.476s; question-card 17.223s;
 // journey 13.973s; html 8.406s; host 7.586s.
 export const browserShards = [
-  // 345.610s
-  ['test/browser/visitor-credit-tiers.test.js'],
-  // 332.809s
+  // 390.958s. AIT-165: continuity moves here after remote shard 2 exceeded 8 min.
+  [
+    'test/browser/visitor-credit-tiers.test.js',
+    'test/browser/start2-display-continuity.test.js',
+  ],
+  // 287.461s
   [
     'test/browser/start2-display-matrix.test.js',
     'test/browser/demo.test.js',
     'test/browser/start-look.test.js',
-    'test/browser/start2-display-continuity.test.js',
   ],
   // 279.185s
   [
