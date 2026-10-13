@@ -601,29 +601,29 @@ for (const copy of [de, en]) test(`AIT-135 A2 C: inline save, edit and normal de
 test('AIT-135 A2 C: validation is calm, clears while typing, and saving keeps the button label', async t => {
   let finish; const saving = new Promise(resolve => { finish = resolve; });
   const { root, calls } = a2Setup(t, { save: () => saving }); await tick(8);
-  const input = root.querySelector('#email-input'), form = root.querySelector('.m-form'), button = root.querySelector('.m-save');
+  const input = root.querySelector('#email-input'), form = root.querySelector('.host-verify .m-form'), button = root.querySelector('.host-verify .m-save');
   input.value = 'reader'; form.requestSubmit(); await tick();
   assert.equal(input.getAttribute('aria-invalid'), 'true'); assert.equal(calls.filter(c => c.method === 'PUT').length, 0);
   input.value = 'reader@example.test'; input.dispatchEvent(new window.Event('input', { bubbles: true }));
   assert.equal(input.getAttribute('aria-invalid'), 'false'); form.requestSubmit(); await tick();
-  assert.equal(button.textContent, 'Save'); assert.match(root.querySelector('.m-msg').textContent, /Saving/u);
+  assert.equal(button.textContent, 'Save'); assert.match(root.querySelector('.host-verify .m-msg').textContent, /Saving/u);
   finish(); await tick(10);
 });
 
 test('AIT-135 A2 C: deleting an over-spent address works and restores the used-up state', async t => {
   const { root, calls } = a2Setup(t, { address: 'reader@example.test', spent: 15_000_000 }); await tick(8);
-  root.querySelector('.m-delete').click();
-  assert.match(root.querySelector('.m-delete-over').textContent, /1,500 Credits.*used up/u);
-  root.querySelector('.m-del').click(); await tick(10);
+  root.querySelector('.host-verify .m-delete').click();
+  assert.match(root.querySelector('.host-verify .m-delete-over').textContent, /1,500 Credits.*used up/u);
+  root.querySelector('.host-verify .m-del').click(); await tick(10);
   assert.equal(calls.filter(c => c.method === 'DELETE').length, 1);
-  assert.match(root.querySelector('.m-msg').textContent, /deleted.*used up/u);
+  assert.match(root.querySelector('.host-verify .m-msg').textContent, /deleted.*used up/u);
   assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'false');
 });
 
 test('AIT-135 A2 C: no privacy document offers no collection input or confirmation dialog', async t => {
   const { root, calls } = a2Setup(t, { privacy: false }); await tick(8);
   assert.equal(root.querySelector('.host-verify').dataset.emailState, 'unavailable');
-  assert.equal(root.querySelector('.m-form').inert, true);
+  assert.equal(root.querySelector('.host-verify .m-form').inert, true);
   assert.equal(root.querySelector('.verify-entry').hidden, true);
   assert.equal(root.querySelector('dialog.verify-dialog').open, false);
   assert.equal(calls.filter(c => ['POST', 'PUT'].includes(c.method)).length, 0);
@@ -631,10 +631,10 @@ test('AIT-135 A2 C: no privacy document offers no collection input or confirmati
 
 test('AIT-135 A2 C: handover purpose and the short 90-day notice accompany the host privacy link', async t => {
   const { root } = a2Setup(t, { handover: true }); await tick(8);
-  assert.match(root.querySelector('.m-notice').textContent, /For a personal follow-up we ask you separately\./u);
-  assert.match(root.querySelector('.m-notice').textContent, /After 90 days without use, we delete it automatically\./u);
-  assert.doesNotMatch(root.querySelector('.m-notice').textContent, /Use means|cookie/u);
-  assert.equal(root.querySelector('.m-pp').getAttribute('href'), '/privacy?locale=en');
+  assert.match(root.querySelector('.host-verify .m-notice').textContent, /For a personal follow-up we ask you separately\./u);
+  assert.match(root.querySelector('.host-verify .m-notice').textContent, /After 90 days without use, we delete it automatically\./u);
+  assert.doesNotMatch(root.querySelector('.host-verify .m-notice').textContent, /Use means|cookie/u);
+  assert.equal(root.querySelector('.host-verify .m-pp').getAttribute('href'), '/privacy?locale=en');
 });
 
 
@@ -649,9 +649,9 @@ test('AIT-135 A2 B: the supplied open question stays readable and its answers re
 
 test('AIT-135 A2 C: an address saved before the privacy gate closes remains deletable', async t => {
   const { root, calls } = a2Setup(t, { privacy: false, address: 'reader@example.test', spent: 18_000_000 }); await tick(8);
-  root.querySelector('.m-change').click();
+  root.querySelector('.host-verify .m-change').click();
   assert.equal(root.querySelector('.host-verify').dataset.emailState, 'saved');
-  root.querySelector('.m-delete').click(); root.querySelector('.m-del').click(); await tick(10);
+  root.querySelector('.host-verify .m-delete').click(); root.querySelector('.host-verify .m-del').click(); await tick(10);
   assert.equal(calls.filter(call => call.method === 'DELETE').length, 1);
   assert.equal(root.querySelector('.host-verify').dataset.emailState, 'unavailable');
 });
@@ -682,7 +682,7 @@ test('AIT-135 A2 C: equal allowances and disabled confirmation never promise an 
     'GET /credits': () => Response.json({ balance, limitSlot: null, tiers: { current: 'anonymous', next: null, delta: 0, canConfirm: false,
       allowancesMicro: { anonymous: 5_000_000, emailGiven: 5_000_000, emailConfirmed: 8_000_000 } } }),
   } }); await tick(8);
-  assert.equal(root.querySelector('.m-lead-mail').textContent, 'Credit: 500 Credits');
+  assert.equal(root.querySelector('.host-verify .m-lead-mail').textContent, 'Credit: 500 Credits');
   assert.equal(root.querySelector('.credits-email').hidden, true);
   root.querySelector('.verify-entry').click(); await tick();
   assert.equal(root.querySelector('.verify__lead-mail').textContent, 'Credit: 500 Credits');
@@ -692,7 +692,7 @@ test('AIT-135 A2 C: equal allowances and disabled confirmation never promise an 
 test('AIT-135 A2 B: saving after exhaustion refreshes the authoritative verdict instead of keeping budget denied', async t => {
   const { root, calls } = a2Setup(t, { spent: 12_000_000, blocked: true }); await tick(8);
   assert.equal(root.querySelector('textarea').disabled, true);
-  root.querySelector('#email-input').value = 'reader@example.test'; root.querySelector('.m-form').requestSubmit(); await tick(16);
+  root.querySelector('#email-input').value = 'reader@example.test'; root.querySelector('.host-verify .m-form').requestSubmit(); await tick(16);
   assert.ok(calls.some(call => call.path === ''), 'the host snapshot is read after the allowance rises');
   assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'true');
   assert.equal(root.querySelector('textarea').disabled, false);
@@ -787,7 +787,7 @@ for (const recovery of ['email', 'CLI']) for (const waiting of [false, true]) te
   assert.equal(f.root.querySelector('.audio-rail').hasAttribute('data-used-up'), true);
   recovered = true;
   if (recovery === 'email') {
-    f.root.querySelector('#email-input').value = 'reader@example.test'; f.root.querySelector('.m-form').requestSubmit();
+    f.root.querySelector('#email-input').value = 'reader@example.test'; f.root.querySelector('.host-verify .m-form').requestSubmit();
   } else { f.topUp(); t.mock.timers.tick(15_001); }
   await tick(16);
   assert.equal(f.c.session.featureMatrix.best.voice.available, true, 'the server confirms new voice admission');
@@ -827,7 +827,7 @@ for (const recovery of ['email', 'CLI']) for (const waiting of [false, true]) te
   const before = f.calls.filter(call => call.path === '').length;
   recovered = true;
   if (recovery === 'email') {
-    f.root.querySelector('#email-input').value = 'reader@example.test'; f.root.querySelector('.m-form').requestSubmit();
+    f.root.querySelector('#email-input').value = 'reader@example.test'; f.root.querySelector('.host-verify .m-form').requestSubmit();
   } else { f.topUp(); t.mock.timers.tick(15_001); }
   await tick(16);
   assert.ok(f.calls.filter(call => call.path === '').length > before, 'recovery reads a fresh server verdict without a limit event');

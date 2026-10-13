@@ -125,7 +125,7 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
       const label = `${locale}-${theme}-${width}`;
       const actions = async state => {
         const metrics = await shadow(page, c => {
-          const r = c.shadowRoot, row = r.querySelector('.m-view.on .m-acts');
+          const r = c.shadowRoot, row = r.querySelector('.host-verify .m-view.on .m-acts');
           const buttons = [...row.querySelectorAll('button')].filter(n => !n.hidden), dot = row.querySelector('.m-dot');
           const boxes = buttons.map(n => n.getBoundingClientRect());
           const sameRow = boxes[0].top === boxes[1].top;
@@ -252,16 +252,16 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
       assert.equal(footer.reservation, 5); assert.doesNotMatch(footer.notice, /Als Nutzung zählt|Use means/u);
       assert.deepEqual(footer.boldAmounts, locale === 'de' ? ['1.200', '1.800'] : ['1,200', '1,800']);
       uiChecks.push({ locale, theme, width, state: 'no-email', pass: true, ...footer });
-      const targets = await shadow(page, c => ['.m-in', '.m-save', '#email-notice .m-pp'].map(selector => {
+      const targets = await shadow(page, c => ['.host-verify .m-in', '.host-verify .m-save', '#email-notice .m-pp'].map(selector => {
         const n = c.shadowRoot.querySelector(selector), rect = n.getBoundingClientRect(), after = getComputedStyle(n, '::after');
         return rect.height + Math.max(0, -(parseFloat(after.top) || 0)) + Math.max(0, -(parseFloat(after.bottom) || 0));
       }));
-      const primary = await shadow(page, c => { const button = c.shadowRoot.querySelector('.m-save'), style = getComputedStyle(button); return { label: button.textContent, color: style.color, background: style.backgroundColor }; });
+      const primary = await shadow(page, c => { const button = c.shadowRoot.querySelector('.host-verify .m-save'), style = getComputedStyle(button); return { label: button.textContent, color: style.color, background: style.backgroundColor }; });
       assert.ok(primary.label && primary.color !== primary.background, 'the save label is visible on its primary fill');
       assert.ok(targets.every(height => height >= 44), `44 px capture and privacy targets: ${targets}`);
       await shadow(page, c => { c.shadowRoot.querySelector('#email-input').value = 'reader@example.test'; }); await check('typing');
-      await shadow(page, c => { c.shadowRoot.querySelector('#email-input').value = 'reader'; c.shadowRoot.querySelector('.m-form').requestSubmit(); }); await check('invalid');
-      await shadow(page, c => { const input = c.shadowRoot.querySelector('#email-input'); input.value = 'reader@example.test'; input.dispatchEvent(new Event('input', { bubbles: true })); window.a2.saving = true; c.shadowRoot.querySelector('.m-form').requestSubmit(); }); await check('saving');
+      await shadow(page, c => { c.shadowRoot.querySelector('#email-input').value = 'reader'; c.shadowRoot.querySelector('.host-verify .m-form').requestSubmit(); }); await check('invalid');
+      await shadow(page, c => { const input = c.shadowRoot.querySelector('#email-input'); input.value = 'reader@example.test'; input.dispatchEvent(new Event('input', { bubbles: true })); window.a2.saving = true; c.shadowRoot.querySelector('.host-verify .m-form').requestSubmit(); }); await check('saving');
       await page.evaluate(() => { window.a2.saving = false; }); await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.host-verify').dataset.emailState === 'saved'); await check('email-saved');
       await actions('email-saved');
       await click(page, 'dialog.settings .done'); await click(page, '.host-credits__button'); await shot('credits-email-saved');
@@ -324,7 +324,7 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
       await fixture(page, locale, { delivery: true, address: 'reader@example.test' }); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle();
       await actions('mail-pending');
       assert.equal(await shadow(page, c => {
-        const r = c.shadowRoot, prefix = r.querySelector('.m-sent-prefix'), address = r.querySelector('.verify-entry-address');
+        const r = c.shadowRoot, prefix = r.querySelector('.host-verify .m-sent-prefix'), address = r.querySelector('.verify-entry-address');
         const range = document.createRange(); range.selectNodeContents(prefix); const textRight = range.getBoundingClientRect().right;
         return { text: prefix.textContent + address.textContent, display: getComputedStyle(prefix.parentElement).display,
           addressGap: address.getBoundingClientRect().left - textRight };
@@ -335,7 +335,7 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
       const alignment = await shadow(page, c => {
         const r = c.shadowRoot, address = r.querySelector('.verify-entry-address'), heading = r.querySelector('#email-heading');
         return { indentPx: address.getBoundingClientRect().left - heading.getBoundingClientRect().left,
-          tierText: r.querySelector('.m-mail-tier').textContent, gapPx: parseFloat(getComputedStyle(r.querySelector('.m-mail-tier')).gap) };
+          tierText: r.querySelector('.host-verify .m-mail-tier').textContent, gapPx: parseFloat(getComputedStyle(r.querySelector('.host-verify .m-mail-tier')).gap) };
       });
       assert.equal(alignment.indentPx, 0); assert.equal(alignment.gapPx, 0);
       assert.match(alignment.tierText, locale === 'de' ? /Bestätigt · Guthaben: 2\.400 Credits/u : /Confirmed · Credit: 2,400 Credits/u);
@@ -408,7 +408,7 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
         await shot(`top-up-${action}-denied`);
         await shadow(page, c => {
           window.a2.denyVoice = false;
-          c.shadowRoot.querySelector('#email-input').value = 'reader@example.test'; c.shadowRoot.querySelector('.m-form').requestSubmit();
+          c.shadowRoot.querySelector('#email-input').value = 'reader@example.test'; c.shadowRoot.querySelector('.host-verify .m-form').requestSubmit();
         });
         await until(page, () => {
           const r = document.querySelector('aithema-session').shadowRoot;
