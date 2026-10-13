@@ -27,6 +27,8 @@ import { registerDemoExtractors } from './uploads.js';
 import { createDemoHost } from './host-ports.js';
 import { VISITOR_CREDIT_CEILING_MICRO } from './visitor-credits.js';
 import { listenAdmin } from './admin-socket.js';
+import { smtpConfig, createSmtpMail } from '@inspr/aithema-plugin-mail-smtp';
+import { createConfirmationPage } from './confirmation-page.js';
 
 const deployment = deploymentConfig();
 const privacy = await loadPrivacyDocuments(deployment.privacyDocuments);
@@ -38,6 +40,8 @@ if (!['mock', 'openrouter', 'mistral'].includes(provider)) throw new TypeError('
 const openrouter = provider === 'openrouter' ? openRouterConfig(process.env) : undefined;
 // A live provider host never runs fake voice or images; fake HTML only as an explicit demo.
 const live = provider !== 'mock';
+const mailPlugin = createSmtpMail({ config: smtpConfig(process.env, { production: process.env.AITHEMA_PROVIDER !== undefined || process.env.NODE_ENV === 'production' }),
+  publicOrigin: deployment.publicOrigin, resolveSecret: ref => process.env[ref] });
 const html = htmlConfig(process.env, { live });
 const uiRenderLimits = uiRenderLimitConfig(process.env);
 const uploadLimits = uploadLimitConfig(process.env);
@@ -111,9 +115,10 @@ registerDemoExtractors(registry, presets);
 // START owns the lifetime wallet; these are per-conversation safety subcaps.
 const budget = new SQLiteBudgetLedger(storage, { sessionCapMicro: VISITOR_CREDIT_CEILING_MICRO, visitorCapMicro: VISITOR_CREDIT_CEILING_MICRO });
 const pluginRuntime = createPluginRuntime({ storage, reasoning, consent, registry, uiRenderLimits, presets, voiceCap, budget });
-const host = createDemoHost({ storage, demo: process.env.AITHEMA_PROVIDER === undefined,
+const host = createDemoHost({ storage, demo: process.env.AITHEMA_PROVIDER === undefined && process.env.NODE_ENV !== 'production', mailPlugin,
   verificationRequired: process.env.AITHEMA_DEMO_VERIFY === '1', ownerGuard: false,
   privacyDocumentConfigured: privacy.privacyDocumentConfigured });
+const confirmationPage = mailPlugin ? createConfirmationPage({ host, publicOrigin: deployment.publicOrigin }) : null;
 // Demo only: AITHEMA_DEMO_HANDOVER_FAIL=n (1–10) fails the first n fake handover deliveries, to show Retry.
 const handoverFailures = Number(process.env.AITHEMA_DEMO_HANDOVER_FAIL ?? 0);
 if (host.demo && Number.isSafeInteger(handoverFailures)) for (let i = 0; i < Math.min(Math.max(handoverFailures, 0), 10); i++) host.sink.failNext();
@@ -141,6 +146,7 @@ let allowedHosts = new Set();
 async function handle(request) {
   const refused = deploymentGate(request, deployment, allowedHosts); if (refused) return refused;
   if (request.method === 'GET' && new URL(request.url).pathname === '/healthz') return Response.json({ ok: true, commit: deployment.commit ?? build.commit, version: build.version, product: build.product, date: build.date });
+  const confirmationResponse = await confirmationPage?.handle(request); if (confirmationResponse) return confirmationResponse;
   const upload = /^\/api\/sessions\/[a-zA-Z0-9_-]{1,128}\/uploads$/u.test(new URL(request.url).pathname);
   if (request.method === 'POST' && !upload && request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') {
     return new Response(null, { status: 415 });
@@ -185,6 +191,7 @@ async function close() {
   clearInterval(visitorRetention);
   clearTimeout(visitorBatch);
   await admin.close();
+  mailPlugin?.close();
   server.close(); await handlers.close(); server.closeAllConnections(); storage.close();
 }
 process.once('SIGTERM', () => void close()); process.once('SIGINT', () => void close());

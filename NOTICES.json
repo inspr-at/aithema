@@ -175,6 +175,12 @@
       "use": "Real browser smoke testing with puppeteer-core or its dependencies (tests only)."
     },
     {
+      "name": "nodemailer",
+      "version": "10.1.0",
+      "license": "MIT-0",
+      "use": "SMTP confirmation delivery in plugins/mail-smtp only. Registry SPDX: MIT-0; bundled LICENSE retains the MIT permission and copyright notice. No runtime dependencies."
+    },
+    {
       "name": "puppeteer-core",
       "version": "25.13.0",
       "license": "Apache-2.0",
