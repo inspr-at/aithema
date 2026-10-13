@@ -4,6 +4,7 @@ import { createMockReasoning } from '@inspr/aithema-core';
 import { SQLiteStorage, createHandlers } from '../src/index.js';
 import { instrumentedMockRuntime } from '../../../test/server-fixtures.js';
 import { ownedRequest, testToken, unzip } from '../../../test/helpers.js';
+import { beginInvocation } from '../../../packages/core/src/invocation.js';
 
 for (const format of ['plain', 'card', 'card-content-last']) for (const language of ['de', 'en']) {
   test(`AIT-157: ${format} ${language} reply is guarded before display, storage and export`, async () => {
@@ -13,16 +14,22 @@ for (const format of ['plain', 'card', 'card-content-last']) for (const language
     const expected = remainder[0].toUpperCase() + remainder.slice(1), partials = [], logs = [];
     const card = { content: opener + remainder, question_short: 'Welche Systeme?', options: [{ text: 'SAP', likely: true }] };
     let calls = 0, pending;
-    const reasoning = { ...createMockReasoning(), async *stream() {
+    const reasoning = { ...createMockReasoning(), async *stream(request, options) {
+      const invocation = await beginInvocation(options, { billable: false });
+      invocation.dispatch(); invocation.usage({ inputTokens: 0, outputTokens: 0 });
+      let completed = false;
       calls++;
+      try {
       if (format === 'card-content-last') {
-        yield JSON.stringify({ question_short: card.question_short, options: card.options, content: card.content }); return;
+        yield JSON.stringify({ question_short: card.question_short, options: card.options, content: card.content }); completed = true; return;
       }
       if (format === 'card') yield '{"content":"';
       yield opener; first.resolve(); await release.promise;
       // Token-size chunks exercise partial prefix decisions and capitalization.
       for (const char of remainder) yield char;
       if (format === 'card') yield `","question_short":${JSON.stringify(card.question_short)},"options":${JSON.stringify(card.options)}}`;
+      completed = true;
+      } finally { await invocation.finish(completed); }
     } };
     const handlers = createHandlers({ storage, reasoning, pluginRuntime: instrumentedMockRuntime(storage, reasoning), log: entry => logs.push(entry) });
     const transient = handlers.lanes.transient;
