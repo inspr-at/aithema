@@ -103,17 +103,18 @@ test('AIT-166 temporary relay rejection becomes a private failed delivery and ke
       async sendMail() { sends++; throw Object.assign(new Error('451 temporary visitor@example.test'), { responseCode: 451 }); }, close() {},
     }) });
   t.after(() => mailPlugin.close());
-  const f = await fixture(t, { mailPlugin }), s = f.session('temporary');
+  const start = Date.now();
+  const f = await fixture(t, { mailPlugin, time: start }), s = f.session('temporary');
   const visitor = f.host.saveEmail('temporary', { address: 'visitor@example.test', noticeVersion: 'ait-135-v1' });
   const effect = { sessionId: s.id, ownerToken: 'temporary', address: 'visitor@example.test',
-    revision: visitor.addressRevision, expiresAt: 1_801_000 };
+    revision: visitor.addressRevision, expiresAt: start + 1_800_000 };
   assert.deepEqual(await f.host.identity.requestVerification(effect), { status: 'failed' });
   assert.equal(f.storage.db.prepare('SELECT status FROM visitor_mail_deliveries').get().status, 'failed');
   assert.equal(f.host.visitorCredits.audit().at(-1).newValues.outcome, 'failed');
   assert.equal((await f.host.identity.requestVerification(effect)).status, 'rate-limited');
   assert.equal(sends, 1); assert.equal(f.host.confirmation.mailCap().hour.count, 1);
   assert.deepEqual(logs, [{ event: 'mail-delivery-failed', temporary: true }]);
-  f.at(61_000);
+  f.at(start + 60_000);
   assert.equal((await f.host.identity.requestVerification(effect)).status, 'failed');
   assert.equal(sends, 2, 'only an explicit resend after the cooldown retries delivery');
 });
