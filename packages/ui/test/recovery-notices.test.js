@@ -23,7 +23,12 @@ async function fixture(t, copy) {
   return { root, rail, push, recover, replays };
 }
 
-for (const [locale, copy] of [['de', de], ['en', en]]) {
+for (const [locale, copy, wording] of [
+  ['de', de, { notice: 'Letzte Antwort vielleicht nicht ganz zu hören', button: 'Ganze Antwort lesen', title: 'Letzte Antwort',
+    note: 'Der vollständige Text der letzten Antwort, Wort für Wort.', close: 'Schließen', tooltip: 'Erst fortsetzen' }],
+  ['en', en, { notice: 'Last reply may not have played in full', button: 'Read full reply', title: 'Last reply',
+    note: 'The full text of the last reply, word for word.', close: 'Close', tooltip: 'Resume first' }],
+]) {
   for (const [key, flags] of [
     ['voiceRecovered', {}], ['voiceUserUnconfirmed', { userUnconfirmed: true }],
     ['voiceReplyIncomplete', { deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: 'Last reply' }],
@@ -45,19 +50,22 @@ for (const [locale, copy] of [['de', de], ['en', en]]) {
     assert.equal(region.querySelector('.voice-repeat').hidden, true);
   });
 
-  test(`AIT-138 c: ${locale} explicit repeat uses only the last reply and displays the provider fallback`, async t => {
+  test(`AIT-138 c: ${locale} Read full reply uses exact copy and the last reply's text`, async t => {
     const f = await fixture(t, copy);
     await f.recover({ deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: 'Exact last reply.\nWith paragraphs.' });
     const button = f.root.querySelector('.voice-repeat');
-    assert.equal(button.textContent, copy.voiceRepeatReply); assert.equal(button.disabled, false);
+    assert.equal(f.root.querySelector('.voice-notice--reply span').textContent, wording.notice);
+    assert.equal(button.textContent, wording.button); assert.equal(button.disabled, false);
+    assert.equal(button.title, wording.button); assert.equal(button.getAttribute('aria-haspopup'), 'dialog');
     assert.deepEqual(f.replays, [], 'recovery never automatically repeats');
     button.click(); await tick();
     assert.deepEqual(f.replays, ['last']);
     const dialog = f.root.querySelector('.voice-reply-dialog');
     assert.equal(dialog.open, true);
     assert.equal(dialog.querySelector('.voice-reply-text').textContent, 'Exact last reply.\nWith paragraphs.');
-    assert.equal(dialog.querySelector('.voice-reply-note').textContent, copy.voiceReplayTextOnly);
-    assert.equal(dialog.querySelector('.voice-reply-close').textContent, copy.voiceReplayClose);
+    assert.equal(dialog.querySelector('#voice-reply-title').textContent, wording.title);
+    assert.equal(dialog.querySelector('.voice-reply-note').textContent, wording.note);
+    assert.equal(dialog.querySelector('.voice-reply-close').textContent, wording.close);
     await f.push({ type: 'final', role: 'user', turnId: 'next', text: 'Next' });
     assert.equal(dialog.open, false);
   });
@@ -69,7 +77,7 @@ for (const [locale, copy] of [['de', de], ['en', en]]) {
     await f.rail.pause(true); assert.equal(button.disabled, true); button.click(); await tick(); assert.deepEqual(f.replays, []);
     await f.rail.pause(false); assert.equal(button.disabled, false);
     await f.push({ type: 'waiting' }); assert.equal(button.disabled, true);
-    for (const name of ['input', 'output']) { assert.equal(f.rail.button(name).disabled, true); assert.equal(f.rail.button(name).title, copy.voiceResumeFirst); }
+    for (const name of ['input', 'output']) { assert.equal(f.rail.button(name).disabled, true); assert.equal(f.rail.button(name).title, wording.tooltip); }
     await f.rail.close(); assert.equal(button.hidden, true); button.click(); await tick(); assert.deepEqual(f.replays, []);
   });
 }

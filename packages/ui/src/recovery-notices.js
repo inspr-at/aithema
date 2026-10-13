@@ -1,4 +1,4 @@
-// Recovery notices have permanent layout slots. Only a new recovery changes the
+// Recovery notices share a permanently reserved space. Only a new recovery changes the
 // live region; ordinary render/locale passes never repeat its announcement.
 export class RecoveryNotices {
   constructor({ root, copy, available, replay }) {
@@ -6,7 +6,7 @@ export class RecoveryNotices {
     this.revision = 0;
     root.innerHTML = `<div class="voice-notice voice-notice--recovered"></div>
       <div class="voice-notice voice-notice--user"></div>
-      <div class="voice-notice voice-notice--reply"><span></span><button class="voice-repeat" type="button" hidden></button></div>
+      <div class="voice-notice voice-notice--reply"><span></span><button class="voice-repeat" type="button" aria-haspopup="dialog" hidden></button></div>
       <span class="visually-hidden voice-notice-live" role="status" aria-live="polite" aria-atomic="true"></span>
       <dialog class="voice-reply-dialog" aria-labelledby="voice-reply-title" aria-describedby="voice-reply-note">
         <h2 id="voice-reply-title"></h2><p class="voice-reply-note" id="voice-reply-note"></p><p class="voice-reply-text"></p>

@@ -130,10 +130,12 @@ svg { display:block; flex:none; }
 .voice-caption { color:var(--aithema-ink); white-space:nowrap; text-overflow:clip; direction:rtl; }
 .audio-rail[data-state="failed"][data-message] .voice-state { color:var(--aithema-error); }
 
-/* Permanent notice rows keep recovery, repetition and clearing from moving any content. */
-.voice-notices { grid-column:1/-1; min-width:0; display:grid; grid-template-rows:24px 36px 48px; height:108px; font-size:.8rem; line-height:1.4; }
-.voice-notice { display:flex; align-items:center; gap:12px; min-width:0; overflow-wrap:anywhere; color:var(--aithema-muted); }
-.voice-notice--reply { justify-content:space-between; color:var(--aithema-ink); }
+/* Notices fill from the top; the permanent reservation leaves free room below them. */
+.voice-notices { grid-column:1/-1; min-width:0; display:flex; flex-direction:column; height:108px; font-size:.8rem; line-height:1.4; }
+.voice-notice { flex:none; display:flex; align-items:center; gap:12px; min-width:0; min-height:24px; overflow-wrap:anywhere; color:var(--aithema-muted); }
+.voice-notice--user { min-height:36px; }
+.voice-notice--reply { min-height:48px; color:var(--aithema-ink); }
+.voice-notice:empty, .voice-notice--reply:has(> span:empty) { display:none; }
 .voice-notices .voice-repeat { flex:none; width:auto; height:auto; min-height:44px; padding:8px 14px; border:1px solid var(--aithema-line); border-radius:10px;
   background:var(--aithema-surface); color:var(--aithema-ink); font-size:.8rem; }
 .voice-reply-dialog { width:min(560px,calc(100vw - 32px)); max-height:calc(100dvh - 48px); overflow:auto; padding:24px; border:1px solid var(--aithema-line);
@@ -150,8 +152,9 @@ svg { display:block; flex:none; }
 .voice-cell--mic .voice-waiting-help { left:auto; right:0; }
 .voice-cell:focus-visible { outline:2px solid var(--aithema-accent-bright); outline-offset:3px; border-radius:50%; }
 @media(max-width:600px) {
-  .voice-notices { grid-template-rows:24px 44px 88px; height:156px; }
-  .voice-notice--reply { flex-direction:column; align-items:flex-start; justify-content:center; gap:4px; }
+  .voice-notices { height:156px; }
+  .voice-notice--user { min-height:44px; }
+  .voice-notice--reply { min-height:88px; flex-direction:column; align-items:flex-start; justify-content:center; gap:4px; }
 }
 
 /* Concepts: one quiet line under the rail (START keeps concepts out of the conversation's way). */
