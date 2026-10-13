@@ -76,6 +76,7 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.pause').disabled), true);
       sameBoxes(before, await layoutBoxes(page, selectors), `${label}: old-tab notice`);
       const shot = async (target, name) => {
+        const scrollBefore = await target.evaluate(() => scrollY);
         // The rail helper only waits for the band; also settle the workspace entrance.
         await shadow(target, async c => {
           await document.fonts.ready;
@@ -150,6 +151,9 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
           await target.screenshot({ path: join(evidence, file), fullPage: false });
           await writeFile(join(evidence, `${file}.json`), JSON.stringify({ name, width, theme, locale, composer, presentation }, null, 2));
         }
+        // Compare state transitions at the same scroll offset; sticky offsets follow capture scrolling.
+        await target.evaluate(top => { window.scrollTo(0, top); }, scrollBefore);
+        await target.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
       };
       await shot(page, 'old-tab');
       st?.diagnostic('Captured old-tab notice');
