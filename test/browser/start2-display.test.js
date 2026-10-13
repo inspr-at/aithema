@@ -665,12 +665,25 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
       sameBoxes(before, await layoutBoxes(page, selectors), `${label}: unconfirmed notice reserves its space`);
       await shot('unconfirmed', label);
       const lastReplyText = await page.evaluate(() => globalThis.noticeReply);
+      await recovered({ deliveryUncertain: true, playbackPositionUnknown: false, lastReplyText });
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notice--reply span').textContent), '');
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notice-live').textContent), copy.voiceRecovered);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').hidden), true);
+      sameBoxes(before, await layoutBoxes(page, selectors), `${label}: known position hides incomplete notice without layout shift`);
+      await shot('known-position', label);
       await recovered({ deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText });
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notice--reply span').textContent), copy.voiceReplyIncomplete);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').textContent), copy.voiceRepeatReply);
       assert.equal(await page.evaluate(() => globalThis.noticeReplays), 0, 'no automatic replay');
       sameBoxes(before, await layoutBoxes(page, selectors), `${label}: reply notice and button reserve their space`);
       await shot('incomplete-button', label);
+      await recovered({ deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: null });
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notice--reply span').textContent), copy.voiceReplyIncomplete);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').hidden), false);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').disabled), true);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').title), copy.voiceReplyUnavailable);
+      sameBoxes(before, await layoutBoxes(page, selectors), `${label}: unacknowledged reply reserves its space`);
+      await shot('unacknowledged-reply', label);
       await recovered({ userUnconfirmed: true, deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText });
       const geometry = await shadow(page, c => {
         const root = c.shadowRoot, notice = root.querySelector('.voice-notices').getBoundingClientRect();

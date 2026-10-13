@@ -80,6 +80,20 @@ test('AIT-138 c: evidenced heard prefix never offers unknown-position replay', a
   assert.equal(f.root.querySelector('.voice-repeat').hidden, true);
 });
 
+for (const [locale, copy] of [['de', de], ['en', en]]) {
+  for (const [name, selector, expected] of [
+    ['notice', '.voice-notice--reply span', ''],
+    ['announcement', '.voice-notice-live', copy.voiceRecovered],
+  ]) test(`AIT-138 c fix1: ${locale} incomplete ${name} requires an unknown playback position`, async t => {
+    const f = await fixture(t, copy);
+    for (const playbackPositionUnknown of [false, undefined]) {
+      await f.recover({ deliveryUncertain: true, playbackPositionUnknown, lastReplyText: 'Known reply' });
+      assert.equal(f.root.querySelector(selector).textContent, expected);
+      assert.equal(f.root.querySelector('.voice-repeat').hidden, true);
+    }
+  });
+}
+
 test('AIT-138 c: unknown playback without a complete reply keeps the button visibly disabled', async t => {
   const f = await fixture(t, de);
   await f.recover({ deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: null });

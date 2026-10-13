@@ -2,8 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createElevenLabsClient } from '../src/client.js';
 import { fakeSdk, flush } from './fixtures.js';
+import { Window } from 'happy-dom';
+import { RecoveryNotices } from '../../../packages/ui/src/recovery-notices.js';
+import { en } from '../../../packages/ui/src/i18n/en.js';
 
-async function fixture(t, { persistEvent = async () => {} } = {}) {
+async function fixture(t, { persistEvent = async () => {}, withNotices = false } = {}) {
   const sdk = fakeSdk(), calls = []; let generation = 0;
   const receipt = ({ callId }) => {
     const providerSessionId = `conv_${++generation}`;
@@ -20,7 +23,18 @@ async function fixture(t, { persistEvent = async () => {} } = {}) {
     mediaDevices: sdk.mediaDevices, AudioContext: sdk.AudioContext,
     persistEvent: async event => { await persistEvent(event); persisted.push(event); },
   }).start({ callId: 'notice-call' });
-  const events = [], reader = (async () => { for await (const event of session.events) events.push(event); })();
+  let root, notices;
+  if (withNotices) {
+    const window = new Window(); root = window.document.createElement('div'); window.document.body.append(root);
+    notices = new RecoveryNotices({ root, copy: en, available: () => true, replay: () => session.replayLastReply() });
+    t.after(async () => { await window.happyDOM.close(); });
+  }
+  const events = [], reader = (async () => {
+    for await (const event of session.events) {
+      events.push(event);
+      if (event.type === 'recovered') notices?.recovered(event.recovery);
+    }
+  })();
   t.after(async () => { await session.close(); await reader; });
   const recovered = async () => {
     sdk.starts.at(-1).onDisconnect();
@@ -29,7 +43,7 @@ async function fixture(t, { persistEvent = async () => {} } = {}) {
     return events.find(event => event.type === 'recovered').recovery;
   };
   const reply = (text, event_id = 2) => sdk.starts.at(-1).onMessage({ role: 'agent', message: text, event_id });
-  return { sdk, session, events, persisted, calls, recovered, reply };
+  return { sdk, session, events, persisted, calls, recovered, reply, root, notices };
 }
 
 test('AIT-138 c: tentative speech reports unconfirmed only after successful recovery', async t => {
@@ -92,6 +106,51 @@ test('AIT-138 c: heard-prefix evidence survives recovery and is never an unknown
   assert.equal(recovery.playbackPositionUnknown, false);
   assert.equal(f.session.lifecycle.state.checkpoint.heardPrefix, 'Known prefix');
 });
+
+for (const acknowledged of [false, true]) for (const correctionTiming of ['persisted', 'queued', 'late']) {
+  test(`AIT-138 c fix1: A heard (${correctionTiming}), B streaming (${acknowledged ? 'acknowledged' : 'unacknowledged'}), drop offers only B`, async t => {
+    let release;
+    const pending = new Promise(resolve => { release = resolve; });
+    const f = await fixture(t, { withNotices: true,
+      persistEvent: event => event.type === 'heard' && correctionTiming === 'queued' ? pending : undefined });
+    const callbacks = f.sdk.starts[0];
+    callbacks.onModeChange({ mode: 'speaking' }); f.reply('Reply A with remainder', 1); await flush();
+    const correction = () => callbacks.onAgentResponseCorrection({ event_id: 1,
+      original_agent_response: 'Reply A with remainder', corrected_agent_response: 'Reply A' });
+    correction();
+    if (correctionTiming !== 'queued') {
+      await flush();
+      assert.equal(f.session.lifecycle.state.checkpoint.heardPrefix, 'Reply A');
+    }
+    callbacks.onModeChange({ mode: 'listening' }); callbacks.onModeChange({ mode: 'speaking' });
+    callbacks.onAgentChatResponsePart({ event_id: 2, type: 'start', text: '' });
+    callbacks.onAgentChatResponsePart({ event_id: 2, type: 'delta', text: 'Reply B' });
+    if (acknowledged) f.reply('  Reply B.\nComplete remainder.  ', 2);
+    if (correctionTiming === 'late') correction();
+    const recovering = f.recovered(); release();
+    const recovery = await recovering;
+    assert.equal(recovery.deliveryUncertain, true);
+    assert.equal(recovery.playbackPositionUnknown, true, 'A cannot establish the position of B');
+    assert.equal(f.session.lifecycle.state.checkpoint.heardPrefix, null, 'stale A evidence is invalidated');
+    assert.equal(f.persisted.some(event => event.type === 'heard' && event.turnId === 'conv_1:assistant:1' && event.prefix === 'Reply A'), true,
+      'the genuine AIT-146 heard prefix remains in the transcript');
+    assert.equal(f.root.querySelector('.voice-notice--reply span').textContent, en.voiceReplyIncomplete);
+    assert.ok(f.root.querySelector('.voice-notice-live').textContent.includes(en.voiceReplyIncomplete));
+    const button = f.root.querySelector('.voice-repeat');
+    assert.equal(button.hidden, false);
+    assert.equal(button.disabled, !acknowledged);
+    assert.equal(recovery.lastReplyText, acknowledged ? '  Reply B.\nComplete remainder.  ' : null);
+    if (acknowledged) {
+      await f.notices.repeat();
+      assert.equal(f.root.querySelector('dialog').open, true);
+      assert.equal(f.root.querySelector('.voice-reply-text').textContent, recovery.lastReplyText);
+    } else {
+      assert.equal(button.title, en.voiceReplyUnavailable);
+      button.click(); await flush();
+      assert.equal(f.root.querySelector('dialog').open, false, 'an unacknowledged B never substitutes A');
+    }
+  });
+}
 
 for (const stop of ['pause', 'hold', 'hangup']) test(`AIT-138 c: replay is fenced by ${stop}, including queued requests`, async t => {
   const f = await fixture(t); f.reply('Last reply'); await flush();
