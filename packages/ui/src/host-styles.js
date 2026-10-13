@@ -59,6 +59,8 @@ export const hostStyles = `
 .verify__actions { display:flex; flex-wrap:wrap; align-items:center; gap:.25rem .5rem; }
 /* Keep the sending action's reservation while each label hugs its own button. */
 .verify__primary { display:grid; } .verify__primary > * { grid-area:1/1; justify-self:stretch; min-height:2.75rem; }
+/* The hidden Cancel reservation must not create another dialog action row. */
+.verify-dialog .verify__actions { flex-wrap:nowrap; }
 .verify-dialog .verify__primary > * { justify-self:start; }
 .verify-resend { text-align:left; } .verify-cancel { font-size:.85rem; }
 .verify-dialog .verify-form[data-mode=pending] { row-gap:12px; grid-template-areas:"lead" "field" "actions" "message" "note" "privacy"; }
