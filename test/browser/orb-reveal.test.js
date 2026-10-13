@@ -202,10 +202,11 @@ test('AIT-153: contrast waits for delayed entry and still rejects a settled cont
     // Delay the genuine glass transition past the old screenshot clock. Text
     // is already visible while its backdrop is still entering on a busy runner.
     const style = document.createElement('style');
-    style.textContent = '.aithema-reveal-band[data-aithema-reveal-state="open"] .aithema-reveal__glass { transition-delay:3s; }';
+    style.textContent = '.aithema-reveal-band[data-aithema-reveal-state="open"] .aithema-reveal__glass { transition-delay:3s !important; }';
     document.head.append(style);
     document.querySelector('.orb').focus();
   });
+  assert.equal(await page.$eval('.aithema-reveal__glass', node => getComputedStyle(node).transitionDelay), '3s', 'the fixture delays the actual glass transition');
   await freeze(page); await seek(page, 2200);
   await renderedTextContrast(page, 'delayed entry');
   await page.evaluate(() => { window.fixture.band.querySelector('.aithema-reveal__glass').style.background = '#fff'; });
