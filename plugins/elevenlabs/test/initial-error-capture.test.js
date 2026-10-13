@@ -6,7 +6,7 @@ import { INITIAL_ERROR_CAUSES, recordInitialErrorWire } from '../../../test/voic
 const callbacks = [];
 for (const cause of INITIAL_ERROR_CAUSES) {
   test(`main 92dc507 capture: ${cause}`, async t => {
-    const result = await recordInitialErrorWire(t, cause);
+    const result = await recordInitialErrorWire(t, cause, (turns, context, execute) => turns.run(context, execute));
     assert.equal(result.wire.status, 200);
     assert.match(result.wire.body, /^data: \{"id":/u);
     assert.equal(result.operation.state, 'failed');
