@@ -1,6 +1,9 @@
 // AIT-164: the assessment and ask share one fixed cell; the dock grows upward.
 export const emailAskStyles = `
 .analysis-stack { position:relative; display:grid; min-height:0; min-width:0; }
+/* Retry can wrap to two lines, then disappear when a call pauses. Keep its
+   maximum row height so the neighboring Export target stays in place. */
+.workspace[data-host] .understanding > .foot { height:calc(4.15rem + 1px); min-height:calc(4.15rem + 1px); }
 .analysis-stack > :is(.analysis-content,.email-ask-pane) { grid-area:1/1; min-height:0; min-width:0; }
 .email-ask-pane { visibility:hidden; opacity:0; overflow:auto; scrollbar-width:thin; padding:18px 0; transition:opacity .24s; }
 .workspace[data-email-ask="pane"] .email-ask-pane { visibility:visible; opacity:1; }
