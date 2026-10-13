@@ -10,6 +10,10 @@ import { temporaryDb, unzip } from '../../../test/helpers.js';
 import { eventProbe } from '../../../test/voice-test-events.js';
 import { createElevenLabsServer } from '../../../plugins/elevenlabs/src/server.js';
 import { createDemoHost } from '../../../demo/host-ports.js';
+import { Window } from 'happy-dom';
+import { AudioRail } from '../../ui/src/audio-rail.js';
+import { createVoiceControl } from '../../ui/src/voice-control.js';
+import { en } from '../../ui/src/i18n/en.js';
 
 const test = (name, fn) => nodeTest(name, { timeout: 60_000 }, fn);
 
@@ -2958,6 +2962,74 @@ test('AIT-163: less than the minimum runway refuses before provisioning or minti
   assert.equal((await response.json()).reason, 'host-limit');
   assert.equal(h.traffic.length, 0); assert.equal(h.provisioned.length, 0);
   assert.equal(h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n, 0);
+});
+
+for (const funding of ['session', 'voiceVisitor', 'owner']) test(`AIT-163 fix3: ${funding} cannot fund a recovery segment and the 403 renders A2 used-up`, async t => {
+  const h = voiceFixture(t, { durationBinding: { maxDurationSeconds: 3600, reservationSeconds: 30, minRunwaySeconds: 120 },
+    host: args => createDemoHost({ ...args, ownerGuard: false }) });
+  const first = await h.start();
+  await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId, reason: 'transport-lost' });
+  await h.handlers.idle();
+  if (funding === 'owner') h.host.visitorCredits.saveSettings({ baseRevision: h.host.visitorCredits.settings().revision,
+    allowancesUsd: { anonymous: '0.029', emailGiven: '0.029', emailConfirmed: '0.029' } }, { actor: 'ops-cli:fixture', source: 'ops-cli' });
+  else if (funding === 'session') h.runtime.budget.sessionCapMicro = h.runtime.budget.used(h.session.id) + 29_999;
+  else h.runtime.budget.visitorCapMicro = h.runtime.budget.visitorUsed(h.session.id) + 59_999;
+  const attempts = h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n;
+  const credentials = h.provisioned.length, healthReads = h.authChecks().healthReads;
+  let denial;
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
+    const response = await h.handlers.handle(new Request(url, init));
+    denial = { status: response.status, body: await response.clone().json() };
+    return response;
+  });
+  const { control } = createVoiceControl({ baseUrl: 'http://host', sessionId: h.session.id, sessionToken: 'voice-owner' });
+  const window = new Window(), root = window.document.createElement('div'); window.document.body.append(root);
+  const rail = new AudioRail({ root, copy: en, feature: () => ({ available: true }), context: () => ({}),
+    waitingCall: { ...first, state: 'waiting' },
+    client: { start: (identity, options) => control.recover({ ...identity, explicit: true }, options) } });
+  t.after(async () => { rail.destroy(); await window.happyDOM.close(); });
+  await rail.start();
+  assert.deepEqual(denial, { status: 403, body: { error: 'not-admitted', reason: 'host-limit' } });
+  assert.equal(root.hasAttribute('data-used-up'), true);
+  assert.equal(root.querySelector('.voice-state').textContent, en.voiceStates.usedUp);
+  assert.equal(root.hasAttribute('data-message'), false, 'the calm used-up state replaces a generic connection error');
+  assert.equal(h.authChecks().healthReads, healthReads + 1, 'recovery rechecks provider health');
+  assert.equal(h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n, attempts);
+  assert.equal(h.provisioned.length, credentials, 'denied recovery never provisions a replacement');
+});
+
+test('AIT-163 fix3: recovery can fund one segment without the 120-second new-call runway', async t => {
+  const h = voiceFixture(t, { durationBinding: { maxDurationSeconds: 3600, reservationSeconds: 30, minRunwaySeconds: 120 },
+    host: args => createDemoHost({ ...args, ownerGuard: false }) });
+  const first = await h.start();
+  await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId, reason: 'transport-lost' });
+  await h.handlers.idle();
+  h.host.visitorCredits.saveSettings({ baseRevision: h.host.visitorCredits.settings().revision,
+    allowancesUsd: { anonymous: '0.045', emailGiven: '0.045', emailConfirmed: '0.045' } }, { actor: 'ops-cli:fixture', source: 'ops-cli' });
+  const wallet = h.host.wallet('voice-owner');
+  assert.equal(wallet.canAdmit({ maxMicro: 30_000 }), true);
+  assert.equal(wallet.canAdmit({ maxMicro: 120_000 }), false);
+  const healthReads = h.authChecks().healthReads;
+  const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId, explicit: true });
+  const recovered = await response.json(); assert.equal(response.status, 200, JSON.stringify(recovered));
+  assert.equal(h.authChecks().healthReads, healthReads + 1);
+  assert.equal(recovered.callId, first.callId); assert.equal(recovered.spendDeadlineAt, first.spendDeadlineAt);
+  assert.notEqual(recovered.providerSessionId, first.providerSessionId);
+  const row = h.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='voice' ORDER BY rowid DESC LIMIT 1").get();
+  assert.equal(row.max_micro, 30_000); assert.equal(row.max_visitor_micro, 60_000);
+});
+
+test('AIT-163 fix3: an unhealthy provider refuses recovery before provisioning a replacement', async t => {
+  const h = voiceFixture(t, { durationBinding: { maxDurationSeconds: 3600, reservationSeconds: 30, minRunwaySeconds: 120 } });
+  const first = await h.start();
+  await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId, reason: 'transport-lost' });
+  await h.handlers.idle();
+  const credentials = h.provisioned.length;
+  const health = t.mock.method(h.plugin, 'health', async () => ({ available: false }));
+  const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId, explicit: true });
+  assert.equal(response.status, 403); assert.equal((await response.json()).error, 'not-admitted');
+  assert.equal(health.mock.callCount(), 1);
+  assert.equal(h.provisioned.length, credentials);
 });
 
 test('AIT-163 fix2: recovery with less than 120 seconds remaining reserves one segment and preserves the deadline', async t => {
