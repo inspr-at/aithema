@@ -3023,8 +3023,8 @@ for (const dryRun of [true, false]) test(`AIT-163 fix1: limited voice repairs ro
   const head = h.storage.voiceCalls()[0];
   h.storage.saveVoiceCall(h.session.id, { ...head, callId: 'pending-tail', providerSessionId: 'provider-tail' });
   const before = h.storage.voiceCalls();
-  await h.handlers.reconcileUncertain({ dryRun, limit: 1 });
-  await h.handlers.reconcileUncertain({ dryRun, limit: 1 });
+  await h.handlers.reconcileUncertain({ apply: !dryRun, limit: 1 });
+  await h.handlers.reconcileUncertain({ apply: !dryRun, limit: 1 });
   assert.deepEqual(visits, ['pending-head', 'pending-tail']);
   assert.equal(logs.length, dryRun ? 0 : 2);
   if (dryRun) assert.deepEqual(h.storage.voiceCalls(), before, 'preview does not write the journal');
