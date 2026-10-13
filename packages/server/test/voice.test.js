@@ -1640,7 +1640,8 @@ test('slow closure: recovery retries the original identity after a new SDK conne
 
 
 // AIT-137 probes count the actual admission, dispatch and durable cost separately.
-async function turnsOnceFixture(t, { voiceOptions, path, blocked = false, blockedModel = 1, failFirst = false, lateFirst = false, sameReply = false } = {}) {
+async function turnsOnceFixture(t, { voiceOptions, path, blocked = false, blockedModel = 1, failFirst = false, lateFirst = false, sameReply = false,
+  reactionReservationMicro = 0 } = {}) {
   const base = createMockReasoning(), started = Promise.withResolvers(), release = Promise.withResolvers(), modelEvents = eventProbe();
   let models = 0, admissions = 0, finalOrdinal = 0, lateReport;
   const diagnostics = [], requests = [], dispatches = [];
@@ -1667,6 +1668,11 @@ async function turnsOnceFixture(t, { voiceOptions, path, blocked = false, blocke
   } } });
   const admit = h.runtime.admit;
   h.runtime.admit = async args => { if (args.lane === 'reaction') admissions++; return admit(args); };
+  if (reactionReservationMicro) {
+    const reserve = h.runtime.budget.admit.bind(h.runtime.budget);
+    t.mock.method(h.runtime.budget, 'admit', request => reserve({ ...request,
+      ...(request.lane === 'reaction' ? { maxMicro: reactionReservationMicro } : {}) }));
+  }
   const grant = await h.start(), secret = h.secrets.resolve(h.provisioned[0].facadeSecretRef);
   const callback = (messages = [{ role: 'user', content: 'Ja' }], { signal, ...extra } = {}) => h.handlers.handle(new Request(
     `https://facade.test/api/voice/${grant.callId}/llm/chat/completions`, {
@@ -1690,6 +1696,84 @@ const completionText = async response => {
 };
 const sseReply = text => text.split('\n\n').filter(line => line.startsWith('data: {')).map(line => JSON.parse(line.slice(6)))
   .map(frame => frame.choices?.[0].delta?.content ?? '').join('');
+
+for (const boundary of ['admission', 'dispatch authorization']) {
+  test(`AIT-138 d fix 1: takeover during ${boundary} refuses undispatched reasoning and releases its reservation`, async t => {
+    const h = await turnsOnceFixture(t, { blocked: true, reactionReservationMicro: 50 });
+    const entered = Promise.withResolvers(), release = Promise.withResolvers();
+    t.after(() => { release.resolve(); h.release(); });
+    const admit = h.runtime.admit;
+    let admitted = false;
+    h.runtime.admit = async args => {
+      const admission = await admit(args);
+      if (args.lane === 'reaction') {
+        admitted = true;
+        if (boundary === 'admission') { entered.resolve(); await release.promise; }
+      }
+      return admission;
+    };
+    if (boundary === 'dispatch authorization') h.beforeCoverage(async () => {
+      if (admitted) { entered.resolve(); await release.promise; }
+    });
+    const pending = h.callback([{ role: 'user', content: 'Accepted before takeover' }], { stream: true });
+    await entered.promise;
+    assert.equal(h.rows().length, 1); assert.equal(h.rows()[0].state, 'claimed');
+    assert.equal(h.rows()[0].max_micro, 50, 'the undispatched callback owns a real reservation');
+    const takeover = await h.route(`/voice/${h.grant.callId}/takeover`, {
+      epoch: h.grant.epoch, tabId: 'successor-tab', explicit: true });
+    assert.equal(takeover.status, 200);
+    assert.equal(h.storage.get(h.session.id).paused, false, 'epoch fencing cannot depend on session.paused');
+    release.resolve(); h.release();
+    const response = await pending;
+    const body = await response.text(); await h.handlers.idle();
+    assert.equal(response.status, 403, body);
+    assert.equal(JSON.parse(body).error, 'not-admitted');
+    assert.deepEqual(h.counts(), { admissions: 1, models: 0, cost: 0 }, 'no model call crosses the retired epoch');
+    assert.deepEqual(h.rows().map(row => [row.state, row.outcome, row.settled_micro]), [['settled', 'cancelled', 0]]);
+    assert.equal(h.runtime.budget.breakdown(h.session.id).reservedMicro, 0, 'A1 releases the full reservation');
+    assert.equal(h.storage.voiceOperations(h.session.id)[0].state, 'failed');
+  });
+}
+
+test('AIT-138 d fix 1: takeover after dispatch completes paid reasoning and settles exactly once', async t => {
+  const h = await turnsOnceFixture(t, { blocked: true, reactionReservationMicro: 50 });
+  const response = await h.callback([{ role: 'user', content: 'Paid before takeover' }], { stream: true });
+  await h.started;
+  const operation = h.storage.voiceOperations(h.session.id)[0], attempt = h.rows()[0];
+  assert.equal(attempt.state, 'dispatched');
+  const settle = h.runtime.budget.settle.bind(h.runtime.budget);
+  let settlements = 0;
+  t.mock.method(h.runtime.budget, 'settle', (claimId, ...args) => {
+    if (claimId === attempt.claim_id) settlements++;
+    return settle(claimId, ...args);
+  });
+  assert.equal((await h.route(`/voice/${h.grant.callId}/takeover`, {
+    epoch: h.grant.epoch, tabId: 'successor-tab', explicit: true })).status, 200);
+  h.release(); await h.handlers.idle();
+  const completed = h.storage.voiceOperations(h.session.id)[0];
+  assert.equal(completed.key, operation.key); assert.equal(completed.fence, operation.fence);
+  assert.equal(completed.state, 'completed');
+  assert.equal(h.storage.getRecord(h.session.id, completed.replyRef).data.choices[0].message.content, 'Reply 1 finished');
+  assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
+  assert.equal(settlements, 1);
+  assert.deepEqual(h.rows().map(row => [row.attempt_id, row.state, row.outcome, row.settled_micro]),
+    [[attempt.attempt_id, 'settled', 'completed', 17]]);
+  await response.body.cancel();
+});
+
+test('AIT-138 d fix 1: a retired reader gets no frames while its paid operation still completes', async t => {
+  const h = await turnsOnceFixture(t, { blocked: true, reactionReservationMicro: 50 });
+  const response = await h.callback([{ role: 'user', content: 'Private reply for the retired epoch' }], { stream: true });
+  const reader = response.body.getReader();
+  assert.equal((await h.route(`/voice/${h.grant.callId}/takeover`, {
+    epoch: h.grant.epoch, tabId: 'successor-tab', explicit: true })).status, 200);
+  h.release(); await h.handlers.idle();
+  const item = await reader.read(); reader.releaseLock();
+  assert.equal(item.done, true, item.value && new TextDecoder().decode(item.value));
+  assert.equal(item.value, undefined);
+  assert.equal(h.storage.voiceOperations(h.session.id)[0].state, 'completed');
+  assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
+});
 
 test('AIT-138: transport recovery preserves paid generation work; repeated input in the successor is a new operation', async t => {
   const h = await turnsOnceFixture(t, { blocked: true }), messages = [{ role: 'user', content: 'Accepted input' }];
