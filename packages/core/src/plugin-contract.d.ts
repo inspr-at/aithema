@@ -49,7 +49,8 @@ export interface LiveVoiceDeclaration {
   optionalCapabilities?: Partial<Record<'forceInterrupt' | 'alignment' | 'playbackRetry' | 'metering', VoiceCapability>>;
 }
 export type VoiceEvent = { callId: string; providerSessionId?: string; generation?: string | number; epoch?: number } & (
-  { type: 'listening' | 'speaking' | 'recovering' | 'recovered' | 'waiting' } |
+  { type: 'listening' | 'speaking' | 'recovering' | 'recovered' } |
+  { type: 'waiting'; reason?: string } |
   { type: 'partial' | 'final'; turnId: string; role: 'user' | 'assistant'; text: string } |
   { type: 'heard'; turnId: string; prefix: string } |
   { type: 'ended'; reason: string }

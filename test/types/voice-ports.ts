@@ -14,7 +14,7 @@ oldTTS.speak({ text: 'Hallo', voice: 'voice', format: 'pcm' }, oldOptions);
 session.close(options); session.pause(options); session.resume(options);
 session.setInput(false, options); session.setOutput(false, options);
 session.sendText('Ja', options); session.updateContext('context', options); session.interrupt(options);
-const waiting: VoiceEvent = { type: 'waiting', callId: 'call', providerSessionId: 'segment', generation: 2, epoch: 3 };
+const waiting: VoiceEvent = { type: 'waiting', reason: 'recovery-failed', callId: 'call', providerSessionId: 'segment', generation: 2, epoch: 3 };
 const oldDeclaration: LiveVoiceDeclaration = { reasoning: 'delegated',
   transcript: { finality: 'turns', persistence: 'durable' }, billing: { visitor: 'duration', upstream: 'duration' },
   capabilities: { sendText: 'native', updateContext: 'native', setInput: 'native', setOutput: 'emulated',

@@ -3,13 +3,27 @@ import { createVoiceTurnOperations } from '../packages/server/src/voice-turns.js
 import { createCompletionsHandler } from '../plugins/elevenlabs/src/facade.js';
 import { mintConversationCredential, readConversationDetails, reconcileUsage } from '../plugins/elevenlabs/src/server.js';
 import { beginInvocation, PluginError } from '../packages/core/src/invocation.js';
+import { voiceOperation } from '../packages/core/src/live-voice.js';
 
 // Synthetic bodies only. Preserve whitespace, order, frame boundaries and headers;
 // normalize only generated reply UUIDs. The facade clock is injected, not scrubbed.
 export const normalizeVoiceWire = text => text.replace(/chatcmpl-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/gu, 'chatcmpl-FIXTURE');
 const epoch = 1_790_000_000_000;
-const snapshot = async response => ({ status: response.status, headers: Object.fromEntries(response.headers),
-  body: normalizeVoiceWire(await response.text()) });
+const snapshot = async (response, partialRelease) => {
+  if (!partialRelease) return { status: response.status, headers: Object.fromEntries(response.headers), body: normalizeVoiceWire(await response.text()) };
+  const reader = response.body.getReader(), decoder = new TextDecoder(); let body = '';
+  try {
+    for (;;) {
+      const item = await voiceOperation({ deadlineAt: Date.now() + 5000 }, () => reader.read());
+      if (item.done) { body += decoder.decode(); break; }
+      body += decoder.decode(item.value, { stream: true });
+      // Make partial failure an observed wire sequence, independent of OS/task
+      // scheduling. Do not collapse frames or normalize their content/order.
+      if (body.includes('"delta":{"content":')) partialRelease.resolve();
+    }
+  } finally { partialRelease.resolve(); void reader.cancel().catch(() => {}); reader.releaseLock(); }
+  return { status: response.status, headers: Object.fromEntries(response.headers), body: normalizeVoiceWire(body) };
+};
 
 /** Versioned wire records can also be consumed by AIT-139's callback soak harness. */
 export async function recordVoiceWire() {
@@ -19,7 +33,7 @@ export async function recordVoiceWire() {
   const call = { callId: 'call_fixture', providerSessionId: 'conv_fixture', facadeSecretRef: 'fixture-callback-ref',
     facadeCallId: 'facade_fixture',
     spendDeadlineAt: Date.now() + 60_000, browserLivenessDeadlineAt: Date.now() + 60_000 };
-  let admissions = 0;
+  let admissions = 0, partialRelease;
   const facadePorts = { now: () => epoch, log: () => {},
     getCall: () => call, resolveSecret: () => 'fixture-callback-value',
     buildRequest: ({ messages }) => ({ system: 'Canonical fixture prompt', locale: 'de', messages }),
@@ -35,7 +49,7 @@ export async function recordVoiceWire() {
             invocation.dispatch();
             if (input.messages.at(-1).content === 'opener guard') yield 'Danke für die Info. ';
             yield 'Die erste Frage: ';
-            if (input.messages.at(-1).content === 'partial failure') throw new PluginError('provider');
+            if (input.messages.at(-1).content === 'partial failure') { await partialRelease.promise; throw new PluginError('provider'); }
             yield 'Was soll entstehen?'; invocation.usage({ inputTokens: 7, outputTokens: 5 }); completed = true;
           } finally { await invocation.finish(completed); }
         } }, finish() {} };
@@ -59,10 +73,11 @@ export async function recordVoiceWire() {
   const callbacks = [];
   try {
     for (const [name, body, authorization = 'Bearer fixture-callback-value', staticRoute] of callbackCases) {
+      partialRelease = name === 'partial-failure' ? Promise.withResolvers() : undefined;
       const request = { method: 'POST', url: staticRoute ? 'https://host.example.test/api/voice/llm/chat/completions'
         : 'https://host.example.test/api/voice/call_fixture/llm/chat/completions',
         headers: { 'content-type': 'application/json', authorization }, body: JSON.stringify(body) };
-      callbacks.push({ name, request, response: await snapshot(await (staticRoute ? staticHandler : handler)(new Request(request.url, request))) });
+      callbacks.push({ name, request, response: await snapshot(await (staticRoute ? staticHandler : handler)(new Request(request.url, request)), partialRelease) });
     }
     await turns.idle();
   } finally { await turns.idle(); storage.close(); }
