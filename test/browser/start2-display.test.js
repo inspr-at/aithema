@@ -564,7 +564,7 @@ test('AIT-138 UI: held-call copy, placeholders, calm lines and disabled controls
     const disabledControls = await controls();
     for (const control of disabledControls) {
       assert.equal(control.disabled, true); assert.equal(control.opacity, '0.4'); assert.equal(control.cursor, 'default');
-      assert.equal(control.tooltip, control.selector === '.voice-input' ? copy.voiceMicOn : copy.voiceSpeakerOn);
+      assert.equal(control.tooltip, copy.voiceResumeFirst);
     }
     sameBoxes(before, await layoutBoxes(page, selectors), `${label}: waiting keeps fixed cells`);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${label}: no horizontal overflow`);

@@ -130,6 +130,29 @@ svg { display:block; flex:none; }
 .voice-caption { color:var(--aithema-ink); white-space:nowrap; text-overflow:clip; direction:rtl; }
 .audio-rail[data-state="failed"][data-message] .voice-state { color:var(--aithema-error); }
 
+/* Permanent notice rows keep recovery, repetition and clearing from moving any content. */
+.voice-notices { grid-column:1/-1; min-width:0; display:grid; grid-template-rows:24px 36px 48px; height:108px; font-size:.8rem; line-height:1.4; }
+.voice-notice { display:flex; align-items:center; gap:12px; min-width:0; overflow-wrap:anywhere; color:var(--aithema-muted); }
+.voice-notice--reply { justify-content:space-between; color:var(--aithema-ink); }
+.voice-notices .voice-repeat { flex:none; width:auto; height:auto; min-height:44px; padding:8px 14px; border:1px solid var(--aithema-line); border-radius:10px;
+  background:var(--aithema-surface); color:var(--aithema-ink); font-size:.8rem; }
+.voice-reply-dialog { width:min(560px,calc(100vw - 32px)); max-height:calc(100dvh - 48px); overflow:auto; padding:24px; border:1px solid var(--aithema-line);
+  border-radius:16px; background:var(--aithema-paper); color:var(--aithema-ink); box-shadow:var(--aithema-shadow-raised); }
+.voice-reply-dialog::backdrop { background:rgba(0,0,0,.4); }
+.voice-reply-dialog h2 { margin:0; font-size:1.1rem; }
+.voice-reply-note { color:var(--aithema-muted); font-size:.85rem; }
+.voice-reply-text { white-space:pre-wrap; overflow-wrap:anywhere; font-size:1rem; line-height:1.5; }
+.voice-reply-close { min-height:44px; }
+.voice-cell:has(.voice-waiting-help) { position:relative; }
+.voice-waiting-help { position:absolute; z-index:11; top:calc(100% + 6px); left:0; width:max-content; padding:8px 10px; border-radius:8px;
+  background:var(--aithema-ink); color:var(--aithema-paper); font-size:.75rem; visibility:hidden; pointer-events:none; }
+.voice-cell:is(:hover,:focus-visible) .voice-waiting-help:not([hidden]) { visibility:visible; }
+.voice-cell:focus-visible { outline:2px solid var(--aithema-accent-bright); outline-offset:3px; border-radius:50%; }
+@media(max-width:600px) {
+  .voice-notices { grid-template-rows:24px 44px 88px; height:156px; }
+  .voice-notice--reply { flex-direction:column; align-items:flex-start; justify-content:center; gap:4px; }
+}
+
 /* Concepts: one quiet line under the rail (START keeps concepts out of the conversation's way). */
 /* One grid for the line: scene, state, the thumbnail once there is a concept, and Request at the right edge, so the
    thumbnail arriving narrows the state's column and never moves Request. */
