@@ -520,3 +520,36 @@ test('AIT-135 A2 API: the privacy gate removes the offered next tier without cha
   const identity = await (await call(`/api/sessions/${s.id}/identity`)).json();
   assert.equal(identity.delivery, false); assert.equal(identity.privacyDocumentConfigured, false);
 });
+
+for (const ownerGuard of [false, true]) test(`AIT-135 A2 fix 1 API: full voice holds and confirmed spend have distinct wallet verdicts (owner guard ${ownerGuard})`, async t => {
+  const f = fixture(t, { ownerGuard }); f.settings('12', '18', '24');
+  const s = f.session('a2-held-voice'), { call, handlers } = api(t, f), path = `/api/sessions/${s.id}/credits`;
+  const reserve = async maxMicro => {
+    const admitted = await admitCredits(f.ledger, f.request(s.id, maxMicro, { lane: 'voice', maxVisitorMicro: maxMicro }), f.host.wallet(owner));
+    assert.equal(admitted.ok, true);
+    const claim = f.ledger.claim(admitted.admission.attemptId); claim.consume(); return claim;
+  };
+  const settle = (claim, micro) => f.ledger.settleVoice(claim.claimId, { attemptId: claim.attemptId, outcome: 'completed', closureConfirmed: true,
+    usage: { providerSeconds: 60, providerMinutes: 1, pausedSeconds: 0, visitorSeconds: 60, upstreamMicro: micro, visitorMicro: micro, costEstimated: false } });
+  const first = await reserve(12_000_000), events = f.storage.read(s.id);
+  let body = await (await call(path)).json();
+  assert.equal(body.balance.owner.availableMicro, 0);
+  assert.equal(body.balance.owner.reservedMicro, 12_000_000); assert.equal(body.balance.owner.confirmedSpendMicro, 0);
+  assert.equal(body.exhausted, false, 'a full hold is not a wallet exhaustion verdict');
+  assert.deepEqual(f.storage.read(s.id), events, 'reading a hold never emits an exhaustion event');
+  if (ownerGuard) assert.notEqual(body.limitSlot.endReason, 'host-limit');
+  const foreign = await handlers.handle(new Request(`http://local${path}`, { headers: { 'x-aithema-session-token': 'foreign' } }));
+  assert.equal(foreign.status, 404);
+  settle(first, 4_000_000);
+  body = await (await call(path)).json();
+  assert.equal(body.exhausted, false); assert.equal(body.balance.owner.availableMicro, 8_000_000);
+  assert.equal(body.balance.owner.reservedMicro, 0); assert.equal(body.balance.owner.confirmedSpendMicro, 4_000_000);
+  const second = await reserve(8_000_000);
+  assert.equal((await (await call(path)).json()).exhausted, false, 'confirmed spend plus a remaining full hold still permits the admitted segment');
+  settle(second, 8_000_000);
+  body = await (await call(path)).json();
+  assert.equal(body.exhausted, true); assert.equal(body.balance.owner.confirmedSpendMicro, 12_000_000);
+  f.settings('18', '24', '30');
+  body = await (await call(path)).json();
+  assert.equal(body.exhausted, false); assert.equal(body.balance.owner.availableMicro, 6_000_000);
+});

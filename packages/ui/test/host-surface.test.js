@@ -23,7 +23,7 @@ const entry = (id, title, updatedAt) => ({ id, title, revision: 1, createdAt: up
 const balance = { owner: { limitMicro: 5_000_000, committedMicro: 750_000, availableMicro: 4_250_000, overrunMicro: 0 } };
 
 // A connected component; `routes` maps "METHOD path" (after /api/sessions/:id or /api) to a handler.
-function setup(t, { copy = en, host = { library: true, verification: true, handover: true, credits: true }, routes = {}, session: extra = {} } = {}) {
+function setup(t, { copy = en, host = { library: true, verification: true, handover: true, credits: true }, routes = {}, session: extra = {}, voiceClient } = {}) {
   const c = document.createElement('aithema-session'), session = createSession({ demo: true, locale: copy === de ? 'de' : 'en' });
   session.featureMatrix = { best: { text: { available: true }, analysis: { available: true } } };
   Object.assign(session, extra);
@@ -41,7 +41,7 @@ function setup(t, { copy = en, host = { library: true, verification: true, hando
     if (key === 'GET /library') return Response.json({ items: [], total: 0, offset: 0, limit: 100 });
     return Response.json(c.session);
   });
-  c.configure({ copy, session, host }); document.body.append(c); t.after(() => c.remove());
+  c.configure({ copy, session, host, voiceClient }); document.body.append(c); t.after(() => c.remove());
   return { c, root: c.shadowRoot, calls };
 }
 const userTurn = (c, id = 't1') => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id, role: 'user', content: 'We need a preorder app.' } });
@@ -478,19 +478,23 @@ test('locked understanding pane: the verification controls sit under no aria-dis
 
 // AIT-135 A2: all amounts are acknowledged host values (USD millionths).
 const a2Allowances = { anonymous: 12_000_000, emailGiven: 18_000_000, emailConfirmed: 24_000_000 };
-function a2Setup(t, { copy = en, address = null, spent = 3_450_000, delivery = false, privacy = true, handover = false, save, question, blocked = false } = {}) {
-  let saved = address;
-  const tiers = () => ({ allowancesMicro: a2Allowances, current: saved ? 'emailGiven' : 'anonymous',
+function a2Setup(t, { copy = en, address = null, spent = 3_450_000, reserved = 0, delivery = false, privacy = true, handover = false, save, question, blocked = false, voiceClient, waitingCall } = {}) {
+  let saved = address, raised = false;
+  const allowances = () => ({ ...a2Allowances, anonymous: raised ? 18_000_000 : 12_000_000 });
+  const tiers = () => ({ allowancesMicro: allowances(), current: saved ? 'emailGiven' : 'anonymous',
     next: privacy ? saved ? delivery ? 'emailConfirmed' : null : 'emailGiven' : null,
     delta: privacy ? saved ? delivery ? 6_000_000 : 0 : 6_000_000 : 0, canConfirm: delivery && privacy });
-  const visitor = () => ({ address: saved, tier: saved ? 'emailGiven' : 'anonymous', limitMicro: saved ? 18_000_000 : 12_000_000 });
-  const h = setup(t, { copy, host: { verification: { delivery, privacyDocumentConfigured: privacy }, credits: true, handover },
-    session: { demo: false, ...(blocked ? { featureMatrix: { best: { text: { available: false, reason: 'budget denied' }, analysis: { available: false, reason: 'budget denied' } } } } : {}), identity: identity({ address: saved }), settings: { origin: 'chosen', voice: 'off', visuals: 'off' } }, routes: {
-      'GET ': () => Response.json({ ...h.c.session, featureMatrix: { best: { text: { available: Boolean(saved), reason: saved ? null : 'budget denied' }, analysis: { available: Boolean(saved), reason: saved ? null : 'budget denied' } } } }),
+  const visitor = () => ({ address: saved, tier: saved ? 'emailGiven' : 'anonymous', limitMicro: saved ? 18_000_000 : allowances().anonymous });
+  const features = () => ({ best: Object.fromEntries(['text', 'analysis', 'voice'].map(key => [key, {
+    available: visitor().limitMicro > spent + reserved, reason: visitor().limitMicro > spent + reserved ? null : 'budget denied',
+  }])) });
+  const h = setup(t, { copy, voiceClient, host: { verification: { delivery, privacyDocumentConfigured: privacy }, credits: true, handover },
+    session: { demo: false, ...(blocked || voiceClient ? { featureMatrix: features() } : {}), ...(waitingCall ? { voiceLifecycle: waitingCall } : {}), identity: identity({ address: saved }), settings: { origin: 'chosen', voice: 'off', visuals: 'off' } }, routes: {
+      'GET ': () => Response.json({ ...h.c.session, featureMatrix: features() }),
       'GET /identity': () => Response.json({ identity: identity({ address: saved }), delivery, privacyDocumentConfigured: privacy }),
       'GET /visitor/email': () => Response.json({ visitor: visitor(), notice: { version: 'ait-135-v1', deliveryEnabled: delivery }, privacyDocumentConfigured: privacy }),
-      'GET /credits': () => { const limitMicro = visitor().limitMicro; return Response.json({ balance: { owner: { limitMicro, committedMicro: spent,
-        availableMicro: Math.max(0, limitMicro - spent) } }, limitSlot: null, tiers: tiers() }); },
+      'GET /credits': () => { const limitMicro = visitor().limitMicro; return Response.json({ balance: { owner: { limitMicro, committedMicro: spent + reserved,
+        confirmedSpendMicro: spent, reservedMicro: reserved, uncertainSpendMicro: 0, availableMicro: Math.max(0, limitMicro - spent - reserved) } }, exhausted: spent >= limitMicro, limitSlot: null, tiers: tiers() }); },
       'PUT /visitor/email': async body => { await save?.(body); saved = body.address; return Response.json({ visitor: visitor() }); },
       'DELETE /visitor/email': () => { saved = null; return Response.json({ visitor: visitor() }); },
     } });
@@ -501,7 +505,7 @@ function a2Setup(t, { copy = en, address = null, spent = 3_450_000, delivery = f
     const link = document.createElement('a'); link.href = '/privacy?locale=' + (copy === de ? 'de' : 'en'); link.setAttribute('data-aithema-privacy', ''); legal.append(link); h.c.append(legal);
     h.root.querySelector('slot[name="legal"]').dispatchEvent(new window.Event('slotchange'));
   }
-  return h;
+  return { ...h, setSpent: value => { spent = value; }, setReserved: value => { reserved = value; }, topUp: () => { raised = true; } };
 }
 
 for (const copy of [de, en]) test(`AIT-135 A2 B: server tiers in a group, one unit line, no countdown (${copy === de ? 'de' : 'en'})`, async t => {
@@ -571,6 +575,7 @@ for (const copy of [de, en]) test(`AIT-135 A2 C: inline save, edit and normal de
   assert.match(section.querySelector('.m-delete-normal').textContent, copy === de ? /1\.200.*855/u : /1,200.*855/u);
   section.querySelector('.m-del').click(); await tick(10);
   assert.equal(section.dataset.emailState, 'capture'); assert.equal(root.activeElement, input);
+  assert.equal(input.value, '', 'acknowledged deletion clears the cancelled edit');
   assert.equal(calls.filter(call => call.method === 'DELETE').length, 1);
 });
 
@@ -677,11 +682,88 @@ test('AIT-135 A2 B: an exhausted visible app notices a CLI allowance increase wi
   t.mock.timers.enable({ apis: ['setInterval'] });
   let raised = false;
   const { c, root, calls } = setup(t, { host: { credits: true }, routes: {
-    'GET /credits': () => Response.json({ balance: { owner: { limitMicro: raised ? 18_000_000 : 12_000_000, committedMicro: 12_000_000, availableMicro: raised ? 6_000_000 : 0 } }, limitSlot: null }),
+    'GET /credits': () => Response.json({ balance: { owner: { limitMicro: raised ? 18_000_000 : 12_000_000, committedMicro: 12_000_000, availableMicro: raised ? 6_000_000 : 0 } }, exhausted: !raised, limitSlot: null }),
   } }); await tick(8);
   assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'false');
   raised = true; t.mock.timers.tick(15_001); await tick(12);
   assert.equal(calls.filter(call => call.path === '/credits').length, 2);
   assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'true');
   c.remove(); const reads = calls.length; t.mock.timers.tick(15_001); await tick(); assert.equal(calls.length, reads, 'detached apps stop polling');
+});
+
+test('AIT-135 A2 fix 1: a full hold keeps an admitted call running even when new voice admission is unavailable', async t => {
+  const { voiceEvents } = await import('../../core/src/live-voice.js');
+  const events = voiceEvents(); let closes = 0;
+  const voiceClient = { async start({ callId }) { return { callId, providerSessionId: 'held-provider', events,
+    async setInput() {}, async setOutput() {}, async updateContext() {},
+    async close() { closes++; events.end(); return { closureConfirmed: true }; } }; } };
+  const f = a2Setup(t, { spent: 0, voiceClient }); await tick(8);
+  f.root.querySelector('.voice-start').click(); await tick(8);
+  assert.equal(f.root.querySelector('.audio-rail').dataset.state, 'listening');
+  f.setReserved(12_000_000);
+  f.c.receive({ seq: f.c.session.seq + 1, type: 'credits.state', data: { status: 'active', endReason: null } });
+  f.c.receive({ seq: f.c.session.seq + 1, type: 'session.paused', data: { paused: false } });
+  await new Promise(resolve => setTimeout(resolve, 350)); await tick(8);
+  assert.equal(f.c.session.featureMatrix.best.voice.available, false, 'server preview denies another reservation');
+  assert.equal(closes, 0, 'a full reservation must not close the admitted segment');
+  assert.equal(f.root.querySelector('.audio-rail').hasAttribute('data-used-up'), false);
+  assert.equal(f.root.querySelector('.voice-state').textContent, en.voiceStates.listening);
+  assert.equal(f.root.querySelector('.voice-close').disabled, false);
+  assert.equal(f.root.querySelector('.host-credits').dataset.ended, 'false');
+  assert.equal(f.root.querySelector('.composer-out').getAttribute('aria-hidden'), 'true');
+  assert.equal(f.root.querySelector('.credit-announcement').textContent, '');
+});
+
+test('AIT-135 A2 fix 1: a zero available balance without an exhaustion verdict keeps the normal state', async t => {
+  const { root } = setup(t, { host: { credits: true }, routes: {
+    'GET /credits': () => Response.json({ balance: { owner: { limitMicro: 12_000_000, committedMicro: 12_000_000, availableMicro: 0 } }, limitSlot: null }),
+  } }); await tick(8);
+  assert.equal(root.querySelector('.host-credits').dataset.ended, 'false');
+  assert.equal(root.querySelector('.composer-out').getAttribute('aria-hidden'), 'true');
+});
+
+test('AIT-135 A2 fix 1: an admission refusal stays authoritative through a full-hold read and clears after recovery', async t => {
+  const f = a2Setup(t, { spent: 0, reserved: 12_000_000 }); await tick(8);
+  f.c.receive({ seq: f.c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
+  await new Promise(resolve => setTimeout(resolve, 350)); await tick(8);
+  assert.equal(f.root.querySelector('.host-credits').dataset.ended, 'true', 'a balance refresh cannot erase a retained admission refusal while the hold remains');
+  f.topUp(); f.c.receive({ seq: f.c.session.seq + 1, type: 'credits.state', data: { status: 'active', endReason: null } });
+  await new Promise(resolve => setTimeout(resolve, 350)); await tick(8);
+  assert.equal(f.root.querySelector('.host-credits').dataset.ended, 'false');
+});
+
+for (const recovery of ['email', 'CLI']) for (const waiting of [false, true]) test(`AIT-135 A2 fix 2: ${waiting ? 'waiting-call Resume' : 'Retry'} after a ${recovery} top-up clears the retained host-limit denial`, async t => {
+  if (recovery === 'CLI') t.mock.timers.enable({ apis: ['setInterval'] });
+  const { voiceEvents } = await import('../../core/src/live-voice.js');
+  const events = voiceEvents(), requests = []; let recovered = false;
+  const waitingCall = waiting ? { callId: 'waiting-call', providerSessionId: 'waiting-provider', state: 'waiting' } : undefined;
+  const voiceClient = { async start(request) {
+    requests.push(request);
+    if (!recovered) throw Object.assign(new Error('host allowance refused admission'), { code: 'not-admitted', reason: 'host-limit' });
+    return { callId: request.callId, providerSessionId: 'recovered-provider', events,
+      async setInput() {}, async setOutput() {}, async updateContext() {},
+      async close() { events.end(); return { closureConfirmed: true }; } };
+  } };
+  const f = a2Setup(t, { spent: 11_990_000, voiceClient, waitingCall }); await tick(8);
+  f.root.querySelector(waiting ? '.pause' : '.voice-start').click(); await tick(8);
+  assert.equal(requests.length, 1);
+  assert.equal(f.root.querySelector('.audio-rail').dataset.state, waiting ? 'waiting' : 'failed');
+  f.setSpent(12_000_000);
+  f.c.receive({ seq: f.c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
+  await new Promise(resolve => setTimeout(resolve, 350)); await tick(8);
+  assert.equal(f.root.querySelector('.audio-rail').hasAttribute('data-used-up'), true);
+  recovered = true;
+  if (recovery === 'email') {
+    f.root.querySelector('#email-input').value = 'reader@example.test'; f.root.querySelector('.m-form').requestSubmit();
+  } else { f.topUp(); t.mock.timers.tick(15_001); }
+  await tick(16);
+  assert.equal(f.c.session.featureMatrix.best.voice.available, true, 'the server confirms new voice admission');
+  assert.equal(f.root.querySelector('.composer-out').getAttribute('aria-hidden'), 'true');
+  assert.equal(f.root.querySelector('.audio-rail').hasAttribute('data-used-up'), false, 'the old refusal cannot override the recovered verdict');
+  assert.notEqual(f.root.querySelector('.voice-state').textContent, en.voiceStates.usedUp);
+  assert.equal(f.root.querySelector(waiting ? '.voice-pause' : '.voice-retry').disabled, false);
+  f.root.querySelector(waiting ? '.pause' : '.voice-retry').click(); await tick(8);
+  assert.equal(requests.length, 2); assert.equal(f.root.querySelector('.audio-rail').dataset.state, 'listening');
+  if (waiting) assert.deepEqual(requests[1], { callId: waitingCall.callId, providerSessionId: waitingCall.providerSessionId }, 'Resume retains the logical call');
+  for (const selector of ['.voice-input', '.voice-output', '.voice-close']) assert.equal(f.root.querySelector(selector).disabled, false);
 });
