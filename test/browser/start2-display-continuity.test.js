@@ -176,7 +176,6 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
                 target: a.effect.target.className, state: a.playState, timing: a.effect.getComputedTiming() })) };
             });
             await writeFile(join(evidence, `${file}.paint.json`), JSON.stringify(paint, null, 2));
-            await target.screenshot({ path: join(evidence, `surface-false-${file}`), fullPage: false, fromSurface: false });
             await new Promise(resolve => setTimeout(resolve, 1200));
             await target.screenshot({ path: join(evidence, `delayed-${file}`), fullPage: false });
           }
