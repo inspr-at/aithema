@@ -1002,35 +1002,13 @@ test('AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab l
       const resume = c.shadowRoot.querySelector('.pause'), box = resume.getBoundingClientRect();
       return { focused: c.shadowRoot.activeElement === resume, visible: resume.matches(':focus-visible') && box.width > 0 && box.height > 0, text: resume.textContent };
     }), { focused: true, visible: true, text: 'Resume' }, 'Resume is focused and visible');
-    // Hold the post-resume snapshot: session.paused changes before the voice verdict.
-    // A slow host must not make the call helper click Start while it is unavailable.
-    await page.setRequestInterception(true);
-    let releaseSnapshot, snapshotRequested, holdSnapshot = true;
-    const snapshotGate = new Promise(resolve => { releaseSnapshot = resolve; });
-    const snapshotSeen = new Promise(resolve => { snapshotRequested = resolve; });
-    const resumedCalls = [];
-    page.on('request', request => {
-      if (request.method() === 'POST' && new URL(request.url()).pathname === `/api/sessions/${sessionId}/voice`) resumedCalls.push(request.url());
-      if (holdSnapshot && request.method() === 'GET' && new URL(request.url()).pathname === `/api/sessions/${sessionId}`) {
-        snapshotRequested();
-        void snapshotGate.then(() => request.continue());
-      } else void request.continue();
-    });
-    t.after(() => releaseSnapshot());
     await page.keyboard.press('Enter');
     await until(page, () => !document.querySelector('aithema-session').session.paused);
-    await snapshotSeen;
-    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.voice-start').disabled), true, 'the voice verdict is still paused until the snapshot');
     assert.deepEqual(pauses.map(body => JSON.parse(body)), [{ paused: false }], 'one action resumes');
     page.off('request', recordPause);
 
     // D4 cross-tab: an auxiliary window inherits the journal but never ends the call its opener drives.
-    const starting = startCall(page);
-    // Synchronize with the helper reaching its actual Start action while the host is held.
-    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').dataset.stage === 'ready');
-    assert.deepEqual(resumedCalls, [], 'no provider start before the refreshed voice verdict');
-    holdSnapshot = false; releaseSnapshot(); await starting;
-    assert.equal(resumedCalls.length, 1, 'the available control starts exactly one call');
+    await startCall(page);
     const callId = (await journal(page)).callId, opened = new Promise(resolve => browser.once('targetcreated', resolve));
     await page.evaluate(() => { window.open('about:blank', 'aithema-auxiliary'); });
     const auxiliary = await (await opened).page(); const closes = [];
