@@ -1,6 +1,7 @@
 import { createTransport as nodemailerTransport } from 'nodemailer';
 import { lookup as dnsLookup } from 'node:dns/promises';
 import { BlockList, isIP } from 'node:net';
+import { formatCredits } from '../../../packages/ui/src/display.js';
 import { confirmationMessage } from './templates.js';
 export { confirmationHtml, confirmationMessage, mailCopy } from './templates.js';
 const clean = value => typeof value === 'string' && value.length <= 254 && !/[\r\n\0]/u.test(value);
@@ -72,11 +73,15 @@ export function createSmtpMail({ config, publicOrigin, resolveSecret = ref => pr
     return transport;
   }
   return { id: 'smtp', deliversVerification: true,
-    async requestVerification({ address: to, token, locale = 'en', expiresAt }, { signal } = {}) {
+    async requestVerification({ address: to, token, locale = 'en', expiresAt, confirmedAllowanceMicro, privacyDocumentConfigured = false }, { signal } = {}) {
       if (!address(to) || typeof token !== 'string' || !token || token.length > 2048) throw new TypeError('Invalid confirmation delivery');
       signal?.throwIfAborted();
       const link = new URL('/confirm-email', origin); link.searchParams.set('token', token); link.searchParams.set('lang', locale === 'de' ? 'de' : 'en');
-      const message = confirmationMessage({ locale, link: link.href, expiresAt, htmlTemplate });
+      locale = locale === 'de' ? 'de' : 'en';
+      const tierAfter = Number.isSafeInteger(confirmedAllowanceMicro) && confirmedAllowanceMicro >= 0
+        ? formatCredits(confirmedAllowanceMicro, locale) : undefined;
+      const privacyUrl = privacyDocumentConfigured ? new URL('/privacy?locale=' + locale, origin).href : undefined;
+      const message = confirmationMessage({ locale, link: link.href, expiresAt, host: origin.host, privacyUrl, tierAfter, htmlTemplate });
       try {
         await (await connection()).sendMail({ from: config.fromName ? { name: config.fromName, address: config.from } : config.from,
           ...(config.replyTo ? { replyTo: config.replyTo } : {}), to, ...message });

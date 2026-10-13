@@ -2,6 +2,7 @@ import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from
 import { constants, openSync, closeSync, writeFileSync, readFileSync, fstatSync, fsyncSync, linkSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { IDENTITY_POLICY } from '@inspr/aithema-core';
+import { formatCredits } from '../packages/ui/src/display.js';
 import { canonicalEmail } from './email-address.js';
 
 const DAY = 86_400_000;
@@ -101,7 +102,7 @@ export function createConfirmationStore({ storage, visitorCredits, now }) {
     }
     db.exec('DROP TABLE IF EXISTS visitor_mail_key;');
   });
-  const rowFor = token => db.prepare(`SELECT t.*,v.owner_hash,v.address,v.address_revision current_revision,v.identity_json,d.status delivery_status,d.locale
+  const rowFor = token => db.prepare(`SELECT t.*,v.owner_hash,v.address,v.address_revision current_revision,v.identity_json,v.confirmed_at,d.status delivery_status,d.locale
     FROM visitor_confirmation_tokens t JOIN visitor_identities v ON v.visitor_ref=t.visitor_ref
     JOIN visitor_mail_deliveries d ON d.token_hash=t.token_hash WHERE d.request_id=?`).get(requestId(token));
   function stateFor(row, token) {
@@ -114,15 +115,32 @@ export function createConfirmationStore({ storage, visitorCredits, now }) {
     if ((JSON.parse(row.identity_json).confirmationAttempts ?? 0) >= IDENTITY_POLICY.maxConfirmationAttempts) return 'tooManyAttempts';
     return 'valid';
   }
+  function retryAt(row) {
+    const at = now();
+    const last = db.prepare('SELECT MAX(created_at) at FROM visitor_mail_deliveries WHERE visitor_ref=?').get(row.visitor_ref).at;
+    const slots = db.prepare('SELECT created_at FROM visitor_mail_abuse WHERE address_key IN (?,?) AND created_at>? ORDER BY created_at DESC')
+      .all(addressKey(row.address), legacySlotKey(legacyAddressKey(row.address)), at - DAY);
+    return Math.max(at, last === null ? at : last + IDENTITY_POLICY.resendCooldownMs, slots.length >= 3 ? slots[2].created_at + DAY : at);
+  }
+  function describe(row, state, token) {
+    const result = { state, ...(row ? { locale: row.locale } : {}) };
+    // A request id or a failed proof must never reveal address, tier or shared quota.
+    if (!row || stateFor(row, token) === 'invalid') return result;
+    if (['valid', 'confirmed', 'alreadyUsed'].includes(state)) result.address = row.address;
+    if (['valid', 'confirmed'].includes(state)) result.tier = formatCredits(visitorCredits.creditTiers(row.owner_hash).allowancesMicro.emailConfirmed, row.locale);
+    if (state === 'alreadyUsed') result.addressConfirmed = row.confirmed_at !== null && JSON.parse(row.identity_json).status === 'verified';
+    if (state === 'tooManyAttempts') result.retryAt = retryAt(row);
+    return result;
+  }
   const audit = (event, row, outcome) => visitorCredits.auditEvent(event, { visitorRef: row.visitor_ref, ...(outcome ? { outcome } : {}) });
   function redeem(token, { precounted = false, ownerHash, address, revision } = {}) {
     return atomic(() => {
       const row = rowFor(token), state = stateFor(row, token);
       if (!row || row.address_revision !== row.current_revision || !row.address || row.delivery_status !== 'sent') return { state: 'invalid' };
       if (ownerHash !== undefined && (row.owner_hash !== ownerHash || row.address !== address || row.address_revision !== revision)) return { state: 'invalid' };
-      if (['alreadyUsed', 'expired'].includes(state)) return { state, locale: row.locale };
+      if (['alreadyUsed', 'expired'].includes(state)) return describe(row, state, token);
       const identity = JSON.parse(row.identity_json), attempts = identity.confirmationAttempts ?? 0;
-      if (attempts >= IDENTITY_POLICY.maxConfirmationAttempts && !(precounted && attempts === IDENTITY_POLICY.maxConfirmationAttempts)) return { state: 'tooManyAttempts', locale: row.locale };
+      if (attempts >= IDENTITY_POLICY.maxConfirmationAttempts && !(precounted && attempts === IDENTITY_POLICY.maxConfirmationAttempts)) return describe(row, 'tooManyAttempts', token);
       if (!precounted) identity.confirmationAttempts = attempts + 1;
       // Persist the attempt and redemption in the same BEGIN IMMEDIATE as evidence.
       if (state === 'invalid') {
@@ -132,11 +150,11 @@ export function createConfirmationStore({ storage, visitorCredits, now }) {
       if (!visitorCredits.verifyToken({ ownerHash: row.owner_hash, address: row.address, revision: row.address_revision, token })) return { state: 'invalid', locale: row.locale };
       visitorCredits.persistIdentity(row.owner_hash, { ...identity, status: 'verified', expiresAt: null, expired: false, lastNow: now() });
       audit('confirmation.redeemed', row, 'confirmed');
-      return { state: 'confirmed', locale: row.locale };
+      return describe(row, 'confirmed', token);
     });
   }
   return {
-    inspect(token) { const row = rowFor(token); return { state: stateFor(row, token), ...(row ? { locale: row.locale } : {}) }; },
+    inspect(token) { const row = rowFor(token); return describe(row, stateFor(row, token), token); },
     redeem,
     reserve({ ownerHash, sessionId, address, revision, expiresAt, locale }) {
       return atomic(() => {

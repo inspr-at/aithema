@@ -72,7 +72,7 @@ test('C1 POST atomically promotes exactly once; replay and concurrent replay are
   assert.deepEqual(responses.map(r => r.status).sort(), [200, 409]);
   assert.equal(f.host.visitor('owner').tier, 'emailConfirmed');
   assert.equal(f.host.confirmation.inspect(token).state, 'alreadyUsed');
-  assert.match(await (await f.post(token)).text(), /bereits verwendet/u);
+  assert.match(await (await f.post(token)).text(), /Diese Adresse ist schon bestätigt/u);
   assert.equal(f.storage.db.prepare('SELECT confirmed_at FROM visitor_identities').get().confirmed_at, 1_000);
   const audit = JSON.stringify(f.host.visitorCredits.audit()); assert.match(audit, /confirmation.redeemed/u); assert.equal(audit.includes(address), false);
 });
@@ -86,7 +86,7 @@ test('C1 expiry, invalid tokens and five failed attempts have distinct states', 
   f.at(61_000); await f.request(s); const fresh = f.messages.at(-1).token;
   f.at(61_000 + 30 * 60_000);
   assert.equal(f.host.confirmation.inspect(fresh).state, 'expired');
-  assert.match(await (await f.get(fresh)).text(), /neuen Link/u);
+  assert.match(await (await f.get(fresh)).text(), /Link erneut senden/u);
   assert.equal((await f.post(fresh)).status, 410);
   assert.equal(f.host.visitor('owner').tier, 'emailGiven');
 });
@@ -431,4 +431,38 @@ test('C1 demo-only outbox also issues a token with at least 128 random bits', as
   await host.identity.requestVerification({ sessionId: s.id, ownerToken: 'demo-owner', ...result.events.find(e => e.type === 'verification.requested').data });
   // UUIDv4 has 122 random bits. The demo and SMTP path both need stronger tokens.
   assert.equal(/^[A-Za-z0-9_-]{43}$/u.test(host.outbox({ sessionId: s.id, ownerToken: 'demo-owner' })[0].token), true, '256-bit base64url token');
+});
+
+for (const locale of ['de', 'en']) test(`C2 ${locale} store and delivery use configured Credits and authenticated address, with no failed-proof data`, async t => {
+  const f = await fixture(t), s = f.storage.create({ ownerToken: 'owner', locale });
+  f.host.visitorCredits.saveSettings({ baseRevision: 2, allowancesUsd: { anonymous: '10', emailGiven: '15', emailConfirmed: '23.456789' } }, { actor: 'ops-cli:test', source: 'ops-cli' });
+  await f.request(s); const message = f.messages[0], token = message.token;
+  assert.equal(message.confirmedAllowanceMicro, 23_456_789); assert.equal(message.privacyDocumentConfigured, true);
+  const tier = locale === 'de' ? '2.345' : '2,345';
+  assert.deepEqual(f.host.confirmation.inspect(token), { state: 'valid', locale, address, tier });
+  const wrong = token.split('.')[0] + '.wrong';
+  assert.deepEqual(f.host.confirmation.inspect(wrong), { state: 'invalid', locale });
+  assert.deepEqual(f.host.confirmation.redeem(wrong), { state: 'invalid', locale });
+  assert.deepEqual(f.host.confirmation.redeem(token), { state: 'confirmed', locale, address, tier });
+  assert.deepEqual(f.host.confirmation.inspect(token), { state: 'alreadyUsed', locale, address, addressConfirmed: true });
+  assert.deepEqual(f.host.confirmation.redeem(token), { state: 'alreadyUsed', locale, address, addressConfirmed: true });
+  // Evidence can exist while the current identity is no longer verified.
+  f.storage.db.prepare("UPDATE visitor_identities SET confirmed_at=NULL,identity_json=json_set(identity_json,'$.status','pending')").run();
+  assert.deepEqual(f.host.confirmation.inspect(token), { state: 'alreadyUsed', locale, address, addressConfirmed: false });
+  assert.deepEqual(f.host.confirmation.redeem(token), { state: 'alreadyUsed', locale, address, addressConfirmed: false });
+});
+
+test('C2 too-many retry time honors both durable visitor cooldown and rolling shared-address cap', async t => {
+  const f = await fixture(t), s = f.session(); await f.request(s); let token = f.messages.at(-1).token;
+  const exhaust = candidate => { for (let i = 0; i < 5; i++) f.host.confirmation.redeem(candidate.split('.')[0] + '.wrong'); };
+  exhaust(token);
+  assert.deepEqual(f.host.confirmation.inspect(token), { state: 'tooManyAttempts', locale: 'de', retryAt: 61_000 });
+  assert.deepEqual(f.host.confirmation.redeem(token), { state: 'tooManyAttempts', locale: 'de', retryAt: 61_000 });
+  assert.deepEqual(f.host.confirmation.redeem(token.split('.')[0] + '.wrong'), { state: 'tooManyAttempts', locale: 'de' }, 'shared quota is never exposed on a failed proof');
+  f.at(61_000);
+  assert.equal(f.host.confirmation.inspect(token).retryAt, 61_000, 'ready now at cooldown boundary');
+  await f.request(s); f.at(121_000); await f.request(s); token = f.messages.at(-1).token;
+  exhaust(token);
+  assert.equal(f.host.confirmation.inspect(token).retryAt, DAY + 1_000);
+  f.at(181_000); assert.equal(f.host.confirmation.inspect(token).retryAt, DAY + 1_000, 'address cap outlasts cooldown');
 });
