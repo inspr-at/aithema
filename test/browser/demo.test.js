@@ -998,20 +998,62 @@ test('AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab l
       const resume = c.shadowRoot.querySelector('.pause'), box = resume.getBoundingClientRect();
       return { focused: c.shadowRoot.activeElement === resume, visible: resume.matches(':focus-visible') && box.width > 0 && box.height > 0, text: resume.textContent };
     }), { focused: true, visible: true, text: 'Resume' }, 'Resume is focused and visible');
+    // Hold the post-resume snapshot: session.paused changes before the voice verdict.
+    // A slow host must not make the call helper click Start while it is unavailable.
+    await page.setRequestInterception(true);
+    let releaseSnapshot, snapshotRequested, holdSnapshot = true;
+    const snapshotGate = new Promise(resolve => { releaseSnapshot = resolve; });
+    const snapshotSeen = new Promise(resolve => { snapshotRequested = resolve; });
+    const resumedCalls = [];
+    page.on('request', request => {
+      if (request.method() === 'POST' && new URL(request.url()).pathname === `/api/sessions/${sessionId}/voice`) resumedCalls.push(request.url());
+      if (holdSnapshot && request.method() === 'GET' && new URL(request.url()).pathname === `/api/sessions/${sessionId}`) {
+        snapshotRequested();
+        void snapshotGate.then(() => request.continue());
+      } else void request.continue();
+    });
+    t.after(() => releaseSnapshot());
     await page.keyboard.press('Enter');
     await until(page, () => !document.querySelector('aithema-session').session.paused);
+    await snapshotSeen;
+    assert.equal(await inShadow(page, c => c.shadowRoot.querySelector('.voice-start').disabled), true, 'the voice verdict is still paused until the snapshot');
     assert.deepEqual(pauses.map(body => JSON.parse(body)), [{ paused: false }], 'one action resumes');
     page.off('request', recordPause);
 
     // D4 cross-tab: an auxiliary window inherits the journal but never ends the call its opener drives.
-    await startCall(page);
+    const starting = startCall(page);
+    // Synchronize with the helper reaching its actual Start action while the host is held.
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').dataset.stage === 'ready');
+    assert.deepEqual(resumedCalls, [], 'no provider start before the refreshed voice verdict');
+    holdSnapshot = false; releaseSnapshot(); await starting;
+    assert.equal(resumedCalls.length, 1, 'the available control starts exactly one call');
     const callId = (await journal(page)).callId, opened = new Promise(resolve => browser.once('targetcreated', resolve));
-    await page.evaluate(url => { window.open(url, 'aithema-auxiliary'); }, demo.url);
+    await page.evaluate(() => { window.open('about:blank', 'aithema-auxiliary'); });
     const auxiliary = await (await opened).page(); const closes = [];
     auxiliary.on('request', request => { if (request.url().endsWith('/close')) closes.push(request.url()); });
+    await auxiliary.evaluateOnNewDocument(() => {
+      window.voiceLiveness = [];
+      const NativeChannel = BroadcastChannel;
+      window.BroadcastChannel = class extends NativeChannel {
+        constructor(name) {
+          super(name);
+          if (name === 'aithema-voice-calls') this.addEventListener('message', ({ data }) => {
+            if (data?.type === 'pong') window.voiceLiveness.push(data);
+          });
+        }
+        postMessage(data) {
+          if (this.name === 'aithema-voice-calls' && data?.type === 'ping') window.voiceLiveness.push(data);
+          super.postMessage(data);
+        }
+      };
+    });
+    await auxiliary.goto(demo.url, { waitUntil: 'domcontentloaded' });
     await auxiliary.waitForFunction(() => document.querySelector('aithema-session')?.session?.id, { polling: 50 });
     await until(auxiliary, key => sessionStorage.getItem(key) === null, journalKey);
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    const liveness = await auxiliary.evaluate(() => window.voiceLiveness);
+    assert.deepEqual(liveness.map(message => message.type), ['ping', 'pong'], 'the real channel proves the opener is live');
+    assert.equal(liveness[0].callId, callId); assert.equal(liveness[1].callId, callId);
+    assert.equal(liveness[0].nonce, liveness[1].nonce, 'the pong answers this probe');
     assert.deepEqual(closes, [], 'the auxiliary window sends no close');
     assert.ok(['listening', 'speaking', 'paused'].includes(await voiceState(page)), 'the opener still drives its call');
     assert.equal((await journal(page)).callId, callId);

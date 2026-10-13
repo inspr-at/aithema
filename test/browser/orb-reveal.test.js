@@ -190,6 +190,26 @@ async function assertCalmUnderline(page, label) {
   assert.equal(underline.duration, '0s', label); assert.equal(underline.transform, 'matrix(1, 0, 0, 1, 0, 0)', label); assert.deepEqual(underline.animations, [], label);
 }
 
+test('AIT-153: contrast waits for delayed entry and still rejects a settled contrast defect', { timeout: 60_000 }, async t => {
+  const url = await server(t), browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true,
+    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  t.after(() => browser.close());
+  const page = await browser.newPage(); await page.setViewport({ width: 1440, height: 900 });
+  await page.goto(`${url}/?locale=en&theme=light`); await page.waitForFunction(() => window.ready);
+  await page.evaluate(() => {
+    // Delay the genuine glass transition past the old screenshot clock. Text
+    // is already visible while its backdrop is still entering on a busy runner.
+    const style = document.createElement('style');
+    style.textContent = '.aithema-reveal-band[data-aithema-reveal-state="open"] .aithema-reveal__glass { transition-delay:3s; }';
+    document.head.append(style);
+    document.querySelector('.orb').focus();
+  });
+  await freeze(page); await seek(page, 2200);
+  await renderedTextContrast(page, 'delayed entry');
+  await page.evaluate(() => { window.fixture.band.querySelector('.aithema-reveal__glass').style.background = '#fff'; });
+  await assert.rejects(renderedTextContrast(page, 'settled defect'), /contrast [\d.]+:1/);
+});
+
 for (const locale of ['de', 'en']) test(`AIT-140 glass orb and reveal evidence: ${locale}, light/dark, 1440/1024/390`, { timeout: 240_000 }, async t => {
   const url = await server(t), evidence = process.env.AITHEMA_EVIDENCE_DIR, executablePath = await browserPath();
   const directory = await mkdtemp(join(tmpdir(), 'aithema-orb-'));
