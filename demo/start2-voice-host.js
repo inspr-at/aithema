@@ -7,8 +7,15 @@ import { voiceCostConfig } from './voice-cost-config.js';
 export async function createVoiceHost({ storage, resolveSecret, publicOrigin, templateAgentId,
   apiBaseUrl, fetchImpl = fetch, log = console.log, values = process.env, random = Math.random } = {}) {
   const stop = new AbortController(), listeners = new Set();
-  let timer, inFlight, backoff = 30_000, state = 'starting', costs;
-  const host = { disabledReason: null, transient: false, staticSecretRef: 'AITHEMA_VOICE_FACADE_SECRET', log,
+  let timer, inFlight, backoff = 30_000, costs;
+  let availability = { state: 'starting', disabledReason: null, transient: false };
+  const host = { staticSecretRef: 'AITHEMA_VOICE_FACADE_SECRET', log,
+    get binding() { return availability.binding; },
+    get runtime() { return availability.runtime; },
+    get disabledReason() { return availability.disabledReason; },
+    get transient() { return availability.transient; },
+    // Listeners prepare private state synchronously and return it for publication.
+    // No listener may mutate the active registry, policy or presets.
     onAvailable(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     async close() {
       stop.abort(); clearTimeout(timer); timer = undefined;
@@ -25,9 +32,11 @@ export async function createVoiceHost({ storage, resolveSecret, publicOrigin, te
         { signal }, { fetchImpl, resolveSecret });
       return reconcileUsage({ call, details, binding, maxMicro: call.maxMicro });
     } };
-  const transition = (to, reason) => {
-    const changed = state !== to || host.disabledReason !== reason;
-    const from = state; state = to; host.disabledReason = reason;
+  const transition = (to, reason, prepared = {}) => {
+    const from = availability.state;
+    const changed = from !== to || availability.disabledReason !== reason;
+    // Config, dispatch, settlement and consent scopes all read this one snapshot.
+    availability = { ...prepared, state: to, disabledReason: reason, transient: prepared.transient ?? false };
     if (changed) log({ event: 'voice-availability', from, to, reason });
   };
   const retryLater = () => {
@@ -44,23 +53,22 @@ export async function createVoiceHost({ storage, resolveSecret, publicOrigin, te
     try {
       const { maxDurationSeconds, reservationSeconds, upstreamMicroPerMinute, usdPerCredit } = costs;
       const { agentId, apiBaseUrl: endpoint } = await ensureAgent({ storage, resolveSecret, publicOrigin,
-        templateAgentId, apiBaseUrl, fetchImpl, log: () => {}, maxDurationSeconds, signal: stop.signal });
+        templateAgentId, apiBaseUrl, fetchImpl, log, maxDurationSeconds, signal: stop.signal });
       if (stop.signal.aborted) return;
       const binding = qualifyStartBinding({ plugin: 'elevenlabs', model: agentId, agentId, effort: 'none',
         endpoint, accountRef: 'start2-elevenlabs', secretRef: 'ELEVENLABS_API_KEY', maxMicro: Math.ceil(upstreamMicroPerMinute * reservationSeconds / 60),
         maxTokens: 1, rates: { inputMicro: 0, outputMicro: 0 }, maxDurationSeconds, reservationSeconds,
         upstreamMicroPerMinute, visitorMicroPerMinute: upstreamMicroPerMinute,
         ...(usdPerCredit === undefined ? {} : { usdPerCredit }), publicFacadeBaseUrl: publicOrigin });
-      host.binding = binding;
-      for (const listener of listeners) listener(host);
-      host.transient = false;
-      transition('available', null);
+      let prepared = { binding };
+      for (const listener of listeners) prepared = { ...prepared, ...listener({ ...host, ...prepared }) };
+      if (stop.signal.aborted) return;
+      transition('available', null, prepared);
     } catch (error) {
       if (stop.signal.aborted) return;
-      delete host.binding;
       // Provider exceptions and config values never reach logs or public reasons.
-      host.transient = error instanceof AgentEnsureError && error.transient;
-      transition('off', error instanceof AgentEnsureError ? error.message : 'voice-host-unavailable');
+      const transient = error instanceof AgentEnsureError && error.transient;
+      transition('off', error instanceof AgentEnsureError ? error.message : 'voice-host-unavailable', { transient });
       if (host.transient) retryLater();
     }
   };

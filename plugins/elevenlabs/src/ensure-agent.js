@@ -50,8 +50,11 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
     CREATE TABLE IF NOT EXISTS host_voice_secrets (name TEXT PRIMARY KEY, secret_id TEXT NOT NULL UNIQUE);`);
   const request = async (path, method = 'GET', body) => {
     try {
+      // Shutdown stops new work. Started writes and their ownership receipts finish
+      // under their own timeout; only reads also inherit the shutdown signal.
+      signal?.throwIfAborted();
       const timeout = AbortSignal.timeout(15_000);
-      const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
+      const requestSignal = signal && method === 'GET' ? AbortSignal.any([signal, timeout]) : timeout;
       requestSignal.throwIfAborted();
       const response = await fetchImpl(`${base.href.replace(/\/$/u, '')}${path}`, { method, redirect: 'error',
         signal: requestSignal, headers: { 'xi-api-key': key, ...(body ? { 'content-type': 'application/json' } : {}) },

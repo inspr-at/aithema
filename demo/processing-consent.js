@@ -49,13 +49,15 @@ export function qualifyStartBinding(binding, now = Date.now()) {
 /** Durable authoritative state + value-free evidence, as in START src/lib/consent-ledger.ts.
  * A mock grant has no item selection/contract and can never authorize these scopes.
  */
-export function createProcessingConsent({ storage, bindings, now = Date.now }) {
+export function createProcessingConsent({ storage, bindings, voiceConfigured = false, voiceBinding, now = Date.now }) {
   // HTML requires its own purpose; reasoning grants never authorize drafts.
   const coveredBindings = bindings.filter(binding => binding.plugin !== 'claude-html' || binding.legal?.purpose === 'drafts-anthropic');
-  const allowed = coveredBindings.flatMap(binding => (binding.plugin === 'elevenlabs' ? ['start'] : binding.plugin === 'claude-html' ? ['generate', 'edit'] : ['stream', 'structured'])
+  const allowed = coveredBindings.filter(binding => !voiceBinding || binding.plugin !== 'elevenlabs').flatMap(binding => (binding.plugin === 'elevenlabs' ? ['start'] : binding.plugin === 'claude-html' ? ['generate', 'edit'] : ['stream', 'structured'])
     .map(operation => processingScope(binding, operation)));
   const modelProviders = [...new Set(bindings.filter(b => b.plugin === 'openrouter').map(b => modelProvider(b.model)))];
-  const items = CONSENT_ITEMS.filter(item => coveredBindings.some(binding => binding.legal?.purpose === item.id &&
+  // The configured processing contract is stable even while voice is unavailable.
+  // Its exact dispatch scope comes from the atomically published runtime binding.
+  const items = CONSENT_ITEMS.filter(item => (item.id === 'voice-elevenlabs' && voiceConfigured) || coveredBindings.some(binding => binding.legal?.purpose === item.id &&
     (item.id !== 'drafts-anthropic' || binding.plugin === 'claude-html')));
   const contract = [CONSENT_COPY_VERSION, items.map(item => `${item.id}:${item.version}`).join(','), modelProviders.join(',')].join('|');
   const validDecision = decision => decision?.contract === contract && Array.isArray(decision.items) &&
@@ -113,7 +115,9 @@ export function createProcessingConsent({ storage, bindings, now = Date.now }) {
       // An explicit decision may also permit the local mock reasoning used for local tests.
       if (JSON.stringify(scope) === JSON.stringify(MOCK_PROCESSING_SCOPE)) return { covered: true, ...scope,
         consentRevision, expiresAt: Math.min(...Object.values(grants).map(g => g.at + CONSENT_VALIDITY_MS)) };
-      if (!allowed.some(entry => JSON.stringify(entry) === JSON.stringify(scope))) return { covered: false };
+      const currentVoice = voiceBinding?.();
+      const scopes = currentVoice ? [...allowed, processingScope(currentVoice, 'start')] : allowed;
+      if (!scopes.some(entry => JSON.stringify(entry) === JSON.stringify(scope))) return { covered: false };
       const grant = grants[scope.purpose], at = now();
       if (!grant || grant.contract !== contract || grant.version !== scope.itemVersion || grant.at > at || at - grant.at >= CONSENT_VALIDITY_MS ||
         scope.plugin === 'openrouter' && !grant.providers?.includes(modelProvider(scope.model))) return { covered: false };

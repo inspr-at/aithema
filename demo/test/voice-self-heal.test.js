@@ -3,6 +3,11 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import { SQLiteStorage } from '../../packages/server/src/storage.js';
+import { createVoiceProvider } from '../../packages/server/src/voice-provider.js';
+import { PluginRegistry, createMockReasoning } from '@inspr/aithema-core';
+import { prepareVoiceRuntime, voiceRuntimePorts } from '../voice-availability.js';
+import { demoPresets } from '../choices.js';
+import { registerDemoExtractors } from '../uploads.js';
 import { ensureAgent } from '../../plugins/elevenlabs/src/ensure-agent.js';
 import { createVoiceHost } from '../start2-voice-host.js';
 import { stubAgentApi } from '../../test/fixtures/voice-self-heal-host.js';
@@ -47,7 +52,7 @@ for (const [name, fail, reason] of failures.filter(([, , , transient]) => transi
     assert.equal(api.requests.at(-1).method, 'GET');
     assert.equal(api.agents[0].conversation_config.turn.silence_end_call_timeout, 120);
     assert.equal(api.agents[0].conversation_config.conversation.max_duration_seconds, 3600);
-    assert.deepEqual(logs, [
+    assert.deepEqual(logs.filter(entry => entry.event === 'voice-availability'), [
       { event: 'voice-availability', from: 'starting', to: 'off', reason },
       { event: 'voice-availability', from: 'off', to: 'available', reason: null },
     ]);
@@ -73,7 +78,7 @@ for (const mode of ['401', 'mismatch', 'invalid-config']) test(`AIT-161 ${mode}:
   t.after(() => host.close?.());
   const reason = mode === '401' ? 'agent-api-get-401' : mode === 'mismatch' ? 'agent-readback-mismatch' : 'template-agent-required';
   assert.equal(host.disabledReason, reason); assert.equal(host.binding, undefined);
-  assert.deepEqual(logs, [{ event: 'voice-availability', from: 'starting', to: 'off', reason }]);
+  assert.deepEqual(logs.filter(entry => entry.event === 'voice-availability'), [{ event: 'voice-availability', from: 'starting', to: 'off', reason }]);
   const initial = calls; t.mock.timers.tick(3_600_000); await flush(); assert.equal(calls, initial);
 });
 
@@ -159,7 +164,7 @@ test('AIT-161 healthy startup has the same ensure calls and no retry', async t =
     ['GET', '/v1/convai/agents'], ['GET', '/v1/convai/agents/template-agent'], ['GET', '/v1/convai/secrets'],
     ['POST', '/v1/convai/secrets'], ['POST', '/v1/convai/agents/create'], ['GET', '/v1/convai/agents/owned-agent'],
   ]);
-  assert.deepEqual(logs, [{ event: 'voice-availability', from: 'starting', to: 'available', reason: null }]);
+  assert.deepEqual(logs.filter(entry => entry.event === 'voice-availability'), [{ event: 'voice-availability', from: 'starting', to: 'available', reason: null }]);
   t.mock.timers.tick(6_000_000); await flush(); assert.equal(api.requests.length, 6);
 });
 
@@ -290,3 +295,100 @@ for (const provider of ['mock', 'openrouter']) test(`AIT-161 fix1 ${provider}: o
   assert.equal(recovered.featureMatrix.best.voice.available, true, recovered.featureMatrix.best.voice.reason);
   assert.equal((await post(running.url + `/api/sessions/${session.id}/voice`, { callId: 'outage-grant-call', tabId: 'fixture-tab' }, headers)).status, 201);
 });
+
+
+for (const failure of ['binding', 'plugin', 'registration', 'endpoint', 'presets', 'none']) {
+  test(`AIT-161 fix1 transactional recovery ${failure}: no partial registry, endpoint or preset publication`, async t => {
+    const { opts, api } = fixture(t); let lists = 0;
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const logs = [], host = await createVoiceHost({ ...opts, random: () => 0.5, log: entry => logs.push(entry),
+      fetchImpl: async (url, init) => {
+        if (new URL(url).pathname === '/v1/convai/agents' && ++lists === 1) return new Response(null, { status: 503 });
+        return api.fetchImpl(url, init);
+      } });
+    t.after(() => host.close());
+    const reasoning = createMockReasoning(), registry = new PluginRegistry().register(reasoning), policy = { endpoints: [] };
+    const presets = demoPresets({ policy }); registerDemoExtractors(registry, presets);
+    const initial = { registry, policy, presets }, ports = voiceRuntimePorts(() => host.runtime ?? initial);
+    const before = structuredClone({ policy, presets }), entries = registry.list(); let reached;
+    const observe = () => {
+      assert.equal(host.binding, undefined); assert.equal(host.disabledReason, 'agent-api-get-503');
+      assert.equal(ports.registry.get('elevenlabs'), undefined);
+      assert.equal(ports.presets.best, initial.presets.best);
+    };
+    host.onAvailable(candidate => {
+      if (failure === 'binding') reached = 'binding';
+      return prepareVoiceRuntime({ current: initial,
+        binding: failure === 'binding' ? { ...candidate.binding, agentId: 'wrong-agent' } : candidate.binding,
+        createPlugin(binding) {
+          reached = 'plugin'; observe();
+          if (failure === 'plugin') throw new Error('injected plugin failure');
+          const plugin = createVoiceProvider({ storage: opts.storage, staticFacade: true,
+            binding: { agentId: binding.agentId, secretRef: binding.secretRef, apiBaseUrl: binding.endpoint,
+              upstreamMicroPerMinute: binding.upstreamMicroPerMinute, visitorMicroPerMinute: binding.visitorMicroPerMinute,
+              reservationSeconds: binding.reservationSeconds, usdPerCredit: binding.usdPerCredit },
+            fetchImpl: api.fetchImpl, resolveSecret: opts.resolveSecret });
+          if (failure === 'registration') { reached = 'registration'; return { ...plugin, health: null }; }
+          return plugin;
+        },
+        extendPolicy(before, binding) {
+          reached = 'endpoint'; observe();
+          const prepared = { ...before, endpoints: [...before.endpoints, binding.endpoint] };
+          if (failure === 'endpoint') throw new Error('injected endpoint failure');
+          return prepared;
+        },
+        createPresets({ binding, plugin, policy }) {
+          reached = 'presets'; observe();
+          const prepared = demoPresets({ voicePlugin: plugin, voiceBinding: binding, policy });
+          if (failure === 'presets') throw new Error('injected presets failure');
+          return prepared;
+        },
+      });
+    });
+    t.mock.timers.tick(30_000); await flush();
+    assert.deepEqual({ policy, presets }, before, 'preparation leaves the exact previous objects intact');
+    assert.deepEqual(registry.list(), entries); assert.equal(registry.get('elevenlabs'), undefined);
+    const transitions = logs.filter(entry => entry.event === 'voice-availability');
+    assert.equal(transitions.length, 2, 'one availability log per state change');
+    if (failure !== 'none') {
+      assert.equal(reached, failure); assert.equal(host.binding, undefined); assert.equal(host.runtime, undefined);
+      assert.equal(host.disabledReason, 'voice-host-unavailable');
+      assert.equal(ports.registry.get('elevenlabs'), undefined); assert.equal(ports.presets.best, initial.presets.best);
+      t.mock.timers.tick(6_000_000); await flush(); assert.equal(lists, 2, 'preparation failures do not retry');
+    } else {
+      assert.equal(host.disabledReason, null); assert.equal(host.binding, host.runtime.binding);
+      assert.ok(ports.registry.get('elevenlabs')); assert.equal(ports.registry.get('mock'), entries[0]);
+      assert.equal(ports.registry.isCanonicalMock(entries[0]), true, 'retain canonical mock identity');
+      assert.ok(ports.presets.best.policy.endpoints.includes(host.binding.endpoint));
+      assert.equal(ports.presets.best.choices.voices.find(v => v.id === 'elevenlabs').binding, host.binding);
+      assert.deepEqual(ports.presets.best.extractors, initial.presets.best.extractors);
+      assert.equal(ports.presets.best.choices.defaults.voice, 'elevenlabs');
+    }
+  });
+}
+
+for (const table of ['host_voice_secrets', 'host_agents']) {
+  test(`AIT-161 fix1 shutdown while inserting ${table} ownership receipt finishes the insert`, async t => {
+    const { opts, api, storage } = fixture(t); let lists = 0, closing;
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const host = await createVoiceHost({ ...opts, random: () => 0.5, fetchImpl: async (url, init) => {
+      if (new URL(url).pathname === '/v1/convai/agents' && ++lists === 1) return new Response(null, { status: 503 });
+      return api.fetchImpl(url, init);
+    } });
+    const prepare = storage.db.prepare.bind(storage.db);
+    t.mock.method(storage.db, 'prepare', sql => {
+      const statement = prepare(sql);
+      if (sql.startsWith(`INSERT INTO ${table} `)) {
+        const run = statement.run.bind(statement);
+        t.mock.method(statement, 'run', (...args) => { if (!closing) closing = host.close(); return run(...args); });
+      }
+      return statement;
+    });
+    t.mock.timers.tick(30_000); await flush(); await closing;
+    assert.ok(closing); assert.ok(prepare(`SELECT * FROM ${table}`).get());
+    assert.equal(host.binding, undefined);
+    const restarted = await createVoiceHost(opts); t.after(() => restarted.close());
+    assert.ok(restarted.binding, restarted.disabledReason);
+    assert.equal(api.agents.length, 1); assert.equal(api.secrets.length, 1);
+  });
+}
