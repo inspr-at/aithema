@@ -14,7 +14,7 @@ export async function liveVoiceConformance(plugin, request, { requestCount, prob
   try { check((await voiceOperation({ deadlineAt: Date.now() + timeoutMs }, opts => plugin.health(opts)))?.available === true, 'health unavailable'); }
   catch { failures.push('health failed'); }
   for (const mode of ['completed', 'cancelled', 'deadline', 'consume-refused', 'active-cancelled', 'spend-deadline', 'browser-liveness-deadline']) {
-    const reports = [], events = [], controller = new AbortController();
+    const reports = [], events = [], controller = new AbortController(), suspended = Promise.withResolvers();
     const before = requestCount(); let consumed = false, session, consumer;
     const persistedBefore = persistedEvents?.().length ?? 0;
     const attemptId = crypto.randomUUID(), claimId = crypto.randomUUID();
@@ -34,7 +34,10 @@ export async function liveVoiceConformance(plugin, request, { requestCount, prob
     try {
       session = await voiceOperation({ deadlineAt: Date.now() + timeoutMs }, () => plugin.start(request, options));
       assertVoiceSession(session);
-      consumer = (async () => { for await (const event of session.events) { assertVoiceEvent(event); events.push(event); } })();
+      consumer = (async () => { for await (const event of session.events) {
+        assertVoiceEvent(event); events.push(event);
+        if (['waiting', 'ended'].includes(event.type)) suspended.resolve(event);
+      } })();
       if (mode === 'completed') {
         check(session.callId === request.callId, 'stable call identity');
         const values = { setInput: false, setOutput: false, sendText: 'typed fixture', updateContext: { focus: 'fixture' } };
@@ -73,6 +76,12 @@ export async function liveVoiceConformance(plugin, request, { requestCount, prob
         check(actual.filter(event => event.type === 'final').length > 0 || contract.transcript.finality !== 'turns', 'declared final turns missing');
       } else if (['active-cancelled', 'spend-deadline', 'browser-liveness-deadline'].includes(mode)) {
         if (mode === 'active-cancelled') controller.abort();
+        if (mode === 'browser-liveness-deadline') {
+          const event = await voiceOperation({ deadlineAt: Date.now() + timeoutMs }, () => suspended.promise);
+          check(event.type === 'waiting', 'browser lease must suspend the logical call');
+          // Fixture cleanup is explicit; lease expiry itself is not terminal intent.
+          await session.close({ reason: mode, deadlineAt: Date.now() + timeoutMs });
+        }
         await voiceOperation({ deadlineAt: Date.now() + timeoutMs }, () => consumer);
         check(events.some(event => event.type === 'ended'), `${mode} missing ended event`);
       } else failures.push(`ignored ${mode}`);

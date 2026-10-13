@@ -5,15 +5,206 @@ import { SQLiteStorage, createHandlers, createPluginRuntime, createVoiceProvider
 import { PluginRegistry, createMockReasoning, activeTurns, PluginError, inputRevision } from '@inspr/aithema-core';
 import * as core from '@inspr/aithema-core';
 import { readFile } from 'node:fs/promises';
+import { DatabaseSync } from 'node:sqlite';
 import { temporaryDb, unzip } from '../../../test/helpers.js';
 import { eventProbe } from '../../../test/voice-test-events.js';
 import { createElevenLabsServer } from '../../../plugins/elevenlabs/src/server.js';
+import { createDemoHost } from '../../../demo/host-ports.js';
 
 const test = (name, fn) => nodeTest(name, { timeout: 60_000 }, fn);
 
-export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, path, cap, reasoning = createMockReasoning(), durationBinding = {}, voiceOptions = {} } = {}) {
+for (const settled of [false, true]) test(`AIT-138 / A1: recovery after a zero allowance refuses a paid segment (${settled ? 'settled' : 'active'} predecessor)`, async t => {
+  const h = voiceFixture(t, { durationBinding: { reservationSeconds: 5 },
+    host: args => createDemoHost({ ...args, ownerGuard: false }) });
+  const first = await h.start();
+  if (settled) {
+    await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId, reason: 'transport-lost' });
+    await h.handlers.idle();
+    assert.equal(h.storage.voiceCalls(h.session.id)[0].terminal.closureConfirmed, true);
+  }
+  const attempts = h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n;
+  const reservations = h.storage.db.prepare('SELECT COUNT(*) n FROM owner_wallet_reservations').get().n;
+  const credentials = h.traffic.filter(url => url.includes('/token?')).length;
+  h.host.visitorCredits.saveSettings({ baseRevision: h.host.visitorCredits.settings().revision,
+    allowancesUsd: { anonymous: '0', emailGiven: '0', emailConfirmed: '0' } }, { actor: 'ops-cli:fixture', source: 'ops-cli' });
+  const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId, explicit: true });
+  assert.equal(response.status, 403); assert.equal((await response.json()).error, 'not-admitted');
+  await h.handlers.idle();
+  assert.equal(h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n, attempts);
+  assert.equal(h.storage.db.prepare('SELECT COUNT(*) n FROM owner_wallet_reservations').get().n, reservations);
+  assert.equal(h.traffic.filter(url => url.includes('/token?')).length, credentials, 'no replacement provider credential is minted');
+  assert.equal(h.storage.voiceCalls(h.session.id).length, 1);
+  assert.equal(h.storage.ownerCreditState('voice-owner'), null, 'the optional owner guard stays disabled');
+});
+
+test('AIT-138 / A1: visitor Resume and explicit recovery renew retention; heartbeat and automatic recovery do not', async t => {
+  const DAY = 24 * 60 * 60_000;
+  let activityTime = 1_000;
+  const h = voiceFixture(t, { host: args => createDemoHost({ ...args, ownerGuard: false, now: () => activityTime }) });
+  h.host.saveEmail('voice-owner', { address: 'voice@example.test', noticeVersion: 'ait-135-v1' });
+  const activeAt = () => h.storage.db.prepare('SELECT last_active_at FROM visitor_identities WHERE owner_hash=?')
+    .get(h.session.ownerHash).last_active_at;
+  let grant = await h.start();
+  activityTime += 89 * DAY;
+  assert.equal((await h.route(`/voice/${grant.callId}/heartbeat`, { providerSessionId: grant.providerSessionId })).status, 200);
+  assert.equal(activeAt(), 1_000);
+  let response = await h.route(`/voice/${grant.callId}/recover`, { providerSessionId: grant.providerSessionId });
+  assert.equal(response.status, 200); grant = await response.json(); await h.handlers.idle();
+  assert.equal(activeAt(), 1_000, 'automatic recovery and settlement are not visitor activity');
+  const identity = { providerSessionId: grant.providerSessionId, explicit: true };
+  assert.equal((await h.route(`/voice/${grant.callId}/recover`, identity, 'another-owner')).status, 404);
+  assert.equal((await h.route(`/voice/${grant.callId}/recover`, { ...identity, explicit: 'yes' })).status, 400);
+  assert.equal(activeAt(), 1_000);
+  await h.route(`/voice/${grant.callId}/close`, { providerSessionId: grant.providerSessionId, reason: 'transport-lost' });
+  response = await h.route(`/voice/${grant.callId}/recover`, identity);
+  assert.equal(response.status, 200); grant = await response.json();
+  assert.equal(activeAt(), activityTime, 'explicit recovery from a settled segment renews activity');
+  activityTime += 1_000;
+  response = await h.route(`/voice/${grant.callId}/recover`, { providerSessionId: grant.providerSessionId, explicit: true });
+  assert.equal(response.status, 200); grant = await response.json();
+  assert.equal(activeAt(), activityTime, 'explicit recovery of an active segment renews activity');
+  activityTime += 1_000;
+  await h.route(`/voice/${grant.callId}/pause`, { providerSessionId: grant.providerSessionId });
+  assert.equal((await h.route(`/voice/${grant.callId}/resume`, { providerSessionId: grant.providerSessionId })).status, 200);
+  assert.equal(activeAt(), activityTime);
+  activityTime += 1_000;
+  assert.equal((await h.route('/pause', { paused: true })).status, 200);
+  assert.equal((await h.route('/pause', { paused: false })).status, 200);
+  assert.equal(activeAt(), activityTime, 'conversation Resume also renews voice activity');
+  activityTime = 1_000 + 90 * DAY; h.host.retainVisitors();
+  assert.equal(h.host.visitor('voice-owner').address, 'voice@example.test');
+  activityTime += 90 * DAY; h.host.retainVisitors();
+  assert.equal(h.host.visitor('voice-owner').address, null);
+});
+
+for (const locale of ['de', 'en']) test(`AIT-138: server alone chooses ${locale} continuation, regardless of browser presentation`, async t => {
+  const h = voiceFixture(t, { voiceOptions: { presentation: language => ({ agent: { language, firstMessage: core.aiNoticeText(language) } }) } });
+  if (locale === 'de') await h.route('/locale', { locale });
+  const first = await h.start();
+  assert.equal(first.overrides.agent.firstMessage, core.aiNoticeText(locale));
+  const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId, presentation: 'opening' });
+  assert.equal(response.status, 200); const next = await response.json();
+  assert.equal(next.callId, first.callId); assert.equal(next.spendDeadlineAt, first.spendDeadlineAt);
+  assert.equal(next.presentation, 'continuation'); assert.deepEqual(next.overrides, { agent: { language: locale, firstMessage: '' } });
+});
+
+test('AIT-138: transcript persistence during awaited heartbeat eligibility keeps call authorization', async t => {
+  const h = voiceFixture(t), first = await h.start(), entered = Promise.withResolvers(), release = Promise.withResolvers();
+  h.beforeCoverage(async () => { entered.resolve(); await release.promise; });
+  t.after(() => release.resolve());
+  const beat = h.route(`/voice/${first.callId}/heartbeat`, { providerSessionId: first.providerSessionId });
+  await entered.promise;
+  h.storage.postTurn(h.session.id, 'new-input', new Uint8Array([1]), 'A final arrived while eligibility awaited', { ownerToken: 'voice-owner' });
+  release.resolve(); assert.equal((await beat).status, 200);
+  assert.deepEqual(h.closeRequests, []);
+});
+
+test('AIT-138: explicit hangup cannot be resurrected by a recover request', async t => {
+  const h = voiceFixture(t), first = await h.start();
+  await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId, reason: 'closed' });
+  const before = h.traffic.length;
+  const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId });
+  assert.equal(response.status, 403); assert.equal(h.traffic.length, before);
+});
+
+test('AIT-138 fix 2: pause correlation survives durable replay without admitting invalid identifiers', async t => {
+  const h = voiceFixture(t), grant = await h.start(), pauseRequestId = crypto.randomUUID();
+  const identity = { providerSessionId: grant.providerSessionId, pauseRequestId };
+  const before = h.storage.get(h.session.id).seq;
+  const response = await h.route(`/voice/${grant.callId}/pause`, identity);
+  assert.equal(response.status, 200);
+  const pauses = h.storage.read(h.session.id, before).filter(event => event.type === 'session.paused');
+  assert.equal(pauses.length, 1); assert.equal(pauses[0].data.pauseRequestId, pauseRequestId);
+  assert.equal(h.storage.voiceLifecycle(h.session.id, grant.callId).state, 'paused');
+  const invalid = await h.route(`/voice/${grant.callId}/pause`, { ...identity, pauseRequestId: { unexpected: true } });
+  assert.equal(invalid.status, 400);
+  assert.equal(h.storage.read(h.session.id, before).filter(event => event.type === 'session.paused').length, 1);
+});
+
+test('AIT-138 fix 3: Resume correlation survives durable replay and invalid identifiers cannot lift a Pause', async t => {
+  const h = voiceFixture(t), grant = await h.start(), resumeRequestId = crypto.randomUUID();
+  const identity = { providerSessionId: grant.providerSessionId };
+  await h.route(`/voice/${grant.callId}/pause`, identity);
+  const before = h.storage.get(h.session.id).seq;
+  const response = await h.route(`/voice/${grant.callId}/resume`, { ...identity, resumeRequestId });
+  assert.equal(response.status, 200);
+  const resumes = h.storage.read(h.session.id, before).filter(event => event.type === 'session.paused' && !event.data.paused);
+  assert.equal(resumes.length, 1); assert.equal(resumes[0].data.resumeRequestId, resumeRequestId);
+  await h.route(`/voice/${grant.callId}/pause`, identity);
+  const heldAt = h.storage.get(h.session.id).seq;
+  for (const invalidId of [{ unexpected: true }, '', 'contains spaces']) {
+    const invalid = await h.route(`/voice/${grant.callId}/resume`, { ...identity, resumeRequestId: invalidId });
+    assert.equal(invalid.status, 400); assert.equal(h.storage.get(h.session.id).paused, true);
+    assert.equal(h.storage.voiceLifecycle(h.session.id, grant.callId).state, 'paused');
+  }
+  assert.deepEqual(h.storage.read(h.session.id, heldAt), [], 'invalid Resume requests produce no durable events');
+});
+
+test('AIT-138 fix 2: background closure confirmation preserves a waiting logical call', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
+  const h = voiceFixture(t, { unknown: true, leaseMs: 20, voiceOptions: { reconcileIntervalMs: 10,
+    async closeOrphan(record) { return { providerSessionId: record.providerSessionId, outcome: 'completed', closureConfirmed: true,
+      usage: { providerSeconds: 1, providerMinutes: 1 / 60, pausedSeconds: 0, visitorSeconds: 1, upstreamMicro: 1000, visitorMicro: 2000 } }; },
+  } });
+  const grant = await h.start(), { waitFor } = await observeVoice(h, t);
+  h.advance(20); t.mock.timers.tick(20);
+  await waitFor(e => e.type === 'voice.state' && e.data.state === 'waiting');
+  await h.waitForClosure(grant.providerSessionId);
+  h.advance(10_001); t.mock.timers.tick(10_001); await h.handlers.idle();
+  h.handlers.reconcileVoiceLater(); t.mock.timers.tick(10);
+  const confirmed = await waitFor(e => e.type === 'voice.state' && e.data.terminal?.closureConfirmed === true);
+  assert.equal(confirmed.data.state, 'waiting', 'settling the segment must not end the resumable logical call');
+  const logical = h.storage.voiceLifecycle(h.session.id, grant.callId);
+  assert.equal(logical.state, 'waiting'); assert.equal(logical.segments[grant.providerSessionId].closureConfirmed, true);
+  assert.equal(h.storage.voiceCalls()[0].reconciliationPending, false);
+});
+
+for (const failure of ['admission', 'SDK connection']) test(`AIT-138 fix 3: exhausted ${failure} attempts persist waiting for another reader`, async t => {
+  const path = await temporaryDb(), h = voiceFixture(t, { path }), first = await h.start();
+  let current = first;
+  if (failure === 'admission') h.failMint(503);
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId });
+    assert.equal(response.status, failure === 'admission' ? 502 : 200);
+    if (failure === 'SDK connection') {
+      current = await response.json();
+      await h.route(`/voice/${first.callId}/close`, { providerSessionId: current.providerSessionId,
+        reason: 'recovery-failed', recoveryAttempts: attempt });
+    }
+  }
+  await h.route(`/voice/${first.callId}/close`, { providerSessionId: current.providerSessionId,
+    reason: 'recovery-failed', recoveryAttempts: 3 });
+  const waiting = h.storage.voiceLifecycle(h.session.id, first.callId);
+  assert.equal(waiting.state, 'waiting'); assert.equal(waiting.attempts, 3); assert.equal(waiting.needsRecovery, true);
+  const reader = new DatabaseSync(path, { readOnly: true }); t.after(() => reader.close());
+  const saved = JSON.parse(reader.prepare('SELECT record FROM voice_lifecycle_calls WHERE session_id=? AND call_id=?').get(h.session.id, first.callId).record);
+  assert.deepEqual(saved, waiting, 'another reader sees the exhausted state in SQLite');
+  const snapshot = await h.handlers.handle(new Request(`http://host/api/sessions/${h.session.id}`, {
+    headers: { 'x-aithema-session-token': 'voice-owner' } })).then(r => r.json());
+  assert.equal(snapshot.voiceLifecycle.state, 'waiting'); assert.equal(snapshot.voiceLifecycle.attempts, 3);
+  assert.equal(snapshot.voiceLifecycle.callId, first.callId);
+  h.failMint();
+  const resumed = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: current.providerSessionId }).then(r => r.json());
+  assert.equal(resumed.callId, first.callId); assert.equal(h.storage.voiceLifecycle(h.session.id, first.callId).attempts, 0);
+});
+
+test('AIT-138 fix 3: exhaustion reports are owner authenticated, validated, and fenced from successors and terminal intent', async t => {
+  const h = voiceFixture(t), first = await h.start(), close = (providerSessionId, recoveryAttempts, owner) =>
+    h.route(`/voice/${first.callId}/close`, { providerSessionId, reason: 'recovery-failed', recoveryAttempts }, owner);
+  assert.equal((await close(first.providerSessionId, 3, 'another-owner')).status, 404);
+  for (const count of [null, -1, 0, 4, '3']) assert.equal((await close(first.providerSessionId, count)).status, 400);
+  assert.equal(h.storage.voiceLifecycle(h.session.id, first.callId).state, 'active');
+  const next = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId }).then(r => r.json());
+  await close(first.providerSessionId, 3);
+  assert.equal(h.storage.voiceLifecycle(h.session.id, first.callId).state, 'active', 'an old segment cannot put its successor into waiting');
+  await h.route(`/voice/${first.callId}/close`, { providerSessionId: next.providerSessionId, reason: 'closed' });
+  await close(next.providerSessionId, 3);
+  assert.equal(h.storage.voiceLifecycle(h.session.id, first.callId).state, 'ended', 'exhaustion cannot undo explicit hang-up');
+});
+
+export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure = false, path, cap, reasoning = createMockReasoning(), durationBinding = {}, voiceOptions = {}, host: createHost } = {}) {
   const storage = new SQLiteStorage(path), secrets = createFacadeSecrets();
-  let clock = Date.now(), sequence = 0, covered = true, secretReads = 0, coverageReads = 0, healthReads = 0, releasing = false, mintFailure;
+  let clock = Date.now(), sequence = 0, covered = true, secretReads = 0, coverageReads = 0, healthReads = 0, releasing = false, mintFailure, beforeCoverage;
   const opened = new Map(), ended = new Set(), waiting = new Map(), provisioned = [], traffic = [], closeRequests = [];
   const providerEvents = eventProbe();
   const endClient = id => { ended.add(id); waiting.get(id)?.(); waiting.delete(id); };
@@ -28,7 +219,8 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
     evidence: { qualified: true, accountRef: binding.accountRef, secretRef: binding.secretRef,
       model: binding.model, endpoint: binding.endpoint, routing: {}, verifiedAt: clock - 1000, expiresAt: clock + 100_000 } };
   const plugin = createVoiceProvider({ storage, now, binding: { agentId: binding.agentId, secretRef: binding.secretRef,
-    apiBaseUrl: binding.endpoint, upstreamMicroPerMinute: binding.upstreamMicroPerMinute, visitorMicroPerMinute: binding.visitorMicroPerMinute },
+    apiBaseUrl: binding.endpoint, upstreamMicroPerMinute: binding.upstreamMicroPerMinute, visitorMicroPerMinute: binding.visitorMicroPerMinute,
+    reservationSeconds: binding.reservationSeconds, usdPerCredit: binding.usdPerCredit },
     resolveSecret: () => { secretReads++; return 'provider-fixture-value'; }, revokeFacade: secrets.revoke,
     closureTimeoutMs: slowClosure ? 30_000 : 10_000,
     requestProviderClose: record => { closeRequests.push(record.providerSessionId); providerEvents.record({ type: 'close', id: record.providerSessionId }); },
@@ -53,7 +245,7 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
   const presets = mockPresets();
   const health = plugin.health; plugin.health = options => { healthReads++; return health(options); };
   presets.best.plugins.push('elevenlabs'); presets.best.bindings.voice = binding; presets.best.policy = { endpoints: [binding.endpoint] };
-  const consent = { async coverage({ scope, consentRevision }) { coverageReads++; return { covered, ...scope, scope, consentRevision, checkedAt: clock, expiresAt: clock + 100_000 }; } };
+  const consent = { async coverage({ scope, consentRevision }) { coverageReads++; await beforeCoverage?.(); return { covered, ...scope, scope, consentRevision, checkedAt: clock, expiresAt: clock + 100_000 }; } };
   const registry = new PluginRegistry().register(createMockReasoning()).register(plugin);
   const admittedRuntime = createPluginRuntime({ storage, registry, presets, consent, now, voiceCap });
   // Instrument reasoning after canonical admission; wrappers never gain mock trust.
@@ -61,7 +253,8 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
     const admitted = await admittedRuntime.admit(args);
     return args.lane === 'voice' ? admitted : { ...admitted, plugin: reasoning };
   } };
-  const handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent, voice: { secrets, now, browserLeaseMs: leaseMs, ...voiceOptions } });
+  const host = createHost?.({ storage, now });
+  const handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent, host, voice: { secrets, now, browserLeaseMs: leaseMs, ...voiceOptions } });
   t.after(async () => { releasing = true; for (const id of waiting.keys()) endClient(id); await handlers.close(); storage.close(); });
   const token = 'voice-owner', session = storage.create({ ownerToken: token, demo: true });
   const route = async (suffix, body = {}, owner = token) => handlers.handle(new Request(`http://host/api/sessions/${session.id}${suffix}`, {
@@ -69,12 +262,12 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
   const start = async (callId = 'call-1') => {
     const response = await route('/voice', { callId }); assert.equal(response.status, 201); return response.json();
   };
-  return { storage, secrets, runtime, handlers, session, route, start, presets, provisioned, traffic, now, voiceCap, plugin: registry.get('elevenlabs'), endClient, closeRequests,
+  return { storage, secrets, runtime, handlers, host, session, route, start, presets, provisioned, traffic, now, voiceCap, plugin: registry.get('elevenlabs'), endClient, closeRequests,
     failMint: failure => { mintFailure = failure; },
     waitForMintFailure: () => providerEvents.waitFor(event => event.type === 'mint-failed'),
     waitForClosure: id => providerEvents.waitFor(event => event.type === 'details' && event.id === id),
     authChecks: () => ({ secretReads, coverageReads, healthReads }),
-    advance: ms => { clock += ms; }, coverage: value => { covered = value; } };
+    advance: ms => { clock += ms; }, coverage: value => { covered = value; }, beforeCoverage: fn => { beforeCoverage = fn; } };
 }
 
 function assertUnbillableStart(h) {
@@ -212,7 +405,7 @@ test('post-mint journal failure withholds the credential and durably releases th
 test('failed recovery mint releases only its own hold and permits a later call', async t => {
   const h = voiceFixture(t, { cap: { capMilliseconds: 65_000 } }), first = await h.start();
   h.advance(5000);
-  await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId });
+  await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId, reason: 'transport-lost' });
   h.failMint(500);
   assert.equal((await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId })).status, 502);
   assertUnbillableStart(h); assert.equal(h.voiceCap.snapshot().spentMilliseconds, 5000);
@@ -276,7 +469,7 @@ test('unknown closure keeps aggregate duration until authenticated reconciliatio
 test('recovery and stale reconnect replay use remaining aggregate duration under one call identity', async t => {
   const h = voiceFixture(t, { cap: { capMilliseconds: 60_000, perDayMilliseconds: 60_000 } }), first = await h.start();
   h.advance(10_000);
-  assert.equal((await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId })).status, 200);
+  assert.equal((await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId, reason: 'transport-lost' })).status, 200);
   const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId });
   assert.equal(response.status, 200); const next = await response.json();
   assert.equal(next.callId, first.callId); assert.equal(next.spendDeadlineAt, first.spendDeadlineAt);
@@ -945,8 +1138,10 @@ test('each reconnect admits a new duration claim, rotates facade auth and keeps 
     assert.equal(grant.callId, first.callId); assert.equal(grant.spendDeadlineAt, first.spendDeadlineAt);
     assert.equal(h.secrets.resolve(refs.at(-1)), undefined);
   }
-  const denied = await h.route(`/voice/${grant.callId}/recover`, { providerSessionId: grant.providerSessionId }); assert.equal(denied.status, 502);
-  assert.equal(h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n, 4);
+  const nextOutage = await h.route(`/voice/${grant.callId}/recover`, { providerSessionId: grant.providerSessionId }); assert.equal(nextOutage.status, 200);
+  assert.equal((await nextOutage.json()).spendDeadlineAt, first.spendDeadlineAt);
+  assert.equal(h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n, 5,
+    'the browser controller bounds each outage; the server never imposes a lifetime reconnect quota');
 });
 
 test('voice admission fails closed on evidence, coverage, pause, and changed consent at consume without provider traffic', async t => {
@@ -1022,7 +1217,7 @@ test('browser lease and spend expiry settle a call even while the engine is paus
   const { waitFor } = await observeVoice(h, t);
   await h.route(`/voice/${grant.callId}/pause`, { providerSessionId: grant.providerSessionId });
   h.advance(20); t.mock.timers.tick(20);
-  await waitFor(e => e.type === 'voice.state' && e.data.state === 'ended' && e.data.reason === 'browser-liveness-deadline');
+  await waitFor(e => e.type === 'voice.state' && e.data.state === 'waiting' && e.data.reason === 'browser-liveness-deadline');
   await h.handlers.idle();
   const row = h.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='voice'").get();
   assert.equal(row.state, 'settled'); assert.equal(row.outcome, 'cancelled');
@@ -1331,13 +1526,13 @@ test('slow closure: engine pause records a new event even when the provider ackn
   assert.deepEqual(rows.filter(e => e.type === 'session.paused').map(e => e.seq), [ack.event.seq]);
 });
 
-test('slow closure: browser lease expiry publishes closing before the client ends', async t => {
+test('slow closure: browser lease expiry publishes waiting before the segment settles', async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
   const h = voiceFixture(t, { slowClosure: true, leaseMs: 20 }), grant = await h.start(), { rows, waitFor } = await observeVoice(h, t);
   h.advance(20); t.mock.timers.tick(20);
-  await waitFor(e => e.type === 'voice.state' && e.data.state === 'closing' && e.data.reason === 'browser-liveness-deadline');
+  await waitFor(e => e.type === 'voice.state' && e.data.state === 'waiting' && e.data.reason === 'browser-liveness-deadline');
   assert.equal(h.secrets.resolve(h.provisioned[0].facadeSecretRef), undefined);
-  assert.ok(rows.some(e => e.type === 'voice.state' && e.data.state === 'closing' && e.data.reason === 'browser-liveness-deadline'));
+  assert.ok(rows.some(e => e.type === 'voice.state' && e.data.state === 'waiting' && e.data.reason === 'browser-liveness-deadline'));
   assert.equal(h.storage.db.prepare("SELECT state FROM budget_attempts WHERE lane='voice'").get().state, 'dispatched');
   h.advance(10_001); h.endClient(grant.providerSessionId); await h.handlers.idle();
 });
@@ -1440,6 +1635,29 @@ const completionText = async response => {
 };
 const sseReply = text => text.split('\n\n').filter(line => line.startsWith('data: {')).map(line => JSON.parse(line.slice(6)))
   .map(frame => frame.choices?.[0].delta?.content ?? '').join('');
+
+test('AIT-138: transport recovery preserves paid generation work; repeated input in the successor is a new operation', async t => {
+  const h = await turnsOnceFixture(t, { blocked: true }), messages = [{ role: 'user', content: 'Accepted input' }];
+  const first = await h.callback(messages, { stream: true }), oldReply = first.text();
+  await h.started;
+  const admitted = h.storage.voiceOperations(h.session.id)[0];
+  const response = await h.route(`/voice/${h.grant.callId}/recover`, { providerSessionId: h.grant.providerSessionId });
+  assert.equal(response.status, 200); const next = await response.json();
+  const nextSecret = h.secrets.resolve(h.provisioned.at(-1).facadeSecretRef);
+  const newer = await h.handlers.handle(new Request(`https://facade.test/api/voice/${next.callId}/llm/chat/completions`, {
+    method: 'POST', headers: { authorization: `Bearer ${nextSecret}` },
+    body: JSON.stringify({ aithema_call: next.callId, messages }),
+  }));
+  assert.equal(await completionText(newer), 'Reply 2 finished');
+  h.release(); const text = await oldReply;
+  assert.doesNotMatch(text, /"error"/u, 'transport loss must not cancel already paid work');
+  assert.equal(sseReply(text), 'Reply 1 finished');
+  const operations = h.storage.voiceOperations(h.session.id);
+  assert.equal(operations.length, 2); assert.equal(operations[0].key, admitted.key); assert.equal(operations[0].fence, admitted.fence);
+  assert.ok(operations.every(operation => operation.state === 'completed'));
+  assert.notEqual(operations[0].key, operations[1].key); assert.notEqual(operations[0].providerSessionId, operations[1].providerSessionId);
+  assert.deepEqual(h.counts(), { admissions: 2, models: 2, cost: 34 }, 'each generation charges once; no receipt aliasing');
+});
 
 for (const order of ['callback-first', 'persist-first', 'persist-during-admission']) {
   test(`AIT-137 receipt timing leaves callback retry identity unchanged: ${order}`, async t => {

@@ -89,7 +89,8 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       const session = storage.get(id), featureMatrix = await pluginRuntime.matrix(session);
       const current = storage.get(id), { ownerHash, ...publicSession } = current;
       if (current.tombstone || current.ownerHash !== session.ownerHash) throw new NotFoundError('Session not found');
-      if (current.seq === session.seq) return { ...publicSession, operations: operations(current), featureMatrix, conceptVisualKind: pluginRuntime.visualKind(current),
+      if (current.seq === session.seq) return { ...publicSession, ...(voiceHandlers ? { voiceLifecycle: voiceHandlers.snapshot(id) } : {}),
+        operations: operations(current), featureMatrix, conceptVisualKind: pluginRuntime.visualKind(current),
         conceptCost: pluginRuntime.imageQuote(current), ...(pluginRuntime.describe ? { engine: pluginRuntime.describe(current) } : {}) };
     }
     throw new ConflictError('Session changed during snapshot');
@@ -119,7 +120,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   // Idle image generation is disabled: server elapsed time proves no client
   // presence. There is no periodic session scan or reference-byte polling.
   const voiceHandlers = voice ? createVoiceHandlers({ storage, runtime: pluginRuntime, ownership, readBody, hostPrompt,
-    ...voice, publish: broadcast, onClose: id => conceptHandlers.ended(id), onTurn(id, event) {
+    ...voice, publish: broadcast, onClose: id => conceptHandlers.ended(id), onActivity: session => host?.touchVisitor?.(session), onTurn(id, event) {
       lanes.supersede(id);
       if (event?.data.role === 'user') {
         host?.touchVisitor?.(storage.get(id));
