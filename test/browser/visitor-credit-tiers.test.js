@@ -133,6 +133,15 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
       };
       const shot = async state => {
         await new Promise(resolve => setTimeout(resolve, 160)); states.push({ locale, theme, width, state });
+        if (state === 'credits-used-up-give') {
+          const popup = await shadow(page, c => {
+            const r = c.shadowRoot, note = r.querySelector('.host-credits__limit'), unit = r.querySelector('.host-credits__equivalence');
+            return { noteOwnRow: note.getBoundingClientRect().top >= r.querySelector('.credits-email').getBoundingClientRect().bottom,
+              unitLast: unit.parentElement.lastElementChild === unit, unitAfterNote: unit.getBoundingClientRect().top >= note.getBoundingClientRect().bottom };
+          });
+          assert.deepEqual(popup, { noteOwnRow: true, unitLast: true, unitAfterNote: true }, `${label}: host note has its own row before the unit line`);
+          uiChecks.push({ locale, theme, width, state, pass: true, ...popup });
+        }
         const language = await page.evaluate(() => ({ picker: document.querySelector('#locale').value,
           language: document.documentElement.lang, account: document.querySelector('#demo-account-label').textContent,
           limitNote: document.querySelector('#demo-credits-limit').textContent,

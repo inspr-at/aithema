@@ -58,15 +58,16 @@ export const hostStyles = `
 .analysis-content .verify__done, .verify__done { display:flex; align-items:center; gap:.4rem; margin:0; min-height:2.75rem; font-size:.87rem; }
 .verify__actions { display:flex; flex-wrap:wrap; align-items:center; gap:.25rem .5rem; }
 /* Keep the sending action's reservation while each label hugs its own button. */
-.verify__primary { display:grid; } .verify__primary > * { grid-area:1/1; justify-self:start; min-height:2.75rem; }
+.verify__primary { display:grid; } .verify__primary > * { grid-area:1/1; justify-self:stretch; min-height:2.75rem; }
+.verify-dialog .verify__primary > * { justify-self:start; }
 .verify-resend { text-align:left; } .verify-cancel { font-size:.85rem; }
-.verify-form[data-mode=pending] { row-gap:12px; grid-template-areas:"lead" "field" "actions" "message" "note" "privacy"; }
-.verify-form[data-mode=pending] > .verify__lead { grid-area:lead; }
-.verify-form[data-mode=pending] > .verify__field { grid-area:field; }
-.verify-form[data-mode=pending] > .verify__actions { grid-area:actions; }
-.verify-form[data-mode=pending] > .verify__message { grid-area:message; }
-.verify-form[data-mode=pending] > .verify__note { grid-area:note; }
-.verify-form[data-mode=pending] > .m-notice { grid-area:privacy; }
+.verify-dialog .verify-form[data-mode=pending] { row-gap:12px; grid-template-areas:"lead" "field" "actions" "message" "note" "privacy"; }
+.verify-dialog .verify-form[data-mode=pending] > .verify__lead { grid-area:lead; }
+.verify-dialog .verify-form[data-mode=pending] > .verify__field { grid-area:field; }
+.verify-dialog .verify-form[data-mode=pending] > .verify__actions { grid-area:actions; }
+.verify-dialog .verify-form[data-mode=pending] > .verify__message { grid-area:message; }
+.verify-dialog .verify-form[data-mode=pending] > .verify__note { grid-area:note; }
+.verify-dialog .verify-form[data-mode=pending] > .m-notice { grid-area:privacy; }
 .analysis-content .verify__message, .verify__message { margin:0; min-height:2.6em; font-size:.8rem; line-height:1.3; }
 .verify__message[data-error="true"] { color:var(--aithema-ink); }
 .analysis-content .verify__note, .verify__note { margin:0; min-height:1.3em; font-size:.75rem; line-height:1.3; color:var(--aithema-muted); font-variant-numeric:tabular-nums; }

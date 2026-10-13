@@ -341,7 +341,7 @@ test('AIT-131 r3 Settings email states and verification focus: DE/EN, 1440/390, 
         extras: Boolean(root.querySelector('.host-extras')), visible: section.contains(hit), lock: !root.querySelector('.verify-lock').hidden };
     });
     const words = { de, en }[locale].hostSurface.verify, context = `${width}/${theme}/${locale}/${state}: ${JSON.stringify(entry)}`;
-    assert.equal(entry.title, 'E-Mail'); assert.equal(entry.panel, 'general'); assert.equal(entry.last, true);
+    assert.equal(entry.title, locale === 'en' ? 'Email' : 'E-Mail'); assert.equal(entry.panel, 'general'); assert.equal(entry.last, true);
     assert.equal(entry.extras, false); assert.equal(entry.visible, true, context); assert.equal(entry.lock, false);
     assert.equal(entry.address, state === 'unverified' ? '' : 'visitor@example.com');
     assert.equal(entry.hasButton, state !== 'verified'); assert.equal(entry.verified, state === 'verified');
