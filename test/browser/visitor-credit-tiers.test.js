@@ -129,8 +129,12 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
           const buttons = [...row.querySelectorAll('button')].filter(n => !n.hidden), dot = row.querySelector('.m-dot');
           const boxes = buttons.map(n => n.getBoundingClientRect());
           const sameRow = boxes[0].top === boxes[1].top;
+          const pairWidth = boxes.reduce((sum, box, i) => {
+            const style = getComputedStyle(buttons[i]);
+            return sum + box.width + parseFloat(style.marginLeft) + parseFloat(style.marginRight);
+          }, 24);
           return { gapPx: sameRow ? boxes[1].left - boxes[0].right : boxes[1].top - boxes[0].bottom, sameRow,
-            pairFits: boxes[0].width + boxes[1].width + 24 <= row.getBoundingClientRect().width,
+            pairFits: pairWidth <= row.getBoundingClientRect().width + .5,
             linkBelow: boxes[1].top >= boxes[0].bottom && boxes[1].left === boxes[0].left,
             dot: dot?.textContent ?? null, dotVisible: Boolean(dot && !dot.hidden), targets44: boxes.every(box => box.height >= 44),
             labels: buttons.map(n => {
