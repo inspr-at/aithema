@@ -6,7 +6,7 @@ import { manifest } from './manifest.js';
 import { usdCostMicro } from '../../../packages/core/src/cost.js';
 import { voiceOverrides, elevenLabsMediaGrant, elevenLabsComponents } from './options.js';
 import { elevenLabsCallbackPort } from './callbacks.js';
-import { createElevenLabsConfig, elevenLabsConfig, bridgeElevenLabsConfig } from './config.js';
+import { createElevenLabsConfig, elevenLabsConfig, bridgeElevenLabsConfig, normalizeElevenLabsDurationBinding } from './config.js';
 export { createElevenLabsConfig } from './config.js';
 export { createElevenLabsReplyExecutor } from './reply.js';
 export { manifest } from './manifest.js';
@@ -370,6 +370,13 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
     ...elevenLabsCallbackPort,
     config: binding.adapterConfig,
     validateConfig: createElevenLabsConfig,
+    normalizeBinding: normalizeElevenLabsDurationBinding,
+    binding: Object.freeze({ endpoint: binding.apiBaseUrl, secretRef: binding.secretRef,
+      upstreamMicroPerMinute: binding.upstreamMicroPerMinute, visitorMicroPerMinute: binding.visitorMicroPerMinute,
+      reservationSeconds: binding.reservationSeconds }),
+    matchesConfig(config) {
+      return config?.agentId === binding.adapterConfig.agentId && config.usdPerCredit === binding.adapterConfig.usdPerCredit;
+    },
     async startSegment(request, options) {
       const segment = await adapter.start(request, options);
       const receipt = { callId: segment.callId, providerSessionId: segment.providerSessionId,

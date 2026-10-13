@@ -1,9 +1,10 @@
 import { PluginRegistry } from '@inspr/aithema-core';
 import { createDurationBinding } from '@inspr/aithema-server';
+import { normalizeElevenLabsDurationBinding } from '../plugins/elevenlabs/src/config.js';
 
 /** Prepare an isolated runtime. The host publishes it with the binding in one assignment. */
 export function prepareVoiceRuntime({ current, binding: raw, createPlugin, createPresets, extendPolicy }) {
-  const binding = createDurationBinding(raw), plugin = createPlugin(binding);
+  const binding = createDurationBinding(normalizeElevenLabsDurationBinding(raw)), plugin = createPlugin(binding);
   if (current.registry.get(plugin.manifest.id)) throw new TypeError('Duplicate plugin');
   const added = new PluginRegistry().register(plugin);
   // Keep existing entries (including canonical mock identity) in their original registry.

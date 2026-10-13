@@ -326,14 +326,14 @@ for (const failure of ['binding', 'plugin', 'registration', 'endpoint', 'presets
     host.onAvailable(candidate => {
       if (failure === 'binding') reached = 'binding';
       return prepareVoiceRuntime({ current: initial,
-        binding: failure === 'binding' ? { ...candidate.binding, agentId: 'wrong-agent' } : candidate.binding,
+        binding: failure === 'binding' ? { ...candidate.binding, agentId: 'bad/agent' } : candidate.binding,
         createPlugin(binding) {
           reached = 'plugin'; observe();
           if (failure === 'plugin') throw new Error('injected plugin failure');
           const plugin = createVoiceProvider({ storage: opts.storage, staticFacade: true,
-            binding: { agentId: binding.agentId, secretRef: binding.secretRef, apiBaseUrl: binding.endpoint,
+            binding: { adapterConfig: binding.adapterConfig, secretRef: binding.secretRef, apiBaseUrl: binding.endpoint,
               upstreamMicroPerMinute: binding.upstreamMicroPerMinute, visitorMicroPerMinute: binding.visitorMicroPerMinute,
-              reservationSeconds: binding.reservationSeconds, usdPerCredit: binding.usdPerCredit },
+              reservationSeconds: binding.reservationSeconds },
             fetchImpl: api.fetchImpl, resolveSecret: opts.resolveSecret });
           if (failure === 'registration') { reached = 'registration'; return { ...plugin, health: null }; }
           return plugin;

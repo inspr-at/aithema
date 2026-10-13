@@ -1,35 +1,51 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { createElevenLabsConfig, createVoiceBinding, createElevenLabsReplyExecutor } from '../src/server.js';
+import { createElevenLabsConfig, createVoiceBinding, createElevenLabsReplyExecutor, createElevenLabsServer } from '../src/server.js';
 import { elevenLabsMediaGrant } from '../src/client.js';
 import { createDurationBinding, durationPluginMatches } from '../../../packages/server/src/voice-binding.js';
 import { assertVoicePorts, assertVoiceSession } from '../../../packages/core/src/live-voice.js';
 import { binding as commonBinding } from '../../../test/plugin-fixtures.js';
-import { fixture, invocationOptions, receipt } from './fixtures.js';
+import { fixture, invocationOptions, receipt, binding } from './fixtures.js';
 import { SQLiteStorage } from '../../../packages/server/src/storage.js';
-import { createVoiceTurnOperations } from '../../../packages/server/src/voice-turns.js';
+import { createVoiceTurnOperations } from '../../../test/voice-turn-wire.js';
+import { normalizeElevenLabsDurationBinding } from '../src/config.js';
 
-test('AIT-102: private config bridges legacy binding JSON, duration matching and model identity', () => {
+test('AIT-102: private config normalizes legacy fields without coupling model identity', () => {
   const config = createElevenLabsConfig({ agentId: 'agent', usdPerCredit: 0.000264, publicFacadeBaseUrl: 'https://host.example.test/' });
   const raw = { ...commonBinding('elevenlabs', 'https://api.example.test', { model: 'agent' }),
     ...config, maxDurationSeconds: 60, upstreamMicroPerMinute: 600, visitorMicroPerMinute: 300 };
-  const flat = createDurationBinding(raw);
+  const flat = createDurationBinding(normalizeElevenLabsDurationBinding(raw));
   const { agentId, usdPerCredit, publicFacadeBaseUrl, ...generic } = raw;
   const nested = createDurationBinding({ ...generic, adapterConfig: config });
   assert.equal(JSON.stringify(flat), JSON.stringify(nested));
   assert.ok(Object.isFrozen(flat.adapterConfig));
-  assert.equal(flat.agentId, config.agentId); assert.equal(flat.publicFacadeBaseUrl, 'https://host.example.test');
-  assert.equal(Object.keys(flat).includes('adapterConfig'), false);
-  assert.equal(Object.getOwnPropertyDescriptor(flat, 'agentId').set, undefined);
+  assert.equal(flat.adapterConfig.agentId, config.agentId); assert.equal(flat.adapterConfig.publicFacadeBaseUrl, 'https://host.example.test');
+  assert.equal(Object.keys(flat).includes('adapterConfig'), true);
+  assert.equal(Object.hasOwn(flat, 'agentId'), false);
   const serverFlat = createVoiceBinding({ ...raw, apiBaseUrl: raw.endpoint });
   const serverNested = createVoiceBinding({ ...generic, apiBaseUrl: raw.endpoint, adapterConfig: config });
   assert.equal(JSON.stringify(serverFlat), JSON.stringify(serverNested));
-  assert.equal(durationPluginMatches({ binding: serverNested }, flat), true);
-  assert.throws(() => createDurationBinding({ ...generic, model: 'other', adapterConfig: config }), /duration binding/);
+  assert.equal(durationPluginMatches({ binding: { endpoint: serverNested.apiBaseUrl, secretRef: serverNested.secretRef,
+    upstreamMicroPerMinute: serverNested.upstreamMicroPerMinute, visitorMicroPerMinute: serverNested.visitorMicroPerMinute,
+    adapterConfig: config } }, flat), true);
+  assert.equal(createDurationBinding({ ...generic, model: 'other', adapterConfig: config }).model, 'other');
   assert.throws(() => createElevenLabsConfig({ agentId: 'bad/agent' }), TypeError);
   assert.throws(() => createElevenLabsConfig({ ...config, usdPerCredit: -1 }), TypeError);
   assert.throws(() => createElevenLabsConfig({ ...config, publicFacadeBaseUrl: 'https://user:pass@host.example.test' }), TypeError);
+});
+
+test('AIT-102: adapter matchesConfig compares private agent and credit price directly', () => {
+  const config = createElevenLabsConfig({ agentId: binding.agentId, usdPerCredit: 0.000264 });
+  const server = createElevenLabsServer({ binding: { ...binding, adapterConfig: config },
+    saveCall: async () => {}, prepareCall: async () => {} });
+  const port = server.ports.serverAdapter;
+  assert.equal(port.matchesConfig(config), true);
+  assert.equal(port.matchesConfig({ ...config, agentId: 'other-agent' }), false);
+  assert.equal(port.matchesConfig({ ...config, usdPerCredit: 0.000265 }), false);
+  assert.equal(port.matchesConfig({ agentId: config.agentId }), false);
+  assert.equal(port.matchesConfig(undefined), false);
+  assert.equal(port.matchesConfig({ ...config, publicFacadeBaseUrl: 'https://another.example.test' }), true);
 });
 
 test('AIT-102: server port consumes admission and delegates closure and reconciliation', async t => {

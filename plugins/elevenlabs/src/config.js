@@ -16,6 +16,19 @@ export function createElevenLabsConfig(value) {
 
 export function elevenLabsConfig(value) { return value?.adapterConfig ?? value; }
 
+/** Accept the historical host shape only at the adapter boundary. */
+export function normalizeElevenLabsDurationBinding(value) {
+  const { agentId, usdPerCredit, publicFacadeBaseUrl, adapterConfig, ...binding } = value;
+  const config = createElevenLabsConfig(adapterConfig ?? { agentId, usdPerCredit, publicFacadeBaseUrl });
+  if (!config.publicFacadeBaseUrl) throw new TypeError('Invalid public facade URL');
+  return { ...binding, adapterConfig: config };
+}
+
+// The temporary local fixture still uses the ElevenLabs bridge until PR 3.
+export const localAdapterConfig = createElevenLabsConfig({ agentId: 'local-agent', publicFacadeBaseUrl: 'http://localhost' });
+export const localAdapterBinding = Object.freeze({ adapterConfig: localAdapterConfig,
+  secretRef: 'local-only', apiBaseUrl: 'https://example.test', upstreamMicroPerMinute: 0, visitorMicroPerMinute: 0 });
+
 /** Keep legacy enumeration/JSON/hashes byte-compatible, with one private source. */
 export function bridgeElevenLabsConfig(legacy, config) {
   for (const key of ['agentId', 'usdPerCredit', 'publicFacadeBaseUrl']) {
