@@ -1,12 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import crypto, { createHash } from 'node:crypto';
+import crypto, { createHash, createHmac, randomBytes } from 'node:crypto';
 import { syncBuiltinESMExports } from 'node:module';
 import { readFile, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createIdentity, reduceIdentity } from '@inspr/aithema-core';
-import { SQLiteStorage, createHandlers } from '../../packages/server/src/index.js';
+import { SQLiteStorage, createHandlers, listen } from '../../packages/server/src/index.js';
 import { createDemoHost } from '../host-ports.js';
+import { createVisitorCredits } from '../visitor-credits.js';
 import { temporaryDb, mockConsent } from '../../test/helpers.js';
 
 const origin = 'https://host.example.test', address = 'visitor@example.test', DAY = 86_400_000;
@@ -228,6 +229,49 @@ test('C1 fix1 the host HMAC secret is create-once, private and survives a databa
   assert.ok(key.equals(await readFile(secretPath)), 'restart must not rotate the host secret');
   assert.equal((await again.request(again.session('restart'), 'restart')).status, 'rate-limited');
   assert.equal(reopened.db.prepare("SELECT 1 FROM sqlite_master WHERE name='visitor_mail_key'").get(), undefined);
+});
+
+test('C1 fix1 migration preserves draft C1 quotas and moves the existing secret out of SQLite once', async t => {
+  const db = await temporaryDb(), storage = new SQLiteStorage(db), key = randomBytes(32);
+  t.after(() => { if (storage.db.isOpen) storage.close(); });
+  const credits = createVisitorCredits({ storage, now: () => 1_000, deliveryEnabled: true, privacyDocumentConfigured: () => true });
+  const ownerHash = createHash('sha256').update('legacy').digest('hex');
+  const visitor = credits.saveEmail(ownerHash, { address, noticeVersion: 'ait-135-v1' });
+  storage.db.exec(`CREATE TABLE visitor_mail_key (id INTEGER PRIMARY KEY CHECK(id=1), key BLOB NOT NULL);
+    CREATE TABLE visitor_mail_deliveries (request_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL,
+      visitor_ref TEXT NOT NULL REFERENCES visitor_identities(visitor_ref) ON DELETE CASCADE,
+      address_key TEXT NOT NULL, created_at INTEGER NOT NULL, status TEXT NOT NULL, locale TEXT NOT NULL);
+    CREATE INDEX visitor_mail_address_limit ON visitor_mail_deliveries(address_key,created_at);`);
+  storage.db.prepare('INSERT INTO visitor_mail_key VALUES (1,?)').run(key);
+  const digest = createHmac('sha256', key).update(`address\0${address}`).digest('hex');
+  for (let i = 0; i < 3; i++) storage.db.prepare('INSERT INTO visitor_mail_deliveries VALUES (?,?,?,?,?,?,?)')
+    .run(`legacy-${i}`, `legacy-hash-${i}`, visitor.visitorRef, digest, 1_000, 'sent', 'en');
+  const f = await fixture(t, { storage });
+  assert.ok(key.equals(await readFile(join(dirname(db), 'confirmation-hmac.key'))));
+  assert.equal(storage.db.prepare('SELECT COUNT(*) n FROM visitor_mail_abuse').get().n, 3);
+  assert.equal(storage.db.prepare('PRAGMA table_info(visitor_mail_deliveries)').all().some(column => column.name === 'address_key'), false);
+  f.host.eraseVisitor('legacy');
+  assert.equal((await f.request(f.session('migration-new'), 'migration-new')).status, 'rate-limited');
+  createDemoHost({ storage, demo: false, now: () => 1_000 });
+  assert.equal(storage.db.prepare('SELECT COUNT(*) n FROM visitor_mail_abuse').get().n, 3, 'migration is idempotent');
+});
+
+test('C1 fix1 the HTTP adapter completes its response while SMTP is held', async t => {
+  let release;
+  const held = new Promise(resolve => { release = resolve; });
+  const f = await fixture(t, { mailPlugin: { id: 'smtp', deliversVerification: true, async requestVerification() { await held; return { status: 'sent' }; } } });
+  const handlers = createHandlers({ storage: f.storage, host: f.host, consent: mockConsent });
+  const { server, url } = await listen(handlers.handle);
+  t.after(async () => { release(); await handlers.close(); server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); });
+  try {
+    const s = f.session();
+    const response = await fetch(`${url}/api/sessions/${s.id}/identity/request`, { method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-aithema-session-token': 'owner' }, body: JSON.stringify({ address }),
+      signal: AbortSignal.timeout(1_000),
+    });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).identity.delivery, 'sent');
+  } finally { release(); }
 });
 
 test('C1 fix1 accepted/suppressed HTTP responses match and finish before SMTP; outage stays private', async t => {
