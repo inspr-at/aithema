@@ -28,6 +28,7 @@ const geometry = page => shadow(page, c => {
   const r = c.shadowRoot, box = n => { const b = n.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
   return ['dialog.settings', '.operator-section', '.operator-row', '.operator-notice', '.settings__footer'].map(s => box(r.querySelector(s)));
 });
+// Session SSE remains open; navigation waits for the document, then explicit UI readiness.
 const openGeneral = async page => {
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
   await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '.operator-section' }));
@@ -59,7 +60,7 @@ test('AIT-165 viewport matrix: real sign-in/logout, inline error and feature off
       for (const width of [390, 1024, 1440]) for (const theme of ['light', 'dark']) {
         await page.setViewport({ width, height: width === 390 ? 844 : 900 });
         await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
-        await page.goto(configured.url, { waitUntil: 'networkidle0' }); await openGeneral(page);
+        await page.goto(configured.url, { waitUntil: 'domcontentloaded' }); await openGeneral(page);
         const before = await geometry(page);
         const info = await shadow(page, c => {
           const s = c.shadowRoot, section = s.querySelector('.operator-section'), link = s.querySelector('.operator-login'), b = link.getBoundingClientRect();
@@ -72,7 +73,7 @@ test('AIT-165 viewport matrix: real sign-in/logout, inline error and feature off
         assert.equal(info.font, '13px'); assert.ok(info.height >= 44); assert.equal(info.muted, true); assert.equal(info.overflow, 0); assert.equal(info.otherEntries, 0);
         await capture('signed-out', width, theme);
         // The native link visits the local issuer and returns to the exact callback.
-        await Promise.all([page.waitForNavigation({ waitUntil: 'networkidle0' }), shadow(page, c => c.shadowRoot.querySelector('.operator-login').click())]);
+        await Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded' }), shadow(page, c => c.shadowRoot.querySelector('.operator-login').click())]);
         await openGeneral(page);
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.operator-name').textContent), 'Operator: Ada');
         assert.deepEqual(await page.evaluate(async () => (await (await fetch('/demo/config')).json()).operator), { name: 'Ada' });
@@ -82,14 +83,14 @@ test('AIT-165 viewport matrix: real sign-in/logout, inline error and feature off
         assert.equal(form.method, 'post'); assert.ok(form.height >= 44);
         await capture('signed-in', width, theme);
         // Native form submits a same-origin POST; the replayed cookie no longer works.
-        await Promise.all([page.waitForNavigation({ waitUntil: 'networkidle0' }), shadow(page, c => c.shadowRoot.querySelector('.operator-logout').click())]);
+        await Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded' }), shadow(page, c => c.shadowRoot.querySelector('.operator-logout').click())]);
         await openGeneral(page); assert.deepEqual(await geometry(page), before, 'sign-out: 0 px shift');
         assert.equal(await page.evaluate(async () => Object.hasOwn(await (await fetch('/demo/config')).json(), 'operator')), false);
-        await page.goto(configured.url + '/api/operator/callback/?state=wrong&code=wrong', { waitUntil: 'networkidle0' }); await openGeneral(page);
+        await page.goto(configured.url + '/api/operator/callback/?state=wrong&code=wrong', { waitUntil: 'domcontentloaded' }); await openGeneral(page);
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.operator-error').textContent), copy.settings.operatorError);
         assert.deepEqual(await geometry(page), before, 'inline error: 0 px shift');
         await capture('error', width, theme);
-        await page.goto(absent.url, { waitUntil: 'networkidle0' }); await openGeneral(page);
+        await page.goto(absent.url, { waitUntil: 'domcontentloaded' }); await openGeneral(page);
         assert.equal(await shadow(page, c => Boolean(c.shadowRoot.querySelector('.operator-section'))), false);
         const offFrame = await shadow(page, c => ['dialog.settings', '.settings__footer'].map(selector => {
           const b = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
