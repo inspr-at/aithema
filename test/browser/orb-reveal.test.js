@@ -89,11 +89,16 @@ function rgb(png) {
 }
 const layout = page => page.evaluate(() => window.fixture.controls.map(node => { const r = node.getBoundingClientRect(); return [r.x,r.y,r.width,r.height]; }));
 function assertStill(before, after, label) { before.forEach((box, i) => box.forEach((value, j) => assert.ok(Math.abs(after[i][j] - value) <= .5, `${label}: control ${i} dimension ${j} shifted`))); }
-const freeze = page => page.evaluate(() => {
+const freeze = page => page.evaluate(async () => {
   window.timeline = window.fixture.band.getAnimations({subtree:true}).filter(animation => animation.animationName !== 'aithema-prism-turn');
   window.timeline.forEach(animation => { animation.pause(); animation.currentTime = 0; });
+  await Promise.all(window.timeline.map(animation => animation.ready));
 });
-const seek = (page, ms) => page.evaluate(ms => { window.timeline.forEach(animation => animation.currentTime = ms); }, ms);
+const seek = (page, ms) => page.evaluate(async ms => {
+  window.timeline.forEach(animation => animation.currentTime = ms);
+  // A seek changes computed styles immediately; capture after the compositor paints them.
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+}, ms);
 
 function assertMonotonicRgb(samples, label) {
   for (let channel = 0; channel < 3; channel++) {
@@ -127,7 +132,32 @@ function contrastRatio(foreground, background) {
   const luminance = channels => channels.map(value => value / 255).map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4).reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0);
   const a = luminance(foreground), b = luminance(background); return (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
 }
+// Timeline frames may intentionally be intermediate. Contrast belongs to the settled
+// reveal: finish the actual finite effects rather than assuming a 2200ms seek is enough.
+async function settleReveal(page, label) {
+  const state = await page.evaluate(async () => {
+    const { band, controls } = window.fixture;
+    const animations = band.getAnimations({ subtree: true }).filter(animation => Number.isFinite(animation.effect.getComputedTiming().endTime));
+    await Promise.all(animations.map(animation => animation.ready));
+    animations.forEach(animation => animation.finish());
+    await Promise.all(animations.map(animation => animation.finished));
+    // Let the settled styles reach a painted frame before the backdrop capture.
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    return { phase: band.dataset.aithemaRevealState,
+      glass: getComputedStyle(band.querySelector('.aithema-reveal__glass')).opacity,
+      brand: getComputedStyle(band.querySelector('.aithema-reveal__row')).opacity,
+      controls: controls.map(node => getComputedStyle(node).opacity),
+      links: [...band.querySelectorAll('.aithema-reveal__link')].map(node => getComputedStyle(node).opacity) };
+  });
+  assert.equal(state.phase, 'open', label + ' contrast belongs to the open reveal');
+  assert.equal(state.glass, '1', label + ' settled glass');
+  assert.equal(state.brand, '1', label + ' settled brand');
+  assert.ok(state.controls.every(opacity => opacity === '0'), label + ' settled hidden controls');
+  assert.ok(state.links.every(opacity => opacity === '1'), label + ' settled links');
+}
+
 async function renderedTextContrast(page, label) {
+  await settleReveal(page, label);
   const { targets, clip } = await page.evaluate(() => {
     const { band } = window.fixture;
     const targets = [...band.querySelectorAll('.aithema-reveal__letter,.aithema-reveal__title,.aithema-reveal__subtitle,.aithema-reveal__version > *')].filter(node => getComputedStyle(node).display !== 'none').map(node => {

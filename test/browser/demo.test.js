@@ -53,7 +53,8 @@ async function waitForShadow(page, selector, expected = {}) {
       function check() {
         const node = root.querySelector(selector);
         if (!node || (expected.text !== undefined && node.textContent !== expected.text)
-          || (expected.enabled !== undefined && !node.disabled !== expected.enabled)) return;
+          || (expected.enabled !== undefined && !node.disabled !== expected.enabled)
+          || (expected.states !== undefined && !expected.states.includes(node.dataset.state))) return;
         observer.disconnect(); clearTimeout(timer); resolve();
       }
       observer.observe(root, { subtree: true, childList: true, attributes: true, characterData: true });
@@ -643,13 +644,16 @@ async function startCall(page) {
     await inShadow(page, c => c.shadowRoot.querySelector('.chooser__continue').click());
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').dataset.stage === 'ready');
   }
+  // A pause acknowledgement precedes the feature snapshot. Both Start paths
+  // need the voice verdict; a disabled click or an early ready-card Start does nothing.
+  await waitForShadow(page, '.voice-start', { enabled: true });
   if (await stage() === 'ready') await inShadow(page, c => { c.shadowRoot.querySelector('.ready__mode[data-mode="voice"]').click(); c.shadowRoot.querySelector('.ready__start').click(); });
   else await inShadow(page, c => c.shadowRoot.querySelector('.voice-start').click());
-  await until(page, () => ['listening', 'speaking'].includes(document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state));
+  await waitForShadow(page, '.audio-rail', { states: ['listening', 'speaking'] });
 }
 async function endCall(page) {
   await inShadow(page, c => c.shadowRoot.querySelector('.voice-close').click());
-  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'idle');
+  await waitForShadow(page, '.audio-rail', { states: ['idle'] });
 }
 
 test('live updates appear under a resting pointer without moving it; blur, reload, restart and German behave (AIT-116)',
