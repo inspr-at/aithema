@@ -6,7 +6,7 @@ import { createFacadeSecrets, elevenLabsCallbackPort } from '../../../plugins/el
 import { temporaryDb } from '../../../test/helpers.js';
 
 test('AIT-102 fix1: restart revokes every plain-vault orphan through runtime adapters and the fallback', async t => {
-  const path = await temporaryDb(), prior = new SQLiteStorage({ path });
+  const path = await temporaryDb(), prior = new SQLiteStorage(path);
   const session = prior.create({ demo: true, ownerToken: 'fixture-owner' });
   const refs = ['fixture-orphan-1', 'fixture-orphan-2', 'fixture-orphan-3'];
   const values = new Map(), revoked = [], fallbackRevoked = [];
@@ -23,7 +23,7 @@ test('AIT-102 fix1: restart revokes every plain-vault orphan through runtime ada
         providerSessionId: `fixture-generation-${i}`, facadeSecretRef, attemptId: `fixture-attempt-${i}`, maxMicro: 0 });
     }
   } finally { prior.close(); }
-  const storage = new SQLiteStorage({ path });
+  const storage = new SQLiteStorage(path);
   const handlers = createVoiceHandlers({ storage, secrets, publish() {},
     runtime: { voiceServerAdapters: () => [elevenLabsCallbackPort], budget: { get: () => null } },
     callbackAdapter: { callbackRoutes: [], async revokeRecord(record) { fallbackRevoked.push(record.facadeSecretRef); } } });
