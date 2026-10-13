@@ -35,7 +35,7 @@ export function createDemoWallet({ limitMicro = 10_000_000, spent = () => 0 } = 
  * demo:true is development only and explicitly exempts its fake-outbox identity
  * flow from the privacy gate. Non-demo hosts need a notice even with delivery. */
 export function createDemoHost({ storage, demo = true, demoBypass = false, verificationRequired = false, now = () => Date.now(), identityPolicy,
-  durationMs, ownerGuard = true, privacyDocumentConfigured, mailPlugin } = {}) {
+  durationMs, ownerGuard = true, privacyDocumentConfigured, mailPlugin, visitorMicroPerMinute = () => 0 } = {}) {
   if (!demo && mailPlugin && mailPlugin.id !== 'smtp') throw new TypeError('Production mail requires SMTP; mock transports are unavailable');
   const deliveryEnabled = demo || mailPlugin?.deliversVerification === true;
   const mail = [], wallets = new Map(), sink = createFakeHandoverHost(), erasures = new Map(), resets = new Map();
@@ -222,6 +222,12 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
         de: 'Das Speichern einer E-Mail-Adresse ist freiwillig. Es ändert dein Besucherguthaben, ohne Ausgaben zurückzusetzen. Wir löschen die Adresse nach 90 Tagen ohne Aktivität. Das Speichern ist keine Anmeldung für Werbung.' } },
     visitor: ownerToken => visitorCredits.visitor(hash(ownerToken)),
     creditTiers: ownerToken => visitorCredits.creditTiers(hash(ownerToken)),
+    visitorMicroPerMinute,
+    claimEmailAsk: ownerToken => visitorCredits.claimEmailAsk(hash(ownerToken)),
+    emailAskAfter: ownerToken => visitorCredits.emailAskAfter(hash(ownerToken)),
+    lowEmailAsk: ownerToken => visitorCredits.lowEmailAsk(hash(ownerToken)),
+    claimLowEmailAsk: ownerToken => visitorCredits.claimLowEmailAsk(hash(ownerToken)),
+    rearmLowEmailAsk: ownerToken => visitorCredits.rearmLowEmailAsk(hash(ownerToken)),
     touchVisitor: session => visitorCredits.touch(session.ownerHash),
     saveEmail(ownerToken, input) { const result = visitorCredits.saveEmail(hash(ownerToken), input); purgeMail(); return result; },
     deleteEmail(ownerToken) { const result = visitorCredits.deleteEmail(hash(ownerToken)); purgeMail(); return result; },

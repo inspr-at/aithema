@@ -9,7 +9,7 @@ test('CI shards cover every browser test file exactly once; local command runs t
   const ciFiles = browserShards.flatMap((_, index) => selectBrowserTests(['--shard', `${index + 1}/${browserShards.length}`]).files);
   assert.deepEqual(ciFiles.sort(), files);
   assert.deepEqual(selectBrowserTests().files, files);
-  assert.deepEqual(selectBrowserTests(['--shard=1/4', '--test-name-pattern=AIT-131']), {
+  assert.deepEqual(selectBrowserTests([`--shard=1/${browserShards.length}`, '--test-name-pattern=AIT-131']), {
     files: browserShards[0], nodeArgs: ['--test-name-pattern=AIT-131'],
   });
 });
@@ -38,7 +38,8 @@ test('coverage guard rejects removed files and empty shards', () => {
 });
 
 test('invalid shard selectors fail instead of silently dropping coverage', () => {
-  for (const args of [['--shard'], ['--shard', '0/4'], ['--shard', '5/4'], ['--shard', '1/2'], ['--shard', 'bad'], ['--shard', '1/4', '--shard', '2/4']]) {
-    assert.throws(() => selectBrowserTests(args), /Use --shard N\/4/u);
+  const total = browserShards.length;
+  for (const args of [['--shard'], ['--shard', `0/${total}`], ['--shard', `${total + 1}/${total}`], ['--shard', '1/3'], ['--shard', 'bad'], ['--shard', `1/${total}`, '--shard', `2/${total}`]]) {
+    assert.throws(() => selectBrowserTests(args), new RegExp(`Use --shard N/${total}`, 'u'));
   }
 });

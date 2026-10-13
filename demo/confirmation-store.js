@@ -6,6 +6,7 @@ import { formatCredits } from '../packages/ui/src/display.js';
 import { canonicalEmail } from './email-address.js';
 
 const DAY = 86_400_000;
+const windows = { hour: 3_600_000, day: DAY };
 const hash = value => createHash('sha256').update(value).digest('hex');
 const tokenShape = value => typeof value === 'string' && value.length <= 2048;
 const requestId = token => tokenShape(token) ? token.split('.')[0] : '';
@@ -100,8 +101,47 @@ export function createConfirmationStore({ storage, visitorCredits, now }) {
       }
       db.exec('DROP INDEX IF EXISTS visitor_mail_address_limit; ALTER TABLE visitor_mail_deliveries DROP COLUMN address_key;');
     }
+    // Bootstrap once from C1's surviving reservations, including failed sends
+    // and erased visitors. Only aggregate counts and timestamps cross over.
+    const hasGlobalSlots = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='host_mail_slots'").get();
+    db.exec(`CREATE TABLE IF NOT EXISTS host_mail_slots (
+      created_at INTEGER PRIMARY KEY, count INTEGER NOT NULL CHECK(count>0));
+      CREATE TABLE IF NOT EXISTS host_mail_cap_alerts (
+      window TEXT PRIMARY KEY CHECK(window IN ('hour','day')), last_at INTEGER NOT NULL);`);
+    if (!hasGlobalSlots) db.prepare(`INSERT INTO host_mail_slots
+      SELECT created_at,COUNT(*) FROM visitor_mail_abuse WHERE created_at>? GROUP BY created_at`).run(now() - DAY);
     db.exec('DROP TABLE IF EXISTS visitor_mail_key;');
   });
+  function mailCap(at = now()) {
+    const policy = visitorCredits.settings();
+    const counts = db.prepare(`SELECT COALESCE(SUM(CASE WHEN created_at>? THEN count ELSE 0 END),0) hour,
+      COALESCE(SUM(count),0) day FROM host_mail_slots WHERE created_at>?`).get(at - windows.hour, at - DAY);
+    return { revision: policy.revision, ...Object.fromEntries(Object.keys(windows).map(window => [window,
+      { limit: policy.mailCap[window], count: counts[window], remaining: Math.max(0, policy.mailCap[window] - counts[window]) }])) };
+  }
+  function reserveGlobal(at, alerts) {
+    const cap = mailCap(at); let suppressed = false;
+    for (const [window, duration] of Object.entries(windows)) {
+      const { count, limit } = cap[window];
+      // Keep the durable claim when a slot frees: another suppression within
+      // this rolling alert window must not log or audit a second time.
+      if (count < limit) continue;
+      suppressed = true;
+      const previous = db.prepare('SELECT last_at FROM host_mail_cap_alerts WHERE window=?').get(window);
+      if (!previous || at - previous.last_at >= duration) {
+        db.prepare(`INSERT INTO host_mail_cap_alerts VALUES (?,?)
+          ON CONFLICT(window) DO UPDATE SET last_at=excluded.last_at`).run(window, at);
+        visitorCredits.auditMailCap({ window, count });
+        alerts.push({ event: 'mail-cap', window, count });
+      }
+    }
+    if (suppressed) return false;
+    // This claim, the C1 checks and token creation share BEGIN IMMEDIATE. No
+    // await or delivery can precede the durable slot; failures consume it.
+    db.prepare(`INSERT INTO host_mail_slots VALUES (?,1)
+      ON CONFLICT(created_at) DO UPDATE SET count=count+1`).run(at);
+    return true;
+  }
   const rowFor = token => db.prepare(`SELECT t.*,v.owner_hash,v.address,v.address_revision current_revision,v.identity_json,v.confirmed_at,d.status delivery_status,d.locale
     FROM visitor_confirmation_tokens t JOIN visitor_identities v ON v.visitor_ref=t.visitor_ref
     JOIN visitor_mail_deliveries d ON d.token_hash=t.token_hash WHERE d.request_id=?`).get(requestId(token));
@@ -154,10 +194,12 @@ export function createConfirmationStore({ storage, visitorCredits, now }) {
     });
   }
   return {
+    mailCap() { return atomic(() => mailCap()); },
     inspect(token) { const row = rowFor(token); return describe(row, stateFor(row, token), token); },
     redeem,
     reserve({ ownerHash, sessionId, address, revision, expiresAt, locale }) {
-      return atomic(() => {
+      const alerts = [];
+      const result = atomic(() => {
         const row = db.prepare('SELECT * FROM visitor_identities WHERE owner_hash=?').get(ownerHash);
         if (!row || row.address !== address || row.address_revision !== revision) throw Object.assign(new Error('stale-verification'), { code: 'stale-verification' });
         const at = now(), digest = addressKey(address);
@@ -165,6 +207,7 @@ export function createConfirmationStore({ storage, visitorCredits, now }) {
         const count = db.prepare('SELECT COUNT(*) n FROM visitor_mail_abuse WHERE address_key IN (?,?) AND created_at>?')
           .get(digest, legacySlotKey(legacyAddressKey(address)), at - DAY).n;
         if (last !== null && at - last < IDENTITY_POLICY.resendCooldownMs || count >= 3) return { status: 'rate-limited' };
+        if (!reserveGlobal(at, alerts)) return { status: 'rate-limited' };
         const id = randomUUID(), token = `${id}.${randomBytes(32).toString('base64url')}`;
         // Never let a custom host policy issue links beyond the agreed TTL.
         expiresAt = Math.min(expiresAt, at + IDENTITY_POLICY.verificationTtlMs);
@@ -174,6 +217,8 @@ export function createConfirmationStore({ storage, visitorCredits, now }) {
         audit('confirmation.delivery-requested', row);
         return { status: 'reserved', token, expiresAt };
       });
+      for (const alert of alerts) console.warn(JSON.stringify(alert));
+      return result;
     },
     delivered(token, status) {
       atomic(() => {

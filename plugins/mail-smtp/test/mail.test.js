@@ -3,18 +3,20 @@ import assert from 'node:assert/strict';
 import { Duplex } from 'node:stream';
 
 // Actual SMTP dialogue over a Duplex: no listener, DNS or network connection.
-function smtpSink(messages, commands) {
+function smtpSink(messages, commands, failure = {}) {
   let buffer = '', data = false, content = '';
   const socket = new Duplex({ read() {}, write(bytes, encoding, done) {
     buffer += bytes.toString();
     while (buffer.includes('\r\n')) {
       const end = buffer.indexOf('\r\n'), line = buffer.slice(0, end); buffer = buffer.slice(end + 2);
       if (data) {
-        if (line === '.') { messages.push(content); content = ''; data = false; socket.push('250 accepted\r\n'); }
+        if (line === '.') { messages.push(content); content = ''; data = false;
+          socket.push(failure.command === 'END-DATA' ? `${failure.code} temporary failure visitor@example.test\r\n` : '250 accepted\r\n'); }
         else content += line + '\r\n';
       } else {
         commands.push(line.split(' ')[0]);
         if (/^EHLO/u.test(line)) socket.push('250-sink\r\n250 PIPELINING\r\n');
+        else if (line.split(' ')[0] === failure.command) socket.push(`${failure.code} temporary failure visitor@example.test\r\n`);
         else if (line === 'DATA') { data = true; socket.push('354 send message\r\n'); }
         else if (line === 'QUIT') { socket.push('221 bye\r\n'); socket.push(null); }
         else socket.push('250 ok\r\n');
@@ -64,6 +66,44 @@ test('C1 SMTP config has value-free secret references, safe TLS defaults and mis
 });
 
 const effect = { address: 'visitor@example.test', token: 'opaque', locale: 'en', expiresAt: Date.now() + 1_800_000 };
+for (const [code, command] of [[451, 'MAIL'], [452, 'RCPT'], [451, 'END-DATA']]) {
+  test(`AIT-166 SMTP stub ${code} at ${command} is temporary, sanitized and never hot-retried`, async t => {
+    const { smtpConfig, createSmtpMail } = await import('../src/index.js');
+    const messages = [], commands = [], logs = []; let connections = 0;
+    t.mock.method(console, 'warn', line => logs.push(JSON.parse(line)));
+    const plugin = createSmtpMail({ config: smtpConfig(values), publicOrigin: 'https://public.example.test',
+      lookup: async () => [{ address: '127.0.0.1', family: 4 }],
+      getSocket: (options, cb) => { connections++; cb(null, { connection: smtpSink(messages, commands, { code, command }) }); } });
+    t.after(() => plugin.close());
+    await assert.rejects(() => plugin.requestVerification(effect), error => {
+      assert.equal(error.message, 'Confirmation delivery failed');
+      assert.equal(error.temporary, true);
+      assert.equal(error.cause, undefined, 'SMTP reply must not escape through a cause');
+      return true;
+    });
+    await new Promise(resolve => setTimeout(resolve, 100));
+    assert.equal(connections, 1); assert.equal(commands.filter(c => c === 'MAIL').length, 1);
+    assert.deepEqual(logs, [{ event: 'mail-delivery-failed', temporary: true }]);
+    assert.doesNotMatch(JSON.stringify(logs), /@|opaque|token/iu);
+  });
+}
+
+test('AIT-166 SMTP pool never requeues after a connection closes before its greeting', async t => {
+  const { smtpConfig, createSmtpMail } = await import('../src/index.js');
+  let connections = 0;
+  const plugin = createSmtpMail({ config: smtpConfig(values), publicOrigin: 'https://public.example.test',
+    lookup: async () => [{ address: '127.0.0.1', family: 4 }],
+    getSocket: (options, cb) => {
+      connections++;
+      const socket = new Duplex({ read() {}, write(bytes, encoding, done) { done(); } });
+      socket.setTimeout = () => socket;
+      cb(null, { connection: socket });
+      setImmediate(() => socket.destroy());
+    } });
+  t.after(() => plugin.close());
+  await assert.rejects(() => plugin.requestVerification(effect), /Confirmation delivery failed/u);
+  assert.equal(connections, 1, 'one reservation must not reconnect and hot-retry');
+});
 for (const host of ['10.attacker.example', '127.attacker.example', '192.168.attacker.example', '172.16.attacker.example', 'relay.local', 'relay']) {
   test(`C1 fix1 plaintext refuses public DNS addresses for ${host}`, async () => {
     const { smtpConfig, createSmtpMail } = await import('../src/index.js');

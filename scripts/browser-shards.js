@@ -4,21 +4,24 @@ import { resolve } from 'node:path';
 
 export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 
-// Balanced using main 027746e CI run 38334109506, A2 PR CI run
-// 38331186287, and AIT-138 d PR #117 CI run 38337837967.
-// Top-level durations exclude nested tests: visitor-credit-tiers 345.610s;
-// matrix 209.159s; remaining display 145.660s; continuity 45.348s;
-// orb 86.337s; demo 51.826s; look 26.476s; question-card 17.223s;
-// journey 13.973s; html 8.406s; host 7.586s.
+// Four shards measured at 44d496a, PR #129 CI run 38457517452:
+// browser runtimes 402.566s / 373.275s / 394.868s / 189.105s;
+// whole jobs, including setup/evidence, 422s / 389s / 411s / 204s.
+// Shards 1/3/4 passed. Shard 2 failed a 680px German footer-fit assertion,
+// not its timeout; its duration is an incomplete measurement.
+// Email-ask runs each behaviour once per language/width and captures both
+// themes from each settled state: 153.965s remotely on mbp2606 (296 checks).
 export const browserShards = [
-  // 345.610s
+  // 402.566s CI; 350.166s mbp2606
   ['test/browser/visitor-credit-tiers.test.js'],
-  // Display matrix and start-look; demo teardown runs in shard 4.
+  // Full run at 4fc6a22: 400.823s tests, 537s whole job. Move the 105.447s
+  // continuity matrix to shard 4 so setup and artifact upload fit below 8min.
+  // PR 3 also keeps demo teardown separate from the display matrix in shard 4.
   [
     'test/browser/start2-display-matrix.test.js',
     'test/browser/start-look.test.js',
   ],
-  // 279.185s
+  // 394.868s CI
   [
     'test/browser/start2-display.test.js',
     'test/browser/orb-reveal.test.js',
@@ -28,7 +31,14 @@ export const browserShards = [
     'test/browser/host-surface.test.js',
     'test/browser/confirmation-design.test.js',
   ],
-  ['test/browser/demo.test.js', 'test/browser/start2-display-continuity.test.js', 'test/browser/voice-presentation.test.js'],
+  // 201.358s CI at 4fc6a22 including the sweep, plus 105.447s continuity.
+  [
+    'test/browser/email-ask.test.js',
+    'test/browser/footer-width-sweep.test.js',
+    'test/browser/start2-display-continuity.test.js',
+    'test/browser/demo.test.js',
+    'test/browser/voice-presentation.test.js',
+  ],
 ];
 
 export function discoverBrowserTests() {

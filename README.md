@@ -2275,11 +2275,50 @@ Host-owned schema (in the same SQLite database and exclusive writer):
 
 | Table | Contents |
 | --- | --- |
-| `visitor_credit_settings` | Singleton; schema version 1, monotonic revision, integer micro-USD allowances, confirmation flag, UTC created/updated timestamps |
+| `visitor_credit_settings` | Singleton; schema version 1, monotonic revision, integer micro-USD allowances, confirmation flag, rolling-hour/day mail caps, UTC created/updated timestamps |
 | `visitor_credit_audit` | Append-only settings history: actor, UTC timestamp, source, revision, old/new settings; no visitor addresses; updates rejected by trigger |
 | `visitor_identities` | Opaque `visitor_ref` mapped uniquely to the existing owner hash; address/revision, saved/confirmed/pending evidence, notice version, creation/update/activity timestamps and shared verification state |
 | `visitor_confirmation_tokens` | SHA-256 token hash bound to visitor, address revision and requesting conversation; creation/expiry/redemption timestamps; cascade erased with the visitor |
+| `visitor_email_asks` | Visitor-wide rolling 24-hour ask timestamp; no address; cascade erased with the visitor |
+| `visitor_low_email_asks` | Visitor-wide low-ask timestamp and balance re-arm latch; no address; cascade erased with the visitor |
 | `visitor_identity_cleanup` | Durable bounded cleanup queue for erasable identity projections in existing conversations |
+
+The conversation email ask (AIT-164) waits for the fifth visitor turn's completed
+reply, an idle composer and a paused or ended call. A single labelled region
+occupies the assessment cell when the side panel is present; otherwise it grows
+above the composer, lifting 20 px with motion enabled. Automatic asks retain
+focus. An ignored panel ask folds after two more completed visitor turns, once
+the pointer and focus leave its controls. The server atomically claims the
+24-hour visitor timestamp, while `host_states.emailAsk` retains dismissal and
+folding. The low-point ask has its own visitor-wide rolling 24-hour claim and
+re-arms only after the balance rises above the server's low point and later
+falls to it again. Staying low does not repeat the ask, even in another
+conversation or after a day. The amber footer and in-call rail label remain
+visible for the entire low-balance state, independent of either ask claim.
+The low line follows its original reply and never enters the transcript, model
+context or export.
+
+`GET /api/sessions/:id/credits` supplies `lowAtMicro`, calculated as the larger
+of 10% of the current allowance and five minutes at the configured visitor
+voice rate, rounded up to whole Credits. With $10/$15/$20 and $0.10/minute the
+warning points are 100/150/200 Credits; the voice floor is 50 Credits. These
+leave 10/15/20 minutes, compared with AIT-163's default two-minute admission
+runway (20 Credits). A small $3 tier warns at 50 Credits with that voice rate.
+With voice off the rate is 0: only the 10% rule applies, with no five-minute or
+50-Credit floor, so the $3 tier warns at 30 Credits. Reconciled costs flow
+through the existing wallet projection; no reservation, price or runway policy
+is changed. The footer warns live, but the gate and thread line wait during
+streaming, typing and calls. At zero the existing used-up mapping applies.
+
+`POST /api/sessions/:id/email-ask` accepts `show` (`why: turn5|low`), `line`,
+`fold`, `dismiss` and `rearm`. `rearm` acknowledges a balance rise using only
+the server's current wallet and threshold; credit GETs remain read-only.
+Ownership precedes host-state access; server tier, balance,
+privacy capability, completed visitor turns and the atomic visitor claim gate
+automatic offers. Gate and mail-host Settings share the A2 save acknowledgement
+before requesting C1/C2 confirmation. Saving raises the tier immediately even
+if the link fails. Address collection still requires AIT-151's configured
+privacy document and the host's legal link in the component.
 
 Settings accept decimal USD **strings**, with at most six fractional digits.
 Unknown fields, negative/unsafe amounts, values above $1,000 and descending
@@ -2309,6 +2348,8 @@ docker exec --user node start2 node /app/demo/admin-cli.js settings
 docker exec --user node start2 node /app/demo/admin-cli.js set-allowances --base-revision 1 --anonymous 10 --email-given 15 --email-confirmed 20
 docker exec --user node start2 node /app/demo/admin-cli.js audit --after 0 --limit 100
 docker exec --user node start2 node /app/demo/admin-cli.js provider-cap
+docker exec --user node start2 node /app/demo/admin-cli.js mail-cap
+docker exec --user node start2 node /app/demo/admin-cli.js set-mail-cap --base-revision 2 --hour 30 --day 200
 # AIT-163: preview existing uncertain reasoning/voice rows; output is counts and microUSD only.
 docker exec --user node start2 node /app/demo/admin-cli.js reconcile-uncertain --dry-run --limit 100
 # Run after checking the preview. Repeated apply makes no duplicate corrections.
@@ -2534,11 +2575,44 @@ startup never silently regenerates it. Backups must include
 `confirmation-hmac.key` alongside the database. Restoring without this key resets
 the rolling 24-hour mail quota and invalidates existing CSRF form proofs.
 Failed or interrupted delivery consumes a slot conservatively.
-Accepted and address-suppressed HTTP requests
+AIT-166 adds a host-wide cap of **30 reservations per rolling hour and 200 per
+rolling day**, across all visitors and addresses. `mailCap: { hour, day }` lives
+in the existing visitor-credit settings singleton. `set-mail-cap --base-revision
+N --hour N --day N` changes both nonnegative integer limits through the private
+OPS socket, in the same revision and old/new audit transaction as other host
+settings. Zero pauses confirmation sends. Read `settings` for the current
+revision before saving; stale saves return 409 with the current settings.
+`mail-cap` returns the settings revision and each window's `limit`, `count` and
+`remaining`; failed and in-flight reservations count, and suppressed requests
+consume no global slot. Raising limits does not reset accounting.
+
+`host_mail_slots` contains only aggregate counts and millisecond timestamps.
+Reservation, the C1 checks and token creation share one `BEGIN IMMEDIATE`
+transaction. Counts survive restart, address changes and visitor erasure;
+bounded retention removes expired slots after 24 hours. Initial migration
+imports the last day's existing C1 abuse reservations as counts and timestamps,
+without copying their address HMACs. The settings migration is audited and
+advances its revision once. `host_mail_cap_alerts` persists the last alert time
+for each window. When suppression starts, one JSON log line
+`{"event":"mail-cap","window":"hour","count":30}` (or `day`) and a counts-only
+audit event report it. Further suppressed requests do not log again until the
+window has elapsed or admission resumes for that window.
+
+Accepted, address-suppressed and globally suppressed HTTP requests
 return the same status, body and headers and show “Link gesendet …”. Delivery
 starts asynchronously after the response; SMTP duration, failure and shared
-address activity never change the visitor-visible state. Host-private audit
-records report relay failures. Only the visitor's own 60-second resend cooldown
+address/global activity never change the visitor-visible state. Host-private
+audit records report relay failures. SMTP 4xx replies, including Postfix's
+451/452 rate-limit responses, are temporary delivery failures mapped to the
+existing private `failed` delivery status. One
+`{"event":"mail-delivery-failed","temporary":true}` log line contains no address,
+SMTP reply or token. Automatic SMTP pool requeues are disabled; any retry is the
+visitor's own resend after the existing cooldown and all quota checks. The
+app's 30/hour default normally stops admission before the relay's 30-message /
+30-recipient hourly limit. The optional IP throttle is omitted: the current
+identity adapter has no verified trusted-proxy IP contract, so accepting a raw
+forwarded header would create a spoofable throttle and extra personal data.
+Only the visitor's own 60-second resend cooldown
 returns HTTP 429 with the existing `rateLimited` copy. Replacing a request,
 changing the address or deleting it invalidates older links. Tokens contain 256
 random bits; SQLite stores only the
