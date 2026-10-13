@@ -2437,6 +2437,14 @@ and redemption audit events contain no addresses or raw tokens and expire after
 180 days, alongside A1's audit. Conversation deletion alone does not erase the
 independently saved visitor profile.
 
+C1 validation: red-before tests are committed in `ceabe9b` (16 failing cases;
+missing C1 modules and production transport refusal) and `bc02c9c` (the demo
+token entropy assertion). The implementation at `61873ae` passes all 2,160 unit
+tests, including 21 C1 cases, A1/A2, AIT-151 privacy, AIT-134 settlement and
+AIT-137 rule C. Browser regression is pending: the remote runner refused startup
+with `LOCAL-FALLBACK` for load above its limit; no local fallback was used.
+No review gate, relay probe, real mail, deployment or live-system change was run.
+
 Run a pinned source commit with Node 24 or the provided `node:24-bookworm-slim`
 Dockerfile: `npm ci --omit=dev`, then `node demo/server.js`. The ElevenLabs SDK
 1.17.0 is a runtime dependency; the host serves its IIFE and worklets locally.
