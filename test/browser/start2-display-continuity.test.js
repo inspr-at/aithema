@@ -194,7 +194,10 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
       for (const target of [page, other]) target.on('dialog', async dialog => { dialogs++; await dialog.dismiss(); });
       const takeback = async (winner, loser, epoch) => {
         const response = winner.waitForResponse(r => r.url().endsWith(`/${call.callId}/takeover`) && r.request().method() === 'POST');
-        await winner.bringToFront(); await click(winner, '.pause');
+        await winner.bringToFront();
+        const point = await shadow(winner, c => { const r = c.shadowRoot.querySelector('.pause').getBoundingClientRect();
+          return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+        await winner.mouse.click(point.x, point.y);
         const receipt = await response; assert.equal(receipt.status(), 200); const held = await receipt.json();
         assert.equal(held.epoch, epoch + 1); assert.equal(held.callId, call.callId);
         await state(winner, 'listening'); await state(loser, 'waiting'); await settle();

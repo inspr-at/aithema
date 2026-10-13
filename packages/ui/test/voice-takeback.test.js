@@ -114,6 +114,7 @@ for (const transport of ['webrtc', 'websocket']) {
       const publications = f.published.length;
       for (const old of stale) {
         winner.rail.receiveState(old.state); loser.rail.receiveState(old.state);
+        winner.rail.session.receiveState(old.state);
         old.sdk.onMessage({ role: 'user', message: 'retired callback', event_id: 99 });
         await assert.rejects(old.session.resume()); await assert.rejects(old.session.sendText('retired command'));
       }
@@ -147,5 +148,24 @@ for (const transport of ['webrtc', 'websocket']) {
     f.a.takeoverAck.resolve(); await flush();
     assert.equal(f.a.root.dataset.state, 'waiting'); f.held(f.a); assert.equal(f.b.root.dataset.state, 'listening');
     assert.ok(!f.commands.some(c => c.tab === 'A' && c.name === 'recover' && c.epoch === 3), 'late takeover receipt cannot start stale recovery');
+  });
+
+  test(`AIT-138 d takeback: ${transport} A B A B can reclaim before the retired startup receipt arrives`, { timeout: 10_000 }, async t => {
+    const f = tabsFixture(t, transport); await f.a.rail.start(); await f.b.rail.start();
+    f.b.resumeEntered = Promise.withResolvers(); const lateAck = Promise.withResolvers(); f.b.resumeAck = lateAck;
+    t.after(() => lateAck.resolve());
+    const startup = f.b.rail.start(); await f.b.resumeEntered.promise;
+    f.a.rail.button('pause').click(); await flush();
+    assert.equal(f.a.root.dataset.state, 'listening'); f.held(f.b);
+    // Only the retired request is stalled; the next visitor command has its
+    // own receipt. Local disposal must release the microphone guard promptly.
+    f.b.resumeAck = null; f.b.rail.button('pause').click(); await flush();
+    assert.equal(f.snapshot().epoch, 4); assert.equal(f.snapshot().controllingTabId, 'B');
+    assert.equal(f.b.root.dataset.state, 'listening'); f.held(f.a);
+    const active = f.b.rail.session, captures = f.b.sdk.acquired.length;
+    lateAck.resolve(); await startup; await flush();
+    assert.equal(f.b.rail.session, active); assert.equal(f.b.root.dataset.state, 'listening'); f.held(f.a);
+    assert.equal(f.b.sdk.acquired.length, captures, 'a retired receipt cannot acquire another microphone');
+    assert.equal(f.b.returned.length, 1, 'only the current startup returns a session');
   });
 }
