@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { usdMicro } from '../packages/server/src/spend-cap.js';
 import { privacyDocumentConfigured as hasPrivacyDocument } from '../packages/server/src/host-handlers.js';
+import { canonicalEmail } from './email-address.js';
 
 export const VISITOR_CREDIT_CEILING_MICRO = 1_000_000_000;
 export const EMAIL_NOTICE_VERSION = 'ait-135-v1';
@@ -122,6 +123,7 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
       lastNow: Math.max(state?.lastNow ?? 0, identity.lastNow ?? 0) };
   }
   function persistIdentity(ownerHash, state, { migration = false } = {}) {
+    if (state.address !== null) state = { ...state, address: canonicalEmail(state.address) };
     const row = ensure(ownerHash), at = migration && integer(state.lastNow) ? Math.min(timestamp(), state.lastNow) : timestamp();
     const changed = row.address !== state.address;
     const erased = changed && row.address !== null && !migration;
@@ -212,8 +214,8 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
           oldValues: JSON.parse(row.old_json), newValues: JSON.parse(row.new_json) }));
     },
     saveEmail(ownerHash, input) {
-      if (!object(input, ['address', 'noticeVersion']) || typeof input.address !== 'string' || input.address.length > 254 ||
-        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(input.address) || input.noticeVersion !== EMAIL_NOTICE_VERSION) throw new TypeError('Invalid saved email or privacy notice');
+      if (!object(input, ['address', 'noticeVersion']) || input.noticeVersion !== EMAIL_NOTICE_VERSION) throw new TypeError('Invalid saved email or privacy notice');
+      input = { ...input, address: canonicalEmail(input.address) };
       const result = storage.transaction(() => {
         const row = ensure(ownerHash), at = timestamp(), changed = row.address !== input.address;
         const identity = changed ? { ...clearedIdentity(row.address_revision + 1), address: input.address } : JSON.parse(row.identity_json);
@@ -258,6 +260,8 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
       storage.transaction(() => {
         // Explicit erasure drains the bounded projection job before acknowledgement.
         drainOwnerProjections(ownerHash);
+        const row = db.prepare('SELECT visitor_ref FROM visitor_identities WHERE owner_hash=?').get(ownerHash);
+        if (row) db.prepare("DELETE FROM visitor_credit_audit WHERE source='confirmation-mail' AND json_extract(new_json,'$.visitorRef')=?").run(row.visitor_ref);
         db.prepare('DELETE FROM visitor_identities WHERE owner_hash=?').run(ownerHash);
       });
       storage.checkpointErasure();
@@ -284,12 +288,14 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
           }
         }
         const tokens = pendingTokens + db.prepare('DELETE FROM visitor_confirmation_tokens WHERE token_hash IN (SELECT token_hash FROM visitor_confirmation_tokens WHERE created_at<=? LIMIT ?)').run(at - DAY, limit).changes;
-        // The mail adapter owns no recipient projection. These HMAC throttle
-        // rows are also delivery metadata and expire in the same bounded job.
+        // Delivery records erase with visitors; abuse records have no visitor
+        // relationship and expire independently after the rolling 24h window.
         const deliveries = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='visitor_mail_deliveries'").get()
           ? db.prepare('DELETE FROM visitor_mail_deliveries WHERE request_id IN (SELECT request_id FROM visitor_mail_deliveries WHERE created_at<=? LIMIT ?)').run(at - DAY, limit).changes : 0;
+        const abuse = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='visitor_mail_abuse'").get()
+          ? db.prepare('DELETE FROM visitor_mail_abuse WHERE rowid IN (SELECT rowid FROM visitor_mail_abuse WHERE created_at<=? LIMIT ?)').run(at - DAY, limit).changes : 0;
         const audit = db.prepare('DELETE FROM visitor_credit_audit WHERE id IN (SELECT id FROM visitor_credit_audit WHERE at_ms<=? LIMIT ?)').run(at - 180 * DAY, limit).changes;
-        return { addresses, pending: pendingRows.length + tokens + deliveries, audit, projections: cleanupProjections(limit) };
+        return { addresses, pending: pendingRows.length + tokens + deliveries + abuse, audit, projections: cleanupProjections(limit) };
       });
       if (result.addresses || result.pending || result.projections) storage.checkpointErasure();
       return result;

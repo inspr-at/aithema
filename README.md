@@ -2387,7 +2387,7 @@ credentials belong in source, public config, logs or CLI output:
 | `SMTP_HOST` | Relay hostname; absent host or sender keeps delivery disabled |
 | `SMTP_PORT` | SMTP port; implicit TLS on 465, STARTTLS otherwise |
 | `SMTP_SECURE` | Optional boolean override for implicit TLS; 465 requires it |
-| `SMTP_ALLOW_PLAINTEXT_LOCAL_RELAY` | Explicit plaintext opt-in, accepted only on port 25 to a local/private relay, as in START v1 |
+| `SMTP_ALLOW_PLAINTEXT_LOCAL_RELAY` | Explicit plaintext opt-in on port 25; every resolved IP must be loopback, RFC 1918 or fc00::/7, and the connection pins a verified IP. Otherwise TLS with certificate verification is required |
 | `SMTP_USER` | Optional SMTP AUTH user; network-authorized relays need no AUTH |
 | `SMTP_PASS` | Secret reference resolved privately at delivery, only when AUTH is configured |
 | `SMTP_FROM` | Authorized sender address, preserved for DKIM alignment |
@@ -2421,21 +2421,34 @@ commit together exactly once. DE/EN copy keys cover valid, confirmed,
 already-used, expired (with new-link instructions), invalid and too-many-attempts.
 There are five attempts per revision and a 60-second visitor resend cooldown.
 Three mail reservations per rolling 24 hours across visitors are keyed by an
-HMAC of the normalized address, using a persistent private host key. Failed or
-interrupted delivery consumes a slot conservatively. HTTP 429 uses the existing
-`rateLimited` UI copy. Replacing a request, changing the address or deleting it
-invalidates older links. Tokens contain 256 random bits; SQLite stores only the
+HMAC of the canonical delivery address (trimmed, IDN domain converted to ASCII
+and lowercased; local part preserved). The persistent random host secret is
+created once as `confirmation-hmac.key` beside the SQLite database, mode 0600;
+it is never logged or derived from public data. Failed or interrupted delivery
+consumes a slot conservatively. Accepted and address-suppressed HTTP requests
+return the same status, body and headers and show “Link gesendet …”. Delivery
+starts asynchronously after the response; SMTP duration, failure and shared
+address activity never change the visitor-visible state. Host-private audit
+records report relay failures. Only the visitor's own 60-second resend cooldown
+returns HTTP 429 with the existing `rateLimited` copy. Replacing a request,
+changing the address or deleting it invalidates older links. Tokens contain 256
+random bits; SQLite stores only the
 SHA-256 hash of the complete token, bound to visitor, address revision and
 requesting conversation. The separate random request selector permits counting
 failed proofs and does not authorize confirmation.
 
-Startup and daily bounded retention remove tokens and mail/throttle metadata
-after 24 hours. Independently saved email survives pending cleanup and retains
-its email-given tier; saved addresses still expire after 90 days of inactivity.
-Visitor erasure cascades tokens, throttle rows and delivery metadata. Delivery
-and redemption audit events contain no addresses or raw tokens and expire after
-180 days, alongside A1's audit. Conversation deletion alone does not erase the
-independently saved visitor profile.
+Startup and daily bounded retention remove tokens and delivery metadata after
+24 hours. The separate `visitor_mail_abuse` table keeps only an address HMAC and
+send timestamp for 24 hours for abuse prevention. This pseudonymous record has
+no visitor reference, token, request selector or recipient address, survives
+visitor erasure and expires through the same bounded cleanup. Independently
+saved email survives pending cleanup and retains its email-given tier; saved
+addresses still expire after 90 days of inactivity.
+Visitor erasure removes the address, tokens, delivery metadata and visitor-linked
+mail audit events. Delivery and redemption audit events contain no addresses or
+raw tokens and otherwise expire after 180 days, alongside A1's audit.
+Conversation deletion alone does not erase the independently saved visitor
+profile.
 
 C1 validation: red-before tests are committed in `ceabe9b` (16 failing cases;
 missing C1 modules and production transport refusal) and `bc02c9c` (the demo

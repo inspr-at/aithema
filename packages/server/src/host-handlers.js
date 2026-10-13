@@ -280,6 +280,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
         if (request.method !== 'POST' || action === 'identity') return json({ error: 'method-not-allowed' }, 405);
         const command = action.slice('identity/'.length);
         const options = await body(request, ['request', 'change'].includes(command) ? ['address'] : command === 'confirm' ? ['token'] : []);
+        if (['request', 'change'].includes(command) && host.identity.canonicalizeAddress) options.address = host.identity.canonicalizeAddress(options.address);
         if (command === 'confirm' && (typeof options.token !== 'string' || !options.token || options.token.length > 2048)) throw new TypeError('Invalid verification token');
         if (command === 'confirm' || command === 'unlock') {
           let state = storage.hostState(id).identity;
@@ -314,7 +315,27 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
         if (command === 'change') result = identityTransition(id, ownerToken, { type: 'resend' });
         const blocked = result.resendBlocked;
         const effect = result.events.find(e => e.type === 'verification.requested');
-        if (effect) {
+        if (effect && host.identity.asynchronousDelivery === true) {
+          // Give every accepted request the same visitor state and response.
+          // Reserve/throttle and SMTP both start on the next event-loop turn,
+          // after the response has been returned to the HTTP adapter. Neither
+          // address quota nor relay failures may alter public identity state.
+          assertAddressCollectionAllowed();
+          identityTransition(id, ownerToken, { type: 'delivery', revision: effect.data.revision,
+            address: effect.data.address, status: 'sent' });
+          const key = Symbol('verification-delivery');
+          const pending = new Promise(resolve => setImmediate(resolve)).then(() => {
+            if (signal?.aborted) return;
+            return callHost(callOptions => {
+              assertAddressCollectionAllowed();
+              return host.identity.requestVerification({ sessionId: id, ownerToken, ...effect.data }, callOptions);
+            });
+          }).catch(() => {
+            // Host-private delivery audit owns failure reporting. A visitor
+            // must not distinguish another visitor's quota from an outage.
+          }).finally(() => deliveries.delete(key));
+          deliveries.set(key, pending);
+        } else if (effect) {
           let delivery;
           try { delivery = await callHost(callOptions => {
             assertAddressCollectionAllowed();

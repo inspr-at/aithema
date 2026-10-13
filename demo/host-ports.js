@@ -3,6 +3,7 @@ import { LibraryPortError, createFakeHandoverHost, handoverKey } from '@inspr/ai
 import { SQLiteBudgetLedger } from '../packages/server/src/budget.js';
 import { createVisitorCredits, EMAIL_NOTICE_VERSION } from './visitor-credits.js';
 import { createConfirmationStore } from './confirmation-store.js';
+import { canonicalEmail } from './email-address.js';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const integer = value => Number.isSafeInteger(value) && value >= 0;
@@ -107,10 +108,13 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
   };
   const identity = {
     deliversVerification: deliveryEnabled,
+    asynchronousDelivery: mailPlugin?.deliversVerification === true,
+    canonicalizeAddress: canonicalEmail,
     configuration() { return { demoBypass, ...(identityPolicy ? { policy: identityPolicy } : {}) }; },
     project({ session }, state) { return visitorCredits.projectIdentity(session.ownerHash, state); },
     persist({ session }, state) { const result = visitorCredits.persistIdentity(session.ownerHash, state); purgeMail(); return result; },
     async requestVerification({ sessionId, ownerToken, address, revision, expiresAt }, options) {
+      address = canonicalEmail(address);
       const session = storage.authorize(sessionId, ownerToken);
       if (mailPlugin?.deliversVerification) {
         const locale = session.locale === 'de' ? 'de' : 'en';

@@ -1,34 +1,84 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
+import { constants, openSync, closeSync, writeFileSync, readFileSync, fstatSync, fsyncSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { IDENTITY_POLICY } from '@inspr/aithema-core';
+import { canonicalEmail } from './email-address.js';
 
 const DAY = 86_400_000;
 const hash = value => createHash('sha256').update(value).digest('hex');
 const tokenShape = value => typeof value === 'string' && value.length <= 2048;
 const requestId = token => tokenShape(token) ? token.split('.')[0] : '';
+const memoryKeys = new WeakMap();
+
+function hostKey(db, previousKey) {
+  const file = db.prepare('PRAGMA database_list').all().find(row => row.name === 'main')?.file;
+  // In-memory databases are explicit ephemeral fixtures/demo hosts only.
+  if (!file) {
+    if (!memoryKeys.has(db)) memoryKeys.set(db, previousKey ?? randomBytes(32));
+    return memoryKeys.get(db);
+  }
+  const path = join(dirname(file), 'confirmation-hmac.key');
+  let fd;
+  try {
+    try {
+      fd = openSync(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+      writeFileSync(fd, previousKey ?? randomBytes(32)); fsyncSync(fd);
+      closeSync(fd); fd = undefined;
+    } catch (error) { if (error.code !== 'EEXIST') throw error; }
+    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const info = fstatSync(fd), key = readFileSync(fd);
+    if (!info.isFile() || (info.mode & 0o777) !== 0o600 || key.length !== 32) throw new Error('Invalid host secret');
+    return key;
+  } catch { throw new Error('Confirmation host secret unavailable'); }
+  finally { if (fd !== undefined) closeSync(fd); }
+}
 
 /** Private host SQLite state. A request id is an attempt selector, never proof.
  * Only SHA-256 of the complete random bearer token is persisted. */
 export function createConfirmationStore({ storage, visitorCredits, now }) {
   const db = storage.db, atomic = fn => db.isTransaction ? fn() : storage.transaction(fn);
+  const previousKey = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='visitor_mail_key'").get()
+    ? db.prepare('SELECT key FROM visitor_mail_key WHERE id=1').get()?.key : undefined;
+  // Created once beside the database, independently of credentials/public data.
+  const key = hostKey(db, previousKey);
+  const hmac = value => createHmac('sha256', key).update(value).digest('hex');
+  const addressKey = address => hmac(`address\0${address}`);
+  // Read compatibility for legacy slots whose original recipient is no longer
+  // stored. Every new reservation uses only the canonical delivery address.
+  const legacyAddressKey = address => addressKey(address.trim().normalize('NFKC').toLowerCase());
+  const legacySlotKey = digest => hmac(`legacy-address\0${digest}`);
   atomic(() => {
-    db.exec(`CREATE TABLE IF NOT EXISTS visitor_mail_key (id INTEGER PRIMARY KEY CHECK(id=1), key BLOB NOT NULL);
+    db.exec(`CREATE TABLE IF NOT EXISTS visitor_mail_abuse (address_key TEXT NOT NULL, created_at INTEGER NOT NULL);
+      CREATE INDEX IF NOT EXISTS visitor_mail_abuse_limit ON visitor_mail_abuse(address_key,created_at);
+      CREATE INDEX IF NOT EXISTS visitor_mail_abuse_retention ON visitor_mail_abuse(created_at);
       CREATE TABLE IF NOT EXISTS visitor_mail_deliveries (
         request_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL, visitor_ref TEXT NOT NULL REFERENCES visitor_identities(visitor_ref) ON DELETE CASCADE,
-        address_key TEXT NOT NULL, created_at INTEGER NOT NULL, status TEXT NOT NULL CHECK(status IN ('sending','sent','failed')), locale TEXT NOT NULL);
-      CREATE INDEX IF NOT EXISTS visitor_mail_address_limit ON visitor_mail_deliveries(address_key,created_at);
+        created_at INTEGER NOT NULL, status TEXT NOT NULL CHECK(status IN ('sending','sent','failed')), locale TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS visitor_mail_visitor_limit ON visitor_mail_deliveries(visitor_ref,created_at);
       CREATE INDEX IF NOT EXISTS visitor_mail_retention ON visitor_mail_deliveries(created_at);`);
-    if (!db.prepare('SELECT 1 FROM visitor_mail_key WHERE id=1').get()) db.prepare('INSERT INTO visitor_mail_key VALUES (1,?)').run(randomBytes(32));
+    // Upgrade draft C1 records once, preserving consumed slots and the secret.
+    if (db.prepare('PRAGMA table_info(visitor_mail_deliveries)').all().some(column => column.name === 'address_key')) {
+      for (const row of db.prepare(`SELECT d.address_key,d.created_at,v.address FROM visitor_mail_deliveries d
+        JOIN visitor_identities v ON v.visitor_ref=d.visitor_ref`).all()) {
+        let digest = legacySlotKey(row.address_key);
+        try {
+          // A visitor may have changed addresses since the delivery. Re-key
+          // only when the remaining address proves which recipient was used.
+          if (row.address && legacyAddressKey(row.address) === row.address_key) digest = addressKey(canonicalEmail(row.address));
+        } catch { /* Preserve the consumed legacy slot. */ }
+        db.prepare('INSERT INTO visitor_mail_abuse VALUES (?,?)').run(digest, row.created_at);
+      }
+      db.exec('DROP INDEX IF EXISTS visitor_mail_address_limit; ALTER TABLE visitor_mail_deliveries DROP COLUMN address_key;');
+    }
+    db.exec('DROP TABLE IF EXISTS visitor_mail_key;');
   });
-  // Host-private random key is independent of SMTP credentials, stable across restarts.
-  const key = db.prepare('SELECT key FROM visitor_mail_key WHERE id=1').get().key;
-  const hmac = value => createHmac('sha256', key).update(value).digest('hex');
   const rowFor = token => db.prepare(`SELECT t.*,v.owner_hash,v.address,v.address_revision current_revision,v.identity_json,d.status delivery_status,d.locale
     FROM visitor_confirmation_tokens t JOIN visitor_identities v ON v.visitor_ref=t.visitor_ref
     JOIN visitor_mail_deliveries d ON d.token_hash=t.token_hash WHERE d.request_id=?`).get(requestId(token));
   function stateFor(row, token) {
     if (!row || row.address_revision !== row.current_revision || !row.address || row.delivery_status !== 'sent') return 'invalid';
-    const matches = tokenShape(token) && hash(token) === row.token_hash;
+    const digest = /^[a-f0-9]{64}$/u.test(row.token_hash) ? Buffer.from(row.token_hash, 'hex') : null;
+    const matches = tokenShape(token) && digest?.length === 32 && timingSafeEqual(Buffer.from(hash(token), 'hex'), digest);
     if (!matches) return 'invalid';
     if (row.redeemed_at !== null) return 'alreadyUsed';
     if (now() >= row.expires_at) return 'expired';
@@ -63,15 +113,17 @@ export function createConfirmationStore({ storage, visitorCredits, now }) {
       return atomic(() => {
         const row = db.prepare('SELECT * FROM visitor_identities WHERE owner_hash=?').get(ownerHash);
         if (!row || row.address !== address || row.address_revision !== revision) throw Object.assign(new Error('stale-verification'), { code: 'stale-verification' });
-        const at = now(), addressKey = hmac(`address\0${address.trim().normalize('NFKC').toLowerCase()}`);
+        const at = now(), digest = addressKey(address);
         const last = db.prepare('SELECT MAX(created_at) at FROM visitor_mail_deliveries WHERE visitor_ref=?').get(row.visitor_ref).at;
-        const count = db.prepare('SELECT COUNT(*) n FROM visitor_mail_deliveries WHERE address_key=? AND created_at>?').get(addressKey, at - DAY).n;
+        const count = db.prepare('SELECT COUNT(*) n FROM visitor_mail_abuse WHERE address_key IN (?,?) AND created_at>?')
+          .get(digest, legacySlotKey(legacyAddressKey(address)), at - DAY).n;
         if (last !== null && at - last < IDENTITY_POLICY.resendCooldownMs || count >= 3) return { status: 'rate-limited' };
         const id = randomUUID(), token = `${id}.${randomBytes(32).toString('base64url')}`;
         // Never let a custom host policy issue links beyond the agreed TTL.
         expiresAt = Math.min(expiresAt, at + IDENTITY_POLICY.verificationTtlMs);
         visitorCredits.createToken({ ownerHash, sessionId, address, revision, expiresAt, token });
-        db.prepare('INSERT INTO visitor_mail_deliveries VALUES (?,?,?,?,?,?,?)').run(id, hash(token), row.visitor_ref, addressKey, at, 'sending', locale);
+        db.prepare('INSERT INTO visitor_mail_abuse VALUES (?,?)').run(digest, at);
+        db.prepare('INSERT INTO visitor_mail_deliveries VALUES (?,?,?,?,?,?)').run(id, hash(token), row.visitor_ref, at, 'sending', locale);
         audit('confirmation.delivery-requested', row);
         return { status: 'reserved', token, expiresAt };
       });
