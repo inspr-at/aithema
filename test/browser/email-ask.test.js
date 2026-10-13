@@ -12,7 +12,7 @@ import { browserPath, shadow, until, boxes, evidenceCommit } from './start2-disp
 const settle = page => shadow(page, async c => {
   await document.fonts.ready;
   await new Promise(requestAnimationFrame);
-  await Promise.all(c.shadowRoot.getAnimations({ subtree: true })
+  await Promise.all(c.shadowRoot.querySelector('.workspace').getAnimations({ subtree: true })
     .filter(a => a.playState === 'running' && Number.isFinite(a.effect.getComputedTiming().endTime))
     .map(a => a.finished.catch(() => {})));
   await new Promise(requestAnimationFrame);

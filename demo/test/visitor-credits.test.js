@@ -60,9 +60,10 @@ test('AIT-164: low claims are atomic, visitor-wide, persistent and cascade erase
     throw new Error('rollback gate and claim');
   }), /rollback gate and claim/u);
   assert.equal(host.claimLowEmailAsk(owner), true, 'rolled-back claim is not consumed');
-  const otherStorage = new SQLiteStorage(db); t.after(() => otherStorage.close());
-  const otherHost = createDemoHost({ storage: otherStorage, ...options });
-  assert.equal(otherHost.claimLowEmailAsk(owner), false, 'another writer cannot claim the same low episode');
+  // The repository has one leased SQLite writer. Separate host clients/tabs
+  // share it; opening a second SQLiteStorage is deliberately refused.
+  const otherHost = createDemoHost({ storage, ...options });
+  assert.equal(otherHost.claimLowEmailAsk(owner), false, 'another client cannot claim the same low episode');
   assert.equal(host.claimLowEmailAsk('separate-visitor'), true);
   time += DAY;
   assert.equal(host.claimLowEmailAsk(owner), false, '24 hours alone does not re-arm');
