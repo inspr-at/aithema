@@ -58,6 +58,10 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
   if (![reconcileIntervalMs, reconcileBatchSize, reconcileLookupTimeoutMs].every(value => Number.isSafeInteger(value) && value > 0) ||
     log !== undefined && typeof log !== 'function') throw new TypeError('Invalid voice reconciliation retry bounds');
   const calls = new Map(), sessions = new Map(), settlements = new Set(), authorities = new Map();
+  const tabAuthority = (sessionId, callId) => {
+    const logical = storage.voiceLifecycle(sessionId, callId);
+    return { epoch: logical?.epoch ?? 0, controllingTabId: logical?.controllingTabId ?? null };
+  };
   const endAuthority = (sessionId, callId) => {
     const key = `${sessionId}:${callId}`; authorities.get(key)?.controller.abort(); authorities.delete(key);
   };
@@ -89,6 +93,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         storage.saveVoiceCall(record.sessionId, { ...saved, reconciliation: result, reconciliationPending: result.usage?.costEstimated === true });
         const logical = storage.voiceLifecycle(record.sessionId, record.callId);
         publish(record.sessionId, { type: 'voice.state', data: { callId: record.callId, providerSessionId: record.providerSessionId,
+          ...tabAuthority(record.sessionId, record.callId),
           state: logical && logical.state !== 'idle' ? logical.state : recoverableVoiceEnd(record.reason)
             ? record.reason === 'browser-liveness-deadline' ? 'waiting' : 'recovering' : 'ended',
           reason: logical?.terminalReason ?? record.reason, reconciliationPending: result.usage?.costEstimated === true,
@@ -152,6 +157,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     onClose?.(entry.sessionId);
     if (sessions.get(entry.sessionId) === entry) sessions.delete(entry.sessionId);
     publish(entry.sessionId, { type: 'voice.state', data: { callId: entry.callId,
+      ...tabAuthority(entry.sessionId, entry.callId),
       providerSessionId: entry.call?.providerSessionId,
       state: resumable ? storage.voiceLifecycle(entry.sessionId, entry.callId).state : 'closing', reason } });
     const settle = async () => {
@@ -170,6 +176,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         // An old recovery's settlement cannot publish over or remove its successor.
         const logical = storage.voiceLifecycle(entry.sessionId, entry.callId);
         if (terminal && calls.get(entry.callId) === entry) publish(entry.sessionId, { type: 'voice.state', data: {
+          ...tabAuthority(entry.sessionId, entry.callId),
           callId: entry.callId, providerSessionId: entry.call.providerSessionId, state: logical?.state ?? (resumable ? 'recovering' : 'ended'),
           reason: logical?.terminalReason ?? reason,
           reconciliationPending: terminal.outcome === 'uncertain' || terminal.usage?.costEstimated === true,
@@ -412,6 +419,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           logical?.state !== 'ended' && logical?.providerSessionId === body.providerSessionId) {
           const waiting = storage.transitionVoiceLifecycle(sessionId, callId, { type: 'recovery-exhausted' });
           publish(sessionId, { type: 'voice.state', data: { callId, providerSessionId: body.providerSessionId,
+            ...tabAuthority(sessionId, callId),
             state: waiting.state, attempts: waiting.attempts, reason: body.reason } });
         }
         if (action === 'recover' && logical?.authorizationRevision && logical.authorizationRevision !== voiceAuthorizationRevision(storage.get(sessionId))) {

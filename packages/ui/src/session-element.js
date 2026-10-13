@@ -421,7 +421,7 @@ export class AithemaSession extends HTMLElement {
     if (!record) return;
     // A copied journal cannot authorize another document as the controlling tab.
     // Epoch-bound calls use server takeover/leases; channel pongs are advisory.
-    if (record.tabId) return;
+    if (record.tabId) { this.#journal.clear(); return; }
     if (this.#session.voiceLifecycle?.state === 'waiting' && this.#session.voiceLifecycle.callId === record.callId) return;
     try {
       const abandoned = await voiceCallAbandoned(record.callId);
