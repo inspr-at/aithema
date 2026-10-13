@@ -96,7 +96,7 @@ export class HostSurface {
     if (this.#options.credits) {
       void this.#loadCredits(); clearInterval(this.#creditsPoll);
       this.#creditsPoll = setInterval(() => {
-        if (this.#alive && this.#connected && !this.#creditsReads && (this.usedUp || this.#admissionDenied?.()) && this.#root.ownerDocument.visibilityState !== 'hidden') void this.#loadCredits();
+        if (this.#alive && this.#connected && !this.#creditsReads && (this.usedUp || this.#admissionDenied?.() || this.#root.querySelector('.audio-rail').dataset.call === 'active') && this.#root.ownerDocument.visibilityState !== 'hidden') void this.#loadCredits();
       }, 15_000);
       this.#creditsPoll.unref?.();
     }
