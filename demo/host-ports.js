@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { LibraryPortError, createFakeHandoverHost, handoverKey } from '@inspr/aithema-core';
 import { SQLiteBudgetLedger } from '../packages/server/src/budget.js';
 import { createVisitorCredits, EMAIL_NOTICE_VERSION } from './visitor-credits.js';
+import { createConfirmationStore } from './confirmation-store.js';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const integer = value => Number.isSafeInteger(value) && value >= 0;
@@ -32,10 +33,13 @@ export function createDemoWallet({ limitMicro = 10_000_000, spent = () => 0 } = 
  * demo:true is development only and explicitly exempts its fake-outbox identity
  * flow from the privacy gate. Non-demo hosts need a notice even with delivery. */
 export function createDemoHost({ storage, demo = true, demoBypass = false, verificationRequired = false, now = () => Date.now(), identityPolicy,
-  durationMs, ownerGuard = true, privacyDocumentConfigured } = {}) {
+  durationMs, ownerGuard = true, privacyDocumentConfigured, mailPlugin } = {}) {
+  if (!demo && mailPlugin && mailPlugin.id !== 'smtp') throw new TypeError('Production mail requires SMTP; mock transports are unavailable');
+  const deliveryEnabled = demo || mailPlugin?.deliversVerification === true;
   const mail = [], wallets = new Map(), sink = createFakeHandoverHost(), erasures = new Map(), resets = new Map();
   const costs = new SQLiteBudgetLedger(storage);
-  const visitorCredits = createVisitorCredits({ storage, now, deliveryEnabled: demo, demo, privacyDocumentConfigured });
+  const visitorCredits = createVisitorCredits({ storage, now, deliveryEnabled, demo, privacyDocumentConfigured });
+  const confirmation = createConfirmationStore({ storage, visitorCredits, now });
   storage.db.exec(`CREATE TABLE IF NOT EXISTS owner_wallet_reservations (
     attempt_id TEXT PRIMARY KEY, owner_hash TEXT NOT NULL, fingerprint TEXT NOT NULL,
     max_micro INTEGER NOT NULL, released INTEGER NOT NULL DEFAULT 0);
@@ -102,12 +106,25 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
     return structuredClone(mail.filter(message => message.sessionId === sessionId).map(({ ownerHash, createdAt, ...message }) => message));
   };
   const identity = {
-    deliversVerification: demo,
+    deliversVerification: deliveryEnabled,
     configuration() { return { demoBypass, ...(identityPolicy ? { policy: identityPolicy } : {}) }; },
     project({ session }, state) { return visitorCredits.projectIdentity(session.ownerHash, state); },
     persist({ session }, state) { const result = visitorCredits.persistIdentity(session.ownerHash, state); purgeMail(); return result; },
-    async requestVerification({ sessionId, ownerToken, address, revision, expiresAt }) {
+    async requestVerification({ sessionId, ownerToken, address, revision, expiresAt }, options) {
       const session = storage.authorize(sessionId, ownerToken);
+      if (mailPlugin?.deliversVerification) {
+        const locale = session.locale === 'de' ? 'de' : 'en';
+        const reserved = confirmation.reserve({ ownerHash: session.ownerHash, sessionId, address, revision, expiresAt, locale });
+        if (reserved.status === 'rate-limited') return reserved;
+        try {
+          const result = await mailPlugin.requestVerification({ sessionId, address, revision, ...reserved, locale }, options);
+          confirmation.delivered(reserved.token, result?.status);
+          return { status: result?.status === 'sent' ? 'sent' : 'failed' };
+        } catch {
+          confirmation.delivered(reserved.token, 'failed');
+          return { status: 'failed' };
+        }
+      }
       if (!demo) return { status: 'failed' };
       const token = randomUUID();
       visitorCredits.createToken({ ownerHash: session.ownerHash, sessionId, address, revision, expiresAt, token });
@@ -117,6 +134,13 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
     },
     async verify({ sessionId, ownerToken, address, revision, token }) {
       const session = storage.authorize(sessionId, ownerToken);
+      if (mailPlugin?.deliversVerification) {
+        const visitor = visitorCredits.visitor(session.ownerHash);
+        if (visitor.address !== address || visitor.addressRevision !== revision) return { verified: false };
+        const verified = token === undefined ? visitorCredits.verifyToken({ ownerHash: session.ownerHash, address, revision })
+          : confirmation.redeem(token, { precounted: true, ownerHash: session.ownerHash, address, revision }).state === 'confirmed';
+        return { verified, address, revision };
+      }
       if (!demo) return { verified: false };
       const verified = visitorCredits.verifyToken({ ownerHash: session.ownerHash, address, revision, token });
       if (verified && token !== undefined) for (const message of mail) if (message.ownerHash === session.ownerHash && message.revision === revision) {
@@ -184,9 +208,9 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
   const host = { label: 'Demo only: local host ports', demo, now, identity, library, privacyDocumentConfigured,
     policy: { verificationRequired: demo && verificationRequired },
     credits: { ownerGuard, ...(durationMs ? { durationMs } : {}) },
-    visitorCredits,
+    visitorCredits, confirmation,
     emailNotice: { version: EMAIL_NOTICE_VERSION, optional: true, purpose: 'visitor-credit', inactivityDays: 90,
-      marketingConsent: false, deliveryEnabled: demo,
+      marketingConsent: false, deliveryEnabled,
       text: { en: 'Saving an email is optional. It changes your visitor credit tier without resetting spend. We delete the address after 90 days without activity. Saving does not subscribe you to marketing.',
         de: 'Das Speichern einer E-Mail-Adresse ist freiwillig. Es ändert dein Besucherguthaben, ohne Ausgaben zurückzusetzen. Wir löschen die Adresse nach 90 Tagen ohne Aktivität. Das Speichern ist keine Anmeldung für Werbung.' } },
     visitor: ownerToken => visitorCredits.visitor(hash(ownerToken)),

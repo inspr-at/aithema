@@ -1,0 +1,10 @@
+{
+  "name": "@inspr/aithema-plugin-mail-smtp",
+  "private": true,
+  "type": "module",
+  "exports": "./src/index.js",
+  "dependencies": { "nodemailer": "10.1.0" },
+  "engines": { "node": ">=24" },
+  "version": "0.0.0",
+  "license": "AGPL-3.0-only"
+}

@@ -332,6 +332,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
           storage.authorize(id, ownerToken);
           identityTransition(id, ownerToken, { type: 'delivery', revision: effect.data.revision, address: effect.data.address,
             status: delivery?.status === 'sent' ? 'sent' : 'failed' });
+          if (delivery?.status === 'rate-limited') return json(identityResult(id, { error: 'confirmation-rate-limit' }), 429);
         }
         return json(identityResult(id, blocked ? { error: 'resend-rate-limit' } : {}), blocked ? 429 : 200);
       }

@@ -9,8 +9,8 @@ import { temporaryDb, mockConsent } from '../../test/helpers.js';
 const origin = 'https://host.example.test', address = 'visitor@example.test', DAY = 86_400_000;
 async function fixture(t, options = {}) {
   let time = 1_000;
-  const storage = options.storage ?? new SQLiteStorage(); t.after(() => storage.close());
-  const messages = [];
+  const storage = options.storage ?? new SQLiteStorage(); t.after(() => { if (storage.db.isOpen) storage.close(); });
+  const messages = [], forms = new Map();
   const mailPlugin = { id: 'smtp', deliversVerification: true, async requestVerification(effect) { messages.push(effect); return { status: 'sent' }; } };
   const host = createDemoHost({ storage, demo: false, now: () => time, privacyDocumentConfigured: () => true, mailPlugin, ...options });
   const { createConfirmationPage } = await import('../confirmation-page.js');
@@ -22,7 +22,9 @@ async function fixture(t, options = {}) {
     host.identity.persist({ session: s }, result.state);
     const effect = result.events.find(e => e.type === 'verification.requested');
     if (!effect) return { status: 'rate-limited' };
-    return host.identity.requestVerification({ sessionId: s.id, ownerToken: owner, ...effect.data });
+    const delivery = await host.identity.requestVerification({ sessionId: s.id, ownerToken: owner, ...effect.data });
+    if (delivery.status === 'sent') forms.set(messages.at(-1).token, await form(messages.at(-1).token));
+    return delivery;
   };
   const get = token => page.handle(new Request(`${origin}/confirm-email?token=${encodeURIComponent(token)}&lang=de`));
   const form = async token => {
@@ -30,7 +32,7 @@ async function fixture(t, options = {}) {
     return { cookie: response.headers.get('set-cookie')?.split(';')[0], csrf: /name="csrf" value="([^"]+)"/u.exec(html)?.[1], html };
   };
   const post = async (token, overrides = {}) => {
-    const f = await form(token);
+    const f = forms.get(token) ?? await form(token);
     return page.handle(new Request(`${origin}/confirm-email`, { method: 'POST', headers: {
       origin, cookie: f.cookie ?? '', 'content-type': 'application/x-www-form-urlencoded', ...overrides },
     body: new URLSearchParams({ token, csrf: f.csrf ?? '', lang: 'de' }) }));
@@ -159,4 +161,42 @@ test('C1 production host rejects a mock mail transport and absent config stays a
   const host = createDemoHost({ storage, demo: false, privacyDocumentConfigured: () => true });
   assert.equal(host.identity.deliversVerification, false);
   assert.throws(() => host.visitorCredits.saveSettings({ baseRevision: 1, confirmationEnabled: true }, { source: 'ops-cli' }));
+});
+
+test('C1 authenticated confirm cannot redeem or claim a different visitor token', async t => {
+  const f = await fixture(t), a = f.session('owner'), b = f.session('other');
+  await f.request(a); const token = f.messages[0].token;
+  await f.request(b, 'other', 'other@example.test');
+  const result = await f.host.identity.verify({ sessionId: b.id, ownerToken: 'other', address: 'other@example.test', revision: f.host.visitor('other').addressRevision, token });
+  assert.equal(result.verified, false); assert.equal(f.host.confirmation.inspect(token).state, 'valid');
+  assert.equal(f.host.visitor('other').tier, 'emailGiven');
+});
+
+test('C1 CSRF proof is bound to the cookie and link and cannot be forged', async t => {
+  const f = await fixture(t), s = f.session(); await f.request(s); const token = f.messages[0].token, form = await f.form(token);
+  const response = await f.host.confirmation.checkCsrf(form.cookie.split('=')[1], token, '0'.repeat(64));
+  assert.equal(response, false);
+  assert.equal(f.host.confirmation.checkCsrf(form.cookie.split('=')[1], token + 'tamper', form.csrf), false);
+  assert.equal(f.host.confirmation.inspect(token).state, 'valid');
+});
+
+test('C1 fifth correct proof succeeds and API attempts share the landing-page limit', async t => {
+  const f = await fixture(t), s = f.session(); await f.request(s); const token = f.messages[0].token;
+  const handlers = createHandlers({ storage: f.storage, host: f.host, consent: mockConsent }); t.after(() => handlers.close());
+  const call = candidate => handlers.handle(new Request(`http://local/api/sessions/${s.id}/identity/confirm`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-aithema-session-token': 'owner' }, body: JSON.stringify({ token: candidate }) }));
+  for (let i = 0; i < 4; i++) assert.equal((await call('wrong')).status, 200);
+  assert.equal((await f.post(token)).status, 200); assert.equal(f.host.visitor('owner').tier, 'emailConfirmed');
+});
+
+test('C1 confirmation setting is OPS-only and private CLI enables it with delivery', async t => {
+  const f = await fixture(t);
+  assert.throws(() => f.host.visitorCredits.saveSettings({ baseRevision: 2, confirmationEnabled: false }), /OPS/iu);
+  const { listenAdmin, adminRequest } = await import('../admin-socket.js');
+  const { mkdtemp } = await import('node:fs/promises'), { tmpdir } = await import('node:os'), { join } = await import('node:path');
+  const { promisify } = await import('node:util'), { execFile } = await import('node:child_process');
+  const socketPath = join(await mkdtemp(join(tmpdir(), 'ait-mail-cli-')), 'ops.sock');
+  const admin = await listenAdmin({ host: f.host, socketPath }); t.after(() => admin.close());
+  assert.equal((await adminRequest(socketPath, 'set-confirmation', { baseRevision: 2, confirmationEnabled: false })).status, 200);
+  const result = await promisify(execFile)(process.execPath, ['demo/admin-cli.js', '--socket', socketPath, 'set-confirmation', '--base-revision', '3', '--enabled', 'true']);
+  assert.equal(JSON.parse(result.stdout).confirmationEnabled, true);
 });

@@ -162,6 +162,14 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
     db.prepare('DELETE FROM visitor_identity_cleanup WHERE owner_hash=?').run(ownerHash);
   }
   return { settings, policy, visitor, touch, projectIdentity, persistIdentity,
+    auditEvent(event, evidence) {
+      // Mail evidence is deliberately address/token-free; callers supply only
+      // an opaque visitor reference, outcome and event name.
+      if (!['confirmation.delivery-requested', 'confirmation.delivery', 'confirmation.attempt', 'confirmation.redeemed'].includes(event) ||
+        !object(evidence, ['visitorRef', 'outcome'])) throw new TypeError('Invalid mail audit event');
+      const current = settings();
+      insertAudit(null, { revision: current.revision, event, ...evidence }, { actor: 'system:mail', source: 'confirmation-mail' }, timestamp());
+    },
     creditTiers(ownerHash) {
       const { allowancesMicro, confirmationEnabled } = settings(), current = policy(ownerHash).tier;
       const canConfirm = confirmationEnabled && deliveryEnabled;
@@ -182,6 +190,9 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
       }
       if (input.confirmationEnabled !== undefined && (typeof input.confirmationEnabled !== 'boolean' || input.confirmationEnabled && !deliveryEnabled)) {
         throw new TypeError('Confirmation requires qualified delivery');
+      }
+      if (input.confirmationEnabled !== undefined && demo !== true && (source !== 'ops-cli' || !actor.startsWith('ops-cli:'))) {
+        throw new TypeError('Confirmation policy requires the OPS CLI');
       }
       return storage.transaction(() => {
         const before = settings();
@@ -273,8 +284,12 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
           }
         }
         const tokens = pendingTokens + db.prepare('DELETE FROM visitor_confirmation_tokens WHERE token_hash IN (SELECT token_hash FROM visitor_confirmation_tokens WHERE created_at<=? LIMIT ?)').run(at - DAY, limit).changes;
+        // The mail adapter owns no recipient projection. These HMAC throttle
+        // rows are also delivery metadata and expire in the same bounded job.
+        const deliveries = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='visitor_mail_deliveries'").get()
+          ? db.prepare('DELETE FROM visitor_mail_deliveries WHERE request_id IN (SELECT request_id FROM visitor_mail_deliveries WHERE created_at<=? LIMIT ?)').run(at - DAY, limit).changes : 0;
         const audit = db.prepare('DELETE FROM visitor_credit_audit WHERE id IN (SELECT id FROM visitor_credit_audit WHERE at_ms<=? LIMIT ?)').run(at - 180 * DAY, limit).changes;
-        return { addresses, pending: pendingRows.length + tokens, audit, projections: cleanupProjections(limit) };
+        return { addresses, pending: pendingRows.length + tokens + deliveries, audit, projections: cleanupProjections(limit) };
       });
       if (result.addresses || result.pending || result.projections) storage.checkpointErasure();
       return result;

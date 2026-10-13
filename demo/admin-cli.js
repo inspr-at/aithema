@@ -3,13 +3,13 @@ import { dirname, join, resolve } from 'node:path';
 import { adminRequest } from './admin-socket.js';
 
 const usage = 'Usage: node demo/admin-cli.js [--socket PATH] settings | audit [--after ID] [--limit N] | provider-cap | '
-  + 'set-allowances --base-revision N --anonymous USD --email-given USD --email-confirmed USD';
+  + 'set-allowances --base-revision N --anonymous USD --email-given USD --email-confirmed USD | set-confirmation --base-revision N --enabled true|false';
 try {
   const args = process.argv.slice(2);
   let socket = process.env.AITHEMA_ADMIN_SOCKET ?? join(dirname(resolve(process.env.AITHEMA_DB ?? '.data/session.sqlite')), 'ops', 'admin');
   if (args[0] === '--socket') { args.shift(); socket = args.shift(); }
   const command = args.shift();
-  if (!['settings', 'set-allowances', 'audit', 'provider-cap'].includes(command)) throw new Error(usage);
+  if (!['settings', 'set-allowances', 'set-confirmation', 'audit', 'provider-cap'].includes(command)) throw new Error(usage);
   const options = {};
   while (args.length) {
     const key = args.shift(), value = args.shift();
@@ -23,6 +23,9 @@ try {
     if (keys.length !== required.length || required.some(key => !Object.hasOwn(options, key)) || !/^[1-9]\d*$/u.test(options['--base-revision'])) throw new Error(usage);
     payload = { baseRevision: Number(options['--base-revision']), allowancesUsd: {
       anonymous: options['--anonymous'], emailGiven: options['--email-given'], emailConfirmed: options['--email-confirmed'] } };
+  } else if (command === 'set-confirmation') {
+    if (keys.length !== 2 || !/^[1-9]\d*$/u.test(options['--base-revision'] ?? '') || !['true', 'false'].includes(options['--enabled'])) throw new Error(usage);
+    payload = { baseRevision: Number(options['--base-revision']), confirmationEnabled: options['--enabled'] === 'true' };
   } else if (command === 'audit') {
     if (keys.some(key => !['--after', '--limit'].includes(key))) throw new Error(usage);
     payload = Object.fromEntries(keys.map(key => [key.slice(2), options[key]]));

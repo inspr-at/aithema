@@ -2371,8 +2371,71 @@ The remote wallet extension is deferred. Its future contract is
 idempotent targets, wallet acknowledgement before ledger update, serialized
 extensions, and conservative holds for unknown outcomes. No async wait belongs
 inside the local SQLite extension transaction. A2 supplies Tick's visitor
-save/edit/delete form and credit states; Phase C wires the agm1 relay and designed
-HTML confirmation mail. Admin authentication later uses Zitadel SSO.
+save/edit/delete form and credit states. Phase C1 supplies SMTP confirmation
+delivery and explicit redemption; Tick's designed HTML mail and landing page
+follow in C2. Admin authentication later uses Zitadel SSO.
+
+Phase C1 uses `plugins/mail-smtp` (nodemailer 10.1.0, pinned) through the existing
+host `requestVerification` delivery port. Core and server have no mail dependency.
+OPS supplies these environment names through the host/container wiring; no
+credentials belong in source, public config, logs or CLI output:
+
+| Name | Purpose |
+|---|---|
+| `AITHEMA_PUBLIC_ORIGIN` | Canonical host origin used for confirmation links and same-origin POST checks |
+| `AITHEMA_MAIL_TRANSPORT` | Optional `smtp` or `off`; mock/console transports are refused |
+| `SMTP_HOST` | Relay hostname; absent host or sender keeps delivery disabled |
+| `SMTP_PORT` | SMTP port; implicit TLS on 465, STARTTLS otherwise |
+| `SMTP_SECURE` | Optional boolean override for implicit TLS; 465 requires it |
+| `SMTP_ALLOW_PLAINTEXT_LOCAL_RELAY` | Explicit plaintext opt-in, accepted only on port 25 to a local/private relay, as in START v1 |
+| `SMTP_USER` | Optional SMTP AUTH user; network-authorized relays need no AUTH |
+| `SMTP_PASS` | Secret reference resolved privately at delivery, only when AUTH is configured |
+| `SMTP_FROM` | Authorized sender address, preserved for DKIM alignment |
+| `SMTP_FROM_NAME` | Optional sender display name |
+| `SMTP_REPLY_TO` | Optional deliberate reply destination |
+
+OPS wires the agreed agm1 relay separately. Configuration does not contact the
+relay at startup. Missing configuration preserves A2's inline save form and
+email-given credit tier. The fake in-memory outbox remains explicit demo mode
+only. Every production address route, including confirmation, requires the
+AIT-151 privacy-document capability. Mail transport never exempts that gate.
+
+Read `node demo/admin-cli.js settings`, then enable confirmation through the
+private OPS socket with `node demo/admin-cli.js set-confirmation --base-revision
+<current-revision> --enabled true`. Use `--enabled false` to disable it. The
+command rejects enabling without delivery; there is no environment or public
+HTTP switch. Allowance amounts are set separately with `set-allowances`.
+
+The visitor's UI language selects the DE/EN subject, plain text and HTML
+alternative. The mail contains one confirmation link, its 30-minute validity
+and single-use explanation, the higher-credit purpose, privacy/90-day inactivity
+notice, and guidance to ignore unsolicited mail and delete the product message
+after the matter closes. It contains no tracking pixels, remote images, fonts
+or other remote resources. `confirmationHtml` is C2's template seam.
+
+`GET /confirm-email?token=...` inspects only and displays one explicit confirmation
+button. `POST /confirm-email` requires the configured origin and a signed,
+token-bound CSRF form plus HttpOnly SameSite=Strict cookie; HTTPS uses a Secure
+`__Host-` cookie. Redemption, the attempt count, `confirmed_at` and audit event
+commit together exactly once. DE/EN copy keys cover valid, confirmed,
+already-used, expired (with new-link instructions), invalid and too-many-attempts.
+There are five attempts per revision and a 60-second visitor resend cooldown.
+Three mail reservations per rolling 24 hours across visitors are keyed by an
+HMAC of the normalized address, using a persistent private host key. Failed or
+interrupted delivery consumes a slot conservatively. HTTP 429 uses the existing
+`rateLimited` UI copy. Replacing a request, changing the address or deleting it
+invalidates older links. Tokens contain 256 random bits; SQLite stores only the
+SHA-256 hash of the complete token, bound to visitor, address revision and
+requesting conversation. The separate random request selector permits counting
+failed proofs and does not authorize confirmation.
+
+Startup and daily bounded retention remove tokens and mail/throttle metadata
+after 24 hours. Independently saved email survives pending cleanup and retains
+its email-given tier; saved addresses still expire after 90 days of inactivity.
+Visitor erasure cascades tokens, throttle rows and delivery metadata. Delivery
+and redemption audit events contain no addresses or raw tokens and expire after
+180 days, alongside A1's audit. Conversation deletion alone does not erase the
+independently saved visitor profile.
 
 Run a pinned source commit with Node 24 or the provided `node:24-bookworm-slim`
 Dockerfile: `npm ci --omit=dev`, then `node demo/server.js`. The ElevenLabs SDK
