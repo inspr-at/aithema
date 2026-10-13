@@ -25,7 +25,7 @@ const statusFor = error => error?.code === 'auth' ? 401 : error?.code === 'not-a
 export function createCompletionsHandler({ getCall, resolveSecret = ref => process.env[ref],
   buildRequest, admitReasoning, onCompletion, staticSecretRef, now = Date.now, timeoutMs = 30_000,
   maxRequestBytes = MAX_COMPLETION_REQUEST_BYTES, log = console.log, turnOperations,
-  beforeAdmission, beforeOutput, onAdmission, reportAllowed, onOpenerStripped } = {}) {
+  beforeAdmission, beforeOutput, onAdmission, onRetry, reportAllowed, onOpenerStripped } = {}) {
   if (![getCall, buildRequest, admitReasoning].every(port => typeof port === 'function')) throw new TypeError('Facade call, context and admission ports required');
   if (!Number.isSafeInteger(maxRequestBytes) || maxRequestBytes <= 0) throw new TypeError('Positive facade byte limit required');
   const active = call => call && !call.closing && !call.terminal && !call.paused && !call.signal?.aborted &&
@@ -120,7 +120,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
             onCompletion: event => onCompletion?.({ ...event, userTurnOrdinal: operation.ordinal }),
             staticSecretRef, now, timeoutMs, maxRequestBytes, log: () => {}, onOpenerStripped,
             beforeAdmission: operation.beforeAdmission, beforeOutput: operation.assertCurrent,
-            onAdmission: operation.admitted, reportAllowed: operation.reportAllowed });
+            onAdmission: operation.admitted, onRetry: operation.retry, reportAllowed: operation.reportAllowed });
           return worker(new Request(request.url, { method: 'POST', headers: request.headers,
             body: JSON.stringify({ ...body, stream: true }), signal: operation.signal }));
         }, { ...bounded, signal: request.signal, now }));
@@ -165,7 +165,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
       // The consume check outlives this bounded admission call. Retain the
       // operation lifetime signal so closing/revoking the call still cancels it.
       admission = await voiceOperation(opts, bounded => admitReasoning({ callId: call.callId, request: input, messages,
-        options: { ...bounded, signal: opts.signal }, beforeAdmission }));
+        options: { ...bounded, signal: opts.signal }, beforeAdmission, onRetry }));
       if (!admission?.plugin?.stream || !admission.options?.attempt || typeof admission.options.report !== 'function' ||
         typeof admission.finish !== 'function') throw new PluginError('not-admitted', 'Reasoning admission required');
       beforeOutput?.();

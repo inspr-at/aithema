@@ -8,7 +8,7 @@ const collect = async events => { const values = []; for await (const event of e
 function fixture(t, options = {}) {
   const storage = new SQLiteStorage(), session = storage.create({ ownerToken: 'fixture-owner' });
   let clock = 1000;
-  const unblock = [], logs = [], turns = createVoiceTurnOperations({ storage, now: () => clock, log: record => logs.push(record), ...options });
+  const unblock = [], logs = [], turns = createVoiceTurnOperations({ storage, now: () => clock, log: record => logs.push(typeof record === 'string' ? JSON.parse(record) : record), ...options });
   t.after(async () => { unblock.forEach(release => release()); await turns.idle(); storage.close(); });
   const context = { sessionId: session.id, callId: 'call-private-person@example.test', providerSessionId: 'https://private.example.test/generation',
     stream: true, callbackBody: { messages: [{ role: 'system', content: 'Private prompt' }, { role: 'user', content: 'Private speech' }],
@@ -110,5 +110,87 @@ test('AIT-139: partial failure, explicit replacement and replay report bounded c
   assert.deepEqual(completions.map(row => row.outcome), ['failed', 'completed']);
   assert.equal(new Set(completions.map(row => row.turnHash)).size, 1);
   assert.equal(new Set(completions.map(row => row.attemptHash)).size, 2);
+  assertSafe(h.logs);
+});
+
+for (const asyncLog of [false, true]) test(`AIT-139: a ${asyncLog ? 'rejected' : 'throwing'} logger leaves execution and closure intact`, async t => {
+  const h = fixture(t, { log: asyncLog ? async () => { throw new Error('Private credential'); }
+    : () => { throw new Error('Private credential'); } });
+  const result = await h.turns.run(h.context, worker => {
+    worker.admitted('attempt');
+    return { replyId: 'reply', created: 1, events: (async function* () {
+      yield { type: 'delta', text: 'Reply' }; yield { type: 'completion', text: 'Reply' };
+    })() };
+  });
+  assert.equal((await collect(result.events)).at(-1).text, 'Reply'); await h.turns.idle();
+  h.turns.observeClosure({ ...h.context, endedAt: 1000 }, { closureConfirmed: true });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.storage.voiceOperations(h.session.id)[0].state, 'completed');
+});
+
+test('AIT-139: the field allowlist drops arbitrary fields and restricts every free-form value', async () => {
+  const { createVoiceDiagnostics } = await import('../src/voice-observability.js');
+  const logs = [], emit = createVoiceDiagnostics({ log: record => logs.push(typeof record === 'string' ? JSON.parse(record) : record) });
+  const identity = { callId: 'private-person@example.test', providerSessionId: 'https://private.example.test',
+    fence: 'Bearer private-credential', attempts: [{ id: 'private-id' }], speech: 'Private speech', headers: { authorization: 'Private credential' } };
+  const fields = { speech: 'Private speech', prompt: 'Private prompt', email: 'private-person@example.test',
+    credentials: 'Bearer private-credential', headers: identity.headers, url: identity.providerSessionId,
+    cause: 'Private speech', outcome: 'Private prompt', totalMs: 'https://private.example.test' };
+  emit('Private speech', identity, fields);
+  emit('voice.turn.completion', identity, fields);
+  emit('voice.turn.closure', identity, { ...fields, closureConfirmed: 'Private speech', costEstimated: 'Private prompt', reconciliationAgeMs: Infinity });
+  assert.equal(logs.length, 2);
+  assert.deepEqual(Object.keys(logs[0]), ['event', 'callHash', 'generationHash', 'turnHash', 'attemptHash', 'cause']);
+  assert.equal(logs[0].cause, 'provider');
+  assert.deepEqual(Object.keys(logs[1]), ['event', 'callHash', 'generationHash', 'turnHash', 'attemptHash']);
+  assertSafe(logs);
+});
+
+test('AIT-139: delayed closure correlates after executor restart and never downgrades confirmation', async t => {
+  const h = fixture(t);
+  const result = await h.turns.run(h.context, worker => {
+    worker.admitted('attempt');
+    return { replyId: 'reply', created: 1, events: (async function* () {
+      yield { type: 'delta', text: 'Reply' }; yield { type: 'completion', text: 'Reply' };
+    })() };
+  });
+  await collect(result.events); await h.turns.idle();
+  const restarted = createVoiceTurnOperations({ storage: h.storage, now: () => 1500, log: record => h.logs.push(typeof record === 'string' ? JSON.parse(record) : record) });
+  const record = { ...h.context, endedAt: 1100 };
+  restarted.observeClosure(record, { closureConfirmed: false });
+  restarted.observeClosure(record, { closureConfirmed: false });
+  restarted.observeClosure(record, { closureConfirmed: true, usage: { costEstimated: true } });
+  restarted.observeClosure(record, { closureConfirmed: false });
+  const closed = h.logs.filter(row => row.event === 'voice.turn.closure');
+  assert.deepEqual(closed.map(row => row.closureConfirmed), [false, true]);
+  assert.equal(closed[1].reconciliationAgeMs, 400);
+  assert.equal(closed[1].turnHash, h.logs[0].turnHash);
+  assert.equal(closed[1].generationHash, h.logs[0].generationHash);
+  assertSafe(h.logs);
+});
+
+
+test('AIT-139: benign admission retry records a bounded cause without creating another operation', async t => {
+  const h = fixture(t);
+  const reply = await h.turns.run(h.context, worker => {
+    worker.beforeAdmission(); worker.retry('session-changed'); worker.admitted('attempt');
+    return { replyId: 'reply', created: 1, events: (async function* () {
+      yield { type: 'delta', text: 'Reply' }; yield { type: 'completion', text: 'Reply' };
+    })() };
+  });
+  await collect(reply.events); await h.turns.idle();
+  assert.equal(h.logs[0].event, 'voice.turn.retry'); assert.equal(h.logs[0].cause, 'session-changed');
+  assert.equal(h.storage.voiceOperations(h.session.id).length, 1);
+  assertSafe(h.logs);
+});
+
+
+test('AIT-139: startup records orphan completion without implicitly retrying paid work', async t => {
+  const h = fixture(t), { operation } = h.storage.claimVoiceOperation(h.context, { now: 1000 });
+  h.storage.voiceTurnStore.admitted(operation.key, operation.fence, 'paid-attempt');
+  h.tick(1400); h.turns.recover(); h.turns.recover();
+  assert.equal(h.logs.length, 1); assert.equal(h.logs[0].event, 'voice.turn.completion');
+  assert.equal(h.logs[0].outcome, 'failed'); assert.equal(h.logs[0].cause, 'server-restart'); assert.equal(h.logs[0].totalMs, 400);
+  assert.equal(h.storage.voiceOperations(h.session.id)[0].state, 'failed');
   assertSafe(h.logs);
 });
