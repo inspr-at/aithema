@@ -22,6 +22,7 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
   t.after(async () => { await browser.close(); await demo.kill(); });
   const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, passLines = [];
   if (evidence) await mkdir(evidence, { recursive: true });
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await mockIdentityReads(page);
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
@@ -43,12 +44,13 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
       session.locale = locale; session.settings = { ...session.settings, origin: 'chosen', voice: 'off', visuals: 'off' };
       session.transcript = Array.from({ length: 16 }, (_, i) => ({ id: `opaque-${i}`, role: 'assistant',
         content: (locale === 'de' ? 'Diese Nachricht muss vollständig hinter dem Band verschwinden. ' : 'This message must disappear completely behind the band. ').repeat(8) }));
-      c.setAttribute('motion', 'off'); c.style.setProperty('--aithema-height', '1600px');
+      c.style.setProperty('--aithema-height', '1600px');
       c.configure({ copy, session, host: { library: true } });
       document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
       c.shadowRoot.querySelector('.transcript-shell').scrollTop = 0; scrollTo(0, 0);
     }, locale);
     await page.mouse.move(0, 500); await settle();
+    assert.equal(await shadow(page, c => c.getAttribute('motion')), 'off', `${label}: stable paint through the real motion preference`);
     const baseline = await boxes(page, selectors);
     const bandBox = baseline[0], clip = { x: 0, y: bandBox[1], width, height: bandBox[3] };
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.band').hasAttribute('data-scrolled')), false);
