@@ -76,6 +76,9 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.pause').disabled), false, 'old-tab Resume explicitly takes the call back');
       sameBoxes(before, await layoutBoxes(page, selectors), `${label}: old-tab notice`);
       const shot = async (target, name) => {
+        // Background tabs suspend requestAnimationFrame. Activate the captured
+        // tab before settling; the owner's normal visibility hold still applies.
+        await target.bringToFront();
         const scrollBefore = await target.evaluate(() => scrollY);
         // The rail helper only waits for the band; also settle the workspace entrance.
         await shadow(target, async c => {
