@@ -624,6 +624,9 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
       await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.voice-start').disabled);
       await click(page, '.ready__mode[data-mode="voice"]'); await click(page, '.ready__start');
       await until(page, () => ['speaking', 'listening'].includes(document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state));
+      await until(page, () => { const w = document.querySelector('aithema-session').shadowRoot.querySelector('.workspace');
+        return w.dataset.stage === 'live' && !w.hasAttribute('data-reveal'); });
+      await finishRevealEntry(page);
       await page.evaluate(async () => { await document.fonts.ready; }); await settle();
       st?.diagnostic('Started original call');
       const label = `${width}-${theme}-${locale}`, before = await layoutBoxes(page, selectors);
@@ -645,6 +648,8 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
       await shot(page, 'old-tab');
       st?.diagnostic('Captured old-tab notice');
       await other.bringToFront(); await click(other, '.pause'); await state(other, 'listening');
+      await until(other, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').hasAttribute('data-reveal'));
+      await finishRevealEntry(other);
       const next = await other.evaluate(() => JSON.parse(sessionStorage.getItem(`aithema-voice-call:${document.querySelector('aithema-session').session.id}`)));
       assert.equal(next.callId, call.callId); assert.equal(next.epoch, call.epoch + 1);
       const heldBefore = await layoutBoxes(other, selectors);
