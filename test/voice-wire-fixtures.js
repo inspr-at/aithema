@@ -8,7 +8,8 @@ import { voiceOperation } from '../packages/core/src/live-voice.js';
 // Synthetic bodies only. Preserve whitespace, order, frame boundaries and headers;
 // normalize only generated reply UUIDs. The facade clock is injected, not scrubbed.
 export const normalizeVoiceWire = text => text.replace(/chatcmpl-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}/gu, 'chatcmpl-FIXTURE');
-const epoch = 1_790_000_000_000;
+export const VOICE_WIRE_EPOCH = 1_790_000_000_000;
+const epoch = VOICE_WIRE_EPOCH;
 const snapshot = async (response, partialRelease) => {
   if (!partialRelease) return { status: response.status, headers: Object.fromEntries(response.headers), body: normalizeVoiceWire(await response.text()) };
   const reader = response.body.getReader(), decoder = new TextDecoder(); let body = '';
