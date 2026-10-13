@@ -869,6 +869,52 @@ window.fixtureReady = true;
 const grown = `First signal, now grown: ${'several more words of evidence '.repeat(12)}`;
 const questions = Array.from({ length: 16 }, (_, i) => `Open question ${i + 1}: which detail matters most for this part of the plan?`);
 
+test('AIT-116: the resting-pointer baseline waits for the transcript entry animation (AIT-162)',
+  { timeout: 120_000 }, async t => {
+    const executablePath = await browserPath();
+    const directory = await mkdtemp(join(tmpdir(), 'aithema-browser-settled-'));
+    const demo = await startDemo(directory); let browser;
+    t.after(async () => {
+      try { await browser?.close(); }
+      finally { await stopDemo(demo.child); await rm(directory, { recursive: true, force: true }); }
+    });
+    browser = await puppeteer.launch({ executablePath, headless: true, env: { PATH: process.env.PATH, HOME: homedir() },
+      userDataDir: join(directory, 'chrome'), timeout: waitTimeout,
+      args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    const page = await browser.newPage(); await preparePage(page, ['en-US', 'en']);
+    await page.setRequestInterception(true);
+    page.on('request', request => {
+      if (request.url() === `${demo.url}/anchor-fixture`) void request.respond({ status: 200, contentType: 'text/html; charset=utf-8', body: anchorFixture });
+      else void request.continue();
+    });
+    await page.goto(`${demo.url}/anchor-fixture`); await page.waitForFunction(() => window.fixtureReady); await revealed(page);
+    const selector = 'ol li[data-id="t1"]';
+    // Recreate the CI baseline timing with the product's own 220 ms turn-in animation.
+    // Hold its last sub-pixel of travel briefly; no session update occurs during this check.
+    const entering = await inShadow(page, c => {
+      const row = c.shadowRoot.querySelector('ol li[data-id="t1"]'), pane = row.closest('.transcript-shell');
+      row.style.animation = 'none'; row.getBoundingClientRect(); row.style.removeProperty('animation');
+      const animation = row.getAnimations().find(animation => animation.animationName === 'turn-in');
+      animation.pause(); animation.currentTime = 150;
+      const state = { y: row.getBoundingClientRect().y, transform: getComputedStyle(row).transform, scrollTop: pane.scrollTop, seq: c.session.seq };
+      setTimeout(() => animation.play(), 100);
+      return state;
+    });
+    assert.notEqual(entering.transform, 'none', 'the baseline probe starts during the entry animation');
+    const before = await rest(page, selector);
+    const settled = await inShadow(page, async c => {
+      const row = c.shadowRoot.querySelector('ol li[data-id="t1"]');
+      await Promise.all(row.getAnimations().map(animation => animation.finished));
+      return { transform: getComputedStyle(row).transform, scrollTop: row.closest('.transcript-shell').scrollTop, seq: c.session.seq };
+    });
+    const after = await box(page, selector);
+    assert.equal(settled.transform, 'none');
+    assert.equal(settled.seq, entering.seq, 'no live update caused the movement');
+    assert.equal(settled.scrollTop, entering.scrollTop, 'the pane did not scroll');
+    t.diagnostic(`Entry animation: ${JSON.stringify(entering)}; resting baseline: ${JSON.stringify(before)}; finished: ${JSON.stringify(after)}.`);
+    sameBox(before, after, 'transcript baseline after entry animation');
+  });
+
 test('AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab liveness, dark tokens and phone layout',
   { timeout: 240_000 }, async t => {
     const executablePath = await browserPath();
