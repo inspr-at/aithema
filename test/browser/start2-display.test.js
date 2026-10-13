@@ -108,7 +108,20 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
     await page.evaluate(() => scrollTo(0, 0));
     await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.band').hasAttribute('data-scrolled'));
     assert.deepEqual(await boxes(page, selectors), baseline, `${label}: scrolling back restores every box`);
-    assert.equal(samePaint(originalPaint, Buffer.from(await page.screenshot({ clip }))), true, `${label}: scrolling back restores main's paint`);
+    const restoredPaint = Buffer.from(await page.screenshot({ clip }));
+    if (!samePaint(originalPaint, restoredPaint)) {
+      const original = pixels(originalPaint), restored = pixels(restoredPaint), differences = [];
+      for (let y = 0; y < original.height; y++) for (let x = 0; x < original.width; x++) {
+        const offset = (y * original.width + x) * original.channels;
+        if (original.result.subarray(offset, offset + 3).some((value, i) => Math.abs(value - restored.result[offset + i]) > 1)) differences.push([x, y]);
+      }
+      t.diagnostic(`${label}: restored paint differs at ${differences.length} pixels; bounds ${JSON.stringify([Math.min(...differences.map(p => p[0])), Math.min(...differences.map(p => p[1])), Math.max(...differences.map(p => p[0])), Math.max(...differences.map(p => p[1]))])}`);
+      if (evidence) {
+        await writeFile(join(evidence, `ait155-debug-${label}-original.png`), originalPaint);
+        await writeFile(join(evidence, `ait155-debug-${label}-restored.png`), restoredPaint);
+      }
+    }
+    assert.equal(samePaint(originalPaint, restoredPaint), true, `${label}: scrolling back restores main's paint`);
   }
   if (evidence) await writeFile(join(evidence, 'ait155-band-pass-lines.json'), JSON.stringify({ head: evidenceCommit, capture: 'viewport', passLines }, null, 2));
   for (const row of passLines) t.diagnostic(`PASS head=${row.head} ${row.locale}-${row.theme}-${row.width}/${row.state} 0 px layout shift${row.textPixels ? `; ${row.textPixels} opaque pixels over text` : '; AIT-131 main paint preserved'}`);
