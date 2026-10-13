@@ -35,11 +35,11 @@ async function fixture(t, options = {}) {
 
 test('AIT-166 defaults cap concurrent requests at 30 rolling-hour reservations', async t => {
   const f = await fixture(t);
-  assert.deepEqual(f.settings().mailCap, { hour: 30, day: 200 });
   const results = await Promise.all(Array.from({ length: 60 }, (_, i) => f.send(`burst-${i}`)));
   assert.equal(results.filter(r => r.status === 'sent').length, 30);
   assert.equal(results.filter(r => r.status === 'rate-limited').length, 30);
   assert.equal(f.messages.length, 30);
+  assert.deepEqual(f.settings().mailCap, { hour: 30, day: 200 });
   assert.deepEqual(f.host.confirmation.mailCap(), { revision: f.settings().revision,
     hour: { limit: 30, count: 30, remaining: 0 }, day: { limit: 200, count: 30, remaining: 170 } });
   f.at(HOUR + 999);
@@ -92,6 +92,30 @@ test('AIT-166 reservation failure rolls back the global slot with token and C1 a
   assert.equal(f.host.confirmation.mailCap().hour.count, 0);
   assert.equal(f.storage.db.prepare('SELECT COUNT(*) n FROM visitor_mail_abuse').get().n, 0);
   assert.equal(f.messages.length, 0);
+});
+
+test('AIT-166 temporary relay rejection becomes a private failed delivery and keeps the visitor cooldown', async t => {
+  const { createSmtpMail, smtpConfig } = await import('../../plugins/mail-smtp/src/index.js');
+  const logs = []; let sends = 0;
+  t.mock.method(console, 'warn', line => logs.push(JSON.parse(line)));
+  const mailPlugin = createSmtpMail({ config: smtpConfig({ SMTP_HOST: 'smtp.example.test', SMTP_FROM: 'sender@example.test' }),
+    publicOrigin: 'https://host.example.test', createTransport: () => ({
+      async sendMail() { sends++; throw Object.assign(new Error('451 temporary visitor@example.test'), { responseCode: 451 }); }, close() {},
+    }) });
+  t.after(() => mailPlugin.close());
+  const f = await fixture(t, { mailPlugin }), s = f.session('temporary');
+  const visitor = f.host.saveEmail('temporary', { address: 'visitor@example.test', noticeVersion: 'ait-135-v1' });
+  const effect = { sessionId: s.id, ownerToken: 'temporary', address: 'visitor@example.test',
+    revision: visitor.addressRevision, expiresAt: 1_801_000 };
+  assert.deepEqual(await f.host.identity.requestVerification(effect), { status: 'failed' });
+  assert.equal(f.storage.db.prepare('SELECT status FROM visitor_mail_deliveries').get().status, 'failed');
+  assert.equal(f.host.visitorCredits.audit().at(-1).newValues.outcome, 'failed');
+  assert.equal((await f.host.identity.requestVerification(effect)).status, 'rate-limited');
+  assert.equal(sends, 1); assert.equal(f.host.confirmation.mailCap().hour.count, 1);
+  assert.deepEqual(logs, [{ event: 'mail-delivery-failed', temporary: true }]);
+  f.at(61_000);
+  assert.equal((await f.host.identity.requestVerification(effect)).status, 'failed');
+  assert.equal(sends, 2, 'only an explicit resend after the cooldown retries delivery');
 });
 
 test('AIT-166 accepted/global-suppressed HTTP responses match and finish before SMTP', async t => {

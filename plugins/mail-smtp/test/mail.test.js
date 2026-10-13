@@ -88,14 +88,21 @@ for (const [code, command] of [[451, 'MAIL'], [452, 'RCPT'], [451, 'END-DATA']])
   });
 }
 
-test('AIT-166 SMTP pool disables automatic requeue after a connection closes', async () => {
+test('AIT-166 SMTP pool never requeues after a connection closes before its greeting', async t => {
   const { smtpConfig, createSmtpMail } = await import('../src/index.js');
-  let options;
+  let connections = 0;
   const plugin = createSmtpMail({ config: smtpConfig(values), publicOrigin: 'https://public.example.test',
     lookup: async () => [{ address: '127.0.0.1', family: 4 }],
-    createTransport: opts => { options = opts; return { async sendMail() {}, close() {} }; } });
-  try { await plugin.requestVerification(effect); assert.equal(options.maxRequeues, 0); }
-  finally { plugin.close(); }
+    getSocket: (options, cb) => {
+      connections++;
+      const socket = new Duplex({ read() {}, write(bytes, encoding, done) { done(); } });
+      socket.setTimeout = () => socket;
+      cb(null, { connection: socket });
+      setImmediate(() => socket.destroy());
+    } });
+  t.after(() => plugin.close());
+  await assert.rejects(() => plugin.requestVerification(effect), /Confirmation delivery failed/u);
+  assert.equal(connections, 1, 'one reservation must not reconnect and hot-retry');
 });
 for (const host of ['10.attacker.example', '127.attacker.example', '192.168.attacker.example', '172.16.attacker.example', 'relay.local', 'relay']) {
   test(`C1 fix1 plaintext refuses public DNS addresses for ${host}`, async () => {
