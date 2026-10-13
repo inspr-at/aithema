@@ -126,3 +126,23 @@ test('fake restored startup failure closes its replacement as exhausted recovery
   assert.deepEqual(closed, [{ callId: 'call', providerSessionId: 'replacement', epoch: 1,
     reason: 'recovery-failed', recoveryAttempts: 3 }]);
 });
+
+test('fake commands are unavailable during recovery; a synchronous Pause waits and targets the replacement', async t => {
+  const now = Date.now(), requested = Promise.withResolvers(), replacement = Promise.withResolvers(), pauses = [];
+  const receipt = { callId: 'call', providerSessionId: 'old', epoch: 1, presentation: 'continuation',
+    spendDeadlineAt: now + 60_000, browserLivenessDeadlineAt: now + 30_000 };
+  const control = { start: () => receipt, close: () => ({ closureConfirmed: true }),
+    recover: () => { requested.resolve(); return replacement.promise; },
+    pause: identity => { pauses.push(identity.providerSessionId); return { acknowledged: true, paused: true }; },
+    resume: () => ({ acknowledged: true, paused: false }), heartbeat() {} };
+  const f = createFakeVoice({ control, persistEvent: () => {}, document: undefined, copy: {} });
+  const session = await f.client.start({ callId: 'call' }, {}); t.after(() => session.close());
+  f.disconnect(); await requested.promise;
+  await assert.rejects(session.setInput(false), { code: 'unavailable' });
+  await assert.rejects(session.sendText('During recovery'), { code: 'unavailable' });
+  const held = session.pause(); assert.equal(f.snapshot().volume, 0); assert.equal(f.snapshot().muted, true);
+  await new Promise(resolve => setImmediate(resolve)); assert.deepEqual(pauses, []);
+  replacement.resolve({ ...receipt, providerSessionId: 'new' }); await held;
+  assert.deepEqual(pauses, ['new']); assert.equal(f.snapshot().muted, true);
+  await session.resume(); assert.equal(f.snapshot().muted, false);
+});

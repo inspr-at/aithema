@@ -132,12 +132,16 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
         else { paused = true; pauseRevision++; lifecycle.pause('hide'); }
       };
       const freeze = () => lifecycle.sleep(), wake = () => lifecycle.wake(), visible = () => { if (!document.hidden) wake(); };
-      const command = fn => opts => {
+      const command = (fn, duringRecovery = false) => opts => {
         const pending = commands.then(() => {
-          if (ended) throw new PluginError('unavailable');
+          if (ended || lifecycle.recovering && !duringRecovery) throw new PluginError('unavailable');
           return voiceOperation({ ...opts, signal: opts?.signal ? AbortSignal.any([opts.signal, commandCancellation.signal]) : commandCancellation.signal,
             deadlineAt: Math.min(opts?.deadlineAt ?? Infinity, receipt.spendDeadlineAt,
-              lifecycle.state.needsRecovery ? Infinity : receipt.browserLivenessDeadlineAt) }, fn);
+              lifecycle.state.needsRecovery ? Infinity : receipt.browserLivenessDeadlineAt) }, async bounded => {
+            if (duringRecovery && lifecycle.recovering) await lifecycle.recovering;
+            if (ended || lifecycle.recovering) throw new PluginError('unavailable');
+            return fn(bounded);
+          });
         }); commands = pending.catch(() => {}); return pending;
       };
       const pauseControl = (value, opts) => {
@@ -177,7 +181,7 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
             return command(async bounded => {
               const ack = await pauseControl(true, bounded);
               if (ack?.acknowledged !== true || ack.paused !== true) throw new PluginError('invalid-output'); return ack;
-            })(opts);
+            }, true)(opts);
           },
           resume(opts) {
             lifecycle.checkClock(); const revision = pauseRevision;
@@ -189,7 +193,7 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
               bounded.signal.throwIfAborted();
               if (ack?.acknowledged !== true || ack.paused !== false || revision !== pauseRevision) throw new PluginError('invalid-output');
               paused = false; blocked = false; open = true; lifecycle.resumed(); return ack;
-            })(opts);
+            }, true)(opts);
           },
           setInput: (on, opts) => command(() => { if (typeof on !== 'boolean') throw new TypeError('Input boolean required'); input = on; })(opts),
           setOutput: (on, opts) => command(() => { if (typeof on !== 'boolean') throw new TypeError('Output boolean required'); output = on; })(opts),
