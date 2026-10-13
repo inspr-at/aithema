@@ -14,8 +14,8 @@ export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 export const browserShards = [
   // 402.566s CI; 350.166s mbp2606
   ['test/browser/visitor-credit-tiers.test.js'],
-  // AIT-165: ~295.376s CI baseline (400.823s minus 105.447s continuity).
-  // Operator login adds 48 viewport states; measured total pending merged-head CI.
+  // 290.400s CI at 70eec71, run 38477382124. AIT-165 operator login adds
+  // 6.446s on mbp2606 at c9e7fc7 (48 viewport states); this shard has most headroom.
   [
     'test/browser/start2-display-matrix.test.js',
     'test/browser/demo.test.js',
