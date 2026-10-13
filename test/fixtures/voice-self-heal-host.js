@@ -45,7 +45,7 @@ export async function createVoiceHost(options) {
   const host = await createStart2VoiceHost({ ...options, publicOrigin: options.publicOrigin ?? 'https://fixture.test',
     apiBaseUrl: api.endpoint, values: {}, random: () => 0.5,
     resolveSecret: () => 'fixture-secret', fetchImpl: async (url, init) => {
-      if (new URL(url).pathname === '/v1/convai/agents' && !failed) {
+      if (new URL(url).pathname === '/v1/convai/agents' && !failed && failure !== 'none') {
         failed = true;
         if (failure === 'network') throw new TypeError('fixture network failure');
         if (failure === 'timeout') throw new DOMException('fixture timeout', 'TimeoutError');

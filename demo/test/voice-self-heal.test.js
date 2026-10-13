@@ -190,3 +190,103 @@ for (const failure of ['timeout', '503', 'network', '401']) test(`AIT-161 server
   const voice = await post(running.url + `/api/sessions/${session.id}/voice`, { callId: 'fixture-call', tabId: 'fixture-tab' }, headers);
   assert.equal(voice.status, 201, await voice.text());
 });
+
+
+for (const path of ['/v1/convai/secrets', '/v1/convai/agents/create']) {
+  test(`AIT-161 fix1 shutdown preserves ownership while ${path} POST is in flight`, async t => {
+    const { opts, api, storage } = fixture(t), gate = Promise.withResolvers(); let lists = 0, writeSignal;
+    t.mock.timers.enable({ apis: ['setTimeout'] });
+    const host = await createVoiceHost({ ...opts, random: () => 0.5, fetchImpl: async (url, init) => {
+      if (new URL(url).pathname === '/v1/convai/agents' && ++lists === 1) return new Response(null, { status: 503 });
+      const response = await api.fetchImpl(url, init);
+      if (init.method !== 'POST' || new URL(url).pathname !== path) return response;
+      writeSignal = init.signal;
+      // The upstream write succeeded; its JSON response is still in flight.
+      const body = await response.text();
+      return new Response(new ReadableStream({ start(controller) {
+        const aborted = () => controller.error(init.signal.reason);
+        init.signal.addEventListener('abort', aborted, { once: true });
+        gate.promise.then(() => {
+          init.signal.removeEventListener('abort', aborted);
+          if (!init.signal.aborted) { controller.enqueue(new TextEncoder().encode(body)); controller.close(); }
+        });
+      } }));
+    } });
+    t.mock.timers.tick(30_000); await flush(); assert.ok(writeSignal);
+    const closing = host.close(); gate.resolve(); await closing;
+    assert.equal(host.binding, undefined, 'shutdown never activates voice');
+    const receipt = path.endsWith('/create') ? storage.db.prepare('SELECT * FROM host_agents').get()
+      : storage.db.prepare('SELECT * FROM host_voice_secrets').get();
+    assert.ok(receipt, 'a completed upstream write must retain its local ownership receipt');
+    const restarted = await createVoiceHost(opts); t.after(() => restarted.close());
+    assert.ok(restarted.binding, restarted.disabledReason);
+    assert.equal(api.secrets.length, 1); assert.equal(api.agents.length, 1);
+  });
+}
+
+for (const fail of [false, true]) test(`AIT-161 fix1 prepares recovery before publishing (failure=${fail})`, async t => {
+  const { opts, api } = fixture(t); let lists = 0;
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const logs = [], host = await createVoiceHost({ ...opts, log: entry => logs.push(entry), random: () => 0.5,
+    fetchImpl: async (url, init) => {
+      if (new URL(url).pathname === '/v1/convai/agents' && ++lists === 1) return new Response(null, { status: 503 });
+      return api.fetchImpl(url, init);
+    } });
+  t.after(() => host.close());
+  let observed, prepared;
+  host.onAvailable(candidate => {
+    observed = { binding: host.binding, reason: host.disabledReason };
+    prepared = { runtime: { registry: 'prepared', endpoint: candidate.binding.endpoint } };
+    return prepared;
+  });
+  if (fail) host.onAvailable(() => { throw new Error('injected preparation failure'); });
+  t.mock.timers.tick(30_000); await flush();
+  assert.deepEqual(observed, { binding: undefined, reason: 'agent-api-get-503' }, 'preparation cannot expose the new binding');
+  if (fail) {
+    assert.equal(host.binding, undefined); assert.equal(host.runtime, undefined);
+    assert.equal(host.disabledReason, 'voice-host-unavailable');
+    assert.deepEqual(logs.filter(entry => entry.event === 'voice-availability').at(-1),
+      { event: 'voice-availability', from: 'off', to: 'off', reason: 'voice-host-unavailable' });
+  } else {
+    assert.ok(host.binding); assert.equal(host.runtime, prepared.runtime); assert.equal(host.disabledReason, null);
+  }
+});
+
+for (const provider of ['mock', 'openrouter']) test(`AIT-161 fix1 ${provider}: outage grants and the configured contract survive recovery`, { timeout: 15_000 }, async t => {
+  const settings = {
+    AITHEMA_PROVIDER: provider, AITHEMA_VOICE_MODE: 'elevenlabs', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
+    AITHEMA_ELEVENLABS_TEMPLATE_AGENT_ID: 'template-agent',
+    AITHEMA_VOICE_HOST_MODULE: fileURLToPath(new URL('../../test/fixtures/voice-self-heal-host.js', import.meta.url)),
+    ELEVENLABS_API_KEY: 'fixture-key', AITHEMA_VOICE_FACADE_SECRET: 'fixture-bearer', OPENROUTER_API_KEY: 'fixture-key',
+    OPENROUTER_MODEL: 'openai/fixture', OPENROUTER_SPEECH_MODEL: 'openai/fixture',
+    AITHEMA_OPENROUTER_PRICES: JSON.stringify({ 'openai/fixture': { prompt: 1e-7, completion: 5e-7 } }),
+  };
+  const healthy = await startChild(new URL('../server.js', import.meta.url), await temporaryDb(), { ...settings, AITHEMA_TEST_VOICE_FAILURE: 'none' });
+  t.after(() => healthy.kill());
+  const expected = await fetch(healthy.url + '/demo/config').then(r => r.json());
+  assert.equal(expected.voiceMode, 'elevenlabs');
+  await healthy.kill();
+  const running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb(), { ...settings, AITHEMA_TEST_VOICE_FAILURE: '503' });
+  t.after(() => running.kill());
+  const before = await fetch(running.url + '/demo/config').then(r => r.json());
+  assert.equal(before.voiceMode, 'off');
+  assert.equal(before.processingConsent?.contract, expected.processingConsent.contract, 'configured contract is independent of availability');
+  assert.ok(before.processingConsent.items.some(item => item.id === 'voice-elevenlabs'), 'consent page lists configured voice during the outage');
+  const created = await post(running.url + '/api/sessions', {}), session = await created.json();
+  const headers = { cookie: created.headers.get('set-cookie').split(';')[0] };
+  const decision = { contract: before.processingConsent.contract, items: before.processingConsent.items.map(item => item.id) };
+  assert.equal((await post(running.url + `/api/sessions/${session.id}/consent`, { granted: true, processing: decision }, headers)).status, 200);
+  const sessionUrl = running.url + `/api/sessions/${session.id}`;
+  const granted = await fetch(sessionUrl, { headers }).then(r => r.json());
+  assert.equal(granted.featureMatrix.best.text.available, true);
+  assert.equal(granted.featureMatrix.best.voice.available, false);
+  const advanced = once(running.child, 'message'); running.child.send({ event: 'advance-voice-clock', ms: 30_000 }); await advanced;
+  const after = await fetch(running.url + '/demo/config').then(r => r.json());
+  assert.equal(after.voiceMode, 'elevenlabs');
+  assert.equal(after.processingConsent.contract, before.processingConsent.contract);
+  const recovered = await fetch(sessionUrl, { headers }).then(r => r.json());
+  assert.equal(recovered.consentRevision, granted.consentRevision, 'recovery does not revise consent');
+  assert.equal(recovered.featureMatrix.best.text.available, true, recovered.featureMatrix.best.text.reason);
+  assert.equal(recovered.featureMatrix.best.voice.available, true, recovered.featureMatrix.best.voice.reason);
+  assert.equal((await post(running.url + `/api/sessions/${session.id}/voice`, { callId: 'outage-grant-call', tabId: 'fixture-tab' }, headers)).status, 201);
+});
