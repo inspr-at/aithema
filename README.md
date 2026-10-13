@@ -2421,11 +2421,21 @@ commit together exactly once. DE/EN copy keys cover valid, confirmed,
 already-used, expired (with new-link instructions), invalid and too-many-attempts.
 There are five attempts per revision and a 60-second visitor resend cooldown.
 Three mail reservations per rolling 24 hours across visitors are keyed by an
-HMAC of the canonical delivery address (trimmed, IDN domain converted to ASCII
-and lowercased; local part preserved). The persistent random host secret is
-created once as `confirmation-hmac.key` beside the SQLite database, mode 0600;
-it is never logged or derived from public data. Failed or interrupted delivery
-consumes a slot conservatively. Accepted and address-suppressed HTTP requests
+HMAC of the fully lowercased canonical address (trimmed, IDN domain converted to
+ASCII; both local part and domain lowercased). Delivery preserves local-part
+case. Identity and token comparisons remain case-sensitive for the local part:
+a case edit requires fresh confirmation because some mail systems distinguish
+those recipients. Plus-tag aliases remain an accepted gap and have separate
+quotas. The persistent random host secret is created once as
+`confirmation-hmac.key` beside the SQLite database, mode 0600; creation writes
+and fsyncs a temporary file in that directory before atomically linking it into
+place. It is never logged or derived from public data. A malformed existing key
+refuses startup with instructions to restore the original key from backup;
+startup never silently regenerates it. Backups must include
+`confirmation-hmac.key` alongside the database. Restoring without this key resets
+the rolling 24-hour mail quota and invalidates existing CSRF form proofs.
+Failed or interrupted delivery consumes a slot conservatively.
+Accepted and address-suppressed HTTP requests
 return the same status, body and headers and show “Link gesendet …”. Delivery
 starts asynchronously after the response; SMTP duration, failure and shared
 address activity never change the visitor-visible state. Host-private audit

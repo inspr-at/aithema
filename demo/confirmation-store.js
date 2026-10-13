@@ -1,5 +1,5 @@
 import { createHash, createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import { constants, openSync, closeSync, writeFileSync, readFileSync, fstatSync, fsyncSync } from 'node:fs';
+import { constants, openSync, closeSync, writeFileSync, readFileSync, fstatSync, fsyncSync, linkSync, unlinkSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { IDENTITY_POLICY } from '@inspr/aithema-core';
 import { canonicalEmail } from './email-address.js';
@@ -18,19 +18,46 @@ function hostKey(db, previousKey) {
     return memoryKeys.get(db);
   }
   const path = join(dirname(file), 'confirmation-hmac.key');
-  let fd;
+  let fd, temporary;
   try {
     try {
-      fd = openSync(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-      writeFileSync(fd, previousKey ?? randomBytes(32)); fsyncSync(fd);
+      fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+      const candidatePath = `${path}.${randomUUID()}.tmp`;
+      fd = openSync(candidatePath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+      temporary = candidatePath;
+      const candidate = previousKey ?? randomBytes(32);
+      if (candidate.length !== 32) throw new Error('Invalid migrated host secret');
+      writeFileSync(fd, candidate); fsyncSync(fd);
       closeSync(fd); fd = undefined;
-    } catch (error) { if (error.code !== 'EEXIST') throw error; }
-    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
-    const info = fstatSync(fd), key = readFileSync(fd);
-    if (!info.isFile() || (info.mode & 0o777) !== 0o600 || key.length !== 32) throw new Error('Invalid host secret');
+      // Publish only complete, durable bytes. A competing creator wins without
+      // being overwritten; all hosts then read the same persistent secret.
+      try { linkSync(temporary, path); }
+      catch (error) { if (error.code !== 'EEXIST') throw error; }
+      unlinkSync(temporary); temporary = undefined;
+      fd = openSync(dirname(path), constants.O_RDONLY | constants.O_DIRECTORY);
+      fsyncSync(fd); closeSync(fd); fd = undefined;
+      fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    }
+    const info = fstatSync(fd);
+    if (!info.isFile()) throw new Error('Invalid host secret');
+    const invalidLength = () => Object.assign(new Error(
+      'Confirmation host secret unavailable: confirmation-hmac.key has an invalid length (expected 32 bytes). ' +
+      'Restore the original key from a backup; do not delete or regenerate it, which would reset mail quotas and invalidate CSRF proofs.'
+    ), { code: 'CONFIRMATION_KEY_LENGTH' });
+    if (info.size !== 32) throw invalidLength();
+    if ((info.mode & 0o777) !== 0o600) throw new Error('Invalid host secret');
+    const key = readFileSync(fd);
+    if (key.length !== 32) throw invalidLength();
     return key;
-  } catch { throw new Error('Confirmation host secret unavailable'); }
-  finally { if (fd !== undefined) closeSync(fd); }
+  } catch (error) {
+    if (error.code === 'CONFIRMATION_KEY_LENGTH') throw error;
+    throw new Error('Confirmation host secret unavailable');
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+    if (temporary !== undefined) { try { unlinkSync(temporary); } catch { /* A crash may leave an unpublished temporary file. */ } }
+  }
 }
 
 /** Private host SQLite state. A request id is an attempt selector, never proof.
@@ -42,10 +69,12 @@ export function createConfirmationStore({ storage, visitorCredits, now }) {
   // Created once beside the database, independently of credentials/public data.
   const key = hostKey(db, previousKey);
   const hmac = value => createHmac('sha256', key).update(value).digest('hex');
-  const addressKey = address => hmac(`address\0${address}`);
+  // Abuse accounting conservatively merges local-part case variants while
+  // delivery and identity evidence preserve the recipient's local-part case.
+  const addressKey = address => hmac(`address\0${canonicalEmail(address).toLowerCase()}`);
   // Read compatibility for legacy slots whose original recipient is no longer
-  // stored. Every new reservation uses only the canonical delivery address.
-  const legacyAddressKey = address => addressKey(address.trim().normalize('NFKC').toLowerCase());
+  // stored. Keep the original hash recipe for those legacy comparisons.
+  const legacyAddressKey = address => hmac(`address\0${address.trim().normalize('NFKC').toLowerCase()}`);
   const legacySlotKey = digest => hmac(`legacy-address\0${digest}`);
   atomic(() => {
     db.exec(`CREATE TABLE IF NOT EXISTS visitor_mail_abuse (address_key TEXT NOT NULL, created_at INTEGER NOT NULL);

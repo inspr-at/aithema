@@ -1,7 +1,7 @@
 import { domainToASCII } from 'node:url';
 
-/** One recipient representation for persistence, delivery and abuse accounting.
- * Preserve the local part; only the DNS domain is case-insensitive. */
+/** One recipient representation for persistence and delivery.
+ * Preserve the local part; abuse accounting separately folds its case. */
 export function canonicalEmail(value) {
   if (typeof value !== 'string' || /[\p{Cc}\p{Cf}]/u.test(value)) throw new TypeError('Invalid email address');
   const trimmed = value.trim();
