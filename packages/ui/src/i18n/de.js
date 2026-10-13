@@ -76,6 +76,8 @@ export const de = {
   voiceRecovered: 'Verbindung wiederhergestellt', voiceUserUnconfirmed: 'Letzte Aussage nicht bestätigt – bitte wiederholen',
   voiceReplyIncomplete: 'Letzte Antwort möglicherweise unvollständig', voiceRepeatReply: 'Antwort wiederholen',
   voiceResumeFirst: 'Erst fortsetzen', voiceLastReply: 'Letzte Antwort',
+  voiceReplayClose: 'Schließen',
+  voiceReplyUnavailable: 'Die vollständige Antwort ist noch nicht verfügbar.',
   voiceReplayTextOnly: 'Die Antwort kann hier nicht erneut vorgelesen werden. Hier ist der vollständige Text.',
   voiceClosureUncertain: 'Anruf beendet. Kosten werden noch abgeglichen.', voiceEnded: 'Anruf beendet.',
   voicePauseFailed: 'Die Pause wurde nicht bestätigt. Versuchen Sie es erneut.',

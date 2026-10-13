@@ -39,9 +39,10 @@ export class RecoveryNotices {
     text('.voice-notice--user', recovery?.userUnconfirmed ? c.voiceUserUnconfirmed : '');
     text('.voice-notice--reply span', recovery?.deliveryUncertain ? c.voiceReplyIncomplete : '');
     text('.voice-repeat', c.voiceRepeatReply);
-    this.button.hidden = !(recovery?.deliveryUncertain && recovery.playbackPositionUnknown && recovery.lastReplyText);
-    this.button.disabled = !available || Boolean(this.pending);
-    text('#voice-reply-title', c.voiceLastReply); text('.voice-reply-note', c.voiceReplayTextOnly); text('.voice-reply-close', c.close);
+    this.button.hidden = !(recovery?.deliveryUncertain && recovery.playbackPositionUnknown);
+    this.button.disabled = !available || Boolean(this.pending) || !recovery?.lastReplyText;
+    this.button.title = recovery?.lastReplyText ? c.voiceRepeatReply : c.voiceReplyUnavailable;
+    text('#voice-reply-title', c.voiceLastReply); text('.voice-reply-note', c.voiceReplayTextOnly); text('.voice-reply-close', c.voiceReplayClose);
     if (!available && this.dialog.open) this.dialog.close();
   }
   async repeat() {

@@ -86,7 +86,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
       const commandCancellation = new AbortController(), interruptionWaiters = new Set();
       const persistenceCancellation = new AbortController();
       const seen = new Set(), assistants = new Map(), stoppedInputs = new WeakSet();
-      let lastReply;
+      let lastReply, lastPlaybackTurnId;
       const identity = () => ({ callId: request.callId, providerSessionId: grant?.providerSessionId });
       const pauseControl = opts => {
         const pauseRequestId = crypto.randomUUID();
@@ -139,7 +139,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
             events.push(value.type === 'recovered' ? { ...value, recovery: {
               userUnconfirmed: checkpoint.userUnconfirmed, deliveryUncertain: checkpoint.deliveryUncertain,
               playbackPositionUnknown: checkpoint.deliveryUncertain && checkpoint.heardPrefix === null,
-              lastReplyText: lastReply?.text ?? null,
+              lastReplyText: lastReply && (!lastPlaybackTurnId || lastPlaybackTurnId === lastReply.turnId) ? lastReply.text : null,
             } } : value);
           }
         }).catch(() => {
@@ -243,6 +243,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
         const observeAssistant = eventId => {
           if (!active() || !Number.isSafeInteger(eventId) || eventId < 0) return;
           latestAssistantId = Math.max(latestAssistantId, eventId);
+          lastPlaybackTurnId = `${receipt.providerSessionId}:assistant:${latestAssistantId}`;
           if (playbackInterrupted && eventId > lastInterruptionId) {
             playbackInterrupted = false;
             conversation?.setVolume({ volume: outputVolume() });

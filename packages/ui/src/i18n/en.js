@@ -70,6 +70,8 @@ export const en = {
   voiceRecovered: 'Connection restored', voiceUserUnconfirmed: 'Last statement not confirmed – please repeat',
   voiceReplyIncomplete: 'Last reply may be incomplete', voiceRepeatReply: 'Repeat reply',
   voiceResumeFirst: 'Resume first', voiceLastReply: 'Last reply',
+  voiceReplayClose: 'Close',
+  voiceReplyUnavailable: 'The complete reply is not available yet.',
   voiceReplayTextOnly: 'The reply cannot be played again here. Here is the full text.',
   voiceClosureUncertain: 'Call ended. Costs are still being reconciled.', voiceEnded: 'Call ended.',
   voicePauseFailed: 'The pause change was not acknowledged. Try again.',

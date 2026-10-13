@@ -75,6 +75,15 @@ test('AIT-138 c: completed playback does not claim a cut reply', async t => {
   assert.equal((await f.recovered()).deliveryUncertain, false);
 });
 
+test('AIT-138 c: cut before the new final never substitutes the previous answer', async t => {
+  const f = await fixture(t); f.reply('Previous complete reply', 1); await flush();
+  f.sdk.starts[0].onModeChange({ mode: 'speaking' });
+  f.sdk.starts[0].onAgentChatResponsePart({ event_id: 2, type: 'start', text: '' });
+  const recovery = await f.recovered();
+  assert.equal(recovery.deliveryUncertain, true);
+  assert.equal(recovery.lastReplyText, null);
+});
+
 test('AIT-138 c: heard-prefix evidence survives recovery and is never an unknown position', async t => {
   const f = await fixture(t);
   f.sdk.starts[0].onModeChange({ mode: 'speaking' }); f.reply('Known prefix and remainder'); await flush();

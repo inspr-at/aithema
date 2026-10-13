@@ -57,6 +57,7 @@ for (const [locale, copy] of [['de', de], ['en', en]]) {
     assert.equal(dialog.open, true);
     assert.equal(dialog.querySelector('.voice-reply-text').textContent, 'Exact last reply.\nWith paragraphs.');
     assert.equal(dialog.querySelector('.voice-reply-note').textContent, copy.voiceReplayTextOnly);
+    assert.equal(dialog.querySelector('.voice-reply-close').textContent, copy.voiceReplayClose);
     await f.push({ type: 'final', role: 'user', turnId: 'next', text: 'Next' });
     assert.equal(dialog.open, false);
   });
@@ -77,6 +78,14 @@ test('AIT-138 c: evidenced heard prefix never offers unknown-position replay', a
   const f = await fixture(t, de);
   await f.recover({ deliveryUncertain: true, playbackPositionUnknown: false, lastReplyText: 'Known reply' });
   assert.equal(f.root.querySelector('.voice-repeat').hidden, true);
+});
+
+test('AIT-138 c: unknown playback without a complete reply keeps the button visibly disabled', async t => {
+  const f = await fixture(t, de);
+  await f.recover({ deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: null });
+  const button = f.root.querySelector('.voice-repeat');
+  assert.equal(button.hidden, false); assert.equal(button.disabled, true); assert.equal(button.title, de.voiceReplyUnavailable);
+  button.click(); await tick(); assert.deepEqual(f.replays, []);
 });
 
 for (const stop of ['pause', 'waiting', 'hangup', 'next-turn']) test(`AIT-138 c: a late repeat result stays fenced after ${stop}`, async t => {

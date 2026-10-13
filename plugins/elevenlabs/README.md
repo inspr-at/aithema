@@ -76,6 +76,9 @@ part's constraints.
 0 new admissions.** Existing live conversation duration is still metered under
 the admitted call; opening the text dialog does not pause or extend that call.
 No new provider API capability or live audio replay qualification is claimed.
+If a transport cuts a new reply before its complete final callback is available,
+the notice keeps its repeat button visibly disabled and explains why. It never
+substitutes the previous answer for that interrupted reply.
 
 ## Contract and controls
 
