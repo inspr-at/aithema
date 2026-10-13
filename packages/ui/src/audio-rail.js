@@ -245,6 +245,17 @@ export class AudioRail {
   }
   receiveState(state) {
     if (this.session) { this.session.receiveState?.(state); return; }
+    if (this.state === 'connecting' && this.waitingCall && state?.callId === this.waitingCall.callId &&
+      (state.epoch > this.waitingCall.epoch || state.controllingTabId && state.controllingTabId !== this.client?.tabId)) {
+      // The server may have resumed before its HTTP receipt arrives. Retire
+      // startup and stop SDK media synchronously; that receipt owns no new tab.
+      this.generation++; this.pauseRevision++; this.holdController?.abort('ownership-lost');
+      this.waitingCall = { callId: state.callId, providerSessionId: state.providerSessionId, epoch: state.epoch };
+      this.state = 'waiting'; this.paused = true; this.moved = true; this.requiresTakeover = false;
+      this.errorKey = 'voiceMoved'; this.busy = false; this.pauseCommand = null;
+      this.playbackWatcher?.destroy(); this.notices.clear(); this.quiet(); this.onPause?.(true); this.render();
+      return;
+    }
     if (!state?.providerSessionId || state.state === 'ended' || this.state === 'connecting') return;
     if (state.controllingTabId && state.controllingTabId !== this.client?.tabId || state.state === 'waiting') {
       this.waitingCall = { callId: state.callId, providerSessionId: state.providerSessionId, epoch: state.epoch };

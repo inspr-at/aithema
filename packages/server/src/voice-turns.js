@@ -84,7 +84,7 @@ export function createVoiceTurnOperations({ storage, now = Date.now, replayWindo
     flight.job.catch(() => {});
     return flight;
   }
-  function stream(flight, signal, assertCurrent) {
+  function stream(flight, signal, assertCurrent, ownsEpoch) {
     const encoder = new TextEncoder();
     let offset = 0, role = false, ended = false, cancelled = false, waiting;
     const cancel = () => { ended = true; waiting?.(); };
@@ -94,7 +94,7 @@ export function createVoiceTurnOperations({ storage, now = Date.now, replayWindo
     return new Response(new ReadableStream({
       async pull(controller) {
         for (;;) {
-          if (ended) { detach(); if (!cancelled) controller.close(); return; }
+          if (ended || !ownsEpoch()) { ended = true; detach(); if (!cancelled) controller.close(); return; }
           try { assertCurrent(); } catch (error) {
             ended = true; detach(); controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: codeFor(error) })}\n\n`)); controller.close(); return;
           }
@@ -127,7 +127,7 @@ export function createVoiceTurnOperations({ storage, now = Date.now, replayWindo
       const current = store.get(operation.key);
       if (current.fence !== operation.fence) throw new PluginError('not-admitted', 'voice-turn-fenced');
       return store.assertCurrent(current);
-    });
+    }, () => store.ownsEpoch(operation));
     await voiceOperation(options, () => flight.done);
     if (flight.error) return Response.json({ error: flight.error }, { status: statusFor(flight.error) });
     return Response.json(store.readReply(store.get(operation.key), now()), { headers: { 'cache-control': 'no-store' } });
@@ -139,7 +139,7 @@ export function createVoiceTurnOperations({ storage, now = Date.now, replayWindo
         const reply = store.readReply(operation, now());
         if (context.stream !== true) return Response.json(reply, { headers: { 'cache-control': 'no-store' } });
         return stream({ id: reply.id, created: reply.created, content: reply.choices[0].message.content, finished: true, waiters: new Set() },
-          options.signal, () => store.assertCurrent(store.get(operation.key)));
+          options.signal, () => store.assertCurrent(store.get(operation.key)), () => store.ownsEpoch(operation));
       }
       let flight = flights.get(operation.key);
       if (flight?.operation.fence === operation.fence) return respond(operation, flight, context, options);
@@ -159,6 +159,12 @@ export function createVoiceTurnOperations({ storage, now = Date.now, replayWindo
       }
       flight = start(operation, execute);
       return respond(operation, flight, context, options);
+    },
+    retireEpoch(sessionId, callId) {
+      // Wake subscribers so retirement closes their pending reads immediately.
+      // The worker and its paid claim retain their independent lifetime.
+      for (const flight of flights.values()) if (flight.operation.sessionId === sessionId && flight.operation.callId === callId &&
+        !store.ownsEpoch(flight.operation)) wake(flight);
     },
     recover() {
       for (const operation of store.list()) if (operation.state === 'pending' && !flights.has(operation.key))

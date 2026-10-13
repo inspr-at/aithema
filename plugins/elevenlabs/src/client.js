@@ -501,6 +501,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
       const visible = () => { if (!document.hidden) wake(); };
       const retainHold = () => {
         if (ended) return;
+        if (options.holdSignal?.reason === 'ownership-lost') { lifecycle.ownershipLost(); return; }
         paused = true; pauseRevision++; lifecycle.pause('hide');
         capture?.setEnabled(false);
         if (conversation) void capture.run(() => channels()).catch(() => {});
@@ -535,6 +536,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
             ? await control.recover({ callId: request.callId, providerSessionId: request.providerSessionId,
               ...(request.epoch !== undefined ? { epoch: request.epoch } : {}), explicit: true }, opts) : await control.start(request, opts);
           await connect(receipt, opts); lifecycle.connected(receipt);
+          if (lifecycle.state.holds.includes('ownership-lost')) throw Object.assign(new PluginError('not-admitted'), { code: 'voice-ownership-lost' });
           if (request.providerSessionId && !options.holdSignal?.aborted) {
             const ack = await resumeControl(opts);
             if (ended || opts.signal.aborted) throw new PluginError('cancelled');

@@ -23,6 +23,12 @@ export function createVoiceOperationStore(storage) {
     .run(JSON.stringify(operation), operation.key);
   const generationOperations = context => list(context.sessionId).filter(operation =>
     operation.callId === context.callId && operation.providerSessionId === context.providerSessionId);
+  const ownsEpoch = operation => {
+    const logical = storage.voiceLifecycle(operation.sessionId, operation.callId);
+    return logical ? logical.epoch === operation.epoch && logical.controllingTabId === operation.controllingTabId : operation.epoch === undefined;
+  };
+  // Epoch retirement fences admissions and readers, never paid completion.
+  const assertEpoch = operation => { if (!ownsEpoch(operation)) refused('voice-turn-revoked'); };
 
   function assertCurrent(operation) {
     // Consent/erasure still revoke access. Transcript events and newer operations
@@ -51,12 +57,15 @@ export function createVoiceOperationStore(storage) {
       const key = hash([context.sessionId, context.callId, context.providerSessionId, ordinal, historyDigest]);
       const existing = get(key);
       if (existing) {
+        assertEpoch(existing);
         assertCurrent(existing);
         if (existing.state === 'pending') beforeAdmission(existing.key, existing.fence);
         return { operation: existing, claimed: false };
       }
       const id = randomUUID();
+      const logical = storage.voiceLifecycle(context.sessionId, context.callId);
       const operation = { key, sessionId: context.sessionId, callId: context.callId, providerSessionId: context.providerSessionId,
+        ...(logical ? { epoch: logical.epoch, controllingTabId: logical.controllingTabId } : {}),
         ordinal, historyDigest,
         // A previously unseen regressed body may be truncated. It starts its own
         // operation; only a known, unadmitted key can be refused as obsolete.
@@ -76,6 +85,7 @@ export function createVoiceOperationStore(storage) {
   }
   function beforeAdmission(key, fence) {
     const operation = pending(key, fence);
+    assertEpoch(operation);
     if (!operation.attempts.at(-1).attemptId && operation.orderingKnown &&
       generationOperations(operation).some(other => paid(other) && other.ordinal > operation.ordinal)) refused('voice-turn-obsolete');
     return operation;
@@ -100,6 +110,7 @@ export function createVoiceOperationStore(storage) {
   function replace(key, fence, now) {
     return storage.transaction(() => {
       const operation = get(key);
+      assertEpoch(operation);
       assertCurrent(operation);
       if (operation.fence !== fence || operation.state !== 'failed') return { operation, claimed: false };
       if (operation.attempts.length >= 8) refused('voice-turn-limit');
@@ -118,11 +129,12 @@ export function createVoiceOperationStore(storage) {
     });
   }
   function readReply(operation, now) {
+    assertEpoch(operation);
     assertCurrent(operation);
     if (now >= operation.replayUntil) refused('voice-turn-replay-expired');
     const record = storage.getRecord(operation.sessionId, operation.replyRef);
     if (record.erased) refused('voice-turn-revoked');
     return record.data;
   }
-  return { get, list, claim, pending, beforeAdmission, admitted, fail, replace, complete, readReply, assertCurrent };
+  return { get, list, claim, pending, beforeAdmission, admitted, fail, replace, complete, readReply, assertCurrent, ownsEpoch };
 }

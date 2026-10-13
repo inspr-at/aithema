@@ -643,6 +643,12 @@ to `""`. No synthetic resume utterance is sent. Each replacement is a new
 provider generation and callback key space: an input repeated there can admit
 another operation and incur another charge. Recovery never aliases receipts or
 old operations across generations, nor marks admitted work obsolete.
+Tab takeover fences a restored startup before a late Resume receipt can enable
+media. The controlling epoch and authorization are checked after reasoning
+admission and again before dispatch, including after awaited consent checks.
+An undispatched reservation from a retired epoch is released without a model
+call. Dispatched paid work still completes and settles exactly once; retired
+readers receive no further frames.
 
 The owned `aithema-start2` agent sets
 `conversation_config.turn.silence_end_call_timeout` to **120 seconds**, with

@@ -120,9 +120,12 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     }, reconcileIntervalMs);
     reconcileTimer.unref?.();
   }
-  const sessionFor = entry => {
+  const controlsEpoch = entry => {
     const logical = storage.voiceLifecycle(entry.sessionId, entry.callId);
-    if (logical?.epoch !== entry.epoch || logical?.controllingTabId !== entry.tabId) throw new ConflictError('Voice ownership lost');
+    return logical?.epoch === entry.epoch && logical?.controllingTabId === entry.tabId;
+  };
+  const sessionFor = entry => {
+    if (!controlsEpoch(entry)) throw new ConflictError('Voice ownership lost');
     const session = storage.authorize(entry.sessionId, entry.ownerToken);
     if ((session.conversationConsentRevision ?? session.consentRevision) !== entry.conversationConsentRevision ||
       session.withdrawalRevision !== entry.withdrawalRevision) throw new PluginError('not-admitted', 'Call context revoked');
@@ -268,7 +271,8 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         : calls.get(facadeRoute.exec(new URL(request.url).pathname)?.[1]);
       if (!entry?.call || entry.closing || sessions.get(entry.sessionId) !== entry) return null;
       try { sessionFor(entry); } catch { throw new PluginError('not-admitted', 'Call ownership or context revoked'); }
-      return { ...entry.call.snapshot(), facadeSecretRef: entry.facadeSecretRef, facadeCallId: entry.facadeCallId, signal: entry.authority.signal };
+      return { ...entry.call.snapshot(), facadeSecretRef: entry.facadeSecretRef, facadeCallId: entry.facadeCallId,
+        signal: entry.authority.signal, readerCurrent: () => controlsEpoch(entry) };
     },
     buildRequest({ callId, messages }) {
       const entry = calls.get(callId);
@@ -285,12 +289,27 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           session = sessionFor(entry);
           const request = buildVoiceRequest(session, messages, entry.call);
           beforeAdmission?.();
-          return { ...await runtime.admit({ session, lane: 'reaction', operation: 'stream', request,
-            options: { ...options, voiceReply: true } }), request };
+          const beforeDispatch = () => {
+            try {
+              const fresh = sessionFor(entry);
+              return !fresh.paused && voiceAuthorizationRevision(fresh) === voiceAuthorizationRevision(session);
+            } catch { return false; }
+          };
+          const admission = await runtime.admit({ session, lane: 'reaction', operation: 'stream', request,
+            options: { ...options, voiceReply: true, beforeDispatch } });
+          // A reservation is still undispatched. Takeover during admission must
+          // release it, while a dispatched claim retains its original lifetime.
+          if (!beforeDispatch()) {
+            await admission.finish({ failed: true });
+            throw new PluginError('not-admitted', 'Call ownership or context revoked');
+          }
+          return { ...admission, request };
         } catch (error) {
           // sessionFor strictly fences ownership, consent and withdrawal before
           // considering a retry. Only append-only finals are benign at dispatch.
-          const fresh = sessionFor(entry);
+          let fresh;
+          try { fresh = sessionFor(entry); }
+          catch { throw new PluginError('not-admitted', 'Call ownership or context revoked'); }
           if (retry || !(error instanceof PluginError) || error.code !== 'not-admitted' ||
             !['Session changed', 'Session changed during admission'].includes(error.message) ||
             inputRevision(fresh) === inputRevision(session) || fresh.paused || fresh.locale !== session.locale ||
@@ -387,6 +406,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           if (body.explicit !== true || !body.tabId || !Number.isSafeInteger(body.epoch)) throw new TypeError('Explicit tab takeover required');
           if (!logical || logical.state === 'ended') throw new PluginError('not-admitted', 'Logical call ended');
           logical = storage.takeOverVoiceCall(sessionId, callId, body);
+          turns.retireEpoch(sessionId, callId);
           const entry = calls.get(callId);
           // The epoch commits before revoking the old transport. In-flight old
           // commands recheck it after every authorization await.
