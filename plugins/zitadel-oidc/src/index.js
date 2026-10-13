@@ -6,8 +6,10 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 const value = raw => typeof raw === 'string' ? raw.trim() : '';
 function origin(raw, issuer = false) {
   const u = new URL(raw);
+  // A single issuer trailing slash is safe; paths, query and fragments are not.
+  const canonical = issuer && raw === u.origin + '/' ? u.origin : raw;
   if (u.username || u.password || u.search || u.hash || u.pathname !== '/' ||
-      u.origin !== raw || u.protocol !== 'https:' && !(u.protocol === 'http:' &&
+      u.origin !== canonical || u.protocol !== 'https:' && !(u.protocol === 'http:' &&
         ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname))) throw new TypeError(`Invalid operator ${issuer ? 'issuer' : 'origin'}`);
   return u.origin;
 }
@@ -22,11 +24,12 @@ export function zitadelOperatorConfig(values = process.env) {
 }
 export function createZitadelOIDC({ config, now = Date.now } = {}) {
   if (!config) return null;
-  const { issuer, clientId, redirectUri, subjects } = config;
+  const { clientId, redirectUri, subjects } = config;
   // Revalidate explicit host configuration, including the exact callback URI.
-  const normalized = zitadelOperatorConfig({ AITHEMA_OPERATOR_ISSUER: issuer, AITHEMA_OPERATOR_CLIENT_ID: clientId,
+  const normalized = zitadelOperatorConfig({ AITHEMA_OPERATOR_ISSUER: config.issuer, AITHEMA_OPERATOR_CLIENT_ID: clientId,
     AITHEMA_OPERATOR_SUBJECT: subjects?.join(','), AITHEMA_PUBLIC_ORIGIN: config.publicOrigin });
   if (!normalized || normalized.redirectUri !== redirectUri) throw new TypeError('Invalid operator callback');
+  const issuer = normalized.issuer;
   const allowed = new Set(subjects);
   const keys = createRemoteJWKSet(new URL('/oauth/v2/keys', issuer), {
     cacheMaxAge: 600_000, cooldownDuration: 30_000, timeoutDuration: 5_000,
@@ -62,7 +65,7 @@ export function createZitadelOIDC({ config, now = Date.now } = {}) {
       const token = JSON.parse(Buffer.concat(chunks).toString('utf8'));
       if (typeof token.id_token !== 'string' || token.id_token.length > 16_384) throw new Error('operator-id-token-missing');
       const { payload } = await jwtVerify(token.id_token, keys, { issuer, audience: clientId, algorithms: ['RS256'],
-        requiredClaims: ['iss', 'aud', 'exp', 'iat', 'sub', 'nonce'], maxTokenAge: 600, currentDate: new Date(now()) });
+        requiredClaims: ['iss', 'aud', 'exp', 'iat', 'sub', 'nonce'], maxTokenAge: 600, clockTolerance: 30, currentDate: new Date(now()) });
       if (typeof payload.sub !== 'string' || !allowed.has(payload.sub) || payload.nonce !== pending.nonce ||
           payload.azp !== undefined && payload.azp !== clientId ||
           Array.isArray(payload.aud) && payload.aud.length > 1 && payload.azp !== clientId) throw new Error('operator-not-authorized');

@@ -28,7 +28,7 @@ test('AIT-165 expires and deletes browser-bound state after ten minutes, before 
   const f = await fixture(t), p = await f.login(); f.advance(600_000);
   const response = await f.port.handle(f.req(p.callback.pathname + p.callback.search, p.cookie));
   assert.equal(response.headers.get('location'), '/?operator=denied#settings-general');
-  assert.equal(f.issuer.exchanges.length, 0); assert.equal(f.storage.db.prepare('SELECT COUNT(*) AS count FROM operator_pending').get().count, 0);
+  assert.equal(f.issuer.exchanges.length, 0); assert.equal(f.storage.db.prepare('SELECT COUNT(*) AS count FROM operator_used_states').get().count, 0);
 });
 
 test('AIT-165 grant survives a new port, is revoked by logout, expires after eight hours and changes with host authority', async t => {
@@ -56,7 +56,7 @@ test('AIT-165 method/path guards precede any state creation or request body pars
   for (const path of ['/api/operator/login/extra', '/api/operator/not-found', '/api/sessions', '/privacy', '/api/voice/llm/chat/completions']) {
     assert.equal(await f.port.handle(f.req(path)), null);
   }
-  assert.equal(f.storage.db.prepare('SELECT COUNT(*) AS count FROM operator_pending').get().count, 0);
+  assert.equal(f.storage.db.prepare('SELECT COUNT(*) AS count FROM operator_used_states').get().count, 0);
 });
 
 test('AIT-165 fresh login supersedes the previous browser proof, and errors/duplicate params consume it', async t => {
@@ -113,6 +113,7 @@ test('AIT-165 5,000 unauthenticated login starts cannot lock out an operator', a
     const response = await f.port.handle(f.req('/api/operator/login/'));
     assert.equal(new URL(response.headers.get('location'), f.config.publicOrigin).origin, f.issuer.issuer, `login start ${i + 1}`);
   }
+  assert.equal(f.storage.db.prepare('SELECT COUNT(*) AS count FROM operator_used_states').get().count, 0, 'login starts allocate no replay rows');
   const p = await f.login(), response = await f.port.handle(f.req(p.callback.pathname + p.callback.search, p.cookie));
   assert.equal(response.headers.get('location'), '/#settings-general');
   assert.equal(f.issuer.exchanges.length, 1);
@@ -121,19 +122,39 @@ test('AIT-165 5,000 unauthenticated login starts cannot lock out an operator', a
 
 test('AIT-165 sealed state refuses tampering, duplicates and replay before exchange', async t => {
   const f = await fixture(t), p = await f.login(), value = p.cookie.split('=')[1];
-  const tampered = p.cookie.slice(0, p.cookie.indexOf('=') + 1) + (value[0] === 'A' ? 'B' : 'A') + value.slice(1);
+  const at = 50, tampered = p.cookie.slice(0, p.cookie.indexOf('=') + 1) + value.slice(0, at) +
+    (value[at] === 'A' ? 'B' : 'A') + value.slice(at + 1);
   for (const cookie of [tampered, `${p.cookie}; ${p.cookie}`]) {
     const response = await f.port.handle(f.req(p.callback.pathname + p.callback.search, cookie));
     assert.equal(response.headers.get('location'), '/?operator=denied#settings-general');
     assert.match(response.headers.getSetCookie()[0], /Max-Age=0/u);
   }
   assert.equal(f.issuer.exchanges.length, 0);
+  assert.equal(f.storage.db.prepare('SELECT COUNT(*) AS count FROM operator_used_states').get().count, 0, 'invalid cookies allocate no replay rows');
   const results = await Promise.all([0, 1].map(() => f.port.handle(f.req(p.callback.pathname + p.callback.search, p.cookie))));
   assert.equal(results.filter(r => r.headers.get('location') === '/#settings-general').length, 1);
   assert.equal(f.issuer.exchanges.length, 1);
+  const rows = JSON.stringify(f.storage.db.prepare('SELECT * FROM operator_used_states').all());
+  assert.equal(rows.includes(value), false, 'only consumed cookie hashes are retained');
   const restarted = createOperatorSessions({ provider: f.provider, store: createSQLiteOperatorStore(f.storage.db), publicOrigin: f.config.publicOrigin });
   assert.equal((await restarted.handle(f.req(p.callback.pathname + p.callback.search, p.cookie))).headers.get('location'), '/?operator=denied#settings-general');
   assert.equal(f.issuer.exchanges.length, 1);
+});
+
+test('AIT-165 sealed state is bound to the public callback and provider authority', async t => {
+  const f = await fixture(t), p = await f.login();
+  for (const [provider, publicOrigin] of [
+    [f.provider, 'https://other-host.test'],
+    [createZitadelOIDC({ config: { ...f.config, clientId: 'other-client' } }), f.config.publicOrigin],
+  ]) {
+    const changed = createOperatorSessions({ provider, store: f.store, publicOrigin });
+    assert.equal((await changed.handle(f.req(p.callback.pathname + p.callback.search, p.cookie))).headers.get('location'), '/?operator=denied#settings-general');
+  }
+  assert.equal(f.issuer.exchanges.length, 0);
+  assert.equal((await f.port.handle(f.req(p.callback.pathname + p.callback.search, p.cookie))).headers.get('location'), '/#settings-general');
+  f.advance(600_000);
+  await f.port.handle(f.req('/api/operator/login/'));
+  assert.equal(f.storage.db.prepare('SELECT COUNT(*) AS count FROM operator_used_states').get().count, 0, 'consumed hashes are swept after the state TTL');
 });
 
 test('AIT-165 state uses a persistent 0600 host key and contains no plaintext pending proof', async t => {

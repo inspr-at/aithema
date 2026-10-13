@@ -54,9 +54,15 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const defaultDb = resolve(root, '.data/session.sqlite');
 if (!process.env.AITHEMA_DB) await mkdir(resolve(root, '.data'), { recursive: true });
 const storage = new SQLiteStorage(process.env.AITHEMA_DB ?? defaultDb);
-const operatorConfig = zitadelOperatorConfig();
-const operatorSessions = createOperatorSessions({ provider: createZitadelOIDC({ config: operatorConfig }),
-  ...(operatorConfig ? { store: createSQLiteOperatorStore(storage.db), publicOrigin: deployment.publicOrigin } : {}) });
+let operatorSessions = null;
+try {
+  const operatorConfig = zitadelOperatorConfig();
+  operatorSessions = createOperatorSessions({ provider: createZitadelOIDC({ config: operatorConfig }),
+    ...(operatorConfig ? { store: createSQLiteOperatorStore(storage.db), publicOrigin: deployment.publicOrigin } : {}) });
+} catch {
+  // One value-free startup warning; visitor functionality stays available.
+  console.warn('Operator sign-in disabled: invalid configuration or unavailable host state.');
+}
 const voiceCap = createVoiceCap({ storage, ...voiceCaps });
 // Private references resolve from the environment at dispatch, never into public config.
 const privateBinding = openrouter?.reaction ?? { plugin: provider, model: provider === 'mistral' ? (process.env.MISTRAL_MODEL ?? 'mistral-small-latest')

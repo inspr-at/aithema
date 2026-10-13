@@ -2860,15 +2860,26 @@ OPS deployment steps (configuration names only):
    `AITHEMA_OPERATOR_CLIENT_ID` (the registered public client's ID).
 4. Set `AITHEMA_OPERATOR_SUBJECT` to the comma-separated allowed operator
    subject IDs. Subject IDs are exact and case-sensitive; email is not authority.
+   The plural `AITHEMA_OPERATOR_SUBJECTS` is ignored.
 5. Restart the host. Missing/blank issuer, client ID, allowed subjects or public
-   origin disables the entry and routes. This change does not configure Zitadel
-   or deploy any credentials.
+   origin disables the entry and routes. A single issuer trailing slash is
+   normalized; other malformed config logs one value-free warning and leaves
+   operator sign-in off while visitors can still use the host. This change does
+   not configure Zitadel or deploy any credentials.
 
 `GET /api/operator/login/` starts the flow and `GET /api/operator/callback/`
 consumes the browser-bound ten-minute state exactly once before exchanging a code.
+State, nonce, PKCE verifier and expiry live only in an AES-256-GCM sealed,
+HttpOnly/Secure/SameSite=Lax cookie bound to the host callback and provider
+namespace. `operator-state.key` is created once beside the database, mode 0600,
+with atomic publication; back it up with the database. Login starts allocate no
+pending rows or shared quota. SQLite stores only consumed cookie hashes until
+expiry to refuse captured-cookie and concurrent replays, including failed callbacks.
 The plugin verifies RS256 against cached JWKS and checks issuer, audience, expiry,
-issued-at, subject, nonce and authorized party. Grants live eight hours in separate
-SQLite tables; cookies contain random opaque handles (stored as hashes), with
+issued-at, subject, nonce and authorized party, with 30 seconds of clock tolerance.
+Unknown signing keys cannot trigger JWKS refetches within the 30-second cooldown.
+Grants live eight hours in a separate SQLite table; grant cookies contain random
+opaque handles (stored as hashes), with
 HttpOnly, Secure, SameSite=Lax and no Domain attribute. A native same-origin
 `POST /api/operator/logout/` revokes the grant; other origins and missing Origin
 are refused. Issuer/client/allowlist changes invalidate existing grants. Provider

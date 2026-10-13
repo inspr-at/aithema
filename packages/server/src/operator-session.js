@@ -1,46 +1,47 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { assertOperatorSessionPort } from '@inspr/aithema-core';
+import { createOperatorStateSeal, OPERATOR_STATE_MS } from './operator-state.js';
 
 export const OPERATOR_COOKIE = 'aithema-operator';
 export const OPERATOR_STATE_COOKIE = 'aithema-operator-state';
-const STATE_MS = 600_000, GRANT_MS = 8 * 60 * 60_000;
+const GRANT_MS = 8 * 60 * 60_000;
 const identifier = value => typeof value === 'string' && /^[A-Za-z0-9_-]{43}$/u.test(value);
 const digest = id => createHash('sha256').update(id).digest('hex');
 const random = () => randomBytes(32).toString('base64url');
 function cookie(request, name) {
   const matches = (request.headers.get('cookie') ?? '').split(';').map(s => s.trim()).filter(s => s.startsWith(name + '='));
   const id = matches.length === 1 ? matches[0].slice(name.length + 1) : null;
-  return identifier(id) ? id : null;
+  return name === OPERATOR_STATE_COOKIE ? id : identifier(id) ? id : null;
 }
 const cookieHeader = (name, id, maxAge) => `${name}=${id}; Path=${name === OPERATOR_STATE_COOKIE ? '/api/operator' : '/'}; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
 const redirect = location => new Response(null, { status: 303, headers: { location,
   'cache-control': 'no-store', 'referrer-policy': 'no-referrer' } });
 const refused = (status, allow) => new Response(null, { status, headers: { 'cache-control': 'no-store', ...(allow ? { allow } : {}) } });
 
-/** Pending proofs and opaque grants stay in the host database, outside sessions,
- * replay and export. Atomic DELETE RETURNING consumes state before network I/O.
- * Only hashes of random browser handles are stored; no provider tokens persist.
+/** Pending proofs live only in sealed browser cookies. SQLite retains consumed
+ * hashes until expiry for captured-cookie/concurrent replay refusal. Login starts
+ * allocate no rows or global quota. Grants remain revocable, hashed and private.
  */
 export function createSQLiteOperatorStore(db) {
-  db.exec(`CREATE TABLE IF NOT EXISTS operator_pending (
-    id_hash TEXT PRIMARY KEY, namespace TEXT NOT NULL, pending TEXT NOT NULL, expires_at INTEGER NOT NULL);
+  const state = createOperatorStateSeal(db);
+  db.exec(`DROP TABLE IF EXISTS operator_pending;
+    CREATE TABLE IF NOT EXISTS operator_used_states (id_hash TEXT PRIMARY KEY, expires_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS operator_grants (
     id_hash TEXT PRIMARY KEY, namespace TEXT NOT NULL, subject TEXT NOT NULL, name TEXT NOT NULL, expires_at INTEGER NOT NULL);
-    CREATE INDEX IF NOT EXISTS operator_pending_expiry ON operator_pending(expires_at);
+    CREATE INDEX IF NOT EXISTS operator_used_state_expiry ON operator_used_states(expires_at);
     CREATE INDEX IF NOT EXISTS operator_grant_expiry ON operator_grants(expires_at);`);
   return {
     sweep(now) {
-      db.prepare('DELETE FROM operator_pending WHERE expires_at<=?').run(now);
+      db.prepare('DELETE FROM operator_used_states WHERE expires_at<=?').run(now);
       db.prepare('DELETE FROM operator_grants WHERE expires_at<=?').run(now);
     },
-    putPending(id, namespace, pending, expiresAt) {
-      if (db.prepare('SELECT COUNT(*) AS count FROM operator_pending').get().count >= 1000) throw new Error('operator-pending-limit');
-      db.prepare('INSERT INTO operator_pending VALUES (?,?,?,?)').run(digest(id), namespace, JSON.stringify(pending), expiresAt);
-    },
-    takePending(id, namespace, now) {
-      if (!identifier(id)) return null;
-      const row = db.prepare('DELETE FROM operator_pending WHERE id_hash=? RETURNING *').get(digest(id));
-      return row && row.namespace === namespace && row.expires_at > now ? JSON.parse(row.pending) : null;
+    sealState: state.seal,
+    takeState(token, binding, now) {
+      const pending = state.open(token, binding, now);
+      if (!pending) return null;
+      // Atomic insertion before any token exchange also covers failed callbacks.
+      const used = db.prepare('INSERT OR IGNORE INTO operator_used_states VALUES (?,?)').run(digest(token), pending.expiresAt);
+      return used.changes === 1 ? pending : null;
     },
     grant(id, namespace, now) {
       if (!identifier(id)) return null;
@@ -62,6 +63,7 @@ export function createOperatorSessions({ provider, store, publicOrigin, now = Da
   if (u.origin !== publicOrigin || u.username || u.password || u.protocol !== 'https:' &&
       !(u.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(u.hostname))) throw new TypeError('Invalid operator public origin');
   const namespace = provider.sessionNamespace;
+  const stateBinding = JSON.stringify([namespace, publicOrigin + '/api/operator/callback/']);
   const live = request => {
     const grant = store.grant(cookie(request, OPERATOR_COOKIE), namespace, now());
     return grant && provider.allows(grant.subject) ? { name: grant.name } : null;
@@ -77,7 +79,7 @@ export function createOperatorSessions({ provider, store, publicOrigin, now = Da
       if (action === 'logout') {
         if (request.headers.get('origin') !== publicOrigin || request.headers.get('sec-fetch-site') === 'cross-site') return refused(403);
         store.revoke(cookie(request, OPERATOR_COOKIE));
-        store.takePending(cookie(request, OPERATOR_STATE_COOKIE), namespace, now());
+        store.takeState(cookie(request, OPERATOR_STATE_COOKIE), stateBinding, now());
         const response = redirect('/#settings-general');
         response.headers.append('set-cookie', cookieHeader(OPERATOR_COOKIE, '', 0));
         response.headers.append('set-cookie', cookieHeader(OPERATOR_STATE_COOKIE, '', 0));
@@ -86,15 +88,15 @@ export function createOperatorSessions({ provider, store, publicOrigin, now = Da
       store.sweep(now());
       if (action === 'login') {
         try {
-          store.takePending(cookie(request, OPERATOR_STATE_COOKIE), namespace, now());
-          const { pending, url } = provider.begin(), id = random();
-          store.putPending(id, namespace, pending, now() + STATE_MS);
+          store.takeState(cookie(request, OPERATOR_STATE_COOKIE), stateBinding, now());
+          const { pending, url } = provider.begin();
+          const sealed = store.sealState(pending, stateBinding, now() + OPERATOR_STATE_MS);
           const response = redirect(url);
-          response.headers.append('set-cookie', cookieHeader(OPERATOR_STATE_COOKIE, id, STATE_MS / 1000));
+          response.headers.append('set-cookie', cookieHeader(OPERATOR_STATE_COOKIE, sealed, OPERATOR_STATE_MS / 1000));
           return response;
         } catch { return redirect('/?operator=denied#settings-general'); }
       }
-      const pending = store.takePending(cookie(request, OPERATOR_STATE_COOKIE), namespace, now());
+      const pending = store.takeState(cookie(request, OPERATOR_STATE_COOKIE), stateBinding, now());
       const params = new URL(request.url).searchParams, code = params.get('code');
       const fail = () => {
         const response = redirect('/?operator=denied#settings-general');
