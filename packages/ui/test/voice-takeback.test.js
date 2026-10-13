@@ -147,6 +147,18 @@ for (const transport of ['webrtc', 'websocket']) {
     assert.ok(f.a.sdk.acquired.every(stream => stream.getTracks().every(track => track.readyState === 'ended')));
   });
 
+  test(`AIT-138 d takeback: ${transport} delayed voice.state does not spend the takeover request deadline`, { timeout: 10_000 }, async t => {
+    const f = tabsFixture(t, transport); await f.a.rail.start();
+    const retired = f.a.returned.at(-1); f.a.deferNotifications = true;
+    await f.b.rail.start(); await f.b.rail.start(); await retired.heartbeat(); await flush();
+    t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+    const before = f.snapshot(); f.a.rail.button('pause').click(); await flush();
+    t.mock.timers.tick(11_000);
+    f.a.deliverNotifications(); await flush();
+    assert.equal(f.snapshot().epoch, before.epoch + 1, 'the original click retains a fresh takeover deadline after notification delay');
+    assert.equal(f.snapshot().controllingTabId, 'A'); assert.equal(f.a.root.dataset.state, 'listening'); f.held(f.b);
+  });
+
   test(`AIT-138 d takeback: ${transport} one old-tab click takes over and resumes without double confirmation`, { timeout: 10_000 }, async t => {
     const f = tabsFixture(t, transport); await f.newcomer();
     const before = f.snapshot(), commands = f.commands.length;
