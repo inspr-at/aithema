@@ -230,7 +230,7 @@ export class AithemaSession extends HTMLElement {
 </header>
         <div class="intro" hidden><div class="intro__prompt"><div class="intro__orb"></div><div class="intro__promise"><slot name="promise"><h2 class="promise"></h2><p class="promise__lead"></p></slot></div></div>
           <div class="intro__card"></div></div>
-        <div class="concept-bar"><div class="concept-rail"></div><div class="concept-preview-slot"></div></div>
+        <div class="concept-bar"><div class="concept-rail"></div><div class="concept-preview-slot"></div><div class="voice-notices"></div></div>
         <div class="transcript-shell"><ol aria-live="polite"></ol><button class="transcript-latest" type="button" data-copy="transcriptLatest" style="visibility:hidden"></button></div>
         <div class="composer-dock">${questionCardMarkup}<div class="composer-shell"><form class="composer"><label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000" rows="2"></textarea>
           <div class="composer-actions"><button class="attach" type="button" aria-describedby="attach-limits ai-notice">${UPLOAD_ICONS.attach}<span class="attach__label"></span></button>
@@ -335,6 +335,7 @@ export class AithemaSession extends HTMLElement {
       } catch { this.#status(this.#copy.reasoningFailed); }
     });
     this.#rail = new AudioRail({ root: root.querySelector('.audio-rail'), copy: this.#copy, client: this.#voiceClientFor(),
+      noticesRoot: root.querySelector('.voice-notices'),
       waitingCall: this.#session.voiceLifecycle,
       feature: () => this.#feature('voice', true), usedUp: () => this.#host?.usedUp ?? false, ending: () => this.#creditEnding, playback: this.#voicePlayback, journal: this.#journal ?? undefined,
       ready: () => this.#orphan, onLevel: level => this.#orb?.setEnergy(level),
@@ -1355,6 +1356,7 @@ export class AithemaSession extends HTMLElement {
     const root = this.shadowRoot, input = root.querySelector('textarea'), button = root.querySelector('.send');
     const option = typeof answer === 'string', content = option ? answer : input.value;
     if (this.#sending || !this.#feature('text').available || !content.trim()) return;
+    this.#rail.notices.clear();
     if (this.#session.processingPreset === 'device') { await this.#sendDevice(content, !option); return; }
     const sessionId = this.#session.id;
     const voiceSession = !this.#rail.paused && !['recovering', 'waiting'].includes(this.#rail.state) ? this.#rail.session : null;

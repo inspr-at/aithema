@@ -86,6 +86,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
       const commandCancellation = new AbortController(), interruptionWaiters = new Set();
       const persistenceCancellation = new AbortController();
       const seen = new Set(), assistants = new Map(), stoppedInputs = new WeakSet();
+      let lastReply, lastPlaybackTurnId;
       const identity = () => ({ callId: request.callId, providerSessionId: grant?.providerSessionId });
       const pauseControl = opts => {
         const pauseRequestId = crypto.randomUUID();
@@ -122,14 +123,27 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
       const emit = (event, expose = true) => {
         const value = Object.freeze({ ...event, ...identity() });
         const captured = ++checkpointSequence;
+        if (['speaking', 'listening'].includes(value.type)) lifecycle.dispatch({ type: 'playback', active: value.type === 'speaking' });
         if (value.type === 'partial') lifecycle.dispatch({ type: 'partial', sequence: captured });
         delivery = delivery.then(async () => {
           if (persistenceCancellation.signal.aborted) return;
           if (['final', 'heard', 'reply'].includes(value.type)) await persist(value);
           if (value.type === 'final' && value.role === 'user') lifecycle.dispatch({ type: 'accepted', turnId: value.turnId, sequence: captured });
-          if (value.type === 'final' && value.role === 'assistant') lifecycle.dispatch({ type: 'reply', replyId: value.turnId });
-          if (value.type === 'heard') lifecycle.dispatch({ type: 'heard', prefix: value.prefix });
-          if (expose && !persistenceCancellation.signal.aborted) events.push(value);
+          if (value.type === 'final' && value.role === 'assistant') {
+            lastReply = { turnId: value.turnId, text: value.text };
+            lifecycle.dispatch({ type: 'reply', replyId: value.turnId });
+          }
+          // Corrections remain durable transcript evidence for their own turn.
+          // A queued/late correction for A cannot establish B's playback position.
+          if (value.type === 'heard' && value.turnId === lastPlaybackTurnId) lifecycle.dispatch({ type: 'heard', prefix: value.prefix });
+          if (expose && !persistenceCancellation.signal.aborted) {
+            const checkpoint = lifecycle.state.checkpoint;
+            events.push(value.type === 'recovered' ? { ...value, recovery: {
+              userUnconfirmed: checkpoint.userUnconfirmed, deliveryUncertain: checkpoint.deliveryUncertain,
+              playbackPositionUnknown: checkpoint.deliveryUncertain && checkpoint.heardPrefix === null,
+              lastReplyText: lastReply && (!lastPlaybackTurnId || lastPlaybackTurnId === lastReply.turnId) ? lastReply.text : null,
+            } } : value);
+          }
         }).catch(() => {
           if (persistenceCancellation.signal.aborted) return;
           persistenceFailed = true; stopPersistence();
@@ -231,6 +245,11 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
         const observeAssistant = eventId => {
           if (!active() || !Number.isSafeInteger(eventId) || eventId < 0) return;
           latestAssistantId = Math.max(latestAssistantId, eventId);
+          const turnId = `${receipt.providerSessionId}:assistant:${latestAssistantId}`;
+          // Stream/audio identity arrives before the complete final callback.
+          // Invalidate the previous turn's prefix as soon as the new turn starts.
+          if (turnId !== lastPlaybackTurnId) lifecycle.dispatch({ type: 'heard', prefix: null });
+          lastPlaybackTurnId = turnId;
           if (playbackInterrupted && eventId > lastInterruptionId) {
             playbackInterrupted = false;
             conversation?.setVolume({ volume: outputVolume() });
@@ -503,6 +522,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
             if (ended || opts.signal.aborted) throw new PluginError('cancelled');
             if (ack?.acknowledged !== true || ack.paused !== false) throw new PluginError('invalid-output', 'Resume not acknowledged');
             if (revision !== pauseRevision) throw new PluginError('unavailable', 'New pause requested while resuming');
+            emit({ type: 'recovered' });
             paused = false; lifecycle.resumed(); await capture.run(() => channels());
             if (revision !== pauseRevision) throw new PluginError('unavailable', 'New pause requested while resuming');
           }
@@ -543,6 +563,13 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           },
           setInput(on, opts) { return command('setInput', () => { if (typeof on !== 'boolean') throw new TypeError('Input boolean required'); inputOn = on; return capture.run(() => channels()); })(opts); },
           setOutput(on, opts) { return command('setOutput', () => { if (typeof on !== 'boolean') throw new TypeError('Output boolean required'); outputOn = on; return capture.run(() => channels()); })(opts); },
+          // SDK 1.17.0 cannot speak arbitrary agent text. No complete audio is retained.
+          // Return the acknowledged original reply for the explicit, zero-cost text fallback.
+          // Never sendUserMessage: that would trigger a paid model turn and change Rule C.
+          replayLastReply: command('replayLastReply', () => {
+            if (paused || transportBlocked || lifecycle.state.holds.length || !outputOn || !lastReply) throw new PluginError('unavailable');
+            return { kind: 'text', text: lastReply.text };
+          }),
           sendText(text, opts) { return command('sendText', () => {
             if (paused || transportBlocked) throw new PluginError('not-admitted', 'Voice session paused');
             if (typeof text !== 'string' || !text.trim() || text.length > 16_384) throw new PluginError('limit', 'Invalid voice text');

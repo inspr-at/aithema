@@ -34,7 +34,7 @@ export function reduceVoiceLifecycle(state, event) {
   const hold = reason => [...new Set([...state.holds, reason])];
   const cutover = () => ({ ...state.checkpoint, tentative: false,
     userUnconfirmed: state.checkpoint.userUnconfirmed || state.checkpoint.tentative,
-    deliveryUncertain: state.checkpoint.deliveryUncertain || Boolean(state.checkpoint.replyId) });
+    deliveryUncertain: state.checkpoint.deliveryUncertain || (state.checkpoint.playbackPending ?? Boolean(state.checkpoint.replyId)) });
   switch (event.type) {
     case 'start': return state.state === 'idle' ? { ...state, state: 'connecting' } : state;
     case 'connected': {
@@ -66,13 +66,15 @@ export function reduceVoiceLifecycle(state, event) {
       ? { ...state, epoch: event.epoch, state: 'waiting', holds: hold('takeover'), needsRecovery: true, checkpoint: cutover() } : state;
     case 'heartbeat': return { ...state, browserLivenessDeadlineAt: event.browserLivenessDeadlineAt ?? state.browserLivenessDeadlineAt,
       authorizationRevision: event.authorizationRevision ?? state.authorizationRevision };
-    case 'partial': return { ...state, checkpoint: { ...state.checkpoint, tentative: true, tentativeSequence: event.sequence ?? 0 } };
+    case 'playback': return { ...state, checkpoint: { ...state.checkpoint, playbackPending: event.active } };
+    case 'partial': return { ...state, checkpoint: { ...state.checkpoint, tentative: true, tentativeSequence: event.sequence ?? 0,
+      userUnconfirmed: false, deliveryUncertain: false } };
     case 'accepted': return { ...state, checkpoint: { ...state.checkpoint,
       ...(state.checkpoint.tentativeSequence <= (event.sequence ?? Infinity) ? { tentative: false, userUnconfirmed: false } : {}),
       acceptedTurnIds: [...new Set([...state.checkpoint.acceptedTurnIds, event.turnId])].slice(-4096),
-      operationId: event.operationId ?? state.checkpoint.operationId } };
+      operationId: event.operationId ?? state.checkpoint.operationId, deliveryUncertain: false } };
     case 'reply': return { ...state, checkpoint: { ...state.checkpoint, replyId: event.replyId,
-      heardPrefix: null, deliveryUncertain: state.needsRecovery || state.holds.length > 0 } };
+      heardPrefix: null, deliveryUncertain: (state.needsRecovery || state.holds.length > 0) && state.checkpoint.playbackPending !== false } };
     case 'heard': return { ...state, checkpoint: { ...state.checkpoint, heardPrefix: event.prefix } };
     case 'end': case 'withdraw': case 'budget-end': case 'provider-end':
       return { ...state, state: 'ended', holds: hold('ended'), needsRecovery: false, checkpoint: cutover(), terminalReason: event.reason ?? event.type };

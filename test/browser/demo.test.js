@@ -53,7 +53,8 @@ async function waitForShadow(page, selector, expected = {}) {
       function check() {
         const node = root.querySelector(selector);
         if (!node || (expected.text !== undefined && node.textContent !== expected.text)
-          || (expected.enabled !== undefined && !node.disabled !== expected.enabled)) return;
+          || (expected.enabled !== undefined && !node.disabled !== expected.enabled)
+          || (expected.states !== undefined && !expected.states.includes(node.dataset.state))) return;
         observer.disconnect(); clearTimeout(timer); resolve();
       }
       observer.observe(root, { subtree: true, childList: true, attributes: true, characterData: true });
@@ -643,13 +644,16 @@ async function startCall(page) {
     await inShadow(page, c => c.shadowRoot.querySelector('.chooser__continue').click());
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').dataset.stage === 'ready');
   }
+  // A pause acknowledgement precedes the feature snapshot. Both Start paths
+  // need the voice verdict; a disabled click or an early ready-card Start does nothing.
+  await waitForShadow(page, '.voice-start', { enabled: true });
   if (await stage() === 'ready') await inShadow(page, c => { c.shadowRoot.querySelector('.ready__mode[data-mode="voice"]').click(); c.shadowRoot.querySelector('.ready__start').click(); });
   else await inShadow(page, c => c.shadowRoot.querySelector('.voice-start').click());
-  await until(page, () => ['listening', 'speaking'].includes(document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state));
+  await waitForShadow(page, '.audio-rail', { states: ['listening', 'speaking'] });
 }
 async function endCall(page) {
   await inShadow(page, c => c.shadowRoot.querySelector('.voice-close').click());
-  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'idle');
+  await waitForShadow(page, '.audio-rail', { states: ['idle'] });
 }
 
 test('live updates appear under a resting pointer without moving it; blur, reload, restart and German behave (AIT-116)',
@@ -1006,12 +1010,33 @@ test('AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab l
     // D4 cross-tab: an auxiliary window inherits the journal but never ends the call its opener drives.
     await startCall(page);
     const callId = (await journal(page)).callId, opened = new Promise(resolve => browser.once('targetcreated', resolve));
-    await page.evaluate(url => { window.open(url, 'aithema-auxiliary'); }, demo.url);
+    await page.evaluate(() => { window.open('about:blank', 'aithema-auxiliary'); });
     const auxiliary = await (await opened).page(); const closes = [];
     auxiliary.on('request', request => { if (request.url().endsWith('/close')) closes.push(request.url()); });
+    await auxiliary.evaluateOnNewDocument(() => {
+      window.voiceLiveness = [];
+      const NativeChannel = BroadcastChannel;
+      window.BroadcastChannel = class extends NativeChannel {
+        #probe = false;
+        constructor(name) {
+          super(name);
+          if (name === 'aithema-voice-calls') this.addEventListener('message', ({ data }) => {
+            if (this.#probe && data?.type === 'pong') window.voiceLiveness.push(data);
+          });
+        }
+        postMessage(data) {
+          if (this.name === 'aithema-voice-calls' && data?.type === 'ping') { this.#probe = true; window.voiceLiveness.push(data); }
+          super.postMessage(data);
+        }
+      };
+    });
+    await auxiliary.goto(demo.url, { waitUntil: 'domcontentloaded' });
     await auxiliary.waitForFunction(() => document.querySelector('aithema-session')?.session?.id, { polling: 50 });
     await until(auxiliary, key => sessionStorage.getItem(key) === null, journalKey);
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    const liveness = await auxiliary.evaluate(() => window.voiceLiveness);
+    assert.deepEqual(liveness.map(message => message.type), ['ping', 'pong'], 'the real channel proves the opener is live');
+    assert.equal(liveness[0].callId, callId); assert.equal(liveness[1].callId, callId);
+    assert.equal(liveness[0].nonce, liveness[1].nonce, 'the pong answers this probe');
     assert.deepEqual(closes, [], 'the auxiliary window sends no close');
     assert.ok(['listening', 'speaking', 'paused'].includes(await voiceState(page)), 'the opener still drives its call');
     assert.equal((await journal(page)).callId, callId);
