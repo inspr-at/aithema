@@ -2,11 +2,12 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as core from '../src/index.js';
 
-const de = ['Danke', 'Danke schön', 'Danke sehr', 'Vielen Dank', 'Vielen herzlichen Dank', 'Herzlichen Dank', 'Besten Dank'];
-const en = ['Thanks', 'Thank you', 'Thank you very much', 'Many thanks'];
+const de = ['Danke', 'Danke schön', 'Danke sehr', 'Vielen Dank', 'Vielen herzlichen Dank', 'Herzlichen Dank', 'Besten Dank',
+  'Dankeschön', 'Vielen lieben Dank', 'Danke vielmals', '**Danke**', '**Vielen Dank**'];
+const en = ['Thanks', 'Thank you', 'Thank you very much', 'Many thanks', 'Thank you so much', 'Thanks a lot'];
 for (const [locale, forms, complement, remainder] of [
   ['de', de, 'für Ihre Nachricht', 'das klingt nach einem klaren Vorhaben.'],
-  ['en', en, 'for your message', 'that sounds like a clear plan.'],
+  ['en', en, 'for your message', 'it sounds like a clear plan.'],
 ]) for (const form of forms) for (const suffix of ['', ` ${complement}`]) {
   test(`AIT-157: strip ${form}${suffix} with either session locale`, () => {
     for (const sessionLocale of [locale, locale === 'de' ? 'en' : 'de']) {
@@ -22,12 +23,9 @@ for (const [input, expected] of [
   ['Danke - Sie können mit dem Umfang beginnen.', 'Sie können mit dem Umfang beginnen.'],
   ['Vielen Dank für Ihre Nachricht. Ihr Vorhaben ist klar.', 'Ihr Vorhaben ist klar.'],
   ['Thanks for the details! What should we start with?', 'What should we start with?'],
-  ['  „vIeLeN dAnK für Ihre Nachricht.“\n\nDas hilft bei der Eingrenzung.', 'Das hilft bei der Eingrenzung.'],
-  ['  "THANKS, that sounds useful."', 'That sounds useful.'],
   ['Danke, äh das hilft uns.', 'Äh das hilft uns.'],
   ['Danke, wir planen einen Pilotversuch.', 'Wir planen einen Pilotversuch.'],
   ['Thanks, we start.', 'We start.'],
-  ['„Danke“, Sie können mit dem Umfang beginnen.', 'Sie können mit dem Umfang beginnen.'],
   ['Vielen Dank für Ihre Nachricht. Gut, dann beginnen wir.', 'Gut, dann beginnen wir.'],
 ]) test(`AIT-157: clause, sentence, case and quote handling: ${input}`, () => {
   assert.equal(typeof core.stripThanksOpener, 'function');
@@ -45,7 +43,7 @@ for (const input of ['Danke.', 'Vielen Dank für Ihre Nachricht.', 'Danke, sehr 
 
 for (const input of [
   ...de.map(form => `${form} für Ihre Nachricht, das klingt nach einem klaren Vorhaben.`),
-  ...en.map(form => `${form} for your message, that sounds like a clear plan.`),
+  ...en.map(form => `${form} for your message, it sounds like a clear plan.`),
   '  "THANKS, that sounds useful."',
   '„Vielen Dank, das klingt gut.“ Danach können Sie beginnen.',
   '„Danke.“ Das hilft uns. Danke für das Detail.',
@@ -55,7 +53,7 @@ for (const input of [
   `Thank you, that sounds like ${'a detailed '.repeat(8)}plan.`,
   'Thanksville is a place.',
 ]) test(`AIT-157: stream and pure guard agree for every chunk split: ${input}`, () => {
-  const expected = core.stripThanksOpener(input, 'de');
+  const expected = input.length > 160 ? { text: input, stripped: false } : core.stripThanksOpener(input, 'de');
   for (const bufferNormal of [true, false]) {
     for (let split = 0; split <= input.length; split++) {
       const stream = new core.ReplyOpenerStream('de', { bufferNormal });
@@ -70,11 +68,74 @@ for (const input of [
   }
 });
 
-test('AIT-157: long recognised opener stays private beyond the soft buffer cap', () => {
-  const stream = new core.ReplyOpenerStream('de');
-  assert.equal(stream.push(`Vielen Dank für ${'Ihre Beschreibung '.repeat(8)}`), '');
-  assert.equal(stream.push(', '), '');
-  assert.equal(stream.push('das klingt gut.'), 'Das klingt gut.');
+test('AIT-157: long recognised opener flushes unchanged at the 160-character bound', () => {
+  for (const bufferNormal of [true, false]) {
+    const stream = new core.ReplyOpenerStream('de', { bufferNormal });
+    const prefix = 'Vielen Dank für ' + 'Ihre Beschreibung '.repeat(20);
+    assert.equal(stream.push(prefix.slice(0, 159)), '');
+    assert.equal(stream.push(prefix.slice(159, 160)), prefix.slice(0, 160));
+    assert.equal(stream.push(prefix.slice(160) + ', das klingt gut.'), prefix.slice(160) + ', das klingt gut.');
+    assert.equal(stream.finish(), '');
+    assert.equal(stream.stripped, false);
+  }
+});
+
+const gateExamples = [
+  'Danke, dass Sie das geteilt haben, wir können starten.',
+  'Vielen Dank für die Beschreibung, die Sie geschickt haben, das klingt gut.',
+  '… Nachricht, in der Sie beschreiben, wie das Projekt starten soll.',
+  'Vielen Dank für Ihre Nachricht, in der Sie beschreiben, wie das Projekt starten soll.',
+];
+const ambiguous = [
+  ...gateExamples.slice(0, 2), gateExamples[3],
+  ...['dass', 'daß', 'wenn', 'weil', 'ob', 'wie', 'als', 'damit', 'sodass'].map(word => `Danke, ${word} Sie das geteilt haben, wir können starten.`),
+  ...['that', 'which', 'who', 'whom', 'whose', 'where', 'when', 'if', 'because', 'how'].map(word => `Thanks, ${word} you have shared the details, we can start.`),
+  ...['der', 'die', 'das', 'den', 'dem', 'deren', 'dessen', 'welche', 'welcher', 'welches', 'welchen', 'welchem'].map(word => `Vielen Dank für die Beschreibung, ${word} Sie geschickt haben, das klingt gut.`),
+  ...['which', 'that'].map(word => `Many thanks for the description, ${word} sounds useful, we can start.`),
+  ...['in der', 'mit dem', 'von dem', 'über die'].map(words => `Danke für die Nachricht, ${words} Sie das Projekt beschreiben, wir können starten.`),
+  ...['for which', 'in which', 'with whom', 'to whose'].map(words => `Thank you for the message, ${words} you have shared the details, we can start.`),
+  'Danke, beim Projekt sind mehrere Systeme beteiligt.',
+  'Thanks, after the meeting we can start.',
+];
+for (const input of ambiguous) test(`AIT-157 fix1: keep subordinate, relative or uncertain clause: ${input}`, () => {
+  assert.deepEqual(core.stripThanksOpener(input, 'de'), { text: input, stripped: false, kept: true });
+});
+test('AIT-157 fix1: preserve the abbreviated third gate example verbatim', () => {
+  assert.deepEqual(core.stripThanksOpener(gateExamples[2], 'de'), { text: gateExamples[2], stripped: false });
+});
+for (const [open, close] of [['„', '“'], ['"', '"'], ['«', '»'], ["'", "'"], ['“', '”'], ['‘', '’']]) {
+  for (const quoted of ['Danke für nichts', 'Danke, das klingt gut.', 'Vielen Dank']) {
+    const input = `  ${open}${quoted}${close} – so beschreiben Sie das Projekt.`;
+    test(`AIT-157 fix1: quoted user text is preserved: ${input}`, () => {
+      assert.deepEqual(core.stripThanksOpener(input, 'de'), { text: input, stripped: false });
+    });
+  }
+}
+for (const form of [...de, ...en]) test(`AIT-157 fix1: keep ambiguous remainder for ${form}`, () => {
+  const input = `${form}, weil Sie das geteilt haben, wir können starten.`;
+  assert.deepEqual(core.stripThanksOpener(input, 'de'), { text: input, stripped: false, kept: true });
+});
+for (const input of [...ambiguous, '„Danke für nichts“ – so beschreiben Sie das Projekt.',
+  'Danke, das Projekt, das Sie beschreiben, ist klar.', 'Danke, das klingt gut. Danke für das Detail.']) {
+  test(`AIT-157 fix1: every split and character stream preserves the safe decision: ${input}`, () => {
+    const expected = core.stripThanksOpener(input, 'de');
+    for (const bufferNormal of [true, false]) {
+      for (let split = 0; split <= input.length; split++) {
+        const stream = new core.ReplyOpenerStream('de', { bufferNormal });
+        assert.equal(stream.push(input.slice(0, split)) + stream.push(input.slice(split)) + stream.finish(), expected.text);
+        assert.equal(stream.stripped, expected.stripped);
+      }
+      const stream = new core.ReplyOpenerStream('de', { bufferNormal });
+      assert.equal([...input].map(char => stream.push(char)).join('') + stream.finish(), expected.text);
+      assert.equal(stream.stripped, expected.stripped);
+    }
+  });
+}
+test('AIT-157 fix1: an ambiguous first remainder clause flushes at its boundary', () => {
+  const stream = new core.ReplyOpenerStream('de', { bufferNormal: false });
+  assert.equal(stream.push('Danke, dass Sie das geteilt haben'), '');
+  assert.equal(stream.push(','), 'Danke, dass Sie das geteilt haben,');
+  assert.equal(stream.push(' wir können starten.'), ' wir können starten.');
   assert.equal(stream.finish(), '');
 });
 

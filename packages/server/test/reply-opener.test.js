@@ -10,7 +10,7 @@ for (const format of ['plain', 'card', 'card-content-last']) for (const language
   test(`AIT-157: ${format} ${language} reply is guarded before display, storage and export`, async () => {
     const storage = new SQLiteStorage(), first = Promise.withResolvers(), release = Promise.withResolvers();
     const opener = language === 'de' ? 'Vielen Dank für Ihre Beschreibung, ' : 'Thank you very much for your description, ';
-    const remainder = language === 'de' ? 'das klingt nach einem klaren Vorhaben. Danke für das Detail.' : 'that sounds like a clear plan. Thanks for the detail.';
+    const remainder = language === 'de' ? 'das klingt nach einem klaren Vorhaben. Danke für das Detail.' : 'it sounds like a clear plan. Thanks for the detail.';
     const expected = remainder[0].toUpperCase() + remainder.slice(1), partials = [], logs = [];
     const card = { content: opener + remainder, question_short: 'Welche Systeme?', options: [{ text: 'SAP', likely: true }] };
     let calls = 0, pending;

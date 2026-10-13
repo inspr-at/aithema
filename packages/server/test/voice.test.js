@@ -1641,7 +1641,7 @@ test('slow closure: recovery retries the original identity after a new SDK conne
 
 // AIT-137 probes count the actual admission, dispatch and durable cost separately.
 async function turnsOnceFixture(t, { voiceOptions, path, blocked = false, blockedModel = 1, failFirst = false, lateFirst = false, sameReply = false,
-  replyChunks, chunkDelayMs = 0, reactionReservationMicro = 0 } = {}) {
+  replyChunks, chunkDelayMs = 0, reactionReservationMicro = 0, failAfterChunks = false } = {}) {
   const base = createMockReasoning(), started = Promise.withResolvers(), release = Promise.withResolvers(), modelEvents = eventProbe();
   let models = 0, admissions = 0, finalOrdinal = 0, lateReport;
   const diagnostics = [], requests = [], dispatches = [], chunkTimes = [];
@@ -1663,6 +1663,11 @@ async function turnsOnceFixture(t, { voiceOptions, path, blocked = false, blocke
     }
     else yield sameReply ? 'Same reply' : `Reply ${number}`;
     if (blocked && number === blockedModel || number === 1 && lateFirst) await release.promise;
+    if (failAfterChunks) {
+      options.report({ attemptId: options.attempt.attemptId, outcome: 'cancelled',
+        usage: { inputTokens: 3, outputTokens: 2 }, chargedMicro: 17 });
+      throw new PluginError('provider');
+    }
     if (number === 1 && lateFirst) lateReport = () => options.report({ attemptId: options.attempt.attemptId,
       outcome: 'completed', usage: { inputTokens: 3, outputTokens: 2 }, chargedMicro: 17 });
     else options.report({ attemptId: options.attempt.attemptId, outcome: 'completed', usage: { inputTokens: 3, outputTokens: 2 }, chargedMicro: 17 });
@@ -1702,10 +1707,10 @@ const sseReply = text => text.split('\n\n').filter(line => line.startsWith('data
   .map(frame => frame.choices?.[0].delta?.content ?? '').join('');
 
 test('AIT-157: non-streaming voice receipt and transcript use the guarded reply', async t => {
-  const h = await turnsOnceFixture(t, { replyChunks: ['Many thanks for the details. ', 'That sounds useful.'] });
+  const h = await turnsOnceFixture(t, { replyChunks: ['Many thanks for the details. ', 'It sounds useful.'] });
   const response = await h.callback([{ role: 'user', content: 'Beschreibung' }], { stream: false });
   assert.equal(response.status, 200);
-  const receipt = await response.json(), expected = 'That sounds useful. finished';
+  const receipt = await response.json(), expected = 'It sounds useful. finished';
   assert.equal(receipt.choices[0].message.content, expected);
   await h.persist('assistant', 'guarded-json-reply', expected, { replyId: receipt.id });
   assert.equal(h.storage.get(h.session.id).transcript.at(-1).content, expected);
@@ -1716,7 +1721,7 @@ test('AIT-157: non-streaming voice receipt and transcript use the guarded reply'
 
 for (const [label, chunks, expected] of [
   ['DE clause', ['Vielen Dank, ', 'das klingt gut. '], 'Das klingt gut.  finished'],
-  ['EN in DE session', ['Thank you for the details. ', 'That sounds useful. '], 'That sounds useful.  finished'],
+  ['EN in DE session', ['Thank you for the details. ', 'It sounds useful. '], 'It sounds useful.  finished'],
 ]) test(`AIT-157: voice ${label} guards TTS and transcript with one admission and charge`, async t => {
   const h = await turnsOnceFixture(t, { replyChunks: chunks, chunkDelayMs: 25, blocked: true });
   h.storage.append(h.session.id, 'session.locale-changed', { locale: 'de' });
@@ -1751,6 +1756,69 @@ for (const [label, chunks, expected] of [
   assert.equal(h.dispatches.length, 1);
   const stripped = h.diagnostics.filter(entry => entry.event === 'reply.opener-stripped');
   assert.deepEqual(stripped, [{ event: 'reply.opener-stripped', count: 1, lane: 'voice' }]);
+});
+
+for (const text of [
+  'Danke, dass Sie das geteilt haben, wir können starten.',
+  'Vielen Dank für die Beschreibung, die Sie geschickt haben, das klingt gut.',
+  'Vielen Dank für Ihre Nachricht, in der Sie beschreiben, wie das Projekt starten soll.',
+  '„Danke für nichts“ – so beschreiben Sie das Projekt.',
+]) test(`AIT-157 fix1: voice preserves quoted or subordinate text: ${text}`, async t => {
+  const h = await turnsOnceFixture(t, { replyChunks: [...text] });
+  const messages = [{ role: 'user', content: 'Beschreibung' }];
+  const response = await h.callback(messages, { stream: true }), wire = await response.text();
+  const expected = text + ' finished';
+  assert.equal(sseReply(wire), expected);
+  const replyId = JSON.parse(wire.split('\n\n')[0].slice(6)).id;
+  await h.persist('assistant', 'preserved-reply', expected, { replyId });
+  assert.equal(h.storage.get(h.session.id).transcript.at(-1).content, expected);
+  assert.equal(sseReply(await (await h.callback(messages, { stream: true })).text()), expected);
+  assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
+  assert.equal(h.dispatches.length, 1);
+  assert.deepEqual(h.diagnostics.filter(entry => entry.event === 'reply.opener-stripped'), []);
+});
+
+test('AIT-157 fix1: provider error preserves the buffered prefix once with one admission and charge', async t => {
+  const prefix = 'Danke, das klingt', messages = [{ role: 'user', content: 'Beschreibung' }];
+  const h = await turnsOnceFixture(t, { replyChunks: [prefix], blocked: true, failAfterChunks: true });
+  const response = await h.callback(messages, { stream: true }), reader = response.body.getReader();
+  const first = new TextDecoder().decode((await reader.read()).value);
+  assert.equal(sseReply(first), '', 'no opener has been spoken while buffered');
+  assert.equal(h.rows()[0].state, 'dispatched');
+  h.release();
+  let wire = first;
+  while (true) { const item = await reader.read(); if (item.done) break; wire += new TextDecoder().decode(item.value); }
+  reader.releaseLock(); await h.handlers.idle();
+  assert.equal(sseReply(wire), prefix, 'already generated text is flushed unchanged exactly once');
+  assert.ok(wire.endsWith('data: {"error":"provider"}\n\n'));
+  assert.equal(wire.includes('[DONE]'), false);
+  const retry = await h.callback(messages, { stream: true });
+  assert.equal(sseReply(await retry.text()), prefix, 'failure replay preserves the same spoken bytes');
+  assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
+  assert.equal(h.dispatches.length, 1);
+  assert.deepEqual(h.rows().map(row => [row.state, row.outcome, row.settled_micro]), [['settled', 'cancelled', 17]]);
+  assert.deepEqual(h.diagnostics.filter(entry => entry.event === 'reply.opener-stripped'), []);
+  assert.equal(h.storage.get(h.session.id).transcript.some(turn => turn.role === 'assistant'), false, 'failed speech has no successful receipt');
+});
+
+test('AIT-157 fix1: cancel while opener is buffered preserves paid work and one replayed reply', async t => {
+  const prefix = 'Vielen Dank, ', messages = [{ role: 'user', content: 'Beschreibung' }];
+  const h = await turnsOnceFixture(t, { replyChunks: [prefix], blocked: true });
+  const response = await h.callback(messages, { stream: true }), reader = response.body.getReader();
+  const first = new TextDecoder().decode((await reader.read()).value);
+  assert.equal(sseReply(first), '', 'nothing has been spoken while buffered');
+  await reader.cancel();
+  assert.equal(h.rows()[0].state, 'dispatched', 'reader cancellation preserves paid generation');
+  h.release(); await h.handlers.idle();
+  const retry = await h.callback(messages, { stream: true }), wire = await retry.text(), expected = prefix + ' finished';
+  assert.equal(sseReply(wire), expected, 'unrecognised remainder and buffered opener survive exactly once');
+  const replyId = JSON.parse(wire.split('\n\n')[0].slice(6)).id;
+  await h.persist('assistant', 'cancelled-buffer-replay', expected, { replyId });
+  assert.equal(h.storage.get(h.session.id).transcript.at(-1).content, expected);
+  assert.equal(sseReply(await (await h.callback(messages, { stream: true })).text()), expected);
+  assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
+  assert.equal(h.dispatches.length, 1);
+  assert.deepEqual(h.diagnostics.filter(entry => entry.event === 'reply.opener-stripped'), []);
 });
 
 for (const boundary of ['admission', 'dispatch authorization']) {
