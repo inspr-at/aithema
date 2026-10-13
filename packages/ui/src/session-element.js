@@ -1529,6 +1529,7 @@ export class AithemaSession extends HTMLElement {
       // A changed visuals choice can switch between images and drafts, and their cost.
       if (session.conceptVisualKind) this.#session.conceptVisualKind = session.conceptVisualKind;
       if ('conceptCost' in session) this.#session.conceptCost = session.conceptCost;
+      this.#rail.reconcileAdmission();
       this.#renderMode(); this.#rail.render(); this.#concept.update(this.#session); this.#dialog?.sync();
       this.#render('features'); this.#render('aside'); this.#render('composer'); this.#render('transcript');
       this.dispatchEvent(new CustomEvent('aithema-features', { bubbles: true, composed: true }));

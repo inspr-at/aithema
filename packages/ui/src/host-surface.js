@@ -65,7 +65,7 @@ export class HostSurface {
     this.update();
   }
   get tiers() { return this.#credits?.tiers ?? null; }
-  get usedUp() { return this.#ended === 'host-limit' || Boolean(this.#credits?.balance?.owner && this.#credits.balance.owner.availableMicro <= 0); }
+  get usedUp() { return this.#ended === 'host-limit' || this.#credits?.exhausted === true; }
   get nextTier() { return this.#verification?.enabled && this.#verification.canCollect ? this.tiers?.next ?? null : null; }
   get deltaCredits() { return this.tiers ? defaultCreditFormat(this.tiers.delta, this.#session().locale ?? 'en') : ''; }
   get locked() { return this.#verification?.locked ?? false; }
@@ -195,8 +195,9 @@ export class HostSurface {
       this.#credits = response.body;
       if (previousTier && previousTier !== this.tiers?.current) void this.#verification?.load();
       const slot = this.#credits?.limitSlot;
-      if (slot === null || this.#credits?.balance?.owner?.availableMicro > 0 && slot?.endReason === 'host-limit') this.#ended = null;
-      if (['ending', 'ended'].includes(slot?.status)) this.#ended = slot.endReason ?? this.#ended ?? 'session';
+      const recovered = this.#credits?.exhausted === false && this.#credits?.balance?.owner?.availableMicro > 0;
+      if (this.#ended === 'host-limit' ? recovered : slot === null) this.#ended = null;
+      if (['ending', 'ended'].includes(slot?.status) && !(slot.endReason === 'host-limit' && recovered)) this.#ended = slot.endReason ?? this.#ended ?? 'session';
       this.#verification?.setCredits(this.#credits); this.#paintCredits(); this.#onCredits?.();
     } catch { /* The last acknowledged values stay until the next read. */ }
   }

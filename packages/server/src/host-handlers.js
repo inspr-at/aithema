@@ -125,16 +125,20 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
   }
   function creditResult(id, ownerToken) {
     const balance = budgetCreditView(budget, id, host.wallet(ownerToken));
+    // Outstanding maxima remain spendable by their admitted work. Only a zero
+    // allowance or confirmed spend at the ceiling is an exhaustion verdict.
+    // Wallets without a cost breakdown leave exhaustion to admission refusals.
+    const exhausted = balance.owner.limitMicro === 0 || balance.owner.confirmedSpendMicro >= balance.owner.limitMicro;
     const projection = host.creditTiers?.(ownerToken) ?? null;
     const collectionAllowed = host.demo === true || privacyDocumentConfigured(host);
     const tiers = projection && (collectionAllowed ? projection : { ...projection, next: null, delta: 0, canConfirm: false });
-    if (host.credits?.ownerGuard === false) return { balance, limitSlot: null, tiers };
+    if (host.credits?.ownerGuard === false) return { balance, limitSlot: null, tiers, exhausted };
     const guard = storage.ownerCreditState(ownerToken);
     const state = guard ? guard.sessionId === id ? guard : rebindCredits(guard, id) : createCredits({ sessionId: id, ...host.credits });
     // Project live balances, expiry and pause without persisting read results.
     const current = reduceCredits(state, { type: 'balance', balance, now: clock(state) }).state;
     const projected = reduceCredits(current, { type: 'pause', paused: storage.get(id).paused, now: clock(current) }).state;
-    return { balance, limitSlot: creditsView(projected, clock(projected)), tiers };
+    return { balance, limitSlot: creditsView(projected, clock(projected)), tiers, exhausted };
   }
   function startCredits(id, ownerToken) {
     const balance = budgetCreditView(budget, id, host.wallet(ownerToken));

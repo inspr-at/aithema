@@ -139,6 +139,7 @@ export class VisitorEmail {
     if (response?.ok && response.body?.visitor) {
       this.visitor = response.body.visitor; this.identity = { ...this.identity, address: null, status: 'guest' };
       this.ui.deleting = false; this.ui.editing = false;
+      this.q('#email-input').value = '';
       const over = this.balance?.committedMicro >= this.tiers?.allowancesMicro?.anonymous;
       this.ui.message = over ? this.e.deletedOut : fill(this.e.deleted, this.numbers); this.paint();
       await this.changed?.({ refresh: true }); if (this.alive) this.focus();

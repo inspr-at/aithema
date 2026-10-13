@@ -92,11 +92,20 @@ export class AudioRail {
     if (this.errorKey === 'voiceAdmissionDenied' && Object.hasOwn(this.copy.reasons ?? {}, this.errorReason)) return this.copy.reasons[this.errorReason];
     return this.copy[this.errorKey];
   }
+  // Reconcile only after a fresh server feature read. A repaint immediately
+  // after an admission refusal still has the preview that preceded that refusal.
+  reconcileAdmission() {
+    if (this.feature().available && !this.usedUp?.() && this.errorKey === 'voiceAdmissionDenied' && ['host-limit', 'budget denied'].includes(this.errorReason)) {
+      this.errorKey = null; this.errorReason = null;
+    }
+  }
   render() {
     // Closing a rail that had no call (an invalidation while idle) is no call: it never marks one active.
     const c = this.copy, active = Boolean(this.session || this.waitingCall), available = this.feature(),
       transitional = ['connecting', 'recovering'].includes(this.state) || this.state === 'closing' && this.closingCall;
-    const usedUp = Boolean(this.usedUp?.()) || ['host-limit', 'budget denied'].includes(available.rawReason ?? available.reason) || ['host-limit', 'budget denied'].includes(this.errorReason);
+    // The feature preview can deny new work because an admitted segment holds
+    // the allowance. Only a wallet verdict or an actual admission refusal ends it.
+    const usedUp = Boolean(this.usedUp?.()) || this.errorKey === 'voiceAdmissionDenied' && ['host-limit', 'budget denied'].includes(this.errorReason);
     const creditEnding = Boolean(this.ending?.());
     this.root.toggleAttribute('data-used-up', usedUp && !creditEnding); this.root.toggleAttribute('data-credit-ending', creditEnding);
     const state = this.paused && active && this.state !== 'waiting' ? 'paused' : this.state;
@@ -146,7 +155,7 @@ export class AudioRail {
   async start() {
     if (this.session || this.state === 'connecting' || !this.feature().available || !this.client) return;
     const generation = ++this.generation, revision = this.pauseRevision, resuming = Boolean(this.waitingCall);
-    this.resumeRequests.clear(); this.endedCall = null; this.errorKey = null; this.state = 'connecting'; this.render();
+    this.resumeRequests.clear(); this.endedCall = null; this.errorKey = null; this.errorReason = null; this.state = 'connecting'; this.render();
     const controller = new AbortController(); this.controller = controller;
     const holdController = new AbortController(); this.holdController = holdController;
     if (this.root.ownerDocument.hidden) holdController.abort();
