@@ -195,6 +195,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       : options.spendDeadlineAt === undefined ? binding.maxMicro : Math.ceil(milliseconds / 60_000 * binding.upstreamMicroPerMinute),
       maxVisitorMicro: Math.ceil(reservedMs / 60_000 * binding.visitorMicroPerMinute) };
   };
+  const durationBinding = raw => createDurationBinding(
+    registry.get(raw.plugin)?.ports?.serverAdapter?.normalizeBinding?.(raw) ?? raw);
   async function evaluate(session, preset, feature, options) {
     if (session.identity?.verificationRequired === true && ((feature === 'analysis' && !session.identity.assessmentUnlocked) ||
       (visual(feature) && !session.identity.conceptsUnlocked))) return { reason: 'verification required' };
@@ -209,7 +211,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     const { raw, reason: unselected } = options.raw ? { raw: options.raw } : selectedBinding(session, preset, lane);
     if (!raw) return { reason: unselected };
     if (!config.plugins?.includes(raw.plugin)) return { reason: 'plugin not in preset' };
-    let binding; try { binding = feature === 'voice' ? createDurationBinding(raw) : feature === 'images' ? createImageBinding(raw) : createBinding(raw); } catch { return { reason: 'binding invalid' }; }
+    let binding; try { binding = feature === 'voice' ? durationBinding(raw) : feature === 'images' ? createImageBinding(raw) : createBinding(raw); } catch { return { reason: 'binding invalid' }; }
     let plugin = registry.get(binding.plugin);
     if (!plugin) return { reason: 'plugin not registered' };
     // Mock trust starts at the registered canonical entry and must survive binding.
@@ -612,7 +614,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       for (const [feature, operation] of [['text', 'stream'], ['analysis', 'structured'], ['voice', 'start'], [kind, 'generate'], [kind, 'edit']]) {
         const { raw } = selectedBinding(session, preset, map[feature][0]);
         if (!raw || !presets[preset]?.plugins?.includes(raw.plugin)) continue;
-        let binding; try { binding = feature === 'voice' ? createDurationBinding(raw) : feature === 'images' ? createImageBinding(raw) : createBinding(raw); } catch { continue; }
+        let binding; try { binding = feature === 'voice' ? durationBinding(raw) : feature === 'images' ? createImageBinding(raw) : createBinding(raw); } catch { continue; }
         const plugin = registry.get(binding.plugin);
         // Only operations the manifest supports and admission would run need consent.
         const model = plugin?.manifest.models.find(m => m.id === binding.model) ?? plugin?.manifest.models.find(m => m.id === '*');
