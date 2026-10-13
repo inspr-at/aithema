@@ -539,7 +539,7 @@ export class AithemaSession extends HTMLElement {
   #creditsChanged({ allowanceChanged = false } = {}) {
     if (!this.#host) return;
     const usedUp = this.#host.usedUp, recovered = this.#creditWasUsedUp && !usedUp; this.#creditWasUsedUp = usedUp;
-    if ((allowanceChanged || recovered || this.#rail?.allowanceDenied) && this.isConnected) void this.#refreshFeatures();
+    const refresh = (allowanceChanged || recovered || this.#rail?.allowanceDenied) && this.isConnected ? this.#refreshFeatures() : null;
     if (usedUp && this.#rail?.session && !this.#creditEnding) {
       this.#creditEnding = true;
       void this.#rail.close('host-limit');
@@ -552,6 +552,7 @@ export class AithemaSession extends HTMLElement {
     }
     if (usedUp && this.shadowRoot.querySelector('.workspace').dataset.stage !== 'live') this.#render('transcript');
     this.#render('composer'); this.#rail?.render(); this.#dialog?.sync();
+    return refresh;
   }
   #feature(feature, visitor = false) {
     const preset = this.#session.processingPreset ?? 'best';

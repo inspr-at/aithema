@@ -204,7 +204,7 @@ export class HostSurface {
       const recovered = this.#credits?.exhausted === false && this.#credits?.balance?.owner?.availableMicro > 0;
       if (this.#ended === 'host-limit' ? recovered : slot === null) this.#ended = null;
       if (['ending', 'ended'].includes(slot?.status) && !(slot.endReason === 'host-limit' && recovered)) this.#ended = slot.endReason ?? this.#ended ?? 'session';
-      this.#verification?.setCredits(this.#credits); this.#paintCredits(); this.#onCredits?.({ allowanceChanged });
+      this.#verification?.setCredits(this.#credits); this.#paintCredits(); await this.#onCredits?.({ allowanceChanged });
     } catch { /* The last acknowledged values stay until the next read. */ }
     finally { this.#creditsReads--; }
   }

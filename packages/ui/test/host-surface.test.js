@@ -814,3 +814,51 @@ for (const recovery of ['email', 'CLI']) for (const waiting of [false, true]) te
   if (waiting) assert.deepEqual(requests[1], { callId: waitingCall.callId, providerSessionId: waitingCall.providerSessionId }, 'Resume retains the logical call');
   for (const selector of ['.voice-input', '.voice-output', '.voice-close']) assert.equal(f.root.querySelector(selector).disabled, false);
 });
+
+test('AIT-135 A2 round 2: denial-only polling skips hidden pages, bounds wallet and feature reads, and stops on detach', async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const voiceClient = { async start() { throw Object.assign(new Error('not admitted'), { code: 'not-admitted', reason: 'host-limit' }); } };
+  const f = a2Setup(t, { spent: 11_990_000, voiceClient }); await tick(8);
+  f.root.querySelector('.voice-start').click(); await tick(8);
+  f.setReserved(10_000); // The server keeps admission unavailable without exhausting confirmed spend.
+  let finishCredits, finishFeatures, creditReads = 0, featureReads = 0, visible = false;
+  const credits = new Promise(resolve => { finishCredits = resolve; }), features = new Promise(resolve => { finishFeatures = resolve; });
+  t.after(() => { finishCredits(); finishFeatures(); });
+  const fetch = globalThis.fetch;
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    if (String(url).endsWith('/credits')) { creditReads++; await credits; }
+    if (String(url) === `/api/sessions/${f.c.session.id}`) { featureReads++; await features; }
+    return fetch(url, options);
+  });
+  t.mock.getter(document, 'visibilityState', () => visible ? 'visible' : 'hidden');
+  t.mock.timers.tick(45_001); await tick(8);
+  assert.equal(creditReads, 0, 'hidden pages do not poll');
+  visible = true; t.mock.timers.tick(15_001); await tick(8);
+  assert.equal(creditReads, 1); assert.equal(featureReads, 0);
+  t.mock.timers.tick(45_001); await tick(8);
+  assert.equal(creditReads, 1, 'a pending wallet read cannot pile up more requests');
+  finishCredits(); await tick(8);
+  assert.equal(featureReads, 1, 'an unchanged wallet still refreshes a retained refusal');
+  t.mock.timers.tick(45_001); await tick(8);
+  assert.equal(creditReads, 1); assert.equal(featureReads, 1, 'a pending verdict read also bounds recovery polling');
+  finishFeatures(); await tick(8);
+  assert.equal(f.root.querySelector('.audio-rail').hasAttribute('data-used-up'), true, 'an unavailable fresh verdict retains the refusal');
+  t.mock.timers.tick(15_001); await tick(8);
+  assert.equal(creditReads, 2); assert.equal(featureReads, 2, 'pending recovery can poll again after the previous cycle finishes');
+  f.c.remove(); t.mock.timers.tick(45_001); await tick(8);
+  assert.equal(creditReads, 2); assert.equal(featureReads, 2, 'detached pages stop polling');
+});
+
+test('AIT-135 A2 round 2: a tier-only credits event refreshes features without exhaustion or an admission refusal', async t => {
+  let current = 'anonymous';
+  const { c, calls } = setup(t, { host: { credits: true }, session: { featureMatrix: { best: { voice: { available: false } } } }, routes: {
+    'GET /credits': () => Response.json({ balance, exhausted: false, limitSlot: null, tiers: { current } }),
+    'GET ': () => Response.json({ ...c.session, featureMatrix: { best: { voice: { available: current === 'emailGiven' } } } }),
+  } }); await tick(8);
+  assert.equal(c.session.featureMatrix.best.voice.available, false);
+  const before = calls.filter(call => call.path === '').length;
+  current = 'emailGiven'; c.receive({ seq: c.session.seq + 1, type: 'credits.state', data: { status: 'active', endReason: null } });
+  await new Promise(resolve => setTimeout(resolve, 350)); await tick(8);
+  assert.ok(calls.filter(call => call.path === '').length > before, 'a changed tier refreshes even when its ceiling stays the same');
+  assert.equal(c.session.featureMatrix.best.voice.available, true);
+});
