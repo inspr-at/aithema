@@ -16,6 +16,7 @@ export const browserShards = [
   // 332.809s
   [
     'test/browser/start2-display-matrix.test.js',
+    'test/browser/email-ask.test.js',
     'test/browser/demo.test.js',
     'test/browser/start-look.test.js',
     'test/browser/start2-display-continuity.test.js',

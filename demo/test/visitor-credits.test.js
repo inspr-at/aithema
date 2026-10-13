@@ -33,7 +33,10 @@ test('AIT-164: server thresholds use 10% of the tier and a five-minute voice flo
   assert.equal(lowCreditThreshold(1_234_567, 0), 130_000, 'round up to a whole Credit');
 });
 test('AIT-164: a fifth-turn ask is shared by the visitor for a rolling 24h, including after restart', async t => {
-  const db = await temporaryDb(), f = fixture(t, { storage: new SQLiteStorage(db) });
+  const db = await temporaryDb(), first = new SQLiteStorage(db);
+  let time = 1_000; t.after(() => { if (first.db.isOpen) first.close(); });
+  const hostBefore = createDemoHost({ storage: first, demo: false, now: () => time, ownerGuard: false });
+  const f = { storage: first, host: hostBefore, at: value => { time = value; } };
   assert.equal(f.host.claimEmailAsk(owner), true);
   assert.equal(f.host.claimEmailAsk(owner), false);
   f.at(1_000 + DAY - 1); assert.equal(f.host.claimEmailAsk(owner), false);

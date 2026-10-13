@@ -37,6 +37,8 @@ export class EmailAsk {
     this.input.addEventListener('input', () => { if (this.step !== 'saving') { this.invalid = false; this.message = ''; this.paint(); } });
     this.q('.email-ask__skip').addEventListener('click', () => void this.dismiss(true));
     this.gate.addEventListener('keydown', event => { if (event.key === 'Escape') { event.stopPropagation(); void this.dismiss(true); } });
+    this.gate.addEventListener('mouseleave', () => this.update());
+    this.gate.addEventListener('focusout', () => this.schedule());
     this.fold = root.querySelector('.email-ask-fold');
     this.fold.addEventListener('click', () => { this.manual = true; this.step = 'idle'; this.open = true; this.paint(); this.input.focus({ preventScroll: true }); });
     this.onInput = () => { this.lastInput = this.now(); this.schedule(); };
@@ -81,7 +83,7 @@ export class EmailAsk {
     if (this.busy || !this.credits) return;
     if (safe && low && !this.state.lowLine) { void this.act('line'); return; }
     const intent = emailAskIntent({ count, replied, streaming: this.streaming(), callActive: this.callActive, typing: this.typing,
-      eligible: this.eligible, low, state: { ...this.state, open: this.open, saved: this.step === 'done' }, desktop: this.desktop, dayReady: this.now() >= (this.after ?? Infinity) });
+      eligible: this.eligible, low, state: { ...this.state, open: this.open, saved: ['saving', 'done'].includes(this.step) }, desktop: this.desktop, dayReady: this.now() >= (this.after ?? Infinity) });
     if (intent === 'fold' && !this.gate.contains(this.root.activeElement) && !this.gate.matches(':hover')) void this.act('fold');
     else if (intent === 'low' || intent === 'turn5') void this.act('show', intent);
     else if (this.typing && replied && (low || count >= 5)) this.schedule();
