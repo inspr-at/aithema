@@ -60,7 +60,7 @@ export class EmailAsk {
     return focus === this.composer && (this.composer.value.trim() !== '' || !this.desktop) || this.now() - this.lastInput < EMAIL_ASK_IDLE_MS ||
       this.desktop && this.root.querySelector('.analysis-content').contains(focus) || Boolean(this.root.querySelector('dialog[open]'));
   }
-  get eligible() { return this.email.canCollect && !this.email.address && this.credits?.tiers?.next === 'emailGiven' && this.credits.tiers.delta > 0; }
+  get eligible() { return this.credits?.exhausted !== true && !this.root.querySelector('.audio-rail').hasAttribute('data-used-up') && this.email.canCollect && !this.email.address && this.credits?.tiers?.next === 'emailGiven' && this.credits.tiers.delta > 0; }
   setCredits(credits) {
     this.credits = credits;
     this.awaitingCredits = false;
@@ -121,7 +121,10 @@ export class EmailAsk {
     const low = lowCredit(this.credits), n = this.email.numbers, owner = this.credits?.balance?.owner;
     const open = Boolean(this.open && this.email.canCollect && this.credits?.exhausted !== true), desktop = this.desktop;
     const slot = this.root.querySelector(desktop ? '.email-ask-pane' : '.email-ask-dock');
-    if (this.gate.parentElement !== slot) slot.append(this.gate);
+    if (this.gate.parentElement !== slot) {
+      const focused = this.gate.contains(this.root.activeElement) ? this.root.activeElement : null;
+      slot.append(this.gate); focused?.focus({ preventScroll: true });
+    }
     this.workspace.dataset.emailAsk = open ? desktop ? 'pane' : 'dock' : 'closed';
     this.gate.dataset.step = this.step; this.gate.dataset.why = this.state.why ?? 'turn5';
     this.gate.inert = !open; this.gate.setAttribute('aria-hidden', String(!open));

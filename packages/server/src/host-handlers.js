@@ -291,7 +291,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
           const emailAsk = { ...state.emailAsk }, credits = creditResult(id, ownerToken), turns = activeTurns(storage.get(id));
           const count = turns.filter(turn => turn.role === 'user').length;
           const low = !credits.exhausted && credits.balance.owner.availableMicro > 0 && credits.balance.owner.availableMicro <= credits.lowAtMicro;
-          const eligible = credits.tiers?.next === 'emailGiven' && credits.tiers.delta > 0 &&
+          const eligible = !credits.exhausted && credits.tiers?.next === 'emailGiven' && credits.tiers.delta > 0 &&
             (host.demo === true || privacyDocumentConfigured(host)) && !host.visitor?.(ownerToken)?.address;
           const settled = turns.at(-1)?.role === 'assistant';
           let accepted = false;
