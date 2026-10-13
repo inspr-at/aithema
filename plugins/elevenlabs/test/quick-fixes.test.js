@@ -39,6 +39,98 @@ async function setup(t, { sdk = fakeSdk(), transport = 'webrtc', persistEvent = 
 const message = (sdk, id) => sdk.starts.at(-1).onMessage({ role: 'user', message: `message ${id}`, event_id: id });
 const channelEffects = sdk => sdk.effects.filter(([name]) => ['setInputMuted', 'setVolume'].includes(name));
 
+test('AIT-138: heartbeat during recovery joins the replacement instead of closing the logical call', async t => {
+  const local = await setup(t), ready = deferred(), recover = local.control.recover;
+  local.control.recover = async (...args) => { await ready.promise; return recover(...args); };
+  local.sdk.starts[0].onDisconnect(); await until(() => local.closed.length === 1);
+  const beat = local.session.heartbeat().then(value => value, error => error);
+  try { await flush(); } finally { ready.resolve(); }
+  const result = await beat;
+  assert.equal(result.acknowledged, true);
+  assert.equal(local.closed.some(call => call.reason === 'closed' || call.reason === 'recovery-failed'), false);
+  assert.equal(local.session.callId, 'call_quick_fix');
+});
+
+test('AIT-138: exhaustion stops media and waits; explicit Resume gets a fresh per-outage allowance', async t => {
+  const local = await setup(t), recover = local.control.recover; let attempts = 0;
+  local.control.recover = async (...args) => { if (++attempts <= 3) throw new Error('outage'); return recover(...args); };
+  local.sdk.starts[0].onDisconnect();
+  await until(() => local.observed.some(event => event.type === 'waiting'));
+  assert.equal(local.session.lifecycle.state.state, 'waiting'); assert.equal(attempts, 3);
+  assert.ok(local.sdk.acquired.every(stream => stream.getTracks().every(track => track.readyState === 'ended')));
+  await local.session.resume();
+  await until(() => local.observed.some(event => event.type === 'recovered'));
+  assert.equal(local.session.lifecycle.state.state, 'active'); assert.equal(attempts, 4);
+});
+
+test('AIT-138: tentative speech at cutover stays unconfirmed without a fabricated final', async t => {
+  const local = await setup(t);
+  local.sdk.starts[0].onDebug({ type: 'tentative_user_transcript', tentative_user_transcription_event: { user_transcript: 'still tentative' } });
+  local.sdk.starts[0].onDisconnect();
+  await until(() => local.observed.some(event => event.type === 'recovered'));
+  assert.equal(local.session.lifecycle.state.checkpoint.userUnconfirmed, true);
+  assert.equal(local.observed.some(event => event.type === 'final'), false);
+});
+
+test('AIT-138: a persisted final whose acknowledgement arrives during cutover is confirmed exactly once', async t => {
+  const ack = deferred(), entered = deferred(), local = await setup(t, { persistEvent: async event => {
+    if (event.type === 'final') { entered.resolve(); await ack.promise; }
+  }, persistenceTimeoutMs: 1000, drainTimeoutMs: 1500 });
+  local.sdk.starts[0].onDebug({ type: 'tentative_user_transcript', tentative_user_transcription_event: { user_transcript: 'message' } });
+  message(local.sdk, 1); await entered.promise; local.sdk.starts[0].onDisconnect();
+  ack.resolve(); await until(() => local.observed.some(event => event.type === 'recovered'));
+  const checkpoint = local.session.lifecycle.state.checkpoint;
+  assert.equal(checkpoint.userUnconfirmed, false); assert.deepEqual(checkpoint.acceptedTurnIds, ['conv_1:user:1']);
+  assert.equal(local.observed.filter(event => event.type === 'final').length, 1);
+});
+
+test('AIT-138: playback cutover retains only an evidenced prefix and discards old queued/late audio', async t => {
+  const local = await setup(t, { transport: 'websocket' }), original = local.sdk.starts[0];
+  original.onMessage({ role: 'agent', message: 'Known reply with a remainder.', event_id: 2 }); await flush();
+  original.onAgentResponseCorrection({ event_id: 2, original_agent_response: 'Known reply with a remainder.', corrected_agent_response: 'Known reply' }); await flush();
+  original.onDisconnect(); await until(() => local.observed.some(event => event.type === 'recovered'));
+  const checkpoint = local.session.lifecycle.state.checkpoint;
+  assert.equal(checkpoint.deliveryUncertain, true); assert.equal(checkpoint.heardPrefix, 'Known reply');
+  original.onMessage({ role: 'agent', message: 'late old reply', event_id: 3 }); await flush();
+  assert.equal(local.observed.some(event => event.text === 'late old reply'), false);
+});
+
+test('AIT-138: a late old-generation heartbeat acknowledgement cannot extend the successor lease', async t => {
+  const local = await setup(t), ack = deferred(), entered = deferred();
+  local.control.heartbeat = async () => { entered.resolve(); return ack.promise; };
+  const beat = local.session.heartbeat(); await entered.promise;
+  local.sdk.starts[0].onDisconnect(); await until(() => local.observed.some(event => event.type === 'recovered'));
+  const deadline = local.session.lifecycle.state.browserLivenessDeadlineAt;
+  ack.resolve({ acknowledged: true, browserLivenessDeadlineAt: Date.now() + 999_000 });
+  assert.equal((await beat).stale, true);
+  assert.equal(local.session.lifecycle.state.browserLivenessDeadlineAt, deadline);
+});
+
+test('AIT-138: explicit provider end_call is terminal; diagnostic disconnect reasons recover', async t => {
+  const local = await setup(t); let recoveries = 0;
+  local.control.recover = async () => { recoveries++; throw new Error('unexpected recovery'); };
+  local.sdk.starts[0].onDisconnect({ reason: 'agent', context: { type: 'end_call' } }); await local.reader;
+  assert.equal(local.session.lifecycle.state.state, 'ended'); assert.equal(recoveries, 0);
+  assert.equal(local.closed.at(-1).reason, 'provider-end');
+});
+
+for (const transport of ['webrtc', 'websocket']) test(`AIT-138: ${transport} unmute finishing after replacement cannot restore old capture or playback`, async t => {
+  const local = await setup(t, { transport }), old = local.sdk.conversations[0], entered = deferred(), release = deferred();
+  const setMuted = old.input.setMuted, setVolume = old.setVolume, oldVolumes = [];
+  old.setVolume = value => { oldVolumes.push(value.volume); return setVolume(value); };
+  old.input.setMuted = async value => {
+    if (!value) { entered.resolve(); await release.promise; }
+    return setMuted(value);
+  };
+  t.after(() => release.resolve());
+  const changing = local.session.setInput(true).catch(error => error.code); await entered.promise;
+  local.sdk.starts[0].onDisconnect(); await until(() => local.observed.some(event => event.type === 'recovered'));
+  release.resolve(); await changing;
+  assert.equal(oldVolumes.at(-1), 0);
+  assert.ok(old.track.readyState === 'ended' || old.track.source === 'silence', 'a retired generation cannot reacquire a physical microphone');
+  assert.equal(local.session.lifecycle.state.state, 'active');
+});
+
 test('AIT-136 pause mutes capture immediately before the HTTP acknowledgement', async t => {
   const local = await setup(t), ack = deferred();
   local.control.pause = () => ack.promise;

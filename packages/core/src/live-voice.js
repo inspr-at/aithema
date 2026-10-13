@@ -2,7 +2,7 @@ import { PluginError } from './invocation.js';
 import { operationScope } from './reasoning.js';
 
 export const LIVE_VOICE_COMMANDS = Object.freeze(['close', 'pause', 'resume', 'setInput', 'setOutput', 'sendText', 'updateContext', 'interrupt']);
-export const LIVE_VOICE_EVENTS = Object.freeze(['listening', 'speaking', 'partial', 'final', 'heard', 'recovering', 'recovered', 'ended']);
+export const LIVE_VOICE_EVENTS = Object.freeze(['listening', 'speaking', 'partial', 'final', 'heard', 'recovering', 'recovered', 'waiting', 'ended']);
 export const LIVE_VOICE_CAPABILITIES = Object.freeze([...LIVE_VOICE_COMMANDS.filter(command => command !== 'close'), 'heard']);
 
 export function assertLiveVoice(plugin) {

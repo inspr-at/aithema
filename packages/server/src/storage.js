@@ -5,7 +5,8 @@ import { dirname, basename, resolve, join } from 'node:path';
 import { normalizeUploadLimits } from './upload-limits.js';
 import { createVoiceOperationStore } from './voice-operation-storage.js';
 import { applyEvent, createSession, inputRevision, emptyUnderstanding, isUIArtifact, isHTMLArtifact, inspectHTML, HTML_MEDIA_TYPE, imageInfo, reduceConceptIntent, createConceptIntent, MAX_IMAGE_BYTES,
-  defaultSettings, normalizeSettings, sameSelection, conversationStarted, createCredits, rebindCredits, reduceCredits, aiTextOrigin, withAITextOrigin, parseReply } from '@inspr/aithema-core';
+  defaultSettings, normalizeSettings, sameSelection, conversationStarted, createCredits, rebindCredits, reduceCredits, aiTextOrigin, withAITextOrigin,
+  voiceAuthorizationRevision, createVoiceLifecycle, reduceVoiceLifecycle, parseReply } from '@inspr/aithema-core';
 
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 export const MAX_CONCEPT_STORAGE_BYTES = 64 * 1024 * 1024;
@@ -43,6 +44,8 @@ export class SQLiteStorage {
         client_id TEXT NOT NULL, bytes BLOB NOT NULL, result TEXT NOT NULL, PRIMARY KEY(session_id,client_id));
       CREATE TABLE IF NOT EXISTS voice_calls (provider_id TEXT PRIMARY KEY, call_id TEXT NOT NULL,
         session_id TEXT NOT NULL REFERENCES sessions(id), record TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS voice_lifecycle_calls (session_id TEXT NOT NULL REFERENCES sessions(id), call_id TEXT NOT NULL,
+        record TEXT NOT NULL, PRIMARY KEY(session_id,call_id));
       CREATE TABLE IF NOT EXISTS concept_artifacts (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id),
         bytes BLOB, metadata TEXT NOT NULL, dependencies TEXT NOT NULL, tombstone TEXT);
       CREATE TABLE IF NOT EXISTS uploads (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id),
@@ -106,6 +109,7 @@ export class SQLiteStorage {
     if (session.tombstone) throw new NotFoundError('Session erased');
     if (guard.ownerToken !== undefined && session.ownerHash !== hash(guard.ownerToken)) throw new NotFoundError('Session not found');
     if (guard.revision !== undefined && inputRevision(session) !== guard.revision) throw new ConflictError('Stale session revision');
+    if (guard.authorizationRevision !== undefined && voiceAuthorizationRevision(session) !== guard.authorizationRevision) throw new ConflictError('Stale voice authorization');
   }
   list() { return this.db.prepare('SELECT id FROM sessions').all().map(r => r.id); }
   ownedIds(ownerToken) {
@@ -380,8 +384,23 @@ export class SQLiteStorage {
       if (existing && (existing.call_id !== record.callId || existing.session_id !== id)) throw new ConflictError('Voice identity mismatch');
       this.db.prepare('INSERT INTO voice_calls VALUES (?,?,?,?) ON CONFLICT(provider_id) DO UPDATE SET record=excluded.record')
         .run(record.providerSessionId, record.callId, id, JSON.stringify(record));
-      const event = paused === undefined || session.paused === paused ? null : this.#append(session, 'session.paused', { paused });
+      const event = paused === undefined || session.paused === paused ? null : this.#append(session, 'session.paused', { paused,
+        ...(!paused && guard.resumeRequestId !== undefined ? { resumeRequestId: guard.resumeRequestId } : {}) });
       return { acknowledged: true, ...(paused === undefined ? {} : { paused }), event };
+    });
+  }
+  voiceLifecycle(id, callId) {
+    const row = this.db.prepare('SELECT record FROM voice_lifecycle_calls WHERE session_id=? AND (? IS NULL OR call_id=?) ORDER BY rowid DESC LIMIT 1')
+      .get(id, callId ?? null, callId ?? null);
+    return row ? JSON.parse(row.record) : null;
+  }
+  transitionVoiceLifecycle(id, callId, event) {
+    return this.transaction(() => {
+      const prior = this.voiceLifecycle(id, callId) ?? createVoiceLifecycle(callId);
+      const next = reduceVoiceLifecycle(prior, event);
+      this.db.prepare('INSERT INTO voice_lifecycle_calls VALUES (?,?,?) ON CONFLICT(session_id,call_id) DO UPDATE SET record=excluded.record')
+        .run(id, callId, JSON.stringify(next));
+      return next;
     });
   }
   voiceCalls(id) {
@@ -545,7 +564,8 @@ export class SQLiteStorage {
   }
   pause(id, paused, guard = {}) {
     return this.transaction(() => { const session = this.get(id); this.#check(session, guard);
-      return this.#append(session, 'session.paused', { paused }); });
+      return this.#append(session, 'session.paused', { paused,
+        ...(guard.pauseRequestId === undefined ? {} : { pauseRequestId: guard.pauseRequestId }) }); });
   }
   changeLocale(id, locale, guard = {}) {
     if (!['en', 'de'].includes(locale)) throw new TypeError('Unsupported locale');

@@ -32,6 +32,52 @@ function fixture(t, { pause, unavailable = false, journal, ready, start } = {}) 
   t.after(async () => { await rail.close(); rail.destroy(); root.remove(); });
   return { root, rail, commands, events, context };
 }
+for (const [locale, copy] of [['de', de], ['en', en]]) test(`AIT-138 UI: ${locale} composer invites speech only while listening, including a waiting reload`, async t => {
+  const session = createSession({ demo: true, locale });
+  session.featureMatrix = { best: { voice: { available: true }, text: { available: true } } };
+  const events = voiceEvents(); let starts = 0, callId;
+  const client = { manifest, async start(request) {
+    starts++; callId = request.callId;
+    return { callId, providerSessionId: 'ui-provider', events,
+      async setInput() {}, async setOutput() {}, async updateContext() {},
+      async pause() { return { acknowledged: true, paused: true }; },
+      async resume() { return { acknowledged: true, paused: false }; },
+      async close() { events.end(); return { closureConfirmed: true }; } };
+  } };
+  const element = document.createElement('aithema-session'); element.configure({ copy, session, voiceClient: client });
+  let reloaded;
+  t.after(async () => { for (const c of [element, reloaded].filter(Boolean)) { c.configure({ copy, session: createSession() }); c.remove(); } await tick(); });
+  const root = element.shadowRoot, input = root.querySelector('textarea');
+  root.querySelector('.voice-start').click(); await tick();
+  assert.equal(root.querySelector('.audio-rail').dataset.state, 'listening'); assert.equal(input.placeholder, copy.placeholderVoice);
+  root.querySelector('.pause').click(); await tick();
+  assert.equal(root.querySelector('.audio-rail').dataset.state, 'paused'); assert.equal(input.placeholder, copy.placeholder);
+  root.querySelector('.pause').click(); await tick();
+  assert.equal(input.placeholder, copy.placeholderVoice, 'acknowledged Resume restores the speech invitation');
+  events.push({ type: 'waiting', callId, reason: 'recovery-failed' }); await tick();
+  assert.equal(root.querySelector('.audio-rail').dataset.state, 'waiting'); assert.equal(input.placeholder, copy.placeholder);
+  for (const selector of ['.voice-input', '.voice-output']) {
+    assert.equal(root.querySelector(selector).disabled, true); assert.ok(root.querySelector(selector).title);
+  }
+  const snapshot = structuredClone(session);
+  snapshot.voiceLifecycle = { callId, providerSessionId: 'ui-provider', state: 'waiting', attempts: 3, needsRecovery: true };
+  element.configure({ copy, session: createSession() });
+  reloaded = document.createElement('aithema-session'); reloaded.configure({ copy, session: snapshot, voiceClient: client }); await tick();
+  assert.equal(reloaded.shadowRoot.querySelector('.audio-rail').dataset.state, 'waiting');
+  assert.equal(reloaded.shadowRoot.querySelector('textarea').placeholder, copy.placeholder);
+  assert.equal(starts, 1, 'restoring waiting never starts listening');
+  for (const selector of ['.voice-input', '.voice-output']) {
+    assert.equal(reloaded.shadowRoot.querySelector(selector).disabled, true); assert.ok(reloaded.shadowRoot.querySelector(selector).title);
+  }
+});
+test('AIT-138 UI: waiting resets an assistant waveform to the calm baseline even with motion off', async t => {
+  const { rail, events, root } = fixture(t); await rail.start();
+  rail.waveform.push(.6, 'assistant', 80); assert.equal(rail.waveform.direction, 'assistant');
+  rail.motion = false;
+  events.push({ type: 'waiting', callId: rail.session.callId, reason: 'recovery-failed' }); await tick();
+  assert.equal(root.dataset.state, 'waiting'); assert.equal(rail.waveform.direction, 'user');
+  assert.equal(rail.button('input').disabled, true); assert.equal(rail.button('output').disabled, true);
+});
 test('AIT-145: hangup renders ended immediately while cost confirmation is pending', async t => {
   const { rail, root } = fixture(t); await rail.start();
   const terminal = Promise.withResolvers();
@@ -240,7 +286,9 @@ test('AIT-136 pause state changes immediately in the same controls and focus nev
   let acknowledge; const { rail, root } = fixture(t, { pause: () => new Promise(resolve => { acknowledge = resolve; }) });
   await rail.start(); const pending = rail.pause(true);
   const buttons = [...root.querySelectorAll('button')];
-  assert.equal(root.dataset.state, 'paused'); assert.equal(rail.button('pause').disabled, true);
+  assert.equal(root.dataset.state, 'paused');
+  assert.equal(rail.button('pause').disabled, false, 'a newer visitor intent may supersede a pending Pause');
+  assert.equal(rail.button('pause').title, en.resume);
   acknowledge({ acknowledged: true, paused: true }); await pending; assert.equal(root.dataset.state, 'paused');
   assert.deepEqual([...root.querySelectorAll('button')], buttons);
   window.dispatchEvent(new window.Event('focus')); await tick(); assert.equal(root.dataset.state, 'paused');
@@ -477,7 +525,7 @@ test('closing notification ends the browser SDK and local UI before slow provide
   settle({ closureConfirmed: true }); await tick();
 });
 
-test('failed recovered SDK connections complete all three attempts and expose Retry despite closing broadcasts', { timeout: 60_000 }, async t => {
+test('failed recovered SDK connections complete all three attempts and expose Resume despite closing broadcasts', { timeout: 60_000 }, async t => {
   const session = createSession({ demo: true });
   session.featureMatrix = { best: { voice: { available: true }, text: { available: true } } };
   const c = document.createElement('aithema-session'), notices = eventProbe();
@@ -511,13 +559,79 @@ test('failed recovered SDK connections complete all three attempts and expose Re
   const root = c.shadowRoot;
   const started = notices.waitFor(state => state === 'listening'); root.querySelector('.voice-start').click(); await started;
   const after = notices.events.length;
-  const finished = notices.waitFor(state => ['failed', 'idle'].includes(state), after);
+  const finished = notices.waitFor(state => state === 'waiting', after);
   callbacks.onDisconnect(); await finished;
   assert.equal(attempts, 3); assert.equal(connections, 4, 'recovery admission succeeds but each SDK connect fails');
-  assert.equal(root.querySelector('.audio-rail').dataset.state, 'failed');
-  assert.equal(root.querySelector('.voice-state').textContent, en.voiceRecoveryFailed);
-  assert.equal(root.querySelector('.voice-retry').disabled, false);
+  assert.equal(root.querySelector('.audio-rail').dataset.state, 'waiting');
+  assert.equal(root.querySelector('.voice-state').textContent, en.voiceStates.waiting);
+  assert.equal(root.querySelector('.pause').title, en.resume);
+  assert.equal(root.querySelector('.voice-retry').disabled, true);
   assert.equal(root.querySelector('.send').disabled, false);
+});
+
+test('AIT-138 fix 2: a recoverable segment confirmation keeps waiting and Resume in the browser', async t => {
+  const session = createSession({ demo: true });
+  session.featureMatrix = { best: { voice: { available: true }, text: { available: true } } };
+  let callId, sdkEnds = 0, serverCloses = 0;
+  const receipt = providerSessionId => ({ callId, providerSessionId,
+    credential: { providerSessionId, connectionType: 'webrtc', conversationToken: 'fixture-token', ttlMs: 60_000 },
+    spendDeadlineAt: Date.now() + 60_000, browserLivenessDeadlineAt: Date.now() + 30_000 });
+  const control = {
+    async start(request) { callId = request.callId; return receipt('waiting-provider'); },
+    async recover() { return receipt('resumed-provider'); },
+    async close() { serverCloses++; return { closureConfirmed: true }; },
+    async pause() { return { acknowledged: true, paused: true }; }, async resume() { return { acknowledged: true, paused: false }; }, async heartbeat() {},
+  };
+  const client = createElevenLabsClient({ control, persistEvent: async () => {}, sdk: {
+    async startSession(options) { const id = options.conversationToken && sdkEnds ? 'resumed-provider' : 'waiting-provider';
+      return { getId: () => id, input: { async setMuted() {} }, setVolume() {}, sendContextualUpdate() {}, async endSession() { sdkEnds++; } };
+    },
+  } });
+  const c = document.createElement('aithema-session'); c.configure({ copy: en, session, voiceClient: client });
+  t.after(async () => { c.configure({ copy: en, session }); c.remove(); await tick(); });
+  const root = c.shadowRoot; root.querySelector('.voice-start').click(); await tick();
+  c.receive({ type: 'voice.state', data: { callId, providerSessionId: 'waiting-provider', state: 'waiting', reason: 'browser-liveness-deadline' } }); await tick();
+  c.receive({ type: 'voice.state', data: { callId, providerSessionId: 'waiting-provider', state: 'ended', reason: 'browser-liveness-deadline',
+    terminal: { closureConfirmed: true } } }); await tick();
+  assert.equal(serverCloses, 0, 'provider settlement must not send a logical hang-up command');
+  assert.equal(sdkEnds, 0); assert.equal(root.querySelector('.audio-rail').dataset.state, 'waiting');
+  assert.equal(root.querySelector('.pause').title, en.resume); assert.equal(root.querySelector('.pause').disabled, false);
+  root.querySelector('.pause').click(); await tick(); await tick();
+  assert.equal(root.querySelector('.audio-rail').dataset.state, 'listening');
+});
+
+test('AIT-138 fix 3: a waiting snapshot restores Resume without connecting until an explicit click', async t => {
+  const session = createSession({ demo: true });
+  session.featureMatrix = { best: { voice: { available: true }, text: { available: true } } };
+  session.voiceLifecycle = { callId: 'durable-waiting-call', providerSessionId: 'retired-provider', state: 'waiting', attempts: 3,
+    needsRecovery: true, spendDeadlineAt: Date.now() + 60_000, browserLivenessDeadlineAt: Date.now() - 1000 };
+  const nativeStorage = globalThis.sessionStorage, storage = memoryStorage();
+  globalThis.sessionStorage = storage; t.after(() => { globalThis.sessionStorage = nativeStorage; });
+  voiceJournal(storage, session.id).save({ callId: 'durable-waiting-call', providerSessionId: 'retired-provider' });
+  const requests = []; let connections = 0;
+  const control = {
+    async start() { assert.fail('Resume must continue the persisted logical call'); },
+    async recover(identity) { requests.push(identity); return { callId: identity.callId, providerSessionId: 'resumed-provider', presentation: 'continuation',
+      credential: { providerSessionId: 'resumed-provider', connectionType: 'webrtc', conversationToken: 'fixture-token', ttlMs: 60_000 },
+      overrides: { agent: { language: 'en', firstMessage: '' } }, spendDeadlineAt: session.voiceLifecycle.spendDeadlineAt,
+      browserLivenessDeadlineAt: Date.now() + 30_000 }; },
+    async close() { return { closureConfirmed: true }; },
+    async pause() { return { acknowledged: true, paused: true }; },
+    async resume() { return { acknowledged: true, paused: false }; }, async heartbeat() {},
+  };
+  const client = createElevenLabsClient({ control, persistEvent: async () => {}, sdk: {
+    async startSession(options) { connections++; assert.equal(options.overrides.agent.firstMessage, '');
+      return { getId: () => 'resumed-provider', input: { async setMuted() {} }, setVolume() {}, sendContextualUpdate() {}, async endSession() {} };
+    },
+  } });
+  const c = document.createElement('aithema-session'); c.configure({ copy: en, session, voiceClient: client });
+  t.after(async () => { c.configure({ copy: en, session: createSession() }); c.remove(); await tick(); });
+  const root = c.shadowRoot; await tick();
+  assert.equal(root.querySelector('.audio-rail').dataset.state, 'waiting'); assert.equal(root.querySelector('.pause').title, en.resume);
+  assert.equal(root.querySelector('.pause').disabled, false); assert.equal(connections, 0); assert.deepEqual(requests, []);
+  root.querySelector('.pause').click(); await tick(); await tick();
+  assert.equal(root.querySelector('.audio-rail').dataset.state, 'listening'); assert.equal(connections, 1);
+  assert.deepEqual(requests, [{ callId: 'durable-waiting-call', providerSessionId: 'retired-provider', explicit: true }]);
 });
 
 test('resending failed typed input after voice ends drops its stale call identity', async t => {
@@ -735,7 +849,7 @@ test('a hidden page during a pending microphone toggle pauses once the toggle se
   rail.button('input').click(); await tick(); assert.equal(rail.busy, true);
   t.mock.method(document, 'hidden', () => true, { getter: true });
   document.dispatchEvent(new window.Event('visibilitychange')); await tick();
-  assert.equal(root.dataset.state, 'listening', 'nothing interrupts the pending command');
+  assert.equal(root.dataset.state, 'paused', 'visibility stops media before the pending command completes');
   release(); for (let i = 0; i < 5; i++) await tick();
   assert.equal(root.dataset.state, 'paused', 'the queued visibility pause applies afterwards');
   assert.equal(rail.input, false); assert.ok(journal.read());

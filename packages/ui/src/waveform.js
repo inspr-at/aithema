@@ -43,7 +43,7 @@ export class Waveform {
     this.#draw();
   }
   destroy() { this.sizes?.disconnect(); }
-  baseline() { this.#history.fill(0); this.#levels.user.reset(); this.#levels.assistant.reset(); this.#draw(); }
+  baseline() { this.#history.fill(0); this.#direction = 'user'; this.#levels.user.reset(); this.#levels.assistant.reset(); this.#draw(); }
   #draw() {
     const context = this.#context; if (!context) return;
     // Match the backing store to its CSS box: 1.6 px bars stay 1.6 px on a phone and a desktop.

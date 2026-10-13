@@ -10,6 +10,7 @@ import { displayedReadinessPercent } from '../../core/src/understanding.js';
 import { FEATURES, deviceFeatures } from '../../core/src/presets.js';
 import { SETTINGS_OFF, isDynamicReason, isConsentReason } from '../../core/src/settings.js';
 import { aiNotice } from '../../core/src/ai-notice.js';
+import { recoverableVoiceEnd } from '../../core/src/voice-lifecycle.js';
 import { AudioRail } from './audio-rail.js';
 import { styles } from './styles.js';
 import { settingsStyles } from './settings-styles.js';
@@ -334,6 +335,7 @@ export class AithemaSession extends HTMLElement {
       } catch { this.#status(this.#copy.reasoningFailed); }
     });
     this.#rail = new AudioRail({ root: root.querySelector('.audio-rail'), copy: this.#copy, client: this.#voiceClientFor(),
+      waitingCall: this.#session.voiceLifecycle,
       feature: () => this.#feature('voice', true), usedUp: () => this.#host?.usedUp ?? false, ending: () => this.#creditEnding, playback: this.#voicePlayback, journal: this.#journal ?? undefined,
       ready: () => this.#orphan, onLevel: level => this.#orb?.setEnergy(level),
       // A call that starts, ends or fails moves the stage and the avatar with it.
@@ -364,7 +366,8 @@ export class AithemaSession extends HTMLElement {
     root.querySelector('.pause').addEventListener('click', async () => {
       if (this.#host?.usedUp) return;
       const button = root.querySelector('.pause');
-      if (this.#rail.session) { await this.#rail.pause(!this.#session.paused); return; }
+      if (this.#rail.session) { await this.#rail.pause(!this.#rail.pauseIntent); return; }
+      if (this.#rail.waitingCall) { await this.#rail.start(); return; }
       button.disabled = true;
       try { await this.#setPaused(!this.#session.paused); }
       finally { button.disabled = false; }
@@ -432,6 +435,7 @@ export class AithemaSession extends HTMLElement {
   async #endOrphanedCall() {
     const record = this.#journal?.read(), sessionId = this.#session.id;
     if (!record) return;
+    if (this.#session.voiceLifecycle?.state === 'waiting' && this.#session.voiceLifecycle.callId === record.callId) return;
     try {
       const abandoned = await voiceCallAbandoned(record.callId);
       if (sessionId !== this.#session.id) return;
@@ -444,9 +448,13 @@ export class AithemaSession extends HTMLElement {
     if (this.#pausePrompt && this.#session.paused) this.shadowRoot.querySelector('.pause')?.focus();
   }
   #pagehide = () => {
-    const record = this.#journal?.read();
-    if (!record || !this.#rail?.session) return;
-    this.#rail.unloading = true;
+    const record = this.#journal?.read(), rail = this.#rail;
+    if (!rail || !rail.session && !rail.waitingCall && rail.state !== 'connecting') return;
+    rail.unloading = true;
+    // Unloading may enter the back/forward cache. Local media and pending Resume
+    // must end immediately, even without storage or a working keepalive POST.
+    void rail.close('page-hidden');
+    if (!record) return;
     void closeVoiceCall({ baseUrl: this.#base, sessionId: this.#session.id, sessionToken: this.#sessionToken, record, reason: 'page-hidden' }).catch(() => {});
   };
   #pageshow = () => { if (this.#rail) this.#rail.unloading = false; };
@@ -625,8 +633,9 @@ export class AithemaSession extends HTMLElement {
     this.#questionCard?.update(currentQuestionCard(this.#session), copy, !this.#feature('text').available, this.#sending);
     const pause = root.querySelector('.pause');
     if (pause) {
-      setText(pause.querySelector('.voice-label'), this.#session.paused ? copy.resume : copy.pause); pause.title = pause.textContent;
-      pause.setAttribute('aria-pressed', String(this.#session.paused));
+      const voicePaused = this.#rail?.session || this.#rail?.waitingCall ? this.#rail.pauseIntent : this.#session.paused;
+      setText(pause.querySelector('.voice-label'), voicePaused ? copy.resume : copy.pause); pause.title = pause.textContent;
+      pause.setAttribute('aria-pressed', String(Boolean(voicePaused)));
       pause.disabled = Boolean(this.#host?.usedUp);
       if (this.#host?.usedUp) pause.title = copy.voiceStates.usedUp;
     }
@@ -637,8 +646,9 @@ export class AithemaSession extends HTMLElement {
     if (part === 'composer') {
       const text = this.#feature('text', true), input = root.querySelector('textarea');
       input.disabled = !text.available;
-      // START's composer: during a call it invites speaking or typing, otherwise the next message.
-      input.placeholder = this.#rail?.session ? copy.placeholderVoice ?? copy.placeholder : copy.placeholder;
+      // Invite speech only while the call can listen; held calls invite the next typed message.
+      const listening = this.#rail?.session && !this.#rail.paused && !['recovering', 'waiting'].includes(this.#rail.state);
+      input.placeholder = listening ? copy.placeholderVoice ?? copy.placeholder : copy.placeholder;
       root.querySelector('.send').disabled = this.#sending || !text.available;
       const reason = root.querySelector('.composer-reason');
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');
@@ -1347,7 +1357,7 @@ export class AithemaSession extends HTMLElement {
     if (this.#sending || !this.#feature('text').available || !content.trim()) return;
     if (this.#session.processingPreset === 'device') { await this.#sendDevice(content, !option); return; }
     const sessionId = this.#session.id;
-    const voiceSession = this.#rail.session;
+    const voiceSession = !this.#rail.paused && !['recovering', 'waiting'].includes(this.#rail.state) ? this.#rail.session : null;
     if (!this.#pending || this.#pending.content !== content) this.#pending = { clientEventId: crypto.randomUUID(), content,
       ...(voiceSession ? { voiceCallId: voiceSession.callId, providerSessionId: voiceSession.providerSessionId } : {}) };
     this.#sending = true; button.disabled = true; this.#render('composer'); this.#status(this.#copy.sending);
@@ -1441,6 +1451,13 @@ export class AithemaSession extends HTMLElement {
       // the locale acknowledgement and a first turn arriving while that response is in flight.
       this.#invalidatedAt = Math.max(this.#invalidatedAt, event.seq);
       if (event.type === 'session.locale-changed') this.#repaintLocale();
+      if (event.type === 'session.paused') {
+        this.#notice = '';
+        if (!this.#rail.syncPause(event.data.paused, event.data.pauseRequestId, event.data.resumeRequestId)) {
+          this.#session.paused = Boolean(this.#rail.paused);
+        }
+        if (this.#session.paused) this.#deviceController?.abort(); else this.#pausePrompt = false;
+      }
       this.#concept.update(this.#session);
       if (event.type === 'settings.changed') {
         // A changed model, effort or preset supersedes the running reply on the server:
@@ -1453,11 +1470,6 @@ export class AithemaSession extends HTMLElement {
         if (presetBefore !== this.#session.processingPreset) this.#modeChanged(presetBefore);
         this.#renderMode(); this.#dialog?.sync();
         if (this.isConnected) void this.#refreshFeatures();
-      }
-      if (event.type === 'session.paused') {
-        this.#invalidatedAt = Math.max(this.#invalidatedAt, event.seq); this.#notice = '';
-        if (event.data.paused) this.#deviceController?.abort(); else this.#pausePrompt = false;
-        this.#rail.syncPause(event.data.paused);
       }
       if ((invalidation || consentRevised || ['session.paused', 'identity.state', 'identity.unlocked'].includes(event.type)) && this.isConnected) void this.#refreshFeatures();
       if (event.type === 'turn.final') {
@@ -1486,7 +1498,9 @@ export class AithemaSession extends HTMLElement {
       this.dispatchEvent(new CustomEvent('aithema-event', { detail: event, bubbles: true, composed: true }));
     } else if (event.type === 'voice.state') {
       const voice = this.#rail.session;
-      if (voice && ['closing', 'ended'].includes(event.data.state) && event.data.reason !== 'recovery-failed' &&
+      if (voice && event.data.state === 'waiting' && voice.callId === event.data.callId &&
+        voice.providerSessionId === event.data.providerSessionId) voice.lifecycle?.wait(event.data.reason);
+      if (voice && ['closing', 'ended'].includes(event.data.state) && !recoverableVoiceEnd(event.data.reason) &&
         voice.callId === event.data.callId && voice.providerSessionId === event.data.providerSessionId) void this.#rail.close(event.data.reason);
       this.#rail.settlement(event.data);
       this.#host?.receive(event);

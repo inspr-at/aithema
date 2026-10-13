@@ -626,6 +626,86 @@ identify text provenance, without confirming playback. Understanding/focus chang
 Unsupported commands and presets stay disabled with a reason. Automatic updates
 keep the rail, composer and export targets at fixed positions.
 
+The voice lifecycle reducer distinguishes `idle`, `connecting`, `active`,
+`paused`, `recovering`, `waiting` and terminal `ended`. The browser controller
+owns heartbeat renewal, segment liveness and recovery. Transient failures join
+one recovery flight; three attempts apply per outage. Exhaustion or browser lease
+expiry stops local media and waits for explicit Resume under the same logical
+`callId`. Recovery retains the absolute spend deadline and separately admitted,
+potentially uncertain provider liabilities. Hangup commits logical terminal
+intent before background settlement; terminal calls cannot recover. Call
+authorization revisions cover ownership, conversation consent, withdrawal,
+locale and processing choices, independently of ordinary transcript revisions.
+
+The server chooses opening or continuation presentation. Openings retain the
+locale's AI notice; every replacement sets SDK `overrides.agent.firstMessage`
+to `""`. No synthetic resume utterance is sent. Each replacement is a new
+provider generation and callback key space: an input repeated there can admit
+another operation and incur another charge. Recovery never aliases receipts or
+old operations across generations, nor marks admitted work obsolete.
+
+The owned `aithema-start2` agent sets
+`conversation_config.turn.silence_end_call_timeout` to **120 seconds**, with
+strict numeric read-back after both create and PATCH. The provider measures
+time since the user last spoke ([SDK field definition](https://github.com/elevenlabs/elevenlabs-python/blob/ea9589784336ba9aa9fc0dc01683a15da2562080/src/elevenlabs/types/turn_config.py#L22)).
+This is separate from the patient turn policy's `turn_timeout: 12` and the
+existing total-duration limit. START's template remains GET-only. Provider
+closure and spending remain uncertain until authenticated details confirm them;
+fake read-back tests do not qualify actual provider timing.
+
+Auto-end qualification, 2026-10-12: the official [agent update reference](https://elevenlabs.io/docs/eleven-agents/api-reference/agents/update)
+and [OpenAPI schema](https://api.elevenlabs.io/openapi.json) expose
+`TurnConfig.silence_end_call_timeout` and
+`ConversationConfig-Input.max_duration_seconds`, but no supported
+`max_duration_seconds_after_last_agent_message` or equivalent last-agent-message
+termination timeout. The provider's field definition says:
+“Maximum wait time since the user last spoke before terminating the call.”
+The pinned `@elevenlabs/client` **1.17.0**
+(`dist/utils/BaseConnection.d.ts`, `BaseSessionConfig.overrides`) and
+`@elevenlabs/types` **0.19.0**
+(`generated/types/asyncapi-types.ts`, `ConversationConfigOverrideConversation`)
+also define no such field; these browser SDK types describe conversation
+overrides, rather than REST agent management. The API's `soft_timeout_config`
+provides filler feedback while waiting for an LLM response, without terminating
+the call. No speculative provider field is written.
+
+Residual for the coordinator: continued user speech can keep a call alive even
+without an agent reply. That case has no qualified 120-second auto-end bound.
+The existing hard provider bound remains
+`conversation_config.conversation.max_duration_seconds: 3600` by default,
+with strict read-back, plus AIT-145's server-side orphan handling and background
+closure/accounting reconciliation. The 120-second user-silence bound and
+`turn_timeout: 12` remain separate. This needs provider qualification or a later
+coordinator decision; it is not resolved by the silence setting.
+
+Retry exhaustion persists `waiting` and three exhausted attempts before the
+browser's recovery flight completes. Owner-authenticated snapshots expose that
+public lifecycle state so reloads and another tab can retain Resume. Restoring
+the waiting view acquires no media: an explicit Resume admits a replacement,
+suppresses its greeting and waits for the server acknowledgement before capture.
+Closure receipts settle only their own segment; they preserve waiting or an
+active successor. Exhaustion reports cannot overwrite a newer segment or undo
+terminal intent. Waiting snapshots contain neither authority revisions nor
+operation checkpoints.
+
+Close during restored Resume synchronously aborts startup and keeps capture
+stopped and output at zero before background closure. Startup failures and
+deadlines stop media before reporting exhaustion; pagehide also ends local media
+and pending Resume before its keepalive request, including back/forward caching.
+Server pauses fence pending Resume and startup. The optional `pauseRequestId`
+correlates the call's own durable pause echo so it cannot recursively pause or
+block its own continuation; it supplies no authority or paid-operation identity.
+Resume carries an optional `resumeRequestId` through the durable echo, correlated
+with the rail's visitor-intent revision. An echo superseded by any later hold
+cannot lift that hold; events never start Resume commands. A fresh visitor action
+and its HTTP acknowledgement unlock media. Fast Resume → Pause → Resume clicks
+retain the last visitor intent while earlier commands finish muted.
+
+AIT-138's first slice stops here. Recovery notices, exact known-reply replay,
+durable controlling-tab takeover, sleep/wake handling and server-restart
+restoration remain to be delivered. The reducer already models those transitions;
+their end-to-end ports are not yet installed.
+
 Custom-LLM operation identity comes exclusively from the authenticated provider
 callback body. The key is SHA-256 of `(session, call, provider generation,
 user-turn ordinal, history digest)`. The ordinal counts original user messages
@@ -2099,6 +2179,8 @@ changes, deletion and conversation resets; email never keys a wallet. Exhaustion
 blocks new work until the applicable allowance increases. Every voice extension
 reads current settings and visitor evidence inside the existing ledger transaction;
 an admitted segment finishes, and a $0 allowance prevents further authorization.
+Recovery and continuation reserve each replacement through the same current-policy
+admission as a new call, even when the logical call retains its identity and deadline.
 The start2 wiring sets both per-conversation ledger subcaps to $1,000; reusable
 library defaults stay at $10. The wallet's use of upstream cost for visitor credit
 is safe only while visitor and upstream prices are equal.
@@ -2264,7 +2346,10 @@ restoring identity, replacing a current token or sending an old-address message.
 
 Bounded, idempotent cleanup runs at startup and daily through the host writer:
 addresses after 90 days of visitor inactivity, pending records/tokens after
-24 hours, and settings audit after 180 days. Pending cleanup preserves an
+24 hours, and settings audit after 180 days. Voice Start, Resume and explicit
+recovery are visitor activity, as are accepted visitor turns. Automatic transport
+recovery, heartbeats and background settlement never renew address retention.
+Pending cleanup preserves an
 independently saved address column and its email-given tier, deletes expired
 tokens, and replaces pending verification state with address-free cleared state.
 It never reserializes an address, even with a document; reads project any retained

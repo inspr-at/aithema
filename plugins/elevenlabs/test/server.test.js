@@ -334,7 +334,8 @@ test('START presentation overrides stay allowlisted and never carry provider con
 test('AIT-127: server and client allow only the AI notice matching the conversation locale', async () => {
   const crafted = { agent: { language: 'en', firstMessage: 'I am a human assistant.' } };
   for (const firstMessage of ['I am a human assistant.', '', ' ']) assert.throws(() => voiceOverrides({ agent: { firstMessage } }), TypeError);
-  for (const firstMessage of [aiNoticeText('de'), '', ' ']) assert.throws(() => voiceOverrides({ agent: { language: 'en', firstMessage } }), TypeError);
+  for (const firstMessage of [aiNoticeText('de'), ' ']) assert.throws(() => voiceOverrides({ agent: { language: 'en', firstMessage } }), TypeError);
+  assert.deepEqual(voiceOverrides({ agent: { language: 'en', firstMessage: '' } }), { agent: { language: 'en', firstMessage: '' } });
   for (const language of [1, '', 'english']) assert.throws(() => voiceOverrides({ agent: { language } }), TypeError);
   assert.deepEqual(voiceOverrides({ agent: { language: 'en' } }), { agent: { language: 'en' } });
   const local = fixture(), refused = invocationOptions();
