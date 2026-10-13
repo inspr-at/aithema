@@ -28,8 +28,10 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
     const allowancesMicro = { anonymous: row.anonymous_micro, emailGiven: row.email_given_micro, emailConfirmed: row.email_confirmed_micro };
     if (!tiers.every(tier => integer(allowancesMicro[tier])) || allowancesMicro.anonymous > allowancesMicro.emailGiven ||
       allowancesMicro.emailGiven > allowancesMicro.emailConfirmed) throw new Error('Invalid stored visitor credit settings');
+    const mailCap = { hour: row.mail_cap_hour, day: row.mail_cap_day };
+    if (!Object.values(mailCap).every(integer)) throw new Error('Invalid stored mail cap');
     return { schemaVersion: row.schema_version, revision: row.revision, allowancesMicro, confirmationEnabled: row.confirmation_enabled === 1,
-      createdAt: row.created_at, updatedAt: row.updated_at };
+      mailCap, createdAt: row.created_at, updatedAt: row.updated_at };
   };
   const insertAudit = (oldValues, newValues, { actor, source }, at) => db.prepare(`INSERT INTO visitor_credit_audit
     (actor,at,at_ms,source,revision,old_json,new_json) VALUES (?,?,?,?,?,?,?)`)
@@ -58,9 +60,27 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
       session_id TEXT NOT NULL, address_revision INTEGER NOT NULL, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL, redeemed_at INTEGER);
       CREATE INDEX IF NOT EXISTS visitor_token_retention ON visitor_confirmation_tokens(created_at);
       CREATE TABLE IF NOT EXISTS visitor_identity_cleanup (owner_hash TEXT PRIMARY KEY, at TEXT NOT NULL);`);
+    const columns = db.prepare('PRAGMA table_info(visitor_credit_settings)').all();
+    const existing = db.prepare('SELECT 1 FROM visitor_credit_settings WHERE id=1').get();
+    let migratedCap = false;
+    for (const [name, fallback] of [['mail_cap_hour', 30], ['mail_cap_day', 200]]) {
+      if (!columns.some(column => column.name === name)) {
+        db.exec(`ALTER TABLE visitor_credit_settings ADD COLUMN ${name} INTEGER NOT NULL DEFAULT ${fallback} CHECK(${name}>=0)`);
+        migratedCap = true;
+      }
+    }
+    if (existing && migratedCap) {
+      const before = settings(), at = timestamp();
+      if (!integer(before.revision + 1)) throw new TypeError('Credit revision overflow');
+      delete before.mailCap;
+      db.prepare('UPDATE visitor_credit_settings SET revision=revision+1,updated_at=? WHERE id=1').run(new Date(at).toISOString());
+      insertAudit(before, settings(), { actor: 'system:migration', source: 'migration' }, at);
+    }
     if (!db.prepare('SELECT 1 FROM visitor_credit_settings WHERE id=1').get()) {
       const at = timestamp(), iso = new Date(at).toISOString();
-      db.prepare('INSERT INTO visitor_credit_settings VALUES (1,1,1,10000000,10000000,10000000,0,?,?)').run(iso, iso);
+      db.prepare(`INSERT INTO visitor_credit_settings
+        (id,schema_version,revision,anonymous_micro,email_given_micro,email_confirmed_micro,confirmation_enabled,created_at,updated_at)
+        VALUES (1,1,1,10000000,10000000,10000000,0,?,?)`).run(iso, iso);
       insertAudit(null, settings(), { actor: 'system:migration', source: 'migration' }, at);
       // No allowance bootstrap and no changes to owner hashes, ledger rows or wallet holds.
       // Session creation and visitor turns prove activity. Expiry, recovery,
@@ -172,6 +192,11 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
       const current = settings();
       insertAudit(null, { revision: current.revision, event, ...evidence }, { actor: 'system:mail', source: 'confirmation-mail' }, timestamp());
     },
+    auditMailCap({ window, count }) {
+      if (!['hour', 'day'].includes(window) || !integer(count)) throw new TypeError('Invalid mail cap audit');
+      insertAudit(null, { revision: settings().revision, event: 'mail-cap', window, count },
+        { actor: 'system:mail', source: 'confirmation-mail' }, timestamp());
+    },
     creditTiers(ownerHash) {
       const { allowancesMicro, confirmationEnabled } = settings(), current = policy(ownerHash).tier;
       const canConfirm = confirmationEnabled && deliveryEnabled;
@@ -180,8 +205,8 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
       return { current, next, delta: next ? allowancesMicro[next] - allowancesMicro[current] : 0, canConfirm, allowancesMicro };
     },
     saveSettings(input, { actor = 'system:host', source = 'host' } = {}) {
-      if (!object(input, ['baseRevision', 'allowancesUsd', 'confirmationEnabled']) || !integer(input.baseRevision) || !input.baseRevision ||
-        input.allowancesUsd === undefined && input.confirmationEnabled === undefined ||
+      if (!object(input, ['baseRevision', 'allowancesUsd', 'confirmationEnabled', 'mailCap']) || !integer(input.baseRevision) || !input.baseRevision ||
+        input.allowancesUsd === undefined && input.confirmationEnabled === undefined && input.mailCap === undefined ||
         typeof actor !== 'string' || !actor || actor.length > 200 || typeof source !== 'string' || !source || source.length > 100) throw new TypeError('Invalid credit settings');
       let allowancesMicro;
       if (input.allowancesUsd !== undefined) {
@@ -196,14 +221,20 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
       if (input.confirmationEnabled !== undefined && demo !== true && (source !== 'ops-cli' || !actor.startsWith('ops-cli:'))) {
         throw new TypeError('Confirmation policy requires the OPS CLI');
       }
+      if (input.mailCap !== undefined) {
+        if (!object(input.mailCap, ['hour', 'day']) || !['hour', 'day'].every(window => integer(input.mailCap[window]))) {
+          throw new TypeError('Invalid mail cap');
+        }
+        if (source !== 'ops-cli' || !actor.startsWith('ops-cli:')) throw new TypeError('Mail cap requires the OPS CLI');
+      }
       return storage.transaction(() => {
         const before = settings();
         if (input.baseRevision !== before.revision) throw Object.assign(new Error('stale-credit-settings'), { status: 409, current: before });
         if (!integer(before.revision + 1)) throw new TypeError('Credit revision overflow');
-        const amounts = allowancesMicro ?? before.allowancesMicro, at = timestamp();
+        const amounts = allowancesMicro ?? before.allowancesMicro, mailCap = input.mailCap ?? before.mailCap, at = timestamp();
         db.prepare(`UPDATE visitor_credit_settings SET revision=revision+1,anonymous_micro=?,email_given_micro=?,email_confirmed_micro=?,
-          confirmation_enabled=?,updated_at=? WHERE id=1`).run(...tiers.map(tier => amounts[tier]),
-          Number(input.confirmationEnabled ?? before.confirmationEnabled), new Date(at).toISOString());
+          confirmation_enabled=?,mail_cap_hour=?,mail_cap_day=?,updated_at=? WHERE id=1`).run(...tiers.map(tier => amounts[tier]),
+          Number(input.confirmationEnabled ?? before.confirmationEnabled), mailCap.hour, mailCap.day, new Date(at).toISOString());
         const after = settings(); insertAudit(before, after, { actor, source }, at); return after;
       });
     },
@@ -294,8 +325,10 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
           ? db.prepare('DELETE FROM visitor_mail_deliveries WHERE request_id IN (SELECT request_id FROM visitor_mail_deliveries WHERE created_at<=? LIMIT ?)').run(at - DAY, limit).changes : 0;
         const abuse = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='visitor_mail_abuse'").get()
           ? db.prepare('DELETE FROM visitor_mail_abuse WHERE rowid IN (SELECT rowid FROM visitor_mail_abuse WHERE created_at<=? LIMIT ?)').run(at - DAY, limit).changes : 0;
+        const mailSlots = db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='host_mail_slots'").get()
+          ? db.prepare('DELETE FROM host_mail_slots WHERE created_at IN (SELECT created_at FROM host_mail_slots WHERE created_at<=? LIMIT ?)').run(at - DAY, limit).changes : 0;
         const audit = db.prepare('DELETE FROM visitor_credit_audit WHERE id IN (SELECT id FROM visitor_credit_audit WHERE at_ms<=? LIMIT ?)').run(at - 180 * DAY, limit).changes;
-        return { addresses, pending: pendingRows.length + tokens + deliveries + abuse, audit, projections: cleanupProjections(limit) };
+        return { addresses, pending: pendingRows.length + tokens + deliveries + abuse + mailSlots, audit, projections: cleanupProjections(limit) };
       });
       if (result.addresses || result.pending || result.projections) storage.checkpointErasure();
       return result;

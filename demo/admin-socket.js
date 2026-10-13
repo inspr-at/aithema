@@ -38,6 +38,7 @@ export async function listenAdmin({ host, spendCap, socketPath, reconcileUncerta
     try {
       const url = new URL(req.url, 'http://localhost');
       if (url.pathname === '/settings' && req.method === 'GET') return send(host.visitorCredits.settings());
+      if (url.pathname === '/mail-cap' && req.method === 'GET') return send(host.confirmation.mailCap());
       if (url.pathname === '/audit' && req.method === 'GET') {
         if ([...url.searchParams.keys()].some(key => !['after', 'limit'].includes(key))) throw new TypeError('Invalid audit page');
         const items = host.visitorCredits.audit({ after: Number(url.searchParams.get('after') ?? 0), limit: Number(url.searchParams.get('limit') ?? 100) });
@@ -51,7 +52,7 @@ export async function listenAdmin({ host, spendCap, socketPath, reconcileUncerta
           uncertainMicro: cap.uncertainMicro, remainingMicro: Math.max(0, cap.capMicro - cap.spentMicro - cap.reservedMicro - cap.uncertainMicro),
           breached: cap.breached, recovery: CAP_RECOVERY });
       }
-      if (['/set-allowances', '/set-confirmation', '/reconcile-uncertain'].includes(url.pathname) && req.method === 'POST') {
+      if (['/set-allowances', '/set-confirmation', '/set-mail-cap', '/reconcile-uncertain'].includes(url.pathname) && req.method === 'POST') {
         let size = 0; const chunks = [];
         for await (const chunk of req) { size += chunk.length; if (size > 16_384) { send({ error: 'body-too-large' }, 413); req.destroy(); return; } chunks.push(chunk); }
         const input = JSON.parse(Buffer.concat(chunks).toString('utf8'));
@@ -63,6 +64,9 @@ export async function listenAdmin({ host, spendCap, socketPath, reconcileUncerta
           return send(await reconcileUncertain({ apply: input.apply ?? false, limit: input.limit ?? 10 }));
         }
         if (url.pathname === '/set-confirmation' && (Object.keys(input).some(k => !['baseRevision', 'confirmationEnabled'].includes(k)) || typeof input.confirmationEnabled !== 'boolean')) throw new TypeError('Invalid confirmation policy');
+        if (url.pathname === '/set-mail-cap' && (!input || typeof input !== 'object' || Array.isArray(input) ||
+          Object.keys(input).some(k => !['baseRevision', 'mailCap'].includes(k)) || !input.mailCap)) throw new TypeError('Invalid mail cap policy');
+        if (url.pathname === '/set-allowances' && Object.hasOwn(input, 'mailCap')) throw new TypeError('Use set-mail-cap');
         return send(host.visitorCredits.saveSettings(input, { actor, source: 'ops-cli' }));
       }
       return send({ error: 'not-found' }, 404);
@@ -82,7 +86,7 @@ export async function listenAdmin({ host, spendCap, socketPath, reconcileUncerta
 /** Client has no database dependency or direct-storage fallback. */
 export function adminRequest(socketPath, command, payload) {
   return new Promise((resolve, reject) => {
-    const set = ['set-allowances', 'set-confirmation', 'reconcile-uncertain'].includes(command);
+    const set = ['set-allowances', 'set-confirmation', 'set-mail-cap', 'reconcile-uncertain'].includes(command);
     const query = command === 'audit' && payload ? `?${new URLSearchParams(payload)}` : '';
     const bytes = set ? Buffer.from(JSON.stringify(payload)) : null;
     const req = request({ socketPath, path: `/${command}${query}`, method: set ? 'POST' : 'GET',
