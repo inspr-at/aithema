@@ -2948,8 +2948,9 @@ for (const change of ['consent-withdrawal', 'external-consent-withdrawal', 'sour
 }
 
 test('AIT-163: less than the minimum runway refuses before provisioning or minting', async t => {
-  const h = voiceFixture(t, { durationBinding: { maxDurationSeconds: 3600, reservationSeconds: 30, minRunwaySeconds: 120 },
+  const h = voiceFixture(t, { durationBinding: { maxDurationSeconds: 3600, reservationSeconds: 30 },
     host: args => createDemoHost({ ...args, ownerGuard: false }) });
+  delete h.presets.best.bindings.voice.minRunwaySeconds; // Exercise the host's default 120 seconds.
   h.host.visitorCredits.saveSettings({ baseRevision: h.host.visitorCredits.settings().revision,
     allowancesUsd: { anonymous: '0.045', emailGiven: '0.045', emailConfirmed: '0.045' } }, { actor: 'ops-cli:fixture', source: 'ops-cli' });
   const response = await h.route('/voice', { callId: 'too-short' });
@@ -2970,4 +2971,18 @@ test('AIT-163: legacy unconfirmed voice rows without the pending flag reconcile 
   h.handlers.reconcileVoiceLater(); t.mock.timers.tick(10);
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(h.runtime.budget.get(record.attemptId).settled_micro, 1000);
+});
+
+test('AIT-163: rolling extension requires runway atomically and keeps the prior reservation on refusal', async t => {
+  const h = voiceFixture(t, { durationBinding: { maxDurationSeconds: 3600, reservationSeconds: 30, minRunwaySeconds: 120 },
+    host: args => createDemoHost({ ...args, ownerGuard: false }) });
+  h.host.visitorCredits.saveSettings({ baseRevision: h.host.visitorCredits.settings().revision,
+    allowancesUsd: { anonymous: '0.13', emailGiven: '0.13', emailConfirmed: '0.13' } }, { actor: 'ops-cli:fixture', source: 'ops-cli' });
+  const admitted = await h.runtime.admitVoice({ session: h.storage.get(h.session.id), request: { callId: 'extend-runway' } });
+  const attempt = admitted.options.attempt;
+  assert.equal(h.runtime.budget.get(attempt.attemptId).max_micro, 120_000);
+  await attempt.consume();
+  assert.throws(() => attempt.extend(60), { code: 'not-admitted' });
+  assert.equal(h.runtime.budget.get(attempt.attemptId).max_micro, 120_000);
+  admitted.finish();
 });
