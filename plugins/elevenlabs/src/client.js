@@ -233,7 +233,8 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
         })();
         return closing;
       };
-      const cancel = () => { void close('cancelled', { deadlineAt: Date.now() + 1000 }).catch(() => {}); };
+      const cancel = () => { void close(options.signal?.reason === 'ownership-lost' ? 'recovery-failed' : 'cancelled',
+        { deadlineAt: Date.now() + 1000 }).catch(() => {}); };
       const connect = async (receipt, connectOptions) => {
         const current = ++generation;
         playbackInterrupted = false;
@@ -555,6 +556,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           get epoch() { return grant.epoch; }, get tabId() { return control.tabId; },
           receiveState(state) {
             if (state.callId !== request.callId) return;
+            if (state.epoch < grant.epoch) return;
             if (state.epoch > grant.epoch || state.controllingTabId && state.controllingTabId !== control.tabId) lifecycle.ownershipLost();
             else if (state.reason === 'server-restart' && state.state === 'waiting' && state.needsRecovery !== false &&
               state.providerSessionId === grant.providerSessionId && !lifecycle.state.holds.includes('server-restart')) lifecycle.restart();

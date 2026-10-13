@@ -352,8 +352,8 @@ export class AithemaSession extends HTMLElement {
     pause.dataset.reveal = ''; root.querySelector('.voice-cell--pause').prepend(pause); root.querySelector('.audio-rail').tabIndex = -1;
     root.querySelector('.pause').addEventListener('click', async () => {
       const button = root.querySelector('.pause');
-      if (this.#rail.session) { await this.#rail.pause(!this.#rail.pauseIntent); return; }
       if (this.#rail.waitingCall) { await this.#rail.start(); return; }
+      if (this.#rail.session) { await this.#rail.pause(!this.#rail.pauseIntent); return; }
       button.disabled = true;
       try { await this.#setPaused(!this.#session.paused); }
       finally { button.disabled = false; }
@@ -608,8 +608,7 @@ export class AithemaSession extends HTMLElement {
       const voicePaused = this.#rail?.session || this.#rail?.waitingCall ? this.#rail.pauseIntent : this.#session.paused;
       setText(pause.querySelector('.voice-label'), this.#rail?.requiresTakeover || this.#rail?.moved ? copy.voiceTakeover : voicePaused ? copy.resume : copy.pause); pause.title = pause.textContent;
       pause.setAttribute('aria-pressed', String(Boolean(voicePaused)));
-      if (this.#rail?.moved) { pause.disabled = true; pause.dataset.ownershipLost = ''; }
-      else if (pause.hasAttribute('data-ownership-lost')) { pause.disabled = false; delete pause.dataset.ownershipLost; }
+      if (this.#rail?.session || this.#rail?.waitingCall || this.#rail?.state === 'connecting') pause.disabled = this.#rail.button('pause').disabled;
     }
     const element = (tag, value, className) => {
       const node = document.createElement(tag); if (value !== undefined) node.textContent = value;

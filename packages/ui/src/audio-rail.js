@@ -13,6 +13,7 @@ export class AudioRail {
     Object.assign(this, { root, copy, client, feature, context, onPartial, onPause, onEnd, onState, onLevel, playback, journal, ready, heartbeatMs });
     this.state = 'idle'; this.input = true; this.output = true; this.generation = 0; this.connected = true;
     this.pauseRequests = new Set(); this.resumeRequests = new Map(); this.pauseRevision = 0;
+    this.ownershipState = waitingCall;
     if (waitingCall?.providerSessionId && (waitingCall.state === 'waiting' || waitingCall.controllingTabId &&
       waitingCall.state !== 'ended' && waitingCall.controllingTabId !== client?.tabId)) {
       this.waitingCall = { callId: waitingCall.callId, providerSessionId: waitingCall.providerSessionId, epoch: waitingCall.epoch };
@@ -139,7 +140,6 @@ export class AudioRail {
         button.querySelector('.voice-label').textContent = button.title;
       }
       if (this.waitingCall && name === 'pause') button.disabled = Boolean(this.busy || transitional || !this.canContinue() || !this.client);
-      if (this.moved && name === 'pause') button.disabled = true;
     }
     this.button('input').setAttribute('aria-pressed', String(this.input));
     this.button('output').setAttribute('aria-pressed', String(this.output));
@@ -171,18 +171,33 @@ export class AudioRail {
     this.render();
   }
   async start() {
-    if (this.session || this.state === 'connecting' || !this.canContinue() || !this.client) return;
+    if (this.state === 'connecting' || !this.canContinue() || !this.client) return;
     if (this.requiresTakeover) {
       if (this.busy) return;
+      const generation = ++this.generation, takingBack = Boolean(this.moved), retired = this.session, opening = this.opening;
+      this.session = null; this.pauseCommand = null; this.pauseRequests.clear(); this.resumeRequests.clear();
+      this.stopHeartbeat?.(); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.quiet();
+      // Retired SDK cleanup keeps its original epoch. It cannot close the call
+      // this click is about to claim, and it must release the device guard first.
+      const retirement = retired?.close({ reason: 'tab-takeover', deadlineAt: Date.now() + 1000 }).catch(() => {});
       this.busy = true; this.render();
       try {
         const held = await this.client.takeover(this.waitingCall, { deadlineAt: Date.now() + 10_000 });
+        if (generation !== this.generation || held.epoch < this.ownershipState?.epoch) return;
         this.waitingCall = { callId: held.callId, providerSessionId: held.providerSessionId, epoch: held.epoch };
-        this.requiresTakeover = false; this.errorKey = null;
-      } catch (error) { this.failure(error); }
-      finally { this.busy = false; this.render(); }
+        this.ownershipState = held; this.requiresTakeover = false; this.moved = false; this.errorKey = null;
+        if (takingBack) {
+          await retirement; await opening?.catch(() => {});
+          if (generation !== this.generation) return;
+          // This click is already the explicit visitor intent. A newcomer still
+          // stops at the held takeover; an old tab continues straight to Resume.
+          this.busy = false; await this.start();
+        }
+      } catch (error) { if (generation === this.generation) this.failure(error); }
+      finally { if (generation === this.generation) { this.busy = false; this.render(); } }
       return;
     }
+    if (this.session) return;
     const generation = ++this.generation, revision = this.pauseRevision, resuming = Boolean(this.waitingCall);
     this.resumeRequests.clear(); this.endedCall = null; this.errorKey = null; this.state = 'connecting'; this.render();
     this.notices.clear();
@@ -200,7 +215,7 @@ export class AudioRail {
       this.playbackWatcher = watchVoicePlayback(this.root.ownerDocument, () => {
         if (generation === this.generation && (session ? session === this.session : this.state === 'connecting')) this.reportPlaybackBlocked();
       });
-      session = await this.client.start(this.waitingCall ?? { callId: crypto.randomUUID() }, {
+      const opening = this.client.start(this.waitingCall ?? { callId: crypto.randomUUID() }, {
         signal: controller.signal, holdSignal: holdController.signal, deadlineAt: Date.now() + 30_000,
         onPauseRequest: id => {
           if (generation !== this.generation) return;
@@ -209,6 +224,9 @@ export class AudioRail {
         },
         onResumeRequest: id => { if (generation === this.generation) this.rememberResume(id, revision); },
       });
+      this.opening = opening;
+      try { session = await opening; }
+      finally { if (this.opening === opening) this.opening = null; }
       if (generation !== this.generation) { await session.close(); return; }
       this.session = session; this.waitingCall = null; this.paused = false; this.state = 'listening';
       this.journal?.save({ callId: session.callId, providerSessionId: session.providerSessionId, tabId: session.tabId, epoch: session.epoch });
@@ -249,22 +267,42 @@ export class AudioRail {
     }
   }
   receiveState(state) {
-    if (this.session) { this.session.receiveState?.(state); return; }
+    if (!state?.callId) return;
+    const known = this.ownershipState;
+    if (known?.callId === state.callId && state.epoch < known.epoch) return;
+    this.ownershipState = state;
+    const foreign = state.controllingTabId && state.controllingTabId !== this.client?.tabId;
+    if (this.session) {
+      const session = this.session;
+      session.receiveState?.(state); // Synchronous media hold precedes the repaint.
+      if (state.callId === session.callId && (state.epoch > session.epoch || foreign)) {
+        this.pauseRevision++; this.pauseCommand = null; this.busy = false;
+        this.waitingCall = { callId: state.callId, providerSessionId: state.providerSessionId, epoch: state.epoch };
+        this.state = 'waiting'; this.paused = true; this.moved = true; this.requiresTakeover = true;
+        this.errorKey = 'voiceMoved'; this.notices.clear(); this.quiet();
+        this.root.querySelector('.voice-caption').textContent = ''; this.onPause?.(true); this.render();
+      }
+      return;
+    }
     if (this.state === 'connecting' && this.waitingCall && state?.callId === this.waitingCall.callId &&
-      (state.epoch > this.waitingCall.epoch || state.controllingTabId && state.controllingTabId !== this.client?.tabId)) {
+      (state.epoch > this.waitingCall.epoch || foreign)) {
       // The server may have resumed before its HTTP receipt arrives. Retire
       // startup and stop SDK media synchronously; that receipt owns no new tab.
       this.generation++; this.pauseRevision++; this.holdController?.abort('ownership-lost');
+      this.controller?.abort('ownership-lost');
       this.waitingCall = { callId: state.callId, providerSessionId: state.providerSessionId, epoch: state.epoch };
-      this.state = 'waiting'; this.paused = true; this.moved = true; this.requiresTakeover = false;
+      this.state = 'waiting'; this.paused = true; this.moved = true; this.requiresTakeover = true;
       this.errorKey = 'voiceMoved'; this.busy = false; this.pauseCommand = null;
       this.playbackWatcher?.destroy(); this.notices.clear(); this.quiet(); this.onPause?.(true); this.render();
       return;
     }
     if (!state?.providerSessionId || state.state === 'ended' || this.state === 'connecting') return;
-    if (state.controllingTabId && state.controllingTabId !== this.client?.tabId || state.state === 'waiting') {
+    if (foreign || state.state === 'waiting') {
+      if (foreign && this.busy && known?.controllingTabId === this.client?.tabId) {
+        this.generation++; this.pauseRevision++; this.busy = false; this.moved = true; this.errorKey = 'voiceMoved';
+      }
       this.waitingCall = { callId: state.callId, providerSessionId: state.providerSessionId, epoch: state.epoch };
-      this.requiresTakeover = Boolean(state.controllingTabId && state.controllingTabId !== this.client?.tabId);
+      this.requiresTakeover = Boolean(foreign);
       this.state = 'waiting'; this.paused = true; this.render();
     }
   }
