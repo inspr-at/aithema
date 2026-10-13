@@ -10,7 +10,7 @@ async function fixture(t) {
   const storage = new SQLiteStorage(); t.after(() => storage.close());
   let time = Date.now();
   const config = zitadelOperatorConfig({ AITHEMA_OPERATOR_ISSUER: issuer.issuer, AITHEMA_OPERATOR_CLIENT_ID: 'client',
-    AITHEMA_OPERATOR_SUBJECTS: 'allowed-operator', AITHEMA_PUBLIC_ORIGIN: 'https://host.test' });
+    AITHEMA_OPERATOR_SUBJECT: 'allowed-operator', AITHEMA_PUBLIC_ORIGIN: 'https://host.test' });
   const store = createSQLiteOperatorStore(storage.db), provider = createZitadelOIDC({ config });
   const port = createOperatorSessions({ provider, store, publicOrigin: config.publicOrigin, now: () => time });
   const req = (path, cookie = '', init = {}) => new Request('https://host.test' + path, { ...init, headers: { cookie, ...init.headers } });
@@ -68,11 +68,22 @@ test('AIT-165 fresh login supersedes the previous browser proof, and errors/dupl
 
 test('AIT-165 no issuer/client/subjects/origin means no plugin; invalid complete config fails closed', () => {
   const full = { AITHEMA_OPERATOR_ISSUER: 'https://issuer.test', AITHEMA_OPERATOR_CLIENT_ID: 'client',
-    AITHEMA_OPERATOR_SUBJECTS: 'subject', AITHEMA_PUBLIC_ORIGIN: 'https://host.test' };
+    AITHEMA_OPERATOR_SUBJECT: 'subject', AITHEMA_PUBLIC_ORIGIN: 'https://host.test' };
   for (const key of Object.keys(full)) assert.equal(createZitadelOIDC({ config: zitadelOperatorConfig({ ...full, [key]: ' ' }) }), null);
   for (const issuer of ['http://external.test', 'https://issuer.test/path', 'https://user:pass@issuer.test', 'https://issuer.test/?q=1']) {
     assert.throws(() => zitadelOperatorConfig({ ...full, AITHEMA_OPERATOR_ISSUER: issuer }), TypeError);
   }
+});
+
+test('AIT-165 OPS env names produce the exact registered callback including its trailing slash', () => {
+  const values = { AITHEMA_OPERATOR_ISSUER: 'https://issuer.test', AITHEMA_OPERATOR_CLIENT_ID: 'client',
+    AITHEMA_OPERATOR_SUBJECT: 'subject', AITHEMA_PUBLIC_ORIGIN: 'https://start2.augmentoring.com' };
+  const config = zitadelOperatorConfig(values);
+  assert.equal(config.redirectUri, 'https://start2.augmentoring.com/api/operator/callback/');
+  const authorization = new URL(createZitadelOIDC({ config }).begin().url);
+  assert.equal(authorization.searchParams.get('redirect_uri'), config.redirectUri);
+  assert.deepEqual(config.subjects, ['subject']);
+  assert.equal(zitadelOperatorConfig({ ...values, AITHEMA_OPERATOR_SUBJECT: undefined, AITHEMA_OPERATOR_SUBJECTS: 'subject' }), null);
 });
 
 test('AIT-165 a second sign-in revokes the previous grant and logout clears independent cookies', async t => {

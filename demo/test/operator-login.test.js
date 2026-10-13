@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { request } from 'node:http';
 import { startChild, temporaryDb } from '../../test/helpers.js';
 import { stubOperatorIssuer } from '../../test/fixtures/operator-issuer.js';
 
@@ -8,11 +9,22 @@ async function fixture(t, settings = {}) {
   const issuer = await stubOperatorIssuer(); t.after(() => issuer.close());
   const running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb(), {
     AITHEMA_PROVIDER: 'mock', AITHEMA_PUBLIC_ORIGIN: origin, AITHEMA_OPERATOR_ISSUER: issuer.issuer,
-    AITHEMA_OPERATOR_CLIENT_ID: 'fixture-client', AITHEMA_OPERATOR_SUBJECTS: 'allowed-operator,second-operator', ...settings,
+    AITHEMA_OPERATOR_CLIENT_ID: 'fixture-client', AITHEMA_OPERATOR_SUBJECT: 'allowed-operator,second-operator', ...settings,
   });
   t.after(() => running.kill());
-  const call = (path, cookie = '', init = {}) => fetch(running.url + path, { redirect: 'manual', ...init,
-    headers: { host: new URL(origin).host, ...(cookie ? { cookie } : {}), ...init.headers } });
+  // node:http preserves the public Host header through the local reverse-proxy fixture.
+  const call = (path, cookie = '', init = {}) => new Promise((resolve, reject) => {
+    const outgoing = request(running.url + path, { method: init.method ?? 'GET',
+      headers: { host: new URL(origin).host, ...(cookie ? { cookie } : {}), ...init.headers } }, incoming => {
+      const chunks = []; incoming.on('data', chunk => chunks.push(chunk)); incoming.on('error', reject);
+      incoming.on('end', () => {
+        const headers = new Headers();
+        for (let i = 0; i < incoming.rawHeaders.length; i += 2) headers.append(incoming.rawHeaders[i], incoming.rawHeaders[i + 1]);
+        resolve(new Response(Buffer.concat(chunks), { status: incoming.statusCode, headers }));
+      });
+    });
+    outgoing.on('error', reject); outgoing.end(init.body);
+  });
   const login = async (claims, header) => {
     const response = await call('/api/operator/login/'); assert.equal(response.status, 303);
     const url = new URL(response.headers.get('location'));
@@ -96,7 +108,7 @@ test('AIT-165 logout requires same-origin POST and revokes the server grant', as
   assert.equal(Object.hasOwn(await (await f.call('/demo/config', cookie)).json(), 'operator'), false);
 });
 
-for (const key of ['AITHEMA_OPERATOR_ISSUER', 'AITHEMA_OPERATOR_CLIENT_ID', 'AITHEMA_OPERATOR_SUBJECTS']) {
+for (const key of ['AITHEMA_OPERATOR_ISSUER', 'AITHEMA_OPERATOR_CLIENT_ID', 'AITHEMA_OPERATOR_SUBJECT']) {
   test(`AIT-165 feature off without ${key}`, async t => {
     const f = await fixture(t, { [key]: '' });
     const config = await (await f.call('/demo/config')).json(); assert.equal(Object.hasOwn(config, 'operatorLogin'), false);

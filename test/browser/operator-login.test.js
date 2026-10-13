@@ -19,7 +19,7 @@ async function host(directory, issuer, configured) {
   const running = await startChild(new URL('../../demo/server.js', import.meta.url), join(directory, configured ? 'on.sqlite' : 'off.sqlite'), {
     PORT: String(port), AITHEMA_PROVIDER: 'mock', AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
     AITHEMA_PUBLIC_ORIGIN: `http://localhost:${port}`, AITHEMA_COMMIT: evidenceCommit,
-    ...(configured ? { AITHEMA_OPERATOR_ISSUER: issuer.issuer, AITHEMA_OPERATOR_CLIENT_ID: 'browser-client', AITHEMA_OPERATOR_SUBJECTS: 'allowed-operator' } : {}),
+    ...(configured ? { AITHEMA_OPERATOR_ISSUER: issuer.issuer, AITHEMA_OPERATOR_CLIENT_ID: 'browser-client', AITHEMA_OPERATOR_SUBJECT: 'allowed-operator' } : {}),
   });
   return { ...running, url: `http://localhost:${port}` };
 }
