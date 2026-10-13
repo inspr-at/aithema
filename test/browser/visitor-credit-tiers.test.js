@@ -226,14 +226,19 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
         c.receive({ seq: c.session.seq + 1, type: 'credits.state', data: { status: 'active', endReason: null } });
         c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
       }); await settle();
+      await until(page, () => {
+        const c = document.querySelector('aithema-session');
+        return c.shadowRoot.querySelector('.host-credits__amount').textContent === '0' && !c.session.featureMatrix.best.voice.available;
+      });
       const held = await shadow(page, c => {
         const r = c.shadowRoot;
-        return { voiceCloses: window.a2.voiceCloses, state: r.querySelector('.audio-rail').dataset.state,
+        return { voiceCloses: window.a2.voiceCloses, voiceState: r.querySelector('.audio-rail').dataset.state,
+          availableCredits: r.querySelector('.host-credits__amount').textContent,
           railUsedUp: r.querySelector('.audio-rail').hasAttribute('data-used-up'), creditsUsedUp: r.querySelector('.host-credits').dataset.ended === 'true',
           composerUsedUp: r.querySelector('.composer-shell').hasAttribute('data-used-up'), closeDisabled: r.querySelector('.voice-close').disabled,
           newVoiceAvailable: c.session.featureMatrix.best.voice.available };
       });
-      assert.deepEqual(held, { voiceCloses: 0, state: 'listening', railUsedUp: false, creditsUsedUp: false, composerUsedUp: false, closeDisabled: false, newVoiceAvailable: false });
+      assert.deepEqual(held, { voiceCloses: 0, voiceState: 'listening', availableCredits: '0', railUsedUp: false, creditsUsedUp: false, composerUsedUp: false, closeDisabled: false, newVoiceAvailable: false });
       passLines.push({ locale, theme, width, state: 'full-hold-call', displacementPx: unchanged(heldBefore, await boxes(page, liveFixed), `${label}/full-hold-call`), pass: true, ...held });
       await shot('full-hold-call'); await click(page, '.host-credits__button'); await shot('full-hold-credits');
       for (const waitingCall of [false, true]) {

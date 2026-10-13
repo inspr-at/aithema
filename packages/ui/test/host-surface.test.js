@@ -706,6 +706,7 @@ test('AIT-135 A2 fix 1: a full hold keeps an admitted call running even when new
   await new Promise(resolve => setTimeout(resolve, 350)); await tick(8);
   assert.equal(f.c.session.featureMatrix.best.voice.available, false, 'server preview denies another reservation');
   assert.equal(closes, 0, 'a full reservation must not close the admitted segment');
+  assert.equal(f.root.querySelector('.host-credits__amount').textContent, '0', 'the fully reserved wallet read was applied');
   assert.equal(f.root.querySelector('.audio-rail').hasAttribute('data-used-up'), false);
   assert.equal(f.root.querySelector('.voice-state').textContent, en.voiceStates.listening);
   assert.equal(f.root.querySelector('.voice-close').disabled, false);
