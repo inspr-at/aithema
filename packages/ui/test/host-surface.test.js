@@ -563,6 +563,8 @@ for (const copy of [de, en]) test(`AIT-135 A2 C: inline save, edit and normal de
   assert.match(section.querySelector('.m-lead').textContent, copy === de ? /1\.200.*1\.800/u : /1,200.*1,800/u);
   assert.equal(section.querySelector('.m-pp').getAttribute('href'), '/privacy?locale=' + (copy === de ? 'de' : 'en'));
   input.value = 'reader@example.test'; section.querySelector('.m-form').requestSubmit(); await tick(10);
+  const savedReads = calls.filter(call => call.path === '').length;
+  assert.ok(savedReads > 0, 'saving a higher tier refreshes features below the ceiling');
   assert.deepEqual(calls.find(call => call.method === 'PUT').body, { address: 'reader@example.test', noticeVersion: 'ait-135-v1' });
   assert.equal(section.dataset.emailState, 'saved');
   assert.match(section.querySelector('.m-tier').textContent, copy === de ? /Guthaben: 1\.800 Credits/u : /Credit: 1,800 Credits/u);
@@ -574,6 +576,7 @@ for (const copy of [de, en]) test(`AIT-135 A2 C: inline save, edit and normal de
   assert.equal(root.activeElement, section.querySelector('.m-keep'));
   assert.match(section.querySelector('.m-delete-normal').textContent, copy === de ? /1\.200.*855/u : /1,200.*855/u);
   section.querySelector('.m-del').click(); await tick(10);
+  assert.ok(calls.filter(call => call.path === '').length > savedReads, 'deleting a tier refreshes features below the ceiling');
   assert.equal(section.dataset.emailState, 'capture'); assert.equal(root.activeElement, input);
   assert.equal(input.value, '', 'acknowledged deletion clears the cancelled edit');
   assert.equal(calls.filter(call => call.method === 'DELETE').length, 1);
@@ -764,6 +767,48 @@ for (const recovery of ['email', 'CLI']) for (const waiting of [false, true]) te
   assert.equal(f.root.querySelector('.audio-rail').hasAttribute('data-used-up'), false, 'the old refusal cannot override the recovered verdict');
   assert.notEqual(f.root.querySelector('.voice-state').textContent, en.voiceStates.usedUp);
   assert.equal(f.root.querySelector(waiting ? '.voice-pause' : '.voice-retry').disabled, false);
+  f.root.querySelector(waiting ? '.pause' : '.voice-retry').click(); await tick(8);
+  assert.equal(requests.length, 2); assert.equal(f.root.querySelector('.audio-rail').dataset.state, 'listening');
+  if (waiting) assert.deepEqual(requests[1], { callId: waitingCall.callId, providerSessionId: waitingCall.providerSessionId }, 'Resume retains the logical call');
+  for (const selector of ['.voice-input', '.voice-output', '.voice-close']) assert.equal(f.root.querySelector(selector).disabled, false);
+});
+
+for (const recovery of ['email', 'CLI']) for (const waiting of [false, true]) test(`AIT-135 A2 round 2: denial-only ${waiting ? 'Resume' : 'Retry'} recovers after a ${recovery} top-up below the ceiling`, async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const { voiceEvents } = await import('../../core/src/live-voice.js');
+  const events = voiceEvents(), requests = []; let recovered = false;
+  const waitingCall = waiting ? { callId: 'waiting-call', providerSessionId: 'waiting-provider', state: 'waiting' } : undefined;
+  const voiceClient = { async start(request) {
+    requests.push(request);
+    if (!recovered) throw Object.assign(new Error('host allowance refused admission'), { code: 'not-admitted', reason: 'host-limit' });
+    return { callId: request.callId, providerSessionId: 'recovered-provider', events,
+      async setInput() {}, async setOutput() {}, async updateContext() {},
+      async close() { events.end(); return { closureConfirmed: true }; } };
+  } };
+  const f = a2Setup(t, { spent: 11_990_000, voiceClient, waitingCall }); await tick(8);
+  const idleReads = f.calls.length;
+  t.mock.timers.tick(45_001); await tick(8);
+  assert.equal(f.calls.length, idleReads, 'healthy apps do not poll');
+  f.root.querySelector(waiting ? '.pause' : '.voice-start').click(); await tick(8);
+  assert.equal(requests.length, 1);
+  assert.equal(f.root.querySelector('.audio-rail').dataset.state, waiting ? 'waiting' : 'failed');
+  assert.equal(f.root.querySelector('.audio-rail').hasAttribute('data-used-up'), true);
+  assert.equal(f.root.querySelector(waiting ? '.voice-pause' : '.voice-retry').disabled, true);
+  assert.equal(f.root.querySelector('.host-credits').dataset.ended, 'false', 'confirmed spend stays below the ceiling');
+  assert.equal(f.root.querySelector('.composer-out').getAttribute('aria-hidden'), 'true');
+  const before = f.calls.filter(call => call.path === '').length;
+  recovered = true;
+  if (recovery === 'email') {
+    f.root.querySelector('#email-input').value = 'reader@example.test'; f.root.querySelector('.m-form').requestSubmit();
+  } else { f.topUp(); t.mock.timers.tick(15_001); }
+  await tick(16);
+  assert.ok(f.calls.filter(call => call.path === '').length > before, 'recovery reads a fresh server verdict without a limit event');
+  assert.equal(f.c.session.featureMatrix.best.voice.available, true);
+  assert.equal(f.root.querySelector('.audio-rail').hasAttribute('data-used-up'), false, 'the fresh verdict clears the refusal');
+  assert.equal(f.root.querySelector(waiting ? '.voice-pause' : '.voice-retry').disabled, false);
+  const recoveredReads = f.calls.length;
+  t.mock.timers.tick(45_001); await tick(8);
+  assert.equal(f.calls.length, recoveredReads, 'recovered apps stop polling');
   f.root.querySelector(waiting ? '.pause' : '.voice-retry').click(); await tick(8);
   assert.equal(requests.length, 2); assert.equal(f.root.querySelector('.audio-rail').dataset.state, 'listening');
   if (waiting) assert.deepEqual(requests[1], { callId: waitingCall.callId, providerSessionId: waitingCall.providerSessionId }, 'Resume retains the logical call');
