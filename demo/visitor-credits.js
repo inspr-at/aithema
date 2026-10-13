@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { usdMicro } from '../packages/server/src/spend-cap.js';
 import { privacyDocumentConfigured as hasPrivacyDocument } from '../packages/server/src/host-handlers.js';
 import { canonicalEmail } from './email-address.js';
+import { validateMailCap } from './mail-cap-policy.js';
 
 export const VISITOR_CREDIT_CEILING_MICRO = 1_000_000_000;
 export const EMAIL_NOTICE_VERSION = 'ait-135-v1';
@@ -274,9 +275,10 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
         throw new TypeError('Confirmation policy requires the OPS CLI');
       }
       if (input.mailCap !== undefined) {
-        if (!object(input.mailCap, ['hour', 'day']) || !['hour', 'day'].every(window => integer(input.mailCap[window]))) {
+        if (!object(input.mailCap, ['hour', 'day'])) {
           throw new TypeError('Invalid mail cap');
         }
+        validateMailCap(input.mailCap);
         if (source !== 'ops-cli' || !actor.startsWith('ops-cli:')) throw new TypeError('Mail cap requires the OPS CLI');
       }
       return storage.transaction(() => {

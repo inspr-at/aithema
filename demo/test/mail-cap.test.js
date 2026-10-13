@@ -178,6 +178,86 @@ test('AIT-166 suppression logs once per rolling window, persists across restart,
   assert.doesNotMatch(JSON.stringify(logs), /@|token|visitor/iu);
 });
 
+for (const window of ['hour', 'day']) {
+  test(`AIT-167 ${window} alert stays claimed when slots free during a sustained flood`, async t => {
+    const logs = []; t.mock.method(console, 'warn', line => logs.push(JSON.parse(line)));
+    const path = await temporaryDb(), f = await fixture(t, { storage: new SQLiteStorage(path) });
+    const duration = window === 'hour' ? HOUR : DAY;
+    f.set({ hour: 2, day: window === 'hour' ? 100 : 2 });
+    const flood = async (host, label) => {
+      const results = await Promise.all(Array.from({ length: 25 }, (_, i) => host.send(`${window}-${label}-${i}`)));
+      assert.ok(results.every(result => result.status === 'rate-limited'));
+    };
+    const alerts = () => logs.filter(log => log.window === window);
+    await f.send(`${window}-one`);
+    f.at(2_000); await f.send(`${window}-two`);
+    f.at(3_000); await flood(f, 'initial');
+    assert.deepEqual(alerts(), [{ event: 'mail-cap', window, count: 2 }]);
+    f.at(duration + 1_000);
+    assert.equal((await f.send(`${window}-three`)).status, 'sent');
+    f.at(duration + 1_001); await flood(f, 'first-slot-freed');
+    assert.equal(alerts().length, 1, 'freeing a slot must not re-arm an alert in the same window');
+    f.storage.close();
+    const g = await fixture(t, { storage: new SQLiteStorage(path), time: duration + 2_000 });
+    assert.equal((await g.send(`${window}-four`)).status, 'sent');
+    g.at(duration + 2_001); await flood(g, 'second-slot-freed-after-restart');
+    assert.equal(alerts().length, 1, 'the window marker must survive restart and another freed slot');
+    g.at(duration + 3_000); await flood(g, 'next-window');
+    assert.deepEqual(alerts(), [{ event: 'mail-cap', window, count: 2 }, { event: 'mail-cap', window, count: 2 }]);
+    const audits = g.host.visitorCredits.audit({ limit: 1000 })
+      .filter(event => event.newValues?.event === 'mail-cap' && event.newValues.window === window);
+    assert.equal(audits.length, 2, 'audit and warning must share the atomic window claim');
+    assert.doesNotMatch(JSON.stringify(alerts()), /@|token|visitor/iu);
+  });
+}
+
+for (const [label, mailCap, error] of [
+  ['hour ceiling', { hour: 1_001, day: 10_000 }, /hour.*1,?000/iu],
+  ['day ceiling', { hour: 1_000, day: 10_001 }, /day.*10,?000/iu],
+  ['hour exceeds day', { hour: 2, day: 1 }, /hour.*(?:<=|less than or equal to).*day/iu],
+]) {
+  test(`AIT-167 settings refuse ${label} without revising or auditing`, async t => {
+    const f = await fixture(t), before = f.settings(), audit = f.host.visitorCredits.audit();
+    assert.throws(() => f.set(mailCap), error);
+    assert.deepEqual(f.settings(), before);
+    assert.deepEqual(f.host.visitorCredits.audit(), audit);
+    const path = join(await mkdtemp(join(tmpdir(), 'ait-167-')), 'ops.sock');
+    const admin = await listenAdmin({ host: f.host, socketPath: path }); t.after(() => admin.close());
+    assert.equal((await adminRequest(path, 'set-mail-cap', { baseRevision: before.revision, mailCap })).status, 400);
+    assert.deepEqual(f.settings(), before);
+    assert.deepEqual(f.host.visitorCredits.audit(), audit);
+  });
+  test(`AIT-167 CLI refuses ${label} before contacting the admin socket`, async () => {
+    const path = join(await mkdtemp(join(tmpdir(), 'ait-167-cli-')), 'absent.sock');
+    await assert.rejects(() => promisify(execFile)(process.execPath, ['demo/admin-cli.js', '--socket', path,
+      'set-mail-cap', '--base-revision', '1', '--hour', String(mailCap.hour), '--day', String(mailCap.day)]), failure => {
+      assert.equal(failure.code, 1);
+      assert.match(failure.stderr, error);
+      assert.doesNotMatch(failure.stderr, /ENOENT|ECONNREFUSED/u);
+      return true;
+    });
+  });
+}
+
+test('AIT-167 ceilings and equal hour/day values remain valid through the CLI with audited revisions', async t => {
+  const f = await fixture(t), before = f.settings();
+  const path = join(await mkdtemp(join(tmpdir(), 'ait-167-valid-')), 'ops.sock');
+  const admin = await listenAdmin({ host: f.host, socketPath: path }); t.after(() => admin.close());
+  for (const mailCap of [{ hour: 1_000, day: 10_000 }, { hour: 1_000, day: 1_000 }, { hour: 0, day: 0 }]) {
+    const revision = f.settings().revision;
+    const result = await promisify(execFile)(process.execPath, ['demo/admin-cli.js', '--socket', path,
+      'set-mail-cap', '--base-revision', String(revision), '--hour', String(mailCap.hour), '--day', String(mailCap.day)]);
+    const saved = JSON.parse(result.stdout);
+    assert.deepEqual(saved.mailCap, mailCap);
+    assert.equal(saved.revision, revision + 1);
+    assert.deepEqual(saved.allowancesMicro, before.allowancesMicro);
+    assert.equal(saved.confirmationEnabled, before.confirmationEnabled);
+    const audit = f.host.visitorCredits.audit().at(-1);
+    assert.deepEqual(audit.newValues.mailCap, mailCap);
+    assert.equal(audit.source, 'ops-cli');
+  }
+});
+
 test('AIT-166 OPS CLI view and audited set require baseRevision, allow zero and preserve C1/A2', async t => {
   const f = await fixture(t), before = f.settings();
   const path = join(await mkdtemp(join(tmpdir(), 'ait-166-')), 'ops.sock');

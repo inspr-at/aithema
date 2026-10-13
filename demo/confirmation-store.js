@@ -123,10 +123,9 @@ export function createConfirmationStore({ storage, visitorCredits, now }) {
     const cap = mailCap(at); let suppressed = false;
     for (const [window, duration] of Object.entries(windows)) {
       const { count, limit } = cap[window];
-      if (count < limit) {
-        db.prepare('DELETE FROM host_mail_cap_alerts WHERE window=?').run(window);
-        continue;
-      }
+      // Keep the durable claim when a slot frees: another suppression within
+      // this rolling alert window must not log or audit a second time.
+      if (count < limit) continue;
       suppressed = true;
       const previous = db.prepare('SELECT last_at FROM host_mail_cap_alerts WHERE window=?').get(window);
       if (!previous || at - previous.last_at >= duration) {
