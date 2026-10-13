@@ -228,6 +228,8 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .verify__lead { font-size:.85rem; line-height:1.45; margin:0; }
 @media(max-width:600px) {
   .composer-out__bar { font-size:13px; gap:10px; }
+  /* Keep the three-line offer's space when a top-up shortens its hidden copy. */
+  .composer-out__steps { min-height:4.05em; }
   .composer-out__upgrade { max-width:132px; padding:4px 12px; line-height:1.2; text-align:center; white-space:normal; }
   .composer-out__export { max-width:132px; line-height:1.25; }
   .host-credits__used-up-full { display:none; } .host-credits__used-up-short { display:inline; }
