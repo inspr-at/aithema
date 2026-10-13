@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { SQLiteStorage } from '../src/storage.js';
 import { createVoiceTurnOperations, createVoiceReplyExecutor } from '../src/voice-turns.js';
-import { assertVoicePorts } from '@inspr/aithema-core';
+import { assertVoicePorts } from '@inspr/aithema-core/live-voice';
 
 function fixture(t) {
   const storage = new SQLiteStorage(), session = storage.create({ ownerToken: 'fixture-owner' });
