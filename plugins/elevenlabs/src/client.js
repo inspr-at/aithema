@@ -148,8 +148,9 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
               lastReplyText: lastReply && (!lastPlaybackTurnId || lastPlaybackTurnId === lastReply.turnId) ? lastReply.text : null,
             } } : value);
           }
-        }).catch(() => {
+        }).catch(error => {
           if (persistenceCancellation.signal.aborted) return;
+          if (error.code === 'voice-ownership-lost') { lifecycle.ownershipLost(); return; }
           persistenceFailed = true; stopPersistence();
           void close('transcript-persistence-failed').catch(() => {});
         });

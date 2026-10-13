@@ -4,6 +4,20 @@ import { createElevenLabsClient } from '../src/client.js';
 import { fixture, invocationOptions } from './fixtures.js';
 const test = (name, fn) => nodeTest(name, { timeout: 10_000 }, fn);
 
+test('AIT-138 d: a final refused at takeover keeps the old-tab notice without ending the successor', async t => {
+  const local = fixture(), entered = Promise.withResolvers(), release = Promise.withResolvers(); let closes = 0;
+  const control = { ...local.control, close: (...args) => { closes++; return local.control.close(...args); } };
+  const client = createElevenLabsClient({ sdk: local.sdk, control, mediaDevices: local.sdk.mediaDevices, AudioContext: local.sdk.AudioContext,
+    persistEvent: async () => { entered.resolve(); await release.promise; throw Object.assign(new Error('retired epoch'), { status: 409, code: 'voice-ownership-lost' }); } });
+  const session = await client.start({ callId: 'late-final' }, invocationOptions());
+  t.after(async () => { release.resolve(); await session.close(); });
+  local.sdk.starts[0].onMessage({ role: 'user', message: 'in flight at takeover', event_id: 1 }); await entered.promise;
+  release.resolve();
+  const event = await session.events.next();
+  assert.equal(event.value.type, 'waiting'); assert.equal(event.value.reason, 'ownership-lost');
+  assert.equal(session.lifecycle.state.state, 'waiting'); assert.equal(closes, 0, 'publication refusal never sends terminal intent over the successor');
+});
+
 for (const transport of ['webrtc', 'websocket']) {
   for (const cause of ['ownership', 'sleep', 'lease']) test(`AIT-138 d: ${transport} ${cause} holds capture and playback synchronously`, async t => {
     const local = fixture(), document = new EventTarget(), persisted = [];

@@ -597,9 +597,8 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
   const db = join(directory, 'session.sqlite');
   const settings = { AITHEMA_VOICE_MODE: 'fake', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit };
   let demo = await startChild(new URL('../fixtures/continuity-server.js', import.meta.url), db, settings);
-  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
-    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
-  t.after(async () => { await browser.close(); await demo.kill(); });
+  let browser;
+  t.after(async () => { await browser?.close(); await demo.kill(); });
   const evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], checks = [], errors = [];
   if (evidence) await mkdir(evidence, { recursive: true });
   const state = (page, expected) => until(page, expected => document.querySelector('aithema-session')?.shadowRoot?.querySelector('.audio-rail')?.dataset.state === expected, expected);
@@ -608,7 +607,11 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390]) {
     let complete = false;
     await t.test(`${width} ${theme} ${locale}`, async st => {
-      const context = await browser.createBrowserContext(), page = await context.newPage();
+      const runBrowser = await puppeteer.launch({ executablePath: await browserPath(), headless: true,
+        userDataDir: join(directory, `chrome-${width}-${theme}-${locale}`), env: { PATH: process.env.PATH, HOME: homedir() },
+        args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+      browser = runBrowser;
+      const context = runBrowser.defaultBrowserContext(), page = await context.newPage();
       let other;
       st.after(async () => {
         if (!complete) {
@@ -619,7 +622,7 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
             errors: document.querySelector('#error')?.textContent }; }).catch(() => null);
           st.diagnostic(JSON.stringify({ original: await inspect(page), newcomer: await inspect(other), errors }));
         }
-        await context.close();
+        await runBrowser.close();
       });
       page.on('pageerror', error => errors.push(error.stack ?? error.message));
       await page.setViewport({ width, height: width === 390 ? 844 : 900 });
