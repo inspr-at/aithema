@@ -19,6 +19,7 @@ async function host(directory, issuer, configured) {
   const running = await startChild(new URL('../../demo/server.js', import.meta.url), join(directory, configured ? 'on.sqlite' : 'off.sqlite'), {
     PORT: String(port), AITHEMA_PROVIDER: 'mock', AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
     AITHEMA_PUBLIC_ORIGIN: `http://localhost:${port}`, AITHEMA_COMMIT: evidenceCommit,
+    AITHEMA_ADMIN_SOCKET: join(directory, configured ? 'on-admin' : 'off-admin'),
     ...(configured ? { AITHEMA_OPERATOR_ISSUER: issuer.issuer, AITHEMA_OPERATOR_CLIENT_ID: 'browser-client', AITHEMA_OPERATOR_SUBJECT: 'allowed-operator' } : {}),
   });
   return { ...running, url: `http://localhost:${port}` };
@@ -39,10 +40,10 @@ const openGeneral = async page => {
 test('AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift',
   { timeout: 180_000 }, async t => {
     const directory = await mkdtemp(join(tmpdir(), 'aithema-operator-ui-')), issuer = await stubOperatorIssuer();
-    const configured = await host(directory, issuer, true), absent = await host(directory, issuer, false);
     const evidence = process.env.AITHEMA_EVIDENCE_DIR, passLines = [], shots = [];
-    let browser;
-    t.after(async () => { await browser?.close(); await configured.kill(); await absent.kill(); await issuer.close(); await rm(directory, { recursive: true, force: true }); });
+    let browser, configured, absent;
+    t.after(async () => { await browser?.close(); await configured?.kill(); await absent?.kill(); await issuer.close(); await rm(directory, { recursive: true, force: true }); });
+    configured = await host(directory, issuer, true); absent = await host(directory, issuer, false);
     if (evidence) await mkdir(evidence, { recursive: true });
     for (const [locale, copy] of [['de', de], ['en', en]]) {
       browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome-' + locale),
