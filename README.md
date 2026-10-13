@@ -2465,7 +2465,7 @@ Token issuance checks the current stored address and revision in the same
 transaction. A stale effect returns `stale-verification` (HTTP 409) without
 restoring identity, replacing a current token or sending an old-address message.
 
-Bounded, idempotent cleanup runs at startup and daily through the host writer:
+Bounded, idempotent cleanup runs at startup and hourly through the host writer:
 addresses after 90 days of visitor inactivity, pending records/tokens after
 24 hours, and settings audit after 180 days. Voice Start, Resume and explicit
 recovery are visitor activity, as are accepted visitor turns. Automatic transport
@@ -2597,6 +2597,9 @@ demo/admin-cli.js settings`, then use `node demo/admin-cli.js set-mail-ip-cap
 `0 <= hour <= day`, ceilings of 1,000/hour and 10,000/day, and zero suppressing
 requests. Saves require the OPS socket and current revision, and atomically
 audit the old/new values. Raising limits preserves existing counters.
+Shared networks (CGNAT, offices) share one bucket: the default 5/hour limit may
+silently suppress confirmation mail there while visitors still see “Link
+gesendet …”. OPS can raise the limit with the CLI above.
 
 Forwarded-header trust is **off by default**: the bucket comes from the socket
 peer. OPS may set **`AITHEMA_CLIENT_IP_HEADER=x-forwarded-for`** (or the host's
@@ -2615,11 +2618,14 @@ Raw IPs never enter the database, persisted events, mail transport or logs.
 The IP claim runs in the same `BEGIN IMMEDIATE` as C1, the global cap and token
 creation; requests reaching that claim count even when C1 or the global cap
 subsequently suppresses mail. IP-suppressed requests consume no global slot.
-Counts survive restart and visitor erasure and expire after 24 hours through
-bounded retention. `host_mail_ip_alerts` persists one log claim per bucket and
+Counts survive restart and visitor erasure. Expired IP-bucket rows and alert
+rows are deleted within 24 hours (at most about 25 h): IP reservations delete
+up to 100 expired rows per table, and startup/hourly bounded retention drains
+the remaining batches, including when no requests arrive.
+`host_mail_ip_alerts` persists one log claim per bucket and
 rolling window, including when slots free and after restart. Each suppression
 log contains only the event, window and 12-character bucket-HMAC prefix; alert
-rows also expire after 24 hours. IP checks and delivery run after the response,
+rows use the same 24-hour expiry. IP checks and delivery run after the response,
 so IP suppression keeps the same response and scheduling as acceptance.
 
 Accepted, address-suppressed, IP-suppressed and globally suppressed HTTP requests
@@ -2644,7 +2650,7 @@ SHA-256 hash of the complete token, bound to visitor, address revision and
 requesting conversation. The separate random request selector permits counting
 failed proofs and does not authorize confirmation.
 
-Startup and daily bounded retention remove tokens and delivery metadata after
+Startup and hourly bounded retention remove tokens and delivery metadata after
 24 hours. The separate `visitor_mail_abuse` table keeps only an address HMAC and
 send timestamp for 24 hours for abuse prevention. This pseudonymous record has
 no visitor reference, token, request selector or recipient address, survives

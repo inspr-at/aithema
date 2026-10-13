@@ -152,6 +152,13 @@ export function createConfirmationStore({ storage, visitorCredits, now }) {
   }
   function reserveIp(ipBucket, at, alerts) {
     if (ipBucket === undefined) return true; // Only the request route supplies a bucket.
+    // Physically erase expired buckets and log claims, including other IPs.
+    // Each indexed delete is bounded; hourly maintenance drains any backlog.
+    // These deletions share the reservation transaction and its rollback.
+    db.prepare(`DELETE FROM host_mail_ip_slots WHERE rowid IN
+      (SELECT rowid FROM host_mail_ip_slots WHERE created_at<=? LIMIT 100)`).run(at - DAY);
+    db.prepare(`DELETE FROM host_mail_ip_alerts WHERE rowid IN
+      (SELECT rowid FROM host_mail_ip_alerts WHERE last_at<=? LIMIT 100)`).run(at - DAY);
     const digest = hmac(`ip\0${ipBucket}`), policy = visitorCredits.settings().mailIpCap;
     const counts = db.prepare(`SELECT COALESCE(SUM(CASE WHEN created_at>? THEN count ELSE 0 END),0) hour,
       COALESCE(SUM(count),0) day FROM host_mail_ip_slots WHERE bucket_key=? AND created_at>?`).get(at - windows.hour, digest, at - DAY);

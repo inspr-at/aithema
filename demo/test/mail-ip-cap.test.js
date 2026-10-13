@@ -182,11 +182,18 @@ test('AIT-167 IP accounting and log claims survive erasure/restart, expire in bo
 
 test('AIT-167 IP reservation rolls back atomically with C1, global cap and token creation', async t => {
   const f = await fixture(t);
+  f.storage.db.prepare('INSERT INTO host_mail_ip_slots VALUES (?, ?, 1)').run('expired', 1_000);
+  f.storage.db.prepare('INSERT INTO host_mail_ip_alerts VALUES (?,\'day\',?)').run('expired', 1_000);
+  f.at(DAY + 1_000);
   t.mock.method(f.host.visitorCredits, 'createToken', () => { throw new Error('synthetic token failure'); });
   await f.call('rollback'); await f.handlers.idle();
   assert.equal(f.messages.length, 0);
-  for (const table of ['host_mail_ip_slots', 'host_mail_slots', 'visitor_mail_abuse', 'visitor_confirmation_tokens']) {
+  for (const table of ['host_mail_slots', 'visitor_mail_abuse', 'visitor_confirmation_tokens']) {
     assert.equal(f.storage.db.prepare(`SELECT COUNT(*) n FROM ${table}`).get().n, 0);
+  }
+  for (const table of ['host_mail_ip_slots', 'host_mail_ip_alerts']) {
+    assert.equal(f.storage.db.prepare(`SELECT COUNT(*) n FROM ${table}`).get().n, 1, 'expired-row cleanup also rolls back');
+    assert.equal(f.storage.db.prepare(`SELECT bucket_key FROM ${table}`).get().bucket_key, 'expired');
   }
 });
 
