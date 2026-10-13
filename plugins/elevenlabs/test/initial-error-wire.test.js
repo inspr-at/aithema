@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { runElevenLabsReply } from '../src/reply.js';
 import { INITIAL_ERROR_CAUSES, recordInitialErrorWire } from '../../../test/voice-initial-error-wire.js';
 
-// Captured on mbp2606 from main 92dc507, capture commit 5004910.
+// Captured on mbp2606 from main 92dc507, capture commit 02cd3f2.
 // This is a separate error fixture; elevenlabs-wire.json is never regenerated.
 const baseline = JSON.parse(await readFile(new URL('../../../test/fixtures/elevenlabs-initial-errors-92dc507.json', import.meta.url), 'utf8'));
 for (const cause of INITIAL_ERROR_CAUSES) {
