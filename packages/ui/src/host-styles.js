@@ -59,10 +59,10 @@ export const hostStyles = `
 /* Keep the sending action's reservation while each label hugs its own button. */
 .verify__primary { display:grid; } .verify__primary > * { grid-area:1/1; justify-self:start; min-height:2.75rem; }
 .verify-resend { text-align:left; } .verify-cancel { font-size:.85rem; }
-.verify-form[data-mode=pending] { grid-template-areas:"lead" "field" "actions" "message" "note" "privacy"; }
+.verify-form[data-mode=pending] { row-gap:12px; grid-template-areas:"lead" "field" "actions" "message" "note" "privacy"; }
 .verify-form[data-mode=pending] > .verify__lead { grid-area:lead; }
 .verify-form[data-mode=pending] > .verify__field { grid-area:field; }
-.verify-form[data-mode=pending] > .verify__actions { grid-area:actions; margin-bottom:calc(12px - .45rem); }
+.verify-form[data-mode=pending] > .verify__actions { grid-area:actions; }
 .verify-form[data-mode=pending] > .verify__message { grid-area:message; }
 .verify-form[data-mode=pending] > .verify__note { grid-area:note; }
 .verify-form[data-mode=pending] > .m-notice { grid-area:privacy; }
