@@ -716,6 +716,9 @@ authorization before capture. Old commands, including delayed eligibility result
 cannot renew, publish or end the successor. The old tab stops capture and playback
 synchronously on the server notification or its 30-second lease expiry and displays
 a calm notice in the fixed rail. BroadcastChannel pings are advisory only.
+If hiding the page cancels an in-flight take-back, the next server state or
+snapshot reconciles the controlling tab and epoch. A tab that already owns the
+call offers Resume without another takeover and stays held until the next click.
 
 Browser freeze and clock gaps over 15 seconds stop media immediately. Wake enters
 `waiting`; only explicit Resume rechecks ownership, authorization and transport.
