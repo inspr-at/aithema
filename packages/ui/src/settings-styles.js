@@ -156,6 +156,19 @@ dialog.settings::backdrop { background:rgb(12 28 39 / .36); backdrop-filter:blur
 .general h3 { font:400 1.25rem/1.2 var(--aithema-display); }
 .general button { justify-self:start; margin-left:-.85rem; }
 .status-line { font-size:.85rem; }
+.general section.operator-section { grid-column:1/-1; gap:0; border-top:1px solid var(--aithema-line); padding-top:1.2rem; }
+.operator-row { display:grid; height:44px; min-width:0; color:var(--aithema-muted); font-size:13px; line-height:18px; }
+.operator-view { grid-area:1/1; min-width:0; align-self:stretch; }
+.operator-view:not(.on) { visibility:hidden; pointer-events:none; }
+.operator-login { display:inline-flex; align-items:center; justify-self:start; gap:8px; padding:13px 0; color:inherit; text-decoration:none; }
+.operator-login svg { flex:none; }
+.operator-login:hover, .operator-logout:hover { color:var(--aithema-ink); background:none; text-decoration:underline; text-underline-offset:3px; }
+.operator-signed-in { display:flex; align-items:center; justify-self:start; max-width:100%; white-space:nowrap; }
+.operator-name { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+.general .operator-logout { flex:none; min-height:44px; margin:0; padding:13px 8px; font:inherit; font-weight:400; color:inherit; border:0; border-radius:0; background:none; }
+.operator-notice { display:grid; }
+.operator-notice > p { grid-area:1/1; font-size:.75rem; line-height:1.5; color:var(--aithema-muted); max-width:34rem; overflow-wrap:anywhere; }
+.operator-error-measure { visibility:hidden; pointer-events:none; user-select:none; }
 .local { display:grid; gap:1.1rem; }
 .local__heading { display:flex; gap:.8rem; align-items:center; }
 .local__heading h3 { font:400 1.3rem/1.2 var(--aithema-display); }

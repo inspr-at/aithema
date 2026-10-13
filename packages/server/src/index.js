@@ -16,3 +16,4 @@ export * from './ui-render-limits.js';
 export * from './upload-limits.js';
 export * from './upload-handlers.js';
 export * from './host-handlers.js';
+export * from './operator-session.js';

@@ -93,6 +93,11 @@ export const de = {
   features: { text: 'Text', analysis: 'Auswertung', voice: 'Sprache', transcription: 'Spracherkennung', images: 'Bilder', html: 'Klickbare Entwürfe', uploads: 'Dateien hochladen' },
   engine: { model: 'Modell', voice: 'Sprache', visuals: 'Entwürfe', off: 'Aus', localModel: 'Lokales Modell', notConnected: 'nicht verbunden' },
   settings: {
+    operatorLogin: 'Mit {provider} als Operator anmelden',
+    operatorName: 'Operator: {name}',
+    operatorLogout: 'Abmelden',
+    operatorError: 'Die Operator-Anmeldung ist fehlgeschlagen. Bitte versuchen Sie es erneut.',
+
     open: 'Einstellungen', title: 'Einstellungen', tabs: { general: 'Allgemein', model: 'KI-Modell', local: 'Erweitert' },
     processing: 'Datenverarbeitung', model: 'Modell', responseStyle: 'Antwortstil', faster: 'Schneller', moreThorough: 'Gründlicher',
     fixedEffort: 'Bei diesem Modell lässt sich die Gründlichkeit nicht einstellen.', deviceNote: 'Wählen und testen Sie Ihr lokales Modell unter „Erweitert“.',

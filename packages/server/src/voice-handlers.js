@@ -14,7 +14,7 @@ const matchesCallback = (route, path) => {
   return declared.length === actual.length && declared.every((part, i) => part.startsWith(':')
     ? new RegExp(`^${idPattern}$`, 'u').test(actual[i]) : part === actual[i]);
 };
-const reservedCallbackPrefixes = ['/api/sessions', '/api/library', '/api/visitor'];
+const reservedCallbackPrefixes = ['/api/sessions', '/api/library', '/api/visitor', '/api/operator', '/privacy', '/confirm-email', '/healthz'];
 function registerCallbacks(callbacks) {
   for (const route of callbacks?.callbackRoutes ?? []) {
     const declared = route.path.split('/');

@@ -192,3 +192,17 @@ export interface PrivateBinding {
       verifiedAt: number; expiresAt: number; qualified: boolean } };
 }
 export type LaneBindings = { reaction: PrivateBinding; understanding: PrivateBinding };
+
+/** Trusted host authentication, independent of visitor identity and ownership. */
+export interface OperatorSessionPort {
+  handle(request: Request): Promise<Response | null>;
+  session(request: Request): { name: string } | null;
+  entry(): { provider: string; url: string; logoutUrl: string };
+}
+export interface OperatorIdentityProvider {
+  label: string;
+  sessionNamespace: string;
+  allows(subject: string): boolean;
+  begin(): { url: string; pending: { state: string; nonce: string; verifier: string } };
+  complete(code: string, pending: { state: string; nonce: string; verifier: string }, signal?: AbortSignal): Promise<{ subject: string; name: string }>;
+}
