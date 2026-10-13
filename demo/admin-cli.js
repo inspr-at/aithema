@@ -2,23 +2,27 @@
 import { dirname, join, resolve } from 'node:path';
 import { adminRequest } from './admin-socket.js';
 
-const usage = 'Usage: node demo/admin-cli.js [--socket PATH] settings | audit [--after ID] [--limit N] | provider-cap | '
+const usage = 'Usage: node demo/admin-cli.js [--socket PATH] settings | audit [--after ID] [--limit N] | provider-cap | reconcile-uncertain [--dry-run|--apply] [--limit N] | '
   + 'set-allowances --base-revision N --anonymous USD --email-given USD --email-confirmed USD | set-confirmation --base-revision N --enabled true|false';
 try {
   const args = process.argv.slice(2);
   let socket = process.env.AITHEMA_ADMIN_SOCKET ?? join(dirname(resolve(process.env.AITHEMA_DB ?? '.data/session.sqlite')), 'ops', 'admin');
   if (args[0] === '--socket') { args.shift(); socket = args.shift(); }
   const command = args.shift();
-  if (!['settings', 'set-allowances', 'set-confirmation', 'audit', 'provider-cap'].includes(command)) throw new Error(usage);
+  if (!['settings', 'set-allowances', 'set-confirmation', 'audit', 'provider-cap', 'reconcile-uncertain'].includes(command)) throw new Error(usage);
   const options = {};
   while (args.length) {
-    const key = args.shift(), value = args.shift();
+    const key = args.shift(), value = ['--apply', '--dry-run'].includes(key) ? true : args.shift();
     if (!key?.startsWith('--') || value === undefined || Object.hasOwn(options, key)) throw new Error(usage);
     options[key] = value;
   }
   let payload;
   const keys = Object.keys(options);
-  if (command === 'set-allowances') {
+  if (command === 'reconcile-uncertain') {
+    if (keys.some(key => !['--apply', '--dry-run', '--limit'].includes(key)) || options['--apply'] && options['--dry-run'] ||
+      options['--limit'] !== undefined && (!/^[1-9]\d*$/u.test(options['--limit']) || Number(options['--limit']) > 100)) throw new Error(usage);
+    payload = { apply: options['--apply'] === true, ...(options['--limit'] === undefined ? {} : { limit: Number(options['--limit']) }) };
+  } else if (command === 'set-allowances') {
     const required = ['--base-revision', '--anonymous', '--email-given', '--email-confirmed'];
     if (keys.length !== required.length || required.some(key => !Object.hasOwn(options, key)) || !/^[1-9]\d*$/u.test(options['--base-revision'])) throw new Error(usage);
     payload = { baseRevision: Number(options['--base-revision']), allowancesUsd: {

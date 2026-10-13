@@ -90,9 +90,10 @@ export function mockPresets() {
     eu: { plugins: [], bindings: {} }, custom: { plugins: [], bindings: {} } };
 }
 export function createPluginRuntime({ storage, reasoning = createMockReasoning(), registry = new PluginRegistry().register(reasoning),
-  presets = mockPresets(), consent, budget = new SQLiteBudgetLedger(storage), voiceCap, healthMs = 1000, now = () => Date.now(), uiRenderLimits = {},
+  presets = mockPresets(), consent, costReconciliationWindowMs = 300_000, budget = new SQLiteBudgetLedger(storage), voiceCap, healthMs = 1000, now = () => Date.now(), uiRenderLimits = {},
   renderLimiter = createUIRenderLimiter({ storage, now, ...uiRenderLimits }) } = {}) {
-  let ownerWallet, costRetryOffset = 0;
+  if (!Number.isSafeInteger(costReconciliationWindowMs) || costReconciliationWindowMs < 1) throw new TypeError('Invalid cost evidence window');
+  let ownerWallet, costRetryOffset = 0, costJob;
   const admitBudget = async (session, request) => {
     const wallet = ownerWallet?.(session);
     if (!wallet) return budget.admit(request);
@@ -183,7 +184,9 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   const voiceAmounts = (binding, options) => {
     const milliseconds = options.spendDeadlineAt === undefined ? binding.maxDurationSeconds * 1000
       : Math.min(binding.maxDurationSeconds * 1000, Math.max(0, options.spendDeadlineAt - now()));
-    const reservedMs = binding.reservationSeconds ? Math.min(milliseconds, binding.reservationSeconds * 1000) : milliseconds;
+    const runwayMs = Math.min(binding.minRunwaySeconds * 1000, binding.maxDurationSeconds * 1000);
+    if (milliseconds < runwayMs) throw new PluginError('not-admitted', 'host-limit');
+    const reservedMs = binding.reservationSeconds ? Math.min(milliseconds, Math.max(binding.reservationSeconds * 1000, runwayMs)) : milliseconds;
     return { maxMilliseconds: Math.ceil(milliseconds), maxMicro: binding.reservationSeconds
       ? Math.ceil(reservedMs / 60_000 * binding.upstreamMicroPerMinute)
       : options.spendDeadlineAt === undefined ? binding.maxMicro : Math.ceil(milliseconds / 60_000 * binding.upstreamMicroPerMinute),
@@ -340,27 +343,70 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     setOwnerWallet(provider) { ownerWallet = provider; },
     recoverCosts() { return Promise.all(registry.list().map(plugin => plugin.recoverCosts?.())); },
     async reconcileCosts(options = {}) {
-      const rows = budget.pendingCosts(), count = Math.min(10, rows.length);
-      for (let i = 0; i < count && !options.signal?.aborted; i++) {
-        const row = rows[(costRetryOffset + i) % rows.length]; let record = JSON.parse(row.provider_cost_json);
-        const plugin = registry.get(record.plugin);
-        if (!plugin?.reconcileCost) continue;
-        try {
-          const saved = await plugin.costEvidence?.(row.attempt_id);
-          if (saved && Object.keys(saved).length) {
-            budget.observeCost(row.attempt_id, saved); record = { ...record, ...saved };
+      // OPS and the background worker share one writer. A dry-run performs only
+      // receipt reads; it never records evidence, changes a balance or releases a cap.
+      if (costJob) { await costJob; return this.reconcileCosts(options); }
+      const run = async () => {
+        const rows = budget.pendingCosts(), limit = options.limit ?? 10;
+        if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new TypeError('Invalid reconciliation batch');
+        const count = Math.min(limit, rows.length), summary = { candidates: 0, beforeMicro: 0, afterMicro: 0, corrected: 0, pending: 0 };
+        for (let i = 0; i < count && !options.signal?.aborted && Date.now() < (options.deadlineAt ?? Infinity); i++) {
+          const row = rows[(costRetryOffset + i) % rows.length];
+          let record = row.provider_cost_json ? JSON.parse(row.provider_cost_json) : null;
+          if (!record && ['reaction', 'understanding'].includes(row.lane)) {
+            // Pre-AIT-134 rows have no receipt metadata. Their original terminal
+            // remains untouched; an explicit estimate is attached as new evidence.
+            const session = storage.get(row.session_id), raw = selectedBinding(session, session.processingPreset ?? 'best', row.lane).raw;
+            if (raw?.plugin === 'openrouter') record = { plugin: raw.plugin, endpoint: raw.endpoint,
+              secretRef: raw.secretRef, accountRef: raw.accountRef, estimateMicro: registry.get(raw.plugin)?.uncertainEstimateMicro, settledAt: 0 };
           }
-          const evidence = row.cost_reconciliation_json ? JSON.parse(row.cost_reconciliation_json)
-            : record.chargedMicro !== undefined ? { chargedMicro: record.chargedMicro, ...(record.generationId ? { generationId: record.generationId } : {}) }
-            : row.outcome !== 'uncertain' ? { chargedMicro: row.settled_micro, ...(record.generationId ? { generationId: record.generationId } : {}) }
-            : await plugin.reconcileCost(record, { ...options, deadlineAt: Date.now() + 5000 });
-          if (!evidence) continue;
-          budget.reconcileCost(row.attempt_id, evidence);
-          await plugin.reconcileSpend?.(row.attempt_id, evidence.chargedMicro);
-          budget.acknowledgeCost(row.attempt_id);
-        } catch { /* The durable unknown remains visible and retryable. */ }
-      }
-      costRetryOffset = rows.length ? (costRetryOffset + count) % rows.length : 0;
+          const plugin = record && registry.get(record.plugin);
+          if (!plugin?.reconcileCost) { summary.pending++; continue; }
+          const usage = row.usage ? JSON.parse(row.usage) : null;
+          if (usage && ['inputTokens', 'outputTokens'].every(k => Number.isSafeInteger(usage[k]) && usage[k] >= 0)) {
+            try { record.observedCostMicro = Math.max(record.observedCostMicro ?? 0, plugin.usageCost?.(usage, record.model) ?? 0); }
+            catch { summary.pending++; continue; } // Unknown price cannot turn existing usage into free spend.
+          }
+          summary.candidates++; summary.beforeMicro += row.settled_micro;
+          let evidence, saved;
+          try { saved = await plugin.costEvidence?.(row.attempt_id); }
+          catch { /* The receipt endpoint is still eligible; an absent cap journal is not zero usage. */ }
+          if (saved) record = { ...record, ...saved };
+          const previous = row.cost_reconciliation_json ? JSON.parse(row.cost_reconciliation_json) : null;
+          if (record.chargedMicro !== undefined) evidence = { chargedMicro: record.chargedMicro, ...(record.generationId ? { generationId: record.generationId } : {}) };
+          else if (previous && previous.estimated !== true) evidence = previous;
+          else if (row.outcome !== 'uncertain') evidence = { chargedMicro: row.settled_micro, ...(record.generationId ? { generationId: record.generationId } : {}) };
+          else {
+            try { evidence = await plugin.reconcileCost(record, { ...options, deadlineAt: Math.min(options.deadlineAt ?? Infinity, Date.now() + 5000) }); }
+            catch { /* Timeouts and unavailable generations reach the same bounded fallback. */ }
+            if (!evidence && now() - (record.settledAt ?? 0) >= costReconciliationWindowMs) {
+              const estimate = record.estimateMicro ?? plugin.uncertainEstimateMicro;
+              if (Number.isSafeInteger(estimate) && estimate >= 0) evidence = {
+                chargedMicro: Math.max(estimate, record.observedCostMicro ?? 0, previous?.estimated ? previous.chargedMicro : 0),
+                estimated: true, source: 'configured-call-estimate', estimateMicro: estimate,
+                observedCostMicro: record.observedCostMicro ?? 0, windowMs: costReconciliationWindowMs, ...(record.generationId ? { generationId: record.generationId } : {}) };
+            }
+          }
+          summary.afterMicro += evidence?.chargedMicro ?? row.settled_micro;
+          if (!evidence) { summary.pending++; continue; }
+          if (options.dryRun) continue;
+          try {
+            if (!row.provider_cost_json) budget.attachCost(row.attempt_id, record);
+            if (saved && Object.keys(saved).length) budget.observeCost(row.attempt_id, saved);
+            const before = row.cost_reconciliation_json;
+            budget.reconcileCost(row.attempt_id, evidence);
+            if (before !== budget.get(row.attempt_id).cost_reconciliation_json || row.settled_micro !== evidence.chargedMicro) summary.corrected++;
+            if (evidence.estimated !== true) {
+              await plugin.reconcileSpend?.(row.attempt_id, evidence.chargedMicro);
+              budget.acknowledgeCost(row.attempt_id);
+            } else summary.pending++;
+          } catch { summary.pending++; /* The durable evidence is retried after a crash or cap settlement failure. */ }
+        }
+        if (!options.dryRun) costRetryOffset = rows.length ? (costRetryOffset + count) % rows.length : 0;
+        return summary;
+      };
+      costJob = run();
+      try { return await costJob; } finally { costJob = undefined; }
     },
     /** Revalidate a dispatched operation's admitted scope against the current grant. */
     async processingAllowed(session, consentScope, options = {}) {
@@ -560,7 +606,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const current = storage.get(session.id);
       if (result.reason || current.ownerHash !== session.ownerHash || current.tombstone || current.consentWithdrawn ||
         (!allowPaused && current.paused) || voiceAuthorizationRevision(current) !== voiceAuthorizationRevision(session) ||
-        selectionKey(current, 'voice') !== selectionKey(session, 'voice')) throw new PluginError('not-admitted', result.reason ?? 'Session changed');
+        selectionKey(current, 'voice') !== selectionKey(session, 'voice')) throw new PluginError('not-admitted', result.reason === 'budget denied' ? 'host-limit' : result.reason ?? 'Session changed');
       return result;
     },
     /**
@@ -613,8 +659,11 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         get exposureMicro() { return budget.get(attemptId).voice_exposure_micro; },
         retainExposure: () => budget.retainVoiceExposure(attemptId),
         ...(binding.reservationSeconds ? { extend(seconds) {
-          return budget.extendVoice(attemptId, { maxMicro: Math.ceil(seconds / 60 * binding.upstreamMicroPerMinute),
-            maxVisitorMicro: Math.ceil(seconds / 60 * binding.visitorMicroPerMinute) }, extra => ownerWallet?.(session)?.canAdmit(extra));
+          // Extension callers supply elapsed + segment seconds. Replace the
+          // short segment by the runway, bounded only by the technical end.
+          const totalSeconds = Math.min(maxMilliseconds / 1000, seconds + Math.max(0, binding.minRunwaySeconds - binding.reservationSeconds));
+          return budget.extendVoice(attemptId, { maxMicro: Math.ceil(totalSeconds / 60 * binding.upstreamMicroPerMinute),
+            maxVisitorMicro: Math.ceil(totalSeconds / 60 * binding.visitorMicroPerMinute) }, extra => ownerWallet?.(session)?.canAdmit(extra));
         } } : {}), async consume() {
         if (reported || consuming) throw new PluginError('already-claimed');
         consuming = true;
@@ -687,7 +736,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       if (![ceiling, tokenCeiling].every(Number.isSafeInteger) || Math.max(ceiling, tokenCeiling) > binding.maxMicro) throw new PluginError('not-admitted', 'Request exceeds binding cost ceiling');
       if (operation !== result.operation) throw new PluginError('not-admitted');
       const { attemptId } = await admitBudget(session, { sessionId: session.id, lane, maxMicro: html || plugin.estimateCost ? ceiling : binding.maxMicro,
-        ...(plugin.reconcileCost ? { providerCost: { plugin: binding.plugin, endpoint: binding.endpoint, secretRef: binding.secretRef, accountRef: binding.accountRef } } : {}),
+        ...(plugin.reconcileCost ? { providerCost: { plugin: binding.plugin, endpoint: binding.endpoint, secretRef: binding.secretRef, accountRef: binding.accountRef, model: binding.model, estimateMicro: plugin.estimateUncertainCost?.(request, operation) ?? plugin.uncertainEstimateMicro } } : {}),
         requestSha256: hash(html ? { ...request, previousArtifact: request.previousArtifact?.provenance.subject.contentDigest } : lane === 'concept' ? { prompt: request.prompt, feedback: request.feedback, references: request.references?.map(r => ({
           mediaType: r.mediaType, role: r.role, sha256: createHash('sha256').update(r.bytes).digest('hex') })) } : request), bindingSha256: hash(binding) });
       const claim = budget.claim(attemptId); let reported = false, refused = false, consuming = false, detached = false;

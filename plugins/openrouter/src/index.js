@@ -1,5 +1,5 @@
 import { createChatCompletions, createBinding, publicReasoningManifest, deepFreeze, PluginError } from '@inspr/aithema-core';
-import { modelPrice, providerMaxPrice, requestCeilingMicro, requestInputTokens } from './pricing.js';
+import { modelPrice, providerMaxPrice, requestCeilingMicro, requestInputTokens, tokenCeilingMicro } from './pricing.js';
 import { reconcileGeneration } from './reconcile.js';
 const base = publicReasoningManifest('openrouter', 'OpenRouter', 'https://openrouter.ai');
 // The adapter forwards reasoning.effort; values follow START's 2026-09-13 check of
@@ -7,18 +7,27 @@ const base = publicReasoningManifest('openrouter', 'OpenRouter', 'https://openro
 // host's allowlist decision, and require_parameters forbids a silent fallback.
 export const manifest = deepFreeze({ ...base, models: [{ ...base.models[0], efforts: ['none', 'low', 'medium', 'high', 'xhigh', 'max'] }] });
 export function createOpenRouterReasoning({ binding, resolveSecret = ref => process.env[ref], fetchImpl, spendCap, prices,
-  model, endpoint = 'https://openrouter.ai/api/v1/chat/completions' } = {}) {
+  uncertainEstimateMicro = 10_000, model, endpoint = 'https://openrouter.ai/api/v1/chat/completions' } = {}) {
   // Legacy model/endpoint convenience stays unqualified; a private binding is required by server admission.
   binding = createBinding(binding ?? { plugin: 'openrouter', model, endpoint, effort: 'none', accountRef: 'unverified',
     secretRef: 'OPENROUTER_API_KEY', maxMicro: 1_000_000, maxTokens: 8000, rates: { inputMicro: 0, outputMicro: 0 } });
   if (binding.plugin !== 'openrouter' || !binding.model.includes('/')) throw new TypeError('OpenRouter binding requires model id');
+  if (!Number.isSafeInteger(uncertainEstimateMicro) || uncertainEstimateMicro < 1) throw new TypeError('Invalid uncertain cost estimate');
   const price = modelPrice(prices, binding.model);
-  return { bind: binding => createOpenRouterReasoning({ binding, resolveSecret, fetchImpl, spendCap, prices }),
+  return { bind: binding => createOpenRouterReasoning({ binding, resolveSecret, fetchImpl, spendCap, prices, uncertainEstimateMicro }),
+    // Visitor-only fallback after five minutes without a receipt. USD 0.01 per
+    // call is deliberately conservative; operator configuration can increase it.
+    // Neither this estimate nor observed token prices release the provider cap.
+    uncertainEstimateMicro,
+    usageCost: (usage, model = binding.model) => tokenCeilingMicro(usage.inputTokens, Math.max(1, usage.outputTokens), modelPrice(prices, model)),
     recoverCosts: () => spendCap?.recover?.(),
     costEvidence: attemptId => spendCap?.evidence?.(attemptId),
     reconcileSpend: (attemptId, cost) => spendCap?.reconcileAttempt?.(attemptId, cost),
     reconcileCost: (record, options) => reconcileGeneration(record, { resolveSecret, fetchImpl, ...options }),
     ...createChatCompletions({ manifest, binding, resolveSecret, fetchImpl, spendCap, authoritativeCost: true,
+    uncertainCeiling: body => Math.max(tokenCeilingMicro(requestInputTokens(body), 1, price),
+      Math.min(uncertainEstimateMicro, requestCeilingMicro({ ...body, max_tokens: Math.min(binding.maxTokens, 256) }, price))),
+    observedCost: usage => tokenCeilingMicro(usage.inputTokens, Math.max(1, usage.outputTokens), price),
     spendCeiling(body) {
       // Used both by admission estimates and immediately before account reserve /
       // provider dispatch. Free prompt pricing cannot relax the technical bound.

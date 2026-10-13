@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { PluginError } from '@inspr/aithema-core';
 import { generationId } from '../../core/src/cost.js';
 const integer = n => Number.isSafeInteger(n) && n >= 0;
-const confirmed = "state='settled' AND (outcome!='uncertain' OR cost_reconciliation_json IS NOT NULL OR voice_reconciliation_json IS NOT NULL) AND COALESCE(json_extract(usage,'$.costEstimated'),0)=0";
+const confirmed = "state='settled' AND (outcome!='uncertain' OR cost_reconciliation_json IS NOT NULL OR voice_reconciliation_json IS NOT NULL) AND COALESCE(json_extract(usage,'$.costEstimated'),0)=0 AND COALESCE(json_extract(cost_reconciliation_json,'$.estimated'),0)=0";
 // Slim port of Gen-2 runtime/budget/{sqlite,gate}: reservation under BEGIN IMMEDIATE,
 // UNIQUE claims, burned before provider opening, conservative unknown recovery.
 export class SQLiteBudgetLedger {
@@ -34,7 +34,15 @@ export class SQLiteBudgetLedger {
     }
     this.db.prepare(`UPDATE budget_attempts SET owner_hash=(SELECT json_extract(snapshot,'$.ownerHash') FROM sessions WHERE id=session_id)
       WHERE owner_hash IS NULL`).run();
-    this.db.exec(`CREATE INDEX IF NOT EXISTS budget_owner ON budget_attempts(owner_hash);
+    this.db.exec(`CREATE TABLE IF NOT EXISTS budget_corrections (
+      id INTEGER PRIMARY KEY, attempt_id TEXT NOT NULL, lane TEXT NOT NULL, at_ms INTEGER NOT NULL,
+      old_micro INTEGER NOT NULL, new_micro INTEGER NOT NULL,
+      old_visitor_micro INTEGER NOT NULL, new_visitor_micro INTEGER NOT NULL,
+      previous_json TEXT NOT NULL, evidence_json TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS budget_correction_attempt ON budget_corrections(attempt_id);
+      CREATE TRIGGER IF NOT EXISTS budget_corrections_no_update BEFORE UPDATE ON budget_corrections
+      BEGIN SELECT RAISE(ABORT,'append only'); END;
+      CREATE INDEX IF NOT EXISTS budget_owner ON budget_attempts(owner_hash);
       CREATE INDEX IF NOT EXISTS budget_cost_pending ON budget_attempts(attempt_id)
       WHERE state='settled' AND provider_cost_json IS NOT NULL AND COALESCE(json_extract(provider_cost_json,'$.reconciled'),0)=0;`);
   }
@@ -81,14 +89,17 @@ export class SQLiteBudgetLedger {
   }
   observeCost(attemptId, evidence) {
     if (evidence.generationId !== undefined && !generationId(evidence.generationId) ||
-      evidence.chargedMicro !== undefined && !integer(evidence.chargedMicro)) throw new TypeError('Invalid provider cost evidence');
+      evidence.chargedMicro !== undefined && !integer(evidence.chargedMicro) ||
+      evidence.observedCostMicro !== undefined && !integer(evidence.observedCostMicro)) throw new TypeError('Invalid provider cost evidence');
     const lateReceipt = this.storage.transaction(() => {
       const row = this.get(attemptId);
       if (!row?.provider_cost_json) throw new PluginError('not-admitted');
       const previous = JSON.parse(row.provider_cost_json);
-      if (previous.generationId && evidence.generationId && previous.generationId !== evidence.generationId) throw new PluginError('already-claimed');
+      if (previous.generationId && evidence.generationId && previous.generationId !== evidence.generationId ||
+        previous.chargedMicro !== undefined && evidence.chargedMicro !== undefined && previous.chargedMicro !== evidence.chargedMicro) throw new PluginError('already-claimed');
       this.db.prepare('UPDATE budget_attempts SET provider_cost_json=? WHERE attempt_id=?')
-        .run(JSON.stringify({ ...previous, ...evidence }), attemptId);
+        .run(JSON.stringify({ ...previous, ...evidence, ...(evidence.observedCostMicro !== undefined
+          ? { observedCostMicro: Math.max(previous.observedCostMicro ?? 0, evidence.observedCostMicro) } : {}) }), attemptId);
       return row.state === 'settled' && evidence.chargedMicro !== undefined
         ? { ...evidence, ...(previous.generationId ? { generationId: previous.generationId } : {}) } : null;
     });
@@ -98,7 +109,7 @@ export class SQLiteBudgetLedger {
     this.db.prepare("UPDATE budget_attempts SET provider_cost_json=json_set(provider_cost_json,'$.dispatchStarted',1) WHERE attempt_id=? AND state='dispatched'").run(attemptId);
   }
   reconcileCost(attemptId, evidence) {
-    if (!integer(evidence?.chargedMicro)) throw new TypeError('Confirmed provider cost required');
+    if (!integer(evidence?.chargedMicro) || evidence.estimated !== undefined && typeof evidence.estimated !== 'boolean') throw new TypeError('Provider cost required');
     return this.storage.transaction(() => {
       const row = this.get(attemptId);
       if (!row || row.state !== 'settled' || !row.provider_cost_json) throw new PluginError('not-admitted');
@@ -106,17 +117,35 @@ export class SQLiteBudgetLedger {
       if (record.generationId && record.generationId !== evidence.generationId) throw new PluginError('not-admitted');
       if (row.cost_reconciliation_json) {
         const previous = JSON.parse(row.cost_reconciliation_json);
-        if (previous.chargedMicro !== evidence.chargedMicro || previous.generationId !== evidence.generationId) throw new PluginError('already-claimed');
-        return row;
+        if (previous.estimated === true && evidence.estimated !== true) {
+          // A receipt may supersede the visitor estimate once; the first terminal remains immutable.
+        } else if (previous.estimated === true && evidence.estimated === true && evidence.chargedMicro > previous.chargedMicro) {
+          // Additional observed usage can raise an estimate, never lower it.
+        } else {
+          if (previous.chargedMicro !== evidence.chargedMicro || previous.generationId && previous.generationId !== evidence.generationId) throw new PluginError('already-claimed');
+          return row;
+        }
       }
       if (row.outcome !== 'uncertain' && row.settled_micro !== evidence.chargedMicro) throw new PluginError('already-claimed');
+      this.auditCorrection(row, evidence.chargedMicro, row.settled_visitor_micro, evidence);
       this.db.prepare('UPDATE budget_attempts SET settled_micro=?,overrun=?,cost_reconciliation_json=? WHERE attempt_id=?')
         .run(evidence.chargedMicro, evidence.chargedMicro > row.max_micro ? 1 : 0, JSON.stringify(evidence), attemptId);
       return this.get(attemptId);
     });
   }
+  auditCorrection(row, newMicro, newVisitorMicro, evidence) {
+    this.db.prepare(`INSERT INTO budget_corrections(attempt_id,lane,at_ms,old_micro,new_micro,
+      old_visitor_micro,new_visitor_micro,previous_json,evidence_json) VALUES (?,?,?,?,?,?,?,?,?)`)
+      .run(row.attempt_id, row.lane, Date.now(), row.settled_micro, newMicro, row.settled_visitor_micro,
+        newVisitorMicro, JSON.stringify({ terminal: row.terminal_json, usage: row.usage,
+          cost: row.cost_reconciliation_json, voice: row.voice_reconciliation_json }), JSON.stringify(evidence));
+  }
+  attachCost(attemptId, record) {
+    this.db.prepare('UPDATE budget_attempts SET provider_cost_json=? WHERE attempt_id=? AND provider_cost_json IS NULL')
+      .run(JSON.stringify(record), attemptId);
+  }
   pendingCosts() {
-    return this.db.prepare(`SELECT * FROM budget_attempts WHERE state='settled' AND provider_cost_json IS NOT NULL
+    return this.db.prepare(`SELECT * FROM budget_attempts WHERE state='settled' AND (provider_cost_json IS NOT NULL OR outcome='uncertain' AND lane IN ('reaction','understanding'))
       AND COALESCE(json_extract(provider_cost_json,'$.reconciled'),0)=0`).all();
   }
   acknowledgeCost(attemptId) {
@@ -178,6 +207,8 @@ export class SQLiteBudgetLedger {
         return this.get(row.attempt_id); // exact terminal retries are idempotent
       }
       const dispatched = row.state === 'dispatched';
+      if (row.provider_cost_json) this.db.prepare("UPDATE budget_attempts SET provider_cost_json=json_set(provider_cost_json,'$.settledAt',?) WHERE attempt_id=?")
+        .run(Date.now(), row.attempt_id);
       const actual = !dispatched ? 0 : terminal.chargedMicro ?? (terminal.outcome === 'uncertain' ? row.max_micro
         : terminal.usage.inputTokens * rates.inputMicro + terminal.usage.outputTokens * rates.outputMicro);
       // Unknown dispatched usage retains the maximum; known overruns remain visible as actual spend.
@@ -235,6 +266,7 @@ export class SQLiteBudgetLedger {
         }
         else return row;
       }
+      this.auditCorrection(row, terminal.usage.upstreamMicro, terminal.usage.visitorMicro, terminal);
       this.db.prepare('UPDATE budget_attempts SET usage=?,settled_micro=?,settled_visitor_micro=?,overrun=?,voice_reconciliation_json=? WHERE attempt_id=?')
         .run(JSON.stringify(terminal.usage), terminal.usage.upstreamMicro, terminal.usage.visitorMicro,
           terminal.usage.upstreamMicro > row.max_micro ? 1 : 0, bytes, attemptId);
@@ -250,6 +282,8 @@ export class SQLiteBudgetLedger {
         const dispatched = row.state === 'dispatched' && (!providerRecord || providerRecord.dispatchStarted === 1);
         const evidence = row.provider_cost_json ? JSON.parse(row.provider_cost_json) : null;
         const actual = dispatched && integer(evidence?.chargedMicro) ? evidence.chargedMicro : null;
+        if (providerRecord) this.db.prepare("UPDATE budget_attempts SET provider_cost_json=json_set(provider_cost_json,'$.settledAt',?) WHERE attempt_id=?")
+          .run(Date.now(), row.attempt_id);
         const exposure = dispatched && row.lane === 'voice' ? Math.max(row.max_micro, row.voice_exposure_micro) : row.max_micro;
         const visitorExposure = dispatched && row.lane === 'voice' ? Math.max(row.max_visitor_micro, row.voice_visitor_exposure_micro) : row.max_visitor_micro;
         const terminal = { attemptId: row.attempt_id, outcome: dispatched ? actual !== null ? 'completed' : 'uncertain' : 'cancelled',

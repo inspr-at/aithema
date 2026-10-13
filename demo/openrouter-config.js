@@ -27,6 +27,7 @@ export function openRouterConfig(values) {
   try { prices = JSON.parse(values.AITHEMA_OPENROUTER_PRICES); }
   catch { throw new TypeError('AITHEMA_OPENROUTER_PRICES is required as JSON with prompt/completion USD per token for every configured model'); }
   const capMicro = usdMicro(values.AITHEMA_OPENROUTER_CAP_USD ?? '10');
+  const uncertainEstimateMicro = usdMicro(values.AITHEMA_OPENROUTER_UNCERTAIN_ESTIMATE_USD ?? '0.01');
   const maxTokens = integer(values, 'OPENROUTER_MAX_TOKENS', 1200);
   // START found smaller ceilings truncated real analyses, including reasoning tokens.
   const analysisMaxTokens = integer(values, 'OPENROUTER_ANALYSIS_MAX_TOKENS', 8000);
@@ -51,6 +52,6 @@ export function openRouterConfig(values) {
         // verified live 2026-10-09: USD per MILLION tokens; enforced before dispatch.
         max_price: providerMaxPrice(price) } });
   };
-  return { prices, capMicro, reaction: binding(speechModel, maxTokens, 'none'),
+  return { prices, capMicro, uncertainEstimateMicro, reaction: binding(speechModel, maxTokens, 'none'),
     understanding: binding(understandingModel, analysisMaxTokens, analysisEffort, analysisProviderIgnore) };
 }

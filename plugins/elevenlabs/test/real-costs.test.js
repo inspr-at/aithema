@@ -123,10 +123,10 @@ test('AIT-145: background confirmation accepts a lookup slower than one second a
 });
 
 test('voice price and technical bounds are non-secret host configuration', () => {
-  assert.deepEqual(voiceCostConfig({}), { maxDurationSeconds: 3600, reservationSeconds: 30, upstreamMicroPerMinute: 100_000 });
+  assert.deepEqual(voiceCostConfig({}), { maxDurationSeconds: 3600, reservationSeconds: 30, minRunwaySeconds: 120, upstreamMicroPerMinute: 100_000 });
   const configured = voiceCostConfig({ AITHEMA_ELEVENLABS_USD_PER_CREDIT: '0.0002', AITHEMA_VOICE_USD_PER_MINUTE: '0.06',
     AITHEMA_VOICE_MAX_DURATION_SECONDS: '7200', AITHEMA_VOICE_RESERVATION_SECONDS: '15' });
-  assert.deepEqual(configured, { maxDurationSeconds: 7200, reservationSeconds: 15, upstreamMicroPerMinute: 60_000, usdPerCredit: 0.0002 });
+  assert.deepEqual(configured, { maxDurationSeconds: 7200, reservationSeconds: 15, minRunwaySeconds: 120, upstreamMicroPerMinute: 60_000, usdPerCredit: 0.0002 });
   for (const value of ['-1', 'NaN', '', '1e-4']) assert.throws(() => voiceCostConfig({ AITHEMA_ELEVENLABS_USD_PER_CREDIT: value }));
   assert.throws(() => voiceCostConfig({ AITHEMA_VOICE_MAX_DURATION_SECONDS: '20', AITHEMA_VOICE_RESERVATION_SECONDS: '30' }));
 });
@@ -176,7 +176,7 @@ async function exposureFixture(t, { path, state = { final: false }, closeHook } 
 for (const hook of ['absent', 'failed']) test(`AIT-134 gate: ${hook} hangup holds ceiling exposure before closure and blocks admission`, async t => {
   const h = await exposureFixture(t, { closeHook: hook === 'failed' ? () => { throw new Error('hangup failed'); } : undefined });
   const { live, admission } = await h.start(); t.after(() => live.close());
-  assert.equal(h.balance().owner.reservedMicro, 50_000, 'healthy live calls hold only the expected segment');
+  assert.equal(h.balance().owner.reservedMicro, 200_000, 'healthy live calls fund the default 120-second runway');
   const pending = live.close('transport-lost', 'cancelled'); await h.queried.promise;
   const during = h.balance();
   const terminal = await pending;

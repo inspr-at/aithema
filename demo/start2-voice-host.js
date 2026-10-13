@@ -6,13 +6,13 @@ import { voiceCostConfig } from './voice-cost-config.js';
 
 export async function createVoiceHost({ storage, resolveSecret, publicOrigin, templateAgentId,
   apiBaseUrl, fetchImpl = fetch, log = console.log, values = process.env } = {}) {
-  const { maxDurationSeconds, reservationSeconds, upstreamMicroPerMinute, usdPerCredit } = voiceCostConfig(values);
+  const { maxDurationSeconds, reservationSeconds, minRunwaySeconds, upstreamMicroPerMinute, usdPerCredit } = voiceCostConfig(values);
   try {
     const { agentId, apiBaseUrl: endpoint } = await ensureAgent({ storage, resolveSecret, publicOrigin,
       templateAgentId, apiBaseUrl, fetchImpl, log, maxDurationSeconds });
     const binding = qualifyStartBinding({ plugin: 'elevenlabs', model: agentId, agentId, effort: 'none',
       endpoint, accountRef: 'start2-elevenlabs', secretRef: 'ELEVENLABS_API_KEY', maxMicro: Math.ceil(upstreamMicroPerMinute * reservationSeconds / 60),
-      maxTokens: 1, rates: { inputMicro: 0, outputMicro: 0 }, maxDurationSeconds, reservationSeconds,
+      maxTokens: 1, rates: { inputMicro: 0, outputMicro: 0 }, maxDurationSeconds, reservationSeconds, minRunwaySeconds,
       upstreamMicroPerMinute, visitorMicroPerMinute: upstreamMicroPerMinute,
       ...(usdPerCredit === undefined ? {} : { usdPerCredit }), publicFacadeBaseUrl: publicOrigin });
     return { binding, staticSecretRef: 'AITHEMA_VOICE_FACADE_SECRET', log,

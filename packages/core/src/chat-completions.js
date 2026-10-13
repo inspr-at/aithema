@@ -28,7 +28,7 @@ export async function responseText(response, limit = 1_000_000, { signal, observ
 // Shared wire parser; no retries. It is also used by the browser loopback half.
 export function createChatCompletions({ manifest, binding, resolveSecret, fetchImpl = globalThis.fetch,
   providerOptions = () => ({}), transportOptions = {}, billable = true, spendCap,
-  spendCeiling = () => binding.maxMicro, prepareBody = body => body, authoritativeCost = false }) {
+  spendCeiling = () => binding.maxMicro, prepareBody = body => body, observedCost, uncertainCeiling, authoritativeCost = false }) {
   const label = manifest.vendor.name;
   const payloadFor = (request, extra) => prepareBody({ model: binding.model,
     messages: [{ role: 'system', content: request.system ?? '' }, ...request.messages],
@@ -37,7 +37,12 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
     response_format: { type: 'json_schema', json_schema: { name: 'understanding', strict: true, schema: request.schema } } });
   const observe = (value, options, invocation, spend) => {
     const id = generationId(value.id), cost = usdCostMicro(value.usage?.cost);
-    invocation.servedModel(value.model); invocation.usage(providerUsage(value.usage));
+    const usage = providerUsage(value.usage);
+    invocation.servedModel(value.model); invocation.usage(usage);
+    if (usage && observedCost) options.attempt?.observeCost?.({ observedCostMicro: observedCost(usage) });
+    const content = value.choices?.[0]?.message?.content;
+    if (typeof content === 'string' && observedCost) options.attempt?.observeCost?.({ observedCostMicro: observedCost({
+      inputTokens: spend.inputBound, outputTokens: new TextEncoder().encode(content).byteLength }) });
     if (cost !== null) { spend.cost = cost; invocation.cost(cost); }
     if (id || cost !== null) {
       const evidence = { ...(id ? { generationId: id } : {}), ...(cost !== null ? { chargedMicro: cost } : {}) };
@@ -53,6 +58,7 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
     const payload = payloadFor(request, extra);
     const body = JSON.stringify(payload);
     spend.ceiling = spendCeiling(payload);
+    spend.inputBound = new TextEncoder().encode(JSON.stringify(payload.messages)).byteLength;
     scope.signal.throwIfAborted();
     if (spendCap) spend.reservation = spendCap.reserve(spend.ceiling, spend.metadata);
     invocation.dispatch();
@@ -86,6 +92,7 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
   return {
     id: manifest.id, billable, label: `${label} — ${binding.model}`, manifest, binding, providerOptions,
     ...(authoritativeCost ? { estimateCost: (request, operation) => spendCeiling(payloadFor(request, operation === 'stream' ? { stream: true } : structuredExtra(request))) } : {}),
+    ...(uncertainCeiling ? { estimateUncertainCost: (request, operation) => uncertainCeiling(payloadFor(request, operation === 'stream' ? { stream: true } : structuredExtra(request))) } : {}),
     async health(options) {
       const scope = operationScope(options);
       try { scope.signal.throwIfAborted(); return { available: !billable || Boolean(resolveSecret?.(binding.secretRef)) }; }
@@ -109,6 +116,11 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
           let value;
           try { value = JSON.parse(data); } catch { throw new PluginError('invalid-output', `Invalid ${label} stream`); }
           observe(value, options, invocation, spend);
+          const delta = value.choices?.[0]?.delta?.content;
+          if (typeof delta === 'string' && observedCost) {
+            spend.outputBytes = (spend.outputBytes ?? 0) + new TextEncoder().encode(delta).byteLength;
+            options.attempt?.observeCost?.({ observedCostMicro: observedCost({ inputTokens: spend.inputBound, outputTokens: spend.outputBytes }) });
+          }
           const cost = spend.cost;
           if (spend.reservation && cost > spend.ceiling) {
             settleSpend(spend);

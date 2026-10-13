@@ -9,7 +9,7 @@ export const CAP_RECOVERY = 'Investigate provider receipts, reconcile confirmed 
   + 'Restarting or raising the deployment cap cannot clear a historical reservation breach; there is no routine reset command.';
 
 /** Dedicated local transport. It is never mounted on the public host listener. */
-export async function listenAdmin({ host, spendCap, socketPath }) {
+export async function listenAdmin({ host, spendCap, socketPath, reconcileUncertain }) {
   if (!host?.visitorCredits || !isAbsolute(socketPath)) throw new TypeError('Invalid admin socket');
   if (Buffer.byteLength(socketPath) > (process.platform === 'linux' ? 107 : 103)) {
     throw new TypeError('Admin socket path is too long; set AITHEMA_ADMIN_SOCKET to a shorter absolute path');
@@ -51,10 +51,17 @@ export async function listenAdmin({ host, spendCap, socketPath }) {
           uncertainMicro: cap.uncertainMicro, remainingMicro: Math.max(0, cap.capMicro - cap.spentMicro - cap.reservedMicro - cap.uncertainMicro),
           breached: cap.breached, recovery: CAP_RECOVERY });
       }
-      if (['/set-allowances', '/set-confirmation'].includes(url.pathname) && req.method === 'POST') {
+      if (['/set-allowances', '/set-confirmation', '/reconcile-uncertain'].includes(url.pathname) && req.method === 'POST') {
         let size = 0; const chunks = [];
         for await (const chunk of req) { size += chunk.length; if (size > 16_384) { send({ error: 'body-too-large' }, 413); req.destroy(); return; } chunks.push(chunk); }
         const input = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        if (url.pathname === '/reconcile-uncertain') {
+          if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(k => !['apply', 'limit'].includes(k)) ||
+            input.apply !== undefined && typeof input.apply !== 'boolean' ||
+            input.limit !== undefined && (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 100)) throw new TypeError('Invalid repair request');
+          if (!reconcileUncertain) return send({ error: 'reconciliation-unavailable' }, 503);
+          return send(await reconcileUncertain({ apply: input.apply ?? false, limit: input.limit ?? 10 }));
+        }
         if (url.pathname === '/set-confirmation' && (Object.keys(input).some(k => !['baseRevision', 'confirmationEnabled'].includes(k)) || typeof input.confirmationEnabled !== 'boolean')) throw new TypeError('Invalid confirmation policy');
         return send(host.visitorCredits.saveSettings(input, { actor, source: 'ops-cli' }));
       }
@@ -75,7 +82,7 @@ export async function listenAdmin({ host, spendCap, socketPath }) {
 /** Client has no database dependency or direct-storage fallback. */
 export function adminRequest(socketPath, command, payload) {
   return new Promise((resolve, reject) => {
-    const set = ['set-allowances', 'set-confirmation'].includes(command);
+    const set = ['set-allowances', 'set-confirmation', 'reconcile-uncertain'].includes(command);
     const query = command === 'audit' && payload ? `?${new URLSearchParams(payload)}` : '';
     const bytes = set ? Buffer.from(JSON.stringify(payload)) : null;
     const req = request({ socketPath, path: `/${command}${query}`, method: set ? 'POST' : 'GET',
@@ -85,7 +92,7 @@ export function adminRequest(socketPath, command, payload) {
       res.once('error', reject);
       res.once('end', () => { try { resolve({ status: res.statusCode, body: JSON.parse(Buffer.concat(chunks).toString('utf8')) }); } catch (error) { reject(error); } });
     });
-    req.setTimeout(5000, () => req.destroy(new Error('Admin request timed out; reload settings before retrying a save')));
+    req.setTimeout(command === 'reconcile-uncertain' ? 120_000 : 5000, () => req.destroy(new Error('Admin request timed out; reload settings before retrying a save')));
     req.once('error', reject); req.end(bytes);
   });
 }

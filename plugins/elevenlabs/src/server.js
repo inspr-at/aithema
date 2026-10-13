@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { PluginError, normalizedError } from '../../../packages/core/src/invocation.js';
 import { beginVoiceInvocation, voiceLifetime, voiceOperation } from '../../../packages/core/src/live-voice.js';
@@ -199,7 +200,8 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
       const cancelled = () => { void close('cancelled', 'cancelled').catch(() => {}); };
       const serial = fn => { const next = mutation.then(fn); mutation = next.catch(() => {}); return next; };
       const diagnostic = (event, fields) => {
-        try { log?.({ event, callId: call.callId, providerSessionId: call.providerSessionId, ...fields }); }
+        try { log?.({ event, callHash: createHash('sha256').update(call.callId).digest('hex'),
+          ...(call.providerSessionId ? { providerHash: createHash('sha256').update(call.providerSessionId).digest('hex') } : {}), ...fields }); }
         catch { /* Operator diagnostics must never interrupt accounting. */ }
       };
       const close = (reason = 'closed', outcome = 'completed') => {
@@ -215,6 +217,7 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
         lifetime?.dispose();
         options.signal?.removeEventListener('abort', cancelled);
         call = { ...call, closing: true, reason };
+        diagnostic('voice-closed', { reason: /^[a-z][a-z0-9-]{0,63}$/u.test(reason) ? reason : 'closed' });
         closing = serial(async () => {
           finished = true;
           const closureStartedAt = Date.now(), closeOptions = { deadlineAt: closureStartedAt + closureTimeoutMs };

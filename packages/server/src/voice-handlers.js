@@ -73,7 +73,10 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       return authorizeTurnReplacement({ ...args, session: sessionFor(entry) });
     }) });
   let reconcileTimer, reconcileJob, retryOffset = 0, stopping = false;
-  const pendingReconciliations = () => storage.voiceCalls().filter(record => record.reconciliationPending);
+  const pendingReconciliations = () => storage.voiceCalls().filter(record => {
+    const terminal = record.reconciliation ?? record.terminal;
+    return record.reconciliationPending || terminal?.closureConfirmed === false || terminal?.usage?.costEstimated === true;
+  });
   const diagnostic = (record, event, fields) => {
     try { log?.({ event, callId: record.callId, providerSessionId: record.providerSessionId, ...fields }); }
     catch { /* Operator diagnostics must never interrupt accounting. */ }
@@ -544,7 +547,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         if (error instanceof SyntaxError || error instanceof TypeError) return json({ error: 'invalid-request' }, 400);
         if (error instanceof RangeError) return json({ error: 'size-limit' }, 413);
         if (error instanceof PluginError) return json({ error: error.code,
-          ...(VOICE_CAP_REASONS.has(error.message) ? { reason: error.message } : {}) }, error.code === 'not-admitted' ? 403 : error.code === 'deadline' ? 504 : 502);
+          ...(VOICE_CAP_REASONS.has(error.message) || error.message === 'host-limit' ? { reason: error.message } : {}) }, error.code === 'not-admitted' ? 403 : error.code === 'deadline' ? 504 : 502);
         return json({ error: 'voice-unavailable' }, 503);
       }
     },
@@ -575,13 +578,37 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           try { runtime.reconcileVoice(record.attemptId, { ...record.terminal, providerSessionId: record.providerSessionId }); }
           catch { record = { ...record, reconciliationPending: true }; }
         }
-        if (record.terminal && !record.reconciliationPending) continue;
+        if (record.terminal?.closureConfirmed === true && !record.terminal.usage?.costEstimated && !record.reconciliationPending) continue;
         storage.saveVoiceCall(record.sessionId, { ...record, closing: true, endedAt: record.endedAt ?? now(), reason: record.reason ?? 'server-restart',
           terminal: record.terminal ?? { attemptId: record.attemptId, outcome: row?.outcome ?? 'uncertain', closureConfirmed: false,
             chargedMicro: row?.settled_micro ?? record.maxMicro }, reconciliationPending: true });
         await reconcile(record);
       }
       if (pendingReconciliations().length) reconcileLater();
+    },
+    async reconcileUncertain({ dryRun = true, limit = reconcileBatchSize, deadlineAt = Date.now() + 60_000 } = {}) {
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new TypeError('Invalid repair batch');
+      const records = pendingReconciliations().slice(0, limit), summary = { candidates: records.length, beforeMicro: 0, afterMicro: 0, corrected: 0, pending: 0 };
+      for (const record of records) {
+        if (Date.now() >= deadlineAt) { summary.pending++; continue; }
+        const row = runtime.budget.get(record.attemptId);
+        summary.beforeMicro += row?.settled_micro ?? 0;
+        if (dryRun) {
+          let result;
+          try { if (closeOrphan) result = await voiceOperation({ deadlineAt: Math.min(deadlineAt, Date.now() + reconcileLookupTimeoutMs) }, opts => closeOrphan(record, opts)); } catch { /* Counts only. */ }
+          summary.afterMicro += result?.closureConfirmed ? result.usage.upstreamMicro : row?.settled_micro ?? 0;
+          if (!result?.closureConfirmed) summary.pending++;
+        } else {
+          const before = row?.voice_reconciliation_json;
+          await reconcile(record);
+          const after = runtime.budget.get(record.attemptId);
+          summary.afterMicro += after?.settled_micro ?? 0;
+          if (before !== after?.voice_reconciliation_json) summary.corrected++;
+          else summary.pending++;
+        }
+      }
+      if (!dryRun && pendingReconciliations().length) reconcileLater();
+      return summary;
     },
     reconcileLater,
     async idle() { while (settlements.size) await Promise.allSettled([...settlements]); await turns.idle(); },

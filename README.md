@@ -1837,9 +1837,19 @@ reserved, confirmed and uncertain amounts; dispatched operations with missing
 cost leave no live reservation and retain their estimate as uncertain spend.
 Startup and a bounded 30-second retry loop reconcile returned IDs through
 `GET /api/v1/generation?id=...` using authoritative `data.total_cost`. Receipts
-repair either ledger after a crash between their writes. An interrupted request
-that never returns an ID remains uncertain; absence of an ID is never zero-cost
-evidence. Existing historical attempts without retained IDs need OPS evidence.
+repair either ledger after a crash between their writes. AIT-163 bounds the visitor-wallet hold: after five minutes without a receipt,
+settle to a labelled conservative call estimate, floored by observed token/output
+price evidence. New calls estimate the complete prompt byte bound plus up to 256
+output tokens at the configured price, capped by
+`AITHEMA_OPENROUTER_UNCERTAIN_ESTIMATE_USD` (default `0.01`), while retaining
+the full prompt price bound even when it exceeds that estimate. Historical rows
+without request metadata use that configured USD 0.01 fallback directly. Neither
+uses the reservation maximum as its fallback. Missing generation IDs are never
+zero-cost evidence. Estimates remain uncertain; the 30-second, ten-attempt retry
+loop can replace them once with authoritative cost, including a higher charge.
+Every correction appends to `budget_corrections` with the previous projection and
+evidence; original terminal reports remain unchanged. The account spend cap
+retains its entire unresolved liability until a real receipt arrives.
 
 The default `createSpendLedger({path, capMicro})` is a JSON cost journal. Its
 version 2 format keeps per-attempt dispatch state, generation IDs, observed
@@ -2246,6 +2256,10 @@ docker exec --user node start2 node /app/demo/admin-cli.js settings
 docker exec --user node start2 node /app/demo/admin-cli.js set-allowances --base-revision 1 --anonymous 10 --email-given 15 --email-confirmed 20
 docker exec --user node start2 node /app/demo/admin-cli.js audit --after 0 --limit 100
 docker exec --user node start2 node /app/demo/admin-cli.js provider-cap
+# AIT-163: preview existing uncertain reasoning/voice rows; output is counts and microUSD only.
+docker exec --user node start2 node /app/demo/admin-cli.js reconcile-uncertain --dry-run --limit 100
+# Run after checking the preview. Repeated apply makes no duplicate corrections.
+docker exec --user node start2 node /app/demo/admin-cli.js reconcile-uncertain --apply --limit 100
 ```
 
 Use the revision returned by `settings`; the example's `1` applies only before
@@ -2537,6 +2551,7 @@ Readiness of voice is separately visible in
 | `OPENROUTER_ANALYSIS_EFFORT` | Understanding reasoning effort: `none` (default), `low`, `medium`, `high`, `xhigh`, `max`; invalid values refuse startup; reaction always uses `none` |
 | `OPENROUTER_PROVIDER_ONLY` | Comma-separated upstream allow-list sent as `provider.only` on every request; unset means no restriction; part of the legal profile; must mirror START exactly |
 | `OPENROUTER_ANALYSIS_PROVIDER_IGNORE` | Comma-separated upstream exclusions sent as `provider.ignore` on understanding/analysis and HTML; default `Azure`, whose START workspace rejects `response_format` despite advertised support |
+| `AITHEMA_OPENROUTER_UNCERTAIN_ESTIMATE_USD` | Visitor-only conservative fallback after five minutes without cost evidence; default `0.01` USD; never releases the provider cap |
 | `AITHEMA_OPENROUTER_PRICES` | Required JSON for every exact configured model id, including aliases: `{"<model>":{"prompt":<USD per token>,"completion":<USD per token>}}`; finite nonnegative prices; no catalog defaults |
 | `AITHEMA_OPENROUTER_CAP_USD` | Lifetime persisted account cap; decimal USD with up to six fractional digits, default `10` |
 | `AITHEMA_VOICE_MODE` | `elevenlabs` enables startup ensure; default `fake` locally and `off` on a live host, where `fake` is refused; `off` disables voice |
@@ -2544,6 +2559,7 @@ Readiness of voice is separately visible in
 | `AITHEMA_VOICE_CAP_MINUTES_PER_DAY` | Optional deployment voice-minute budget per UTC admission day in `AITHEMA_DB`; same decimal format; unset means no aggregate daily cap; OPS sets this and the total cap for start2 |
 | `AITHEMA_VOICE_USD_PER_MINUTE` | Voice reservation and duration-estimate price; default `0.10` USD/minute; nonnegative decimal USD |
 | `AITHEMA_VOICE_RESERVATION_SECONDS` | Expected voice segment; default `30`; its priced hold extends during the call while money remains |
+| `AITHEMA_VOICE_MIN_RUNWAY_SECONDS` | Minimum funded voice runway at start and each rolling extension; default `120` seconds, configurable 1–86400; shorter technical calls reserve their entire duration |
 | `AITHEMA_VOICE_MAX_DURATION_SECONDS` | Technical provider ceiling; default `3600` (60 minutes), configurable up to `86400`; separate from money admission |
 | `AITHEMA_ELEVENLABS_USD_PER_CREDIT` | Host's plan-specific decimal USD per provider credit; no guessed default; unnecessary when provider details report total USD |
 | `ELEVENLABS_API_KEY` | ElevenLabs account key; reference resolves server-side only |
@@ -2703,7 +2719,18 @@ Do not remove uncertain holds merely to make another request fit.
 **The cap drains through uncertain holds by design**, including barge-in,
 aborted voice streams and crashes; restart does not replenish that budget.
 
-OPS reconciliation of uncertain holds:
+AIT-163's `reconcile-uncertain` command runs through the existing 0600 OPS
+socket, defaults to dry-run, and visits a bounded batch (default ten per lane,
+maximum 100, one-minute command work window). Repeat it to cover larger backlogs.
+Dry-run reads receipts and reports counts/amounts without changing either ledger.
+Apply reuses automatic reconciliation, including historical reasoning rows without
+provider metadata and voice rows whose terminal has `closureConfirmed: false`.
+Voice precedence remains fiat USD, priced provider credits/components, then a
+labelled duration estimate. Voice retries run in bounded batches every 30 seconds.
+An estimated visitor correction leaves the provider spend-cap hold in place;
+manual correlation for that cap still follows the procedure below.
+
+OPS reconciliation of uncertain provider-cap holds:
 
 1. Stop the sole writer and back up SQLite plus WAL. List unsettled
    `spend_reservations` for `start2-openrouter` (`actual_micro IS NULL`), keeping
