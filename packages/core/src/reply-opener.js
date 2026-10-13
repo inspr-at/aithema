@@ -32,6 +32,10 @@ const POSSESSIVE = /^(?:ihr|ihre|unser|unsere|your|our|my|their)$/iu;
 const RELATIVE = /^(?:der|die|das|den|dem|deren|dessen|welche\p{L}*|which|that)$/iu;
 const SUBORDINATE = /^(?:dass|daß|wenn|weil|ob|wie|als|damit|sodass|which|who|whom|whose|where|when|if|because|how)$/iu;
 const INTERJECTION = /^(?:gut|okay|ok|äh|also|nun|well|so)$/iu;
+// Capitalising German sie/ihr/ihre/ihnen changes third-person reference into
+// formal address (Sie/Ihr/Ihre/Ihnen). Require an existing initial capital;
+// all other whitelisted starts, including das/es/er, keep their meaning.
+const UNSAFE_TO_CAPITALISE = /^(?:sie|ihr|ihre|ihnen)$/iu;
 
 function possibleThanks(text) {
   const prefix = text.trimStart().toLocaleLowerCase('en').replace(/\s+/gu, ' ');
@@ -63,6 +67,7 @@ function fullClause(text, opening) {
   const words = clause.match(/[\p{L}]+(?:['’][\p{L}]+)?/gu) ?? [];
   if (INTERJECTION.test(words[0])) words.shift();
   if (!words.length || SUBORDINATE.test(words[0])) return false;
+  if (UNSAFE_TO_CAPITALISE.test(words[0]) && /^\p{Ll}/u.test(words[0])) return false;
   if (opening.complement && RELATIVE.test(words[0]) && !(/^das$/iu.test(words[0]) && DE_SINGULAR.test(words[1]))) return false;
   const englishQuestion = boundary?.[0] === '?' && /^what$/iu.test(words[0]) &&
     /^(?:can|could|should|would|will|must|do|does)$/iu.test(words[1]) && SUBJECT.test(words[2]);
