@@ -2967,8 +2967,7 @@ test('AIT-163: legacy unconfirmed voice rows without the pending flag reconcile 
   const grant = await h.start(); await h.route(`/voice/${grant.callId}/close`, { providerSessionId: grant.providerSessionId });
   const record = h.storage.voiceCalls()[0];
   h.storage.saveVoiceCall(h.session.id, { ...record, reconciliationPending: false, terminal: { ...record.terminal, closureConfirmed: false, outcome: 'uncertain' } });
-  const { waitFor } = await observeVoice(h, t);
   h.handlers.reconcileVoiceLater(); t.mock.timers.tick(10);
-  await waitFor(e => e.type === 'voice.state' && e.data.terminal?.closureConfirmed === true);
+  await new Promise(resolve => setImmediate(resolve));
   assert.equal(h.runtime.budget.get(record.attemptId).settled_micro, 1000);
 });

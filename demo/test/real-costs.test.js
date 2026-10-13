@@ -71,6 +71,7 @@ async function costFixture(t, { mode = 'known', path, state = { queries: 0, read
     fetchImpl: async (url, init) => {
       if (init.method !== 'POST') {
         state.queries++;
+        if (state.failLookup) throw new Error('Injected generation lookup timeout');
         assert.equal(new URL(url).searchParams.get('id'), 'gen-fixture');
         return Response.json(state.ready ? { data: { id: 'gen-fixture', total_cost: 0.000053 } } : {}, { status: state.ready ? 200 : 404 });
       }
@@ -271,7 +272,7 @@ for (const operation of ['stream', 'structured']) for (const promptPrice of [0, 
 }
 
 for (const mode of ['partial', 'transport-failure', 'unknown']) test(`AIT-163: ${mode} releases the ceiling after the evidence window and preserves late receipts`, async t => {
-  const h = await costFixture(t, { mode, state: { ready: false, queries: 0 } });
+  const h = await costFixture(t, { mode, state: { ready: false, queries: 0, failLookup: mode === 'unknown' } });
   const operation = mode === 'partial' ? 'stream' : 'structured', admitted = await h.admit(operation);
   if (mode === 'unknown') await h.invoke(admitted, operation);
   else await assert.rejects(h.invoke(admitted, operation));
@@ -279,7 +280,10 @@ for (const mode of ['partial', 'transport-failure', 'unknown']) test(`AIT-163: $
   // Reproduce the older live rows: a USD 1 reservation and no acknowledged cost.
   h.storage.db.prepare('UPDATE budget_attempts SET max_micro=1000000,settled_micro=1000000 WHERE attempt_id=?').run(id);
   h.runtime.budget.observeCost(id, { settledAt: Date.now() - 600_000, estimateMicro: 600, observedCostMicro: 750 });
-  await h.runtime.reconcileCosts(); await h.runtime.reconcileCosts();
+  const preview = await h.runtime.reconcileCosts({ dryRun: true });
+  assert.equal(preview.afterMicro, 750); assert.equal(h.runtime.budget.get(id).settled_micro, 1_000_000);
+  assert.equal((await h.runtime.reconcileCosts()).corrected, 1);
+  assert.equal((await h.runtime.reconcileCosts()).corrected, 0);
   assert.equal(h.runtime.budget.get(id).settled_micro, 750, 'estimate never falls below observed usage');
   assert.equal(h.runtime.budget.get(id).terminal_json, before.terminal_json, 'original terminal history is retained');
   assert.equal(h.balance().owner.confirmedSpendMicro, 0, 'an estimate remains explicitly uncertain');
@@ -294,4 +298,22 @@ for (const mode of ['partial', 'transport-failure', 'unknown']) test(`AIT-163: $
   assert.equal(audit().length, 2);
   assert.equal(h.cap.snapshot().spentMicro, 1_000_037);
   assert.throws(() => h.storage.db.prepare('UPDATE budget_corrections SET new_micro=0 WHERE attempt_id=?').run(id), /append only/u);
+});
+
+test('AIT-163: pre-AIT-134 rows without provider metadata repair without rewriting terminal history', async t => {
+  const h = await costFixture(t, { state: { ready: false, queries: 0 } });
+  const budget = h.runtime.budget;
+  const { attemptId } = budget.admit({ sessionId: h.session.id, lane: 'reaction', maxMicro: 1_000_000,
+    requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64) });
+  const claim = budget.claim(attemptId); claim.consume();
+  const original = budget.settle(claim.claimId, { attemptId, outcome: 'uncertain' }).terminal_json;
+  const preview = await h.runtime.reconcileCosts({ dryRun: true });
+  assert.equal(preview.afterMicro, 10_000); assert.equal(budget.get(attemptId).provider_cost_json, null);
+  await h.runtime.reconcileCosts(); await h.runtime.reconcileCosts();
+  assert.equal(budget.get(attemptId).settled_micro, 10_000);
+  assert.equal(budget.get(attemptId).terminal_json, original);
+  budget.observeCost(attemptId, { generationId: 'gen-fixture' }); h.state.ready = true;
+  await h.runtime.reconcileCosts(); await h.runtime.reconcileCosts();
+  assert.equal(budget.get(attemptId).settled_micro, 53, 'authoritative cost supersedes the larger estimate');
+  assert.equal(h.storage.db.prepare('SELECT COUNT(*) n FROM budget_corrections WHERE attempt_id=?').get(attemptId).n, 2);
 });
