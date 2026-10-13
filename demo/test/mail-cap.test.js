@@ -200,7 +200,8 @@ test('AIT-166 OPS CLI view and audited set require baseRevision, allow zero and 
   assert.deepEqual(view.day, { limit: 5, count: 1, remaining: 4 });
   await run('set-mail-cap', '--base-revision', String(saved.revision), '--hour', '0', '--day', '0');
   assert.equal((await f.send('paused')).status, 'rate-limited');
-  const audits = f.host.visitorCredits.audit().filter(e => e.source === 'ops-cli' && e.oldValues?.mailCap);
+  const audits = f.host.visitorCredits.audit().filter(e => e.source === 'ops-cli' && e.oldValues?.mailCap &&
+    JSON.stringify(e.oldValues.mailCap) !== JSON.stringify(e.newValues.mailCap));
   assert.equal(audits.length, 2); assert.deepEqual(audits[0].oldValues.mailCap, { hour: 30, day: 200 });
   assert.deepEqual(audits[0].newValues.mailCap, { hour: 2, day: 5 });
 });

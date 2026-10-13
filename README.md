@@ -2246,7 +2246,7 @@ Host-owned schema (in the same SQLite database and exclusive writer):
 
 | Table | Contents |
 | --- | --- |
-| `visitor_credit_settings` | Singleton; schema version 1, monotonic revision, integer micro-USD allowances, confirmation flag, UTC created/updated timestamps |
+| `visitor_credit_settings` | Singleton; schema version 1, monotonic revision, integer micro-USD allowances, confirmation flag, rolling-hour/day mail caps, UTC created/updated timestamps |
 | `visitor_credit_audit` | Append-only settings history: actor, UTC timestamp, source, revision, old/new settings; no visitor addresses; updates rejected by trigger |
 | `visitor_identities` | Opaque `visitor_ref` mapped uniquely to the existing owner hash; address/revision, saved/confirmed/pending evidence, notice version, creation/update/activity timestamps and shared verification state |
 | `visitor_confirmation_tokens` | SHA-256 token hash bound to visitor, address revision and requesting conversation; creation/expiry/redemption timestamps; cascade erased with the visitor |
@@ -2280,6 +2280,8 @@ docker exec --user node start2 node /app/demo/admin-cli.js settings
 docker exec --user node start2 node /app/demo/admin-cli.js set-allowances --base-revision 1 --anonymous 10 --email-given 15 --email-confirmed 20
 docker exec --user node start2 node /app/demo/admin-cli.js audit --after 0 --limit 100
 docker exec --user node start2 node /app/demo/admin-cli.js provider-cap
+docker exec --user node start2 node /app/demo/admin-cli.js mail-cap
+docker exec --user node start2 node /app/demo/admin-cli.js set-mail-cap --base-revision 2 --hour 30 --day 200
 # AIT-163: preview existing uncertain reasoning/voice rows; output is counts and microUSD only.
 docker exec --user node start2 node /app/demo/admin-cli.js reconcile-uncertain --dry-run --limit 100
 # Run after checking the preview. Repeated apply makes no duplicate corrections.
@@ -2505,11 +2507,44 @@ startup never silently regenerates it. Backups must include
 `confirmation-hmac.key` alongside the database. Restoring without this key resets
 the rolling 24-hour mail quota and invalidates existing CSRF form proofs.
 Failed or interrupted delivery consumes a slot conservatively.
-Accepted and address-suppressed HTTP requests
+AIT-166 adds a host-wide cap of **30 reservations per rolling hour and 200 per
+rolling day**, across all visitors and addresses. `mailCap: { hour, day }` lives
+in the existing visitor-credit settings singleton. `set-mail-cap --base-revision
+N --hour N --day N` changes both nonnegative integer limits through the private
+OPS socket, in the same revision and old/new audit transaction as other host
+settings. Zero pauses confirmation sends. Read `settings` for the current
+revision before saving; stale saves return 409 with the current settings.
+`mail-cap` returns the settings revision and each window's `limit`, `count` and
+`remaining`; failed and in-flight reservations count, and suppressed requests
+consume no global slot. Raising limits does not reset accounting.
+
+`host_mail_slots` contains only aggregate counts and millisecond timestamps.
+Reservation, the C1 checks and token creation share one `BEGIN IMMEDIATE`
+transaction. Counts survive restart, address changes and visitor erasure;
+bounded retention removes expired slots after 24 hours. Initial migration
+imports the last day's existing C1 abuse reservations as counts and timestamps,
+without copying their address HMACs. The settings migration is audited and
+advances its revision once. `host_mail_cap_alerts` persists the last alert time
+for each window. When suppression starts, one JSON log line
+`{"event":"mail-cap","window":"hour","count":30}` (or `day`) and a counts-only
+audit event report it. Further suppressed requests do not log again until the
+window has elapsed or admission resumes for that window.
+
+Accepted, address-suppressed and globally suppressed HTTP requests
 return the same status, body and headers and show “Link gesendet …”. Delivery
 starts asynchronously after the response; SMTP duration, failure and shared
-address activity never change the visitor-visible state. Host-private audit
-records report relay failures. Only the visitor's own 60-second resend cooldown
+address/global activity never change the visitor-visible state. Host-private
+audit records report relay failures. SMTP 4xx replies, including Postfix's
+451/452 rate-limit responses, are temporary delivery failures mapped to the
+existing private `failed` delivery status. One
+`{"event":"mail-delivery-failed","temporary":true}` log line contains no address,
+SMTP reply or token. Automatic SMTP pool requeues are disabled; any retry is the
+visitor's own resend after the existing cooldown and all quota checks. The
+app's 30/hour default normally stops admission before the relay's 30-message /
+30-recipient hourly limit. The optional IP throttle is omitted: the current
+identity adapter has no verified trusted-proxy IP contract, so accepting a raw
+forwarded header would create a spoofable throttle and extra personal data.
+Only the visitor's own 60-second resend cooldown
 returns HTTP 429 with the existing `rateLimited` copy. Replacing a request,
 changing the address or deleting it invalidates older links. Tokens contain 256
 random bits; SQLite stores only the
