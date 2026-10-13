@@ -73,9 +73,10 @@ export class EmailAsk {
   schedule() { clearTimeout(this.timer); if (this.connected) this.timer = setTimeout(() => this.update(), EMAIL_ASK_IDLE_MS + 10); this.timer?.unref?.(); }
   update() {
     if (!this.alive || !this.connected) return;
+    if (this.dismissPending) { this.paint(); if (!this.busy) void this.act('dismiss'); return; }
     const turns = activeTurns(this.session()), replied = turns.at(-1)?.role === 'assistant', count = turns.filter(turn => turn.role === 'user').length;
     const low = lowCredit(this.credits), safe = replied && !this.streaming() && !this.callActive && !this.typing;
-    if (this.callActive && this.open && !this.desktop && this.step !== 'saving') { void this.dismiss(false); return; }
+    if (this.callActive && this.open && !this.desktop) { void this.dismiss(false); return; }
     if (this.state.open && !this.open && safe && (this.eligible || this.email.address)) {
       this.open = true; if (this.email.address) { this.step = 'done'; this.sent = this.email.identity?.status === 'verification-pending' && this.email.identity?.delivery !== 'failed'; }
     }
@@ -99,6 +100,8 @@ export class EmailAsk {
     if (!this.alive) return;
     if (response?.ok && response.body?.emailAsk) {
       this.state = response.body.emailAsk;
+      if (action === 'dismiss' && response.body.accepted) this.dismissPending = false;
+      if (this.dismissPending && action !== 'dismiss') { await this.act('dismiss'); return; }
       this.after = this.now() + Math.max(0, (response.body.emailAskAfter ?? 0) - (response.body.nowMs ?? this.now()));
       if (action === 'show' && response.body.accepted) {
         this.step = 'idle'; this.message = ''; this.manual = false;
@@ -111,6 +114,7 @@ export class EmailAsk {
   }
   async dismiss(focus) {
     const hadFocus = this.gate.contains(this.root.activeElement);
+    this.dismissPending = true;
     this.open = false; this.manual = false; this.paint();
     if (focus && hadFocus) this.composer.focus({ preventScroll: true });
     await this.act('dismiss');

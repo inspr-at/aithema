@@ -70,6 +70,13 @@ test('AIT-164: typing and partial replies defer the server claim until the compo
   f.at(100_000 + EMAIL_ASK_IDLE_MS); f.streaming(true); f.ask.update(); assert.equal(f.requests.length, 0);
   f.streaming(false); f.ask.update(); await Promise.resolve(); await Promise.resolve(); assert.equal(f.requests.length, 1);
 });
+test('AIT-164: starting a phone call dismisses the gate even while an email save is pending', async t => {
+  const f = fixture(t); f.ask.credits = credits; f.ask.open = true; f.ask.state = { open: true, openedAt: 5 }; f.ask.step = 'saving';
+  f.root.querySelector('.workspace').dataset.understanding = 'absent';
+  const rail = f.root.querySelector('.audio-rail'); rail.dataset.call = 'active'; rail.dataset.state = 'connecting';
+  f.ask.update(); await Promise.resolve(); await Promise.resolve();
+  assert.equal(f.ask.open, false); assert.equal(f.ask.state.open, false); assert.equal(f.requests.at(-1).action, 'dismiss');
+});
 test('AIT-164: footer digits are tabular and reserve the server limit at every breakpoint', () => {
   assert.match(emailAskStyles, /host-credits__stack \{ font-variant-numeric:tabular-nums/u);
   assert.match(emailAskStyles, /host-credits__measure \{ visibility:hidden; white-space:nowrap/u);
