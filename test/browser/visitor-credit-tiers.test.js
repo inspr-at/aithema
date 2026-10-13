@@ -44,6 +44,12 @@ async function fixture(page, locale, { address = null, spent = 3_450_000, reserv
     const visitor = () => ({ address: state.address, tier: current(), limitMicro: allowancesMicro[current()] });
     window.fetch = async (url, init = {}) => {
       const path = new URL(url, location.href).pathname, method = init.method ?? 'GET';
+      // The mocked snapshot owns its journal too. The real demo stream cannot
+      // replay these synthetic sequences and would cause repeated gap restores.
+      if (path.endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+        if (init.signal?.aborted) controller.close();
+        else init.signal?.addEventListener('abort', () => controller.close(), { once: true });
+      } }), { headers: { 'content-type': 'text/event-stream' } });
       if (method === 'GET' && path === `/api/sessions/${c.session.id}`) return Response.json({ ...c.session, identity: identity(), featureMatrix: { best: Object.fromEntries(['text', 'analysis', 'voice'].map(key => [key, { available: allowancesMicro[current()] > state.spent + state.reserved, reason: allowancesMicro[current()] > state.spent + state.reserved ? null : 'budget denied' }])) } });
       if (path.endsWith('/credits')) {
         const tier = current(), next = !privacy ? null : !state.address ? 'emailGiven' : delivery && !state.confirmed ? 'emailConfirmed' : null;
