@@ -113,3 +113,16 @@ test('fake barge-in silences output synchronously before a stalled receipt and o
   assert.equal(f.snapshot().volume, 0, 'channel and pause commands cannot unlock the interrupted reply');
   f.speak('A new utterance'); assert.equal(f.snapshot().volume, 1);
 });
+
+test('fake restored startup failure closes its replacement as exhausted recovery and retains logical waiting', async () => {
+  const now = Date.now(), closed = [];
+  const control = { start: () => { throw new Error('Restoration must recover'); },
+    recover: () => ({ callId: 'call', providerSessionId: 'replacement', epoch: 1,
+      spendDeadlineAt: now + 60_000, browserLivenessDeadlineAt: now + 30_000, presentation: 'continuation' }),
+    close: identity => { closed.push(identity); return { closureConfirmed: true }; },
+    pause: () => ({ acknowledged: true, paused: true }), resume: () => { throw new Error('Resume refused'); }, heartbeat() {} };
+  const f = createFakeVoice({ control, persistEvent: () => {}, document: undefined, copy: {} });
+  await assert.rejects(f.client.start({ callId: 'call', providerSessionId: 'retired', epoch: 1 }), /Resume refused/u);
+  assert.deepEqual(closed, [{ callId: 'call', providerSessionId: 'replacement', epoch: 1,
+    reason: 'recovery-failed', recoveryAttempts: 3 }]);
+});

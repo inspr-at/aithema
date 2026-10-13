@@ -64,7 +64,7 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
         blocked = true; open = false;
         if (['sleep', 'wake', 'ownership-lost', 'server-restart', 'browser-liveness-deadline'].includes(reason)) { paused = true; pauseRevision++; }
       };
-      const close = (reason = 'closed', commandOptions = {}) => {
+      const close = (reason = 'closed', commandOptions = {}, recoveryAttempts) => {
         if (closing) return closing;
         ended = true; stopMedia(); lifecycle.end(reason); commandCancellation.abort();
         if (['cancelled', 'turn-withdrawn', 'upload-withdrawn', 'session-erased', 'consent-revised',
@@ -76,7 +76,8 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
           cancellation.abort();
           let result;
           try { if (receipt) result = await voiceOperation({ ...commandOptions, deadlineAt: Math.min(commandOptions.deadlineAt ?? Infinity, Date.now() + 45_000) },
-            opts => control.close({ ...identity(), reason }, opts)); }
+            opts => control.close({ ...identity(), reason,
+              ...(recoveryAttempts === undefined ? {} : { recoveryAttempts }) }, opts)); }
           finally { events.push({ type: 'ended', callId: request.callId, reason: result?.closureConfirmed ? reason : 'closure-uncertain' }); events.end(); }
           return result;
         })(); return closing;
@@ -123,7 +124,8 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
         persistWaiting: ({ reason, attempts }) => voiceOperation({ deadlineAt: Date.now() + 5000 },
           opts => control.close({ ...identity(), reason, recoveryAttempts: attempts }, opts)),
       });
-      const cancel = () => { void close('cancelled', { deadlineAt: Date.now() + 1000 }).catch(() => {}); };
+      const cancel = () => { void close(options.signal?.reason === 'ownership-lost' ? 'recovery-failed' : 'cancelled',
+        { deadlineAt: Date.now() + 1000 }).catch(() => {}); };
       const hold = () => {
         if (ended) return;
         if (options.holdSignal?.reason === 'ownership-lost') lifecycle.ownershipLost();
@@ -234,7 +236,12 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
           disconnect: () => { if (open && !ended) void lifecycle.recover().catch(() => {}); },
           snapshot: () => ({ open: open && !ended, muted: paused || blocked || !input, volume: paused || blocked || !output || interrupted ? 0 : 1 }) };
         return assertVoiceSession(session);
-      } catch (error) { try { await close('start-failed', { deadlineAt: Date.now() + 1000 }); } catch {} throw error; }
+      } catch (error) {
+        const attempts = request.providerSessionId && receipt && !ended ? 3 : undefined;
+        try { await close(request.providerSessionId ? 'recovery-failed' : 'start-failed', { deadlineAt: Date.now() + 1000 }, attempts); }
+        catch { /* The server lease retains unresolved closure. */ }
+        throw error;
+      }
     },
   };
   client.ports = Object.freeze({ browserMedia: Object.freeze({
