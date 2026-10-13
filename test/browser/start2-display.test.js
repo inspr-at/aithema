@@ -46,6 +46,7 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
         content: (locale === 'de' ? 'Diese Nachricht muss vollständig hinter dem Band verschwinden. ' : 'This message must disappear completely behind the band. ').repeat(8) }));
       c.style.setProperty('--aithema-height', '1600px');
       c.configure({ copy, session, host: { library: true } });
+      c.shadowRoot.activeElement?.blur();
       document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
       c.shadowRoot.querySelector('.transcript-shell').scrollTop = 0; scrollTo(0, 0);
     }, locale);
@@ -110,12 +111,6 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
     assert.deepEqual(await boxes(page, selectors), baseline, `${label}: scrolling back restores every box`);
     const restoredPaint = Buffer.from(await page.screenshot({ clip }));
     if (!samePaint(originalPaint, restoredPaint)) {
-      const original = pixels(originalPaint), restored = pixels(restoredPaint), differences = [];
-      for (let y = 0; y < original.height; y++) for (let x = 0; x < original.width; x++) {
-        const offset = (y * original.width + x) * original.channels;
-        if (original.result.subarray(offset, offset + 3).some((value, i) => Math.abs(value - restored.result[offset + i]) > 1)) differences.push([x, y]);
-      }
-      t.diagnostic(`${label}: restored paint differs at ${differences.length} pixels; bounds ${JSON.stringify([Math.min(...differences.map(p => p[0])), Math.min(...differences.map(p => p[1])), Math.max(...differences.map(p => p[0])), Math.max(...differences.map(p => p[1]))])}`);
       if (evidence) {
         await writeFile(join(evidence, `ait155-debug-${label}-original.png`), originalPaint);
         await writeFile(join(evidence, `ait155-debug-${label}-restored.png`), restoredPaint);
