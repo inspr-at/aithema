@@ -4,20 +4,21 @@ import { resolve } from 'node:path';
 
 export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 
-// Balanced using main 027746e CI run 38334109506 (successful attempt 2)
-// top-level node:test durations and A2 PR CI run 38331186287 (934f73b).
-// Nested durations are excluded to avoid double counting: visitor-credit-tiers
-// 345.610s; matrix 209.159s; remaining display 145.660s; orb 86.337s;
-// demo 51.826s; look 26.476s; question-card 17.223s; journey 13.973s;
-// html 8.406s; host 7.586s. Keep both long matrices in separate shards.
+// Balanced using main 027746e CI run 38334109506, A2 PR CI run
+// 38331186287, and AIT-138 d PR #117 CI run 38337837967.
+// Top-level durations exclude nested tests: visitor-credit-tiers 345.610s;
+// matrix 209.159s; remaining display 145.660s; continuity 45.348s;
+// orb 86.337s; demo 51.826s; look 26.476s; question-card 17.223s;
+// journey 13.973s; html 8.406s; host 7.586s.
 export const browserShards = [
   // 345.610s
   ['test/browser/visitor-credit-tiers.test.js'],
-  // 287.461s
+  // 332.809s
   [
     'test/browser/start2-display-matrix.test.js',
     'test/browser/demo.test.js',
     'test/browser/start-look.test.js',
+    'test/browser/start2-display-continuity.test.js',
   ],
   // 279.185s
   [

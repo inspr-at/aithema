@@ -22,7 +22,7 @@ function fixture(t, { transport, restored = true, component = false, echoPause =
   let callId = 'restored-call', echoed = false;
   session.featureMatrix = { best: { voice: { available: true }, text: { available: true } } };
   const waiting = { callId, providerSessionId: 'retired-provider', state: 'waiting', attempts: 3,
-    needsRecovery: true, spendDeadlineAt: Date.now() + 60_000, browserLivenessDeadlineAt: Date.now() - 1000 };
+    epoch: 1, needsRecovery: true, spendDeadlineAt: Date.now() + 60_000, browserLivenessDeadlineAt: Date.now() - 1000 };
   if (restored) session.voiceLifecycle = waiting;
   const records = new Map(), storage = { getItem: key => records.get(key) ?? null,
     setItem: (key, value) => records.set(key, value), removeItem: key => records.delete(key) };
@@ -31,6 +31,7 @@ function fixture(t, { transport, restored = true, component = false, echoPause =
   const originalStorage = globalThis.sessionStorage; globalThis.sessionStorage = storage;
   t.after(() => { globalThis.sessionStorage = originalStorage; });
   const receipt = () => ({ callId, providerSessionId: 'resumed-provider',
+    epoch: waiting.epoch, controllingTabId: control.tabId,
     credential: { providerSessionId: 'resumed-provider', ttlMs: 60_000, connectionType: transport,
       ...(transport === 'websocket' ? { signedUrl: 'wss://socket.example.test/call?conversation_id=resumed-provider' }
         : { conversationToken: 'fixture-token-resumed-provider' }) },
@@ -92,6 +93,31 @@ function fixture(t, { transport, restored = true, component = false, echoPause =
 }
 
 for (const transport of ['webrtc', 'websocket']) {
+  test(`AIT-138 d fix 1: ${transport} takeover after restored server Resume fences its delayed HTTP acknowledgement`, async t => {
+    const f = fixture(t, { transport, component: true });
+    const root = f.root.querySelector('.audio-rail');
+    f.root.querySelector('.pause').click(); await f.resumeEntered.promise;
+    const resume = f.requests.find(request => request.url.endsWith('/resume'));
+    // Resume has committed on the server. Its HTTP receipt is still in flight
+    // when the next tab takes ownership and the durable notification arrives.
+    f.element.receive({ seq: 1, type: 'session.paused',
+      data: { paused: false, resumeRequestId: resume.body.resumeRequestId } });
+    f.element.receive({ type: 'voice.state', data: { callId: f.waiting.callId,
+      providerSessionId: 'resumed-provider', epoch: 2, controllingTabId: 'successor-tab',
+      state: 'waiting', needsRecovery: true, reason: 'tab-takeover' } });
+    const synchronousState = root.dataset.state;
+    f.resumeAck.resolve(); f.closeAck.resolve(); await flush();
+    const outgoing = f.sdk.outgoing.length; f.sdk.sample({ buffered: true });
+    assert.deepEqual({ synchronousState, state: root.dataset.state, returned: f.returned.length,
+      captures: f.sdk.acquired.length, unmuted: f.sdk.effects.filter(([name, volume]) => name === 'setVolume' && volume > 0),
+      sentAfterTakeover: f.sdk.outgoing.length - outgoing },
+    { synchronousState: 'waiting', state: 'waiting', returned: 0, captures: 0, unmuted: [], sentAfterTakeover: 0 });
+    assert.equal(root.querySelector('.voice-state').textContent, en.voiceMoved);
+    assert.equal(root.querySelector('.voice-pause').disabled, false, 'the retired tab offers a fresh explicit takeover');
+    assert.ok(f.requests.filter(request => request.url.endsWith('/close')).every(request =>
+      request.body.epoch === 1 && request.body.reason === 'recovery-failed'), 'cleanup retains only the retired epoch');
+  });
+
   for (const hold of [null, 'server Pause', 'visibility hold']) {
     test(`AIT-138 fix 4: ${transport} restored Resume echo before HTTP acknowledgement ${hold ? `preserves newer ${hold}` : 'unpauses the UI with active media'}`, async t => {
       const f = fixture(t, { transport, component: true });

@@ -403,6 +403,17 @@ export class SQLiteStorage {
       return next;
     });
   }
+  takeOverVoiceCall(id, callId, { tabId, epoch }) {
+    return this.transaction(() => {
+      const prior = this.voiceLifecycle(id, callId);
+      if (!prior || prior.state === 'ended') throw new ConflictError('Logical call ended');
+      if (prior.epoch !== epoch) throw new ConflictError('Voice ownership lost');
+      const next = reduceVoiceLifecycle(prior, { type: 'takeover', epoch: epoch + 1, tabId });
+      this.db.prepare('UPDATE voice_lifecycle_calls SET record=? WHERE session_id=? AND call_id=?')
+        .run(JSON.stringify(next), id, callId);
+      return next;
+    });
+  }
   voiceCalls(id) {
     return this.db.prepare('SELECT * FROM voice_calls WHERE (? IS NULL OR session_id=?)').all(id ?? null, id ?? null)
       .map(row => ({ sessionId: row.session_id, ...JSON.parse(row.record) }));

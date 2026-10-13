@@ -138,6 +138,11 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
             try {
               const item = await reader.read();
               if (ended) return;
+              // A frame can have been queued before takeover while this read
+              // awaited it. Detach only the retired reader, never the paid job.
+              if (call.readerCurrent?.() === false) {
+                ended = true; await reader.cancel(); controller.close(); logResult('cancelled'); return;
+              }
               if (item.done) { ended = true; controller.close(); logResult(responseError); }
               else {
                 // The operation emits complete error frames, containing only a coded error.
