@@ -254,6 +254,41 @@ one redemption (`token: null`); tokenless polling retains the verified fact.
 The destructive local port kits test owner isolation,
 storage erasure, delivery deduplication and wallet reservation fingerprints.
 
+## Open-question answers (AIT-132)
+
+Text replies use the provider-neutral core `replySchema`: `{content,
+question_short, options: [{text, likely?}]}`. `content` remains the natural reply;
+`question_short` is its single unresolved question in brief, or `null`. There
+are at most four choices and one `likely: true`. Empty options produce no card.
+The prompt carries the schema through the existing stream operation; no native
+structured-output capability is required. The decoder streams only reply text,
+accepts existing plain-text replies, drops malformed choices and caps valid
+ones. Question text is bounded to 500 characters and answer text to the existing
+8,000-character visitor-turn limit. No production answer choices are seeded.
+Reply content retains its 16,000-character limit. The bounded JSON envelope
+accommodates all four maximum-length options, including JSON escaping. Metadata
+that exceeds this budget is discarded while reply text survives, even if the
+provider places `content` after the options.
+
+The final, current assistant turn owns the composer card. The likely answer is
+first; each native button sends its exact text through the same idempotent
+visitor-turn path as typing, including forwarding to an active voice call after
+persistence. A typed draft is preserved. Failed submissions retain the card for
+retry; a persisted typed, selected or spoken answer closes it. Incoming partials
+and background assessments cannot open it or replace focused answer buttons.
+The card sits above the dock with transcript scroll room, so the textarea,
+attachment and send controls move 0 px on appearance and disappearance. The
+fold strip also identifies plain questions without choices.
+
+The card fields live in the reply's erasable SQLite content record and survive
+snapshot/journal reload. Withdrawals and heard-prefix corrections clear them.
+Voice reasoning uses `reasoningRequest(..., {voiceReply: true})` for plain speech
+and retains the AIT-137/AIT-144 operations and focus checks. Shared AIT-148 reply
+guidance and AIT-150 German Sie guidance apply to both paths. DE/EN card copy is
+under `copy.questionCard`. `test/browser/question-card.test.js` records the card,
+hover, keyboard focus and fold strip at 1440/390, light/dark, DE/EN, plus measured
+zero movement and submission/voice checks, in `AITHEMA_EVIDENCE_DIR`.
+
 ## Host surface UI (AIT-104 B2)
 
 `configure({..., host: {library, verification, handover, credits, locale}})` turns

@@ -2,6 +2,10 @@ import { AI_NOTICE } from '../../../core/src/ai-notice.js';
 
 // German bundle. Wording follows START src/lib/i18n.ts (formal "Sie"; a visual concept is an "Entwurf").
 export const de = {
+  questionCard: {
+    heading: 'Offene Frage', suggestion: 'Vorschlag', likely: 'Am wahrscheinlichsten, nach dem bisherigen Gespräch',
+    hint: 'Ein Klick sendet die Antwort. Oder sprechen oder tippen Sie einfach.',
+  },
   layout: {
     fold: 'Gespräch einklappen', unfold: 'Gespräch ausklappen', openQuestion: 'Offene Frage · Ausklappen',
     canvas: 'Visuelle Entwürfe', canvasEmpty: 'Hier ist Platz für Ihre Entwürfe.', noMessage: 'Gespräch ausklappen',

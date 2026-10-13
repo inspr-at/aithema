@@ -33,6 +33,7 @@ async function fixture(page, locale, { address = null, spent = 3_450_000, delive
   await shadow(page, async (c, options) => {
     const { locale, address, spent, delivery, privacy, handover, confirmed, voiceRunning } = options;
     const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+    const { inputRevision } = await import('/packages/core/src/session.js');
     window.a2OriginalFetch ??= window.fetch.bind(window);
     const state = window.a2 = { address, spent, delivery, privacy, confirmed, saving: false };
     const allowancesMicro = { anonymous: 12_000_000, emailGiven: 18_000_000, emailConfirmed: 24_000_000 };
@@ -63,7 +64,9 @@ async function fixture(page, locale, { address = null, spent = 3_450_000, delive
     const session = structuredClone(c.session); session.locale = locale; session.demo = false; session.paused = false; session.identity = identity();
     session.settings = { ...session.settings, origin: 'chosen', voice: 'off', visuals: 'off' };
     session.transcript = [{ id: 'visitor-fixture-turn', role: 'user', content: locale === 'de' ? 'Ich möchte meine Anforderungen besprechen.' : 'I would like to discuss my requirements.' }];
-    session.openQuestion = { text: locale === 'de' ? 'Welche Anforderungen möchten Sie besprechen?' : 'Which requirements would you like to discuss?', options: [{ text: locale === 'de' ? 'Ziele' : 'Goals', suggested: true }, locale === 'de' ? 'Ressourcen' : 'Resources'] };
+    const question = locale === 'de' ? 'Welche Anforderungen möchten Sie besprechen?' : 'Which requirements would you like to discuss?';
+    session.transcript.push({ id: 'visitor-fixture-question', role: 'assistant', content: question, inputRevision: inputRevision(session),
+      question_short: question, options: [{ text: locale === 'de' ? 'Ziele' : 'Goals', likely: true }, { text: locale === 'de' ? 'Ressourcen' : 'Resources' }] });
     session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, voice: { available: true } } };
     c.setAttribute('motion', 'off');
     let voiceClient;
@@ -86,7 +89,7 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
   let browser;
   t.after(async () => { try { await browser?.close(); } finally { await demo.kill(); await rm(directory, { recursive: true, force: true }); } });
   if (evidence) await mkdir(evidence, { recursive: true });
-  const passLines = [], states = [];
+  const passLines = [], states = [], captures = [];
   for (const locale of ['de', 'en']) {
     browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome-' + locale),
       env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
@@ -100,11 +103,50 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
       const label = `${locale}-${theme}-${width}`;
       const shot = async state => {
         await new Promise(resolve => setTimeout(resolve, 160)); states.push({ locale, theme, width, state });
-        // Phones keep the live host's scrolling page; include its question/composer below the fold.
-        const fullPage = await shadow(page, c => !c.shadowRoot.querySelector('dialog[open]'));
-        if (evidence) await page.screenshot({ path: join(evidence, `a2-${label}-${state}.png`), fullPage });
+        if (!evidence) return;
+        // Capture actual viewports: full-page painting moves sticky band/dock content over the page.
+        await shadow(page, c => {
+          window.a2ShotScroll = { page: [scrollX, scrollY], panes: [...c.shadowRoot.querySelectorAll('*')].map(n => [n, n.scrollLeft, n.scrollTop]) };
+          if (!c.shadowRoot.querySelector('dialog[open]')) scrollTo({ top: 0, behavior: 'instant' });
+        });
+        const capture = async suffix => {
+          const file = `a2-${label}-${state}${suffix}.png`;
+          await page.screenshot({ path: join(evidence, file), fullPage: false });
+          captures.push({ locale, theme, width, state, file, capture: 'viewport',
+            ...await page.evaluate(() => ({ height: innerHeight, scrollY })) });
+        };
+        try {
+          await capture('');
+          if (width === 390) {
+            const regions = await shadow(page, c => {
+              const r = c.shadowRoot, verify = r.querySelector('dialog.verify-dialog[open]'), settings = r.querySelector('dialog.settings[open]');
+              if (verify) return [{ selector: 'dialog.verify-dialog .m-notice', suffix: '-scrolled' }];
+              if (settings) return [{ selector: '.m-view.on > :last-child', suffix: '-scrolled' }];
+              return [{ selector: '.composer-shell', suffix: '-scrolled' }, { selector: '.display-foot', suffix: '-footer-scrolled' }];
+            });
+            for (const { selector, suffix } of regions) {
+              const scrolled = await shadow(page, (c, selector) => {
+                const n = c.shadowRoot.querySelector(selector); if (!n || getComputedStyle(n).visibility === 'hidden') return false;
+                const box = n.getBoundingClientRect(), pane = n.closest('.settings__body'), bounds = pane?.getBoundingClientRect();
+                const top = bounds?.top ?? c.shadowRoot.querySelector('.band').getBoundingClientRect().bottom, bottom = bounds?.bottom ?? innerHeight;
+                if (box.top >= top && box.bottom <= bottom) return false;
+                n.scrollIntoView({ block: 'end', behavior: 'instant' }); return true;
+              }, selector);
+              if (scrolled) { await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))); await capture(suffix); }
+            }
+          }
+        } finally {
+          await page.evaluate(() => {
+            for (const [n, left, top] of window.a2ShotScroll.panes) { n.scrollLeft = left; n.scrollTop = top; }
+            scrollTo({ left: window.a2ShotScroll.page[0], top: window.a2ShotScroll.page[1], behavior: 'instant' });
+            delete window.a2ShotScroll;
+          });
+        }
       };
       await fixture(page, locale);
+      const dock = await boxes(page, ['.question-card', '.composer-shell']);
+      assert.ok(dock[0][3] > 0, 'AIT-132 final-reply card is visible');
+      assert.equal(dock[0][1] + dock[0][3], dock[1][1], 'AIT-132 card meets the A2 composer without a gap');
       assert.equal(await shadow(page, c => Boolean(c.shadowRoot.querySelector('#email-input'))), true, 'the inline email input exists');
       await click(page, '.host-credits__button'); await shot('credits-anonymous');
       await click(page, '.credits-email'); await settle();
@@ -149,7 +191,7 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
       await fixture(page, locale, { delivery: true, address: 'reader@example.test', spent: 18_000_000 }); await shot('credit-used-up-confirm');
       await fixture(page, locale, { spent: 11_990_000, voiceRunning: true });
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.call === 'active');
-      const liveFixed = ['.band', '.question-card', '.composer-shell', '.display-foot', '.export', '.concept-bar'];
+      const liveFixed = ['.band', '.question-card', '.composer-dock', '.composer-shell', '.display-foot', '.export', '.concept-bar'];
       const liveBefore = await boxes(page, liveFixed);
       await shadow(page, c => { window.a2.spent = 12_000_000; c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } }); });
       const endingDisplacement = unchanged(liveBefore, await boxes(page, liveFixed), `${label}/call-ending`);
@@ -168,6 +210,6 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
     assert.deepEqual(problems, []);
     await browser.close(); browser = null;
   }
-  if (evidence) await writeFile(join(evidence, 'a2-pass-lines.json'), JSON.stringify({ head: process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1], runner: 'remote/CI', source: 'shipped component with owner-route fixtures', passLines, states }, null, 2));
-  t.diagnostic(`${passLines.length} zero-displacement checks; ${states.length} screenshots across all 12 viewport/theme/language combinations`);
+  if (evidence) await writeFile(join(evidence, 'a2-pass-lines.json'), JSON.stringify({ head: process.env.GITHUB_SHA ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1], runner: 'remote/CI', source: 'shipped component with owner-route fixtures', passLines, states, captures }, null, 2));
+  t.diagnostic(`${passLines.length} zero-displacement checks; ${states.length} states; ${captures.length} viewport screenshots across all 12 viewport/theme/language combinations`);
 });

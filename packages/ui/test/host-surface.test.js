@@ -478,14 +478,14 @@ test('locked understanding pane: the verification controls sit under no aria-dis
 
 // AIT-135 A2: all amounts are acknowledged host values (USD millionths).
 const a2Allowances = { anonymous: 12_000_000, emailGiven: 18_000_000, emailConfirmed: 24_000_000 };
-function a2Setup(t, { copy = en, address = null, spent = 3_450_000, delivery = false, privacy = true, handover = false, save, openQuestion, blocked = false } = {}) {
+function a2Setup(t, { copy = en, address = null, spent = 3_450_000, delivery = false, privacy = true, handover = false, save, question, blocked = false } = {}) {
   let saved = address;
   const tiers = () => ({ allowancesMicro: a2Allowances, current: saved ? 'emailGiven' : 'anonymous',
     next: privacy ? saved ? delivery ? 'emailConfirmed' : null : 'emailGiven' : null,
     delta: privacy ? saved ? delivery ? 6_000_000 : 0 : 6_000_000 : 0, canConfirm: delivery && privacy });
   const visitor = () => ({ address: saved, tier: saved ? 'emailGiven' : 'anonymous', limitMicro: saved ? 18_000_000 : 12_000_000 });
   const h = setup(t, { copy, host: { verification: { delivery, privacyDocumentConfigured: privacy }, credits: true, handover },
-    session: { demo: false, openQuestion, ...(blocked ? { featureMatrix: { best: { text: { available: false, reason: 'budget denied' }, analysis: { available: false, reason: 'budget denied' } } } } : {}), identity: identity({ address: saved }), settings: { origin: 'chosen', voice: 'off', visuals: 'off' } }, routes: {
+    session: { demo: false, ...(blocked ? { featureMatrix: { best: { text: { available: false, reason: 'budget denied' }, analysis: { available: false, reason: 'budget denied' } } } } : {}), identity: identity({ address: saved }), settings: { origin: 'chosen', voice: 'off', visuals: 'off' } }, routes: {
       'GET ': () => Response.json({ ...h.c.session, featureMatrix: { best: { text: { available: Boolean(saved), reason: saved ? null : 'budget denied' }, analysis: { available: Boolean(saved), reason: saved ? null : 'budget denied' } } } }),
       'GET /identity': () => Response.json({ identity: identity({ address: saved }), delivery, privacyDocumentConfigured: privacy }),
       'GET /visitor/email': () => Response.json({ visitor: visitor(), notice: { version: 'ait-135-v1', deliveryEnabled: delivery }, privacyDocumentConfigured: privacy }),
@@ -494,6 +494,8 @@ function a2Setup(t, { copy = en, address = null, spent = 3_450_000, delivery = f
       'PUT /visitor/email': async body => { await save?.(body); saved = body.address; return Response.json({ visitor: visitor() }); },
       'DELETE /visitor/email': () => { saved = null; return Response.json({ visitor: visitor() }); },
     } });
+  if (question) h.c.receive({ seq: h.c.session.seq + 1, type: 'turn.final', data: { id: 'a2-question', role: 'assistant',
+    content: question.question_short, inputRevision: inputRevision(h.c.session), ...question } });
   if (privacy) {
     const legal = document.createElement('nav'); legal.slot = 'legal';
     const link = document.createElement('a'); link.href = '/privacy?locale=' + (copy === de ? 'de' : 'en'); link.setAttribute('data-aithema-privacy', ''); legal.append(link); h.c.append(legal);
@@ -612,7 +614,7 @@ test('AIT-135 A2 C: handover purpose and the 90-day definition accompany the hos
 
 
 test('AIT-135 A2 B: the supplied open question stays readable and its answers rest when credit runs out', async t => {
-  const { root } = a2Setup(t, { spent: 12_000_000, openQuestion: { text: 'What would help next?', options: [{ text: 'Discuss the goals', suggested: true }, 'Discuss resources'] } }); await tick(8);
+  const { root } = a2Setup(t, { spent: 12_000_000, question: { question_short: 'What would help next?', options: [{ text: 'Discuss the goals', likely: true }, { text: 'Discuss resources' }] } }); await tick(8);
   const card = root.querySelector('.question-card');
   assert.equal(card.hidden, false); assert.equal(card.inert, true);
   assert.equal(card.querySelector('.qtext').textContent, 'What would help next?');
