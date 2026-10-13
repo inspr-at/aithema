@@ -38,7 +38,7 @@ export function createVoiceTurnOperations({ storage, now = Date.now, replayWindo
     authorizeReplacement !== undefined && typeof authorizeReplacement !== 'function') throw new TypeError('Invalid voice turn policy');
   const store = storage.voiceTurnStore, flights = new Map();
   function wake(flight) { for (const resolve of flight.waiters) resolve(); flight.waiters.clear(); }
-  function start(operation, execute) {
+  function start(operation, execute, writeStoredReply) {
     const ready = Promise.withResolvers(), done = Promise.withResolvers(), controller = new AbortController();
     const flight = { operation, controller, ready: ready.promise, done: done.promise, waiters: new Set(),
       content: '', finished: false };
@@ -72,7 +72,8 @@ export function createVoiceTurnOperations({ storage, now = Date.now, replayWindo
         }
         if (!completed) throw new PluginError('invalid-output');
         // Completion reaches readers only after the reply and terminal state commit.
-        store.complete(operation.key, operation.fence, completion(flight), now(), replayWindowMs);
+        const reply = completion(flight);
+        store.complete(operation.key, operation.fence, writeStoredReply ? writeStoredReply(reply) : reply, now(), replayWindowMs);
       } catch (error) {
         if (!flight.id) flight.initialError = error;
         flight.error = codeFor(error);
@@ -166,7 +167,7 @@ export function createVoiceTurnOperations({ storage, now = Date.now, replayWindo
         if (!claimed && operation.state === 'completed') return this.run(context, execute, options);
         if (!claimed) throw new PluginError('not-admitted', 'voice-turn-fenced');
       }
-      flight = start(operation, execute);
+      flight = start(operation, execute, options.writeStoredReply);
       return respond(operation, flight, context, options);
     },
     retireEpoch(sessionId, callId) {

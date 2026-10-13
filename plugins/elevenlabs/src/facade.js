@@ -123,7 +123,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
             onAdmission: operation.admitted, reportAllowed: operation.reportAllowed });
           return worker(new Request(request.url, { method: 'POST', headers: request.headers,
             body: JSON.stringify({ ...body, stream: true }), signal: operation.signal }));
-        }, { ...bounded, signal: request.signal }));
+        }, { ...bounded, signal: request.signal, now }));
         await cleanup(false);
         status = response.status;
         if (!response.ok) {

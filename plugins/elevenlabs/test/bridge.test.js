@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { createElevenLabsConfig, createVoiceBinding, createElevenLabsReplyExecutor } from '../src/server.js';
+import { createElevenLabsConfig, createVoiceBinding, createElevenLabsReplyExecutor, createElevenLabsServer } from '../src/server.js';
 import { elevenLabsMediaGrant } from '../src/client.js';
 import { createDurationBinding, durationPluginMatches } from '../../../packages/server/src/voice-binding.js';
 import { assertVoicePorts, assertVoiceSession } from '../../../packages/core/src/live-voice.js';
 import { binding as commonBinding } from '../../../test/plugin-fixtures.js';
-import { fixture, invocationOptions, receipt } from './fixtures.js';
+import { fixture, invocationOptions, receipt, binding } from './fixtures.js';
 import { SQLiteStorage } from '../../../packages/server/src/storage.js';
 import { createVoiceTurnOperations } from '../../../test/voice-turn-wire.js';
 import { normalizeElevenLabsDurationBinding } from '../src/config.js';
@@ -33,6 +33,19 @@ test('AIT-102: private config normalizes legacy fields without coupling model id
   assert.throws(() => createElevenLabsConfig({ agentId: 'bad/agent' }), TypeError);
   assert.throws(() => createElevenLabsConfig({ ...config, usdPerCredit: -1 }), TypeError);
   assert.throws(() => createElevenLabsConfig({ ...config, publicFacadeBaseUrl: 'https://user:pass@host.example.test' }), TypeError);
+});
+
+test('AIT-102: adapter matchesConfig compares private agent and credit price directly', () => {
+  const config = createElevenLabsConfig({ agentId: binding.agentId, usdPerCredit: 0.000264 });
+  const server = createElevenLabsServer({ binding: { ...binding, adapterConfig: config },
+    saveCall: async () => {}, prepareCall: async () => {} });
+  const port = server.ports.serverAdapter;
+  assert.equal(port.matchesConfig(config), true);
+  assert.equal(port.matchesConfig({ ...config, agentId: 'other-agent' }), false);
+  assert.equal(port.matchesConfig({ ...config, usdPerCredit: 0.000265 }), false);
+  assert.equal(port.matchesConfig({ agentId: config.agentId }), false);
+  assert.equal(port.matchesConfig(undefined), false);
+  assert.equal(port.matchesConfig({ ...config, publicFacadeBaseUrl: 'https://another.example.test' }), true);
 });
 
 test('AIT-102: server port consumes admission and delegates closure and reconciliation', async t => {

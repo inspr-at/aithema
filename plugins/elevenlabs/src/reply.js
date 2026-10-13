@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { PluginError, PLUGIN_ERROR_CODES } from '../../../packages/core/src/invocation.js';
 import { voiceOperation } from '../../../packages/core/src/live-voice.js';
 
@@ -107,14 +108,26 @@ export async function encodeElevenLabsReply(reply, { stream = false } = {}) {
 }
 
 export async function runElevenLabsReply(turns, context, execute, options = {}) {
+  const created = Math.floor((options.now ?? Date.now)() / 1000);
   try {
     const reply = await turns.run(context, async worker => decodeElevenLabsReply(await execute(worker)),
-      { ...options, readStoredReply: readElevenLabsStoredReply });
+      { ...options, readStoredReply: readElevenLabsStoredReply,
+        writeStoredReply: reply => elevenLabsCompletion(reply, reply.text) });
     return await encodeElevenLabsReply(reply, context);
   } catch (error) {
     if (error.replyResponse) return Response.json(error.replyResponse.body, { status: error.replyResponse.status });
     // Claim/replay policy refusals still use the facade's reason-bearing errors.
     if (/^voice-turn-/u.test(error.message ?? '')) throw error;
+    if (context.stream === true) {
+      // Main emitted its own role frame even when the worker's first frame was
+      // an error. Reuse the codec to preserve separate frames and SSE headers.
+      let role = false;
+      return encodeElevenLabsReply({ replyId: `chatcmpl-${randomUUID()}`, created,
+        events: new ReadableStream({ pull(controller) {
+          if (!role) { role = true; controller.enqueue({ type: 'operation' }); }
+          else controller.error(error);
+        } }, { highWaterMark: 0 }) }, context);
+    }
     return Response.json({ error: codeFor(error) }, { status: statusFor(codeFor(error)) });
   }
 }

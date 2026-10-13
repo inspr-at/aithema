@@ -1883,7 +1883,7 @@ test('AIT-138 d fix 1: takeover after dispatch completes paid reasoning and sett
   const completed = h.storage.voiceOperations(h.session.id)[0];
   assert.equal(completed.key, operation.key); assert.equal(completed.fence, operation.fence);
   assert.equal(completed.state, 'completed');
-  assert.equal(h.storage.getRecord(h.session.id, completed.replyRef).data.text, 'Reply 1 finished');
+  assert.equal(h.storage.getRecord(h.session.id, completed.replyRef).data.choices[0].message.content, 'Reply 1 finished');
   assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
   assert.equal(settlements, 1);
   assert.deepEqual(h.rows().map(row => [row.attempt_id, row.state, row.outcome, row.settled_micro]),
