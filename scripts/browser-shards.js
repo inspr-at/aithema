@@ -4,30 +4,30 @@ import { resolve } from 'node:path';
 
 export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 
-// Fixed bins from main 027746e, CI run 38334109506 (successful attempt 2).
-// Top-level node:test durations, excluding nested durations to avoid double counting:
-// matrix 209.159s; remaining display 145.660s; orb 86.337s; demo 51.826s;
-// look 26.476s; question-card 17.223s; journey 13.973s; html 8.406s; host 7.586s.
-// The original display file exceeded five minutes, so its matrix is a separate file.
-// AIT-138 d continuity: 45.348s, PR #117 CI run 38337837967.
-// Give it a separate file on shard 3 and move look to shard 2 to balance the bins.
+// Balanced using main 027746e CI run 38334109506, A2 PR CI run
+// 38331186287, and AIT-138 d PR #117 CI run 38337837967.
+// Top-level durations exclude nested tests: visitor-credit-tiers 345.610s;
+// matrix 209.159s; remaining display 145.660s; continuity 45.348s;
+// orb 86.337s; demo 51.826s; look 26.476s; question-card 17.223s;
+// journey 13.973s; html 8.406s; host 7.586s.
 export const browserShards = [
-  // 209.159s
-  ['test/browser/start2-display-matrix.test.js'],
-  // 205.351s
+  // 345.610s
+  ['test/browser/visitor-credit-tiers.test.js'],
+  // 332.809s
+  [
+    'test/browser/start2-display-matrix.test.js',
+    'test/browser/demo.test.js',
+    'test/browser/start-look.test.js',
+    'test/browser/start2-display-continuity.test.js',
+  ],
+  // 279.185s
   [
     'test/browser/start2-display.test.js',
+    'test/browser/orb-reveal.test.js',
     'test/browser/question-card.test.js',
+    'test/browser/start-journey.test.js',
     'test/browser/html-preview.test.js',
     'test/browser/host-surface.test.js',
-    'test/browser/start-look.test.js',
-  ],
-  // 197.484s
-  [
-    'test/browser/demo.test.js',
-    'test/browser/orb-reveal.test.js',
-    'test/browser/start-journey.test.js',
-    'test/browser/start2-display-continuity.test.js',
   ],
 ];
 

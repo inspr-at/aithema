@@ -10,7 +10,7 @@ export const questionCardStyles = `
   overflow-y:auto; overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:var(--aithema-line-strong) transparent;
   background:color-mix(in srgb,var(--aithema-accent) 7%,var(--aithema-surface));
   box-shadow:0 0 0 1px color-mix(in srgb,var(--aithema-accent) 28%,transparent); }
-.qcard:not([hidden]) + .composer { border-radius:0 0 18px 18px; }
+.qcard:not([hidden]) + .composer, .qcard:not([hidden]) + .composer-shell, .qcard:not([hidden]) + .composer-shell :is(.composer,.composer-out) { border-radius:0 0 18px 18px; }
 .qhead { display:flex; align-items:center; gap:7px; color:var(--aithema-accent); font:600 13px var(--aithema-font); }
 .qtext { margin:0; font-size:15.5px; line-height:1.4; text-wrap:balance; overflow-wrap:anywhere; }
 .qopts { display:grid; gap:2px; margin-top:2px; }
@@ -32,7 +32,7 @@ export const questionCardStyles = `
 .transcript-shell { padding-bottom:calc(1.5rem + var(--aithema-slack-bottom,0px) + var(--question-card-height,0px)); }
 `;
 
-export const questionCardMarkup = `<div class="qcard" hidden role="group" aria-labelledby="qtitle" aria-describedby="qtext qhint">
+export const questionCardMarkup = `<div class="question-card qcard" hidden role="group" aria-labelledby="qtitle" aria-describedby="qtext qhint">
   <div class="qhead"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a8.5 8.5 0 0 1-12.4 7.6L3 21l1.5-5.2A8.5 8.5 0 1 1 21 12z"/><path d="M9.7 9.3a2.4 2.4 0 1 1 3.4 2.2c-.7.3-1.1.9-1.1 1.6v.4M12 16.3v.1"/></svg><span id="qtitle"></span></div>
   <p class="qtext" id="qtext"></p><div class="qopts"></div><p class="qhint" id="qhint"></p>
 </div>`;

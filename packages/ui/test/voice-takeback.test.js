@@ -100,6 +100,58 @@ function tabsFixture(t, transport) {
 }
 
 for (const transport of ['webrtc', 'websocket']) {
+  for (const refusal of ['exhausted', 'admission', 'full-hold']) test(`AIT-138 d merge: ${transport} old-tab take-back respects ${refusal} and recovers explicitly`, { timeout: 10_000 }, async t => {
+    const f = tabsFixture(t, transport); await f.newcomer();
+    const before = f.snapshot(), commands = f.commands.length;
+    let exhausted = refusal === 'exhausted';
+    f.a.rail.usedUp = () => exhausted;
+    if (refusal === 'admission') f.a.rail.failure({ code: 'not-admitted', reason: 'host-limit' });
+    // A local pause must never grant an exception to a real budget refusal.
+    if (refusal === 'full-hold') f.a.rail.feature = () => ({ available: false, rawReason: 'budget denied', reason: 'budget denied' });
+    f.a.rail.render();
+    assert.equal(f.a.rail.button('pause').disabled, true);
+    if (refusal !== 'full-hold') assert.equal(f.a.root.querySelector('.voice-state').textContent, en.voiceStates.usedUp);
+    await f.a.rail.start(); await f.a.rail.pause(false); await flush();
+    assert.equal(f.snapshot().epoch, before.epoch); assert.equal(f.snapshot().controllingTabId, 'B');
+    assert.deepEqual(f.commands.slice(commands).filter(c => c.tab === 'A' && ['takeover', 'recover', 'resume'].includes(c.name)), []);
+    assert.ok(f.a.sdk.acquired.every(stream => stream.getTracks().every(track => track.readyState === 'ended')));
+    assert.equal(f.b.root.dataset.state, 'listening', 'a refused old tab must not stop the admitted owner');
+    exhausted = false; f.a.rail.feature = () => ({ available: true });
+    f.a.rail.reconcileAdmission(); f.a.rail.render(); f.held(f.a);
+    assert.equal(f.snapshot().epoch, before.epoch, 'top-up alone never takes over or resumes');
+    f.a.rail.button('pause').click(); await flush();
+    assert.equal(f.snapshot().epoch, before.epoch + 1); assert.equal(f.a.root.dataset.state, 'listening'); f.held(f.b);
+  });
+
+  test(`AIT-138 d merge: ${transport} credits exhausted while a click waits for voice.state cancels takeover`, { timeout: 10_000 }, async t => {
+    const f = tabsFixture(t, transport); await f.a.rail.start();
+    const retired = f.a.returned.at(-1); f.a.deferNotifications = true;
+    await f.b.rail.start(); await f.b.rail.start(); await retired.heartbeat(); await flush();
+    const before = f.snapshot(), commands = f.commands.length;
+    let exhausted = false; f.a.rail.usedUp = () => exhausted;
+    f.a.rail.button('pause').click(); await flush();
+    exhausted = true; f.a.rail.render(); f.a.deliverNotifications(); await flush();
+    assert.equal(f.snapshot().epoch, before.epoch); assert.equal(f.snapshot().controllingTabId, 'B');
+    assert.deepEqual(f.commands.slice(commands).filter(c => c.tab === 'A' && ['takeover', 'recover', 'resume'].includes(c.name)), []);
+    exhausted = false; f.a.rail.render(); await flush();
+    assert.equal(f.snapshot().epoch, before.epoch, 'the refused click is not replayed automatically after top-up');
+    f.a.rail.button('pause').click(); await flush();
+    assert.equal(f.snapshot().epoch, before.epoch + 1); assert.equal(f.a.root.dataset.state, 'listening'); f.held(f.b);
+  });
+
+  test(`AIT-138 d merge: ${transport} credits exhausted during a takeover receipt prevents recovery and Resume`, { timeout: 10_000 }, async t => {
+    const f = tabsFixture(t, transport); await f.newcomer();
+    const commands = f.commands.length; let exhausted = false; f.a.rail.usedUp = () => exhausted;
+    f.a.takeoverAck = Promise.withResolvers(); f.a.rail.button('pause').click(); await flush();
+    const held = f.snapshot(); exhausted = true; f.a.rail.render(); f.a.takeoverAck.resolve(); await flush();
+    assert.equal(f.snapshot().epoch, held.epoch); assert.equal(f.a.root.dataset.state, 'waiting');
+    assert.deepEqual(f.commands.slice(commands).filter(c => c.tab === 'A' && ['takeover', 'recover', 'resume'].includes(c.name)).map(c => c.name), ['takeover']);
+    assert.ok(f.a.sdk.acquired.every(stream => stream.getTracks().every(track => track.readyState === 'ended')));
+    exhausted = false; f.a.rail.render(); await flush();
+    assert.equal(f.a.root.dataset.state, 'waiting', 'top-up still waits for explicit Resume');
+    f.a.rail.button('pause').click(); await flush(); assert.equal(f.a.root.dataset.state, 'listening'); f.held(f.b);
+  });
+
   for (const repeated of [false, true]) test(`AIT-138 d takeback: ${transport} ownership-lost response before voice.state ${repeated ? 'coalesces repeated clicks' : 'preserves one click until the authoritative epoch'}`, { timeout: 10_000 }, async t => {
     const f = tabsFixture(t, transport); await f.a.rail.start();
     const retired = f.a.returned.at(-1), oldState = f.snapshot(), resume = t.mock.method(retired, 'resume');

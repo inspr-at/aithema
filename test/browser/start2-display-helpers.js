@@ -1,4 +1,4 @@
-// Shared unchanged display helpers for the two file-based CI shards.
+// Shared display helpers for the two file-based CI shards.
 import assert from 'node:assert/strict';
 import { constants } from 'node:fs';
 import { access } from 'node:fs/promises';
@@ -15,6 +15,20 @@ async function browserPath() {
 const shadow = (page, fn, ...args) => page.$eval('aithema-session', fn, ...args);
 const until = (page, fn, arg) => page.waitForFunction(fn, { polling: 50, timeout: 30_000 }, arg);
 const settle = () => new Promise(resolve => setTimeout(resolve, 120));
+async function mockIdentityReads(page) {
+  await page.evaluateOnNewDocument(() => {
+    const original = window.fetch.bind(window);
+    window.fetch = async (url, init = {}) => {
+      const path = new URL(url, location.href).pathname, identity = document.querySelector('aithema-session')?.session?.identity;
+      if ((init.method ?? 'GET') === 'GET' && identity) {
+        if (path.endsWith('/identity')) return Response.json({ identity, delivery: true, privacyDocumentConfigured: false });
+        if (path === '/api/visitor/email') return Response.json({ visitor: { address: identity.address ?? null }, notice: { version: 'ait-135-v1', deliveryEnabled: true }, privacyDocumentConfigured: false });
+      }
+      return original(url, init);
+    };
+  });
+}
+
 const boxes = (page, selectors) => shadow(page, (c, selectors) => selectors.map(selector => {
   const r = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
 }), selectors);
@@ -91,4 +105,4 @@ const seekReveal = (page, ms) => page.evaluate(ms => {
 }, ms);
 
 const evidenceCommit = process.env.GITHUB_SHA ?? process.env.AITHEMA_COMMIT ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1] ?? 'd886da3';
-export { browserPath, shadow, until, settle, boxes, layoutBoxes, statusGeometry, sameBoxes, pixelRgb, finishRevealEntry, freezeRevealExit, seekReveal, evidenceCommit };
+export { browserPath, mockIdentityReads, shadow, until, settle, boxes, layoutBoxes, statusGeometry, sameBoxes, pixelRgb, finishRevealEntry, freezeRevealExit, seekReveal, evidenceCommit };

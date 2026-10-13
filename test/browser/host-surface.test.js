@@ -208,7 +208,7 @@ test('host surface: verification lock through the fake outbox keeps a manual pau
     await page.waitForFunction(text => document.querySelector('#outbox-status').textContent === text, {}, en.host.outbox.confirmed);
     await page.click('#outbox-close');
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.verify-lock').hidden);
-    assert.equal(await text(page, '.host-verify .verify-done'), v.verifiedShort);
+    assert.equal(await text(page, '.host-verify .verify-done'), en.hostSurface.email.confirmedLabel);
     assert.equal(await inShadow(page, c => c.session.paused), true, 'the manual pause is kept');
     assert.equal(await text(page, '.pause'), en.resume);
     assert.equal(await text(page, '.status__label'), v.unlockedPaused);

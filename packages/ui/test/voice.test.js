@@ -44,6 +44,24 @@ test('AIT-138 d: newcomer must Take over, then separately Resume; takeover acqui
   assert.equal(root.dataset.state, 'waiting'); assert.equal(rail.button('pause').title, en.resume);
   await rail.start(); assert.equal(starts, 1);
 });
+for (const copy of [de, en]) test(`AIT-138 d merge: ${copy.display.locale} paused old tab cannot hide a budget or consent refusal`, async t => {
+  const session = createSession({ demo: true, locale: copy.display.locale }); let takeovers = 0, starts = 0;
+  session.paused = true;
+  session.featureMatrix = { best: { voice: { available: false, reason: 'budget denied' }, text: { available: true } } };
+  session.voiceLifecycle = { callId: 'denied-takeback', providerSessionId: 'denied-provider', epoch: 2,
+    controllingTabId: 'other-tab', state: 'waiting' };
+  const client = { manifest, tabId: 'old-tab', async takeover() { takeovers++; }, async start() { starts++; } };
+  const element = document.createElement('aithema-session'); element.configure({ copy, session, voiceClient: client });
+  t.after(() => { element.configure({ copy, session: createSession() }); element.remove(); });
+  const pause = element.shadowRoot.querySelector('.pause');
+  assert.equal(pause.disabled, true, 'budget denied is not covered by the held-pause exception');
+  pause.click(); await tick(); assert.equal(takeovers, 0); assert.equal(starts, 0);
+  session.featureMatrix.best.voice = { available: true }; session.consentWithdrawn = true;
+  element.configure({ copy, session, voiceClient: client });
+  const consentPause = element.shadowRoot.querySelector('.pause');
+  assert.equal(consentPause.disabled, true, 'withdrawn consent is not covered by the held-pause exception');
+  consentPause.click(); await tick(); assert.equal(takeovers, 0); assert.equal(starts, 0);
+});
 test('AIT-138 d takeback: visible Resume follows a pending takeover and its receipt without another repaint', async t => {
   const session = createSession({ demo: true }), ack = Promise.withResolvers(); let starts = 0;
   session.paused = true;

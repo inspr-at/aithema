@@ -9,7 +9,7 @@ import puppeteer from 'puppeteer-core';
 import { startChild } from '../helpers.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
-import { browserPath, shadow, until, settle, boxes, layoutBoxes, statusGeometry, sameBoxes, finishRevealEntry, freezeRevealExit, seekReveal, evidenceCommit } from './start2-display-helpers.js';
+import { browserPath, mockIdentityReads, shadow, until, settle, boxes, layoutBoxes, statusGeometry, sameBoxes, finishRevealEntry, freezeRevealExit, seekReveal, evidenceCommit } from './start2-display-helpers.js';
 
 test('AIT-131 r3 demo account keeps shared gaps and its panel inside the viewport down to 320px', { timeout: 120_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-account-band-'));
@@ -111,12 +111,12 @@ test('AIT-147 Settings footer wraps without moving controls: verification off/un
   t.after(() => browser.close());
   const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], checks = [];
   if (evidence) await mkdir(evidence, { recursive: true });
-  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await mockIdentityReads(page); await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
   await shadow(page, c => { globalThis.footerSeed = c.session; });
   const expected = {
-    de: 'Allgemein · Hier können Sie ein neues Gespräch beginnen, die Einwilligung und Ihre Voreinstellungen prüfen und Ihre E-Mail bestätigen.',
-    en: 'General · Start a new conversation, review consent and your defaults, and verify your email.',
+    de: 'Allgemein · Hier können Sie ein neues Gespräch beginnen, die Einwilligung und Ihre Voreinstellungen prüfen und Ihre E-Mail-Adresse bestätigen.',
+    en: 'General · Start a new conversation, review consent and your defaults, and confirm your email address.',
   };
   const general = {
     de: 'Allgemein · Hier können Sie ein neues Gespräch beginnen sowie die Einwilligung und Ihre Voreinstellungen prüfen.',
@@ -158,7 +158,7 @@ test('AIT-147 Settings footer wraps without moving controls: verification off/un
       assert.equal(displacement, 0, `${context}: control displacement stays 0 px`);
       assert.equal(geometry.emailShown, verification, context);
       assert.equal(geometry.verifyButtonShown, needsVerification, context);
-      assert.equal(geometry.text, needsVerification ? expected[locale] : general[locale], context);
+      assert.equal(geometry.text, state === 'verified' ? { de, en }[locale].help.generalEmailManage : needsVerification ? expected[locale] : general[locale], context);
       assert.equal(geometry.fontStyle, 'normal'); assert.notEqual(geometry.textOverflow, 'ellipsis');
       assert.ok(geometry.scrollWidth <= geometry.clientWidth + 1, context);
       for (const line of geometry.lines) {
@@ -193,7 +193,7 @@ test('AIT-131 r3 Settings email states and verification focus: DE/EN, 1440/390, 
   t.after(async () => { await browser.close(); await demo.kill(); });
   const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], checks = [];
   if (evidence) await mkdir(evidence, { recursive: true });
-  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await mockIdentityReads(page); await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
   await shadow(page, c => { globalThis.emailSeed = c.session; });
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 390]) for (const state of ['unverified', 'pending', 'verified']) {
@@ -220,7 +220,7 @@ test('AIT-131 r3 Settings email states and verification focus: DE/EN, 1440/390, 
         extras: Boolean(root.querySelector('.host-extras')), visible: section.contains(hit), lock: !root.querySelector('.verify-lock').hidden };
     });
     const words = { de, en }[locale].hostSurface.verify, context = `${width}/${theme}/${locale}/${state}: ${JSON.stringify(entry)}`;
-    assert.equal(entry.title, 'E-Mail'); assert.equal(entry.panel, 'general'); assert.equal(entry.last, true);
+    assert.equal(entry.title, locale === 'en' ? 'Email' : 'E-Mail'); assert.equal(entry.panel, 'general'); assert.equal(entry.last, true);
     assert.equal(entry.extras, false); assert.equal(entry.visible, true, context); assert.equal(entry.lock, false);
     assert.equal(entry.address, state === 'unverified' ? '' : 'visitor@example.com');
     assert.equal(entry.hasButton, state !== 'verified'); assert.equal(entry.verified, state === 'verified');
