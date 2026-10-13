@@ -510,7 +510,8 @@ test('host playback notifications and retry clear the message only after success
 });
 test('host voice presentation overrides the adapter label and follows the conversation locale', t => {
   const c = document.createElement('aithema-session'), session = createSession({ demo: true });
-  session.settings.voice = 'host-voice'; session.engine.voice = { id: 'host-voice', label: 'Host option' };
+  session.settings = { origin: 'chosen', voice: 'host-voice' };
+  session.engine = { voice: { id: 'host-voice', label: 'Host option' } };
   const client = { manifest: { ...manifest, presentation: { label: 'Adapter label' } } };
   const supplied = { label: 'Host label', translations: [{ locale: 'de', label: 'Host-Stimme' }, { locale: 'en', label: 'Host voice' }] };
   t.after(() => c.remove());

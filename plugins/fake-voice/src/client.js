@@ -19,13 +19,30 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
       let sequence = 0, ordinal = 0, pauseRevision = 0, lastAssistant, closing, delivery = Promise.resolve(), commands = Promise.resolve(), recoveryIdentity;
       const identity = () => ({ callId: request.callId, providerSessionId: receipt?.providerSessionId,
         ...(receipt?.epoch === undefined ? {} : { epoch: receipt.epoch }) });
+      const persist = async event => {
+        for (let attempt = 0; ; attempt++) {
+          cancellation.signal.throwIfAborted();
+          try {
+            await voiceOperation({ signal: cancellation.signal, deadlineAt: Date.now() + 2000 },
+              opts => persistEvent(event, { providerSessionId: event.providerSessionId }, opts));
+            return;
+          } catch (error) {
+            if (cancellation.signal.aborted || error.status === 403 || error.code === 'not-admitted' ||
+              error.status >= 400 && error.status < 500 && ![408, 429].includes(error.status) || attempt >= 2) throw error;
+            await voiceOperation({ signal: cancellation.signal }, opts => new Promise((resolve, reject) => {
+              const aborted = () => { clearTimeout(timer); reject(opts.signal.reason); };
+              const timer = setTimeout(() => { opts.signal.removeEventListener('abort', aborted); resolve(); }, 100 * 2 ** attempt);
+              opts.signal.addEventListener('abort', aborted, { once: true });
+            }));
+          }
+        }
+      };
       const emit = value => {
         const event = Object.freeze({ ...value, ...identity() });
         if (['listening', 'speaking'].includes(event.type)) lifecycle.dispatch({ type: 'playback', active: event.type === 'speaking' });
         delivery = delivery.then(async () => {
           if (cancellation.signal.aborted) return;
-          if (['final', 'heard'].includes(event.type)) await voiceOperation({ signal: cancellation.signal, deadlineAt: Date.now() + 2000 },
-            opts => persistEvent(event, { providerSessionId: event.providerSessionId }, opts));
+          if (['final', 'heard'].includes(event.type)) await persist(event);
           if (event.type === 'final' && event.role === 'user') lifecycle.dispatch({ type: 'accepted', turnId: event.turnId, sequence: ++sequence });
           if (event.type === 'final' && event.role === 'assistant') lifecycle.dispatch({ type: 'reply', replyId: event.turnId });
           if (event.type === 'heard') lifecycle.dispatch({ type: 'heard', prefix: event.prefix });
