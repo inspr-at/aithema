@@ -133,7 +133,9 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
             lastReply = { turnId: value.turnId, text: value.text };
             lifecycle.dispatch({ type: 'reply', replyId: value.turnId });
           }
-          if (value.type === 'heard') lifecycle.dispatch({ type: 'heard', prefix: value.prefix });
+          // Corrections remain durable transcript evidence for their own turn.
+          // A queued/late correction for A cannot establish B's playback position.
+          if (value.type === 'heard' && value.turnId === lastPlaybackTurnId) lifecycle.dispatch({ type: 'heard', prefix: value.prefix });
           if (expose && !persistenceCancellation.signal.aborted) {
             const checkpoint = lifecycle.state.checkpoint;
             events.push(value.type === 'recovered' ? { ...value, recovery: {
@@ -243,7 +245,11 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
         const observeAssistant = eventId => {
           if (!active() || !Number.isSafeInteger(eventId) || eventId < 0) return;
           latestAssistantId = Math.max(latestAssistantId, eventId);
-          lastPlaybackTurnId = `${receipt.providerSessionId}:assistant:${latestAssistantId}`;
+          const turnId = `${receipt.providerSessionId}:assistant:${latestAssistantId}`;
+          // Stream/audio identity arrives before the complete final callback.
+          // Invalidate the previous turn's prefix as soon as the new turn starts.
+          if (turnId !== lastPlaybackTurnId) lifecycle.dispatch({ type: 'heard', prefix: null });
+          lastPlaybackTurnId = turnId;
           if (playbackInterrupted && eventId > lastInterruptionId) {
             playbackInterrupted = false;
             conversation?.setVolume({ volume: outputVolume() });

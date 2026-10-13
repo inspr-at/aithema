@@ -20,7 +20,7 @@ export class RecoveryNotices {
     this.clear(); this.recovery = { ...recovery }; this.render();
     this.root.querySelector('.voice-notice-live').textContent = [this.copy.voiceRecovered,
       recovery.userUnconfirmed && this.copy.voiceUserUnconfirmed,
-      recovery.deliveryUncertain && this.copy.voiceReplyIncomplete].filter(Boolean).join('. ');
+      recovery.deliveryUncertain && recovery.playbackPositionUnknown && this.copy.voiceReplyIncomplete].filter(Boolean).join('. ');
   }
   clear() {
     this.revision++; this.recovery = null; this.pending = null;
@@ -37,7 +37,7 @@ export class RecoveryNotices {
     const text = (selector, value) => { const node = this.root.querySelector(selector); if (node.textContent !== value) node.textContent = value; };
     text('.voice-notice--recovered', recovery ? c.voiceRecovered : '');
     text('.voice-notice--user', recovery?.userUnconfirmed ? c.voiceUserUnconfirmed : '');
-    text('.voice-notice--reply span', recovery?.deliveryUncertain ? c.voiceReplyIncomplete : '');
+    text('.voice-notice--reply span', recovery?.deliveryUncertain && recovery.playbackPositionUnknown ? c.voiceReplyIncomplete : '');
     text('.voice-repeat', c.voiceRepeatReply);
     this.button.hidden = !(recovery?.deliveryUncertain && recovery.playbackPositionUnknown);
     this.button.disabled = !available || Boolean(this.pending) || !recovery?.lastReplyText;
