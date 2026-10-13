@@ -152,6 +152,44 @@ for (const [input, expected] of [
   }
 });
 
+for (const [input, expected] of [
+  // Gate3: capitalising third-person pronouns would turn them into formal address.
+  ['Vielen Dank für die Unterlagen, sie sind sehr hilfreich.'],
+  ['Danke für die Details, sie helfen sehr.'],
+  ['Vielen Dank für die Unterlagen, ihr Vorschlag hilft.'],
+  ['Vielen Dank, ihnen hilft der Vorschlag.'],
+  ['Vielen Dank, ihre Idee hilft.'],
+  ['Danke, ihre Beschreibung ist sehr hilfreich.'],
+  ['Danke, sie können helfen.'],
+  ['Danke, also sie helfen uns.'],
+  ['Danke, äh ihr Vorschlag hilft.'],
+  // Already-capitalised formal address keeps its referent; other safe starts do too.
+  ['Vielen Dank, Sie haben recht.', 'Sie haben recht.'],
+  ['Vielen Dank, Ihr Vorschlag hilft.', 'Ihr Vorschlag hilft.'],
+  ['Vielen Dank, Ihre Idee hilft.', 'Ihre Idee hilft.'],
+  ['Vielen Dank, Ihnen hilft der Vorschlag.'], // Dative start is outside the whitelist.
+  ['Danke, das hilft uns.', 'Das hilft uns.'],
+  ['Danke, es hilft uns.', 'Es hilft uns.'],
+  ['Danke, er hilft uns.', 'Er hilft uns.'],
+  ['Thanks, she helps us.', 'She helps us.'],
+]) test(`AIT-157 fix3: capitalisation preserves meaning: ${input}`, () => {
+  const stripped = expected !== undefined, text = expected ?? input;
+  for (const locale of ['de', 'en']) {
+    assert.deepEqual(core.stripThanksOpener(input, locale),
+      stripped ? { text, stripped } : { text, stripped, kept: true });
+    for (const bufferNormal of [true, false]) {
+      for (let split = 0; split <= input.length; split++) {
+        const stream = new core.ReplyOpenerStream(locale, { bufferNormal });
+        assert.equal(stream.push(input.slice(0, split)) + stream.push(input.slice(split)) + stream.finish(), text);
+        assert.equal(stream.stripped, stripped);
+      }
+      const stream = new core.ReplyOpenerStream(locale, { bufferNormal });
+      assert.equal([...input].map(char => stream.push(char)).join('') + stream.finish(), text);
+      assert.equal(stream.stripped, stripped);
+    }
+  }
+});
+
 for (const input of [
   ...de.map(form => `${form} für Ihre Nachricht, das klingt nach einem klaren Vorhaben.`),
   ...en.map(form => `${form} for your message, it sounds like a clear plan.`),
