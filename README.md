@@ -637,8 +637,12 @@ intent before background settlement; terminal calls cannot recover. Call
 authorization revisions cover ownership, conversation consent, withdrawal,
 locale and processing choices, independently of ordinary transcript revisions.
 
-The server chooses opening or continuation presentation. Openings retain the
-locale's AI notice; every replacement sets SDK `overrides.agent.firstMessage`
+The server chooses opening or continuation presentation. The ElevenLabs server
+adapter owns callback routes, private callback credentials, callback URLs and
+SDK overrides. The generic server mounts its optional authenticated routes and
+retains call authorization, reasoning admission and Rule C operation ownership.
+Legacy server factory exports remain compatibility aliases to the plugin.
+Openings retain the locale's AI notice; every replacement sets SDK `overrides.agent.firstMessage`
 to `""`. No synthetic resume utterance is sent. Each replacement is a new
 provider generation and callback key space: an input repeated there can admit
 another operation and incur another charge. Recovery never aliases receipts or

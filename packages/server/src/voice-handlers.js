@@ -1,17 +1,28 @@
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { PluginError, inputRevision, reasoningRequest, aiTextOrigin, voiceAuthorizationRevision, recoverableVoiceEnd } from '@inspr/aithema-core';
-import { createCompletionsHandler } from '../../../plugins/elevenlabs/src/facade.js';
 import { voiceOperation } from '../../core/src/live-voice.js';
 import { ConflictError, NotFoundError } from './storage.js';
 import { VOICE_CAP_REASONS } from './voice-cap.js';
-import { CUSTOM_LLM_BASE_PATH } from '../../../plugins/elevenlabs/src/ensure-agent.js';
 import { createVoiceTurnOperations } from './voice-turns.js';
 
 const json = (value, status = 200) => Response.json(value, { status, headers: { 'cache-control': 'no-store' } });
 const idPattern = '[a-zA-Z0-9_-]{1,128}';
 const routes = new RegExp(`^/api/sessions/(${idPattern})/voice(?:/(${idPattern})/(pause|resume|heartbeat|close|recover|events|takeover))?$`, 'u');
-const facadeRoute = new RegExp(`^/api/voice/(${idPattern})/llm/chat/completions$`, 'u');
-const staticFacadeRoute = '/api/voice/llm/chat/completions';
+// Route declarations are adapter-owned; parameter syntax is shared by the mount.
+const matchesCallback = (route, path) => {
+  const declared = route.path.split('/'), actual = path.split('/');
+  return declared.length === actual.length && declared.every((part, i) => part.startsWith(':')
+    ? new RegExp(`^${idPattern}$`, 'u').test(actual[i]) : part === actual[i]);
+};
+const reservedCallbackPrefixes = ['/api/sessions', '/api/library', '/api/visitor'];
+function registerCallbacks(callbacks) {
+  for (const route of callbacks?.callbackRoutes ?? []) {
+    const declared = route.path.split('/');
+    if (reservedCallbackPrefixes.some(prefix => prefix.split('/').every((part, i) =>
+      declared[i] === part || declared[i]?.startsWith(':')))) throw new TypeError('Reserved core route prefix');
+  }
+  return callbacks;
+}
 
 // Voice-only guidance composes with core's shared policies via reasoningRequest.
 const VOICE_REPLY_POLICY = `Voice reply guidance:
@@ -43,19 +54,13 @@ function unrecordedVoiceInput(session, messages, { callId, providerSessionId }) 
   return sameTurn && !providerAhead ? [] : [{ role: 'user', content: latest.content }];
 }
 
-export function createFacadeSecrets() {
-  const values = new Map();
-  return { provision(ref) { values.set(ref, randomBytes(32).toString('base64url')); },
-    resolve: ref => values.get(ref), revoke: ref => { values.delete(ref); } };
-}
+export { createFacadeSecrets } from '../elevenlabs-compat.js';
 
 export function createVoiceHandlers({ storage, runtime, ownership, readBody, secrets,
   publish, onTurn, onClose, onActivity, hostPrompt = '', now = Date.now, browserLeaseMs = 30_000, deadlineMs = 30_000,
-  closeOrphan, staticSecretRef, presentation, reconcileIntervalMs = 30_000, reconcileBatchSize = 10,
+  closeOrphan, staticSecretRef, presentation, callbackAdapter, reconcileIntervalMs = 30_000, reconcileBatchSize = 10,
   reconcileLookupTimeoutMs = 5000, log,
   turnReplayWindowMs, turnTimeoutMs = 30_000, authorizeTurnReplacement } = {}) {
-  if (!secrets?.provision || !secrets.resolve || !secrets.revoke) throw new TypeError('Private facade secret store required');
-  if (presentation !== undefined && typeof presentation !== 'function') throw new TypeError('Voice presentation must be a function of the session locale');
   if (![reconcileIntervalMs, reconcileBatchSize, reconcileLookupTimeoutMs].every(value => Number.isSafeInteger(value) && value > 0) ||
     log !== undefined && typeof log !== 'function') throw new TypeError('Invalid voice reconciliation retry bounds');
   const calls = new Map(), sessions = new Map(), settlements = new Set(), authorities = new Map();
@@ -138,12 +143,12 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
   };
   const receipt = call => ({ callId: call.callId, providerSessionId: call.providerSessionId, credential: call.credential,
     epoch: calls.get(call.callId)?.epoch, controllingTabId: calls.get(call.callId)?.tabId,
-    ...(staticSecretRef ? { facadeCallId: calls.get(call.callId)?.facadeCallId } : {}),
+    ...calls.get(call.callId)?.callbackContext?.receipt,
     spendDeadlineAt: call.spendDeadlineAt, browserLivenessDeadlineAt: call.browserLivenessDeadlineAt,
     presentation: calls.get(call.callId)?.presentation ?? 'opening',
     ...(call.overrides ? { overrides: call.overrides } : {}) });
   const options = request => ({ signal: request.signal, deadlineAt: Date.now() + deadlineMs });
-  function revoke(entry) { if (!staticSecretRef) secrets.revoke(entry.facadeSecretRef); }
+  function revoke(entry) { entry.callbackContext?.revoke(); }
   function close(entry, reason = 'closed', outcome = 'completed') {
     if (entry.closing) return entry.closing;
     const resumable = recoverableVoiceEnd(reason);
@@ -206,8 +211,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     const controller = new AbortController(), started = Promise.withResolvers(), entry = { callId, sessionId, ownerToken, controller, started: started.promise,
       tabId: logical.controllingTabId, epoch: logical.epoch,
       conversationConsentRevision: session.conversationConsentRevision ?? session.consentRevision, withdrawalRevision: session.withdrawalRevision,
-      settingsRevision: session.settings?.revision ?? 0, presentation: continuation ? 'continuation' : 'opening', authority,
-      facadeSecretRef: staticSecretRef ?? 'voice-' + randomUUID(), ...(staticSecretRef ? { facadeCallId: randomUUID() } : {}) };
+      settingsRevision: session.settings?.revision ?? 0, presentation: continuation ? 'continuation' : 'opening', authority };
     sessions.set(sessionId, entry); calls.set(callId, entry);
     const abortStartup = () => controller.abort(request.signal.reason);
     request.signal.addEventListener('abort', abortStartup, { once: true });
@@ -219,13 +223,13 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       } }); entry.admission = admitted;
       const end = spendDeadlineAt ?? now() + admitted.binding.maxDurationSeconds * 1000;
       if (end <= now()) throw new PluginError('deadline');
-      if (!staticSecretRef) await secrets.provision(entry.facadeSecretRef);
+      const callbacks = adapterCallbacks(admitted.plugin.ports?.serverAdapter);
+      entry.callbackContext = callbacks?.prepareCallback?.({ callId, binding: admitted.binding, locale: session.locale, continuation });
+      await entry.callbackContext?.prepare();
       controller.signal.throwIfAborted();
-      // Trusted presentation from the conversation's locale, including its AI notice (AIT-127).
-      const overrides = continuation ? { agent: { language: session.locale, firstMessage: '' } } : presentation?.(session.locale);
-      entry.call = await admitted.plugin.start({ callId, sessionId, ownerToken, facadeSecretRef: entry.facadeSecretRef,
-        facadeUrl: `${admitted.binding.publicFacadeBaseUrl}${staticSecretRef ? CUSTOM_LLM_BASE_PATH : `/api/voice/${callId}/llm`}`,
-        settingsRevision: session.settings?.revision ?? 0, ...(overrides ? { overrides } : {}) },
+      const callbackRequest = entry.callbackContext?.request ?? {}, { overrides, ...startRequest } = callbackRequest;
+      entry.call = await admitted.plugin.start({ callId, sessionId, ownerToken, ...startRequest,
+        settingsRevision: session.settings?.revision ?? 0, ...(Object.hasOwn(callbackRequest, 'overrides') ? { overrides } : {}) },
         { ...admitted.options, spendDeadlineAt: end, browserLivenessDeadlineAt: Math.min(end, now() + browserLeaseMs) });
       entry.call.signal.addEventListener('abort', () => {
         void close(entry, entry.call.snapshot().reason ?? 'cancelled', 'cancelled');
@@ -265,11 +269,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       ...(currentFocus && session.focusedQuestion ? [{ role: 'user', content: JSON.stringify({ kind: 'untrusted-focused-question', question: session.focusedQuestion }) }] : []),
       ...latestInput] };
   }
-  const facade = createCompletionsHandler({ resolveSecret: secrets.resolve, staticSecretRef, timeoutMs: turnTimeoutMs,
-    onOpenerStripped() {
-      try { (log ?? console.log)({ event: 'reply.opener-stripped', count: 1, lane: 'voice' }); }
-      catch { /* Diagnostics cannot interrupt speech or accounting. */ }
-    },
+  const callbackOperations = { secrets, staticSecretRef, presentation, timeoutMs: turnTimeoutMs, log,
     turnOperations: {
       run(context, execute, options) {
         const entry = calls.get(context.callId);
@@ -277,12 +277,12 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         return turns.run({ ...context, sessionId: entry.sessionId }, execute, options);
       },
     },
-    getCall(request, options, identity) {
-      const entry = staticSecretRef ? [...calls.values()].find(entry => entry.facadeCallId === identity)
-        : calls.get(facadeRoute.exec(new URL(request.url).pathname)?.[1]);
+    getCall(identity, { callbackIdentity = false } = {}) {
+      const entry = callbackIdentity ? [...calls.values()].find(entry => entry.callbackContext?.identity === identity)
+        : calls.get(identity);
       if (!entry?.call || entry.closing || sessions.get(entry.sessionId) !== entry) return null;
       try { sessionFor(entry); } catch { throw new PluginError('not-admitted', 'Call ownership or context revoked'); }
-      return { ...entry.call.snapshot(), facadeSecretRef: entry.facadeSecretRef, facadeCallId: entry.facadeCallId,
+      return { ...entry.call.snapshot(), ...entry.callbackContext?.details,
         signal: entry.authority.signal, readerCurrent: () => controlsEpoch(entry) };
     },
     buildRequest({ callId, messages }) {
@@ -338,7 +338,18 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       entry.produced.push({ replyId, content, textOrigin, engine, userTurnOrdinal });
       while (entry.produced.length > 256 || entry.produced.reduce((n, reply) => n + reply.content.length, 0) > 1_048_576) entry.produced.shift();
     },
-  });
+  };
+  const boundCallbacks = new WeakMap();
+  function adapterCallbacks(adapter = callbackAdapter ?? secrets?.serverAdapter) {
+    if (!adapter) return;
+    if (!boundCallbacks.has(adapter)) boundCallbacks.set(adapter,
+      registerCallbacks(adapter.bindCallbacks ? adapter.bindCallbacks(callbackOperations) : adapter));
+    return boundCallbacks.get(adapter);
+  }
+  const callbackAdapters = () => [...new Set([...(runtime?.voiceServerAdapters?.() ?? []),
+    callbackAdapter ?? secrets?.serverAdapter])].filter(Boolean).map(adapter => adapterCallbacks(adapter));
+  // Validate configured adapters and register their routes before accepting traffic.
+  callbackAdapters();
   async function changePause(entry, paused, opts = {}) {
     if (paused) {
       try {
@@ -391,8 +402,15 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     },
     async handle(request) {
       const path = new URL(request.url).pathname;
-      if (staticSecretRef ? path === staticFacadeRoute : facadeRoute.test(path)) return facade(request);
-      if (staticSecretRef && facadeRoute.test(path)) return json({ error: 'not-found' }, 404);
+      let methodNotAllowedStatus;
+      for (const callbacks of callbackAdapters()) {
+        for (const route of callbacks?.callbackRoutes ?? []) {
+          if (!matchesCallback(route, path)) continue;
+          if (route.method === request.method) return route.handle(request);
+          methodNotAllowedStatus ??= route.methodNotAllowedStatus ?? 405;
+        }
+      }
+      if (methodNotAllowedStatus) return json({ error: methodNotAllowedStatus === 404 ? 'not-found' : 'method-not-allowed' }, methodNotAllowedStatus);
       const match = routes.exec(path); if (!match) return null;
       try {
         const [, sessionId, callId, action] = match, ownerToken = ownership.token(request);
@@ -572,7 +590,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       }
       // The exclusive writer has already conservatively recovered all open claims.
       for (let record of storage.voiceCalls()) {
-        if (!staticSecretRef) await secrets.revoke(record.facadeSecretRef);
+        for (const callbacks of callbackAdapters()) await callbacks?.revokeRecord?.(record);
         const row = runtime.budget.get(record.attemptId);
         // A final receipt can be journalled immediately before a crash in budget
         // settlement. Replay its actual cost rather than abandoning that receipt.

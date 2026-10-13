@@ -113,7 +113,9 @@ test('renamed or disappeared owned agent and incomplete lists fail closed withou
 test('upstream errors never escape to logs or public disabled reason', async t => {
   const fake = await fakeElevenLabs(t), storage = new SQLiteStorage(), logs = []; t.after(() => storage.close());
   const host = await createVoiceHost({ ...options(storage, fake, logs), fetchImpl: async () => { throw new Error('local-bearer-fixture config body'); } });
-  assert.equal(host.disabledReason, 'agent-api-unavailable'); assert.deepEqual(logs, []);
+  t.after(() => host.close?.());
+  assert.equal(host.disabledReason, 'agent-api-unavailable');
+  assert.deepEqual(logs, [{ event: 'voice-availability', from: 'starting', to: 'off', reason: 'agent-api-unavailable' }]);
 });
 test('the allowlist uses the origin host including its port and excludes the scheme', async t => {
   const fake = await fakeElevenLabs(t), storage = new SQLiteStorage(); t.after(() => storage.close());
@@ -195,7 +197,10 @@ for (const mode of ['create', 'PATCH']) {
     assert.equal(written, true);
     assert.equal(host.binding, undefined);
     assert.equal(host.disabledReason, 'agent-readback-mismatch');
-    assert.deepEqual(logs, [{ name: AGENT_NAME, id: 'owned-agent', fields: reported }]);
+    assert.deepEqual(logs, [
+      { name: AGENT_NAME, id: 'owned-agent', fields: reported },
+      { event: 'voice-availability', from: 'starting', to: 'off', reason: 'agent-readback-mismatch' },
+    ]);
   });
   test(`${mode} read-back accepts extra conversation override flags only when explicitly false`, async t => {
     const fake = await fakeElevenLabs(t), storage = new SQLiteStorage(), logs = [];
@@ -210,7 +215,10 @@ for (const mode of ['create', 'PATCH']) {
       return Response.json(saved);
     } });
     assert.ok(host.binding);
-    assert.deepEqual(logs.at(-1), { name: AGENT_NAME, id: 'owned-agent' });
+    assert.deepEqual(logs, [
+      { name: AGENT_NAME, id: 'owned-agent' },
+      { event: 'voice-availability', from: 'starting', to: 'available', reason: null },
+    ]);
   });
   test(`${mode} rejects the wrong top-level platform key and disables voice`, async t => {
     const fake = await fakeElevenLabs(t), storage = new SQLiteStorage(); t.after(() => storage.close());
@@ -239,7 +247,11 @@ for (const mode of ['create', 'PATCH']) {
       return response;
     } });
     assert.equal(host.binding, undefined); assert.equal(host.disabledReason, 'agent-api-get-500');
-    assert.deepEqual(logs, [{ name: AGENT_NAME, id: 'owned-agent', fields: ['agent-readback'] }]);
+    t.after(() => host.close?.());
+    assert.deepEqual(logs, [
+      { name: AGENT_NAME, id: 'owned-agent', fields: ['agent-readback'] },
+      { event: 'voice-availability', from: 'starting', to: 'off', reason: 'agent-api-get-500' },
+    ]);
   });
 }
 test('an uncertain secret creation stays closed across restart and names only the orphan secret', async t => {
@@ -254,7 +266,12 @@ test('an uncertain secret creation stays closed across restart and names only th
   assert.equal(host.binding, undefined); assert.equal(host.disabledReason, 'secret-create-invalid');
   const restarted = await createVoiceHost(options(storage, fake, logs));
   assert.equal(restarted.binding, undefined); assert.equal(restarted.disabledReason, 'secret-ownership-unproven');
-  assert.deepEqual(logs, [{ name: 'aithema-start2-facade' }, { name: 'aithema-start2-facade' }]);
+  assert.deepEqual(logs, [
+    { name: 'aithema-start2-facade' },
+    { event: 'voice-availability', from: 'starting', to: 'off', reason: 'secret-create-invalid' },
+    { name: 'aithema-start2-facade' },
+    { event: 'voice-availability', from: 'starting', to: 'off', reason: 'secret-ownership-unproven' },
+  ]);
   assert.equal(storage.db.prepare('SELECT * FROM host_voice_secrets').all().length, 0);
   assert.equal(writes(fake).length, 1);
 });
