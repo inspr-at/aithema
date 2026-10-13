@@ -72,8 +72,8 @@ export function createVoiceTurnOperations({ storage, now = Date.now, replayWindo
         }
         if (!completed) throw new PluginError('invalid-output');
         // Completion reaches readers only after the reply and terminal state commit.
-        const reply = completion(flight);
-        store.complete(operation.key, operation.fence, writeStoredReply ? writeStoredReply(reply) : reply, now(), replayWindowMs);
+        const receipt = completion(flight);
+        store.complete(operation.key, operation.fence, writeStoredReply ? writeStoredReply(receipt) : receipt, now(), replayWindowMs);
       } catch (error) {
         if (!flight.id) flight.initialError = error;
         flight.error = codeFor(error);
