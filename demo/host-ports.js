@@ -3,6 +3,7 @@ import { LibraryPortError, createFakeHandoverHost, handoverKey } from '@inspr/ai
 import { SQLiteBudgetLedger } from '../packages/server/src/budget.js';
 import { createVisitorCredits, EMAIL_NOTICE_VERSION } from './visitor-credits.js';
 import { createConfirmationStore } from './confirmation-store.js';
+import { privacyDocumentConfigured as hasPrivacyDocument } from '../packages/server/src/host-handlers.js';
 import { canonicalEmail } from './email-address.js';
 
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -121,7 +122,9 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
         const reserved = confirmation.reserve({ ownerHash: session.ownerHash, sessionId, address, revision, expiresAt, locale });
         if (reserved.status === 'rate-limited') return reserved;
         try {
-          const result = await mailPlugin.requestVerification({ sessionId, address, revision, ...reserved, locale }, options);
+          const result = await mailPlugin.requestVerification({ sessionId, address, revision, ...reserved, locale,
+            confirmedAllowanceMicro: visitorCredits.creditTiers(session.ownerHash).allowancesMicro.emailConfirmed,
+            privacyDocumentConfigured: hasPrivacyDocument({ privacyDocumentConfigured }) }, options);
           confirmation.delivered(reserved.token, result?.status);
           return { status: result?.status === 'sent' ? 'sent' : 'failed' };
         } catch {

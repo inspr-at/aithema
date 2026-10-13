@@ -28,6 +28,7 @@ export const browserShards = [
     'test/browser/start-journey.test.js',
     'test/browser/html-preview.test.js',
     'test/browser/host-surface.test.js',
+    'test/browser/confirmation-design.test.js',
   ],
 ];
 

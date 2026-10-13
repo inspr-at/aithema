@@ -169,7 +169,7 @@ async function handle(request) {
   }
   const path = url.pathname === '/' ? '/demo/index.html' : ['/consent', '/consent/'].includes(url.pathname) ? '/demo/consent.html' : url.pathname;
   // Explicit source/static allowlist; no arbitrary files, lockfiles or credentials.
-  if (!/^\/(?:demo\/(?:index\.html|consent\.html|host\.css|host\.js|consent\.js|consent-page\.js|page-preferences\.js|theme-init\.js|fake-voice\.js)|plugins\/device\/src\/index\.js|plugins\/elevenlabs\/src\/(?:client|manifest|options)\.js|packages\/(?:ui|core)\/src\/[a-z0-9/-]+\.js)$/u.test(path)) return new Response(null, { status: 404 });
+  if (!/^\/(?:demo\/(?:index\.html|consent\.html|host\.css|host\.js|consent\.js|consent-page\.js|page-preferences\.js|theme-init\.js|confirm-email\.js|fake-voice\.js)|plugins\/device\/src\/index\.js|plugins\/elevenlabs\/src\/(?:client|manifest|options)\.js|packages\/(?:ui|core)\/src\/[a-z0-9/-]+\.js)$/u.test(path)) return new Response(null, { status: 404 });
   const file = resolve(root, `.${path}`);
   if (!file.startsWith(root + (root.endsWith(sep) ? '' : sep))) return new Response(null, { status: 404 });
   try {

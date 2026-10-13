@@ -2411,7 +2411,7 @@ credentials belong in source, public config, logs or CLI output:
 | `SMTP_USER` | Optional SMTP AUTH user; network-authorized relays need no AUTH |
 | `SMTP_PASS` | Secret reference resolved privately at delivery, only when AUTH is configured |
 | `SMTP_FROM` | Authorized sender address, preserved for DKIM alignment |
-| `SMTP_FROM_NAME` | Optional sender display name |
+| `SMTP_FROM_NAME` | Sender display name; OPS sets `SMTP_FROM_NAME=Aithema` |
 | `SMTP_REPLY_TO` | Optional deliberate reply destination |
 
 OPS wires the agreed agm1 relay separately. Configuration does not contact the
@@ -2431,14 +2431,20 @@ alternative. The mail contains one confirmation link, its 30-minute validity
 and single-use explanation, the higher-credit purpose, privacy/90-day inactivity
 notice, and guidance to ignore unsolicited mail and delete the product message
 after the matter closes. It contains no tracking pixels, remote images, fonts
-or other remote resources. `confirmationHtml` is C2's template seam.
+or other remote resources. C2 uses the approved table template with one style
+block for dark mode and phone sizing; the confirmation URL appears on the button
+and as text, and the host privacy URL follows the binding notice. Confirmed
+Credits come from the server allowances and use the visitor’s locale.
 
 `GET /confirm-email?token=...` inspects only and displays one explicit confirmation
 button. `POST /confirm-email` requires the configured origin and a signed,
 token-bound CSRF form plus HttpOnly SameSite=Strict cookie; HTTPS uses a Secure
 `__Host-` cookie. Redemption, the attempt count, `confirmed_at` and audit event
 commit together exactly once. DE/EN copy keys cover valid, confirmed,
-already-used, expired (with new-link instructions), invalid and too-many-attempts.
+already-used (address confirmed or link used), expired (with new-link instructions),
+invalid and too-many-attempts (with the rounded resend wait). The designed page
+uses host-served CSS and `confirm-email.js`; without script the form still posts.
+Ready, confirming and confirmed reserve the same card and action space.
 There are five attempts per revision and a 60-second visitor resend cooldown.
 Three mail reservations per rolling 24 hours across visitors are keyed by an
 HMAC of the fully lowercased canonical address (trimmed, IDN domain converted to

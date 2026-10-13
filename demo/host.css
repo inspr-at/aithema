@@ -163,3 +163,64 @@ aithema-session { display:block; width:100%; --aithema-height:100dvh; --aithema-
   .conversation-page:has(#demo-account:not([hidden])) .utility { gap:2px; padding:0 1px; }
 }
 .conversation-page .colophon { display:none; }
+
+/* AIT-135 C2 · the confirmation landing page (/confirm-email). Append to demo/host.css: the page's CSP is
+   style-src 'self', so no inline styles. Host tokens only (--paper --ink --muted --accent --line --surface --display --ui);
+   the band is start2's (teal-paper tint fading down, hairline fading at both ends) without the voice rail. */
+.confirm-page { --confirm-btn:#0e6f6c; --confirm-btn-hover:#0b5c59; --confirm-tint:color-mix(in srgb,var(--accent) 13%,var(--surface));
+  --confirm-glow:#7fd3cd; --confirm-card:color-mix(in srgb,var(--surface) 86%,transparent);
+  --confirm-shadow:0 1px 2px rgba(16,43,66,.05),0 30px 70px -38px rgba(16,43,66,.42); display:flex; flex-direction:column; }
+@media(prefers-color-scheme:dark) { :root:not([data-theme="light"]) .confirm-page { --confirm-btn:#107c78; --confirm-btn-hover:#0d6a67;
+  --confirm-tint:color-mix(in srgb,#12908c 24%,var(--surface)); --confirm-glow:#a5e3de; --confirm-shadow:0 30px 70px -38px rgba(0,0,0,.7); } }
+:root[data-theme="dark"] .confirm-page { --confirm-btn:#107c78; --confirm-btn-hover:#0d6a67;
+  --confirm-tint:color-mix(in srgb,#12908c 24%,var(--surface)); --confirm-glow:#a5e3de; --confirm-shadow:0 30px 70px -38px rgba(0,0,0,.7); }
+
+.confirm-band { position:relative; display:flex; align-items:center; min-height:76px; padding:16px clamp(16px,4vw,56px);
+  background:linear-gradient(to bottom,color-mix(in srgb,var(--accent) 8%,var(--paper)) 0%,color-mix(in srgb,var(--accent) 4%,transparent) 70%,transparent 100%); }
+.confirm-band::after { content:""; position:absolute; left:0; right:0; bottom:0; height:1px;
+  background:linear-gradient(to right,transparent,color-mix(in srgb,var(--ink) 20%,transparent) 18%,color-mix(in srgb,var(--ink) 20%,transparent) 82%,transparent); }
+.confirm-wordmark { display:inline-flex; align-items:center; gap:14px; min-height:44px; color:var(--ink); font:600 24px/1.2 var(--display); letter-spacing:-.025em; text-decoration:none; }
+.confirm-mark { width:10px; height:10px; flex:none; margin-left:4px; border-radius:50%; background:radial-gradient(circle at 35% 30%,var(--confirm-glow),var(--confirm-btn) 70%); box-shadow:0 0 0 4px var(--confirm-tint); }
+
+.confirm-main { flex:1; display:grid; justify-items:center; align-content:start; gap:14px; padding:clamp(28px,11vh,128px) 16px 56px; }
+.confirm-card { width:min(100%,456px); padding:32px 32px 28px; border:1px solid var(--line); border-radius:20px; background:var(--confirm-card);
+  box-shadow:var(--confirm-shadow); -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px); }
+/* Ready and confirmed share one grid cell: the card is as tall as the taller view, so ready → confirming → confirmed never moves. */
+.confirm-stack { display:grid; }
+.confirm-view { grid-area:1/1; display:flex; flex-direction:column; align-items:flex-start; min-width:0; }
+.confirm-view[aria-hidden="true"] { visibility:hidden; }
+.confirm-icon { display:grid; place-items:center; width:48px; height:48px; flex:none; border-radius:50%; background:var(--confirm-tint); color:var(--accent); }
+.confirm-icon svg { width:24px; height:24px; fill:none; stroke:currentColor; stroke-width:1.75; stroke-linecap:round; stroke-linejoin:round; }
+.confirm-icon--done { background:var(--confirm-btn); color:#fff; box-shadow:0 0 0 6px var(--confirm-tint); }
+.confirm-icon--done svg { width:26px; height:26px; stroke-width:2.25; }
+.confirm-title { margin:20px 0 0; color:var(--ink); font:400 28px/1.18 var(--display); letter-spacing:-.01em; text-wrap:balance; }
+.confirm-address { margin:8px 0 0; color:var(--ink); font:600 16px/1.4 var(--ui); overflow-wrap:anywhere; }
+.confirm-lead { margin:10px 0 0; color:var(--muted); font:15px/1.55 var(--ui); text-wrap:pretty; }
+.confirm-num { color:var(--ink); font-weight:600; white-space:nowrap; }
+.confirm-action { align-self:stretch; margin-top:auto; padding-top:28px; }
+.confirm-form { margin:0; }
+.confirm-button { display:grid; place-items:center; width:100%; min-height:48px; padding:12px 20px; border:0; border-radius:12px; background:var(--confirm-btn);
+  color:#fff; font:600 15px/1.25 var(--ui); text-align:center; text-decoration:none; transition:background-color .15s; }
+.confirm-button:hover { background:var(--confirm-btn-hover); color:#fff; }
+.confirm-button > span { grid-area:1/1; display:inline-flex; align-items:center; justify-content:center; gap:10px; }
+.confirm-busy { visibility:hidden; }
+.confirm-card[data-busy] .confirm-label { visibility:hidden; }
+.confirm-card[data-busy] .confirm-busy { visibility:visible; }
+.confirm-card[data-busy] .confirm-button { cursor:progress; }
+.confirm-spin { width:16px; height:16px; flex:none; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; animation:confirm-spin .9s linear infinite; }
+.confirm-spin circle { opacity:.35; }
+@keyframes confirm-spin { to { transform:rotate(1turn); } }
+.confirm-icon--draw path { stroke-dasharray:19; stroke-dashoffset:19; animation:confirm-draw .45s .2s cubic-bezier(.3,.6,.2,1) forwards; }
+@keyframes confirm-draw { to { stroke-dashoffset:0; } }
+.confirm-privacy { display:inline-flex; align-items:center; min-height:44px; padding:0 10px; color:var(--muted); font-size:13px;
+  text-decoration:underline; text-decoration-color:color-mix(in srgb,var(--muted) 45%,transparent); }
+.confirm-privacy:hover { color:var(--ink); }
+@media(prefers-reduced-motion:reduce) { .confirm-spin { animation:none; } .confirm-icon--draw path { animation:none; stroke-dashoffset:0; } .confirm-button { transition:none; } }
+@media(max-width:600px) {
+  .confirm-band { min-height:64px; padding-block:10px; }
+  .confirm-wordmark { font-size:20px; gap:12px; }
+  .confirm-main { padding-top:28px; }
+  .confirm-card { padding:26px 22px 22px; border-radius:18px; }
+  .confirm-title { font-size:25px; }
+  .confirm-action { padding-top:24px; }
+}
