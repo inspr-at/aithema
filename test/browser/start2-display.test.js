@@ -441,6 +441,125 @@ test('AIT-131 populated canvas regressions and the orb hit area', { timeout: 120
     createdAt: new Date().toISOString(), files, checks }, null, 2));
 });
 
+test('AIT-138 UI: held-call copy, placeholders, calm lines and disabled controls without layout shift', { timeout: 180_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-waiting-ui-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
+  });
+  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
+    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  t.after(async () => { await browser.close(); await demo.kill(); });
+  const page = await browser.newPage(), errors = [], files = [], checks = [], evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  page.on('pageerror', error => errors.push(error.message));
+  await page.setRequestInterception(true);
+  page.on('request', async request => {
+    if (new URL(request.url()).pathname.endsWith('/features')) return request.respond({ status: 200, contentType: 'application/json',
+      body: JSON.stringify(await shadow(page, c => c.session.featureMatrix)) });
+    return request.continue();
+  });
+  if (evidence) await mkdir(evidence, { recursive: true });
+  const shot = async (state, width, theme, locale) => {
+    if (!evidence || width === 1024) return;
+    await shadow(page, c => c.shadowRoot.activeElement?.blur()); await page.mouse.move(0, 0);
+    const name = `ait-138-${state}-${width}-${theme}-${locale}.png`;
+    await page.screenshot({ path: join(evidence, name), fullPage: false }); files.push(name);
+  };
+  // Reinstall only the host's voice port after a real reload. The component restores the saved waiting snapshot.
+  const configure = async (locale, reload = false) => page.evaluate(async ({ locale, reload }) => {
+    const { voiceEvents } = await import('/packages/core/src/live-voice.js'), { manifest } = await import('/plugins/elevenlabs/src/manifest.js');
+    const { de } = await import('/packages/ui/src/i18n/de.js'), { en } = await import('/packages/ui/src/i18n/en.js');
+    const c = document.querySelector('aithema-session'), copy = { de, en }[locale];
+    const s = reload ? JSON.parse(sessionStorage.getItem('ait-138-waiting-ui')) : structuredClone(c.session);
+    s.locale = locale; s.paused = false; s.settings.origin = 'chosen'; s.settings.voice = 'elevenlabs';
+    s.engine.voice = { id: 'elevenlabs', label: 'ElevenLabs', offered: true };
+    s.featureMatrix.best = Object.fromEntries(['text', 'analysis', 'voice'].map(key => [key, { available: true, reason: null }]));
+    if (!reload) {
+      delete s.voiceLifecycle;
+      s.transcript = [{ id: 'ui-user', role: 'user', content: locale === 'de' ? 'Eine Website für Stickpolster.' : 'A website for embroidered cushions.' }];
+    }
+    globalThis.waitingUiStarts = 0;
+    const voiceClient = { manifest, async start({ callId }) {
+      globalThis.waitingUiStarts++; globalThis.waitingUiCallId = callId;
+      const events = voiceEvents(); globalThis.waitingUiEvents = events;
+      return { callId, providerSessionId: 'ui-evidence', events, async setInput() {}, async setOutput() {}, async updateContext() {},
+        async pause() { return { acknowledged: true, paused: true }; }, async resume() { return { acknowledged: true, paused: false }; },
+        audioLevels: () => ({ input: .3, output: .65 }), async close() { events.end(); return { closureConfirmed: true }; } };
+    } };
+    localStorage.setItem('aithema-motion', 'on');
+    c.configure({ copy, session: s, voiceClient }); document.documentElement.lang = locale;
+    document.querySelector('#locale').value = locale;
+    const { paintUtilities } = await import('/demo/page-preferences.js'); paintUtilities(copy); window.scrollTo(0, 0);
+  }, { locale, reload });
+  const settled = async state => {
+    await until(page, (state) => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === state, state);
+    await page.evaluate(async () => { await document.fonts.ready; await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))); });
+    await settle();
+  };
+  const placeholder = () => shadow(page, c => c.shadowRoot.querySelector('textarea').placeholder);
+  const controls = () => shadow(page, c => ['.voice-input', '.voice-output'].map(selector => {
+    const n = c.shadowRoot.querySelector(selector), style = getComputedStyle(n);
+    return { selector, disabled: n.disabled, tooltip: n.title, opacity: style.opacity, cursor: style.cursor };
+  }));
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 390, 1024]) {
+    const copy = { de, en }[locale], label = `${width}-${theme}-${locale}`;
+    await page.setViewport({ width, height: width === 390 ? 844 : 900 });
+    await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+    await until(page, () => document.querySelector('aithema-session')?.session?.id);
+    await page.select('#theme', theme); await configure(locale); await settle();
+    await shadow(page, c => c.shadowRoot.querySelector('.voice-start').click()); await settled('listening');
+    const placeholders = { listening: await placeholder() }; assert.equal(placeholders.listening, copy.placeholderVoice);
+    const selectors = ['.band', '.audio-rail', '.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.composer'];
+    const before = await layoutBoxes(page, selectors);
+    await shadow(page, c => c.shadowRoot.querySelector('.pause').click()); await settled('paused');
+    placeholders.paused = await placeholder(); assert.equal(placeholders.paused, copy.placeholder);
+    sameBoxes(before, await layoutBoxes(page, selectors), `${label}: paused keeps fixed cells`);
+    await shot('voice-paused', width, theme, locale);
+    await shadow(page, c => c.shadowRoot.querySelector('.pause').click()); await settled('listening');
+    // Force the previous amber paint, then stop motion before waiting: a timer cannot repair the colour for us.
+    await page.evaluate(() => globalThis.waitingUiEvents.push({ type: 'speaking', callId: globalThis.waitingUiCallId }));
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.voice-wave').getContext('2d').strokeStyle === '#b66a23');
+    await shadow(page, c => c.shadowRoot.querySelector('.motion-toggle').click());
+    assert.equal(await shadow(page, c => c.getAttribute('motion')), 'off');
+    await page.evaluate(() => globalThis.waitingUiEvents.push({ type: 'waiting', callId: globalThis.waitingUiCallId, reason: 'recovery-failed' }));
+    await settled('waiting');
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-state').textContent), copy.voiceStates.waiting);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.pause').title), copy.resume);
+    placeholders.waiting = await placeholder(); assert.equal(placeholders.waiting, copy.placeholder);
+    const geometry = await statusGeometry(page);
+    if (width >= 1024) { assert.equal(geometry.rendered.length, 1, `${label}: whole label on one line`); assert.equal(geometry.overflow, 'clip');
+      assert.ok(geometry.textBox.x >= geometry.waveX && geometry.textBox.right <= geometry.waveX + geometry.waveWidth, `${label}: label fits inside waveform space`); }
+    const lineColour = await shadow(page, c => c.shadowRoot.querySelector('.voice-wave').getContext('2d').strokeStyle);
+    assert.equal(lineColour, '#12908c', `${label}: calm user baseline, including motion off`);
+    const disabledControls = await controls();
+    for (const control of disabledControls) {
+      assert.equal(control.disabled, true); assert.equal(control.opacity, '0.4'); assert.equal(control.cursor, 'default');
+      assert.equal(control.tooltip, control.selector === '.voice-input' ? copy.voiceMicOn : copy.voiceSpeakerOn);
+    }
+    sameBoxes(before, await layoutBoxes(page, selectors), `${label}: waiting keeps fixed cells`);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${label}: no horizontal overflow`);
+    await shot('voice-waiting', width, theme, locale);
+    await page.evaluate(() => {
+      const snapshot = structuredClone(document.querySelector('aithema-session').session);
+      snapshot.voiceLifecycle = { callId: globalThis.waitingUiCallId, providerSessionId: 'ui-evidence', state: 'waiting', attempts: 3, needsRecovery: true };
+      sessionStorage.setItem('ait-138-waiting-ui', JSON.stringify(snapshot));
+    });
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await until(page, () => document.querySelector('aithema-session')?.session?.id);
+    await configure(locale, true); await settled('waiting');
+    placeholders.waitingAfterReload = await placeholder(); assert.equal(placeholders.waitingAfterReload, copy.placeholder);
+    assert.equal(await page.evaluate(() => globalThis.waitingUiStarts), 0, `${label}: reload does not start listening`);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-wave').getContext('2d').strokeStyle), '#12908c');
+    for (const control of await controls()) { assert.equal(control.disabled, true); assert.equal(control.opacity, '0.4'); assert.ok(control.tooltip); }
+    await shot('voice-waiting-reloaded', width, theme, locale);
+    checks.push({ viewport: { width, height: width === 390 ? 844 : 900 }, theme, locale, waitingLabel: copy.voiceStates.waiting,
+      waitingLabelLines: geometry.rendered.length, waitingLineColour: { token: 'COLOUR.user', value: lineColour }, placeholders,
+      disabledControls, noLayoutShift: true, noHorizontalOverflow: true, pass: true });
+  }
+  assert.deepEqual(errors, []);
+  if (evidence) await writeFile(join(evidence, 'ait-138-ui-pass-lines.json'), JSON.stringify({ ticket: 'AIT-138', commit: evidenceCommit,
+    createdAt: new Date().toISOString(), capture: 'viewport', files, checks }, null, 2));
+});
+
 test('AIT-131 integrated display: real band, reveal, voice and display matrix at 390/1024/1440, both themes and languages',
   { timeout: 360_000 }, async t => {
     const directory = await mkdtemp(join(tmpdir(), 'aithema-display-'));

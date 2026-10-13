@@ -66,7 +66,7 @@ export const de = {
   voiceMicOn: 'Mikrofon an', voiceMicOff: 'Mikrofon aus', voiceSpeakerOn: 'Ton an', voiceSpeakerOff: 'Ton aus',
   voiceRetry: 'Erneut anrufen', voicePlaybackRetry: 'Ton aktivieren', voiceCommandUnavailable: 'Mit diesem Sprachdienst nicht verfügbar',
   voiceStates: { idle: 'Bereit zum Sprechen', connecting: 'Verbindung wird aufgebaut …', listening: 'Ich höre zu', speaking: 'Antwort wird gesprochen',
-    paused: 'Anruf pausiert', recovering: 'Verbindung wird wiederhergestellt …', waiting: 'Sprache pausiert — wählen Sie „Fortsetzen“', closing: 'Anruf wird beendet …', failed: 'Anruf beendet' },
+    paused: 'Anruf pausiert', recovering: 'Verbindung wird wiederhergestellt …', waiting: 'Sprache pausiert. Fortsetzen, wenn Sie bereit sind.', closing: 'Anruf wird beendet …', failed: 'Anruf beendet' },
   voiceMicDenied: 'Kein Zugriff auf das Mikrofon. Erlauben Sie den Zugriff und versuchen Sie es erneut.',
   voiceMicMissing: 'Es wurde kein Mikrofon gefunden. Schließen Sie eines an und versuchen Sie es erneut.',
   voiceAdmissionDenied: 'Sprache ist nicht verfügbar. Prüfen Sie die Einwilligung und die verfügbaren Credits.',

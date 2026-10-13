@@ -26,6 +26,8 @@ export const bandStyles = `
 .voice-state, .voice-caption { padding:3px 8px; border-radius:0; font-size:12px;
   background:none; box-shadow:none; }
 .voice-state { max-width:50%; text-wrap:balance; }
+/* Waiting borrows space from the measured waveform flanks without moving the rail or its controls. */
+@media (min-width:1024px) { .audio-rail[data-state="waiting"] .voice-state { max-width:100%; white-space:nowrap; } }
 .audio-rail[data-message] .voice-state { max-width:100%; }
 .audio-rail[data-message] .voice-state { left:0; }
 .workspace:not([data-stage="live"]) .band .audio-rail { display:grid; }

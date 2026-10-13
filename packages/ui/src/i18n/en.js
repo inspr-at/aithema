@@ -61,7 +61,7 @@ export const en = {
   voiceMicOn: 'Mic on', voiceMicOff: 'Mic off', voiceSpeakerOn: 'Sound on', voiceSpeakerOff: 'Sound off',
   voiceRetry: 'Retry call', voicePlaybackRetry: 'Enable sound', voiceCommandUnavailable: 'Unavailable with this voice plugin',
   voiceStates: { idle: 'Ready to talk', connecting: 'Connecting voice…', listening: 'Listening', speaking: 'Speaking the reply',
-    paused: 'Call paused', recovering: 'Reconnecting voice…', waiting: 'Voice paused — select Resume', closing: 'Settling call…', failed: 'Call ended' },
+    paused: 'Call paused', recovering: 'Reconnecting voice…', waiting: "Voice paused. Resume when you're ready.", closing: 'Settling call…', failed: 'Call ended' },
   voiceMicDenied: 'Microphone access denied. Allow access, then retry.', voiceMicMissing: 'No microphone found. Connect one, then retry.',
   voiceAdmissionDenied: 'Voice is unavailable. Check consent and available credits.',
   voiceConflict: 'This conversation already has a call in another tab or window. End it there, or wait a moment and select Retry call.',

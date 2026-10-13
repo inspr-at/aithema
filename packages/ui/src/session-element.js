@@ -609,8 +609,9 @@ export class AithemaSession extends HTMLElement {
     if (part === 'composer') {
       const text = this.#feature('text', true), input = root.querySelector('textarea');
       input.disabled = !text.available;
-      // START's composer: during a call it invites speaking or typing, otherwise the next message.
-      input.placeholder = this.#rail?.session ? copy.placeholderVoice ?? copy.placeholder : copy.placeholder;
+      // Invite speech only while the call can listen; held calls invite the next typed message.
+      const listening = this.#rail?.session && !this.#rail.paused && !['recovering', 'waiting'].includes(this.#rail.state);
+      input.placeholder = listening ? copy.placeholderVoice ?? copy.placeholder : copy.placeholder;
       root.querySelector('.send').disabled = this.#sending || !text.available;
       const reason = root.querySelector('.composer-reason');
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');

@@ -117,7 +117,7 @@ export class AudioRail {
         : name === 'close' ? !active && this.state !== 'connecting' : !active || name !== 'close' && (this.busy && !(name === 'pause' && this.pauseCommand) || transitional || command && !this.capability(command));
       if (name === 'start' && button.disabled && !active) button.title = available.reason ?? c.notConfigured;
       if (command && !this.capability(command)) button.title = c.voiceCommandUnavailable;
-      if (this.waitingCall && ['input', 'output'].includes(name)) button.disabled = true;
+      if (state === 'waiting' && ['input', 'output'].includes(name)) button.disabled = true;
       if (this.waitingCall && name === 'pause') button.disabled = Boolean(this.busy || transitional || !available.available || !this.client);
     }
     this.button('input').setAttribute('aria-pressed', String(this.input));
