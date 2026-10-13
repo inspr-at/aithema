@@ -6,7 +6,7 @@ const FORMS = ['danke', 'danke schön', 'danke sehr', 'vielen dank', 'vielen her
   'herzlichen dank', 'besten dank', 'thanks', 'thank you', 'thank you very much', 'many thanks'];
 // Conservative finite-verb evidence, rather than mistaking a noun phrase for a reply.
 // Unknown constructions are kept; this guard must never create a broken fragment.
-const VERB = /^(?:ist|sind|war|waren|hat|haben|wird|werden|kann|können|könnte|könnten|soll|sollen|sollte|sollten|möchte|möchten|muss|müssen|darf|dürfen|klingt|klingen|hilft|helfen|passt|passen|ergibt|ergeben|macht|machen|zeigt|zeigen|fehlt|fehlen|braucht|brauchen|benötigt|benötigen|geht|gehen|lässt|lassen|steht|stehen|beginnt|beginnen|startet|starten|beschreiben|beschreibt|planen|plant|reicht|stimmt|is|are|was|were|has|have|can|could|should|would|will|must|do|does|sounds|sound|seems|seem|helps|help|works|work|means|mean|makes|make|needs|need|lets|let|matters|agree|start|starts|describe|describes|plan|plans)$/iu;
+const VERB = /^(?:ist|sind|war|waren|hat|haben|wird|werden|kann|können|könnte|könnten|soll|sollen|sollte|sollten|möchte|möchten|muss|müssen|darf|dürfen|klingt|klingen|hilft|helfen|passt|passen|ergibt|ergeben|macht|machen|zeigt|zeigen|fehlt|fehlen|braucht|brauchen|benötigt|benötigen|geht|gehen|lässt|lassen|steht|stehen|beginnt|beginnen|startet|starten|beschreiben|beschreibt|planen|plant|reicht|stimmt|is|are|was|were|has|have|can|could|should|would|will|must|do|does|sounds|sound|seems|seem|helps|help|works|work|means|mean|makes|make|needs|need|lets|let|matters|agree|start|starts)$/iu;
 const COMPLETE_VERB = /^(?:hilft|passt|reicht|stimmt|beginnt|beginnen|startet|starten|helps|works|matters|agree|start|starts)$/iu;
 const DANGLING = /^(?:für|for|mit|with|to|of|in|an|auf|nach|ein|eine|einen|einem|einer|der|die|das|the|a|an|and|und|or|oder)$/iu;
 
@@ -33,7 +33,9 @@ function remainder(text, opening) {
   return { rest, closingQuote };
 }
 function fullClause(text) {
-  const boundary = BOUNDARY.exec(text), clause = boundary ? text.slice(0, boundary.index) : text;
+  // An introductory "Gut," is a fragment, but "Gut, dann beginnen wir." is a
+  // complete remainder. Look through clause separators, stopping at a sentence.
+  const boundary = /[.!?…]/u.exec(text), clause = boundary ? text.slice(0, boundary.index) : text;
   const words = clause.match(/[\p{L}]+(?:['’][\p{L}]+)?/gu) ?? [];
   if (words.length < 2 || /^(?:für|for|with|mit|to|of|um|wegen|ohne)$/iu.test(words[0])) return false;
   const englishQuestion = boundary?.[0] === '?' && /^(?:what|which|who|where|when|how)$/iu.test(words[0]);
@@ -82,7 +84,7 @@ export class ReplyOpenerStream {
     if (opening?.cut === null || opening && !candidate.trim()) return '';
     if (!BOUNDARY.test(candidate) && candidate.trimStart().length < 80) return '';
     // Do not leak a long but unfinished remainder at the soft 80-character cap.
-    if (opening && !BOUNDARY.test(candidate) && !fullClause(candidate)) return '';
+    if (opening && !/[.!?…]/u.test(candidate) && !fullClause(candidate)) return '';
     return this.#decide();
   }
   #decide() {

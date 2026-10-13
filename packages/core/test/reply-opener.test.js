@@ -28,13 +28,15 @@ for (const [input, expected] of [
   ['Danke, wir planen einen Pilotversuch.', 'Wir planen einen Pilotversuch.'],
   ['Thanks, we start.', 'We start.'],
   ['„Danke“, Sie können mit dem Umfang beginnen.', 'Sie können mit dem Umfang beginnen.'],
+  ['Vielen Dank für Ihre Nachricht. Gut, dann beginnen wir.', 'Gut, dann beginnen wir.'],
 ]) test(`AIT-157: clause, sentence, case and quote handling: ${input}`, () => {
   assert.equal(typeof core.stripThanksOpener, 'function');
   assert.deepEqual(core.stripThanksOpener(input, 'de'), { text: expected, stripped: true });
 });
 for (const input of ['Danke.', 'Vielen Dank für Ihre Nachricht.', 'Danke, sehr hilfreich.', 'Thanks, for the details.',
   'Danke, die Beschreibung.', 'Danke, das klingt', 'Thank you, a clear plan.',
-  'Danke, die Systeme können.', 'Danke, mit den Daten können wir.', 'Thanks, that is a.']) {
+  'Danke, die Systeme können.', 'Danke, mit den Daten können wir.', 'Thanks, that is a.',
+  'Thanks, a plan for tomorrow.', 'Danke, Ihr Plan für morgen.']) {
   test(`AIT-157: keep empty or fragment remainder: ${input}`, () => {
     assert.equal(typeof core.stripThanksOpener, 'function');
     assert.deepEqual(core.stripThanksOpener(input, 'de'), { text: input, stripped: false, kept: true });
@@ -48,6 +50,7 @@ for (const input of [
   '„Vielen Dank, das klingt gut.“ Danach können Sie beginnen.',
   '„Danke.“ Das hilft uns. Danke für das Detail.',
   'Danke, sehr hilfreich.',
+  'Vielen Dank für Ihre Nachricht. Gut, dann beginnen wir.',
   `Vielen Dank für ${'Ihre Beschreibung '.repeat(8)}, das klingt gut.`,
   `Thank you, that sounds like ${'a detailed '.repeat(8)}plan.`,
   'Thanksville is a place.',

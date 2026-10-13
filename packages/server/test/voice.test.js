@@ -1701,6 +1701,19 @@ const completionText = async response => {
 const sseReply = text => text.split('\n\n').filter(line => line.startsWith('data: {')).map(line => JSON.parse(line.slice(6)))
   .map(frame => frame.choices?.[0].delta?.content ?? '').join('');
 
+test('AIT-157: non-streaming voice receipt and transcript use the guarded reply', async t => {
+  const h = await turnsOnceFixture(t, { replyChunks: ['Many thanks for the details. ', 'That sounds useful.'] });
+  const response = await h.callback([{ role: 'user', content: 'Beschreibung' }], { stream: false });
+  assert.equal(response.status, 200);
+  const receipt = await response.json(), expected = 'That sounds useful. finished';
+  assert.equal(receipt.choices[0].message.content, expected);
+  await h.persist('assistant', 'guarded-json-reply', expected, { replyId: receipt.id });
+  assert.equal(h.storage.get(h.session.id).transcript.at(-1).content, expected);
+  assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
+  assert.deepEqual(h.diagnostics.filter(entry => entry.event === 'reply.opener-stripped'),
+    [{ event: 'reply.opener-stripped', count: 1, lane: 'voice' }]);
+});
+
 for (const [label, chunks, expected] of [
   ['DE clause', ['Vielen Dank, ', 'das klingt gut. '], 'Das klingt gut.  finished'],
   ['EN in DE session', ['Thank you for the details. ', 'That sounds useful. '], 'That sounds useful.  finished'],
