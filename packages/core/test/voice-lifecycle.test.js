@@ -10,6 +10,42 @@ const connected = () => step(step(createVoiceLifecycle('logical-call'), 'start')
   providerSessionId: 'generation-1', authorizationRevision: 'auth-1', spendDeadlineAt: 5000, browserLivenessDeadlineAt: 3000,
 });
 
+test('AIT-138 d: clock gap holds media synchronously and wake waits for explicit Resume', async t => {
+  let clock = 100_000, stops = 0, replacements = 0;
+  const controller = createVoiceLifecycleController({ callId: 'sleep-call', now: () => clock,
+    stopMedia() { stops++; }, async replace() { replacements++; return { providerSessionId: 'new', browserLivenessDeadlineAt: clock + 30_000 }; } });
+  t.after(() => controller.end('closed'));
+  controller.connected({ providerSessionId: 'old', spendDeadlineAt: 200_000, browserLivenessDeadlineAt: 130_000 });
+  clock += 20_000; controller.checkClock();
+  assert.equal(stops, 1); assert.equal(controller.state.state, 'waiting');
+  assert.equal(controller.state.needsRecovery, true); assert.equal(await controller.recover(), false);
+  assert.equal(replacements, 0); assert.equal(await controller.recover({ explicit: true }), true);
+  assert.equal(controller.state.state, 'paused', 'a replacement still inherits the sleep hold');
+  controller.resumed(); assert.equal(controller.state.state, 'active');
+});
+
+test('AIT-138 d: ownership notification during replacement fences its late success', async t => {
+  const entered = Promise.withResolvers(), release = Promise.withResolvers(); let stops = 0;
+  const controller = createVoiceLifecycleController({ callId: 'tabs', stopMedia() { stops++; },
+    async replace() { entered.resolve(); return release.promise; } });
+  t.after(() => { release.resolve(); controller.end('closed'); });
+  controller.connected({ providerSessionId: 'old', epoch: 1, spendDeadlineAt: Date.now() + 60_000, browserLivenessDeadlineAt: Date.now() + 30_000 });
+  const recovering = controller.recover(); await entered.promise; controller.ownershipLost(2);
+  assert.equal(controller.state.state, 'waiting'); assert.equal(stops, 2);
+  release.resolve({ providerSessionId: 'stale', epoch: 1 });
+  assert.equal(await recovering, false); assert.equal(controller.state.state, 'waiting');
+  assert.equal(controller.state.providerSessionId, 'old');
+});
+
+test('AIT-138 d: lease expiry holds media synchronously without ending the logical call', t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 }); let stops = 0;
+  const controller = createVoiceLifecycleController({ callId: 'lease', stopMedia() { stops++; } });
+  t.after(() => controller.end('closed'));
+  controller.connected({ providerSessionId: 'old', spendDeadlineAt: 160_000, browserLivenessDeadlineAt: 105_000 });
+  t.mock.timers.tick(5000);
+  assert.equal(stops, 1); assert.equal(controller.state.state, 'waiting'); assert.equal(controller.state.callId, 'lease');
+});
+
 for (const timing of ['before recovery', 'during recovery']) test(`AIT-138 fix 1: heartbeat scheduled ${timing} cannot cut off a restored transport after its deadline`, async t => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: 100_000 });
   const entered = Promise.withResolvers(), release = Promise.withResolvers();

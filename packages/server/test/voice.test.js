@@ -13,6 +13,54 @@ import { createDemoHost } from '../../../demo/host-ports.js';
 
 const test = (name, fn) => nodeTest(name, { timeout: 60_000 }, fn);
 
+test('AIT-138 d: concurrent tab denied; explicit atomic takeover holds both tabs and refuses stale epochs', async t => {
+  const h = voiceFixture(t);
+  const first = await h.route('/voice', { callId: 'tabs', tabId: 'old-tab' }).then(r => r.json());
+  const old = { providerSessionId: first.providerSessionId, tabId: 'old-tab', epoch: first.epoch };
+  assert.equal((await h.route('/voice/tabs/recover', { ...old, tabId: 'new-tab', explicit: true })).status, 409);
+  const takeover = await h.route('/voice/tabs/takeover', { ...old, tabId: 'new-tab', explicit: true });
+  assert.equal(takeover.status, 200);
+  const held = await takeover.json();
+  assert.equal(held.epoch, first.epoch + 1); assert.equal(held.state, 'waiting');
+  assert.equal(held.controllingTabId, 'new-tab'); assert.equal(held.credential, undefined);
+  for (const action of ['heartbeat', 'resume', 'recover', 'close', 'events']) {
+    assert.equal((await h.route(`/voice/tabs/${action}`, old)).status, 409, `old epoch cannot ${action}`);
+  }
+  assert.equal((await h.route('/voice/tabs/takeover', { ...old, tabId: 'third-tab', explicit: true })).status, 409);
+  const nextIdentity = { providerSessionId: first.providerSessionId, tabId: 'new-tab', epoch: held.epoch };
+  assert.equal((await h.route('/voice/tabs/recover', nextIdentity)).status, 403, 'takeover alone cannot resume');
+  const next = await h.route('/voice/tabs/recover', { ...nextIdentity, explicit: true }).then(r => r.json());
+  assert.equal(next.callId, first.callId); assert.notEqual(next.providerSessionId, first.providerSessionId);
+  assert.equal(h.storage.voiceLifecycle(h.session.id, first.callId).state, 'paused');
+  assert.equal((await h.route('/voice/tabs/resume', { ...nextIdentity, providerSessionId: next.providerSessionId })).status, 200);
+  assert.equal(h.storage.voiceLifecycle(h.session.id, first.callId).state, 'active');
+});
+
+test('AIT-138 d: ownership changing during eligibility fences an old Resume acknowledgement', async t => {
+  const h = voiceFixture(t), first = await h.route('/voice', { callId: 'tab-await', tabId: 'old-tab' }).then(r => r.json());
+  const entered = Promise.withResolvers(), release = Promise.withResolvers(); t.after(() => release.resolve());
+  h.beforeCoverage(async () => { entered.resolve(); await release.promise; });
+  const identity = { providerSessionId: first.providerSessionId, tabId: 'old-tab', epoch: first.epoch };
+  const resume = h.route('/voice/tab-await/resume', identity); await entered.promise;
+  assert.equal((await h.route('/voice/tab-await/takeover', { ...identity, tabId: 'new-tab', explicit: true })).status, 200);
+  release.resolve(); assert.equal((await resume).status, 409);
+  assert.equal(h.storage.voiceLifecycle(h.session.id, first.callId).state, 'waiting');
+});
+
+for (const terminal of [false, true]) test(`AIT-138 d: restart reload retains callId and fences transport (${terminal ? 'terminal' : 'recoverable'})`, async t => {
+  const h = voiceFixture(t), first = await h.start();
+  if (terminal) await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId, reason: 'closed' });
+  await h.handlers.resume();
+  const logical = h.storage.voiceLifecycle(h.session.id, first.callId);
+  assert.equal(logical.callId, first.callId); assert.equal(logical.state, terminal ? 'ended' : 'waiting');
+  const beat = await h.route(`/voice/${first.callId}/heartbeat`, { providerSessionId: first.providerSessionId });
+  assert.notEqual(beat.status, 200, 'pre-restart transport cannot renew');
+  const recovered = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId, explicit: true });
+  assert.equal(recovered.status, terminal ? 403 : 200);
+  if (!terminal) { const next = await recovered.json(); assert.equal(next.callId, first.callId);
+    assert.notEqual(next.providerSessionId, first.providerSessionId); assert.equal(next.spendDeadlineAt, first.spendDeadlineAt); }
+});
+
 for (const settled of [false, true]) test(`AIT-138 / A1: recovery after a zero allowance refuses a paid segment (${settled ? 'settled' : 'active'} predecessor)`, async t => {
   const h = voiceFixture(t, { durationBinding: { reservationSeconds: 5 },
     host: args => createDemoHost({ ...args, ownerGuard: false }) });
