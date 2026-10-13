@@ -48,7 +48,7 @@ test('AIT-102: another provider admits, discovers scope, extends and reconciles 
     visitorMicroPerMinute: 300, reservationSeconds: 30, adapterConfig: raw.adapterConfig },
     manifest: { ...base, kinds: ['live-voice'], entrypoints: { server: './server.js', browser: './browser.js' },
       models: [{ ...base.models[0], operations: ['start'], structured: false, cost: { ...base.models[0].cost, unit: 'minute' } }],
-      liveVoice: { reasoning: 'delegated', transcript: { finality: 'turns', persistence: 'durable' },
+      liveVoice: { reasoning: 'native', transcript: { finality: 'turns', persistence: 'durable' },
         capabilities: Object.fromEntries(['sendText', 'updateContext', 'setInput', 'setOutput', 'pause', 'resume', 'interrupt', 'heard'].map(k => [k, 'unavailable'])),
         billing: { visitor: 'duration', upstream: 'duration' } } },
     health: async () => ({ available: true }), start() { throw new Error('Admission must not dispatch'); } };
