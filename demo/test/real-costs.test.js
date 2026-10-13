@@ -269,3 +269,29 @@ for (const operation of ['stream', 'structured']) for (const promptPrice of [0, 
     assert.doesNotThrow(() => plugin.estimateCost(sized, operation), 'a bounded input still prices normally');
   });
 }
+
+for (const mode of ['partial', 'transport-failure', 'unknown']) test(`AIT-163: ${mode} releases the ceiling after the evidence window and preserves late receipts`, async t => {
+  const h = await costFixture(t, { mode, state: { ready: false, queries: 0 } });
+  const operation = mode === 'partial' ? 'stream' : 'structured', admitted = await h.admit(operation);
+  if (mode === 'unknown') await h.invoke(admitted, operation);
+  else await assert.rejects(h.invoke(admitted, operation));
+  const id = admitted.options.attempt.attemptId, before = h.runtime.budget.get(id);
+  // Reproduce the older live rows: a USD 1 reservation and no acknowledged cost.
+  h.storage.db.prepare('UPDATE budget_attempts SET max_micro=1000000,settled_micro=1000000 WHERE attempt_id=?').run(id);
+  h.runtime.budget.observeCost(id, { settledAt: Date.now() - 600_000, estimateMicro: 600, observedCostMicro: 750 });
+  await h.runtime.reconcileCosts(); await h.runtime.reconcileCosts();
+  assert.equal(h.runtime.budget.get(id).settled_micro, 750, 'estimate never falls below observed usage');
+  assert.equal(h.runtime.budget.get(id).terminal_json, before.terminal_json, 'original terminal history is retained');
+  assert.equal(h.balance().owner.confirmedSpendMicro, 0, 'an estimate remains explicitly uncertain');
+  assert.ok(h.cap.snapshot().uncertainMicro > 0, 'provider cap does not release an unresolved liability');
+  const audit = () => h.storage.db.prepare('SELECT * FROM budget_corrections WHERE attempt_id=? ORDER BY id').all(id);
+  assert.equal(audit().length, 1);
+  // A late authenticated receipt supersedes an estimate exactly once, including an overrun.
+  h.runtime.budget.observeCost(id, { generationId: 'gen-fixture', chargedMicro: 1_000_037 });
+  await h.runtime.reconcileCosts(); await h.runtime.reconcileCosts();
+  assert.equal(h.runtime.budget.get(id).settled_micro, 1_000_037);
+  assert.equal(h.runtime.budget.get(id).overrun, 1);
+  assert.equal(audit().length, 2);
+  assert.equal(h.cap.snapshot().spentMicro, 1_000_037);
+  assert.throws(() => h.storage.db.prepare('UPDATE budget_corrections SET new_micro=0 WHERE attempt_id=?').run(id), /append only/u);
+});

@@ -2946,3 +2946,29 @@ for (const change of ['consent-withdrawal', 'external-consent-withdrawal', 'sour
     }
   });
 }
+
+test('AIT-163: less than the minimum runway refuses before provisioning or minting', async t => {
+  const h = voiceFixture(t, { durationBinding: { maxDurationSeconds: 3600, reservationSeconds: 30, minRunwaySeconds: 120 },
+    host: args => createDemoHost({ ...args, ownerGuard: false }) });
+  h.host.visitorCredits.saveSettings({ baseRevision: h.host.visitorCredits.settings().revision,
+    allowancesUsd: { anonymous: '0.045', emailGiven: '0.045', emailConfirmed: '0.045' } }, { actor: 'ops-cli:fixture', source: 'ops-cli' });
+  const response = await h.route('/voice', { callId: 'too-short' });
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).reason, 'host-limit');
+  assert.equal(h.traffic.length, 0); assert.equal(h.provisioned.length, 0);
+  assert.equal(h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n, 0);
+});
+
+test('AIT-163: legacy unconfirmed voice rows without the pending flag reconcile on schedule', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
+  const h = voiceFixture(t, { voiceOptions: { reconcileIntervalMs: 10,
+    async closeOrphan(record) { return { providerSessionId: record.providerSessionId, outcome: 'completed', closureConfirmed: true,
+      usage: { providerSeconds: 1, providerMinutes: 1 / 60, pausedSeconds: 0, visitorSeconds: 1, upstreamMicro: 1000, visitorMicro: 2000 } }; } } });
+  const grant = await h.start(); await h.route(`/voice/${grant.callId}/close`, { providerSessionId: grant.providerSessionId });
+  const record = h.storage.voiceCalls()[0];
+  h.storage.saveVoiceCall(h.session.id, { ...record, reconciliationPending: false, terminal: { ...record.terminal, closureConfirmed: false, outcome: 'uncertain' } });
+  const { waitFor } = await observeVoice(h, t);
+  h.handlers.reconcileVoiceLater(); t.mock.timers.tick(10);
+  await waitFor(e => e.type === 'voice.state' && e.data.terminal?.closureConfirmed === true);
+  assert.equal(h.runtime.budget.get(record.attemptId).settled_micro, 1000);
+});

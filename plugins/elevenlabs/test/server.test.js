@@ -366,3 +366,14 @@ test('server cancellation invalidates the call signal immediately and settles on
   controller.abort(); assert.equal(session.signal.aborted, true); assert.equal(session.snapshot().closing, true);
   await session.close(); assert.equal(options.reports.length, 1); assert.equal(options.reports[0].outcome, 'uncertain');
 });
+
+for (const reason of ['closed', 'budget-limit', 'start-failed', 'browser-liveness-deadline']) test(`AIT-163: ${reason} logs a single hashed voice close`, async () => {
+  const logs = [], local = fixture({ log: event => logs.push(event) });
+  const session = await local.server.start({ callId: 'private-call-identity', facadeSecretRef: 'fixture-ref' }, invocationOptions());
+  await session.close(reason, 'cancelled'); await session.close(reason, 'cancelled');
+  const closes = logs.filter(event => event.event === 'voice-closed');
+  assert.equal(closes.length, 1); assert.equal(closes[0].reason, reason);
+  assert.match(closes[0].callHash, /^[a-f0-9]{64}$/u);
+  assert.doesNotMatch(JSON.stringify(logs), /private-call-identity|fixture-token|fixture-api-key/u);
+  assert.equal(Object.hasOwn(closes[0], 'providerSessionId'), false);
+});
