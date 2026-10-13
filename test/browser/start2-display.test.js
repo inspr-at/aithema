@@ -596,7 +596,7 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
   const directory = await mkdtemp(join(tmpdir(), 'aithema-continuity-'));
   const db = join(directory, 'session.sqlite');
   const settings = { AITHEMA_VOICE_MODE: 'fake', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit };
-  let demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), db, settings);
+  let demo = await startChild(new URL('../fixtures/continuity-server.js', import.meta.url), db, settings);
   const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
     env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
   t.after(async () => { await browser.close(); await demo.kill(); });
@@ -661,9 +661,8 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
       await click(other, '.pause'); await state(other, 'listening');
       const restarted = await other.evaluate(() => JSON.parse(sessionStorage.getItem(`aithema-voice-call:${document.querySelector('aithema-session').session.id}`)));
       const port = new URL(demo.url).port;
-      await demo.kill('SIGKILL'); demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), db, { ...settings, PORT: port });
+      await demo.kill('SIGKILL'); demo = await startChild(new URL('../fixtures/continuity-server.js', import.meta.url), db, { ...settings, PORT: port });
       await state(other, 'waiting');
-      await mockConsent(other);
       await until(other, () => document.querySelector('aithema-session').session.featureMatrix.best.voice.available);
       await click(other, '.pause'); await state(other, 'listening');
       await until(other, () => document.querySelector('aithema-session').shadowRoot.querySelector('.voice-notice--recovered').textContent);
