@@ -4,6 +4,40 @@ import { operationScope } from './reasoning.js';
 export const LIVE_VOICE_COMMANDS = Object.freeze(['close', 'pause', 'resume', 'setInput', 'setOutput', 'sendText', 'updateContext', 'interrupt']);
 export const LIVE_VOICE_EVENTS = Object.freeze(['listening', 'speaking', 'partial', 'final', 'heard', 'recovering', 'recovered', 'waiting', 'ended']);
 export const LIVE_VOICE_CAPABILITIES = Object.freeze([...LIVE_VOICE_COMMANDS.filter(command => command !== 'close'), 'heard']);
+export const LIVE_VOICE_PORT_METHODS = Object.freeze({
+  serverAdapter: Object.freeze(['validateConfig', 'startSegment', 'stopSegment', 'reconciliationEvidence']),
+  browserMedia: Object.freeze(['connect', 'capture', 'playback', 'teardown']),
+  replyExecutor: Object.freeze(['execute']),
+  stt: Object.freeze(['transcribe', 'negotiateAudioFormat']),
+  tts: Object.freeze(['speak', 'negotiateAudioFormat']),
+});
+
+/** Ports are optional additions; legacy plugins need not implement them. */
+export function assertVoicePorts(ports) {
+  if (!ports || typeof ports !== 'object' || Array.isArray(ports)) throw new TypeError('Invalid voice ports');
+  for (const [kind, methods] of Object.entries(LIVE_VOICE_PORT_METHODS)) {
+    const port = ['stt', 'tts'].includes(kind) ? ports.components?.[kind] : ports[kind];
+    if (port !== undefined && (!port || methods.some(method => typeof port[method] !== 'function'))) throw new TypeError(`Invalid voice ${kind} port`);
+  }
+  if (ports.serverAdapter?.callbackRoutes !== undefined && (!Array.isArray(ports.serverAdapter.callbackRoutes) ||
+    ports.serverAdapter.callbackRoutes.some(route => !route?.method || !route.path || typeof route.handle !== 'function'))) throw new TypeError('Invalid voice callback routes');
+  return ports;
+}
+
+export function assertVoiceMediaGrant(grant, now = Date.now()) {
+  if (typeof grant?.callId !== 'string' || !grant.callId || typeof grant.providerSessionId !== 'string' || !grant.providerSessionId ||
+    !Number.isFinite(grant.expiresAt) || !Object.hasOwn(grant, 'opaque')) throw new PluginError('invalid-output', 'Invalid voice media grant');
+  if (grant.expiresAt <= now) throw new PluginError('deadline', 'Voice media grant expired');
+  return grant;
+}
+
+export function assertComponentUsage(usage) {
+  if (typeof usage?.attemptId !== 'string' || !usage.attemptId || !['stt', 'reasoning', 'tts'].includes(usage.role) ||
+    !['seconds', 'tokens', 'characters', 'bytes', 'credits'].includes(usage.unit) ||
+    !Number.isFinite(usage.quantity) || usage.quantity < 0 || !Number.isSafeInteger(usage.upstreamMicro) || usage.upstreamMicro < 0 ||
+    typeof usage.source !== 'string' || !usage.source || typeof usage.estimated !== 'boolean') throw new PluginError('invalid-output', 'Invalid voice component usage');
+  return usage;
+}
 
 export function assertLiveVoice(plugin) {
   if (!plugin?.manifest?.kinds?.includes('live-voice') || !plugin.manifest.liveVoice ||

@@ -1,0 +1,606 @@
+{
+  "format": "aithema-voice-wire",
+  "version": 1,
+  "baseline": "550b4de",
+  "sanitization": "synthetic inputs; generated reply UUID only",
+  "callbacks": [
+    {
+      "name": "stream",
+      "request": {
+        "method": "POST",
+        "url": "https://host.example.test/api/voice/call_fixture/llm/chat/completions",
+        "headers": {
+          "content-type": "application/json",
+          "authorization": "Bearer fixture-callback-value"
+        },
+        "body": "{\"model\":\"untrusted-model\",\"elevenlabs_extra_body\":{\"aithema_call\":\"call_fixture\"},\"messages\":[{\"role\":\"system\",\"content\":\"Untrusted prompt\"},{\"role\":\"user\",\"content\":\"Ja\"}],\"stream\":true}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "no-store",
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "body": "data: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"model\":\"session-reasoning\",\"metadata\":{\"aithema_reply_id\":\"chatcmpl-FIXTURE\"},\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"model\":\"session-reasoning\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Die erste Frage: Was soll entstehen?\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"model\":\"session-reasoning\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+      }
+    },
+    {
+      "name": "retry-stream",
+      "request": {
+        "method": "POST",
+        "url": "https://host.example.test/api/voice/call_fixture/llm/chat/completions",
+        "headers": {
+          "content-type": "application/json",
+          "authorization": "Bearer fixture-callback-value"
+        },
+        "body": "{\"model\":\"untrusted-model\",\"elevenlabs_extra_body\":{\"aithema_call\":\"call_fixture\"},\"messages\":[{\"role\":\"system\",\"content\":\"Untrusted prompt\"},{\"role\":\"user\",\"content\":\"Ja\"}],\"stream\":true}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "no-store",
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "body": "data: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"model\":\"session-reasoning\",\"metadata\":{\"aithema_reply_id\":\"chatcmpl-FIXTURE\"},\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"model\":\"session-reasoning\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Die erste Frage: Was soll entstehen?\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"model\":\"session-reasoning\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+      }
+    },
+    {
+      "name": "retry-json",
+      "request": {
+        "method": "POST",
+        "url": "https://host.example.test/api/voice/call_fixture/llm/chat/completions",
+        "headers": {
+          "content-type": "application/json",
+          "authorization": "Bearer fixture-callback-value"
+        },
+        "body": "{\"model\":\"untrusted-model\",\"elevenlabs_extra_body\":{\"aithema_call\":\"call_fixture\"},\"messages\":[{\"role\":\"system\",\"content\":\"Untrusted prompt\"},{\"role\":\"user\",\"content\":\"Ja\"}],\"stream\":false}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "no-store",
+          "content-type": "application/json"
+        },
+        "body": "{\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion\",\"created\":1790000000,\"model\":\"session-reasoning\",\"metadata\":{\"aithema_reply_id\":\"chatcmpl-FIXTURE\"},\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"Die erste Frage: Was soll entstehen?\"},\"finish_reason\":\"stop\"}]}"
+      }
+    },
+    {
+      "name": "history-growth",
+      "request": {
+        "method": "POST",
+        "url": "https://host.example.test/api/voice/call_fixture/llm/chat/completions",
+        "headers": {
+          "content-type": "application/json",
+          "authorization": "Bearer fixture-callback-value"
+        },
+        "body": "{\"model\":\"untrusted-model\",\"elevenlabs_extra_body\":{\"aithema_call\":\"call_fixture\"},\"messages\":[{\"role\":\"system\",\"content\":\"Untrusted prompt\"},{\"role\":\"user\",\"content\":\"Ja\"},{\"role\":\"assistant\",\"content\":\"Eine Frage.\"},{\"role\":\"user\",\"content\":\"Ja\"}],\"stream\":true}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "no-store",
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "body": "data: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"model\":\"session-reasoning\",\"metadata\":{\"aithema_reply_id\":\"chatcmpl-FIXTURE\"},\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"model\":\"session-reasoning\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Die erste Frage: Was soll entstehen?\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"model\":\"session-reasoning\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+      }
+    },
+    {
+      "name": "unknown-history",
+      "request": {
+        "method": "POST",
+        "url": "https://host.example.test/api/voice/call_fixture/llm/chat/completions",
+        "headers": {
+          "content-type": "application/json",
+          "authorization": "Bearer fixture-callback-value"
+        },
+        "body": "{\"model\":\"untrusted-model\",\"elevenlabs_extra_body\":{\"aithema_call\":\"call_fixture\"},\"messages\":[{\"role\":\"system\",\"content\":\"Untrusted prompt\"},{\"role\":\"user\",\"content\":\"Ja\"}],\"stream\":true,\"history_truncated\":true}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "no-store",
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "body": "data: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"model\":\"session-reasoning\",\"metadata\":{\"aithema_reply_id\":\"chatcmpl-FIXTURE\"},\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"model\":\"session-reasoning\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Die erste Frage: Was soll entstehen?\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"model\":\"session-reasoning\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+      }
+    },
+    {
+      "name": "opener-guard",
+      "request": {
+        "method": "POST",
+        "url": "https://host.example.test/api/voice/call_fixture/llm/chat/completions",
+        "headers": {
+          "content-type": "application/json",
+          "authorization": "Bearer fixture-callback-value"
+        },
+        "body": "{\"model\":\"untrusted-model\",\"elevenlabs_extra_body\":{\"aithema_call\":\"call_fixture\"},\"messages\":[{\"role\":\"user\",\"content\":\"opener guard\"}],\"stream\":true}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "no-store",
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "body": "data: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"model\":\"session-reasoning\",\"metadata\":{\"aithema_reply_id\":\"chatcmpl-FIXTURE\"},\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"model\":\"session-reasoning\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Danke für die Info. Die erste Frage: Was soll entstehen?\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"model\":\"session-reasoning\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+      }
+    },
+    {
+      "name": "partial-failure",
+      "request": {
+        "method": "POST",
+        "url": "https://host.example.test/api/voice/call_fixture/llm/chat/completions",
+        "headers": {
+          "content-type": "application/json",
+          "authorization": "Bearer fixture-callback-value"
+        },
+        "body": "{\"model\":\"untrusted-model\",\"elevenlabs_extra_body\":{\"aithema_call\":\"call_fixture\"},\"messages\":[{\"role\":\"user\",\"content\":\"partial failure\"}],\"stream\":true}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "no-store",
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "body": "data: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"model\":\"session-reasoning\",\"metadata\":{\"aithema_reply_id\":\"chatcmpl-FIXTURE\"},\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"model\":\"session-reasoning\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Die erste Frage: \"},\"finish_reason\":null}]}\n\ndata: {\"error\":\"provider\"}\n\n"
+      }
+    },
+    {
+      "name": "unauthorized",
+      "request": {
+        "method": "POST",
+        "url": "https://host.example.test/api/voice/call_fixture/llm/chat/completions",
+        "headers": {
+          "content-type": "application/json",
+          "authorization": "Bearer fixture-wrong"
+        },
+        "body": "{\"model\":\"untrusted-model\",\"elevenlabs_extra_body\":{\"aithema_call\":\"call_fixture\"},\"messages\":[{\"role\":\"system\",\"content\":\"Untrusted prompt\"},{\"role\":\"user\",\"content\":\"Ja\"}],\"stream\":true}"
+      },
+      "response": {
+        "status": 401,
+        "headers": {
+          "cache-control": "no-store",
+          "content-type": "application/json"
+        },
+        "body": "{\"error\":\"unauthorized\"}"
+      }
+    },
+    {
+      "name": "wrong-call",
+      "request": {
+        "method": "POST",
+        "url": "https://host.example.test/api/voice/call_fixture/llm/chat/completions",
+        "headers": {
+          "content-type": "application/json",
+          "authorization": "Bearer fixture-callback-value"
+        },
+        "body": "{\"model\":\"untrusted-model\",\"elevenlabs_extra_body\":{\"aithema_call\":\"foreign\"},\"messages\":[{\"role\":\"system\",\"content\":\"Untrusted prompt\"},{\"role\":\"user\",\"content\":\"Ja\"}],\"stream\":true}"
+      },
+      "response": {
+        "status": 400,
+        "headers": {
+          "cache-control": "no-store",
+          "content-type": "application/json"
+        },
+        "body": "{\"error\":\"invalid-output\"}"
+      }
+    },
+    {
+      "name": "static-stream",
+      "request": {
+        "method": "POST",
+        "url": "https://host.example.test/api/voice/llm/chat/completions",
+        "headers": {
+          "content-type": "application/json",
+          "authorization": "Bearer fixture-callback-value"
+        },
+        "body": "{\"model\":\"untrusted-model\",\"elevenlabs_extra_body\":{\"aithema_call\":\"facade_fixture\"},\"messages\":[{\"role\":\"system\",\"content\":\"Untrusted prompt\"},{\"role\":\"user\",\"content\":\"Ja\"}],\"stream\":true}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "no-store",
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "body": "data: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"model\":\"session-reasoning\",\"metadata\":{\"aithema_reply_id\":\"chatcmpl-FIXTURE\"},\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"model\":\"session-reasoning\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Die erste Frage: Was soll entstehen?\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"model\":\"session-reasoning\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+      }
+    },
+    {
+      "name": "static-retry-json",
+      "request": {
+        "method": "POST",
+        "url": "https://host.example.test/api/voice/llm/chat/completions",
+        "headers": {
+          "content-type": "application/json",
+          "authorization": "Bearer fixture-callback-value"
+        },
+        "body": "{\"model\":\"untrusted-model\",\"elevenlabs_extra_body\":{\"aithema_call\":\"facade_fixture\"},\"messages\":[{\"role\":\"system\",\"content\":\"Untrusted prompt\"},{\"role\":\"user\",\"content\":\"Ja\"}],\"stream\":false}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "no-store",
+          "content-type": "application/json"
+        },
+        "body": "{\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion\",\"created\":1790000000,\"model\":\"session-reasoning\",\"metadata\":{\"aithema_reply_id\":\"chatcmpl-FIXTURE\"},\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"Die erste Frage: Was soll entstehen?\"},\"finish_reason\":\"stop\"}]}"
+      }
+    },
+    {
+      "name": "static-unauthorized",
+      "request": {
+        "method": "POST",
+        "url": "https://host.example.test/api/voice/llm/chat/completions",
+        "headers": {
+          "content-type": "application/json",
+          "authorization": "Bearer fixture-wrong"
+        },
+        "body": "{\"model\":\"untrusted-model\",\"elevenlabs_extra_body\":{\"aithema_call\":\"facade_fixture\"},\"messages\":[{\"role\":\"system\",\"content\":\"Untrusted prompt\"},{\"role\":\"user\",\"content\":\"Ja\"}],\"stream\":true}"
+      },
+      "response": {
+        "status": 401,
+        "headers": {
+          "cache-control": "no-store",
+          "content-type": "application/json"
+        },
+        "body": "{\"error\":\"unauthorized\"}"
+      }
+    }
+  ],
+  "admissions": 6,
+  "mints": [
+    {
+      "name": "webrtc",
+      "response": {
+        "status": 200,
+        "body": "{\"token\":\"fixture-token\",\"conversation_id\":\"conv_fixture\"}"
+      },
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.test/v1/convai/conversation/token?agent_id=agent_fixture",
+        "headers": {
+          "xi-api-key": "fixture-api-value"
+        },
+        "redirect": "error"
+      },
+      "grant": {
+        "providerSessionId": "conv_fixture",
+        "connectionType": "webrtc",
+        "conversationToken": "fixture-token",
+        "ttlMs": 60000
+      }
+    },
+    {
+      "name": "websocket",
+      "response": {
+        "status": 200,
+        "body": "{\"signed_url\":\"wss://socket.example.test/call?conversation_id=conv_fixture&signature=fixture\",\"conversation_id\":\"conv_fixture\"}"
+      },
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.test/v1/convai/conversation/get-signed-url?agent_id=agent_fixture&include_conversation_id=true",
+        "headers": {
+          "xi-api-key": "fixture-api-value"
+        },
+        "redirect": "error"
+      },
+      "grant": {
+        "providerSessionId": "conv_fixture",
+        "connectionType": "websocket",
+        "signedUrl": "wss://socket.example.test/call?conversation_id=conv_fixture&signature=fixture",
+        "ttlMs": 60000
+      }
+    }
+  ],
+  "reconciliation": [
+    {
+      "name": "delayed-closure",
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.test/v1/convai/conversations/conv_fixture",
+        "headers": {
+          "xi-api-key": "fixture-api-value"
+        },
+        "redirect": "error"
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"conversation_id\":\"conv_fixture\",\"status\":\"processing\",\"metadata\":{\"call_duration_secs\":120,\"start_time_unix_secs\":1790000000,\"cost\":17}}"
+      },
+      "call": {
+        "providerSessionId": "conv_fixture",
+        "startedAt": 1790000000000,
+        "pauses": [
+          {
+            "from": 1790000010000,
+            "to": 1790000030000
+          }
+        ],
+        "exposureMicro": 2000
+      },
+      "terminal": {
+        "providerSessionId": "conv_fixture",
+        "outcome": "uncertain",
+        "closureConfirmed": false,
+        "usage": {
+          "providerSeconds": 120,
+          "providerMinutes": 2,
+          "pausedSeconds": 20,
+          "visitorSeconds": 100,
+          "visitorMicro": 500,
+          "upstreamMicro": 4488,
+          "providerCredits": 17,
+          "costSource": "elevenlabs.cost",
+          "costEstimated": false,
+          "usdPerCredit": 0.000264
+        },
+        "chargedMicro": 2000,
+        "overrun": false
+      }
+    },
+    {
+      "name": "delayed-usage",
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.test/v1/convai/conversations/conv_fixture",
+        "headers": {
+          "xi-api-key": "fixture-api-value"
+        },
+        "redirect": "error"
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"conversation_id\":\"conv_fixture\",\"status\":\"done\",\"metadata\":{\"call_duration_secs\":120,\"start_time_unix_secs\":1790000000}}"
+      },
+      "call": {
+        "providerSessionId": "conv_fixture",
+        "startedAt": 1790000000000,
+        "pauses": [
+          {
+            "from": 1790000010000,
+            "to": 1790000030000
+          }
+        ],
+        "exposureMicro": 2000
+      },
+      "terminal": {
+        "providerSessionId": "conv_fixture",
+        "outcome": "completed",
+        "closureConfirmed": true,
+        "usage": {
+          "providerSeconds": 120,
+          "providerMinutes": 2,
+          "pausedSeconds": 20,
+          "visitorSeconds": 100,
+          "visitorMicro": 500,
+          "upstreamMicro": 1200,
+          "costSource": "duration-estimate",
+          "costEstimated": true,
+          "estimateMicroPerMinute": 600
+        },
+        "chargedMicro": 1200,
+        "overrun": true
+      }
+    },
+    {
+      "name": "fiat-total",
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.test/v1/convai/conversations/conv_fixture",
+        "headers": {
+          "xi-api-key": "fixture-api-value"
+        },
+        "redirect": "error"
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"conversation_id\":\"conv_fixture\",\"status\":\"done\",\"metadata\":{\"call_duration_secs\":120,\"start_time_unix_secs\":1790000000,\"cost_fiat\":0.00123,\"cost\":17}}"
+      },
+      "call": {
+        "providerSessionId": "conv_fixture",
+        "startedAt": 1790000000000,
+        "pauses": [
+          {
+            "from": 1790000010000,
+            "to": 1790000030000
+          }
+        ],
+        "exposureMicro": 2000
+      },
+      "terminal": {
+        "providerSessionId": "conv_fixture",
+        "outcome": "completed",
+        "closureConfirmed": true,
+        "usage": {
+          "providerSeconds": 120,
+          "providerMinutes": 2,
+          "pausedSeconds": 20,
+          "visitorSeconds": 100,
+          "visitorMicro": 500,
+          "upstreamMicro": 1230,
+          "costSource": "elevenlabs.cost_fiat",
+          "costEstimated": false
+        },
+        "chargedMicro": 1230,
+        "overrun": true
+      }
+    },
+    {
+      "name": "credit-total",
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.test/v1/convai/conversations/conv_fixture",
+        "headers": {
+          "xi-api-key": "fixture-api-value"
+        },
+        "redirect": "error"
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"conversation_id\":\"conv_fixture\",\"status\":\"done\",\"metadata\":{\"call_duration_secs\":120,\"start_time_unix_secs\":1790000000,\"cost\":17,\"charging\":{\"platform_charge\":100,\"llm_charge\":100,\"analysis\":{\"total\":{\"charge\":100}}}}}"
+      },
+      "call": {
+        "providerSessionId": "conv_fixture",
+        "startedAt": 1790000000000,
+        "pauses": [
+          {
+            "from": 1790000010000,
+            "to": 1790000030000
+          }
+        ],
+        "exposureMicro": 2000
+      },
+      "terminal": {
+        "providerSessionId": "conv_fixture",
+        "outcome": "completed",
+        "closureConfirmed": true,
+        "usage": {
+          "providerSeconds": 120,
+          "providerMinutes": 2,
+          "pausedSeconds": 20,
+          "visitorSeconds": 100,
+          "visitorMicro": 500,
+          "upstreamMicro": 4488,
+          "providerCredits": 17,
+          "costSource": "elevenlabs.cost",
+          "costEstimated": false,
+          "usdPerCredit": 0.000264
+        },
+        "chargedMicro": 4488,
+        "overrun": true
+      }
+    },
+    {
+      "name": "component-total",
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.test/v1/convai/conversations/conv_fixture",
+        "headers": {
+          "xi-api-key": "fixture-api-value"
+        },
+        "redirect": "error"
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"conversation_id\":\"conv_fixture\",\"status\":\"done\",\"metadata\":{\"call_duration_secs\":120,\"start_time_unix_secs\":1790000000,\"charging\":{\"call_charge\":10,\"llm_charge\":5,\"analysis\":{\"total\":{\"charge\":2}}}}}"
+      },
+      "call": {
+        "providerSessionId": "conv_fixture",
+        "startedAt": 1790000000000,
+        "pauses": [
+          {
+            "from": 1790000010000,
+            "to": 1790000030000
+          }
+        ],
+        "exposureMicro": 2000
+      },
+      "terminal": {
+        "providerSessionId": "conv_fixture",
+        "outcome": "completed",
+        "closureConfirmed": true,
+        "usage": {
+          "providerSeconds": 120,
+          "providerMinutes": 2,
+          "pausedSeconds": 20,
+          "visitorSeconds": 100,
+          "visitorMicro": 500,
+          "upstreamMicro": 4488,
+          "providerCredits": 17,
+          "costSource": "elevenlabs.charging",
+          "costEstimated": false,
+          "usdPerCredit": 0.000264
+        },
+        "chargedMicro": 4488,
+        "overrun": true
+      }
+    },
+    {
+      "name": "incomplete-components",
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.test/v1/convai/conversations/conv_fixture",
+        "headers": {
+          "xi-api-key": "fixture-api-value"
+        },
+        "redirect": "error"
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"conversation_id\":\"conv_fixture\",\"status\":\"done\",\"metadata\":{\"call_duration_secs\":120,\"start_time_unix_secs\":1790000000,\"charging\":{\"call_charge\":10,\"llm_charge\":5}}}"
+      },
+      "call": {
+        "providerSessionId": "conv_fixture",
+        "startedAt": 1790000000000,
+        "pauses": [
+          {
+            "from": 1790000010000,
+            "to": 1790000030000
+          }
+        ],
+        "exposureMicro": 2000
+      },
+      "terminal": {
+        "providerSessionId": "conv_fixture",
+        "outcome": "completed",
+        "closureConfirmed": true,
+        "usage": {
+          "providerSeconds": 120,
+          "providerMinutes": 2,
+          "pausedSeconds": 20,
+          "visitorSeconds": 100,
+          "visitorMicro": 500,
+          "upstreamMicro": 1200,
+          "costSource": "duration-estimate",
+          "costEstimated": true,
+          "estimateMicroPerMinute": 600
+        },
+        "chargedMicro": 1200,
+        "overrun": true
+      }
+    },
+    {
+      "name": "zero-credit",
+      "request": {
+        "method": "GET",
+        "url": "https://api.example.test/v1/convai/conversations/conv_fixture",
+        "headers": {
+          "xi-api-key": "fixture-api-value"
+        },
+        "redirect": "error"
+      },
+      "response": {
+        "status": 200,
+        "body": "{\"conversation_id\":\"conv_fixture\",\"status\":\"done\",\"metadata\":{\"call_duration_secs\":120,\"start_time_unix_secs\":1790000000,\"cost\":0}}"
+      },
+      "call": {
+        "providerSessionId": "conv_fixture",
+        "startedAt": 1790000000000,
+        "pauses": [
+          {
+            "from": 1790000010000,
+            "to": 1790000030000
+          }
+        ],
+        "exposureMicro": 2000
+      },
+      "terminal": {
+        "providerSessionId": "conv_fixture",
+        "outcome": "completed",
+        "closureConfirmed": true,
+        "usage": {
+          "providerSeconds": 120,
+          "providerMinutes": 2,
+          "pausedSeconds": 20,
+          "visitorSeconds": 100,
+          "visitorMicro": 500,
+          "upstreamMicro": 0,
+          "providerCredits": 0,
+          "costSource": "elevenlabs.cost",
+          "costEstimated": false,
+          "usdPerCredit": 0.000264
+        },
+        "chargedMicro": 0,
+        "overrun": false
+      }
+    }
+  ]
+}

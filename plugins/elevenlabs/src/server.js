@@ -1,28 +1,31 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { PluginError, normalizedError } from '../../../packages/core/src/invocation.js';
 import { beginVoiceInvocation, voiceLifetime, voiceOperation } from '../../../packages/core/src/live-voice.js';
-import { deepFreeze } from '../../../packages/core/src/plugins.js';
 import { manifest } from './manifest.js';
 import { usdCostMicro } from '../../../packages/core/src/cost.js';
-import { voiceOverrides } from './options.js';
+import { voiceOverrides, elevenLabsMediaGrant, elevenLabsComponents } from './options.js';
+import { createElevenLabsConfig, elevenLabsConfig, bridgeElevenLabsConfig } from './config.js';
+export { createElevenLabsConfig } from './config.js';
+export { createElevenLabsReplyExecutor } from './reply.js';
 export { manifest } from './manifest.js';
 export { createCompletionsHandler } from './facade.js';
 
 const identifier = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(value);
 const amount = value => Number.isSafeInteger(value) && value >= 0;
 export function createVoiceBinding(value) {
-  if (!value || !identifier(value.agentId) || typeof value.secretRef !== 'string' || !value.secretRef ||
+  const config = elevenLabsConfig(value);
+  if (!value || !identifier(config.agentId) || typeof value.secretRef !== 'string' || !value.secretRef ||
     !['upstreamMicroPerMinute', 'visitorMicroPerMinute'].every(key => amount(value[key])) ||
-    value.usdPerCredit !== undefined && (typeof value.usdPerCredit !== 'number' || !Number.isFinite(value.usdPerCredit) || value.usdPerCredit < 0) ||
+    config.usdPerCredit !== undefined && (typeof config.usdPerCredit !== 'number' || !Number.isFinite(config.usdPerCredit) || config.usdPerCredit < 0) ||
     value.reservationSeconds !== undefined && (!Number.isSafeInteger(value.reservationSeconds) || value.reservationSeconds < 1)) throw new TypeError('Invalid private voice binding');
   const apiBaseUrl = new URL(value.apiBaseUrl ?? 'https://api.elevenlabs.io');
   const loopbackHttp = apiBaseUrl.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(apiBaseUrl.hostname);
   if (apiBaseUrl.protocol !== 'https:' && !loopbackHttp || apiBaseUrl.username || apiBaseUrl.password ||
     apiBaseUrl.search || apiBaseUrl.hash) throw new TypeError('Invalid ElevenLabs API base URL');
-  return deepFreeze({ agentId: value.agentId, secretRef: value.secretRef, apiBaseUrl: apiBaseUrl.href.replace(/\/$/u, ''),
+  return bridgeElevenLabsConfig({ agentId: config.agentId, secretRef: value.secretRef, apiBaseUrl: apiBaseUrl.href.replace(/\/$/u, ''),
     upstreamMicroPerMinute: value.upstreamMicroPerMinute, visitorMicroPerMinute: value.visitorMicroPerMinute,
-    ...(value.usdPerCredit === undefined ? {} : { usdPerCredit: value.usdPerCredit }),
-    ...(value.reservationSeconds === undefined ? {} : { reservationSeconds: value.reservationSeconds }) });
+    ...(config.usdPerCredit === undefined ? {} : { usdPerCredit: config.usdPerCredit }),
+    ...(value.reservationSeconds === undefined ? {} : { reservationSeconds: value.reservationSeconds }) }, createElevenLabsConfig(config));
 }
 
 // Current API schema: metadata.cost_fiat is total USD; metadata.cost is total credits.
@@ -175,7 +178,7 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
     ![closureTimeoutMs, closurePollIntervalMs].every(value => Number.isFinite(value) && value > 0) ||
     reconcileLater !== undefined && typeof reconcileLater !== 'function' || log !== undefined && typeof log !== 'function') throw new TypeError('Durable saveCall, prepareCall and valid closure options required');
   const provider = { fetchImpl, resolveSecret };
-  return {
+  const adapter = {
     manifest, binding,
     async health(options) {
       return voiceOperation(options, async ({ signal }) => {
@@ -348,4 +351,25 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
       }
     },
   };
+  adapter.ports = Object.freeze({ serverAdapter: Object.freeze({
+    config: binding.adapterConfig,
+    validateConfig: createElevenLabsConfig,
+    async startSegment(request, options) {
+      const segment = await adapter.start(request, options);
+      const receipt = { callId: segment.callId, providerSessionId: segment.providerSessionId,
+        credential: segment.credential, spendDeadlineAt: segment.spendDeadlineAt,
+        browserLivenessDeadlineAt: segment.browserLivenessDeadlineAt,
+        facadeCallId: request.facadeCallId ?? request.callId,
+        ...(request.epoch === undefined ? {} : { epoch: request.epoch }),
+        ...(segment.overrides ? { overrides: segment.overrides } : {}) };
+      try { return { ...segment, grant: elevenLabsMediaGrant(receipt) }; }
+      catch (error) { await segment.close('start-failed', 'cancelled'); throw error; }
+    },
+    stopSegment: (segment, options) => segment.close(options?.reason ?? 'closed', options?.outcome ?? 'completed'),
+    async reconciliationEvidence(request, options) {
+      const details = await readConversationDetails(binding, request.call.providerSessionId, options, provider);
+      return { details, terminal: reconcileUsage({ ...request, details, binding }) };
+    },
+  }), components: elevenLabsComponents });
+  return adapter;
 }

@@ -22,5 +22,7 @@ export function createVoiceProvider({ storage, binding, resolveSecret, provision
   });
   const adapter = createElevenLabsServer(ports({}));
   return { manifest: adapter.manifest, binding: adapter.binding, health: adapter.health,
+    ports: { ...adapter.ports, serverAdapter: { ...adapter.ports.serverAdapter,
+      startSegment: (request, options) => createElevenLabsServer(ports(request)).ports.serverAdapter.startSegment(request, options) } },
     start: (request, options) => createElevenLabsServer(ports(request)).start(request, options) };
 }

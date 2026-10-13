@@ -2,7 +2,8 @@ import { PluginError } from '../../../packages/core/src/invocation.js';
 import { voiceEvents, voiceOperation, assertVoiceSession } from '../../../packages/core/src/live-voice.js';
 import { createVoiceLifecycleController } from '../../../packages/core/src/voice-lifecycle-controller.js';
 import { manifest } from './manifest.js';
-import { voiceOverrides } from './options.js';
+import { voiceOverrides, createElevenLabsBrowserMedia, elevenLabsComponents } from './options.js';
+export { elevenLabsMediaGrant } from './options.js';
 export { manifest } from './manifest.js';
 
 const microphoneOwners = new WeakSet();
@@ -67,16 +68,17 @@ function microphoneCapture(mediaDevices, AudioContext) {
 }
 
 /** Browser ESM; inject Conversation, or resolve @elevenlabs/client with a host import map. */
-export function createElevenLabsClient({ sdk, control, persistEvent, workletPaths, closeTimeoutMs = 45_000,
+export function createElevenLabsClient(ports = {}) {
+  const { sdk, control, persistEvent, workletPaths, closeTimeoutMs = 45_000,
   mediaDevices = globalThis.navigator?.mediaDevices, AudioContext = globalThis.AudioContext,
   document = globalThis.document,
-  persistenceTimeoutMs = 2000, persistenceRetries = 2, persistenceBackoffMs = 100, drainTimeoutMs = 5000 } = {}) {
+  persistenceTimeoutMs = 2000, persistenceRetries = 2, persistenceBackoffMs = 100, drainTimeoutMs = 5000 } = ports;
   if (!control?.start || !control?.close || !control?.pause || !control?.resume || !control?.heartbeat ||
     typeof persistEvent !== 'function' || ![closeTimeoutMs, persistenceTimeoutMs, drainTimeoutMs].every(value => Number.isFinite(value) && value > 0) ||
     !Number.isSafeInteger(persistenceRetries) || persistenceRetries < 0 || persistenceRetries > 5 ||
     !Number.isFinite(persistenceBackoffMs) || persistenceBackoffMs < 0) throw new TypeError('Voice control, durable persistence and valid timeouts required');
   const getSdk = async () => sdk ?? (await import('@elevenlabs/client')).Conversation;
-  return {
+  const client = {
     manifest,
     tabId: control.tabId,
     takeover: (identity, options) => voiceOperation(options, opts => control.takeover({ ...identity, explicit: true }, opts)),
@@ -638,4 +640,7 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
       }
     },
   };
+  client.ports = Object.freeze({ browserMedia: createElevenLabsBrowserMedia(receipt => createElevenLabsClient({ ...ports,
+    control: { ...control, start: () => receipt } })), components: elevenLabsComponents });
+  return client;
 }

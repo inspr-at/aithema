@@ -30,11 +30,11 @@ export interface Reasoning {
   structured(request: { system: string; messages: { role: string; content: string }[]; schema: object }, options: OperationOptions): Promise<unknown>;
   health(options: Pick<OperationOptions, 'signal' | 'deadlineAt'>): Promise<Health>;
 }
-export interface STT {
+export interface STT extends Partial<AudioFormatPort> {
   transcribe(request: { audio: Uint8Array; format: string; language: string }, options: OperationOptions): Promise<{ text: string }>;
   stream?(request: { audio: AsyncIterable<Uint8Array>; format: string }, options: OperationOptions): AsyncIterable<{ text: string; final: boolean }>;
 }
-export interface TTS { speak(request: { text: string; voice: string; format: string }, options: OperationOptions): AsyncIterable<Uint8Array> }
+export interface TTS extends Partial<AudioFormatPort> { speak(request: { text: string; voice: string; format: string }, options: OperationOptions): AsyncIterable<Uint8Array> }
 export type { UIGeneration, UISpec, UIFeedback, UIArtifact, UIReference, UIImageMediaType } from './ui-generation.js';
 export type { HTMLGeneration, UIHTMLSpec, UIHTMLArtifact, HTMLProblem } from './ui-html.js';
 export type { Extractor, Extraction, ExtractionSegment, ExtractionLimits, ExtractionMetadata, ExtractionOptions } from './extractor.js';
@@ -45,9 +45,11 @@ export interface LiveVoiceDeclaration {
   transcript: { finality: 'fragments' | 'turns'; persistence: 'durable' | 'memory-only' };
   capabilities: Record<'sendText' | 'updateContext' | 'setInput' | 'setOutput' | 'pause' | 'resume' | 'interrupt' | 'heard', VoiceCapability>;
   billing: { visitor: string; upstream: string };
+  ownership?: Record<'stt' | 'tts' | 'turnTaking', 'provider' | 'server' | 'browser'>;
+  optionalCapabilities?: Partial<Record<'forceInterrupt' | 'alignment' | 'playbackRetry' | 'metering', VoiceCapability>>;
 }
-export type VoiceEvent = { callId: string } & (
-  { type: 'listening' | 'speaking' | 'recovering' | 'recovered' } |
+export type VoiceEvent = { callId: string; providerSessionId?: string; generation?: string | number; epoch?: number } & (
+  { type: 'listening' | 'speaking' | 'recovering' | 'recovered' | 'waiting' } |
   { type: 'partial' | 'final'; turnId: string; role: 'user' | 'assistant'; text: string } |
   { type: 'heard'; turnId: string; prefix: string } |
   { type: 'ended'; reason: string }
@@ -85,7 +87,82 @@ export interface VoiceSession {
 }
 // Joined contract: server consumes authority; browser receives only a short-lived credential.
 // Each delegated reasoning call and reconnect needs its own separately admitted claim.
-export interface LiveVoice { start(request: { callId: string; context?: object }, options: VoiceStartOptions): Promise<VoiceSession> }
+export interface LiveVoice {
+  start(request: { callId: string; context?: object }, options: VoiceStartOptions): Promise<VoiceSession>;
+  health?(options: VoiceCommandOptions): Promise<Health>;
+  ports?: VoicePorts;
+}
+
+// Additive composition ports. Existing session methods and duration terminals keep
+// their contract. Configuration and opaque grant payloads belong to the adapter.
+export interface VoiceMediaGrant {
+  callId: string; providerSessionId: string; expiresAt: number; opaque: unknown;
+}
+export interface VoiceServerSegment {
+  callId: string; providerSessionId: string; grant: VoiceMediaGrant;
+}
+export interface VoiceReconciliationEvidence {
+  details: unknown;
+  terminal: Pick<VoiceTerminal, 'providerSessionId' | 'outcome' | 'closureConfirmed' | 'usage' | 'chargedMicro'>;
+}
+export interface VoiceServerAdapter<Config = unknown, StartRequest = { callId: string }, Segment extends VoiceServerSegment = VoiceServerSegment> {
+  readonly config?: Config;
+  validateConfig(config: unknown): Config;
+  startSegment(request: StartRequest, options: VoiceStartOptions): Promise<Segment>;
+  stopSegment(segment: Segment, options: VoiceCommandOptions & { reason?: string; outcome?: 'completed' | 'cancelled' }): Promise<VoiceReconciliationEvidence['terminal']>;
+  reconciliationEvidence(request: { call: object; maxMicro: number; outcome?: 'completed' | 'cancelled' }, options: VoiceCommandOptions): Promise<VoiceReconciliationEvidence>;
+  // Provider request authentication must precede the generic operation boundary.
+  callbackRoutes?: readonly { method: string; path: string; handle(request: Request): Promise<Response> }[];
+}
+export interface VoiceBrowserMedia {
+  connect(grant: VoiceMediaGrant, options: VoiceCommandOptions): Promise<VoiceSession>;
+  capture(session: VoiceSession, on: boolean, options: VoiceCommandOptions): Promise<void>;
+  playback(session: VoiceSession, on: boolean, options: VoiceCommandOptions): Promise<void>;
+  teardown(session: VoiceSession, options: VoiceCommandOptions): ReturnType<VoiceSession['close']>;
+}
+export interface VoiceOperationIdentity {
+  key: string; callId: string; providerSessionId: string; ordinal: number | null;
+}
+// Only an authenticated adapter or an in-process server coordinator may construct
+// this envelope. Browser transcript receipts never authorize executor admissions.
+export interface VoiceReplyEnvelope {
+  source: 'authenticated-provider' | 'server-coordinator';
+  payload: unknown;
+}
+export type VoiceReplyEvent =
+  { type: 'operation'; operation: VoiceOperationIdentity; replyId: string } |
+  { type: 'delta'; text: string } |
+  { type: 'completion'; replyId: string; text: string };
+export interface VoiceReplyExecutor {
+  execute(envelope: VoiceReplyEnvelope, options: VoiceCommandOptions): AsyncIterable<VoiceReplyEvent>;
+}
+export interface AudioFormat {
+  encoding: string; sampleRateHz: number; channels: number; mediaType?: string;
+}
+export interface AudioFormatPort {
+  negotiateAudioFormat(offered: readonly AudioFormat[], options: VoiceCommandOptions): Promise<AudioFormat>;
+}
+export interface ComponentUsage {
+  attemptId: string; role: 'stt' | 'reasoning' | 'tts';
+  unit: 'seconds' | 'tokens' | 'characters' | 'bytes' | 'credits'; quantity: number;
+  upstreamMicro: number; source: string; estimated: boolean;
+}
+export type ComponentTerminal = { attemptId: string; servedModel?: string; chargedMicro?: number } &
+  ({ outcome: 'completed' | 'cancelled'; usage: ComponentUsage } | { outcome: 'uncertain'; usage?: ComponentUsage });
+export type ComponentOperationOptions = Omit<OperationOptions, 'report'> & { report(terminal: ComponentTerminal): Promise<void> | void };
+export interface STTComponent extends AudioFormatPort {
+  transcribe(request: { audio: Uint8Array; format: string; language: string }, options: ComponentOperationOptions): Promise<{ text: string }>;
+  stream?(request: { audio: AsyncIterable<Uint8Array>; format: string }, options: ComponentOperationOptions): AsyncIterable<{ text: string; final: boolean }>;
+}
+export interface TTSComponent extends AudioFormatPort {
+  speak(request: { text: string; voice: string; format: string }, options: ComponentOperationOptions): AsyncIterable<Uint8Array>;
+}
+export interface VoicePorts {
+  serverAdapter?: VoiceServerAdapter;
+  browserMedia?: VoiceBrowserMedia;
+  replyExecutor?: VoiceReplyExecutor;
+  components?: { stt?: STTComponent; tts?: TTSComponent };
+}
 export interface PrivateBinding {
   plugin: string; model: string; effort: string; endpoint: string; routing?: object;
   accountRef: string; secretRef: string; maxMicro: number; maxTokens: number;
