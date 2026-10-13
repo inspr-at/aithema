@@ -77,6 +77,13 @@ test('AIT-164: starting a phone call dismisses the gate even while an email save
   f.ask.update(); await Promise.resolve(); await Promise.resolve();
   assert.equal(f.ask.open, false); assert.equal(f.ask.state.open, false); assert.equal(f.requests.at(-1).action, 'dismiss');
 });
+test('AIT-164: a mail host with confirmation disabled never promises its unavailable tier', t => {
+  const f = fixture(t); f.email.delivery = true; f.email.address = 'visitor@example.test'; f.ask.sent = true; f.ask.step = 'done';
+  f.ask.credits = { ...credits, tiers: { ...credits.tiers, canConfirm: false, allowancesMicro: { emailGiven: 15_000_000, emailConfirmed: 20_000_000 } } };
+  f.ask.paint();
+  assert.equal(f.ask.q('.m-tier').textContent, 'Credit: 1,500 Credits');
+  assert.doesNotMatch(f.ask.q('.email-ask__benefit').textContent, /2,000|confirmed/u);
+});
 test('AIT-164: footer digits are tabular and reserve the server limit at every breakpoint', () => {
   assert.match(emailAskStyles, /host-credits__stack \{ font-variant-numeric:tabular-nums/u);
   assert.match(emailAskStyles, /host-credits__measure \{ visibility:hidden; white-space:nowrap/u);

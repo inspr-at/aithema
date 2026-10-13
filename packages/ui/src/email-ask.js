@@ -123,6 +123,7 @@ export class EmailAsk {
   paint() {
     const a = this.copy.hostSurface.emailAsk, e = this.copy.hostSurface.email, v = this.copy.hostSurface.verify;
     const low = lowCredit(this.credits), n = this.email.numbers, owner = this.credits?.balance?.owner;
+    const confirmRaises = this.credits?.tiers?.canConfirm === true && this.credits.tiers.allowancesMicro?.emailConfirmed > this.credits.tiers.allowancesMicro?.emailGiven;
     const open = Boolean(this.open && this.email.canCollect && this.credits?.exhausted !== true), desktop = this.desktop;
     const slot = this.root.querySelector(desktop ? '.email-ask-pane' : '.email-ask-dock');
     if (this.gate.parentElement !== slot) {
@@ -140,14 +141,14 @@ export class EmailAsk {
     for (const [selector, text] of [['.email-ask__kick5', a.kickerTurn5], ['.email-ask__kicklow', a.kickerLow], ['h2', a.title], ['.email-ask__all', a.benefitContinue], ['.email-ask__skip', a.skip], ['.email-ask__save', e.save], ['.m-label', v.label]]) setText(this.q(selector), text);
     setText(this.q('.email-ask__balance'), owner ? fill(low ? a.balanceLow : a.balance, { available: this.format(owner.availableMicro), limit: this.format(owner.limitMicro) }) : '');
     this.q('.email-ask__balance').classList.toggle('low', low);
-    setText(this.q('.email-ask__benefit'), fill(this.credits?.tiers?.canConfirm ? a.benefitCreditsMail : a.benefitCredits, n));
+    setText(this.q('.email-ask__benefit'), fill(confirmRaises ? a.benefitCreditsMail : a.benefitCredits, n));
     this.input.setAttribute('aria-invalid', String(Boolean(this.invalid)));
     this.q('.email-ask__save').setAttribute('aria-disabled', String(this.step === 'saving'));
     setText(this.q('#email-ask-message'), this.message);
     this.email.paintNotice(this.q('.m-notice'));
     const done = this.step === 'done'; this.q('form').inert = done; this.q('.email-ask__done').inert = !done;
     setText(this.q('.m-addr'), (this.email.delivery && this.sent ? e.sentTo + ' ' : '') + this.email.address);
-    setText(this.q('.m-tier'), fill(this.email.delivery && this.sent ? e.pendingTier : a.saved, n));
+    setText(this.q('.m-tier'), this.email.delivery && this.sent ? confirmRaises ? fill(e.pendingTier, n) : fill(e.tier, { tier: n.email }) : fill(a.saved, n));
     setText(this.q('.email-ask__hint'), this.email.delivery ? this.sent === false ? v.deliveryFailed : v.hint : a.savedHint);
     this.q('.email-ask__save').inert = done;
     const folded = this.state.folded && this.eligible && !open;
