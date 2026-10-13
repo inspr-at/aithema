@@ -91,7 +91,8 @@ async function adopt(session) {
       deviceConnector: createDeviceReasoning, deviceEndpoint: 'http://127.0.0.1:8000',
       // The host surface (AIT-104 B2): library, handover and credits from the demo ports; verification
       // only where the fake mail outbox can confirm it (the mock demo).
-      host: { library: true, verification: { delivery: binding.demoHost === true, privacyDocumentConfigured: Boolean(binding.privacy) },
+      host: { ...(binding.operatorLogin ? { operator: { ...binding.operatorLogin, name: binding.operator?.name,
+          error: new URL(location.href).searchParams.get('operator') === 'denied' } } : {}), library: true, verification: { delivery: binding.demoHost === true, privacyDocumentConfigured: Boolean(binding.privacy) },
         handover: binding.demoHost === true, credits: true, locale: () => localeChoice, version: binding.build } });
     // A stored choice may have changed while the initial conversation was being restored.
     await component.changeLocale(localeChoice);
@@ -184,3 +185,8 @@ document.querySelector('#locale').addEventListener('change', async event => {
   await component.changeLocale(locale); paintPage();
 });
 await open();
+if (binding.operatorLogin && location.hash === '#settings-general') {
+  component.openSettings(undefined, { tab: 'general', anchor: '.operator-section' });
+  const cleaned = new URL(location.href); cleaned.searchParams.delete('operator'); cleaned.hash = '';
+  history.replaceState(null, '', cleaned.pathname + cleaned.search);
+}

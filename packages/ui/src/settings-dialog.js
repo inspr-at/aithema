@@ -3,6 +3,7 @@
 // verdict: this dialog sends option ids and shows only acknowledged state.
 import { settingsGauges, GAUGES, SETTINGS_OFF, preferredEffort } from '../../core/src/settings.js';
 import { modelDisplayName } from './display.js';
+import { OperatorSettings } from './operator-settings.js';
 
 const SAVE_MESSAGES = ['autosave', 'saving', 'saved', 'failed', 'closePending'];
 
@@ -70,9 +71,10 @@ export function engineView(session) {
 export class SettingsDialog {
   #dialog; #copy; #ports; #catalog = null; #loadFailed = false; #active = null; #draft = null; #revision = 0;
   #saving = null; #failed = false; #status = ''; #notice = null; #tab = 'model'; #help = 'processing'; #hovered = null;
-  #opener = null; #timer = 0; #continue = false; #closing = false; #paintKeys = new Map(); #busy = false;
-  constructor({ dialog, copy, ports }) {
+  #operator; #opener = null; #timer = 0; #continue = false; #closing = false; #paintKeys = new Map(); #busy = false;
+  constructor({ dialog, copy, ports, operator }) {
     this.#dialog = dialog; this.#copy = copy; this.#ports = ports; this.#build();
+    if (operator) this.#operator = new OperatorSettings({ parent: this.#q('.general'), copy: this.#copy, operator });
   }
   get open() { return this.#dialog.open; }
   get element() { return this.#dialog; }
@@ -150,7 +152,7 @@ export class SettingsDialog {
   setCopy(copy) {
     const old = this.#copy.settings;
     for (const key of Object.keys(old)) if (typeof old[key] === 'string' && this.#status === old[key]) { this.#status = copy.settings[key]; break; }
-    this.#copy = copy; this.#notice = null; this.#paintCopy();
+    this.#copy = copy; this.#notice = null; this.#paintCopy(); this.#operator?.setCopy(copy);
     this.#all('.save-state-measure').forEach((n, i) => { n.textContent = copy.settings[SAVE_MESSAGES[i]]; });
     this.#all('.context-measure').forEach((n, i) => { n.textContent = fill(Object.values(copy.help)[i] ?? '', { reason: '' }); });
     const c = copy.settings, notices = [c.callActive, c.toDevice, c.fromDevice, c.consentRequired, c.running, c.conflict, fill(c.notAllowed, { reason: '' })];

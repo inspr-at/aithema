@@ -131,13 +131,21 @@ test('postJson sends the JSON content type the server requires', async t => {
     ['/api/sessions/s/turns', 'POST', 'application/json', '{"clientEventId":"c","content":"Hello"}'],
   ]);
 });
-test('no client file sends a non-GET request except through postJson', async () => {
+test('client JavaScript mutations use postJson; operator logout uses its fixed native POST form', async () => {
   const { readFile } = await import('node:fs/promises');
   const files = await clientFiles();
   assert.ok(files.some(f => f.pathname.endsWith('/i18n/en.js')), 'nested client files are scanned');
   for (const file of files) {
     if (file.pathname.endsWith('/packages/ui/src/post-json.js')) continue;
-    assert.ok(!sendsMethod(await readFile(file, 'utf8')), `${file.pathname} sets a request method; use postJson`);
+    let source = await readFile(file, 'utf8');
+    if (file.pathname.endsWith('/packages/ui/src/operator-settings.js')) {
+      // AIT-165 requires native navigation. Permit only this fixed same-origin
+      // form, whose host route enforces Origin and revokes the operator grant.
+      const nativeLogout = 'method="post" action="/api/operator/logout/"';
+      assert.equal(source.split(nativeLogout).length, 2, 'exactly one fixed native logout form');
+      source = source.replace(nativeLogout, '');
+    }
+    assert.ok(!sendsMethod(source), `${file.pathname} sets a request method; use postJson`);
   }
 });
 

@@ -5,3 +5,4 @@ dist/
 *.sqlite*
 tests/__pycache__/
 .agent-status.json
+operator-state.key*

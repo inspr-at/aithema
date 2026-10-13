@@ -46,6 +46,9 @@ export function httpAdapter(handle) {
         } : {}) });
       const response = await handle(request);
       const responseHeaders = Object.fromEntries(response.headers);
+      // Node must receive separate Set-Cookie headers for state clearing + grant issuance.
+      const cookies = response.headers.getSetCookie();
+      if (cookies.length) responseHeaders['set-cookie'] = cookies;
       // Finish small rejected bodies before responding. A successful streaming
       // response can still own the request body, so it keeps the existing path.
       if (body && !incoming.complete) {
