@@ -147,7 +147,9 @@ export class Verification {
     input.placeholder = v.placeholder; input.setAttribute('aria-describedby', `${prefix}-message`);
     capture.append(label, input);
     const pending = node('p', 'verify__pending'), change = node('button', 'verify-change', v.change); change.type = 'button';
-    pending.append(node('span', '', v.sentTo), ' ', node('strong', 'verify__address'), ' · ', change);
+    const recipient = node('span', 'verify__recipient');
+    recipient.append(node('strong', 'verify__address'), ' · ', change);
+    pending.append(node('span', '', v.sentTo), ' ', recipient);
     const done = node('p', 'verify__done'); done.innerHTML = CHECK; done.append(node('span', '', v.confirmed));
     field.append(capture, pending, done);
     const actions = node('div', 'verify__actions'), primary = node('div', 'verify__primary');

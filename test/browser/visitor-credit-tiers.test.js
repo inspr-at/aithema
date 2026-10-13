@@ -275,7 +275,7 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
         const address = text.getBoundingClientRect(), change = pending.querySelector('.verify-change').getBoundingClientRect();
         return { confirmation: message.textContent, helper: form.querySelector('.verify__note').textContent,
           inlineChange: Math.abs(address.top + address.height / 2 - change.top - change.height / 2) < 12,
-          separator: pending.childNodes[3].textContent, gapPx: message.getBoundingClientRect().top - button.getBoundingClientRect().bottom,
+          separator: pending.textContent.match(/reader@example\.test(.*?)((?:Ändern)|Change)/u)?.[1], gapPx: message.getBoundingClientRect().top - button.getBoundingClientRect().bottom,
           widthPx: button.getBoundingClientRect().width, primaryWidthPx: form.querySelector('.verify__primary').getBoundingClientRect().width };
       });
       assert.equal(sent.helper, ''); assert.equal(sent.separator, ' · '); assert.equal(sent.inlineChange, true, `${label}: Change stays inline`);

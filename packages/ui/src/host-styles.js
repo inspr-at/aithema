@@ -54,6 +54,7 @@ export const hostStyles = `
 .analysis-content .verify__pending, .verify__pending { margin:0; min-height:2.75rem; display:block;
   font-size:.85rem; overflow-wrap:anywhere; }
 .verify__address { font-weight:650; } .verify-change { min-height:44px; padding:0; font-size:.8rem; }
+.verify__recipient { display:inline-block; max-width:100%; }
 .analysis-content .verify__done, .verify__done { display:flex; align-items:center; gap:.4rem; margin:0; min-height:2.75rem; font-size:.87rem; }
 .verify__actions { display:flex; flex-wrap:wrap; align-items:center; gap:.25rem .5rem; }
 /* Keep the sending action's reservation while each label hugs its own button. */
