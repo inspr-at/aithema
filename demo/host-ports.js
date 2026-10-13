@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { LibraryPortError, createFakeHandoverHost, handoverKey } from '@inspr/aithema-core';
 import { SQLiteBudgetLedger } from '../packages/server/src/budget.js';
 import { createVisitorCredits, EMAIL_NOTICE_VERSION } from './visitor-credits.js';
@@ -126,7 +126,7 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
         }
       }
       if (!demo) return { status: 'failed' };
-      const token = randomUUID();
+      const token = randomBytes(32).toString('base64url');
       visitorCredits.createToken({ ownerHash: session.ownerHash, sessionId, address, revision, expiresAt, token });
       for (let i = mail.length - 1; i >= 0; i--) if (mail[i].ownerHash === session.ownerHash) mail.splice(i, 1);
       mail.push({ sessionId, ownerHash: session.ownerHash, address, revision, expiresAt, token, verified: false, createdAt: now() });
