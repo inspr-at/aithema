@@ -4,6 +4,7 @@ import { Window } from 'happy-dom';
 import { createSession, HTML_PREVIEW_HOST_CSP } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
+import { bandStyles } from '../src/band-styles.js';
 
 // CSP/sandbox execution is covered by the remote Chrome regressions. Here we
 // simulate the policy proof to check actual frame nodes and session lifecycle.
@@ -56,6 +57,32 @@ async function ready(preview) {
 }
 const receive = (c, type, data) => c.receive({ seq: c.session.seq + 1, type, data });
 const revoke = (c, cause) => cause === 'consent' ? receive(c, 'consent.revised', { granted: false }) : receive(c, 'turn.withdrawn', { turnId: 'source' });
+
+test('AIT-155: scrolled band is solid through the hairline; its 12px fade is outside the box', () => {
+  const surface = /\.band\[data-scrolled\] \{([^}]+)\}/u.exec(bandStyles)[1];
+  assert.match(surface, /background:color-mix\(in srgb,var\(--aithema-accent\) 7%,var\(--aithema-paper\)\);/u);
+  assert.doesNotMatch(surface, /transparent|gradient|padding|height|margin/u);
+  const fade = /\.band\[data-scrolled\]::before \{([^}]+)\}/u.exec(bandStyles)[1];
+  assert.match(fade, /content:''; position:absolute; inset:100% 0 auto; height:12px; pointer-events:none;/u);
+  assert.match(fade, /background:linear-gradient\(to bottom,color-mix\(in srgb,var\(--aithema-accent\) 7%,var\(--aithema-paper\)\),transparent\);/u);
+  assert.match(bandStyles, /\.band::after \{ content:''; position:absolute; inset:auto 0 0; height:1px;/u);
+  assert.match(bandStyles, /\.audio-rail button \{ background:color-mix\(in srgb,var\(--aithema-surface\) 50%,transparent\);/u);
+});
+
+test('AIT-155: band restores scroll-zero paint and tracks scroll containers through detach/reattach', t => {
+  const { c, root } = fixture(t), band = root.querySelector('.band'), workspace = root.querySelector('.workspace');
+  const children = [...band.children]; let top = 0;
+  t.mock.method(band, 'getBoundingClientRect', () => ({ top: 0 }));
+  t.mock.method(workspace, 'getBoundingClientRect', () => ({ top }));
+  const scroll = () => document.body.dispatchEvent(new window.Event('scroll'));
+  assert.equal(band.hasAttribute('data-scrolled'), false);
+  top = -80; scroll(); assert.equal(band.hasAttribute('data-scrolled'), true);
+  top = 0; scroll(); assert.equal(band.hasAttribute('data-scrolled'), false);
+  assert.deepEqual([...band.children], children, 'scroll paint adds no layout node');
+  c.remove(); top = -80; scroll(); assert.equal(band.hasAttribute('data-scrolled'), false, 'detached component removes the scroll listener');
+  document.body.append(c); assert.equal(band.hasAttribute('data-scrolled'), true, 'reattach reads the current offset');
+  top = 0; scroll(); assert.equal(band.hasAttribute('data-scrolled'), false);
+});
 
 test('AIT-131: unfolding unloads a populated canvas and refolding restores only eligible bytes', async t => {
   const { root, calls } = fixture(t), canvas = root.querySelector('.canvas-html');

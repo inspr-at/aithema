@@ -7,6 +7,10 @@ export const bandStyles = `
   align-items:center; gap:12px 24px; margin-inline:calc(-1 * var(--aithema-gutter));
   padding:12px var(--aithema-gutter) 18px 54px; min-height:90px;
   background:linear-gradient(to bottom,color-mix(in srgb,var(--aithema-accent) 7%,var(--aithema-paper)),color-mix(in srgb,var(--aithema-accent) 4%,transparent) 70%,transparent); }
+.band[data-scrolled] { background:color-mix(in srgb,var(--aithema-accent) 7%,var(--aithema-paper)); }
+/* The fade starts below the unchanged hairline and never occupies a grid row. */
+.band[data-scrolled]::before { content:''; position:absolute; inset:100% 0 auto; height:12px; pointer-events:none;
+  background:linear-gradient(to bottom,color-mix(in srgb,var(--aithema-accent) 7%,var(--aithema-paper)),transparent); }
 .band::after { content:''; position:absolute; inset:auto 0 0; height:1px;
   background:linear-gradient(to right,transparent,var(--aithema-line-strong) 18%,var(--aithema-line-strong) 82%,transparent); }
 .band-orb { position:relative; z-index:4; width:44px; height:44px; display:grid; place-items:center; }

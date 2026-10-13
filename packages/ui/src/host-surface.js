@@ -67,6 +67,10 @@ export class HostSurface {
   }
   get tiers() { return this.#credits?.tiers ?? null; }
   get usedUp() { return this.#ended === 'host-limit' || this.#credits?.exhausted === true; }
+  get fullHold() {
+    const owner = this.#credits?.balance?.owner;
+    return !this.usedUp && owner?.availableMicro === 0 && owner.reservedMicro > 0;
+  }
   get nextTier() { return this.#verification?.enabled && this.#verification.canCollect ? this.tiers?.next ?? null : null; }
   get deltaCredits() { return this.tiers ? defaultCreditFormat(this.tiers.delta, this.#session().locale ?? 'en') : ''; }
   get locked() { return this.#verification?.locked ?? false; }

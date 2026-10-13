@@ -465,10 +465,20 @@ export class AithemaSession extends HTMLElement {
     if (!record) return;
     void closeVoiceCall({ baseUrl: this.#base, sessionId: this.#session.id, sessionToken: this.#sessionToken, record, reason: 'page-hidden' }).catch(() => {});
   };
-  #pageshow = () => { if (this.#rail) this.#rail.unloading = false; };
+  #pageshow = () => { if (this.#rail) this.#rail.unloading = false; this.#syncBandScroll(); };
+  #syncBandScroll = () => {
+    const band = this.shadowRoot.querySelector('.band'), workspace = this.shadowRoot.querySelector('.workspace');
+    if (!band || !workspace) return;
+    // The document can scroll before sticky engages; also cover an embedding scroll container.
+    const scrolled = (this.ownerDocument.defaultView?.scrollY ?? 0) > 0 || band.getBoundingClientRect().top > workspace.getBoundingClientRect().top;
+    band.toggleAttribute('data-scrolled', scrolled);
+  };
   #watchPage(on) {
     const view = this.ownerDocument.defaultView, listen = on ? 'addEventListener' : 'removeEventListener';
     view?.[listen]('pagehide', this.#pagehide); view?.[listen]('pageshow', this.#pageshow);
+    view?.[listen]('scroll', this.#syncBandScroll, { passive: true, capture: true });
+    view?.[listen]('resize', this.#syncBandScroll);
+    if (on) this.#syncBandScroll();
   }
   // The status line shows the latest action until the connection, pause or call state changes.
   #status(value) { this.#notice = value; this.#paintStatus(); }
@@ -679,7 +689,8 @@ export class AithemaSession extends HTMLElement {
       input.disabled = !text.available;
       // Invite speech only while the call can listen; held calls invite the next typed message.
       const listening = this.#rail?.session && !this.#rail.paused && !['recovering', 'waiting'].includes(this.#rail.state);
-      input.placeholder = listening ? copy.placeholderVoice ?? copy.placeholder : copy.placeholder;
+      const voicePlaceholder = this.#host?.fullHold ? copy.placeholderFullHold ?? copy.placeholderVoice : copy.placeholderVoice;
+      input.placeholder = listening ? voicePlaceholder ?? copy.placeholder : copy.placeholder;
       root.querySelector('.send').disabled = this.#sending || !text.available;
       const reason = root.querySelector('.composer-reason');
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');
