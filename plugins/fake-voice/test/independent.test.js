@@ -93,3 +93,23 @@ test('fake acknowledged heartbeat extends command liveness without extending the
   await session.setInput(false); assert.equal(f.snapshot().muted, true);
   assert.equal(session.lifecycle.state.spendDeadlineAt, receipt.spendDeadlineAt);
 });
+
+test('fake barge-in silences output synchronously before a stalled receipt and only a fresh reply unlocks it', async t => {
+  const now = Date.now(), persisted = Promise.withResolvers();
+  const receipt = { callId: 'call', providerSessionId: 'segment', spendDeadlineAt: now + 60_000, browserLivenessDeadlineAt: now + 30_000 };
+  const control = { start: () => receipt, close: () => ({ closureConfirmed: true }),
+    pause: () => ({ acknowledged: true, paused: true }), resume: () => ({ acknowledged: true, paused: false }),
+    heartbeat: () => ({ acknowledged: true, browserLivenessDeadlineAt: now + 30_000 }) };
+  const f = createFakeVoice({ control, persistEvent: () => persisted.promise, document: undefined,
+    copy: { fakeVoiceGreeting: 'A reply', fakeVoiceReply: 'Another reply', fakeVoiceHeard: 'A' } });
+  const session = await f.client.start({ callId: 'call' }, {});
+  t.after(async () => { persisted.resolve(); await session.close(); });
+  assert.equal(f.snapshot().volume, 1);
+  f.bargeIn();
+  assert.equal(f.snapshot().volume, 0); assert.equal(session.audioLevels().output, 0);
+  assert.ok(session.audioLevels().input > 0, 'barge-in retains microphone input');
+  await session.setOutput(false); await session.setOutput(true);
+  await session.pause(); await session.resume();
+  assert.equal(f.snapshot().volume, 0, 'channel and pause commands cannot unlock the interrupted reply');
+  f.speak('A new utterance'); assert.equal(f.snapshot().volume, 1);
+});
