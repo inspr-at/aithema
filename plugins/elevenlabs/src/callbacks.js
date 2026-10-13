@@ -1,6 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { createCompletionsHandler } from './facade.js';
 import { CUSTOM_LLM_BASE_PATH } from './ensure-agent.js';
+import { elevenLabsConfig } from './config.js';
 
 const perCallPath = '/api/voice/:callId/llm/chat/completions';
 const callRoute = /^\/api\/voice\/([a-zA-Z0-9_-]{1,128})\/llm\/chat\/completions$/u;
@@ -45,7 +46,7 @@ function bindCallbacks({ secrets, staticSecretRef, presentation, timeoutMs, log,
       return { identity: facadeCallId,
         details: { facadeSecretRef, facadeCallId },
         request: { facadeSecretRef,
-          facadeUrl: `${binding.publicFacadeBaseUrl}${staticSecretRef ? CUSTOM_LLM_BASE_PATH : `/api/voice/${callId}/llm`}`,
+          facadeUrl: `${elevenLabsConfig(binding).publicFacadeBaseUrl}${staticSecretRef ? CUSTOM_LLM_BASE_PATH : `/api/voice/${callId}/llm`}`,
           ...(overrides ? { overrides } : {}) },
         receipt: staticSecretRef ? { facadeCallId } : {},
         prepare: () => { if (!staticSecretRef) return secrets.provision(facadeSecretRef); },
