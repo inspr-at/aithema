@@ -651,7 +651,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     async admit({ session, lane, operation, request, options = {} }) {
       const invocationCurrent = () => unchanged(session, lane) && (lane !== 'concept' ||
         storage.get(session.id).conceptIntent?.pending?.id === session.conceptIntent?.pending?.id);
-      const dispatchCurrent = () => options.voiceReply === true && lane === 'reaction' ? unchanged(session, lane, true) : invocationCurrent();
+      const dispatchCurrent = () => (options.voiceReply === true && lane === 'reaction' ? unchanged(session, lane, true) : invocationCurrent()) &&
+        options.beforeDispatch?.() !== false;
       // Ownership, revision and tombstone precede health, consent and budget work.
       if (!invocationCurrent()) throw new PluginError('not-admitted', 'Session changed during admission');
       if (lane === 'concept' && (!session.conceptIntent?.visualIntent || !session.conceptIntent.pending ||

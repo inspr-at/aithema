@@ -862,3 +862,41 @@ test('AIT-135 A2 round 2: a tier-only credits event refreshes features without e
   assert.ok(calls.filter(call => call.path === '').length > before, 'a changed tier refreshes even when its ceiling stays the same');
   assert.equal(c.session.featureMatrix.best.voice.available, true);
 });
+
+for (const copy of [de, en]) test(`AIT-138 d merge: ${copy.display.locale} exhausted old tab keeps ownership until an explicit take-back after top-up`, async t => {
+  const { voiceEvents } = await import('../../core/src/live-voice.js');
+  const requests = []; let closes = 0, takeovers = 0;
+  const voiceClient = { tabId: 'old-tab', async start(request) {
+    requests.push(request); const events = voiceEvents();
+    return { callId: request.callId, providerSessionId: 'provider-' + requests.length, epoch: request.epoch ?? 1, tabId: 'old-tab', events,
+      async setInput() {}, async setOutput() {}, async updateContext() {},
+      async pause() { return { acknowledged: true, paused: true }; }, async resume() { return { acknowledged: true, paused: false }; },
+      async close() { closes++; events.end(); return { closureConfirmed: true }; } };
+  }, async takeover(identity) {
+    takeovers++; assert.equal(identity.epoch, 2);
+    return { ...identity, epoch: 3, controllingTabId: 'old-tab', state: 'waiting' };
+  } };
+  const f = a2Setup(t, { copy, spent: 0, voiceClient }); await tick(8);
+  f.root.querySelector('.voice-start').click(); await tick(8);
+  const callId = requests[0].callId;
+  f.c.receive({ type: 'voice.state', data: {
+    callId, providerSessionId: 'other-provider', epoch: 2, controllingTabId: 'other-tab', state: 'active', reason: 'tab-takeover' } });
+  assert.equal(f.root.querySelector('.pause').disabled, false);
+  f.setSpent(12_000_000);
+  f.c.receive({ seq: f.c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
+  await new Promise(resolve => setTimeout(resolve, 350)); await tick(8);
+  assert.equal(f.root.querySelector('.voice-state').textContent, copy.voiceStates.usedUp);
+  assert.equal(f.root.querySelector('.pause').disabled, true);
+  assert.equal(f.root.querySelector('.audio-rail').hasAttribute('data-moved'), true);
+  assert.equal(closes, 0, 'the old tab must not close or forget the foreign logical call');
+  f.root.querySelector('.pause').click(); await tick(8); assert.equal(takeovers, 0); assert.equal(requests.length, 1);
+  f.topUp(); f.c.receive({ seq: f.c.session.seq + 1, type: 'credits.state', data: { status: 'active', endReason: null } });
+  await new Promise(resolve => setTimeout(resolve, 350)); await tick(8);
+  assert.equal(f.root.querySelector('.voice-state').textContent, copy.voiceMoved);
+  assert.equal(f.root.querySelector('.pause').disabled, false);
+  assert.equal(takeovers, 0, 'top-up alone never takes ownership');
+  f.root.querySelector('.pause').click(); await tick(16);
+  assert.equal(takeovers, 1); assert.equal(requests.length, 2);
+  assert.equal(requests[1].callId, callId); assert.equal(requests[1].epoch, 3);
+  assert.equal(f.root.querySelector('.audio-rail').dataset.state, 'listening');
+});

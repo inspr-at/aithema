@@ -32,7 +32,7 @@ export function voiceJournal(storage, sessionId) {
 /** The existing owner-authenticated close route; keepalive lets it outlive an unloading page. */
 export function closeVoiceCall({ baseUrl = '', sessionId, sessionToken, record, reason }) {
   return postJson(`${baseUrl}/api/sessions/${sessionId}/voice/${encodeURIComponent(record.callId)}/close`,
-    { providerSessionId: record.providerSessionId, reason }, { sessionToken, keepalive: true });
+    { providerSessionId: record.providerSessionId, ...(record.tabId ? { tabId: record.tabId, epoch: record.epoch } : {}), reason }, { sessionToken, keepalive: true });
 }
 
 /** Answers pings for the call this tab drives right now. Returns the channel to close. */

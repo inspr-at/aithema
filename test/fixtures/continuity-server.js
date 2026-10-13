@@ -1,0 +1,51 @@
+// Real server/storage and reference UI, with a durable local consent host.
+// The ordinary demo intentionally loses mock grants on restart (AIT-116).
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
+import { SQLiteStorage, createHandlers, createPluginRuntime, createFacadeSecrets } from '../../packages/server/src/index.js';
+import { listen } from '../../packages/server/src/http.js';
+import { createMockReasoning, PluginRegistry, MOCK_PROCESSING_SCOPE } from '../../packages/core/src/index.js';
+import { createLocalVoiceProvider, localVoiceBinding } from '../../packages/server/src/local-voice.js';
+import { demoPresets } from '../../demo/choices.js';
+import { createOwnership } from '../../demo/session-lifecycle.js';
+import { createDemoHost } from '../../demo/host-ports.js';
+import { buildInfo } from '../../demo/build-info.js';
+import { HTML_PREVIEW_HOST_CSP } from '../../packages/core/src/ui-html.js';
+
+globalThis.fetch = async () => assert.fail('Continuity fixture must never contact a provider');
+const root = fileURLToPath(new URL('../../', import.meta.url)), storage = new SQLiteStorage(process.env.AITHEMA_DB);
+const consent = {
+  grant() { return true; },
+  coverage({ sessionId }) {
+    const session = storage.get(sessionId);
+    return { ...MOCK_PROCESSING_SCOPE, covered: session.consentRevision > 0 && !session.consentWithdrawn && !session.tombstone,
+      consentRevision: session.consentRevision, expiresAt: Date.now() + 60_000 };
+  },
+  describe(sessionId) { return { selected: sessionId && this.coverage({ sessionId }).covered ? ['mock-processing'] : [] }; },
+};
+const reasoning = createMockReasoning(), secrets = createFacadeSecrets(), voicePlugin = createLocalVoiceProvider({ storage,
+  provisionFacade: () => {}, revokeFacade: secrets.revoke });
+const presets = demoPresets({ provider: 'mock', reaction: { plugin: 'mock', model: 'mock', effort: 'none', maxMicro: 0, maxTokens: 4096,
+  rates: { inputMicro: 0, outputMicro: 0 } }, voicePlugin, voiceBinding: localVoiceBinding, policy: { endpoints: [] } });
+const registry = new PluginRegistry().register(reasoning).register(voicePlugin);
+const pluginRuntime = createPluginRuntime({ storage, registry, presets, consent });
+const ownership = createOwnership(), host = createDemoHost({ storage, demo: true, ownerGuard: false });
+const handlers = createHandlers({ storage, reasoning, pluginRuntime, ownership, consent, host, voice: { secrets } });
+await handlers.resume();
+const handle = async request => {
+  const path = new URL(request.url).pathname;
+  if (path.startsWith('/api/')) return handlers.handle(request);
+  if (path === '/demo/config') return Response.json({ label: reasoning.label, defaultPreset: 'best', voiceMode: 'fake',
+    imageMode: 'off', imageLabel: 'Images off', htmlMode: 'off', htmlLabel: 'HTML off', demoHost: true, verificationRequired: false, build: buildInfo() });
+  const file = path === '/' ? '/demo/index.html' : path;
+  if (!/^\/(?:demo\/[a-z-]+\.(?:html|css|js)|packages\/(?:ui|core)\/src\/[a-z0-9/-]+\.js|plugins\/(?:device|elevenlabs)\/src\/[a-z-]+\.js)$/u.test(file)) return new Response(null, { status: 404 });
+  try { return new Response(await readFile(resolve(root, '.' + file)), { headers: { 'content-type': file.endsWith('.html') ? 'text/html'
+    : file.endsWith('.css') ? 'text/css' : 'text/javascript', 'cache-control': 'no-store', 'content-security-policy': HTML_PREVIEW_HOST_CSP } }); }
+  catch { return new Response(null, { status: 404 }); }
+};
+const { server, url } = await listen(handle, { hostname: '127.0.0.1', port: Number(process.env.PORT ?? 0) });
+process.send?.({ url });
+const close = async () => { server.close(); server.closeAllConnections(); await handlers.close(); storage.close(); };
+process.once('SIGTERM', () => void close()); process.once('SIGINT', () => void close());

@@ -988,7 +988,9 @@ test('AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab l
     // D4: a reload after an automatic pause never resumes by itself: it stays paused behind one focused Resume.
     await startCall(page); await hide(page);
     await until(page, () => document.querySelector('aithema-session').session.paused);
-    assert.deepEqual(Object.keys(await journal(page)).sort(), ['callId', 'providerSessionId'], 'the journal holds call identity only');
+    assert.deepEqual(Object.keys(await journal(page)).sort(), ['callId', 'epoch', 'providerSessionId', 'tabId'], 'the journal holds public call and tab identity only');
+    assert.ok(Number.isSafeInteger((await journal(page)).epoch));
+    assert.equal(typeof (await journal(page)).tabId, 'string');
     const pauses = [];
     const recordPause = request => { if (request.method() === 'POST' && request.url().endsWith('/pause')) pauses.push(request.postData()); };
     page.on('request', recordPause);
@@ -1034,9 +1036,8 @@ test('AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab l
     await auxiliary.waitForFunction(() => document.querySelector('aithema-session')?.session?.id, { polling: 50 });
     await until(auxiliary, key => sessionStorage.getItem(key) === null, journalKey);
     const liveness = await auxiliary.evaluate(() => window.voiceLiveness);
-    assert.deepEqual(liveness.map(message => message.type), ['ping', 'pong'], 'the real channel proves the opener is live');
-    assert.equal(liveness[0].callId, callId); assert.equal(liveness[1].callId, callId);
-    assert.equal(liveness[0].nonce, liveness[1].nonce, 'the pong answers this probe');
+    assert.deepEqual(liveness, [], 'a copied journal cannot use channel responses as epoch authority');
+    assert.equal(await voiceState(auxiliary), 'waiting', 'another tab offers an explicit takeover without acquiring media');
     assert.deepEqual(closes, [], 'the auxiliary window sends no close');
     assert.ok(['listening', 'speaking', 'paused'].includes(await voiceState(page)), 'the opener still drives its call');
     assert.equal((await journal(page)).callId, callId);

@@ -16,6 +16,9 @@ export const bandStyles = `
 .audio-rail button { background:color-mix(in srgb,var(--aithema-surface) 50%,transparent); }
 .audio-rail button:hover:not(:disabled) { background:color-mix(in srgb,var(--aithema-surface) 50%,transparent); }
 .audio-rail .pause, .audio-rail .pause:hover:not(:disabled) { background:var(--aithema-ink); }
+/* Ownership stays a rail status, with Resume's ink fill during takeover. */
+.band .audio-rail:focus-visible { outline:none; }
+.audio-rail[data-moved] .pause:disabled { opacity:1; }
 .audio-rail .voice-pause { visibility:hidden; }
 .voice-signal { height:44px; container-type:inline-size; }
 .voice-wave { height:30px; --voice-label-half:0px;
@@ -92,7 +95,9 @@ export const bandStyles = `
 .engine-info:hover .engine__value, .engine-info:focus-visible .engine__value { opacity:1; transform:translateX(0); }
 .status { display:grid; grid-template-columns:auto minmax(8ch,max-content); align-items:center; gap:6px; flex:none; width:auto; height:44px; overflow:visible; font-size:12.5px; line-height:1.4; visibility:visible !important; }
 .status[data-connected]::before { content:none; }
-.status__label { display:block; max-width:8em; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.status__label { display:block; grid-area:1/1; white-space:nowrap; }
+.status__sizer { display:grid; grid-area:1/1; visibility:hidden; pointer-events:none; }
+.status__sizer > span { grid-area:1/1; }
 .connection-timer { grid-column:2; display:inline-block; min-width:8ch; flex:none; text-align:start; font-variant-numeric:tabular-nums; white-space:nowrap; }
 .status[data-message] .status__label { display:block; position:absolute; right:12px; bottom:calc(100% + 6px); z-index:15;
   max-width:min(320px,calc(100vw - 24px)); padding:9px 12px; background:var(--aithema-ink); color:var(--aithema-paper);
@@ -135,7 +140,7 @@ export const bandStyles = `
   .ai-notice__short { display:inline; }
 }
 @media(width < ${FOOTER_WIDTHS.compact}px) {
-  .status__label, .host-credits__total { display:none; }
+  .status__label, .status__sizer, .host-credits__total { display:none; }
   .host-credits__track { width:60px; }
   .status { grid-template-columns:8ch; gap:0; } .connection-timer { grid-column:1; }
   .display-foot__row:has(.engine-info:is(:hover,:focus-visible)) :is(.host-credits__unit,.host-credits__track) { visibility:hidden; }

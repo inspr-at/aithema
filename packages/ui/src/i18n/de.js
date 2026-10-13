@@ -76,6 +76,8 @@ export const de = {
   voiceRecovered: 'Verbindung wiederhergestellt', voiceUserUnconfirmed: 'Letzte Aussage nicht bestätigt – bitte wiederholen',
   voiceReplyIncomplete: 'Letzte Antwort vielleicht nicht ganz zu hören', voiceRepeatReply: 'Ganze Antwort lesen',
   voiceResumeFirst: 'Erst fortsetzen', voiceLastReply: 'Letzte Antwort',
+  voiceTakeover: 'Hier fortsetzen', voiceMoved: 'Gespräch läuft in einem anderen Tab',
+  voiceResumeHereFirst: 'Erst hier fortsetzen', voiceInAnotherTab: 'In einem anderen Tab',
   voiceReplayClose: 'Schließen',
   voiceReplyUnavailable: 'Die vollständige Antwort ist noch nicht verfügbar.',
   voiceReplayTextOnly: 'Der vollständige Text der letzten Antwort, Wort für Wort.',

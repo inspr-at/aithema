@@ -9,11 +9,11 @@ export const voiceAuthorizationRevision = session => JSON.stringify([
 export const VOICE_LIFECYCLE_STATES = Object.freeze(['idle', 'connecting', 'active', 'paused', 'recovering', 'waiting', 'ended']);
 // SDK close codes/reasons are diagnostics. Only explicit intent is terminal.
 export const recoverableVoiceEnd = reason => ['transport-lost', 'recovery-failed', 'browser-liveness-deadline',
-  'server-restart', 'server-stopping'].includes(reason);
+  'server-restart', 'server-stopping', 'tab-takeover', 'sleep'].includes(reason);
 
 export function createVoiceLifecycle(callId) {
   if (typeof callId !== 'string' || !callId) throw new TypeError('Logical voice call identity required');
-  return { callId, state: 'idle', holds: [], epoch: 0, providerGeneration: 0, providerSessionId: null,
+  return { callId, state: 'idle', holds: [], epoch: 0, controllingTabId: null, providerGeneration: 0, providerSessionId: null,
     authorizationRevision: null, spendDeadlineAt: null, browserLivenessDeadlineAt: null,
     needsRecovery: false, attempts: 0, segments: {}, checkpoint: {
       acceptedTurnIds: [], operationId: null, tentative: false, tentativeSequence: 0, userUnconfirmed: false,
@@ -36,7 +36,7 @@ export function reduceVoiceLifecycle(state, event) {
     userUnconfirmed: state.checkpoint.userUnconfirmed || state.checkpoint.tentative,
     deliveryUncertain: state.checkpoint.deliveryUncertain || (state.checkpoint.playbackPending ?? Boolean(state.checkpoint.replyId)) });
   switch (event.type) {
-    case 'start': return state.state === 'idle' ? { ...state, state: 'connecting' } : state;
+    case 'start': return state.state === 'idle' ? { ...state, state: 'connecting', controllingTabId: event.tabId ?? null } : state;
     case 'connected': {
       if (!event.providerSessionId || state.segments[event.providerSessionId] && event.providerSessionId !== state.providerSessionId) return state;
       const changed = state.providerSessionId !== event.providerSessionId;
@@ -63,7 +63,8 @@ export function reduceVoiceLifecycle(state, event) {
     case 'wake': case 'ownership-lost': case 'server-restart':
       return { ...state, state: 'waiting', holds: hold(event.type), needsRecovery: true, checkpoint: cutover() };
     case 'takeover': return Number.isSafeInteger(event.epoch) && event.epoch > state.epoch
-      ? { ...state, epoch: event.epoch, state: 'waiting', holds: hold('takeover'), needsRecovery: true, checkpoint: cutover() } : state;
+      ? { ...state, epoch: event.epoch, controllingTabId: event.tabId ?? state.controllingTabId,
+        state: 'waiting', holds: hold('takeover'), needsRecovery: true, checkpoint: cutover() } : state;
     case 'heartbeat': return { ...state, browserLivenessDeadlineAt: event.browserLivenessDeadlineAt ?? state.browserLivenessDeadlineAt,
       authorizationRevision: event.authorizationRevision ?? state.authorizationRevision };
     case 'playback': return { ...state, checkpoint: { ...state.checkpoint, playbackPending: event.active } };
