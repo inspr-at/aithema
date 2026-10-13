@@ -133,6 +133,20 @@ for (const transport of ['webrtc', 'websocket']) {
     assert.ok(f.a.sdk.acquired.some(stream => stream.getTracks().some(track => track.readyState === 'live')));
   });
 
+  test(`AIT-138 d takeback: ${transport} closing cancels a click awaiting voice.state`, { timeout: 10_000 }, async t => {
+    const f = tabsFixture(t, transport); await f.a.rail.start();
+    const retired = f.a.returned.at(-1); f.a.deferNotifications = true;
+    await f.b.rail.start(); await f.b.rail.start(); await retired.heartbeat(); await flush();
+    const before = f.snapshot(), commands = f.commands.length;
+    f.a.rail.button('pause').click(); await flush(); await f.a.rail.close();
+    f.a.deliverNotifications(); await flush();
+    assert.equal(f.snapshot().epoch, before.epoch); assert.equal(f.snapshot().controllingTabId, 'B');
+    assert.equal(f.b.root.dataset.state, 'listening');
+    assert.deepEqual(f.commands.slice(commands).filter(c => c.tab === 'A' && ['takeover', 'recover', 'resume'].includes(c.name)), [],
+      'a delayed authoritative notification cannot revive the cancelled click');
+    assert.ok(f.a.sdk.acquired.every(stream => stream.getTracks().every(track => track.readyState === 'ended')));
+  });
+
   test(`AIT-138 d takeback: ${transport} one old-tab click takes over and resumes without double confirmation`, { timeout: 10_000 }, async t => {
     const f = tabsFixture(t, transport); await f.newcomer();
     const before = f.snapshot(), commands = f.commands.length;

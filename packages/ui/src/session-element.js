@@ -353,7 +353,7 @@ export class AithemaSession extends HTMLElement {
     pause.dataset.reveal = ''; root.querySelector('.voice-cell--pause').prepend(pause); root.querySelector('.audio-rail').tabIndex = -1;
     root.querySelector('.pause').addEventListener('click', async () => {
       const button = root.querySelector('.pause');
-      if (this.#rail.waitingCall) { await this.#rail.start(); return; }
+      if (this.#rail.moved || this.#rail.waitingCall) { await this.#rail.start(); return; }
       if (this.#rail.session) { await this.#rail.pause(!this.#rail.pauseIntent); return; }
       button.disabled = true;
       try { await this.#setPaused(!this.#session.paused); }

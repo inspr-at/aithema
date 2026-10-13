@@ -3,6 +3,7 @@ import { icon } from './icons.js';
 import { Waveform } from './waveform.js';
 import { RecoveryNotices } from './recovery-notices.js';
 import { watchVoiceHeartbeat, voiceAuthorityLost } from '../../core/src/voice-lifecycle-controller.js';
+import { voiceOperation } from '../../core/src/live-voice.js';
 // START's rail lifecycle, ported to the live-voice session interface (INSPR D3). The presentation is
 // START's conversation rail (index.astro .v2__conversation-rail): an orb dock, icon controls in fixed
 // cells and the waveform with one status phrase. Alternatives share a cell (Start and the microphone,
@@ -42,7 +43,7 @@ export class AudioRail {
     }
     this.button('start').addEventListener('click', () => void this.start());
     this.button('close').addEventListener('click', () => void this.close());
-    this.button('pause').addEventListener('click', () => void (this.waitingCall ? this.start() : this.pause(!this.pauseIntent)));
+    this.button('pause').addEventListener('click', () => void (this.moved || this.waitingCall ? this.start() : this.pause(!this.pauseIntent)));
     for (const [name, channel] of [['input', 'setInput'], ['output', 'setOutput']]) {
       this.button(name).addEventListener('click', async () => {
         if (!this.session || this.busy) return;
@@ -101,7 +102,7 @@ export class AudioRail {
     const feature = this.feature();
     // A held snapshot must permit the visitor's explicit command. The server
     // rechecks ownership, authorization and money admission before any capture.
-    return feature.available || Boolean(this.waitingCall && (feature.reason === this.copy.paused || feature.rawReason === 'session paused'));
+    return feature.available || Boolean((this.moved || this.waitingCall) && (feature.reason === this.copy.paused || feature.rawReason === 'session paused'));
   }
   // Keep the failure's meaning so a locale repaint also translates a retained message.
   get error() {
@@ -139,7 +140,7 @@ export class AudioRail {
         button.disabled = true; button.title = this.moved ? c.voiceResumeHereFirst : c.voiceResumeFirst;
         button.querySelector('.voice-label').textContent = button.title;
       }
-      if (this.waitingCall && name === 'pause') button.disabled = Boolean(this.busy || transitional || !this.canContinue() || !this.client);
+      if ((this.moved || this.waitingCall) && name === 'pause') button.disabled = Boolean(this.busy || transitional || !this.canContinue() || !this.client);
     }
     this.button('input').setAttribute('aria-pressed', String(this.input));
     this.button('output').setAttribute('aria-pressed', String(this.output));
@@ -171,22 +172,46 @@ export class AudioRail {
     this.retryAt = error?.code === 'voice-conflict' && error.retryAfterMs > 0 ? Date.now() + Math.min(error.retryAfterMs, 60_000) : 0;
     this.render();
   }
+  async takeoverIdentity(retired, options) {
+    const authoritative = () => {
+      const state = this.ownershipState;
+      return state?.callId === retired.callId && state.providerSessionId && Number.isSafeInteger(state.epoch) &&
+        state.epoch > retired.epoch && state.state !== 'ended'
+        ? { callId: state.callId, providerSessionId: state.providerSessionId, epoch: state.epoch } : null;
+    };
+    const known = authoritative();
+    if (known) return known;
+    // An ownership-lost response proves retirement, but carries no new epoch.
+    // Keep this click until voice.state (or a restored snapshot) supplies it.
+    const notification = Promise.withResolvers(), wait = { callId: retired.callId, epoch: retired.epoch, resolve: notification.resolve };
+    this.ownershipWait = wait;
+    try {
+      await voiceOperation(options, () => notification.promise);
+      const identity = authoritative();
+      if (!identity) throw new Error('Authoritative voice ownership required');
+      return identity;
+    } finally { if (this.ownershipWait === wait) this.ownershipWait = null; }
+  }
   async start() {
     if (this.state === 'connecting' || !this.canContinue() || !this.client) return;
-    if (this.requiresTakeover) {
+    if (this.moved || this.requiresTakeover) {
       if (this.busy) return;
       const generation = ++this.generation, takingBack = Boolean(this.moved), retired = this.session, opening = this.opening;
+      if (takingBack && retired) this.retiredOwnership = { callId: retired.callId, epoch: retired.epoch };
       this.session = null; this.pauseCommand = null; this.pauseRequests.clear(); this.resumeRequests.clear();
       this.stopHeartbeat?.(); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.quiet();
       // Retired SDK cleanup keeps its original epoch. It cannot close the call
       // this click is about to claim, and it must release the device guard first.
       const retirement = retired?.close({ reason: 'tab-takeover', deadlineAt: Date.now() + 1000 }).catch(() => {});
-      this.busy = true; this.render();
+      const controller = new AbortController(), options = { signal: controller.signal, deadlineAt: Date.now() + 10_000 };
+      this.takeoverController = controller; this.busy = true; this.render();
       try {
-        const held = await this.client.takeover(this.waitingCall, { deadlineAt: Date.now() + 10_000 });
+        const identity = takingBack && this.retiredOwnership ? await this.takeoverIdentity(this.retiredOwnership, options) : this.waitingCall;
+        if (generation !== this.generation) return;
+        const held = await this.client.takeover(identity, options);
         if (generation !== this.generation || held.epoch < this.ownershipState?.epoch) return;
         this.waitingCall = { callId: held.callId, providerSessionId: held.providerSessionId, epoch: held.epoch };
-        this.ownershipState = held; this.requiresTakeover = false; this.moved = false; this.errorKey = null;
+        this.ownershipState = held; this.requiresTakeover = false; this.moved = false; this.retiredOwnership = null; this.errorKey = null;
         if (takingBack) {
           await retirement; await opening?.catch(() => {});
           if (generation !== this.generation) return;
@@ -195,7 +220,10 @@ export class AudioRail {
           this.busy = false; await this.start();
         }
       } catch (error) { if (generation === this.generation) this.failure(error); }
-      finally { if (generation === this.generation) { this.busy = false; this.render(); } }
+      finally {
+        if (this.takeoverController === controller) this.takeoverController = null;
+        if (generation === this.generation) { this.busy = false; this.render(); }
+      }
       return;
     }
     if (this.session) return;
@@ -272,6 +300,9 @@ export class AudioRail {
     const known = this.ownershipState;
     if (known?.callId === state.callId && state.epoch < known.epoch) return;
     this.ownershipState = state;
+    if (this.ownershipWait?.callId === state.callId && state.epoch > this.ownershipWait.epoch && state.providerSessionId && state.state !== 'ended') {
+      this.ownershipWait.resolve();
+    }
     const foreign = state.controllingTabId && state.controllingTabId !== this.client?.tabId;
     if (this.session) {
       const session = this.session;
@@ -299,7 +330,7 @@ export class AudioRail {
     }
     if (!state?.providerSessionId || state.state === 'ended' || this.state === 'connecting') return;
     if (foreign || state.state === 'waiting') {
-      if (foreign && this.busy && known?.controllingTabId === this.client?.tabId) {
+      if (foreign && this.busy && !this.ownershipWait && known?.controllingTabId === this.client?.tabId) {
         this.generation++; this.pauseRevision++; this.busy = false; this.moved = true; this.errorKey = 'voiceMoved';
       }
       this.waitingCall = { callId: state.callId, providerSessionId: state.providerSessionId, epoch: state.epoch };
@@ -323,9 +354,13 @@ export class AudioRail {
         }
         if (event.type === 'waiting') {
           this.pauseRevision++; this.pauseCommand = null; this.busy = false;
-          this.state = 'waiting'; this.paused = true; this.moved = event.reason === 'ownership-lost';
+          this.state = 'waiting'; this.paused = true; this.moved ||= event.reason === 'ownership-lost';
           this.errorKey = this.moved ? 'voiceMoved' : null; this.quiet();
-          if (this.moved) this.notices.clear();
+          if (this.moved) {
+            this.requiresTakeover = true;
+            this.waitingCall ??= { callId: session.callId, providerSessionId: session.providerSessionId, epoch: session.epoch };
+            this.notices.clear();
+          }
           this.root.querySelector('.voice-caption').textContent = '';
         }
         if (event.type === 'ended') {
@@ -344,6 +379,7 @@ export class AudioRail {
     } catch (error) { if (this.current(session, generation)) { this.failure(error); await this.close(); } }
   }
   async pause(paused) {
+    if (!paused && (this.moved || this.requiresTakeover)) return this.start();
     if (!this.session || this.busy && !paused && !this.pauseCommand || this.pauseCommand?.paused === paused || this.paused === paused && !this.busy) {
       if (paused && this.state === 'connecting') { this.pauseRevision++; this.holdController?.abort(); this.hidePending = true; }
       return;
@@ -428,13 +464,14 @@ export class AudioRail {
       close: options => this.client.closeWaiting(waiting, options) } : null);
     this.closingSession = session;
     const generation = ++this.generation;
+    this.takeoverController?.abort();
     this.pauseRequests.clear(); this.resumeRequests.clear(); this.pauseCommand = null;
     // A restored Resume has capture guards but no returned session yet. Fence
     // startup before its late acknowledgement or the waiting-call POST can run.
     if (!this.session) { this.holdController?.abort(); this.controller?.abort(); }
     this.stopHeartbeat?.(); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.quiet();
     this.endedCall = session ? { callId: session.callId, providerSessionId: session.providerSessionId } : null;
-    this.session = null; this.waitingCall = null; this.requiresTakeover = false; this.moved = false;
+    this.session = null; this.waitingCall = null; this.requiresTakeover = false; this.moved = false; this.retiredOwnership = null;
     this.hidePending = false; this.paused = false; this.busy = false; this.beating = false; this.playbackBlocked = false; this.state = 'idle';
     this.notices.clear();
     this.errorKey = session ? 'voiceClosureUncertain' : null;
