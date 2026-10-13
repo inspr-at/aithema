@@ -610,10 +610,11 @@ test('AIT-135 A2 C: no privacy document offers no collection input or confirmati
   assert.equal(calls.filter(c => ['POST', 'PUT'].includes(c.method)).length, 0);
 });
 
-test('AIT-135 A2 C: handover purpose and the 90-day definition accompany the host privacy link', async t => {
+test('AIT-135 A2 C: handover purpose and the short 90-day notice accompany the host privacy link', async t => {
   const { root } = a2Setup(t, { handover: true }); await tick(8);
   assert.match(root.querySelector('.m-notice').textContent, /For a personal follow-up we ask you separately\./u);
-  assert.match(root.querySelector('.m-notice').textContent, /cookie.*app.*conversation.*message.*voice turn/u);
+  assert.match(root.querySelector('.m-notice').textContent, /After 90 days without use, we delete it automatically\./u);
+  assert.doesNotMatch(root.querySelector('.m-notice').textContent, /Use means|cookie/u);
   assert.equal(root.querySelector('.m-pp').getAttribute('href'), '/privacy?locale=en');
 });
 
