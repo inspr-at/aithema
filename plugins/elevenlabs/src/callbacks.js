@@ -3,7 +3,6 @@ import { createCompletionsHandler } from './facade.js';
 import { CUSTOM_LLM_BASE_PATH } from './ensure-agent.js';
 
 const perCallPath = '/api/voice/:callId/llm/chat/completions';
-const staticPath = `${CUSTOM_LLM_BASE_PATH}/chat/completions`;
 const callRoute = /^\/api\/voice\/([a-zA-Z0-9_-]{1,128})\/llm\/chat\/completions$/u;
 const notFound = () => Response.json({ error: 'not-found' }, { status: 404, headers: { 'cache-control': 'no-store' } });
 
@@ -18,6 +17,8 @@ export function createFacadeSecrets() {
 
 /** Bind the authenticated codec to server-owned call and reasoning operations. */
 function bindCallbacks({ secrets, staticSecretRef, presentation, timeoutMs, log, ...operations }) {
+  // ensure-agent also imports server helpers; read its constant after module initialization.
+  const staticPath = `${CUSTOM_LLM_BASE_PATH}/chat/completions`;
   if (!secrets?.provision || !secrets.resolve || !secrets.revoke) throw new TypeError('Private facade secret store required');
   if (presentation !== undefined && typeof presentation !== 'function') throw new TypeError('Voice presentation must be a function of the session locale');
   const facade = createCompletionsHandler({ ...operations, resolveSecret: ref => secrets.resolve(ref),
