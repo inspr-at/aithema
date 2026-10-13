@@ -53,7 +53,7 @@ for (const input of [
   `Thank you, that sounds like ${'a detailed '.repeat(8)}plan.`,
   'Thanksville is a place.',
 ]) test(`AIT-157: stream and pure guard agree for every chunk split: ${input}`, () => {
-  const expected = input.length > 160 ? { text: input, stripped: false } : core.stripThanksOpener(input, 'de');
+  const expected = core.stripThanksOpener(input, 'de');
   for (const bufferNormal of [true, false]) {
     for (let split = 0; split <= input.length; split++) {
       const stream = new core.ReplyOpenerStream('de', { bufferNormal });
