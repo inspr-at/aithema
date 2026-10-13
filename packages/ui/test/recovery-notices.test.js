@@ -78,3 +78,17 @@ test('AIT-138 c: evidenced heard prefix never offers unknown-position replay', a
   await f.recover({ deliveryUncertain: true, playbackPositionUnknown: false, lastReplyText: 'Known reply' });
   assert.equal(f.root.querySelector('.voice-repeat').hidden, true);
 });
+
+for (const stop of ['pause', 'waiting', 'hangup', 'next-turn']) test(`AIT-138 c: a late repeat result stays fenced after ${stop}`, async t => {
+  const f = await fixture(t, en);
+  await f.recover({ deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: 'Late reply' });
+  let resolve;
+  f.rail.session.replayLastReply = () => new Promise(r => { resolve = r; });
+  f.root.querySelector('.voice-repeat').click(); await tick();
+  if (stop === 'pause') { await f.rail.pause(true); await f.rail.pause(false); }
+  if (stop === 'waiting') await f.push({ type: 'waiting' });
+  if (stop === 'hangup') await f.rail.close();
+  if (stop === 'next-turn') await f.push({ type: 'final', turnId: 'next', role: 'assistant', text: 'New reply' });
+  resolve({ kind: 'text', text: 'Late reply' }); await tick();
+  assert.equal(f.root.querySelector('.voice-reply-dialog').open, false);
+});

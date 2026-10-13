@@ -23,7 +23,7 @@ export class RecoveryNotices {
       recovery.deliveryUncertain && this.copy.voiceReplyIncomplete].filter(Boolean).join('. ');
   }
   clear() {
-    this.revision++; this.recovery = null;
+    this.revision++; this.recovery = null; this.pending = null;
     if (this.dialog.open) this.dialog.close();
     for (const selector of ['.voice-notice-live', '.voice-reply-text']) {
       const node = this.root.querySelector(selector); if (node.textContent) node.textContent = '';
@@ -31,20 +31,23 @@ export class RecoveryNotices {
     this.render();
   }
   render() {
-    const c = this.copy, recovery = this.recovery;
+    const c = this.copy, recovery = this.recovery, available = this.available();
+    if (!available && this.wasAvailable) { this.revision++; this.pending = null; }
+    this.wasAvailable = available;
     const text = (selector, value) => { const node = this.root.querySelector(selector); if (node.textContent !== value) node.textContent = value; };
     text('.voice-notice--recovered', recovery ? c.voiceRecovered : '');
     text('.voice-notice--user', recovery?.userUnconfirmed ? c.voiceUserUnconfirmed : '');
     text('.voice-notice--reply span', recovery?.deliveryUncertain ? c.voiceReplyIncomplete : '');
     text('.voice-repeat', c.voiceRepeatReply);
     this.button.hidden = !(recovery?.deliveryUncertain && recovery.playbackPositionUnknown && recovery.lastReplyText);
-    this.button.disabled = !this.available();
+    this.button.disabled = !available || Boolean(this.pending);
     text('#voice-reply-title', c.voiceLastReply); text('.voice-reply-note', c.voiceReplayTextOnly); text('.voice-reply-close', c.close);
-    if (!this.available() && this.dialog.open) this.dialog.close();
+    if (!available && this.dialog.open) this.dialog.close();
   }
   async repeat() {
     if (this.button.hidden || this.button.disabled || !this.available()) return;
     const revision = this.revision;
+    const pending = Symbol('repeat'); this.pending = pending;
     this.button.disabled = true;
     try {
       const result = await this.replay();
@@ -54,6 +57,6 @@ export class RecoveryNotices {
         this.dialog.showModal();
       }
     } catch { /* A superseding hold/end keeps playback and the fallback closed. */ }
-    finally { if (revision === this.revision) this.render(); }
+    finally { if (this.pending === pending) { this.pending = null; this.render(); } }
   }
 }

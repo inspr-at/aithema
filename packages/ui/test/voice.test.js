@@ -310,7 +310,7 @@ test('window blur keeps the call; a hidden page pauses it as START does; unackno
 test('voice unavailable in preset disables Start with a reason and retains layout', async t => {
   const { rail, root } = fixture(t, { unavailable: true });
   assert.equal(rail.button('start').disabled, true); assert.equal(rail.button('start').title, 'preset denies voice');
-  await rail.start(); assert.equal(root.dataset.state, 'idle'); assert.equal(root.querySelectorAll('button').length, 7);
+  await rail.start(); assert.equal(root.dataset.state, 'idle'); assert.equal(root.querySelectorAll('.voice-cell button').length, 7);
 });
 test('AIT-131: label ResizeObserver measures the mask, hides short flanks and follows disconnect/reconnect', async t => {
   const observers = [];

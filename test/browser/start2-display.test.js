@@ -591,6 +591,147 @@ test('AIT-138 UI: held-call copy, placeholders, calm lines and disabled controls
     createdAt: new Date().toISOString(), capture: 'viewport', files, checks }, null, 2));
 });
 
+test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips in all viewports', { timeout: 180_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-recovery-notices-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
+  });
+  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
+    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  t.after(async () => { await browser.close(); await demo.kill(); });
+  const page = await browser.newPage(), errors = [], files = [], checks = [], evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  page.on('pageerror', error => errors.push(error.message));
+  await page.setRequestInterception(true);
+  page.on('request', async request => {
+    if (new URL(request.url()).pathname.endsWith('/features')) return request.respond({ status: 200, contentType: 'application/json',
+      body: JSON.stringify(await shadow(page, c => c.session.featureMatrix)) });
+    return request.continue();
+  });
+  if (evidence) await mkdir(evidence, { recursive: true });
+  const shot = async (name, label) => {
+    const file = `ait-138-c-${name}-${label}.png`; files.push(file);
+    if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false });
+  };
+  const push = event => page.evaluate(event => globalThis.noticeEvents.push({ callId: globalThis.noticeCallId, ...event }), event);
+  const recovered = async recovery => {
+    await push({ type: 'recovered', recovery });
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.voice-notice--recovered').textContent);
+    await settle();
+  };
+  const selectors = ['.band', '.audio-rail', '.voice-notices', '.concept-bar', '.transcript-shell', '.composer-dock'];
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390]) {
+    await t.test(`${width} ${theme} ${locale}`, async () => {
+      const copy = { de, en }[locale], label = `${width}-${theme}-${locale}`;
+      await page.setViewport({ width, height: width === 390 ? 844 : 900 });
+      await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+      await until(page, () => document.querySelector('aithema-session')?.session?.id);
+      await page.select('#theme', theme);
+      await page.evaluate(async locale => {
+        const { voiceEvents } = await import('/packages/core/src/live-voice.js');
+        const { manifest } = await import('/plugins/elevenlabs/src/manifest.js');
+        const { de } = await import('/packages/ui/src/i18n/de.js'), { en } = await import('/packages/ui/src/i18n/en.js');
+        const c = document.querySelector('aithema-session'), s = structuredClone(c.session);
+        s.locale = locale; s.paused = false; s.settings.origin = 'chosen'; s.settings.voice = 'elevenlabs';
+        s.engine.voice = { id: 'elevenlabs', label: 'ElevenLabs', offered: true };
+        s.featureMatrix.best = Object.fromEntries(['text', 'analysis', 'voice'].map(key => [key, { available: true, reason: null }]));
+        delete s.voiceLifecycle;
+        s.transcript = [{ id: 'notice-user', role: 'user', content: locale === 'de' ? 'Eine Website für Stickpolster.' : 'A website for embroidered cushions.' }];
+        globalThis.noticeReply = locale === 'de' ? 'Die Website zeigt die Lieferzeit nach dem Backlog.\n\nSollen Kunden Motiv, Farbe und Größe selbst wählen können?'
+          : 'The website shows delivery time based on the backlog.\n\nShould customers be able to choose the design, colour and size?';
+        globalThis.noticeReplays = 0; globalThis.noticeAdmissions = 0; globalThis.noticeModelCalls = 0;
+        const voiceClient = { manifest, async start({ callId }) {
+          globalThis.noticeAdmissions++; globalThis.noticeCallId = callId;
+          const events = voiceEvents(); globalThis.noticeEvents = events;
+          return { callId, providerSessionId: 'notice-evidence', events, async setInput() {}, async setOutput() {}, async updateContext() {},
+            async pause() { return { acknowledged: true, paused: true }; }, async resume() { return { acknowledged: true, paused: false }; },
+            async replayLastReply() { globalThis.noticeReplays++; return { kind: 'text', text: globalThis.noticeReply }; },
+            async sendText() { globalThis.noticeModelCalls++; }, audioLevels: () => ({ input: .2, output: .3 }),
+            async close() { events.end(); return { closureConfirmed: true }; } };
+        } };
+        localStorage.setItem('aithema-motion', 'off'); c.configure({ copy: { de, en }[locale], session: s, voiceClient });
+        document.documentElement.lang = locale; document.querySelector('#locale').value = locale;
+        const { paintUtilities } = await import('/demo/page-preferences.js'); paintUtilities({ de, en }[locale]); window.scrollTo(0, 0);
+      }, locale);
+      await shadow(page, c => c.shadowRoot.querySelector('.voice-start').click());
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'listening');
+      await page.evaluate(async () => { await document.fonts.ready; }); await settle();
+      const before = await layoutBoxes(page, selectors);
+      await recovered({});
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notice--recovered').textContent), copy.voiceRecovered);
+      sameBoxes(before, await layoutBoxes(page, selectors), `${label}: restored notice reserves its space`);
+      await shot('restored', label);
+      await recovered({ userUnconfirmed: true });
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notice--user').textContent), copy.voiceUserUnconfirmed);
+      sameBoxes(before, await layoutBoxes(page, selectors), `${label}: unconfirmed notice reserves its space`);
+      await shot('unconfirmed', label);
+      const lastReplyText = await page.evaluate(() => globalThis.noticeReply);
+      await recovered({ deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText });
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notice--reply span').textContent), copy.voiceReplyIncomplete);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').textContent), copy.voiceRepeatReply);
+      assert.equal(await page.evaluate(() => globalThis.noticeReplays), 0, 'no automatic replay');
+      sameBoxes(before, await layoutBoxes(page, selectors), `${label}: reply notice and button reserve their space`);
+      await shot('incomplete-button', label);
+      await recovered({ userUnconfirmed: true, deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText });
+      const geometry = await shadow(page, c => {
+        const root = c.shadowRoot, notice = root.querySelector('.voice-notices').getBoundingClientRect();
+        return [...root.querySelectorAll('.voice-notice--recovered, .voice-notice--user, .voice-notice--reply span, .voice-repeat')].map(n => {
+          const b = n.getBoundingClientRect(), range = document.createRange(); range.selectNodeContents(n);
+          return { name: n.className || 'reply-text', width: b.width, height: b.height, visible: b.top >= 0 && b.bottom <= innerHeight,
+            inside: b.left >= notice.left - .5 && b.right <= notice.right + .5 && b.top >= notice.top - .5 && b.bottom <= notice.bottom + .5,
+            textFits: [...range.getClientRects()].every(r => r.left >= b.left - .5 && r.right <= b.right + .5 && r.top >= b.top - .5 && r.bottom <= b.bottom + .5) };
+        });
+      });
+      for (const item of geometry) { assert.ok(item.inside && item.visible && item.textFits, `${label}: ${JSON.stringify(item)}`); }
+      assert.ok(geometry.at(-1).width >= 44 && geometry.at(-1).height >= 44, '44px keyboard target');
+      sameBoxes(before, await layoutBoxes(page, selectors), `${label}: all notices fit without layout shift`);
+      await shot('all-notices', label);
+      await shadow(page, c => {
+        const live = c.shadowRoot.querySelector('.voice-notice-live'); globalThis.noticeAnnouncements = [];
+        globalThis.noticeObserver = new MutationObserver(records => globalThis.noticeAnnouncements.push(...records.map(r => r.type)));
+        globalThis.noticeObserver.observe(live, { childList: true, subtree: true, characterData: true });
+      });
+      // Provider speaking/listening repaints the rail but never rewrites its notice live region.
+      await push({ type: 'speaking' }); await push({ type: 'listening' }); await settle();
+      assert.equal(await page.evaluate(() => { globalThis.noticeObserver.disconnect(); return globalThis.noticeAnnouncements.length; }), 0);
+      await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').focus()); await page.keyboard.press('Enter');
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.voice-reply-dialog').open);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-reply-text').textContent), lastReplyText);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-reply-note').textContent), copy.voiceReplayTextOnly);
+      assert.deepEqual(await page.evaluate(() => [globalThis.noticeReplays, globalThis.noticeAdmissions, globalThis.noticeModelCalls]), [1, 1, 0]);
+      await shot('exact-text-fallback', label);
+      await page.keyboard.press('Escape');
+      await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.voice-reply-dialog').open);
+      assert.equal(await shadow(page, c => c.shadowRoot.activeElement?.className), 'voice-repeat', 'Escape returns keyboard focus');
+      await shadow(page, c => c.shadowRoot.querySelector('.pause').click()); await settle();
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').disabled), true);
+      await shadow(page, c => c.shadowRoot.querySelector('.pause').click()); await settle();
+      await push({ type: 'waiting', reason: 'recovery-failed' });
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'waiting');
+      for (const [name, cell] of [['input', 'mic'], ['output', 'output']]) {
+        const tooltip = await shadow(page, (c, name) => c.shadowRoot.querySelector(`.voice-${name}`).title, name);
+        assert.equal(tooltip, copy.voiceResumeFirst);
+        await shadow(page, (c, cell) => c.shadowRoot.querySelector(`.voice-cell--${cell}`).focus(), cell); await settle();
+        assert.equal(await shadow(page, (c, cell) => getComputedStyle(c.shadowRoot.querySelector(`.voice-cell--${cell} .voice-waiting-help`)).visibility, cell), 'visible');
+        await shot(`waiting-${name}-tooltip`, label);
+      }
+      await push({ type: 'partial', role: 'user', turnId: 'next', text: 'Next utterance' }); await settle();
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notice-live').textContent), '');
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').hidden), true);
+      sameBoxes(before, await layoutBoxes(page, selectors), `${label}: clearing does not shift layout`);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      await shadow(page, c => c.shadowRoot.querySelector('.voice-close').click()); await settle();
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-reply-dialog').open), false);
+      checks.push({ viewport: { width, height: width === 390 ? 844 : 900 }, locale, theme, geometry, capture: 'viewport',
+        restored: copy.voiceRecovered, unconfirmed: copy.voiceUserUnconfirmed, incomplete: copy.voiceReplyIncomplete, repeat: copy.voiceRepeatReply,
+        waitingTooltips: copy.voiceResumeFirst, noAutoReplay: true, exactLastReply: true, modelCalls: 0, replayAdmissions: 0,
+        incrementalReplayMicro: 0, noLayoutShift: true, announcedOnce: true, clearsNextTurn: true, keyboardAndAria: true, pass: true });
+    });
+  }
+  assert.deepEqual(errors, []);
+  if (evidence) await writeFile(join(evidence, 'ait-138-c-pass-lines.json'), JSON.stringify({ ticket: 'AIT-138 c', commit: evidenceCommit,
+    createdAt: new Date().toISOString(), capture: 'viewport', files, checks }, null, 2));
+});
+
 test('AIT-149: reveal exit clock survives delayed browser round trips', { timeout: 60_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-reveal-clock-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
