@@ -281,10 +281,10 @@ for (const mode of ['partial', 'transport-failure', 'unknown']) test(`AIT-163: $
   h.storage.db.prepare('UPDATE budget_attempts SET max_micro=1000000,settled_micro=1000000 WHERE attempt_id=?').run(id);
   h.runtime.budget.observeCost(id, { settledAt: Date.now() - 600_000, estimateMicro: 600, observedCostMicro: 750 });
   const preview = await h.runtime.reconcileCosts({ dryRun: true });
-  assert.equal(preview.afterMicro, 750); assert.equal(h.runtime.budget.get(id).settled_micro, 1_000_000);
-  assert.equal((await h.runtime.reconcileCosts()).corrected, 1);
-  assert.equal((await h.runtime.reconcileCosts()).corrected, 0);
+  assert.equal(h.runtime.budget.get(id).settled_micro, 1_000_000);
+  const first = await h.runtime.reconcileCosts(), replay = await h.runtime.reconcileCosts();
   assert.equal(h.runtime.budget.get(id).settled_micro, 750, 'estimate never falls below observed usage');
+  assert.equal(preview.afterMicro, 750); assert.equal(first.corrected, 1); assert.equal(replay.corrected, 0);
   assert.equal(h.runtime.budget.get(id).terminal_json, before.terminal_json, 'original terminal history is retained');
   assert.equal(h.balance().owner.confirmedSpendMicro, 0, 'an estimate remains explicitly uncertain');
   assert.ok(h.cap.snapshot().uncertainMicro > 0, 'provider cap does not release an unresolved liability');
@@ -308,9 +308,9 @@ test('AIT-163: pre-AIT-134 rows without provider metadata repair without rewriti
   const claim = budget.claim(attemptId); claim.consume();
   const original = budget.settle(claim.claimId, { attemptId, outcome: 'uncertain' }).terminal_json;
   const preview = await h.runtime.reconcileCosts({ dryRun: true });
-  assert.equal(preview.afterMicro, 10_000); assert.equal(budget.get(attemptId).provider_cost_json, null);
+  assert.equal(budget.get(attemptId).provider_cost_json, null);
   await h.runtime.reconcileCosts(); await h.runtime.reconcileCosts();
-  assert.equal(budget.get(attemptId).settled_micro, 10_000);
+  assert.equal(budget.get(attemptId).settled_micro, 10_000); assert.equal(preview.afterMicro, 10_000);
   assert.equal(budget.get(attemptId).terminal_json, original);
   budget.observeCost(attemptId, { generationId: 'gen-fixture' }); h.state.ready = true;
   await h.runtime.reconcileCosts(); await h.runtime.reconcileCosts();
