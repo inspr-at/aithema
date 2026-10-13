@@ -183,6 +183,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .credits-email::after { content:""; position:absolute; inset:-8px -4px; }
 .credits-email:focus-visible { outline-color:var(--aithema-paper); }
 .host-credits__equivalence { font-size:11.5px; opacity:.7; }
+.host-credits__limit { display:block; }
 .host-credits[data-pinned]:not([data-dismissed]) .footer-popup { visibility:visible; opacity:1; pointer-events:auto; }
 /* Calm exhausted rail: same cells, no warning color or active controls. */
 .audio-rail:is([data-used-up],[data-credit-ending]) .voice-close { color:var(--aithema-ink); visibility:visible; }
