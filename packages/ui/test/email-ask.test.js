@@ -18,6 +18,7 @@ for (const blocker of ['streaming', 'callActive', 'typing']) test(`AIT-164: neve
 test('AIT-164: the low ask overrides the day limit after a dismissal, once per conversation', () => {
   assert.equal(emailAskIntent({ ...ready, count: 2, dayReady: false, low: true, state: { shown5: true } }), 'low');
   assert.equal(emailAskIntent({ ...ready, dayReady: false, low: true, state: { shownLow: true } }), null);
+  assert.equal(emailAskIntent({ ...ready, low: true, state: { shownLow: true } }), null, 'no fifth-turn repeat while already low');
   assert.equal(emailAskIntent({ ...ready, eligible: false, low: true }), null);
 });
 test('AIT-164: an ignored panel gate folds after two more completed visitor turns', () => {

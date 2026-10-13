@@ -295,7 +295,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
             (host.demo === true || privacyDocumentConfigured(host)) && !host.visitor?.(ownerToken)?.address;
           const settled = turns.at(-1)?.role === 'assistant';
           let accepted = false;
-          if (options.action === 'show' && eligible && settled && !emailAsk.open &&
+          if (options.action === 'show' && eligible && settled && (!emailAsk.open || options.why === 'low') &&
             (options.why === 'low' ? low && !emailAsk.shownLow : count >= 5 && host.claimEmailAsk?.(ownerToken))) {
             Object.assign(emailAsk, { open: true, why: options.why, openedAt: count, folded: false,
               ...(options.why === 'low' ? { shownLow: true } : { shown5: true }) }); accepted = true;

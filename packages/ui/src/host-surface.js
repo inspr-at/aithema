@@ -110,6 +110,7 @@ export class HostSurface {
   destroy() { this.#alive = false; this.disconnect(); this.#emailAsk?.destroy(); this.#verification?.destroy(); this.#library?.destroy(); this.#menu?.destroy(); }
   /** Durable host events (already applied to the session projection) and the turns that change balances. */
   receive(event) {
+    if (event.type === 'turn.final' && event.data?.role === 'assistant' && this.#emailAsk) this.#emailAsk.awaitingCredits = true;
     this.#verification?.receive(event);
     if (event.type === 'handover.state') { this.#handover = event.data; this.#requesting = false; this.#limit = null; }
     if (event.type === 'handover.limit-reached') this.#limit = inputRevision(this.#session());

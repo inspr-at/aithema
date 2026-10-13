@@ -2220,7 +2220,36 @@ Host-owned schema (in the same SQLite database and exclusive writer):
 | `visitor_credit_audit` | Append-only settings history: actor, UTC timestamp, source, revision, old/new settings; no visitor addresses; updates rejected by trigger |
 | `visitor_identities` | Opaque `visitor_ref` mapped uniquely to the existing owner hash; address/revision, saved/confirmed/pending evidence, notice version, creation/update/activity timestamps and shared verification state |
 | `visitor_confirmation_tokens` | SHA-256 token hash bound to visitor, address revision and requesting conversation; creation/expiry/redemption timestamps; cascade erased with the visitor |
+| `visitor_email_asks` | Visitor-wide rolling 24-hour ask timestamp; no address; cascade erased with the visitor |
 | `visitor_identity_cleanup` | Durable bounded cleanup queue for erasable identity projections in existing conversations |
+
+The conversation email ask (AIT-164) waits for the fifth visitor turn's completed
+reply, an idle composer and a paused or ended call. A single labelled region
+occupies the assessment cell when the side panel is present; otherwise it grows
+above the composer, lifting 20 px with motion enabled. Automatic asks retain
+focus. An ignored panel ask folds after two more completed visitor turns, once
+the pointer and focus leave its controls. The server atomically claims the
+24-hour visitor timestamp, while `host_states.emailAsk` retains dismissal,
+folding and the once-per-conversation low-point record. The low line follows its
+original reply and never enters the transcript, model context or export.
+
+`GET /api/sessions/:id/credits` supplies `lowAtMicro`, calculated as the larger
+of 10% of the current allowance and five minutes at the configured visitor
+voice rate, rounded up to whole Credits. With $10/$15/$20 and $0.10/minute the
+warning points are 100/150/200 Credits; the voice floor is 50 Credits. These
+leave 10/15/20 minutes, compared with AIT-163's default two-minute admission
+runway (20 Credits). A small $3 tier warns at 50 Credits. Reconciled costs flow
+through the existing wallet projection; no reservation, price or runway policy
+is changed. The footer warns live, but the gate and thread line wait during
+streaming, typing and calls. At zero the existing used-up mapping applies.
+
+`POST /api/sessions/:id/email-ask` accepts `show` (`why: turn5|low`), `line`,
+`fold` and `dismiss`. Ownership precedes host-state access; server tier, balance,
+privacy capability, completed visitor turns and the atomic visitor claim gate
+automatic offers. Gate and mail-host Settings share the A2 save acknowledgement
+before requesting C1/C2 confirmation. Saving raises the tier immediately even
+if the link fails. Address collection still requires AIT-151's configured
+privacy document and the host's legal link in the component.
 
 Settings accept decimal USD **strings**, with at most six fractional digits.
 Unknown fields, negative/unsafe amounts, values above $1,000 and descending
