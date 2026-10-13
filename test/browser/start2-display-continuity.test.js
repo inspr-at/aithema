@@ -75,6 +75,7 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-state').textContent), { de, en }[locale].voiceMoved);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.pause').disabled), false, 'old-tab Resume explicitly takes the call back');
       sameBoxes(before, await layoutBoxes(page, selectors), `${label}: old-tab notice`);
+      let oldHintSignature;
       const shot = async (target, name) => {
         // Background tabs suspend requestAnimationFrame. Activate the captured
         // tab before settling; the owner's normal visibility hold still applies.
@@ -156,20 +157,22 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
             mic: copy.voiceResumeHereFirst, speaker: copy.voiceResumeHereFirst });
         }
         const file = `ait-138-d-${name}-${label}.png`; files.push(file);
-        const paintTargets = await shadow(target, c => ['.attach', '.send'].map(selector => {
+        const paintTargets = await shadow(target, c => ['.attach', '.send', '.composer-reason'].map(selector => {
           const r = c.shadowRoot.querySelector(selector).getBoundingClientRect();
-          return { selector, x: Math.ceil(r.left + 5), y: Math.ceil(r.top + 5), width: Math.floor(r.width - 10), height: Math.floor(r.height - 10) };
+          const inset = selector === '.composer-reason' ? 0 : 5;
+          return { selector, x: Math.ceil(r.left + inset), y: Math.ceil(r.top + inset), width: Math.floor(r.width - inset * 2), height: Math.floor(r.height - inset * 2) };
         }));
         const readPaint = png => target.evaluate(async ({ encoded, targets }) => {
           const bitmap = await createImageBitmap(new Blob([Uint8Array.from(atob(encoded), c => c.charCodeAt(0))], { type: 'image/png' }));
           const canvas = document.createElement('canvas'); canvas.width = bitmap.width; canvas.height = bitmap.height;
           const ctx = canvas.getContext('2d', { willReadFrequently: true }); ctx.drawImage(bitmap, 0, 0); bitmap.close();
           return targets.map(({ selector, x, y, width, height }) => {
-            const pixels = ctx.getImageData(x, y, width, height).data, min = [255, 255, 255], max = [0, 0, 0];
+            const pixels = ctx.getImageData(x, y, width, height).data, min = [255, 255, 255], max = [0, 0, 0]; let signature = 2166136261;
             for (let i = 0; i < pixels.length; i += 4) for (let channel = 0; channel < 3; channel++) {
               min[channel] = Math.min(min[channel], pixels[i + channel]); max[channel] = Math.max(max[channel], pixels[i + channel]);
+              signature = Math.imul(signature ^ pixels[i + channel], 16777619) >>> 0;
             }
-            return { selector, contrast: Math.max(...max.map((v, i) => v - min[i])) };
+            return { selector, contrast: Math.max(...max.map((v, i) => v - min[i])), signature };
           });
         }, { encoded: Buffer.from(png).toString('base64'), targets: paintTargets });
         // Chromium can return stale backdrop-filter layers after the entrance has finished.
@@ -180,13 +183,18 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
           png = await target.screenshot({ fullPage: false }); attempts++;
           composer.paint = await readPaint(png);
           composerPainted = composer.paint.every(p => p.contrast >= 24);
-        } while (!composerPainted && Date.now() - paintStarted < 3000);
+          // Backdrop layers may retain the old hint even after DOM text changed.
+          // The controlling tab's saved PNG must paint its new composer hint.
+          composer.hintPaintChanged = name !== 'takeback-here' || composer.paint.at(-1).signature !== oldHintSignature;
+        } while ((!composerPainted || !composer.hintPaintChanged) && Date.now() - paintStarted < 3000);
+        if (name === 'old-tab') oldHintSignature = composer.paint.at(-1).signature;
         composer.captureAttempts = attempts; composer.paintWaitMs = Date.now() - paintStarted;
         if (evidence) {
           await writeFile(join(evidence, file), png);
           await writeFile(join(evidence, `${file}.json`), JSON.stringify({ name, width, theme, locale, composer, presentation, composerPainted }, null, 2));
         }
         assert.ok(composerPainted, `${label}/${name}: composer controls must be painted in the viewport PNG: ${JSON.stringify(composer.paint)}`);
+        assert.ok(composer.hintPaintChanged, `${label}/${name}: the PNG must not retain the retired-tab composer hint`);
         checks.push({ width, theme, locale, state: name, ...presentation, composerFullyVisible: composer.fullyVisible && composerPainted,
           composer, composerPainted, pass: true });
         // Compare state transitions at the same scroll offset; sticky offsets follow capture scrolling.
