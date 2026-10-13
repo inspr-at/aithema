@@ -32,6 +32,17 @@ function fixture(t, { pause, unavailable = false, journal, ready, start } = {}) 
   t.after(async () => { await rail.close(); rail.destroy(); root.remove(); });
   return { root, rail, commands, events, context };
 }
+test('AIT-138 d: newcomer must Take over, then separately Resume; takeover acquires no media', async t => {
+  const { rail, root } = fixture(t); let takeovers = 0, starts = 0;
+  rail.client.tabId = 'new-tab';
+  rail.client.takeover = async identity => { takeovers++; return { ...identity, epoch: 2 }; };
+  const start = rail.client.start; rail.client.start = async (...args) => { starts++; return start(...args); };
+  rail.receiveState({ callId: 'shared', providerSessionId: 'old', controllingTabId: 'old-tab', epoch: 1, state: 'active' });
+  assert.equal(root.dataset.state, 'waiting'); assert.equal(rail.button('pause').title, en.voiceTakeover);
+  await rail.start(); assert.equal(takeovers, 1); assert.equal(starts, 0);
+  assert.equal(root.dataset.state, 'waiting'); assert.equal(rail.button('pause').title, en.resume);
+  await rail.start(); assert.equal(starts, 1);
+});
 for (const [locale, copy] of [['de', de], ['en', en]]) test(`AIT-138 UI: ${locale} composer invites speech only while listening, including a waiting reload`, async t => {
   const session = createSession({ demo: true, locale });
   session.featureMatrix = { best: { voice: { available: true }, text: { available: true } } };
