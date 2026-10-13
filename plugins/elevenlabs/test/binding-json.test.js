@@ -10,9 +10,10 @@ const raw = { plugin: 'elevenlabs', model: 'fixture-agent', agentId: 'fixture-ag
   upstreamMicroPerMinute: 600, visitorMicroPerMinute: 300, reservationSeconds: 30,
   usdPerCredit: 0.000264, publicFacadeBaseUrl: 'https://host.example.test/' };
 
-test('AIT-102: pin main binding JSON before moving facade wiring', () => {
+const expected = '{"voice":{"agentId":"fixture-agent","secretRef":"fixture-ref","apiBaseUrl":"https://api.example.test","upstreamMicroPerMinute":600,"visitorMicroPerMinute":300,"usdPerCredit":0.000264,"reservationSeconds":30},"duration":{"plugin":"elevenlabs","model":"fixture-agent","effort":"none","endpoint":"https://api.example.test","accountRef":"fixture-account","secretRef":"fixture-ref","maxMicro":60000,"maxTokens":1,"rates":{"inputMicro":0,"outputMicro":0},"agentId":"fixture-agent","maxDurationSeconds":60,"upstreamMicroPerMinute":600,"visitorMicroPerMinute":300,"reservationSeconds":30,"usdPerCredit":0.000264,"publicFacadeBaseUrl":"https://host.example.test"}}';
+
+test('AIT-102: binding JSON stays byte-identical to main e9602e4', () => {
   const actual = JSON.stringify({ voice: createVoiceBinding({ ...raw, apiBaseUrl: raw.endpoint }),
     duration: createDurationBinding(raw) });
-  console.log('AIT-102 binding JSON: ' + actual);
-  assert.ok(actual);
+  assert.equal(actual, expected);
 });
