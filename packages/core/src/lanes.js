@@ -6,6 +6,7 @@ import { untilCancelled, cancellableStream } from './cancellation.js';
 import { hasConversationInput, understandingDeferred } from './document-context.js';
 import { aiTextOrigin } from './text-origin.js';
 import { ReplyStream } from './reply.js';
+import { ReplyOpenerStream } from './reply-opener.js';
 
 const producer = (admitted, plugin) => aiTextOrigin(admitted?.producer ?? plugin.binding ??
   { model: plugin.model, plugin: plugin.manifest?.id ?? plugin.id });
@@ -13,10 +14,10 @@ const producer = (admitted, plugin) => aiTextOrigin(admitted?.producer ?? plugin
 export class SessionLanes {
   #flights = new Map();
   constructor({ reasoning, draftReasoning = reasoning, getSession, publish, transient = () => {}, deadlineMs = 30_000,
-    hostPrompt = '', admit, beforeDispatch = admit ? undefined : async () => false, selection = () => '' }) {
+    hostPrompt = '', admit, beforeDispatch = admit ? undefined : async () => false, selection = () => '', onOpenerStripped = () => {} }) {
     this.reasoning = assertReasoning(reasoning);
     this.draftReasoning = assertReasoning(draftReasoning);
-    Object.assign(this, { getSession, publish, transient, deadlineMs, hostPrompt, admit, beforeDispatch, selection });
+    Object.assign(this, { getSession, publish, transient, deadlineMs, hostPrompt, admit, beforeDispatch, selection, onOpenerStripped });
   }
   // A changed processing selection supersedes in-flight work exactly like new input:
   // its late result is stale and the host reruns the lane with the new binding.
@@ -97,28 +98,33 @@ export class SessionLanes {
         if (this.beforeDispatch && !await untilCancelled(this.beforeDispatch(id, lane, this.reasoning, revision, options), scope.signal)) return 'blocked';
         if (!current() || this.getSession(id).paused) return 'stale';
         const turnId = crypto.randomUUID();
-        const reply = new ReplyStream(); let shown = '';
+        const reply = new ReplyStream(), opener = new ReplyOpenerStream(session.locale); let decoded = '', shown = '', draftProducer;
         const request = reasoningRequest(session, lane, false, this.hostPrompt);
         const admitted = await this.admit?.({ session: this.getSession(id), lane, operation: 'stream', request, options });
         let failed = false;
         try { for await (const delta of cancellableStream((admitted?.plugin ?? this.reasoning).stream(request, admitted?.options ?? options), scope.signal)) {
           if (!current()) return 'stale';
-          const text = reply.push(delta);
+          const chunk = reply.push(delta); decoded += chunk;
+          if (chunk) draftProducer = producer(admitted, admitted?.plugin ?? this.reasoning);
+          const text = opener.push(chunk);
           if (!text) continue;
           shown += text;
           // Tagged with the settings revision it started under, so a client never shows a
           // superseded stream beside its replacement.
-          this.transient(id, { type: 'turn.partial', data: { id: turnId, delta: text, ...producer(admitted, admitted?.plugin ?? this.reasoning),
+          this.transient(id, { type: 'turn.partial', data: { id: turnId, delta: text, ...draftProducer,
             inputRevision: revision, settingsRevision: session.settings?.revision ?? 0 } });
         } } catch (error) { failed = true; throw error; }
         finally { admitted?.finish({ failed }); }
         if (!current()) return 'stale';
-        const { content, question_short, options: answers } = reply.finish();
-        if (!content.trim()) throw new TypeError('Empty reasoning stream');
+        const { content: rawContent, question_short, options: answers } = reply.finish();
+        if (!rawContent.trim()) throw new TypeError('Empty reasoning stream');
         // A provider may reorder JSON properties; reveal its remaining text only after parsing.
-        if (content.startsWith(shown) && content.length > shown.length) this.transient(id, { type: 'turn.partial', data: {
-          id: turnId, delta: content.slice(shown.length), ...producer(admitted, admitted?.plugin ?? this.reasoning),
+        const tail = (rawContent.startsWith(decoded) ? opener.push(rawContent.slice(decoded.length)) : '') + opener.finish();
+        if (tail) this.transient(id, { type: 'turn.partial', data: {
+          id: turnId, delta: tail, ...(draftProducer ?? producer(admitted, admitted?.plugin ?? this.reasoning)),
           inputRevision: revision, settingsRevision: session.settings?.revision ?? 0 } });
+        const content = shown + tail;
+        if (opener.stripped) this.onOpenerStripped();
         // The admitted public choice labels which model and effort produced this reply.
         if (!this.publish(id, 'turn.final', { id: turnId, role: 'assistant', content, question_short, options: answers,
           ...producer(admitted, admitted?.plugin ?? this.reasoning),

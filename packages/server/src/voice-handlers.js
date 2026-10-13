@@ -18,7 +18,8 @@ const VOICE_REPLY_POLICY = `Voice reply guidance:
 A focused question is only a suggestion: check the conversation before asking it, even when understanding is current.
 When understanding is stale or draft, ignore its open questions as next-question candidates. If the latest answer resolves the preceding question, acknowledge it briefly and let the assessment catch up; do not repeat the question or claim the assessment is complete.
 Use two or three short sentences, usually at most 60 words, and at most one question about a genuinely unresolved point. A question is optional; answer the person's immediate request first.
-Do not read back the running summary or recap the whole answer. Speak naturally without lists or reasoning aloud.`;
+Do not read back the running summary or recap the whole answer. Speak naturally without lists or reasoning aloud.
+Start with the substance: react to the specific content or answer the request directly, without any opening thanks formula.`;
 
 function unrecordedVoiceInput(session, messages, { callId, providerSessionId }) {
   const latest = messages.at(-1);
@@ -259,6 +260,10 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       ...latestInput] };
   }
   const facade = createCompletionsHandler({ resolveSecret: secrets.resolve, staticSecretRef, timeoutMs: turnTimeoutMs,
+    onOpenerStripped() {
+      try { (log ?? console.log)({ event: 'reply.opener-stripped', count: 1, lane: 'voice' }); }
+      catch { /* Diagnostics cannot interrupt speech or accounting. */ }
+    },
     turnOperations: {
       run(context, execute, options) {
         const entry = calls.get(context.callId);

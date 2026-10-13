@@ -3,6 +3,7 @@ import { PluginError, PLUGIN_ERROR_CODES } from '../../../packages/core/src/invo
 import { operationScope } from '../../../packages/core/src/reasoning.js';
 import { voiceOperation } from '../../../packages/core/src/live-voice.js';
 import { aiTextOrigin } from '../../../packages/core/src/text-origin.js';
+import { ReplyOpenerStream, stripThanksOpener } from '../../../packages/core/src/reply-opener.js';
 import { readJson } from './server.js';
 
 const spendReason = error => ['OpenRouter spend cap exhausted', 'OpenRouter request exceeds spend reservation'].includes(error?.message) ? error.message : undefined;
@@ -23,7 +24,7 @@ const statusFor = error => error?.code === 'auth' ? 401 : error?.code === 'not-a
 export function createCompletionsHandler({ getCall, resolveSecret = ref => process.env[ref],
   buildRequest, admitReasoning, onCompletion, staticSecretRef, now = Date.now, timeoutMs = 30_000,
   maxRequestBytes = MAX_COMPLETION_REQUEST_BYTES, log = console.log, turnOperations,
-  beforeAdmission, beforeOutput, onAdmission, reportAllowed } = {}) {
+  beforeAdmission, beforeOutput, onAdmission, reportAllowed, onOpenerStripped } = {}) {
   if (![getCall, buildRequest, admitReasoning].every(port => typeof port === 'function')) throw new TypeError('Facade call, context and admission ports required');
   if (!Number.isSafeInteger(maxRequestBytes) || maxRequestBytes <= 0) throw new TypeError('Positive facade byte limit required');
   const active = call => call && !call.closing && !call.terminal && !call.paused && !call.signal?.aborted &&
@@ -116,7 +117,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
           // The durable operation owns its lifetime; an HTTP retry owns only a reader.
           const worker = createCompletionsHandler({ getCall, resolveSecret, buildRequest, admitReasoning,
             onCompletion: event => onCompletion?.({ ...event, userTurnOrdinal: operation.ordinal }),
-            staticSecretRef, now, timeoutMs, maxRequestBytes, log: () => {},
+            staticSecretRef, now, timeoutMs, maxRequestBytes, log: () => {}, onOpenerStripped,
             beforeAdmission: operation.beforeAdmission, beforeOutput: operation.assertCurrent,
             onAdmission: operation.admitted, reportAllowed: operation.reportAllowed });
           return worker(new Request(request.url, { method: 'POST', headers: request.headers,
@@ -185,6 +186,10 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
       // Admission may rebuild against a newer session snapshot after async checks.
       iterator = admission.plugin.stream(admission.request ?? input, invocationOptions)[Symbol.asyncIterator]();
       let first = await next(); // Dispatch/auth failures can still be returned as HTTP errors.
+      const locale = (admission.request ?? input).locale;
+      const stripped = () => {
+        try { onOpenerStripped?.(); } catch { /* Diagnostics cannot affect paid work. */ }
+      };
       const id = `chatcmpl-${crypto.randomUUID()}`;
       const frame = delta => ({ id, object: 'chat.completion.chunk', created: Math.floor(now() / 1000),
         model: 'session-reasoning', ...(delta.role === 'assistant' ? { metadata: { aithema_reply_id: id } } : {}),
@@ -197,14 +202,23 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
         }
         if (reports !== 1) throw new PluginError('invalid-output', 'Reasoning omitted terminal report');
         beforeOutput?.();
+        const guarded = stripThanksOpener(content, locale); content = guarded.text;
+        if (guarded.stripped) stripped();
         await voiceOperation(invocationOptions, () => onCompletion?.({ callId: call.callId, providerSessionId: call.providerSessionId, replyId: id, content, textOrigin, engine: admission.engine }));
         await cleanup(false);
         return reply({ id, object: 'chat.completion', created: Math.floor(now() / 1000), model: 'session-reasoning',
           choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }] });
       }
-      const encoder = new TextEncoder(); let roleSent = false, size = 0, content = '', streamEnded = false, cancelled = false;
+      const encoder = new TextEncoder(), opener = new ReplyOpenerStream(locale, { bufferNormal: false });
+      let roleSent = false, size = 0, content = '', streamEnded = false, cancelled = false, openerCounted = false;
       const enqueue = (controller, text) => {
         const bytes = encoder.encode(text); controller.enqueue(bytes); responseBytes += bytes.byteLength;
+      };
+      const emitContent = (controller, text) => {
+        if (opener.stripped && !openerCounted) { openerCounted = true; stripped(); }
+        if (!text) return;
+        content += text;
+        enqueue(controller, `data: ${JSON.stringify(frame({ content: text }))}\n\n`);
       };
       return new Response(new ReadableStream({
         start(controller) {
@@ -223,23 +237,29 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
           try {
             beforeOutput?.();
             if (!roleSent) { roleSent = true; enqueue(controller, `data: ${JSON.stringify(frame({ role: 'assistant' }))}\n\n`); return; }
-            const part = first; first = null;
-            const item = part ?? await next();
-            if (item.done) {
-              if (reports !== 1) throw new PluginError('invalid-output', 'Reasoning omitted terminal report');
+            // Read only until the first safe clause. All subsequent chunks pass
+            // straight through, and the completion receipt uses emitted bytes.
+            while (!streamEnded) {
+              const part = first; first = null;
+              const item = part ?? await next();
+              if (item.done) {
+                if (reports !== 1) throw new PluginError('invalid-output', 'Reasoning omitted terminal report');
+                beforeOutput?.();
+                emitContent(controller, opener.finish());
+                await voiceOperation(opts, () => onCompletion?.({ callId: call.callId, providerSessionId: call.providerSessionId, replyId: id, content, textOrigin, engine: admission.engine }));
+                await cleanup(false);
+                if (streamEnded) return; streamEnded = true;
+                const stop = frame({}); stop.choices[0].finish_reason = 'stop';
+                enqueue(controller, `data: ${JSON.stringify(stop)}\n\ndata: [DONE]\n\n`); controller.close(); logResult(); return;
+              }
+              if (streamEnded) return;
               beforeOutput?.();
-              await voiceOperation(opts, () => onCompletion?.({ callId: call.callId, providerSessionId: call.providerSessionId, replyId: id, content, textOrigin, engine: admission.engine }));
-              await cleanup(false);
-              if (streamEnded) return; streamEnded = true;
-              const stop = frame({}); stop.choices[0].finish_reason = 'stop';
-              enqueue(controller, `data: ${JSON.stringify(stop)}\n\ndata: [DONE]\n\n`); controller.close(); logResult(); return;
+              if (typeof item.value !== 'string') throw new PluginError('invalid-output');
+              size += item.value.length; if (size > 1_048_576) throw new PluginError('limit');
+              const text = opener.push(item.value);
+              emitContent(controller, text);
+              if (text) return;
             }
-            if (streamEnded) return;
-            beforeOutput?.();
-            if (typeof item.value !== 'string') throw new PluginError('invalid-output');
-            size += item.value.length; if (size > 1_048_576) throw new PluginError('limit');
-            content += item.value;
-            enqueue(controller, `data: ${JSON.stringify(frame({ content: item.value }))}\n\n`);
           } catch (error) {
             await streamFailure(error);
           }

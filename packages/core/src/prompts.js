@@ -13,7 +13,8 @@ export const REPLY_POLICY = `Conversational reply guidance:
 The canonical person turns and the latest callback answer take precedence over understanding and prior assistant wording.
 Never re-ask a point that the canonical person turns or latest answer already answer, confirm or decline.
 Reopen a confirmed fact only when the person corrects it or new evidence creates a real ambiguity. Do not present a confirmed fact as a correction or ask for confirmation again merely to continue.
-Vary acknowledgements and engage directly with what the person said. Never open formulaically with "Danke", "Vielen Dank", "Thanks" or "Thank you". Do not replace these with another repeated stock opener or praise.`;
+Vary acknowledgements and engage directly with what the person said. Never open formulaically with "Danke", "Vielen Dank", "Thanks" or "Thank you". Do not replace these with another repeated stock opener or praise.
+Start with the substance: react to the specific content or answer the request directly, without any opening thanks formula.`;
 function promptTurns(session) {
   const turns = activeTurns(session), generations = new Map();
   for (let index = 0; index < turns.length; index++) {
