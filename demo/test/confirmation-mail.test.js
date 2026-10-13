@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto, { createHash, createHmac, randomBytes } from 'node:crypto';
+import fs from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { createIdentity, reduceIdentity } from '@inspr/aithema-core';
 import { SQLiteStorage, createHandlers } from '../../packages/server/src/index.js';
@@ -121,19 +122,32 @@ test('C1 visitor erasure cascades tokens and delivery metadata', async t => {
   for (const table of ['visitor_confirmation_tokens', 'visitor_mail_deliveries']) assert.equal(f.storage.db.prepare(`SELECT COUNT(*) n FROM ${table}`).get().n, 0);
 });
 
-test('C1 address HMAC throttle permits three mails per rolling 24h across visitors', async t => {
+test('C1 address HMAC throttle shares three mails per rolling 24h across visitors and mixed-case local parts', async t => {
   const f = await fixture(t);
+  const variants = [address, 'Visitor@EXAMPLE.TEST', 'VISITOR@example.test', 'vIsItOr@example.test'];
   for (let i = 0; i < 4; i++) {
     const owner = `owner-${i}`, s = f.session(owner);
-    const result = await f.request(s, owner, i % 2 ? 'visitor@EXAMPLE.TEST' : address);
+    const result = await f.request(s, owner, variants[i]);
     assert.equal(result.status, i < 3 ? 'sent' : 'rate-limited');
   }
   assert.equal(f.messages.length, 3);
+  assert.deepEqual(f.messages.map(message => message.address), [address, 'Visitor@example.test', 'VISITOR@example.test'], 'delivery preserves local-part case');
   const rows = f.storage.db.prepare('SELECT * FROM visitor_mail_abuse').all();
   assert.equal(new Set(rows.map(r => r.address_key)).size, 1); assert.match(rows[0].address_key, /^[a-f0-9]{64}$/u);
   assert.notEqual(rows[0].address_key, rows[0].token_hash);
   assert.equal(JSON.stringify(rows).toLowerCase().includes(address), false);
   f.at(DAY + 1_000); const s = f.session('later'); assert.equal((await f.request(s, 'later')).status, 'sent');
+});
+
+test('C1 fix2 local-part case edits require fresh identity confirmation', async t => {
+  const f = await fixture(t); await f.request(f.session()); const token = f.messages[0].token;
+  const revision = f.host.visitor('owner').addressRevision;
+  assert.equal(f.host.confirmation.redeem(token).state, 'confirmed');
+  const changed = f.host.saveEmail('owner', { address: 'Visitor@example.test', noticeVersion: 'ait-135-v1' });
+  assert.equal(changed.addressRevision, revision + 1);
+  assert.equal(changed.address, 'Visitor@example.test');
+  assert.equal(changed.tier, 'emailGiven', 'case edits cannot inherit another recipient\'s verified evidence');
+  assert.equal(f.host.confirmation.inspect(token).state, 'invalid');
 });
 
 for (const [name, headers] of [['cross-origin', { origin: 'https://evil.example.test' }], ['missing origin', { origin: '' }], ['missing CSRF cookie', { cookie: '' }]]) {
@@ -230,6 +244,37 @@ test('C1 fix1 the host HMAC secret is create-once, private and survives a databa
   assert.ok(key.equals(await readFile(secretPath)), 'restart must not rotate the host secret');
   assert.equal((await again.request(again.session('restart'), 'restart')).status, 'rate-limited');
   assert.equal(reopened.db.prepare("SELECT 1 FROM sqlite_master WHERE name='visitor_mail_key'").get(), undefined);
+});
+
+test('C1 fix2 an interrupted key write never publishes a partial host secret and startup can retry', async t => {
+  const db = await temporaryDb(), storage = new SQLiteStorage(db);
+  t.after(() => storage.close());
+  const secretPath = join(dirname(db), 'confirmation-hmac.key'), original = fs.writeFileSync;
+  const mocked = t.mock.method(fs, 'writeFileSync', (file, data, ...options) => {
+    if (typeof file === 'number' && Buffer.isBuffer(data) && data.length === 32) {
+      fs.writeSync(file, data.subarray(0, 7));
+      throw new Error('simulated interrupted key write');
+    }
+    return original(file, data, ...options);
+  });
+  syncBuiltinESMExports();
+  t.after(() => { mocked.mock.restore(); syncBuiltinESMExports(); });
+  assert.throws(() => createDemoHost({ storage, demo: false }), /Confirmation host secret unavailable/u);
+  await assert.rejects(() => stat(secretPath), { code: 'ENOENT' });
+  assert.deepEqual((await readdir(dirname(db))).filter(name => name.startsWith('confirmation-hmac.key')), [], 'failed writes clean up their own temporary file');
+  mocked.mock.restore(); syncBuiltinESMExports();
+  createDemoHost({ storage, demo: false });
+  assert.equal((await readFile(secretPath)).length, 32);
+  assert.equal((await stat(secretPath)).mode & 0o777, 0o600);
+});
+
+for (const length of [0, 31, 33]) test(`C1 fix2 a ${length}-byte existing host key refuses startup with recovery instructions without rotating it`, async t => {
+  const db = await temporaryDb(), storage = new SQLiteStorage(db);
+  t.after(() => storage.close());
+  const secretPath = join(dirname(db), 'confirmation-hmac.key'), key = Buffer.alloc(length, 0x61);
+  await writeFile(secretPath, key, { mode: 0o600 });
+  assert.throws(() => createDemoHost({ storage, demo: false }), /confirmation-hmac\.key.*expected 32 bytes.*restore.*backup.*do not delete/iu);
+  assert.ok(key.equals(await readFile(secretPath)), 'startup must not replace a malformed key or reset existing quotas');
 });
 
 for (const currentAddress of [address, 'changed@example.test']) test(`C1 fix1 migration preserves draft C1 quotas with current address ${currentAddress} and moves the existing secret once`, async t => {
