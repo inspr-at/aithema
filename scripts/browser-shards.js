@@ -32,7 +32,7 @@ export const browserShards = [
     'test/browser/confirmation-design.test.js',
   ],
   // 189.105s CI; 153.965s mbp2606
-  ['test/browser/email-ask.test.js'],
+  ['test/browser/email-ask.test.js', 'test/browser/footer-width-sweep.test.js'],
 ];
 
 export function discoverBrowserTests() {

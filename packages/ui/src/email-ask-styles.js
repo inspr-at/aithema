@@ -1,3 +1,5 @@
+import { FOOTER_WIDTHS } from './layout.js';
+
 // AIT-164: the assessment and ask share one fixed cell; the dock grows upward.
 export const emailAskStyles = `
 .analysis-stack { position:relative; display:grid; min-height:0; min-width:0; }
@@ -65,7 +67,7 @@ export const emailAskStyles = `
 .host-credits[data-low="true"]:not([data-ended="true"]) .host-credits__text { visibility:hidden; }
 .host-credits[data-low="true"]:not([data-ended="true"]) .host-credits__low { visibility:visible; }
 .host-credits[data-low="true"]:not([data-ended="true"]) .host-credits__track i { background:var(--aithema-amber); }
-@media(width < 600px) { .host-credits__measure-total { display:none; } }
+@media(width < ${FOOTER_WIDTHS.compact}px) { .host-credits__measure-total { display:none; } }
 @media(width < 360px) { .host-credits__measure-unit { display:none; } .host-credits__low-full,.host-credits__measure-low-full { display:none; } .host-credits__low-short,.host-credits__measure-low-short { display:inline; } }
 @media(max-width:600px) { .email-ask h2 { font-size:22px; } .email-ask { gap:11px; } }
 :host([motion="off"]) :is(.email-ask,.email-ask > *,.analysis-content,.email-ask-pane,.transcript-shell,.concept-bar,.qcard) { transition:none !important; }
