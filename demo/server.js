@@ -1,3 +1,5 @@
+import { createZitadelOIDC, zitadelOperatorConfig } from '@inspr/aithema-plugin-zitadel-oidc';
+import { createOperatorSessions, createSQLiteOperatorStore } from '../packages/server/src/operator-session.js';
 import { mkdir, readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, resolve, sep } from 'node:path';
@@ -53,6 +55,15 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const defaultDb = resolve(root, '.data/session.sqlite');
 if (!process.env.AITHEMA_DB) await mkdir(resolve(root, '.data'), { recursive: true });
 const storage = new SQLiteStorage(process.env.AITHEMA_DB ?? defaultDb);
+let operatorSessions = null;
+try {
+  const operatorConfig = zitadelOperatorConfig();
+  operatorSessions = createOperatorSessions({ provider: createZitadelOIDC({ config: operatorConfig }),
+    ...(operatorConfig ? { store: createSQLiteOperatorStore(storage.db), publicOrigin: deployment.publicOrigin } : {}) });
+} catch {
+  // One value-free startup warning; visitor functionality stays available.
+  console.warn('Operator sign-in disabled: invalid configuration or unavailable host state.');
+}
 const voiceCap = createVoiceCap({ storage, ...voiceCaps });
 // Private references resolve from the environment at dispatch, never into public config.
 const privateBinding = openrouter?.reaction ?? { plugin: provider, model: provider === 'mistral' ? (process.env.MISTRAL_MODEL ?? 'mistral-small-latest')
@@ -166,6 +177,9 @@ let allowedHosts = new Set();
 async function handle(request) {
   const refused = deploymentGate(request, deployment, allowedHosts); if (refused) return refused;
   if (request.method === 'GET' && new URL(request.url).pathname === '/healthz') return Response.json({ ok: true, commit: deployment.commit ?? build.commit, version: build.version, product: build.product, date: build.date });
+  // Fixed operator routes precede JSON-only visitor mutations; logout is a native form POST.
+  const operatorResponse = await operatorSessions?.handle(request); if (operatorResponse) return operatorResponse;
+  if (/^\/api\/operator(?:\/|$)/u.test(new URL(request.url).pathname)) return new Response(null, { status: 404 });
   const confirmationResponse = await confirmationPage?.handle(request); if (confirmationResponse) return confirmationResponse;
   const upload = /^\/api\/sessions\/[a-zA-Z0-9_-]{1,128}\/uploads$/u.test(new URL(request.url).pathname);
   if (request.method === 'POST' && !upload && request.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== 'application/json') {
@@ -175,11 +189,15 @@ async function handle(request) {
   const privacyResponse = privacy.handle(request); if (privacyResponse) return privacyResponse;
   if (url.pathname.startsWith('/api/')) return handlers.handle(request);
   if (!['GET', 'HEAD'].includes(request.method)) return new Response(null, { status: 405 });
-  if (url.pathname === '/demo/config') return Response.json({ label: reasoning.label, defaultPreset: 'best', voiceMode: voiceMode === 'elevenlabs' && !readVoiceState().binding ? 'off' : voiceMode,
+  if (url.pathname === '/demo/config') {
+    const operator = operatorSessions?.session(request);
+    return Response.json({
+    ...(operatorSessions ? { operatorLogin: operatorSessions.entry() } : {}), ...(operator ? { operator } : {}), label: reasoning.label, defaultPreset: 'best', voiceMode: voiceMode === 'elevenlabs' && !readVoiceState().binding ? 'off' : voiceMode,
     voicePresentation: voiceHost?.voicePresentation ?? voicePlugin?.manifest.presentation,
     voiceDisabledReason: voiceHost?.disabledReason ?? null, processingConsent: consent.describe?.().contract ? consent.describe() : undefined, imageMode, imageLabel: imagePlugin?.label ?? 'Images off',
     htmlMode: html.mode, htmlLabel: htmlPlugin?.label ?? 'HTML off', htmlDisabledReason: html.disabledReason ?? null, hostLabel: host.label, demoHost: host.demo,
-    verificationRequired: host.policy.verificationRequired, privacy: privacy.config, build });
+    verificationRequired: host.policy.verificationRequired, privacy: privacy.config, build }, { headers: { 'cache-control': 'no-store', vary: 'Cookie' } });
+  }
   if (url.pathname.startsWith('/vendor/elevenlabs/worklets/')) {
     const bytes = await voiceAsset(url.pathname.slice('/vendor/elevenlabs/worklets/'.length));
     return bytes ? new Response(request.method === 'HEAD' ? null : bytes, { headers: { 'content-type': 'text/javascript; charset=utf-8', 'x-content-type-options': 'nosniff' } }) : new Response(null, { status: 404 });

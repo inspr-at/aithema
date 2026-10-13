@@ -98,7 +98,7 @@ export class AithemaSession extends HTMLElement {
    * `voicePresentation` supplies the selected adapter label and localized presentation.
    * `aiNotice` ({text?, voice?}) rewords the AI notice ahead of `copy.aiNotice`; it cannot remove it.
    * `copyForLocale(locale)` supplies host copy for in-place locale changes before interaction.
-   * `host` ({library, verification, handover, credits, locale}) turns on the host surface (AIT-104 B2):
+   * `host` ({library, verification, handover, credits, locale, operator}) turns on the host surface (AIT-104 B2):
    * the conversation library, email verification, handover and credits; see the README.
    */
   configure(options) {
@@ -292,7 +292,7 @@ export class AithemaSession extends HTMLElement {
     setText(root.querySelector('.display-version'), version.product);
     setText(root.querySelector('#build-info'), [version.product, version.commit, version.date].filter(Boolean).join(' · '));
     this.#placeOrb();
-    this.#dialog = new SettingsDialog({ dialog: root.querySelector('dialog.settings'), copy: this.#copy, ports: {
+    this.#dialog = new SettingsDialog({ dialog: root.querySelector('dialog.settings'), copy: this.#copy, operator: this.#options.host?.operator, ports: {
       // Withdrawn turns still mark a started conversation (the server's device lock agrees).
       state: () => ({ session: this.#session, voiceActive: Boolean(this.#rail?.session), hasTurns: this.#session.transcript.length > 0 || this.#partials.size > 0,
         running: this.#session.operations?.inputRevision === inputRevision(this.#session) && (this.#session.operations?.running?.length ?? 0) > 0,

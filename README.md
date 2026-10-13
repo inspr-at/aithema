@@ -2939,3 +2939,55 @@ lease expiry and the owned agent's configurable 3600-second technical ceiling re
 backstops. Until authenticated final details arrive, closure stays conservative
 and pending reconciliation survives restart. Provider write shapes and real-key
 smoke verification belong to the coordinator; none were run by the builder.
+
+
+### Operator sign-in (AIT-165)
+
+The optional `plugins/zitadel-oidc` public-client plugin ports START v1's
+code + PKCE flow through the vendor-neutral `OperatorSessionPort` in core/server.
+It adds only a muted final section in Settings › General. Operator authentication
+is independent of visitor email, credits, privacy consent and conversation ownership.
+There are no admin pages yet (AIT-135 Phase B).
+
+OPS deployment steps (configuration names only):
+
+1. Register **`https://start2.augmentoring.com/api/operator/callback/`** exactly,
+   including the trailing slash, on an existing or new Zitadel **public** client.
+   Enable authorization code with S256 PKCE; no client secret is used.
+   The post-logout URI is **`https://start2.augmentoring.com/`**. Keep
+   `id_token_userinfo_assertion=true` so the ID token includes name and email;
+   this plugin uses its verified name without a separate userinfo request.
+2. Set `AITHEMA_PUBLIC_ORIGIN` to the host's public origin. The callback URI is
+   derived from that origin, never from request headers or a return URL.
+3. Set `AITHEMA_OPERATOR_ISSUER` (issuer origin) and
+   `AITHEMA_OPERATOR_CLIENT_ID` (the registered public client's ID).
+4. Set `AITHEMA_OPERATOR_SUBJECT` to the comma-separated allowed operator
+   subject IDs. Subject IDs are exact and case-sensitive; email is not authority.
+   The plural `AITHEMA_OPERATOR_SUBJECTS` is ignored.
+5. Restart the host. Missing/blank issuer, client ID, allowed subjects or public
+   origin disables the entry and routes. A single issuer trailing slash is
+   normalized; other malformed config logs one value-free warning and leaves
+   operator sign-in off while visitors can still use the host. This change does
+   not configure Zitadel or deploy any credentials.
+
+`GET /api/operator/login/` starts the flow and `GET /api/operator/callback/`
+consumes the browser-bound ten-minute state exactly once before exchanging a code.
+State, nonce, PKCE verifier and expiry live only in an AES-256-GCM sealed,
+HttpOnly/Secure/SameSite=Lax cookie bound to the host callback and provider
+namespace. `operator-state.key` is created once beside the database, mode 0600,
+with atomic publication; back it up with the database. Login starts allocate no
+pending rows or shared quota. SQLite stores only consumed cookie hashes until
+expiry to refuse captured-cookie and concurrent replays, including failed callbacks.
+The plugin verifies RS256 against cached JWKS and checks issuer, audience, expiry,
+issued-at, subject, nonce and authorized party, with 30 seconds of clock tolerance.
+Unknown signing keys cannot trigger JWKS refetches within the 30-second cooldown.
+Grants live eight hours in a separate SQLite table; grant cookies contain random
+opaque handles (stored as hashes), with
+HttpOnly, Secure, SameSite=Lax and no Domain attribute. A native same-origin
+`POST /api/operator/logout/` revokes the grant; other origins and missing Origin
+are refused. Issuer/client/allowlist changes invalidate existing grants. Provider
+tokens are discarded after verification and never logged or stored.
+
+`/demo/config` is uncached and varies on Cookie. Only a live operator receives
+`operator: {name}`; public login metadata contains no subject or token. Existing
+visitor route guards and the AIT-151 privacy gate remain authoritative.

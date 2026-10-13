@@ -22,7 +22,7 @@ test('AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN', { timeo
   const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], passLines = [];
   // The remote builder transfers main's captured viewports here before the head run.
   // CI still captures the matrix when that separately retained baseline is absent.
-  const baseline = process.env.AITHEMA_VOICE_BASELINE_DIR ?? '/private/tmp/aithema-ait102-pr3-merge-baseline-5fae3bb51c';
+  const baseline = process.env.AITHEMA_VOICE_BASELINE_DIR ?? '/private/tmp/aithema-ait102-pr3-merge-baseline-72214a10ce';
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.setRequestInterception(true);
   page.on('request', request => {
@@ -104,7 +104,7 @@ test('AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN', { timeo
       files.push({ file: name, state, width, theme, locale, viewport: true });
     }
   }
-  if (evidence) await writeFile(join(evidence, 'voice-presentation-evidence.json'), JSON.stringify({ ticket: 'AIT-102', head: evidenceCommit, baselineMain: '5fae3bb51ce6fb7afd5f85af6264dcabedf25533', files }, null, 2));
-  if (evidence && passLines.length) await writeFile(join(evidence, 'voice-pixel-diff.json'), JSON.stringify({ ticket: 'AIT-102', head: evidenceCommit, baselineMain: '5fae3bb51ce6fb7afd5f85af6264dcabedf25533', passLines }, null, 2));
+  if (evidence) await writeFile(join(evidence, 'voice-presentation-evidence.json'), JSON.stringify({ ticket: 'AIT-102', head: evidenceCommit, baselineMain: '72214a10ce911321d439c153b7f77dca8843d71b', files }, null, 2));
+  if (evidence && passLines.length) await writeFile(join(evidence, 'voice-pixel-diff.json'), JSON.stringify({ ticket: 'AIT-102', head: evidenceCommit, baselineMain: '72214a10ce911321d439c153b7f77dca8843d71b', passLines }, null, 2));
   t.diagnostic(`AIT-102 voice presentation: ${files.length} viewport shots.`);
 });

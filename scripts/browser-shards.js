@@ -14,12 +14,13 @@ export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 export const browserShards = [
   // 402.566s CI; 350.166s mbp2606
   ['test/browser/visitor-credit-tiers.test.js'],
-  // Full run at 4fc6a22: 400.823s tests, 537s whole job. Move the 105.447s
-  // continuity matrix to shard 4 so setup and artifact upload fit below 8min.
-  // PR 3 also keeps demo teardown separate from the display matrix in shard 4.
+  // 290.400s CI at 70eec71, run 38477382124. AIT-165 operator login adds
+  // 6.446s on mbp2606 at c9e7fc7 (48 viewport states); this shard has most headroom.
+  // PR 3 keeps demo teardown separate from the display matrix in shard 4.
   [
     'test/browser/start2-display-matrix.test.js',
     'test/browser/start-look.test.js',
+    'test/browser/operator-login.test.js',
   ],
   // 394.868s CI
   [

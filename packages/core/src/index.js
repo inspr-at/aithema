@@ -29,3 +29,4 @@ export * from './credits.js';
 export * from './concept-lane.js';
 export * from './ai-notice.js';
 export * from './voice-lifecycle.js';
+export * from './operator-session.js';

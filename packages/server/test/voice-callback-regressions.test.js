@@ -70,6 +70,7 @@ test('AIT-102 fix1: callback method matching selects the declared handler and re
 });
 
 for (const path of ['/api/sessions', '/api/sessions/:sessionId', '/api/sessions/:sessionId/voice',
+  '/api/operator', '/api/operator/:action', '/privacy', '/privacy/:locale', '/confirm-email', '/healthz',
   '/api/library', '/api/library/:entryId/delete', '/api/visitor/email', '/api/visitor/erase',
   '/api/:resource/:identity', '/:root/sessions/:identity']) {
   test(`AIT-102 fix1: callback registration refuses reserved core prefix ${path}`, t => {
