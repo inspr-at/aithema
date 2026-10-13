@@ -108,6 +108,7 @@ test('AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layou
     await until(page, locale => document.querySelector('aithema-session')?.session.locale === locale, locale);
     for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
       await page.setViewport({ width, height: 1000 }); await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme);
+      await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
       const label = `${locale}-${theme}-${width}`;
       // The stacked assessment is below the phone viewport. Only controls
       // visible under its pointer are part of that viewport's shift contract.

@@ -41,6 +41,7 @@ export class Verification {
       setText(form.root.querySelector('.verify__label'), v.label); form.input.placeholder = v.placeholder;
       setText(form.pending.querySelector('span'), v.sentTo); setText(form.done.querySelector('span'), v.confirmed);
       for (const key of ['send', 'resend', 'cancel', 'change']) setText(form[key], v[key]);
+      setText(form.root.querySelector('.verify-primary-measure'), v.send);
     }
     this.#paint();
   }
@@ -178,7 +179,8 @@ export class Verification {
     const send = node('button', 'verify-send', v.send); send.type = 'submit'; send.setAttribute('aria-describedby', `${prefix}-message ai-notice`);
     const resend = node('button', 'verify-resend', v.resend); resend.type = 'button'; resend.setAttribute('aria-describedby', `${prefix}-note ai-notice`);
     const cancel = node('button', 'verify-cancel', v.cancel); cancel.type = 'button';
-    primary.append(send, resend); actions.append(primary, cancel);
+    const measure = node('span', 'verify-primary-measure', v.send); measure.setAttribute('aria-hidden', 'true');
+    primary.append(send, resend, measure); actions.append(primary, cancel);
     const message = node('p', 'verify__message'); message.id = `${prefix}-message`; message.setAttribute('role', 'status');
     const note = node('p', 'verify__note'); note.id = `${prefix}-note`;
     const lead = node('p', 'verify__lead m-two'); lead.append(node('span', 'verify__lead-mail'), node('span', 'verify__lead-reconfirm'));
