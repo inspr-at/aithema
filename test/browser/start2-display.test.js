@@ -78,6 +78,7 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
       const range = document.createRange(); range.selectNodeContents(root.querySelector('.turn-text'));
       const line = range.getClientRects()[0], box = band.getBoundingClientRect();
       return { background: style.backgroundColor, backgroundImage: style.backgroundImage, rgb, ink, scrollY,
+        orbRight: root.querySelector('.band-orb').getBoundingClientRect().right,
         band: { top: box.top, bottom: box.bottom, height: box.height },
         line: { left: line.left, right: line.right, top: line.top, bottom: line.bottom },
         fade: { position: fade.position, top: fade.top, height: fade.height, pointerEvents: fade.pointerEvents, content: fade.content } };
@@ -98,7 +99,8 @@ test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout s
     const rgbAt = (png, x, y) => [...png.result.subarray((y * png.width + x) * png.channels, (y * png.width + x) * png.channels + 3)];
     let textPixels = 0;
     for (let y = Math.max(Math.ceil(metrics.line.top), metrics.band.bottom - 18); y < Math.min(metrics.line.bottom, metrics.band.bottom - 2); y++) {
-      for (let x = Math.ceil(metrics.line.left); x < Math.min(metrics.line.right, width); x++) {
+      // Sample the surface clear of the orb's intentional foreground glass shadow.
+      for (let x = Math.max(Math.ceil(metrics.line.left), Math.ceil(metrics.orbRight) + 24); x < Math.min(metrics.line.right, width); x++) {
         if (!rgbAt(exposed, x, y).every((channel, i) => Math.abs(channel - ink[i]) <= 24)) continue;
         textPixels++;
         assert.deepEqual(rgbAt(painted, x, y), expected, `${label}: band pixel ${x},${y} over bubble text equals the opaque band colour`);
