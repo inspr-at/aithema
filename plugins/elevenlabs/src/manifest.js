@@ -1,6 +1,6 @@
 import { deepFreeze } from '../../../packages/core/src/plugins.js';
 
-// D4: no account selection, legal terms, rates or credentials in this public document.
+// Display wording is public; account qualification, selected rates and credentials stay private.
 export const manifest = deepFreeze({
   id: 'elevenlabs', version: '0.0.0', apiVersion: '^1.0.0', kinds: ['live-voice'], placement: 'server',
   entrypoints: { server: './src/server.js', browser: './src/client.js' },
