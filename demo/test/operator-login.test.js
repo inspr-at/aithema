@@ -136,3 +136,15 @@ test('AIT-165 host/Origin guards run before operator routes; a header or query c
   const visitor = await (await f.call('/demo/config?operator=Ada', '', { headers: { 'x-aithema-session-token': 'allowed-operator' } })).json();
   assert.equal(Object.hasOwn(visitor, 'operator'), false); assert.equal(f.issuer.exchanges.length, 0);
 });
+
+for (const issuer of ['https://issuer.test/path', 'not-a-url', 'https://issuer.test//', 'https://issuer.test/?q=1']) {
+  test(`AIT-165 malformed issuer keeps visitor host running with operator off (${issuer})`, async t => {
+    const f = await fixture(t, { AITHEMA_OPERATOR_ISSUER: issuer });
+    const config = await (await f.call('/demo/config')).json();
+    assert.equal(Object.hasOwn(config, 'operatorLogin'), false);
+    assert.equal((await f.call('/api/operator/login/')).status, 404);
+    const response = await f.call('/api/sessions', '', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    assert.equal(response.status, 201); assert.equal((await response.json()).identity.status, 'guest');
+    assert.equal(f.issuer.exchanges.length, 0); assert.equal(f.issuer.keysRead(), 0);
+  });
+}

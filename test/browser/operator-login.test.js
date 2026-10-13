@@ -79,6 +79,8 @@ test('AIT-165 viewport matrix: real sign-in/logout, inline error and feature off
         await Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded' }), shadow(page, c => c.shadowRoot.querySelector('.operator-login').click())]);
         await openGeneral(page);
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.operator-name').textContent), 'Operator: Ada');
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.operator-signed-in').innerText),
+          locale === 'de' ? 'Operator: Ada · Abmelden' : 'Operator: Ada · Sign out');
         assert.deepEqual(await page.evaluate(async () => (await (await fetch('/demo/config')).json()).operator), { name: 'Ada' });
         assert.deepEqual(await geometry(page), before, 'sign-in: 0 px shift');
         const form = await shadow(page, c => ({ method: c.shadowRoot.querySelector('.operator-signed-in').method,

@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { mkdtemp, stat, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { SQLiteStorage } from '../src/storage.js';
 import { createOperatorSessions, createSQLiteOperatorStore, OPERATOR_COOKIE, OPERATOR_STATE_COOKIE } from '../src/operator-session.js';
 import { createZitadelOIDC, zitadelOperatorConfig } from '../../../plugins/zitadel-oidc/src/index.js';
@@ -102,4 +105,98 @@ test('AIT-165 a second sign-in revokes the previous grant and logout clears inde
   assert.equal(logout.headers.getSetCookie().length, 2);
   assert.ok(logout.headers.getSetCookie().every(c => c.includes('Max-Age=0')));
   assert.equal(f.port.session(f.req('/', latest)), null);
+});
+
+test('AIT-165 5,000 unauthenticated login starts cannot lock out an operator', async t => {
+  const f = await fixture(t);
+  for (let i = 0; i < 5000; i++) {
+    const response = await f.port.handle(f.req('/api/operator/login/'));
+    assert.equal(new URL(response.headers.get('location'), f.config.publicOrigin).origin, f.issuer.issuer, `login start ${i + 1}`);
+  }
+  const p = await f.login(), response = await f.port.handle(f.req(p.callback.pathname + p.callback.search, p.cookie));
+  assert.equal(response.headers.get('location'), '/#settings-general');
+  assert.equal(f.issuer.exchanges.length, 1);
+  assert.equal(f.storage.db.prepare("SELECT name FROM sqlite_master WHERE name='operator_pending'").get(), undefined, 'no server-side pending proofs');
+});
+
+test('AIT-165 sealed state refuses tampering, duplicates and replay before exchange', async t => {
+  const f = await fixture(t), p = await f.login(), value = p.cookie.split('=')[1];
+  const tampered = p.cookie.slice(0, p.cookie.indexOf('=') + 1) + (value[0] === 'A' ? 'B' : 'A') + value.slice(1);
+  for (const cookie of [tampered, `${p.cookie}; ${p.cookie}`]) {
+    const response = await f.port.handle(f.req(p.callback.pathname + p.callback.search, cookie));
+    assert.equal(response.headers.get('location'), '/?operator=denied#settings-general');
+    assert.match(response.headers.getSetCookie()[0], /Max-Age=0/u);
+  }
+  assert.equal(f.issuer.exchanges.length, 0);
+  const results = await Promise.all([0, 1].map(() => f.port.handle(f.req(p.callback.pathname + p.callback.search, p.cookie))));
+  assert.equal(results.filter(r => r.headers.get('location') === '/#settings-general').length, 1);
+  assert.equal(f.issuer.exchanges.length, 1);
+  const restarted = createOperatorSessions({ provider: f.provider, store: createSQLiteOperatorStore(f.storage.db), publicOrigin: f.config.publicOrigin });
+  assert.equal((await restarted.handle(f.req(p.callback.pathname + p.callback.search, p.cookie))).headers.get('location'), '/?operator=denied#settings-general');
+  assert.equal(f.issuer.exchanges.length, 1);
+});
+
+test('AIT-165 state uses a persistent 0600 host key and contains no plaintext pending proof', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-operator-key-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const issuer = await stubOperatorIssuer(); t.after(() => issuer.close());
+  const config = zitadelOperatorConfig({ AITHEMA_OPERATOR_ISSUER: issuer.issuer, AITHEMA_OPERATOR_CLIENT_ID: 'client',
+    AITHEMA_OPERATOR_SUBJECT: 'allowed-operator', AITHEMA_PUBLIC_ORIGIN: 'https://host.test' });
+  const provider = createZitadelOIDC({ config }), path = join(directory, 'host.sqlite');
+  let storage = new SQLiteStorage(path); t.after(() => storage.close());
+  let port = createOperatorSessions({ provider, store: createSQLiteOperatorStore(storage.db), publicOrigin: config.publicOrigin });
+  const response = await port.handle(new Request(config.publicOrigin + '/api/operator/login/'));
+  const cookie = response.headers.getSetCookie()[0].split(';')[0], url = new URL(response.headers.get('location'));
+  const keyPath = join(directory, 'operator-state.key'), key = await readFile(keyPath);
+  assert.equal(key.length, 32); assert.equal((await stat(keyPath)).mode & 0o777, 0o600);
+  const raw = Buffer.from(cookie.split('=')[1], 'base64url').toString('utf8');
+  for (const name of ['state', 'nonce']) assert.equal(raw.includes(url.searchParams.get(name)), false);
+  storage.close(); storage = new SQLiteStorage(path);
+  port = createOperatorSessions({ provider, store: createSQLiteOperatorStore(storage.db), publicOrigin: config.publicOrigin });
+  assert.deepEqual(await readFile(keyPath), key, 'restarts reuse the same host secret');
+  const callback = issuer.authorize(url);
+  assert.equal((await port.handle(new Request(callback, { headers: { cookie } }))).headers.get('location'), '/#settings-general');
+  assert.equal((await port.handle(new Request(callback, { headers: { cookie } }))).headers.get('location'), '/?operator=denied#settings-general');
+});
+
+test('AIT-165 normalizes a safe issuer trailing slash while retaining fixed paths and the exact redirect', () => {
+  const config = zitadelOperatorConfig({ AITHEMA_OPERATOR_ISSUER: 'https://issuer.test/', AITHEMA_OPERATOR_CLIENT_ID: 'client',
+    AITHEMA_OPERATOR_SUBJECT: 'subject', AITHEMA_PUBLIC_ORIGIN: 'https://host.test' });
+  assert.equal(config.issuer, 'https://issuer.test');
+  const url = new URL(createZitadelOIDC({ config }).begin().url);
+  assert.equal(url.pathname, '/oauth/v2/authorize');
+  assert.equal(url.searchParams.get('redirect_uri'), 'https://host.test/api/operator/callback/');
+});
+
+for (const [label, claims, accepted] of [
+  ['recent expiry', now => ({ exp: now - 15 }), true],
+  ['small future iat', now => ({ iat: now + 15 }), true],
+  ['expiry beyond tolerance', now => ({ exp: now - 45 }), false],
+  ['future iat beyond tolerance', now => ({ iat: now + 45 }), false],
+]) test(`AIT-165 30-second ID token clock tolerance: ${label}`, async t => {
+  const f = await fixture(t), start = await f.port.handle(f.req('/api/operator/login/'));
+  const callback = f.issuer.authorize(start.headers.get('location'), claims(Math.floor(Date.now() / 1000)));
+  const cookie = start.headers.getSetCookie()[0].split(';')[0];
+  const response = await f.port.handle(f.req(callback.pathname + callback.search, cookie));
+  assert.equal(response.headers.get('location'), accepted ? '/#settings-general' : '/?operator=denied#settings-general');
+});
+
+test('AIT-165 unknown kid cannot refetch JWKS within the 30-second cooldown', async t => {
+  const f = await fixture(t);
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  const complete = async header => {
+    const { pending, url } = f.provider.begin(), callback = f.issuer.authorize(url, {}, header);
+    return f.provider.complete(callback.searchParams.get('code'), pending);
+  };
+  await complete({}); assert.equal(f.issuer.keysRead(), 1);
+  for (let i = 0; i < 5; i++) await assert.rejects(complete({ kid: `unknown-${i}` }), { code: 'ERR_JWKS_NO_MATCHING_KEY' });
+  assert.equal(f.issuer.keysRead(), 1, 'unknown keys must not force repeated downloads');
+  t.mock.timers.tick(29_999);
+  await assert.rejects(complete({ kid: 'unknown' }), { code: 'ERR_JWKS_NO_MATCHING_KEY' });
+  assert.equal(f.issuer.keysRead(), 1, 'still cooling down at 29,999 ms');
+  t.mock.timers.tick(1);
+  await assert.rejects(complete({ kid: 'unknown' }), { code: 'ERR_JWKS_NO_MATCHING_KEY' });
+  assert.equal(f.issuer.keysRead(), 2, 'one refetch permitted after 30 seconds');
+  await assert.rejects(complete({ kid: 'unknown' }), { code: 'ERR_JWKS_NO_MATCHING_KEY' });
+  assert.equal(f.issuer.keysRead(), 2, 'the refetch starts a new cooldown');
 });
