@@ -59,6 +59,7 @@ export const hostStyles = `
 .verify__actions { display:flex; flex-wrap:wrap; align-items:center; gap:.25rem .5rem; }
 /* Keep the sending action's reservation while each label hugs its own button. */
 .verify__primary { display:grid; } .verify__primary > * { grid-area:1/1; justify-self:stretch; min-height:2.75rem; }
+.verify-primary-measure { visibility:hidden; padding:.5rem .85rem; font-weight:600; }
 /* Labels keep one line; Cancel moves below the button when the pair does not fit. */
 .verify-dialog .verify__actions { gap:24px; }
 .verify-dialog .verify__primary, .verify-dialog .verify-cancel { flex:none; white-space:nowrap; }

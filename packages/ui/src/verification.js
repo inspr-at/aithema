@@ -41,6 +41,7 @@ export class Verification {
       setText(form.root.querySelector('.verify__label'), v.label); form.input.placeholder = v.placeholder;
       setText(form.pending.querySelector('span'), v.sentTo); setText(form.done.querySelector('span'), v.confirmed);
       for (const key of ['send', 'resend', 'cancel', 'change']) setText(form[key], v[key]);
+      setText(form.root.querySelector('.verify-primary-measure'), v.send);
     }
     this.#paint();
   }
@@ -75,6 +76,27 @@ export class Verification {
   focusEntry() { this.#email.focus(); }
   get delivery() { return this.#email.delivery; }
   get canCollect() { return this.#email.canCollect; }
+  get email() { return this.#email; }
+  /** A2 save acknowledgement precedes C1/C2. A failed link keeps the saved tier. */
+  async saveAndConfirm(address) {
+    if (!this.#email.notice?.version) await this.load();
+    if (!this.#alive) return { ok: false };
+    this.#identityGeneration++;
+    const saved = await this.#email.persist(address);
+    if (!this.#alive || !saved?.ok) return saved;
+    if (this.#identity?.address !== saved.body.visitor.address) this.set({ ...this.#identity, address: saved.body.visitor.address, status: 'guest' }, { quiet: true });
+    await this.#creditsChanged?.();
+    this.#onChange?.({ saved: true });
+    if (!this.#alive || !this.delivery) return { ...saved, sent: false };
+    const command = this.#identity?.status === 'guest' || !this.#identity?.address ? 'request' : 'change';
+    let link;
+    try { link = await this.#request(`identity/${command}`, { address }); } catch { /* Saved credit is retained. */ }
+    if (!this.#alive) return { ok: false };
+    if (link?.body?.identity) this.set(link.body.identity);
+    await this.#creditsChanged?.();
+    this.#onChange?.({ saved: true });
+    return { ...saved, sent: link?.ok === true && link.body?.identity?.delivery !== 'failed', identity: link?.body?.identity };
+  }
   set(identity, { quiet = false } = {}) {
     this.#identityGeneration++;
     const before = this.#identity;
@@ -157,7 +179,8 @@ export class Verification {
     const send = node('button', 'verify-send', v.send); send.type = 'submit'; send.setAttribute('aria-describedby', `${prefix}-message ai-notice`);
     const resend = node('button', 'verify-resend', v.resend); resend.type = 'button'; resend.setAttribute('aria-describedby', `${prefix}-note ai-notice`);
     const cancel = node('button', 'verify-cancel', v.cancel); cancel.type = 'button';
-    primary.append(send, resend); actions.append(primary, cancel);
+    const measure = node('span', 'verify-primary-measure', v.send); measure.setAttribute('aria-hidden', 'true');
+    primary.append(send, resend, measure); actions.append(primary, cancel);
     const message = node('p', 'verify__message'); message.id = `${prefix}-message`; message.setAttribute('role', 'status');
     const note = node('p', 'verify__note'); note.id = `${prefix}-note`;
     const lead = node('p', 'verify__lead m-two'); lead.append(node('span', 'verify__lead-mail'), node('span', 'verify__lead-reconfirm'));
@@ -186,14 +209,16 @@ export class Verification {
     if (!address || !entry.input.checkValidity?.() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(address)) {
       this.#ui = { ...this.#ui, message: v.invalid, error: true }; this.#paint(); entry.input.focus(); return;
     }
-    // A given address already earns the saved tier while the confirmation link is pending.
-    if (this.#email.notice?.version) {
-      this.#ui = { ...this.#ui, busy: true, message: v.sending, error: false }; this.#paint();
-      let response; try { response = await this.#request('/api/visitor/email', { address, noticeVersion: this.#email.notice.version }, 'PUT'); } catch { /* No acknowledgement. */ }
+    // Hosts with visitor tiers must never skip saving while the notice loads.
+    if (this.#email.tiers || this.#email.notice?.version) {
+      this.#ui = { ...this.#ui, busy: true, message: this.#copy.hostSurface.email.saving, error: false }; this.#paint();
+      const response = await this.saveAndConfirm(address);
       if (!this.#alive) return;
       this.#ui.busy = false;
-      if (!response?.ok || !response.body?.visitor) { this.#ui.message = response?.status === 400 ? v.invalid : v.failed; this.#ui.error = true; this.#paint(); return; }
-      this.#email.set({ visitor: response.body.visitor }); await this.#creditsChanged?.();
+      if (!response?.ok) { this.#ui.message = response?.status === 400 ? v.invalid : this.#copy.hostSurface.email.failed; this.#ui.error = true; this.#paint(); return; }
+      this.#ui.editing = false; entry.input.value = '';
+      this.#ui.message = response.sent ? '' : v.deliveryFailed; this.#ui.error = !response.sent;
+      this.#paint(); this.#focusForm(entry); return;
     }
     const command = this.#identity?.status === 'guest'  || !this.#identity?.address ? 'request' : 'change';
     await this.#post(`identity/${command}`, { address }, () => { this.#ui.editing = false; entry.input.value = ''; });
@@ -257,6 +282,7 @@ export class Verification {
       form.cancel.toggleAttribute('inert', !(this.#ui.editing && mode === 'capture'));
       // Busy and cooling down stay focusable (aria-disabled): a disabled button would drop focus.
       form.send.setAttribute('aria-disabled', String(this.#ui.busy));
+      setText(form.send, this.#email.tiers ? this.#copy.hostSurface.email.save : v.send);
       form.resend.setAttribute('aria-disabled', String(this.#ui.busy || cooldown > 0));
       setText(form.message, text); form.message.dataset.error = String(Boolean(this.#ui.error && this.#ui.message));
       setText(form.note, note);

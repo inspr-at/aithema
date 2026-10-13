@@ -59,6 +59,12 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
       token_hash TEXT PRIMARY KEY, visitor_ref TEXT NOT NULL REFERENCES visitor_identities(visitor_ref) ON DELETE CASCADE,
       session_id TEXT NOT NULL, address_revision INTEGER NOT NULL, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL, redeemed_at INTEGER);
       CREATE INDEX IF NOT EXISTS visitor_token_retention ON visitor_confirmation_tokens(created_at);
+      CREATE TABLE IF NOT EXISTS visitor_email_asks (
+        visitor_ref TEXT PRIMARY KEY REFERENCES visitor_identities(visitor_ref) ON DELETE CASCADE,
+        shown_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS visitor_low_email_asks (
+        visitor_ref TEXT PRIMARY KEY REFERENCES visitor_identities(visitor_ref) ON DELETE CASCADE,
+        shown_at INTEGER NOT NULL, armed INTEGER NOT NULL CHECK(armed IN (0,1)));
       CREATE TABLE IF NOT EXISTS visitor_identity_cleanup (owner_hash TEXT PRIMARY KEY, at TEXT NOT NULL);`);
     const columns = db.prepare('PRAGMA table_info(visitor_credit_settings)').all();
     const existing = db.prepare('SELECT 1 FROM visitor_credit_settings WHERE id=1').get();
@@ -156,7 +162,19 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
         state.status === 'verification-pending' ? state.verificationRevision !== row.address_revision ? at : row.pending_at ?? at : null,
         JSON.stringify(fields(state)), at, row.visitor_ref);
     if (changed) db.prepare('DELETE FROM visitor_confirmation_tokens WHERE visitor_ref=?').run(row.visitor_ref);
+    if (confirmed) resolveLowLines(ownerHash, 'confirm');
     return { erased };
+  }
+  function resolveLowLines(ownerHash, kind) {
+    for (const row of db.prepare(`SELECT h.session_id,h.record FROM host_states h JOIN sessions s ON s.id=h.session_id
+      WHERE json_extract(s.snapshot,'$.ownerHash')=? AND json_extract(h.record,'$.emailAsk.lowLine.kind')=?
+      AND COALESCE(json_extract(h.record,'$.emailAsk.lowLine.resolved'),0)=0`).all(ownerHash, kind)) {
+      // saveEmail / identityTransition already own the writer transaction.
+      const state = JSON.parse(row.record);
+      state.emailAsk = { ...state.emailAsk, revision: (state.emailAsk.revision ?? 0) + 1,
+        lowLine: { ...state.emailAsk.lowLine, resolved: true } };
+      db.prepare('UPDATE host_states SET record=? WHERE session_id=?').run(JSON.stringify(state), row.session_id);
+    }
   }
   const queueCleanup = ownerHash => db.prepare('INSERT OR REPLACE INTO visitor_identity_cleanup VALUES (?,?)').run(ownerHash, new Date(timestamp()).toISOString());
   function clearAddress(ownerHash) {
@@ -184,6 +202,40 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
     db.prepare('DELETE FROM visitor_identity_cleanup WHERE owner_hash=?').run(ownerHash);
   }
   return { settings, policy, visitor, touch, projectIdentity, persistIdentity,
+    lowEmailAsk(ownerHash) {
+      const row = db.prepare(`SELECT shown_at,armed FROM visitor_low_email_asks a
+        JOIN visitor_identities v USING(visitor_ref) WHERE v.owner_hash=?`).get(ownerHash);
+      return { after: row ? row.shown_at + DAY : 0, armed: !row || row.armed === 1 };
+    },
+    // Cooldown and the balance latch are visitor-wide. A high balance only
+    // re-arms the latch; it never shortens the rolling 24-hour cooldown.
+    rearmLowEmailAsk(ownerHash) {
+      return atomic(() => db.prepare(`UPDATE visitor_low_email_asks SET armed=1
+        WHERE visitor_ref=(SELECT visitor_ref FROM visitor_identities WHERE owner_hash=?) AND armed=0`).run(ownerHash).changes === 1);
+    },
+    claimLowEmailAsk(ownerHash) {
+      return atomic(() => {
+        const row = ensure(ownerHash), at = timestamp();
+        return db.prepare(`INSERT INTO visitor_low_email_asks VALUES (?,?,0)
+          ON CONFLICT(visitor_ref) DO UPDATE SET shown_at=excluded.shown_at,armed=0
+          WHERE visitor_low_email_asks.armed=1 AND visitor_low_email_asks.shown_at<=excluded.shown_at-?`)
+          .run(row.visitor_ref, at, DAY).changes === 1;
+      });
+    },
+    emailAskAfter(ownerHash) {
+      const row = db.prepare(`SELECT shown_at FROM visitor_email_asks a JOIN visitor_identities v USING(visitor_ref) WHERE v.owner_hash=?`).get(ownerHash);
+      return row ? row.shown_at + DAY : 0;
+    },
+    // One rolling day per visitor, shared by all conversations and tabs. The
+    // surrounding host transaction commits this claim with the gate record.
+    claimEmailAsk(ownerHash) {
+      return atomic(() => {
+        const row = ensure(ownerHash), at = timestamp();
+        return db.prepare(`INSERT INTO visitor_email_asks VALUES (?,?)
+          ON CONFLICT(visitor_ref) DO UPDATE SET shown_at=excluded.shown_at
+          WHERE visitor_email_asks.shown_at<=excluded.shown_at-?`).run(row.visitor_ref, at, DAY).changes === 1;
+      });
+    },
     auditEvent(event, evidence) {
       // Mail evidence is deliberately address/token-free; callers supply only
       // an opaque visitor reference, outcome and event name.
@@ -255,6 +307,7 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
           pending_at=?,notice_version=?,identity_json=?,updated_at=? WHERE visitor_ref=?`)
           .run(input.address, identity.verificationRevision, at, changed ? null : row.confirmed_at, changed ? null : row.pending_at,
             input.noticeVersion, JSON.stringify(identity), at, row.visitor_ref);
+        resolveLowLines(ownerHash, 'give');
         return visitor(ownerHash);
       });
       storage.checkpointErasure(); return result;
