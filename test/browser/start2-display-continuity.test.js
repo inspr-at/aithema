@@ -144,13 +144,28 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
           assert.deepEqual(oldTab, { composerHint: copy.voiceInAnotherTab, panelStatus: copy.voiceInAnotherTab,
             mic: copy.voiceResumeHereFirst, speaker: copy.voiceResumeHereFirst });
         }
-        checks.push({ width, theme, locale, state: name, ...presentation, composerFullyVisible: composer.fullyVisible,
-          composer, pass: true });
         const file = `ait-138-d-${name}-${label}.png`; files.push(file);
+        const png = await target.screenshot({ ...(evidence ? { path: join(evidence, file) } : {}), fullPage: false });
+        const paintTargets = await shadow(target, c => ['.attach', '.send'].map(selector => {
+          const r = c.shadowRoot.querySelector(selector).getBoundingClientRect();
+          return { selector, x: Math.ceil(r.left + 5), y: Math.ceil(r.top + 5), width: Math.floor(r.width - 10), height: Math.floor(r.height - 10) };
+        }));
+        composer.paint = await target.evaluate(async ({ encoded, targets }) => {
+          const bitmap = await createImageBitmap(new Blob([Uint8Array.from(atob(encoded), c => c.charCodeAt(0))], { type: 'image/png' }));
+          const canvas = document.createElement('canvas'); canvas.width = bitmap.width; canvas.height = bitmap.height;
+          const ctx = canvas.getContext('2d', { willReadFrequently: true }); ctx.drawImage(bitmap, 0, 0); bitmap.close();
+          return targets.map(({ selector, x, y, width, height }) => {
+            const pixels = ctx.getImageData(x, y, width, height).data, min = [255, 255, 255], max = [0, 0, 0];
+            for (let i = 0; i < pixels.length; i += 4) for (let channel = 0; channel < 3; channel++) {
+              min[channel] = Math.min(min[channel], pixels[i + channel]); max[channel] = Math.max(max[channel], pixels[i + channel]);
+            }
+            return { selector, contrast: Math.max(...max.map((v, i) => v - min[i])) };
+          });
+        }, { encoded: Buffer.from(png).toString('base64'), targets: paintTargets });
+        const composerPainted = composer.paint.every(p => p.contrast >= 24);
         if (evidence) {
-          await target.screenshot({ path: join(evidence, file), fullPage: false });
-          await writeFile(join(evidence, `${file}.json`), JSON.stringify({ name, width, theme, locale, composer, presentation }, null, 2));
-          if (evidence.includes('paint-probe') && locale === 'de' && theme === 'light' && width >= 960) {
+          await writeFile(join(evidence, `${file}.json`), JSON.stringify({ name, width, theme, locale, composer, presentation, composerPainted }, null, 2));
+          if (!composerPainted && locale === 'de' && theme === 'light' && width >= 960) {
             const paint = await shadow(target, c => {
               const nodes = []; for (let n = c.shadowRoot.querySelector('.composer'); n; n = n.parentElement) {
                 const s = getComputedStyle(n); nodes.push({ class: n.className, opacity: s.opacity, visibility: s.visibility,
@@ -166,6 +181,9 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
             await target.screenshot({ path: join(evidence, `delayed-${file}`), fullPage: false });
           }
         }
+        assert.ok(composerPainted, `${label}/${name}: composer controls must be painted in the viewport PNG: ${JSON.stringify(composer.paint)}`);
+        checks.push({ width, theme, locale, state: name, ...presentation, composerFullyVisible: composer.fullyVisible && composerPainted,
+          composer, composerPainted, pass: true });
         // Compare state transitions at the same scroll offset; sticky offsets follow capture scrolling.
         await target.evaluate(top => { window.scrollTo(0, top); }, scrollBefore);
         await target.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
