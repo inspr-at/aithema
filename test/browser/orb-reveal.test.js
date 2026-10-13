@@ -196,6 +196,8 @@ test('AIT-153: contrast waits for delayed entry and still rejects a settled cont
   t.after(() => browser.close());
   const page = await browser.newPage(); await page.setViewport({ width: 1440, height: 900 });
   await page.goto(`${url}/?locale=en&theme=light`); await page.waitForFunction(() => window.ready);
+  assert.equal(await page.$eval('.aithema-reveal__glass', node => getComputedStyle(node).opacity), '0', 'the closed backdrop is established before opening');
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   await page.evaluate(() => {
     // Delay the genuine glass transition past the old screenshot clock. Text
     // is already visible while its backdrop is still entering on a busy runner.
