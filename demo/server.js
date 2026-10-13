@@ -66,7 +66,7 @@ const htmlPlugin = html.mode === 'fake' ? createLocalHTML() : html.mode === 'cla
   ? createClaudeHTML({ binding: html.binding, spend: spendCap, capMicro: html.capMicro }) : null;
 const htmlSelection = htmlPlugin ? { html: html.binding ?? localHTMLBinding } : {};
 const reasoning = provider === 'mock' ? createMockReasoning() : provider === 'openrouter'
-  ? createOpenRouterReasoning({ binding: privateBinding, spendCap, prices: openrouter.prices }) : createMistralReasoning({ binding: privateBinding });
+  ? createOpenRouterReasoning({ binding: privateBinding, spendCap, prices: openrouter.prices, uncertainEstimateMicro: openrouter.uncertainEstimateMicro }) : createMistralReasoning({ binding: privateBinding });
 const secrets = createFacadeSecrets();
 const voiceMode = providerMode(process.env.AITHEMA_VOICE_MODE, live);
 if (!['fake', 'off', 'elevenlabs'].includes(voiceMode)) throw new TypeError('Unknown voice mode');
@@ -154,7 +154,7 @@ function retainVisitors() {
 retainVisitors();
 const visitorRetention = setInterval(retainVisitors, 24 * 60 * 60_000);
 visitorRetention.unref();
-const admin = await listenAdmin({ host, spendCap, socketPath: process.env.AITHEMA_ADMIN_SOCKET ??
+const admin = await listenAdmin({ host, spendCap, reconcileUncertain: options => handlers.reconcileUncertain(options), socketPath: process.env.AITHEMA_ADMIN_SOCKET ??
   join(dirname(resolve(process.env.AITHEMA_DB ?? defaultDb)), 'ops', 'admin') });
 // Expire old evidence before recovery can authorize fresh work.
 await handlers.resume();

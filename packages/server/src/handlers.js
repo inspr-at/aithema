@@ -498,6 +498,13 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         }
       }
     },
+    async reconcileUncertain({ apply = false, limit = 10 } = {}) {
+      if (typeof apply !== 'boolean' || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new TypeError('Invalid repair request');
+      const options = { dryRun: !apply, limit, signal: stop.signal, deadlineAt: Date.now() + 60_000 };
+      const reasoning = await pluginRuntime.reconcileCosts(options);
+      const voice = await voiceHandlers?.reconcileUncertain(options) ?? { candidates: 0, beforeMicro: 0, afterMicro: 0, corrected: 0, pending: 0 };
+      return { dryRun: !apply, reasoning, voice };
+    },
     reconcileVoiceLater() { voiceHandlers?.reconcileLater(); },
     async resume() {
       hostHandlers.resume();

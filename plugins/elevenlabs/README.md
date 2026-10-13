@@ -529,9 +529,14 @@ const voiceSelection = {
 
 `createDurationBinding` validates it. `model` must equal the exact agent id, so
 account evidence cannot qualify another agent accidentally. `maxDurationSeconds`
-is 1–86400. With `reservationSeconds`, only the expected segment cost must fit
-`maxMicro`; the runtime atomically extends that priced reservation while money
-remains and closes the call when an extension is refused. Without that optional
+is 1–86400. With `reservationSeconds`, the expected segment cost must fit
+`maxMicro`; admission/start reserves at least `minRunwaySeconds` (host default 120). Rolling extensions reserve elapsed time
+plus one segment; a refused next segment uses the already funded time before
+closing with `budget-limit`. A shorter technical call reserves
+its entire remaining duration. Insufficient funds return `host-limit` before facade
+provisioning or credential minting; the rail uses its existing “Credits aufgebraucht”
+state. An extension refusal keeps the existing clean close. Every adapter close
+logs `{event: 'voice-closed', reason, callHash, providerHash}` once, without raw ids. Without that optional
 setting the legacy full-duration bound applies. Visitor holds are computed
 from their separate rate. The token fields are common binding compatibility fields;
 voice duration never uses them as token rates. `legal.evidence` must match account,

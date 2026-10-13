@@ -11,11 +11,12 @@ export function voiceCostConfig(values = {}) {
   const maxDurationSeconds = seconds('AITHEMA_VOICE_MAX_DURATION_SECONDS', 3600);
   const reservationSeconds = seconds('AITHEMA_VOICE_RESERVATION_SECONDS', 30);
   if (reservationSeconds > maxDurationSeconds) throw new TypeError('Voice reservation must fit the technical duration');
+  const minRunwaySeconds = seconds('AITHEMA_VOICE_MIN_RUNWAY_SECONDS', 120);
   const upstreamMicroPerMinute = usdMicro(values.AITHEMA_VOICE_USD_PER_MINUTE ?? '0.10');
   const raw = values.AITHEMA_ELEVENLABS_USD_PER_CREDIT;
   const usdPerCredit = raw === undefined ? undefined : Number(raw);
   if (raw !== undefined && (typeof raw !== 'string' || !/^\d+(?:\.\d+)?$/u.test(raw) || !Number.isFinite(usdPerCredit) || usdPerCredit < 0)) {
     throw new TypeError('AITHEMA_ELEVENLABS_USD_PER_CREDIT must be a nonnegative decimal USD rate');
   }
-  return { maxDurationSeconds, reservationSeconds, upstreamMicroPerMinute, ...(usdPerCredit === undefined ? {} : { usdPerCredit }) };
+  return { maxDurationSeconds, reservationSeconds, minRunwaySeconds, upstreamMicroPerMinute, ...(usdPerCredit === undefined ? {} : { usdPerCredit }) };
 }

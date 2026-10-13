@@ -10,6 +10,10 @@ import { temporaryDb, unzip } from '../../../test/helpers.js';
 import { eventProbe } from '../../../test/voice-test-events.js';
 import { createElevenLabsServer } from '../../../plugins/elevenlabs/src/server.js';
 import { createDemoHost } from '../../../demo/host-ports.js';
+import { Window } from 'happy-dom';
+import { AudioRail } from '../../ui/src/audio-rail.js';
+import { createVoiceControl } from '../../ui/src/voice-control.js';
+import { en } from '../../ui/src/i18n/en.js';
 
 const test = (name, fn) => nodeTest(name, { timeout: 60_000 }, fn);
 
@@ -266,7 +270,7 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
   const voiceCap = cap ? createVoiceCap({ storage, now, ...cap }) : undefined;
   const binding = { plugin: 'elevenlabs', model: 'fixture-agent', agentId: 'fixture-agent', effort: 'none',
     endpoint: 'https://provider.test', accountRef: 'fixture', secretRef: 'fixture-ref', maxMicro: 60_000,
-    maxTokens: 1, rates: { inputMicro: 0, outputMicro: 0 }, maxDurationSeconds: 60,
+    maxTokens: 1, rates: { inputMicro: 0, outputMicro: 0 }, maxDurationSeconds: 60, minRunwaySeconds: 1,
     upstreamMicroPerMinute: 60_000, visitorMicroPerMinute: 120_000, publicFacadeBaseUrl: 'https://facade.test', ...durationBinding };
   binding.legal = { approved: true, countries: ['AT'], training: false, retention: 'fixture', purpose: 'conversation',
     recipient: 'fixture', processors: [], dataCategories: ['conversation'], consentVersion: 1,
@@ -2946,3 +2950,177 @@ for (const change of ['consent-withdrawal', 'external-consent-withdrawal', 'sour
     }
   });
 }
+
+test('AIT-163: less than the minimum runway refuses before provisioning or minting', async t => {
+  const h = voiceFixture(t, { durationBinding: { maxDurationSeconds: 3600, reservationSeconds: 30 },
+    host: args => createDemoHost({ ...args, ownerGuard: false }) });
+  delete h.presets.best.bindings.voice.minRunwaySeconds; // Exercise the host's default 120 seconds.
+  h.host.visitorCredits.saveSettings({ baseRevision: h.host.visitorCredits.settings().revision,
+    allowancesUsd: { anonymous: '0.045', emailGiven: '0.045', emailConfirmed: '0.045' } }, { actor: 'ops-cli:fixture', source: 'ops-cli' });
+  const response = await h.route('/voice', { callId: 'too-short' });
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).reason, 'host-limit');
+  assert.equal(h.traffic.length, 0); assert.equal(h.provisioned.length, 0);
+  assert.equal(h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n, 0);
+});
+
+for (const funding of ['session', 'voiceVisitor', 'owner']) test(`AIT-163 fix3: ${funding} cannot fund a recovery segment and the 403 renders A2 used-up`, async t => {
+  const h = voiceFixture(t, { durationBinding: { maxDurationSeconds: 3600, reservationSeconds: 30, minRunwaySeconds: 120 },
+    host: args => createDemoHost({ ...args, ownerGuard: false }) });
+  const first = await h.start();
+  await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId, reason: 'transport-lost' });
+  await h.handlers.idle();
+  if (funding === 'owner') h.host.visitorCredits.saveSettings({ baseRevision: h.host.visitorCredits.settings().revision,
+    allowancesUsd: { anonymous: '0.029', emailGiven: '0.029', emailConfirmed: '0.029' } }, { actor: 'ops-cli:fixture', source: 'ops-cli' });
+  else if (funding === 'session') h.runtime.budget.sessionCapMicro = h.runtime.budget.used(h.session.id) + 29_999;
+  else h.runtime.budget.visitorCapMicro = h.runtime.budget.visitorUsed(h.session.id) + 59_999;
+  const attempts = h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n;
+  const credentials = h.provisioned.length, healthReads = h.authChecks().healthReads;
+  let denial;
+  t.mock.method(globalThis, 'fetch', async (url, init) => {
+    const response = await h.handlers.handle(new Request(url, init));
+    denial = { status: response.status, body: await response.clone().json() };
+    return response;
+  });
+  const { control } = createVoiceControl({ baseUrl: 'http://host', sessionId: h.session.id, sessionToken: 'voice-owner' });
+  const window = new Window(), root = window.document.createElement('div'); window.document.body.append(root);
+  const rail = new AudioRail({ root, copy: en, feature: () => ({ available: true }), context: () => ({}),
+    waitingCall: { ...first, state: 'waiting' },
+    client: { start: (identity, options) => control.recover({ ...identity, explicit: true }, options) } });
+  t.after(async () => { rail.destroy(); await window.happyDOM.close(); });
+  await rail.start();
+  assert.deepEqual(denial, { status: 403, body: { error: 'not-admitted', reason: 'host-limit' } });
+  assert.equal(root.hasAttribute('data-used-up'), true);
+  assert.equal(root.querySelector('.voice-state').textContent, en.voiceStates.usedUp);
+  assert.equal(root.hasAttribute('data-message'), false, 'the calm used-up state replaces a generic connection error');
+  assert.equal(h.authChecks().healthReads, healthReads + 1, 'recovery rechecks provider health');
+  assert.equal(h.storage.db.prepare("SELECT COUNT(*) n FROM budget_attempts WHERE lane='voice'").get().n, attempts);
+  assert.equal(h.provisioned.length, credentials, 'denied recovery never provisions a replacement');
+});
+
+test('AIT-163 fix3: recovery can fund one segment without the 120-second new-call runway', async t => {
+  const h = voiceFixture(t, { durationBinding: { maxDurationSeconds: 3600, reservationSeconds: 30, minRunwaySeconds: 120 },
+    host: args => createDemoHost({ ...args, ownerGuard: false }) });
+  const first = await h.start();
+  await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId, reason: 'transport-lost' });
+  await h.handlers.idle();
+  h.host.visitorCredits.saveSettings({ baseRevision: h.host.visitorCredits.settings().revision,
+    allowancesUsd: { anonymous: '0.045', emailGiven: '0.045', emailConfirmed: '0.045' } }, { actor: 'ops-cli:fixture', source: 'ops-cli' });
+  const wallet = h.host.wallet('voice-owner');
+  assert.equal(wallet.canAdmit({ maxMicro: 30_000 }), true);
+  assert.equal(wallet.canAdmit({ maxMicro: 120_000 }), false);
+  const healthReads = h.authChecks().healthReads;
+  const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId, explicit: true });
+  const recovered = await response.json(); assert.equal(response.status, 200, JSON.stringify(recovered));
+  assert.equal(h.authChecks().healthReads, healthReads + 1);
+  assert.equal(recovered.callId, first.callId); assert.equal(recovered.spendDeadlineAt, first.spendDeadlineAt);
+  assert.notEqual(recovered.providerSessionId, first.providerSessionId);
+  const row = h.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='voice' ORDER BY rowid DESC LIMIT 1").get();
+  assert.equal(row.max_micro, 30_000); assert.equal(row.max_visitor_micro, 60_000);
+});
+
+test('AIT-163 fix3: an unhealthy provider refuses recovery before provisioning a replacement', async t => {
+  const h = voiceFixture(t, { durationBinding: { maxDurationSeconds: 3600, reservationSeconds: 30, minRunwaySeconds: 120 } });
+  const first = await h.start();
+  await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId, reason: 'transport-lost' });
+  await h.handlers.idle();
+  const credentials = h.provisioned.length;
+  const health = t.mock.method(h.plugin, 'health', async () => ({ available: false }));
+  const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId, explicit: true });
+  assert.equal(response.status, 403); assert.equal((await response.json()).error, 'not-admitted');
+  assert.equal(health.mock.callCount(), 1);
+  assert.equal(h.provisioned.length, credentials);
+});
+
+test('AIT-163 fix2: recovery with less than 120 seconds remaining reserves one segment and preserves the deadline', async t => {
+  const h = voiceFixture(t, { leaseMs: 300_000, durationBinding: {
+    maxDurationSeconds: 180, reservationSeconds: 30, minRunwaySeconds: 120,
+  } });
+  h.presets.best.bindings.voice.legal.evidence.expiresAt = h.now() + 300_000;
+  const first = await h.start(); h.advance(90_000);
+  const response = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: first.providerSessionId });
+  const recovered = await response.json(); assert.equal(response.status, 200, JSON.stringify(recovered));
+  assert.equal(recovered.callId, first.callId); assert.equal(recovered.spendDeadlineAt, first.spendDeadlineAt);
+  assert.notEqual(recovered.providerSessionId, first.providerSessionId);
+  const row = h.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='voice' ORDER BY rowid DESC LIMIT 1").get();
+  assert.equal(row.max_micro, 30_000); assert.equal(row.max_visitor_micro, 60_000);
+  h.advance(70_000);
+  const last = await h.route(`/voice/${first.callId}/recover`, { providerSessionId: recovered.providerSessionId });
+  const tail = await last.json(); assert.equal(last.status, 200, JSON.stringify(tail));
+  assert.equal(tail.spendDeadlineAt, first.spendDeadlineAt);
+  assert.equal(h.storage.db.prepare("SELECT max_micro FROM budget_attempts WHERE lane='voice' ORDER BY rowid DESC LIMIT 1").get().max_micro, 20_000);
+});
+
+test('AIT-163: legacy unconfirmed voice rows without the pending flag reconcile on schedule', async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
+  const h = voiceFixture(t, { voiceOptions: { reconcileIntervalMs: 10,
+    async closeOrphan(record) { return { providerSessionId: record.providerSessionId, outcome: 'completed', closureConfirmed: true,
+      usage: { providerSeconds: 1, providerMinutes: 1 / 60, pausedSeconds: 0, visitorSeconds: 1, upstreamMicro: 1000, visitorMicro: 2000 } }; } } });
+  const grant = await h.start(); await h.route(`/voice/${grant.callId}/close`, { providerSessionId: grant.providerSessionId });
+  const record = h.storage.voiceCalls()[0];
+  h.storage.saveVoiceCall(h.session.id, { ...record, reconciliationPending: false, terminal: { ...record.terminal, closureConfirmed: false, outcome: 'uncertain' } });
+  h.handlers.reconcileVoiceLater(); t.mock.timers.tick(10);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.runtime.budget.get(record.attemptId).settled_micro, 1000);
+});
+
+test('AIT-163 fix1: rolling extensions reserve elapsed plus segment without another runway', async t => {
+  const h = voiceFixture(t, { durationBinding: { maxDurationSeconds: 3600, reservationSeconds: 30, minRunwaySeconds: 120 },
+    host: args => createDemoHost({ ...args, ownerGuard: false }) });
+  h.host.visitorCredits.saveSettings({ baseRevision: h.host.visitorCredits.settings().revision,
+    allowancesUsd: { anonymous: '0.13', emailGiven: '0.13', emailConfirmed: '0.13' } }, { actor: 'ops-cli:fixture', source: 'ops-cli' });
+  const admitted = await h.runtime.admitVoice({ session: h.storage.get(h.session.id), request: { callId: 'extend-runway' } });
+  const attempt = admitted.options.attempt;
+  assert.equal(h.runtime.budget.get(attempt.attemptId).max_micro, 120_000);
+  await attempt.consume();
+  assert.doesNotThrow(() => attempt.extend(120));
+  assert.throws(() => attempt.extend(135), { code: 'not-admitted' });
+  assert.equal(h.runtime.budget.get(attempt.attemptId).max_micro, 120_000);
+  admitted.finish();
+});
+
+for (const allowance of ['0.12', '0.134']) test(`AIT-163 fix1: ${allowance} funded voice runs 120 seconds before budget-limit`, async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: Date.now() });
+  const h = voiceFixture(t, { leaseMs: 300_000,
+    durationBinding: { maxDurationSeconds: 3600, reservationSeconds: 30, minRunwaySeconds: 120 },
+    host: args => createDemoHost({ ...args, ownerGuard: false }) });
+  h.host.visitorCredits.saveSettings({ baseRevision: h.host.visitorCredits.settings().revision,
+    allowancesUsd: { anonymous: allowance, emailGiven: allowance, emailConfirmed: allowance } }, { actor: 'ops-cli:fixture', source: 'ops-cli' });
+  const grant = await h.start();
+  for (let elapsed = 15; elapsed <= 105; elapsed += 15) {
+    h.advance(15_000); t.mock.timers.tick(15_000);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.storage.voiceCalls()[0].closing, undefined, `call still funded at ${elapsed}s`);
+  }
+  h.advance(14_999); t.mock.timers.tick(14_999);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.storage.voiceCalls()[0].closing, undefined);
+  h.advance(1); t.mock.timers.tick(1);
+  await h.waitForClosure(grant.providerSessionId);
+  await new Promise(resolve => setImmediate(resolve));
+  const record = h.storage.voiceCalls()[0];
+  assert.equal(record.reason, 'budget-limit');
+  assert.equal(record.endedAt - record.startedAt, 120_000);
+  assert.equal(record.terminal.closureConfirmed, true);
+  assert.equal(record.terminal.usage.providerSeconds, 120);
+});
+
+for (const dryRun of [true, false]) test(`AIT-163 fix1: limited voice repairs rotate past permanently pending heads and hash diagnostics (dryRun=${dryRun})`, async t => {
+  const visits = [], logs = [];
+  const h = voiceFixture(t, { unknown: true, voiceOptions: { log: event => logs.push(event),
+    async closeOrphan(record) { visits.push(record.callId); throw new Error('still pending'); } } });
+  const first = await h.start('pending-head');
+  await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId });
+  const head = h.storage.voiceCalls()[0];
+  h.storage.saveVoiceCall(h.session.id, { ...head, callId: 'pending-tail', providerSessionId: 'provider-tail' });
+  const before = h.storage.voiceCalls();
+  await h.handlers.reconcileUncertain({ apply: !dryRun, limit: 1 });
+  await h.handlers.reconcileUncertain({ apply: !dryRun, limit: 1 });
+  assert.deepEqual(visits, ['pending-head', 'pending-tail']);
+  assert.equal(logs.length, dryRun ? 0 : 2);
+  if (dryRun) assert.deepEqual(h.storage.voiceCalls(), before, 'preview does not write the journal');
+  for (const event of logs) {
+    assert.match(event.callHash, /^[a-f0-9]{64}$/u); assert.match(event.providerHash, /^[a-f0-9]{64}$/u);
+    assert.equal(Object.hasOwn(event, 'callId'), false); assert.equal(Object.hasOwn(event, 'providerSessionId'), false);
+  }
+});

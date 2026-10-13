@@ -5,6 +5,25 @@ import { SQLiteStorage, SQLiteBudgetLedger } from '../src/index.js';
 import { temporaryDb } from '../../../test/helpers.js';
 const admit = (ledger, sessionId, extra = {}) => ledger.admit({ sessionId, lane: 'reaction', maxMicro: 40,
   requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64), ...extra });
+
+test('AIT-163 fix1: the pending receipt query uses its partial index and includes legacy rows', t => {
+  const storage = new SQLiteStorage(), session = storage.create(), ledger = new SQLiteBudgetLedger(storage);
+  t.after(() => storage.close());
+  const pending = admit(ledger, session.id, { providerCost: { plugin: 'openrouter' } });
+  const legacy = admit(ledger, session.id);
+  for (const a of [pending, legacy]) {
+    const claim = ledger.claim(a.attemptId); claim.consume();
+    ledger.settle(claim.claimId, { attemptId: a.attemptId, outcome: 'uncertain' });
+  }
+  const prepare = storage.db.prepare.bind(storage.db), plans = [];
+  t.mock.method(storage.db, 'prepare', sql => {
+    if (/^SELECT \* FROM budget_attempts/u.test(sql)) plans.push(...prepare(`EXPLAIN QUERY PLAN ${sql}`).all());
+    return prepare(sql);
+  });
+  assert.deepEqual(new Set(ledger.pendingCosts().map(row => row.attempt_id)), new Set([pending.attemptId, legacy.attemptId]));
+  assert.ok(plans.some(plan => plan.detail.includes('budget_cost_pending')), JSON.stringify(plans));
+  assert.ok(plans.every(plan => !/^SCAN budget_attempts$/u.test(plan.detail)), JSON.stringify(plans));
+});
 test('actual provider costs settle once, reject invalid costs and expose overruns', () => {
   const storage = new SQLiteStorage(), session = storage.create(), ledger = new SQLiteBudgetLedger(storage);
   try {

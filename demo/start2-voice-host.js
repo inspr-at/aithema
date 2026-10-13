@@ -51,13 +51,13 @@ export async function createVoiceHost({ storage, resolveSecret, publicOrigin, te
   };
   const attempt = async () => {
     try {
-      const { maxDurationSeconds, reservationSeconds, upstreamMicroPerMinute, usdPerCredit } = costs;
+      const { maxDurationSeconds, reservationSeconds, minRunwaySeconds, upstreamMicroPerMinute, usdPerCredit } = costs;
       const { agentId, apiBaseUrl: endpoint } = await ensureAgent({ storage, resolveSecret, publicOrigin,
         templateAgentId, apiBaseUrl, fetchImpl, log, maxDurationSeconds, signal: stop.signal });
       if (stop.signal.aborted) return;
       const binding = qualifyStartBinding({ plugin: 'elevenlabs', model: agentId, agentId, effort: 'none',
         endpoint, accountRef: 'start2-elevenlabs', secretRef: 'ELEVENLABS_API_KEY', maxMicro: Math.ceil(upstreamMicroPerMinute * reservationSeconds / 60),
-        maxTokens: 1, rates: { inputMicro: 0, outputMicro: 0 }, maxDurationSeconds, reservationSeconds,
+        maxTokens: 1, rates: { inputMicro: 0, outputMicro: 0 }, maxDurationSeconds, reservationSeconds, minRunwaySeconds,
         upstreamMicroPerMinute, visitorMicroPerMinute: upstreamMicroPerMinute,
         ...(usdPerCredit === undefined ? {} : { usdPerCredit }), publicFacadeBaseUrl: publicOrigin });
       let prepared = { binding };

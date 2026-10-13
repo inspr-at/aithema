@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { PluginError, inputRevision, reasoningRequest, aiTextOrigin, voiceAuthorizationRevision, recoverableVoiceEnd } from '@inspr/aithema-core';
 import { voiceOperation } from '../../core/src/live-voice.js';
 import { ConflictError, NotFoundError } from './storage.js';
@@ -76,10 +77,14 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       const entry = calls.get(args.operation.callId);
       return authorizeTurnReplacement({ ...args, session: sessionFor(entry) });
     }) });
-  let reconcileTimer, reconcileJob, retryOffset = 0, stopping = false;
-  const pendingReconciliations = () => storage.voiceCalls().filter(record => record.reconciliationPending);
+  let reconcileTimer, reconcileJob, retryOffset = 0, repairOffset = 0, stopping = false;
+  const pendingReconciliations = () => storage.voiceCalls().filter(record => {
+    const terminal = record.reconciliation ?? record.terminal;
+    return record.reconciliationPending || terminal?.closureConfirmed === false || terminal?.usage?.costEstimated === true;
+  });
   const diagnostic = (record, event, fields) => {
-    try { log?.({ event, callId: record.callId, providerSessionId: record.providerSessionId, ...fields }); }
+    try { log?.({ event, callHash: createHash('sha256').update(record.callId).digest('hex'),
+      ...(record.providerSessionId ? { providerHash: createHash('sha256').update(record.providerSessionId).digest('hex') } : {}), ...fields }); }
     catch { /* Operator diagnostics must never interrupt accounting. */ }
   };
   async function reconcile(record) {
@@ -213,7 +218,9 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     if (request.signal.aborted) abortStartup();
     try {
       const opts = { ...options(request), signal: controller.signal };
-      const admitted = await runtime.admitVoice({ session, request: { callId }, options: { ...opts, spendDeadlineAt, allowPaused: continuation } }); entry.admission = admitted;
+      const admitted = await runtime.admitVoice({ session, request: { callId }, options: {
+        ...opts, spendDeadlineAt, allowPaused: continuation, voiceContinuation: continuation,
+      } }); entry.admission = admitted;
       const end = spendDeadlineAt ?? now() + admitted.binding.maxDurationSeconds * 1000;
       if (end <= now()) throw new PluginError('deadline');
       const callbacks = adapterCallbacks(admitted.plugin.ports?.serverAdapter);
@@ -561,7 +568,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         if (error instanceof SyntaxError || error instanceof TypeError) return json({ error: 'invalid-request' }, 400);
         if (error instanceof RangeError) return json({ error: 'size-limit' }, 413);
         if (error instanceof PluginError) return json({ error: error.code,
-          ...(VOICE_CAP_REASONS.has(error.message) ? { reason: error.message } : {}) }, error.code === 'not-admitted' ? 403 : error.code === 'deadline' ? 504 : 502);
+          ...(VOICE_CAP_REASONS.has(error.message) || error.message === 'host-limit' ? { reason: error.message } : {}) }, error.code === 'not-admitted' ? 403 : error.code === 'deadline' ? 504 : 502);
         return json({ error: 'voice-unavailable' }, 503);
       }
     },
@@ -592,13 +599,41 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           try { runtime.reconcileVoice(record.attemptId, { ...record.terminal, providerSessionId: record.providerSessionId }); }
           catch { record = { ...record, reconciliationPending: true }; }
         }
-        if (record.terminal && !record.reconciliationPending) continue;
+        if (record.terminal?.closureConfirmed === true && !record.terminal.usage?.costEstimated && !record.reconciliationPending) continue;
         storage.saveVoiceCall(record.sessionId, { ...record, closing: true, endedAt: record.endedAt ?? now(), reason: record.reason ?? 'server-restart',
           terminal: record.terminal ?? { attemptId: record.attemptId, outcome: row?.outcome ?? 'uncertain', closureConfirmed: false,
             chargedMicro: row?.settled_micro ?? record.maxMicro }, reconciliationPending: true });
         await reconcile(record);
       }
       if (pendingReconciliations().length) reconcileLater();
+    },
+    async reconcileUncertain({ dryRun = true, limit = reconcileBatchSize, deadlineAt = Date.now() + 60_000 } = {}) {
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new TypeError('Invalid repair batch');
+      const pending = pendingReconciliations(), count = Math.min(pending.length, limit);
+      const records = Array.from({ length: count }, (_, i) => pending[(repairOffset + i) % pending.length]);
+      const summary = { candidates: records.length, beforeMicro: 0, afterMicro: 0, corrected: 0, pending: 0 };
+      for (const record of records) {
+        if (Date.now() >= deadlineAt) { summary.pending++; continue; }
+        const row = runtime.budget.get(record.attemptId);
+        summary.beforeMicro += row?.settled_micro ?? 0;
+        if (dryRun) {
+          let result;
+          try { if (closeOrphan) result = await voiceOperation({ deadlineAt: Math.min(deadlineAt, Date.now() + reconcileLookupTimeoutMs) }, opts => closeOrphan(record, opts)); } catch { /* Counts only. */ }
+          summary.afterMicro += result?.closureConfirmed ? result.usage.upstreamMicro : row?.settled_micro ?? 0;
+          if (!result?.closureConfirmed) summary.pending++;
+        } else {
+          const before = row?.voice_reconciliation_json;
+          await reconcile(record);
+          const after = runtime.budget.get(record.attemptId);
+          summary.afterMicro += after?.settled_micro ?? 0;
+          if (before !== after?.voice_reconciliation_json) summary.corrected++;
+          else summary.pending++;
+        }
+      }
+      // Advancing an in-memory preview cursor does not write either ledger.
+      repairOffset = pending.length ? (repairOffset + count) % pending.length : 0;
+      if (!dryRun && pendingReconciliations().length) reconcileLater();
+      return summary;
     },
     reconcileLater,
     async idle() { while (settlements.size) await Promise.allSettled([...settlements]); await turns.idle(); },

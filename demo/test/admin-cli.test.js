@@ -88,3 +88,19 @@ test('AIT-135 a long database directory still permits the default private Unix s
   const response = await post(running.url + '/api/sessions', {});
   assert.equal(response.status, 201);
 });
+
+test('AIT-163: OPS repair defaults to dry-run and apply is idempotent', async t => {
+  const { listenAdmin, adminRequest } = await import('../admin-socket.js');
+  const storage = new SQLiteStorage(); t.after(() => storage.close());
+  const host = createDemoHost({ storage }); let changes = 0;
+  const repair = async ({ apply = false }) => { const count = changes ? 0 : 1; if (apply) changes += count;
+    return { candidates: count, beforeMicro: count * 1_000_000, afterMicro: count * 600, corrected: apply ? count : 0 }; };
+  const path = join(await mkdtemp(join(tmpdir(), 'ait-repair-')), 'ops.sock');
+  const admin = await listenAdmin({ host, socketPath: path, reconcileUncertain: repair }); t.after(() => admin.close());
+  const cli = new URL('../admin-cli.js', import.meta.url);
+  const run = (...args) => execute(process.execPath, [cli.pathname, '--socket', path, 'reconcile-uncertain', ...args]).then(r => JSON.parse(r.stdout));
+  assert.equal((await run()).candidates, 1); assert.equal(changes, 0);
+  assert.equal((await run('--dry-run')).corrected, 0); assert.equal(changes, 0);
+  assert.equal((await run('--apply')).corrected, 1); assert.equal((await run('--apply')).corrected, 0);
+  assert.equal((await adminRequest(path, 'reconcile-uncertain', { apply: true, address: 'forbidden@example.test' })).status, 400);
+});
