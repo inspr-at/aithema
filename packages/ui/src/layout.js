@@ -93,17 +93,27 @@ export class FooterPopups {
     this.root = root; this.view = root.ownerDocument.defaultView;
     this.entries = [...root.querySelectorAll('[data-footer-popup]')];
     for (const entry of this.entries) {
-      entry.addEventListener('pointerenter', () => { entry.removeAttribute('data-dismissed'); this.position(entry); });
-      entry.addEventListener('focusin', () => { entry.removeAttribute('data-dismissed'); this.position(entry); });
-      entry.addEventListener('pointerleave', () => entry.removeAttribute('data-dismissed'));
+      entry.addEventListener('pointerenter', () => { entry.removeAttribute('data-dismissed'); this.position(entry); this.expanded(entry, true); });
+      entry.addEventListener('focusin', () => { if (!this.returningFocus) entry.removeAttribute('data-dismissed'); this.position(entry); this.expanded(entry, !entry.hasAttribute('data-dismissed')); });
+      entry.addEventListener('pointerleave', () => { if (!entry.matches(':focus-within')) entry.removeAttribute('data-dismissed'); this.expanded(entry, entry.hasAttribute('data-pinned') || entry.matches(':focus-within')); });
+      entry.addEventListener('focusout', event => { if (!entry.contains(event.relatedTarget)) { entry.removeAttribute('data-dismissed'); this.expanded(entry, entry.hasAttribute('data-pinned')); } });
+      const button = entry.querySelector('.host-credits__button');
+      button?.addEventListener('click', () => { const pinned = !entry.hasAttribute('data-pinned'); entry.toggleAttribute('data-pinned', pinned); entry.removeAttribute('data-dismissed'); this.expanded(entry, pinned); this.position(entry); });
     }
     this.key = event => {
-      if (event.key === 'Escape') for (const entry of this.entries) entry.setAttribute('data-dismissed', '');
+      if (event.key === 'Escape') for (const entry of this.entries) {
+        entry.removeAttribute('data-pinned'); entry.setAttribute('data-dismissed', ''); this.expanded(entry, false);
+        const button = entry.querySelector('.host-credits__button');
+        if (button && entry.contains(this.root.activeElement)) { this.returningFocus = true; button.focus(); this.returningFocus = false; }
+      }
     };
+    this.outside = event => { for (const entry of this.entries) if (!event.composedPath().includes(entry)) { entry.removeAttribute('data-pinned'); this.expanded(entry, false); } };
     this.resize = () => { for (const entry of this.entries) this.position(entry); };
     this.connect();
   }
+  expanded(entry, value) { entry.querySelector('.host-credits__button')?.setAttribute('aria-expanded', String(value)); }
   connect() {
+    if (this.entries.some(entry => entry.matches('.host-credits') && !entry.hidden)) this.root.ownerDocument.addEventListener('click', this.outside);
     this.root.addEventListener('keydown', this.key); this.view?.addEventListener('resize', this.resize);
     this.view?.addEventListener('scroll', this.resize, { passive: true });
   }
@@ -115,6 +125,7 @@ export class FooterPopups {
     popup.style.bottom = `${Math.max(12, (this.view?.innerHeight ?? 900) - anchor.top + 6)}px`;
   }
   destroy() {
+    this.root.ownerDocument.removeEventListener('click', this.outside);
     this.root.removeEventListener('keydown', this.key); this.view?.removeEventListener('resize', this.resize);
     this.view?.removeEventListener('scroll', this.resize);
   }

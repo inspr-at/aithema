@@ -9,8 +9,8 @@ import { watchVoiceHeartbeat, voiceAuthorityLost } from '../../core/src/voice-li
 // End and Retry call, Sound and Enable sound), so no state change moves a control.
 const BUTTONS = { start: ['mic'], input: ['mic', true], output: ['volume', true], playback: ['volume'], close: ['stop'], retry: ['refresh'] };
 export class AudioRail {
-  constructor({ root, noticesRoot, copy, client, feature, context, onPartial, onPause, onEnd, onState, onLevel, playback, journal, ready, waitingCall, heartbeatMs = 10_000 }) {
-    Object.assign(this, { root, copy, client, feature, context, onPartial, onPause, onEnd, onState, onLevel, playback, journal, ready, heartbeatMs });
+  constructor({ root, noticesRoot, copy, client, feature, context, onPartial, onPause, onEnd, onState, onLevel, playback, journal, ready, usedUp, ending, waitingCall, heartbeatMs = 10_000 }) {
+    Object.assign(this, { root, copy, client, feature, context, onPartial, onPause, onEnd, onState, onLevel, playback, journal, ready, usedUp, ending, heartbeatMs });
     this.state = 'idle'; this.input = true; this.output = true; this.generation = 0; this.connected = true;
     this.pauseRequests = new Set(); this.resumeRequests = new Map(); this.pauseRevision = 0;
     if (waitingCall?.state === 'waiting' && waitingCall.providerSessionId) {
@@ -100,18 +100,33 @@ export class AudioRail {
     if (this.errorKey === 'voiceAdmissionDenied' && Object.hasOwn(this.copy.reasons ?? {}, this.errorReason)) return this.copy.reasons[this.errorReason];
     return this.copy[this.errorKey];
   }
+  // Reconcile only after a fresh server feature read. A repaint immediately
+  // after an admission refusal still has the preview that preceded that refusal.
+  get allowanceDenied() { return this.errorKey === 'voiceAdmissionDenied' && ['host-limit', 'budget denied'].includes(this.errorReason); }
+  reconcileAdmission() {
+    if (this.feature().available && !this.usedUp?.() && this.allowanceDenied) {
+      this.errorKey = null; this.errorReason = null;
+    }
+  }
   render() {
     // Closing a rail that had no call (an invalidation while idle) is no call: it never marks one active.
     const c = this.copy, active = Boolean(this.session || this.waitingCall), available = this.feature(),
       transitional = ['connecting', 'recovering'].includes(this.state) || this.state === 'closing' && this.closingCall;
+    // The feature preview can deny new work because an admitted segment holds
+    // the allowance. Only a wallet verdict or an actual admission refusal ends it.
+    const usedUp = Boolean(this.usedUp?.()) || this.allowanceDenied;
+    const creditEnding = Boolean(this.ending?.());
+    this.root.toggleAttribute('data-used-up', usedUp && !creditEnding); this.root.toggleAttribute('data-credit-ending', creditEnding);
     const state = this.paused && active && this.state !== 'waiting' ? 'paused' : this.state;
     if (this.root.dataset.state !== undefined && this.root.dataset.state !== state) queueMicrotask(() => { if (this.connected) this.onState?.(state); });
     this.root.dataset.state = state;
     this.root.dataset.call = active || transitional ? 'active' : 'none';
     this.root.toggleAttribute('data-playback-blocked', Boolean(this.playbackBlocked));
-    this.root.toggleAttribute('data-message', Boolean(this.error) && !['voiceClosureUncertain', 'voiceEnded'].includes(this.errorKey));
+    this.root.toggleAttribute('data-message', !usedUp && Boolean(this.error) && !['voiceClosureUncertain', 'voiceEnded'].includes(this.errorKey));
     this.root.setAttribute('role', 'group'); this.root.setAttribute('aria-label', c.voiceRail);
-    this.root.querySelector('.voice-state').textContent = this.error ?? (active || transitional ? c.voiceStates[this.root.dataset.state] :
+    // The session's one exhaustion announcement describes both credits and the saved conversation.
+    this.root.querySelector('.voice-state').setAttribute('aria-live', this.usedUp?.() ? 'off' : 'polite');
+    this.root.querySelector('.voice-state').textContent = usedUp ? c.voiceStates[creditEnding ? 'creditEnding' : 'usedUp'] : this.error ?? (active || transitional ? c.voiceStates[this.root.dataset.state] :
       available.available && this.client ? c.voiceStates[this.state] : available.reason ?? c.notConfigured);
     const labels = { start: c.voiceStart, close: c.voiceClose, input: this.input ? c.voiceMicOn : c.voiceMicOff,
       output: this.output ? c.voiceSpeakerOn : c.voiceSpeakerOff, pause: this.pauseIntent ? c.resume : c.pause,
@@ -123,10 +138,11 @@ export class AudioRail {
         : name === 'retry' ? active || this.state !== 'failed' || !available.available
         : name === 'playback' ? !this.playbackBlocked
         : name === 'close' ? !active && this.state !== 'connecting' : !active || name !== 'close' && (this.busy && !(name === 'pause' && this.pauseCommand) || transitional || command && !this.capability(command));
-      if (name === 'start' && button.disabled && !active) button.title = available.reason ?? c.notConfigured;
-      if (command && !this.capability(command)) button.title = c.voiceCommandUnavailable;
+      if (!usedUp && name === 'start' && button.disabled && !active) button.title = available.reason ?? c.notConfigured;
+      if (!usedUp && command && !this.capability(command)) button.title = c.voiceCommandUnavailable;
       if (state === 'waiting' && ['input', 'output'].includes(name)) { button.disabled = true; button.title = c.voiceResumeFirst; }
       if (this.waitingCall && name === 'pause') button.disabled = Boolean(this.busy || transitional || !available.available || !this.client);
+      if (usedUp) { button.disabled = true; button.title = c.voiceStates.usedUp; }
     }
     this.button('input').setAttribute('aria-pressed', String(this.input));
     this.button('output').setAttribute('aria-pressed', String(this.output));
@@ -159,7 +175,7 @@ export class AudioRail {
   async start() {
     if (this.session || this.state === 'connecting' || !this.feature().available || !this.client) return;
     const generation = ++this.generation, revision = this.pauseRevision, resuming = Boolean(this.waitingCall);
-    this.resumeRequests.clear(); this.endedCall = null; this.errorKey = null; this.state = 'connecting'; this.render();
+    this.resumeRequests.clear(); this.endedCall = null; this.errorKey = null; this.errorReason = null; this.state = 'connecting'; this.render();
     this.notices.clear();
     const controller = new AbortController(); this.controller = controller;
     const holdController = new AbortController(); this.holdController = holdController;

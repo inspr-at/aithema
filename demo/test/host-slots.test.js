@@ -55,7 +55,7 @@ test('demo slot fills, the fake outbox and the demo handover wording appear only
         assert.doesNotMatch(page, demoCopy);
         for (const text of [...demoTexts(en), ...demoTexts(de)]) assert.ok(!page.includes(text), `demo copy on a live page: ${text}`);
         assert.equal(configured.at(-1).copy.hostSurface.handover.sent, copy.hostSurface.handover.sent, 'the live wording stays');
-        assert.equal(configured.at(-1).host.verification, false, 'no email entry is offered on a live host');
+        assert.deepEqual(configured.at(-1).host.verification, { delivery: false, privacyDocumentConfigured: false }, 'A2 offers the unavailable state without collection');
         assert.equal(document.querySelector('[data-aithema-privacy]'), null, 'no policy link without a document');
       });
       await t.test(`AIT-151: configured privacy fills the legal slot on a live host (${locale})`, async () => {
@@ -76,7 +76,7 @@ test('demo slot fills, the fake outbox and the demo handover wording appear only
         assert.equal(link.getAttribute('rel'), 'privacy-policy');
         assert.equal(link.textContent, locale === 'de' ? 'Datenschutzerklärung' : 'Privacy policy');
         assert.equal(link.getAttribute('href'), `/privacy?locale=${locale}`);
-        assert.equal(configured.at(-1).host.verification, false, 'the privacy page keeps live email entry hidden');
+        assert.deepEqual(configured.at(-1).host.verification, { delivery: false, privacyDocumentConfigured: true }, 'A2 enables inline save after the privacy page is configured');
         assert.equal(document.querySelector('#error').textContent, '');
         const otherLocale = locale === 'de' ? 'en' : 'de';
         configured.at(-1).session.locale = otherLocale;

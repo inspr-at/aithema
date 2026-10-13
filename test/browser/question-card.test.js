@@ -69,7 +69,7 @@ test('AIT-132: approved card, hover, focus, fold and no card at 1440/1024/390, l
       await t.test(`${locale}/${theme}/${width}`, async () => {
         const label = `${locale}-${theme}-${width}`;
         const shot = async state => { if (evidence) {
-          const file = `ait-132-${label}-${state}.png`; await page.screenshot({ path: join(evidence, file), fullPage: true }); files.push(file);
+          const file = `ait-132-${label}-${state}.png`; await page.screenshot({ path: join(evidence, file), fullPage: false }); files.push(file);
         } };
         await page.setViewport({ width, height: width === 390 ? 844 : 900 });
         await page.select('#theme', theme);

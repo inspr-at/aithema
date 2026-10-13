@@ -4,27 +4,29 @@ import { resolve } from 'node:path';
 
 export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 
-// Fixed bins from main 027746e, CI run 38334109506 (successful attempt 2).
-// Top-level node:test durations, excluding nested durations to avoid double counting:
-// matrix 209.159s; remaining display 145.660s; orb 86.337s; demo 51.826s;
-// look 26.476s; question-card 17.223s; journey 13.973s; html 8.406s; host 7.586s.
-// The original display file exceeded five minutes, so its matrix is a separate file.
+// Balanced using main 027746e CI run 38334109506 (successful attempt 2)
+// top-level node:test durations and A2 PR CI run 38331186287 (934f73b).
+// Nested durations are excluded to avoid double counting: visitor-credit-tiers
+// 345.610s; matrix 209.159s; remaining display 145.660s; orb 86.337s;
+// demo 51.826s; look 26.476s; question-card 17.223s; journey 13.973s;
+// html 8.406s; host 7.586s. Keep both long matrices in separate shards.
 export const browserShards = [
-  // 209.159s
-  ['test/browser/start2-display-matrix.test.js'],
-  // 178.875s
+  // 345.610s
+  ['test/browser/visitor-credit-tiers.test.js'],
+  // 287.461s
+  [
+    'test/browser/start2-display-matrix.test.js',
+    'test/browser/demo.test.js',
+    'test/browser/start-look.test.js',
+  ],
+  // 279.185s
   [
     'test/browser/start2-display.test.js',
+    'test/browser/orb-reveal.test.js',
     'test/browser/question-card.test.js',
+    'test/browser/start-journey.test.js',
     'test/browser/html-preview.test.js',
     'test/browser/host-surface.test.js',
-  ],
-  // 178.612s
-  [
-    'test/browser/demo.test.js',
-    'test/browser/orb-reveal.test.js',
-    'test/browser/start-journey.test.js',
-    'test/browser/start-look.test.js',
   ],
 ];
 

@@ -77,8 +77,8 @@ async function opened(h) { h.c.openSettings(); await tick(); return h; }
 
 const guestIdentity = { status: 'guest', address: null, verificationRequired: false, assessmentUnlocked: true, pollVerification: false };
 const emailHelp = {
-  de: 'Allgemein · Hier können Sie ein neues Gespräch beginnen, die Einwilligung und Ihre Voreinstellungen prüfen und Ihre E-Mail bestätigen.',
-  en: 'General · Start a new conversation, review consent and your defaults, and verify your email.',
+  de: 'Allgemein · Hier können Sie ein neues Gespräch beginnen, die Einwilligung und Ihre Voreinstellungen prüfen und Ihre E-Mail-Adresse bestätigen.',
+  en: 'General · Start a new conversation, review consent and your defaults, and confirm your email address.',
 };
 const generalHelp = {
   de: 'Allgemein · Hier können Sie ein neues Gespräch beginnen sowie die Einwilligung und Ihre Voreinstellungen prüfen.',
@@ -92,7 +92,7 @@ for (const [locale, copy] of Object.entries({ de, en })) for (const state of ['o
     assert.equal(h.q('.host-verify').hidden, state === 'off');
     const needsVerification = state === 'guest' || state === 'verification-pending';
     if (state !== 'off') assert.equal(h.q('.verify-entry').hidden, !needsVerification);
-    assert.equal(h.q('.context-message').textContent, needsVerification ? emailHelp[locale] : generalHelp[locale]);
+    assert.equal(h.q('.context-message').textContent, state === 'verified' ? copy.help.generalEmailManage : needsVerification ? emailHelp[locale] : generalHelp[locale]);
   });
 }
 
@@ -108,7 +108,7 @@ for (const [locale, copy] of Object.entries({ de, en })) {
     assert.equal(h.q('[data-tab="general"]').getAttribute('aria-selected'), 'true');
     assert.equal(h.q('.host-verify').hidden, false);
     assert.equal(h.q('.verify-entry').hidden, status === 'verified');
-    assert.equal(h.q('.context-message').textContent, status === 'guest' ? emailHelp[locale] : generalHelp[locale]);
+    assert.equal(h.q('.context-message').textContent, status === 'guest' ? emailHelp[locale] : copy.help.generalEmailManage);
   });
   test(`AIT-147 footer repaint: ${locale}, identity state changes while General is open`, async t => {
     const h = await opened(fixture(t, { copy, host: { verification: true }, identity: guestIdentity }));
@@ -122,7 +122,7 @@ for (const [locale, copy] of Object.entries({ de, en })) {
       assert.equal(h.q('[data-tab="general"]').getAttribute('aria-selected'), 'true');
       assert.equal(h.q('.host-verify').hidden, status === 'erased');
       assert.equal(h.q('.verify-entry').hidden, !needsVerification);
-      assert.equal(h.q('.context-message').textContent, needsVerification ? emailHelp[locale] : generalHelp[locale], status);
+      assert.equal(h.q('.context-message').textContent, status === 'verified' ? copy.help.generalEmailManage : needsVerification ? emailHelp[locale] : generalHelp[locale], status);
     }
   });
 }
@@ -141,7 +141,7 @@ async function verificationDraft(t, options = {}) {
   const effort = h.q('#settings-effort'); effort.value = '2'; effort.dispatchEvent(new window.Event('input', { bubbles: true }));
   h.q('[data-tab="general"]').click();
   assert.equal(h.posts.length, 1, 'the effort change is still inside the autosave debounce');
-  assert.equal(h.q('.verify-entry').textContent, 'E-Mail bestätigen');
+  assert.equal(h.q('.verify-entry').textContent, 'E-Mail-Adresse bestätigen');
   return h;
 }
 
