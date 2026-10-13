@@ -185,12 +185,22 @@ for (const transport of ['webrtc', 'websocket']) {
     assert.ok(f.a.sdk.acquired.some(stream => stream.getTracks().some(track => track.readyState === 'live')));
   });
 
-  for (const action of ['close', 'disconnect']) test(`AIT-138 d takeback: ${transport} ${action} cancels a click awaiting voice.state`, { timeout: 10_000 }, async t => {
+  for (const action of ['close', 'disconnect', 'hide', 'visibility-hidden', 'pagehide', 'ended']) test(`AIT-138 d takeback: ${transport} ${action} cancels a click awaiting voice.state`, { timeout: 10_000 }, async t => {
     const f = tabsFixture(t, transport); await f.a.rail.start();
     const retired = f.a.returned.at(-1); f.a.deferNotifications = true;
     await f.b.rail.start(); await f.b.rail.start(); await retired.heartbeat(); await flush();
     const before = f.snapshot(), commands = f.commands.length;
-    f.a.rail.button('pause').click(); await flush(); await f.a.rail[action]();
+    f.a.rail.button('pause').click(); await flush();
+    if (action === 'visibility-hidden') {
+      let hidden = true;
+      t.mock.method(f.a.root.ownerDocument, 'hidden', () => hidden, { getter: true });
+      f.a.root.ownerDocument.dispatchEvent(new f.a.root.ownerDocument.defaultView.Event('visibilitychange'));
+      await flush(); hidden = false; // Returning to the page never revives the old click.
+    } else if (action === 'pagehide') {
+      const view = f.a.root.ownerDocument.defaultView;
+      view.dispatchEvent(new view.PageTransitionEvent('pagehide', { persisted: true }));
+    } else if (action === 'ended') f.a.rail.receiveState({ ...before, state: 'ended' });
+    else await f.a.rail[action]();
     f.a.deliverNotifications(); await flush();
     assert.equal(f.snapshot().epoch, before.epoch); assert.equal(f.snapshot().controllingTabId, 'B');
     assert.equal(f.b.root.dataset.state, 'listening');
@@ -199,16 +209,80 @@ for (const transport of ['webrtc', 'websocket']) {
     assert.ok(f.a.sdk.acquired.every(stream => stream.getTracks().every(track => track.readyState === 'ended')));
   });
 
+  for (const restore of ['voice.state', 'snapshot']) test(`AIT-138 d takeback: ${transport} wait deadline expiry drops the click before late ${restore}`, { timeout: 10_000 }, async t => {
+    const f = tabsFixture(t, transport); await f.a.rail.start();
+    const retired = f.a.returned.at(-1); f.a.deferNotifications = true;
+    await f.b.rail.start(); await f.b.rail.start(); await retired.heartbeat(); await flush();
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
+    const before = f.snapshot(), commands = f.commands.length;
+    f.a.rail.button('pause').click(); await flush();
+    t.mock.timers.tick(9_999); await flush(); assert.equal(f.a.rail.button('pause').disabled, true);
+    t.mock.timers.tick(1); await flush();
+    f.held(f.a); assert.equal(f.a.rail.ownershipWait, null, 'the expired wait is removed');
+    if (restore === 'snapshot') f.a.rail.receiveState(f.snapshot());
+    else f.a.deliverNotifications();
+    await flush();
+    assert.equal(f.snapshot().epoch, before.epoch); assert.equal(f.snapshot().controllingTabId, 'B');
+    assert.equal(f.b.root.dataset.state, 'listening'); f.held(f.a);
+    assert.deepEqual(f.commands.slice(commands).filter(c => c.tab === 'A' && ['takeover', 'recover', 'resume'].includes(c.name)), []);
+    t.mock.timers.reset();
+  });
+
+  test(`AIT-138 d takeback: ${transport} a fresh click after wait deadline expiry works`, { timeout: 10_000 }, async t => {
+    const f = tabsFixture(t, transport); await f.a.rail.start();
+    const retired = f.a.returned.at(-1); f.a.deferNotifications = true;
+    await f.b.rail.start(); await f.b.rail.start(); await retired.heartbeat(); await flush();
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
+    const before = f.snapshot(), commands = f.commands.length;
+    f.a.rail.button('pause').click(); await flush(); t.mock.timers.tick(10_000); await flush();
+    f.a.deliverNotifications(); await flush();
+    assert.equal(f.snapshot().epoch, before.epoch, 'the expired click is never replayed by a reconnect');
+    f.held(f.a); f.a.rail.button('pause').click(); await flush();
+    assert.equal(f.snapshot().epoch, before.epoch + 1); assert.equal(f.snapshot().controllingTabId, 'A');
+    assert.equal(f.a.root.dataset.state, 'listening'); f.held(f.b);
+    assert.deepEqual(f.commands.slice(commands).filter(c => c.tab === 'A' && ['takeover', 'recover', 'resume'].includes(c.name)).map(c => c.name),
+      ['takeover', 'recover', 'resume']);
+    t.mock.timers.reset();
+  });
+
+  for (const cancellation of ['hide-after-resolution', 'hidden-before-resolution', 'newer-takeover']) test(`AIT-138 d takeback: ${transport} resolved wait rechecks ${cancellation} before acting`, { timeout: 10_000 }, async t => {
+    const f = tabsFixture(t, transport); await f.a.rail.start();
+    const retired = f.a.returned.at(-1); f.a.deferNotifications = true;
+    await f.b.rail.start(); await f.b.rail.start(); await retired.heartbeat(); await flush();
+    const before = f.snapshot(), commands = f.commands.length;
+    f.a.rail.button('pause').click(); await flush();
+    if (cancellation === 'hidden-before-resolution') t.mock.method(f.a.root.ownerDocument, 'hidden', () => true, { getter: true });
+    f.a.rail.receiveState(before);
+    if (cancellation === 'hide-after-resolution') f.a.rail.hide();
+    if (cancellation === 'newer-takeover') f.a.rail.receiveState({ ...before, epoch: before.epoch + 1, controllingTabId: 'C', reason: 'tab-takeover' });
+    await flush();
+    assert.deepEqual(f.commands.slice(commands).filter(c => c.tab === 'A' && ['takeover', 'recover', 'resume'].includes(c.name)), []);
+    assert.equal(f.snapshot().epoch, before.epoch); assert.equal(f.snapshot().controllingTabId, 'B'); f.held(f.a);
+  });
+
   test(`AIT-138 d takeback: ${transport} delayed voice.state does not spend the takeover request deadline`, { timeout: 10_000 }, async t => {
     const f = tabsFixture(t, transport); await f.a.rail.start();
     const retired = f.a.returned.at(-1); f.a.deferNotifications = true;
     await f.b.rail.start(); await f.b.rail.start(); await retired.heartbeat(); await flush();
-    t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
-    const before = f.snapshot(); f.a.rail.button('pause').click(); await flush();
-    t.mock.timers.tick(11_000);
+    t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: Date.now() });
+    const takeover = t.mock.method(f.a.rail.client, 'takeover'), before = f.snapshot(), clickedAt = Date.now();
+    f.a.rail.button('pause').click(); await flush();
+    t.mock.timers.tick(9_000);
     f.a.deliverNotifications(); await flush();
     assert.equal(f.snapshot().epoch, before.epoch + 1, 'the original click retains a fresh takeover deadline after notification delay');
     assert.equal(f.snapshot().controllingTabId, 'A'); assert.equal(f.a.root.dataset.state, 'listening'); f.held(f.b);
+    assert.equal(takeover.mock.calls[0].arguments[1].deadlineAt, clickedAt + 19_000, 'the request gets its full 10 s after the epoch arrives');
+    // The other old tab now waits beyond the separate click deadline. Leave
+    // setTimeout unadvanced to cover a snapshot beating a throttled timer task.
+    f.b.deferNotifications = true;
+    const retiredB = f.b.returned.at(-1);
+    f.b.rail.ownershipState = { ...before, controllingTabId: 'B' };
+    f.b.rail.button('pause').click(); await flush();
+    t.mock.timers.setTime(Date.now() + 10_000);
+    f.b.rail.receiveState(f.snapshot()); await flush();
+    assert.equal(f.snapshot().controllingTabId, 'A', 'a resolved wait must drop an expired intent even before its timer runs');
+    assert.equal(retiredB.lifecycle.state.state, 'waiting'); f.held(f.b);
+    t.mock.timers.reset();
   });
 
   test(`AIT-138 d takeback: ${transport} one old-tab click takes over and resumes without double confirmation`, { timeout: 10_000 }, async t => {
