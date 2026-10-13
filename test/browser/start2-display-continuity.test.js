@@ -145,12 +145,11 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
             mic: copy.voiceResumeHereFirst, speaker: copy.voiceResumeHereFirst });
         }
         const file = `ait-138-d-${name}-${label}.png`; files.push(file);
-        const png = await target.screenshot({ ...(evidence ? { path: join(evidence, file) } : {}), fullPage: false });
         const paintTargets = await shadow(target, c => ['.attach', '.send'].map(selector => {
           const r = c.shadowRoot.querySelector(selector).getBoundingClientRect();
           return { selector, x: Math.ceil(r.left + 5), y: Math.ceil(r.top + 5), width: Math.floor(r.width - 10), height: Math.floor(r.height - 10) };
         }));
-        composer.paint = await target.evaluate(async ({ encoded, targets }) => {
+        const readPaint = png => target.evaluate(async ({ encoded, targets }) => {
           const bitmap = await createImageBitmap(new Blob([Uint8Array.from(atob(encoded), c => c.charCodeAt(0))], { type: 'image/png' }));
           const canvas = document.createElement('canvas'); canvas.width = bitmap.width; canvas.height = bitmap.height;
           const ctx = canvas.getContext('2d', { willReadFrequently: true }); ctx.drawImage(bitmap, 0, 0); bitmap.close();
@@ -162,23 +161,19 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
             return { selector, contrast: Math.max(...max.map((v, i) => v - min[i])) };
           });
         }, { encoded: Buffer.from(png).toString('base64'), targets: paintTargets });
-        const composerPainted = composer.paint.every(p => p.contrast >= 24);
+        // Chromium can return stale backdrop-filter layers after the entrance has finished.
+        // Wait for actual pixels on both sides of the composer, not just DOM/hit-test geometry.
+        const paintStarted = Date.now(); let png, composerPainted, attempts = 0;
+        do {
+          if (attempts) await settle();
+          png = await target.screenshot({ fullPage: false }); attempts++;
+          composer.paint = await readPaint(png);
+          composerPainted = composer.paint.every(p => p.contrast >= 24);
+        } while (!composerPainted && Date.now() - paintStarted < 3000);
+        composer.captureAttempts = attempts; composer.paintWaitMs = Date.now() - paintStarted;
         if (evidence) {
+          await writeFile(join(evidence, file), png);
           await writeFile(join(evidence, `${file}.json`), JSON.stringify({ name, width, theme, locale, composer, presentation, composerPainted }, null, 2));
-          if (!composerPainted && locale === 'de' && theme === 'light' && width >= 960) {
-            const paint = await shadow(target, c => {
-              const nodes = []; for (let n = c.shadowRoot.querySelector('.composer'); n; n = n.parentElement) {
-                const s = getComputedStyle(n); nodes.push({ class: n.className, opacity: s.opacity, visibility: s.visibility,
-                  transform: s.transform, clipPath: s.clipPath, maskImage: s.maskImage, overflow: s.overflow,
-                  backdropFilter: s.backdropFilter, filter: s.filter });
-              }
-              return { nodes, animations: c.shadowRoot.querySelector('.workspace').getAnimations({ subtree: true }).map(a => ({
-                target: a.effect.target.className, state: a.playState, timing: a.effect.getComputedTiming() })) };
-            });
-            await writeFile(join(evidence, `${file}.paint.json`), JSON.stringify(paint, null, 2));
-            await new Promise(resolve => setTimeout(resolve, 1200));
-            await target.screenshot({ path: join(evidence, `delayed-${file}`), fullPage: false });
-          }
         }
         assert.ok(composerPainted, `${label}/${name}: composer controls must be painted in the viewport PNG: ${JSON.stringify(composer.paint)}`);
         checks.push({ width, theme, locale, state: name, ...presentation, composerFullyVisible: composer.fullyVisible && composerPainted,
