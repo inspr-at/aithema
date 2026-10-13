@@ -7,6 +7,57 @@ import { openRouterPrices } from '../../../test/plugin-fixtures.js';
 import { openRouterConfig } from '../../../demo/openrouter-config.js';
 const schema = { type: 'object', additionalProperties: false, properties: { summary: { type: 'string' } }, required: ['summary'] };
 const request = { system: 'Generic policy', messages: [{ role: 'user', content: 'Hello' }], schema };
+
+test('AIT-163 fix1: uncertain estimates price the lane output ceiling including reasoning and obey the call maximum', () => {
+  const configured = openRouterConfig({ OPENROUTER_MODEL: 'anthropic/opus-fixture', OPENROUTER_SPEECH_MODEL: 'anthropic/haiku-fixture',
+    OPENROUTER_ANALYSIS_EFFORT: 'high', AITHEMA_OPENROUTER_PRICES: JSON.stringify({
+      'anthropic/opus-fixture': { prompt: 0.000005, completion: 0.000025 },
+      'anthropic/haiku-fixture': { prompt: 0.000001, completion: 0.000005 } }) });
+  const bytes = new TextEncoder().encode(JSON.stringify([{ role: 'system', content: request.system }, ...request.messages])).byteLength;
+  for (const [lane, operation, expected] of [['understanding', 'structured', bytes * 5 + 8000 * 25],
+    ['reaction', 'stream', bytes + 1200 * 5]]) {
+    const plugin = createOpenRouterReasoning({ binding: configured[lane], prices: configured.prices, resolveSecret: () => 'fixture' });
+    assert.equal(plugin.estimateUncertainCost(request, operation), expected);
+    const capped = plugin.bind({ ...configured[lane], maxMicro: 1000 });
+    assert.equal(capped.estimateUncertainCost(request, operation), 1000);
+  }
+});
+
+for (const ending of ['complete', 'broken', 'cancelled']) test(`AIT-163 fix1: reasoning floors are throttled and flushed on ${ending} streams`, async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  const floors = [], controller = new AbortController();
+  let inputBytes, streamController;
+  const plugin = createOpenRouterReasoning({ model: 'fixture/model', prices: openRouterPrices, resolveSecret: () => 'fixture',
+    fetchImpl: async (url, init) => {
+      inputBytes = new TextEncoder().encode(JSON.stringify(JSON.parse(init.body).messages)).byteLength;
+      return new Response(new ReadableStream({ start(c) { streamController = c; } }));
+    } });
+  const opts = options({ signal: controller.signal });
+  opts.attempt.observeCost = evidence => { if (evidence.observedCostMicro !== undefined) floors.push(evidence.observedCostMicro); };
+  const pending = (async () => { for await (const delta of plugin.stream(request, opts)) assert.equal(delta, 'x'); })();
+  await new Promise(resolve => setImmediate(resolve));
+  const send = value => streamController.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(value)}\n\n`));
+  for (let i = 0; i < 100; i++) send({ id: 'gen-fixture', choices: [{ delta: {
+    content: 'x', ...(i % 2 ? { reasoning_content: 'r'.repeat(100) } : { reasoning: 'r'.repeat(100) }) } }] });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(floors.length <= 1, `only one floor write in the first second, got ${floors.length}`);
+  t.mock.timers.tick(1000);
+  send({ choices: [{ delta: { reasoning_details: [{ type: 'reasoning.text', text: 'r'.repeat(100) }] } }] });
+  await new Promise(resolve => setImmediate(resolve));
+  if (ending === 'complete') {
+    send({ choices: [{ delta: { content: 'x' }, finish_reason: 'stop' }] });
+    streamController.enqueue(new TextEncoder().encode('data: [DONE]\n\n')); streamController.close();
+    await pending;
+  } else {
+    send({ choices: [{ delta: { content: 'x' } }] });
+    await new Promise(resolve => setImmediate(resolve));
+    if (ending === 'cancelled') controller.abort(); else streamController.close();
+    await assert.rejects(pending);
+  }
+  const expected = plugin.usageCost({ inputTokens: inputBytes, outputTokens: 10_202 });
+  assert.equal(floors.at(-1), expected, 'all visible and reasoning evidence is persisted at the end');
+  assert.ok(floors.length <= 3, `at most two timed writes plus the final flush, got ${floors.length}`);
+});
 const options = (extra = {}) => {
   let consumed = false;
   return { signal: new AbortController().signal, deadlineAt: Date.now() + 2000,

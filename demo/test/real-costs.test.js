@@ -280,6 +280,7 @@ for (const mode of ['partial', 'transport-failure', 'unknown']) test(`AIT-163: $
   // Reproduce the older live rows: a USD 1 reservation and no acknowledged cost.
   h.storage.db.prepare('UPDATE budget_attempts SET max_micro=1000000,settled_micro=1000000 WHERE attempt_id=?').run(id);
   h.runtime.budget.observeCost(id, { settledAt: Date.now() - 600_000, estimateMicro: 600, observedCostMicro: 750 });
+  assert.equal(h.balance().owner.uncertainSpendMicro, 1_000_000);
   const preview = await h.runtime.reconcileCosts({ dryRun: true });
   assert.equal(h.runtime.budget.get(id).settled_micro, 1_000_000);
   const first = await h.runtime.reconcileCosts(), replay = await h.runtime.reconcileCosts();
@@ -287,6 +288,8 @@ for (const mode of ['partial', 'transport-failure', 'unknown']) test(`AIT-163: $
   assert.equal(preview.afterMicro, 750); assert.equal(first.corrected, 1); assert.equal(replay.corrected, 0);
   assert.equal(h.runtime.budget.get(id).terminal_json, before.terminal_json, 'original terminal history is retained');
   assert.equal(h.balance().owner.confirmedSpendMicro, 0, 'an estimate remains explicitly uncertain');
+  assert.equal(h.balance().owner.uncertainSpendMicro, 750, 'the owner projection releases the old ceiling');
+  assert.equal(h.runtime.budget.pendingCosts().length, 0, 'estimated rows leave the immediate pending set');
   assert.ok(h.cap.snapshot().uncertainMicro > 0, 'provider cap does not release an unresolved liability');
   const audit = () => h.storage.db.prepare('SELECT * FROM budget_corrections WHERE attempt_id=? ORDER BY id').all(id);
   assert.equal(audit().length, 1);
@@ -298,6 +301,31 @@ for (const mode of ['partial', 'transport-failure', 'unknown']) test(`AIT-163: $
   assert.equal(audit().length, 2);
   assert.equal(h.cap.snapshot().spentMicro, 1_000_037);
   assert.throws(() => h.storage.db.prepare('UPDATE budget_corrections SET new_micro=0 WHERE attempt_id=?').run(id), /append only/u);
+});
+
+test('AIT-163 fix1: a completed lost analysis without identity uses its complete lane estimate', async t => {
+  const h = await costFixture(t, { mode: 'transport-failure' }), admitted = await h.admit('structured');
+  await assert.rejects(h.invoke(admitted));
+  const id = admitted.options.attempt.attemptId, bound = h.runtime.budget.get(id).max_micro;
+  h.runtime.budget.observeCost(id, { settledAt: Date.now() - 600_000 });
+  await h.runtime.reconcileCosts();
+  assert.equal(h.runtime.budget.get(id).settled_micro, bound);
+  assert.equal(h.balance().owner.uncertainSpendMicro, bound);
+  assert.equal(h.cap.snapshot().uncertainMicro, bound);
+});
+
+test('AIT-163 fix1: an invalid historical binding cannot abort repairs for other rows', async t => {
+  const h = await costFixture(t);
+  const orphan = h.storage.create({ ownerToken: 'orphan' });
+  const { attemptId } = h.runtime.budget.admit({ sessionId: orphan.id, lane: 'reaction', maxMicro: 1_000_000,
+    requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64) });
+  const claim = h.runtime.budget.claim(attemptId); claim.consume();
+  h.runtime.budget.settle(claim.claimId, { attemptId, outcome: 'uncertain' });
+  const get = h.storage.get.bind(h.storage);
+  t.mock.method(h.storage, 'get', id => { if (id === orphan.id) throw new TypeError('Invalid historical binding'); return get(id); });
+  const admitted = await h.admit(); await h.invoke(admitted);
+  await assert.doesNotReject(h.runtime.reconcileCosts());
+  assert.equal(h.runtime.budget.pendingCosts().length, 1, 'the valid receipt still settles');
 });
 
 test('AIT-163: pre-AIT-134 rows without provider metadata repair without rewriting terminal history', async t => {

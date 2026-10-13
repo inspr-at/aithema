@@ -2973,7 +2973,7 @@ test('AIT-163: legacy unconfirmed voice rows without the pending flag reconcile 
   assert.equal(h.runtime.budget.get(record.attemptId).settled_micro, 1000);
 });
 
-test('AIT-163: rolling extension requires runway atomically and keeps the prior reservation on refusal', async t => {
+test('AIT-163 fix1: rolling extensions reserve elapsed plus segment without another runway', async t => {
   const h = voiceFixture(t, { durationBinding: { maxDurationSeconds: 3600, reservationSeconds: 30, minRunwaySeconds: 120 },
     host: args => createDemoHost({ ...args, ownerGuard: false }) });
   h.host.visitorCredits.saveSettings({ baseRevision: h.host.visitorCredits.settings().revision,
@@ -2982,7 +2982,52 @@ test('AIT-163: rolling extension requires runway atomically and keeps the prior 
   const attempt = admitted.options.attempt;
   assert.equal(h.runtime.budget.get(attempt.attemptId).max_micro, 120_000);
   await attempt.consume();
-  assert.throws(() => attempt.extend(60), { code: 'not-admitted' });
+  assert.doesNotThrow(() => attempt.extend(120));
+  assert.throws(() => attempt.extend(135), { code: 'not-admitted' });
   assert.equal(h.runtime.budget.get(attempt.attemptId).max_micro, 120_000);
   admitted.finish();
+});
+
+for (const allowance of ['0.12', '0.134']) test(`AIT-163 fix1: ${allowance} funded voice runs 120 seconds before budget-limit`, async t => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout', 'setInterval'], now: Date.now() });
+  const h = voiceFixture(t, { leaseMs: 300_000,
+    durationBinding: { maxDurationSeconds: 3600, reservationSeconds: 30, minRunwaySeconds: 120 },
+    host: args => createDemoHost({ ...args, ownerGuard: false }) });
+  h.host.visitorCredits.saveSettings({ baseRevision: h.host.visitorCredits.settings().revision,
+    allowancesUsd: { anonymous: allowance, emailGiven: allowance, emailConfirmed: allowance } }, { actor: 'ops-cli:fixture', source: 'ops-cli' });
+  const grant = await h.start();
+  for (let elapsed = 15; elapsed <= 105; elapsed += 15) {
+    h.advance(15_000); t.mock.timers.tick(15_000);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.storage.voiceCalls()[0].closing, undefined, `call still funded at ${elapsed}s`);
+  }
+  h.advance(14_999); t.mock.timers.tick(14_999);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.storage.voiceCalls()[0].closing, undefined);
+  h.advance(1); t.mock.timers.tick(1);
+  await h.waitForClosure(grant.providerSessionId);
+  await new Promise(resolve => setImmediate(resolve));
+  const record = h.storage.voiceCalls()[0];
+  assert.equal(record.reason, 'budget-limit');
+  assert.equal(record.endedAt - record.startedAt, 120_000);
+  assert.equal(record.terminal.closureConfirmed, true);
+  assert.equal(record.terminal.usage.providerSeconds, 120);
+});
+
+test('AIT-163 fix1: limited voice repairs rotate past permanently pending heads and hash diagnostics', async t => {
+  const visits = [], logs = [];
+  const h = voiceFixture(t, { unknown: true, voiceOptions: { log: event => logs.push(event),
+    async closeOrphan(record) { visits.push(record.callId); throw new Error('still pending'); } } });
+  const first = await h.start('pending-head');
+  await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId });
+  const head = h.storage.voiceCalls()[0];
+  h.storage.saveVoiceCall(h.session.id, { ...head, callId: 'pending-tail', providerSessionId: 'provider-tail' });
+  await h.handlers.reconcileUncertain({ dryRun: false, limit: 1 });
+  await h.handlers.reconcileUncertain({ dryRun: false, limit: 1 });
+  assert.deepEqual(visits, ['pending-head', 'pending-tail']);
+  assert.equal(logs.length, 2);
+  for (const event of logs) {
+    assert.match(event.callHash, /^[a-f0-9]{64}$/u); assert.match(event.providerHash, /^[a-f0-9]{64}$/u);
+    assert.equal(Object.hasOwn(event, 'callId'), false); assert.equal(Object.hasOwn(event, 'providerSessionId'), false);
+  }
 });
