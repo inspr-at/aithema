@@ -35,6 +35,10 @@ for (const locale of ['de', 'en']) for (const [state, key, extra] of states) tes
       assert.ok(hidden.hasAttribute('inert')); assert.equal(hidden.querySelector('.confirm-title').tagName, 'P');
       assert.equal(hidden.querySelector('.confirm-button').tagName, 'SPAN');
       assert.equal(d.querySelectorAll('.confirm-num').length, 2);
+      // Tick's approved done badge is a single check stroke, never the ready envelope.
+      const done = d.querySelector('.confirm-icon--done svg');
+      assert.equal(done.children.length, 1);
+      assert.equal(done.querySelector('path')?.getAttribute('d'), 'M5.75 12.5l4.1 4.1 8.4-8.6');
       assert.equal(d.querySelector('.confirm-address').textContent, 'visitor@example.test');
     } else assert.equal(d.querySelectorAll('.confirm-view').length, 1);
     if (state === 'valid') {

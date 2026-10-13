@@ -178,6 +178,7 @@ test('C2 viewport evidence: DE/EN mail and every landing state, light/dark, zero
         assert.equal(f.posts(), postCount + 1);
         assert.equal(f.host.visitor(ready.owner).tier, 'emailConfirmed');
         assert.equal(await page.$eval('h1', el => el.textContent), confirmationCopy[locale].confirmed.h1);
+        assert.equal(await page.$eval('.confirm-icon--done path', el => el.getAttribute('d')), 'M5.75 12.5l4.1 4.1 8.4-8.6', 'the approved confirmation check is shown');
         const after = await geometry(page);
         assert.deepEqual(during, before, 'confirming retains exact geometry'); assert.deepEqual(after, before, 'confirmed retains exact geometry');
         await page.waitForFunction(() => getComputedStyle(document.querySelector('.confirm-icon--draw path')).strokeDashoffset === '0px');
