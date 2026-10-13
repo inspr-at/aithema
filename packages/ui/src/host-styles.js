@@ -223,6 +223,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .m-acts { display:flex; align-items:center; flex-wrap:wrap; gap:0 24px; margin-top:.15rem; }
 .m-act { min-height:44px; padding:0 .85rem; border-radius:.6rem; color:var(--aithema-accent); font-weight:600; font-size:.85rem; }
 .m-act:hover { background:color-mix(in srgb,var(--aithema-accent) 8%,transparent); }
+.host-mail .m-acts > button { margin-left:0; }
 .m-acts > .m-act:first-child { margin-left:-.85rem; }
 /* The separator sits in the middle of the 24 px between the two button boxes. */
 .m-dot { flex:none; display:flex; justify-content:center; width:0; margin-inline:-12px; color:var(--aithema-muted); opacity:.6; }
