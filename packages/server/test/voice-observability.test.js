@@ -8,12 +8,12 @@ const collect = async events => { const values = []; for await (const event of e
 function fixture(t, options = {}) {
   const storage = new SQLiteStorage(), session = storage.create({ ownerToken: 'fixture-owner' });
   let clock = 1000;
-  const logs = [], turns = createVoiceTurnOperations({ storage, now: () => clock, log: record => logs.push(record), ...options });
-  t.after(async () => { await turns.idle(); storage.close(); });
+  const unblock = [], logs = [], turns = createVoiceTurnOperations({ storage, now: () => clock, log: record => logs.push(record), ...options });
+  t.after(async () => { unblock.forEach(release => release()); await turns.idle(); storage.close(); });
   const context = { sessionId: session.id, callId: 'call-private-person@example.test', providerSessionId: 'https://private.example.test/generation',
     stream: true, callbackBody: { messages: [{ role: 'system', content: 'Private prompt' }, { role: 'user', content: 'Private speech' }],
       headers: { authorization: 'Bearer private-credential' } } };
-  return { storage, session, logs, turns, context, tick: value => { clock = value; } };
+  return { storage, session, logs, turns, context, unblock, tick: value => { clock = value; } };
 }
 
 function assertSafe(records) {
@@ -56,7 +56,7 @@ test('AIT-139: one correlated set joins admission, first token, completion and c
 
 test('AIT-139: interleaved history, duplicate readers and a replacement generation retain their own records', async t => {
   const h = fixture(t), gates = [Promise.withResolvers(), Promise.withResolvers(), Promise.withResolvers()];
-  t.after(() => gates.forEach(gate => gate.resolve()));
+  h.unblock.push(() => gates.forEach(gate => gate.resolve()));
   let executions = 0;
   const execute = worker => {
     const n = executions++; worker.beforeAdmission(); worker.admitted(`attempt-${n}`);
