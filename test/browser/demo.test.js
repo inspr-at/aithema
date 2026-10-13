@@ -1017,14 +1017,15 @@ test('AIT-116 gate: exact pointer anchoring, reload keeps the pause, cross-tab l
       window.voiceLiveness = [];
       const NativeChannel = BroadcastChannel;
       window.BroadcastChannel = class extends NativeChannel {
+        #probe = false;
         constructor(name) {
           super(name);
           if (name === 'aithema-voice-calls') this.addEventListener('message', ({ data }) => {
-            if (data?.type === 'pong') window.voiceLiveness.push(data);
+            if (this.#probe && data?.type === 'pong') window.voiceLiveness.push(data);
           });
         }
         postMessage(data) {
-          if (this.name === 'aithema-voice-calls' && data?.type === 'ping') window.voiceLiveness.push(data);
+          if (this.name === 'aithema-voice-calls' && data?.type === 'ping') { this.#probe = true; window.voiceLiveness.push(data); }
           super.postMessage(data);
         }
       };
