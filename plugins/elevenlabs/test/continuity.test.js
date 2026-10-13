@@ -47,3 +47,15 @@ test('AIT-138 d: wake Resume replaces silently while held, then waits for author
   assert.ok(local.sdk.acquired.length > acquired);
   assert.equal(local.sdk.effects.some(([name]) => name === 'sendUserMessage'), false, 'Rule C has no synthetic cross-generation input');
 });
+
+test('AIT-138 d: retained server restart hold on a connected replacement cannot fence its Resume', async t => {
+  const local = fixture(), session = await local.client.start({ callId: 'restart-notification' }, invocationOptions());
+  t.after(() => session.close());
+  session.receiveState({ callId: session.callId, providerSessionId: session.providerSessionId, state: 'paused', needsRecovery: false, reason: 'server-restart' });
+  assert.equal(session.lifecycle.state.state, 'active');
+  session.receiveState({ callId: session.callId, providerSessionId: session.providerSessionId, state: 'waiting', needsRecovery: true, reason: 'server-restart' });
+  assert.equal(session.lifecycle.state.state, 'waiting');
+  const stopped = local.sdk.effects.filter(([name]) => name === 'setVolume').length;
+  session.receiveState({ callId: session.callId, providerSessionId: session.providerSessionId, state: 'waiting', reason: 'server-restart' });
+  assert.equal(local.sdk.effects.filter(([name]) => name === 'setVolume').length, stopped, 'repeat snapshot is already fenced');
+});

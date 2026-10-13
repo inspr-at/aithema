@@ -553,7 +553,8 @@ export function createElevenLabsClient({ sdk, control, persistEvent, workletPath
           receiveState(state) {
             if (state.callId !== request.callId) return;
             if (state.epoch > grant.epoch || state.controllingTabId && state.controllingTabId !== control.tabId) lifecycle.ownershipLost();
-            else if (state.reason === 'server-restart' && state.providerSessionId === grant.providerSessionId) lifecycle.restart();
+            else if (state.reason === 'server-restart' && state.state === 'waiting' && state.needsRecovery !== false &&
+              state.providerSessionId === grant.providerSessionId && !lifecycle.state.holds.includes('server-restart')) lifecycle.restart();
           },
           close: commandOptions => close(commandOptions?.reason ?? 'closed', commandOptions),
           pause(commandOptions) {

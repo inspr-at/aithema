@@ -614,7 +614,9 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
         if (!complete) {
           const inspect = target => target?.evaluate(() => { const c = document.querySelector('aithema-session'); return {
             session: c?.session?.id, voice: c?.session?.voiceLifecycle, state: c?.shadowRoot?.querySelector('.audio-rail')?.dataset.state,
-            message: c?.shadowRoot?.querySelector('.voice-state')?.textContent, errors: document.querySelector('#error')?.textContent }; }).catch(() => null);
+            message: c?.shadowRoot?.querySelector('.voice-state')?.textContent, resumeDisabled: c?.shadowRoot?.querySelector('.pause')?.disabled,
+            journal: c?.session?.id && JSON.parse(sessionStorage.getItem(`aithema-voice-call:${c.session.id}`)),
+            errors: document.querySelector('#error')?.textContent }; }).catch(() => null);
           st.diagnostic(JSON.stringify({ original: await inspect(page), newcomer: await inspect(other), errors }));
         }
         await context.close();
