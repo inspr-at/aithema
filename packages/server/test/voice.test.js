@@ -50,6 +50,9 @@ test('AIT-138 d: ownership changing during eligibility fences an old Resume ackn
 for (const terminal of [false, true]) test(`AIT-138 d: restart reload retains callId and fences transport (${terminal ? 'terminal' : 'recoverable'})`, async t => {
   const h = voiceFixture(t), first = await h.start();
   if (terminal) await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId, reason: 'closed' });
+  await h.handlers.close();
+  h.replaceHandlers(createHandlers({ storage: h.storage, reasoning: createMockReasoning(), pluginRuntime: h.runtime,
+    consent: h.consent, voice: { secrets: h.secrets, now: h.now } }));
   await h.handlers.resume();
   const logical = h.storage.voiceLifecycle(h.session.id, first.callId);
   assert.equal(logical.callId, first.callId); assert.equal(logical.state, terminal ? 'ended' : 'waiting');
@@ -304,7 +307,7 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
     return args.lane === 'voice' ? admitted : { ...admitted, plugin: reasoning };
   } };
   const host = createHost?.({ storage, now });
-  const handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent, host, voice: { secrets, now, browserLeaseMs: leaseMs, ...voiceOptions } });
+  let handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent, host, voice: { secrets, now, browserLeaseMs: leaseMs, ...voiceOptions } });
   t.after(async () => { releasing = true; for (const id of waiting.keys()) endClient(id); await handlers.close(); storage.close(); });
   const token = 'voice-owner', session = storage.create({ ownerToken: token, demo: true });
   const route = async (suffix, body = {}, owner = token) => handlers.handle(new Request(`http://host/api/sessions/${session.id}${suffix}`, {
@@ -312,7 +315,8 @@ export function voiceFixture(t, { unknown = false, leaseMs = 30_000, slowClosure
   const start = async (callId = 'call-1') => {
     const response = await route('/voice', { callId }); assert.equal(response.status, 201); return response.json();
   };
-  return { storage, secrets, runtime, handlers, host, session, route, start, presets, provisioned, traffic, now, voiceCap, plugin: registry.get('elevenlabs'), endClient, closeRequests,
+  return { storage, secrets, runtime, get handlers() { return handlers; }, replaceHandlers(value) { handlers = value; }, consent,
+    host, session, route, start, presets, provisioned, traffic, now, voiceCap, plugin: registry.get('elevenlabs'), endClient, closeRequests,
     failMint: failure => { mintFailure = failure; },
     waitForMintFailure: () => providerEvents.waitFor(event => event.type === 'mint-failed'),
     waitForClosure: id => providerEvents.waitFor(event => event.type === 'details' && event.id === id),

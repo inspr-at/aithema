@@ -30,7 +30,7 @@ for (const transport of ['webrtc', 'websocket']) {
 
 test('AIT-138 d: wake Resume replaces silently while held, then waits for authorization before capture', async t => {
   const local = fixture(), document = new EventTarget(), entered = Promise.withResolvers(), release = Promise.withResolvers();
-  local.control.recover = (identity, options) => local.control.start({ callId: identity.callId }, options)
+  local.control.recover = (identity, options) => local.control.start({ callId: identity.callId }, { ...invocationOptions(), ...options })
     .then(receipt => ({ ...receipt, overrides: { agent: { language: 'en', firstMessage: '' } } }));
   local.control.resume = async () => { entered.resolve(); await release.promise; return { acknowledged: true, paused: false }; };
   const client = createElevenLabsClient({ sdk: local.sdk, control: local.control, document,
