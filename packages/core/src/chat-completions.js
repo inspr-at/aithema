@@ -40,14 +40,19 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
     if (!message) return 0;
     const reasoning = message.reasoning ?? message.reasoning_content;
     // OpenRouter may expose the same reasoning as plain text and details. Count
-    // the plain form once, or the text/summary/data details when it is absent.
+    // the plain form once, or text/summary details when it is absent. Encrypted
+    // data is an opaque transport blob, not token evidence.
     const parts = typeof reasoning === 'string' ? [reasoning] : (message.reasoning_details ?? [])
-      .flatMap(detail => [detail.text, detail.summary, detail.data]);
+      .flatMap(detail => [detail.text, detail.summary]);
     return [message.content, ...parts].reduce((sum, part) => sum + (typeof part === 'string' ? encoder.encode(part).byteLength : 0), 0);
   };
-  const floor = (spend, usage) => {
-    if (observedCost) spend.floorMicro = Math.max(spend.floorMicro ?? 0, observedCost(usage));
+  const floor = (spend, usage, ceiling = Infinity) => {
+    if (observedCost) spend.floorMicro = Math.max(spend.floorMicro ?? 0, Math.min(ceiling, observedCost(usage)));
   };
+  // UTF-8 bytes bound tokens from above. This estimate must stay within both
+  // max_tokens and the reservation; actual provider usage remains uncapped.
+  const byteFloor = (spend, bytes) => floor(spend,
+    { inputTokens: spend.inputBound, outputTokens: Math.min(bytes, binding.maxTokens) }, spend.ceiling);
   const persistFloor = (spend, final = false) => {
     if (spend.floorMicro === undefined || spend.floorMicro <= (spend.persistedFloorMicro ?? -1)) return;
     if (!final && spend.floorAt !== undefined && Date.now() - spend.floorAt < 1000) return;
@@ -60,7 +65,7 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
     invocation.servedModel(value.model); invocation.usage(usage);
     if (usage) floor(spend, usage); // completion_tokens already includes reasoning tokens.
     const bytes = outputBytes(value.choices?.[0]?.message);
-    if (bytes) floor(spend, { inputTokens: spend.inputBound, outputTokens: bytes });
+    if (bytes) byteFloor(spend, bytes);
     if (!spend.stream) persistFloor(spend, true);
     if (cost !== null) { spend.cost = cost; invocation.cost(cost); }
     if (id && id !== spend.generationId || cost !== null && cost !== spend.recordedCost) {
@@ -140,7 +145,7 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
           const bytes = outputBytes(value.choices?.[0]?.delta);
           if (bytes) {
             spend.outputBytes = (spend.outputBytes ?? 0) + bytes;
-            floor(spend, { inputTokens: spend.inputBound, outputTokens: spend.outputBytes });
+            byteFloor(spend, spend.outputBytes);
           }
           // Keep evidence in memory and persist at most once a second. Identity
           // and authoritative receipts bypass the throttle; finally flushes even

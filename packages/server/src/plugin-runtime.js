@@ -17,6 +17,7 @@ const hash = value => createHash('sha256').update(JSON.stringify(value)).digest(
 const map = { text: ['reaction', 'reasoning', 'stream'], analysis: ['understanding', 'reasoning', 'structured'],
   voice: ['voice', 'live-voice', 'start'], transcription: ['transcription', 'stt', 'transcribe'], images: ['images', 'ui-generation', 'generate'], html: ['html', 'ui-generation', 'generate'] };
 const CONSENT = CONSENT_REASON;
+const COST_ESTIMATE_ATTEMPTS = 12;
 const text = (value, max = 120) => typeof value === 'string' && value.trim() && value.length <= max ? value.trim() : null;
 const free = raw => raw?.maxMicro === 0 && raw.rates?.inputMicro === 0 && raw.rates?.outputMicro === 0 &&
   (raw.upstreamMicroPerMinute ?? 0) === 0 && (raw.visitorMicroPerMinute ?? 0) === 0 &&
@@ -184,8 +185,10 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   const voiceAmounts = (binding, options) => {
     const milliseconds = options.spendDeadlineAt === undefined ? binding.maxDurationSeconds * 1000
       : Math.min(binding.maxDurationSeconds * 1000, Math.max(0, options.spendDeadlineAt - now()));
-    const runwayMs = Math.min(binding.minRunwaySeconds * 1000, binding.maxDurationSeconds * 1000);
-    if (milliseconds < runwayMs) throw new PluginError('not-admitted', 'host-limit');
+    // Only a brand-new logical call needs the runway. Re-admission funds the
+    // next segment (or the shorter remaining duration) under its original end.
+    const runwayMs = options.existingCall ? 0 : Math.min(binding.minRunwaySeconds * 1000, binding.maxDurationSeconds * 1000);
+    if (milliseconds <= 0 || milliseconds < runwayMs) throw new PluginError('not-admitted', 'host-limit');
     const reservedMs = binding.reservationSeconds ? Math.min(milliseconds, Math.max(binding.reservationSeconds * 1000, runwayMs)) : milliseconds;
     return { maxMilliseconds: Math.ceil(milliseconds), fundedSeconds: reservedMs / 1000, maxMicro: binding.reservationSeconds
       ? Math.ceil(reservedMs / 60_000 * binding.upstreamMicroPerMinute)
@@ -387,8 +390,10 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
           else if (previous && previous.estimated !== true) evidence = previous;
           else if (row.outcome !== 'uncertain') evidence = { chargedMicro: row.settled_micro, ...(record.generationId ? { generationId: record.generationId } : {}) };
           else {
-            try { evidence = await plugin.reconcileCost(record, { ...options, deadlineAt: Math.min(options.deadlineAt ?? Infinity, Date.now() + 5000) }); }
-            catch { /* Timeouts and unavailable generations reach the same bounded fallback. */ }
+            if ((record.retryAttempts ?? 0) < COST_ESTIMATE_ATTEMPTS) {
+              try { evidence = await plugin.reconcileCost(record, { ...options, deadlineAt: Math.min(options.deadlineAt ?? Infinity, Date.now() + 5000) }); }
+              catch { /* Timeouts and unavailable generations reach the same bounded fallback. */ }
+            }
             if (!evidence && now() - (record.settledAt ?? 0) >= costReconciliationWindowMs) {
               const estimate = record.estimateMicro ?? plugin.uncertainEstimateMicro;
               if (Number.isSafeInteger(estimate) && estimate >= 0) evidence = {
@@ -410,10 +415,12 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
               await plugin.reconcileSpend?.(row.attempt_id, evidence.chargedMicro);
               budget.acknowledgeCost(row.attempt_id);
             } else {
-              // Estimates leave the fast pending set. Only returned IDs need a
-              // slower receipt retry; fresh identity/cost/floor evidence requeues
-              // immediately. No-ID estimates need no repeated database writes.
-              budget.acknowledgeCost(row.attempt_id, record.generationId ? now() + costReconciliationWindowMs : null);
+              // Persist the bounded slower retry count across restart. Fresh
+              // evidence can still requeue exhausted estimates for correction;
+              // it cannot start another cycle of generation lookups.
+              const retryAttempts = record.generationId ? Math.min(COST_ESTIMATE_ATTEMPTS, (record.retryAttempts ?? 0) + 1) : 0;
+              budget.acknowledgeCost(row.attempt_id,
+                record.generationId && retryAttempts < COST_ESTIMATE_ATTEMPTS ? now() + costReconciliationWindowMs : null, retryAttempts);
               summary.pending++;
             }
           } catch { summary.pending++; /* The durable evidence is retried after a crash or cap settlement failure. */ }

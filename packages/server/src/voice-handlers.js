@@ -214,7 +214,9 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     if (request.signal.aborted) abortStartup();
     try {
       const opts = { ...options(request), signal: controller.signal };
-      const admitted = await runtime.admitVoice({ session, request: { callId }, options: { ...opts, spendDeadlineAt, allowPaused: continuation } }); entry.admission = admitted;
+      const admitted = await runtime.admitVoice({ session, request: { callId }, options: {
+        ...opts, spendDeadlineAt, allowPaused: continuation, existingCall: continuation,
+      } }); entry.admission = admitted;
       const end = spendDeadlineAt ?? now() + admitted.binding.maxDurationSeconds * 1000;
       if (end <= now()) throw new PluginError('deadline');
       if (!staticSecretRef) await secrets.provision(entry.facadeSecretRef);

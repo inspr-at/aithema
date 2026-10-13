@@ -26,8 +26,9 @@ export function createOpenRouterReasoning({ binding, resolveSecret = ref => proc
     ...createChatCompletions({ manifest, binding, resolveSecret, fetchImpl, spendCap, authoritativeCost: true,
     // Fallback = min(per-call maximum, ceil((input token bound * input price +
     // configured max output tokens * output price) * 1e6)). max_tokens includes
-    // reasoning as well as visible output. The host floors this by observed
-    // evidence; only an authoritative receipt can release the provider cap.
+    // reasoning as well as visible output. Byte estimates stay within the
+    // reservation; real usage floors remain uncapped. Only an authoritative
+    // receipt can release the provider cap.
     uncertainCeiling: body => Math.min(binding.maxMicro, requestCeilingMicro(body, price)),
     observedCost: usage => tokenCeilingMicro(usage.inputTokens, Math.max(1, usage.outputTokens), price),
     spendCeiling(body) {

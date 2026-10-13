@@ -167,9 +167,11 @@ export class SQLiteBudgetLedger {
       AND json_extract(provider_cost_json,'$.retryAt') IS NOT NULL
       AND json_extract(provider_cost_json,'$.retryAt')<=? ORDER BY attempt_id`).all(atMs);
   }
-  acknowledgeCost(attemptId, retryAt = null) {
-    this.db.prepare(`UPDATE budget_attempts SET provider_cost_json=json_set(provider_cost_json,'$.reconciled',1,'$.retryAt',?)
-      WHERE attempt_id=?`).run(retryAt, attemptId);
+  acknowledgeCost(attemptId, retryAt = null, retryAttempts = null) {
+    if (retryAttempts !== null && !integer(retryAttempts)) throw new TypeError('Invalid cost retry count');
+    this.db.prepare(`UPDATE budget_attempts SET provider_cost_json=json_set(provider_cost_json,'$.reconciled',1,'$.retryAt',?,
+      '$.retryAttempts',COALESCE(?,json_extract(provider_cost_json,'$.retryAttempts'),0))
+      WHERE attempt_id=?`).run(retryAt, retryAttempts, attemptId);
   }
   extendVoice(attemptId, { maxMicro, maxVisitorMicro }, ownerCanAdmit) {
     if (![maxMicro, maxVisitorMicro].every(integer)) throw new TypeError('Invalid voice extension');

@@ -822,7 +822,9 @@ paused time. Failed minting or startup journal writes before credential handoff
 settle both money and duration to zero: no browser conversation was billable.
 Uncertain and unreconciled duration attempts retain their entire safety hold until
 authenticated reconciliation. Recovery keeps the logical call identity and original
-deadline and reserves only the remaining duration: confirmed predecessors release
+deadline and reserves only the remaining duration: recovery admission funds one
+priced segment (or the shorter remaining duration), without another minimum
+runway check. The minimum runway applies to brand-new logical calls. Confirmed predecessors release
 headroom, while an overlapping unconfirmed predecessor still holds its reservation,
 so recovery can require additional headroom. Replayed commands do not reserve twice.
 Library hosts pass `createVoiceCap({storage, ...voiceCapConfig(values)})` as
@@ -1838,9 +1840,13 @@ cost leave no live reservation and retain their estimate as uncertain spend.
 Startup and a bounded 30-second retry loop reconcile returned IDs through
 `GET /api/v1/generation?id=...` using authoritative `data.total_cost`. Receipts
 repair either ledger after a crash between their writes. AIT-163 bounds the visitor-wallet hold: after five minutes without a receipt,
-settle to a labelled conservative call estimate, floored by observed token/output
-price evidence. The fallback in microdollars is
-`max(observed evidence, min(per-call maximum, ceil((input token bound × input USD/token + lane max output tokens × output USD/token) × 1,000,000)))`.
+settle to a labelled conservative call estimate. Write
+`price(I, O) = ceil((I × input USD/token + O × output USD/token) × 1,000,000)`.
+The fallback in microdollars is
+`max(real usage price, min(call reservation, price(input bound, lane max output tokens)), min(call reservation, price(input bound, min(plaintext output UTF-8 bytes, lane max output tokens))))`.
+UTF-8 bytes are an upper bound on tokens, so the byte-derived estimate is capped
+by both the output-token ceiling and the call reservation. Real provider `usage`
+remains an uncapped floor. Encrypted `reasoning_details.data` is never priced as tokens.
 The input bound is the complete serialized message UTF-8 byte count; the lane's
 configured `max_tokens` includes visible output and its reasoning budget. A lost
 completed response without an ID uses this same lane estimate. For illustrative
@@ -1848,15 +1854,18 @@ configured Opus prices of USD 5/25 per million input/output tokens, a 1,000-toke
 input bound and the 8,000-token analysis lane estimate are **205,000 µ$**. At
 illustrative Haiku prices of USD 1/5 per million, the same input bound and a
 1,200-token reaction lane estimate are **7,000 µ$**. Both are below a 1,000,000 µ$
-per-call maximum; observed evidence can raise either floor. These bounds preserve
+per-call maximum; real usage can raise either floor. These bounds preserve
 what could have been generated without evidence of less, rather than using a
 flat dollar charge. Historical rows without request metadata use their binding's
 technical input bound and full lane output budget, capped by their original call
 maximum. Missing generation IDs are never zero-cost evidence. Estimates remain
 uncertain and leave the immediate pending set. Returned IDs receive a deferred
-receipt retry every five minutes; new identity, cost or higher observed evidence
-requeues immediately. An authoritative receipt can supersede an estimate once,
-including a higher charge. Stream floors include reasoning deltas, persist at
+receipt retry every five minutes, capped at twelve estimate-phase attempts
+(about one hour), with the count retained across restart. Exhaustion finalises
+the visitor estimate and removes scheduled lookups; new identity, cost or higher
+observed evidence still requeues corrections without resetting the retry count.
+An authoritative receipt can supersede an estimate once, including a higher charge.
+Stream byte estimates include plaintext reasoning deltas, persist at
 most once per second and flush at the end, including on cancellation or failure.
 Every correction appends to `budget_corrections` with the previous projection and
 evidence; original terminal reports remain unchanged. The account spend cap
