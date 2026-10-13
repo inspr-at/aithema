@@ -76,8 +76,34 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-state').textContent), { de, en }[locale].voiceMoved);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.pause').disabled), true);
       sameBoxes(before, await layoutBoxes(page, selectors), `${label}: old-tab notice`);
-      const shot = async (target, name) => { const file = `ait-138-d-${name}-${label}.png`; files.push(file);
-        if (evidence) await target.screenshot({ path: join(evidence, file), fullPage: false }); };
+      const shot = async (target, name) => {
+        // The rail helper only waits for the band; also settle the workspace entrance.
+        await shadow(target, async c => {
+          await document.fonts.ready;
+          await Promise.all(c.shadowRoot.querySelector('.workspace').getAnimations({ subtree: true })
+            .filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
+          await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        });
+        const composer = await shadow(target, c => {
+          const root = c.shadowRoot, form = root.querySelector('.composer'), rect = form.getBoundingClientRect();
+          const footer = root.querySelector('.display-foot').getBoundingClientRect();
+          const points = [.1, .5, .9].flatMap(x => [.1, .5, .9].map(y => {
+            const px = rect.left + rect.width * x, py = rect.top + rect.height * y;
+            return { x: px, y: py, visible: form.contains(root.elementFromPoint(px, py)) };
+          }));
+          return { x: rect.x, y: rect.y, width: rect.width, height: rect.height, footerTop: footer.top,
+            fullyVisible: rect.width > 0 && rect.height > 0 && rect.left >= 0 && rect.right <= innerWidth &&
+              rect.top >= 0 && rect.bottom <= footer.top && points.every(point => point.visible), points,
+            workspaceReveal: root.querySelector('.workspace').hasAttribute('data-reveal') };
+        });
+        const file = `ait-138-d-${name}-${label}.png`; files.push(file);
+        if (evidence) {
+          await target.screenshot({ path: join(evidence, file), fullPage: false });
+          await writeFile(join(evidence, `${file}.json`), JSON.stringify({ name, width, theme, locale, composer }, null, 2));
+        }
+        st.diagnostic(`${name} composer: ${JSON.stringify(composer)}`);
+        if (width >= 960) assert.ok(composer.fullyVisible, `${label}/${name}: settled composer must be fully visible`);
+      };
       await shot(page, 'old-tab');
       st?.diagnostic('Captured old-tab notice');
       await other.bringToFront(); await click(other, '.pause'); await state(other, 'listening');
