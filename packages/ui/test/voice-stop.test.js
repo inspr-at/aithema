@@ -102,7 +102,7 @@ for (const transport of ['webrtc', 'websocket']) {
     // when the next tab takes ownership and the durable notification arrives.
     f.element.receive({ seq: 1, type: 'session.paused',
       data: { paused: false, resumeRequestId: resume.body.resumeRequestId } });
-    f.element.receive({ seq: 2, type: 'voice.state', data: { callId: f.waiting.callId,
+    f.element.receive({ type: 'voice.state', data: { callId: f.waiting.callId,
       providerSessionId: 'resumed-provider', epoch: 2, controllingTabId: 'successor-tab',
       state: 'waiting', needsRecovery: true, reason: 'tab-takeover' } });
     const synchronousState = root.dataset.state;
