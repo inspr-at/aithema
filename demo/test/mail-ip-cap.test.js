@@ -105,6 +105,33 @@ test('AIT-167 request routing respects opt-in trust, invalid header fallback and
   await g.handlers.idle(); assert.equal(g.messages.length, 11);
 });
 
+test('AIT-167 default rolling day admits 20 requests across hourly windows', async t => {
+  const f = await fixture(t);
+  for (let hour = 0; hour < 4; hour++) {
+    f.at(1_000 + hour * HOUR);
+    await Promise.all(Array.from({ length: 5 }, (_, i) => f.call(`day-${hour}-${i}`)));
+    await f.handlers.idle();
+    assert.equal(f.messages.length, (hour + 1) * 5);
+  }
+  f.at(1_000 + 4 * HOUR); await f.call('day-full'); await f.handlers.idle();
+  assert.equal(f.messages.length, 20); assert.equal(f.host.confirmation.mailCap().day.count, 20);
+  f.at(1_000 + DAY); await f.call('day-expired'); await f.handlers.idle(); assert.equal(f.messages.length, 21);
+});
+
+test('AIT-167 database scan contains no raw IPv4, IPv6, forwarded chain or /64 bucket', async t => {
+  const f = await fixture(t);
+  const inputs = ['203.0.113.42', '198.51.100.1, 2001:db8:1:2::1', 'invalid'];
+  for (const [i, xff] of inputs.entries()) { await f.call(`privacy-${i}`, { xff }); await f.handlers.idle(); }
+  const tables = f.storage.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all();
+  const dump = JSON.stringify(tables.map(({ name }) => f.storage.db.prepare(`SELECT * FROM "${name.replaceAll('"', '""')}"`).all()));
+  for (const raw of [...inputs, peer, '198.51.100.1', '2001:db8:1:2::1', '2001:0db8:0001:0002::/64']) {
+    if (raw !== 'invalid') assert.equal(dump.includes(raw), false);
+  }
+  assert.equal(f.messages.length, 3);
+  const transport = JSON.stringify(f.messages);
+  for (const raw of [peer, '203.0.113.42', '2001:db8:1:2::1', '2001:0db8:0001:0002::/64']) assert.equal(transport.includes(raw), false);
+});
+
 test('AIT-167 real HTTP adapter supplies the socket peer without trusting a forged peer header', async t => {
   const f = await fixture(t, { clientIpHeader: undefined });
   const { server, url } = await listen(f.handlers.handle);
@@ -161,6 +188,20 @@ test('AIT-167 IP reservation rolls back atomically with C1, global cap and token
   for (const table of ['host_mail_ip_slots', 'host_mail_slots', 'visitor_mail_abuse', 'visitor_confirmation_tokens']) {
     assert.equal(f.storage.db.prepare(`SELECT COUNT(*) n FROM ${table}`).get().n, 0);
   }
+});
+
+test('AIT-167 an IP log window remains claimed when an earlier slot expires', async t => {
+  const logs = []; t.mock.method(console, 'warn', line => logs.push(JSON.parse(line)));
+  const f = await fixture(t); f.set({ hour: 2, day: 20 });
+  await f.call('log-one'); await f.handlers.idle();
+  f.at(2_000); await f.call('log-two'); await f.handlers.idle();
+  f.at(3_000); await f.call('log-suppressed'); await f.handlers.idle(); assert.equal(logs.length, 1);
+  f.at(HOUR + 1_000); await f.call('log-freed'); await f.handlers.idle(); assert.equal(f.messages.length, 3);
+  f.at(HOUR + 1_001); await f.call('log-still-suppressed'); await f.handlers.idle(); assert.equal(logs.length, 1);
+  f.at(HOUR + 3_000); await f.call('log-next-window'); await f.handlers.idle();
+  // The second old slot has now expired, allowing one request. A fresh
+  // suppression at the same timestamp starts the next alert window.
+  await f.call('log-next-window-suppressed'); await f.handlers.idle(); assert.equal(logs.length, 2);
 });
 
 test('AIT-167 suppressed/allowed responses and scheduling match before SMTP or IP accounting runs', async t => {

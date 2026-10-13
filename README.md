@@ -2265,7 +2265,7 @@ Host-owned schema (in the same SQLite database and exclusive writer):
 
 | Table | Contents |
 | --- | --- |
-| `visitor_credit_settings` | Singleton; schema version 1, monotonic revision, integer micro-USD allowances, confirmation flag, rolling-hour/day mail caps, UTC created/updated timestamps |
+| `visitor_credit_settings` | Singleton; schema version 1, monotonic revision, integer micro-USD allowances, confirmation flag, global and per-IP rolling-hour/day mail caps, UTC created/updated timestamps |
 | `visitor_credit_audit` | Append-only settings history: actor, UTC timestamp, source, revision, old/new settings; no visitor addresses; updates rejected by trigger |
 | `visitor_identities` | Opaque `visitor_ref` mapped uniquely to the existing owner hash; address/revision, saved/confirmed/pending evidence, notice version, creation/update/activity timestamps and shared verification state |
 | `visitor_confirmation_tokens` | SHA-256 token hash bound to visitor, address revision and requesting conversation; creation/expiry/redemption timestamps; cascade erased with the visitor |
@@ -2588,7 +2588,41 @@ for each window. When suppression starts, one JSON log line
 audit event report it. Further suppressed requests do not log again until the
 window has elapsed or admission resumes for that window.
 
-Accepted, address-suppressed and globally suppressed HTTP requests
+AIT-167 additionally throttles **`POST /identity/request` only** to **5 requests
+per rolling hour and 20 per rolling day per IP bucket**. Resend, change and
+confirmation routes keep their existing C1/C2 and global checks. `mailIpCap:
+{ hour, day }` lives in the same settings singleton; view it with `node
+demo/admin-cli.js settings`, then use `node demo/admin-cli.js set-mail-ip-cap
+--base-revision N --hour N --day N`. Both limits must be integers, with
+`0 <= hour <= day`, ceilings of 1,000/hour and 10,000/day, and zero suppressing
+requests. Saves require the OPS socket and current revision, and atomically
+audit the old/new values. Raising limits preserves existing counters.
+
+Forwarded-header trust is **off by default**: the bucket comes from the socket
+peer. OPS may set **`AITHEMA_CLIENT_IP_HEADER=x-forwarded-for`** (or the host's
+`clientIpHeader: 'x-forwarded-for'` option) **only behind a proxy that overwrites
+client-supplied XFF, with no other externally reachable way into the app**.
+start2's Caddy meets that contract and the app listens on loopback. The resolver
+validates the right-most XFF entry as an IPv4/IPv6 literal; missing or invalid
+XFF falls back to the socket peer, so local tooling shares a bucket. It never
+uses `X-Real-IP`. IPv6 addresses share a canonical /64 bucket; IPv4-mapped IPv6
+addresses share their IPv4 bucket. Unsupported header configuration refuses
+startup.
+
+`host_mail_ip_slots` stores only HMACs of buckets, counts and timestamps, using
+the existing persistent confirmation host key with a separate `ip` domain.
+Raw IPs never enter the database, persisted events, mail transport or logs.
+The IP claim runs in the same `BEGIN IMMEDIATE` as C1, the global cap and token
+creation; requests reaching that claim count even when C1 or the global cap
+subsequently suppresses mail. IP-suppressed requests consume no global slot.
+Counts survive restart and visitor erasure and expire after 24 hours through
+bounded retention. `host_mail_ip_alerts` persists one log claim per bucket and
+rolling window, including when slots free and after restart. Each suppression
+log contains only the event, window and 12-character bucket-HMAC prefix; alert
+rows also expire after 24 hours. IP checks and delivery run after the response,
+so IP suppression keeps the same response and scheduling as acceptance.
+
+Accepted, address-suppressed, IP-suppressed and globally suppressed HTTP requests
 return the same status, body and headers and show “Link gesendet …”. Delivery
 starts asynchronously after the response; SMTP duration, failure and shared
 address/global activity never change the visitor-visible state. Host-private
@@ -2656,6 +2690,7 @@ Readiness of voice is separately visible in
 | `AITHEMA_PRIVACY_DOCUMENT` | Optional readable HTML-fragment file, at most 256 KiB; validated at startup and served at `/privacy`; required before email collection or address persistence on every non-demo host, regardless of verification delivery |
 | `AITHEMA_PRIVACY_DOCUMENT_DE`, `AITHEMA_PRIVACY_DOCUMENT_EN` | Optional locale variants; each must pass the same validation; only the page URL is exposed publicly |
 | `AITHEMA_DB` | Persistent SQLite path; local `.data/session.sqlite`, image `/data/session.sqlite` |
+| `AITHEMA_CLIENT_IP_HEADER` | Unset by default: use the socket peer for confirmation-request throttling. Only `x-forwarded-for` is supported; enable solely behind a proxy that overwrites XFF, with no other externally reachable ingress |
 | `AITHEMA_ADMIN_SOCKET` | Private OPS Unix socket; default `<database-directory>/ops/admin`, directory 0700 and socket 0600 |
 | `AITHEMA_COMMIT` | Deployed source SHA; `/healthz` reports this or `null` |
 | `AITHEMA_PROVIDER` | `openrouter` for live reasoning; defaults to `mock` |

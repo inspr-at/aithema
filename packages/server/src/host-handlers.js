@@ -200,7 +200,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     })().finally(() => { if (deliveries.get(id) === flight) deliveries.delete(id); });
     deliveries.set(id, flight); await flight;
   }
-  async function handle(request) {
+  async function handle(request, context) {
     const url = new URL(request.url);
     const sessionMatch = new RegExp(`^/api/sessions/(${idPattern})/(identity(?:/(?:request|resend|change|confirm|unlock))?|email-ask|handover(?:/retry)?|credits|demo/outbox)$`, 'u').exec(url.pathname);
     const libraryMatch = new RegExp(`^/api/library(?:/(${idPattern})(?:/(rename|delete|reset))?)?$`, 'u').exec(url.pathname);
@@ -368,6 +368,10 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
         if (command === 'change') result = identityTransition(id, ownerToken, { type: 'resend' });
         const blocked = result.resendBlocked;
         const effect = result.events.find(e => e.type === 'verification.requested');
+        // IP metadata stays in private call options, outside persisted events
+        // and the mail effect. Other identity routes retain their own limits.
+        const deliveryOptions = callOptions => command === 'request' && host.identity.clientIpBucket
+          ? { ...callOptions, clientIpBucket: host.identity.clientIpBucket(request, context) } : callOptions;
         if (effect && host.identity.asynchronousDelivery === true) {
           // Give every accepted request the same visitor state and response.
           // Reserve/throttle and SMTP both start on the next event-loop turn,
@@ -381,7 +385,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
             if (signal?.aborted) return;
             return callHost(callOptions => {
               assertAddressCollectionAllowed();
-              return host.identity.requestVerification({ sessionId: id, ownerToken, ...effect.data }, callOptions);
+              return host.identity.requestVerification({ sessionId: id, ownerToken, ...effect.data }, deliveryOptions(callOptions));
             });
           }).catch(() => {
             // Host-private delivery audit owns failure reporting. A visitor
@@ -392,7 +396,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
           let delivery;
           try { delivery = await callHost(callOptions => {
             assertAddressCollectionAllowed();
-            return host.identity.requestVerification({ sessionId: id, ownerToken, ...effect.data }, callOptions);
+            return host.identity.requestVerification({ sessionId: id, ownerToken, ...effect.data }, deliveryOptions(callOptions));
           }); }
           catch (error) {
             if (error instanceof PrivacyDocumentRequiredError) throw error;

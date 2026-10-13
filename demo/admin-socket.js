@@ -52,7 +52,7 @@ export async function listenAdmin({ host, spendCap, socketPath, reconcileUncerta
           uncertainMicro: cap.uncertainMicro, remainingMicro: Math.max(0, cap.capMicro - cap.spentMicro - cap.reservedMicro - cap.uncertainMicro),
           breached: cap.breached, recovery: CAP_RECOVERY });
       }
-      if (['/set-allowances', '/set-confirmation', '/set-mail-cap', '/reconcile-uncertain'].includes(url.pathname) && req.method === 'POST') {
+      if (['/set-allowances', '/set-confirmation', '/set-mail-cap', '/set-mail-ip-cap', '/reconcile-uncertain'].includes(url.pathname) && req.method === 'POST') {
         let size = 0; const chunks = [];
         for await (const chunk of req) { size += chunk.length; if (size > 16_384) { send({ error: 'body-too-large' }, 413); req.destroy(); return; } chunks.push(chunk); }
         const input = JSON.parse(Buffer.concat(chunks).toString('utf8'));
@@ -66,7 +66,9 @@ export async function listenAdmin({ host, spendCap, socketPath, reconcileUncerta
         if (url.pathname === '/set-confirmation' && (Object.keys(input).some(k => !['baseRevision', 'confirmationEnabled'].includes(k)) || typeof input.confirmationEnabled !== 'boolean')) throw new TypeError('Invalid confirmation policy');
         if (url.pathname === '/set-mail-cap' && (!input || typeof input !== 'object' || Array.isArray(input) ||
           Object.keys(input).some(k => !['baseRevision', 'mailCap'].includes(k)) || !input.mailCap)) throw new TypeError('Invalid mail cap policy');
-        if (url.pathname === '/set-allowances' && Object.hasOwn(input, 'mailCap')) throw new TypeError('Use set-mail-cap');
+        if (url.pathname === '/set-mail-ip-cap' && (!input || typeof input !== 'object' || Array.isArray(input) ||
+          Object.keys(input).some(k => !['baseRevision', 'mailIpCap'].includes(k)) || !input.mailIpCap)) throw new TypeError('Invalid IP mail cap policy');
+        if (url.pathname === '/set-allowances' && (Object.hasOwn(input, 'mailCap') || Object.hasOwn(input, 'mailIpCap'))) throw new TypeError('Use the dedicated mail cap command');
         return send(host.visitorCredits.saveSettings(input, { actor, source: 'ops-cli' }));
       }
       return send({ error: 'not-found' }, 404);
@@ -86,7 +88,7 @@ export async function listenAdmin({ host, spendCap, socketPath, reconcileUncerta
 /** Client has no database dependency or direct-storage fallback. */
 export function adminRequest(socketPath, command, payload) {
   return new Promise((resolve, reject) => {
-    const set = ['set-allowances', 'set-confirmation', 'set-mail-cap', 'reconcile-uncertain'].includes(command);
+    const set = ['set-allowances', 'set-confirmation', 'set-mail-cap', 'set-mail-ip-cap', 'reconcile-uncertain'].includes(command);
     const query = command === 'audit' && payload ? `?${new URLSearchParams(payload)}` : '';
     const bytes = set ? Buffer.from(JSON.stringify(payload)) : null;
     const req = request({ socketPath, path: `/${command}${query}`, method: set ? 'POST' : 'GET',

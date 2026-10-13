@@ -126,6 +126,7 @@ const budget = new SQLiteBudgetLedger(storage, { sessionCapMicro: VISITOR_CREDIT
 const pluginRuntime = createPluginRuntime({ storage, reasoning, consent, registry: runtimePorts.registry, uiRenderLimits, presets: runtimePorts.presets, voiceCap, budget });
 const host = createDemoHost({ storage, demo: process.env.AITHEMA_PROVIDER === undefined && process.env.NODE_ENV !== 'production', mailPlugin,
   verificationRequired: process.env.AITHEMA_DEMO_VERIFY === '1', ownerGuard: false,
+  clientIpHeader: process.env.AITHEMA_CLIENT_IP_HEADER,
   privacyDocumentConfigured: privacy.privacyDocumentConfigured,
   // Voice off has no binding and rate 0: warnings use 10% only, without the
   // five-minute / 50-Credit floor of the $0.10/minute voice configuration.
@@ -163,7 +164,7 @@ const admin = await listenAdmin({ host, spendCap, reconcileUncertain: options =>
 // Expire old evidence before recovery can authorize fresh work.
 await handlers.resume();
 let allowedHosts = new Set();
-async function handle(request) {
+async function handle(request, context) {
   const refused = deploymentGate(request, deployment, allowedHosts); if (refused) return refused;
   if (request.method === 'GET' && new URL(request.url).pathname === '/healthz') return Response.json({ ok: true, commit: deployment.commit ?? build.commit, version: build.version, product: build.product, date: build.date });
   const confirmationResponse = await confirmationPage?.handle(request); if (confirmationResponse) return confirmationResponse;
@@ -173,7 +174,7 @@ async function handle(request) {
   }
   const url = new URL(request.url);
   const privacyResponse = privacy.handle(request); if (privacyResponse) return privacyResponse;
-  if (url.pathname.startsWith('/api/')) return handlers.handle(request);
+  if (url.pathname.startsWith('/api/')) return handlers.handle(request, context);
   if (!['GET', 'HEAD'].includes(request.method)) return new Response(null, { status: 405 });
   if (url.pathname === '/demo/config') return Response.json({ label: reasoning.label, defaultPreset: 'best', voiceMode: voiceMode === 'elevenlabs' && !readVoiceState().binding ? 'off' : voiceMode,
     voiceDisabledReason: voiceHost?.disabledReason ?? null, processingConsent: consent.describe?.().contract ? consent.describe() : undefined, imageMode, imageLabel: imagePlugin?.label ?? 'Images off',
