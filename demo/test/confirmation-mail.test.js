@@ -200,3 +200,13 @@ test('C1 confirmation setting is OPS-only and private CLI enables it with delive
   const result = await promisify(execFile)(process.execPath, ['demo/admin-cli.js', '--socket', socketPath, 'set-confirmation', '--base-revision', '3', '--enabled', 'true']);
   assert.equal(JSON.parse(result.stdout).confirmationEnabled, true);
 });
+
+test('C1 demo-only outbox also issues a token with at least 128 random bits', async t => {
+  const storage = new SQLiteStorage(); t.after(() => storage.close());
+  const host = createDemoHost({ storage, demo: true, now: () => 1_000 }), s = storage.create({ ownerToken: 'demo-owner' });
+  const result = reduceIdentity(createIdentity(), { type: 'request-verification', address, now: 1_000 });
+  host.identity.persist({ session: s }, result.state);
+  await host.identity.requestVerification({ sessionId: s.id, ownerToken: 'demo-owner', ...result.events.find(e => e.type === 'verification.requested').data });
+  // UUIDv4 has 122 random bits. The demo and SMTP path both need stronger tokens.
+  assert.match(host.outbox({ sessionId: s.id, ownerToken: 'demo-owner' })[0].token, /^[A-Za-z0-9_-]{43}$/u);
+});
