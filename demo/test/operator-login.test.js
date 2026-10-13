@@ -7,7 +7,7 @@ const origin = 'https://operator.host.test';
 async function fixture(t, settings = {}) {
   const issuer = await stubOperatorIssuer(); t.after(() => issuer.close());
   const running = await startChild(new URL('../server.js', import.meta.url), await temporaryDb(), {
-    AITHEMA_PUBLIC_ORIGIN: origin, AITHEMA_OPERATOR_ISSUER: issuer.issuer,
+    AITHEMA_PROVIDER: 'mock', AITHEMA_PUBLIC_ORIGIN: origin, AITHEMA_OPERATOR_ISSUER: issuer.issuer,
     AITHEMA_OPERATOR_CLIENT_ID: 'fixture-client', AITHEMA_OPERATOR_SUBJECTS: 'allowed-operator,second-operator', ...settings,
   });
   t.after(() => running.kill());
@@ -48,7 +48,7 @@ test('AIT-165 login → stubbed PKCE exchange → private operator session; visi
   assert.equal((await f.call(`/api/sessions/${session.id}`, cookie)).status, 404, 'operator has no visitor ownership');
   const visitorCookie = created.headers.getSetCookie()[0].split(';')[0];
   assert.equal((await f.call(`/api/sessions/${session.id}`, visitorCookie)).status, 200);
-  assert.equal((await f.call('/api/visitor/email', cookie, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"address":"visitor@example.test","noticeVersion":"ait-135-v1"}' })).status, 403);
+  assert.equal((await f.call('/api/visitor/email', visitorCookie, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"address":"visitor@example.test","noticeVersion":"ait-135-v1"}' })).status, 403);
   assert.equal(JSON.stringify(config).includes('allowed-operator'), false);
   assert.equal(JSON.stringify(config).includes('id_token'), false);
   const next = await f.callback(await f.login()); assert.ok(f.grant(next)); assert.equal(f.issuer.keysRead(), 1, 'JWKS is cached');

@@ -29,6 +29,8 @@ export const browserShards = [
     'test/browser/html-preview.test.js',
     'test/browser/host-surface.test.js',
     'test/browser/confirmation-design.test.js',
+    // AIT-165: 48 viewport states with a local-only issuer (budget < 180s).
+    'test/browser/operator-login.test.js',
   ],
 ];
 
