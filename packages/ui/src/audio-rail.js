@@ -369,12 +369,22 @@ export class AudioRail {
       return;
     }
     if (!state?.providerSessionId || state.state === 'ended' || this.state === 'connecting') return;
-    if (foreign || state.state === 'waiting') {
-      if (foreign && this.busy && !this.ownershipWait && known?.controllingTabId === this.client?.tabId) {
-        this.generation++; this.pauseRevision++; this.busy = false; this.moved = true; this.errorKey = this.allowanceDenied ? 'voiceAdmissionDenied' : 'voiceMoved';
+    const retired = this.retiredOwnership;
+    const controlling = state.callId === this.waitingCall?.callId && state.controllingTabId && state.controllingTabId === this.client?.tabId &&
+      Number.isSafeInteger(state.epoch) && (!retired || retired.callId === state.callId && state.epoch > retired.epoch);
+    if (foreign || state.state === 'waiting' || controlling && this.moved) {
+      if (foreign && !this.ownershipWait && known?.callId === state.callId && known.controllingTabId === this.client?.tabId) {
+        if (this.busy) { this.generation++; this.pauseRevision++; this.busy = false; }
+        this.moved = true; this.errorKey = this.allowanceDenied ? 'voiceAdmissionDenied' : 'voiceMoved';
       }
       this.waitingCall = { callId: state.callId, providerSessionId: state.providerSessionId, ...(state.epoch !== undefined ? { epoch: state.epoch } : {}) };
       this.requiresTakeover = Boolean(foreign);
+      // A cancelled request may already have claimed this epoch on the server.
+      // Reconcile the held identity, leaving Resume to the visitor's next click.
+      if (controlling) {
+        this.moved = false; this.retiredOwnership = null;
+        if (this.errorKey === 'voiceMoved') this.errorKey = null;
+      }
       this.state = 'waiting'; this.paused = true; this.render();
     }
   }
