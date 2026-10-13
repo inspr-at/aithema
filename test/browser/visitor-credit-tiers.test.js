@@ -29,13 +29,14 @@ const unchanged = (before, after, label) => {
   return displacement;
 };
 
-async function fixture(page, locale, { address = null, spent = 3_450_000, delivery = false, privacy = true, handover = false, confirmed = false, voiceRunning = false } = {}) {
+async function fixture(page, locale, { address = null, spent = 3_450_000, reserved = 0, delivery = false, privacy = true, handover = false, confirmed = false, voiceRunning = false, voiceAdmissionFailure = false, waitingCall = false } = {}) {
   await shadow(page, async (c, options) => {
-    const { locale, address, spent, delivery, privacy, handover, confirmed, voiceRunning } = options;
+    const { locale, address, spent, reserved, delivery, privacy, handover, confirmed, voiceRunning, voiceAdmissionFailure, waitingCall } = options;
     const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
     const { inputRevision } = await import('/packages/core/src/session.js');
     window.a2OriginalFetch ??= window.fetch.bind(window);
-    const state = window.a2 = { address, spent, delivery, privacy, confirmed, saving: false };
+    const state = window.a2 = { address, spent, reserved, delivery, privacy, confirmed, saving: false,
+      denyVoice: voiceAdmissionFailure, voiceRequests: [], voiceCloses: 0 };
     const allowancesMicro = { anonymous: 12_000_000, emailGiven: 18_000_000, emailConfirmed: 24_000_000 };
     const identity = () => ({ ...c.session.identity, address: state.address, status: state.confirmed ? 'verified' : state.address && delivery ? 'verification-pending' : 'guest',
       assessmentUnlocked: true, conceptsUnlocked: true, verificationRequired: false, resendAfterMs: 0, pollVerification: false, delivery: 'sent' });
@@ -43,11 +44,12 @@ async function fixture(page, locale, { address = null, spent = 3_450_000, delive
     const visitor = () => ({ address: state.address, tier: current(), limitMicro: allowancesMicro[current()] });
     window.fetch = async (url, init = {}) => {
       const path = new URL(url, location.href).pathname, method = init.method ?? 'GET';
-      if (method === 'GET' && path === `/api/sessions/${c.session.id}`) return Response.json({ ...c.session, identity: identity(), featureMatrix: { best: Object.fromEntries(['text', 'analysis', 'voice'].map(key => [key, { available: allowancesMicro[current()] > state.spent, reason: allowancesMicro[current()] > state.spent ? null : 'budget denied' }])) } });
+      if (method === 'GET' && path === `/api/sessions/${c.session.id}`) return Response.json({ ...c.session, identity: identity(), featureMatrix: { best: Object.fromEntries(['text', 'analysis', 'voice'].map(key => [key, { available: allowancesMicro[current()] > state.spent + state.reserved, reason: allowancesMicro[current()] > state.spent + state.reserved ? null : 'budget denied' }])) } });
       if (path.endsWith('/credits')) {
         const tier = current(), next = !privacy ? null : !state.address ? 'emailGiven' : delivery && !state.confirmed ? 'emailConfirmed' : null;
         const limitMicro = allowancesMicro[tier];
-        return Response.json({ balance: { owner: { limitMicro, committedMicro: state.spent, availableMicro: Math.max(0, limitMicro - state.spent) } }, limitSlot: null,
+        return Response.json({ balance: { owner: { limitMicro, committedMicro: state.spent + state.reserved,
+          confirmedSpendMicro: state.spent, reservedMicro: state.reserved, uncertainSpendMicro: 0, availableMicro: Math.max(0, limitMicro - state.spent - state.reserved) } }, exhausted: state.spent >= limitMicro, limitSlot: null,
           tiers: { current: tier, next, delta: next ? allowancesMicro[next] - limitMicro : 0, canConfirm: delivery && privacy, allowancesMicro } });
       }
       if (path.endsWith('/visitor/email')) {
@@ -62,6 +64,8 @@ async function fixture(page, locale, { address = null, spent = 3_450_000, delive
     for (const legal of c.querySelectorAll('[slot="legal"]')) legal.remove();
     if (privacy) { const legal = document.createElement('nav'); legal.slot = 'legal'; const link = document.createElement('a'); link.setAttribute('data-aithema-privacy', ''); link.href = '/privacy?locale=' + locale; legal.append(link); c.append(legal); }
     const session = structuredClone(c.session); session.locale = locale; session.demo = false; session.paused = false; session.identity = identity();
+    delete session.voiceLifecycle;
+    if (waitingCall) session.voiceLifecycle = { callId: 'fixture-waiting-call', providerSessionId: 'fixture-waiting-provider', state: 'waiting' };
     session.settings = { ...session.settings, origin: 'chosen', voice: 'off', visuals: 'off' };
     session.transcript = [{ id: 'visitor-fixture-turn', role: 'user', content: locale === 'de' ? 'Ich möchte meine Anforderungen besprechen.' : 'I would like to discuss my requirements.' }];
     const question = locale === 'de' ? 'Welche Anforderungen möchten Sie besprechen?' : 'Which requirements would you like to discuss?';
@@ -70,20 +74,26 @@ async function fixture(page, locale, { address = null, spent = 3_450_000, delive
     session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, voice: { available: true } } };
     c.setAttribute('motion', 'off');
     let voiceClient;
-    if (voiceRunning) {
-      const { voiceEvents } = await import('/packages/core/src/live-voice.js'); const events = voiceEvents();
+    if (voiceRunning || voiceAdmissionFailure || waitingCall) {
+      const { voiceEvents } = await import('/packages/core/src/live-voice.js');
       voiceClient = { manifest: { liveVoice: { capabilities: { setInput: 'native', setOutput: 'native', pause: 'native', resume: 'native', updateContext: 'native', sendText: 'native' } } },
-        async start() { return { callId: 'fixture-call', providerSessionId: 'fixture-provider', events, async setInput() {}, async setOutput() {}, async updateContext() {}, async heartbeat() {},
-          async close() { events.end(); return { closureConfirmed: true, usage: { costEstimated: false } }; } }; } };
+        async start(request) {
+          state.voiceRequests.push(request);
+          if (state.denyVoice) throw Object.assign(new Error('fixture admission refused'), { code: 'not-admitted', reason: 'host-limit' });
+          const events = voiceEvents();
+          return { callId: request.callId, providerSessionId: 'fixture-provider', events, async setInput() {}, async setOutput() {}, async updateContext() {}, async heartbeat() {},
+            async pause() { return { acknowledged: true, paused: true }; }, async resume() { return { acknowledged: true, paused: false }; },
+            async close() { state.voiceCloses++; events.end(); return { closureConfirmed: true, usage: { costEstimated: false } }; } };
+        } };
     }
     c.configure({ session, copy, voiceClient, host: { credits: true, verification: { delivery, privacyDocumentConfigured: privacy }, handover } });
     document.documentElement.lang = locale;
     if (voiceRunning) c.shadowRoot.querySelector('.voice-start').click();
-  }, { locale, address, spent, delivery, privacy, handover, confirmed, voiceRunning });
+  }, { locale, address, spent, reserved, delivery, privacy, handover, confirmed, voiceRunning, voiceAdmissionFailure, waitingCall });
   await settle();
 }
 
-test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero displacement', { timeout: 360_000 }, async t => {
+test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero displacement', { timeout: 480_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-a2-browser-')), evidence = process.env.AITHEMA_EVIDENCE_DIR;
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
   let browser;
@@ -187,7 +197,9 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
       await click(page, '.m-change'); await check('editing'); await click(page, '.m-cancel');
       await click(page, '.m-delete'); await check('deleting');
       assert.equal(await shadow(page, c => c.shadowRoot.activeElement?.className), 'm-act m-keep');
-      await click(page, '.m-del'); await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.host-verify').dataset.emailState === 'capture'); await check('deleted');
+      await click(page, '.m-del'); await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.host-verify').dataset.emailState === 'capture');
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('#email-input').value), '', 'acknowledged deletion clears the cancelled edit');
+      await check('deleted'); passLines.at(-1).emailInputEmpty = true;
       await click(page, 'dialog.settings .done');
       await fixture(page, locale, { address: 'reader@example.test', spent: 15_000_000 });
       await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(); await click(page, '.m-delete'); await shot('over-spent-delete');
@@ -205,9 +217,60 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
       await fixture(page, locale, { delivery: true, address: 'reader@example.test' }); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(); await shot('mail-pending'); await click(page, 'dialog.settings .done'); await click(page, '.host-credits__button'); await shot('credits-mail-pending');
       await fixture(page, locale, { delivery: true, address: 'reader@example.test', confirmed: true }); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(); await shot('mail-confirmed'); await click(page, 'dialog.settings .done'); await click(page, '.host-credits__button'); await shot('credits-mail-confirmed');
       await fixture(page, locale, { delivery: true, address: 'reader@example.test', spent: 18_000_000 }); await shot('credit-used-up-confirm');
+      const liveFixed = ['.band', '.question-card', '.composer-dock', '.composer-shell', '.display-foot', '.export', '.concept-bar'];
+      await fixture(page, locale, { spent: 0, voiceRunning: true });
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'listening');
+      const heldBefore = await boxes(page, liveFixed);
+      await shadow(page, c => {
+        window.a2.reserved = 12_000_000;
+        c.receive({ seq: c.session.seq + 1, type: 'credits.state', data: { status: 'active', endReason: null } });
+        c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
+      }); await settle();
+      const held = await shadow(page, c => {
+        const r = c.shadowRoot;
+        return { voiceCloses: window.a2.voiceCloses, state: r.querySelector('.audio-rail').dataset.state,
+          railUsedUp: r.querySelector('.audio-rail').hasAttribute('data-used-up'), creditsUsedUp: r.querySelector('.host-credits').dataset.ended === 'true',
+          composerUsedUp: r.querySelector('.composer-shell').hasAttribute('data-used-up'), closeDisabled: r.querySelector('.voice-close').disabled,
+          newVoiceAvailable: c.session.featureMatrix.best.voice.available };
+      });
+      assert.deepEqual(held, { voiceCloses: 0, state: 'listening', railUsedUp: false, creditsUsedUp: false, composerUsedUp: false, closeDisabled: false, newVoiceAvailable: false });
+      passLines.push({ locale, theme, width, state: 'full-hold-call', displacementPx: unchanged(heldBefore, await boxes(page, liveFixed), `${label}/full-hold-call`), pass: true, ...held });
+      await shot('full-hold-call'); await click(page, '.host-credits__button'); await shot('full-hold-credits');
+      for (const waitingCall of [false, true]) {
+        await fixture(page, locale, { spent: 11_990_000, voiceAdmissionFailure: true, waitingCall });
+        await click(page, waitingCall ? '.pause' : '.voice-start');
+        await until(page, () => window.a2.voiceRequests.length === 1 && document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state !== 'connecting');
+        await shadow(page, c => {
+          window.a2.spent = 12_000_000;
+          c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
+        }); await settle();
+        const recoveryBefore = await boxes(page, liveFixed), action = waitingCall ? 'resume' : 'retry';
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.audio-rail').hasAttribute('data-used-up')), true);
+        await shot(`top-up-${action}-denied`);
+        await shadow(page, c => {
+          window.a2.denyVoice = false;
+          c.shadowRoot.querySelector('#email-input').value = 'reader@example.test'; c.shadowRoot.querySelector('.m-form').requestSubmit();
+        });
+        await until(page, () => {
+          const r = document.querySelector('aithema-session').shadowRoot;
+          return r.querySelector('.host-verify').dataset.emailState === 'saved' && !r.querySelector('.audio-rail').hasAttribute('data-used-up') && !r.querySelector('.composer-shell').hasAttribute('data-used-up');
+        }); await settle();
+        assert.equal(await shadow(page, (c, waiting) => c.shadowRoot.querySelector(waiting ? '.voice-pause' : '.voice-retry').disabled, waitingCall), false);
+        assert.equal(await shadow(page, c => c.session.featureMatrix.best.voice.available), true);
+        assert.equal(await page.evaluate(() => window.a2.voiceRequests.length), 1, 'top-up never starts or resumes a call automatically');
+        passLines.push({ locale, theme, width, state: `top-up-${action}-ready`, displacementPx: unchanged(recoveryBefore, await boxes(page, liveFixed), `${label}/top-up-${action}-ready`), pass: true, voiceAvailable: true, usedUp: false, voiceRequests: 1 });
+        await shot(`top-up-${action}-ready`);
+        await click(page, waitingCall ? '.pause' : '.voice-retry');
+        await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'listening');
+        const requests = await page.evaluate(() => window.a2.voiceRequests);
+        assert.equal(requests.length, 2);
+        if (waitingCall) assert.deepEqual(requests[1], requests[0], 'Resume keeps the same logical call');
+        assert.equal(await shadow(page, c => ['.voice-input', '.voice-output', '.voice-close'].every(selector => !c.shadowRoot.querySelector(selector).disabled)), true);
+        passLines.push({ locale, theme, width, state: `top-up-${action}-running`, displacementPx: unchanged(recoveryBefore, await boxes(page, liveFixed), `${label}/top-up-${action}-running`), pass: true, voiceState: 'listening', voiceRequests: 2 });
+        await shot(`top-up-${action}-running`);
+      }
       await fixture(page, locale, { spent: 11_990_000, voiceRunning: true });
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.call === 'active');
-      const liveFixed = ['.band', '.question-card', '.composer-dock', '.composer-shell', '.display-foot', '.export', '.concept-bar'];
       const liveBefore = await boxes(page, liveFixed);
       await shadow(page, c => { window.a2.spent = 12_000_000; c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } }); });
       const endingDisplacement = unchanged(liveBefore, await boxes(page, liveFixed), `${label}/call-ending`);
