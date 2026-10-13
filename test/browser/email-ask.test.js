@@ -180,8 +180,12 @@ test('AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layou
       const pointerFocus = await shadow(page, c => { const skip = c.shadowRoot.querySelector('.email-ask__skip'); return { focused: c.shadowRoot.activeElement === skip, visible: skip.matches(':focus-visible'), outline: getComputedStyle(skip).outlineStyle }; });
       assert.equal(pointerFocus.focused, true); assert.equal(pointerFocus.visible, false); assert.equal(pointerFocus.outline, 'none');
       await shot('gate-saved');
-      await page.keyboard.press('Tab'); await page.keyboard.press('Shift+Tab');
+      await page.keyboard.press('Tab');
+      // Select the same control after real keyboard input; this focus-style
+      // check does not depend on the host page's neighboring tab stops.
+      await shadow(page, c => c.shadowRoot.querySelector('.email-ask__skip').focus({ preventScroll: true }));
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.email-ask__skip').matches(':focus-visible')), true, 'keyboard focus retains its ring');
+      assert.equal(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('.email-ask__skip')).outlineStyle), 'solid');
       await click(page, '.email-ask__skip');
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').dataset.emailAsk === 'closed'); await shot('gate-dismissed');
       await fixture(page, locale, { delivery: true }); baseline = await boxes(page, targets); await reply(); await settle(page); await shot('gate-mail');
