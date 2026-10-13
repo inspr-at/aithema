@@ -126,6 +126,8 @@ const pluginRuntime = createPluginRuntime({ storage, reasoning, consent, registr
 const host = createDemoHost({ storage, demo: process.env.AITHEMA_PROVIDER === undefined && process.env.NODE_ENV !== 'production', mailPlugin,
   verificationRequired: process.env.AITHEMA_DEMO_VERIFY === '1', ownerGuard: false,
   privacyDocumentConfigured: privacy.privacyDocumentConfigured,
+  // Voice off has no binding and rate 0: warnings use 10% only, without the
+  // five-minute / 50-Credit floor of the $0.10/minute voice configuration.
   visitorMicroPerMinute: () => readVoiceState().binding?.visitorMicroPerMinute ?? 0 });
 const confirmationPage = mailPlugin ? createConfirmationPage({ host, publicOrigin: deployment.publicOrigin }) : null;
 // Demo only: AITHEMA_DEMO_HANDOVER_FAIL=n (1–10) fails the first n fake handover deliveries, to show Retry.

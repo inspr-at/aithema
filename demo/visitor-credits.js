@@ -60,6 +60,9 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
       CREATE TABLE IF NOT EXISTS visitor_email_asks (
         visitor_ref TEXT PRIMARY KEY REFERENCES visitor_identities(visitor_ref) ON DELETE CASCADE,
         shown_at INTEGER NOT NULL);
+      CREATE TABLE IF NOT EXISTS visitor_low_email_asks (
+        visitor_ref TEXT PRIMARY KEY REFERENCES visitor_identities(visitor_ref) ON DELETE CASCADE,
+        shown_at INTEGER NOT NULL, armed INTEGER NOT NULL CHECK(armed IN (0,1)));
       CREATE TABLE IF NOT EXISTS visitor_identity_cleanup (owner_hash TEXT PRIMARY KEY, at TEXT NOT NULL);`);
     if (!db.prepare('SELECT 1 FROM visitor_credit_settings WHERE id=1').get()) {
       const at = timestamp(), iso = new Date(at).toISOString();
@@ -179,6 +182,26 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
     db.prepare('DELETE FROM visitor_identity_cleanup WHERE owner_hash=?').run(ownerHash);
   }
   return { settings, policy, visitor, touch, projectIdentity, persistIdentity,
+    lowEmailAsk(ownerHash) {
+      const row = db.prepare(`SELECT shown_at,armed FROM visitor_low_email_asks a
+        JOIN visitor_identities v USING(visitor_ref) WHERE v.owner_hash=?`).get(ownerHash);
+      return { after: row ? row.shown_at + DAY : 0, armed: !row || row.armed === 1 };
+    },
+    // Cooldown and the balance latch are visitor-wide. A high balance only
+    // re-arms the latch; it never shortens the rolling 24-hour cooldown.
+    rearmLowEmailAsk(ownerHash) {
+      return atomic(() => db.prepare(`UPDATE visitor_low_email_asks SET armed=1
+        WHERE visitor_ref=(SELECT visitor_ref FROM visitor_identities WHERE owner_hash=?) AND armed=0`).run(ownerHash).changes === 1);
+    },
+    claimLowEmailAsk(ownerHash) {
+      return atomic(() => {
+        const row = ensure(ownerHash), at = timestamp();
+        return db.prepare(`INSERT INTO visitor_low_email_asks VALUES (?,?,0)
+          ON CONFLICT(visitor_ref) DO UPDATE SET shown_at=excluded.shown_at,armed=0
+          WHERE visitor_low_email_asks.armed=1 AND visitor_low_email_asks.shown_at<=excluded.shown_at-?`)
+          .run(row.visitor_ref, at, DAY).changes === 1;
+      });
+    },
     emailAskAfter(ownerHash) {
       const row = db.prepare(`SELECT shown_at FROM visitor_email_asks a JOIN visitor_identities v USING(visitor_ref) WHERE v.owner_hash=?`).get(ownerHash);
       return row ? row.shown_at + DAY : 0;

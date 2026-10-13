@@ -38,6 +38,7 @@ export const emailAskStyles = `
 .email-ask__save { grid-column:2; grid-row:1; min-height:44px; padding:0 1.15rem; border-radius:.55rem; background:var(--aithema-accent); color:var(--aithema-on-accent); font-size:14px; font-weight:600; }
 .email-ask__skip { grid-column:1; grid-row:1; justify-self:start; min-height:44px; margin-left:-.7rem; padding:.3rem .7rem; border-radius:.6rem; color:var(--aithema-accent); font-size:14px; line-height:1.25; text-align:left; }
 .email-ask__skip:hover { background:color-mix(in srgb,var(--aithema-accent) 8%,transparent); }
+.email-ask__skip:focus:not(:focus-visible) { outline:none; }
 .email-ask[data-step="done"] .email-ask__save { visibility:hidden; }
 .email-ask-dock { position:absolute; inset:auto 0 0; height:0; z-index:6; pointer-events:none; filter:drop-shadow(0 14px 22px color-mix(in srgb,var(--aithema-ink) 16%,transparent)); }
 .email-ask-dock > .email-ask { position:absolute; inset:auto 0 0; padding:18px 16px 10px 18px; border-radius:18px; background:var(--aithema-surface); box-shadow:inset 0 0 0 1px var(--aithema-line);

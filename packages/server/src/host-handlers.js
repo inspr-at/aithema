@@ -7,7 +7,8 @@ const json = (value, status = 200) => Response.json(value, { status, headers: { 
 const idPattern = '[a-zA-Z0-9_-]{1,128}';
 const object = (body, keys) => body && typeof body === 'object' && !Array.isArray(body) && Object.keys(body).every(key => keys.includes(key));
 
-/** Whole Credits (one cent), with five minutes at the host's visitor rate. */
+/** Whole Credits (one cent), with five minutes at the host's visitor rate.
+ * Voice off supplies rate 0: only the 10% rule applies, with no 50-Credit floor. */
 export function lowCreditThreshold(limitMicro, visitorMicroPerMinute = 0) {
   if (![limitMicro, visitorMicroPerMinute].every(value => Number.isSafeInteger(value) && value >= 0)) throw new TypeError('Invalid warning price');
   return Math.ceil(Math.max(limitMicro / 10, visitorMicroPerMinute * 5) / 10_000) * 10_000;
@@ -144,7 +145,8 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     const voiceRate = host.visitorMicroPerMinute?.(storage.get(id)) ?? 0;
     const largestTier = Math.max(balance.owner.limitMicro, ...Object.values(tiers?.allowancesMicro ?? {}).filter(Number.isSafeInteger));
     const warning = { lowAtMicro: lowCreditThreshold(balance.owner.limitMicro, voiceRate), lowAtMaxMicro: lowCreditThreshold(largestTier, voiceRate),
-      emailAsk: storage.hostState(id)?.emailAsk ?? {}, emailAskAfter: host.emailAskAfter?.(ownerToken) ?? 0, nowMs: now() };
+      emailAsk: storage.hostState(id)?.emailAsk ?? {}, emailAskAfter: host.emailAskAfter?.(ownerToken) ?? 0,
+      lowEmailAsk: host.lowEmailAsk?.(ownerToken) ?? { after: 0, armed: false }, nowMs: now() };
     if (host.credits?.ownerGuard === false) return { balance, limitSlot: null, tiers, exhausted, ...warning };
     const guard = storage.ownerCreditState(ownerToken);
     const state = guard ? guard.sessionId === id ? guard : rebindCredits(guard, id) : createCredits({ sessionId: id, ...host.credits });
@@ -290,7 +292,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
       if (action === 'email-ask') {
         if (request.method !== 'POST') return json({ error: 'method-not-allowed' }, 405);
         const options = await body(request, ['action', 'why']);
-        if (!['show', 'line', 'fold', 'dismiss'].includes(options.action) ||
+        if (!['show', 'line', 'fold', 'dismiss', 'rearm'].includes(options.action) ||
           options.action === 'show' && !['turn5', 'low'].includes(options.why)) throw new TypeError('Invalid email ask');
         const result = storage.transitionHost(id, state => {
           const emailAsk = { ...state.emailAsk }, credits = creditResult(id, ownerToken), turns = activeTurns(storage.get(id));
@@ -300,10 +302,15 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
             (host.demo === true || privacyDocumentConfigured(host)) && !host.visitor?.(ownerToken)?.address;
           const settled = turns.at(-1)?.role === 'assistant';
           let accepted = false;
+          // Read-only credit projections never change the latch. The client
+          // acknowledges a rise here; request bodies cannot supply a balance.
+          if (options.action === 'rearm' && credits.balance.owner.availableMicro > credits.lowAtMicro) {
+            accepted = host.rearmLowEmailAsk?.(ownerToken) === true;
+          }
           if (options.action === 'show' && eligible && settled && (!emailAsk.open || options.why === 'low') &&
-            (options.why === 'low' ? low && !emailAsk.shownLow : count >= 5 && host.claimEmailAsk?.(ownerToken))) {
+            (options.why === 'low' ? low && host.claimLowEmailAsk?.(ownerToken) : count >= 5 && host.claimEmailAsk?.(ownerToken))) {
             Object.assign(emailAsk, { open: true, why: options.why, openedAt: count, folded: false,
-              ...(options.why === 'low' ? { shownLow: true } : { shown5: true }) }); accepted = true;
+              ...(options.why === 'turn5' ? { shown5: true } : {}) }); accepted = true;
           }
           if (options.action === 'line' && low && !emailAsk.lowLine && settled) {
             const next = credits.tiers?.next;
@@ -313,11 +320,12 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
           if (options.action === 'dismiss' || options.action === 'fold' && count >= (emailAsk.openedAt ?? Infinity) + 2) {
             emailAsk.open = false; emailAsk.folded = options.action === 'fold'; accepted = true;
           }
-          if (accepted) emailAsk.revision = (emailAsk.revision ?? 0) + 1;
+          if (accepted && options.action !== 'rearm') emailAsk.revision = (emailAsk.revision ?? 0) + 1;
           return { state: { ...state, emailAsk }, accepted, emailAsk };
         }, { ownerToken });
         return json({ accepted: result.accepted, emailAsk: result.emailAsk,
-          emailAskAfter: host.emailAskAfter?.(ownerToken) ?? 0, nowMs: now() });
+          emailAskAfter: host.emailAskAfter?.(ownerToken) ?? 0,
+          lowEmailAsk: host.lowEmailAsk?.(ownerToken) ?? { after: 0, armed: false }, nowMs: now() });
       }
       if (action.startsWith('identity')) {
         if (!host.identity) return json({ error: 'identity-unavailable' }, 503);

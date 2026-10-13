@@ -8,11 +8,11 @@ export const lowCredit = credits => credits?.exhausted !== true && credits?.bala
   Number.isSafeInteger(credits?.lowAtMicro) && credits.balance.owner.availableMicro <= credits.lowAtMicro;
 
 /** The server owns frequency and records; this policy only chooses a safe moment. */
-export function emailAskIntent({ count, replied, streaming, callActive, typing, eligible, low, state = {}, desktop, dayReady }) {
+export function emailAskIntent({ count, replied, streaming, callActive, typing, eligible, low, lowReady = false, state = {}, desktop, dayReady }) {
   if (streaming || callActive || typing || !replied) return null;
   if (desktop && state.open && !state.saved && count >= state.openedAt + 2) return 'fold';
   if (!eligible) return null;
-  if (low) return !state.shownLow ? 'low' : null;
+  if (low) return lowReady ? 'low' : null;
   if (state.open) return null;
   return count >= 5 && dayReady ? 'turn5' : null;
 }
@@ -67,7 +67,12 @@ export class EmailAsk {
     const state = credits?.emailAsk;
     if (state && (state.revision ?? 0) >= (this.state.revision ?? 0)) this.state = state;
     this.after = this.now() + Math.max(0, (credits.emailAskAfter ?? 0) - (credits.nowMs ?? this.now()));
+    this.setLowClaim(credits);
     this.update();
+  }
+  setLowClaim(response) {
+    this.lowClaim = response.lowEmailAsk;
+    this.lowAfter = this.now() + Math.max(0, (this.lowClaim?.after ?? 0) - (response.nowMs ?? this.now()));
   }
   setCopy(copy) { this.copy = copy; this.paint(); }
   schedule() { clearTimeout(this.timer); if (this.connected) this.timer = setTimeout(() => this.update(), EMAIL_ASK_IDLE_MS + 10); this.timer?.unref?.(); }
@@ -84,9 +89,11 @@ export class EmailAsk {
     if (!low) this.announcedLow = false;
     this.paint();
     if (this.busy || !this.credits || this.awaitingCredits) return;
+    if (this.lowClaim?.armed === false && this.credits.balance.owner.availableMicro > this.credits.lowAtMicro) { void this.act('rearm'); return; }
     if (safe && low && !this.state.lowLine) { void this.act('line'); return; }
     const intent = emailAskIntent({ count, replied, streaming: this.streaming(), callActive: this.callActive, typing: this.typing,
-      eligible: this.eligible, low, state: { ...this.state, open: this.open, saved: ['saving', 'done'].includes(this.step) }, desktop: this.desktop, dayReady: this.now() >= (this.after ?? Infinity) });
+      eligible: this.eligible, low, lowReady: this.lowClaim?.armed === true && this.now() >= this.lowAfter,
+      state: { ...this.state, open: this.open, saved: ['saving', 'done'].includes(this.step) }, desktop: this.desktop, dayReady: this.now() >= (this.after ?? Infinity) });
     if (intent === 'fold' && !this.gate.contains(this.root.activeElement) && !this.gate.matches(':hover')) void this.act('fold');
     else if (intent === 'low' || intent === 'turn5') void this.act('show', intent);
     else if (this.typing && replied && (low || count >= 5)) this.schedule();
@@ -103,6 +110,7 @@ export class EmailAsk {
       if (action === 'dismiss' && response.body.accepted) this.dismissPending = false;
       if (this.dismissPending && action !== 'dismiss') { await this.act('dismiss'); return; }
       this.after = this.now() + Math.max(0, (response.body.emailAskAfter ?? 0) - (response.body.nowMs ?? this.now()));
+      this.setLowClaim(response.body);
       if (action === 'show' && response.body.accepted) {
         this.step = 'idle'; this.message = ''; this.manual = false;
         setText(this.root.querySelector('.email-ask-announcement'), fill(this.copy.hostSurface.emailAsk.announceAsk, this.email.numbers));

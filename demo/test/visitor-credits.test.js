@@ -30,6 +30,7 @@ test('AIT-164: server thresholds use 10% of the tier and a five-minute voice flo
     assert.equal(lowCreditThreshold(tier, 100_000), expected);
   }
   assert.equal(lowCreditThreshold(3_000_000, 200_000), 1_000_000, 'changed server rate changes the voice floor');
+  assert.equal(lowCreditThreshold(3_000_000, 0), 300_000, 'voice off has no five-minute / 50-Credit floor');
   assert.equal(lowCreditThreshold(1_234_567, 0), 130_000, 'round up to a whole Credit');
 });
 test('AIT-164: a fifth-turn ask is shared by the visitor for a rolling 24h, including after restart', async t => {
@@ -47,6 +48,86 @@ test('AIT-164: a fifth-turn ask is shared by the visitor for a rolling 24h, incl
   const host = createDemoHost({ storage: reopened, demo: false, now: () => 1_000 + DAY, ownerGuard: false });
   assert.equal(host.claimEmailAsk(owner), false);
   host.eraseVisitor(owner); assert.equal(host.emailAskAfter(owner), 0);
+});
+test('AIT-164: low claims are atomic, visitor-wide, persistent and cascade erased', async t => {
+  const db = await temporaryDb(), storage = new SQLiteStorage(db);
+  let time = 1_000; t.after(() => { if (storage.db.isOpen) storage.close(); });
+  const options = { demo: false, now: () => time, ownerGuard: false };
+  const host = createDemoHost({ storage, ...options });
+  assert.deepEqual(host.lowEmailAsk(owner), { after: 0, armed: true });
+  assert.throws(() => storage.transaction(() => {
+    assert.equal(host.claimLowEmailAsk(owner), true);
+    throw new Error('rollback gate and claim');
+  }), /rollback gate and claim/u);
+  assert.equal(host.claimLowEmailAsk(owner), true, 'rolled-back claim is not consumed');
+  const otherStorage = new SQLiteStorage(db); t.after(() => otherStorage.close());
+  const otherHost = createDemoHost({ storage: otherStorage, ...options });
+  assert.equal(otherHost.claimLowEmailAsk(owner), false, 'another writer cannot claim the same low episode');
+  assert.equal(host.claimLowEmailAsk('separate-visitor'), true);
+  time += DAY;
+  assert.equal(host.claimLowEmailAsk(owner), false, '24 hours alone does not re-arm');
+  storage.close();
+  const reopened = new SQLiteStorage(db); t.after(() => reopened.close());
+  const restarted = createDemoHost({ storage: reopened, ...options });
+  assert.deepEqual(restarted.lowEmailAsk(owner), { after: 1_000 + DAY, armed: false });
+  assert.equal(restarted.claimLowEmailAsk(owner), false);
+  restarted.rearmLowEmailAsk(owner);
+  assert.equal(restarted.claimLowEmailAsk(owner), true);
+  restarted.rearmLowEmailAsk(owner);
+  time += DAY - 1; assert.equal(restarted.claimLowEmailAsk(owner), false, 're-arm never shortens cooldown');
+  time++; assert.equal(restarted.claimLowEmailAsk(owner), true);
+  restarted.eraseVisitor(owner);
+  assert.deepEqual(restarted.lowEmailAsk(owner), { after: 0, armed: true });
+  assert.equal(reopened.db.prepare('SELECT COUNT(*) n FROM visitor_low_email_asks WHERE visitor_ref NOT IN (SELECT visitor_ref FROM visitor_identities)').get().n, 0);
+});
+test('AIT-164: low asks need a visitor-wide high-to-low crossing and a full day', async t => {
+  const f = fixture(t); f.settings('10', '15', '20');
+  const a = f.session('low-a'), b = f.session('low-b'), { call } = api(t, f);
+  for (const s of [a, b]) {
+    f.storage.append(s.id, 'turn.final', { id: `${s.id}-u`, role: 'user', content: 'A requirement.' });
+    f.storage.append(s.id, 'turn.final', { id: `${s.id}-a`, role: 'assistant', content: 'A question.' });
+  }
+  const show = async id => (await (await call(`/api/sessions/${id}/email-ask`, { action: 'show', why: 'low' })).json()).accepted;
+  const rearm = async id => (await (await call(`/api/sessions/${id}/email-ask`, { action: 'rearm' })).json()).accepted;
+  f.ledger.admit(f.request(a.id, 9_050_000));
+  assert.equal(await show(a.id), true, 'low trigger needs no fifth turn');
+  await call(`/api/sessions/${a.id}/email-ask`, { action: 'dismiss' });
+  assert.equal(await show(b.id), false, 'a new conversation cannot repeat the low ask');
+  assert.equal(await rearm(b.id), false, 'client cannot re-arm while the server balance is low');
+  f.at(1_000 + DAY);
+  assert.equal(await show(b.id), false, 'remaining low beyond 24 hours does not repeat');
+  f.settings('20', '25', '30');
+  const high = await (await call(`/api/sessions/${b.id}/credits`)).json();
+  assert.equal(high.lowEmailAsk.armed, false, 'GET does not change the latch');
+  assert.equal(await rearm(b.id), true);
+  assert.equal(await show(b.id), false, 'balance must fall low again');
+  f.settings('10', '15', '20');
+  assert.equal(await show(a.id), true, 'the same conversation can claim a new low episode');
+  await call(`/api/sessions/${a.id}/email-ask`, { action: 'dismiss' });
+  f.settings('20', '25', '30'); assert.equal(await rearm(b.id), true);
+  f.settings('10', '15', '20');
+  f.at(1_000 + 2 * DAY - 1); assert.equal(await show(b.id), false);
+  f.at(1_000 + 2 * DAY); assert.equal(await show(b.id), true);
+});
+test('AIT-164: server refuses fold before openedAt + 2 without changing the gate', async t => {
+  const f = fixture(t); f.settings('10', '15');
+  const s = f.session('fold-ask'), { call } = api(t, f);
+  const reply = i => {
+    f.storage.append(s.id, 'turn.final', { id: `fold-u${i}`, role: 'user', content: 'A requirement.' });
+    f.storage.append(s.id, 'turn.final', { id: `fold-a${i}`, role: 'assistant', content: 'A question.' });
+  };
+  for (let i = 0; i < 5; i++) reply(i);
+  const opened = await (await call(`/api/sessions/${s.id}/email-ask`, { action: 'show', why: 'turn5' })).json();
+  assert.equal(opened.accepted, true); assert.equal(opened.emailAsk.openedAt, 5);
+  for (const count of [5, 6]) {
+    if (count === 6) reply(5);
+    const folded = await (await call(`/api/sessions/${s.id}/email-ask`, { action: 'fold' })).json();
+    assert.equal(folded.accepted, false, `refuse at ${count} turns`);
+    assert.deepEqual(folded.emailAsk, opened.emailAsk, 'no revision or visibility change');
+  }
+  reply(6);
+  const folded = await (await call(`/api/sessions/${s.id}/email-ask`, { action: 'fold' })).json();
+  assert.equal(folded.accepted, true); assert.equal(folded.emailAsk.open, false); assert.equal(folded.emailAsk.folded, true);
 });
 test('AIT-164: owner-bound gate and low line survive reads without entering transcript or exports', async t => {
   const f = fixture(t, { visitorMicroPerMinute: () => 100_000 }); f.settings('10', '15', '20');

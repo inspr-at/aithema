@@ -5,7 +5,7 @@ import { EmailAsk, emailAskIntent, lowCredit, EMAIL_ASK_IDLE_MS } from '../src/e
 import { emailAskStyles } from '../src/email-ask-styles.js';
 import { en } from '../src/i18n/en.js';
 
-const ready = { count: 5, replied: true, streaming: false, callActive: false, typing: false, eligible: true, low: false, desktop: true, dayReady: true };
+const ready = { count: 5, replied: true, streaming: false, callActive: false, typing: false, eligible: true, low: false, lowReady: true, desktop: true, dayReady: true };
 test('AIT-164: after the fifth completed reply, and once per visitor day', () => {
   assert.equal(emailAskIntent({ ...ready, count: 4 }), null);
   assert.equal(emailAskIntent(ready), 'turn5');
@@ -15,10 +15,11 @@ test('AIT-164: after the fifth completed reply, and once per visitor day', () =>
 for (const blocker of ['streaming', 'callActive', 'typing']) test(`AIT-164: never while ${blocker}, including at the low point`, () => {
   assert.equal(emailAskIntent({ ...ready, low: true, [blocker]: true }), null);
 });
-test('AIT-164: the low ask overrides the day limit after a dismissal, once per conversation', () => {
+test('AIT-164: the low ask uses its separate visitor-wide server claim', () => {
   assert.equal(emailAskIntent({ ...ready, count: 2, dayReady: false, low: true, state: { shown5: true } }), 'low');
-  assert.equal(emailAskIntent({ ...ready, dayReady: false, low: true, state: { shownLow: true } }), null);
-  assert.equal(emailAskIntent({ ...ready, low: true, state: { shownLow: true } }), null, 'no fifth-turn repeat while already low');
+  assert.equal(emailAskIntent({ ...ready, dayReady: false, low: true, lowReady: false }), null);
+  assert.equal(emailAskIntent({ ...ready, low: true, lowReady: false }), null, 'no fifth-turn repeat while already low');
+  assert.equal(emailAskIntent({ ...ready, count: 2, low: true, state: { shownLow: true } }), 'low', 'a server re-arm supersedes the old conversation flag');
   assert.equal(emailAskIntent({ ...ready, eligible: false, low: true }), null);
 });
 test('AIT-164: an ignored panel gate folds after two more completed visitor turns', () => {
@@ -69,6 +70,23 @@ test('AIT-164: typing and partial replies defer the server claim until the compo
   assert.equal(f.requests.length, 0);
   f.at(100_000 + EMAIL_ASK_IDLE_MS); f.streaming(true); f.ask.update(); assert.equal(f.requests.length, 0);
   f.streaming(false); f.ask.update(); await Promise.resolve(); await Promise.resolve(); assert.equal(f.requests.length, 1);
+});
+test('AIT-164: a high balance acknowledges re-arm, while the low ask still waits for its server cooldown', async t => {
+  const f = fixture(t); f.session.transcript = f.session.transcript.slice(0, 8);
+  const after = 100_000 + 86_400_000, calls = [];
+  f.ask.request = async (_, body) => {
+    calls.push(body);
+    return { ok: true, body: { accepted: true, nowMs: 100_000, emailAskAfter: 0,
+      lowEmailAsk: { after, armed: body.action === 'rearm' }, emailAsk: { revision: calls.length, lowLine: {}, open: body.action === 'show', openedAt: 4 } } };
+  };
+  f.ask.setCredits({ ...credits, emailAsk: { lowLine: {} }, lowEmailAsk: { after, armed: false } });
+  await Promise.resolve(); await Promise.resolve();
+  assert.deepEqual(calls, [{ action: 'rearm' }]);
+  const low = { ...credits, emailAsk: f.ask.state, balance: { owner: { availableMicro: 500_000, limitMicro: 10_000_000 } }, lowEmailAsk: { after, armed: true } };
+  f.ask.setCredits(low); await Promise.resolve();
+  assert.equal(calls.length, 1, 're-arm alone cannot override the cooldown');
+  f.at(after); f.ask.setCredits({ ...low, nowMs: after }); await Promise.resolve(); await Promise.resolve();
+  assert.deepEqual(calls.at(-1), { action: 'show', why: 'low' });
 });
 test('AIT-164: starting a phone call dismisses the gate even while an email save is pending', async t => {
   const f = fixture(t); f.ask.credits = credits; f.ask.open = true; f.ask.state = { open: true, openedAt: 5 }; f.ask.step = 'saving';

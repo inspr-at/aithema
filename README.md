@@ -2221,6 +2221,7 @@ Host-owned schema (in the same SQLite database and exclusive writer):
 | `visitor_identities` | Opaque `visitor_ref` mapped uniquely to the existing owner hash; address/revision, saved/confirmed/pending evidence, notice version, creation/update/activity timestamps and shared verification state |
 | `visitor_confirmation_tokens` | SHA-256 token hash bound to visitor, address revision and requesting conversation; creation/expiry/redemption timestamps; cascade erased with the visitor |
 | `visitor_email_asks` | Visitor-wide rolling 24-hour ask timestamp; no address; cascade erased with the visitor |
+| `visitor_low_email_asks` | Visitor-wide low-ask timestamp and balance re-arm latch; no address; cascade erased with the visitor |
 | `visitor_identity_cleanup` | Durable bounded cleanup queue for erasable identity projections in existing conversations |
 
 The conversation email ask (AIT-164) waits for the fifth visitor turn's completed
@@ -2229,22 +2230,31 @@ occupies the assessment cell when the side panel is present; otherwise it grows
 above the composer, lifting 20 px with motion enabled. Automatic asks retain
 focus. An ignored panel ask folds after two more completed visitor turns, once
 the pointer and focus leave its controls. The server atomically claims the
-24-hour visitor timestamp, while `host_states.emailAsk` retains dismissal,
-folding and the once-per-conversation low-point record. The low line follows its
-original reply and never enters the transcript, model context or export.
+24-hour visitor timestamp, while `host_states.emailAsk` retains dismissal and
+folding. The low-point ask has its own visitor-wide rolling 24-hour claim and
+re-arms only after the balance rises above the server's low point and later
+falls to it again. Staying low does not repeat the ask, even in another
+conversation or after a day. The amber footer and in-call rail label remain
+visible for the entire low-balance state, independent of either ask claim.
+The low line follows its original reply and never enters the transcript, model
+context or export.
 
 `GET /api/sessions/:id/credits` supplies `lowAtMicro`, calculated as the larger
 of 10% of the current allowance and five minutes at the configured visitor
 voice rate, rounded up to whole Credits. With $10/$15/$20 and $0.10/minute the
 warning points are 100/150/200 Credits; the voice floor is 50 Credits. These
 leave 10/15/20 minutes, compared with AIT-163's default two-minute admission
-runway (20 Credits). A small $3 tier warns at 50 Credits. Reconciled costs flow
+runway (20 Credits). A small $3 tier warns at 50 Credits with that voice rate.
+With voice off the rate is 0: only the 10% rule applies, with no five-minute or
+50-Credit floor, so the $3 tier warns at 30 Credits. Reconciled costs flow
 through the existing wallet projection; no reservation, price or runway policy
 is changed. The footer warns live, but the gate and thread line wait during
 streaming, typing and calls. At zero the existing used-up mapping applies.
 
 `POST /api/sessions/:id/email-ask` accepts `show` (`why: turn5|low`), `line`,
-`fold` and `dismiss`. Ownership precedes host-state access; server tier, balance,
+`fold`, `dismiss` and `rearm`. `rearm` acknowledges a balance rise using only
+the server's current wallet and threshold; credit GETs remain read-only.
+Ownership precedes host-state access; server tier, balance,
 privacy capability, completed visitor turns and the atomic visitor claim gate
 automatic offers. Gate and mail-host Settings share the A2 save acknowledgement
 before requesting C1/C2 confirmation. Saving raises the tier immediately even
