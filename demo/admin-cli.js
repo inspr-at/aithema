@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { dirname, join, resolve } from 'node:path';
 import { adminRequest } from './admin-socket.js';
+import { validateMailCap } from './mail-cap-policy.js';
 
 const usage = 'Usage: node demo/admin-cli.js [--socket PATH] settings | audit [--after ID] [--limit N] | provider-cap | mail-cap | reconcile-uncertain [--dry-run|--apply] [--limit N] | '
   + 'set-allowances --base-revision N --anonymous USD --email-given USD --email-confirmed USD | set-confirmation --base-revision N --enabled true|false | '
@@ -34,6 +35,7 @@ try {
       !/^[1-9]\d*$/u.test(options['--base-revision']) || !Number.isSafeInteger(Number(options['--base-revision'])) ||
       ['--hour', '--day'].some(key => !/^(0|[1-9]\d*)$/u.test(options[key]) || !Number.isSafeInteger(Number(options[key])))) throw new Error(usage);
     payload = { baseRevision: Number(options['--base-revision']), mailCap: { hour: Number(options['--hour']), day: Number(options['--day']) } };
+    validateMailCap(payload.mailCap);
   } else if (command === 'set-confirmation') {
     if (keys.length !== 2 || !/^[1-9]\d*$/u.test(options['--base-revision'] ?? '') || !['true', 'false'].includes(options['--enabled'])) throw new Error(usage);
     payload = { baseRevision: Number(options['--base-revision']), confirmationEnabled: options['--enabled'] === 'true' };
