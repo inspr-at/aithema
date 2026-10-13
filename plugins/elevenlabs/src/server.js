@@ -4,11 +4,14 @@ import { beginVoiceInvocation, voiceLifetime, voiceOperation } from '../../../pa
 import { manifest } from './manifest.js';
 import { usdCostMicro } from '../../../packages/core/src/cost.js';
 import { voiceOverrides, elevenLabsMediaGrant, elevenLabsComponents } from './options.js';
+import { elevenLabsCallbackPort } from './callbacks.js';
 import { createElevenLabsConfig, elevenLabsConfig, bridgeElevenLabsConfig } from './config.js';
 export { createElevenLabsConfig } from './config.js';
 export { createElevenLabsReplyExecutor } from './reply.js';
 export { manifest } from './manifest.js';
 export { createCompletionsHandler } from './facade.js';
+export { createVoiceProvider } from './provider.js';
+export { createFacadeSecrets } from './callbacks.js';
 
 const identifier = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(value);
 const amount = value => Number.isSafeInteger(value) && value >= 0;
@@ -352,6 +355,7 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
     },
   };
   adapter.ports = Object.freeze({ serverAdapter: Object.freeze({
+    ...elevenLabsCallbackPort,
     config: binding.adapterConfig,
     validateConfig: createElevenLabsConfig,
     async startSegment(request, options) {

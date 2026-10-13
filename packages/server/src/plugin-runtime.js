@@ -337,6 +337,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   }
   const runtime = {
     budget, voiceCap, consent, visualKind, renderLimiter, selectionKey, choicesFor,
+    voiceServerAdapters: () => registry.list().flatMap(plugin => plugin.ports?.serverAdapter ? [plugin.ports.serverAdapter] : []),
     setOwnerWallet(provider) { ownerWallet = provider; },
     recoverCosts() { return Promise.all(registry.list().map(plugin => plugin.recoverCosts?.())); },
     async reconcileCosts(options = {}) {

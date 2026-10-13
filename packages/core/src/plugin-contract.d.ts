@@ -106,6 +106,22 @@ export interface VoiceReconciliationEvidence {
   details: unknown;
   terminal: Pick<VoiceTerminal, 'providerSessionId' | 'outcome' | 'closureConfirmed' | 'usage' | 'chargedMicro'>;
 }
+export interface VoiceCallbackRoute {
+  method: string; path: string; handle(request: Request): Promise<Response>;
+  /** Preserve an adapter's hidden-path rejection without invoking a mismatched handler. */
+  methodNotAllowedStatus?: 404 | 405;
+}
+/** Private adapter data; the generic server only forwards it at segment start. */
+export interface VoiceCallbackContext {
+  identity?: string; details?: object; request?: object; receipt?: object;
+  prepare(): void | Promise<void>;
+  revoke(): void | Promise<void>;
+}
+export interface VoiceServerCallbacks {
+  readonly callbackRoutes: readonly VoiceCallbackRoute[];
+  prepareCallback?(request: unknown): VoiceCallbackContext;
+  revokeRecord?(record: object): void | Promise<void>;
+}
 export interface VoiceServerAdapter<Config = unknown, StartRequest = { callId: string }, Segment extends VoiceServerSegment = VoiceServerSegment> {
   readonly config?: Config;
   validateConfig(config: unknown): Config;
@@ -113,7 +129,9 @@ export interface VoiceServerAdapter<Config = unknown, StartRequest = { callId: s
   stopSegment(segment: Segment, options: VoiceCommandOptions & { reason?: string; outcome?: 'completed' | 'cancelled' }): Promise<VoiceReconciliationEvidence['terminal']>;
   reconciliationEvidence(request: { call: object; maxMicro: number; outcome?: 'completed' | 'cancelled' }, options: VoiceCommandOptions): Promise<VoiceReconciliationEvidence>;
   // Provider request authentication must precede the generic operation boundary.
-  callbackRoutes?: readonly { method: string; path: string; handle(request: Request): Promise<Response> }[];
+  callbackRoutes?: readonly VoiceCallbackRoute[];
+  // Bind server-owned operations and host-private callback configuration once.
+  bindCallbacks?(ports: object): VoiceServerCallbacks;
 }
 export interface VoiceBrowserMedia {
   connect(grant: VoiceMediaGrant, options: VoiceCommandOptions): Promise<VoiceSession>;
