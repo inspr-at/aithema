@@ -606,8 +606,10 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
   const click = (page, selector) => shadow(page, (c, selector) => c.shadowRoot.querySelector(selector).click(), selector);
   const selectors = ['.band', '.audio-rail', '.voice-notices', '.concept-bar', '.transcript-shell', '.composer-dock'];
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390]) {
+    let complete = false;
     await t.test(`${width} ${theme} ${locale}`, async st => {
       const context = await browser.createBrowserContext(), page = await context.newPage();
+      st.after(() => context.close());
       page.on('pageerror', error => errors.push(error.message));
       await page.setViewport({ width, height: width === 390 ? 844 : 900 });
       await page.evaluateOnNewDocument(locale => {
@@ -666,8 +668,9 @@ test('AIT-138 d: tab takeover, wake waiting and actual restart recovery viewport
       st?.diagnostic('Captured recovery after SIGKILL/reload');
       checks.push({ width, theme, locale, callIdPreserved: true, epochAdvanced: true, captureRequiresResume: true,
         restart: 'SIGKILL and durable SQLite reload', layoutShiftPx: 0, pass: true });
-      await click(other, '.voice-close'); await state(other, 'idle'); await context.close();
+      await click(other, '.voice-close'); await state(other, 'idle'); complete = true;
     });
+    if (!complete) throw new Error(`Continuity matrix stopped at ${width}/${theme}/${locale}; see the failing step`);
   }
   assert.deepEqual(errors, []);
   if (evidence) await writeFile(join(evidence, 'ait-138-d-pass-lines.json'), JSON.stringify({ ticket: 'AIT-138 d', commit: evidenceCommit,

@@ -96,6 +96,12 @@ export class AudioRail {
     if (this.resumeRequests.size > 128) this.resumeRequests.delete(this.resumeRequests.keys().next().value);
   }
   capability(name) { return this.client?.manifest?.liveVoice?.capabilities?.[name] !== 'unavailable'; }
+  canContinue() {
+    const feature = this.feature();
+    // A held snapshot must permit the visitor's explicit command. The server
+    // rechecks ownership, authorization and money admission before any capture.
+    return feature.available || Boolean(this.waitingCall && (feature.reason === this.copy.paused || feature.rawReason === 'session paused'));
+  }
   // Keep the failure's meaning so a locale repaint also translates a retained message.
   get error() {
     if (!this.errorKey) return null;
@@ -128,7 +134,7 @@ export class AudioRail {
       if (name === 'start' && button.disabled && !active) button.title = available.reason ?? c.notConfigured;
       if (command && !this.capability(command)) button.title = c.voiceCommandUnavailable;
       if (state === 'waiting' && ['input', 'output'].includes(name)) { button.disabled = true; button.title = c.voiceResumeFirst; }
-      if (this.waitingCall && name === 'pause') button.disabled = Boolean(this.busy || transitional || !available.available || !this.client);
+      if (this.waitingCall && name === 'pause') button.disabled = Boolean(this.busy || transitional || !this.canContinue() || !this.client);
       if (this.moved && name === 'pause') button.disabled = true;
     }
     this.button('input').setAttribute('aria-pressed', String(this.input));
@@ -160,7 +166,7 @@ export class AudioRail {
     this.render();
   }
   async start() {
-    if (this.session || this.state === 'connecting' || !this.feature().available || !this.client) return;
+    if (this.session || this.state === 'connecting' || !this.canContinue() || !this.client) return;
     if (this.requiresTakeover) {
       if (this.busy) return;
       this.busy = true; this.render();

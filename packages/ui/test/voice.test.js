@@ -38,6 +38,7 @@ test('AIT-138 d: newcomer must Take over, then separately Resume; takeover acqui
   rail.client.takeover = async identity => { takeovers++; return { ...identity, epoch: 2 }; };
   const start = rail.client.start; rail.client.start = async (...args) => { starts++; return start(...args); };
   rail.receiveState({ callId: 'shared', providerSessionId: 'old', controllingTabId: 'old-tab', epoch: 1, state: 'active' });
+  rail.feature = () => ({ available: false, reason: en.paused }); rail.render();
   assert.equal(root.dataset.state, 'waiting'); assert.equal(rail.button('pause').title, en.voiceTakeover);
   await rail.start(); assert.equal(takeovers, 1); assert.equal(starts, 0);
   assert.equal(root.dataset.state, 'waiting'); assert.equal(rail.button('pause').title, en.resume);
