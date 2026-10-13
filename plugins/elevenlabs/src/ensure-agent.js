@@ -28,11 +28,16 @@ const id = value => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,128}$/u.test(
 const leaves = (value, path = []) => value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length
   ? Object.entries(value).flatMap(([key, item]) => leaves(item, [...path, key])) : [[path.join('.'), value]];
 const pick = (value, keys) => Object.fromEntries(keys.filter(key => value?.[key] !== undefined).map(key => [key, structuredClone(value[key])]));
-export class AgentEnsureError extends Error {}
+export class AgentEnsureError extends Error {
+  constructor(reason, { transient = false } = {}) {
+    super(reason);
+    this.transient = transient;
+  }
+}
 
 /** Only the local creation receipt authorizes future writes. Remote names confer no ownership. */
 export async function ensureAgent({ storage, templateAgentId, publicOrigin, resolveSecret,
-  apiBaseUrl = 'https://api.elevenlabs.io', fetchImpl = fetch, log = console.log, maxDurationSeconds = 3600 } = {}) {
+  apiBaseUrl = 'https://api.elevenlabs.io', fetchImpl = fetch, log = console.log, maxDurationSeconds = 3600, signal } = {}) {
   if (!id(templateAgentId)) throw new AgentEnsureError('template-agent-required');
   const origin = new URL(publicOrigin);
   if (origin.origin !== publicOrigin || origin.protocol !== 'https:' && !(origin.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname))) throw new AgentEnsureError('public-origin-invalid');
@@ -45,12 +50,22 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
     CREATE TABLE IF NOT EXISTS host_voice_secrets (name TEXT PRIMARY KEY, secret_id TEXT NOT NULL UNIQUE);`);
   const request = async (path, method = 'GET', body) => {
     try {
+      const timeout = AbortSignal.timeout(15_000);
+      const requestSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
+      requestSignal.throwIfAborted();
       const response = await fetchImpl(`${base.href.replace(/\/$/u, '')}${path}`, { method, redirect: 'error',
-        signal: AbortSignal.timeout(15_000), headers: { 'xi-api-key': key, ...(body ? { 'content-type': 'application/json' } : {}) },
+        signal: requestSignal, headers: { 'xi-api-key': key, ...(body ? { 'content-type': 'application/json' } : {}) },
         ...(body ? { body: JSON.stringify(body) } : {}) });
-      if (!response.ok) { await response.body?.cancel(); throw new AgentEnsureError(`agent-api-${method.toLowerCase()}-${response.status}`); }
-      return await readJson(response, 1_048_576);
-    } catch (error) { throw error instanceof AgentEnsureError ? error : new AgentEnsureError('agent-api-unavailable'); }
+      if (!response.ok) {
+        await response.body?.cancel().catch(() => {});
+        throw new AgentEnsureError(`agent-api-${method.toLowerCase()}-${response.status}`,
+          { transient: response.status === 429 || response.status >= 500 && response.status < 600 });
+      }
+      return await readJson(response, 1_048_576, { signal: requestSignal });
+    } catch (error) {
+      throw error instanceof AgentEnsureError ? error : new AgentEnsureError('agent-api-unavailable',
+        { transient: !['invalid-output', 'limit'].includes(error?.code) });
+    }
   };
   // verified by read-only GET 2026-10-09: agents[], agent_id/name,
   // has_more, next_cursor and cursor pagination.

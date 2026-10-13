@@ -74,9 +74,9 @@ if (voiceMode === 'elevenlabs') {
   const createVoiceHost = process.env.AITHEMA_VOICE_HOST_MODULE
     ? (await import((await import('node:url')).pathToFileURL(resolve(process.env.AITHEMA_VOICE_HOST_MODULE)).href)).createVoiceHost
     : createStart2VoiceHost;
-  voiceHost = { ...await createVoiceHost({ storage, facadeSecrets: secrets,
+  voiceHost = await createVoiceHost({ storage, facadeSecrets: secrets,
     publicOrigin: deployment.publicOrigin, templateAgentId: process.env.AITHEMA_ELEVENLABS_TEMPLATE_AGENT_ID,
-    resolveSecret: ref => secrets.resolve(ref) ?? process.env[ref] }) };
+    resolveSecret: ref => secrets.resolve(ref) ?? process.env[ref] });
   if (voiceHost.binding) voiceHost.binding = createDurationBinding(voiceHost.binding);
 }
 const imageMode = providerMode(process.env.AITHEMA_IMAGE_MODE, live);
@@ -100,13 +100,16 @@ const policy = imageHost?.policy ?? voiceHost?.policy ?? { endpoints: liveBindin
 const imagePlugin = imageMode === 'fake' ? createLocalImages() : imageHost ? createOpenAIImages({ binding: imagePluginBinding(imageHost.binding),
   resolveSecret: imageHost.resolveSecret ?? (ref => process.env[ref]) }) : null;
 const imageSelection = imagePlugin ? { images: imageHost?.binding ?? localImageBinding } : {};
-const voicePlugin = voiceMode === 'fake' ? createLocalVoiceProvider({ storage, provisionFacade: () => {}, revokeFacade: secrets.revoke })
-  : voiceHost?.binding ? createVoiceProvider({ storage, binding: { agentId: voiceHost.binding.agentId, secretRef: voiceHost.binding.secretRef,
+function configuredVoicePlugin() {
+  return createVoiceProvider({ storage, binding: { agentId: voiceHost.binding.agentId, secretRef: voiceHost.binding.secretRef,
       apiBaseUrl: voiceHost.binding.endpoint, upstreamMicroPerMinute: voiceHost.binding.upstreamMicroPerMinute,
       visitorMicroPerMinute: voiceHost.binding.visitorMicroPerMinute,
       reservationSeconds: voiceHost.binding.reservationSeconds, usdPerCredit: voiceHost.binding.usdPerCredit }, resolveSecret: ref => process.env[ref],
     staticFacade: Boolean(voiceHost.staticSecretRef), provisionFacade: voiceHost.provisionFacade, revokeFacade: secrets.revoke, requestProviderClose: voiceHost.requestProviderClose,
-    reconcileLater: () => handlers.reconcileVoiceLater(), log: voiceHost.log }) : null;
+    reconcileLater: () => handlers.reconcileVoiceLater(), log: voiceHost.log });
+}
+let voicePlugin = voiceMode === 'fake' ? createLocalVoiceProvider({ storage, provisionFacade: () => {}, revokeFacade: secrets.revoke })
+  : voiceHost?.binding ? configuredVoicePlugin() : null;
 const registry = new PluginRegistry().register(reasoning); if (voicePlugin) registry.register(voicePlugin); if (imagePlugin) registry.register(imagePlugin); if (htmlPlugin) registry.register(htmlPlugin);
 // The operator allowlist visitors choose from in settings (demo/choices.js).
 const presets = demoPresets({ provider, reaction: privateBinding, understanding: understandingBinding, voicePlugin,
@@ -122,7 +125,25 @@ const confirmationPage = mailPlugin ? createConfirmationPage({ host, publicOrigi
 // Demo only: AITHEMA_DEMO_HANDOVER_FAIL=n (1–10) fails the first n fake handover deliveries, to show Retry.
 const handoverFailures = Number(process.env.AITHEMA_DEMO_HANDOVER_FAIL ?? 0);
 if (host.demo && Number.isSafeInteger(handoverFailures)) for (let i = 0; i < Math.min(Math.max(handoverFailures, 0), 10); i++) host.sink.failNext();
-const handlers = createHandlers({ storage, reasoning, pluginRuntime, consent, ownership, host, uploads: { limits: uploadLimits }, voice: voicePlugin ? { secrets, closeOrphan: voiceHost?.closeOrphan, staticSecretRef: voiceHost?.staticSecretRef, presentation: voiceHost?.presentation, log: voiceHost?.log } : undefined });
+const handlers = createHandlers({ storage, reasoning, pluginRuntime, consent, ownership, host, uploads: { limits: uploadLimits }, voice: voicePlugin || voiceHost?.transient ? { secrets, closeOrphan: voiceHost?.closeOrphan, staticSecretRef: voiceHost?.staticSecretRef, presentation: voiceHost?.presentation, log: voiceHost?.log } : undefined });
+voiceHost?.onAvailable?.(() => {
+  voiceHost.binding = createDurationBinding(voiceHost.binding);
+  voicePlugin = configuredVoicePlugin();
+  registry.register(voicePlugin);
+  liveBindings.push(voiceHost.binding);
+  if (!imageHost?.policy && !voiceHost.policy) policy.endpoints.push(voiceHost.binding.endpoint);
+  // Keep the same authoritative consent object held by admission and revocation.
+  // The new contract requires the separate voice grant before any call can start.
+  if (!imageHost?.consent && !voiceHost.consent) Object.assign(consent, createProcessingConsent({ storage, bindings: liveBindings }));
+  const recovered = demoPresets({ provider, reaction: privateBinding, understanding: understandingBinding, voicePlugin,
+    voiceBinding: voiceHost.binding, imagePlugin, imageBinding: imageSelection.images, htmlPlugin, htmlBinding: htmlSelection.html, htmlDemo: Boolean(html.demo), policy });
+  // Runtime reads this host-owned allowlist per request. Preserve extractor configuration.
+  for (const name of ['best', 'custom']) if (presets[name]?.choices && recovered[name]?.choices) {
+    presets[name].plugins = [...new Set([...presets[name].plugins, ...recovered[name].plugins])];
+    presets[name].choices.voices = recovered[name].choices.voices;
+    presets[name].choices.defaults.voice = recovered[name].choices.defaults.voice;
+  }
+});
 const expiry = startExpiry(handlers);
 // Startup and daily bounded maintenance use the authoritative database writer.
 let visitorBatch;
@@ -187,6 +208,7 @@ allowedHosts = new Set([`127.0.0.1:${port}`, `localhost:${port}`]);
 console.log(`Demo — Aithema reset slice 1: ${url} (${reasoning.label})`);
 process.send?.({ url });
 async function close() {
+  await voiceHost?.close?.();
   clearInterval(expiry);
   clearInterval(visitorRetention);
   clearTimeout(visitorBatch);
