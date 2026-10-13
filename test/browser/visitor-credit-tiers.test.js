@@ -376,12 +376,11 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
         await fixture(page, locale, { spent: 11_990_000, voiceAdmissionFailure: true, waitingCall });
         await click(page, waitingCall ? '.pause' : '.voice-start');
         await until(page, () => window.a2.voiceRequests.length === 1 && document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state !== 'connecting');
-        await shadow(page, c => {
-          window.a2.spent = 12_000_000;
-          c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } });
-        }); await settle();
+        await settle();
         const recoveryBefore = await boxes(page, liveFixed), action = waitingCall ? 'resume' : 'retry';
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.audio-rail').hasAttribute('data-used-up')), true);
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-credits').dataset.ended), 'false', 'denial-only recovery stays below the ceiling');
+        assert.equal(await page.evaluate(() => window.a2.spent), 11_990_000);
         await shot(`top-up-${action}-denied`);
         await shadow(page, c => {
           window.a2.denyVoice = false;

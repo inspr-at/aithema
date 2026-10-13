@@ -387,7 +387,8 @@ export class AithemaSession extends HTMLElement {
     });
     for (const pane of root.querySelectorAll(PANES)) pane.addEventListener('pointerleave', () => clearSlack(pane));
     if (this.#options.host) this.#host = new HostSurface({ root, copy: this.#copy, options: this.#options.host, baseUrl: this.#base, sessionToken: this.#sessionToken,
-      openSettings: () => this.openSettings(root.querySelector('.host-credits__button'), { tab: 'general', anchor: '#email' }), onCredits: () => this.#creditsChanged(), creditEnding: () => this.#creditEnding,
+      openSettings: () => this.openSettings(root.querySelector('.host-credits__button'), { tab: 'general', anchor: '#email' }), onCredits: info => this.#creditsChanged(info), creditEnding: () => this.#creditEnding,
+      admissionDenied: () => this.#rail?.allowanceDenied ?? false,
       session: () => this.#session, status: text => this.#status(text), adopt: (session, reason) => this.#adopt(session, reason),
       beforeVerifyDialog: () => this.#dialog.closeForVerification(), verificationOpener: () => root.querySelector('.settings-open'),
       onLock: info => { this.#render('aside'); this.#render('transcript'); if (info?.saved) this.#dialog?.acknowledgeSave(); else this.#dialog?.sync(); },
@@ -535,10 +536,10 @@ export class AithemaSession extends HTMLElement {
     } catch { if (sessionId === this.#session.id) this.#status(this.#copy.controlFailed); }
     finally { if (url) URL.revokeObjectURL(url); }
   }
-  #creditsChanged() {
+  #creditsChanged({ allowanceChanged = false } = {}) {
     if (!this.#host) return;
     const usedUp = this.#host.usedUp, recovered = this.#creditWasUsedUp && !usedUp; this.#creditWasUsedUp = usedUp;
-    if (recovered && this.isConnected) void this.#refreshFeatures();
+    if ((allowanceChanged || recovered || this.#rail?.allowanceDenied) && this.isConnected) void this.#refreshFeatures();
     if (usedUp && this.#rail?.session && !this.#creditEnding) {
       this.#creditEnding = true;
       void this.#rail.close('host-limit');

@@ -102,8 +102,9 @@ export class AudioRail {
   }
   // Reconcile only after a fresh server feature read. A repaint immediately
   // after an admission refusal still has the preview that preceded that refusal.
+  get allowanceDenied() { return this.errorKey === 'voiceAdmissionDenied' && ['host-limit', 'budget denied'].includes(this.errorReason); }
   reconcileAdmission() {
-    if (this.feature().available && !this.usedUp?.() && this.errorKey === 'voiceAdmissionDenied' && ['host-limit', 'budget denied'].includes(this.errorReason)) {
+    if (this.feature().available && !this.usedUp?.() && this.allowanceDenied) {
       this.errorKey = null; this.errorReason = null;
     }
   }
@@ -113,7 +114,7 @@ export class AudioRail {
       transitional = ['connecting', 'recovering'].includes(this.state) || this.state === 'closing' && this.closingCall;
     // The feature preview can deny new work because an admitted segment holds
     // the allowance. Only a wallet verdict or an actual admission refusal ends it.
-    const usedUp = Boolean(this.usedUp?.()) || this.errorKey === 'voiceAdmissionDenied' && ['host-limit', 'budget denied'].includes(this.errorReason);
+    const usedUp = Boolean(this.usedUp?.()) || this.allowanceDenied;
     const creditEnding = Boolean(this.ending?.());
     this.root.toggleAttribute('data-used-up', usedUp && !creditEnding); this.root.toggleAttribute('data-credit-ending', creditEnding);
     const state = this.paused && active && this.state !== 'waiting' ? 'paused' : this.state;

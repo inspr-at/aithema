@@ -15,15 +15,16 @@ export const defaultCreditFormat = formatCredits;
 export class HostSurface {
   #root; #copy; #options; #base; #token; #session; #status; #adopt; #view; #alive = true; #connected = false;
   #verification = null; #library = null; #offer = null; #handover = null; #requesting = false; #limit = null;
-  #credits = null; #creditsLoad = 0; #creditsTimer = null; #creditsPoll = null; #ended = null;
-  #menu = null; #openSettings; #onCredits; #creditEnding;
+  #credits = null; #creditsLoad = 0; #creditsReads = 0; #creditsTimer = null; #creditsPoll = null; #ended = null;
+  #menu = null; #openSettings; #onCredits; #creditEnding; #admissionDenied;
   /**
    * options: {library, verification, handover, credits: true | {format(micro, locale)}, locale()}.
    * session() returns the live session; adopt(session, reason) opens another conversation.
    */
-  constructor({ root, copy, options, baseUrl, sessionToken, session, status, adopt, onLock, focusAfterUnlock, beforeVerifyDialog, verificationOpener, openSettings, onCredits, creditEnding }) {
+  constructor({ root, copy, options, baseUrl, sessionToken, session, status, adopt, onLock, focusAfterUnlock, beforeVerifyDialog, verificationOpener, openSettings, onCredits, creditEnding, admissionDenied }) {
     this.#root = root; this.#copy = copy; this.#options = options ?? {}; this.#base = baseUrl; this.#token = sessionToken;
     this.#openSettings = openSettings; this.#onCredits = onCredits; this.#creditEnding = creditEnding;
+    this.#admissionDenied = admissionDenied;
     this.#session = session; this.#status = status; this.#adopt = adopt; this.#view = root.host?.ownerDocument?.defaultView ?? globalThis.window;
     const o = this.#options, bar = root.querySelector('.host-bar'), s = copy.hostSurface;
     root.querySelector('.workspace').toggleAttribute('data-host', true);
@@ -81,7 +82,9 @@ export class HostSurface {
     if (this.#options.handover && this.#offer === null) void this.#loadHandover();
     if (this.#options.credits) {
       void this.#loadCredits(); clearInterval(this.#creditsPoll);
-      this.#creditsPoll = setInterval(() => { if (this.#alive && this.#connected && this.usedUp && this.#root.ownerDocument.visibilityState !== 'hidden') void this.#loadCredits(); }, 15_000);
+      this.#creditsPoll = setInterval(() => {
+        if (this.#alive && this.#connected && !this.#creditsReads && (this.usedUp || this.#admissionDenied?.()) && this.#root.ownerDocument.visibilityState !== 'hidden') void this.#loadCredits();
+      }, 15_000);
       this.#creditsPoll.unref?.();
     }
   }
@@ -188,18 +191,22 @@ export class HostSurface {
     clearTimeout(this.#creditsTimer); this.#creditsTimer = setTimeout(() => void this.#loadCredits(), 300);
   }
   async #loadCredits() {
-    const load = ++this.#creditsLoad, previousTier = this.tiers?.current;
+    const load = ++this.#creditsLoad, previous = this.#credits, previousTier = this.tiers?.current;
+    this.#creditsReads++;
     try {
       const response = await this.#call(this.#sessionPath('credits'));
       if (!this.#alive || load !== this.#creditsLoad || !response.ok) return;
       this.#credits = response.body;
+      const allowanceChanged = Boolean(previous && (previous.balance?.owner?.limitMicro !== this.#credits?.balance?.owner?.limitMicro ||
+        JSON.stringify(previous.tiers) !== JSON.stringify(this.#credits?.tiers)));
       if (previousTier && previousTier !== this.tiers?.current) void this.#verification?.load();
       const slot = this.#credits?.limitSlot;
       const recovered = this.#credits?.exhausted === false && this.#credits?.balance?.owner?.availableMicro > 0;
       if (this.#ended === 'host-limit' ? recovered : slot === null) this.#ended = null;
       if (['ending', 'ended'].includes(slot?.status) && !(slot.endReason === 'host-limit' && recovered)) this.#ended = slot.endReason ?? this.#ended ?? 'session';
-      this.#verification?.setCredits(this.#credits); this.#paintCredits(); this.#onCredits?.();
+      this.#verification?.setCredits(this.#credits); this.#paintCredits(); this.#onCredits?.({ allowanceChanged });
     } catch { /* The last acknowledged values stay until the next read. */ }
+    finally { this.#creditsReads--; }
   }
   #paintCredits() {
     const line = this.#root.querySelector('.host-credits'); line.hidden = !this.#options.credits;
