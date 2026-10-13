@@ -5,6 +5,7 @@ import { SQLiteStorage, SQLiteBudgetLedger, createHandlers, createPluginRuntime 
 import { admitCredits, createIdentity, reduceIdentity, createHandover, reduceHandover } from '@inspr/aithema-core';
 import { createDemoHost } from '../host-ports.js';
 import { mockConsent, temporaryDb } from '../../test/helpers.js';
+import { lowCreditThreshold } from '../../packages/server/src/host-handlers.js';
 
 const owner = 'tier-owner', address = 'visitor@example.test', noticeVersion = 'ait-135-v1';
 const ownerHash = createHash('sha256').update(owner).digest('hex');
@@ -24,6 +25,155 @@ function fixture(t, options = {}) {
 }
 
 const DAY = 24 * 60 * 60_000;
+test('AIT-164: server thresholds use 10% of the tier and a five-minute voice floor', () => {
+  for (const [tier, expected] of [[10_000_000, 1_000_000], [15_000_000, 1_500_000], [20_000_000, 2_000_000], [3_000_000, 500_000]]) {
+    assert.equal(lowCreditThreshold(tier, 100_000), expected);
+  }
+  assert.equal(lowCreditThreshold(3_000_000, 200_000), 1_000_000, 'changed server rate changes the voice floor');
+  assert.equal(lowCreditThreshold(3_000_000, 0), 300_000, 'voice off has no five-minute / 50-Credit floor');
+  assert.equal(lowCreditThreshold(1_234_567, 0), 130_000, 'round up to a whole Credit');
+});
+test('AIT-164: a fifth-turn ask is shared by the visitor for a rolling 24h, including after restart', async t => {
+  const db = await temporaryDb(), first = new SQLiteStorage(db);
+  let time = 1_000; t.after(() => { if (first.db.isOpen) first.close(); });
+  const hostBefore = createDemoHost({ storage: first, demo: false, now: () => time, ownerGuard: false });
+  const f = { storage: first, host: hostBefore, at: value => { time = value; } };
+  assert.equal(f.host.claimEmailAsk(owner), true);
+  assert.equal(f.host.claimEmailAsk(owner), false);
+  f.at(1_000 + DAY - 1); assert.equal(f.host.claimEmailAsk(owner), false);
+  f.at(1_000 + DAY); assert.equal(f.host.claimEmailAsk(owner), true);
+  const other = 'separate-visitor'; assert.equal(f.host.claimEmailAsk(other), true);
+  f.storage.close();
+  const reopened = new SQLiteStorage(db); t.after(() => reopened.close());
+  const host = createDemoHost({ storage: reopened, demo: false, now: () => 1_000 + DAY, ownerGuard: false });
+  assert.equal(host.claimEmailAsk(owner), false);
+  host.eraseVisitor(owner); assert.equal(host.emailAskAfter(owner), 0);
+});
+test('AIT-164: low claims are atomic, visitor-wide, persistent and cascade erased', async t => {
+  const db = await temporaryDb(), storage = new SQLiteStorage(db);
+  let time = 1_000; t.after(() => { if (storage.db.isOpen) storage.close(); });
+  const options = { demo: false, now: () => time, ownerGuard: false };
+  const host = createDemoHost({ storage, ...options });
+  assert.deepEqual(host.lowEmailAsk(owner), { after: 0, armed: true });
+  assert.throws(() => storage.transaction(() => {
+    assert.equal(host.claimLowEmailAsk(owner), true);
+    throw new Error('rollback gate and claim');
+  }), /rollback gate and claim/u);
+  assert.equal(host.claimLowEmailAsk(owner), true, 'rolled-back claim is not consumed');
+  // The repository has one leased SQLite writer. Separate host clients/tabs
+  // share it; opening a second SQLiteStorage is deliberately refused.
+  const otherHost = createDemoHost({ storage, ...options });
+  assert.equal(otherHost.claimLowEmailAsk(owner), false, 'another client cannot claim the same low episode');
+  assert.equal(host.claimLowEmailAsk('separate-visitor'), true);
+  time += DAY;
+  assert.equal(host.claimLowEmailAsk(owner), false, '24 hours alone does not re-arm');
+  storage.close();
+  const reopened = new SQLiteStorage(db); t.after(() => reopened.close());
+  const restarted = createDemoHost({ storage: reopened, ...options });
+  assert.deepEqual(restarted.lowEmailAsk(owner), { after: 1_000 + DAY, armed: false });
+  assert.equal(restarted.claimLowEmailAsk(owner), false);
+  restarted.rearmLowEmailAsk(owner);
+  assert.equal(restarted.claimLowEmailAsk(owner), true);
+  restarted.rearmLowEmailAsk(owner);
+  time += DAY - 1; assert.equal(restarted.claimLowEmailAsk(owner), false, 're-arm never shortens cooldown');
+  time++; assert.equal(restarted.claimLowEmailAsk(owner), true);
+  restarted.eraseVisitor(owner);
+  assert.deepEqual(restarted.lowEmailAsk(owner), { after: 0, armed: true });
+  assert.equal(reopened.db.prepare('SELECT COUNT(*) n FROM visitor_low_email_asks WHERE visitor_ref NOT IN (SELECT visitor_ref FROM visitor_identities)').get().n, 0);
+});
+test('AIT-164: low asks need a visitor-wide high-to-low crossing and a full day', async t => {
+  const f = fixture(t); f.settings('10', '15', '20');
+  const a = f.session('low-a'), b = f.session('low-b'), { call } = api(t, f);
+  for (const s of [a, b]) {
+    f.storage.append(s.id, 'turn.final', { id: `${s.id}-u`, role: 'user', content: 'A requirement.' });
+    f.storage.append(s.id, 'turn.final', { id: `${s.id}-a`, role: 'assistant', content: 'A question.' });
+  }
+  const show = async id => (await (await call(`/api/sessions/${id}/email-ask`, { action: 'show', why: 'low' })).json()).accepted;
+  const rearm = async id => (await (await call(`/api/sessions/${id}/email-ask`, { action: 'rearm' })).json()).accepted;
+  f.ledger.admit(f.request(a.id, 9_050_000));
+  assert.equal(await show(a.id), true, 'low trigger needs no fifth turn');
+  await call(`/api/sessions/${a.id}/email-ask`, { action: 'dismiss' });
+  assert.equal(await show(b.id), false, 'a new conversation cannot repeat the low ask');
+  assert.equal(await rearm(b.id), false, 'client cannot re-arm while the server balance is low');
+  f.at(1_000 + DAY);
+  assert.equal(await show(b.id), false, 'remaining low beyond 24 hours does not repeat');
+  f.settings('20', '25', '30');
+  const high = await (await call(`/api/sessions/${b.id}/credits`)).json();
+  assert.equal(high.lowEmailAsk.armed, false, 'GET does not change the latch');
+  assert.equal(await rearm(b.id), true);
+  assert.equal(await show(b.id), false, 'balance must fall low again');
+  f.settings('10', '15', '20');
+  assert.equal(await show(a.id), true, 'the same conversation can claim a new low episode');
+  await call(`/api/sessions/${a.id}/email-ask`, { action: 'dismiss' });
+  f.settings('20', '25', '30'); assert.equal(await rearm(b.id), true);
+  f.settings('10', '15', '20');
+  f.at(1_000 + 2 * DAY - 1); assert.equal(await show(b.id), false);
+  f.at(1_000 + 2 * DAY); assert.equal(await show(b.id), true);
+});
+test('AIT-164: server refuses fold before openedAt + 2 without changing the gate', async t => {
+  const f = fixture(t); f.settings('10', '15');
+  const s = f.session('fold-ask'), { call } = api(t, f);
+  const reply = i => {
+    f.storage.append(s.id, 'turn.final', { id: `fold-u${i}`, role: 'user', content: 'A requirement.' });
+    f.storage.append(s.id, 'turn.final', { id: `fold-a${i}`, role: 'assistant', content: 'A question.' });
+  };
+  for (let i = 0; i < 5; i++) reply(i);
+  const opened = await (await call(`/api/sessions/${s.id}/email-ask`, { action: 'show', why: 'turn5' })).json();
+  assert.equal(opened.accepted, true); assert.equal(opened.emailAsk.openedAt, 5);
+  for (const count of [5, 6]) {
+    if (count === 6) reply(5);
+    const folded = await (await call(`/api/sessions/${s.id}/email-ask`, { action: 'fold' })).json();
+    assert.equal(folded.accepted, false, `refuse at ${count} turns`);
+    assert.deepEqual(folded.emailAsk, opened.emailAsk, 'no revision or visibility change');
+  }
+  reply(6);
+  const folded = await (await call(`/api/sessions/${s.id}/email-ask`, { action: 'fold' })).json();
+  assert.equal(folded.accepted, true); assert.equal(folded.emailAsk.open, false); assert.equal(folded.emailAsk.folded, true);
+});
+test('AIT-164: owner-bound gate and low line survive reads without entering transcript or exports', async t => {
+  const f = fixture(t, { visitorMicroPerMinute: () => 100_000 }); f.settings('10', '15', '20');
+  const a = f.session('ask-a'), b = f.session('ask-b'), { call } = api(t, f);
+  const reply = (id, i) => { f.storage.append(id, 'turn.final', { id: `u${i}`, role: 'user', content: 'A requirement.' }); f.storage.append(id, 'turn.final', { id: `a${i}`, role: 'assistant', content: 'A question.' }); };
+  for (let i = 0; i < 4; i++) reply(a.id, i);
+  const show = id => call(`/api/sessions/${id}/email-ask`, { action: 'show', why: 'turn5' });
+  assert.equal((await (await show(a.id)).json()).accepted, false);
+  reply(a.id, 4); assert.equal((await (await show(a.id)).json()).accepted, true);
+  await call(`/api/sessions/${a.id}/email-ask`, { action: 'dismiss' });
+  for (let i = 0; i < 5; i++) reply(b.id, i);
+  assert.equal((await (await show(b.id)).json()).accepted, false, 'another conversation has the same day limit');
+  const attempt = f.ledger.admit(f.request(b.id, 9_050_000)); f.ledger.claim(attempt.attemptId, { sideEffecting: false });
+  const credits = await (await call(`/api/sessions/${b.id}/credits`)).json(); assert.equal(credits.lowAtMicro, 1_000_000);
+  assert.equal((await (await call(`/api/sessions/${b.id}/email-ask`, { action: 'line' })).json()).accepted, true);
+  const low = await (await call(`/api/sessions/${b.id}/email-ask`, { action: 'show', why: 'low' })).json(); assert.equal(low.accepted, true);
+  assert.equal(low.emailAsk.lowLine.kind, 'give'); assert.equal(low.emailAsk.lowLine.deltaMicro, 5_000_000);
+  await call(`/api/sessions/${b.id}/email-ask`, { action: 'dismiss' });
+  assert.equal((await (await call(`/api/sessions/${b.id}/email-ask`, { action: 'show', why: 'low' })).json()).accepted, false);
+  assert.equal(f.storage.get(b.id).transcript.length, 10);
+  assert.equal(f.storage.read(b.id).some(e => /email-ask/u.test(e.type)), false);
+  assert.equal((await call('/api/visitor/email', { address, noticeVersion }, 'PUT')).status, 200);
+  assert.equal(f.storage.hostState(b.id).emailAsk.lowLine.resolved, true, 'giving an address retires its historical action');
+  await call('/api/visitor/email', {}, 'DELETE');
+  assert.equal(f.storage.hostState(b.id).emailAsk.lowLine.resolved, true, 'deletion never restores a historical offer');
+  const foreign = await call('/api/sessions/foreign/email-ask', { action: 'show', why: 'low' }); assert.equal(foreign.status, 404);
+});
+test('AIT-164: C1 confirmation retires the pending-email line in the current host transaction', async t => {
+  const f = fixture(t, { demo: true }); f.settings('10', '15', '20');
+  f.host.visitorCredits.saveSettings({ baseRevision: f.host.visitorCredits.settings().revision, confirmationEnabled: true }, { actor: 'ops-cli:fixture', source: 'ops-cli' });
+  const s = f.session('confirm-ask'), { call } = api(t, f);
+  await call('/api/visitor/email', { address, noticeVersion }, 'PUT');
+  f.storage.append(s.id, 'turn.final', { id: 'confirm-user', role: 'user', content: 'A requirement.' });
+  f.storage.append(s.id, 'turn.final', { id: 'confirm-reply', role: 'assistant', content: 'A question.' });
+  f.ledger.admit(f.request(s.id, 14_050_000));
+  await call(`/api/sessions/${s.id}/email-ask`, { action: 'line' });
+  assert.equal(f.storage.hostState(s.id).emailAsk.lowLine.kind, 'confirm');
+  await call(`/api/sessions/${s.id}/identity/request`, { address });
+  const mail = (await f.host.outbox({ sessionId: s.id, ownerToken: owner })).at(-1);
+  const confirmed = await call(`/api/sessions/${s.id}/identity/confirm`, { token: mail.token });
+  assert.equal(confirmed.status, 200); assert.equal((await confirmed.json()).identity.status, 'verified');
+  assert.equal(f.storage.hostState(s.id).emailAsk.lowLine.resolved, true);
+  await call('/api/visitor/email', {}, 'DELETE');
+  assert.equal(f.storage.hostState(s.id).emailAsk.lowLine.resolved, true);
+});
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
 function api(t, f) {
   const runtime = createPluginRuntime({ storage: f.storage, consent: mockConsent, budget: f.ledger });

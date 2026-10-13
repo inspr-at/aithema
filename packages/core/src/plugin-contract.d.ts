@@ -125,6 +125,11 @@ export interface VoiceServerCallbacks {
 export interface VoiceServerAdapter<Config = unknown, StartRequest = { callId: string }, Segment extends VoiceServerSegment = VoiceServerSegment> {
   readonly config?: Config;
   validateConfig(config: unknown): Config;
+  /** Optional legacy host normalization; private field names stay in the adapter. */
+  normalizeBinding?(binding: object): object;
+  readonly binding?: { endpoint: string; secretRef: string; upstreamMicroPerMinute: number;
+    visitorMicroPerMinute: number; reservationSeconds?: number; adapterConfig?: Config };
+  matchesConfig?(config: unknown): boolean;
   startSegment(request: StartRequest, options: VoiceStartOptions): Promise<Segment>;
   stopSegment(segment: Segment, options: VoiceCommandOptions & { reason?: string; outcome?: 'completed' | 'cancelled' }): Promise<VoiceReconciliationEvidence['terminal']>;
   reconciliationEvidence(request: { call: object; maxMicro: number; outcome?: 'completed' | 'cancelled' }, options: VoiceCommandOptions): Promise<VoiceReconciliationEvidence>;

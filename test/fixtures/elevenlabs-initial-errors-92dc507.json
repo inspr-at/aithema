@@ -1,0 +1,61 @@
+{
+  "baseline": "92dc507",
+  "sanitization": "synthetic inputs; generated reply UUID only",
+  "callbacks": [
+    {
+      "cause": "fenced",
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "no-store",
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "body": "data: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"model\":\"session-reasoning\",\"metadata\":{\"aithema_reply_id\":\"chatcmpl-FIXTURE\"},\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\ndata: {\"error\":\"not-admitted\"}\n\n"
+      }
+    },
+    {
+      "cause": "paused",
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "no-store",
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "body": "data: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"model\":\"session-reasoning\",\"metadata\":{\"aithema_reply_id\":\"chatcmpl-FIXTURE\"},\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\ndata: {\"error\":\"not-admitted\"}\n\n"
+      }
+    },
+    {
+      "cause": "consent-revoked",
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "no-store",
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "body": "data: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"model\":\"session-reasoning\",\"metadata\":{\"aithema_reply_id\":\"chatcmpl-FIXTURE\"},\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\ndata: {\"error\":\"not-admitted\"}\n\n"
+      }
+    },
+    {
+      "cause": "deadline",
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "no-store",
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "body": "data: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"model\":\"session-reasoning\",\"metadata\":{\"aithema_reply_id\":\"chatcmpl-FIXTURE\"},\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\ndata: {\"error\":\"deadline\"}\n\n"
+      }
+    },
+    {
+      "cause": "cancel",
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "no-store",
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "body": "data: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000000,\"model\":\"session-reasoning\",\"metadata\":{\"aithema_reply_id\":\"chatcmpl-FIXTURE\"},\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\ndata: {\"error\":\"cancelled\"}\n\n"
+      }
+    }
+  ]
+}

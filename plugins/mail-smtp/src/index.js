@@ -67,7 +67,7 @@ export function createSmtpMail({ config, publicOrigin, resolveSecret = ref => pr
     transport = createTransport({ host, port: config.port, secure: config.secure,
       requireTLS: !config.allowPlaintextLocalRelay && !config.secure, ignoreTLS: config.allowPlaintextLocalRelay,
       tls: { rejectUnauthorized: true, ...(!isIP(host) ? { servername: host } : {}) },
-      ...(config.user ? { auth: { user: config.user, pass } } : {}), pool: true, maxConnections: 3,
+      ...(config.user ? { auth: { user: config.user, pass } } : {}), pool: true, maxConnections: 3, maxRequeues: 0,
       connectionTimeout: 8_000, greetingTimeout: 8_000, socketTimeout: 15_000,
       logger: false, debug: false, disableFileAccess: true, disableUrlAccess: true, ...(getSocket ? { getSocket } : {}) });
     return transport;
@@ -86,7 +86,14 @@ export function createSmtpMail({ config, publicOrigin, resolveSecret = ref => pr
         await (await connection()).sendMail({ from: config.fromName ? { name: config.fromName, address: config.from } : config.from,
           ...(config.replyTo ? { replyTo: config.replyTo } : {}), to, ...message });
         return { status: 'sent' };
-      } catch { throw new Error('Confirmation delivery failed'); }
+      } catch (error) {
+        const temporary = Number.isInteger(error?.responseCode) && error.responseCode >= 400 && error.responseCode < 500 ||
+          error?.rejectedErrors?.some(rejected => Number.isInteger(rejected.responseCode) && rejected.responseCode >= 400 && rejected.responseCode < 500) === true;
+        if (temporary) console.warn(JSON.stringify({ event: 'mail-delivery-failed', temporary: true }));
+        // Never retain the SMTP reply, recipient, envelope or original cause.
+        // The host maps this to its existing private failed-delivery state.
+        throw Object.assign(new Error('Confirmation delivery failed'), temporary ? { temporary: true } : {});
+      }
     },
     close() { transport?.close(); transport = undefined; connecting = undefined; },
   };

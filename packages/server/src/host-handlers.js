@@ -1,11 +1,18 @@
 import { createIdentity, identityView, reduceIdentity, createHandover, handoverView, reduceHandover,
   assertLibraryPort, assertHandoverPort, budgetCreditView, createCredits, rebindCredits, reduceCredits, creditsView, inputRevision, LibraryPortError,
-  operationScope, untilCancelled } from '@inspr/aithema-core';
+  operationScope, untilCancelled, activeTurns } from '@inspr/aithema-core';
 import { NotFoundError } from './storage.js';
 
 const json = (value, status = 200) => Response.json(value, { status, headers: { 'cache-control': 'no-store' } });
 const idPattern = '[a-zA-Z0-9_-]{1,128}';
 const object = (body, keys) => body && typeof body === 'object' && !Array.isArray(body) && Object.keys(body).every(key => keys.includes(key));
+
+/** Whole Credits (one cent), with five minutes at the host's visitor rate.
+ * Voice off supplies rate 0: only the 10% rule applies, with no 50-Credit floor. */
+export function lowCreditThreshold(limitMicro, visitorMicroPerMinute = 0) {
+  if (![limitMicro, visitorMicroPerMinute].every(value => Number.isSafeInteger(value) && value >= 0)) throw new TypeError('Invalid warning price');
+  return Math.ceil(Math.max(limitMicro / 10, visitorMicroPerMinute * 5) / 10_000) * 10_000;
+}
 
 /** Trusted host capability: true only after validating its deployment document. */
 export function privacyDocumentConfigured(host) {
@@ -100,7 +107,10 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
       const result = reduceIdentity(identity, { ...event, now: clock(identity) });
       if (result.state.address) assertAddressCollectionAllowed();
       erased = host.identity.persist?.({ session }, result.state)?.erased === true;
-      return { ...result, state: { ...state, identity: result.state } };
+      // Visitor-wide confirmation may retire historical line actions in this
+      // same transaction. Keep that updated record in the identity projection.
+      const emailAsk = storage.hostState(id)?.emailAsk;
+      return { ...result, state: { ...state, ...(emailAsk ? { emailAsk } : {}), identity: result.state } };
     }, { ownerToken }));
     if (erased) storage.checkpointErasure();
     return result;
@@ -132,13 +142,18 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     const projection = host.creditTiers?.(ownerToken) ?? null;
     const collectionAllowed = host.demo === true || privacyDocumentConfigured(host);
     const tiers = projection && (collectionAllowed ? projection : { ...projection, next: null, delta: 0, canConfirm: false });
-    if (host.credits?.ownerGuard === false) return { balance, limitSlot: null, tiers, exhausted };
+    const voiceRate = host.visitorMicroPerMinute?.(storage.get(id)) ?? 0;
+    const largestTier = Math.max(balance.owner.limitMicro, ...Object.values(tiers?.allowancesMicro ?? {}).filter(Number.isSafeInteger));
+    const warning = { lowAtMicro: lowCreditThreshold(balance.owner.limitMicro, voiceRate), lowAtMaxMicro: lowCreditThreshold(largestTier, voiceRate),
+      emailAsk: storage.hostState(id)?.emailAsk ?? {}, emailAskAfter: host.emailAskAfter?.(ownerToken) ?? 0,
+      lowEmailAsk: host.lowEmailAsk?.(ownerToken) ?? null, nowMs: now() };
+    if (host.credits?.ownerGuard === false) return { balance, limitSlot: null, tiers, exhausted, ...warning };
     const guard = storage.ownerCreditState(ownerToken);
     const state = guard ? guard.sessionId === id ? guard : rebindCredits(guard, id) : createCredits({ sessionId: id, ...host.credits });
     // Project live balances, expiry and pause without persisting read results.
     const current = reduceCredits(state, { type: 'balance', balance, now: clock(state) }).state;
     const projected = reduceCredits(current, { type: 'pause', paused: storage.get(id).paused, now: clock(current) }).state;
-    return { balance, limitSlot: creditsView(projected, clock(projected)), tiers, exhausted };
+    return { balance, limitSlot: creditsView(projected, clock(projected)), tiers, exhausted, ...warning };
   }
   function startCredits(id, ownerToken) {
     const balance = budgetCreditView(budget, id, host.wallet(ownerToken));
@@ -187,7 +202,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
   }
   async function handle(request) {
     const url = new URL(request.url);
-    const sessionMatch = new RegExp(`^/api/sessions/(${idPattern})/(identity(?:/(?:request|resend|change|confirm|unlock))?|handover(?:/retry)?|credits|demo/outbox)$`, 'u').exec(url.pathname);
+    const sessionMatch = new RegExp(`^/api/sessions/(${idPattern})/(identity(?:/(?:request|resend|change|confirm|unlock))?|email-ask|handover(?:/retry)?|credits|demo/outbox)$`, 'u').exec(url.pathname);
     const libraryMatch = new RegExp(`^/api/library(?:/(${idPattern})(?:/(rename|delete|reset))?)?$`, 'u').exec(url.pathname);
     const visitorPath = ['/api/visitor/email', '/api/visitor/erase'].includes(url.pathname);
     if (!sessionMatch && !libraryMatch && !visitorPath) return null;
@@ -274,6 +289,44 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
         return json(creditResult(id, ownerToken));
       }
       initialize(id, ownerToken);
+      if (action === 'email-ask') {
+        if (request.method !== 'POST') return json({ error: 'method-not-allowed' }, 405);
+        const options = await body(request, ['action', 'why']);
+        if (!['show', 'line', 'fold', 'dismiss', 'rearm'].includes(options.action) ||
+          options.action === 'show' && !['turn5', 'low'].includes(options.why)) throw new TypeError('Invalid email ask');
+        const result = storage.transitionHost(id, state => {
+          const emailAsk = { ...state.emailAsk }, credits = creditResult(id, ownerToken), turns = activeTurns(storage.get(id));
+          const count = turns.filter(turn => turn.role === 'user').length;
+          const low = !credits.exhausted && credits.balance.owner.availableMicro > 0 && credits.balance.owner.availableMicro <= credits.lowAtMicro;
+          const eligible = !credits.exhausted && credits.tiers?.next === 'emailGiven' && credits.tiers.delta > 0 &&
+            (host.demo === true || privacyDocumentConfigured(host)) && !host.visitor?.(ownerToken)?.address;
+          const settled = turns.at(-1)?.role === 'assistant';
+          let accepted = false;
+          // Read-only credit projections never change the latch. The client
+          // acknowledges a rise here; request bodies cannot supply a balance.
+          if (options.action === 'rearm' && credits.balance.owner.availableMicro > credits.lowAtMicro) {
+            accepted = host.rearmLowEmailAsk?.(ownerToken) === true;
+          }
+          if (options.action === 'show' && eligible && settled && (!emailAsk.open || options.why === 'low') &&
+            (options.why === 'low' ? low && host.claimLowEmailAsk?.(ownerToken) : count >= 5 && host.claimEmailAsk?.(ownerToken))) {
+            Object.assign(emailAsk, { open: true, why: options.why, openedAt: count, folded: false,
+              ...(options.why === 'turn5' ? { shown5: true } : {}) }); accepted = true;
+          }
+          if (options.action === 'line' && low && !emailAsk.lowLine && settled) {
+            const next = credits.tiers?.next;
+            emailAsk.lowLine = { at: turns.at(-1).id, kind: eligible ? 'give' : next === 'emailConfirmed' ? 'confirm' : 'none',
+              deltaMicro: credits.tiers?.delta ?? 0, availableMicro: credits.balance.owner.availableMicro }; accepted = true;
+          }
+          if (options.action === 'dismiss' || options.action === 'fold' && count >= (emailAsk.openedAt ?? Infinity) + 2) {
+            emailAsk.open = false; emailAsk.folded = options.action === 'fold'; accepted = true;
+          }
+          if (accepted && options.action !== 'rearm') emailAsk.revision = (emailAsk.revision ?? 0) + 1;
+          return { state: { ...state, emailAsk }, accepted, emailAsk };
+        }, { ownerToken });
+        return json({ accepted: result.accepted, emailAsk: result.emailAsk,
+          emailAskAfter: host.emailAskAfter?.(ownerToken) ?? 0,
+          lowEmailAsk: host.lowEmailAsk?.(ownerToken) ?? null, nowMs: now() });
+      }
       if (action.startsWith('identity')) {
         if (!host.identity) return json({ error: 'identity-unavailable' }, 503);
         syncPause(id, ownerToken);

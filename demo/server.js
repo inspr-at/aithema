@@ -20,6 +20,7 @@ import { deploymentConfig, deploymentGate } from './deployment.js';
 import { loadPrivacyDocuments } from './privacy.js';
 import { buildInfo } from './build-info.js';
 import { createVoiceHost as createStart2VoiceHost } from './start2-voice-host.js';
+import { normalizeElevenLabsDurationBinding } from '../plugins/elevenlabs/src/config.js';
 import { createMockConsent } from './mock-consent.js';
 import { createProcessingConsent } from './processing-consent.js';
 import { prepareVoiceRuntime, voiceRuntimePorts } from './voice-availability.js';
@@ -100,7 +101,7 @@ if (imageMode === 'openai') {
   imageHost.binding = createImageBinding(imageHost.binding);
   if (voiceHost && imageHost.consent !== voiceHost.consent) throw new TypeError('Images and voice require the same authoritative consent port');
 }
-const voiceBinding = voiceHost?.binding ? createDurationBinding(voiceHost.binding) : undefined;
+const voiceBinding = voiceHost?.binding ? createDurationBinding(normalizeElevenLabsDurationBinding(voiceHost.binding)) : undefined;
 const liveBindings = [...(provider === 'openrouter' ? [privateBinding, understandingBinding] : []), ...(voiceBinding ? [voiceBinding] : []), ...(html.binding?.legal ? [html.binding] : [])];
 const consent = imageHost?.consent ?? voiceHost?.consent ?? (liveBindings.length || voiceMode === 'elevenlabs'
   ? createProcessingConsent({ storage, bindings: liveBindings, voiceConfigured: voiceMode === 'elevenlabs',
@@ -114,10 +115,10 @@ const imagePlugin = imageMode === 'fake' ? createLocalImages() : imageHost ? cre
   resolveSecret: imageHost.resolveSecret ?? (ref => process.env[ref]) }) : null;
 const imageSelection = imagePlugin ? { images: imageHost?.binding ?? localImageBinding } : {};
 function configuredVoicePlugin(binding) {
-  return createVoiceProvider({ storage, binding: { agentId: binding.agentId, secretRef: binding.secretRef,
+  return createVoiceProvider({ storage, binding: { adapterConfig: binding.adapterConfig, secretRef: binding.secretRef,
       apiBaseUrl: binding.endpoint, upstreamMicroPerMinute: binding.upstreamMicroPerMinute,
       visitorMicroPerMinute: binding.visitorMicroPerMinute,
-      reservationSeconds: binding.reservationSeconds, usdPerCredit: binding.usdPerCredit }, resolveSecret: ref => process.env[ref],
+      reservationSeconds: binding.reservationSeconds }, resolveSecret: ref => process.env[ref],
     staticFacade: Boolean(voiceHost.staticSecretRef), provisionFacade: voiceHost.provisionFacade, revokeFacade: secrets.revoke, requestProviderClose: voiceHost.requestProviderClose,
     reconcileLater: () => handlers.reconcileVoiceLater(), log: voiceHost.log });
 }
@@ -136,7 +137,10 @@ const budget = new SQLiteBudgetLedger(storage, { sessionCapMicro: VISITOR_CREDIT
 const pluginRuntime = createPluginRuntime({ storage, reasoning, consent, registry: runtimePorts.registry, uiRenderLimits, presets: runtimePorts.presets, voiceCap, budget });
 const host = createDemoHost({ storage, demo: process.env.AITHEMA_PROVIDER === undefined && process.env.NODE_ENV !== 'production', mailPlugin,
   verificationRequired: process.env.AITHEMA_DEMO_VERIFY === '1', ownerGuard: false,
-  privacyDocumentConfigured: privacy.privacyDocumentConfigured });
+  privacyDocumentConfigured: privacy.privacyDocumentConfigured,
+  // Voice off has no binding and rate 0: warnings use 10% only, without the
+  // five-minute / 50-Credit floor of the $0.10/minute voice configuration.
+  visitorMicroPerMinute: () => readVoiceState().binding?.visitorMicroPerMinute ?? 0 });
 const confirmationPage = mailPlugin ? createConfirmationPage({ host, publicOrigin: deployment.publicOrigin }) : null;
 // Demo only: AITHEMA_DEMO_HANDOVER_FAIL=n (1–10) fails the first n fake handover deliveries, to show Retry.
 const handoverFailures = Number(process.env.AITHEMA_DEMO_HANDOVER_FAIL ?? 0);

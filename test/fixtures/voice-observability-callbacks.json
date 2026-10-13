@@ -1,0 +1,137 @@
+{
+  "format": "aithema-voice-wire",
+  "version": 1,
+  "baseline": "e6a4168",
+  "sanitization": "independently authored synthetic inputs; generated reply UUID only",
+  "callbacks": [
+    {
+      "name": "history-base",
+      "request": {
+        "method": "POST",
+        "url": "https://host.example.test/api/voice/call_observability/llm/chat/completions",
+        "headers": {
+          "content-type": "application/json",
+          "authorization": "Bearer fixture-observability-value",
+          "x-fixture-private": "Private synthetic header"
+        },
+        "body": "{\"model\":\"fixture-untrusted-model\",\"elevenlabs_extra_body\":{\"aithema_call\":\"call_observability\"},\"messages\":[{\"role\":\"system\",\"content\":\"Private synthetic prompt\"},{\"role\":\"user\",\"content\":\"Private synthetic speech fixture-person@example.test https://speech.example.test\"}],\"stream\":true}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "no-store",
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "body": "data: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000010,\"model\":\"session-reasoning\",\"metadata\":{\"aithema_reply_id\":\"chatcmpl-FIXTURE\"},\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000010,\"model\":\"session-reasoning\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Welche Farbe? \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000010,\"model\":\"session-reasoning\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Blau.\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000010,\"model\":\"session-reasoning\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+      }
+    },
+    {
+      "name": "retry-stream",
+      "request": {
+        "method": "POST",
+        "url": "https://host.example.test/api/voice/call_observability/llm/chat/completions",
+        "headers": {
+          "content-type": "application/json",
+          "authorization": "Bearer fixture-observability-value",
+          "x-fixture-private": "Private synthetic header"
+        },
+        "body": "{\"model\":\"fixture-untrusted-model\",\"elevenlabs_extra_body\":{\"aithema_call\":\"call_observability\"},\"messages\":[{\"role\":\"system\",\"content\":\"Private synthetic prompt\"},{\"role\":\"user\",\"content\":\"Private synthetic speech fixture-person@example.test https://speech.example.test\"}],\"stream\":true}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "no-store",
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "body": "data: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000010,\"model\":\"session-reasoning\",\"metadata\":{\"aithema_reply_id\":\"chatcmpl-FIXTURE\"},\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000010,\"model\":\"session-reasoning\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Welche Farbe? Blau.\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000010,\"model\":\"session-reasoning\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+      }
+    },
+    {
+      "name": "retry-json",
+      "request": {
+        "method": "POST",
+        "url": "https://host.example.test/api/voice/call_observability/llm/chat/completions",
+        "headers": {
+          "content-type": "application/json",
+          "authorization": "Bearer fixture-observability-value",
+          "x-fixture-private": "Private synthetic header"
+        },
+        "body": "{\"model\":\"fixture-untrusted-model\",\"elevenlabs_extra_body\":{\"aithema_call\":\"call_observability\"},\"messages\":[{\"role\":\"system\",\"content\":\"Private synthetic prompt\"},{\"role\":\"user\",\"content\":\"Private synthetic speech fixture-person@example.test https://speech.example.test\"}],\"stream\":false}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "no-store",
+          "content-type": "application/json"
+        },
+        "body": "{\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion\",\"created\":1790000010,\"model\":\"session-reasoning\",\"metadata\":{\"aithema_reply_id\":\"chatcmpl-FIXTURE\"},\"choices\":[{\"index\":0,\"message\":{\"role\":\"assistant\",\"content\":\"Welche Farbe? Blau.\"},\"finish_reason\":\"stop\"}]}"
+      }
+    },
+    {
+      "name": "history-growth",
+      "request": {
+        "method": "POST",
+        "url": "https://host.example.test/api/voice/call_observability/llm/chat/completions",
+        "headers": {
+          "content-type": "application/json",
+          "authorization": "Bearer fixture-observability-value",
+          "x-fixture-private": "Private synthetic header"
+        },
+        "body": "{\"model\":\"fixture-untrusted-model\",\"elevenlabs_extra_body\":{\"aithema_call\":\"call_observability\"},\"messages\":[{\"role\":\"system\",\"content\":\"Private synthetic prompt\"},{\"role\":\"user\",\"content\":\"Private synthetic speech fixture-person@example.test https://speech.example.test\"},{\"role\":\"assistant\",\"content\":\"Welche Farbe? Blau.\"},{\"role\":\"user\",\"content\":\"Private synthetic second turn\"}],\"stream\":true}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "no-store",
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "body": "data: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000010,\"model\":\"session-reasoning\",\"metadata\":{\"aithema_reply_id\":\"chatcmpl-FIXTURE\"},\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000010,\"model\":\"session-reasoning\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Welche Farbe? \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000010,\"model\":\"session-reasoning\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Blau.\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000010,\"model\":\"session-reasoning\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+      }
+    },
+    {
+      "name": "history-truncation",
+      "request": {
+        "method": "POST",
+        "url": "https://host.example.test/api/voice/call_observability/llm/chat/completions",
+        "headers": {
+          "content-type": "application/json",
+          "authorization": "Bearer fixture-observability-value",
+          "x-fixture-private": "Private synthetic header"
+        },
+        "body": "{\"model\":\"fixture-untrusted-model\",\"elevenlabs_extra_body\":{\"aithema_call\":\"call_observability\"},\"messages\":[{\"role\":\"user\",\"content\":\"Private synthetic second turn\"}],\"stream\":true,\"history_truncated\":true}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "no-store",
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "body": "data: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000010,\"model\":\"session-reasoning\",\"metadata\":{\"aithema_reply_id\":\"chatcmpl-FIXTURE\"},\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000010,\"model\":\"session-reasoning\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Welche Farbe? \"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000010,\"model\":\"session-reasoning\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Blau.\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000010,\"model\":\"session-reasoning\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"
+      }
+    },
+    {
+      "name": "partial-stream",
+      "request": {
+        "method": "POST",
+        "url": "https://host.example.test/api/voice/call_observability/llm/chat/completions",
+        "headers": {
+          "content-type": "application/json",
+          "authorization": "Bearer fixture-observability-value",
+          "x-fixture-private": "Private synthetic header"
+        },
+        "body": "{\"model\":\"fixture-untrusted-model\",\"elevenlabs_extra_body\":{\"aithema_call\":\"call_observability\"},\"messages\":[{\"role\":\"user\",\"content\":\"Private synthetic partial turn\"}],\"stream\":true}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "cache-control": "no-store",
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "body": "data: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000010,\"model\":\"session-reasoning\",\"metadata\":{\"aithema_reply_id\":\"chatcmpl-FIXTURE\"},\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}\n\ndata: {\"id\":\"chatcmpl-FIXTURE\",\"object\":\"chat.completion.chunk\",\"created\":1790000010,\"model\":\"session-reasoning\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Teilantwort. \"},\"finish_reason\":null}]}\n\ndata: {\"error\":\"provider\"}\n\n"
+      }
+    }
+  ],
+  "admissions": 4,
+  "mints": [],
+  "reconciliation": []
+}

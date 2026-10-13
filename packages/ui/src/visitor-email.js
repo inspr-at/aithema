@@ -156,4 +156,12 @@ export class VisitorEmail {
     } else { this.ui.failed = true; this.ui.message = this.e.deleteFailed; this.paint(); }
   }
   destroy() { this.alive = false; this.legalSlot?.removeEventListener('slotchange', this.legalChanged); this.legalObserver?.disconnect(); }
+  async persist(address) {
+    if (!this.canCollect || !this.notice?.version) return { ok: false };
+    let response;
+    try { response = await this.request('/api/visitor/email', { address, noticeVersion: this.notice.version }, 'PUT'); } catch { return { ok: false }; }
+    if (!this.alive || !response?.ok || !response.body?.visitor) return response ?? { ok: false };
+    this.visitor = response.body.visitor;
+    return response;
+  }
 }

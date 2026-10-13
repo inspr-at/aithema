@@ -9,6 +9,7 @@ export * from './voice-cap.js';
 export * from './voice-binding.js';
 export * from './voice-provider.js';
 export * from './voice-handlers.js';
+export * from './voice-turns.js';
 export * from './image-binding.js';
 export * from './local-images.js';
 export * from './local-html.js';

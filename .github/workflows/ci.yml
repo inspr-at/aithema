@@ -24,13 +24,13 @@ jobs:
       - run: npm test
 
   browser:
-    name: browser (${{ matrix.shard }}/3)
+    name: browser (${{ matrix.shard }}/4)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -38,14 +38,14 @@ jobs:
           node-version: '24'
           cache: npm
       - run: npm ci
-      - run: npm run test:browser -- --shard ${{ matrix.shard }}/3
+      - run: npm run test:browser -- --shard ${{ matrix.shard }}/4
         env:
           AITHEMA_EVIDENCE_DIR: ${{ runner.temp }}/evidence
       # Screenshots the browser suites write, for visual review of UI changes.
       - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: browser-evidence-${{ matrix.shard }}-of-3
+          name: browser-evidence-${{ matrix.shard }}-of-4
           path: ${{ runner.temp }}/evidence
           if-no-files-found: ignore
           retention-days: 14
