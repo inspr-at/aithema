@@ -232,12 +232,12 @@ test('C1 fix1 the host HMAC secret is create-once, private and survives a databa
   assert.equal(reopened.db.prepare("SELECT 1 FROM sqlite_master WHERE name='visitor_mail_key'").get(), undefined);
 });
 
-test('C1 fix1 migration preserves draft C1 quotas and moves the existing secret out of SQLite once', async t => {
+for (const currentAddress of [address, 'changed@example.test']) test(`C1 fix1 migration preserves draft C1 quotas with current address ${currentAddress} and moves the existing secret once`, async t => {
   const db = await temporaryDb(), storage = new SQLiteStorage(db), key = randomBytes(32);
   t.after(() => { if (storage.db.isOpen) storage.close(); });
   const credits = createVisitorCredits({ storage, now: () => 1_000, deliveryEnabled: true, privacyDocumentConfigured: () => true });
   const ownerHash = createHash('sha256').update('legacy').digest('hex');
-  const visitor = credits.saveEmail(ownerHash, { address, noticeVersion: 'ait-135-v1' });
+  const visitor = credits.saveEmail(ownerHash, { address: currentAddress, noticeVersion: 'ait-135-v1' });
   storage.db.exec(`CREATE TABLE visitor_mail_key (id INTEGER PRIMARY KEY CHECK(id=1), key BLOB NOT NULL);
     CREATE TABLE visitor_mail_deliveries (request_id TEXT PRIMARY KEY, token_hash TEXT NOT NULL,
       visitor_ref TEXT NOT NULL REFERENCES visitor_identities(visitor_ref) ON DELETE CASCADE,
