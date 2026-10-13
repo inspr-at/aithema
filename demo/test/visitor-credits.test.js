@@ -68,7 +68,7 @@ test('AIT-164: owner-bound gate and low line survive reads without entering tran
   assert.equal((await (await call(`/api/sessions/${b.id}/email-ask`, { action: 'show', why: 'low' })).json()).accepted, false);
   assert.equal(f.storage.get(b.id).transcript.length, 10);
   assert.equal(f.storage.read(b.id).some(e => /email-ask/u.test(e.type)), false);
-  await call('/api/visitor/email', { address, noticeVersion }, 'PUT');
+  assert.equal((await call('/api/visitor/email', { address, noticeVersion }, 'PUT')).status, 200);
   assert.equal(f.storage.hostState(b.id).emailAsk.lowLine.resolved, true, 'giving an address retires its historical action');
   await call('/api/visitor/email', {}, 'DELETE');
   assert.equal(f.storage.hostState(b.id).emailAsk.lowLine.resolved, true, 'deletion never restores a historical offer');
@@ -86,7 +86,8 @@ test('AIT-164: C1 confirmation retires the pending-email line in the current hos
   assert.equal(f.storage.hostState(s.id).emailAsk.lowLine.kind, 'confirm');
   await call(`/api/sessions/${s.id}/identity/request`, { address });
   const mail = (await f.host.outbox({ sessionId: s.id, ownerToken: owner })).at(-1);
-  await call(`/api/sessions/${s.id}/identity/confirm`, { token: mail.token });
+  const confirmed = await call(`/api/sessions/${s.id}/identity/confirm`, { token: mail.token });
+  assert.equal(confirmed.status, 200); assert.equal((await confirmed.json()).identity.status, 'verified');
   assert.equal(f.storage.hostState(s.id).emailAsk.lowLine.resolved, true);
   await call('/api/visitor/email', {}, 'DELETE');
   assert.equal(f.storage.hostState(s.id).emailAsk.lowLine.resolved, true);

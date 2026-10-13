@@ -143,11 +143,14 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
     return { erased };
   }
   function resolveLowLines(ownerHash, kind) {
-    for (const row of db.prepare(`SELECT h.session_id FROM host_states h JOIN sessions s ON s.id=h.session_id
+    for (const row of db.prepare(`SELECT h.session_id,h.record FROM host_states h JOIN sessions s ON s.id=h.session_id
       WHERE json_extract(s.snapshot,'$.ownerHash')=? AND json_extract(h.record,'$.emailAsk.lowLine.kind')=?
       AND COALESCE(json_extract(h.record,'$.emailAsk.lowLine.resolved'),0)=0`).all(ownerHash, kind)) {
-      storage.transitionHost(row.session_id, state => ({ state: { ...state, emailAsk: { ...state.emailAsk,
-        revision: (state.emailAsk.revision ?? 0) + 1, lowLine: { ...state.emailAsk.lowLine, resolved: true } } } }));
+      // saveEmail / identityTransition already own the writer transaction.
+      const state = JSON.parse(row.record);
+      state.emailAsk = { ...state.emailAsk, revision: (state.emailAsk.revision ?? 0) + 1,
+        lowLine: { ...state.emailAsk.lowLine, resolved: true } };
+      db.prepare('UPDATE host_states SET record=? WHERE session_id=?').run(JSON.stringify(state), row.session_id);
     }
   }
   const queueCleanup = ownerHash => db.prepare('INSERT OR REPLACE INTO visitor_identity_cleanup VALUES (?,?)').run(ownerHash, new Date(timestamp()).toISOString());
