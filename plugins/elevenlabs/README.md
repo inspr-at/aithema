@@ -44,6 +44,42 @@ secret in place for other calls. Static mode disables
 `/api/voice/:callId/llm/chat/completions`; it never mutates the agent per call.
 The legacy route/provisioning ports below remain available to existing hosts.
 
+## Recovery notices and last-reply repetition (AIT-138 c)
+
+Successful recovery emits public notice flags after queued final/heard persistence
+has drained. A final committed during that drain clears tentative speech's
+unconfirmed flag. Playback mode records whether audio was still in flight;
+completed playback does not acquire uncertainty merely because a reply exists.
+Only the correction callback establishes a heard prefix. These checkpoints never
+bind operations, alias provider generations or admit reasoning (Rule C).
+
+`replayLastReply()` returns `{ kind: 'text', text }` for the most recent durably
+acknowledged assistant callback, preserving its original whitespace and complete
+text, including the remainder beyond any heard prefix. The rail opens an
+accessible dialog with that exact reply and a short DE/EN explanation. Recovery
+never invokes this command automatically. Pause, holds, recovery, output-off and
+terminal hang-up fence it; the UI also rejects late results after a new turn or
+hold and closes any open fallback dialog.
+
+This is the explicitly approved fallback, pending **Tick and LEAD's decision**:
+the pinned `@elevenlabs/client` **1.17.0** `BaseConversation.d.ts` exposes user
+messages and contextual updates, with no arbitrary-agent-text speak command.
+The documented [client-to-server events](https://elevenlabs.io/docs/eleven-agents/customization/events/client-to-server-events)
+and [JavaScript SDK](https://elevenlabs.io/docs/eleven-agents/libraries/java-script)
+likewise supply no such path. `sendUserMessage` starts an agent turn, so it is
+unsuitable for repetition. This integration retains no complete per-reply audio;
+an in-flight audio fragment cannot honestly replay the entire reply. A separate
+TTS request would add provider spend and require its own admission, outside this
+part's constraints.
+
+**Incremental repetition cost: EUR 0 (0 micro), 0 model calls, 0 TTS requests,
+0 new admissions.** Existing live conversation duration is still metered under
+the admitted call; opening the text dialog does not pause or extend that call.
+No new provider API capability or live audio replay qualification is claimed.
+If a transport cuts a new reply before its complete final callback is available,
+the notice keeps its repeat button visibly disabled and explains why. It never
+substitutes the previous answer for that interrupted reply.
+
 ## Contract and controls
 
 Core exports the runtime contract at `@inspr/aithema-core/live-voice`.

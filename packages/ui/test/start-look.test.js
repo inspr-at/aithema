@@ -211,7 +211,7 @@ test('rail controls keep accessible names and their states in fixed shared cells
   assert.equal(cell(rail.button('close')), cell(rail.button('retry')), 'End and Retry call share a cell');
   assert.equal(cell(rail.button('output')), cell(rail.button('playback')), 'Sound and Enable sound share a cell');
   assert.equal(root.dataset.call, 'none'); assert.equal(name(rail.button('start')), en.voiceStart);
-  for (const button of root.querySelectorAll('button')) {
+  for (const button of root.querySelectorAll('.voice-cell button')) {
     assert.ok(name(button), `${button.className} has a name`); assert.equal(button.title, name(button)); assert.ok(button.querySelector('svg[aria-hidden="true"]'));
   }
   await rail.start();

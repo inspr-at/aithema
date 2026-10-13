@@ -564,7 +564,7 @@ test('AIT-138 UI: held-call copy, placeholders, calm lines and disabled controls
     const disabledControls = await controls();
     for (const control of disabledControls) {
       assert.equal(control.disabled, true); assert.equal(control.opacity, '0.4'); assert.equal(control.cursor, 'default');
-      assert.equal(control.tooltip, control.selector === '.voice-input' ? copy.voiceMicOn : copy.voiceSpeakerOn);
+      assert.equal(control.tooltip, copy.voiceResumeFirst);
     }
     sameBoxes(before, await layoutBoxes(page, selectors), `${label}: waiting keeps fixed cells`);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, `${label}: no horizontal overflow`);
@@ -588,6 +588,224 @@ test('AIT-138 UI: held-call copy, placeholders, calm lines and disabled controls
   }
   assert.deepEqual(errors, []);
   if (evidence) await writeFile(join(evidence, 'ait-138-ui-pass-lines.json'), JSON.stringify({ ticket: 'AIT-138', commit: evidenceCommit,
+    createdAt: new Date().toISOString(), capture: 'viewport', files, checks }, null, 2));
+});
+
+test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips in all viewports', { timeout: 180_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-recovery-notices-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
+  });
+  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
+    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  t.after(async () => { await browser.close(); await demo.kill(); });
+  const page = await browser.newPage(), errors = [], files = [], checks = [], evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  page.on('pageerror', error => errors.push(error.message));
+  await page.setRequestInterception(true);
+  page.on('request', async request => {
+    if (new URL(request.url()).pathname.endsWith('/features')) return request.respond({ status: 200, contentType: 'application/json',
+      body: JSON.stringify(await shadow(page, c => c.session.featureMatrix)) });
+    return request.continue();
+  });
+  if (evidence) await mkdir(evidence, { recursive: true });
+  const shot = async (name, label) => {
+    const file = `ait-138-c-${name}-${label}.png`; files.push(file);
+    if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false });
+  };
+  const push = event => page.evaluate(event => globalThis.noticeEvents.push({ callId: globalThis.noticeCallId, ...event }), event);
+  const recovered = async recovery => {
+    await push({ type: 'recovered', recovery });
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.voice-notice--recovered').textContent);
+    await settle();
+  };
+  const selectors = ['.band', '.audio-rail', '.voice-notices', '.concept-bar', '.transcript-shell', '.composer-dock'];
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [1440, 1024, 390]) {
+    await t.test(`${width} ${theme} ${locale}`, async () => {
+      const copy = { de, en }[locale], label = `${width}-${theme}-${locale}`;
+      const wording = {
+        de: { notice: 'Letzte Antwort vielleicht nicht ganz zu hören', button: 'Ganze Antwort lesen', title: 'Letzte Antwort',
+          note: 'Der vollständige Text der letzten Antwort, Wort für Wort.', close: 'Schließen', tooltip: 'Erst fortsetzen' },
+        en: { notice: 'Last reply may not have played in full', button: 'Read full reply', title: 'Last reply',
+          note: 'The full text of the last reply, word for word.', close: 'Close', tooltip: 'Resume first' },
+      }[locale];
+      const layoutChecks = [];
+      await page.setViewport({ width, height: width === 390 ? 844 : 900 });
+      await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+      await until(page, () => document.querySelector('aithema-session')?.session?.id);
+      await page.select('#theme', theme);
+      await page.evaluate(async locale => {
+        const { voiceEvents } = await import('/packages/core/src/live-voice.js');
+        const { manifest } = await import('/plugins/elevenlabs/src/manifest.js');
+        const { de } = await import('/packages/ui/src/i18n/de.js'), { en } = await import('/packages/ui/src/i18n/en.js');
+        const c = document.querySelector('aithema-session'), s = structuredClone(c.session);
+        s.locale = locale; s.paused = false; s.settings.origin = 'chosen'; s.settings.voice = 'elevenlabs';
+        s.engine.voice = { id: 'elevenlabs', label: 'ElevenLabs', offered: true };
+        s.featureMatrix.best = Object.fromEntries(['text', 'analysis', 'voice'].map(key => [key, { available: true, reason: null }]));
+        delete s.voiceLifecycle;
+        s.transcript = [{ id: 'notice-user', role: 'user', content: locale === 'de' ? 'Eine Website für Stickpolster.' : 'A website for embroidered cushions.' }];
+        globalThis.noticeReply = locale === 'de' ? 'Die Website zeigt die Lieferzeit nach dem Backlog.\n\nSollen Kunden Motiv, Farbe und Größe selbst wählen können?'
+          : 'The website shows delivery time based on the backlog.\n\nShould customers be able to choose the design, colour and size?';
+        globalThis.noticeReplays = 0; globalThis.noticeAdmissions = 0; globalThis.noticeModelCalls = 0;
+        const voiceClient = { manifest, async start({ callId }) {
+          globalThis.noticeAdmissions++; globalThis.noticeCallId = callId;
+          const events = voiceEvents(); globalThis.noticeEvents = events;
+          return { callId, providerSessionId: 'notice-evidence', events, async setInput() {}, async setOutput() {}, async updateContext() {},
+            async pause() { return { acknowledged: true, paused: true }; }, async resume() { return { acknowledged: true, paused: false }; },
+            async replayLastReply() { globalThis.noticeReplays++; return { kind: 'text', text: globalThis.noticeReply }; },
+            async sendText() { globalThis.noticeModelCalls++; }, audioLevels: () => ({ input: .2, output: .3 }),
+            async close() { events.end(); return { closureConfirmed: true }; } };
+        } };
+        localStorage.setItem('aithema-motion', 'off'); c.configure({ copy: { de, en }[locale], session: s, voiceClient });
+        document.documentElement.lang = locale; document.querySelector('#locale').value = locale;
+        const { paintUtilities } = await import('/demo/page-preferences.js'); paintUtilities({ de, en }[locale]); window.scrollTo(0, 0);
+      }, locale);
+      await shadow(page, c => c.shadowRoot.querySelector('.voice-start').click());
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'listening');
+      await page.evaluate(async () => { await document.fonts.ready; }); await settle();
+      const before = await layoutBoxes(page, selectors);
+      const noticeLayout = async state => {
+        const after = await layoutBoxes(page, selectors);
+        assert.deepEqual(after[2], before[2], `${label}: ${state} preserves the notice reservation`);
+        assert.equal(after[2][3], width === 390 ? 156 : 108, `${label}: original reserved height`);
+        const belowShifts = after.slice(3).flatMap((box, i) => box.map((value, n) => value - before[i + 3][n]));
+        assert.ok(belowShifts.every(shift => shift === 0), `${label}: ${state} shifts the content below by 0px`);
+        const layout = await shadow(page, c => {
+          const root = c.shadowRoot, rect = n => {
+            const b = n.getBoundingClientRect(); return { top: b.top, bottom: b.bottom, left: b.left, right: b.right, height: b.height };
+          };
+          const rows = [...root.querySelectorAll('.voice-notice')].filter(n => getComputedStyle(n).display !== 'none');
+          const text = root.querySelector('.voice-notice--reply span'), range = document.createRange(); range.selectNodeContents(text);
+          return { slot: rect(root.querySelector('.voice-notices')), rows: rows.map(rect), text: rect(text),
+            textRight: Math.max(...[...range.getClientRects()].map(r => r.right)), button: rect(root.querySelector('.voice-repeat')) };
+        });
+        if (layout.rows.length) assert.equal(layout.rows[0].top, layout.slot.top, `${label}: ${state} first notice starts at slot top`);
+        for (let i = 1; i < layout.rows.length; i++) {
+          assert.equal(layout.rows[i].top, layout.rows[i - 1].bottom, `${label}: ${state} has no empty row between notices`);
+        }
+        layoutChecks.push({ state, ...layout, belowShiftPx: Math.max(...belowShifts.map(Math.abs)), pass: true });
+        return layout;
+      };
+      const assertButtonPosition = layout => {
+        if (width === 390) {
+          assert.ok(layout.button.top >= layout.text.bottom, `${label}: button sits under the text`);
+          assert.equal(layout.button.left, layout.text.left, `${label}: stacked button starts with its text`);
+        } else {
+          assert.ok(Math.abs(layout.button.left - layout.textRight - 12) <= 1, `${label}: button starts 12px after the notice text`);
+          assert.ok(layout.button.top < layout.text.bottom && layout.button.bottom > layout.text.top, `${label}: button stays beside the text`);
+        }
+      };
+      await recovered({});
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notice--recovered').textContent), copy.voiceRecovered);
+      sameBoxes(before, await layoutBoxes(page, selectors), `${label}: restored notice reserves its space`);
+      const loneRestored = await noticeLayout('lone-restored');
+      assert.equal(loneRestored.rows.length, 1, 'only the visible notice occupies a row');
+      await shot('restored', label);
+      await recovered({ userUnconfirmed: true });
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notice--user').textContent), copy.voiceUserUnconfirmed);
+      sameBoxes(before, await layoutBoxes(page, selectors), `${label}: unconfirmed notice reserves its space`);
+      await noticeLayout('unconfirmed');
+      await shot('unconfirmed', label);
+      const lastReplyText = await page.evaluate(() => globalThis.noticeReply);
+      await recovered({ deliveryUncertain: true, playbackPositionUnknown: false, lastReplyText });
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notice--reply span').textContent), '');
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notice-live').textContent), copy.voiceRecovered);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').hidden), true);
+      sameBoxes(before, await layoutBoxes(page, selectors), `${label}: known position hides incomplete notice without layout shift`);
+      await noticeLayout('known-position');
+      await shot('known-position', label);
+      await recovered({ deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText });
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notice--reply span').textContent), wording.notice);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').textContent), wording.button);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').getAttribute('aria-haspopup')), 'dialog');
+      assert.equal(await page.evaluate(() => globalThis.noticeReplays), 0, 'no automatic replay');
+      sameBoxes(before, await layoutBoxes(page, selectors), `${label}: reply notice and button reserve their space`);
+      assertButtonPosition(await noticeLayout('incomplete-button'));
+      await shot('incomplete-button', label);
+      // Isolate the reply row to check CSS packing independently of recovery's restored announcement.
+      await shadow(page, c => { c.shadowRoot.querySelector('.voice-notice--recovered').textContent = ''; });
+      const loneReply = await noticeLayout('lone-incomplete');
+      assert.equal(loneReply.rows.length, 1, 'a lone reply uses the first notice slot');
+      assertButtonPosition(loneReply);
+      await shot('lone-incomplete-button', label);
+      await recovered({ deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: null });
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notice--reply span').textContent), wording.notice);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').hidden), false);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').disabled), true);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').title), copy.voiceReplyUnavailable);
+      sameBoxes(before, await layoutBoxes(page, selectors), `${label}: unacknowledged reply reserves its space`);
+      assertButtonPosition(await noticeLayout('unacknowledged-reply'));
+      await shot('unacknowledged-reply', label);
+      await recovered({ userUnconfirmed: true, deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText });
+      const geometry = await shadow(page, c => {
+        const root = c.shadowRoot, notice = root.querySelector('.voice-notices').getBoundingClientRect();
+        return [...root.querySelectorAll('.voice-notice--recovered, .voice-notice--user, .voice-notice--reply span, .voice-repeat')].map(n => {
+          const b = n.getBoundingClientRect(), range = document.createRange(); range.selectNodeContents(n);
+          return { name: n.className || 'reply-text', width: b.width, height: b.height, visible: b.top >= 0 && b.bottom <= innerHeight,
+            inside: b.left >= notice.left - .5 && b.right <= notice.right + .5 && b.top >= notice.top - .5 && b.bottom <= notice.bottom + .5,
+            textFits: [...range.getClientRects()].every(r => r.left >= b.left - .5 && r.right <= b.right + .5 && r.top >= b.top - .5 && r.bottom <= b.bottom + .5) };
+        });
+      });
+      for (const item of geometry) { assert.ok(item.inside && item.visible && item.textFits, `${label}: ${JSON.stringify(item)}`); }
+      assert.ok(geometry.at(-1).width >= 44 && geometry.at(-1).height >= 44, '44px keyboard target');
+      sameBoxes(before, await layoutBoxes(page, selectors), `${label}: all notices fit without layout shift`);
+      assertButtonPosition(await noticeLayout('all-notices'));
+      await shot('all-notices', label);
+      await shadow(page, c => {
+        const live = c.shadowRoot.querySelector('.voice-notice-live'); globalThis.noticeAnnouncements = [];
+        globalThis.noticeObserver = new MutationObserver(records => globalThis.noticeAnnouncements.push(...records.map(r => r.type)));
+        globalThis.noticeObserver.observe(live, { childList: true, subtree: true, characterData: true });
+      });
+      // Provider speaking/listening repaints the rail but never rewrites its notice live region.
+      await push({ type: 'speaking' }); await push({ type: 'listening' }); await settle();
+      assert.equal(await page.evaluate(() => { globalThis.noticeObserver.disconnect(); return globalThis.noticeAnnouncements.length; }), 0);
+      await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').focus()); await page.keyboard.press('Enter');
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.voice-reply-dialog').open);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-reply-text').textContent), lastReplyText);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('#voice-reply-title').textContent), wording.title);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-reply-note').textContent), wording.note);
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-reply-close').textContent), wording.close);
+      assert.deepEqual(await page.evaluate(() => [globalThis.noticeReplays, globalThis.noticeAdmissions, globalThis.noticeModelCalls]), [1, 1, 0]);
+      await shot('exact-text-fallback', label);
+      await page.keyboard.press('Escape');
+      await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.voice-reply-dialog').open);
+      assert.equal(await shadow(page, c => c.shadowRoot.activeElement?.className), 'voice-repeat', 'Escape returns keyboard focus');
+      await shadow(page, c => c.shadowRoot.querySelector('.pause').click()); await settle();
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').disabled), true);
+      await shadow(page, c => c.shadowRoot.querySelector('.pause').click()); await settle();
+      await push({ type: 'waiting', reason: 'recovery-failed' });
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'waiting');
+      for (const [name, cell] of [['input', 'mic'], ['output', 'output']]) {
+        const tooltip = await shadow(page, (c, name) => c.shadowRoot.querySelector(`.voice-${name}`).title, name);
+        assert.equal(tooltip, wording.tooltip);
+        await shadow(page, (c, cell) => c.shadowRoot.querySelector(`.voice-cell--${cell}`).focus(), cell); await settle();
+        assert.equal(await shadow(page, (c, cell) => getComputedStyle(c.shadowRoot.querySelector(`.voice-cell--${cell} .voice-waiting-help`)).visibility, cell), 'visible');
+        const tooltipBox = await shadow(page, (c, cell) => {
+          const b = c.shadowRoot.querySelector(`.voice-cell--${cell} .voice-waiting-help`).getBoundingClientRect();
+          return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
+        }, cell);
+        assert.ok(tooltipBox.left >= 0 && tooltipBox.right <= width && tooltipBox.top >= 0 && tooltipBox.bottom <= (width === 390 ? 844 : 900),
+          `${label}: ${name} tooltip fits the viewport: ${JSON.stringify(tooltipBox)}`);
+        await shot(`waiting-${name}-tooltip`, label);
+      }
+      await push({ type: 'partial', role: 'user', turnId: 'next', text: 'Next utterance' }); await settle();
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-notice-live').textContent), '');
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').hidden), true);
+      sameBoxes(before, await layoutBoxes(page, selectors), `${label}: clearing does not shift layout`);
+      const cleared = await noticeLayout('cleared');
+      assert.equal(cleared.rows.length, 0, 'cleared notices leave all reserved room below');
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+      await shadow(page, c => c.shadowRoot.querySelector('.voice-close').click()); await settle();
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-reply-dialog').open), false);
+      checks.push({ viewport: { width, height: width === 390 ? 844 : 900 }, locale, theme, geometry, layoutChecks, capture: 'viewport',
+        restored: copy.voiceRecovered, unconfirmed: copy.voiceUserUnconfirmed, incomplete: wording.notice, repeat: wording.button,
+        dialogTitle: wording.title, dialogExplanation: wording.note, dialogClose: wording.close, buttonHasPopup: 'dialog',
+        reservedHeight: width === 390 ? 156 : 108, belowShiftPx: 0, desktopButtonGapPx: width === 390 ? null : 12,
+        mobileButtonUnderText: width === 390, waitingTooltips: wording.tooltip, noAutoReplay: true, exactLastReply: true, modelCalls: 0, replayAdmissions: 0,
+        incrementalReplayMicro: 0, noLayoutShift: true, announcedOnce: true, clearsNextTurn: true, keyboardAndAria: true, pass: true });
+    });
+  }
+  assert.deepEqual(errors, []);
+  if (evidence) await writeFile(join(evidence, 'ait-138-c-pass-lines.json'), JSON.stringify({ ticket: 'AIT-138 c', commit: evidenceCommit,
     createdAt: new Date().toISOString(), capture: 'viewport', files, checks }, null, 2));
 });
 

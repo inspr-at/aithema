@@ -1,6 +1,7 @@
 import { watchVoicePlayback } from './voice-playback.js';
 import { icon } from './icons.js';
 import { Waveform } from './waveform.js';
+import { RecoveryNotices } from './recovery-notices.js';
 import { watchVoiceHeartbeat, voiceAuthorityLost } from '../../core/src/voice-lifecycle-controller.js';
 // START's rail lifecycle, ported to the live-voice session interface (INSPR D3). The presentation is
 // START's conversation rail (index.astro .v2__conversation-rail): an orb dock, icon controls in fixed
@@ -8,7 +9,7 @@ import { watchVoiceHeartbeat, voiceAuthorityLost } from '../../core/src/voice-li
 // End and Retry call, Sound and Enable sound), so no state change moves a control.
 const BUTTONS = { start: ['mic'], input: ['mic', true], output: ['volume', true], playback: ['volume'], close: ['stop'], retry: ['refresh'] };
 export class AudioRail {
-  constructor({ root, copy, client, feature, context, onPartial, onPause, onEnd, onState, onLevel, playback, journal, ready, waitingCall, heartbeatMs = 10_000 }) {
+  constructor({ root, noticesRoot, copy, client, feature, context, onPartial, onPause, onEnd, onState, onLevel, playback, journal, ready, waitingCall, heartbeatMs = 10_000 }) {
     Object.assign(this, { root, copy, client, feature, context, onPartial, onPause, onEnd, onState, onLevel, playback, journal, ready, heartbeatMs });
     this.state = 'idle'; this.input = true; this.output = true; this.generation = 0; this.connected = true;
     this.pauseRequests = new Set(); this.resumeRequests = new Map(); this.pauseRevision = 0;
@@ -23,6 +24,13 @@ export class AudioRail {
       <div class="voice-cell voice-cell--pause">${button('pause')}</div>
       <div class="voice-cell voice-cell--mic">${button('start')}${button('input')}</div>
       <div class="voice-cell voice-cell--end">${button('close')}${button('retry')}</div>`;
+    if (!noticesRoot) { noticesRoot = root.ownerDocument.createElement('div'); noticesRoot.className = 'voice-notices'; root.append(noticesRoot); }
+    this.notices = new RecoveryNotices({ root: noticesRoot, copy, available: () => Boolean(this.session && !this.paused && !this.busy && this.output &&
+      !['recovering', 'waiting'].includes(this.state)), replay: () => this.session.replayLastReply?.() ?? { kind: 'text', text: this.notices.recovery?.lastReplyText } });
+    for (const [name, cell] of [['input', 'mic'], ['output', 'output']]) {
+      const help = root.ownerDocument.createElement('span'); help.className = 'voice-waiting-help'; help.id = `voice-${name}-waiting-help`;
+      help.setAttribute('role', 'tooltip'); root.querySelector(`.voice-cell--${cell}`).append(help);
+    }
     this.waveform = new Waveform(root.querySelector('.voice-wave'));
     const Observer = root.ownerDocument.defaultView?.ResizeObserver;
     if (Observer) {
@@ -117,12 +125,23 @@ export class AudioRail {
         : name === 'close' ? !active && this.state !== 'connecting' : !active || name !== 'close' && (this.busy && !(name === 'pause' && this.pauseCommand) || transitional || command && !this.capability(command));
       if (name === 'start' && button.disabled && !active) button.title = available.reason ?? c.notConfigured;
       if (command && !this.capability(command)) button.title = c.voiceCommandUnavailable;
-      if (state === 'waiting' && ['input', 'output'].includes(name)) button.disabled = true;
+      if (state === 'waiting' && ['input', 'output'].includes(name)) { button.disabled = true; button.title = c.voiceResumeFirst; }
       if (this.waitingCall && name === 'pause') button.disabled = Boolean(this.busy || transitional || !available.available || !this.client);
     }
     this.button('input').setAttribute('aria-pressed', String(this.input));
     this.button('output').setAttribute('aria-pressed', String(this.output));
     this.button('pause').setAttribute('aria-pressed', String(Boolean(this.paused)));
+    for (const [name, cellName] of [['input', 'mic'], ['output', 'output']]) {
+      const cell = this.root.querySelector(`.voice-cell--${cellName}`), help = cell.querySelector('.voice-waiting-help'), waiting = state === 'waiting';
+      help.textContent = c.voiceResumeFirst; help.hidden = !waiting;
+      if (waiting) {
+        cell.tabIndex = 0; cell.setAttribute('aria-label', `${labels[name]}. ${c.voiceResumeFirst}`);
+        cell.setAttribute('aria-describedby', help.id); this.button(name).setAttribute('aria-describedby', help.id);
+      } else {
+        cell.removeAttribute('tabindex'); cell.removeAttribute('aria-label'); cell.removeAttribute('aria-describedby'); this.button(name).removeAttribute('aria-describedby');
+      }
+    }
+    this.notices.copy = c; this.notices.render();
     // A different wrapped phrase can keep the same capped box, so text repaints also measure it.
     this.measureLabel();
   }
@@ -141,6 +160,7 @@ export class AudioRail {
     if (this.session || this.state === 'connecting' || !this.feature().available || !this.client) return;
     const generation = ++this.generation, revision = this.pauseRevision, resuming = Boolean(this.waitingCall);
     this.resumeRequests.clear(); this.endedCall = null; this.errorKey = null; this.state = 'connecting'; this.render();
+    this.notices.clear();
     const controller = new AbortController(); this.controller = controller;
     const holdController = new AbortController(); this.holdController = holdController;
     if (this.root.ownerDocument.hidden) holdController.abort();
@@ -210,9 +230,11 @@ export class AudioRail {
         if (['listening', 'speaking'].includes(event.type)) this.state = event.type;
         if (event.type === 'partial') { this.root.querySelector('.voice-caption').textContent = event.text; this.onPartial?.(event); }
         if (event.type === 'final') this.root.querySelector('.voice-caption').textContent = '';
+        if (['partial', 'final'].includes(event.type)) this.notices.clear();
         if (event.type === 'recovering') this.state = 'recovering';
         if (event.type === 'recovered') {
           this.state = 'listening'; this.errorKey = null; this.journal?.update({ providerSessionId: session.providerSessionId });
+          this.notices.recovered(event.recovery);
           void this.updateContext().catch(() => {});
         }
         if (event.type === 'waiting') {
@@ -221,6 +243,7 @@ export class AudioRail {
           this.root.querySelector('.voice-caption').textContent = '';
         }
         if (event.type === 'ended') {
+          this.notices.clear();
           this.stopHeartbeat?.(); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.session = null; this.journal?.clear();
           this.busy = false; this.pauseCommand = null; this.beating = false; this.hidePending = false; this.playbackBlocked = false;
           this.quiet(); this.onEnd?.();
@@ -279,6 +302,7 @@ export class AudioRail {
   }
   async sendText(text) {
     if (!this.session || this.paused || this.state === 'recovering' || !this.capability('sendText')) throw new Error('Voice text unavailable');
+    this.notices.clear();
     return this.session.sendText(text);
   }
   async updateContext() {
@@ -325,6 +349,7 @@ export class AudioRail {
     this.stopHeartbeat?.(); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.quiet();
     this.endedCall = session ? { callId: session.callId, providerSessionId: session.providerSessionId } : null;
     this.session = null; this.waitingCall = null; this.hidePending = false; this.paused = false; this.busy = false; this.beating = false; this.playbackBlocked = false; this.state = 'idle';
+    this.notices.clear();
     this.errorKey = session ? 'voiceClosureUncertain' : null;
     if (reason?.includes('deadline')) { this.state = 'failed'; this.errorKey = 'voiceDeadline'; }
     this.root.querySelector('.voice-caption').textContent = ''; this.render();
