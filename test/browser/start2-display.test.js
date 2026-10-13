@@ -712,6 +712,12 @@ test('AIT-138 c: recovery notices, explicit reply fallback and waiting tooltips 
         assert.equal(tooltip, copy.voiceResumeFirst);
         await shadow(page, (c, cell) => c.shadowRoot.querySelector(`.voice-cell--${cell}`).focus(), cell); await settle();
         assert.equal(await shadow(page, (c, cell) => getComputedStyle(c.shadowRoot.querySelector(`.voice-cell--${cell} .voice-waiting-help`)).visibility, cell), 'visible');
+        const tooltipBox = await shadow(page, (c, cell) => {
+          const b = c.shadowRoot.querySelector(`.voice-cell--${cell} .voice-waiting-help`).getBoundingClientRect();
+          return { left: b.left, right: b.right, top: b.top, bottom: b.bottom };
+        }, cell);
+        assert.ok(tooltipBox.left >= 0 && tooltipBox.right <= width && tooltipBox.top >= 0 && tooltipBox.bottom <= (width === 390 ? 844 : 900),
+          `${label}: ${name} tooltip fits the viewport: ${JSON.stringify(tooltipBox)}`);
         await shot(`waiting-${name}-tooltip`, label);
       }
       await push({ type: 'partial', role: 'user', turnId: 'next', text: 'Next utterance' }); await settle();

@@ -147,6 +147,7 @@ svg { display:block; flex:none; }
 .voice-waiting-help { position:absolute; z-index:11; top:calc(100% + 6px); left:0; width:max-content; padding:8px 10px; border-radius:8px;
   background:var(--aithema-ink); color:var(--aithema-paper); font-size:.75rem; visibility:hidden; pointer-events:none; }
 .voice-cell:is(:hover,:focus-visible) .voice-waiting-help:not([hidden]) { visibility:visible; }
+.voice-cell--mic .voice-waiting-help { left:auto; right:0; }
 .voice-cell:focus-visible { outline:2px solid var(--aithema-accent-bright); outline-offset:3px; border-radius:50%; }
 @media(max-width:600px) {
   .voice-notices { grid-template-rows:24px 44px 88px; height:156px; }
