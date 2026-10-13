@@ -16,11 +16,12 @@ async function host(directory, issuer, configured) {
   const reservation = await listen(() => new Response());
   const port = reservation.server.address().port;
   await new Promise(resolve => reservation.server.close(resolve));
-  return startChild(new URL('../../demo/server.js', import.meta.url), join(directory, configured ? 'on.sqlite' : 'off.sqlite'), {
+  const running = await startChild(new URL('../../demo/server.js', import.meta.url), join(directory, configured ? 'on.sqlite' : 'off.sqlite'), {
     PORT: String(port), AITHEMA_PROVIDER: 'mock', AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
-    AITHEMA_PUBLIC_ORIGIN: `http://127.0.0.1:${port}`, AITHEMA_COMMIT: evidenceCommit,
+    AITHEMA_PUBLIC_ORIGIN: `http://localhost:${port}`, AITHEMA_COMMIT: evidenceCommit,
     ...(configured ? { AITHEMA_OPERATOR_ISSUER: issuer.issuer, AITHEMA_OPERATOR_CLIENT_ID: 'browser-client', AITHEMA_OPERATOR_SUBJECTS: 'allowed-operator' } : {}),
   });
+  return { ...running, url: `http://localhost:${port}` };
 }
 const geometry = page => shadow(page, c => {
   const r = c.shadowRoot, box = n => { const b = n.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
@@ -88,7 +89,11 @@ test('AIT-165 viewport matrix: real sign-in/logout, inline error and feature off
         assert.deepEqual(await geometry(page), before, 'inline error: 0 px shift');
         await capture('error', width, theme);
         await page.goto(absent.url, { waitUntil: 'networkidle0' }); await openGeneral(page);
-        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.operator-section')), null);
+        assert.equal(await shadow(page, c => Boolean(c.shadowRoot.querySelector('.operator-section'))), false);
+        const offFrame = await shadow(page, c => ['dialog.settings', '.settings__footer'].map(selector => {
+          const b = c.shadowRoot.querySelector(selector).getBoundingClientRect(); return [b.x, b.y, b.width, b.height];
+        }));
+        assert.deepEqual(offFrame, [before[0], before[4]], 'feature off: 0 px frame/footer shift');
         assert.equal(await page.evaluate(async () => Object.hasOwn(await (await fetch('/demo/config')).json(), 'operatorLogin')), false);
         await capture('no-zitadel', width, theme);
       }
