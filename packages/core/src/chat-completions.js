@@ -35,20 +35,41 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
     max_tokens: binding.maxTokens, ...providerOptions(extra.stream), ...extra });
   const structuredExtra = request => ({ stream: false,
     response_format: { type: 'json_schema', json_schema: { name: 'understanding', strict: true, schema: request.schema } } });
+  const encoder = new TextEncoder();
+  const outputBytes = message => {
+    if (!message) return 0;
+    const reasoning = message.reasoning ?? message.reasoning_content;
+    // OpenRouter may expose the same reasoning as plain text and details. Count
+    // the plain form once, or the text/summary/data details when it is absent.
+    const parts = typeof reasoning === 'string' ? [reasoning] : (message.reasoning_details ?? [])
+      .flatMap(detail => [detail.text, detail.summary, detail.data]);
+    return [message.content, ...parts].reduce((sum, part) => sum + (typeof part === 'string' ? encoder.encode(part).byteLength : 0), 0);
+  };
+  const floor = (spend, usage) => {
+    if (observedCost) spend.floorMicro = Math.max(spend.floorMicro ?? 0, observedCost(usage));
+  };
+  const persistFloor = (spend, final = false) => {
+    if (spend.floorMicro === undefined || spend.floorMicro <= (spend.persistedFloorMicro ?? -1)) return;
+    if (!final && spend.floorAt !== undefined && Date.now() - spend.floorAt < 1000) return;
+    spend.options.attempt?.observeCost?.({ observedCostMicro: spend.floorMicro });
+    spend.persistedFloorMicro = spend.floorMicro; spend.floorAt = Date.now();
+  };
   const observe = (value, options, invocation, spend) => {
     const id = generationId(value.id), cost = usdCostMicro(value.usage?.cost);
     const usage = providerUsage(value.usage);
     invocation.servedModel(value.model); invocation.usage(usage);
-    if (usage && observedCost) options.attempt?.observeCost?.({ observedCostMicro: observedCost(usage) });
-    const content = value.choices?.[0]?.message?.content;
-    if (typeof content === 'string' && observedCost) options.attempt?.observeCost?.({ observedCostMicro: observedCost({
-      inputTokens: spend.inputBound, outputTokens: new TextEncoder().encode(content).byteLength }) });
+    if (usage) floor(spend, usage); // completion_tokens already includes reasoning tokens.
+    const bytes = outputBytes(value.choices?.[0]?.message);
+    if (bytes) floor(spend, { inputTokens: spend.inputBound, outputTokens: bytes });
+    if (!spend.stream) persistFloor(spend, true);
     if (cost !== null) { spend.cost = cost; invocation.cost(cost); }
-    if (id || cost !== null) {
+    if (id && id !== spend.generationId || cost !== null && cost !== spend.recordedCost) {
       const evidence = { ...(id ? { generationId: id } : {}), ...(cost !== null ? { chargedMicro: cost } : {}) };
       // Save identity and receipts before either settlement; late usage can repair an uncertain terminal.
       if (spend.reservation) spendCap.record?.(spend.reservation, evidence);
       options.attempt?.observeCost?.(evidence);
+      if (id) spend.generationId = id;
+      if (cost !== null) spend.recordedCost = cost;
     }
   };
   async function dispatch(request, scope, extra, invocation, spend) {
@@ -103,7 +124,7 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
       const scope = operationScope(options); let reader, completed = false;
       const invocation = await beginInvocation({ ...options, signal: scope.signal }, { billable, authoritativeCost })
         .catch(error => { scope.dispose(); throw error; });
-      const spend = { options, metadata: { attemptId: options?.attempt?.attemptId, provider: authoritativeCost ? 'openrouter' : manifest.id } };
+      const spend = { options, stream: true, metadata: { attemptId: options?.attempt?.attemptId, provider: authoritativeCost ? 'openrouter' : manifest.id } };
       try {
         const response = await dispatch(request, scope, { stream: true }, invocation, spend);
         if (!response.body) throw new PluginError('invalid-output');
@@ -116,11 +137,15 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
           let value;
           try { value = JSON.parse(data); } catch { throw new PluginError('invalid-output', `Invalid ${label} stream`); }
           observe(value, options, invocation, spend);
-          const delta = value.choices?.[0]?.delta?.content;
-          if (typeof delta === 'string' && observedCost) {
-            spend.outputBytes = (spend.outputBytes ?? 0) + new TextEncoder().encode(delta).byteLength;
-            options.attempt?.observeCost?.({ observedCostMicro: observedCost({ inputTokens: spend.inputBound, outputTokens: spend.outputBytes }) });
+          const bytes = outputBytes(value.choices?.[0]?.delta);
+          if (bytes) {
+            spend.outputBytes = (spend.outputBytes ?? 0) + bytes;
+            floor(spend, { inputTokens: spend.inputBound, outputTokens: spend.outputBytes });
           }
+          // Keep evidence in memory and persist at most once a second. Identity
+          // and authoritative receipts bypass the throttle; finally flushes even
+          // on malformed output, cancellation or a consumer ending iteration.
+          persistFloor(spend);
           const cost = spend.cost;
           if (spend.reservation && cost > spend.ceiling) {
             settleSpend(spend);
@@ -151,7 +176,7 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
         completed = true;
       } catch (error) { throw normalizedError(error, scope.signal); }
       finally {
-        try { settleSpend(spend); }
+        try { persistFloor(spend, true); settleSpend(spend); }
         finally { await reader?.cancel().catch(() => {}); reader?.releaseLock(); scope.dispose(); await invocation?.finish(completed); }
       }
     },

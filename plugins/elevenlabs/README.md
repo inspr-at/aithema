@@ -530,8 +530,9 @@ const voiceSelection = {
 `createDurationBinding` validates it. `model` must equal the exact agent id, so
 account evidence cannot qualify another agent accidentally. `maxDurationSeconds`
 is 1–86400. With `reservationSeconds`, the expected segment cost must fit
-`maxMicro`; admission reserves at least `minRunwaySeconds` (host default 120),
-and each rolling extension must fund that runway. A shorter technical call reserves
+`maxMicro`; admission/start reserves at least `minRunwaySeconds` (host default 120). Rolling extensions reserve elapsed time
+plus one segment; a refused next segment uses the already funded time before
+closing with `budget-limit`. A shorter technical call reserves
 its entire remaining duration. Insufficient funds return `host-limit` before facade
 provisioning or credential minting; the rail uses its existing “Credits aufgebraucht”
 state. An extension refusal keeps the existing clean close. Every adapter close

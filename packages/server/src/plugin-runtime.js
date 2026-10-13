@@ -187,7 +187,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     const runwayMs = Math.min(binding.minRunwaySeconds * 1000, binding.maxDurationSeconds * 1000);
     if (milliseconds < runwayMs) throw new PluginError('not-admitted', 'host-limit');
     const reservedMs = binding.reservationSeconds ? Math.min(milliseconds, Math.max(binding.reservationSeconds * 1000, runwayMs)) : milliseconds;
-    return { maxMilliseconds: Math.ceil(milliseconds), maxMicro: binding.reservationSeconds
+    return { maxMilliseconds: Math.ceil(milliseconds), fundedSeconds: reservedMs / 1000, maxMicro: binding.reservationSeconds
       ? Math.ceil(reservedMs / 60_000 * binding.upstreamMicroPerMinute)
       : options.spendDeadlineAt === undefined ? binding.maxMicro : Math.ceil(milliseconds / 60_000 * binding.upstreamMicroPerMinute),
       maxVisitorMicro: Math.ceil(reservedMs / 60_000 * binding.visitorMicroPerMinute) };
@@ -347,7 +347,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       // receipt reads; it never records evidence, changes a balance or releases a cap.
       if (costJob) { await costJob; return this.reconcileCosts(options); }
       const run = async () => {
-        const rows = budget.pendingCosts(), limit = options.limit ?? 10;
+        const rows = [...budget.pendingCosts(), ...budget.deferredCosts(now())], limit = options.limit ?? 10;
         if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new TypeError('Invalid reconciliation batch');
         const count = Math.min(limit, rows.length), summary = { candidates: 0, beforeMicro: 0, afterMicro: 0, corrected: 0, pending: 0 };
         for (let i = 0; i < count && !options.signal?.aborted && Date.now() < (options.deadlineAt ?? Infinity); i++) {
@@ -356,9 +356,19 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
           if (!record && ['reaction', 'understanding'].includes(row.lane)) {
             // Pre-AIT-134 rows have no receipt metadata. Their original terminal
             // remains untouched; an explicit estimate is attached as new evidence.
-            const session = storage.get(row.session_id), raw = selectedBinding(session, session.processingPreset ?? 'best', row.lane).raw;
-            if (raw?.plugin === 'openrouter') record = { plugin: raw.plugin, endpoint: raw.endpoint,
-              secretRef: raw.secretRef, accountRef: raw.accountRef, estimateMicro: registry.get(raw.plugin)?.uncertainEstimateMicro, settledAt: 0 };
+            try {
+              const session = storage.get(row.session_id), raw = selectedBinding(session, session.processingPreset ?? 'best', row.lane).raw;
+              if (raw?.plugin === 'openrouter') {
+                const plugin = registry.get(raw.plugin)?.bind?.(createBinding(raw));
+                // Historical requests have lost their prompt bound. Use the
+                // configured technical input ceiling and full lane output budget,
+                // capped by the original call maximum; observed usage floors it.
+                const estimateMicro = Math.min(row.max_micro, raw.maxInputTokens === undefined ? raw.maxMicro
+                  : plugin?.usageCost?.({ inputTokens: raw.maxInputTokens, outputTokens: raw.maxTokens }) ?? raw.maxMicro);
+                record = { plugin: raw.plugin, endpoint: raw.endpoint, model: raw.model,
+                  secretRef: raw.secretRef, accountRef: raw.accountRef, estimateMicro, settledAt: 0 };
+              }
+            } catch { summary.pending++; continue; }
           }
           const plugin = record && registry.get(record.plugin);
           if (!plugin?.reconcileCost) { summary.pending++; continue; }
@@ -399,7 +409,13 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
             if (evidence.estimated !== true) {
               await plugin.reconcileSpend?.(row.attempt_id, evidence.chargedMicro);
               budget.acknowledgeCost(row.attempt_id);
-            } else summary.pending++;
+            } else {
+              // Estimates leave the fast pending set. Only returned IDs need a
+              // slower receipt retry; fresh identity/cost/floor evidence requeues
+              // immediately. No-ID estimates need no repeated database writes.
+              budget.acknowledgeCost(row.attempt_id, record.generationId ? now() + costReconciliationWindowMs : null);
+              summary.pending++;
+            }
           } catch { summary.pending++; /* The durable evidence is retried after a crash or cap settlement failure. */ }
         }
         if (!options.dryRun) costRetryOffset = rows.length ? (costRetryOffset + count) % rows.length : 0;
@@ -637,7 +653,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const result = await this.checkVoice(session, options);
       if (!voiceUnchanged(session, options.allowPaused)) throw new PluginError('not-admitted');
       const { binding, plugin } = result;
-      const { maxMicro, maxVisitorMicro, maxMilliseconds } = voiceAmounts(binding, options);
+      const { maxMicro, maxVisitorMicro, maxMilliseconds, fundedSeconds: initialFundedSeconds } = voiceAmounts(binding, options);
+      let fundedSeconds = initialFundedSeconds;
       const { attemptId } = await admitBudget(session, { sessionId: session.id, lane: 'voice', maxMicro, maxVisitorMicro,
         voiceExposure: { maxMicro: Math.max(maxMicro, Math.ceil(binding.maxDurationSeconds / 60 * binding.upstreamMicroPerMinute)),
           maxVisitorMicro: Math.max(maxVisitorMicro, Math.ceil(binding.maxDurationSeconds / 60 * binding.visitorMicroPerMinute)) },
@@ -656,14 +673,17 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       try { reservation = voiceCap?.reserve({ attemptId, sessionId: session.id, callId: request.callId, maxMilliseconds }); }
       catch (error) { zero(); throw error; }
       const attempt = { ...claim, get maxMicro() { return budget.get(attemptId).max_micro; },
+        get fundedSeconds() { return fundedSeconds; },
         get exposureMicro() { return budget.get(attemptId).voice_exposure_micro; },
         retainExposure: () => budget.retainVoiceExposure(attemptId),
         ...(binding.reservationSeconds ? { extend(seconds) {
-          // Extension callers supply elapsed + segment seconds. Replace the
-          // short segment by the runway, bounded only by the technical end.
-          const totalSeconds = Math.min(maxMilliseconds / 1000, seconds + Math.max(0, binding.minRunwaySeconds - binding.reservationSeconds));
-          return budget.extendVoice(attemptId, { maxMicro: Math.ceil(totalSeconds / 60 * binding.upstreamMicroPerMinute),
+          // The runway is funded once at admission. Healthy extensions reserve
+          // only elapsed + one segment, bounded by the technical end.
+          const totalSeconds = Math.min(maxMilliseconds / 1000, seconds);
+          const extended = budget.extendVoice(attemptId, { maxMicro: Math.ceil(totalSeconds / 60 * binding.upstreamMicroPerMinute),
             maxVisitorMicro: Math.ceil(totalSeconds / 60 * binding.visitorMicroPerMinute) }, extra => ownerWallet?.(session)?.canAdmit(extra));
+          fundedSeconds = Math.max(fundedSeconds, totalSeconds);
+          return extended;
         } } : {}), async consume() {
         if (reported || consuming) throw new PluginError('already-claimed');
         consuming = true;

@@ -15,9 +15,8 @@ export function createOpenRouterReasoning({ binding, resolveSecret = ref => proc
   if (!Number.isSafeInteger(uncertainEstimateMicro) || uncertainEstimateMicro < 1) throw new TypeError('Invalid uncertain cost estimate');
   const price = modelPrice(prices, binding.model);
   return { bind: binding => createOpenRouterReasoning({ binding, resolveSecret, fetchImpl, spendCap, prices, uncertainEstimateMicro }),
-    // Visitor-only fallback after five minutes without a receipt. USD 0.01 per
-    // call is deliberately conservative; operator configuration can increase it.
-    // Neither this estimate nor observed token prices release the provider cap.
+    // Compatibility fallback for callers without a private lane binding. New
+    // requests use the full lane price bound below, never this flat USD amount.
     uncertainEstimateMicro,
     usageCost: (usage, model = binding.model) => tokenCeilingMicro(usage.inputTokens, Math.max(1, usage.outputTokens), modelPrice(prices, model)),
     recoverCosts: () => spendCap?.recover?.(),
@@ -25,8 +24,11 @@ export function createOpenRouterReasoning({ binding, resolveSecret = ref => proc
     reconcileSpend: (attemptId, cost) => spendCap?.reconcileAttempt?.(attemptId, cost),
     reconcileCost: (record, options) => reconcileGeneration(record, { resolveSecret, fetchImpl, ...options }),
     ...createChatCompletions({ manifest, binding, resolveSecret, fetchImpl, spendCap, authoritativeCost: true,
-    uncertainCeiling: body => Math.max(tokenCeilingMicro(requestInputTokens(body), 1, price),
-      Math.min(uncertainEstimateMicro, requestCeilingMicro({ ...body, max_tokens: Math.min(binding.maxTokens, 256) }, price))),
+    // Fallback = min(per-call maximum, ceil((input token bound * input price +
+    // configured max output tokens * output price) * 1e6)). max_tokens includes
+    // reasoning as well as visible output. The host floors this by observed
+    // evidence; only an authoritative receipt can release the provider cap.
+    uncertainCeiling: body => Math.min(binding.maxMicro, requestCeilingMicro(body, price)),
     observedCost: usage => tokenCeilingMicro(usage.inputTokens, Math.max(1, usage.outputTokens), price),
     spendCeiling(body) {
       // Used both by admission estimates and immediately before account reserve /

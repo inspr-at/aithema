@@ -44,7 +44,12 @@ export class SQLiteBudgetLedger {
       BEGIN SELECT RAISE(ABORT,'append only'); END;
       CREATE INDEX IF NOT EXISTS budget_owner ON budget_attempts(owner_hash);
       CREATE INDEX IF NOT EXISTS budget_cost_pending ON budget_attempts(attempt_id)
-      WHERE state='settled' AND provider_cost_json IS NOT NULL AND COALESCE(json_extract(provider_cost_json,'$.reconciled'),0)=0;`);
+      WHERE state='settled' AND provider_cost_json IS NOT NULL AND COALESCE(json_extract(provider_cost_json,'$.reconciled'),0)=0;
+      CREATE INDEX IF NOT EXISTS budget_cost_legacy ON budget_attempts(attempt_id)
+      WHERE state='settled' AND provider_cost_json IS NULL AND outcome='uncertain' AND lane IN ('reaction','understanding');
+      CREATE INDEX IF NOT EXISTS budget_cost_deferred ON budget_attempts(json_extract(provider_cost_json,'$.retryAt'))
+      WHERE state='settled' AND COALESCE(json_extract(provider_cost_json,'$.reconciled'),0)=1
+        AND json_extract(provider_cost_json,'$.retryAt') IS NOT NULL;`);
   }
   breakdown(sessionId, { visitor = false, ownerHash } = {}) {
     const settled = visitor ? 'settled_visitor_micro' : 'settled_micro', maximum = visitor ? 'max_visitor_micro' : 'max_micro';
@@ -97,9 +102,13 @@ export class SQLiteBudgetLedger {
       const previous = JSON.parse(row.provider_cost_json);
       if (previous.generationId && evidence.generationId && previous.generationId !== evidence.generationId ||
         previous.chargedMicro !== undefined && evidence.chargedMicro !== undefined && previous.chargedMicro !== evidence.chargedMicro) throw new PluginError('already-claimed');
-      this.db.prepare('UPDATE budget_attempts SET provider_cost_json=? WHERE attempt_id=?')
-        .run(JSON.stringify({ ...previous, ...evidence, ...(evidence.observedCostMicro !== undefined
-          ? { observedCostMicro: Math.max(previous.observedCostMicro ?? 0, evidence.observedCostMicro) } : {}) }), attemptId);
+      const changed = evidence.generationId && evidence.generationId !== previous.generationId ||
+        evidence.chargedMicro !== undefined && evidence.chargedMicro !== previous.chargedMicro ||
+        evidence.observedCostMicro !== undefined && evidence.observedCostMicro > (previous.observedCostMicro ?? 0);
+      const next = { ...previous, ...evidence, ...(changed ? { reconciled: false } : {}), ...(evidence.observedCostMicro !== undefined
+          ? { observedCostMicro: Math.max(previous.observedCostMicro ?? 0, evidence.observedCostMicro) } : {}) };
+      if (changed) delete next.retryAt;
+      this.db.prepare('UPDATE budget_attempts SET provider_cost_json=? WHERE attempt_id=?').run(JSON.stringify(next), attemptId);
       return row.state === 'settled' && evidence.chargedMicro !== undefined
         ? { ...evidence, ...(previous.generationId ? { generationId: previous.generationId } : {}) } : null;
     });
@@ -145,11 +154,22 @@ export class SQLiteBudgetLedger {
       .run(JSON.stringify(record), attemptId);
   }
   pendingCosts() {
-    return this.db.prepare(`SELECT * FROM budget_attempts WHERE state='settled' AND (provider_cost_json IS NOT NULL OR outcome='uncertain' AND lane IN ('reaction','understanding'))
-      AND COALESCE(json_extract(provider_cost_json,'$.reconciled'),0)=0`).all();
+    // Keep the predicates identical to the partial indexes: the legacy branch
+    // must not turn the normal receipt lookup into a full-ledger OR scan.
+    return this.db.prepare(`SELECT * FROM budget_attempts WHERE state='settled' AND provider_cost_json IS NOT NULL
+      AND COALESCE(json_extract(provider_cost_json,'$.reconciled'),0)=0
+      UNION ALL SELECT * FROM budget_attempts WHERE state='settled' AND provider_cost_json IS NULL
+        AND outcome='uncertain' AND lane IN ('reaction','understanding') ORDER BY attempt_id`).all();
   }
-  acknowledgeCost(attemptId) {
-    this.db.prepare("UPDATE budget_attempts SET provider_cost_json=json_set(provider_cost_json,'$.reconciled',1) WHERE attempt_id=?").run(attemptId);
+  deferredCosts(atMs) {
+    return this.db.prepare(`SELECT * FROM budget_attempts WHERE state='settled'
+      AND COALESCE(json_extract(provider_cost_json,'$.reconciled'),0)=1
+      AND json_extract(provider_cost_json,'$.retryAt') IS NOT NULL
+      AND json_extract(provider_cost_json,'$.retryAt')<=? ORDER BY attempt_id`).all(atMs);
+  }
+  acknowledgeCost(attemptId, retryAt = null) {
+    this.db.prepare(`UPDATE budget_attempts SET provider_cost_json=json_set(provider_cost_json,'$.reconciled',1,'$.retryAt',?)
+      WHERE attempt_id=?`).run(retryAt, attemptId);
   }
   extendVoice(attemptId, { maxMicro, maxVisitorMicro }, ownerCanAdmit) {
     if (![maxMicro, maxVisitorMicro].every(integer)) throw new TypeError('Invalid voice extension');

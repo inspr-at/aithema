@@ -196,7 +196,7 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
         exposureMicro: options.attempt.exposureMicro ?? Math.ceil((options.spendDeadlineAt - now()) / 60_000 * binding.upstreamMicroPerMinute),
         facadeSecretRef: request.facadeSecretRef };
       const callCancellation = new AbortController();
-      let lifetime, rollingTimer, closing, finished = false, delivered = false, mutation = Promise.resolve();
+      let lifetime, rollingTimer, fundedTimer, closing, finished = false, delivered = false, mutation = Promise.resolve();
       const cancelled = () => { void close('cancelled', 'cancelled').catch(() => {}); };
       const serial = fn => { const next = mutation.then(fn); mutation = next.catch(() => {}); return next; };
       const diagnostic = (event, fields) => {
@@ -214,6 +214,7 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
           call = { ...call, maxMicro: Math.max(options.attempt.maxMicro, call.exposureMicro) };
         }
         clearInterval(rollingTimer);
+        clearTimeout(fundedTimer);
         lifetime?.dispose();
         options.signal?.removeEventListener('abort', cancelled);
         call = { ...call, closing: true, reason };
@@ -343,7 +344,15 @@ export function createElevenLabsServer({ binding, fetchImpl = fetch, resolveSecr
               const extended = options.attempt.extend(seconds);
               call = { ...call, maxMicro: extended.maxMicro };
               await saveCall(structuredClone(call), { deadlineAt: Date.now() + 1000 });
-            }).catch(() => close('budget-limit', 'cancelled').catch(() => {}));
+            }).catch(() => {
+              if (closing || finished || fundedTimer) return;
+              clearInterval(rollingTimer);
+              // A refused next segment does not consume the current reservation.
+              // Run through its funded end, then close with normal accounting.
+              const remainingMs = Math.max(0, call.startedAt + (options.attempt.fundedSeconds ?? 0) * 1000 - now());
+              fundedTimer = setTimeout(() => { void close('budget-limit', 'cancelled').catch(() => {}); }, remainingMs);
+              fundedTimer.unref?.();
+            });
           }, Math.max(10, binding.reservationSeconds * 500));
           rollingTimer.unref?.();
         }

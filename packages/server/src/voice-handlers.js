@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { PluginError, inputRevision, reasoningRequest, aiTextOrigin, voiceAuthorizationRevision, recoverableVoiceEnd } from '@inspr/aithema-core';
 import { createCompletionsHandler } from '../../../plugins/elevenlabs/src/facade.js';
 import { voiceOperation } from '../../core/src/live-voice.js';
@@ -72,13 +72,14 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       const entry = calls.get(args.operation.callId);
       return authorizeTurnReplacement({ ...args, session: sessionFor(entry) });
     }) });
-  let reconcileTimer, reconcileJob, retryOffset = 0, stopping = false;
+  let reconcileTimer, reconcileJob, retryOffset = 0, repairOffset = 0, stopping = false;
   const pendingReconciliations = () => storage.voiceCalls().filter(record => {
     const terminal = record.reconciliation ?? record.terminal;
     return record.reconciliationPending || terminal?.closureConfirmed === false || terminal?.usage?.costEstimated === true;
   });
   const diagnostic = (record, event, fields) => {
-    try { log?.({ event, callId: record.callId, providerSessionId: record.providerSessionId, ...fields }); }
+    try { log?.({ event, callHash: createHash('sha256').update(record.callId).digest('hex'),
+      ...(record.providerSessionId ? { providerHash: createHash('sha256').update(record.providerSessionId).digest('hex') } : {}), ...fields }); }
     catch { /* Operator diagnostics must never interrupt accounting. */ }
   };
   async function reconcile(record) {
@@ -588,7 +589,9 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     },
     async reconcileUncertain({ dryRun = true, limit = reconcileBatchSize, deadlineAt = Date.now() + 60_000 } = {}) {
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new TypeError('Invalid repair batch');
-      const records = pendingReconciliations().slice(0, limit), summary = { candidates: records.length, beforeMicro: 0, afterMicro: 0, corrected: 0, pending: 0 };
+      const pending = pendingReconciliations(), count = Math.min(pending.length, limit);
+      const records = Array.from({ length: count }, (_, i) => pending[(repairOffset + i) % pending.length]);
+      const summary = { candidates: records.length, beforeMicro: 0, afterMicro: 0, corrected: 0, pending: 0 };
       for (const record of records) {
         if (Date.now() >= deadlineAt) { summary.pending++; continue; }
         const row = runtime.budget.get(record.attemptId);
@@ -607,6 +610,8 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           else summary.pending++;
         }
       }
+      // Advancing an in-memory preview cursor does not write either ledger.
+      repairOffset = pending.length ? (repairOffset + count) % pending.length : 0;
       if (!dryRun && pendingReconciliations().length) reconcileLater();
       return summary;
     },

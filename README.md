@@ -1839,14 +1839,25 @@ Startup and a bounded 30-second retry loop reconcile returned IDs through
 `GET /api/v1/generation?id=...` using authoritative `data.total_cost`. Receipts
 repair either ledger after a crash between their writes. AIT-163 bounds the visitor-wallet hold: after five minutes without a receipt,
 settle to a labelled conservative call estimate, floored by observed token/output
-price evidence. New calls estimate the complete prompt byte bound plus up to 256
-output tokens at the configured price, capped by
-`AITHEMA_OPENROUTER_UNCERTAIN_ESTIMATE_USD` (default `0.01`), while retaining
-the full prompt price bound even when it exceeds that estimate. Historical rows
-without request metadata use that configured USD 0.01 fallback directly. Neither
-uses the reservation maximum as its fallback. Missing generation IDs are never
-zero-cost evidence. Estimates remain uncertain; the 30-second, ten-attempt retry
-loop can replace them once with authoritative cost, including a higher charge.
+price evidence. The fallback in microdollars is
+`max(observed evidence, min(per-call maximum, ceil((input token bound × input USD/token + lane max output tokens × output USD/token) × 1,000,000)))`.
+The input bound is the complete serialized message UTF-8 byte count; the lane's
+configured `max_tokens` includes visible output and its reasoning budget. A lost
+completed response without an ID uses this same lane estimate. For illustrative
+configured Opus prices of USD 5/25 per million input/output tokens, a 1,000-token
+input bound and the 8,000-token analysis lane estimate are **205,000 µ$**. At
+illustrative Haiku prices of USD 1/5 per million, the same input bound and a
+1,200-token reaction lane estimate are **7,000 µ$**. Both are below a 1,000,000 µ$
+per-call maximum; observed evidence can raise either floor. These bounds preserve
+what could have been generated without evidence of less, rather than using a
+flat dollar charge. Historical rows without request metadata use their binding's
+technical input bound and full lane output budget, capped by their original call
+maximum. Missing generation IDs are never zero-cost evidence. Estimates remain
+uncertain and leave the immediate pending set. Returned IDs receive a deferred
+receipt retry every five minutes; new identity, cost or higher observed evidence
+requeues immediately. An authoritative receipt can supersede an estimate once,
+including a higher charge. Stream floors include reasoning deltas, persist at
+most once per second and flush at the end, including on cancellation or failure.
 Every correction appends to `budget_corrections` with the previous projection and
 evidence; original terminal reports remain unchanged. The account spend cap
 retains its entire unresolved liability until a real receipt arrives.
@@ -2551,7 +2562,7 @@ Readiness of voice is separately visible in
 | `OPENROUTER_ANALYSIS_EFFORT` | Understanding reasoning effort: `none` (default), `low`, `medium`, `high`, `xhigh`, `max`; invalid values refuse startup; reaction always uses `none` |
 | `OPENROUTER_PROVIDER_ONLY` | Comma-separated upstream allow-list sent as `provider.only` on every request; unset means no restriction; part of the legal profile; must mirror START exactly |
 | `OPENROUTER_ANALYSIS_PROVIDER_IGNORE` | Comma-separated upstream exclusions sent as `provider.ignore` on understanding/analysis and HTML; default `Azure`, whose START workspace rejects `response_format` despite advertised support |
-| `AITHEMA_OPENROUTER_UNCERTAIN_ESTIMATE_USD` | Visitor-only conservative fallback after five minutes without cost evidence; default `0.01` USD; never releases the provider cap |
+| `AITHEMA_OPENROUTER_UNCERTAIN_ESTIMATE_USD` | Compatibility fallback for external callers without lane metadata; default `0.01` USD. START uses the full configured lane token-price bound; estimates never release the provider cap |
 | `AITHEMA_OPENROUTER_PRICES` | Required JSON for every exact configured model id, including aliases: `{"<model>":{"prompt":<USD per token>,"completion":<USD per token>}}`; finite nonnegative prices; no catalog defaults |
 | `AITHEMA_OPENROUTER_CAP_USD` | Lifetime persisted account cap; decimal USD with up to six fractional digits, default `10` |
 | `AITHEMA_VOICE_MODE` | `elevenlabs` enables startup ensure; default `fake` locally and `off` on a live host, where `fake` is refused; `off` disables voice |
@@ -2559,7 +2570,7 @@ Readiness of voice is separately visible in
 | `AITHEMA_VOICE_CAP_MINUTES_PER_DAY` | Optional deployment voice-minute budget per UTC admission day in `AITHEMA_DB`; same decimal format; unset means no aggregate daily cap; OPS sets this and the total cap for start2 |
 | `AITHEMA_VOICE_USD_PER_MINUTE` | Voice reservation and duration-estimate price; default `0.10` USD/minute; nonnegative decimal USD |
 | `AITHEMA_VOICE_RESERVATION_SECONDS` | Expected voice segment; default `30`; its priced hold extends during the call while money remains |
-| `AITHEMA_VOICE_MIN_RUNWAY_SECONDS` | Minimum funded voice runway at start and each rolling extension; default `120` seconds, configurable 1–86400; shorter technical calls reserve their entire duration |
+| `AITHEMA_VOICE_MIN_RUNWAY_SECONDS` | Minimum funded voice runway at admission/start; default `120` seconds, configurable 1–86400; shorter technical calls reserve their entire duration. Extensions reserve elapsed time plus one segment and a refused next segment uses the existing funded time before closing with `budget-limit` |
 | `AITHEMA_VOICE_MAX_DURATION_SECONDS` | Technical provider ceiling; default `3600` (60 minutes), configurable up to `86400`; separate from money admission |
 | `AITHEMA_ELEVENLABS_USD_PER_CREDIT` | Host's plan-specific decimal USD per provider credit; no guessed default; unnecessary when provider details report total USD |
 | `ELEVENLABS_API_KEY` | ElevenLabs account key; reference resolves server-side only |
