@@ -744,6 +744,20 @@ last user message is outside that turn's prefix. Identical bodies share a key;
 a different prefix or metadata creates a new operation, even at the same ordinal.
 A later repeated “Ja” therefore has its own key.
 
+Duration admission uses provider-neutral model, endpoint, pricing, reservation
+and runway fields. ElevenLabs's legacy host fields `agentId`, `usdPerCredit` and
+`publicFacadeBaseUrl` are normalized by its server adapter into private
+`adapterConfig`; the selected `model` may differ from the agent identity. The
+generic duration binding's JSON and admission hash deliberately include that
+private config instead of the three flat aliases. The adapter's legacy binding
+JSON and the pinned provider wire fixture remain unchanged.
+
+The shared reply executor publishes server operation identity, text deltas and
+completion, and stores `{replyId, created, text}` in erasable content. The
+ElevenLabs codec owns chat-completion JSON/SSE and decodes older stored replies
+for replay without readmission. The AIT-157 opener guard still filters admitted
+reasoning output before it enters the shared text stream and completion receipt.
+
 Client finals are persisted as transcript only. They cannot bind, alias,
 validate, obsolete, fence or otherwise modify any operation. The client still
 captures `userTurnOrdinal` before asynchronous persistence; assistant finals and

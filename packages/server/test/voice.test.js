@@ -1883,7 +1883,7 @@ test('AIT-138 d fix 1: takeover after dispatch completes paid reasoning and sett
   const completed = h.storage.voiceOperations(h.session.id)[0];
   assert.equal(completed.key, operation.key); assert.equal(completed.fence, operation.fence);
   assert.equal(completed.state, 'completed');
-  assert.equal(h.storage.getRecord(h.session.id, completed.replyRef).data.choices[0].message.content, 'Reply 1 finished');
+  assert.equal(h.storage.getRecord(h.session.id, completed.replyRef).data.text, 'Reply 1 finished');
   assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
   assert.equal(settlements, 1);
   assert.deepEqual(h.rows().map(row => [row.attempt_id, row.state, row.outcome, row.settled_micro]),
@@ -2071,7 +2071,7 @@ test('AIT-137 a disconnected follower leaves the shared operation available to a
 });
 
 test('AIT-137 restart keeps a pending operation fenced until explicit replacement authorization', async t => {
-  const { createVoiceTurnOperations } = await import('../src/voice-turns.js');
+  const { createVoiceTurnOperations } = await import('../../../test/voice-turn-wire.js');
   const path = await temporaryDb();
   let storage = new SQLiteStorage(path), calls = 0;
   const session = storage.create({ ownerToken: 'restart-owner' });
@@ -2106,7 +2106,7 @@ test('AIT-137 repeated Ja bodies remain separate and the older paid answer repla
 });
 
 test('AIT-137 restart preserves uncertain spend and permits exactly one authorized replacement and durable replay', async t => {
-  const { createVoiceTurnOperations } = await import('../src/voice-turns.js');
+  const { createVoiceTurnOperations } = await import('../../../test/voice-turn-wire.js');
   const path = await temporaryDb();
   let storage = new SQLiteStorage(path), budget = new SQLiteBudgetLedger(storage), models = 1;
   const session = storage.create({ ownerToken: 'restart-owner' });
@@ -2284,7 +2284,7 @@ for (const phase of ['streaming', 'completed']) {
 
 for (const order of ['older-first', 'newer-first']) {
   test(`AIT-137 round 2: ID-less receipt order survives a restart between receipts (${order})`, async t => {
-    const { createVoiceTurnOperations } = await import('../src/voice-turns.js');
+    const { createVoiceTurnOperations } = await import('../../../test/voice-turn-wire.js');
     const path = await temporaryDb();
     let storage = new SQLiteStorage(path), budget = new SQLiteBudgetLedger(storage), models = 0, admissions = 0;
     t.after(() => storage.close());
@@ -2339,7 +2339,7 @@ test('AIT-137 round 1: repeated Ja without operation inspection still buys two d
 });
 
 async function fanoutFixture(t) {
-  const { createVoiceTurnOperations } = await import('../src/voice-turns.js');
+  const { createVoiceTurnOperations } = await import('../../../test/voice-turn-wire.js');
   const storage = new SQLiteStorage(), session = storage.create(), source = Promise.withResolvers();
   const finished = Promise.withResolvers(); let models = 0;
   const turns = createVoiceTurnOperations({ storage });
@@ -2454,7 +2454,7 @@ for (const phase of ['streaming', 'completed']) {
 
 for (const order of ['older-first', 'newer-first']) {
   test(`AIT-137 round 3: repeated Ja ID-less receipt order survives a restart between receipts (${order})`, async t => {
-    const { createVoiceTurnOperations } = await import('../src/voice-turns.js');
+    const { createVoiceTurnOperations } = await import('../../../test/voice-turn-wire.js');
     const path = await temporaryDb();
     let storage = new SQLiteStorage(path), budget = new SQLiteBudgetLedger(storage), models = 0, admissions = 0;
     t.after(() => storage.close());

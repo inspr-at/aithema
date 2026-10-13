@@ -8,7 +8,7 @@ import { assertVoicePorts, assertVoiceSession } from '../../../packages/core/src
 import { binding as commonBinding } from '../../../test/plugin-fixtures.js';
 import { fixture, invocationOptions, receipt } from './fixtures.js';
 import { SQLiteStorage } from '../../../packages/server/src/storage.js';
-import { createVoiceTurnOperations } from '../../../packages/server/src/voice-turns.js';
+import { createVoiceTurnOperations } from '../../../test/voice-turn-wire.js';
 import { normalizeElevenLabsDurationBinding } from '../src/config.js';
 
 test('AIT-102: private config normalizes legacy fields without coupling model identity', () => {

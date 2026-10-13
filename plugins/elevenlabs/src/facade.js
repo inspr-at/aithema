@@ -5,6 +5,7 @@ import { voiceOperation } from '../../../packages/core/src/live-voice.js';
 import { aiTextOrigin } from '../../../packages/core/src/text-origin.js';
 import { ReplyOpenerStream, stripThanksOpener } from '../../../packages/core/src/reply-opener.js';
 import { readJson } from './server.js';
+import { runElevenLabsReply, elevenLabsReplyChunk, elevenLabsCompletion } from './reply.js';
 
 const spendReason = error => ['OpenRouter spend cap exhausted', 'OpenRouter request exceeds spend reservation'].includes(error?.message) ? error.message : undefined;
 const turnReason = error => /^voice-turn-(?:obsolete|replay-expired|replacement-required|revoked|fenced|limit)$/u.test(error?.message) ? error.message : undefined;
@@ -112,7 +113,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
         const historyUnknownReason = [body, body.elevenlabs_extra_body].some(source =>
           source?.history_truncated === true || source?.messages_truncated === true) ? 'truncated'
           : body.messages.some(message => message.role === 'user' && typeof message.content !== 'string') ? 'null-user' : undefined;
-        const response = await voiceOperation(opts, bounded => turnOperations.run({ callId: call.callId,
+        const response = await voiceOperation(opts, bounded => runElevenLabsReply(turnOperations, { callId: call.callId,
           providerSessionId: call.providerSessionId, messages, callbackBody: body, historyUnknownReason, stream: body.stream }, async operation => {
           // The durable operation owns its lifetime; an HTTP retry owns only a reader.
           const worker = createCompletionsHandler({ getCall, resolveSecret, buildRequest, admitReasoning,
@@ -191,9 +192,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
         try { onOpenerStripped?.(); } catch { /* Diagnostics cannot affect paid work. */ }
       };
       const id = `chatcmpl-${crypto.randomUUID()}`;
-      const frame = delta => ({ id, object: 'chat.completion.chunk', created: Math.floor(now() / 1000),
-        model: 'session-reasoning', ...(delta.role === 'assistant' ? { metadata: { aithema_reply_id: id } } : {}),
-        choices: [{ index: 0, delta, finish_reason: null }] });
+      const frame = delta => elevenLabsReplyChunk({ replyId: id, created: Math.floor(now() / 1000) }, delta);
       if (body.stream !== true) {
         let content = '';
         while (!first.done) {
@@ -206,8 +205,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
         if (guarded.stripped) stripped();
         await voiceOperation(invocationOptions, () => onCompletion?.({ callId: call.callId, providerSessionId: call.providerSessionId, replyId: id, content, textOrigin, engine: admission.engine }));
         await cleanup(false);
-        return reply({ id, object: 'chat.completion', created: Math.floor(now() / 1000), model: 'session-reasoning',
-          choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }] });
+        return reply(elevenLabsCompletion({ replyId: id, created: Math.floor(now() / 1000) }, content, { metadata: false }));
       }
       const encoder = new TextEncoder(), opener = new ReplyOpenerStream(locale, { bufferNormal: false });
       let roleSent = false, size = 0, content = '', streamEnded = false, cancelled = false, openerCounted = false;

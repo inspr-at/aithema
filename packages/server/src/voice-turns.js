@@ -1,17 +1,35 @@
-import { randomUUID } from 'node:crypto';
 import { PluginError, PLUGIN_ERROR_CODES } from '../../core/src/invocation.js';
 import { voiceOperation } from '../../core/src/live-voice.js';
 
 export const DEFAULT_VOICE_TURN_REPLAY_MS = 120_000;
 const codeFor = error => error instanceof PluginError && PLUGIN_ERROR_CODES.includes(error.code) ? error.code : 'provider';
-const statusFor = code => code === 'not-admitted' ? 403 : code === 'deadline' ? 504 : code === 'limit' ? 413 : 502;
-const completion = flight => ({ id: flight.id, object: 'chat.completion', created: flight.created, model: 'session-reasoning',
-  metadata: { aithema_reply_id: flight.id },
-  choices: [{ index: 0, message: { role: 'assistant', content: flight.content }, finish_reason: 'stop' }] });
-const frame = (flight, delta, finishReason = null) => `data: ${JSON.stringify({ id: flight.id,
-  object: 'chat.completion.chunk', created: flight.created, model: 'session-reasoning',
-  ...(delta.role === 'assistant' ? { metadata: { aithema_reply_id: flight.id } } : {}),
-  choices: [{ index: 0, delta, finish_reason: finishReason }] })}\n\n`;
+const identity = operation => ({ key: operation.key, callId: operation.callId,
+  providerSessionId: operation.providerSessionId, ordinal: operation.ordinal });
+const completion = flight => ({ replyId: flight.id, created: flight.created, text: flight.content });
+
+/** Trusted in-process port over admitted, server-owned text events. */
+export function createVoiceReplyExecutor({ execute } = {}) {
+  if (typeof execute !== 'function') throw new TypeError('Admitted reply execution required');
+  return Object.freeze({
+    async *execute(envelope, options) {
+      if (!['authenticated-provider', 'server-coordinator'].includes(envelope?.source)) throw new PluginError('not-admitted', 'Trusted voice reply envelope required');
+      const reply = await voiceOperation(options, opts => execute(envelope, opts));
+      const operation = reply?.operation;
+      if (typeof operation?.key !== 'string' || !operation.key || typeof operation.callId !== 'string' || !operation.callId ||
+        typeof operation.providerSessionId !== 'string' || !operation.providerSessionId ||
+        operation.ordinal !== null && (!Number.isSafeInteger(operation.ordinal) || operation.ordinal < 1) ||
+        !reply.events?.getReader) throw new PluginError('invalid-output', 'Server operation identity required');
+      const reader = reply.events.getReader();
+      try {
+        for (;;) {
+          const item = await voiceOperation(options, () => reader.read());
+          if (item.done) break;
+          yield item.value;
+        }
+      } finally { void reader.cancel().catch(() => {}); reader.releaseLock(); }
+    },
+  });
+}
 
 /** One writer owns execution; HTTP readers own only their subscriptions. */
 export function createVoiceTurnOperations({ storage, now = Date.now, replayWindowMs = DEFAULT_VOICE_TURN_REPLAY_MS,
@@ -23,56 +41,40 @@ export function createVoiceTurnOperations({ storage, now = Date.now, replayWindo
   function start(operation, execute) {
     const ready = Promise.withResolvers(), done = Promise.withResolvers(), controller = new AbortController();
     const flight = { operation, controller, ready: ready.promise, done: done.promise, waiters: new Set(),
-      id: `chatcmpl-${randomUUID()}`, created: Math.floor(now() / 1000), content: '', finished: false };
+      content: '', finished: false };
     flights.set(operation.key, flight);
     const assertCurrent = () => store.pending(operation.key, operation.fence);
     flight.job = (async () => {
       try {
-        const response = await execute({ signal: controller.signal, assertCurrent,
+        const reply = await execute({ operation: identity(operation), signal: controller.signal, assertCurrent,
           ordinal: operation.ordinal, beforeAdmission: () => store.beforeAdmission(operation.key, operation.fence),
           admitted: attemptId => store.admitted(operation.key, operation.fence, attemptId),
           reportAllowed: () => {
             const current = store.get(operation.key);
             return current?.fence === operation.fence && current.state === 'pending';
           } });
-        if (!response.ok) {
-          flight.httpError = { body: await response.json(), status: response.status };
-          throw new PluginError(flight.httpError.body.error);
+        if (typeof reply?.replyId !== 'string' || !reply.replyId || !Number.isSafeInteger(reply.created) || !reply.events?.[Symbol.asyncIterator]) {
+          throw new PluginError('invalid-output');
         }
-        const reader = response.body.getReader(), decoder = new TextDecoder();
-        let buffer = '', stopped = false, terminated = false;
-        try {
-          for (;;) {
-            const item = await reader.read();
-            if (item.done) break;
-            buffer += decoder.decode(item.value, { stream: true });
-            let end;
-            while ((end = buffer.indexOf('\n\n')) >= 0) {
-              const data = buffer.slice(0, end); buffer = buffer.slice(end + 2);
-              if (data === 'data: [DONE]') { terminated = true; continue; }
-              if (!data.startsWith('data: ')) throw new PluginError('invalid-output');
-              const value = JSON.parse(data.slice(6));
-              if (value.error) throw new PluginError(value.error);
-              assertCurrent();
-              if (typeof value.id === 'string') flight.id = value.id;
-              if (Number.isSafeInteger(value.created)) flight.created = value.created;
-              ready.resolve();
-              const choice = value.choices?.[0];
-              if (choice?.finish_reason === 'stop') stopped = true;
-              const text = choice?.delta?.content;
-              if (typeof text === 'string') {
-                flight.content += text;
-                if (flight.content.length > 1_048_576) throw new PluginError('limit');
-                wake(flight);
-              }
-            }
-            if (buffer.length > 8 * 1_048_576) throw new PluginError('limit');
-          }
-          if (!stopped || !terminated || buffer) throw new PluginError('invalid-output');
-          // Readers receive stop/DONE only after the reply and terminal state commit.
-          store.complete(operation.key, operation.fence, completion(flight), now(), replayWindowMs);
-        } finally { reader.releaseLock(); }
+        flight.id = reply.replyId; flight.created = reply.created;
+        assertCurrent(); ready.resolve();
+        let completed = false;
+        for await (const event of reply.events) {
+          assertCurrent();
+          if (Number.isSafeInteger(event.created)) flight.created = event.created;
+          if (completed) throw new PluginError('invalid-output');
+          if (event.type === 'delta' && typeof event.text === 'string') {
+            flight.content += event.text;
+            if (flight.content.length > 1_048_576) throw new PluginError('limit');
+            wake(flight);
+          } else if (event.type === 'completion' && event.text === flight.content) completed = true;
+          else throw new PluginError('invalid-output');
+        }
+        if (!completed) throw new PluginError('invalid-output');
+        // Completion reaches readers only after the reply and terminal state commit.
+        store.complete(operation.key, operation.fence, completion(flight), now(), replayWindowMs);
       } catch (error) {
+        if (!flight.id) flight.initialError = error;
         flight.error = codeFor(error);
         controller.abort();
         store.fail(operation.key, operation.fence, flight.error, now());
@@ -85,22 +87,21 @@ export function createVoiceTurnOperations({ storage, now = Date.now, replayWindo
     return flight;
   }
   function stream(flight, signal, assertCurrent, ownsEpoch) {
-    const encoder = new TextEncoder();
     let offset = 0, role = false, ended = false, cancelled = false, waiting;
     const cancel = () => { ended = true; waiting?.(); };
     const detach = () => { signal?.removeEventListener('abort', cancel); if (waiting) flight.waiters.delete(waiting); };
     signal?.addEventListener('abort', cancel, { once: true });
     if (signal?.aborted) cancel();
-    return new Response(new ReadableStream({
+    return new ReadableStream({
       async pull(controller) {
         for (;;) {
           if (ended || !ownsEpoch()) { ended = true; detach(); if (!cancelled) controller.close(); return; }
           try { assertCurrent(); } catch (error) {
-            ended = true; detach(); controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: codeFor(error) })}\n\n`)); controller.close(); return;
+            ended = true; detach(); controller.error(error); return;
           }
-          if (!role) { role = true; controller.enqueue(encoder.encode(frame(flight, { role: 'assistant' }))); return; }
+          if (!role) { role = true; controller.enqueue({ type: 'operation', operation: identity(flight.operation), replyId: flight.id }); return; }
           if (flight.error) {
-            ended = true; detach(); controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: flight.error })}\n\n`)); controller.close(); return;
+            ended = true; detach(); controller.error(new PluginError(flight.error)); return;
           }
           if (offset < flight.content.length) {
             // Shared content is bounded once; a stalled reader queues no frames
@@ -108,38 +109,46 @@ export function createVoiceTurnOperations({ storage, now = Date.now, replayWindo
             let end = Math.min(offset + 16_384, flight.content.length);
             if (end < flight.content.length && /[\uD800-\uDBFF]/u.test(flight.content[end - 1])) end--;
             const text = flight.content.slice(offset, end); offset = end;
-            controller.enqueue(encoder.encode(frame(flight, { content: text }))); return;
+            controller.enqueue({ type: 'delta', text }); return;
           }
           if (flight.finished) {
-            ended = true; detach(); controller.enqueue(encoder.encode(frame(flight, {}, 'stop') + 'data: [DONE]\n\n')); controller.close(); return;
+            ended = true; detach(); controller.enqueue({ type: 'completion', replyId: flight.id, text: flight.content }); controller.close(); return;
           }
           await new Promise(resolve => { waiting = resolve; flight.waiters.add(resolve); });
           flight.waiters.delete(waiting); waiting = undefined;
         }
       },
       cancel() { cancelled = true; cancel(); detach(); },
-    }, { highWaterMark: 0 }), { headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store' } });
+    }, { highWaterMark: 0 });
+  }
+  function result(operation, flight, options) {
+    return { operation: identity(operation), replyId: flight.id, get created() { return flight.created; },
+      events: stream(flight, options.signal, () => {
+        const current = store.get(operation.key);
+        if (current.fence !== operation.fence) throw new PluginError('not-admitted', 'voice-turn-fenced');
+        return store.assertCurrent(current);
+      }, () => store.ownsEpoch(operation)) };
   }
   async function respond(operation, flight, context, options) {
     await voiceOperation(options, () => flight.ready);
-    if (flight.httpError) return Response.json(flight.httpError.body, { status: flight.httpError.status });
-    if (context.stream === true) return stream(flight, options?.signal, () => {
-      const current = store.get(operation.key);
-      if (current.fence !== operation.fence) throw new PluginError('not-admitted', 'voice-turn-fenced');
-      return store.assertCurrent(current);
-    }, () => store.ownsEpoch(operation));
-    await voiceOperation(options, () => flight.done);
-    if (flight.error) return Response.json({ error: flight.error }, { status: statusFor(flight.error) });
-    return Response.json(store.readReply(store.get(operation.key), now()), { headers: { 'cache-control': 'no-store' } });
+    if (flight.initialError) throw flight.initialError;
+    if (context.stream !== true) {
+      await voiceOperation(options, () => flight.done);
+      if (flight.error) throw new PluginError(flight.error);
+      store.readReply(store.get(operation.key), now());
+    }
+    return result(operation, flight, options);
   }
   return {
     async run(context, execute, options = {}) {
       let { operation, claimed } = store.claim(context, { now: now() });
       if (operation.state === 'completed') {
-        const reply = store.readReply(operation, now());
-        if (context.stream !== true) return Response.json(reply, { headers: { 'cache-control': 'no-store' } });
-        return stream({ id: reply.id, created: reply.created, content: reply.choices[0].message.content, finished: true, waiters: new Set() },
-          options.signal, () => store.assertCurrent(store.get(operation.key)), () => store.ownsEpoch(operation));
+        // An adapter may translate records persisted by an older wire codec.
+        const stored = store.readReply(operation, now());
+        const reply = options.readStoredReply ? options.readStoredReply(stored) : stored;
+        if (typeof reply.replyId !== 'string' || !Number.isSafeInteger(reply.created) || typeof reply.text !== 'string') throw new PluginError('invalid-output');
+        return result(operation, { operation, id: reply.replyId, created: reply.created, content: reply.text,
+          finished: true, waiters: new Set() }, options);
       }
       let flight = flights.get(operation.key);
       if (flight?.operation.fence === operation.fence) return respond(operation, flight, context, options);
