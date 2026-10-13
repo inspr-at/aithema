@@ -49,11 +49,8 @@ async function fixture() {
     return await page.handle(request) ?? new Response(null, { status: 404 });
   });
   page = createConfirmationPage({ host, publicOrigin: server.url, now: () => time });
-  function mail(locale) {
-    const link = server.url + '/confirm-email?token=mail-fixture-opaque&lang=' + locale, privacyUrl = server.url + '/privacy?locale=' + locale;
-    return confirmationMessage({ locale, link, privacyUrl, host: new URL(server.url).host, expiresAt: time + 1_800_000, now: time,
-      tierAfter: formatCredits(host.creditTiers('mail-fixture').allowancesMicro.emailConfirmed, locale) });
-  }
+  const mailExamples = new Map();
+  const mail = locale => mailExamples.get(locale).message;
   async function prepare(state, locale) {
     const owner = 'c2-owner-' + ++counter, address = `visitor-${counter}@example.test`, s = storage.create({ ownerToken: owner, locale });
     host.saveEmail(owner, { address, noticeVersion: 'ait-135-v1' });
@@ -71,7 +68,15 @@ async function fixture() {
     }
     return { url: server.url + '/confirm-email?token=' + (state === 'invalid' ? 'invalid' : token) + '&lang=' + locale, token, owner, address };
   }
-  return { url: server.url, host, mail, prepare, posts: () => posts, lastPost: () => lastPost,
+  for (const locale of ['de', 'en']) {
+    await prepare('ready', locale);
+    const effect = messages.at(-1), link = server.url + '/confirm-email?token=' + effect.token + '&lang=' + locale;
+    const privacyUrl = server.url + '/privacy?locale=' + locale;
+    mailExamples.set(locale, { link, privacyUrl, message: confirmationMessage({ locale, link, privacyUrl,
+      host: new URL(server.url).host, expiresAt: effect.expiresAt, now: time,
+      tierAfter: formatCredits(effect.confirmedAllowanceMicro, locale) }) });
+  }
+  return { url: server.url, host, mail, mailParams: locale => mailExamples.get(locale), prepare, posts: () => posts, lastPost: () => lastPost,
     holdNextPost() {
       let arrive, release;
       const arrived = new Promise(resolve => { arrive = resolve; }), pending = new Promise(resolve => { release = resolve; });
@@ -107,7 +112,8 @@ test('C2 viewport evidence: DE/EN mail and every landing state, light/dark, zero
   page.on('pageerror', error => errors.push(error.message));
   page.on('request', request => { if (!request.url().startsWith(f.url) && !request.url().startsWith('data:')) external.push(request.url()); });
   for (const locale of ['de', 'en']) {
-    const link = f.url + '/confirm-email?token=mail-fixture-opaque&lang=' + locale, privacyUrl = f.url + '/privacy?locale=' + locale;
+    const { link, privacyUrl } = f.mailParams(locale);
+    assert.match(new URL(link).searchParams.get('token'), /^[a-f0-9-]{36}\.[A-Za-z0-9_-]{43}$/u);
     pass.push(`PASS head=${head} mail ${locale}: ${assertConfirmationMail(f.mail(locale), { locale, link, privacyUrl })}`);
     for (const theme of ['light', 'dark']) {
       await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
