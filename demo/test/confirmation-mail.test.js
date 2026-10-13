@@ -42,7 +42,7 @@ async function fixture(t, options = {}) {
       origin, cookie: f.cookie ?? '', 'content-type': 'application/x-www-form-urlencoded', ...overrides },
     body: new URLSearchParams({ token, csrf: f.csrf ?? '', lang: 'de' }) }));
   };
-  host.visitorCredits.saveSettings({ baseRevision: 1, allowancesUsd: { anonymous: '10', emailGiven: '15', emailConfirmed: '20' }, confirmationEnabled: true }, { actor: 'ops-cli:test', source: 'ops-cli' });
+  host.visitorCredits.saveSettings({ baseRevision: host.visitorCredits.settings().revision, allowancesUsd: { anonymous: '10', emailGiven: '15', emailConfirmed: '20' }, confirmationEnabled: true }, { actor: 'ops-cli:test', source: 'ops-cli' });
   return { storage, host, messages, session, request, get, post, form, at: value => { time = value; } };
 }
 
