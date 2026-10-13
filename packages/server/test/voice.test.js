@@ -1585,10 +1585,10 @@ test('slow closure: recovery retries the original identity after a new SDK conne
 
 
 // AIT-137 probes count the actual admission, dispatch and durable cost separately.
-async function turnsOnceFixture(t, { voiceOptions, path, blocked = false, blockedModel = 1, failFirst = false, lateFirst = false, sameReply = false } = {}) {
+async function turnsOnceFixture(t, { voiceOptions, path, blocked = false, blockedModel = 1, failFirst = false, lateFirst = false, sameReply = false, replyChunks, chunkDelayMs = 0 } = {}) {
   const base = createMockReasoning(), started = Promise.withResolvers(), release = Promise.withResolvers(), modelEvents = eventProbe();
   let models = 0, admissions = 0, finalOrdinal = 0, lateReport;
-  const diagnostics = [], requests = [], dispatches = [];
+  const diagnostics = [], requests = [], dispatches = [], chunkTimes = [];
   t.after(() => release.resolve());
   const h = voiceFixture(t, { path, voiceOptions: { log: entry => diagnostics.push(entry), ...voiceOptions }, reasoning: { ...base, async *stream(request, options) {
     await options.attempt.consume();
@@ -1601,7 +1601,11 @@ async function turnsOnceFixture(t, { voiceOptions, path, blocked = false, blocke
       options.report({ attemptId: options.attempt.attemptId, outcome: 'cancelled', usage: { inputTokens: 0, outputTokens: 0 }, chargedMicro: 0 });
       throw new PluginError('provider');
     }
-    yield sameReply ? 'Same reply' : `Reply ${number}`;
+    if (replyChunks) for (const chunk of replyChunks) {
+      if (chunkTimes.length && chunkDelayMs) await new Promise(resolve => setTimeout(resolve, chunkDelayMs));
+      chunkTimes.push(performance.now()); yield chunk;
+    }
+    else yield sameReply ? 'Same reply' : `Reply ${number}`;
     if (blocked && number === blockedModel || number === 1 && lateFirst) await release.promise;
     if (number === 1 && lateFirst) lateReport = () => options.report({ attemptId: options.attempt.attemptId,
       outcome: 'completed', usage: { inputTokens: 3, outputTokens: 2 }, chargedMicro: 17 });
@@ -1625,7 +1629,7 @@ async function turnsOnceFixture(t, { voiceOptions, path, blocked = false, blocke
   };
   const rows = () => h.storage.db.prepare("SELECT * FROM budget_attempts WHERE lane='reaction'").all();
   return { ...h, grant, callback, persist, rows, started: started.promise, release: () => release.resolve(),
-    diagnostics, requests, dispatches, waitForModel: number => modelEvents.waitFor(value => value === number),
+    diagnostics, requests, dispatches, chunkTimes, waitForModel: number => modelEvents.waitFor(value => value === number),
     counts: () => ({ admissions, models, cost: rows().reduce((sum, row) => sum + (row.settled_micro ?? 0), 0) }),
     reportLate: () => lateReport?.() };
 }
@@ -1635,6 +1639,45 @@ const completionText = async response => {
 };
 const sseReply = text => text.split('\n\n').filter(line => line.startsWith('data: {')).map(line => JSON.parse(line.slice(6)))
   .map(frame => frame.choices?.[0].delta?.content ?? '').join('');
+
+for (const [label, chunks, expected] of [
+  ['DE clause', ['Vielen Dank, ', 'das klingt gut. '], 'Das klingt gut.  finished'],
+  ['EN in DE session', ['Thank you for the details. ', 'That sounds useful. '], 'That sounds useful.  finished'],
+]) test(`AIT-157: voice ${label} guards TTS and transcript with one admission and charge`, async t => {
+  const h = await turnsOnceFixture(t, { replyChunks: chunks, chunkDelayMs: 25, blocked: true });
+  h.storage.append(h.session.id, 'session.locale-changed', { locale: 'de' });
+  const messages = [{ role: 'user', content: 'Beschreibung' }];
+  const response = await h.callback(messages, { stream: true });
+  assert.equal(response.status, 200);
+  const reader = response.body.getReader(), decoder = new TextDecoder();
+  let wire = '', firstContentAt;
+  try {
+    while (!sseReply(wire)) {
+      const item = await reader.read(); assert.equal(item.done, false);
+      wire += decoder.decode(item.value, { stream: true });
+      if (sseReply(wire)) firstContentAt = performance.now();
+    }
+    assert.equal(sseReply(wire), expected.replace(' finished', ''), 'only guarded content reaches TTS before the tail completes');
+    assert.equal(h.chunkTimes.length, 2, 'only one additional provider chunk is buffered');
+    const addedMs = firstContentAt - h.chunkTimes[0];
+    t.diagnostic(`AIT-157 voice opener latency (${label}): ${addedMs.toFixed(2)} ms; guard overhead after clause ${(firstContentAt - h.chunkTimes[1]).toFixed(2)} ms`);
+    assert.ok(addedMs >= 20 && addedMs < 1000);
+    h.release();
+    while (true) { const item = await reader.read(); if (item.done) break; wire += decoder.decode(item.value, { stream: true }); }
+  } finally { h.release(); await reader.cancel(); }
+  assert.equal(sseReply(wire), expected);
+  const frames = wire.split('\n\n').filter(line => line.startsWith('data: {')).map(line => JSON.parse(line.slice(6)));
+  const replyId = frames[0].id;
+  await h.persist('assistant', 'guarded-reply', expected, { replyId });
+  const transcript = h.storage.get(h.session.id).transcript.at(-1);
+  assert.equal(transcript.content, expected); assert.equal(transcript.replyId, replyId);
+  const retry = await h.callback(messages, { stream: true });
+  assert.equal(sseReply(await retry.text()), expected);
+  assert.deepEqual(h.counts(), { admissions: 1, models: 1, cost: 17 });
+  assert.equal(h.dispatches.length, 1);
+  const stripped = h.diagnostics.filter(entry => entry.event === 'reply.opener-stripped');
+  assert.deepEqual(stripped, [{ event: 'reply.opener-stripped', count: 1, lane: 'voice' }]);
+});
 
 test('AIT-138: transport recovery preserves paid generation work; repeated input in the successor is a new operation', async t => {
   const h = await turnsOnceFixture(t, { blocked: true }), messages = [{ role: 'user', content: 'Accepted input' }];

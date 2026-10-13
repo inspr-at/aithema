@@ -14,6 +14,24 @@ function harness(plugin = createMockReasoning(), options = {}, laneOptions = {})
   return { lanes, turn, published, partials, get session() { return session; } };
 }
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
+for (const prefix of ['Gut, ', 'x'.repeat(80)]) test(`AIT-157: normal streaming opens at a clause or 80 characters (${prefix.length})`, async () => {
+  const entered = deferred(), release = deferred();
+  const h = harness({ ...createMockReasoning(), async *stream() {
+    yield prefix; entered.resolve(); await release.promise; yield 'dann beginnen wir.';
+  } });
+  h.turn('Hallo'); const pending = h.lanes.run(h.session.id, 'reaction');
+  try {
+    await entered.promise;
+    assert.equal(h.partials.map(event => event.data.delta).join(''), prefix);
+  } finally { release.resolve(); await pending; }
+});
+test('AIT-157: a fragment fallback is identical in draft and final', async () => {
+  const input = 'Danke, sehr hilfreich.';
+  const h = harness({ ...createMockReasoning(), async *stream() { for (const char of input) yield char; } });
+  h.turn('Hallo'); await h.lanes.run(h.session.id, 'reaction');
+  assert.equal(h.partials.map(event => event.data.delta).join(''), input);
+  assert.equal(h.session.transcript.at(-1).content, input);
+});
 test('single-flight joins the same promise; a shared binding calls only final and cache costs no calls', async () => {
   const mock = createMockReasoning(), gate = deferred(); let calls = 0;
   const h = harness({ ...mock, async structured(...args) { calls++; await gate.promise; return mock.structured(...args); } });
