@@ -695,15 +695,17 @@ test('AIT-135 A2 B: an exhausted visible app notices a CLI allowance increase wi
   c.remove(); const reads = calls.length; t.mock.timers.tick(15_001); await tick(); assert.equal(calls.length, reads, 'detached apps stop polling');
 });
 
-test('AIT-135 A2 fix 1: a full hold keeps an admitted call running even when new voice admission is unavailable', async t => {
+for (const copy of [de, en]) test(`AIT-155 / AIT-135 A2: full hold keeps the call running and switches the placeholder back (${copy === de ? 'de' : 'en'})`, async t => {
   const { voiceEvents } = await import('../../core/src/live-voice.js');
   const events = voiceEvents(); let closes = 0;
   const voiceClient = { async start({ callId }) { return { callId, providerSessionId: 'held-provider', events,
     async setInput() {}, async setOutput() {}, async updateContext() {},
     async close() { closes++; events.end(); return { closureConfirmed: true }; } }; } };
-  const f = a2Setup(t, { spent: 0, voiceClient }); await tick(8);
+  const f = a2Setup(t, { copy, spent: 0, voiceClient }); await tick(8);
   f.root.querySelector('.voice-start').click(); await tick(8);
   assert.equal(f.root.querySelector('.audio-rail').dataset.state, 'listening');
+  const input = f.root.querySelector('textarea');
+  assert.equal(input.placeholder, copy.placeholderVoice);
   f.setReserved(12_000_000);
   f.c.receive({ seq: f.c.session.seq + 1, type: 'credits.state', data: { status: 'active', endReason: null } });
   f.c.receive({ seq: f.c.session.seq + 1, type: 'session.paused', data: { paused: false } });
@@ -712,11 +714,21 @@ test('AIT-135 A2 fix 1: a full hold keeps an admitted call running even when new
   assert.equal(closes, 0, 'a full reservation must not close the admitted segment');
   assert.equal(f.root.querySelector('.host-credits__amount').textContent, '0', 'the fully reserved wallet read was applied');
   assert.equal(f.root.querySelector('.audio-rail').hasAttribute('data-used-up'), false);
-  assert.equal(f.root.querySelector('.voice-state').textContent, en.voiceStates.listening);
+  assert.equal(f.root.querySelector('.voice-state').textContent, copy.voiceStates.listening);
+  assert.equal(input.placeholder, copy === de ? 'Sprechen Sie einfach weiter.' : 'Just keep talking.');
+  assert.equal(input.disabled, true);
   assert.equal(f.root.querySelector('.voice-close').disabled, false);
   assert.equal(f.root.querySelector('.host-credits').dataset.ended, 'false');
   assert.equal(f.root.querySelector('.composer-out').getAttribute('aria-hidden'), 'true');
   assert.equal(f.root.querySelector('.credit-announcement').textContent, '');
+  f.setReserved(0);
+  f.c.receive({ seq: f.c.session.seq + 1, type: 'credits.state', data: { status: 'active', endReason: null } });
+  f.c.receive({ seq: f.c.session.seq + 1, type: 'session.paused', data: { paused: false } });
+  await new Promise(resolve => setTimeout(resolve, 350)); await tick(8);
+  assert.equal(input.placeholder, copy.placeholderVoice, 'released credit restores the ordinary listening placeholder');
+  assert.equal(input.disabled, false);
+  f.root.querySelector('.voice-close').click(); await tick(8);
+  assert.equal(input.placeholder, copy.placeholder, 'ending the call restores the typing placeholder');
 });
 
 test('AIT-135 A2 fix 1: a zero available balance without an exhaustion verdict keeps the normal state', async t => {

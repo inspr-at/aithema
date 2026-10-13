@@ -9,7 +9,108 @@ import puppeteer from 'puppeteer-core';
 import { startChild } from '../helpers.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
+import { pixels, samePaint } from './png-pixels.js';
 import { browserPath, mockIdentityReads, shadow, until, settle, boxes, layoutBoxes, statusGeometry, sameBoxes, finishRevealEntry, freezeRevealExit, seekReveal, evidenceCommit } from './start2-display-helpers.js';
+
+test('AIT-155: opaque scrolled band, approved scroll-zero paint and 0px layout shift, DE/EN light/dark 390/1024/1440', { timeout: 180_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-opaque-band-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
+    AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off', AITHEMA_COMMIT: evidenceCommit,
+  });
+  const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
+    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  t.after(async () => { await browser.close(); await demo.kill(); });
+  const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, passLines = [];
+  if (evidence) await mkdir(evidence, { recursive: true });
+  await mockIdentityReads(page);
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session?.id);
+  await shadow(page, c => { window.opaqueBandSeed = c.session; });
+  const approvedBackground = 'linear-gradient(to bottom,color-mix(in srgb,var(--aithema-accent) 7%,var(--aithema-paper)),color-mix(in srgb,var(--aithema-accent) 4%,transparent) 70%,transparent)';
+  const selectors = ['.band', '.band-orb', '.audio-rail', '.header-actions', '.conversation', '.composer-shell', '.display-foot'];
+  const shot = async (label, state) => {
+    const file = `ait155-band-${label}-${state}.png`;
+    if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false });
+    return file;
+  };
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+    const label = `${locale}-${theme}-${width}`;
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 }); await page.select('#theme', theme);
+    await page.evaluate(async locale => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const { paintUtilities } = await import('/demo/page-preferences.js');
+      const c = document.querySelector('aithema-session'), session = structuredClone(window.opaqueBandSeed);
+      session.locale = locale; session.settings = { ...session.settings, origin: 'chosen', voice: 'off', visuals: 'off' };
+      session.transcript = Array.from({ length: 16 }, (_, i) => ({ id: `opaque-${i}`, role: 'assistant',
+        content: (locale === 'de' ? 'Diese Nachricht muss vollständig hinter dem Band verschwinden. ' : 'This message must disappear completely behind the band. ').repeat(8) }));
+      c.setAttribute('motion', 'off'); c.style.setProperty('--aithema-height', '1600px');
+      c.configure({ copy, session, host: { library: true } });
+      document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
+      c.shadowRoot.querySelector('.transcript-shell').scrollTop = 0; scrollTo(0, 0);
+    }, locale);
+    await page.mouse.move(0, 500); await settle();
+    const baseline = await boxes(page, selectors);
+    const bandBox = baseline[0], clip = { x: 0, y: bandBox[1], width, height: bandBox[3] };
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.band').hasAttribute('data-scrolled')), false);
+    const originalPaint = Buffer.from(await page.screenshot({ clip }));
+    await shadow(page, (c, background) => { c.shadowRoot.querySelector('.band').style.background = background; }, approvedBackground);
+    assert.equal(samePaint(originalPaint, Buffer.from(await page.screenshot({ clip }))), true, `${label}: scroll-zero matches main's AIT-131 gradient`);
+    assert.deepEqual(await boxes(page, selectors), baseline, `${label}: approved scroll-zero geometry`);
+    await shadow(page, c => c.shadowRoot.querySelector('.band').style.removeProperty('background'));
+    passLines.push({ head: evidenceCommit, locale, theme, width, state: 'not-scrolled', displacementPx: 0, pass: true, file: await shot(label, 'not-scrolled') });
+    await shadow(page, c => {
+      const root = c.shadowRoot, band = root.querySelector('.band');
+      root.querySelector('.transcript-shell').scrollTop = 0;
+      const range = document.createRange(); range.selectNodeContents(root.querySelector('.turn-text'));
+      const line = range.getClientRects()[0];
+      scrollTo({ top: scrollY + line.top - (band.getBoundingClientRect().height - 24), behavior: 'instant' });
+    });
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.band').hasAttribute('data-scrolled'));
+    const scrolled = await boxes(page, selectors);
+    const metrics = await shadow(page, c => {
+      const root = c.shadowRoot, band = root.querySelector('.band'), style = getComputedStyle(band), fade = getComputedStyle(band, '::before');
+      const probe = document.createElement('span'); probe.style.color = 'color-mix(in srgb,var(--aithema-accent) 7%,var(--aithema-paper))'; root.append(probe);
+      const rgb = getComputedStyle(probe).color; probe.remove();
+      const ink = getComputedStyle(root.querySelector('.turn-text')).color;
+      const range = document.createRange(); range.selectNodeContents(root.querySelector('.turn-text'));
+      const line = range.getClientRects()[0], box = band.getBoundingClientRect();
+      return { background: style.backgroundColor, backgroundImage: style.backgroundImage, rgb, ink, scrollY,
+        band: { top: box.top, bottom: box.bottom, height: box.height },
+        line: { left: line.left, right: line.right, top: line.top, bottom: line.bottom },
+        fade: { position: fade.position, top: fade.top, height: fade.height, pointerEvents: fade.pointerEvents, content: fade.content } };
+    });
+    assert.ok(metrics.scrollY > 0 && metrics.band.top === 0, `${label}: genuinely scrolled sticky band`);
+    assert.equal(metrics.backgroundImage, 'none'); assert.equal(metrics.background, metrics.rgb);
+    assert.deepEqual(metrics.fade, { position: 'absolute', top: `${metrics.band.height}px`, height: '12px', pointerEvents: 'none', content: '""' });
+    assert.equal(scrolled[0][3], baseline[0][3], `${label}: unchanged band height`);
+    await shadow(page, c => c.shadowRoot.querySelector('.band').removeAttribute('data-scrolled'));
+    assert.deepEqual(await boxes(page, selectors), scrolled, `${label}: opaque surface and fade cause 0 px layout shift`);
+    await shadow(page, c => c.shadowRoot.querySelector('.band').setAttribute('data-scrolled', ''));
+    const painted = pixels(Buffer.from(await page.screenshot()));
+    await shadow(page, c => { c.shadowRoot.querySelector('.band').style.visibility = 'hidden'; });
+    const exposed = pixels(Buffer.from(await page.screenshot()));
+    await shadow(page, c => c.shadowRoot.querySelector('.band').style.removeProperty('visibility'));
+    const expected = metrics.rgb.match(/[\d.]+/gu).slice(0, 3).map(value => Math.round(Number(value) * 255));
+    const ink = metrics.ink.match(/\d+/gu).slice(0, 3).map(Number);
+    const rgbAt = (png, x, y) => [...png.result.subarray((y * png.width + x) * png.channels, (y * png.width + x) * png.channels + 3)];
+    let textPixels = 0;
+    for (let y = Math.max(Math.ceil(metrics.line.top), metrics.band.bottom - 18); y < Math.min(metrics.line.bottom, metrics.band.bottom - 2); y++) {
+      for (let x = Math.ceil(metrics.line.left); x < Math.min(metrics.line.right, width); x++) {
+        if (!rgbAt(exposed, x, y).every((channel, i) => Math.abs(channel - ink[i]) <= 24)) continue;
+        textPixels++;
+        assert.deepEqual(rgbAt(painted, x, y), expected, `${label}: band pixel ${x},${y} over bubble text equals the opaque band colour`);
+      }
+    }
+    assert.ok(textPixels >= 20, `${label}: sampled actual bubble glyphs under the band (${textPixels})`);
+    passLines.push({ head: evidenceCommit, locale, theme, width, state: 'scrolled', displacementPx: 0, pass: true, textPixels, expected, ...metrics, file: await shot(label, 'scrolled') });
+    await page.evaluate(() => scrollTo(0, 0));
+    await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.band').hasAttribute('data-scrolled'));
+    assert.deepEqual(await boxes(page, selectors), baseline, `${label}: scrolling back restores every box`);
+    assert.equal(samePaint(originalPaint, Buffer.from(await page.screenshot({ clip }))), true, `${label}: scrolling back restores main's paint`);
+  }
+  if (evidence) await writeFile(join(evidence, 'ait155-band-pass-lines.json'), JSON.stringify({ head: evidenceCommit, capture: 'viewport', passLines }, null, 2));
+  for (const row of passLines) t.diagnostic(`PASS head=${row.head} ${row.locale}-${row.theme}-${row.width}/${row.state} 0 px layout shift${row.textPixels ? `; ${row.textPixels} opaque pixels over text` : '; AIT-131 main paint preserved'}`);
+});
 
 test('AIT-131 r3 demo account keeps shared gaps and its panel inside the viewport down to 320px', { timeout: 120_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-account-band-'));

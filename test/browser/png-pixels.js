@@ -2,7 +2,7 @@
 // one-unit gradient dithering; a visible stroke changes channels by much more than that.
 import assert from 'node:assert/strict';
 import { inflateSync } from 'node:zlib';
-function pixels(png) {
+export function pixels(png) {
   const parts = []; let width, height, channels;
   for (let offset = 8; offset < png.length;) {
     const size = png.readUInt32BE(offset), kind = png.toString('ascii', offset + 4, offset + 8), data = png.subarray(offset + 8, offset + 8 + size);

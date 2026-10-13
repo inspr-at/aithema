@@ -345,6 +345,7 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
       const liveFixed = ['.band', '.question-card', '.composer-dock', '.composer-shell', '.display-foot', '.export', '.concept-bar'];
       await fixture(page, locale, { spent: 0, voiceRunning: true });
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'listening');
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('textarea').placeholder), locale === 'de' ? 'Sprechen Sie einfach los – oder tippen Sie.' : 'Just start talking – or type.');
       const heldBefore = await boxes(page, liveFixed);
       await shadow(page, c => {
         window.a2.reserved = 12_000_000;
@@ -366,12 +367,35 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
       assert.deepEqual(held, { voiceCloses: 0, voiceState: 'listening', availableCredits: '0', railUsedUp: false, creditsUsedUp: false, composerUsedUp: false, closeDisabled: false, newVoiceAvailable: false });
       const heldCopy = await shadow(page, c => {
         const r = c.shadowRoot;
-        return { composerHint: r.querySelector('.composer-reason').textContent, panelStatus: r.querySelector('.analysis-content .notice').textContent };
+        return { composerHint: r.querySelector('.composer-reason').textContent, panelStatus: r.querySelector('.analysis-content .notice').textContent,
+          placeholder: r.querySelector('textarea').placeholder };
       });
       const afterCall = locale === 'de' ? 'Schreiben geht nach dem Anruf wieder' : 'You can type again after the call';
-      assert.deepEqual(heldCopy, { composerHint: afterCall, panelStatus: afterCall }, `${label}/full-hold-call: visitor copy`);
+      assert.deepEqual(heldCopy, { composerHint: afterCall, panelStatus: afterCall, placeholder: locale === 'de' ? 'Sprechen Sie einfach weiter.' : 'Just keep talking.' }, `${label}/full-hold-call: visitor copy`);
       passLines.push({ locale, theme, width, state: 'full-hold-call', displacementPx: unchanged(heldBefore, await boxes(page, liveFixed), `${label}/full-hold-call`), pass: true, ...held, ...heldCopy });
-      await shot('full-hold-call'); await click(page, '.host-credits__button'); await shot('full-hold-credits');
+      await shot('full-hold-call');
+      if (evidence && theme === 'light' && [390, 1440].includes(width)) {
+        const offset = await page.evaluate(() => [scrollX, scrollY]);
+        await shadow(page, c => c.shadowRoot.querySelector('textarea').scrollIntoView({ block: 'center', behavior: 'instant' }));
+        const visible = await shadow(page, c => {
+          const box = c.shadowRoot.querySelector('textarea').getBoundingClientRect();
+          return box.top >= c.shadowRoot.querySelector('.band').getBoundingClientRect().bottom && box.bottom <= innerHeight;
+        });
+        assert.equal(visible, true, `${label}: full-hold placeholder is visible in the viewport`);
+        await page.screenshot({ path: join(evidence, `ait155-full-hold-${label}.png`), fullPage: false });
+        await page.evaluate(([x, y]) => scrollTo({ left: x, top: y, behavior: 'instant' }), offset);
+      }
+      await click(page, '.host-credits__button'); await shot('full-hold-credits');
+      await shadow(page, c => {
+        window.a2.reserved = 0;
+        c.receive({ seq: c.session.seq + 1, type: 'credits.state', data: { status: 'active', endReason: null } });
+        c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: false } });
+      });
+      await until(page, () => {
+        const c = document.querySelector('aithema-session');
+        return c.shadowRoot.querySelector('textarea').placeholder === (c.session.locale === 'de' ? 'Sprechen Sie einfach los – oder tippen Sie.' : 'Just start talking – or type.');
+      });
+      assert.equal(unchanged(heldBefore, await boxes(page, liveFixed), `${label}/full-hold-released`), 0);
       for (const waitingCall of [false, true]) {
         await fixture(page, locale, { spent: 11_990_000, voiceAdmissionFailure: true, waitingCall });
         await click(page, waitingCall ? '.pause' : '.voice-start');
@@ -428,7 +452,7 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
   const stamp = rows => rows.map(row => ({ head, branchHead, ...row }));
   if (evidence) await writeFile(join(evidence, 'a2-pass-lines.json'), JSON.stringify({ head, branchHead, runner: 'remote/CI', source: 'shipped component with owner-route fixtures; language selected through the picker', passLines: stamp(passLines), uiChecks: stamp(uiChecks), states, captures }, null, 2));
   for (const row of [...passLines, ...uiChecks].filter(row => [390, 1440].includes(row.width) && ['full-hold-call', 'deleting', 'mail-confirm-dialog'].includes(row.state))) {
-    t.diagnostic(`PASS branch-head=${branchHead} source-head=${head} ${row.locale}-${row.theme}-${row.width}/${row.state} ${JSON.stringify(row)}`);
+    t.diagnostic(`PASS branch-head=${branchHead} source-head=${head} ${row.locale}-${row.theme}-${row.width}/${row.state}${row.displacementPx === 0 ? ' 0 px layout shift' : ''} ${JSON.stringify(row)}`);
   }
   t.diagnostic(`${passLines.length} zero-displacement checks; ${states.length} states; ${captures.length} viewport screenshots across all 12 viewport/theme/language combinations`);
 });
