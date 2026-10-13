@@ -210,7 +210,8 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
           receiveState(state) {
             if (state.callId !== request.callId || state.epoch < receipt.epoch) return;
             if (state.epoch > receipt.epoch || state.controllingTabId && state.controllingTabId !== control.tabId) lifecycle.ownershipLost();
-            else if (state.reason === 'server-restart' && state.state === 'waiting' && state.needsRecovery !== false && state.providerSessionId === receipt.providerSessionId) lifecycle.restart();
+            else if (state.reason === 'server-restart' && state.state === 'waiting' && state.needsRecovery !== false &&
+              state.providerSessionId === receipt.providerSessionId && !lifecycle.state.holds.includes('server-restart')) lifecycle.restart();
           },
         };
         const bargeIn = (prefix = words().fakeVoiceHeard) => {

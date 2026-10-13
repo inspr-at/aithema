@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import puppeteer from 'puppeteer-core';
 import { startChild } from '../helpers.js';
 import { browserPath, shadow, until, settle, evidenceCommit } from './start2-display-helpers.js';
-import { pixels } from './png-pixels.js';
+import { pixels, samePaint } from './png-pixels.js';
 
 test('AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN', { timeout: 120_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-voice-presentation-'));
@@ -70,7 +70,18 @@ test('AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN', { timeo
       assert.equal(await shadow(page, c => c.getAttribute('motion')), 'off');
       await shadow(page, c => { c.shadowRoot.querySelector('.connection-timer').textContent = '0:00'; });
       const name = `voice-${state}-${width}-${theme}-${locale}.png`;
-      const captured = Buffer.from(await page.screenshot({ ...(evidence ? { path: join(evidence, name) } : {}), fullPage: false }));
+      // Backdrop-filter layers can retain the preceding rail state for a frame.
+      // Flush them and wait for consecutive stable viewport paints on both revisions.
+      let captured, previous = Buffer.from(await page.screenshot({ fullPage: false })), stable = false;
+      for (let attempt = 0; attempt < 8; attempt++) {
+        await settle();
+        await shadow(page, c => { c.shadowRoot.querySelector('.connection-timer').textContent = '0:00'; });
+        captured = Buffer.from(await page.screenshot({ fullPage: false }));
+        if (samePaint(previous, captured)) { stable = true; break; }
+        previous = captured;
+      }
+      assert.equal(stable, true, `${name}: stable backdrop paint`);
+      if (evidence) await writeFile(join(evidence, name), captured);
       let original;
       try { original = await readFile(join(baseline, name)); } catch (error) { if (error.code !== 'ENOENT') throw error; }
       if (original) {

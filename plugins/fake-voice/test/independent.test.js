@@ -58,3 +58,24 @@ test('independent fake server and browser ports consume admission, connect no to
   assert.equal(reports[0].usage.providerSeconds, 2); assert.equal(reports[0].usage.pausedSeconds, 1);
   assert.equal(reports[0].chargedMicro, 0); assert.equal(saved.at(-1).terminal.closureConfirmed, true);
 });
+
+test('fake restart hold is idempotent while an explicit Resume awaits its replacement', async t => {
+  const now = Date.now(), replacement = Promise.withResolvers(), requested = Promise.withResolvers();
+  const receipt = { callId: 'call', providerSessionId: 'old', epoch: 1, controllingTabId: 'tab',
+    spendDeadlineAt: now + 60_000, browserLivenessDeadlineAt: now + 30_000, presentation: 'continuation' };
+  const control = { tabId: 'tab', start: () => receipt, close: () => ({ closureConfirmed: true }),
+    pause: () => ({ acknowledged: true, paused: true }), resume: () => ({ acknowledged: true, paused: false }),
+    heartbeat: () => ({ acknowledged: true, browserLivenessDeadlineAt: now + 30_000 }),
+    recover: () => { requested.resolve(); return replacement.promise; } };
+  const f = createFakeVoice({ control, persistEvent: () => {}, document: undefined, copy: {} });
+  const session = await f.client.start({ callId: 'call' }, {});
+  t.after(() => session.close());
+  const restart = { ...receipt, state: 'waiting', needsRecovery: true, reason: 'server-restart' };
+  session.receiveState(restart);
+  const resuming = session.resume(); await requested.promise;
+  session.receiveState(restart);
+  replacement.resolve({ ...receipt, providerSessionId: 'new' });
+  await resuming;
+  assert.equal(session.providerSessionId, 'new'); assert.equal(f.snapshot().muted, false);
+  assert.equal(session.lifecycle.state.state, 'active');
+});
