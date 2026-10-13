@@ -338,10 +338,32 @@ test('AIT-163: pre-AIT-134 rows without provider metadata repair without rewriti
   const preview = await h.runtime.reconcileCosts({ dryRun: true });
   assert.equal(budget.get(attemptId).provider_cost_json, null);
   await h.runtime.reconcileCosts(); await h.runtime.reconcileCosts();
-  assert.equal(budget.get(attemptId).settled_micro, 10_000); assert.equal(preview.afterMicro, 10_000);
+  const historicalBound = Math.ceil((131072 + 1200) * 0.1);
+  assert.equal(budget.get(attemptId).settled_micro, historicalBound); assert.equal(preview.afterMicro, historicalBound);
   assert.equal(budget.get(attemptId).terminal_json, original);
   budget.observeCost(attemptId, { generationId: 'gen-fixture' }); h.state.ready = true;
   await h.runtime.reconcileCosts(); await h.runtime.reconcileCosts();
   assert.equal(budget.get(attemptId).settled_micro, 53, 'authoritative cost supersedes the larger estimate');
   assert.equal(h.storage.db.prepare('SELECT COUNT(*) n FROM budget_corrections WHERE attempt_id=?').get(attemptId).n, 2);
+});
+
+test('AIT-163 fix1: estimated identity receipts retry after the slower window and fresh evidence requeues immediately', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
+  const h = await costFixture(t, { mode: 'unknown', state: { ready: false, queries: 0 } });
+  const admitted = await h.admit(); await h.invoke(admitted);
+  const id = admitted.options.attempt.attemptId;
+  h.runtime.budget.observeCost(id, { settledAt: Date.now() - 600_000 });
+  await h.runtime.reconcileCosts();
+  assert.equal(h.runtime.budget.pendingCosts().length, 0);
+  const queries = h.state.queries;
+  await h.runtime.reconcileCosts(); assert.equal(h.state.queries, queries);
+  h.runtime.budget.observeCost(id, { observedCostMicro: 900 });
+  assert.equal(h.runtime.budget.pendingCosts().length, 1);
+  await h.runtime.reconcileCosts();
+  assert.equal(h.runtime.budget.get(id).settled_micro, 900);
+  h.state.ready = true; t.mock.timers.tick(300_000);
+  await h.runtime.reconcileCosts();
+  assert.equal(h.balance().owner.confirmedSpendMicro, 53);
+  assert.equal(h.balance().owner.uncertainSpendMicro, 0);
+  assert.equal(h.cap.snapshot().uncertainMicro, 0);
 });

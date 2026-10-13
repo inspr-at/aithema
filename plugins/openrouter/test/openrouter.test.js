@@ -25,7 +25,7 @@ test('AIT-163 fix1: uncertain estimates price the lane output ceiling including 
 
 for (const ending of ['complete', 'broken', 'cancelled']) test(`AIT-163 fix1: reasoning floors are throttled and flushed on ${ending} streams`, async t => {
   t.mock.timers.enable({ apis: ['Date'], now: Date.now() });
-  const floors = [], controller = new AbortController();
+  const floors = [], writes = [], controller = new AbortController();
   let inputBytes, streamController;
   const plugin = createOpenRouterReasoning({ model: 'fixture/model', prices: openRouterPrices, resolveSecret: () => 'fixture',
     fetchImpl: async (url, init) => {
@@ -33,7 +33,7 @@ for (const ending of ['complete', 'broken', 'cancelled']) test(`AIT-163 fix1: re
       return new Response(new ReadableStream({ start(c) { streamController = c; } }));
     } });
   const opts = options({ signal: controller.signal });
-  opts.attempt.observeCost = evidence => { if (evidence.observedCostMicro !== undefined) floors.push(evidence.observedCostMicro); };
+  opts.attempt.observeCost = evidence => { writes.push(evidence); if (evidence.observedCostMicro !== undefined) floors.push(evidence.observedCostMicro); };
   const pending = (async () => { for await (const delta of plugin.stream(request, opts)) assert.equal(delta, 'x'); })();
   await new Promise(resolve => setImmediate(resolve));
   const send = value => streamController.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(value)}\n\n`));
@@ -41,6 +41,7 @@ for (const ending of ['complete', 'broken', 'cancelled']) test(`AIT-163 fix1: re
     content: 'x', ...(i % 2 ? { reasoning_content: 'r'.repeat(100) } : { reasoning: 'r'.repeat(100) }) } }] });
   await new Promise(resolve => setImmediate(resolve));
   assert.ok(floors.length <= 1, `only one floor write in the first second, got ${floors.length}`);
+  assert.ok(writes.length <= 2, 'repeated generation identity must not write on every delta either');
   t.mock.timers.tick(1000);
   send({ choices: [{ delta: { reasoning_details: [{ type: 'reasoning.text', text: 'r'.repeat(100) }] } }] });
   await new Promise(resolve => setImmediate(resolve));
