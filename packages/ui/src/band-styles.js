@@ -17,7 +17,7 @@ export const bandStyles = `
 .audio-rail button:hover:not(:disabled) { background:color-mix(in srgb,var(--aithema-surface) 50%,transparent); }
 .audio-rail .pause, .audio-rail .pause:hover:not(:disabled) { background:var(--aithema-ink); }
 /* Ownership stays a rail status, with Resume's ink fill during takeover. */
-.audio-rail[data-moved]:focus-visible { outline:none; }
+.band .audio-rail:focus-visible { outline:none; }
 .audio-rail[data-moved] .pause:disabled { opacity:1; }
 .audio-rail .voice-pause { visibility:hidden; }
 .voice-signal { height:44px; container-type:inline-size; }
