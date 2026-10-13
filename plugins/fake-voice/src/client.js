@@ -15,7 +15,7 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
     async start(request, options = {}, admittedGrant) {
       const events = voiceEvents(), cancellation = new AbortController(), commandCancellation = new AbortController();
       const interruptionWaiters = new Set();
-      let receipt, open = false, ended = false, paused = false, blocked = false, input = true, output = true;
+      let receipt, open = false, ended = false, paused = false, blocked = false, input = true, output = true, interrupted = false;
       let sequence = 0, ordinal = 0, pauseRevision = 0, lastAssistant, closing, delivery = Promise.resolve(), commands = Promise.resolve(), recoveryIdentity;
       const identity = () => ({ callId: request.callId, providerSessionId: receipt?.providerSessionId,
         ...(receipt?.epoch === undefined ? {} : { epoch: receipt.epoch }) });
@@ -57,7 +57,7 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
         if (!open || ended || paused || blocked || role === 'user' && !input) return;
         const eventId = ++sequence, turnId = `${receipt.providerSessionId}:${role}:${eventId}`;
         emit({ type: role === 'assistant' ? 'speaking' : 'listening' });
-        if (role === 'assistant') { lastAssistant = { turnId, text }; lifecycle.dispatch({ type: 'heard', prefix: null }); }
+        if (role === 'assistant') { interrupted = false; lastAssistant = { turnId, text }; lifecycle.dispatch({ type: 'heard', prefix: null }); }
         emit({ type: 'final', role, text, turnId, event_id: eventId, ...(role === 'user' ? { userTurnOrdinal: ++ordinal } : {}) });
       };
       const stopMedia = reason => {
@@ -86,7 +86,7 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
         const next = grant.opaque;
         if (!next?.simulated || next.callId !== request.callId || next.providerSessionId !== grant.providerSessionId ||
           ![next.spendDeadlineAt, next.browserLivenessDeadlineAt].every(Number.isFinite)) throw new PluginError('invalid-output', 'Invalid simulator grant');
-        receipt = structuredClone(next); ordinal = 0; blocked = false; open = true;
+        receipt = structuredClone(next); ordinal = 0; blocked = false; interrupted = false; open = true;
       };
       const lifecycle = createVoiceLifecycleController({ callId: request.callId, stopMedia,
         terminal: reason => { void close(reason).catch(() => {}); },
@@ -168,7 +168,7 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
         });
         const session = { callId: request.callId, get providerSessionId() { return receipt.providerSessionId; },
           get epoch() { return receipt.epoch; }, tabId: control.tabId, events, lifecycle,
-          audioLevels: () => ({ input: paused || blocked || !input ? 0 : .25, output: paused || blocked || !output ? 0 : .6 }),
+          audioLevels: () => ({ input: paused || blocked || !input ? 0 : .25, output: paused || blocked || !output || interrupted ? 0 : .6 }),
           close: opts => close(opts?.reason ?? 'closed', opts),
           pause(opts) {
             paused = true; pauseRevision++; lifecycle.pause();
@@ -226,12 +226,13 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
         };
         const bargeIn = (prefix = words().fakeVoiceHeard) => {
           if (!open || ended || paused || blocked || !input || !lastAssistant?.text.startsWith(prefix)) return;
+          interrupted = true;
           for (const waiter of interruptionWaiters) waiter();
           emit({ type: 'heard', turnId: lastAssistant.turnId, prefix }); emit({ type: 'listening' });
         };
         current = { speak: text => { say('user', text ?? words().fakeVoiceStatement); say('assistant', words().fakeVoiceReply); }, bargeIn,
           disconnect: () => { if (open && !ended) void lifecycle.recover().catch(() => {}); },
-          snapshot: () => ({ open: open && !ended, muted: paused || blocked || !input, volume: paused || blocked || !output ? 0 : 1 }) };
+          snapshot: () => ({ open: open && !ended, muted: paused || blocked || !input, volume: paused || blocked || !output || interrupted ? 0 : 1 }) };
         return assertVoiceSession(session);
       } catch (error) { try { await close('start-failed', { deadlineAt: Date.now() + 1000 }); } catch {} throw error; }
     },

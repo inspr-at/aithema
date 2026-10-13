@@ -13,10 +13,9 @@ export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 export const browserShards = [
   // 345.610s
   ['test/browser/visitor-credit-tiers.test.js'],
-  // 332.809s
+  // Display matrix and start-look; demo teardown runs in shard 4.
   [
     'test/browser/start2-display-matrix.test.js',
-    'test/browser/demo.test.js',
     'test/browser/start-look.test.js',
   ],
   // 279.185s
@@ -29,7 +28,7 @@ export const browserShards = [
     'test/browser/host-surface.test.js',
     'test/browser/confirmation-design.test.js',
   ],
-  ['test/browser/start2-display-continuity.test.js', 'test/browser/voice-presentation.test.js'],
+  ['test/browser/demo.test.js', 'test/browser/start2-display-continuity.test.js', 'test/browser/voice-presentation.test.js'],
 ];
 
 export function discoverBrowserTests() {

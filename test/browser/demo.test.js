@@ -10,6 +10,7 @@ import { delimiter, join } from 'node:path';
 import { test } from 'node:test';
 import puppeteer from 'puppeteer-core';
 import { FEATURES } from '../../packages/core/src/presets.js';
+import { manifest as voiceManifest } from '../../plugins/elevenlabs/src/manifest.js';
 import { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL } from '../../demo/processing-consent.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
@@ -453,6 +454,7 @@ test('AIT-117: a German processing-consent page contains START German copy and n
       } else if (url.pathname === '/demo/config') {
         void request.respond({ status: 200, contentType: 'application/json', body: JSON.stringify({
           label: 'Mock reasoning — deterministic demo', imageLabel: 'Images off', voiceMode: 'off', voiceDisabledReason: 'agent-api-get-403',
+          voicePresentation: voiceManifest.presentation,
           processingConsent: { contract: 'browser-fixture', intro: CONSENT_INTRO, withdrawal: CONSENT_WITHDRAWAL, items: CONSENT_ITEMS },
         }) });
       } else if (url.pathname.endsWith('/consent') && request.method() === 'GET') {
