@@ -3014,7 +3014,7 @@ for (const allowance of ['0.12', '0.134']) test(`AIT-163 fix1: ${allowance} fund
   assert.equal(record.terminal.usage.providerSeconds, 120);
 });
 
-test('AIT-163 fix1: limited voice repairs rotate past permanently pending heads and hash diagnostics', async t => {
+for (const dryRun of [true, false]) test(`AIT-163 fix1: limited voice repairs rotate past permanently pending heads and hash diagnostics (dryRun=${dryRun})`, async t => {
   const visits = [], logs = [];
   const h = voiceFixture(t, { unknown: true, voiceOptions: { log: event => logs.push(event),
     async closeOrphan(record) { visits.push(record.callId); throw new Error('still pending'); } } });
@@ -3022,10 +3022,12 @@ test('AIT-163 fix1: limited voice repairs rotate past permanently pending heads 
   await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId });
   const head = h.storage.voiceCalls()[0];
   h.storage.saveVoiceCall(h.session.id, { ...head, callId: 'pending-tail', providerSessionId: 'provider-tail' });
-  await h.handlers.reconcileUncertain({ dryRun: false, limit: 1 });
-  await h.handlers.reconcileUncertain({ dryRun: false, limit: 1 });
+  const before = h.storage.voiceCalls();
+  await h.handlers.reconcileUncertain({ dryRun, limit: 1 });
+  await h.handlers.reconcileUncertain({ dryRun, limit: 1 });
   assert.deepEqual(visits, ['pending-head', 'pending-tail']);
-  assert.equal(logs.length, 2);
+  assert.equal(logs.length, dryRun ? 0 : 2);
+  if (dryRun) assert.deepEqual(h.storage.voiceCalls(), before, 'preview does not write the journal');
   for (const event of logs) {
     assert.match(event.callHash, /^[a-f0-9]{64}$/u); assert.match(event.providerHash, /^[a-f0-9]{64}$/u);
     assert.equal(Object.hasOwn(event, 'callId'), false); assert.equal(Object.hasOwn(event, 'providerSessionId'), false);
