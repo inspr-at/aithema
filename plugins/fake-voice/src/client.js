@@ -96,7 +96,17 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
             deliveryUncertain: checkpoint.deliveryUncertain, playbackPositionUnknown: checkpoint.deliveryUncertain && checkpoint.heardPrefix === null,
             lastReplyText: lastAssistant?.text ?? null } } : event);
         },
-        renew: opts => voiceOperation(opts, bounded => control.heartbeat(identity(), bounded)),
+        async renew(opts) {
+          const previous = identity();
+          const ack = await voiceOperation({ ...opts,
+            signal: opts?.signal ? AbortSignal.any([opts.signal, commandCancellation.signal]) : commandCancellation.signal,
+            deadlineAt: Math.min(opts?.deadlineAt ?? Infinity, receipt.spendDeadlineAt, receipt.browserLivenessDeadlineAt) },
+          bounded => control.heartbeat(previous, bounded));
+          if (!ended && !blocked && receipt.providerSessionId === previous.providerSessionId && Number.isFinite(ack?.browserLivenessDeadlineAt)) {
+            receipt = { ...receipt, browserLivenessDeadlineAt: ack.browserLivenessDeadlineAt };
+          }
+          return ack;
+        },
         async beforeRecovery() {
           recoveryIdentity = identity();
           await voiceOperation({ deadlineAt: Date.now() + 5000 }, () => delivery);

@@ -79,3 +79,17 @@ test('fake restart hold is idempotent while an explicit Resume awaits its replac
   assert.equal(session.providerSessionId, 'new'); assert.equal(f.snapshot().muted, false);
   assert.equal(session.lifecycle.state.state, 'active');
 });
+
+test('fake acknowledged heartbeat extends command liveness without extending the spend deadline', async t => {
+  let at = Date.now(); t.mock.method(Date, 'now', () => at);
+  const receipt = { callId: 'call', providerSessionId: 'segment', spendDeadlineAt: at + 60_000,
+    browserLivenessDeadlineAt: at + 30_000, presentation: 'continuation' };
+  const control = { start: () => receipt, close: () => ({ closureConfirmed: true }),
+    pause: () => ({ acknowledged: true, paused: true }), resume: () => ({ acknowledged: true, paused: false }),
+    heartbeat: () => ({ acknowledged: true, browserLivenessDeadlineAt: at + 40_000 }) };
+  const f = createFakeVoice({ control, persistEvent: () => {}, document: undefined, copy: {} });
+  const session = await f.client.start({ callId: 'call' }, {}); t.after(() => session.close());
+  await session.heartbeat(); at += 31_000;
+  await session.setInput(false); assert.equal(f.snapshot().muted, true);
+  assert.equal(session.lifecycle.state.spendDeadlineAt, receipt.spendDeadlineAt);
+});
