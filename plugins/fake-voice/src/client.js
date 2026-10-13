@@ -13,7 +13,8 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
     takeover: (identity, options) => voiceOperation(options, opts => control.takeover({ ...identity, explicit: true }, opts)),
     closeWaiting: (identity, options) => voiceOperation(options, opts => control.close({ ...identity, reason: options?.reason ?? 'closed' }, opts)),
     async start(request, options = {}, admittedGrant) {
-      const events = voiceEvents(), cancellation = new AbortController();
+      const events = voiceEvents(), cancellation = new AbortController(), commandCancellation = new AbortController();
+      const interruptionWaiters = new Set();
       let receipt, open = false, ended = false, paused = false, blocked = false, input = true, output = true;
       let sequence = 0, ordinal = 0, pauseRevision = 0, lastAssistant, closing, delivery = Promise.resolve(), commands = Promise.resolve(), recoveryIdentity;
       const identity = () => ({ callId: request.callId, providerSessionId: receipt?.providerSessionId,
@@ -22,6 +23,7 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
         const event = Object.freeze({ ...value, ...identity() });
         if (['listening', 'speaking'].includes(event.type)) lifecycle.dispatch({ type: 'playback', active: event.type === 'speaking' });
         delivery = delivery.then(async () => {
+          if (cancellation.signal.aborted) return;
           if (['final', 'heard'].includes(event.type)) await voiceOperation({ signal: cancellation.signal, deadlineAt: Date.now() + 2000 },
             opts => persistEvent(event, { providerSessionId: event.providerSessionId }, opts));
           if (event.type === 'final' && event.role === 'user') lifecycle.dispatch({ type: 'accepted', turnId: event.turnId, sequence: ++sequence });
@@ -47,7 +49,9 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
       };
       const close = (reason = 'closed', commandOptions = {}) => {
         if (closing) return closing;
-        ended = true; stopMedia(); lifecycle.end(reason);
+        ended = true; stopMedia(); lifecycle.end(reason); commandCancellation.abort();
+        if (['cancelled', 'turn-withdrawn', 'upload-withdrawn', 'session-erased', 'consent-revised',
+          'call-authorization-lost', 'session-revoked', 'transcript-persistence-failed'].includes(reason)) cancellation.abort();
         options.signal?.removeEventListener('abort', cancel); options.holdSignal?.removeEventListener('abort', hold);
         document?.removeEventListener('freeze', freeze); document?.removeEventListener('resume', wake); document?.removeEventListener('visibilitychange', visible);
         closing = (async () => {
@@ -82,7 +86,7 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
           try { await voiceOperation({ deadlineAt: Date.now() + 1000 }, opts => control.close({ ...recoveryIdentity, reason: 'transport-lost' }, opts)); } catch {}
         },
         async replace({ explicit }) {
-          const next = await voiceOperation({ signal: cancellation.signal, deadlineAt: Math.min(receipt.spendDeadlineAt, Date.now() + 10_000) },
+          const next = await voiceOperation({ signal: commandCancellation.signal, deadlineAt: Math.min(receipt.spendDeadlineAt, Date.now() + 10_000) },
             opts => control.recover({ ...recoveryIdentity, explicit }, opts));
           if (ended) throw new PluginError('cancelled');
           if (next.epoch !== undefined && next.epoch !== lifecycle.state.epoch) throw Object.assign(new PluginError('unavailable'), { code: 'voice-ownership-lost' });
@@ -102,7 +106,7 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
       const command = fn => opts => {
         const pending = commands.then(() => {
           if (ended) throw new PluginError('unavailable');
-          return voiceOperation({ ...opts, signal: opts?.signal ? AbortSignal.any([opts.signal, cancellation.signal]) : cancellation.signal,
+          return voiceOperation({ ...opts, signal: opts?.signal ? AbortSignal.any([opts.signal, commandCancellation.signal]) : commandCancellation.signal,
             deadlineAt: Math.min(opts?.deadlineAt ?? Infinity, receipt.spendDeadlineAt,
               lifecycle.state.needsRecovery ? Infinity : receipt.browserLivenessDeadlineAt) }, fn);
         }); commands = pending.catch(() => {}); return pending;
@@ -169,7 +173,18 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
             const text = typeof context === 'string' ? context : JSON.stringify(context);
             if (!text || text.length > 16_384) throw new PluginError('limit');
           })(opts),
-          interrupt: opts => command(() => bargeIn())(opts),
+          interrupt: opts => command(async bounded => {
+            if (paused || blocked || !input) throw new PluginError('unavailable');
+            let waiter, aborted;
+            try {
+              await new Promise((resolve, reject) => {
+                waiter = resolve; interruptionWaiters.add(waiter);
+                aborted = () => reject(new PluginError('cancelled'));
+                bounded.signal.addEventListener('abort', aborted, { once: true });
+                if (bounded.signal.aborted) aborted();
+              });
+            } finally { interruptionWaiters.delete(waiter); bounded.signal.removeEventListener('abort', aborted); }
+          })(opts),
           replayLastReply: opts => command(() => {
             if (paused || blocked || !output || !lastAssistant) throw new PluginError('unavailable');
             return { kind: 'text', text: lastAssistant.text };
@@ -183,6 +198,7 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
         };
         const bargeIn = (prefix = words().fakeVoiceHeard) => {
           if (!open || ended || paused || blocked || !input || !lastAssistant?.text.startsWith(prefix)) return;
+          for (const waiter of interruptionWaiters) waiter();
           emit({ type: 'heard', turnId: lastAssistant.turnId, prefix }); emit({ type: 'listening' });
         };
         current = { speak: text => { say('user', text ?? words().fakeVoiceStatement); say('assistant', words().fakeVoiceReply); }, bargeIn,

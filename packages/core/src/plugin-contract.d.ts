@@ -139,8 +139,17 @@ export interface VoiceServerAdapter<Config = unknown, StartRequest = { callId: s
   // Bind server-owned operations and host-private callback configuration once.
   bindCallbacks?(ports: object): VoiceServerCallbacks;
 }
+export interface VoicePresentation {
+  label: string;
+  translations?: { locale: string; label: string;
+    consentItem?: { id: string; version: number; title: string; recipients: string; text: string } }[];
+}
+export interface VoiceMediaOptions extends VoiceCommandOptions {
+  holdSignal?: AbortSignal;
+  onPlaybackBlocked?(retry: () => Promise<void>): void;
+}
 export interface VoiceBrowserMedia {
-  connect(grant: VoiceMediaGrant, options: VoiceCommandOptions): Promise<VoiceSession>;
+  connect(grant: VoiceMediaGrant, options: VoiceMediaOptions): Promise<VoiceSession>;
   capture(session: VoiceSession, on: boolean, options: VoiceCommandOptions): Promise<void>;
   playback(session: VoiceSession, on: boolean, options: VoiceCommandOptions): Promise<void>;
   retryPlayback?(session: VoiceSession, options: VoiceCommandOptions): Promise<void>;

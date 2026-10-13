@@ -11,6 +11,7 @@ import { styles } from '../src/styles.js';
 import { voiceJournal } from '../src/voice-orphan.js';
 import { createVoiceControl } from '../src/voice-control.js';
 import { createElevenLabsClient } from '../../../plugins/elevenlabs/src/client.js';
+import { watchVoicePlayback } from '../../../plugins/elevenlabs/src/playback.js';
 import { eventProbe } from '../../../test/voice-test-events.js';
 const window = new Window();
 for (const key of ['HTMLElement', 'customElements', 'document', 'CustomEvent']) globalThis[key] = window[key];
@@ -20,16 +21,22 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 function fixture(t, { pause, unavailable = false, journal, ready, start } = {}) {
   const root = document.createElement('div'); document.body.append(root);
   const commands = [], events = voiceEvents(), context = { understanding: 'fixture' };
+  let playback;
   const session = { callId: 'local-call', providerSessionId: 'local-provider', events,
     async setInput(value) { commands.push(['input', value]); }, async setOutput(value) { commands.push(['output', value]); },
     async sendText(value) { commands.push(['text', value]); }, async updateContext(value) { commands.push(['context', value]); },
     async pause() { return pause ? pause() : { acknowledged: true, paused: true }; },
     async resume() { return { acknowledged: true, paused: false }; },
-    async close() { commands.push(['close']); events.end(); return { closureConfirmed: true }; },
+    async close() { playback?.destroy(); commands.push(['close']); events.end(); return { closureConfirmed: true }; },
   };
-  const client = { manifest, async start() { if (start) await start(); return session; } };
+  const client = { manifest, async start(request, options = {}) {
+    playback?.destroy();
+    playback = watchVoicePlayback(document, () => options.onPlaybackBlocked?.(() => playback.retry()));
+    session.retryPlayback = () => playback.retry();
+    if (start) await start(); return session;
+  } };
   const rail = new AudioRail({ root, copy: en, client, feature: () => ({ available: !unavailable, reason: 'preset denies voice' }), context: () => context, journal, ready });
-  t.after(async () => { await rail.close(); rail.destroy(); root.remove(); });
+  t.after(async () => { playback?.destroy(); await rail.close(); rail.destroy(); root.remove(); });
   return { root, rail, commands, events, context };
 }
 test('AIT-138 d: newcomer must Take over, then separately Resume; takeover acquires no media', async t => {
@@ -500,6 +507,22 @@ test('host playback notifications and retry clear the message only after success
   assert.equal(rail.playbackBlocked, true); assert.equal(root.querySelector('.voice-state').textContent, en.voicePlaybackBlocked);
   await rail.retryPlayback(); assert.equal(rail.playbackBlocked, true);
   await rail.retryPlayback(); assert.equal(tries, 2); assert.equal(rail.playbackBlocked, false);
+});
+test('host voice presentation overrides the adapter label and follows the conversation locale', t => {
+  const c = document.createElement('aithema-session'), session = createSession({ demo: true });
+  session.settings.voice = 'host-voice'; session.engine.voice = { id: 'host-voice', label: 'Host option' };
+  const client = { manifest: { ...manifest, presentation: { label: 'Adapter label' } } };
+  const supplied = { label: 'Host label', translations: [{ locale: 'de', label: 'Host-Stimme' }, { locale: 'en', label: 'Host voice' }] };
+  t.after(() => c.remove());
+  for (const [locale, copy, expected] of [['de', de, 'Host-Stimme'], ['en', en, 'Host voice']]) {
+    session.locale = locale;
+    c.configure({ copy, session, voiceClient: client, voicePresentation: supplied });
+    assert.ok(c.shadowRoot.querySelector('.engine__detail').textContent.endsWith(expected));
+    c.configure({ copy, session, voiceClient: client });
+    assert.ok(c.shadowRoot.querySelector('.engine__detail').textContent.endsWith('Adapter label'));
+    c.configure({ copy, session });
+    assert.ok(c.shadowRoot.querySelector('.engine__detail').textContent.endsWith('Host option'));
+  }
 });
 test('component sends typed text through active voice, updates context and accepts a durable plain fallback', async t => {
   const session = createSession({ demo: true });

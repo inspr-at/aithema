@@ -2,12 +2,13 @@
 // Lifecycle and real media safety remain covered by the unchanged AIT-145/146 tests.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import puppeteer from 'puppeteer-core';
 import { startChild } from '../helpers.js';
 import { browserPath, shadow, until, settle, evidenceCommit } from './start2-display-helpers.js';
+import { pixels } from './png-pixels.js';
 
 test('AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN', { timeout: 120_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-voice-presentation-'));
@@ -18,7 +19,10 @@ test('AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN', { timeo
   const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
     env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
   t.after(async () => { await browser.close(); await demo.kill(); });
-  const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [];
+  const page = await browser.newPage(), evidence = process.env.AITHEMA_EVIDENCE_DIR, files = [], passLines = [];
+  // The remote builder transfers main's captured viewports here before the head run.
+  // CI still captures the matrix when that separately retained baseline is absent.
+  const baseline = process.env.AITHEMA_VOICE_BASELINE_DIR ?? '/private/tmp/aithema-ait102-pr3-baseline-0315183';
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
   await page.setRequestInterception(true);
   page.on('request', request => {
@@ -66,10 +70,24 @@ test('AIT-102 PR 3: voice viewport matrix, 390/1440, light/dark, DE/EN', { timeo
       assert.equal(await shadow(page, c => c.getAttribute('motion')), 'off');
       await shadow(page, c => { c.shadowRoot.querySelector('.connection-timer').textContent = '0:00'; });
       const name = `voice-${state}-${width}-${theme}-${locale}.png`;
-      if (evidence) await page.screenshot({ path: join(evidence, name), fullPage: false });
+      const captured = Buffer.from(await page.screenshot({ ...(evidence ? { path: join(evidence, name) } : {}), fullPage: false }));
+      let original;
+      try { original = await readFile(join(baseline, name)); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+      if (original) {
+        const before = pixels(original), after = pixels(captured);
+        assert.deepEqual([after.width, after.height, after.channels], [before.width, before.height, before.channels]);
+        let changedPixels = 0;
+        for (let offset = 0; offset < after.result.length; offset += after.channels) {
+          if (after.result.subarray(offset, offset + after.channels).some((value, channel) => value !== before.result[offset + channel])) changedPixels++;
+        }
+        assert.equal(changedPixels, 0, `${name}: exact main-to-head pixel difference`);
+        passLines.push({ file: name, changedPixels, pass: true });
+        t.diagnostic(`PASS ${name}: 0 px diff (exact decoded pixels)`);
+      }
       files.push({ file: name, state, width, theme, locale, viewport: true });
     }
   }
   if (evidence) await writeFile(join(evidence, 'voice-presentation-evidence.json'), JSON.stringify({ ticket: 'AIT-102', head: evidenceCommit, baselineMain: '6fe12b6', files }, null, 2));
+  if (evidence && passLines.length) await writeFile(join(evidence, 'voice-pixel-diff.json'), JSON.stringify({ ticket: 'AIT-102', head: evidenceCommit, baselineMain: '6fe12b6', passLines }, null, 2));
   t.diagnostic(`AIT-102 voice presentation: ${files.length} viewport shots.`);
 });

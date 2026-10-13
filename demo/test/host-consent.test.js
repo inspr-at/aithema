@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Window } from 'happy-dom';
 import { runInNewContext } from 'node:vm';
-import { mountConsentPage, consentReturnPath } from '../consent-page.js';
+import { mountConsentPage, consentReturnPath, translatedItem } from '../consent-page.js';
 import { preferredLocale, preferredTheme, remember, mountTheme, themeKey, localeKey } from '../page-preferences.js';
 import { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL } from '../processing-consent.js';
 import { manifest as voiceManifest } from '../../plugins/elevenlabs/src/manifest.js';
@@ -51,6 +51,15 @@ test('consent return normalizes paths and rejects external or disguised network 
   for (const path of ['//evil', 'https://evil/', '/\\evil/', '/\nevil', '/.//evil/', '/a/..//evil/', '/%2e//evil/', '/\0']) assert.equal(consentReturnPath(path, 'http://localhost'), '/');
   for (const path of ['/', '/?x=1#settings', '/local/#settings']) assert.equal(consentReturnPath(path, 'http://localhost'), path);
   assert.equal(consentReturnPath('/?context=✓&existing=%C3%A4#übersicht', 'http://localhost'), '/?context=%E2%9C%93&existing=%C3%A4#%C3%BCbersicht');
+});
+test('host voice consent translations are rendered verbatim only for the matching item and version', () => {
+  const item = { id: 'host-voice', version: 1, title: 'Server title', recipients: 'Server recipient', text: 'Server text' };
+  const supplied = { label: 'Host', translations: [{ locale: 'de', label: 'Host', consentItem: { ...item,
+    title: '<b>Host title</b>', recipients: 'Host recipient', text: 'Host text' } }] };
+  assert.deepEqual(translatedItem(item, de, supplied), supplied.translations[0].consentItem);
+  assert.equal(translatedItem({ ...item, version: 2 }, de, supplied).title, item.title);
+  assert.equal(translatedItem(item, en, supplied).title, item.title);
+  assert.equal(translatedItem({ ...item, id: 'another-item' }, de, supplied).title, item.title);
 });
 
 for (const locale of ['de', 'en']) test(`draft consent uses matching ${locale} copy and the server optional marking`, async t => {
