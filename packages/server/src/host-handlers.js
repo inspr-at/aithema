@@ -146,7 +146,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     const largestTier = Math.max(balance.owner.limitMicro, ...Object.values(tiers?.allowancesMicro ?? {}).filter(Number.isSafeInteger));
     const warning = { lowAtMicro: lowCreditThreshold(balance.owner.limitMicro, voiceRate), lowAtMaxMicro: lowCreditThreshold(largestTier, voiceRate),
       emailAsk: storage.hostState(id)?.emailAsk ?? {}, emailAskAfter: host.emailAskAfter?.(ownerToken) ?? 0,
-      lowEmailAsk: host.lowEmailAsk?.(ownerToken) ?? { after: 0, armed: false }, nowMs: now() };
+      lowEmailAsk: host.lowEmailAsk?.(ownerToken) ?? null, nowMs: now() };
     if (host.credits?.ownerGuard === false) return { balance, limitSlot: null, tiers, exhausted, ...warning };
     const guard = storage.ownerCreditState(ownerToken);
     const state = guard ? guard.sessionId === id ? guard : rebindCredits(guard, id) : createCredits({ sessionId: id, ...host.credits });
@@ -325,7 +325,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
         }, { ownerToken });
         return json({ accepted: result.accepted, emailAsk: result.emailAsk,
           emailAskAfter: host.emailAskAfter?.(ownerToken) ?? 0,
-          lowEmailAsk: host.lowEmailAsk?.(ownerToken) ?? { after: 0, armed: false }, nowMs: now() });
+          lowEmailAsk: host.lowEmailAsk?.(ownerToken) ?? null, nowMs: now() });
       }
       if (action.startsWith('identity')) {
         if (!host.identity) return json({ error: 'identity-unavailable' }, 503);
