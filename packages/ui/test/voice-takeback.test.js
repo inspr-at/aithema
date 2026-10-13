@@ -281,7 +281,7 @@ for (const transport of ['webrtc', 'websocket']) {
     t.mock.timers.setTime(Date.now() + 10_000);
     f.b.rail.receiveState(f.snapshot()); await flush();
     assert.equal(f.snapshot().controllingTabId, 'A', 'a resolved wait must drop an expired intent even before its timer runs');
-    assert.equal(retiredB.lifecycle.state.state, 'waiting'); f.held(f.b);
+    assert.equal(retiredB.lifecycle.state.state, 'ended', 'local cleanup leaves the retired SDK session closed'); f.held(f.b);
     t.mock.timers.reset();
   });
 
