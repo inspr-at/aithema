@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
 import { AudioRail } from '../src/audio-rail.js';
 import { en } from '../src/i18n/en.js';
+import { de } from '../src/i18n/de.js';
+import { styles } from '../src/styles.js';
 import { createElevenLabsClient } from '../../../plugins/elevenlabs/src/client.js';
 import { fakeSdk } from '../../../plugins/elevenlabs/test/fixtures.js';
 
@@ -11,7 +13,7 @@ const lost = () => Object.assign(new Error('Retired epoch'), { status: 409, code
 
 // Two independent documents and SDK media ports; every command checks the
 // server identity. The browser matrix separately exercises the real server.
-function tabsFixture(t, transport) {
+function tabsFixture(t, transport, copy = en) {
   const tabs = [], commands = [], published = [];
   let state, mint = 0;
   const snapshot = () => ({ ...state });
@@ -75,7 +77,7 @@ function tabsFixture(t, transport) {
       persistEvent: async event => { check(tab, event); published.push({ tab: id, ...event }); } });
     const start = client.start;
     client.start = async (...args) => { const session = await start(...args); tab.returned.push(session); return session; };
-    tab.rail = new AudioRail({ root, copy: en, client, feature: () => ({ available: true }), context: () => ({}) });
+    tab.rail = new AudioRail({ root, copy, client, feature: () => ({ available: true }), context: () => ({}) });
     tab.root = root;
     t.after(async () => {
       tab.resumeAck?.resolve(); tab.takeoverAck?.resolve(); await flush();
@@ -90,8 +92,8 @@ function tabsFixture(t, transport) {
     assert.equal(b.root.dataset.state, 'listening'); assert.equal(a.root.dataset.state, 'waiting');
   };
   const held = tab => {
-    assert.equal(tab.root.dataset.state, 'waiting'); assert.equal(tab.root.querySelector('.voice-state').textContent, en.voiceMoved);
-    assert.equal(tab.rail.button('pause').disabled, false); assert.equal(tab.rail.button('pause').title, en.voiceTakeover);
+    assert.equal(tab.root.dataset.state, 'waiting'); assert.equal(tab.root.querySelector('.voice-state').textContent, copy.voiceMoved);
+    assert.equal(tab.rail.button('pause').disabled, false); assert.equal(tab.rail.button('pause').title, copy.voiceTakeover);
     assert.ok(tab.sdk.acquired.every(stream => stream.getTracks().every(track => track.readyState === 'ended')));
     assert.equal(tab.sdk.effects.filter(([name]) => name === 'setVolume').at(-1)[1], 0);
     const outgoing = tab.sdk.outgoing.length; tab.sdk.sample({ buffered: true }); assert.equal(tab.sdk.outgoing.length, outgoing);
@@ -100,6 +102,47 @@ function tabsFixture(t, transport) {
 }
 
 for (const transport of ['webrtc', 'websocket']) {
+  for (const [locale, copy] of [['de', de], ['en', en]]) test(`AIT-158: ${transport} ${locale} newcomer held without resuming loses ownership via voice.state and takes back with one click`, { timeout: 10_000 }, async t => {
+    const f = tabsFixture(t, transport, copy);
+    const document = f.b.root.ownerDocument, style = document.createElement('style');
+    style.textContent = styles; document.head.append(style); f.b.root.className = 'audio-rail';
+    await f.a.rail.start();
+    f.b.rail.button('pause').click(); await flush(); // Newcomer's first click only holds the call.
+    const held = f.snapshot();
+    assert.equal(held.controllingTabId, 'B'); assert.equal(held.state, 'waiting');
+    assert.equal(f.b.root.dataset.state, 'waiting'); assert.equal(f.b.rail.requiresTakeover, false);
+    assert.equal(f.b.rail.busy, false); assert.equal(f.b.rail.moved, false); assert.equal(f.b.rail.session, null);
+    assert.equal(f.b.sdk.acquired.length, 0); assert.equal(f.b.returned.length, 0);
+    assert.deepEqual(f.commands.filter(c => c.tab === 'B').map(c => c.name), ['takeover'], 'the newcomer has never resumed');
+
+    // Deliver the other tab's authoritative voice.state after its takeover,
+    // independently of the newcomer's completed hold receipt and without an SDK session.
+    f.b.deferNotifications = true;
+    f.a.rail.button('pause').click(); await flush();
+    const before = f.snapshot();
+    assert.equal(before.controllingTabId, 'A'); assert.equal(before.epoch, held.epoch + 1);
+    assert.ok(f.b.notifications.length > 0); assert.equal(f.b.rail.moved, false);
+    f.b.deliverNotifications(); await flush();
+    const pause = f.b.rail.button('pause'), resumeDisabled = pause.disabled;
+    assert.equal(resumeDisabled, false);
+    assert.equal(document.defaultView.getComputedStyle(pause).cursor, 'pointer');
+    assert.equal(f.b.root.querySelector('.voice-state').textContent, copy.voiceMoved);
+    assert.equal(pause.title, copy.voiceTakeover);
+    assert.equal(f.b.root.hasAttribute('data-moved'), true);
+    assert.equal(f.b.rail.requiresTakeover, true); assert.equal(f.b.rail.session, null);
+    assert.equal(f.b.sdk.acquired.length, 0, 'ownership notification never starts capture');
+
+    const commands = f.commands.length;
+    pause.click(); await flush();
+    assert.deepEqual(f.commands.slice(commands).filter(c => c.tab === 'B' && ['takeover', 'recover', 'resume'].includes(c.name)).map(c => c.name),
+      ['takeover', 'recover', 'resume'], 'one click sends exactly one takeover, then one Resume without a second confirmation');
+    assert.equal(f.snapshot().epoch, before.epoch + 1); assert.equal(f.snapshot().controllingTabId, 'B');
+    assert.equal(f.b.root.dataset.state, 'listening'); assert.equal(f.b.root.hasAttribute('data-moved'), false);
+    assert.equal(f.b.rail.requiresTakeover, false); assert.equal(f.b.rail.session.epoch, f.snapshot().epoch);
+    assert.ok(f.b.sdk.acquired.some(stream => stream.getTracks().some(track => track.readyState === 'live')));
+    f.held(f.a);
+  });
+
   for (const cancellation of ['hide', 'visibility-hidden', 'pagehide']) for (const restore of ['voice.state', 'snapshot']) for (const owner of ['this-tab', 'other-tab']) {
     test(`AIT-158: ${transport} ${cancellation} during accepted take-back reconciles late ${restore} for ${owner} without auto-resume`, { timeout: 10_000 }, async t => {
       const f = tabsFixture(t, transport); await f.newcomer();
