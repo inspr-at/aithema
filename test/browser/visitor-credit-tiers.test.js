@@ -98,7 +98,12 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
       await page.setViewport({ width, height: width === 390 ? 844 : 1000 });
       await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
       const label = `${locale}-${theme}-${width}`;
-      const shot = async state => { await new Promise(resolve => setTimeout(resolve, 160)); states.push({ locale, theme, width, state }); if (evidence) await page.screenshot({ path: join(evidence, `a2-${label}-${state}.png`) }); };
+      const shot = async state => {
+        await new Promise(resolve => setTimeout(resolve, 160)); states.push({ locale, theme, width, state });
+        // Phones keep the live host's scrolling page; include its question/composer below the fold.
+        const fullPage = await shadow(page, c => !c.shadowRoot.querySelector('dialog[open]'));
+        if (evidence) await page.screenshot({ path: join(evidence, `a2-${label}-${state}.png`), fullPage });
+      };
       await fixture(page, locale);
       assert.equal(await shadow(page, c => Boolean(c.shadowRoot.querySelector('#email-input'))), true, 'the inline email input exists');
       await click(page, '.host-credits__button'); await shot('credits-anonymous');
@@ -132,7 +137,7 @@ test('AIT-135 A2 D: every visitor state, DE/EN, light/dark, 1440/1024/390; zero 
       await click(page, '.host-credits__button'); await shot('credits-used-up-give');
       await fixture(page, locale, { address: 'reader@example.test', spent: 18_000_000 }); await shot('credit-used-up-none'); await click(page, '.host-credits__button'); await shot('credits-used-up-none');
       await fixture(page, locale, { privacy: false, spent: 12_000_000 });
-      await shadow(page, c => c.openSettings(undefined, { tab: 'general' })); await settle(); await shot('privacy-gate'); await click(page, 'dialog.settings .done'); await shot('privacy-gate-used-up');
+      await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(); await shot('privacy-gate'); await click(page, 'dialog.settings .done'); await shot('privacy-gate-used-up');
       await fixture(page, locale, { handover: true }); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(); await shot('handover-notice');
       await click(page, 'dialog.settings .done');
       await fixture(page, locale, { delivery: true }); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await settle(); await shot('mail-no-email');
