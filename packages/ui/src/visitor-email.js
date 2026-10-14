@@ -17,6 +17,7 @@ export function setTierText(container, template, values) {
 
 /** Identity is the verification evidence; visitor is the owner-wide saved address. */
 export class VisitorEmail {
+  #delivery = true;
   constructor({ root, entry, copy, request, openDialog, changed, demo = false, delivery = true, privacyDocumentConfigured, handover = false, locale }) {
     Object.assign(this, { root, entry, copy, request, openDialog, changed, demo, delivery, privacyDocumentConfigured, handover, locale });
     this.alive = true; this.ui = { editing: false, deleting: false, busy: false, message: '', invalid: false, failed: false };
@@ -72,6 +73,10 @@ export class VisitorEmail {
     }
     return null;
   }
+  // Optional confirmation follows the host tiers. The explicit demo-only
+  // assessment lock keeps its fake-outbox flow, independent of credit tiers.
+  get delivery() { return this.#delivery && (this.demo && this.identity?.verificationRequired === true || this.tiers?.canConfirm !== false); }
+  set delivery(value) { this.#delivery = value; }
   get canCollect() { return this.demo || this.privacyDocumentConfigured === true && Boolean(this.privacyLink); }
   get state() { return this.ui.deleting && this.address ? 'confirm' : !this.canCollect && !this.address ? 'unavailable' : this.delivery ? 'mail' : this.address && !this.ui.editing ? 'saved' : this.canCollect ? 'capture' : 'saved'; }
   set(values) { Object.assign(this, values); this.paint(); }

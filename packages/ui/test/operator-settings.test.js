@@ -23,7 +23,7 @@ for (const copy of [de, en]) test(`AIT-165 final General section: muted native o
     assert.equal(link.getAttribute('aria-hidden'), 'true');
     view.set({ ...operator, name: 'Ada' });
     assert.equal(s.querySelector('.operator-signed-in').textContent.trim(),
-      copy === de ? 'Operator: Ada · Abmelden' : 'Operator: Ada · Sign out');
+      copy === de ? 'Operator: Ada · Verwaltung · Abmelden' : 'Operator: Ada · Admin · Sign out');
   } finally { await window.happyDOM.close(); }
 });
 

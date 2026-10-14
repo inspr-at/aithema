@@ -1,6 +1,8 @@
+import { adminCopy } from './admin.js';
 import { AI_NOTICE } from '../../../core/src/ai-notice.js';
 
 export const en = {
+  admin: adminCopy.en,
   questionCard: {
     heading: 'Open question', suggestion: 'Suggestion', likely: 'Most likely, based on the conversation so far',
     hint: 'One click sends the answer. Or just speak or type.',
@@ -90,6 +92,7 @@ export const en = {
   engine: { model: 'Model', voice: 'Voice', visuals: 'Visuals', off: 'Off', localModel: 'Local model', notConnected: 'not connected' },
   settings: {
     operatorLogin: 'Sign in as operator with {provider}',
+    operatorAdmin: 'Admin',
     operatorName: 'Operator: {name}',
     operatorLogout: 'Sign out',
     operatorError: 'Operator sign-in failed. Please try again.',

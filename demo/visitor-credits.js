@@ -265,7 +265,9 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
     saveSettings(input, { actor = 'system:host', source = 'host' } = {}) {
       if (!object(input, ['baseRevision', 'allowancesUsd', 'confirmationEnabled', 'mailCap', 'mailIpCap']) || !integer(input.baseRevision) || !input.baseRevision ||
         input.allowancesUsd === undefined && input.confirmationEnabled === undefined && input.mailCap === undefined && input.mailIpCap === undefined ||
-        typeof actor !== 'string' || !actor || actor.length > 200 || typeof source !== 'string' || !source || source.length > 100) throw new TypeError('Invalid credit settings');
+        typeof actor !== 'string' || !actor || actor.length > (source === 'operator' ? 500 : 200) || typeof source !== 'string' || !source || source.length > 100) throw new TypeError('Invalid credit settings');
+      const privileged = source === 'ops-cli' && actor.startsWith('ops-cli:') ||
+        source === 'operator' && /^operator:[^\x00-\x1f\x7f-\x9f]{1,120}#[^\x00-\x1f\x7f-\x9f]+$/u.test(actor);
       let allowancesMicro;
       if (input.allowancesUsd !== undefined) {
         if (!object(input.allowancesUsd, tiers) || !tiers.every(tier => Object.hasOwn(input.allowancesUsd, tier))) throw new TypeError('Invalid allowances');
@@ -276,7 +278,7 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
       if (input.confirmationEnabled !== undefined && (typeof input.confirmationEnabled !== 'boolean' || input.confirmationEnabled && !deliveryEnabled)) {
         throw new TypeError('Confirmation requires qualified delivery');
       }
-      if (input.confirmationEnabled !== undefined && demo !== true && (source !== 'ops-cli' || !actor.startsWith('ops-cli:'))) {
+      if (input.confirmationEnabled !== undefined && demo !== true && !privileged) {
         throw new TypeError('Confirmation policy requires the OPS CLI');
       }
       if (input.mailCap !== undefined) {
@@ -284,12 +286,12 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
           throw new TypeError('Invalid mail cap');
         }
         validateMailCap(input.mailCap);
-        if (source !== 'ops-cli' || !actor.startsWith('ops-cli:')) throw new TypeError('Mail cap requires the OPS CLI');
+        if (!privileged) throw new TypeError('Mail cap requires the OPS CLI');
       }
       if (input.mailIpCap !== undefined) {
         if (!object(input.mailIpCap, ['hour', 'day'])) throw new TypeError('Invalid IP mail cap');
         validateMailCap(input.mailIpCap);
-        if (source !== 'ops-cli' || !actor.startsWith('ops-cli:')) throw new TypeError('IP mail cap requires the OPS CLI');
+        if (!privileged) throw new TypeError('IP mail cap requires the OPS CLI');
       }
       return storage.transaction(() => {
         const before = settings();
@@ -302,6 +304,15 @@ export function createVisitorCredits({ storage, now = () => Date.now(), delivery
           Number(input.confirmationEnabled ?? before.confirmationEnabled), mailCap.hour, mailCap.day, mailIpCap.hour, mailIpCap.day, new Date(at).toISOString());
         const after = settings(); insertAudit(before, after, { actor, source }, at); return after;
       });
+    },
+    adminAudit({ before } = {}) {
+      if (before !== undefined && (!integer(before) || !before)) throw new TypeError('Invalid audit page');
+      const rows = db.prepare(`SELECT * FROM visitor_credit_audit
+        WHERE id<? AND COALESCE(json_extract(new_json,'$.event'),'') NOT GLOB 'confirmation.*'
+        ORDER BY id DESC LIMIT 21`).all(before ?? Number.MAX_SAFE_INTEGER);
+      const items = rows.slice(0, 20).map(row => ({ id: row.id, actor: row.actor, at: row.at, source: row.source,
+        revision: row.revision, oldValues: JSON.parse(row.old_json), newValues: JSON.parse(row.new_json) }));
+      return { items, nextBefore: rows.length > 20 ? items.at(-1).id : null };
     },
     audit({ after = 0, limit = 100 } = {}) {
       if (!integer(after) || !integer(limit) || limit < 1 || limit > 1000) throw new TypeError('Invalid audit page');

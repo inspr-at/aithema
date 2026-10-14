@@ -51,7 +51,7 @@ export function createOperatorStateSeal(db) {
       if (!proof(pending) || !Number.isSafeInteger(expiresAt)) throw new TypeError('Invalid operator state');
       const iv = randomBytes(12), cipher = createCipheriv('aes-256-gcm', key, iv);
       cipher.setAAD(aad(binding));
-      const plaintext = JSON.stringify({ state: pending.state, nonce: pending.nonce, verifier: pending.verifier, expiresAt });
+      const plaintext = JSON.stringify({ state: pending.state, nonce: pending.nonce, verifier: pending.verifier, expiresAt, ...(pending.return === 'admin' ? { return: 'admin' } : {}) });
       const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
       return Buffer.concat([Buffer.from([1]), iv, cipher.getAuthTag(), encrypted]).toString('base64url');
     },

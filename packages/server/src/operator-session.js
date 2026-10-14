@@ -66,7 +66,7 @@ export function createOperatorSessions({ provider, store, publicOrigin, now = Da
   const stateBinding = JSON.stringify([namespace, publicOrigin + '/api/operator/callback/']);
   const live = request => {
     const grant = store.grant(cookie(request, OPERATOR_COOKIE), namespace, now());
-    return grant && provider.allows(grant.subject) ? { name: grant.name } : null;
+    return grant && provider.allows(grant.subject) ? { name: grant.name, subject: grant.subject } : null;
   };
   return assertOperatorSessionPort({
     entry: () => ({ provider: provider.label, url: '/api/operator/login/', logoutUrl: '/api/operator/logout/' }),
@@ -90,7 +90,8 @@ export function createOperatorSessions({ provider, store, publicOrigin, now = Da
         try {
           store.takeState(cookie(request, OPERATOR_STATE_COOKIE), stateBinding, now());
           const { pending, url } = provider.begin();
-          const sealed = store.sealState(pending, stateBinding, now() + OPERATOR_STATE_MS);
+          const returns = new URL(request.url).searchParams.getAll('return');
+          const sealed = store.sealState({ ...pending, ...(returns.length === 1 && returns[0] === 'admin' ? { return: 'admin' } : {}) }, stateBinding, now() + OPERATOR_STATE_MS);
           const response = redirect(url);
           response.headers.append('set-cookie', cookieHeader(OPERATOR_STATE_COOKIE, sealed, OPERATOR_STATE_MS / 1000));
           return response;
@@ -110,7 +111,7 @@ export function createOperatorSessions({ provider, store, publicOrigin, now = Da
         if (!identity || !provider.allows(identity.subject) || typeof identity.name !== 'string' || request.signal.aborted) return fail();
         const id = random(); store.issue(id, namespace, identity, now() + GRANT_MS);
         store.revoke(cookie(request, OPERATOR_COOKIE));
-        const response = redirect('/#settings-general');
+        const response = redirect(pending.return === 'admin' ? '/admin' : '/#settings-general');
         response.headers.append('set-cookie', cookieHeader(OPERATOR_STATE_COOKIE, '', 0));
         response.headers.append('set-cookie', cookieHeader(OPERATOR_COOKIE, id, GRANT_MS / 1000));
         return response;
