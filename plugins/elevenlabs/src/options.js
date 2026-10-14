@@ -36,6 +36,7 @@ export function createElevenLabsBrowserMedia(createClient) {
     capture: (session, on, options) => session.setInput(on, options),
     playback: (session, on, options) => session.setOutput(on, options),
     teardown: (session, options) => session.close(options),
+    retryPlayback: (session, options) => session.retryPlayback(options),
   });
 }
 

@@ -95,6 +95,7 @@ export class AithemaSession extends HTMLElement {
   /**
    * `deviceConnector` is the browser device plugin factory for the settings Advanced tab;
    * `voiceClients` maps host voice option ids to browser clients (else `voiceClient`).
+   * `voicePresentation` supplies the selected adapter label and localized presentation.
    * `aiNotice` ({text?, voice?}) rewords the AI notice ahead of `copy.aiNotice`; it cannot remove it.
    * `copyForLocale(locale)` supplies host copy for in-place locale changes before interaction.
    * `host` ({library, verification, handover, credits, locale, operator}) turns on the host surface (AIT-104 B2):
@@ -881,7 +882,12 @@ export class AithemaSession extends HTMLElement {
     const reply = preset === 'device' ? d.localModel : modelDisplayName(view.model?.reply ?? view.model?.id, copy);
     const understanding = preset === 'device' ? d.localModel : modelDisplayName(view.model?.understanding ?? view.model?.id, copy);
     const provider = { openrouter: 'OpenRouter', mistral: 'Mistral', mock: d.testProvider }[view.model?.provider] ?? d.hostProvider;
-    const voice = view.voice === SETTINGS_OFF ? copy.engine.off : view.voice?.id === 'fake-voice' ? d.testVoice : 'ElevenLabs';
+    const presentation = typeof this.#options.voicePresentation === 'function'
+      ? this.#options.voicePresentation(this.#session.locale, view.voice)
+      : this.#options.voicePresentation ?? this.#voiceClientFor()?.manifest?.presentation;
+    const voice = view.voice === SETTINGS_OFF ? copy.engine.off
+      : presentation?.translations?.find(item => item.locale === this.#session.locale)?.label
+        ?? presentation?.label ?? view.voice?.label ?? this.#voiceClientFor()?.manifest?.vendor?.name ?? d.hostProvider;
     return [`${name}, ${scope}`, `${d.reply}: ${reply}`, `${d.understanding}: ${understanding}`,
       `${d.via.replace('{provider}', preset === 'device' ? d.deviceProvider : provider)} · ${d.voice}: ${voice}`].join('\n');
   }

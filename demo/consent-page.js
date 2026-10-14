@@ -13,8 +13,9 @@ export function consentReturnPath(value, origin) {
     return url.pathname + url.search + url.hash;
   } catch { return '/'; }
 }
-export function translatedItem(item, copy) {
-  const translated = Object.hasOwn(copy.processingConsent.items, item.id) ? copy.processingConsent.items[item.id] : null;
+export function translatedItem(item, copy, presentation, locale) {
+  const supplied = presentation?.translations?.find(entry => entry.locale === (locale ?? copy.display?.locale))?.consentItem;
+  const translated = supplied?.id === item.id ? supplied : Object.hasOwn(copy.processingConsent.items, item.id) ? copy.processingConsent.items[item.id] : null;
   return translated?.version === item.version ? { ...item, ...translated } : item;
 }
 
@@ -66,7 +67,7 @@ export async function mountConsentPage({ document = globalThis.document, locatio
     text('#consent-text', contract ? copy.processingConsent.intro ?? rendered.intro : c.intro);
     text('#consent-info', contract ? copy.processingConsent.withdrawal ?? rendered.withdrawal : c.mockTerms);
     for (const [index, item] of items.entries()) {
-      const legal = contract ? translatedItem(item, copy) : item;
+      const legal = contract ? translatedItem(item, copy, binding.voicePresentation, session.locale) : item;
       const row = document.createElement('div'); row.className = 'consent-item';
       const label = document.createElement('label'), box = document.createElement('input'), title = document.createElement('span');
       box.type = 'checkbox'; box.value = item.id; box.checked = selected.includes(item.id); box.name = 'item';

@@ -37,10 +37,10 @@ await handlers.resume();
 const handle = async request => {
   const path = new URL(request.url).pathname;
   if (path.startsWith('/api/')) return handlers.handle(request);
-  if (path === '/demo/config') return Response.json({ label: reasoning.label, defaultPreset: 'best', voiceMode: 'fake',
+  if (path === '/demo/config') return Response.json({ label: reasoning.label, defaultPreset: 'best', voiceMode: 'fake', voicePresentation: voicePlugin.manifest.presentation,
     imageMode: 'off', imageLabel: 'Images off', htmlMode: 'off', htmlLabel: 'HTML off', demoHost: true, verificationRequired: false, build: buildInfo() });
   const file = path === '/' ? '/demo/index.html' : path;
-  if (!/^\/(?:demo\/[a-z-]+\.(?:html|css|js)|packages\/(?:ui|core)\/src\/[a-z0-9/-]+\.js|plugins\/(?:device|elevenlabs)\/src\/[a-z-]+\.js)$/u.test(file)) return new Response(null, { status: 404 });
+  if (!/^\/(?:demo\/[a-z-]+\.(?:html|css|js)|packages\/(?:ui|core)\/src\/[a-z0-9/-]+\.js|plugins\/(?:device|elevenlabs|fake-voice)\/src\/[a-z-]+\.js)$/u.test(file)) return new Response(null, { status: 404 });
   try { return new Response(await readFile(resolve(root, '.' + file)), { headers: { 'content-type': file.endsWith('.html') ? 'text/html'
     : file.endsWith('.css') ? 'text/css' : 'text/javascript', 'cache-control': 'no-store', 'content-security-policy': HTML_PREVIEW_HOST_CSP } }); }
   catch { return new Response(null, { status: 404 }); }

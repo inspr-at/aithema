@@ -2,6 +2,7 @@ import { PluginError } from '../../../packages/core/src/invocation.js';
 import { voiceEvents, voiceOperation, assertVoiceSession } from '../../../packages/core/src/live-voice.js';
 import { createVoiceLifecycleController } from '../../../packages/core/src/voice-lifecycle-controller.js';
 import { manifest } from './manifest.js';
+import { watchVoicePlayback } from './playback.js';
 import { voiceOverrides, createElevenLabsBrowserMedia, elevenLabsComponents } from './options.js';
 export { elevenLabsMediaGrant } from './options.js';
 export { manifest } from './manifest.js';
@@ -86,6 +87,8 @@ export function createElevenLabsClient(ports = {}) {
     closeWaiting: (identity, options) => voiceOperation(options, opts => control.close({ ...identity, reason: options?.reason ?? 'closed' }, opts)),
     async start(request, options = {}) {
       const events = voiceEvents();
+      const playback = document?.defaultView?.MutationObserver && document.body
+        ? watchVoicePlayback(document, () => options.onPlaybackBlocked?.(() => playback.retry())) : undefined;
       let conversation, capture, grant, generation = 0, ended = false, closing, delivery = Promise.resolve(), commands = Promise.resolve();
       let inputOn = true, outputOn = true, paused = false, transportBlocked = false, playbackInterrupted = false, sequence = 0, checkpointSequence = 0, pauseRevision = 0, persistenceFailed = false;
       const commandCancellation = new AbortController(), interruptionWaiters = new Set();
@@ -204,6 +207,7 @@ export function createElevenLabsClient(ports = {}) {
           'call-authorization-lost', 'session-revoked', 'transcript-persistence-failed'].includes(reason)) stopPersistence();
         if (closing) return closing;
         const closeOptions = { ...commandOptions, deadlineAt: Math.min(commandOptions.deadlineAt ?? Infinity, Date.now() + closeTimeoutMs) };
+        playback?.destroy();
         ended = true; generation++; lifecycle.end(reason); options.signal?.removeEventListener('abort', cancel);
         options.holdSignal?.removeEventListener('abort', retainHold);
         document?.removeEventListener('freeze', freeze); document?.removeEventListener('resume', wake);
@@ -448,6 +452,7 @@ export function createElevenLabsClient(ports = {}) {
       };
       let recoveryIdentity;
       const stopMedia = reason => {
+        if (reason === 'ownership-lost') playback?.destroy();
         if (['sleep', 'wake', 'ownership-lost', 'server-restart', 'browser-liveness-deadline'].includes(reason)) {
           paused = true; pauseRevision++;
         }
@@ -552,6 +557,7 @@ export function createElevenLabsClient(ports = {}) {
         });
         if (options.signal?.aborted) { cancel(); throw new PluginError('cancelled'); }
         const session = {
+          retryPlayback: opts => voiceOperation(opts, () => playback?.retry()),
           audioLevels: () => ({ input: paused || transportBlocked || !inputOn ? 0 : conversation?.getInputVolume?.() ?? 0,
             output: outputVolume() === 0 ? 0 : conversation?.getOutputVolume?.() ?? 0 }),
           callId: request.callId, get providerSessionId() { return grant.providerSessionId; }, events, lifecycle,

@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Window } from 'happy-dom';
 import { runInNewContext } from 'node:vm';
-import { mountConsentPage, consentReturnPath } from '../consent-page.js';
+import { mountConsentPage, consentReturnPath, translatedItem } from '../consent-page.js';
 import { preferredLocale, preferredTheme, remember, mountTheme, themeKey, localeKey } from '../page-preferences.js';
 import { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL } from '../processing-consent.js';
+import { manifest as voiceManifest } from '../../plugins/elevenlabs/src/manifest.js';
 import { en } from '../../packages/ui/src/i18n/en.js';
 import { de } from '../../packages/ui/src/i18n/de.js';
 
@@ -24,7 +25,7 @@ async function page(t, options = {}) {
   let selected = options.selected ?? [], currentContract = contract.contract, fail = options.fail;
   const posts = [], returns = [];
   const fetchImpl = async path => {
-    if (path === '/demo/config') return Response.json(options.binding ?? { processingConsent: contract, voiceMode: 'off' });
+    if (path === '/demo/config') return Response.json(options.binding ?? { processingConsent: contract, voiceMode: 'off', voicePresentation: voiceManifest.presentation });
     if (path === '/api/sessions/s') return Response.json(session, { status: options.missing ? 404 : 200 });
     if (path === '/api/sessions/s/consent') {
       if (options.pending) return options.pending.promise;
@@ -51,6 +52,15 @@ test('consent return normalizes paths and rejects external or disguised network 
   for (const path of ['/', '/?x=1#settings', '/local/#settings']) assert.equal(consentReturnPath(path, 'http://localhost'), path);
   assert.equal(consentReturnPath('/?context=✓&existing=%C3%A4#übersicht', 'http://localhost'), '/?context=%E2%9C%93&existing=%C3%A4#%C3%BCbersicht');
 });
+test('host voice consent translations are rendered verbatim only for the matching item and version', () => {
+  const item = { id: 'host-voice', version: 1, title: 'Server title', recipients: 'Server recipient', text: 'Server text' };
+  const supplied = { label: 'Host', translations: [{ locale: 'de', label: 'Host', consentItem: { ...item,
+    title: '<b>Host title</b>', recipients: 'Host recipient', text: 'Host text' } }] };
+  assert.deepEqual(translatedItem(item, de, supplied), supplied.translations[0].consentItem);
+  assert.equal(translatedItem({ ...item, version: 2 }, de, supplied).title, item.title);
+  assert.equal(translatedItem(item, en, supplied).title, item.title);
+  assert.equal(translatedItem({ ...item, id: 'another-item' }, de, supplied).title, item.title);
+});
 
 for (const locale of ['de', 'en']) test(`draft consent uses matching ${locale} copy and the server optional marking`, async t => {
   const copy = { de, en }[locale];
@@ -68,7 +78,7 @@ test('consent renders contract items, uses only matching translations and curren
   const updated = { ...CONSENT_ITEMS[0], version: 2, title: 'New legal title' };
   const p = await page(t, { items: [CONSENT_ITEMS[0], updated, unknown, CONSENT_ITEMS[1]], selected: ['voice-elevenlabs'] });
   const rows = [...p.document.querySelectorAll('.consent-item')];
-  assert.deepEqual(rows.map(r => r.querySelector('span').textContent), [de.processingConsent.items[CONSENT_ITEMS[0].id].title, updated.title, unknown.title, de.processingConsent.items[CONSENT_ITEMS[1].id].title]);
+  assert.deepEqual(rows.map(r => r.querySelector('span').textContent), [de.processingConsent.items[CONSENT_ITEMS[0].id].title, updated.title, unknown.title, voiceManifest.presentation.translations.find(entry => entry.locale === 'de').consentItem.title]);
   assert.equal(rows[0].querySelector('p').textContent, de.processingConsent.items[CONSENT_ITEMS[0].id].recipients);
   assert.equal(rows[2].querySelectorAll('p')[1].textContent, unknown.text);
   assert.equal(p.document.querySelector('b'), null);
@@ -91,7 +101,7 @@ test('English consent renders every item and keeps unversioned and duplicate-id 
   assert.equal(p.document.querySelector('#consent-info').textContent, en.processingConsent.withdrawal);
   const rows = [...p.document.querySelectorAll('.consent-item')];
   for (const [index, item] of items.entries()) {
-    const expected = index < CONSENT_ITEMS.length ? en.processingConsent.items[item.id] : item;
+    const expected = index < CONSENT_ITEMS.length ? en.processingConsent.items[item.id] ?? voiceManifest.presentation.translations.find(entry => entry.locale === 'en').consentItem : item;
     assert.equal(rows[index].querySelector('span').textContent, expected.title);
     assert.deepEqual([...rows[index].querySelectorAll('p')].map(p => p.textContent), [expected.recipients, expected.text]);
   }

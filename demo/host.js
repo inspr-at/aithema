@@ -86,7 +86,7 @@ async function adopt(session) {
         persistEvent: (event, options) => ports.persistEvent(event, { providerSessionId: event.providerSessionId }, options) });
     }
     // The settings Advanced tab connects a local model through this browser-only factory.
-    component.configure({ voiceClient: liveVoiceClient ?? fakeVoice?.client, copy: componentCopy(), session,
+    component.configure({ voiceClient: liveVoiceClient ?? fakeVoice?.client, voicePresentation: binding.voicePresentation, copy: componentCopy(), session,
       copyForLocale: locale => bundles[locale] && componentCopy(bundles[locale]),
       deviceConnector: createDeviceReasoning, deviceEndpoint: 'http://127.0.0.1:8000',
       // The host surface (AIT-104 B2): library, handover and credits from the demo ports; verification

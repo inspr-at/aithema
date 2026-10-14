@@ -1,4 +1,3 @@
-import { watchVoicePlayback } from './voice-playback.js';
 import { icon } from './icons.js';
 import { Waveform } from './waveform.js';
 import { RecoveryNotices } from './recovery-notices.js';
@@ -233,7 +232,7 @@ export class AudioRail {
       const generation = ++this.generation, takingBack = Boolean(this.moved), retired = this.session, opening = this.opening;
       if (takingBack && retired) this.retiredOwnership = { callId: retired.callId, epoch: retired.epoch };
       this.session = null; this.pauseCommand = null; this.pauseRequests.clear(); this.resumeRequests.clear();
-      this.stopHeartbeat?.(); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.quiet();
+      this.stopHeartbeat?.(); clearInterval(this.meter); this.quiet();
       // Retired SDK cleanup keeps its original epoch. It cannot close the call
       // this click is about to claim, and it must release the device guard first.
       const retirement = retired?.close({ reason: 'tab-takeover', deadlineAt: Date.now() + 1000 }).catch(() => {});
@@ -270,6 +269,7 @@ export class AudioRail {
     const holdController = new AbortController(); this.holdController = holdController;
     if (this.root.ownerDocument.hidden) holdController.abort();
     let session;
+    this.playbackRetry = null;
     try {
       // A reloaded page first ends the call its predecessor left behind.
       await this.ready?.();
@@ -277,11 +277,13 @@ export class AudioRail {
       const wait = (this.retryAt ?? 0) - Date.now(); this.retryAt = 0;
       if (wait > 0) await new Promise(resolve => setTimeout(resolve, wait));
       if (generation !== this.generation) return;
-      this.playbackWatcher = watchVoicePlayback(this.root.ownerDocument, () => {
-        if (generation === this.generation && (session ? session === this.session : this.state === 'connecting')) this.reportPlaybackBlocked();
-      });
       const opening = this.client.start(this.waitingCall ?? { callId: crypto.randomUUID() }, {
         signal: controller.signal, holdSignal: holdController.signal, deadlineAt: Date.now() + 30_000,
+        onPlaybackBlocked: retry => {
+          if (generation === this.generation && (session ? session === this.session : this.state === 'connecting')) {
+            this.playbackRetry = retry; this.reportPlaybackBlocked();
+          }
+        },
         onPauseRequest: id => {
           if (generation !== this.generation) return;
           this.pauseRequests.add(id);
@@ -327,7 +329,7 @@ export class AudioRail {
       if (resuming && this.current(session, generation)) this.onPause?.(Boolean(this.paused));
     } catch (error) {
       if (generation !== this.generation || session && session !== this.session) return;
-      this.stopHeartbeat?.(); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.session = null; controller.abort();
+      this.stopHeartbeat?.(); clearInterval(this.meter); this.session = null; controller.abort();
       this.state = this.waitingCall ? 'waiting' : 'failed'; this.failure(error);
     }
   }
@@ -368,7 +370,7 @@ export class AudioRail {
       this.waitingCall = { callId: state.callId, providerSessionId: state.providerSessionId, ...(state.epoch !== undefined ? { epoch: state.epoch } : {}) };
       this.state = 'waiting'; this.paused = true; this.moved = true; this.requiresTakeover = true;
       this.errorKey = this.allowanceDenied ? 'voiceAdmissionDenied' : 'voiceMoved'; this.busy = false; this.pauseCommand = null;
-      this.playbackWatcher?.destroy(); this.notices.clear(); this.quiet(); this.onPause?.(true); this.render();
+      this.notices.clear(); this.quiet(); this.onPause?.(true); this.render();
       return;
     }
     if (!state?.providerSessionId || state.state === 'ended' || this.state === 'connecting') return;
@@ -418,7 +420,7 @@ export class AudioRail {
         }
         if (event.type === 'ended') {
           this.notices.clear();
-          this.stopHeartbeat?.(); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.session = null; this.journal?.clear();
+          this.stopHeartbeat?.(); clearInterval(this.meter); this.session = null; this.journal?.clear();
           this.busy = false; this.pauseCommand = null; this.beating = false; this.hidePending = false; this.playbackBlocked = false;
           this.quiet(); this.onEnd?.();
           this.state = ['closed', 'cancelled', 'closure-uncertain'].includes(event.reason) ? 'idle' : 'failed';
@@ -487,11 +489,14 @@ export class AudioRail {
   }
   async retryPlayback() {
     if (!this.session && this.state !== 'connecting') return;
-    const session = this.session, generation = this.generation, watcher = this.playbackWatcher;
+    const session = this.session, generation = this.generation;
     try {
       await this.playback?.();
       if (!this.current(session, generation)) return;
-      await watcher?.retry();
+      const media = this.client?.ports?.browserMedia;
+      if (!session && this.playbackRetry) await this.playbackRetry();
+      else if (media?.retryPlayback) await media.retryPlayback(session);
+      else await session?.retryPlayback?.();
       if (!this.current(session, generation)) return;
       this.playbackBlocked = false; this.errorKey = null;
     } catch { if (this.current(session, generation)) { this.playbackBlocked = true; this.errorKey = 'voicePlaybackBlocked'; } }
@@ -523,7 +528,7 @@ export class AudioRail {
     // A restored Resume has capture guards but no returned session yet. Fence
     // startup before its late acknowledgement or the waiting-call POST can run.
     if (!this.session) { this.holdController?.abort(); this.controller?.abort(); }
-    this.stopHeartbeat?.(); clearInterval(this.meter); this.playbackWatcher?.destroy(); this.quiet();
+    this.stopHeartbeat?.(); clearInterval(this.meter); this.quiet();
     this.endedCall = session ? { callId: session.callId, providerSessionId: session.providerSessionId } : null;
     this.session = null; this.waitingCall = null; this.requiresTakeover = false; this.moved = false; this.retiredOwnership = null;
     this.hidePending = false; this.paused = false; this.busy = false; this.beating = false; this.playbackBlocked = false; this.state = 'idle';

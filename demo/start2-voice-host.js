@@ -2,6 +2,7 @@ import { ensureAgent, AgentEnsureError } from '../plugins/elevenlabs/src/ensure-
 import { reconcileUsage, readConversationDetails } from '../plugins/elevenlabs/src/server.js';
 import { qualifyStartBinding } from './processing-consent.js';
 import { AI_NOTICE, aiNoticeText } from '../packages/core/src/ai-notice.js';
+import { manifest } from '../plugins/elevenlabs/src/manifest.js';
 import { voiceCostConfig } from './voice-cost-config.js';
 
 export async function createVoiceHost({ storage, resolveSecret, publicOrigin, templateAgentId,
@@ -9,7 +10,7 @@ export async function createVoiceHost({ storage, resolveSecret, publicOrigin, te
   const stop = new AbortController(), listeners = new Set();
   let timer, inFlight, backoff = 30_000, costs;
   let availability = { state: 'starting', disabledReason: null, transient: false };
-  const host = { staticSecretRef: 'AITHEMA_VOICE_FACADE_SECRET', log,
+  const host = { voicePresentation: manifest.presentation, staticSecretRef: 'AITHEMA_VOICE_FACADE_SECRET', log,
     get binding() { return availability.binding; },
     get runtime() { return availability.runtime; },
     get disabledReason() { return availability.disabledReason; },

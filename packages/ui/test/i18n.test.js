@@ -4,11 +4,17 @@ import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 import { reasonText, catalogLabel } from '../src/settings-dialog.js';
 import { demoPresets } from '../../../demo/choices.js';
+import { manifest as voiceManifest } from '../../../plugins/elevenlabs/src/manifest.js';
 import { CONSENT_ITEMS, CONSENT_INTRO, CONSENT_WITHDRAWAL } from '../../../demo/processing-consent.js';
 import { START_GERMAN_CONSENT, FEATURE_REASON_CODES, VOICE_REASON_CODES } from '../../../test/fixtures/german-server-texts.js';
 
 test('existing German consent stays verbatim START copy; all item versions and English server copy match', () => {
-  const { items, ...legal } = de.processingConsent;
+  const consent = locale => voiceManifest.presentation.translations.find(item => item.locale === locale).consentItem;
+  const { items: genericItems, ...legal } = de.processingConsent;
+  const { id: voiceId, ...voiceGerman } = consent('de');
+  const items = { ...genericItems, [voiceId]: voiceGerman };
+  const { id: englishId, ...voiceEnglish } = consent('en');
+  const englishItems = { ...en.processingConsent.items, [englishId]: voiceEnglish };
   const { 'drafts-anthropic': drafts, ...startItems } = items;
   assert.ok(drafts, 'AIT-113 adds a separate host-authored draft item');
   assert.deepEqual({ ...legal, items: Object.fromEntries(Object.entries(startItems).map(([id, { version, ...copy }]) => [id, copy])) }, START_GERMAN_CONSENT);
@@ -18,8 +24,8 @@ test('existing German consent stays verbatim START copy; all item versions and E
   assert.equal(new Set(CONSENT_ITEMS.map(item => item.id)).size, CONSENT_ITEMS.length);
   for (const { id, version, ...item } of CONSENT_ITEMS) {
     assert.ok(id && version > 0);
-    assert.equal(de.processingConsent.items[id].version, version, id);
-    assert.deepEqual(en.processingConsent.items[id], { version, ...item }, id);
+    assert.equal(items[id].version, version, id);
+    assert.deepEqual(englishItems[id], { version, ...item }, id);
   }
 });
 
