@@ -992,6 +992,8 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
     assert.equal((await popupMetrics()).ring, true, 'keyboard copy');
     await page.click('aithema-session >>> #build-info .version-row');
     assert.equal((await popupMetrics()).ring, false, 'mouse copy after keyboard focus');
+    await notice.click(); await page.keyboard.press('Tab');
+    assert.equal((await popupMetrics()).ring, true, 'keyboard focus returns after clicking away from mouse copy');
     await page.keyboard.press('Tab');
     await page.keyboard.down('Shift'); await page.keyboard.press('Tab'); await page.keyboard.up('Shift');
     assert.equal((await popupMetrics()).ring, true, 'keyboard Tab focus returns after mouse copy');
