@@ -69,7 +69,12 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
         const current = balance();
         return current.limitMicro > 0 && request.maxMicro <= current.limitMicro - current.committedMicro;
       };
-      wallets.set(ownerHash, { balance, canAdmit,
+      const displayBalance = () => {
+        const { limitMicro } = visitorCredits.policy(ownerHash);
+        const breakdown = costs.displayBreakdown(undefined, { ownerHash, now: now() });
+        return { limitMicro, ...breakdown, committedMicro: breakdown.confirmedSpendMicro + breakdown.uncertainSpendMicro };
+      };
+      wallets.set(ownerHash, { balance, displayBalance, canAdmit,
         async admit(request) {
           if (typeof request?.attemptId !== 'string' || !request.attemptId || !integer(request.maxMicro) || !integer(request.maxVisitorMicro ?? 0)) throw new TypeError('Invalid wallet request');
           const fingerprint = JSON.stringify([request.sessionId, request.lane, request.maxMicro, request.maxVisitorMicro ?? 0, request.requestSha256, request.bindingSha256]);

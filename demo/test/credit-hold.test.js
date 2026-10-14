@@ -54,3 +54,31 @@ test('AIT-173: expected spend reaching the allowance shows used-up, capped estim
   assert.equal(view.balance.owner.availableMicro, 0); assert.equal(view.exhausted, true);
   assert.equal(f.ledger.get(f.claim.attemptId).settled_micro, null, 'display is not settlement');
 });
+
+test('AIT-173: display uses the capped AIT-163 lane/byte fallback and uncapped actual receipts', async t => {
+  const f = await creditHoldFixture(); t.after(() => f.close());
+  const { attemptId } = f.ledger.admit(f.request('reaction', 500_000, { providerCost: { estimateMicro: 20_000, observedCostMicro: 30_000 } }));
+  const claim = f.ledger.claim(attemptId); claim.consume();
+  assert.equal((await credits(f)).balance.owner.availableMicro, 5_970_000);
+  f.ledger.observeCost(attemptId, { observedCostMicro: 900_000 });
+  assert.equal((await credits(f)).balance.owner.availableMicro, 5_500_000, 'bytes cannot exceed the reservation');
+  f.ledger.settle(claim.claimId, { attemptId, outcome: 'uncertain' });
+  assert.equal((await credits(f)).balance.owner.availableMicro, 5_500_000, 'uncertain settlement keeps the same estimate');
+  f.ledger.observeCost(attemptId, { chargedMicro: 700_000 });
+  assert.equal((await credits(f)).balance.owner.availableMicro, 5_300_000, 'actual provider costs can overrun');
+});
+
+test('AIT-173: voice display follows extensions, survives recovery and isolates owners', async t => {
+  const f = await creditHoldFixture({ settledMicro: 0, holdMicro: 50_000 }); t.after(() => f.close());
+  assert.equal((await credits(f)).balance.owner.availableMicro, 9_950_000, 'duration estimate is capped');
+  f.ledger.extendVoice(f.claim.attemptId, { maxMicro: 200_000, maxVisitorMicro: 200_000 });
+  assert.equal((await credits(f)).balance.owner.availableMicro, 9_900_000, 'extending the hold does not spend the extension');
+  const other = f.storage.create({ ownerToken: 'another-owner' });
+  const extra = f.ledger.admit({ ...f.request('reaction', 100_000), sessionId: other.id });
+  const foreign = f.ledger.claim(extra.attemptId); foreign.consume();
+  f.ledger.settle(foreign.claimId, { attemptId: extra.attemptId, outcome: 'completed', chargedMicro: 100_000, usage: { inputTokens: 0, outputTokens: 0 } });
+  assert.equal((await credits(f)).balance.owner.availableMicro, 9_900_000);
+  f.ledger.recover(f.session.id); f.advance(86_400_000);
+  assert.equal((await credits(f)).balance.owner.availableMicro, 9_900_000, 'recovery freezes display duration but retains liability');
+  assert.equal(f.ledger.used(f.session.id), 60_000_000);
+});

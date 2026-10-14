@@ -134,11 +134,12 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
       privacyDocumentConfigured: privacyDocumentConfigured(host), ...extra };
   }
   function creditResult(id, ownerToken) {
-    const balance = budgetCreditView(budget, id, host.wallet(ownerToken));
-    // Outstanding maxima remain spendable by their admitted work. Only a zero
-    // allowance or confirmed spend at the ceiling is an exhaustion verdict.
-    // Wallets without a cost breakdown leave exhaustion to admission refusals.
-    const exhausted = balance.owner.limitMicro === 0 || balance.owner.confirmedSpendMicro >= balance.owner.limitMicro;
+    const wallet = host.wallet(ownerToken);
+    // The optional host display projection is read-only; wallet.balance() and
+    // every admission path retain their conservative reservation maxima.
+    const balance = budgetCreditView(budget, id, wallet.displayBalance ? { ...wallet, balance: () => wallet.displayBalance() } : wallet);
+    const exhausted = balance.owner.limitMicro === 0 || (wallet.displayBalance
+      ? balance.owner.availableMicro === 0 : balance.owner.confirmedSpendMicro >= balance.owner.limitMicro);
     const projection = host.creditTiers?.(ownerToken) ?? null;
     const collectionAllowed = host.demo === true || privacyDocumentConfigured(host);
     const tiers = projection && (collectionAllowed ? projection : { ...projection, next: null, delta: 0, canConfirm: false });

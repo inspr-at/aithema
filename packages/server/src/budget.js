@@ -6,9 +6,9 @@ const confirmed = "state='settled' AND (outcome!='uncertain' OR cost_reconciliat
 // Slim port of Gen-2 runtime/budget/{sqlite,gate}: reservation under BEGIN IMMEDIATE,
 // UNIQUE claims, burned before provider opening, conservative unknown recovery.
 export class SQLiteBudgetLedger {
-  constructor(storage, { sessionCapMicro = 10_000_000, visitorCapMicro = sessionCapMicro } = {}) {
+  constructor(storage, { sessionCapMicro = 10_000_000, visitorCapMicro = sessionCapMicro, now = Date.now } = {}) {
     if (!integer(sessionCapMicro) || !integer(visitorCapMicro)) throw new TypeError('Invalid budget cap');
-    this.storage = storage; this.db = storage.db; this.sessionCapMicro = sessionCapMicro; this.visitorCapMicro = visitorCapMicro;
+    this.now = now; this.storage = storage; this.db = storage.db; this.sessionCapMicro = sessionCapMicro; this.visitorCapMicro = visitorCapMicro;
     this.db.exec(`PRAGMA busy_timeout=250;
       CREATE TABLE IF NOT EXISTS budget_attempts (
       attempt_id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id), lane TEXT NOT NULL,
@@ -28,6 +28,7 @@ export class SQLiteBudgetLedger {
     for (const name of ['max_visitor_micro', 'settled_visitor_micro', 'voice_exposure_micro', 'voice_visitor_exposure_micro', 'voice_closing']) {
       if (!columns.some(c => c.name === name)) this.db.exec(`ALTER TABLE budget_attempts ADD COLUMN ${name} INTEGER NOT NULL DEFAULT 0 CHECK(${name} >= 0)`);
     }
+    if (!columns.some(c => c.name === 'voice_estimate_json')) this.db.exec('ALTER TABLE budget_attempts ADD COLUMN voice_estimate_json TEXT');
     if (!columns.some(c => c.name === 'voice_reconciliation_json')) this.db.exec('ALTER TABLE budget_attempts ADD COLUMN voice_reconciliation_json TEXT');
     for (const name of ['owner_hash', 'provider_cost_json', 'cost_reconciliation_json']) {
       if (!columns.some(c => c.name === name)) this.db.exec(`ALTER TABLE budget_attempts ADD COLUMN ${name} TEXT`);
@@ -61,6 +62,32 @@ export class SQLiteBudgetLedger {
         WHEN state='settled' AND NOT (${confirmed}) THEN ${settled} ELSE 0 END),0) AS uncertainSpendMicro
       FROM budget_attempts WHERE ${filter} ${visitor ? "AND lane='voice'" : ''}`).get(ownerHash ?? sessionId);
   }
+  // Visitor presentation only. Admission, uncertainty and charging continue to
+  // use breakdown()/used() and their full maxima. Reading never settles a row.
+  displayBreakdown(sessionId, { ownerHash, now = this.now() } = {}) {
+    const filter = ownerHash === undefined ? 'session_id=?' : 'owner_hash=?';
+    const rows = this.db.prepare(`SELECT *, (${confirmed}) AS confirmed FROM budget_attempts WHERE ${filter}`).all(ownerHash ?? sessionId);
+    const costs = { reservedMicro: 0, confirmedSpendMicro: 0, uncertainSpendMicro: 0 };
+    for (const row of rows) {
+      if (row.confirmed) { costs.confirmedSpendMicro += row.settled_micro; continue; }
+      let expected = row.state === 'settled' ? row.settled_micro : row.max_micro;
+      if (row.lane === 'voice' && (row.state !== 'settled' || row.outcome === 'uncertain' && !row.voice_reconciliation_json)) {
+        const estimate = JSON.parse(row.voice_estimate_json ?? 'null'), usage = JSON.parse(row.usage ?? 'null');
+        const ceiling = estimate?.maxMicro ?? row.max_micro;
+        const elapsed = estimate?.startedAt === undefined ? 0 : Math.max(0, (estimate.endedAt ?? now) - estimate.startedAt);
+        expected = Math.min(ceiling, Math.ceil(elapsed / 60_000 * (estimate?.upstreamMicroPerMinute ?? 0)));
+        if (integer(usage?.upstreamMicro)) expected = Math.max(expected, usage.costEstimated === true ? Math.min(ceiling, usage.upstreamMicro) : usage.upstreamMicro);
+      } else if (row.provider_cost_json && (row.state !== 'settled' || row.outcome === 'uncertain' && !row.cost_reconciliation_json)) {
+        const record = JSON.parse(row.provider_cost_json);
+        // Same persisted lane/byte fallback as AIT-163. A real receipt is not
+        // capped; estimates are bounded by the reservation, including bytes.
+        expected = record.chargedMicro ?? Math.min(row.max_micro, Math.max(record.estimateMicro ?? row.max_micro, record.observedCostMicro ?? 0));
+        if (row.state !== 'settled' && row.state !== 'dispatched') expected = 0;
+      }
+      costs.uncertainSpendMicro += expected;
+    }
+    return costs;
+  }
   visitorUsed(sessionId) {
     return this.db.prepare(`SELECT COALESCE(SUM(CASE WHEN state='settled' THEN settled_visitor_micro ELSE max_visitor_micro END),0) AS n
       FROM budget_attempts WHERE session_id=? AND lane='voice'`).get(sessionId).n;
@@ -71,7 +98,8 @@ export class SQLiteBudgetLedger {
   }
   canAdmit(sessionId, maxMicro, maxVisitorMicro = 0) { return integer(maxMicro) && integer(maxVisitorMicro) &&
     maxMicro <= this.sessionCapMicro - this.used(sessionId) && maxVisitorMicro <= this.visitorCapMicro - this.visitorUsed(sessionId); }
-  admit({ attemptId = randomUUID(), sessionId, lane, maxMicro, maxVisitorMicro = 0, requestSha256, bindingSha256, providerCost, voiceExposure }) {
+  admit({ attemptId = randomUUID(), sessionId, lane, maxMicro, maxVisitorMicro = 0, requestSha256, bindingSha256, providerCost, voiceExposure, voiceEstimate }) {
+    if (voiceEstimate !== undefined && (lane !== 'voice' || !['upstreamMicroPerMinute', 'visitorMicroPerMinute'].every(k => integer(voiceEstimate?.[k])))) throw new TypeError('Invalid voice estimate');
     if (!integer(maxMicro) || !integer(maxVisitorMicro) || !['reaction', 'understanding', 'voice', 'concept', 'extractor'].includes(lane) ||
       lane === 'extractor' && (maxMicro !== 0 || maxVisitorMicro !== 0) ||
       voiceExposure !== undefined && (lane !== 'voice' || !integer(voiceExposure?.maxMicro) || !integer(voiceExposure?.maxVisitorMicro) ||
@@ -86,6 +114,8 @@ export class SQLiteBudgetLedger {
       this.db.prepare('UPDATE budget_attempts SET max_visitor_micro=? WHERE attempt_id=?').run(maxVisitorMicro, attemptId);
       if (voiceExposure) this.db.prepare('UPDATE budget_attempts SET voice_exposure_micro=?,voice_visitor_exposure_micro=? WHERE attempt_id=?')
         .run(voiceExposure.maxMicro, voiceExposure.maxVisitorMicro, attemptId);
+      if (voiceEstimate) this.db.prepare('UPDATE budget_attempts SET voice_estimate_json=? WHERE attempt_id=?')
+        .run(JSON.stringify({ ...voiceEstimate, maxMicro }), attemptId);
       const ownerHash = this.db.prepare("SELECT json_extract(snapshot,'$.ownerHash') AS h FROM sessions WHERE id=?").get(sessionId).h;
       this.db.prepare('UPDATE budget_attempts SET owner_hash=?,provider_cost_json=? WHERE attempt_id=?')
         .run(ownerHash ?? null, providerCost ? JSON.stringify(providerCost) : null, attemptId);
@@ -181,7 +211,7 @@ export class SQLiteBudgetLedger {
       maxMicro = Math.max(maxMicro, row.max_micro); maxVisitorMicro = Math.max(maxVisitorMicro, row.max_visitor_micro);
       const extra = { maxMicro: maxMicro - row.max_micro, maxVisitorMicro: maxVisitorMicro - row.max_visitor_micro };
       if (!this.canAdmit(row.session_id, extra.maxMicro, extra.maxVisitorMicro) || ownerCanAdmit?.(extra) === false) throw new PluginError('not-admitted', 'Budget denied');
-      this.db.prepare('UPDATE budget_attempts SET max_micro=?,max_visitor_micro=? WHERE attempt_id=?').run(maxMicro, maxVisitorMicro, attemptId);
+      this.db.prepare("UPDATE budget_attempts SET max_micro=?,max_visitor_micro=?,voice_estimate_json=json_set(voice_estimate_json,'$.maxMicro',?) WHERE attempt_id=?").run(maxMicro, maxVisitorMicro, maxMicro, attemptId);
       return { maxMicro, maxVisitorMicro };
     });
   }
@@ -191,12 +221,17 @@ export class SQLiteBudgetLedger {
     return this.storage.transaction(() => {
       const row = this.get(attemptId);
       if (!row || row.lane !== 'voice' || row.state !== 'dispatched') throw new PluginError('not-admitted');
+      this.freezeVoiceEstimate(attemptId);
       const maxMicro = Math.max(row.max_micro, row.voice_exposure_micro);
       const maxVisitorMicro = Math.max(row.max_visitor_micro, row.voice_visitor_exposure_micro);
       this.db.prepare('UPDATE budget_attempts SET max_micro=?,max_visitor_micro=?,voice_closing=1 WHERE attempt_id=?')
         .run(maxMicro, maxVisitorMicro, attemptId);
       return { maxMicro, maxVisitorMicro };
     });
+  }
+  freezeVoiceEstimate(attemptId) {
+    this.db.prepare("UPDATE budget_attempts SET voice_estimate_json=json_set(voice_estimate_json,'$.endedAt',?) WHERE attempt_id=? AND json_extract(voice_estimate_json,'$.endedAt') IS NULL")
+      .run(this.now(), attemptId);
   }
   claim(attemptId) {
     return this.storage.transaction(() => {
@@ -209,6 +244,7 @@ export class SQLiteBudgetLedger {
         consumed = true;
         const result = this.db.prepare("UPDATE budget_attempts SET state='dispatched' WHERE attempt_id=? AND claim_id=? AND state='claimed'").run(attemptId, claimId);
         if (!result.changes) throw new PluginError('already-claimed');
+        this.db.prepare("UPDATE budget_attempts SET voice_estimate_json=json_set(voice_estimate_json,'$.startedAt',?) WHERE attempt_id=?").run(this.now(), attemptId);
       } });
     });
   }
@@ -256,6 +292,7 @@ export class SQLiteBudgetLedger {
         if (row.terminal_json !== bytes) throw new PluginError('already-claimed');
         return this.get(row.attempt_id);
       }
+      this.freezeVoiceEstimate(row.attempt_id);
       const dispatched = row.state === 'dispatched', uncertain = dispatched && !known;
       const actual = !dispatched ? 0 : uncertain ? Math.max(row.max_micro, row.voice_exposure_micro,
         integer(terminal.chargedMicro) ? terminal.chargedMicro : 0) : terminal.usage.upstreamMicro;
@@ -300,6 +337,7 @@ export class SQLiteBudgetLedger {
     return this.storage.transaction(() => {
       const rows = this.db.prepare("SELECT * FROM budget_attempts WHERE state!='settled' AND (? IS NULL OR session_id=?)").all(sessionId ?? null, sessionId ?? null);
       for (const row of rows) {
+        if (row.lane === 'voice') this.freezeVoiceEstimate(row.attempt_id);
         const providerRecord = row.provider_cost_json ? JSON.parse(row.provider_cost_json) : null;
         const dispatched = row.state === 'dispatched' && (!providerRecord || providerRecord.dispatchStarted === 1);
         const evidence = row.provider_cost_json ? JSON.parse(row.provider_cost_json) : null;

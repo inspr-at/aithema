@@ -762,6 +762,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       const { maxMicro, maxVisitorMicro, maxMilliseconds, fundedSeconds: initialFundedSeconds } = voiceAmounts(binding, options);
       let fundedSeconds = initialFundedSeconds;
       const { attemptId } = await admitBudget(session, { sessionId: session.id, lane: 'voice', maxMicro, maxVisitorMicro,
+        voiceEstimate: { upstreamMicroPerMinute: binding.upstreamMicroPerMinute, visitorMicroPerMinute: binding.visitorMicroPerMinute },
         voiceExposure: { maxMicro: Math.max(maxMicro, Math.ceil(binding.maxDurationSeconds / 60 * binding.upstreamMicroPerMinute)),
           maxVisitorMicro: Math.max(maxVisitorMicro, Math.ceil(binding.maxDurationSeconds / 60 * binding.visitorMicroPerMinute)) },
         requestSha256: hash(request), bindingSha256: hash(binding) });
