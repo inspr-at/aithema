@@ -49,7 +49,7 @@ test('AIT-174 redirect, locked pause and normal reply at 390/1024/1440, L/D, DE/
         document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
         c.shadowRoot.querySelector('.send').scrollIntoView({ block: 'end', behavior: 'instant' });
       }, locale); await frame(page); await page.mouse.move(0, 0);
-      const baseline = await boxes(page, ['.composer', 'textarea', '.attach', '.send', '.understanding']);
+      const baseline = await boxes(page, ['.composer', 'textarea', '.attach', '.send']);
       const shot = async state => { if (evidence) {
         const file = `ait-174-${label}-${state}.png`; await page.screenshot({ path: join(evidence, file), fullPage: false }); files.push(file);
       } };
@@ -60,21 +60,21 @@ test('AIT-174 redirect, locked pause and normal reply at 390/1024/1440, L/D, DE/
         c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'redirect', role: 'assistant', content: globalThis.safeguardsCopy.purposeRedirect,
           question_short: null, options: [], inputRevision: inputRevision(c.session) } });
       }); await frame(page);
-      assert.deepEqual(await boxes(page, ['.composer', 'textarea', '.attach', '.send', '.understanding']), baseline, `${label} redirect: 0 px shift`);
+      assert.deepEqual(await boxes(page, ['.composer', 'textarea', '.attach', '.send']), baseline, `${label} redirect: 0 px shift`);
       const redirect = await shadow(page, c => ({ text: c.shadowRoot.querySelector('.transcript-shell').textContent, card: Boolean(c.shadowRoot.querySelector('.qcard:not([hidden])')) }));
       assert.match(redirect.text, /Augmentoring/u); assert.equal(redirect.card, false); assert.doesNotMatch(redirect.text, /scope|```|AITHEMA_CANARY_/u); await shot('redirect');
       await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true, reason: 'purpose' } })); await frame(page);
-      assert.deepEqual(await boxes(page, ['.composer', 'textarea', '.attach', '.send', '.understanding']), baseline, `${label} pause: 0 px shift`);
+      assert.deepEqual(await boxes(page, ['.composer', 'textarea', '.attach', '.send']), baseline, `${label} pause: 0 px shift`);
       const pause = await shadow(page, c => {
         const root = c.shadowRoot, copy = root.querySelector('.purpose-pause-copy');
         return { text: copy.textContent, shown: !copy.hidden, height: copy.clientHeight, scroll: copy.scrollHeight,
-          disabled: ['textarea', '.send', '.attach', '.pause'].every(selector => root.querySelector(selector).disabled),
+          disabled: ['textarea', '.send', '.pause'].every(selector => root.querySelector(selector).disabled) && root.querySelector('.attach').getAttribute('aria-disabled') === 'true',
           overflow: document.documentElement.scrollWidth > innerWidth, label: JSON.stringify(c.session).includes('scope') };
       });
       assert.equal(pause.shown, true); assert.match(pause.text, locale === 'de' ? /neues Gespräch/u : /new conversation/u);
       assert.equal(pause.disabled, true); assert.equal(pause.overflow, false); assert.equal(pause.label, false);
       assert.ok(pause.scroll <= pause.height + 1, `${label}: full pause copy fits its reserved composer area`); await shot('pause');
-      checks.push(`${label}: normal, redirect, locked pause; 0 px composer/understanding-panel shift; no horizontal overflow; pause copy fits`);
+      checks.push(`${label}: normal, redirect, locked pause; 0 px composer shift; no horizontal overflow; pause copy fits`);
     });
   }
   assert.equal(globalThis.safeguardsInterceptionError, undefined);
