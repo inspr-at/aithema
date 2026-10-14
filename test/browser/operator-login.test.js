@@ -37,7 +37,7 @@ const emailLayout = page => shadow(page, c => {
     return { selector, box: [b.x,b.y,b.width,b.height], font: s.font, lineHeight: s.lineHeight, display: s.display, marginBottom: s.marginBottom, minHeight: s.minHeight };
   }) };
 });
-const openGeneral = async page => {
+const openGeneral = async (page, returned = false) => {
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
   // Compare operator navigation with the same known-tier reservation at each
   // open; AIT-171 deliberately retains an unknown-tier union until close.
@@ -46,6 +46,17 @@ const openGeneral = async page => {
     return entry.dataset.emailState && entry.querySelector('.m-lead-save')?.textContent;
   });
   await page.evaluate(() => document.fonts.ready);
+  if (returned) await until(page, () => {
+    const r = document.querySelector('aithema-session').shadowRoot;
+    return r.querySelector('dialog.settings').open && r.querySelector('[data-tab=general]').getAttribute('aria-selected') === 'true';
+  });
+  // The callback automatically opens before tiers arrive. Verify that return,
+  // then reopen with known tiers to compare the same reservation as sign-out.
+  const alreadyOpen = await shadow(page, c => c.shadowRoot.querySelector('dialog.settings').open);
+  if (alreadyOpen) {
+    await shadow(page, c => c.shadowRoot.querySelector('dialog.settings .done').click());
+    await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('dialog.settings').open);
+  }
   await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '.operator-section' }));
   // Scroll the last section into view; the footer stays fixed.
   await shadow(page, c => { const s = c.shadowRoot; s.querySelector('.settings__body').scrollTop = s.querySelector('.settings__body').scrollHeight; });
@@ -90,7 +101,7 @@ test('AIT-165 viewport matrix: real sign-in/logout, inline error and feature off
         await capture('signed-out', width, theme);
         // The native link visits the local issuer and returns to the exact callback.
         await Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded' }), shadow(page, c => c.shadowRoot.querySelector('.operator-login').click())]);
-        await openGeneral(page);
+        await openGeneral(page, true);
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.operator-name').textContent), 'Operator: Ada');
         // Chrome inserts newlines between flex items in form.innerText; each
         // item's innerText still exposes whether its spaces actually rendered.
@@ -132,9 +143,9 @@ test('AIT-165 viewport matrix: real sign-in/logout, inline error and feature off
         await capture('signed-in', width, theme);
         // Native form submits a same-origin POST; the replayed cookie no longer works.
         await Promise.all([page.waitForNavigation({ waitUntil: 'domcontentloaded' }), shadow(page, c => c.shadowRoot.querySelector('.operator-logout').click())]);
-        await openGeneral(page); assert.deepEqual(await geometry(page), before, 'sign-out: 0 px shift');
+        await openGeneral(page, true); assert.deepEqual(await geometry(page), before, 'sign-out: 0 px shift');
         assert.equal(await page.evaluate(async () => Object.hasOwn(await (await fetch('/demo/config')).json(), 'operator')), false);
-        await page.goto(configured.url + '/api/operator/callback/?state=wrong&code=wrong', { waitUntil: 'domcontentloaded' }); await openGeneral(page);
+        await page.goto(configured.url + '/api/operator/callback/?state=wrong&code=wrong', { waitUntil: 'domcontentloaded' }); await openGeneral(page, true);
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.operator-error').textContent), copy.settings.operatorError);
         assert.deepEqual(await geometry(page), before, 'inline error: 0 px shift');
         await capture('error', width, theme);
