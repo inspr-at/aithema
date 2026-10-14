@@ -213,7 +213,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 /* Mail can show its own view, delete confirmation and the privacy fallback. */
 [data-email-reservation="mail"] .m-stack > :is([data-view="capture"],[data-view="saved"]) { display:none; }
 /* Unknown tiers keep the full union, including space for later tier copy. */
-[data-email-reservation="union"] .m-form .m-lead { min-height:2lh; }
+[data-email-reservation="union"] .m-form .m-lead { min-height:3lh; }
 /* A wrapped delete action may be taller: keep the mail notice at the cell end. */
 [data-email-mode="mail"] .m-stack > [data-view="mail"] { grid-template-rows:auto auto minmax(44px,1fr) auto; }
 /* The two-line delete error is a reachable state, including with Linux fonts. */
