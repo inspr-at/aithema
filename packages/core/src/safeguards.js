@@ -40,7 +40,7 @@ function promptSpans(system) {
   return spans;
 }
 function codeLike(text) {
-  if (/```|~~~|<\s*(?:pre|code)\b/iu.test(text)) return true;
+  if (/```|~~~|(?:^|\n)(?: {4}|\t)\S|<\s*(?:pre|code)\b/iu.test(text)) return true;
   if (/`(?:const|let|var|def|function|import|return)\b[^`]+`|`[\w$.]+\([^`]*\)`/u.test(text)) return true;
   // Require syntax with keywords, rather than language names or ordinary prose.
   if (/\b(?:const|let|var)\s+[\w$]+\s*(?:=|:[^\n;]+[=;])[^\n]*;|\b(?:function|class)\s+[\w$]+[^\n]*\{|\b(?:if|for|while)\s*\([^\n]*\)\s*\{|\bdef\s+\w+\s*\([^\n]*\)\s*:|\b(?:print\(|print\s*\(\s*["'0-9]|console\.log\s*\()[^\n]*\)|\bSELECT\s+[^\n]+\s+FROM\s+[^\n]+;/u.test(text)) return true;
