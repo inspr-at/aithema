@@ -172,7 +172,8 @@ second. A reserved source cannot be edited to replace the artifact set.
 New reservations declare `inspr-calver-3` (**INSPR-CalVer3**),
 `YYMMDDhhmmss.0.0`; npm accepts this syntax. MINOR/PATCH stay zero and caret/tilde
 compatibility semantics do not apply. The packer derives package versions,
-exact internal dependency pins and lock entries without changing the development
+exact internal dependency pins, lock entries and public plugin manifest versions
+without changing the development
 workspace manifests. External dependencies retain their exact lock closure.
 
 The historical release-order mapping is in `release/history.json` (the 11

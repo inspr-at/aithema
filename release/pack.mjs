@@ -71,6 +71,12 @@ export function packRelease({ root = fileURLToPath(new URL('../', import.meta.ur
   assertCanonicalReleaseToolchain();
   const sourceTree = treeDigest(files), lockDigest = digest(files.get('package-lock.json'));
   const packages = packageVersions(files, source);
+  // Public plugin release versions share the canonical coordinate; apiVersion remains a separate protocol.
+  for (const [path, bytes] of files) {
+    if (/^packages\/core\/src\/(?:plugins|extractor)\.js$/u.test(path) || /^plugins\/[^/]+\/src\/(?:index|manifest)\.js$/u.test(path)) {
+      files.set(path, Buffer.from(bytes.toString().replace(/\bversion:\s*(['"])0\.0\.0\1/gu, `version: '${source.version}'`)));
+    }
+  }
   const epoch = commitEpochSeconds(root, commit);
   files.set('release/runtime.json', Buffer.from(json({ ...source, mode: dryRun ? 'dry-run' : 'release', source: { commit, tree_digest: sourceTree, lock_digest: lockDigest }, date: new Date(epoch * 1000).toISOString() })));
   const lock = JSON.parse(files.get('package-lock.json'));

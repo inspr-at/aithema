@@ -29,9 +29,12 @@ test('dry-run pack repeats identical bytes and manifest, pins dependencies, and 
   const extracted = join(fixture, 'extracted'); mkdirSync(extracted); execFileSync('tar', ['-xzf', a.artifactPath, '-C', extracted]);
   execFileSync('npm', ['ci', '--offline', '--ignore-scripts', '--omit=dev', '--no-audit', '--no-fund'], { cwd: join(extracted, 'package'), stdio: ['ignore', 'pipe', 'pipe'] });
   const consumer = `import { SQLiteStorage, createHandlers, createMemoryConsentLedger, exportSession } from '@inspr/aithema-server';
-    import { createSession } from '@inspr/aithema-core';
+    import { createSession, createMockReasoning } from '@inspr/aithema-core';
+    import { manifest as reasoningManifest } from '@inspr/aithema-plugin-openrouter';
+    import { manifest as imageManifest } from '@inspr/aithema-plugin-openai-images';
     import { readFileSync } from 'node:fs';
     const runtime = JSON.parse(readFileSync('release/runtime.json'));
+    if ([createMockReasoning().manifest, reasoningManifest, imageManifest].some(manifest => manifest.version !== runtime.version || manifest.apiVersion !== '^1.0.0')) throw new Error('Public plugin version mapping drift');
     const storage = new SQLiteStorage(':memory:');
     const handlers = createHandlers({ storage, consent: createMemoryConsentLedger() });
     await handlers.resume();
