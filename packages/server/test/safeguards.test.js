@@ -305,17 +305,17 @@ for (const locale of ['de', 'en']) for (let injectionAt = 0; injectionAt < 3; in
   assert.equal(f.storage.get(another.id).transcript.at(-1).content, start2Redirects[locale][0]);
   assert.equal(f.storage.safeguards(another.id).offTopicTurns, 1);
 });
-test('AIT-178 in-scope turns and locale changes preserve the off-topic ordinal', async t => {
+for (const locale of ['de', 'en']) test(`AIT-178 ${locale} in-scope turns preserve the off-topic ordinal`, async t => {
   const f = fixture(t, { policy: start2PurposePolicy, outputs: request => {
     const latest = request.messages.findLast(message => message.role === 'user').content;
     return envelope('What should improve first?', latest.includes('project') ? 'in' : 'off');
   } });
+  f.storage.changeLocale(f.session.id, locale, { ownerToken: testToken });
   await f.send('A recipe');
-  assert.equal(f.storage.get(f.session.id).transcript.at(-1).content, start2Redirects.en[0]);
+  assert.equal(f.storage.get(f.session.id).transcript.at(-1).content, start2Redirects[locale][0]);
   await f.send('Our project needs a solution');
   assert.equal(f.storage.get(f.session.id).transcript.at(-1).content, 'What should improve first?');
-  f.storage.changeLocale(f.session.id, 'de', { ownerToken: testToken });
   await f.send('Ein Rezept');
-  assert.equal(f.storage.get(f.session.id).transcript.at(-1).content, start2Redirects.de[1]);
+  assert.equal(f.storage.get(f.session.id).transcript.at(-1).content, start2Redirects[locale][1]);
   assert.equal(f.storage.safeguards(f.session.id).offTopicTurns, 2);
 });
