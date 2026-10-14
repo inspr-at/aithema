@@ -38,7 +38,7 @@ export function createSpendCap({ storage, account, capMicro } = {}) {
     if (!Object.values(row).every(amount)) throw new PluginError('not-admitted', 'OpenRouter spend cap exhausted');
     const overrun = db.prepare('SELECT 1 FROM spend_reservations WHERE account=? AND actual_micro > COALESCE(ceiling_micro,reserved_micro) LIMIT 1').get(account);
     return { ...row, capMicro, breached: Boolean(overrun) || row.spentMicro > capMicro,
-      ...(includeBreachReason ? { breachReason: overrun ? 'overrun' : row.spentMicro > capMicro ? 'overCap' : null } : {}) };
+      ...(includeBreachReason ? { breachReason: overrun ? 'overrun' : row.spentMicro > capMicro ? 'over-cap' : null } : {}) };
   };
   return { snapshot,
     reserve(ceilingMicro, { attemptId, provider } = {}) {

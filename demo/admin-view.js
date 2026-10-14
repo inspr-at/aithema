@@ -10,10 +10,7 @@ const I = {
   lock: svg('<rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>'),
   info: svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5"/><path d="M12 7.6v.2" stroke-width="2.2"/>'),
   login: svg('<path d="M14 4h6v16h-6M3 12h12m-4-4 4 4-4 4"/>'),
-  general: svg('<path d="M4 7h3m4 0h9M4 17h9m4 0h3"/><circle cx="9" cy="7" r="2"/><circle cx="15" cy="17" r="2"/>'),
-  model: svg('<path d="M5 3h14a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H9l-6 3V5a2 2 0 0 1 2-2Z"/>'),
-  local: svg('<path d="M6 4v3m0 4v9m6-16v9m0 4v3m6-16v3m0 4v9"/><circle cx="6" cy="9" r="2"/><circle cx="12" cy="15" r="2"/><circle cx="18" cy="9" r="2"/>'),
-  chev: svg('<path d="m6 9 6 6 6-6"/>'),
+
 }
 
 
@@ -36,7 +33,7 @@ export function adminModel(state, audit) {
     conf: s.confirmationEnabled, delivery: state.deliveryEnabled, mail: s.mailCap, ip: s.mailIpCap,
     use: { hour: state.mailUsage.hour.count, day: state.mailUsage.day.count }, ipUse: state.busiestConnection,
     prov: { available: p.available, cap: p.capMicro / 10_000, confirmed: p.confirmedMicro / 10_000,
-      reserved: p.reservedMicro / 10_000, uncertain: p.uncertainMicro / 10_000, breach: p.breach },
+      reserved: p.reservedMicro / 10_000, uncertain: p.uncertainMicro / 10_000, breach: p.breach ? { reason: p.breach.reason === 'over-cap' ? 'overCap' : p.breach.reason } : null },
     audit: audit.items.map(auditRow), more: audit.nextBefore !== null, end: audit.items.length > 0 && audit.nextBefore === null,
     updatedAt: s.updatedAt, sec: { credits: { mode: 'clean' }, confirm: { mode: 'clean' }, mail: { mode: 'clean' } } };
 }
@@ -64,7 +61,7 @@ const msgInk = t => `${I.info}<span class="ink">${esc(t)}</span>`
 const commonMsgs = () => [esc(C.dirty), esc(C.saving), msgSaved(), msgInk(C.failed), msgInk(fill(C.conflict, { time: C.locale === 'de' ? '30. Sept., 23:59' : 'Sep 30, 11:59 PM' }))]
 
 function creditsSection(m) {
-  const s = m.sec.credits, v = { ...m.allow, ...(s.edit || {}) }
+  const v = m.allow
   const sub = t => {
     const options = t === 'emailConfirmed' ? [C.credits.tiers[t][1], C.credits.off, C.credits.noDelivery] : [C.credits.tiers[t][1]];
     const active = t !== 'emailConfirmed' || m.conf && m.delivery ? 0 : m.delivery ? 1 : 2;

@@ -44,7 +44,7 @@ const openGeneral = async page => {
 test('AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift',
   { timeout: 180_000 }, async t => {
     const directory = await mkdtemp(join(tmpdir(), 'aithema-operator-ui-')), issuer = await stubOperatorIssuer();
-    const evidence = process.env.AITHEMA_EVIDENCE_DIR, passLines = [], shots = [];
+    const evidence = process.env.AITHEMA_EVIDENCE_DIR, passLines = [], shots = [], adminEntries = [];
     let browser, configured, absent;
     t.after(async () => { await browser?.close(); await configured?.kill(); await absent?.kill(); await issuer.close(); await rm(directory, { recursive: true, force: true }); });
     configured = await host(directory, issuer, true); absent = await host(directory, issuer, false);
@@ -58,6 +58,7 @@ test('AIT-165 viewport matrix: real sign-in/logout, inline error and feature off
         const name = `ait-165-${evidenceCommit}-${locale}-${theme}-${width}-${state}.png`;
         if (evidence) { await page.screenshot({ path: join(evidence, name), fullPage: false }); shots.push(name);
           if (['signed-in', 'signed-out'].includes(state)) await page.screenshot({ path: join(evidence, `ait-169-${evidenceCommit}-${locale}-${theme}-${width}-${state === 'signed-in' ? 'entry' : 'entry-out'}.png`), fullPage: false }); }
+        if (['signed-in', 'signed-out'].includes(state)) adminEntries.push(`PASS head=${evidenceCommit} AIT-169 ${locale}-${theme}-${width}/${state === 'signed-in' ? 'entry' : 'entry-out'} 0.00 px shift`);
         const row = { head: evidenceCommit, locale, theme, width, state, shiftPx: 0 };
         passLines.push(row); t.diagnostic(`PASS head=${evidenceCommit} AIT-165 ${locale}-${theme}-${width}/${state} 0 px layout shift`);
       };
@@ -110,5 +111,7 @@ test('AIT-165 viewport matrix: real sign-in/logout, inline error and feature off
       assert.deepEqual(errors, []); await browser.close(); browser = null;
     }
     if (evidence) await writeFile(join(evidence, `ait-165-${evidenceCommit}-passes.json`), JSON.stringify({ head: evidenceCommit, viewport: true, passLines, shots }, null, 2));
+    if (evidence) await writeFile(join(evidence, 'ait-169-entry-pass-lines.txt'), adminEntries.join('\n') + '\n');
+    adminEntries.forEach(line => t.diagnostic(line));
     assert.equal(passLines.length, 48);
   });

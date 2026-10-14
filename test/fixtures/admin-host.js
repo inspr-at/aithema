@@ -10,7 +10,7 @@ export async function adminFixture({ configured = true, delivery = true, origin 
   let time = Date.parse('2026-10-14T20:00:00Z');
   const now = () => time;
   const host = createDemoHost({ storage, now, demo: false,
-    ...(delivery ? { mailPlugin: { id: 'stub-mail', deliversVerification: true, requestVerification: async () => ({ status: 'sent' }) } } : {}) });
+    ...(delivery ? { mailPlugin: { id: 'smtp', deliversVerification: true, requestVerification: async () => ({ status: 'sent' }) } } : {}) });
   const store = createSQLiteOperatorStore(storage.db);
   const provider = { label: 'Zitadel', sessionNamespace: 'stub-operator', allows: s => s === subject,
     begin: () => ({ pending: { state: 's'.repeat(43), nonce: 'n'.repeat(43), verifier: 'v'.repeat(64) }, url: origin + '/stub' }),
