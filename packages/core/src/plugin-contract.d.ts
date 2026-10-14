@@ -57,7 +57,7 @@ export type VoiceEvent = { callId: string; providerSessionId?: string; generatio
 );
 export interface VoiceUsage {
   providerSeconds: number; providerMinutes: number; pausedSeconds: number; visitorSeconds: number;
-  upstreamMicro: number; visitorMicro: number; providerCredits?: number;
+  upstreamMicro: number; visitorMicro: number; providerCredits?: number; characters?: number;
   costSource?: string; costEstimated?: boolean; usdPerCredit?: number; estimateMicroPerMinute?: number;
 }
 export interface VoiceTerminal {
