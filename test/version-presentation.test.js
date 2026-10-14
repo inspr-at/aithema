@@ -11,7 +11,6 @@ test('product hover details use the shared Pretty renderer and exact canonical U
   assert.equal(element.firstChild.textContent, 'Aithema 2026.10');
   assert.equal(coordinate.dataset.canonical, '261014080000.0.0');
   assert.match(coordinate.getAttribute('aria-label'), /261014080000\.0\.0.*2026-10-14 08:00:00 UTC/u);
-  assert.match(coordinate.querySelector('.yy').style.color, /#12908c/u);
   assert.equal(coordinate.querySelector('.tail'), null); assert.equal(coordinate.querySelector('.v'), null);
   assert.equal(coordinate.querySelector('.ss').dataset.collapsed, 'true');
   dispose();

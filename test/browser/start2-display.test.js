@@ -881,7 +881,7 @@ test('AIT-105: CalVer3 stays in hover details, preserves product name and copies
     await page.setViewport({ width, height: 1000 });
     await page.evaluate(async locale => {
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
-      const c = document.querySelector('aithema-session');
+      const c = document.querySelector('aithema-session'); window.ait105Copy = copy;
       c.configure({ copy, session: { ...c.session, locale }, host: { version: {
         product: 'Aithema 2026.10', version: '261014080000.0.0', version_scheme: 'inspr-calver-3',
       } } });
@@ -896,7 +896,26 @@ test('AIT-105: CalVer3 stays in hover details, preserves product name and copies
     assert.equal(await version.evaluate(node => node.querySelector('.tail')), null);
     if (evidence) await page.screenshot({ path: join(evidence, `ait105-version-${locale}-${width}.png`), fullPage: false });
     t.diagnostic(`PASS AIT-105 ${locale}/${width}: product name preserved; hover UTC coordinate; canonical clipboard; viewport capture`);
+    const originalColor = await version.evaluate(node => getComputedStyle(node.querySelector('.yy')).color);
     await version.dispose();
+    await shadow(page, c => {
+      c.style.setProperty('--aithema-accent', '#a52233');
+      c.configure({ copy: window.ait105Copy, session: c.session,
+        host: { version: { product: 'Aithema 2026.10', version: '261014080000.0.0', version_scheme: 'inspr-calver-3' } } });
+    });
+    const brandedColor = await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('#build-info .yy')).color);
+    assert.notEqual(brandedColor, originalColor, 'Pretty auto colors follow actual host branding');
+    await page.evaluate(async locale => {
+      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+      const c = document.querySelector('aithema-session'); c.style.removeProperty('--aithema-accent');
+      c.configure({ copy, session: c.session, host: { version: { product: 'Aithema 2026.10', version: '261014080000.0.0', version_scheme: 'inspr-calver-3', display: 'semver' } } });
+      c.shadowRoot.querySelector('.ai-notice').focus();
+    }, locale);
+    const reduced = await page.$('aithema-session >>> #build-info .coordinate');
+    assert.equal(await reduced.evaluate(node => node.textContent), '261014080000.0.0');
+    await reduced.click(); assert.equal(await page.evaluate(() => window.ait105Copied), '261014080000.0.0');
+    await reduced.dispose();
+    t.diagnostic(`PASS AIT-105 ${locale}/${width}: host branding changes Pretty color; reduced SemVer copies canonical version`);
   }
   assert.deepEqual(errors, []);
 });
