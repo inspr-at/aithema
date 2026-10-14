@@ -94,6 +94,16 @@ test('AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save 
       const name = `ait-171-${evidenceCommit}-${label}-${state}.png`; await page.screenshot({ path: join(evidence, name), fullPage: false }); shots.push(name);
     }
   };
+  const comparePixels = async (page, mainPage, clip, label) => {
+    // Each tab must be foreground and painted when its focused pixels are read.
+    await frame(page); const actual = await page.screenshot({ clip });
+    await frame(mainPage); const expected = await mainPage.screenshot({ clip });
+    if (!actual.equals(expected) && evidence) {
+      await writeFile(join(evidence, `ait-171-${evidenceCommit}-${label}-save-current-mismatch.png`), actual);
+      await writeFile(join(evidence, `ait-171-${evidenceCommit}-${label}-save-main-mismatch.png`), expected);
+    }
+    assert.ok(actual.equals(expected), `${label}: save pixels match main ${baseline.sourceHead}`);
+  };
   for (const locale of ['de', 'en']) {
     browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(dir, 'chrome-' + locale), env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
     const page = await browser.newPage(), mainPage = await browser.newPage();
@@ -113,10 +123,10 @@ test('AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save 
       // Compare the visible email section's PNG bytes, with focus away from the input caret.
       for (const p of [page, mainPage]) { await shadow(p, c => c.shadowRoot.querySelector('#email-heading').focus({ preventScroll: true })); await frame(p); }
       const clip = await shadow(page, c => { const b = c.shadowRoot.querySelector('#email').getBoundingClientRect(), body = c.shadowRoot.querySelector('.settings__body').getBoundingClientRect(); const y = Math.max(b.y, body.y), bottom = Math.min(b.bottom, body.bottom); return { x: b.x, y, width: b.width, height: bottom - y }; });
-      assert.ok((await page.screenshot({ clip })).equals(await mainPage.screenshot({ clip })), `${label}: save pixels match main ${baseline.sourceHead}`);
+      await comparePixels(page, mainPage, clip, label);
       await fixture(page, locale, true, false); assert.deepEqual((await geometry(page)).boxes, save.boxes, 'confirmation off retains save geometry');
       await shadow(page, c => c.shadowRoot.querySelector('#email-heading').focus({ preventScroll: true })); await frame(page);
-      assert.ok((await page.screenshot({ clip })).equals(await mainPage.screenshot({ clip })), 'confirmation off retains main save pixels');
+      await comparePixels(page, mainPage, clip, label + '-confirmation-off');
       await fixture(page, locale, true); const before = await geometry(page); await record(page, label, 'mail-none', before, 0);
       await t.test(`${label}: mail content owns height`, () => {
         assert.ok(before.hairlineGap <= before.lineHeight, `content-to-hairline gap ${before.hairlineGap} px exceeds one line ${before.lineHeight} px`);
