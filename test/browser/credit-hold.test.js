@@ -24,6 +24,11 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
   browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
     env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
   const page = await browser.newPage(), errors = [], loadErrors = [];
+  // Accelerate only the ordinary credit poll; unit coverage verifies its real 15 s cadence.
+  await page.evaluateOnNewDocument(() => {
+    const interval = window.setInterval.bind(window);
+    window.setInterval = (callback, ms, ...args) => interval(callback, ms === 15_000 ? 1000 : ms, ...args);
+  });
   page.on('pageerror', error => errors.push(error.message));
   page.on('response', response => { if (response.status() >= 400) loadErrors.push(`${response.status()} ${response.url()}`); });
   page.on('requestfailed', request => loadErrors.push(`${request.failure()?.errorText} ${request.url()}`));
@@ -43,7 +48,8 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
         const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
         const { voiceEvents } = await import('/packages/core/src/live-voice.js');
         session.locale = locale; session.demo = false; session.settings = { ...session.settings, origin: 'chosen', voice: 'off', visuals: 'off' };
-        session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, voice: { available: true } } };
+        const verdict = state === 'reconciling-blocked' ? { available: false, reason: 'budget denied' } : { available: true };
+        session.featureMatrix = { best: { text: verdict, analysis: verdict, voice: { available: true } } };
         const voiceClient = { manifest: { liveVoice: { capabilities: { setInput: 'native', setOutput: 'native', pause: 'native', resume: 'native', updateContext: 'native' } } },
           async start(request) { const events = voiceEvents(); return { callId: request.callId, providerSessionId: 'hold-fixture', events,
             async setInput() {}, async setOutput() {}, async heartbeat() {}, async updateContext() {},
@@ -56,7 +62,17 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__amount').textContent.trim() !== '…');
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.call === 'active');
       if (state.startsWith('reconciling')) {
-        await shadow(page, c => c.shadowRoot.querySelector('.voice-close').click());
+        const immediate = await shadow(page, c => {
+          const root = c.shadowRoot, rects = () => ['.composer-shell', '.display-foot', '.host-credits', '.audio-rail'].map(selector => {
+            const r = root.querySelector(selector).getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
+          });
+          const before = rects(); root.querySelector('.voice-close').click(); const after = rects();
+          return { usedUp: root.querySelector('.composer-shell').hasAttribute('data-used-up'), ask: root.querySelector('.workspace').dataset.emailAsk,
+            shift: Math.max(...before.flatMap((row, i) => row.map((value, j) => Math.abs(value - after[i][j])))) };
+        });
+        assert.equal(immediate.usedUp, false, 'synchronous hangup has no used-up panel');
+        assert.equal(immediate.ask, 'closed', 'synchronous hangup has no email ask');
+        assert.equal(immediate.shift, 0, 'synchronous hangup preserves the slot height');
         await until(page, () => /abgeglichen|reconciled/u.test(document.querySelector('aithema-session').shadowRoot.querySelector('.voice-state').textContent));
       }
       await settle(page);

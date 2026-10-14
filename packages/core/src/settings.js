@@ -13,7 +13,7 @@ export const isOptionId = value => typeof value === 'string' && ID.test(value);
 // these is saved and offered; admission keeps refusing dispatch until they clear.
 // A host verification lock (AIT-104) clears once the visitor confirms the email address.
 const DYNAMIC = new Set(['session paused', 'current processing consent required', 'consent port unavailable',
-  'plugin unhealthy', 'budget denied', 'admission deadline', 'verification required',
+  'plugin unhealthy', 'budget denied', 'budget reconciling', 'admission deadline', 'verification required',
   'Voice minute cap reached for this deployment', 'Voice minute cap reached for this UTC day']);
 export const isDynamicReason = reason => DYNAMIC.has(reason) || typeof reason === 'string' &&
   reason.startsWith('delegated reasoning: ') && DYNAMIC.has(reason.slice('delegated reasoning: '.length));

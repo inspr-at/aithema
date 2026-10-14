@@ -590,8 +590,8 @@ export class AithemaSession extends HTMLElement {
   #creditsChanged({ allowanceChanged = false } = {}) {
     if (!this.#host) return;
     const usedUp = this.#host.usedUp, recovered = this.#creditWasUsedUp && !usedUp; this.#creditWasUsedUp = usedUp;
-    const deniedText = !this.#hasLiveCall() && this.#session.featureMatrix?.[this.#session.processingPreset ?? 'best']?.text?.reason &&
-      ['budget denied', 'budget reconciling'].includes(this.#session.featureMatrix[this.#session.processingPreset ?? 'best'].text.reason);
+    const textReason = this.#session.featureMatrix?.[this.#session.processingPreset ?? 'best']?.text?.reason;
+    const deniedText = !this.#hasLiveCall() && ['budget denied', 'budget reconciling'].includes(textReason);
     const refresh = (allowanceChanged || recovered || deniedText || this.#rail?.allowanceDenied) && this.isConnected ? this.#refreshFeatures() : null;
     if (usedUp && this.#rail?.session && !this.#rail.moved && !this.#creditEnding) {
       this.#creditEnding = true;
