@@ -13,7 +13,9 @@ export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 // themes from each settled state: 153.965s remotely on mbp2606 (296 checks).
 export const browserShards = [
   // 402.566s CI; 350.166s mbp2606
-  ['test/browser/visitor-credit-tiers.test.js'],
+  // AIT-174 CI at a608325: 404s here, 484s in shard 4 (including a failed 45s wait).
+  // Move the 42s voice presentation matrix here to leave setup/evidence margin.
+  ['test/browser/visitor-credit-tiers.test.js', 'test/browser/voice-presentation.test.js'],
   // 290.400s CI at 70eec71, run 38477382124. AIT-165 operator login adds
   // 6.446s on mbp2606 at c9e7fc7 (48 viewport states); this shard has most headroom.
   // AIT-169 rotates 13 admin states across widths in CI (both locales/themes),
@@ -45,7 +47,6 @@ export const browserShards = [
     'test/browser/footer-width-sweep.test.js',
     'test/browser/start2-display-continuity.test.js',
     'test/browser/demo.test.js',
-    'test/browser/voice-presentation.test.js',
   ],
 ];
 

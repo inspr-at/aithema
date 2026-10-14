@@ -16,10 +16,10 @@ const producer = (admitted, plugin) => aiTextOrigin(admitted?.producer ?? plugin
 export class SessionLanes {
   #flights = new Map();
   constructor({ reasoning, draftReasoning = reasoning, getSession, publish, transient = () => {}, deadlineMs = 30_000,
-    hostPrompt = '', purposePolicy, onScope = () => {}, canUnderstand = () => true, admit, beforeDispatch = admit ? undefined : async () => false, selection = () => '', onOpenerStripped = () => {} }) {
+    hostPrompt = '', purposePolicy, onScope = () => {}, canUnderstand = () => true, scopeKnown, replyVisible = () => true, admit, beforeDispatch = admit ? undefined : async () => false, selection = () => '', onOpenerStripped = () => {} }) {
     this.reasoning = assertReasoning(reasoning);
     this.draftReasoning = assertReasoning(draftReasoning);
-    Object.assign(this, { getSession, publish, transient, deadlineMs, hostPrompt, purposePolicy, onScope, canUnderstand, admit, beforeDispatch, selection, onOpenerStripped });
+    Object.assign(this, { getSession, publish, transient, deadlineMs, hostPrompt, purposePolicy, onScope, canUnderstand, scopeKnown, replyVisible, admit, beforeDispatch, selection, onOpenerStripped });
   }
   // A changed processing selection supersedes in-flight work exactly like new input:
   // its late result is stale and the host reruns the lane with the new binding.
@@ -96,7 +96,8 @@ export class SessionLanes {
         }
       } else {
         if (!hasConversationInput(session)) return 'deferred';
-        if (activeTurns(session).some(t => t.role === 'assistant' && t.inputRevision === revision)) return 'cached';
+        if (this.purposePolicy && this.scopeKnown ? this.scopeKnown(id, revision) :
+          activeTurns(session).some(t => t.role === 'assistant' && t.inputRevision === revision)) return 'cached';
         if (this.getSession(id).paused) return 'paused';
         if (this.beforeDispatch && !await untilCancelled(this.beforeDispatch(id, lane, this.reasoning, revision, options), scope.signal)) return 'blocked';
         if (!current() || this.getSession(id).paused) return 'stale';
@@ -116,6 +117,12 @@ export class SessionLanes {
           const guarded = stripThanksOpener(reply.content, session.locale);
           if (guarded.stripped) this.onOpenerStripped();
           const { scope: classification, ...visible } = reply;
+          // A non-delegating simulator already owns its normal spoken reply.
+          // Classify privately without adding a duplicate assistant turn.
+          if (!this.replyVisible(session) && classification !== 'off') {
+            this.onScope(id, classification, revision, { reply: false });
+            return 'completed';
+          }
           if (!this.publish(id, 'turn.final', { id: crypto.randomUUID(), role: 'assistant', ...visible, content: guarded.text,
             ...producer(admitted, admitted?.plugin ?? this.reasoning), at: new Date().toISOString(), inputRevision: revision,
             ...(admitted?.engine ? { engine: admitted.engine } : {}) }, revision, classification)) return 'stale';

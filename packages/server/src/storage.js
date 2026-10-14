@@ -182,7 +182,7 @@ export class SQLiteStorage {
       const key = JSON.stringify(['text', person?.id ?? null, documents]);
       this.db.prepare('INSERT INTO safeguard_inputs VALUES (?,?,?,?) ON CONFLICT(session_id,input_key) DO UPDATE SET revision=excluded.revision')
         .run(id, key, revision, Number(offTopic));
-      const events = [this.#append(session, 'turn.final', data)];
+      const events = data ? [this.#append(session, 'turn.final', data)] : [];
       if (this.safeguards(id).offTopicTurns >= limit && session.pauseReason !== 'purpose') {
         events.push(this.#append(this.get(id), 'session.paused', { paused: true, reason: 'purpose' }));
       }

@@ -102,7 +102,12 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   const laneKey = (session, lane) => `${inputRevision(session)}|${selection(session, lane)}`;
   const lanes = new SessionLanes({ reasoning, getSession: id => storage.get(id), deadlineMs, hostPrompt, purposePolicy, selection,
     canUnderstand: (id, revision) => { const state = storage.safeguards(id, revision); return state.assessed && !state.offTopic; },
-    onScope(id, scope) { if (scope !== 'off') scheduleLane(id, 'understanding'); },
+    scopeKnown: (id, revision) => storage.safeguards(id, revision).assessed,
+    replyVisible: session => !voiceHandlers?.active(session.id),
+    onScope(id, scope, revision, { reply = true } = {}) {
+      if (!reply) for (const event of storage.appendPurposeReply(id, null, revision, false, purposePolicy.offTopicLimit)) broadcast(id, event);
+      if (scope !== 'off') scheduleLane(id, 'understanding');
+    },
     admit: args => pluginRuntime.admit(args),
     onOpenerStripped() {
       try { log({ event: 'reply.opener-stripped', count: 1, lane: 'reaction' }); }
@@ -138,7 +143,9 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         host?.touchVisitor?.(storage.get(id));
         conceptHandlers.onTurn(id, event.data.id);
       }
-      if (!purposePolicy || storage.safeguards(id, inputRevision(storage.get(id))).assessed) scheduleLane(id, 'understanding'); status(id);
+      if (purposePolicy && !voiceHandlers.delegatesReply(id)) scheduleLane(id, 'reaction');
+      else if (!purposePolicy || storage.safeguards(id, inputRevision(storage.get(id))).assessed) scheduleLane(id, 'understanding');
+      status(id);
     } }) : null;
   const uploadHandlers = createUploadHandlers({ storage, runtime: pluginRuntime, ownership, readBody, publish: broadcast, signal: stop.signal,
     ...uploads, onInput(id, { pending = false } = {}) { lanes.supersede(id); if (!pending) schedule(id); },
@@ -170,7 +177,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     await cancelled;
   }
   function schedule(id) {
-    for (const lane of voiceHandlers?.active(id) ? ['understanding'] : purposePolicy ? ['reaction'] : ['reaction', 'understanding']) scheduleLane(id, lane);
+    for (const lane of voiceHandlers?.active(id) && (!purposePolicy || voiceHandlers.delegatesReply(id)) ? ['understanding'] : purposePolicy ? ['reaction'] : ['reaction', 'understanding']) scheduleLane(id, lane);
     status(id);
   }
   function scheduleLane(id, lane) {
