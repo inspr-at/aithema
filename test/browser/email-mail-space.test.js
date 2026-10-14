@@ -80,7 +80,7 @@ test('AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save 
   const rows = [], saves = {}, shots = [];
   const record = async (page, label, state, metrics, shiftPx) => {
     const row = { head: evidenceCommit, label, state, ...metrics, shiftPx, bootCreditsBeforeSettings: await page.evaluate(() => window.emailBoot.settingsOpenAtCredits[0] === false) }; rows.push(row);
-    t.diagnostic(`${shiftPx === 0 && (state !== 'mail-none' || metrics.reservationGap <= metrics.lineHeight) ? 'PASS' : 'FAIL'} AIT-171 ${label}/${state}: gap=${metrics.reservationGap.toFixed(3)} px; hairline=${metrics.hairlineGap.toFixed(3)} px; shift=${shiftPx} px`);
+    t.diagnostic(`${shiftPx === 0 && (state !== 'mail-none' || metrics.reservationGap <= metrics.lineHeight && metrics.hairlineGap <= metrics.lineHeight) ? 'PASS' : 'FAIL'} AIT-171 ${label}/${state}: gap=${metrics.reservationGap.toFixed(3)} px; hairline=${metrics.hairlineGap.toFixed(3)} px; shift=${shiftPx} px`);
     if (evidence && ['mail-none', 'mail-sent', 'save-none'].includes(state)) {
       const name = `ait-171-${evidenceCommit}-${label}-${state}.png`; await page.screenshot({ path: join(evidence, name), fullPage: false }); shots.push(name);
     }
@@ -110,6 +110,7 @@ test('AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save 
       assert.deepEqual(await page.screenshot({ clip }), await mainPage.screenshot({ clip }), 'confirmation off retains main save pixels');
       await fixture(page, locale, true); const before = await geometry(page); await record(page, label, 'mail-none', before, 0);
       await t.test(`${label}: mail content owns height`, () => {
+        assert.ok(before.hairlineGap <= before.lineHeight, `content-to-hairline gap ${before.hairlineGap} px exceeds one line ${before.lineHeight} px`);
         assert.ok(before.reservationGap <= before.lineHeight, `unused reservation ${before.reservationGap} px exceeds one line ${before.lineHeight} px`);
         assert.ok(Math.abs(before.stackHeight - before.mailHeight) < 1, `stack ${before.stackHeight} px vs mail ${before.mailHeight} px`);
       });

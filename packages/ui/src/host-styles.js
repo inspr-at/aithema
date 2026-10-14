@@ -208,6 +208,8 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .m-stack { display:grid; max-width:36rem; }
 .m-stack > .m-view { grid-area:1/1; min-width:0; visibility:hidden; align-content:start; }
 .m-stack > .m-view.on { visibility:visible; }
+/* Keep at most one notice line before the next Settings section. */
+.general .host-mail[data-email-mode="mail"] { margin-bottom:-.5rem; }
 /* Mail can show its own view, delete confirmation and the privacy fallback. */
 [data-email-mode="mail"] .m-stack > :is([data-view="capture"],[data-view="saved"]) { display:none; }
 .m-view { display:grid; gap:.45rem; }
