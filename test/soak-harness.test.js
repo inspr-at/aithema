@@ -2,6 +2,48 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { percentile, summarize, stopReason, spendGuard, diagnosticRecords, disruptionAt, schedule, validateOptions } from './live/soak-model.js';
 import { createSoakLog } from './live/diagnostic-host.js';
+import * as model from './live/soak-model.js';
+
+test('AIT-139: client latency and five-second deadlines start at speech end', () => {
+  const turns = [
+    { atMs: 100, speechEndMs: 8100, firstResponseAtMs: 9100 },
+    { atMs: 20_000, speechEndMs: 28_000, firstResponseAtMs: 33_000 },
+    { atMs: 40_000, speechEndMs: 48_000, firstResponseAtMs: 53_001 },
+    { atMs: 60_000, speechEndMs: 68_000 },
+  ];
+  const client = model.summarizeClient({ turns, mode: 'live', firstTokenMs: 5000 });
+  assert.deepEqual(client.firstResponse, { samples: 3, p50Ms: 5000, p95Ms: 5001, reference: 'speech-end' });
+  assert.equal(client.missingResponses, 1);
+  assert.equal(client.deadlineMisses, 2);
+  assert.equal(client.turnTimings[0].firstResponseMs, 1000, 'eight seconds of speech do not consume the response deadline');
+});
+
+test('AIT-139: unmeasurable live speech end reports gate timing without failing', () => {
+  const turns = [{ atMs: 100, firstResponseAtMs: 10_100 }, { atMs: 20_000 }];
+  const client = model.summarizeClient({ turns, mode: 'live', firstTokenMs: 5000 });
+  assert.equal(client.firstResponse.p95Ms, null, 'gate timing must not enter speech-end quantiles');
+  assert.equal(client.gateOpenResponse.p95Ms, 10_000);
+  assert.equal(client.unmeasurableSpeechEnds, 2);
+  assert.equal(client.missingResponses, 1);
+  assert.equal(client.deadlineMisses, 0);
+  assert.equal(model.summarizeClient({ turns, mode: 'fake', firstTokenMs: 5000 }).deadlineMisses, 2);
+});
+
+test('AIT-139: responses before speech end cannot become negative or satisfy the deadline', () => {
+  const client = model.summarizeClient({ mode: 'live', firstTokenMs: 5000,
+    turns: [{ atMs: 0, speechEndMs: 8000, firstResponseAtMs: 500 },
+      { atMs: 20_000, speechEndMs: 28_000, firstResponseAtMs: 28_000 }] });
+  assert.equal(client.firstResponse.samples, 1);
+  assert.equal(client.firstResponse.p50Ms, 0);
+  assert.equal(client.deadlineMisses, 1);
+});
+
+test('AIT-139: live combined rate floor cannot disable the elapsed-time cost bound', () => {
+  const live = { mode: 'live', ops: true, url: 'https://example.invalid', diagnostics: '/tmp/sanitized.jsonl' };
+  for (const rateUsd of [0, .000001, .119999]) assert.throws(() => validateOptions({ ...live, rateUsd }), /rate/);
+  assert.equal(validateOptions({ ...live, rateUsd: .12 }).rateMicroPerMinute, 120_000);
+  assert.equal(validateOptions({}).rateMicroPerMinute, 0, 'fake mode has no paid upstream');
+});
 
 test('AIT-139: nearest-rank report percentiles preserve zero and empty samples', () => {
   assert.equal(percentile([], .95), null);
