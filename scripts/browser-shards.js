@@ -25,6 +25,7 @@ export const browserShards = [
     'test/browser/start-look.test.js',
     'test/browser/operator-login.test.js',
     'test/browser/admin-pages.test.js',
+    'test/browser/email-mail-space.test.js',
   ],
   // 394.868s CI
   [

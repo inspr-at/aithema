@@ -1,0 +1,133 @@
+// AIT-171: shipped Settings geometry; all identity/mail routes are local fixtures.
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { mkdir, mkdtemp, rm, writeFile, readFile } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
+import { join } from 'node:path';
+import puppeteer from 'puppeteer-core';
+import { startChild } from '../helpers.js';
+import { browserPath, shadow, until, evidenceCommit } from './start2-display-helpers.js';
+
+const click = (page, selector) => shadow(page, (c, s) => c.shadowRoot.querySelector(s).click(), selector);
+const frame = page => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+const geometry = page => shadow(page, c => {
+  const r = c.shadowRoot, entry = r.querySelector('#email'), stack = entry.querySelector('.m-stack');
+  const box = n => { const b = n.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
+  const mail = entry.querySelector('[data-view=mail]'), notice = mail.querySelector('.m-notice');
+  return { boxes: ['#email', '.operator-section', '.settings__footer'].map(s => box(r.querySelector(s))),
+    stackHeight: stack.getBoundingClientRect().height, mailHeight: mail.scrollHeight,
+    reservationGap: stack.getBoundingClientRect().bottom - notice.getBoundingClientRect().bottom,
+    hairlineGap: r.querySelector('.operator-section').getBoundingClientRect().top - notice.getBoundingClientRect().bottom,
+    rowGap: parseFloat(getComputedStyle(r.querySelector('.general')).rowGap), lineHeight: parseFloat(getComputedStyle(notice).lineHeight) };
+});
+
+async function fixture(page, locale, delivery, canConfirm = delivery) {
+  await shadow(page, async (c, options) => {
+    const { locale, delivery, canConfirm } = options;
+    const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+    const { Verification } = await import('/packages/ui/src/verification.js');
+    window.emailOriginalFetch ??= window.fetch.bind(window);
+    window.emailSetCredits ??= Verification.prototype.setCredits;
+    Verification.prototype.setCredits = function (credits) { window.emailBoot.creditsCalls++; window.emailBoot.settingsOpenAtCredits.push(c.shadowRoot.querySelector('dialog.settings').open); return window.emailSetCredits.call(this, credits); };
+    const state = window.emailBoot = { address: null, status: 'guest', delivery: 'sent', spent: 0, hold: false, failure: false, rateLimited: false, creditsCalls: 0, settingsOpenAtCredits: [] };
+    const allowancesMicro = { anonymous: 12_000_000, emailGiven: 18_000_000, emailConfirmed: 24_000_000 };
+    const current = () => state.status === 'verified' ? 'emailConfirmed' : state.address ? 'emailGiven' : 'anonymous';
+    const identity = () => ({ ...c.session.identity, address: state.address, status: state.status, delivery: state.delivery,
+      verificationRequired: false, assessmentUnlocked: true, conceptsUnlocked: true, pollVerification: false, resendAfterMs: 0 });
+    window.fetch = async (url, init = {}) => {
+      const path = new URL(url, location.href).pathname, method = init.method ?? 'GET';
+      if (path.endsWith('/events')) return new Response(new ReadableStream({ start(controller) { init.signal?.addEventListener('abort', () => controller.close(), { once: true }); } }), { headers: { 'content-type': 'text/event-stream' } });
+      if (path.endsWith('/credits')) return Response.json({ balance: { owner: { limitMicro: allowancesMicro[current()], committedMicro: state.spent, availableMicro: allowancesMicro[current()] - state.spent } }, exhausted: false, limitSlot: null,
+        tiers: { current: current(), next: !state.address ? 'emailGiven' : canConfirm ? 'emailConfirmed' : null, canConfirm, allowancesMicro } });
+      if (path === '/api/visitor/email') {
+        if (method === 'PUT' || method === 'DELETE') {
+          while (state.hold) await new Promise(resolve => setTimeout(resolve, 10));
+          if (state.failure) return Response.json({}, { status: 503 });
+          state.address = method === 'PUT' ? JSON.parse(init.body).address : null; state.status = 'guest';
+        }
+        return Response.json({ visitor: { address: state.address }, notice: { version: 'ait-171-fixture', deliveryEnabled: delivery }, privacyDocumentConfigured: true });
+      }
+      if (path.endsWith('/identity')) return Response.json({ identity: identity(), delivery, privacyDocumentConfigured: true });
+      if (/\/identity\/(request|change|resend)$/u.test(path)) {
+        while (state.hold) await new Promise(resolve => setTimeout(resolve, 10));
+        state.status = 'verification-pending'; state.delivery = state.failure ? 'failed' : 'sent';
+        return Response.json({ identity: identity() }, { status: state.rateLimited ? 429 : 200 });
+      }
+      return window.emailOriginalFetch(url, init);
+    };
+    for (const legal of c.querySelectorAll('[slot=legal]')) legal.remove();
+    const legal = document.createElement('a'); legal.slot = 'legal'; legal.href = '/privacy'; legal.setAttribute('data-aithema-privacy', ''); legal.textContent = locale === 'de' ? 'Datenschutz' : 'Privacy'; c.append(legal);
+    const session = structuredClone(c.session); session.locale = locale; session.demo = false; session.identity = identity();
+    c.setAttribute('motion', 'off');
+    c.configure({ session, copy, host: { credits: true, verification: { delivery, privacyDocumentConfigured: true }, operator: { url: '/api/operator/login/', logoutUrl: '/api/operator/logout/', provider: 'Zitadel' } } });
+  }, { locale, delivery, canConfirm });
+  await until(page, () => window.emailBoot.creditsCalls > 0 && document.querySelector('aithema-session').shadowRoot.querySelector('.m-lead-save').textContent);
+  // No Settings visit triggers this read: HostSurface.connect -> loadCredits -> setCredits.
+  assert.deepEqual(await page.evaluate(() => window.emailBoot.settingsOpenAtCredits), [false]);
+  await page.evaluate(() => document.fonts.ready);
+  await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
+  await shadow(page, c => { const body = c.shadowRoot.querySelector('.settings__body'); body.scrollTop = body.scrollHeight; });
+  await frame(page);
+}
+
+test('AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save geometry; 390/1024/1440 L/D DE/EN', { timeout: 120_000 }, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'aithema-email-space-')), evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  const server = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(dir, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
+  let browser; t.after(async () => { await browser?.close(); await server.kill(); await rm(dir, { recursive: true, force: true }); });
+  if (evidence) await mkdir(evidence, { recursive: true });
+  let baseline; try { baseline = JSON.parse(await readFile(new URL('../fixtures/email-save-geometry.json', import.meta.url), 'utf8')); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  const rows = [], saves = {}, shots = [];
+  const record = async (page, label, state, metrics, shiftPx) => {
+    const row = { head: evidenceCommit, label, state, ...metrics, shiftPx }; rows.push(row);
+    t.diagnostic(`AIT-171 ${label}/${state}: gap=${metrics.reservationGap.toFixed(3)} px; hairline=${metrics.hairlineGap.toFixed(3)} px; shift=${shiftPx} px`);
+    if (evidence && ['mail-none', 'mail-sent', 'save-none'].includes(state)) {
+      const name = `ait-171-${evidenceCommit}-${label}-${state}.png`; await page.screenshot({ path: join(evidence, name), fullPage: false }); shots.push(name);
+    }
+  };
+  for (const locale of ['de', 'en']) {
+    browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(dir, 'chrome-' + locale), env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    const page = await browser.newPage();
+    await page.evaluateOnNewDocument(locale => localStorage.setItem('aithema-demo-locale', locale), locale);
+    await page.goto(server.url, { waitUntil: 'domcontentloaded' }); await until(page, () => document.querySelector('aithema-session')?.session);
+    for (const width of [390, 1024, 1440]) for (const theme of ['light', 'dark']) {
+      const label = `${locale}-${theme}-${width}`;
+      await page.setViewport({ width, height: width === 390 ? 844 : 1000 }); await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
+      await fixture(page, locale, false); const save = await geometry(page); saves[label] = save.boxes; await record(page, label, 'save-none', save, 0);
+      if (baseline) assert.deepEqual(save.boxes, baseline[label], `${label}: save geometry matches main 90b708f`);
+      await fixture(page, locale, true, false); assert.deepEqual((await geometry(page)).boxes, save.boxes, 'confirmation off retains save geometry');
+      await fixture(page, locale, true); const before = await geometry(page); await record(page, label, 'mail-none', before, 0);
+      await t.test(`${label}: mail content owns height`, () => {
+        assert.ok(before.reservationGap <= before.lineHeight, `unused reservation ${before.reservationGap} px exceeds one line ${before.lineHeight} px`);
+        assert.ok(Math.abs(before.stackHeight - before.mailHeight) < 1, `stack ${before.stackHeight} px vs mail ${before.mailHeight} px`);
+      });
+      const check = async state => {
+        const temporarilyOpen = await shadow(page, c => { const r = c.shadowRoot, closed = !r.querySelector('dialog.settings').open; if (closed) c.openSettings(undefined, { tab: 'general', anchor: '#email' }); const body = r.querySelector('.settings__body'); body.scrollTop = body.scrollHeight; return closed; });
+        await frame(page); const after = await geometry(page);
+        const shift = Math.max(...before.boxes.flatMap((box, i) => box.map((v, j) => Math.abs(v - after.boxes[i][j]))));
+        await record(page, label, state, after, shift);
+        await t.test(`${label}/${state}: 0 px shift`, () => assert.equal(shift, 0));
+        if (temporarilyOpen) await click(page, 'dialog.settings .done');
+      };
+      await check('boot-settled');
+      await click(page, '.verify-entry');
+      await shadow(page, c => { window.emailBoot.hold = true; const f = c.shadowRoot.querySelector('dialog.verify-dialog .verify-form'); f.querySelector('input').value = 'reader@example.test'; f.requestSubmit(); });
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.verify-dialog .verify-send').getAttribute('aria-disabled') === 'true'); await check('mail-sending');
+      await page.evaluate(() => { window.emailBoot.hold = false; });
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('#email').dataset.emailState === 'pending');
+      await click(page, '.verify-dialog-close'); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
+      await check('mail-sent');
+      await click(page, '.verify-entry'); await page.evaluate(() => { window.emailBoot.failure = true; }); await click(page, 'dialog.verify-dialog .verify-resend');
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('dialog.verify-dialog .verify__message').textContent.length > 0); await check('mail-failed');
+      await page.evaluate(() => { window.emailBoot.failure = false; window.emailBoot.rateLimited = true; }); await click(page, 'dialog.verify-dialog .verify-resend'); await frame(page); await check('mail-rate-limited');
+      await click(page, '.verify-dialog-close'); await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' })); await click(page, '.m-delete-mail'); await check('mail-delete-confirm');
+      await shadow(page, c => { window.emailBoot.failure = true; c.shadowRoot.querySelector('.m-del').click(); }); await frame(page); await check('mail-delete-failed');
+      await shadow(page, c => { window.emailBoot.failure = false; window.emailBoot.hold = true; c.shadowRoot.querySelector('.m-del').click(); }); await frame(page); await check('mail-deleting');
+      await page.evaluate(() => { window.emailBoot.hold = false; }); await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('#email').dataset.emailState === 'mailnone'); await check('mail-deleted');
+    }
+    await browser.close(); browser = null;
+  }
+  if (evidence) {
+    await writeFile(join(evidence, 'ait-171-pass-lines.json'), JSON.stringify({ head: evidenceCommit, viewport: true, rows, shots }, null, 2));
+    await writeFile(join(evidence, 'email-save-geometry.json'), JSON.stringify(saves, null, 2));
+  }
+});
