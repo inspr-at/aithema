@@ -4,7 +4,7 @@ import { createUploadHandlers } from './upload-handlers.js';
 import { createHostHandlers, PrivacyDocumentRequiredError } from './host-handlers.js';
 import { createPluginRuntime } from './plugin-runtime.js';
 import { randomUUID } from 'node:crypto';
-import { SessionLanes, createMockReasoning, createSession, inputRevision, activeTurns, hasConversationInput, understandingDeferred, PluginError, FEATURES, isConsentReason } from '@inspr/aithema-core';
+import { SessionLanes, createMockReasoning, createSession, inputRevision, activeTurns, hasConversationInput, understandingDeferred, PluginError, FEATURES, isConsentReason, normalizePurposePolicy } from '@inspr/aithema-core';
 import { ConflictError, NotFoundError, SettingsConflictError } from './storage.js';
 import { exportSession } from './export.js';
 
@@ -56,8 +56,9 @@ export async function readBody(request, limit = REQUEST_LIMIT) {
 }
 
 export function createHandlers({ storage, reasoning = createMockReasoning(), sessionOptions = { demo: true },
-  deadlineMs = 30_000, hostPrompt = '', pluginRuntime, consent = pluginRuntime?.consent,
+  deadlineMs = 30_000, hostPrompt = '', purposePolicy, pluginRuntime, consent = pluginRuntime?.consent,
   ownership = { token: request => request.headers.get('x-aithema-session-token') }, voice, concepts = {}, uploads = {}, host, log = console.log }) {
+  purposePolicy = normalizePurposePolicy(purposePolicy);
   pluginRuntime ??= createPluginRuntime({ storage, reasoning, consent: consent ?? { coverage: () => ({ covered: false }) } });
   consent ??= pluginRuntime.consent;
   if (typeof consent?.coverage !== 'function' || consent !== pluginRuntime.consent) {
@@ -99,7 +100,13 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   // A lane's work identity: its input revision plus the processing choice it runs with.
   const selection = (session, lane) => pluginRuntime.selectionKey?.(session, lane) ?? '';
   const laneKey = (session, lane) => `${inputRevision(session)}|${selection(session, lane)}`;
-  const lanes = new SessionLanes({ reasoning, getSession: id => storage.get(id), deadlineMs, hostPrompt, selection,
+  const lanes = new SessionLanes({ reasoning, getSession: id => storage.get(id), deadlineMs, hostPrompt, purposePolicy, selection,
+    canUnderstand: (id, revision) => { const state = storage.safeguards(id, revision); return state.assessed && !state.offTopic; },
+    onScope(id, scope, revision) {
+      const result = storage.recordSafeguard(id, `text:${revision}`, revision, scope === 'off', purposePolicy.offTopicLimit);
+      if (result.event) broadcast(id, result.event);
+      if (scope !== 'off') scheduleLane(id, 'understanding');
+    },
     admit: args => pluginRuntime.admit(args),
     onOpenerStripped() {
       try { log({ event: 'reply.opener-stripped', count: 1, lane: 'reaction' }); }
@@ -123,14 +130,14 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   const conceptHandlers = createConceptHandlers({ storage, runtime: pluginRuntime, ownership, readBody, publish: broadcast, signal: stop.signal, ...concepts });
   // Idle image generation is disabled: server elapsed time proves no client
   // presence. There is no periodic session scan or reference-byte polling.
-  const voiceHandlers = voice ? createVoiceHandlers({ storage, runtime: pluginRuntime, ownership, readBody, hostPrompt,
-    ...voice, publish: broadcast, onClose: id => conceptHandlers.ended(id), onActivity: session => host?.touchVisitor?.(session), onTurn(id, event) {
+  const voiceHandlers = voice ? createVoiceHandlers({ storage, runtime: pluginRuntime, ownership, readBody, hostPrompt, purposePolicy,
+    ...voice, onAssessment: id => scheduleLane(id, 'understanding'), publish: broadcast, onClose: id => conceptHandlers.ended(id), onActivity: session => host?.touchVisitor?.(session), onTurn(id, event) {
       lanes.supersede(id);
       if (event?.data.role === 'user') {
         host?.touchVisitor?.(storage.get(id));
         conceptHandlers.onTurn(id, event.data.id);
       }
-      scheduleLane(id, 'understanding'); status(id);
+      if (!purposePolicy || storage.safeguards(id, inputRevision(storage.get(id))).assessed) scheduleLane(id, 'understanding'); status(id);
     } }) : null;
   const uploadHandlers = createUploadHandlers({ storage, runtime: pluginRuntime, ownership, readBody, publish: broadcast, signal: stop.signal,
     ...uploads, onInput(id, { pending = false } = {}) { lanes.supersede(id); if (!pending) schedule(id); },
@@ -162,7 +169,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
     await cancelled;
   }
   function schedule(id) {
-    for (const lane of voiceHandlers?.active(id) ? ['understanding'] : ['reaction', 'understanding']) scheduleLane(id, lane);
+    for (const lane of voiceHandlers?.active(id) ? ['understanding'] : purposePolicy ? ['reaction'] : ['reaction', 'understanding']) scheduleLane(id, lane);
     status(id);
   }
   function scheduleLane(id, lane) {
@@ -332,6 +339,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
         return json({ event, session: await snapshot(id) });
       }
       if (action === 'turns' && request.method === 'POST') {
+        if (purposePolicy && authorized.pauseReason === 'purpose') return json({ error: 'conversation-paused', reason: 'purpose' }, 409);
         // Bound the wire separately so JSON escapes do not consume the content budget.
         const bytes = await readBody(request, REQUEST_LIMIT * 2);
         let body;
@@ -359,6 +367,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       }
       if (action === 'pause' && request.method === 'POST') {
         const body = JSON.parse(Buffer.from(await readBody(request)).toString('utf8'));
+        if (purposePolicy && authorized.pauseReason === 'purpose') return json({ error: 'conversation-paused', reason: 'purpose' }, 409);
         if (typeof body?.paused !== 'boolean') return json({ error: 'invalid-pause' }, 400);
         let event;
         if (body.paused) {

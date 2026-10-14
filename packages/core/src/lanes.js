@@ -6,6 +6,8 @@ import { untilCancelled, cancellableStream } from './cancellation.js';
 import { hasConversationInput, understandingDeferred } from './document-context.js';
 import { aiTextOrigin } from './text-origin.js';
 import { ReplyStream } from './reply.js';
+import { collectPurposeReply } from './safeguards.js';
+import { stripThanksOpener } from './reply-opener.js';
 import { ReplyOpenerStream } from './reply-opener.js';
 
 const producer = (admitted, plugin) => aiTextOrigin(admitted?.producer ?? plugin.binding ??
@@ -14,10 +16,10 @@ const producer = (admitted, plugin) => aiTextOrigin(admitted?.producer ?? plugin
 export class SessionLanes {
   #flights = new Map();
   constructor({ reasoning, draftReasoning = reasoning, getSession, publish, transient = () => {}, deadlineMs = 30_000,
-    hostPrompt = '', admit, beforeDispatch = admit ? undefined : async () => false, selection = () => '', onOpenerStripped = () => {} }) {
+    hostPrompt = '', purposePolicy, onScope = () => {}, canUnderstand = () => true, admit, beforeDispatch = admit ? undefined : async () => false, selection = () => '', onOpenerStripped = () => {} }) {
     this.reasoning = assertReasoning(reasoning);
     this.draftReasoning = assertReasoning(draftReasoning);
-    Object.assign(this, { getSession, publish, transient, deadlineMs, hostPrompt, admit, beforeDispatch, selection, onOpenerStripped });
+    Object.assign(this, { getSession, publish, transient, deadlineMs, hostPrompt, purposePolicy, onScope, canUnderstand, admit, beforeDispatch, selection, onOpenerStripped });
   }
   // A changed processing selection supersedes in-flight work exactly like new input:
   // its late result is stale and the host reruns the lane with the new binding.
@@ -62,6 +64,7 @@ export class SessionLanes {
       scope.signal.throwIfAborted();
       if (session.tombstone || session.consentWithdrawn) return 'blocked';
       if (lane === 'understanding') {
+        if (this.purposePolicy && !this.canUnderstand(id, revision)) return 'deferred';
         if (session.identity?.verificationRequired === true && !session.identity.assessmentUnlocked) return 'verification-required';
         if (understandingDeferred(session)) return 'deferred';
         if (session.understanding.inputRevision === revision && !session.understanding.draft) return 'cached';
@@ -97,6 +100,28 @@ export class SessionLanes {
         if (this.getSession(id).paused) return 'paused';
         if (this.beforeDispatch && !await untilCancelled(this.beforeDispatch(id, lane, this.reasoning, revision, options), scope.signal)) return 'blocked';
         if (!current() || this.getSession(id).paused) return 'stale';
+        if (this.purposePolicy) {
+          const request = reasoningRequest(session, lane, false, this.hostPrompt, { purposePolicy: this.purposePolicy });
+          let admitted;
+          const self = this;
+          const reply = await collectPurposeReply(request, async function* (input) {
+            if (!current()) return;
+            admitted = await self.admit?.({ session: self.getSession(id), lane, operation: 'stream', request: input, options });
+            let failed = false;
+            try { yield* cancellableStream((admitted?.plugin ?? self.reasoning).stream(input, admitted?.options ?? options), scope.signal); }
+            catch (error) { failed = true; throw error; }
+            finally { await admitted?.finish({ failed }); }
+          });
+          if (!current()) return 'stale';
+          const guarded = stripThanksOpener(reply.content, session.locale);
+          if (guarded.stripped) this.onOpenerStripped();
+          const { scope: classification, ...visible } = reply;
+          if (!this.publish(id, 'turn.final', { id: crypto.randomUUID(), role: 'assistant', ...visible, content: guarded.text,
+            ...producer(admitted, admitted?.plugin ?? this.reasoning), at: new Date().toISOString(), inputRevision: revision,
+            ...(admitted?.engine ? { engine: admitted.engine } : {}) }, revision)) return 'stale';
+          this.onScope(id, classification, revision);
+          return 'completed';
+        }
         const turnId = crypto.randomUUID();
         const reply = new ReplyStream(), opener = new ReplyOpenerStream(session.locale); let decoded = '', shown = '', draftProducer;
         const request = reasoningRequest(session, lane, false, this.hostPrompt);

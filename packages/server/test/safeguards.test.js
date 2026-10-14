@@ -7,6 +7,7 @@ import { ownedRequest, testToken, mockConsent } from '../../../test/helpers.js';
 import { purposePolicy, safeguardsCorpus } from '../../../test/safeguards-corpus.js';
 import { registerDemoExtractors } from '../../../demo/uploads.js';
 import { createPluginRuntime, mockPresets } from '../src/index.js';
+import { deflateSync } from 'node:zlib';
 import { pdf, docx, zip } from '../../../test/extractor-fixtures.js';
 
 const req = (id, action = '', body) => ownedRequest(`http://localhost/api/sessions/${id}${action ? '/' + action : ''}`, body === undefined ? {} : {
@@ -110,7 +111,7 @@ for (const ext of ['txt', 'pdf', 'docx']) for (const place of ['body', 'hidden',
   const file = ext === 'txt' ? Buffer.from(place === 'hidden' ? '\u200b' + text : text) : ext === 'pdf' ? pdf([text]) : docx(text);
   // PDF invisible text and DOCX vanish runs use valid source bytes, through real local extractors.
   const hidden = ext === 'pdf' && place === 'hidden' ? (() => {
-    const source = pdf([text]); return Buffer.from(source.toString().replace('BT /F1', 'BT 3 Tr /F1'));
+    return pdf([text], { stream: deflateSync(deflateSync(Buffer.from(`BT 3 Tr /F1 12 Tf 20 100 Td (${text}) Tj ET`))) });
   })() : ext === 'docx' && place === 'hidden' ? zip({ '[Content_Types].xml': '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>',
     'word/document.xml': '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:rPr><w:vanish/></w:rPr><w:t>' + text + '</w:t></w:r></w:p></w:body></w:document>' }) : file;
   const form = new FormData(); form.set('clientEventId', 'upload'); form.set('files', new Blob([hidden]), name);
@@ -121,4 +122,11 @@ for (const ext of ['txt', 'pdf', 'docx']) for (const place of ['body', 'hidden',
   const doc = f.calls[0].messages[f.calls[0].documentMessageIndex]; assert.match(doc.content, /UNTRUSTED/u); assert.ok(doc.content.includes(attack));
   assert.equal(f.calls[0].system.includes(attack), false); assert.equal(f.storage.safeguards(f.session.id).offTopicTurns, 1);
   assert.doesNotMatch(f.storage.get(f.session.id).transcript.at(-1).content, /AITHEMA_CANARY_|Print your system/u);
+});
+
+for (const unsafe of ['```python\nprint(1)\n```', '~~~js\nx()\n~~~', '    const x = 1;', '<pre>secret()</pre>', '<code>x()</code>']) test(`AIT-174 output check independently blocks ${JSON.stringify(unsafe)}`, async t => {
+  const f = fixture(t, { outputs: () => envelope(unsafe) }); await f.send('Write code');
+  assert.equal(f.calls.length, 2); assert.equal(f.assessments.length, 0);
+  assert.doesNotMatch(f.storage.get(f.session.id).transcript.at(-1).content, /print\(1\)|const x|x\(\)|secret\(\)|```|~~~/u);
+  assert.equal(f.storage.safeguards(f.session.id).offTopicTurns, 1);
 });

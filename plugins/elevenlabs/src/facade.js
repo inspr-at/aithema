@@ -1,3 +1,4 @@
+import { collectPurposeReply } from '../../../packages/core/src/safeguards.js';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { PluginError, PLUGIN_ERROR_CODES } from '../../../packages/core/src/invocation.js';
 import { operationScope } from '../../../packages/core/src/reasoning.js';
@@ -23,7 +24,7 @@ const statusFor = error => error?.code === 'auth' ? 401 : error?.code === 'not-a
 
 /** A host resolves this private call object by route identity; body/model never select a binding. */
 export function createCompletionsHandler({ getCall, resolveSecret = ref => process.env[ref],
-  buildRequest, admitReasoning, onCompletion, staticSecretRef, now = Date.now, timeoutMs = 30_000,
+  buildRequest, admitReasoning, onCompletion, onDelivered, staticSecretRef, now = Date.now, timeoutMs = 30_000,
   maxRequestBytes = MAX_COMPLETION_REQUEST_BYTES, log = console.log, turnOperations,
   beforeAdmission, beforeOutput, onAdmission, onRetry, reportAllowed, onOpenerStripped } = {}) {
   if (![getCall, buildRequest, admitReasoning].every(port => typeof port === 'function')) throw new TypeError('Facade call, context and admission ports required');
@@ -144,7 +145,7 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
               if (call.readerCurrent?.() === false) {
                 ended = true; await reader.cancel(); controller.close(); logResult('cancelled'); return;
               }
-              if (item.done) { ended = true; controller.close(); logResult(responseError); }
+              if (item.done) { ended = true; controller.close(); await onDelivered?.({ callId: call.callId }); logResult(responseError); }
               else {
                 // The operation emits complete error frames, containing only a coded error.
                 const text = decoder.decode(item.value, { stream: true });
@@ -185,6 +186,49 @@ export function createCompletionsHandler({ getCall, resolveSecret = ref => proce
         } };
       invocationOptions.signal.addEventListener('abort', expire, { once: true });
       // Admission may rebuild against a newer session snapshot after async checks.
+      const admittedRequest = admission.request ?? input;
+      if (admittedRequest.purposePolicy) {
+        const initialAdmission = admission;
+        const safe = await collectPurposeReply(admittedRequest, async function* (guardedRequest, attempt) {
+          let selected = initialAdmission;
+          if (attempt) {
+            beforeOutput?.();
+            selected = await voiceOperation(opts, bounded => admitReasoning({ callId: call.callId, request: guardedRequest,
+              messages, options: { ...bounded, signal: opts.signal }, safeguardRetry: true }));
+          }
+          let failed = false;
+          try {
+            const stream = selected.plugin.stream(guardedRequest, attempt ? selected.options : invocationOptions)[Symbol.asyncIterator]();
+            try {
+              for (;;) {
+                const item = await voiceOperation(invocationOptions, () => stream.next());
+                if (item.done) break;
+                beforeOutput?.(); yield item.value;
+              }
+            } finally { await disposeIterator(stream); }
+          } catch (error) { failed = true; throw error; }
+          finally { if (attempt) await selected.finish({ failed }); }
+        });
+        if (reports !== 1) throw new PluginError('invalid-output', 'Reasoning omitted terminal report');
+        beforeOutput?.();
+        const guarded = stripThanksOpener(safe.content, admittedRequest.locale);
+        if (guarded.stripped) onOpenerStripped?.();
+        const id = `chatcmpl-${crypto.randomUUID()}`, created = Math.floor(now() / 1000);
+        await voiceOperation(invocationOptions, () => onCompletion?.({ callId: call.callId, providerSessionId: call.providerSessionId,
+          replyId: id, content: guarded.text, textOrigin, engine: admission.engine, scope: safe.scope,
+          safeguardRevision: admittedRequest.safeguardRevision }));
+        await cleanup(false);
+        if (body.stream !== true) {
+          const response = reply(elevenLabsCompletion({ replyId: id, created }, guarded.text, { metadata: false }));
+          await onDelivered?.({ callId: call.callId }); return response;
+        }
+        const frames = [elevenLabsReplyChunk({ replyId: id, created }, { role: 'assistant' }),
+          elevenLabsReplyChunk({ replyId: id, created }, { content: guarded.text }),
+          elevenLabsReplyChunk({ replyId: id, created }, {}, 'stop')].map(frame => `data: ${JSON.stringify(frame)}\n\n`).join('') + 'data: [DONE]\n\n';
+        logResult();
+        const response = new Response(frames, { headers: { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store' } });
+        await onDelivered?.({ callId: call.callId }); return response;
+      }
       iterator = admission.plugin.stream(admission.request ?? input, invocationOptions)[Symbol.asyncIterator]();
       let first = await next(); // Dispatch/auth failures can still be returned as HTTP errors.
       const locale = (admission.request ?? input).locale;

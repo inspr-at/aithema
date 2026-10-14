@@ -34,6 +34,8 @@ export class SQLiteStorage {
     this.db = new DatabaseSync(path);
     this.db.exec(`PRAGMA busy_timeout=250; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA secure_delete=ON;
       CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, snapshot TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS safeguard_inputs (session_id TEXT NOT NULL REFERENCES sessions(id),
+        input_key TEXT NOT NULL, revision TEXT, off_topic INTEGER NOT NULL, PRIMARY KEY(session_id,input_key));
       CREATE TABLE IF NOT EXISTS host_states (session_id TEXT PRIMARY KEY REFERENCES sessions(id), record TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS owner_credit_guards (owner_hash TEXT PRIMARY KEY, record TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS content (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id),
@@ -154,6 +156,30 @@ export class SQLiteStorage {
       return { ...result, events: result.events.map(e => this.#append(this.get(id), e.type, e.data)) };
     });
   }
+  // Scope is consumed internally; retain only the counter contribution and assessment gate.
+  safeguards(id, revision) {
+    const rows = this.db.prepare('SELECT revision,off_topic FROM safeguard_inputs WHERE session_id=?').all(id);
+    return { offTopicTurns: rows.reduce((n, row) => n + row.off_topic, 0),
+      assessed: rows.some(row => row.revision === revision),
+      offTopic: rows.some(row => row.revision === revision && row.off_topic === 1) };
+  }
+  recordSafeguard(id, key, revision, offTopic, limit, { pause = true } = {}) {
+    return this.transaction(() => {
+      const session = this.get(id); this.#check(session);
+      this.db.prepare('INSERT OR IGNORE INTO safeguard_inputs VALUES (?,?,?,?)').run(id, key, revision ?? null, Number(offTopic));
+      const state = this.safeguards(id, revision);
+      const event = pause && state.offTopicTurns >= limit && session.pauseReason !== 'purpose'
+        ? this.#append(session, 'session.paused', { paused: true, reason: 'purpose' }) : null;
+      return { ...state, event };
+    });
+  }
+  bindSafeguard(id, key, revision) {
+    this.db.prepare('UPDATE safeguard_inputs SET revision=? WHERE session_id=? AND input_key=?').run(revision, id, key);
+  }
+  pauseForPurpose(id, limit) {
+    if (this.safeguards(id).offTopicTurns < limit || this.get(id).pauseReason === 'purpose') return null;
+    return this.append(id, 'session.paused', { paused: true, reason: 'purpose' });
+  }
   read(id, after = 0) {
     return this.db.prepare('SELECT event FROM events WHERE session_id=? AND seq>? ORDER BY seq').all(id, after)
       .map(row => this.#hydrateEvent(JSON.parse(row.event)));
@@ -220,6 +246,8 @@ export class SQLiteStorage {
     const contentRef = `${id}:${seq}`, at = data.at ?? new Date().toISOString();
     // Reply choices and the engine label are content: erase them with the reply, never retain them in metadata.
     const origin = aiTextOrigin({ model: data.model, plugin: data.provider });
+    const { scope, ...visibleData } = data;
+    data = visibleData;
     const bytes = JSON.stringify(['turn.final', 'turn.corrected'].includes(type)
       ? { content: data.content, ...(data.role === 'assistant' ? { ...origin, ...(data.engine ? { engine: data.engine } : {}),
         ...('question_short' in data || 'options' in data ? parseReply(data) : {}) } : {}) }

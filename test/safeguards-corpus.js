@@ -18,5 +18,5 @@ export const safeguardsCorpus = [
 export const purposePolicy = {
   purpose: { de: 'Augmentoring hilft Unternehmen, individuelle Lösungen und Produkte zu entwickeln, und berät bei Geschäfts- und Prozessoptimierung; oft beides, und die Richtung kann sich im Gespräch ändern.',
     en: 'Augmentoring helps companies develop custom solutions and products, and advises on business and process optimization; often both, and the direction can change during the conversation.' },
-  offTopicLimit: 3, outputCheck: true,
+  offTopicLimit: 3, outputCheck: true, redirect: { en: 'I cannot help with that here. What would you like to clarify with Augmentoring?', de: 'Dabei kann ich Ihnen hier nicht helfen. Welches Vorhaben möchten Sie mit Augmentoring klären?' },
 };

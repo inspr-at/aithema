@@ -228,6 +228,8 @@ ol { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; 
 .composer:focus-within { border-color:var(--aithema-accent); box-shadow:var(--aithema-shadow-raised),0 0 0 3px color-mix(in srgb,var(--aithema-accent-bright) 20%,transparent); }
 .composer label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
 textarea { resize:none; width:100%; min-height:3.5rem; height:3.5rem; border:0; outline:0; background:transparent; color:var(--aithema-ink); padding:.25rem .5rem; font-size:1rem; line-height:1.5; }
+.purpose-pause-copy { position:absolute; inset:clamp(.85rem,2vw,1.25rem) clamp(.85rem,2vw,1.25rem) auto; height:3.5rem; overflow:auto;
+  padding:.25rem .5rem; font-size:.8rem; line-height:1.3; color:var(--aithema-muted); }
 textarea:focus-visible { outline:0; }
 textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .composer-actions { display:flex; align-items:center; justify-content:space-between; gap:.5rem; }

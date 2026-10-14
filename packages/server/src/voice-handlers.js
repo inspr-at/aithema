@@ -57,7 +57,7 @@ function unrecordedVoiceInput(session, messages, { callId, providerSessionId }) 
 export { createFacadeSecrets } from '../elevenlabs-compat.js';
 
 export function createVoiceHandlers({ storage, runtime, ownership, readBody, secrets,
-  publish, onTurn, onClose, onActivity, hostPrompt = '', now = Date.now, browserLeaseMs = 30_000, deadlineMs = 30_000,
+  publish, onTurn, onClose, onActivity, onAssessment, purposePolicy, hostPrompt = '', now = Date.now, browserLeaseMs = 30_000, deadlineMs = 30_000,
   closeOrphan, staticSecretRef, presentation, callbackAdapter, reconcileIntervalMs = 30_000, reconcileBatchSize = 10,
   reconcileLookupTimeoutMs = 5000, log,
   turnReplayWindowMs, turnTimeoutMs = 30_000, authorizeTurnReplacement } = {}) {
@@ -270,7 +270,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
   }
   function buildVoiceRequest(session, messages, call) {
     const latestInput = unrecordedVoiceInput(session, messages, call);
-    const trusted = reasoningRequest(session, 'reaction', false, hostPrompt, { pendingInput: latestInput.length > 0, voiceReply: true });
+    const trusted = reasoningRequest(session, 'reaction', false, hostPrompt, { pendingInput: latestInput.length > 0, voiceReply: true, purposePolicy });
     // Focus is derived by the asynchronous understanding lane. It is usable
     // only once that final assessment covers every input in this reply request.
     const currentFocus = !latestInput.length && !session.understanding.draft &&
@@ -278,7 +278,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       session.understanding.openQuestions?.includes(session.focusedQuestion);
     // The session owns history, including typed turns, withdrawals and heard
     // prefixes. Provider text supplies only the newest unrecorded person input.
-    return { ...trusted, system: `${trusted.system}\n${VOICE_REPLY_POLICY}`, messages: [...trusted.messages,
+    return { ...trusted, ...(purposePolicy && !latestInput.length ? { safeguardRevision: inputRevision(session) } : {}), system: `${trusted.system}\n${VOICE_REPLY_POLICY}`, messages: [...trusted.messages,
       ...(currentFocus && session.focusedQuestion ? [{ role: 'user', content: JSON.stringify({ kind: 'untrusted-focused-question', question: session.focusedQuestion }) }] : []),
       ...latestInput] };
   }
@@ -296,13 +296,14 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       if (!entry?.call || entry.closing || sessions.get(entry.sessionId) !== entry) return null;
       try { sessionFor(entry); } catch { throw new PluginError('not-admitted', 'Call ownership or context revoked'); }
       return { ...entry.call.snapshot(), ...entry.callbackContext?.details,
+        ...(purposePolicy && storage.safeguards(entry.sessionId).offTopicTurns >= purposePolicy.offTopicLimit ? { paused: true } : {}),
         signal: entry.authority.signal, readerCurrent: () => controlsEpoch(entry) };
     },
     buildRequest({ callId, messages }) {
       const entry = calls.get(callId);
       return buildVoiceRequest(sessionFor(entry), messages, entry.call);
     },
-    async admitReasoning({ callId, messages, options, beforeAdmission, onRetry }) {
+    async admitReasoning({ callId, messages, options, beforeAdmission, onRetry, safeguardRetry }) {
       const entry = calls.get(callId);
       let session = sessionFor(entry);
       for (let retry = 0; ; retry++) {
@@ -312,6 +313,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           // voice check awaited. The facade must dispatch this admitted request.
           session = sessionFor(entry);
           const request = buildVoiceRequest(session, messages, entry.call);
+          if (safeguardRetry) request.system += '\nThe previous output was rejected. Return only safe reply JSON following the purpose policy; never echo rejected text.';
           beforeAdmission?.();
           const beforeDispatch = () => {
             try {
@@ -345,12 +347,31 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
         }
       }
     },
-    onCompletion({ callId, providerSessionId, replyId, content, textOrigin, engine, userTurnOrdinal }) {
+    onCompletion({ callId, providerSessionId, replyId, content, textOrigin, engine, userTurnOrdinal, scope, safeguardRevision }) {
       const entry = calls.get(callId);
       if (!entry?.call || entry.closing || entry.call.providerSessionId !== providerSessionId) return;
       entry.produced ??= [];
       entry.produced.push({ replyId, content, textOrigin, engine, userTurnOrdinal });
+      if (purposePolicy) {
+        const session = sessionFor(entry);
+        const person = session.transcript.findLast(turn => turn.role === 'user' && !turn.erased && !turn.withdrawn);
+        const revision = person?.callId === callId && person.providerSessionId === providerSessionId &&
+          person.userTurnOrdinal === userTurnOrdinal && Number.isSafeInteger(userTurnOrdinal) ? inputRevision(session) : safeguardRevision;
+        storage.recordSafeguard(entry.sessionId, `voice:${callId}:${providerSessionId}:${userTurnOrdinal ?? replyId}`,
+          revision, scope === 'off', purposePolicy.offTopicLimit, { pause: false });
+        if (scope !== 'off' && revision) onAssessment?.(entry.sessionId);
+      }
       while (entry.produced.length > 256 || entry.produced.reduce((n, reply) => n + reply.content.length, 0) > 1_048_576) entry.produced.shift();
+    },
+    onDelivered({ callId }) {
+      const entry = calls.get(callId);
+      if (!purposePolicy || !entry) return;
+      const event = storage.pauseForPurpose(entry.sessionId, purposePolicy.offTopicLimit);
+      if (event) {
+        publish(entry.sessionId, event);
+        storage.transitionVoiceLifecycle(entry.sessionId, callId, { type: 'pause' });
+        void changePause(entry, true);
+      }
     },
   };
   const boundCallbacks = new WeakMap();
@@ -538,6 +559,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           if (body.background === true) return json({ closureConfirmed: false, reconciliationPending: true }, 202);
           return json(await pending);
         }
+        if (purposePolicy && storage.get(sessionId).pauseReason === 'purpose') return json({ error: 'conversation-paused', reason: 'purpose' }, 409);
         if (action === 'pause') {
           runtime.stopReplyReplay?.(sessionId);
           if (body.pauseRequestId !== undefined && (typeof body.pauseRequestId !== 'string' ||
@@ -584,6 +606,9 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
               ...(produced ? { ...produced.textOrigin, engine: produced.engine, replyId: produced.replyId,
                 userTurnOrdinal: produced.userTurnOrdinal } : aiTextOrigin(entry.admission.binding)) });
           if (!result.replayed) {
+            if (purposePolicy && body.event.role === 'user' && Number.isSafeInteger(result.event?.data.userTurnOrdinal)) {
+              storage.bindSafeguard(sessionId, `voice:${callId}:${entry.call.providerSessionId}:${result.event.data.userTurnOrdinal}`, inputRevision(storage.get(sessionId)));
+            }
             publish(sessionId, result.event); onTurn(sessionId, result.event);
             if (body.event.type === 'final' && body.event.role === 'user') storage.transitionVoiceLifecycle(sessionId, callId,
               { type: 'accepted', turnId: body.event.turnId });

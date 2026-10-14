@@ -234,7 +234,7 @@ export class AithemaSession extends HTMLElement {
           <div class="intro__card"></div></div>
         <div class="concept-bar"><div class="concept-rail"></div><div class="concept-preview-slot"></div><div class="voice-notices"></div></div>
         <div class="transcript-shell"><ol aria-live="polite"></ol><button class="transcript-latest" type="button" data-copy="transcriptLatest" style="visibility:hidden"></button></div>
-        <div class="composer-dock">${questionCardMarkup}<div class="composer-shell"><form class="composer"><label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000" rows="2"></textarea>
+        <div class="composer-dock">${questionCardMarkup}<div class="composer-shell"><form class="composer"><label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000" rows="2"></textarea><div class="purpose-pause-copy" role="status" hidden></div>
           <div class="composer-actions"><button class="attach" type="button" aria-describedby="attach-limits ai-notice">${UPLOAD_ICONS.attach}<span class="attach__label"></span></button>
             <span class="sr-only" id="attach-limits"></span><input class="attach-input" type="file" multiple hidden tabindex="-1" accept="${UPLOAD_ACCEPT}">
             <small class="composer-reason" role="status" id="composer-reason"></small><button class="send" aria-describedby="ai-notice">${icon('arrowRight')}<span class="visually-hidden"></span></button></div></form>
@@ -442,6 +442,7 @@ export class AithemaSession extends HTMLElement {
     if (this.dispatchEvent(event)) this.configure({ ...this.#options, session });
   }
   async #setPaused(paused) {
+    if (this.#session.pauseReason === 'purpose') return;
     const sessionId = this.#session.id;
     try {
       const response = await postJson(`${this.#base}/api/sessions/${sessionId}/pause`, { paused }, { sessionToken: this.#sessionToken });
@@ -596,6 +597,7 @@ export class AithemaSession extends HTMLElement {
     // Held voice commands need the server verdict too: a local pause must not hide
     // a budget or consent refusal behind the explicit take-back exception.
     const continuation = visitor && feature === 'voice' && (this.#rail?.moved || this.#rail?.waitingCall);
+    if (this.#session.pauseReason === 'purpose') return { available: false, reason: this.#copy.purposePaused };
     if (this.#session.paused && !continuation) return { available: false, reason: this.#copy.paused };
     if (this.#session.consentWithdrawn || this.#session.tombstone) return { available: false, reason: this.#copy.consentRequired };
     const matrix = this.#session.featureMatrix?.[preset] ?? (preset === 'device' ? deviceFeatures() : {});
@@ -707,14 +709,21 @@ export class AithemaSession extends HTMLElement {
       // Invite speech only while the call can listen; held calls invite the next typed message.
       const listening = this.#rail?.session && !this.#rail.paused && !['recovering', 'waiting'].includes(this.#rail.state);
       const voicePlaceholder = this.#host?.fullHold ? copy.placeholderFullHold ?? copy.placeholderVoice : copy.placeholderVoice;
-      input.placeholder = listening ? voicePlaceholder ?? copy.placeholder : copy.placeholder;
+      input.placeholder = this.#session.pauseReason === 'purpose' ? copy.purposePaused : listening ? voicePlaceholder ?? copy.placeholder : copy.placeholder;
       root.querySelector('.send').disabled = this.#sending || !text.available;
       const reason = root.querySelector('.composer-reason');
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');
       // An upload refusal stands until the person types or attaches again.
-      const unavailable = this.#rail?.moved ? copy.voiceInAnotherTab : text.reason;
+      const unavailable = this.#session.pauseReason === 'purpose' ? copy.purposePaused : this.#rail?.moved ? copy.voiceInAnotherTab : text.reason;
       const words = this.#uploadNotice || (text.available ? copy.shortcut.replace('{key}', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '') : unavailable);
       setText(reason, words); reason.title = this.#uploadNotice || text.available ? '' : unavailable;
+      input.toggleAttribute('data-purpose-paused', this.#session.pauseReason === 'purpose');
+      const purposePause = root.querySelector('.purpose-pause-copy');
+      purposePause.hidden = this.#session.pauseReason !== 'purpose'; setText(purposePause, copy.purposePaused);
+      input.style.visibility = purposePause.hidden ? '' : 'hidden';
+      if (this.#session.pauseReason === 'purpose') {
+        const pause = root.querySelector('.pause'); if (pause) { pause.disabled = true; pause.title = copy.purposePaused; }
+      }
       this.#paintAttach();
       const out = root.querySelector('.composer-out'), usedUp = Boolean(this.#host?.usedUp) && !this.#creditEnding;
       const shell = root.querySelector('.composer-shell'), form = root.querySelector('form.composer'), u = copy.hostSurface.usedUp, credits = copy.hostSurface.credits;
@@ -1528,7 +1537,7 @@ export class AithemaSession extends HTMLElement {
       if (event.type === 'session.locale-changed') this.#repaintLocale();
       if (event.type === 'session.paused') {
         this.#notice = '';
-        if (!this.#rail.syncPause(event.data.paused, event.data.pauseRequestId, event.data.resumeRequestId)) {
+        if (event.data.reason !== 'purpose' && !this.#rail.syncPause(event.data.paused, event.data.pauseRequestId, event.data.resumeRequestId)) {
           this.#session.paused = Boolean(this.#rail.paused);
         }
         if (this.#session.paused) this.#deviceController?.abort(); else this.#pausePrompt = false;
