@@ -60,7 +60,7 @@ for (const copy of [de, en]) for (const covered of [true, false]) test(`AIT-173 
       'GET /credits': () => Response.json({ balance, exhausted: false, reconciling: ended }),
     } });
   await tick(8); root.querySelector('.voice-start').click(); await tick(8);
-  assert.equal(root.querySelector('.composer-reason').textContent, copy.reasons['budget denied'], 'during-call copy remains scoped to a live call');
+  assert.equal(root.querySelector('.composer-reason').textContent, copy === de ? 'Schreiben geht nach dem Anruf wieder' : 'You can type again after the call', 'during-call copy remains scoped to a live call');
   ended = true; root.querySelector('.voice-close').click(); await tick(12);
   assert.equal(root.querySelector('.audio-rail').dataset.call, 'none');
   assert.equal(root.querySelector('textarea').disabled, !covered);

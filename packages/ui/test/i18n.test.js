@@ -89,3 +89,7 @@ test('upload copy exists in English and German with the same keys and placeholde
     assert.doesNotMatch(german[key], /\b(?:du|dein|deine|dich|dir)\b/iu, `${key} uses formal Sie`);
   }
 });
+
+test('AIT-173 round 3: generic budget denial never assumes a live call', () => {
+  for (const copy of [de, en]) assert.equal(reasonText(copy, 'budget denied'), copy.voiceStates.usedUp);
+});
