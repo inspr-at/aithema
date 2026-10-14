@@ -160,3 +160,26 @@ for (const [code, providerErrorClass] of [
   assert.equal(diagnostics.length, fallback ? 1 : 0);
   assert.deepEqual(h.partials, []);
 });
+
+for (const code of ['invalid-output', 'provider']) test(`AIT-183 supersession during attempt-2 ${code} emits no fallback`, async () => {
+  const diagnostics = [], admissions = [], settlements = [];
+  const h = harness(createMockReasoning(), {}, { purposePolicy, onReplyDiagnostic: event => diagnostics.push(event),
+    async admit() {
+      const index = admissions.length;
+      admissions.push(index);
+      return { plugin: { ...createMockReasoning(), async *stream() {
+        yield '{invalid';
+        if (index) {
+          h.turn('Replacement input');
+          throw Object.assign(new PluginError(code), { providerErrorClass: '5xx' });
+        }
+      } }, finish: result => settlements.push({ index, ...result }) };
+    },
+  });
+  h.turn('First input');
+  assert.equal(await h.lanes.run(h.session.id, 'reaction'), 'stale');
+  assert.deepEqual(diagnostics, []);
+  assert.deepEqual(admissions, [0, 1]);
+  assert.deepEqual(settlements, [{ index: 0, failed: false }, { index: 1, failed: true }]);
+  assert.deepEqual(h.published, []); assert.deepEqual(h.partials, []);
+});
