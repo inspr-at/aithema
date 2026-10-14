@@ -41,3 +41,32 @@ test('AIT-181 diagnostics invoke exactly three guarded DE/EN/off-topic streams, 
   assert.equal(reports[2].stream_complete, false);
   assert.doesNotMatch(JSON.stringify(reports), /Private model content|private-key|private-value|private output|private provider error|AITHEMA_CANARY_|Rezept/u);
 });
+
+test('AIT-181 OPS command exercises real admission and streaming with exactly three stubbed wire calls', async () => {
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const { fileURLToPath } = await import('node:url');
+  // No network listener or real configuration. The child cannot use inherited
+  // provider credentials; every fetch is replaced before the command imports.
+  const stub = `
+    let calls = 0;
+    globalThis.fetch = async (_, init) => {
+      if (++calls > 3) throw new Error('Call cap');
+      const request = JSON.parse(init.body);
+      if (!request.stream || request.response_format?.type !== 'json_schema') throw new Error('Wrong lane');
+      const content = JSON.stringify({ content: 'Private model output', question_short: null, options: [], scope: calls === 3 ? 'off' : 'in' });
+      return new Response('data: ' + JSON.stringify({ choices: [{ delta: { content }, finish_reason: 'stop' }], usage: { cost: 0 } }) + '\\n\\ndata: [DONE]\\n\\n');
+    };
+    process.on('exit', () => { if (calls !== 3) process.exitCode = 1; });
+  `;
+  const { stdout } = await promisify(execFile)(process.execPath, ['--import', `data:text/javascript,${encodeURIComponent(stub)}`,
+    fileURLToPath(new URL('../scripts/diagnose-reply-schema.js', import.meta.url)), '--allow-live'], {
+    timeout: 20_000,
+    env: { PATH: process.env.PATH, OPENROUTER_API_KEY: 'fixture-not-a-key', OPENROUTER_MODEL: 'fixture/model',
+      AITHEMA_OPENROUTER_PRICES: JSON.stringify({ 'fixture/model': { prompt: 1e-9, completion: 1e-9 } }) },
+  });
+  const reports = stdout.trim().split('\n').map(line => JSON.parse(line));
+  assert.equal(reports.length, 3); assert.ok(reports.every(report => report.parsed && report.stream_complete && report.scope_valid));
+  assert.deepEqual(reports.map(report => report.case), ['in-de', 'in-en', 'off-de']);
+  assert.doesNotMatch(stdout, /Private model output|fixture-not-a-key|AITHEMA_CANARY_/u);
+});
