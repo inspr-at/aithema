@@ -5,6 +5,6 @@ export const start2PurposePolicy = {
     de: 'Augmentoring hilft Unternehmen, individuelle Lösungen und Produkte zu entwickeln, und berät bei Geschäfts- und Prozessoptimierung; oft beides, und die Richtung kann sich im Gespräch ändern.',
     en: 'Augmentoring helps companies develop custom solutions and products, and advises on business and process optimization; often both, and the direction can change during the conversation.',
   },
-  offTopicLimit: 3, outputCheck: true, redirect: locale => ({ de, en })[locale].purposeRedirect,
+  offTopicLimit: 3, outputCheck: true, redirect: (locale, turn) => ({ de, en })[locale].purposeRedirects[turn - 1],
   directionQuestion: { de: de.purposeDirection, en: en.purposeDirection },
 };

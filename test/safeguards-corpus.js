@@ -40,3 +40,17 @@ export const safeguardsReplyCorpus = [
   { id: 'transport-metadata', output: (request, wire) => wire('What should improve?', 'in', { debug: request.purposePolicy.canary + '```json' }), scope: 'unclear', calls: 2 },
 ];
 export const safeguardsActionCorpus = ['provider-error', 'recovery-while-paused', 'upload-while-paused'];
+
+// Independent character-exact AIT-178 contract; do not derive expectations from UI copy.
+export const start2Redirects = {
+  de: [
+    'Dabei kann ich hier nicht helfen. Ich bin für Vorhaben da, bei denen Augmentoring unterstützt: eine Lösung entwickeln oder Abläufe verbessern. Woran arbeiten Sie gerade?',
+    'Das gehört nicht zu dem, wobei ich hier helfe. Ich unterstütze bei Vorhaben mit Augmentoring: eine Lösung entwickeln oder Abläufe verbessern. Gibt es bei Ihnen gerade so ein Vorhaben?',
+    'Dabei kann ich nicht weiterhelfen. Hier geht es um Vorhaben, bei denen Augmentoring unterstützt: eine Lösung entwickeln oder Abläufe verbessern. Was würden Sie gern verbessern?',
+  ],
+  en: [
+    "I can't help with that here. I'm here for projects Augmentoring can support: building a solution or improving how you work. What are you working on?",
+    "That's not something I can help with here. I help with projects Augmentoring supports: building a solution or improving how you work. Do you have a project like that right now?",
+    "I can't help with that. This conversation is for projects Augmentoring supports: building a solution or improving how you work. What would you like to improve?",
+  ],
+};
