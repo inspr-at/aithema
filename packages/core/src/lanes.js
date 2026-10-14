@@ -118,7 +118,7 @@ export class SessionLanes {
           const { scope: classification, ...visible } = reply;
           if (!this.publish(id, 'turn.final', { id: crypto.randomUUID(), role: 'assistant', ...visible, content: guarded.text,
             ...producer(admitted, admitted?.plugin ?? this.reasoning), at: new Date().toISOString(), inputRevision: revision,
-            ...(admitted?.engine ? { engine: admitted.engine } : {}) }, revision)) return 'stale';
+            ...(admitted?.engine ? { engine: admitted.engine } : {}) }, revision, classification)) return 'stale';
           this.onScope(id, classification, revision);
           return 'completed';
         }

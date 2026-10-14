@@ -173,6 +173,22 @@ export class SQLiteStorage {
       return { ...state, event };
     });
   }
+  appendPurposeReply(id, data, revision, offTopic, limit) {
+    return this.transaction(() => {
+      const session = this.get(id); this.#check(session);
+      if (inputRevision(session) !== revision) return [];
+      const person = session.transcript.findLast(turn => turn.role === 'user' && !turn.erased && !turn.withdrawn);
+      const documents = (session.uploads ?? []).filter(upload => !upload.erased && !upload.withdrawn).map(upload => upload.id);
+      const key = JSON.stringify(['text', person?.id ?? null, documents]);
+      this.db.prepare('INSERT INTO safeguard_inputs VALUES (?,?,?,?) ON CONFLICT(session_id,input_key) DO UPDATE SET revision=excluded.revision')
+        .run(id, key, revision, Number(offTopic));
+      const events = [this.#append(session, 'turn.final', data)];
+      if (this.safeguards(id).offTopicTurns >= limit && session.pauseReason !== 'purpose') {
+        events.push(this.#append(this.get(id), 'session.paused', { paused: true, reason: 'purpose' }));
+      }
+      return events;
+    });
+  }
   bindSafeguard(id, key, revision) {
     this.db.prepare('UPDATE safeguard_inputs SET revision=? WHERE session_id=? AND input_key=?').run(revision, id, key);
   }

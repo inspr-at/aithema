@@ -102,21 +102,19 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   const laneKey = (session, lane) => `${inputRevision(session)}|${selection(session, lane)}`;
   const lanes = new SessionLanes({ reasoning, getSession: id => storage.get(id), deadlineMs, hostPrompt, purposePolicy, selection,
     canUnderstand: (id, revision) => { const state = storage.safeguards(id, revision); return state.assessed && !state.offTopic; },
-    onScope(id, scope, revision) {
-      const session = storage.get(id), person = activeTurns(session).findLast(turn => turn.role === 'user');
-      const documents = (session.uploads ?? []).filter(upload => !upload.erased && !upload.withdrawn).map(upload => upload.id);
-      const key = JSON.stringify(['text', person?.id ?? null, documents]);
-      const result = storage.recordSafeguard(id, key, revision, scope === 'off', purposePolicy.offTopicLimit);
-      if (result.event) broadcast(id, result.event);
-      if (scope !== 'off') scheduleLane(id, 'understanding');
-    },
+    onScope(id, scope) { if (scope !== 'off') scheduleLane(id, 'understanding'); },
     admit: args => pluginRuntime.admit(args),
     onOpenerStripped() {
       try { log({ event: 'reply.opener-stripped', count: 1, lane: 'reaction' }); }
       catch { /* Diagnostics cannot interrupt a reply. */ }
     },
-    publish(id, type, data, revision) {
+    publish(id, type, data, revision, scope) {
       if (stop.signal.aborted) return false;
+      if (purposePolicy && type === 'turn.final' && ['in', 'unclear', 'off'].includes(scope)) {
+        const events = storage.appendPurposeReply(id, data, revision, scope === 'off', purposePolicy.offTopicLimit);
+        for (const event of events) broadcast(id, event);
+        return events.length > 0;
+      }
       const event = storage.append(id, type, data, revision);
       if (event) broadcast(id, event);
       if (event && type === 'understanding.updated') {
