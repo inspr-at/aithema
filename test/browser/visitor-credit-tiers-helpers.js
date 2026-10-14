@@ -44,7 +44,7 @@ async function fixture(page, locale, { address = null, spent = 3_450_000, reserv
     const { inputRevision } = await import('/packages/core/src/session.js');
     window.a2OriginalFetch ??= window.fetch.bind(window);
     const state = window.a2 = { address, spent, reserved, delivery, privacy, confirmed, saving: false,
-      denyVoice: voiceAdmissionFailure, voiceRequests: [], voiceCloses: 0 };
+      denyVoice: voiceAdmissionFailure, voiceRequests: [], voiceCloses: 0, creditsReads: 0 };
     const allowancesMicro = { anonymous: 12_000_000, emailGiven: 18_000_000, emailConfirmed: 24_000_000 };
     const identity = () => ({ ...c.session.identity, address: state.address, status: state.confirmed ? 'verified' : state.address && delivery ? 'verification-pending' : 'guest',
       assessmentUnlocked: true, conceptsUnlocked: true, verificationRequired: false, resendAfterMs: 0, pollVerification: false, delivery: 'sent' });
@@ -60,6 +60,7 @@ async function fixture(page, locale, { address = null, spent = 3_450_000, reserv
       } }), { headers: { 'content-type': 'text/event-stream' } });
       if (method === 'GET' && path === `/api/sessions/${c.session.id}`) return Response.json({ ...c.session, identity: identity(), featureMatrix: { best: Object.fromEntries(['text', 'analysis', 'voice'].map(key => [key, { available: allowancesMicro[current()] > state.spent + state.reserved, reason: allowancesMicro[current()] > state.spent + state.reserved ? null : 'budget denied' }])) } });
       if (path.endsWith('/credits')) {
+        state.creditsReads++;
         const tier = current(), next = !privacy ? null : !state.address ? 'emailGiven' : delivery && !state.confirmed ? 'emailConfirmed' : null;
         const limitMicro = allowancesMicro[tier];
         return Response.json({ balance: { owner: { limitMicro, committedMicro: state.spent + state.reserved,
@@ -103,6 +104,7 @@ async function fixture(page, locale, { address = null, spent = 3_450_000, reserv
     c.configure({ session, copy, voiceClient, host: { credits: true, verification: { delivery, privacyDocumentConfigured: privacy }, handover } });
     if (voiceRunning) c.shadowRoot.querySelector('.voice-start').click();
   }, { locale, address, spent, reserved, delivery, privacy, handover, confirmed, voiceRunning, voiceAdmissionFailure, waitingCall });
+  await until(page, () => window.a2.creditsReads > 0);
   await settle(page);
 }
 
@@ -439,13 +441,16 @@ export async function visitorCreditMatrix(t, locales) {
       await fixture(page, locale, { spent: 11_990_000, voiceRunning: true });
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.call === 'active');
       const liveBefore = await boxes(page, liveFixed);
+      const creditsBefore = await page.evaluate(() => window.a2.creditsReads);
       await shadow(page, c => { window.a2.spent = 12_000_000; c.receive({ seq: c.session.seq + 1, type: 'credits.limit-reached', data: { reason: 'host-limit' } }); });
       const endingDisplacement = unchanged(liveBefore, await boxes(page, liveFixed), `${label}/call-ending`);
       assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-credits').dataset.ended), 'true', `${label}: footer shows used-up during call ending`);
       passLines.push({ locale, theme, width, state: 'call-ending', displacementPx: endingDisplacement, pass: true }); await shot('call-ending');
+      await page.waitForFunction(reads => window.a2.creditsReads > reads, { timeout: 20_000, polling: 40 }, creditsBefore);
       await until(page, () => {
         const root = document.querySelector('aithema-session').shadowRoot;
-        return root.querySelector('.composer-shell').hasAttribute('data-used-up') && root.querySelector('.question-card').inert;
+        return !root.querySelector('.audio-rail').hasAttribute('data-credit-ending') &&
+          root.querySelector('.composer-shell').hasAttribute('data-used-up') && root.querySelector('.question-card').inert;
       });
       await settle(page);
       const calm = await shadow(page, c => {
