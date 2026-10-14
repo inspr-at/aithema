@@ -26,7 +26,8 @@ export async function installProbe({ mode, locale }) {
   // All input comes from Chrome's fake file device. Gate the captured WAV without
   // replacing the SDK or bypassing the provider's normal microphone acquisition.
   const media = navigator.mediaDevices, native = media.getUserMedia.bind(media);
-  const stream = await native({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }), context = new AudioContext();
+  const stream = await native({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+  const context = new AudioContext({ sinkId: { type: 'none' } });
   await context.resume();
   const source = context.createMediaStreamSource(stream), gain = context.createGain(), analyser = context.createAnalyser();
   const destination = context.createMediaStreamDestination();
@@ -72,9 +73,11 @@ export async function installProbe({ mode, locale }) {
   state.snapshot = () => ({ events: state.events, turns: state.turns, speaking: state.speaking, closed: state.closed,
     samples: state.samples, peak: state.peak, speechSamples: state.speechSamples,
     overlapSamples: state.overlapSamples, heartbeatFailures: state.heartbeatFailures,
-    audioContextState: context.state, inputTrackState: stream.getAudioTracks()[0]?.readyState });
+    audioContextState: context.state, inputTrackState: stream.getAudioTracks()[0]?.readyState, audioPreflight: state.audioPreflight });
   state.input();
   await new Promise(resolve => setTimeout(resolve, 1500));
+  state.audioPreflight = { contextState: context.state, contextTime: context.currentTime,
+    trackState: stream.getAudioTracks()[0]?.readyState, trackMuted: stream.getAudioTracks()[0]?.muted };
   if (!state.speechSamples) throw new Error('Synthetic microphone preflight is silent');
   state.gateUntil = 0;
   if (mode === 'fake') {
