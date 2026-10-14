@@ -203,3 +203,55 @@ for (const kind of ['deadline', 'cancel']) test(`AIT-183 current reply ${kind} r
   assert.deepEqual(settlements, [{ failed: true }]);
   assert.deepEqual(diagnostics, []); assert.deepEqual(h.published, []); assert.deepEqual(h.partials, []);
 });
+
+// Plain provider 4xx on attempt 2 now escapes the neutral fallback; auth and
+// rate-limit errors already escaped because they have their own error codes.
+for (const status of [400, 402, 404, 422]) for (const first of ['schema rejection', 'invalid output']) {
+  test(`AIT-183 plain provider ${status} on attempt 2 after ${first} rejects and settles both attempts`, async () => {
+    const error = Object.assign(new PluginError('provider'), { providerErrorClass: '4xx', status });
+    const admissions = [], settlements = [], diagnostics = [];
+    const h = harness(createMockReasoning(), {}, { purposePolicy, onReplyDiagnostic: event => diagnostics.push(event),
+      async admit({ request }) {
+        const index = admissions.length;
+        admissions.push(request);
+        return { plugin: { ...createMockReasoning(), async *stream() {
+          if (index) throw error;
+          if (first === 'schema rejection') throw Object.assign(new PluginError('provider'), {
+            providerErrorClass: '4xx', responseFormatUnsupported: true,
+          });
+          yield '{invalid';
+        } }, finish: result => settlements.push({ index, ...result }) };
+      },
+    });
+    h.turn('First input');
+    await assert.rejects(h.lanes.run(h.session.id, 'reaction'), actual => actual === error);
+    assert.equal(admissions.length, 2);
+    assert.notEqual(admissions[0].replySchemaConstrained, false);
+    assert.equal(admissions[1].replySchemaConstrained, first === 'schema rejection' ? false : undefined);
+    assert.deepEqual(settlements, [{ index: 0, failed: first === 'schema rejection' }, { index: 1, failed: true }]);
+    assert.deepEqual(diagnostics, first === 'schema rejection'
+      ? [{ lane: 'reaction', kind: 'schema-retry', reason: 'provider-4xx', attemptCount: 1 }] : []);
+    assert.deepEqual(h.published, []); assert.deepEqual(h.partials, []);
+  });
+}
+
+for (const output of ['valid', 'invalid']) test(`AIT-183 revoke during ${output} reply settle returns stale exactly once`, async () => {
+  const entered = deferred(), release = deferred(), settlements = [], diagnostics = [];
+  const plugin = { ...createMockReasoning(), async *stream() {
+    yield output === 'valid' ? JSON.stringify({ content: 'Safe reply', question_short: null, options: [], scope: 'in' }) : '{invalid';
+  } };
+  const h = harness(plugin, {}, { purposePolicy, onReplyDiagnostic: event => diagnostics.push(event),
+    admit: async () => ({ plugin, async finish(result) {
+      settlements.push(result); entered.resolve(); await release.promise;
+    } }),
+  });
+  h.turn('First input');
+  const pending = h.lanes.run(h.session.id, 'reaction');
+  await entered.promise;
+  const cancelled = h.lanes.cancel(h.session.id);
+  release.resolve();
+  assert.equal(await pending, 'stale');
+  await cancelled;
+  assert.deepEqual(settlements, [{ failed: false }]);
+  assert.deepEqual(diagnostics, []); assert.deepEqual(h.published, []); assert.deepEqual(h.partials, []);
+});
