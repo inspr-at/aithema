@@ -31,7 +31,7 @@ function fixture(t, { allowance = 100_000, status = 200, onPost } = {}) {
   const consent = { coverage: ({ scope, consentRevision }) => ({ covered: true, scope, ...scope, consentRevision,
     checkedAt: Date.now(), expiresAt: Date.now() + 60_000 }) };
   const runtime = createPluginRuntime({ storage, budget, consent, presets, registry: new PluginRegistry().register(createMockReasoning()).register(plugin) });
-  const host = createDemoHost(storage, { budget, creditLimitMicro: allowance }); runtime.setOwnerWallet(s => host.walletForSession(s));
+  const host = createDemoHost({ storage, budget, creditLimitMicro: allowance }); runtime.setOwnerWallet(s => host.walletForSession(s));
   return { storage, budget, requests, runtime, plugin, session: storage.get(session.id) };
 }
 
