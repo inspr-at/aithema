@@ -12,8 +12,9 @@ export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 // Email-ask runs each behaviour once per language/width and captures both
 // themes from each settled state: 153.965s remotely on mbp2606 (296 checks).
 export const browserShards = [
-  // 402.566s CI; 350.166s mbp2606
-  ['test/browser/visitor-credit-tiers.test.js'],
+  // AIT-173 round 3, run 38570598983: whole jobs 413s / 478s.
+  // Move Start-look's measured 28.045s from shard 2 to shard 1.
+  ['test/browser/visitor-credit-tiers.test.js', 'test/browser/start-look.test.js'],
   // AIT-173 run 38531320436: whole jobs 405/483/419/397s.
   // Move operator-login's isolated 39s batch to shard 4 to keep every job below 480s.
   // AIT-169 rotates 13 admin states across widths in CI (both locales/themes),
@@ -22,7 +23,6 @@ export const browserShards = [
   // PR 3 keeps demo teardown separate from the display matrix in shard 4.
   [
     'test/browser/start2-display-matrix.test.js',
-    'test/browser/start-look.test.js',
     'test/browser/audio-replay.test.js',
     'test/browser/admin-pages.test.js',
     'test/browser/email-mail-space.test.js',
