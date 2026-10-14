@@ -4,14 +4,15 @@ import { resolve } from 'node:path';
 
 export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 
-// AIT-177: four jobs, longest-file-first, using PR #150 CI per-file medians
-// (38592417042, 38610111325, 38616918321). Split the integrated display
-// matrix at its original B1–B8/r2/r3 describe blocks; retain every assertion.
-// Visitor DE/EN after render waits: 129.16/130.48 s on mbp2606 with all 524
-// viewport screenshots. Allow 20% runner uplift for the first CI calibration.
-// These are file-work estimates; whole-job times must include setup/upload.
+// AIT-177: PR #150 CI 38623276426, including main 0a7a8a7, measured
+// whole jobs 408 / 445 / 344 / 407 s. Move question-card and footer from 2
+// to 3: their measured file work gives the longest job >10% headroom.
+// Integrated display keeps all original B1–B8/r2/r3 describe blocks in a
+// separate file. Visitor render waits retain every state and assertion.
+// Below are measured file-work sums; whole-job times also include setup,
+// worker cleanup and evidence upload (PNG archives use compression-level 0).
 export const browserShards = [
-  // 420.64s file work; 215.33, 104.00, 39.99, 38.00, 15.43, 7.90
+  // 392.22s file work; 208.12, 94.28, 37.07, 33.33, 12.67, 6.75
   [
     'test/browser/email-ask.test.js',
     'test/browser/confirmation-design.test.js',
@@ -20,15 +21,13 @@ export const browserShards = [
     'test/browser/start-journey.test.js',
     'test/browser/host-surface.test.js',
   ],
-  // 418.63s file work; 184.42, 118.55, 85.52, 15.64, 14.51
+  // 392.87s file work; 189.47, 117.06, 86.34
   [
     'test/browser/start2-display.test.js',
     'test/browser/start2-display-continuity.test.js',
     'test/browser/orb-reveal.test.js',
-    'test/browser/question-card.test.js',
-    'test/browser/footer-width-sweep.test.js',
   ],
-  // 420.57s file work; 173.12, 143.18, 42.85, 39.76, 14.55, 7.11
+  // 368.31s file work; 157.90, 88.16, 43.96, 27.70, 8.09, 5.64, 14.95, 21.92
   [
     'test/browser/start2-display-matrix.test.js',
     'test/browser/email-mail-space.test.js',
@@ -36,8 +35,10 @@ export const browserShards = [
     'test/browser/operator-login.test.js',
     'test/browser/html-preview.test.js',
     'test/browser/safeguards.test.js',
+    'test/browser/question-card.test.js',
+    'test/browser/footer-width-sweep.test.js',
   ],
-  // 415.09s file work; 156.57, 155.00, 48.43, 28.47, 26.63
+  // 389.96s file work; 148.14, 145.75, 47.05, 22.56, 26.46
   [
     'test/browser/visitor-credit-tiers-en.test.js',
     'test/browser/visitor-credit-tiers.test.js',
