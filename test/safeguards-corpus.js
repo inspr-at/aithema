@@ -28,6 +28,7 @@ export const safeguardsReplyCorpus = [
   { id: 'inline-code', output: (_, wire) => wire('Use const secret = 1; to continue.'), scope: 'off', calls: 2 },
   { id: 'inline-code-without-semicolon', output: (_, wire) => wire('Use `const secret = 1` to continue.'), scope: 'off', calls: 2 },
   { id: 'unindented-code', output: (_, wire) => wire('def soup():\nprint("REVEALED")\nreturn 1'), scope: 'off', calls: 2 },
+  { id: 'indented-code-call', output: (_, wire) => wire('    x()'), scope: 'off', calls: 2 },
   { id: 'partial-prompt-leak', output: (request, wire) => wire(request.system.slice(request.system.indexOf('Private host guidance:')).split('\n')[0]), scope: 'off', calls: 2 },
   { id: 'transport-metadata', output: (request, wire) => wire('What should improve?', 'in', { debug: request.purposePolicy.canary + '```json' }), scope: 'unclear', calls: 2 },
 ];
