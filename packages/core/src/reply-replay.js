@@ -8,8 +8,8 @@ export function createReplyReplay({ current, synthesize, playAudio, onState = ()
     revision++;
     const previous = active; active = null;
     if (!previous) return;
-    previous.controller.abort(); previous.player?.stop(); onState(false);
-    return Promise.resolve(release(previous.replayId)).catch(() => {});
+    previous.controller.abort(); previous.player?.stop(); previous.cleanup?.(); onState(false);
+    return Promise.resolve().then(() => release(previous.replayId)).catch(() => {});
   };
   return { stop, get revision() { return revision; }, get active() { return Boolean(active); },
     async replay(reply, options = {}) {
@@ -20,6 +20,7 @@ export function createReplyReplay({ current, synthesize, playAudio, onState = ()
       const signal = options.signal ? AbortSignal.any([entry.controller.signal, options.signal]) : entry.controller.signal;
       const aborted = () => { if (active === entry) stop(); };
       signal.addEventListener('abort', aborted, { once: true });
+      entry.cleanup = () => signal.removeEventListener('abort', aborted);
       try {
         const result = await voiceOperation({ ...options, signal }, async bounded => {
           let result;

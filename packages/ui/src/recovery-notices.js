@@ -51,7 +51,7 @@ export class RecoveryNotices {
     this.button.hidden = !(recovery?.deliveryUncertain && recovery.playbackPositionUnknown || this.pageReply) || !this.replyVisible(reply);
     this.readText.hidden = this.button.hidden;
     this.readText.disabled = !available;
-    this.button.disabled = !available || Boolean(this.pending) || !(recovery?.lastReplyText ?? this.pageReply?.text);
+    this.button.disabled = !available || Boolean(this.pending) && !this.playing || !(recovery?.lastReplyText ?? this.pageReply?.text);
     this.button.title = reply ? label : c.voiceReplyUnavailable;
     this.button.setAttribute('aria-label', this.button.title);
     text('#voice-reply-title', c.voiceLastReply); text('.voice-reply-note', c.voiceReplayTextOnly); text('.voice-reply-close', c.voiceReplayClose);
@@ -65,20 +65,24 @@ export class RecoveryNotices {
   }
   async repeat() {
     if (this.button.hidden || this.button.disabled || !this.available()) return;
-    if (this.playing) { await this.stopReplay?.(); this.playing = false; this.interrupted = true; this.render(); return; }
+    if (this.playing) {
+      this.revision++; this.pending = null; this.playing = false; this.interrupted = true; this.render();
+      await this.stopReplay?.(); return;
+    }
     if (this.fallback || !this.audioAvailable()) { this.showText(); return; }
     this.interrupted = false;
     const revision = this.revision;
     const pending = Symbol('repeat'); this.pending = pending;
-    this.button.disabled = true;
+    this.playing = true; this.render();
     try {
       const result = await this.replay();
       if (revision !== this.revision || !this.available()) return;
       if (result?.kind === 'audio') { this.playing = true; this.render(); }
+      if (result?.kind !== 'audio') this.playing = false;
       if (result?.kind === 'text' && result.text === (this.recovery?.lastReplyText ?? this.pageReply?.text)) {
         this.fallback = true; this.showText();
       }
-    } catch { /* A superseding hold/end keeps playback and the fallback closed. */ }
+    } catch { if (revision === this.revision) this.playing = false; /* A superseding hold/end stays fenced. */ }
     finally { if (this.pending === pending) { this.pending = null; this.render(); } }
   }
 }

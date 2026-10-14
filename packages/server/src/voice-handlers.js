@@ -409,6 +409,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       }
     },
     async pauseSession(id, paused, opts = {}) {
+      if (paused) runtime.stopReplyReplay?.(id);
       const entry = sessions.get(id);
       if (!entry?.call) return null;
       const ack = await changePause(entry, paused, opts);
@@ -677,7 +678,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     reconcileLater,
     async idle() { while (settlements.size) await Promise.allSettled([...settlements]); await turns.idle(); },
     async close() {
-      for (const sessionId of storage.list()) runtime.stopReplyReplay?.(sessionId);
+      runtime.stopReplyReplays?.();
       stopping = true; clearTimeout(reconcileTimer);
       for (const id of sessions.keys()) this.stopSession(id, 'server-stopping');
       for (const authority of authorities.values()) endAuthority(authority.sessionId, authority.callId);

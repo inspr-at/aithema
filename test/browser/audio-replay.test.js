@@ -78,7 +78,7 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
     }, locale);
     await until(page, () => window.replayRail.notices.recovery && !window.replayRail.notices.button.disabled);
     await settle(); await page.mouse.move(0, 500);
-    const selectors = ['.audio-rail', '.voice-repeat', '.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.voice-notices'];
+    const selectors = ['.audio-rail', '.voice-repeat', '.voice-read-text', '.transcript-shell', '.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.voice-notices'];
     const before = await layoutBoxes(page, selectors);
     const capture = async state => {
       await settle();
@@ -126,6 +126,9 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-reply-text').textContent), await page.evaluate(() => window.replayText));
     await page.evaluate(() => window.replayRail.notices.dialog.close());
     await capture('fallback');
+    await shadow(page, c => { c.shadowRoot.querySelector('.turn:not(.user)').remove(); window.replayRail.render(); });
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').hidden), true, 'real recovery without a rendered assistant bubble hides replay');
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-read-text').hidden), true);
     await page.evaluate(async () => { window.replayRail.notices.dialog.close(); await window.replayRail.close(); });
   }
   if (evidence) await writeFile(join(evidence, 'audio-replay-evidence.json'), JSON.stringify({ ticket: 'AIT-154', head: evidenceCommit, files, passLines }, null, 2));

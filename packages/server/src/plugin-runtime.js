@@ -669,6 +669,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       catch { return null; }
     },
     stopReplyReplay,
+    stopReplyReplays() { for (const id of replyReplays.keys()) stopReplyReplay(id); },
     async speakText({ session, turnId, options = {} }) {
       if (replyReplays.has(session.id)) return { kind: 'busy' };
       const lease = { replayId: options.replayId ?? randomUUID(), controller: new AbortController(), signal: options.signal };
