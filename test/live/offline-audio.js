@@ -11,10 +11,20 @@ export const speech = {
 /** macOS's installed offline voice only. Never downloads a voice or calls TTS APIs. */
 export async function offlineAudio(directory, locale) {
   if (process.platform !== 'darwin') throw new Error('Generate the speech WAV on mbp2606 with its installed macOS voices');
-  const file = join(directory, 'synthetic-speech.wav');
-  await promisify(execFile)('/usr/bin/say', ['-v', locale === 'de' ? 'Anna' : 'Samantha',
-    '--file-format=WAVE', '--data-format=LEI16@48000', '-o', file, speech[locale].join(' ')], { timeout: 30_000 });
-  const bytes = await readFile(file);
+  const utterances = [];
+  for (const [index, text] of speech[locale].entries()) {
+    const file = join(directory, `synthetic-speech-${index}.wav`);
+    await promisify(execFile)('/usr/bin/say', ['-v', locale === 'de' ? 'Anna' : 'Samantha',
+      '--file-format=WAVE', '--data-format=LEI16@48000', '-o', file, text], { timeout: 30_000 });
+    const wav = canonicalWav(await readFile(file));
+    await writeFile(file, wav);
+    utterances.push(wav.toString('base64'));
+  }
+  return { file: join(directory, 'synthetic-speech-0.wav'), utterances };
+}
+
+/** Trim padding so buffer duration is the known end of the scripted speech. */
+export function canonicalWav(bytes) {
   if (bytes.toString('ascii', 0, 4) !== 'RIFF' || bytes.toString('ascii', 8, 12) !== 'WAVE') throw new Error('Offline speech is not a PCM WAV');
   // Canonical PCM header: avoid AudioToolbox's extra format/padding chunks in
   // Chrome's fake-device WAV parser. The samples remain offline synthetic speech.
@@ -30,12 +40,12 @@ export async function offlineAudio(directory, locale) {
   if (channels !== 1 || rate !== 48000 || bits !== 16) throw new Error('Offline WAV must be mono PCM16 at 48 kHz');
   const dataSize = bytes.readUInt32LE(dataOffset + 4), end = dataOffset + 8 + dataSize;
   if (end > bytes.length || !bytes.subarray(dataOffset + 8, end).some(value => value !== 0)) throw new Error('Offline speech WAV is empty or silent');
-  const header = Buffer.alloc(44), pcm = Buffer.concat([bytes.subarray(dataOffset + 8, end), Buffer.alloc(48_000)]);
+  let speechEnd = end;
+  while (speechEnd > dataOffset + 8 && bytes.readInt16LE(speechEnd - 2) === 0) speechEnd -= 2;
+  const header = Buffer.alloc(44), pcm = bytes.subarray(dataOffset + 8, speechEnd);
   header.write('RIFF'); header.writeUInt32LE(36 + pcm.length, 4); header.write('WAVEfmt ', 8);
   header.writeUInt32LE(16, 16); header.writeUInt16LE(1, 20); header.writeUInt16LE(1, 22);
   header.writeUInt32LE(48000, 24); header.writeUInt32LE(96000, 28); header.writeUInt16LE(2, 32); header.writeUInt16LE(16, 34);
   header.write('data', 36); header.writeUInt32LE(pcm.length, 40);
-  const loop = Buffer.concat([header, pcm]);
-  await writeFile(file, loop);
-  return file;
+  return Buffer.concat([header, pcm]);
 }

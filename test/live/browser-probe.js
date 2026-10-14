@@ -1,5 +1,5 @@
 // Serialized into Chrome by Puppeteer. Records timing/flags only, never content.
-export async function installProbe({ mode, locale }) {
+export async function installProbe({ mode, locale, utterances }) {
   const { AudioRail } = await import('/packages/ui/src/audio-rail.js');
   const state = globalThis.soak = { events: [], turns: [], session: null, speaking: false,
     samples: 0, peak: 0, speechSamples: 0, overlapSamples: 0, gateUntil: 0, closed: false, heartbeatFailures: 0 };
@@ -15,20 +15,28 @@ export async function installProbe({ mode, locale }) {
         if (event.type === 'speaking') state.speaking = true;
         if (['listening', 'ended', 'waiting', 'recovering'].includes(event.type)) state.speaking = false;
         const turn = state.turns.at(-1);
-        if (turn && turn.firstResponseMs === undefined && (event.type === 'speaking' || event.type === 'final' && event.role === 'assistant')) turn.firstResponseMs = atMs - turn.atMs;
-        if (turn && turn.finalMs === undefined && event.type === 'final' && event.role === 'assistant') turn.finalMs = atMs - turn.atMs;
+        if (turn && (turn.speechEndMs === undefined || atMs >= turn.speechEndMs)) {
+          // With no marker yet, retain only the gate-open observation. A later
+          // end marker clears any response that belonged to earlier playback.
+          if (turn.firstResponseAtMs === undefined && (event.type === 'speaking' || event.type === 'final' && event.role === 'assistant')) turn.firstResponseAtMs = atMs;
+          if (turn.speechEndMs !== undefined && turn.finalMs === undefined && event.type === 'final' && event.role === 'assistant') turn.finalMs = atMs - turn.speechEndMs;
+        }
         if (event.type === 'ended') state.closed = true;
         yield event;
       }
     })();
     return consume.call(this, session, generation);
   };
-  // All input comes from Chrome's fake file device. Gate the captured WAV without
-  // replacing the SDK or bypassing the provider's normal microphone acquisition.
+  // Preflight Chrome's fake file device. Scripted input then uses one-shot WAV
+  // buffers in the same capture destination, independent of Chrome's loop phase.
   const media = navigator.mediaDevices, native = media.getUserMedia.bind(media);
   const stream = await native({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
   const context = new AudioContext({ sinkId: { type: 'none' } });
   await context.resume();
+  const buffers = await Promise.all(utterances.map(async encoded => {
+    const bytes = Uint8Array.from(atob(encoded), c => c.charCodeAt(0));
+    return context.decodeAudioData(bytes.buffer);
+  }));
   const source = context.createMediaStreamSource(stream), gain = context.createGain(), analyser = context.createAnalyser();
   const destination = context.createMediaStreamDestination();
   // Fake voice never consumes the media stream. Keep the graph pulled through a
@@ -47,16 +55,46 @@ export async function installProbe({ mode, locale }) {
   }, 50);
   state.heartbeat = setInterval(() => { void state.session?.heartbeat({ deadlineAt: Date.now() + 2500 }).catch(() => { state.heartbeatFailures++; }); }, 3000);
   state.input = () => { state.gateUntil = clock() + 6000; };
+  const inputs = new Set();
+  let bargeTimer;
+  const playInput = (ordinal, onEnd) => {
+    const input = context.createBufferSource();
+    input.buffer = buffers[ordinal % buffers.length]; input.connect(analyser);
+    const startTime = context.currentTime + .05;
+    const endTime = startTime + input.buffer.duration;
+    const scheduledSpeechEndMs = clock() + (endTime - context.currentTime) * 1000;
+    inputs.add(input);
+    input.onended = () => {
+      inputs.delete(input); input.disconnect();
+      // Map the known sample end back to the monotonic event clock. Callback
+      // delay does not move speech end forward; context suspension is accounted for.
+      const speechEndMs = clock() - Math.max(0, context.currentTime - endTime) * 1000;
+      if (!state.closed) onEnd?.(speechEndMs);
+    };
+    input.start(startTime);
+    return scheduledSpeechEndMs;
+  };
   state.turn = ({ ordinal, bargeIn }) => {
     const turn = { ordinal, atMs: clock(), bargeIn, bargeAttempted: false };
-    state.turns.push(turn); state.input();
-    if (mode === 'fake') document.querySelector('#fake-say').click();
+    state.turns.push(turn);
+    turn.scheduledSpeechEndMs = playInput(ordinal, speechEndMs => {
+      turn.speechEndMs = speechEndMs;
+      if (turn.firstResponseAtMs < speechEndMs) delete turn.firstResponseAtMs;
+      state.events.push({ type: 'speech-end', atMs: speechEndMs, ordinal, source: 'scripted-wav' });
+      if (mode === 'fake') document.querySelector('#fake-say').click();
+    });
   };
   state.barge = () => {
     const turn = state.turns.at(-1);
-    if (!turn?.bargeIn || turn.bargeAttempted || !state.speaking || clock() - turn.atMs < 500) return false;
-    state.input(); turn.bargeAttempted = true;
-    if (mode === 'fake') document.querySelector('#fake-interrupt').click();
+    if (!turn?.bargeIn || turn.bargeAttempted || turn.speechEndMs === undefined || !state.speaking || clock() - turn.speechEndMs < 500) return false;
+    turn.bargeScheduledSpeechEndMs = playInput(2, speechEndMs => {
+      turn.bargeSpeechEndMs = speechEndMs;
+      state.events.push({ type: 'barge-speech-end', atMs: speechEndMs, ordinal: turn.ordinal, source: 'scripted-wav' });
+    });
+    turn.bargeAttempted = true;
+    // Let the actual synthetic input overlap simulated playback before asking
+    // the fake provider to acknowledge the interruption.
+    if (mode === 'fake') bargeTimer = setTimeout(() => document.querySelector('#fake-interrupt').click(), 300);
     return true;
   };
   state.recover = async () => {
@@ -66,6 +104,9 @@ export async function installProbe({ mode, locale }) {
   let stopping;
   state.stop = () => stopping ??= (async () => {
     state.gateUntil = 0; gain.gain.value = 0;
+    clearTimeout(bargeTimer);
+    for (const input of inputs) { input.onended = null; input.stop(); input.disconnect(); }
+    inputs.clear();
     clearInterval(state.meter); clearInterval(state.heartbeat);
     try { await state.session?.close({ reason: 'closed', deadlineAt: Date.now() + 10_000 }); }
     finally { stream.getTracks().forEach(t => t.stop()); destination.stream.getTracks().forEach(t => t.stop()); await context.close(); }
@@ -79,7 +120,7 @@ export async function installProbe({ mode, locale }) {
   state.audioPreflight = { contextState: context.state, contextTime: context.currentTime,
     trackState: stream.getAudioTracks()[0]?.readyState, trackMuted: stream.getAudioTracks()[0]?.muted };
   if (!state.speechSamples) throw new Error('Synthetic microphone preflight is silent');
-  state.gateUntil = 0;
+  state.gateUntil = 0; gain.gain.value = 0; source.disconnect();
   if (mode === 'fake') {
     const c = document.querySelector('aithema-session');
     await c.changeLocale(locale);

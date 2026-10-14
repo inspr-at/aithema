@@ -11,6 +11,12 @@ test('AIT-139: five-minute fake voice soak, actual WAV capture, CDP disruption a
   assert.equal(report.status, 'passed');
   assert.ok(report.elapsedMs >= 300_000 && report.elapsedMs < 310_000);
   assert.ok(report.client.turns >= 10);
+  assert.equal(report.client.firstResponse.reference, 'speech-end');
+  assert.equal(report.client.firstResponse.samples, report.client.turns);
+  assert.equal(report.client.deadlineMisses, 0);
+  assert.equal(report.client.unmeasurableSpeechEnds, 0);
+  assert.ok(report.client.turnTimings.every(turn => turn.speechEndMs > turn.atMs && turn.firstResponseMs >= 0));
+  assert.equal(report.client.events.filter(event => event.type === 'speech-end').length, report.client.turns);
   assert.ok(report.client.bargeIns >= 1);
   assert.ok(report.client.speechSamples > 0);
   assert.ok(report.client.overlapSamples > 0);

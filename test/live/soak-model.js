@@ -4,6 +4,26 @@ export function percentile(samples, fraction) {
   return [...samples].sort((a, b) => a - b)[Math.max(0, Math.ceil(samples.length * fraction) - 1)];
 }
 
+export function summarizeClient({ turns = [], mode, firstTokenMs = 5000 }) {
+  const timings = turns.map(turn => {
+    const timing = { ...turn };
+    delete timing.firstResponseMs;
+    const response = turn.firstResponseAtMs;
+    const measured = nonnegative(turn.speechEndMs) && Number.isFinite(response) && response >= turn.speechEndMs;
+    return { ...timing, ...(measured ? { firstResponseMs: response - turn.speechEndMs } : {}),
+      ...(Number.isFinite(response) && response >= turn.atMs ? { gateOpenResponseMs: response - turn.atMs } : {}) };
+  });
+  const first = timings.map(t => t.firstResponseMs).filter(nonnegative);
+  const gate = timings.map(t => t.gateOpenResponseMs).filter(nonnegative);
+  return { turns: timings.length, turnTimings: timings,
+    firstResponse: { samples: first.length, p50Ms: percentile(first, .5), p95Ms: percentile(first, .95), reference: 'speech-end' },
+    gateOpenResponse: { samples: gate.length, p50Ms: percentile(gate, .5), p95Ms: percentile(gate, .95), reference: 'gate-open' },
+    unmeasurableSpeechEnds: timings.filter(t => !nonnegative(t.speechEndMs)).length,
+    missingResponses: timings.filter(t => !Number.isFinite(t.firstResponseAtMs) || nonnegative(t.speechEndMs) && t.firstResponseAtMs < t.speechEndMs).length,
+    deadlineMisses: timings.filter(t => (!nonnegative(t.speechEndMs) ? mode !== 'live'
+      : !nonnegative(t.firstResponseMs) || t.firstResponseMs > firstTokenMs)).length };
+}
+
 export function summarize({ records = [], events = [], firstTokenMs = 5000, totalMs = 30_000 }) {
   const attempts = new Map(), closures = new Set();
   for (const record of records) {
@@ -78,7 +98,7 @@ export function validateOptions(input = {}) {
   if (!['fake', 'live'].includes(mode) || !['de', 'en'].includes(locale)) throw new Error('Unknown mode or locale');
   if (mode === 'live' && !input.ops) throw new Error('Live starts require the separate OPS --ops gate');
   if (mode === 'live' && locale !== 'de') throw new Error('Only the approved DE run is enabled');
-  if (!Number.isFinite(rateUsd) || rateUsd < 0 || (mode === 'live' && rateUsd <= 0)) throw new Error('Combined upstream rate bound required');
+  if (!Number.isFinite(rateUsd) || rateUsd < 0 || (mode === 'live' && rateUsd < .12)) throw new Error('Combined upstream rate bound must be at least $0.12/min in live mode');
   if (mode === 'live' && (!input.url || !input.diagnostics)) throw new Error('OPS must supply an isolated HTTPS URL and sanitized diagnostics file');
   if (input.url && (new URL(input.url).protocol !== 'https:' || new URL(input.url).username || new URL(input.url).password)) throw new Error('OPS URL must be HTTPS without credentials');
   return { ...input, mode, locale, minutes, maxDurationMs: Math.min(minutes, maximum) * 60_000,
@@ -105,7 +125,7 @@ export function markdown(report) {
   return `# AIT-139 voice soak (${report.mode}, ${report.locale})\n\n`
     + `Head: ${report.head}. Status: **${report.status}**; stop: ${report.stopReason}; duration: ${(report.elapsedMs / 60_000).toFixed(2)} min.\n\n`
     + `Server first token p50/p95: ${server.firstToken.p50Ms ?? 'unavailable'}/${server.firstToken.p95Ms ?? 'unavailable'} ms; total: ${server.total.p50Ms ?? 'unavailable'}/${server.total.p95Ms ?? 'unavailable'} ms. Deadline misses: ${server.firstToken.missed}/${server.total.missed}.\n\n`
-    + `Client first response p50/p95: ${client.firstResponse.p50Ms ?? 'unavailable'}/${client.firstResponse.p95Ms ?? 'unavailable'} ms; missing responses: ${client.missingResponses}. Scripted turns: ${client.turns}; barge-in receipts: ${client.bargeIns}; retries: ${server.retries}; recoveries: ${server.recoveries}.\n\n`
+    + `Client first response from speech end p50/p95: ${client.firstResponse.p50Ms ?? 'unavailable'}/${client.firstResponse.p95Ms ?? 'unavailable'} ms; missing responses: ${client.missingResponses}; deadline misses: ${client.deadlineMisses}; unmeasurable speech ends: ${client.unmeasurableSpeechEnds}. Gate-open observation p50/p95 (not a live deadline): ${client.gateOpenResponse?.p50Ms ?? 'unavailable'}/${client.gateOpenResponse?.p95Ms ?? 'unavailable'} ms. Scripted turns: ${client.turns}; barge-in receipts: ${client.bargeIns}; retries: ${server.retries}; recoveries: ${server.recoveries}.\n\n`
     + `Wallet confirmed delta: $${(report.cost.confirmedMicro / 1_000_000).toFixed(6)}; uncertain: $${(report.cost.uncertainMicro / 1_000_000).toFixed(6)}; reserved: $${(report.cost.reservedMicro / 1_000_000).toFixed(6)}; cap: $${(report.config.capMicro / 1_000_000).toFixed(2)}. Reconciled: ${report.cost.reconciled}.\n\n`
     + `Fake voice uses simulated speech events plus actual WAV capture; it has no ASR, paid TTS or reasoning callbacks. Server token metrics are unavailable in fake mode. Client response timing is not token timing. This report is input for AIT-105, not live-provider acceptance.\n`;
 }

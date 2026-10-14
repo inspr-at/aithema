@@ -8,7 +8,7 @@ import { startChild } from '../helpers.js';
 import { browserPath } from '../browser/start2-display-helpers.js';
 import { offlineAudio } from './offline-audio.js';
 import { installProbe } from './browser-probe.js';
-import { diagnosticRecords, disruptionAt, markdown, percentile, schedule, spendGuard, summarize, validateOptions } from './soak-model.js';
+import { diagnosticRecords, disruptionAt, markdown, schedule, spendGuard, summarize, summarizeClient, validateOptions } from './soak-model.js';
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const normalNetwork = { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 };
@@ -51,7 +51,7 @@ export async function runSoak(input = {}) {
   signals.forEach(signal => process.once(signal, abort));
   try {
     report.phase = 'offline-audio';
-    const wav = await offlineAudio(directory, config.locale);
+    const audio = await offlineAudio(directory, config.locale);
     report.phase = 'server-start';
     if (config.mode === 'fake') demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
       AITHEMA_VOICE_MODE: 'fake', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
@@ -62,7 +62,7 @@ export async function runSoak(input = {}) {
     browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, protocolTimeout: 5000,
       userDataDir: config.mode === 'live' ? config.profile : join(directory, 'chrome'),
       env: { PATH: process.env.PATH, HOME: homedir(), TMPDIR: directory },
-      args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', `--use-file-for-fake-audio-capture=${wav}`,
+      args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', `--use-file-for-fake-audio-capture=${audio.file}`,
         '--disable-features=AudioServiceSandbox',
         '--autoplay-policy=no-user-gesture-required', '--disable-background-timer-throttling', '--mute-audio'] });
     page = await browser.newPage(); page.setDefaultTimeout(15_000);
@@ -89,7 +89,7 @@ export async function runSoak(input = {}) {
     if (config.mode === 'live' && initial.limitMicro !== config.capMicro) throw new Error('OPS test allowance must equal the harness cap');
     report.cost.initial = initial;
     report.phase = 'capture-probe';
-    await page.evaluate(installProbe, { mode: config.mode, locale: config.locale });
+    await page.evaluate(installProbe, { mode: config.mode, locale: config.locale, utterances: audio.utterances });
     await page.$eval('aithema-session', c => c.shadowRoot.querySelector('.chooser__continue')?.click());
     await page.waitForFunction(() => {
       const button = document.querySelector('aithema-session').shadowRoot.querySelector('.voice-start');
@@ -174,16 +174,13 @@ export async function runSoak(input = {}) {
     }
     const events = report.client.events ?? [], turns = report.client.turns ?? [];
     report.server = summarize({ records: report.records, events, ...config });
-    const first = turns.map(t => t.firstResponseMs).filter(Number.isFinite);
-    report.client = { ...report.client, turns: turns.length, turnTimings: turns,
-      firstResponse: { p50Ms: percentile(first, .5), p95Ms: percentile(first, .95) },
-      missingResponses: turns.filter(t => !Number.isFinite(t.firstResponseMs) || t.firstResponseMs > config.firstTokenMs).length,
+    report.client = { ...report.client, ...summarizeClient({ turns, ...config }),
       bargeIns: events.filter(e => e.type === 'heard').length,
       bargeAttempts: turns.filter(t => t.bargeAttempted).length };
     report.status = report.stopReason === 'max-duration' && report.cost.reconciled && report.client.closed && report.client.speechSamples > 0 && report.client.overlapSamples > 0
       && report.client.bargeIns > 0 && report.server.recoveries > 0 && report.offlineRequestFailed
       && report.disruptions.some(d => d.latencyMs > 0)
-      && !report.externalRequestsBlocked && !report.client.missingResponses
+      && !report.externalRequestsBlocked && !report.client.deadlineMisses
       && report.cost.confirmedMicro + report.cost.uncertainMicro + report.cost.reservedMicro <= config.capMicro
       && (config.mode === 'fake' || report.server.attempts > 0 && !report.server.failed && !report.server.unclosed && !report.server.firstToken.missed && !report.server.total.missed)
       ? 'passed' : 'failed';

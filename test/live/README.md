@@ -15,7 +15,7 @@ both the unit glob and the four browser shards.
 Commit the worktree first; the remote wrapper transfers committed HEAD only:
 
 ```sh
-EVIDENCE_OUT="$PWD/test/live/evidence" FULL_LOG=1 \
+EVIDENCE_OUT="/absolute/path/to/ait139-handoff" FULL_LOG=1 \
   /private/tmp/claude-501/-Users-markus-Code-aithema/c3acf551-65c1-4283-a0f5-bea8a7cfc6f7/scratchpad/remote-browser.sh \
   "$PWD" unit test/live/soak-dry-run.test.js
 ```
@@ -31,7 +31,11 @@ environment. Chrome refuses requests outside that loopback origin. macOS `say`
 uses its **already installed** Anna/Samantha voices to generate PCM speech WAVs
 offline; missing voices fail setup (do not download them). Chrome opens the WAV
 with `--use-file-for-fake-audio-capture`, captures it through `getUserMedia`, and
-gates it with Web Audio. A meter proves non-silent capture and speech overlap.
+uses it for the capture preflight. Each scripted utterance then starts at sample
+zero as a one-shot Web Audio buffer feeding the same fake capture stream that
+the provider acquires through `getUserMedia`. Trailing PCM silence is trimmed;
+buffer duration and its scheduled start provide a known speech-end timestamp.
+A meter proves non-silent input and speech overlap.
 
 This dedicated test browser disables **only AudioServiceSandbox** so the macOS
 audio utility can read the generated WAV; renderer/browser sandboxing stays on.
@@ -42,7 +46,8 @@ pass before the harness starts any call. A device-free audio sink keeps the
 meter running without a physical output device.
 
 Fake voice has no ASR, TTS or reasoning callbacks: the script also presses its
-existing Speak/Barge-in controls. Its client timings and recovery/receipt counts
+existing Speak control after the scheduled utterance ends, and Barge-in after
+300 ms of actual input overlap. Its client timings and recovery/receipt counts
 are real simulator observations; server token metrics remain unavailable. This
 dry run validates harness plumbing, not live voice quality or provider latency.
 
@@ -50,9 +55,9 @@ Retained mbp2606 evidence at `c5a490dd7d`: [JSON report](evidence/soak-report.js
 and [short summary](evidence/soak-summary.md). The DE call ran for 300,190 ms,
 with 14 turns, five barge-in receipts, one recovery, both network windows,
 1,514 non-silent meter samples and 969 speech-overlap samples. Wallet confirmed,
-uncertain and reserved costs all ended at zero. The [unit red-before record](evidence/unit-red-before.json)
-and [initial silent-capture failure](evidence/red-before-soak-report.json) are
-preserved alongside the successful report.
+uncertain and reserved costs all ended at zero. The unit red-before record and
+initial silent-capture failure are retained in the coordinator handoff folder,
+outside the repository.
 
 ## OPS: isolated wallet and live preflight
 
@@ -67,7 +72,9 @@ preserved alongside the successful report.
 3. Confirm upstream price/account evidence, legal consent and model deadlines.
    OPS must establish a conservative **combined voice + reasoning** USD/minute
    upper bound including retries; the example below uses $0.12/min only if OPS
-   has verified that bound. Keep the existing server voice duration, spend,
+   has verified that bound. Live rates below $0.12/min are rejected; this floor
+   does not replace verification of a higher bound when needed. Keep the
+   existing server voice duration, spend,
    reservation and provider controls enabled. Set the test host's technical voice
    duration to 3600 seconds through its normal OPS configuration, without changing
    production defaults. Ensure the provider account has an independently enforced
@@ -146,9 +153,9 @@ is a hard harness abort threshold with conservative headroom, not a claim that
 provider billing cannot overrun. Unconfirmed settlement never becomes a pass.
 
 There is one scripted input every 20 seconds, with every third designated for
-barge-in while speaking. WAV input follows the actual capture path; client events
-verify the receipt. Offline (one second, at 30% of duration) and latency (400 ms
-for five seconds, at 60%) windows use CDP; an actual request must fail offline.
+barge-in while speaking. One-shot WAV input feeds the fake capture stream at a
+known phase; client events verify the receipt. Offline (one second, at 30% of
+duration) and latency (400 ms for five seconds, at 60%) windows use CDP; an actual request must fail offline.
 After connectivity returns the harness explicitly exercises the client's normal
 recovery lifecycle. Recovery is therefore induced, not proof of SDK autonomous
 outage detection. The logical call and spend clock continue across replacements.
@@ -160,9 +167,13 @@ reason, plan/applied disruptions, hashed correlation records, per-attempt server
 first-token/total p50/p95 and deadline misses, separate client response/final
 timings, retries/recoveries, barge-in receipts, capture meter counts, and wallet
 confirmed/uncertain/reserved amounts. Quantiles use nearest rank; missing or late
-observations count as deadline misses. A failed completion misses the total
-deadline without changing an on-time first token. Client first response is not a token metric,
-and assistant final transcript time is not audible playback completion.
+observations with a measurable speech end count as deadline misses. Client
+latency p50/p95 and the hard five-second deadline start at the scripted WAV
+speech end, not gate-open. Unmeasurable speech ends are counted separately;
+gate-open timing is reported as an observation and cannot fail live acceptance.
+Fake mode requires a measurable speech end for every turn. A failed completion
+misses the total deadline without changing an on-time first token. Client first
+response is not a token metric, and assistant final transcript time is not audible playback completion.
 
 At shutdown the harness restores connectivity, silences capture, closes the
 call, and waits up to 15 seconds for wallet liabilities to settle. Pending or

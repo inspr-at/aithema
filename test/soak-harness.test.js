@@ -3,6 +3,22 @@ import assert from 'node:assert/strict';
 import { percentile, summarize, stopReason, spendGuard, diagnosticRecords, disruptionAt, schedule, validateOptions } from './live/soak-model.js';
 import { createSoakLog } from './live/diagnostic-host.js';
 import * as model from './live/soak-model.js';
+import { canonicalWav } from './live/offline-audio.js';
+
+test('AIT-139: scheduled WAV duration ends at the last speech sample, not padding', () => {
+  const bytes = Buffer.alloc(44 + 48_000 * 2);
+  bytes.write('RIFF'); bytes.writeUInt32LE(bytes.length - 8, 4); bytes.write('WAVEfmt ', 8);
+  bytes.writeUInt32LE(16, 16); bytes.writeUInt16LE(1, 20); bytes.writeUInt16LE(1, 22);
+  bytes.writeUInt32LE(48_000, 24); bytes.writeUInt32LE(96_000, 28);
+  bytes.writeUInt16LE(2, 32); bytes.writeUInt16LE(16, 34);
+  bytes.write('data', 36); bytes.writeUInt32LE(bytes.length - 44, 40);
+  bytes.writeInt16LE(-1000, 44 + (24_000 - 1) * 2);
+  const wav = canonicalWav(bytes);
+  assert.equal(wav.readUInt32LE(40) / 96_000, .5, 'half a second of trailing silence cannot extend speech end');
+  assert.deepEqual(wav.subarray(44), bytes.subarray(44, 44 + 24_000 * 2));
+  assert.equal(wav.readUInt32LE(4), wav.length - 8);
+  assert.throws(() => canonicalWav(Buffer.alloc(44)), /PCM WAV/);
+});
 
 test('AIT-139: client latency and five-second deadlines start at speech end', () => {
   const turns = [
