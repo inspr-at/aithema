@@ -119,10 +119,12 @@ export class SessionLanes {
               }
             }
             catch (error) { failed = true; throw error; }
-            finally { await admitted?.finish({ failed }); }
-            if (!current()) throw superseded;
+            finally {
+              await admitted?.finish({ failed });
+              if (!current()) throw superseded;
+            }
           }, { guardDirection: reply => current() ? this.guardDirection(id, reply) : reply,
-            onDiagnostic: event => this.onReplyDiagnostic({ lane, ...event }) }).catch(error => {
+            onDiagnostic: event => { if (current()) this.onReplyDiagnostic({ lane, ...event }); } }).catch(error => {
             const latest = this.getSession(id);
             if (error === superseded || inputRevision(latest) !== revision || this.selection(latest, lane) !== selection) return null;
             throw error;
