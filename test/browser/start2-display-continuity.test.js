@@ -296,7 +296,8 @@ test('AIT-177: continuity baseline awaits the persisted greeting and workspace e
   await mockConsent(page);
   await shadow(page, c => c.shadowRoot.querySelector('.chooser__continue').click());
   await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.voice-start').disabled);
-  await shadow(page, c => { c.shadowRoot.querySelector('.ready__mode[data-mode="voice"]').click(); c.shadowRoot.querySelector('.ready__start').click(); });
+  await shadow(page, c => c.shadowRoot.querySelector('.ready__mode[data-mode="voice"]').click());
+  await shadow(page, c => c.shadowRoot.querySelector('.ready__start').click());
   await greeting;
   assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.workspace').dataset.understanding), 'absent');
   // Release only after the old 120ms baseline wait could finish. The new wait
