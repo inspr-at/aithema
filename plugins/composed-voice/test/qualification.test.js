@@ -63,3 +63,13 @@ test('AIT-160: estimated vendor usage keeps its entire reservation inside the ha
     assert.throws(() => budget.reserve({ attemptId: 'next', maxMicro: 1 }), { code: 'not-admitted' });
   }
 });
+
+
+test('AIT-160 round 2: offline qualification admits every TTS fragment with a unique claim', async () => {
+  const result = await runOfflineQualification({ replyText: 'Welche Firma? Bitte nennen Sie den Namen.' });
+  // Each candidate and baseline sample needs one STT and two TTS claims.
+  assert.equal(result.componentAttempts, result.samples * 2 * 3);
+  assert.equal(result.candidate.automatedPass, true);
+  assert.equal(result.baseline.automatedPass, true);
+  assert.equal(result.spendMicro, 0);
+});

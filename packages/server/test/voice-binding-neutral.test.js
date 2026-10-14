@@ -77,3 +77,8 @@ test('AIT-102: another provider admits, discovers scope, extends and reconciles 
   await assert.rejects(runtime.admitVoice({ session, request: { callId: 'short' },
     options: { spendDeadlineAt: now + 119_000 } }), { code: 'not-admitted', message: 'host-limit' });
 });
+
+test('AIT-160 round 2: shared duration binding without a maximum fails closed', () => {
+  const { maxDurationSeconds, ...withoutMaximum } = raw;
+  assert.throws(() => createDurationBinding(withoutMaximum), TypeError);
+});

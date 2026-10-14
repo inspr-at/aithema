@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createComposedVoiceCoordinator, callDurationSeconds } from '../../../packages/server/src/composed-voice.js';
+import { elevenLabsCompletion, runElevenLabsReply } from '../../elevenlabs/src/reply.js';
 import { SQLiteStorage } from '../../../packages/server/src/storage.js';
 import { createVoiceTurnOperations, createVoiceReplyExecutor } from '../../../packages/server/src/voice-turns.js';
 
@@ -154,4 +155,70 @@ test('AIT-160: pause during pending server authorization cannot be cleared by a 
   await h.coordinator.pause(); const pending = h.coordinator.resume(); await ready.promise;
   await h.coordinator.pause(); release.resolve();
   await assert.rejects(pending, { code: 'cancelled' }); assert.equal(h.coordinator.state.state, 'paused');
+});
+
+
+test('AIT-160 round 2: published assistant finals join multi-turn history in order', async t => {
+  const h = fixture(t);
+  for (let i = 0; i < 3; i++) {
+    await h.coordinator.receiveAudio(pcm(100)); await h.coordinator.receiveAudio(pcm(500, 0));
+    await h.coordinator.idle();
+  }
+  const assistant = elevenLabsCompletion({ replyId: 'fixture', created: 1 }, 'Welche Firma? ').choices[0].message;
+  assert.deepEqual(h.commits[2].payload.callbackBody.messages, [
+    { role: 'user', content: 'Ja' }, assistant,
+    { role: 'user', content: 'Ja' }, assistant,
+    { role: 'user', content: 'Ja' },
+  ]);
+});
+
+test('AIT-160 round 2: Rule C digest matches ElevenLabs message shape for the same turns', async t => {
+  const h = fixture(t);
+  for (let i = 0; i < 2; i++) {
+    await h.coordinator.receiveAudio(pcm(100)); await h.coordinator.receiveAudio(pcm(500, 0));
+    await h.coordinator.idle();
+  }
+  const composed = h.storage.voiceOperations(h.session.id).find(operation => operation.ordinal === 2);
+  const payload = h.commits[1].payload;
+  const messages = [{ role: 'user', content: 'Ja' },
+    elevenLabsCompletion({ replyId: 'fixture', created: 1 }, 'Welche Firma? ').choices[0].message,
+    { role: 'user', content: 'Ja' }];
+  const response = await runElevenLabsReply(h.turns, { ...payload, providerSessionId: 'elevenlabs-fixture',
+    messages, callbackBody: { ...payload.callbackBody, messages }, stream: false }, async worker => {
+    worker.beforeAdmission(); worker.admitted('elevenlabs-reasoning');
+    return new Response('data: ' + JSON.stringify({ id: 'elevenlabs-reply', created: 1, choices: [{ delta: { content: 'Next reply.' }, finish_reason: 'stop' }] }) + '\n\ndata: [DONE]\n\n');
+  });
+  assert.equal(response.status, 200);
+  await response.text();
+  const baseline = h.storage.voiceOperations(h.session.id).find(operation => operation.providerSessionId === 'elevenlabs-fixture');
+  assert.equal(composed.historyDigest, baseline.historyDigest);
+});
+
+test('AIT-160 round 2: assistant history counts against the generation text limit', async t => {
+  const h = fixture(t, { maxTextCharacters: 16 });
+  for (let i = 0; i < 2; i++) {
+    await h.coordinator.receiveAudio(pcm(100)); await h.coordinator.receiveAudio(pcm(500, 0));
+    await h.coordinator.idle();
+  }
+  assert.equal(h.commits.length, 1);
+  assert.equal(h.coordinator.state.state, 'waiting');
+});
+
+test('AIT-160 round 2: voiced barge-in silences before pending ingress authorization', async t => {
+  const release = Promise.withResolvers(), entered = Promise.withResolvers(); let block = false;
+  const h = fixture(t, { authorize: async () => {
+    if (block) { entered.resolve(); await release.promise; }
+    return true;
+  } });
+  t.after(() => release.resolve());
+  await h.coordinator.receiveAudio(pcm(100)); await h.coordinator.receiveAudio(pcm(500, 0));
+  await h.coordinator.idle(); assert.equal(h.audio.length, 1);
+  block = true; const before = h.silences.length;
+  const pending = h.coordinator.receiveAudio(pcm(100));
+  try {
+    await entered.promise;
+    assert.equal(h.silences.length, before + 1, 'silence must not wait for authorization');
+    assert.equal(h.silences.at(-1).reason, 'barge-in');
+    assert.equal(h.commits.length, 1, 'new work still waits for authorization');
+  } finally { release.resolve(); await pending; }
 });

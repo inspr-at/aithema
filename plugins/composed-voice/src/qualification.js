@@ -92,7 +92,7 @@ export const OFFLINE_CORPUS = Object.freeze([
   { reference: 'Änderungen für Österreich, täglich um 14 Uhr.', expected: 'Österreich' },
   { reference: 'Ja, ähm, ungefähr 42 Mitarbeiter.', expected: '42' },
 ]);
-export async function runOfflineQualification({ candidate, baseline } = {}) {
+export async function runOfflineQualification({ candidate, baseline, replyText = 'Welche Firma?' } = {}) {
   const budget = createQualificationBudget();
   let serial = 0;
   const oracle = async item => {
@@ -116,8 +116,8 @@ export async function runOfflineQualification({ candidate, baseline } = {}) {
       } },
       replyExecutor: { async *execute() {
         yield { type: 'operation', operation: { key: `offline-${sampleId}`, ordinal: 1 }, replyId: `offline-reply-${sampleId}` };
-        yield { type: 'delta', text: 'Welche Firma?' };
-        yield { type: 'completion', replyId: `offline-reply-${sampleId}`, text: 'Welche Firma?' };
+        yield { type: 'delta', text: replyText };
+        yield { type: 'completion', replyId: `offline-reply-${sampleId}`, text: replyText };
       } },
       tts: { async *speak(request, options) {
         await options.attempt.consume(); at = speechEndAt + 900; yield new Uint8Array(4);
@@ -144,5 +144,5 @@ export async function runOfflineQualification({ candidate, baseline } = {}) {
   // Transport functions are host-injected offline observations. There is no key or live runner here.
   const candidateResult = await run(candidate), baselineResult = await run(baseline);
   return { mode: 'offline', evidence: 'synthetic-coordinator-only', spendMicro: budget.snapshot().exposureMicro,
-    samples: OFFLINE_CORPUS.length, candidate: candidateResult, baseline: baselineResult };
+    samples: OFFLINE_CORPUS.length, componentAttempts: budget.snapshot().records.length, candidate: candidateResult, baseline: baselineResult };
 }
