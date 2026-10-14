@@ -445,7 +445,7 @@ export async function visitorCreditMatrix(t, locales) {
       passLines.push({ locale, theme, width, state: 'call-ending', displacementPx: endingDisplacement, pass: true }); await shot('call-ending');
       await until(page, () => {
         const root = document.querySelector('aithema-session').shadowRoot;
-        return root.querySelector('.voice-close').disabled && root.querySelector('.pause').disabled;
+        return root.querySelector('.composer-shell').hasAttribute('data-used-up') && root.querySelector('.question-card').inert;
       });
       await settle(page);
       const calm = await shadow(page, c => {
