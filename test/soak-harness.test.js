@@ -14,6 +14,7 @@ test('AIT-139: report joins attempts, keeps retries, and counts missing/failed d
     { ...identity, event: 'voice.turn.admission' },
     { ...identity, event: 'voice.turn.first-token', firstTokenMs: 0 },
     { ...identity, event: 'voice.turn.completion', totalMs: 90, outcome: 'completed' },
+    { ...identity, event: 'voice.turn.closure', closureConfirmed: true },
     { ...identity, event: 'voice.turn.retry' },
     { ...identity, attemptHash: 'e', event: 'voice.turn.admission' },
     { ...identity, attemptHash: 'e', event: 'voice.turn.completion', totalMs: 200, outcome: 'failed' },
@@ -23,6 +24,7 @@ test('AIT-139: report joins attempts, keeps retries, and counts missing/failed d
   assert.deepEqual(report.total, { samples: 2, p50Ms: 90, p95Ms: 200, missed: 2 });
   assert.equal(report.attempts, 3); assert.equal(report.retries, 1);
   assert.equal(report.recoveries, 1); assert.equal(report.failed, 1);
+  assert.equal(report.unclosed, 2);
 });
 
 test('AIT-139: cap counts confirmed, uncertain and the conservative time bound', () => {

@@ -11,6 +11,7 @@ export function summarize({ records = [], events = [], firstTokenMs = 5000, tota
     const key = JSON.stringify([record.callHash, record.generationHash, record.turnHash, record.attemptHash]);
     const attempt = attempts.get(key) ?? {};
     if (record.event === 'voice.turn.admission') attempt.admitted = true;
+    if (record.event === 'voice.turn.closure' && record.closureConfirmed === true) attempt.closed = true;
     if (record.event === 'voice.turn.first-token' && nonnegative(record.firstTokenMs)) attempt.first = record.firstTokenMs;
     if (record.event === 'voice.turn.completion') {
       if (nonnegative(record.totalMs)) attempt.total = record.totalMs;
@@ -29,6 +30,7 @@ export function summarize({ records = [], events = [], firstTokenMs = 5000, tota
     reconciliationRetries: records.filter(r => r.event === 'voice.reconciliation-retry').length,
     reconnects: records.filter(r => r.event === 'voice.segment.reconnect').length,
     recoveries: events.filter(e => e.type === 'recovered').length,
+    unclosed: admitted.filter(a => !a.closed).length,
     failed: admitted.filter(a => a.outcome === 'failed').length };
 }
 
