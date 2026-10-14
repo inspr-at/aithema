@@ -137,7 +137,7 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     const wallet = host.wallet(ownerToken);
     // The optional host display projection is read-only; wallet.balance() and
     // every admission path retain their conservative reservation maxima.
-    const balance = budgetCreditView(budget, id, wallet.displayBalance ? { ...wallet, balance: () => wallet.displayBalance() } : wallet);
+    const balance = budgetCreditView(budget, id, wallet.displayBalance ? Object.create(wallet, { balance: { value: () => wallet.displayBalance() } }) : wallet);
     const exhausted = balance.owner.limitMicro === 0 || (wallet.displayBalance
       ? balance.owner.availableMicro === 0 : balance.owner.confirmedSpendMicro >= balance.owner.limitMicro);
     const projection = host.creditTiers?.(ownerToken) ?? null;

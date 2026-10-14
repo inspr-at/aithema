@@ -84,3 +84,21 @@ test('AIT-173: voice display follows extensions, survives recovery and isolates 
   assert.equal((await credits(f)).balance.owner.availableMicro, 9_900_000, 'recovery freezes display duration but retains liability');
   assert.equal(f.ledger.used(f.session.id), 60_000_000);
 });
+
+test('AIT-173: the optional display projection supports a class-based owner wallet', async t => {
+  const f = await creditHoldFixture(); t.after(() => f.close());
+  const original = f.host.wallet(f.owner);
+  class Wallet {
+    #port = original;
+    balance() { return this.#port.balance(); }
+    displayBalance() { return this.#port.displayBalance(); }
+    canAdmit(request) { return this.#port.canAdmit(request); }
+    admit(request) { return this.#port.admit(request); }
+    release(request) { return this.#port.release(request); }
+  }
+  const wallet = new Wallet(); f.host.wallet = () => wallet;
+  const response = await f.call('/credits');
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).balance.owner.availableMicro, 6_000_000);
+  assert.equal(wallet.canAdmit({ maxMicro: 200_001 }), false, 'display wrapping does not alter the class wallet');
+});
