@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SessionLanes, createMockReasoning, createSession, applyEvent, inputRevision } from '../src/index.js';
+import { SessionLanes, createMockReasoning, createSession, applyEvent, inputRevision, PluginError } from '../src/index.js';
 import { purposePolicy } from '../../../test/safeguards-corpus.js';
 
 function harness(plugin = createMockReasoning(), options = {}, laneOptions = {}) {
@@ -133,3 +133,30 @@ for (const phase of ['before attempt 1', 'during admission', 'between attempts',
     assert.equal(new Set(settlements.map(item => item.attempt)).size, count);
   });
 }
+
+for (const [code, providerErrorClass] of [
+  ['auth', '4xx'], ['rate-limit', '4xx'], ['provider', '4xx'], ['provider', '5xx'], ['provider', undefined],
+]) for (const attempt of [0, 1]) test(`AIT-183 separately settles ${code}/${providerErrorClass ?? 'network'} on attempt ${attempt + 1}`, async () => {
+  const error = Object.assign(new PluginError(code), { providerErrorClass });
+  const admissions = [], settlements = [], diagnostics = [];
+  const h = harness(createMockReasoning(), {}, { purposePolicy, onReplyDiagnostic: event => diagnostics.push(event),
+    async admit({ request }) {
+      const index = admissions.length;
+      admissions.push(request);
+      return { plugin: { ...createMockReasoning(), async *stream() {
+        if (index === attempt) throw error;
+        yield '{invalid';
+      } }, finish: result => settlements.push({ index, ...result }) };
+    },
+  });
+  h.turn('First input');
+  const pending = h.lanes.run(h.session.id, 'reaction');
+  const fallback = attempt && code === 'provider' && providerErrorClass !== '4xx';
+  if (fallback) assert.equal(await pending, 'completed');
+  else await assert.rejects(pending, actual => actual === error);
+  assert.equal(admissions.length, attempt + 1);
+  assert.deepEqual(settlements, attempt ? [{ index: 0, failed: false }, { index: 1, failed: true }] : [{ index: 0, failed: true }]);
+  assert.equal(h.published.length, fallback ? 1 : 0);
+  assert.equal(diagnostics.length, fallback ? 1 : 0);
+  assert.deepEqual(h.partials, []);
+});
