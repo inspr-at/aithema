@@ -54,6 +54,11 @@ export function mountVersionDetails(element, version, { locale = 'de' } = {}) {
       setTimeout: (fn, ms) => view.setTimeout(fn, ms === confirmation ? 1200 : ms), clearTimeout: view.clearTimeout.bind(view) },
   });
   row.style.display = 'grid';
+  // Chromium can retain :focus-visible when the already focused row is clicked.
+  // Pointer copies still have no ring; the next key restores keyboard styling.
+  const pointerFocus = () => { row.dataset.pointerFocus = ''; };
+  const keyboardFocus = () => { delete row.dataset.pointerFocus; };
+  row.addEventListener('pointerdown', pointerFocus); row.addEventListener('keydown', keyboardFocus);
   const feedback = row.lastChild; feedback.className = 'version-feedback';
   Object.assign(feedback.style, { position: 'static', gridArea: '1 / 1', padding: '0', borderRadius: '0',
     font: 'inherit', color: 'inherit', background: 'transparent', whiteSpace: 'normal', zIndex: 'auto' });
@@ -69,6 +74,7 @@ export function mountVersionDetails(element, version, { locale = 'de' } = {}) {
     explanation.textContent = locale === 'en' ? 'Copy manually:' : 'Manuell kopieren:';
   });
   observer.observe(row, { attributes: true, attributeFilter: ['data-copy-state'] });
-  const dispose = () => { observer.disconnect(); controller.dispose(); disposeVersion(coordinate); mounted.delete(element); };
+  const dispose = () => { observer.disconnect(); row.removeEventListener('pointerdown', pointerFocus);
+    row.removeEventListener('keydown', keyboardFocus); controller.dispose(); disposeVersion(coordinate); mounted.delete(element); };
   mounted.set(element, dispose); return dispose;
 }

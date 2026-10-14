@@ -130,7 +130,7 @@ export const bandStyles = `
 .version-row { grid-template-columns:minmax(0,1fr); grid-template-rows:1lh; min-width:0; border-radius:3px; }
 .version-row:hover { background:color-mix(in srgb,var(--aithema-ink) 6%,transparent); }
 /* The shared controller's inline outline must never survive a change to mouse input. */
-.version-row:not(:focus-visible) { outline:none !important; }
+.version-row:is(:not(:focus-visible),[data-pointer-focus]) { outline:none !important; }
 .version-row:focus-visible { outline:2px solid currentColor; }
 .version-value { grid-area:1/1; white-space:nowrap; }
 .version-row:is([data-copy-state="copied"],[data-copy-state="error"]) .version-value { visibility:hidden; }
