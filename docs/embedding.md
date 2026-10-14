@@ -79,7 +79,9 @@ The visible product name stays **Aithema 2026.10**. `host.version` may carry
 `version`, `version_scheme`, `commit` and `date` from the immutable manifest;
 the exact coordinate appears in the existing hover/focus details only. CalVer3
 uses the pinned shared Pretty renderer there, with canonical copy, UTC tooltip,
-keyboard/touch interaction and reduced motion. Legacy details remain plain.
+keyboard/touch interaction and reduced motion. Auto colors use the host branding;
+`host.version.display: "semver"` selects the full reduced coordinate in that same
+popup, with the same canonical-copy interaction. Legacy details remain plain.
 
 ## Host ports and presets
 

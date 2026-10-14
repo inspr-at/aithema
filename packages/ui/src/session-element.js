@@ -82,7 +82,7 @@ export class AithemaSession extends HTMLElement {
   #orb = null; #started = false; #inputMode = null; #microphone = 'unknown'; #permission = null;
   #localeChanging = Promise.resolve(); #copyLocale;
   #paneObserver; #scrollTimers = new Map();
-  #questionCard;
+  #questionCard; #disposeVersion;
   #uploadAt = new Map(); #uploading = false; #uploadNotice = ''; #reading = ''; #limits = UPLOAD_LIMITS; #limitsLoad = null; #dragDepth = 0;
   constructor() {
     super(); this.attachShadow({ mode: 'open' });
@@ -107,6 +107,7 @@ export class AithemaSession extends HTMLElement {
     if (!copy || !session) throw new TypeError('Host copy and session required');
     this.#copyLocale = session.locale; this.#aiNotice = aiNotice; this.#options = { ...options }; delete this.#options.session;
     clearTimeout(this.#creditEndTimer); this.#creditEnding = false; this.#creditAnnounced = false; this.#creditWasUsedUp = false;
+    this.#disposeVersion?.(); this.#disposeVersion = null;
     this.#host?.destroy(); this.#host = null; this.#reveal?.destroy(); this.#timer?.destroy(); this.#popups?.destroy();
     this.#questionCard?.destroy();
     this.#motionMedia?.removeEventListener?.('change', this.#motionListener);
@@ -140,6 +141,8 @@ export class AithemaSession extends HTMLElement {
   }
   connectedCallback() {
     if (!this.#session) return;
+    this.#disposeVersion?.();
+    this.#disposeVersion = mountVersionDetails(this.shadowRoot.querySelector('#build-info'), { product: 'Aithema 2026.10', ...this.#options.host?.version });
     this.#pings ??= answerVoicePings(() => this.#rail?.session?.callId ?? null);
     this.#concept?.connect(); this.#connect(); this.#watchPage(true); this.#offerResume(); this.#host?.connect(); this.#placeOrb();
     this.#popups?.connect(); this.#motionMedia?.addEventListener?.('change', this.#motionListener);
@@ -148,6 +151,7 @@ export class AithemaSession extends HTMLElement {
     this.#observePanes();
   }
   disconnectedCallback() {
+    this.#disposeVersion?.(); this.#disposeVersion = null;
     this.#timer?.setConnected(false); this.#reveal?.disconnect();
     this.#questionCard?.destroy();
     this.#popups?.destroy(); this.#motionMedia?.removeEventListener?.('change', this.#motionListener);
@@ -291,7 +295,7 @@ export class AithemaSession extends HTMLElement {
     this.#mountMotion();
     const version = { product: 'Aithema 2026.10', ...this.#options.host?.version };
     setText(root.querySelector('.display-version'), version.product);
-    mountVersionDetails(root.querySelector('#build-info'), version);
+    this.#disposeVersion = mountVersionDetails(root.querySelector('#build-info'), version);
     this.#placeOrb();
     this.#dialog = new SettingsDialog({ dialog: root.querySelector('dialog.settings'), copy: this.#copy, operator: this.#options.host?.operator, ports: {
       // Withdrawn turns still mark a started conversation (the server's device lock agrees).
