@@ -683,8 +683,8 @@ for (const ownerGuard of [false, true]) test(`AIT-135 A2 fix 1 API: full voice h
     usage: { providerSeconds: 60, providerMinutes: 1, pausedSeconds: 0, visitorSeconds: 60, upstreamMicro: micro, visitorMicro: micro, costEstimated: false } });
   const first = await reserve(12_000_000), events = f.storage.read(s.id);
   let body = await (await call(path)).json();
-  assert.equal(body.balance.owner.availableMicro, 0);
-  assert.equal(body.balance.owner.reservedMicro, 12_000_000); assert.equal(body.balance.owner.confirmedSpendMicro, 0);
+  assert.equal(body.balance.owner.availableMicro, 12_000_000, 'an unobserved voice hold is not displayed as spend');
+  assert.equal(body.balance.owner.reservedMicro, 0); assert.equal(body.balance.owner.confirmedSpendMicro, 0);
   assert.equal(body.exhausted, false, 'a full hold is not a wallet exhaustion verdict');
   assert.deepEqual(f.storage.read(s.id), events, 'reading a hold never emits an exhaustion event');
   if (ownerGuard) assert.notEqual(body.limitSlot.endReason, 'host-limit');

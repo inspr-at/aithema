@@ -241,7 +241,20 @@ Host adapter contract:
 - `wallet(ownerToken)` supplies the Part A owner wallet. The view includes
   existing ledger holds and settlements. Production hosts must use
   `admitCredits` for authoritative owner reservations and own settlement/recovery;
-  the demo wallet and handover sink are local fakes.
+  the demo wallet and handover sink are local fakes. An optional synchronous
+  `wallet.displayBalance()` supplies the read-only owner balance for `GET S/credits`
+  and low-credit email asks. Admission always uses `wallet.balance()`.
+
+AIT-173's START display subtracts settled plus expected spend. Open voice duration
+uses the rate captured at admission, capped by its funded reservation, and freezes
+at hangup or recovery while reconciliation retains the full accounting liability.
+Reasoning uses AIT-163's persisted lane/byte fallback, capped by the reservation;
+authoritative receipts remain uncapped. Holds without observed usage or a stored
+voice estimate contribute no display spend until evidence arrives. Actual low and
+used-up balances still warn. After hangup, the composer refreshes the server
+verdict: text works when the balance after the retained maximum covers the turn;
+otherwise the normal used-up path applies. Only a live call uses the
+"after the call" denial copy. Rolling reservation sizing is unchanged.
 
 `demo/host-ports.js` supplies a SQLite-backed library and labelled in-memory
 mail, handover and wallet ports. **Demo-only route:** `GET S/demo/outbox` returns
@@ -910,8 +923,10 @@ settles dispatched holds, revokes callback auth and retains pending orphan
 reconciliation under SQLite's exclusive writer. A host's bounded `closeOrphan`
 port may return authenticated final usage to correct cost without emitting a
 second terminal receipt. Pending records remain durable when that port fails.
-Start2/demo wires the provider's `reconcileLater` hook to an in-process retry:
-every 30 seconds after the previous batch finishes, up to 10 pending calls are
+A call that closes with unresolved costs is checked immediately through
+`closeOrphan`, independently of the browser acknowledgement. Start2/demo wires
+the provider's `reconcileLater` hook to subsequent in-process retries: every
+30 seconds after the previous batch finishes, up to 10 pending calls are
 checked through `closeOrphan`, each with a five-second deadline. Batches rotate
 through pending calls; processing records and outages keep their holds and retry
 without a restart. Confirmed reconciliation is recorded durably before releasing
@@ -3146,11 +3161,61 @@ wrapping JSON fences are accepted as transport syntax.
 Only guarded reply requests carry the private canary; understanding retains its
 existing untrusted-data framing behind the scope gate. A rejected output is regenerated once
 under a fresh admitted and settled model attempt. Only an explicit off classification
-or an output-check violation counts toward the pause. Invalid JSON, missing scope and
-provider faults produce a neutral reply or the normal error path without counting.
+or an output-check violation counts toward the pause. Missing or invalid scope is
+`unclear`: safe model content is shown, cards are cleared, and it never counts.
+Unknown envelope/option fields are discarded; wrapping JSON fences are stripped.
+Malformed optional card metadata also cannot discard safe conversational content.
+Invalid JSON and incomplete streams are retried once; the final neutral fallback is
+reserved for unusable output (unparseable, empty/non-string/overlong content), while
+unsafe output receives the fixed host redirect. Provider faults retain the normal
+error path without counting.
 A second unsafe rejection produces host redirect copy. This check is a deterministic backstop, not a semantic proof
 of model obedience. The fake-model red-team tests verify framing, extraction,
 counting, replay and non-disclosure; only a live evaluation can assess real models.
+
+Guarded OpenRouter reply streams request `response_format: json_schema` with
+`strict: true` and retain the prompt schema. The wire schema uses required boolean
+`likely` flags and leaves the at-most-one-likely check to the host so providers need
+no `contains` support. Other hosts keep their existing
+transport. An explicit provider refusal of structured streaming uses the one
+remaining attempt with the prompt schema, under fresh admission and settlement;
+there are no hidden adapter retries or changes to provider routing, price bounds,
+output checks, fixed off-topic variants or pause counting. Incomplete streams are
+never shown before successful regeneration.
+
+OPS reply-schema diagnostic (AIT-181): on the approved host, in its existing service
+configuration context, run exactly:
+
+```sh
+node scripts/diagnose-reply-schema.js --allow-live
+```
+
+OPS supplies the usual inherited process configuration; the script never opens an
+env/config file and never runs in CI. It exercises in-scope DE, in-scope EN and
+off-topic DE, with **at most three wire calls total**. A constrained HTTP 4xx or
+explicit streamed capability refusal permits one prompt-only retry under fresh
+admission; that retry consumes the budget for a later case,
+through the normal admission, pricing and spend-cap path (in-memory cap: the smaller
+of the configured cap and USD 0.05). It prints only case IDs, parse success,
+top-level schema keys, scope presence/validity, first failing schema path/rule,
+fence presence, stream completion, attempt count, the path (`constrained` or
+`prompt-only-retry`) and provider error class (`4xx`, `5xx`, `provider`, `other`,
+or null). Unknown key names are masked as `<unknown>`
+and `*` in paths, because names can contain private text too. No output values,
+prompts, credentials, provider errors or configuration values are logged. Rules
+refer to the strict requested schema before tolerant reply normalization; a missing
+scope or extra-field failure alone no longer means the conversation uses fallback.
+A high fallback rate is visible through value-free `reply.schema-retry` and
+`reply.fallback` counter events (lane, reason class, attempt count). Constrained
+replies missing scope emit `reply.scope-missing` without counting as off-topic.
+Fallback metadata stays private and never enters visitor snapshots or transcripts.
+
+Every start2 post-deploy smoke must include **in-scope DE + EN turns and an off-topic
+turn**. Both in-scope turns must show a specific model reply to the project, beyond
+the neutral fallback; off-topic must show the full fixed localized redirect and
+contribute once to the private counter. The coordinator/OPS owns real-provider
+verification before redeploy. The AIT-181 regression fixtures represent realistic
+model envelopes; they are not claimed to be captured production output.
 
 Manual evaluator: `scripts/eval-safeguards.js` is never run in CI. Only with Markus's
 approval, on an approved evaluation machine with dependencies already available:

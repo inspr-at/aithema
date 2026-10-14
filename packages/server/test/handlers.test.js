@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers } from '../src/index.js';
 import { mockConsent, testToken, ownedRequest } from '../../../test/helpers.js';
-import { createMockReasoning, inputRevision } from '@inspr/aithema-core';
+import { createMockReasoning, inputRevision, PluginError } from '@inspr/aithema-core';
 import { instrumentedMockRuntime } from '../../../test/server-fixtures.js';
 
 const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r; }); return { promise, resolve }; };
@@ -230,5 +230,28 @@ test('AIT-109 N4: obsolete failure entries are removed when the input revision m
     const snapshot = await handlers.handle(request(s.id)).then(r => r.json());
     assert.equal(snapshot.operations.lastFailure, null);
     assert.equal(failures.has(s.id), false, 'masking a stale failure must also release its map entry');
+  } finally { await handlers.close(); storage.close(); }
+});
+
+
+test('AIT-173 round 5: reconciling lane denial retains only its safe reason and reruns after settle', async () => {
+  const storage = new SQLiteStorage(), mock = createMockReasoning(); let settled = false;
+  const reasoning = { ...mock, async structured(...args) {
+    if (!settled) throw new PluginError('not-admitted', 'budget reconciling');
+    return mock.structured(...args);
+  } };
+  const handlers = createHandlers({ storage, reasoning, pluginRuntime: instrumentedMockRuntime(storage, reasoning) });
+  try {
+    const session = storage.create({ demo: true, ownerToken: testToken });
+    await turn(handlers, session.id, 'reconciling-input', 'A website for preorders'); await handlers.idle();
+    const blocked = await handlers.handle(request(session.id)).then(r => r.json());
+    assert.equal(blocked.operations.lastFailure.reason, 'budget reconciling');
+    assert.equal(blocked.operations.lastFailure.lane, 'understanding');
+    settled = true;
+    assert.equal((await handlers.handle(request(`${session.id}/retry`, {}))).status, 202);
+    await handlers.idle();
+    const after = await handlers.handle(request(session.id)).then(r => r.json());
+    assert.equal(after.operations.lastFailure, null);
+    assert.equal(after.understanding.inputRevision, inputRevision(after));
   } finally { await handlers.close(); storage.close(); }
 });

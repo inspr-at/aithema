@@ -1,0 +1,187 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { creditHoldFixture } from '../../test/fixtures/credit-hold.js';
+import { lowCredit } from '../../packages/ui/src/email-ask.js';
+import { admitCredits } from '../../packages/core/src/credits.js';
+
+const credits = async f => (await f.call('/credits')).json();
+test('AIT-173 round 3: an owner reservation in the admitCredits await gap is held, not charged', async t => {
+  const f = await creditHoldFixture(); t.after(() => f.close());
+  f.ledger.settleVoice(f.claim.claimId, { attemptId: f.claim.attemptId, outcome: 'completed', closureConfirmed: true,
+    usage: { providerSeconds: 60, providerMinutes: 1, pausedSeconds: 0, visitorSeconds: 60, upstreamMicro: 100_000, visitorMicro: 100_000 } });
+  const wallet = f.host.wallet(f.owner), original = wallet.admit;
+  const reserved = Promise.withResolvers(), resume = Promise.withResolvers();
+  t.after(() => resume.resolve());
+  wallet.admit = async request => {
+    const result = await original(request);
+    reserved.resolve(request.attemptId); await resume.promise; return result;
+  };
+  const pending = admitCredits(f.ledger, f.request('reaction', 6_000_000), wallet);
+  const attemptId = await reserved.promise;
+  try {
+    assert.equal(f.ledger.get(attemptId), undefined, 'the poll lands before the ledger row');
+    assert.equal(wallet.canAdmit({ maxMicro: 1 }), false, 'the owner maximum is reserved');
+    const view = await credits(f);
+    assert.equal(view.exhausted, false, 'unjournalled work is not a charge');
+    assert.equal(view.fullHold, true);
+    assert.equal(view.balance.owner.availableMicro, 6_000_000);
+  } finally { resume.resolve(); await pending; }
+});
+
+for (const ownerGuard of [false, true]) test(`AIT-173: in-call hold uses expected spend, admission keeps maxima (guard ${ownerGuard})`, async t => {
+  const f = await creditHoldFixture({ ownerGuard }); t.after(() => f.close());
+  const before = f.storage.read(f.session.id), view = await credits(f);
+  assert.equal(view.balance.owner.availableMicro, 6_000_000, '1000 - 390 settled - 10 expected = 600 Credits');
+  assert.equal(lowCredit(view), false); assert.equal(view.exhausted, false);
+  assert.deepEqual(f.storage.read(f.session.id), before, 'display reads do not emit events');
+  assert.equal((await (await f.call('/email-ask', { action: 'show', why: 'low' })).json()).accepted, false);
+  assert.equal((await (await f.call('/email-ask', { action: 'line' })).json()).accepted, false);
+  assert.equal(f.host.wallet(f.owner).balance().committedMicro, 9_800_000, 'wallet still holds the maximum');
+  assert.equal(f.ledger.used(f.session.id), 9_800_000);
+  assert.equal(f.ledger.canAdmit(f.session.id, 91_000_000), false, 'session admission retains maxima');
+  assert.equal((await admitCredits(f.ledger, f.request('reaction', 200_001), f.host.wallet(f.owner))).ok, false);
+});
+
+test('AIT-173: closing and uncertain voice retain liability without a false low point; receipts still reconcile', async t => {
+  const f = await creditHoldFixture(); t.after(() => f.close());
+  f.ledger.retainVoiceExposure(f.claim.attemptId);
+  f.advance(60_000);
+  assert.equal((await credits(f)).balance.owner.availableMicro, 6_000_000, 'freeze expected duration at hangup');
+  const terminal = { attemptId: f.claim.attemptId, outcome: 'uncertain', closureConfirmed: false, chargedMicro: 60_000_000 };
+  f.ledger.settleVoice(f.claim.claimId, terminal);
+  f.advance(86_400_000);
+  const before = f.ledger.get(f.claim.attemptId), view = await credits(f);
+  assert.equal(view.balance.owner.availableMicro, 6_000_000);
+  assert.equal(view.reconciling, true, 'an unreconciled uncertain call keeps the footer description');
+  assert.equal(view.exhausted, false); assert.equal(lowCredit(view), false);
+  assert.equal((await (await f.call('/email-ask', { action: 'show', why: 'low' })).json()).accepted, false);
+  assert.equal(f.host.wallet(f.owner).balance().committedMicro, 63_900_000);
+  assert.equal(f.host.wallet(f.owner).canAdmit({ maxMicro: 1 }), false);
+  assert.deepEqual(f.ledger.get(f.claim.attemptId), before, 'display never rewrites uncertainty or terminal evidence');
+  f.ledger.reconcileVoice(f.claim.attemptId, { closureConfirmed: true, usage: { providerSeconds: 60, providerMinutes: 1,
+    visitorSeconds: 60, pausedSeconds: 0, upstreamMicro: 150_000, visitorMicro: 150_000, costEstimated: false } });
+  const reconciled = await credits(f);
+  assert.equal(reconciled.balance.owner.availableMicro, 5_950_000);
+  assert.equal(reconciled.reconciling, false);
+  assert.equal(f.ledger.get(f.claim.attemptId).terminal_json, before.terminal_json);
+});
+
+for (const closing of [false, true]) test(`AIT-173: genuine expected low spend still warns and opens the low ask (closing ${closing})`, async t => {
+  const f = await creditHoldFixture({ settledMicro: 8_950_000, holdMicro: 1_000_000 }); t.after(() => f.close());
+  if (closing) f.ledger.retainVoiceExposure(f.claim.attemptId);
+  const view = await credits(f);
+  assert.equal(view.balance.owner.availableMicro, 950_000); assert.equal(lowCredit(view), true); assert.equal(view.exhausted, false);
+  assert.equal((await (await f.call('/email-ask', { action: 'show', why: 'low' })).json()).accepted, true);
+});
+
+test('AIT-173: expected spend reaching the allowance stays held until the charged spend exhausts admission', async t => {
+  const f = await creditHoldFixture({ settledMicro: 9_950_000, holdMicro: 50_000 }); t.after(() => f.close());
+  const view = await credits(f);
+  assert.equal(view.balance.owner.availableMicro, 0); assert.equal(view.exhausted, false); assert.equal(view.fullHold, true);
+  assert.equal(f.ledger.get(f.claim.attemptId).settled_micro, null, 'display is not settlement');
+});
+
+test('AIT-173: display uses the capped AIT-163 lane/byte fallback and uncapped actual receipts', async t => {
+  const f = await creditHoldFixture(); t.after(() => f.close());
+  const { attemptId } = f.ledger.admit(f.request('reaction', 500_000, { providerCost: { estimateMicro: 20_000, observedCostMicro: 30_000 } }));
+  const claim = f.ledger.claim(attemptId); claim.consume();
+  assert.equal((await credits(f)).balance.owner.availableMicro, 5_970_000);
+  f.ledger.observeCost(attemptId, { estimateMicro: 900_000 });
+  assert.equal((await credits(f)).balance.owner.availableMicro, 5_500_000, 'fallback is capped by the reservation');
+  f.ledger.observeCost(attemptId, { observedCostMicro: 900_000 });
+  assert.equal((await credits(f)).balance.owner.availableMicro, 5_100_000, 'real usage is an uncapped floor; byte observations are capped at collection');
+  f.ledger.settle(claim.claimId, { attemptId, outcome: 'uncertain' });
+  assert.equal((await credits(f)).balance.owner.availableMicro, 5_100_000, 'uncertain settlement keeps the same observed floor');
+  f.ledger.observeCost(attemptId, { chargedMicro: 700_000 });
+  assert.equal((await credits(f)).balance.owner.availableMicro, 5_300_000, 'actual provider costs can overrun');
+});
+
+test('AIT-173: voice display follows extensions, survives recovery and isolates owners', async t => {
+  const f = await creditHoldFixture({ settledMicro: 0, holdMicro: 50_000 }); t.after(() => f.close());
+  assert.equal((await credits(f)).balance.owner.availableMicro, 9_950_000, 'duration estimate is capped');
+  f.ledger.extendVoice(f.claim.attemptId, { maxMicro: 200_000, maxVisitorMicro: 200_000 });
+  assert.equal((await credits(f)).balance.owner.availableMicro, 9_900_000, 'extending the hold does not spend the extension');
+  const other = f.storage.create({ ownerToken: 'another-owner' });
+  const extra = f.ledger.admit({ ...f.request('reaction', 100_000), sessionId: other.id });
+  const foreign = f.ledger.claim(extra.attemptId); foreign.consume();
+  f.ledger.settle(foreign.claimId, { attemptId: extra.attemptId, outcome: 'completed', chargedMicro: 100_000, usage: { inputTokens: 0, outputTokens: 0 } });
+  assert.equal((await credits(f)).balance.owner.availableMicro, 9_900_000);
+  f.ledger.recover(f.session.id); f.advance(86_400_000);
+  assert.equal((await credits(f)).balance.owner.availableMicro, 9_900_000, 'recovery freezes display duration but retains liability');
+  assert.equal(f.ledger.used(f.session.id), 60_000_000);
+});
+
+test('AIT-173: the optional display projection supports a class-based owner wallet', async t => {
+  const f = await creditHoldFixture(); t.after(() => f.close());
+  const original = f.host.wallet(f.owner);
+  class Wallet {
+    #port = original;
+    balance() { return this.#port.balance(); }
+    displayBalance() { return this.#port.displayBalance(); }
+    canAdmit(request) { return this.#port.canAdmit(request); }
+    admit(request) { return this.#port.admit(request); }
+    release(request) { return this.#port.release(request); }
+  }
+  const wallet = new Wallet(); f.host.wallet = () => wallet;
+  const response = await f.call('/credits');
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).balance.owner.availableMicro, 6_000_000);
+  assert.equal(wallet.canAdmit({ maxMicro: 200_001 }), false, 'display wrapping does not alter the class wallet');
+});
+
+
+test('AIT-173 round 2: uncertain replay without an estimate displays the charged quote', async t => {
+  const f = await creditHoldFixture(); t.after(() => f.close());
+  const before = (await credits(f)).balance.owner.availableMicro;
+  const { attemptId } = f.ledger.admit(f.request('voice', 200_000));
+  const replay = f.ledger.claim(attemptId); replay.consume();
+  f.ledger.settleVoice(replay.claimId, { attemptId, outcome: 'uncertain', closureConfirmed: false });
+  assert.equal(f.ledger.get(attemptId).settled_micro, 200_000);
+  assert.equal((await credits(f)).balance.owner.availableMicro, before - 200_000);
+});
+
+test('AIT-173 round 2: an exactly full hold blocks admission without showing used-up', async t => {
+  const f = await creditHoldFixture({ settledMicro: 0, holdMicro: 100_000 }); t.after(() => f.close());
+  const { attemptId } = f.ledger.admit(f.request('reaction', 9_900_000));
+  const hold = f.ledger.claim(attemptId); hold.consume();
+  const view = await credits(f);
+  assert.equal(f.host.wallet(f.owner).canAdmit({ maxMicro: 1 }), false);
+  assert.equal(view.balance.owner.availableMicro, 0);
+  assert.equal(view.exhausted, false);
+  assert.equal(view.fullHold, true);
+  f.ledger.settle(hold.claimId, { attemptId, outcome: 'completed', chargedMicro: 9_900_000, usage: { inputTokens: 0, outputTokens: 0 } });
+  f.ledger.settleVoice(f.claim.claimId, { attemptId: f.claim.attemptId, outcome: 'completed', closureConfirmed: true, usage: { providerSeconds: 60, providerMinutes: 1,
+    visitorSeconds: 60, pausedSeconds: 0, upstreamMicro: 100_000, visitorMicro: 100_000, costEstimated: false } });
+  assert.equal((await credits(f)).exhausted, true, 'charged spend really prevents a minimal next admission');
+});
+
+
+for (const lane of ['voice', 'reaction']) test(`AIT-173 round 2: estimated receipts keep reconciliation pending until actual receipts (${lane})`, async t => {
+  const f = await creditHoldFixture(); t.after(() => f.close());
+  const usage = { providerSeconds: 60, providerMinutes: 1, visitorSeconds: 60, pausedSeconds: 0,
+    upstreamMicro: 100_000, visitorMicro: 100_000, costEstimated: true };
+  let attemptId;
+  if (lane === 'voice') {
+    attemptId = f.claim.attemptId;
+    f.ledger.settleVoice(f.claim.claimId, { attemptId, outcome: 'completed', closureConfirmed: true, usage });
+  } else {
+    ({ attemptId } = f.ledger.admit(f.request('reaction', 200_000, { providerCost: { estimateMicro: 100_000 } })));
+    const claim = f.ledger.claim(attemptId); claim.consume();
+    f.ledger.settle(claim.claimId, { attemptId, outcome: 'uncertain' });
+    f.ledger.reconcileCost(attemptId, { chargedMicro: 100_000, estimated: true });
+  }
+  assert.equal((await credits(f)).reconciling, true, 'an estimated settlement still awaits an actual receipt');
+  if (lane === 'voice') f.ledger.reconcileVoice(attemptId, { closureConfirmed: true, usage: { ...usage, costEstimated: false } });
+  else f.ledger.reconcileCost(attemptId, { chargedMicro: 100_000, estimated: false });
+  assert.equal((await credits(f)).reconciling, false);
+});
+
+for (const covered of [true, false]) test(`AIT-173 round 3: text admission after the retained closing maximum (covered ${covered})`, async t => {
+  const f = await creditHoldFixture({ exposureMicro: covered ? 5_900_000 : 60_000_000 }); t.after(() => f.close());
+  f.ledger.retainVoiceExposure(f.claim.attemptId);
+  const maximum = 200_000;
+  assert.equal(f.host.wallet(f.owner).canAdmit({ maxMicro: maximum }), covered);
+  const result = await admitCredits(f.ledger, f.request('reaction', maximum), f.host.wallet(f.owner));
+  assert.equal(result.ok, covered);
+  assert.equal((await credits(f)).reconciling, true);
+});

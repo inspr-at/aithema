@@ -4,47 +4,49 @@ import { resolve } from 'node:path';
 
 export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 
-// AIT-177: PR #150 CI 38623276426, including main 0a7a8a7, measured
-// whole jobs 408 / 445 / 344 / 407 s. Move question-card and footer from 2
-// to 3: their measured file work gives the longest job >10% headroom.
-// Integrated display keeps all original B1–B8/r2/r3 describe blocks in a
-// separate file. Visitor render waits retain every state and assertion.
-// Below are measured file-work sums; whole-job times also include setup,
-// worker cleanup and evidence upload (PNG archives use compression-level 0).
+// AIT-177 round 3 merges AIT-173 credit-hold and AIT-181 safeguards coverage.
+// Timings: main 8ad4827 CI 38630840942 (whole jobs 462/468/488/449s)
+// and PR #150 at 7ecb72f CI 38627899478 (423/418/412/430s).
+// Use the larger measured file work for unchanged files, PR timings for its
+// split display/visitor files, and main timings for new or changed coverage.
+// Four balanced bins below leave >10% of the 600s whole-job budget for
+// setup, worker cleanup, timing variance and uncompressed PNG evidence upload.
+// Every integrated B1–B8/r2/r3 block and visitor assertion remains covered.
 export const browserShards = [
-  // 392.22s file work; 208.12, 94.28, 37.07, 33.33, 12.67, 6.75
+  // 431.49s measured file work; 219.52, 98.31, 44.44, 37.88, 15.69, 15.66
   [
     'test/browser/email-ask.test.js',
     'test/browser/confirmation-design.test.js',
-    'test/browser/admin-pages.test.js',
-    'test/browser/start2-display-geometry.test.js',
+    'test/browser/voice-presentation.test.js',
+    'test/browser/audio-replay.test.js',
+    'test/browser/question-card.test.js',
     'test/browser/start-journey.test.js',
-    'test/browser/host-surface.test.js',
   ],
-  // 392.87s file work; 189.47, 117.06, 86.34
+  // 433.29s measured file work; 189.39, 110.26, 58.91, 38.59, 28.14, 7.99
   [
     'test/browser/start2-display.test.js',
-    'test/browser/start2-display-continuity.test.js',
-    'test/browser/orb-reveal.test.js',
+    'test/browser/email-mail-space.test.js',
+    'test/browser/demo.test.js',
+    'test/browser/operator-login.test.js',
+    'test/browser/start-look.test.js',
+    'test/browser/safeguards.test.js',
   ],
-  // 368.31s file work; 157.90, 88.16, 43.96, 27.70, 8.09, 5.64, 14.95, 21.92
+  // 426.84s measured file work; 170.41, 117.63, 93.09, 37.25, 8.46
   [
     'test/browser/start2-display-matrix.test.js',
-    'test/browser/email-mail-space.test.js',
-    'test/browser/voice-presentation.test.js',
-    'test/browser/operator-login.test.js',
+    'test/browser/start2-display-continuity.test.js',
+    'test/browser/orb-reveal.test.js',
+    'test/browser/start2-display-geometry.test.js',
     'test/browser/html-preview.test.js',
-    'test/browser/safeguards.test.js',
-    'test/browser/question-card.test.js',
-    'test/browser/footer-width-sweep.test.js',
   ],
-  // 389.96s file work; 148.14, 145.75, 47.05, 22.56, 26.46
+  // 426.88s measured file work; 156.41, 154.47, 47.34, 39.86, 20.66, 8.14
   [
     'test/browser/visitor-credit-tiers-en.test.js',
     'test/browser/visitor-credit-tiers.test.js',
-    'test/browser/demo.test.js',
-    'test/browser/audio-replay.test.js',
-    'test/browser/start-look.test.js',
+    'test/browser/credit-hold.test.js',
+    'test/browser/admin-pages.test.js',
+    'test/browser/footer-width-sweep.test.js',
+    'test/browser/host-surface.test.js',
   ],
 ];
 

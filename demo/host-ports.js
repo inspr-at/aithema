@@ -51,13 +51,15 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
   const walletForHash = ownerHash => {
     if (!wallets.has(ownerHash)) {
       visitorCredits.visitor(ownerHash);
+      // admitCredits awaits the owner port before writing its ledger row.
+      // That durable owner-only reservation is still a hold in either view.
+      const unjournalledMicro = () => storage.db.prepare(`SELECT COALESCE(SUM(w.max_micro),0) n FROM owner_wallet_reservations w
+        LEFT JOIN budget_attempts b ON b.attempt_id=w.attempt_id WHERE w.owner_hash=? AND w.released=0 AND b.attempt_id IS NULL`).get(ownerHash).n;
       const readBalance = () => {
         const { limitMicro } = visitorCredits.policy(ownerHash);
         const breakdown = costs.breakdown(undefined, { ownerHash });
         // A wallet reservation and its ledger row are one operation, including after restart.
-        const unjournalled = storage.db.prepare(`SELECT COALESCE(SUM(w.max_micro),0) n FROM owner_wallet_reservations w
-          LEFT JOIN budget_attempts b ON b.attempt_id=w.attempt_id WHERE w.owner_hash=? AND w.released=0 AND b.attempt_id IS NULL`).get(ownerHash).n;
-        breakdown.reservedMicro += unjournalled;
+        breakdown.reservedMicro += unjournalledMicro();
         return { limitMicro, ...breakdown,
           committedMicro: breakdown.reservedMicro + breakdown.confirmedSpendMicro + breakdown.uncertainSpendMicro };
       };
@@ -69,7 +71,19 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
         const current = balance();
         return current.limitMicro > 0 && request.maxMicro <= current.limitMicro - current.committedMicro;
       };
-      wallets.set(ownerHash, { balance, canAdmit,
+      const displayBalance = () => {
+        const { limitMicro } = visitorCredits.policy(ownerHash);
+        const breakdown = costs.displayBreakdown(undefined, { ownerHash, now: now() });
+        breakdown.pendingHoldMicro += unjournalledMicro();
+        return { limitMicro, ...breakdown, committedMicro: breakdown.confirmedSpendMicro + breakdown.uncertainSpendMicro };
+      };
+      wallets.set(ownerHash, { balance, displayBalance, canAdmit,
+        canAdmitWithoutReconcilingHold(request) {
+          if (!integer(request?.maxMicro)) return false;
+          const current = balance();
+          return current.limitMicro > 0 && request.maxMicro <= current.limitMicro - current.committedMicro +
+            costs.reconcilingVoiceHold(undefined, { ownerHash });
+        },
         async admit(request) {
           if (typeof request?.attemptId !== 'string' || !request.attemptId || !integer(request.maxMicro) || !integer(request.maxVisitorMicro ?? 0)) throw new TypeError('Invalid wallet request');
           const fingerprint = JSON.stringify([request.sessionId, request.lane, request.maxMicro, request.maxVisitorMicro ?? 0, request.requestSha256, request.bindingSha256]);

@@ -116,6 +116,12 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       try { log({ event: 'reply.opener-stripped', count: 1, lane: 'reaction' }); }
       catch { /* Diagnostics cannot interrupt a reply. */ }
     },
+    onReplyDiagnostic({ lane, kind, reason, attemptCount }) {
+      const event = { fallback: 'reply.fallback', 'schema-retry': 'reply.schema-retry', 'missing-scope': 'reply.scope-missing' }[kind];
+      if (!event) return;
+      try { Promise.resolve(log({ event, count: 1, lane, reason, attemptCount })).catch(() => {}); }
+      catch { /* Diagnostics cannot interrupt a reply. */ }
+    },
     publish(id, type, data, revision, scope) {
       if (stop.signal.aborted) return false;
       if (purposePolicy && type === 'turn.final' && ['in', 'unclear', 'off'].includes(scope)) {
@@ -204,10 +210,11 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
             if (inputRevision(storage.get(id)) === revision && failure?.inputRevision === revision && failure.lane === lane) {
               failures.delete(id);
             }
-          } catch {
+          } catch (error) {
             // Work superseded by new input or a changed processing choice reruns instead of failing.
             if (!stop.signal.aborted && laneKey(storage.get(id), lane) === work) {
-              const failure = { inputRevision: revision, lane, error: 'reasoning-unavailable', retryable: true };
+              const failure = { inputRevision: revision, lane, error: 'reasoning-unavailable', retryable: true,
+                ...(error?.code === 'not-admitted' && error.message === 'budget reconciling' ? { reason: 'budget reconciling' } : {}) };
               failures.set(id, failure);
               broadcast(id, { sessionId: id, type: 'lane.failed', data: failure });
             }

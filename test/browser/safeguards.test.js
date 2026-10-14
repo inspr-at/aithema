@@ -52,6 +52,23 @@ test('AIT-174 redirect, subtle question, locked pause and normal reply at 390/10
         document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
         c.shadowRoot.querySelector('.send').scrollIntoView({ block: 'end', behavior: 'instant' });
       }, locale); await frame(page); await page.mouse.move(0, 0);
+      const modelContent = locale === 'de'
+        ? 'Wo entsteht bei Ihren Aufträgen heute der größte Aufwand?'
+        : 'Where does your team spend the most time when processing orders?';
+      const modelRequest = reasoningRequest(await shadow(page, c => c.session), 'reaction', false, '', { purposePolicy: start2PurposePolicy });
+      const { scope: modelScope, ...modelReply } = await collectPurposeReply(modelRequest, async function* () {
+        const raw = JSON.stringify({ content: modelContent, question_short: null, options: [], extra: true });
+        for (let index = 0; index < raw.length; index += 7) yield raw.slice(index, index + 7);
+      });
+      assert.equal(modelScope, 'unclear');
+      await page.evaluate(async reply => {
+        const { inputRevision } = await import('/packages/core/src/session.js'), c = document.querySelector('aithema-session');
+        c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'ait-181-model', role: 'assistant', ...reply, inputRevision: inputRevision(c.session) } });
+      }, modelReply); await frame(page);
+      const rendered = await shadow(page, c => ({ content: c.session.transcript.at(-1).content,
+        text: c.shadowRoot.querySelector('.transcript-shell').textContent, scope: JSON.stringify(c.session).includes('scope') }));
+      assert.equal(rendered.content, modelContent); assert.ok(rendered.text.includes(modelContent)); assert.equal(rendered.scope, false);
+      checks.push(`AIT-181 ${label}: in-scope model content rendered with missing scope and extra field`);
       const baseline = await boxes(page, ['.composer', 'textarea', '.attach', '.send']);
       const shot = async state => { if (evidence) {
         const file = `ait-174-${label}-${state}.png`; await page.screenshot({ path: join(evidence, file), fullPage: false }); files.push(file);
