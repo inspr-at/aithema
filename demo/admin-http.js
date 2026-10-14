@@ -1,12 +1,13 @@
 import { readAdminSettings, readAdminMailCap, readProviderCap } from './admin-read.js';
-import { renderAdmin, adminModel } from './admin-view.js';
+import { renderAdmin, adminModel, esc } from './admin-view.js';
+import { adminCopy } from '../packages/ui/src/i18n/admin.js';
 
 const headers = { 'cache-control': 'no-store', vary: 'Cookie', 'referrer-policy': 'no-referrer',
   'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY', 'x-robots-tag': 'noindex',
   'content-security-policy': "default-src 'none'; style-src 'self'; script-src 'self'; connect-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'" };
 const json = (value, status = 200) => Response.json(value, { status, headers });
 const actorFor = session => {
-  const name = session.name.replace(/[\x00-\x1f\x7f-\x9f]/gu, '').trim().slice(0, 120) || 'Operator';
+  const name = session.name.replace(/[#\x00-\x1f\x7f-\x9f]/gu, '').trim().slice(0, 120) || 'Operator';
   return `operator:${name}#${session.subject}`;
 };
 async function input(request) {
@@ -37,13 +38,13 @@ export function createAdminHTTP({ host, spendCap, operatorSessions, publicOrigin
     if (path !== '/admin' && !/^\/api\/operator\/admin(?:\/|$)/u.test(path)) return null;
     if (!operatorSessions) return json({ error: 'not-found' }, 404);
     const operator = operatorSessions.session(request), locale = url.searchParams.get('lang') === 'en' ? 'en' : 'de';
-    if (!operator) {
-      if (path === '/admin' && request.method === 'GET') return page({ signed: /(?:^|;)\s*aithema-operator=/u.test(request.headers.get('cookie') ?? '') ? 'expired' : 'out' }, locale, 401);
-      return json({ error: 'operator-session' }, 401);
-    }
-    const method = path === '/api/operator/admin/settings' ? 'POST' : 'GET';
-    if (request.method !== method) { const r = json({ error: 'method-not-allowed' }, 405); r.headers.set('allow', method); return r; }
     try {
+      if (!operator) {
+        if (path === '/admin' && request.method === 'GET') return page({ signed: /(?:^|;)\s*aithema-operator=/u.test(request.headers.get('cookie') ?? '') ? 'expired' : 'out' }, locale, 401);
+        return json({ error: 'operator-session' }, 401);
+      }
+      const method = path === '/api/operator/admin/settings' ? 'POST' : 'GET';
+      if (request.method !== method) { const r = json({ error: 'method-not-allowed' }, 405); r.headers.set('allow', method); return r; }
       if (path === '/admin') return page(adminModel(state(operator), host.visitorCredits.adminAudit()), locale);
       if (path === '/api/operator/admin/state') return json(state(operator));
       if (path === '/api/operator/admin/audit') {
@@ -58,6 +59,8 @@ export function createAdminHTTP({ host, spendCap, operatorSessions, publicOrigin
       }
       return json({ error: 'not-found' }, 404);
     } catch (error) {
+      if (path === '/admin') return new Response(`<!doctype html><html lang="${locale}"><head><meta charset="utf-8"><title>${locale === 'en' ? 'Admin' : 'Verwaltung'} · Aithema</title></head><body><p>${esc(adminCopy[locale].failed)}</p></body></html>`,
+        { status: 503, headers: { ...headers, 'content-type': 'text/html; charset=utf-8' } });
       if (error.status === 409) return json({ error: 'stale-credit-settings', current: error.current }, 409);
       if (error.status === 413) return json({ error: 'body-too-large' }, 413);
       if (error instanceof TypeError || error instanceof SyntaxError) return json({ error: 'invalid-admin-command' }, 400);
