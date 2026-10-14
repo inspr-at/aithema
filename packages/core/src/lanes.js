@@ -16,10 +16,10 @@ const producer = (admitted, plugin) => aiTextOrigin(admitted?.producer ?? plugin
 export class SessionLanes {
   #flights = new Map();
   constructor({ reasoning, draftReasoning = reasoning, getSession, publish, transient = () => {}, deadlineMs = 30_000,
-    hostPrompt = '', purposePolicy, guardDirection = (_, reply) => reply, onScope = () => {}, canUnderstand = () => true, scopeKnown, replyVisible = () => true, admit, beforeDispatch = admit ? undefined : async () => false, selection = () => '', onOpenerStripped = () => {} }) {
+    hostPrompt = '', purposePolicy, offTopicTurns = () => 0, guardDirection = (_, reply) => reply, onScope = () => {}, canUnderstand = () => true, scopeKnown, replyVisible = () => true, admit, beforeDispatch = admit ? undefined : async () => false, selection = () => '', onOpenerStripped = () => {} }) {
     this.reasoning = assertReasoning(reasoning);
     this.draftReasoning = assertReasoning(draftReasoning);
-    Object.assign(this, { getSession, publish, transient, deadlineMs, hostPrompt, purposePolicy, guardDirection, onScope, canUnderstand, scopeKnown, replyVisible, admit, beforeDispatch, selection, onOpenerStripped });
+    Object.assign(this, { getSession, publish, transient, deadlineMs, hostPrompt, purposePolicy, offTopicTurns, guardDirection, onScope, canUnderstand, scopeKnown, replyVisible, admit, beforeDispatch, selection, onOpenerStripped });
   }
   // A changed processing selection supersedes in-flight work exactly like new input:
   // its late result is stale and the host reruns the lane with the new binding.
@@ -102,7 +102,7 @@ export class SessionLanes {
         if (this.beforeDispatch && !await untilCancelled(this.beforeDispatch(id, lane, this.reasoning, revision, options), scope.signal)) return 'blocked';
         if (!current() || this.getSession(id).paused) return 'stale';
         if (this.purposePolicy) {
-          const request = reasoningRequest(session, lane, false, this.hostPrompt, { purposePolicy: this.purposePolicy });
+          const request = reasoningRequest(session, lane, false, this.hostPrompt, { purposePolicy: this.purposePolicy, offTopicTurns: this.offTopicTurns(id) });
           let admitted;
           const self = this;
           const reply = await collectPurposeReply(request, async function* (input) {

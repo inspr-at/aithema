@@ -3116,8 +3116,12 @@ visitor route guards and the AIT-151 privacy gate remain authoritative.
 The default `offTopicLimit: 0` leaves existing hosts' prompts, streaming, lane scheduling
 and replies unchanged. An enabled policy supplies `purpose` (a string or `{ de, en }`),
 `offTopicLimit` (positive integer), `outputCheck` (boolean), optional `redirect`
-(localized strings or a locale function), and optional `directionQuestion` (`{ de, en }`).
-start2 supplies Augmentoring's purpose, a limit of 3, the output check and Tick's final DE/EN copy.
+(localized strings or a `(locale, offTopicTurn)` function), and optional `directionQuestion` (`{ de, en }`).
+start2 supplies Augmentoring's purpose, a limit of 3, the output check and three fixed DE/EN redirects.
+Every off-topic result uses host copy; model-written off-topic content is never displayed or spoken.
+The redirect function receives the one-based off-topic turn from private stored counts.
+Unrelated requests and injection attempts use the same variant; a new conversation starts at 1.
+Core's default remains neutral, without Augmentoring copy.
 
 Scope is inferred, never a chosen product/consulting track. It can overlap or change.
 Unclear beginnings receive normal clarification without buttons. After three distinct

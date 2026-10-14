@@ -35,7 +35,7 @@ function promptTurns(session) {
   }
   return turns;
 }
-export function reasoningRequest(session, lane, draft = false, hostPrompt = '', { pendingInput = false, voiceReply = false, purposePolicy } = {}) {
+export function reasoningRequest(session, lane, draft = false, hostPrompt = '', { pendingInput = false, voiceReply = false, purposePolicy, offTopicTurns = 0 } = {}) {
   const uploads = uploadContextMessage(session);
   // The private reply canary belongs only to the lane whose output is checked.
   // Understanding runs behind the scope gate with its existing untrusted-data framing.
@@ -62,7 +62,7 @@ A question without useful choices has options: []. With no question, use questio
       ...promptTurns(session).map(({ role, content }) => ({ role, content }))],
     // Identify server-added context without interpreting person-turn text.
     documentMessageIndex: uploads ? 1 : null,
-    draft, locale: session.locale, preset: session.preset, ...(cardReply ? { schema } : {}), ...(policy ? { purposePolicy: policy,
+    draft, locale: session.locale, preset: session.preset, ...(cardReply ? { schema } : {}), ...(policy ? { purposePolicy: policy, offTopicTurns,
       // The host prompt is trusted private guidance. Only the separately supplied
       // public policy.purpose is excluded from the instructions checked for leaks.
       hiddenGuidance: [GENERIC_POLICY, hostPrompt, hiddenPurposeGuidance(policy, session), responseGuidance].join('\n') } : {}) };

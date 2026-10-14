@@ -265,7 +265,11 @@ export const de = {
   aiNotice: { ...AI_NOTICE.de },
   purposePausedDescription: 'Dieses Gespräch ist pausiert.',
   purposePaused: 'Dieses Gespräch ist pausiert. Hier geht es um Vorhaben, bei denen Augmentoring unterstützt: eine Lösung entwickeln oder Abläufe verbessern.',
-  purposeRedirect: 'Dabei kann ich hier nicht helfen. Ich bin für Vorhaben da, bei denen Augmentoring unterstützt: eine Lösung entwickeln oder Abläufe verbessern. Woran arbeiten Sie gerade?',
+  purposeRedirects: [
+    'Dabei kann ich hier nicht helfen. Ich bin für Vorhaben da, bei denen Augmentoring unterstützt: eine Lösung entwickeln oder Abläufe verbessern. Woran arbeiten Sie gerade?',
+    'Das gehört nicht zu dem, wobei ich hier helfe. Ich unterstütze bei Vorhaben mit Augmentoring: eine Lösung entwickeln oder Abläufe verbessern. Gibt es bei Ihnen gerade so ein Vorhaben?',
+    'Dabei kann ich nicht weiterhelfen. Hier geht es um Vorhaben, bei denen Augmentoring unterstützt: eine Lösung entwickeln oder Abläufe verbessern. Was würden Sie gern verbessern?',
+  ],
   purposeDirection: 'Geht es Ihnen eher um eine neue Lösung, um Ihre Abläufe, oder um beides?',
   conversation: 'Gespräch', understanding: 'So verstehen wir es', you: 'Sie', assistant: 'KI-Assistenz',
   pause: 'Pausieren', resume: 'Fortsetzen', withdraw: 'Aussage zurückziehen', withdrawn: 'Aussage zurückgezogen',
