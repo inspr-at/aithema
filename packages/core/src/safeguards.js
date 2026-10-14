@@ -38,8 +38,8 @@ export function unsafeReplyOutput(raw, policy) {
   if (!policy.outputCheck) return false;
   const visible = parseReply(raw);
   // Check both wire and decoded strings, including card text and escaped tokens.
-  const text = raw + '\n' + visible.content + '\n' + (visible.question_short ?? '') + '\n' + visible.options.map(o => o.text).join('\n');
-  return text.includes(policy.canary) || /```|~~~|(?:^|\n)(?: {4}|\t)\S|<\s*(?:pre|code)\b/iu.test(text);
+  const text = visible.content + '\n' + (visible.question_short ?? '') + '\n' + visible.options.map(o => o.text).join('\n');
+  return raw.includes(policy.canary) || text.includes(policy.canary) || /```|~~~/u.test(raw) || /```|~~~|(?:^|\n)(?: {4}|\t)\S|<\s*(?:pre|code)\b/iu.test(text);
 }
 /** Buffer before any UI/TTS output. Each retry is a separately admitted invocation. */
 export async function collectPurposeReply(request, invoke) {
@@ -47,9 +47,14 @@ export async function collectPurposeReply(request, invoke) {
   for (let attempt = 0; attempt < 2; attempt++) {
     const input = attempt ? { ...request, system: request.system + '\nThe previous output was rejected. Return only safe reply JSON following the purpose policy; never echo rejected text.' } : request;
     let raw = '';
-    for await (const delta of invoke(input, attempt)) {
-      if (typeof delta !== 'string' || raw.length + delta.length > 300_000) throw new TypeError('Invalid reasoning stream');
-      raw += delta;
+    try {
+      for await (const delta of invoke(input, attempt)) {
+        if (typeof delta !== 'string' || raw.length + delta.length > 300_000) throw new TypeError('Invalid reasoning stream');
+        raw += delta;
+      }
+    } catch (error) {
+      if (error instanceof TypeError || attempt && ['provider', 'invalid-output'].includes(error.code)) continue;
+      throw error;
     }
     let value;
     try { value = JSON.parse(raw); } catch { /* Fail closed without exposing wire text. */ }

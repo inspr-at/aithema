@@ -166,7 +166,7 @@ export class SQLiteStorage {
   recordSafeguard(id, key, revision, offTopic, limit, { pause = true } = {}) {
     return this.transaction(() => {
       const session = this.get(id); this.#check(session);
-      this.db.prepare('INSERT OR IGNORE INTO safeguard_inputs VALUES (?,?,?,?)').run(id, key, revision ?? null, Number(offTopic));
+      this.db.prepare('INSERT INTO safeguard_inputs VALUES (?,?,?,?) ON CONFLICT(session_id,input_key) DO UPDATE SET revision=excluded.revision').run(id, key, revision ?? null, Number(offTopic));
       const state = this.safeguards(id, revision);
       const event = pause && state.offTopicTurns >= limit && session.pauseReason !== 'purpose'
         ? this.#append(session, 'session.paused', { paused: true, reason: 'purpose' }) : null;

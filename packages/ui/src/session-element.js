@@ -674,6 +674,7 @@ export class AithemaSession extends HTMLElement {
   #syncVoicePause(rail = this.#rail) {
     const pause = this.shadowRoot.querySelector('.pause');
     if (!pause) return;
+    if (this.#session.pauseReason === 'purpose') { pause.disabled = true; pause.title = this.#copy.purposePaused; return; }
     if (rail?.session || rail?.waitingCall || rail?.state === 'connecting') {
       const command = rail.button('pause'); pause.dataset.voiceCommand = '';
       // Waiting can stay Waiting while a takeover receipt changes its command.

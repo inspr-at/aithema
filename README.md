@@ -3032,3 +3032,56 @@ tokens are discarded after verification and never logged or stored.
 `/demo/config` is uncached and varies on Cookie. Only a live operator receives
 `operator: {name}`; public login metadata contains no subject or token. Existing
 visitor route guards and the AIT-151 privacy gate remain authoritative.
+
+
+### Host purpose safeguards (AIT-174)
+
+`createHandlers({ purposePolicy })` opts a host into a requirements-only conversation.
+The default `offTopicLimit: 0` leaves existing hosts' prompts, streaming, lane scheduling
+and replies unchanged. An enabled policy supplies `purpose` (a string or `{ de, en }`),
+`offTopicLimit` (positive integer), `outputCheck` (boolean), and optional `redirect`
+(localized strings or a locale function). start2 supplies Augmentoring's purpose,
+a limit of 3, the output check and the placeholder DE/EN redirect copy.
+
+Scope is inferred, never a chosen product/consulting track. It can overlap or change.
+Unclear beginnings receive normal clarification; after a few turns the model asks
+one subtle question if needed. Off-topic requests and role-change/prompt-reveal
+attempts receive a brief redirect and no requested work product. All transcript
+and uploaded text, hidden text and filenames remain untrusted evidence.
+
+The enabled reply schema includes internal `scope: in | unclear | off` for text
+and the ElevenLabs custom LLM. Scope never enters reply storage, SSE, export,
+question cards or the understanding panel. A private SQLite table retains only
+input identities, a boolean counter contribution and the assessment revision.
+Receipt retries and voice operation replays do not count twice. Off-topic input
+skips understanding. At the limit, the composer explains the locked pause and
+invites a new conversation; further turns, Resume and Retry cannot dispatch models.
+Voice pauses after the accepted redirect has crossed the callback output boundary.
+Rule C still owns callback identity, ordinal, replay, admission and settlement.
+
+With `outputCheck: true`, the complete reply is buffered before text or TTS can
+receive it. The server rejects canary leakage (including JSON escapes), Markdown
+fences, indented code blocks and HTML pre/code blocks, including card strings.
+Malformed or missing scope fails closed. A rejected output is regenerated once
+under a fresh admitted and settled model attempt; a second rejection produces
+host fallback copy. This check is a deterministic backstop, not a semantic proof
+of model obedience. The fake-model red-team tests verify framing, extraction,
+counting, replay and non-disclosure; only a live evaluation can assess real models.
+
+Manual evaluator: `scripts/eval-safeguards.js` is never run in CI. Only with Markus's
+approval, on an approved evaluation machine with dependencies already available:
+
+```sh
+node scripts/eval-safeguards.js --allow-live
+```
+
+Supply `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` and `AITHEMA_OPENROUTER_PRICES` as
+process environment values. It never loads an env file. `SAFEGUARDS_EVAL_CAP_USD`
+defaults to `0.05`, cannot exceed `0.10`, and uses the existing SQLite spend-cap
+reservation before each request and retry. The configured price bounds, provider
+`max_price`, disabled fallbacks, 12,000 input-token bound and 400 output-token bound
+constrain dispatch. Missing/uncertain usage retains its reservation; cap exhaustion
+stops the run. The report contains case IDs, sources, pass flags and costs only.
+The evaluator covers typed, uploaded-data and voice prompt variants; local CI
+covers actual TXT/PDF/DOCX extraction. Its automatic pass flag checks scope and
+canary protection; approved live behavioral assessment remains a human task.

@@ -78,7 +78,7 @@ export class SessionLanes {
           if (this.getSession(id).paused) return 'paused';
           if (this.beforeDispatch && !await untilCancelled(this.beforeDispatch(id, lane, binding, revision, options), scope.signal)) return 'blocked';
           if (!current()) return 'stale';
-          const request = { ...reasoningRequest(latest, lane, draft, this.hostPrompt), schema: understandingSchema(session.preset) };
+          const request = { ...reasoningRequest(latest, lane, draft, this.hostPrompt, { purposePolicy: this.purposePolicy }), schema: understandingSchema(session.preset) };
           const admitted = await this.admit?.({ session: this.getSession(id), lane, operation: 'structured', request, options });
           let raw, failed = false;
           try { raw = await untilCancelled((admitted?.plugin ?? binding).structured(request, admitted?.options ?? options), scope.signal); }

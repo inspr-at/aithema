@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers } from '../src/index.js';
 import { createMockReasoning, reasoningRequest, createSession, PluginRegistry } from '@inspr/aithema-core';
 import { instrumentedMockRuntime } from '../../../test/server-fixtures.js';
-import { ownedRequest, testToken, mockConsent } from '../../../test/helpers.js';
+import { ownedRequest, testToken, mockConsent, temporaryDb } from '../../../test/helpers.js';
 import { purposePolicy, safeguardsCorpus } from '../../../test/safeguards-corpus.js';
 import { registerDemoExtractors } from '../../../demo/uploads.js';
 import { createPluginRuntime, mockPresets } from '../src/index.js';
@@ -28,7 +28,7 @@ function fixture(t, { outputs, uploads = false, policy = purposePolicy } = {}) {
   let runtime = instrumentedMockRuntime(storage, plugin);
   if (uploads) {
     const registry = new PluginRegistry().register(mock), presets = mockPresets(); registerDemoExtractors(registry, presets);
-    const actual = createPluginRuntime({ storage, reasoning: mock, registry, presets, consent: mockConsent });
+    const actual = createPluginRuntime({ storage, reasoning: mock, registry, presets, consent: mockConsent, temporaryDb });
     runtime = { ...actual, async admit(args) { const admitted = await actual.admit(args); return args.lane === 'reaction' || args.lane === 'understanding' ? { ...admitted, plugin } : admitted; } };
   }
   const handlers = createHandlers({ storage, pluginRuntime: runtime, purposePolicy: policy, log: () => {} });
@@ -129,4 +129,21 @@ for (const unsafe of ['```python\nprint(1)\n```', '~~~js\nx()\n~~~', '    const 
   assert.equal(f.calls.length, 2); assert.equal(f.assessments.length, 0);
   assert.doesNotMatch(f.storage.get(f.session.id).transcript.at(-1).content, /print\(1\)|const x|x\(\)|secret\(\)|```|~~~/u);
   assert.equal(f.storage.safeguards(f.session.id).offTopicTurns, 1);
+});
+
+test('AIT-174 private counter survives SQLite restart, counts an input once across revisions, and erases with the conversation', async () => {
+  const path = await temporaryDb(); let storage = new SQLiteStorage(path);
+  const session = storage.create({ ownerToken: testToken, demo: true });
+  storage.recordSafeguard(session.id, 'turn-1', 'rev-1', true, 3);
+  storage.recordSafeguard(session.id, 'turn-1', 'rev-2', true, 3);
+  assert.equal(storage.safeguards(session.id).offTopicTurns, 1);
+  storage.close(); storage = new SQLiteStorage(path);
+  try {
+    assert.equal(storage.safeguards(session.id, 'rev-2').assessed, true);
+    storage.recordSafeguard(session.id, 'turn-2', 'rev-3', true, 3);
+    storage.recordSafeguard(session.id, 'turn-3', 'rev-4', true, 3);
+    assert.equal(storage.get(session.id).pauseReason, 'purpose');
+    assert.equal(JSON.stringify(storage.get(session.id)).includes('scope'), false);
+    storage.erase(session.id); assert.equal(storage.safeguards(session.id).offTopicTurns, 0);
+  } finally { storage.close(); }
 });
