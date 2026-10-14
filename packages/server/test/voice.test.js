@@ -3111,6 +3111,8 @@ for (const dryRun of [true, false]) test(`AIT-163 fix1: limited voice repairs ro
     async closeOrphan(record) { visits.push(record.callId); throw new Error('still pending'); } } });
   const first = await h.start('pending-head');
   await h.route(`/voice/${first.callId}/close`, { providerSessionId: first.providerSessionId });
+  // Hangup now performs its own immediate lookup; isolate the operator batch.
+  await h.handlers.idle(); visits.length = 0; logs.length = 0;
   const head = h.storage.voiceCalls()[0];
   h.storage.saveVoiceCall(h.session.id, { ...head, callId: 'pending-tail', providerSessionId: 'provider-tail' });
   const before = h.storage.voiceCalls();

@@ -365,6 +365,7 @@ export class AithemaSession extends HTMLElement {
       context: () => ({ understanding: this.#session.understanding, focusedQuestion: this.#session.focusedQuestion ?? null }),
       onEnd: () => {
         if (this.#pending) { delete this.#pending.voiceCallId; delete this.#pending.providerSessionId; }
+        if (this.isConnected) void this.#refreshFeatures();
       },
       onPause: paused => {
         this.#session.paused = paused; this.#clearNotice();
@@ -575,7 +576,8 @@ export class AithemaSession extends HTMLElement {
   #creditsChanged({ allowanceChanged = false } = {}) {
     if (!this.#host) return;
     const usedUp = this.#host.usedUp, recovered = this.#creditWasUsedUp && !usedUp; this.#creditWasUsedUp = usedUp;
-    const refresh = (allowanceChanged || recovered || this.#rail?.allowanceDenied) && this.isConnected ? this.#refreshFeatures() : null;
+    const deniedText = !this.#hasLiveCall() && this.#session.featureMatrix?.[this.#session.processingPreset ?? 'best']?.text?.reason === 'budget denied';
+    const refresh = (allowanceChanged || recovered || deniedText || this.#rail?.allowanceDenied) && this.isConnected ? this.#refreshFeatures() : null;
     if (usedUp && this.#rail?.session && !this.#rail.moved && !this.#creditEnding) {
       this.#creditEnding = true;
       void this.#rail.close('host-limit');
@@ -590,6 +592,7 @@ export class AithemaSession extends HTMLElement {
     this.#render('composer'); this.#render('transcript'); this.#rail?.render(); this.#dialog?.sync();
     return refresh;
   }
+  #hasLiveCall() { return Boolean(this.#rail?.session || this.#rail?.waitingCall || this.#rail?.state === 'connecting'); }
   #feature(feature, visitor = false) {
     const preset = this.#session.processingPreset ?? 'best';
     if (this.#host?.usedUp && preset !== 'device') return { available: false, reason: this.#copy.voiceStates.usedUp, rawReason: 'host-limit' };
@@ -601,7 +604,8 @@ export class AithemaSession extends HTMLElement {
     const matrix = this.#session.featureMatrix?.[preset] ?? (preset === 'device' ? deviceFeatures() : {});
     const value = matrix[feature] ?? { available: false, reason: this.#copy.notConfigured };
     // Shown verdicts speak the page language; decisions keep the server's machine reasons.
-    return visitor ? { ...value, rawReason: value.reason, reason: reasonText(this.#copy, value.reason) } : value;
+    const reason = value.reason === 'budget denied' && this.#hasLiveCall() ? this.#copy.voiceBudgetDenied : reasonText(this.#copy, value.reason);
+    return visitor ? { ...value, rawReason: value.reason, reason } : value;
   }
   // The visitor's consent position for the acknowledged choice, from the server verdicts.
   #consentState() {
@@ -716,7 +720,8 @@ export class AithemaSession extends HTMLElement {
       const words = this.#uploadNotice || (text.available ? copy.shortcut.replace('{key}', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '') : unavailable);
       setText(reason, words); reason.title = this.#uploadNotice || text.available ? '' : unavailable;
       this.#paintAttach();
-      const out = root.querySelector('.composer-out'), usedUp = Boolean(this.#host?.usedUp) && !this.#creditEnding;
+      const out = root.querySelector('.composer-out'), usedUp = !this.#creditEnding &&
+        (Boolean(this.#host?.usedUp) || !this.#hasLiveCall() && text.rawReason === 'budget denied');
       const shell = root.querySelector('.composer-shell'), form = root.querySelector('form.composer'), u = copy.hostSurface.usedUp, credits = copy.hostSurface.credits;
       shell.toggleAttribute('data-used-up', usedUp); form.inert = usedUp; form.setAttribute('aria-hidden', String(usedUp));
       out.inert = !usedUp; out.setAttribute('aria-hidden', String(!usedUp));
@@ -731,7 +736,7 @@ export class AithemaSession extends HTMLElement {
       out.querySelector('.composer-out__export').href = `${this.#base}/api/sessions/${this.#session.id}/export`;
       for (const node of out.querySelectorAll('[data-next]')) { const shown = node.dataset.next === kind; node.setAttribute('aria-hidden', String(!shown)); node.inert = !shown; }
       const upgrade = out.querySelector('.composer-out__upgrade'); upgrade.inert = kind === 'none'; upgrade.setAttribute('aria-hidden', String(kind === 'none'));
-      const card = root.querySelector('.qcard'); card.inert = Boolean(this.#host?.usedUp); card.toggleAttribute('data-used-up', usedUp);
+      const card = root.querySelector('.qcard'); card.inert = usedUp; card.toggleAttribute('data-used-up', usedUp);
       this.#host?.emailAsk?.paint();
       return;
     }
@@ -1580,6 +1585,7 @@ export class AithemaSession extends HTMLElement {
         voice.callId === event.data.callId && voice.providerSessionId === event.data.providerSessionId) void this.#rail.close(event.data.reason);
       this.#rail.settlement(event.data);
       this.#host?.receive(event);
+      if (['closing', 'ended'].includes(event.data.state) && this.isConnected) void this.#refreshFeatures();
     } else if (event.type === 'turn.partial' && event.data.inputRevision === inputRevision(this.#session) &&
       (event.data.settingsRevision === undefined || event.data.settingsRevision >= this.#reasoningRevision)) {
       const existing = this.#partials.get(event.data.id);

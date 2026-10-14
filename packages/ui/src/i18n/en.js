@@ -62,6 +62,7 @@ export const en = {
   voiceRail: 'Voice conversation', voiceStart: 'Start call', voiceClose: 'End call',
   voiceMicOn: 'Mic on', voiceMicOff: 'Mic off', voiceSpeakerOn: 'Sound on', voiceSpeakerOff: 'Sound off',
   voiceRetry: 'Retry call', voicePlaybackRetry: 'Enable sound', voiceCommandUnavailable: 'Unavailable with this voice plugin',
+  voiceBudgetDenied: 'You can type again after the call',
   voiceStates: { low: 'Credit running low', idle: 'Ready to talk', connecting: 'Connecting voice…', listening: 'Listening', speaking: 'Speaking the reply',
     paused: 'Call paused', recovering: 'Reconnecting voice…', waiting: "Voice paused. Resume when you're ready.", closing: 'Settling call…', failed: 'Call ended', usedUp: 'Credits used up', creditEnding: 'Ending the call…' },
   voiceMicDenied: 'Microphone access denied. Allow access, then retry.', voiceMicMissing: 'No microphone found. Connect one, then retry.',
@@ -428,7 +429,7 @@ export const en = {
     'endpoint not allowed': 'Provider address not allowed', 'plugin binding mismatch': 'Provider setup does not match',
     'plugin kind unsupported': 'Provider cannot do this', 'operation unsupported': 'Provider cannot do this',
     'invalid mock budget': 'Invalid test configuration', 'plugin unhealthy': 'Provider not responding',
-    'admission deadline': 'Availability check timed out', 'budget denied': 'You can type again after the call', 'verification required': 'Email confirmation required',
+    'admission deadline': 'Availability check timed out', 'budget denied': 'Credits used up', 'verification required': 'Email confirmation required',
     'concept storage limit': 'Storage for concepts is full', delegated: 'Voice reasoning: {reason}',
     // Refusals introduced by processing settings.
     'voice off': 'Voice is off in your settings', 'visuals off': 'Visual concepts are off in your settings',

@@ -63,7 +63,7 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
   turnReplayWindowMs, turnTimeoutMs = 30_000, authorizeTurnReplacement } = {}) {
   if (![reconcileIntervalMs, reconcileBatchSize, reconcileLookupTimeoutMs].every(value => Number.isSafeInteger(value) && value > 0) ||
     log !== undefined && typeof log !== 'function') throw new TypeError('Invalid voice reconciliation retry bounds');
-  const calls = new Map(), sessions = new Map(), settlements = new Set(), authorities = new Map();
+  const calls = new Map(), sessions = new Map(), settlements = new Set(), authorities = new Map(), reconciliations = new Map();
   const tabAuthority = (sessionId, callId) => {
     const logical = storage.voiceLifecycle(sessionId, callId);
     return { epoch: logical?.epoch ?? 0, controllingTabId: logical?.controllingTabId ?? null };
@@ -85,7 +85,13 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
   const emitDiagnostic = createVoiceDiagnostics({ log });
   const diagnostic = (record, event, fields) => emitDiagnostic(event, record,
     { ...fields, reconciliationAgeMs: voiceReconciliationAge(record, now()) });
-  async function reconcile(record) {
+  function reconcile(record) {
+    if (reconciliations.has(record.attemptId)) return reconciliations.get(record.attemptId);
+    const pending = reconcileRecord(record).finally(() => reconciliations.delete(record.attemptId));
+    reconciliations.set(record.attemptId, pending);
+    return pending;
+  }
+  async function reconcileRecord(record) {
     try {
       // The budget marker survives a crash before cap settlement or journal acknowledgement.
       // Replay that value rather than fetching a potentially changed provider duration.
@@ -201,6 +207,13 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
           reason: logical?.terminalReason ?? reason,
           reconciliationPending: terminal.outcome === 'uncertain' || terminal.usage?.costEstimated === true,
           terminal: { outcome: terminal.outcome, closureConfirmed: terminal.closureConfirmed, usage: terminal.usage ?? null } } });
+        // The provider has already polled closure. Give unresolved costs their
+        // first retry immediately, without delaying the browser acknowledgement
+        // or releasing any retained maximum before authenticated evidence.
+        const record = pendingReconciliations().find(call => call.callId === entry.callId && call.providerSessionId === entry.call?.providerSessionId);
+        if (!stopping && closeOrphan && record) void reconcile(record).finally(() => {
+          if (!stopping && pendingReconciliations().length) reconcileLater();
+        });
         resolve(terminal);
       } catch (error) { reject(error); }
       finally { if (calls.get(entry.callId) === entry) calls.delete(entry.callId); }
@@ -677,7 +690,10 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
       return summary;
     },
     reconcileLater,
-    async idle() { while (settlements.size) await Promise.allSettled([...settlements]); await turns.idle(); },
+    async idle() {
+      while (settlements.size || reconciliations.size) await Promise.allSettled([...settlements, ...reconciliations.values()]);
+      await turns.idle();
+    },
     async close() {
       runtime.stopReplyReplays?.();
       stopping = true; clearTimeout(reconcileTimer);
