@@ -63,7 +63,9 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
           return { kind: 'audio', audio: { format: 'pcm_16000', data: btoa('\0'.repeat(320_000)) } };
         } };
       const client = createElevenLabsClient({ sdk, control, mediaDevices: {}, document,
-        persistEvent: async event => { window.replayPersisted.push(event); } });
+        persistEvent: async event => { window.replayPersisted.push(event);
+          if (event.type === 'final') c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: event.turnId, role: event.role, content: event.text } });
+        } });
       c.configure({ copy, session, voiceClient: client, voicePresentation: client.manifest.presentation });
       const rail = window.replayRail; rail.feature = () => ({ available: true });
       await rail.start();
@@ -76,10 +78,13 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
     }, locale);
     await until(page, () => window.replayRail.notices.recovery && !window.replayRail.notices.button.disabled);
     await settle(); await page.mouse.move(0, 500);
-    const selectors = ['.audio-rail', '.voice-repeat', '.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.voice-notices'];
+    const selectors = ['.audio-rail', '.voice-repeat', '.voice-read-text', '.voice-cell--output', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.voice-notices'];
     const before = await layoutBoxes(page, selectors);
     const capture = async state => {
       await settle();
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.turn:not(.user) .turn-text')?.textContent), await page.evaluate(() => window.replayText), `${state}: assistant bubble remains in the thread`);
+      const labels = locale === 'de' ? ['Antwort wiederholen', 'Wiederholung stoppen', 'Ganze Antwort lesen'] : ['Replay reply', 'Stop replay', 'Read full reply'];
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').textContent), labels[state === 'playing' ? 1 : state === 'fallback' ? 2 : 0]);
       const after = await layoutBoxes(page, selectors); assert.deepEqual(after, before, `${locale}/${theme}/${width}/${state}: 0 px layout shift`);
       const file = `audio-replay-${state}-${width}-${theme}-${locale}.png`;
       if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false });
@@ -87,6 +92,11 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
       passLines.push({ file, shiftPx: 0, pass: true }); t.diagnostic(`PASS ${file}: 0 px shift`);
     };
     await capture('idle');
+    await shadow(page, c => c.shadowRoot.querySelector('.voice-read-text').click());
+    assert.equal(await page.evaluate(() => window.replayRail.notices.dialog.open), true);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-reply-text').textContent), await page.evaluate(() => window.replayText));
+    assert.equal(await page.evaluate(() => window.replayRequests.length), 0);
+    await page.evaluate(() => window.replayRail.notices.dialog.close());
     const persisted = await page.evaluate(() => window.replayPersisted.length);
     await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').click());
     await until(page, () => window.replayRail.notices.playing && !window.replayAudio.paused);
@@ -100,6 +110,7 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
     await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').click());
     await until(page, () => window.replayRail.notices.dialog.open);
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-reply-text').textContent), await page.evaluate(() => window.replayText));
+    await page.evaluate(() => window.replayRail.notices.dialog.close());
     await capture('fallback');
     await page.evaluate(async () => { window.replayRail.notices.dialog.close(); await window.replayRail.close(); });
   }

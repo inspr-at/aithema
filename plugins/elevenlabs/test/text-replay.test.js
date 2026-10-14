@@ -113,3 +113,37 @@ test('AIT-154: an unquotable shared-voice surcharge falls back before admission'
   assert.deepEqual(await f.runtime.speakText({ session: f.session, turnId: 'reply-a' }), { kind: 'text', text: 'Exact answer.' });
   assert.equal(f.requests.some(r => r.options.method === 'POST'), false); assert.equal(f.budget.used(f.session.id), 0);
 });
+
+for (const tabs of [['tab-a', 'tab-a'], ['tab-a', 'tab-b']]) test(`AIT-154 round 2: parallel replay from ${tabs.join('/')} admits and calls the provider once`, async t => {
+  const f = fixture(t), entered = Promise.withResolvers(), release = Promise.withResolvers();
+  t.after(() => release.resolve());
+  const original = f.plugin.ports.serverAdapter.quoteSpeakText;
+  f.plugin.ports.serverAdapter.quoteSpeakText = async (...args) => { entered.resolve(); await release.promise; return original(...args); };
+  const handlers = createVoiceHandlers({ storage: f.storage, runtime: f.runtime, secrets: createFacadeSecrets(),
+    ownership: { token: () => 'tenant-a' }, readBody: async r => new Uint8Array(await r.arrayBuffer()), publish() {}, onTurn() {} });
+  t.after(() => handlers.close());
+  const request = tabId => new Request(`https://host.test/api/sessions/${f.session.id}/voice/replay`, {
+    method: 'POST', body: JSON.stringify({ turnId: 'reply-a', tabId, replayId: crypto.randomUUID() }) });
+  const first = handlers.handle(request(tabs[0])); await entered.promise;
+  const second = handlers.handle(request(tabs[1]));
+  // The refusal must complete while the first quote is still pending.
+  const refused = await Promise.race([second.then(async r => ({ status: r.status, body: await r.json() })),
+    new Promise(resolve => { const timer = setTimeout(() => resolve(null), 100); timer.unref(); })]);
+  release.resolve(); await Promise.all([first, second]);
+  assert.deepEqual(refused?.body, { kind: 'busy' }); assert.equal(refused?.status, 200);
+  assert.equal(f.requests.filter(r => r.options.method === 'POST').length, 1);
+  assert.equal(f.budget.db.prepare('SELECT count(*) n FROM budget_attempts').get().n, 1);
+});
+
+test('AIT-154 round 2: server replay lease covers playing, token-bound Stop releases it', async t => {
+  const f = fixture(t);
+  const replay = await f.runtime.speakText({ session: f.session, turnId: 'reply-a', options: { replayId: 'first' } });
+  assert.equal(replay.kind, 'audio');
+  assert.deepEqual(await f.runtime.speakText({ session: f.session, turnId: 'reply-a' }), { kind: 'busy' });
+  assert.equal(f.requests.filter(r => r.options.method === 'POST').length, 1);
+  f.runtime.stopReplyReplay(f.session.id, 'stale');
+  assert.deepEqual(await f.runtime.speakText({ session: f.session, turnId: 'reply-a' }), { kind: 'busy' });
+  f.runtime.stopReplyReplay(f.session.id, 'first');
+  assert.equal((await f.runtime.speakText({ session: f.session, turnId: 'reply-a' })).kind, 'audio');
+  assert.equal(f.requests.filter(r => r.options.method === 'POST').length, 2);
+});
