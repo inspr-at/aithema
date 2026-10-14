@@ -103,7 +103,10 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   const lanes = new SessionLanes({ reasoning, getSession: id => storage.get(id), deadlineMs, hostPrompt, purposePolicy, selection,
     canUnderstand: (id, revision) => { const state = storage.safeguards(id, revision); return state.assessed && !state.offTopic; },
     onScope(id, scope, revision) {
-      const result = storage.recordSafeguard(id, `text:${activeTurns(storage.get(id)).findLast(turn => turn.role === 'user')?.id ?? 'upload'}:${(storage.get(id).uploads ?? []).filter(u => !u.erased && !u.withdrawn).map(u => u.id).join(',')}`, revision, scope === 'off', purposePolicy.offTopicLimit);
+      const session = storage.get(id), person = activeTurns(session).findLast(turn => turn.role === 'user');
+      const documents = (session.uploads ?? []).filter(upload => !upload.erased && !upload.withdrawn).map(upload => upload.id);
+      const key = JSON.stringify(['text', person?.id ?? null, documents]);
+      const result = storage.recordSafeguard(id, key, revision, scope === 'off', purposePolicy.offTopicLimit);
       if (result.event) broadcast(id, result.event);
       if (scope !== 'off') scheduleLane(id, 'understanding');
     },

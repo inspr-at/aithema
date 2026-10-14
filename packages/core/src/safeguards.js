@@ -3,9 +3,6 @@ import { matchesSchema } from './reasoning.js';
 
 export const purposeReplySchema = { ...replySchema, required: [...replySchema.required, 'scope'],
   properties: { ...replySchema.properties, scope: { type: 'string', enum: ['in', 'unclear', 'off'] } } };
-export const safeguardRedirect = locale => locale === 'de'
-  ? 'Dabei kann ich Ihnen hier nicht helfen. Ich kläre mit Ihnen, wie Augmentoring Sie bei einer Lösung oder bei Ihren Abläufen unterstützen kann. Worum geht es bei Ihnen?'
-  : 'I cannot help with that here. I can clarify how Augmentoring could support you with a solution or your processes. What would you like to work on?';
 // Generic hosts should supply their own fallback copy; the default names no host.
 const genericRedirect = locale => locale === 'de'
   ? 'Dabei kann ich Ihnen hier nicht helfen. Welches Vorhaben möchten Sie hier klären?'
