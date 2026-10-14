@@ -82,13 +82,16 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
             quantity: 0, upstreamMicro: 0, source: 'undispatched', estimated: false } });
     }
   }
+  function appendHistory(role, content) {
+    if (historyBytes + content.length > maxTextCharacters || history.length >= 512) throw new PluginError('limit', 'Generation history full');
+    history.push({ role, content }); historyBytes += content.length;
+  }
   function endpoint(turn) {
     if (utterance !== turn) return;
     clearTimeout(timer); utterance = undefined; turn.speechEndAt = now(); turn.endpointed = true; turn.queue.end();
   }
   function beginUtterance() {
     if (jobs.size >= maxPendingTurns) throw new PluginError('limit', 'Too many voice turns in flight');
-    silence('barge-in');
     const turn = { id: `${providerSessionId}-${++sequence}`, sequence, queue: audioQueue(maxUtteranceMs * 32),
       controller: new AbortController(), durationMs: 0, silenceMs: 0, endpointed: false, playbackRevision };
     const committed = Promise.withResolvers(); turn.beforeCommit = commitTail; commitTail = committed.promise;
@@ -108,9 +111,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
       // Finalizers may finish out of order; utterance history follows capture order.
       await voiceOperation(opts, () => turn.beforeCommit);
       await permitted(opts);
-      historyBytes += final.length;
-      if (historyBytes > maxTextCharacters || history.length >= 512) throw new PluginError('limit', 'Generation history full');
-      history.push({ role: 'user', content: final });
+      appendHistory('user', final);
       // Exact text/history and generation metadata enter the existing Rule C store.
       // Never manufacture operation keys from a receipt, or deduplicate by text.
       const envelope = deepFreeze({ source: 'server-coordinator', payload: {
@@ -171,7 +172,10 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
       } else if (item.type === 'completion' && replyId && item.replyId === replyId && item.text === full) {
         complete = true;
         // Publication belongs to admitted reasoning even if playback was interrupted.
-        if (!signal.aborted) event({ type: 'final', role: 'assistant', turnId: replyId, text: full });
+        if (!signal.aborted) {
+          appendHistory('assistant', full);
+          event({ type: 'final', role: 'assistant', turnId: replyId, text: full });
+        }
         await speak(pending, revision, signal, replyId);
       } else throw new PluginError('invalid-output');
     }
@@ -185,11 +189,13 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     if (ingressPending) return Promise.reject(new PluginError('limit', 'Audio ingress is busy'));
     ingressPending = true;
     const copy = Uint8Array.from(bytes);
+    const view = new DataView(copy.buffer, copy.byteOffset, copy.byteLength); let energy = 0;
+    for (let i = 0; i < copy.byteLength; i += 2) energy += (view.getInt16(i, true) / 32768) ** 2;
+    const voiced = Math.sqrt(energy / (copy.byteLength / 2)) >= 0.015;
+    // Local detection stops playback before any remote authorization; capture still requires admission.
+    if (current() && input && !utterance && voiced) silence('barge-in');
     inputFlight = (async () => {
       await permitted(); if (!input) throw new PluginError('not-admitted');
-      const view = new DataView(copy.buffer, copy.byteOffset, copy.byteLength); let energy = 0;
-      for (let i = 0; i < copy.byteLength; i += 2) energy += (view.getInt16(i, true) / 32768) ** 2;
-      const voiced = Math.sqrt(energy / (copy.byteLength / 2)) >= 0.015;
       if (!utterance && !voiced) return;
       const turn = utterance ?? beginUtterance(), ms = copy.byteLength / 32;
       turn.durationMs += ms; turn.silenceMs = voiced ? 0 : turn.silenceMs + ms;

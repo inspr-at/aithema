@@ -100,13 +100,13 @@ export async function runOfflineQualification({ candidate, baseline, replyText =
     // The timings deliberately represent a fixture, never measured vendor latency.
     let at = Date.now(), speechEndAt, firstAudioAt, stoppedAt, hypothesis;
     const frame = Buffer.alloc(3200); for (let i = 0; i < frame.length; i += 2) frame.writeInt16LE(8000, i);
-    const sampleId = ++serial;
+    const sampleId = ++serial; let componentIndex = 0;
     const coordinator = createComposedVoiceCoordinator({ sessionId: 'offline-qualification', callId: `offline-${sampleId}`,
       providerSessionId: `offline-generation-${sampleId}`, now: () => at,
       spendDeadlineAt: at + 60_000, browserLivenessDeadlineAt: at + 30_000,
       authorize: async () => true, commitUtterance: async () => {},
       admitComponent: async ({ role, signal, deadlineAt }) => {
-        const claim = budget.reserve({ attemptId: `${sampleId}-${role}`, maxMicro: 0 });
+        const claim = budget.reserve({ attemptId: `${sampleId}-${role}-${++componentIndex}`, maxMicro: 0 });
         return { signal, deadlineAt, attempt: claim, report: terminal => claim.report(terminal) };
       },
       stt: { async *stream({ audio }, options) {

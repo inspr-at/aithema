@@ -47,10 +47,14 @@ preference remains pending, so offline results never qualify a vendor.
 baseline, all component/reasoning attempts, and retries. Reserve the maximum
 before dispatch and settle once; uncertainty retains the entire reservation.
 Estimated vendor cost also retains the full reservation rather than freeing spend.
-Snapshots retain attempt identities and overrun blocks across restart. The later
-live runner must persist this shared snapshot atomically before dispatch, enforce
-verified pricing ceilings for every provider attempt, and collect actual media
-timestamps and Markus's blind preference. That runner and keys belong to OPS.
+The PR 4a cap is in memory and uses configured tariffs; it does not persist spend
+or verify server-observed provider charges. Snapshots can retain attempt identities
+and overrun blocks across restart only when a host persists and restores them.
+Before any live run, PR 4b must persist this shared snapshot atomically before
+dispatch, enforce verified pricing ceilings for every provider attempt, and
+reconcile server-observed spend across candidate, baseline, components and retries.
+The live runner must also collect actual media timestamps and Markus's blind
+preference. That runner and keys belong to OPS.
 
 No live calls, account provisioning, deployment, or qualification is part of this
 slice. Later AssemblyAI/Azure support can implement the same component ports;

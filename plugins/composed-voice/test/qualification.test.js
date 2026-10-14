@@ -64,7 +64,6 @@ test('AIT-160: estimated vendor usage keeps its entire reservation inside the ha
   }
 });
 
-
 test('AIT-160 round 2: offline qualification admits every TTS fragment with a unique claim', async () => {
   const result = await runOfflineQualification({ replyText: 'Welche Firma? Bitte nennen Sie den Namen.' });
   // Each candidate and baseline sample needs one STT and two TTS claims.

@@ -157,7 +157,6 @@ test('AIT-160: pause during pending server authorization cannot be cleared by a 
   await assert.rejects(pending, { code: 'cancelled' }); assert.equal(h.coordinator.state.state, 'paused');
 });
 
-
 test('AIT-160 round 2: published assistant finals join multi-turn history in order', async t => {
   const h = fixture(t);
   for (let i = 0; i < 3; i++) {

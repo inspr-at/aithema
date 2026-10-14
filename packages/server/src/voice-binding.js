@@ -2,7 +2,7 @@ import { createBinding, deepFreeze } from '@inspr/aithema-core';
 
 // Keep duration selection private; token and minute ceilings are different units.
 export function createDurationBinding(raw) {
-  const { maxDurationSeconds = 900, upstreamMicroPerMinute, visitorMicroPerMinute,
+  const { maxDurationSeconds, upstreamMicroPerMinute, visitorMicroPerMinute,
     reservationSeconds, minRunwaySeconds, adapterConfig, ...common } = raw;
   const binding = createBinding(common);
   if (!Number.isInteger(maxDurationSeconds) || maxDurationSeconds < 1 || maxDurationSeconds > 86400 ||
