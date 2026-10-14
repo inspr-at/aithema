@@ -62,7 +62,11 @@ for (const copy of [de, en]) for (const covered of [true, false]) test(`AIT-173 
     } });
   await tick(8); root.querySelector('.voice-start').click(); await tick(8);
   assert.equal(root.querySelector('.composer-reason').textContent, copy === de ? 'Schreiben geht nach dem Anruf wieder' : 'You can type again after the call', 'during-call copy remains scoped to a live call');
-  ended = true; root.querySelector('.voice-close').click(); await tick(12);
+  ended = true; root.querySelector('.voice-close').click();
+  assert.equal(root.querySelector('.composer-shell').hasAttribute('data-used-up'), false, 'hangup never synchronously shows used-up');
+  assert.equal(root.querySelector('form.composer').inert, false, 'hangup keeps the composer slot');
+  assert.equal(root.querySelector('.workspace').dataset.emailAsk, 'closed', 'hangup never asks for email');
+  await tick(12);
   assert.equal(root.querySelector('.audio-rail').dataset.call, 'none');
   assert.equal(root.querySelector('textarea').disabled, !covered);
   assert.equal(root.querySelector('.send').disabled, !covered);
@@ -1083,4 +1087,43 @@ for (const copy of [de, en]) test(`AIT-173 round 2: footer reconciliation toolti
   t.mock.timers.tick(15_001); await tick(8);
   assert.equal(button.hasAttribute('title'), false);
   assert.equal(button.hasAttribute('aria-description'), false);
+});
+
+for (const copy of [de, en]) test(`AIT-173 round 4: stale hangup denial waits for fresh admission and polling keeps the draft (${copy === de ? 'de' : 'en'})`, async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const { voiceEvents } = await import('../../core/src/live-voice.js');
+  const events = voiceEvents(), refresh = Promise.withResolvers();
+  let ended = false, settled = false, spent = false;
+  const waiting = copy === de ? 'Einen Moment, die Kosten des Anrufs werden noch abgeglichen.' : "One moment, the call's costs are still being reconciled.";
+  const matrix = () => ({ best: { text: { available: settled && !spent, reason: spent ? 'budget denied' : settled ? null : ended ? 'budget reconciling' : 'budget denied' },
+    analysis: { available: settled && !spent, reason: spent ? 'budget denied' : settled ? null : ended ? 'budget reconciling' : 'budget denied' }, voice: { available: true } } });
+  const voiceClient = { async start({ callId }) { return { callId, providerSessionId: 'round4-provider', events,
+    async setInput() {}, async setOutput() {}, async updateContext() {},
+    async close() { events.end(); return { closureConfirmed: false, outcome: 'uncertain', usage: null }; } }; } };
+  const { c, root } = setup(t, { copy, voiceClient, host: { credits: true },
+    session: { demo: false, featureMatrix: matrix(), settings: { origin: 'chosen', voice: 'off', visuals: 'off' } }, routes: {
+      'GET ': async () => { if (ended) await refresh.promise; return Response.json({ ...c.session, featureMatrix: matrix() }); },
+      'GET /credits': () => Response.json({ balance, exhausted: false, reconciling: ended && !settled }),
+    } });
+  await tick(8); root.querySelector('.voice-start').click(); await tick(8);
+  const input = root.querySelector('textarea'); input.value = 'Keep this draft';
+  ended = true; root.querySelector('.voice-close').click();
+  const assertWaiting = () => {
+    assert.equal(root.querySelector('.composer-shell').hasAttribute('data-used-up'), false);
+    assert.equal(root.querySelector('form.composer').inert, false);
+    assert.equal(root.querySelector('.workspace').dataset.emailAsk, 'closed');
+    assert.equal(input.value, 'Keep this draft');
+    assert.equal(input.disabled, false);
+    assert.equal(root.querySelector('.send').disabled, true);
+    assert.equal(root.querySelector('.composer-reason').textContent, waiting);
+    assert.doesNotMatch(root.querySelector('.features').textContent + root.querySelector('.notice').textContent, /aufgebraucht|used up/iu);
+  };
+  assertWaiting(); // No tick: the local hangup must already be safe.
+  await tick(8); assertWaiting(); // Still safe while the admission response is delayed.
+  refresh.resolve(); await tick(8); assertWaiting();
+  settled = true; t.mock.timers.tick(15_001); await tick(12);
+  assert.equal(root.querySelector('.send').disabled, false, 'credit polling restores send without an event');
+  assert.equal(input.value, 'Keep this draft');
+  spent = true; c.receive({ type: 'voice.state', data: { state: 'ended' } }); await tick(12);
+  assert.equal(root.querySelector('.composer-shell').hasAttribute('data-used-up'), true, 'fresh genuine denial uses normal used-up path');
 });

@@ -84,7 +84,7 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
           numericStyle: getComputedStyle(c.shadowRoot.querySelector('.host-credits__amount')).fontVariantNumeric,
           usedUp: c.shadowRoot.querySelector('.composer-shell').hasAttribute('data-used-up') }));
         assert.equal(view.low, state === 'low' ? 'true' : 'false', `${locale}/${width}/${state}: ${JSON.stringify(view)}`);
-        assert.equal(view.usedUp, state === 'reconciling-blocked'); assert.equal(view.ending, false);
+        assert.equal(view.usedUp, false); assert.equal(view.ending, false);
         if (state !== 'low') { assert.equal(view.ask, 'closed'); assert.equal(view.amount.replace(/[.,]/gu, ''), state === 'full-hold' ? '0' : '600'); assert.doesNotMatch(view.rail, /wenig|low|aufgebraucht|used up/iu); }
         else assert.match(view.rail, locale === 'de' ? /wenig/u : /low/u);
         const reconciliation = locale === 'de' ? 'Kosten werden noch abgeglichen' : 'Costs are still being reconciled';
@@ -98,11 +98,15 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
           const admission = await shadow(page, c => ({ disabled: c.shadowRoot.querySelector('textarea').disabled,
             sendDisabled: c.shadowRoot.querySelector('.send').disabled,
             reason: c.shadowRoot.querySelector('.composer-reason').textContent, overview: c.shadowRoot.querySelector('.notice').textContent, features: c.shadowRoot.querySelector('.features').textContent }));
-          assert.equal(admission.disabled, state === 'reconciling-blocked');
+          assert.equal(admission.disabled, false, 'the draft stays editable during reconciliation');
           assert.equal(admission.sendDisabled, state === 'reconciling-blocked');
           assert.doesNotMatch(admission.reason + admission.overview + admission.features, /nach dem Anruf|after the call/u);
+          if (state === 'reconciling-blocked') {
+            assert.equal(admission.reason, locale === 'de' ? 'Einen Moment, die Kosten des Anrufs werden noch abgeglichen.' : "One moment, the call's costs are still being reconciled.");
+            assert.doesNotMatch(admission.reason + admission.overview + admission.features, /aufgebraucht|used up/iu);
+          }
           textAdmission = admission;
-          if (state === 'reconciling') {
+          if (state.startsWith('reconciling')) {
             const typed = locale === 'de' ? 'Ich tippe während des Kostenabgleichs.' : 'Typed while costs reconcile.';
             await shadow(page, c => { c.shadowRoot.querySelector('textarea').value = ''; });
             await shadow(page, c => c.shadowRoot.querySelector('textarea').focus());
@@ -128,19 +132,27 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
         const after = await boxes(page, targets), shift = Math.max(...baseline.flatMap((row, i) => row.map((value, j) => Math.abs(value - after[i][j]))));
         assert.equal(shift, 0, `${locale}/${width}/${state}: layout shift ${shift} px`);
         const pass = { ...capture, controls, textAdmission, head: evidenceCommit, locale, width, theme, state, layoutShiftPx: shift, tooltip: view.title, accessibleDescription: view.description, amount: view.amount, numericStyle: view.numericStyle, pass: true }; passes.push(pass);
-        console.log(`AIT-173 PASS ${locale} ${theme} ${width} ${state}: hold-safe credits; footer tooltip=${view.title ?? "none"}; shift=${shift}px; composer gap=${capture.composerFooterGapPx}px; old capture gap=${capture.oldCaptureGapPx ?? 'n/a'}px`);
+        console.log(`AIT-173 PASS ${locale} ${theme} ${width} ${state}: hold-safe credits; no used-up wording or email ask while reconciling; footer tooltip=${view.title ?? "none"}; shift=${shift}px; composer gap=${capture.composerFooterGapPx}px; old capture gap=${capture.oldCaptureGapPx ?? 'n/a'}px`);
         if (evidence) await page.screenshot({ path: join(evidence, `ait173-${locale}-${theme}-${width}-${state}.png`), fullPage: false, captureBeyondViewport: false });
       }
-      if (state === 'reconciling') {
+      if (state.startsWith('reconciling')) {
         const before = await boxes(page, targets);
-        await shadow(page, async c => { await fetch('/reconcile'); c.receive({ type: 'voice.state', data: { state: 'ended' } }); });
+        const draft = await shadow(page, c => c.shadowRoot.querySelector('textarea').value);
+        // Only change the server ledger. The ordinary credit poll must restore admission.
+        await page.evaluate(() => fetch('/reconcile'));
         await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__amount').textContent.trim() === '595');
+        await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.send').disabled, 25_000);
         await settle(page);
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('textarea').value), draft, 'settlement keeps the draft');
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-credits__button').hasAttribute('title')), false);
         const after = await boxes(page, targets), shift = Math.max(...before.flatMap((row, i) => row.map((value, j) => Math.abs(value - after[i][j]))));
         assert.equal(shift, 0, `${locale}/${width}: settlement shifted the credit number by ${shift}px`);
-        passes.push({ head: evidenceCommit, locale, width, state: 'settled', layoutShiftPx: shift, pass: true });
-        console.log(`AIT-173 PASS ${locale} ${width} settled: tooltip cleared; number changed in place; shift=${shift}px`);
+        for (const theme of ['light', 'dark']) {
+          await shadow(page, (c, theme) => c.setAttribute('theme', theme), theme); await settle(page);
+          passes.push({ head: evidenceCommit, locale, width, theme, state: `${state}-settled`, draftKept: true, sendReenabled: true, layoutShiftPx: shift, pass: true });
+          if (evidence) await page.screenshot({ path: join(evidence, `ait173-${locale}-${theme}-${width}-${state}-settled.png`), fullPage: false, captureBeyondViewport: false });
+        }
+        console.log(`AIT-173 PASS ${locale} ${width} ${state} settled: draft kept; send re-enabled automatically; tooltip cleared; shift=${shift}px`);
       }
     }
   }
