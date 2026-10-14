@@ -74,8 +74,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       return fixture.handle(request);
     }
     if (path === '/') return new Response('<!doctype html><html><meta charset="utf-8"><style>body{margin:0}aithema-session{display:block;min-height:100vh}</style><aithema-session></aithema-session><script type="module" src="/packages/ui/src/session-element.js"></script></html>', { headers: { 'content-type': 'text/html' } });
-    if (!/^\/packages\/(ui|core)\/src\/[a-z0-9/-]+\.js$/u.test(path)) return new Response(null, { status: 404 });
-    try { return new Response(await readFile(new URL(path.slice(1), root)), { headers: { 'content-type': 'text/javascript' } }); }
+    if (!/^\/packages\/(ui|core)\/src\/[a-z0-9/-]+\.(?:js|json)$/u.test(path)) return new Response(null, { status: 404 });
+    try { return new Response(await readFile(new URL(path.slice(1), root)), { headers: { 'content-type': path.endsWith('.json') ? 'application/json' : 'text/javascript' } }); }
     catch { return new Response(null, { status: 404 }); }
   });
   process.send?.({ url });
