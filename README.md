@@ -2367,6 +2367,10 @@ docker exec --user node start2 node /app/demo/admin-cli.js settings
 docker exec --user node start2 node /app/demo/admin-cli.js set-allowances --base-revision 1 --anonymous 10 --email-given 15 --email-confirmed 20
 docker exec --user node start2 node /app/demo/admin-cli.js audit --after 0 --limit 100
 docker exec --user node start2 node /app/demo/admin-cli.js provider-cap
+docker exec --user node start2 node /app/demo/admin-cli.js set-provider-cap --base-revision 1 --usd 100
+# Restore the configured cap using the latest provider-cap revision:
+docker exec --user node start2 node /app/demo/admin-cli.js reset-provider-cap --base-revision 2
+docker exec --user node start2 node /app/demo/admin-cli.js provider-cap-audit --after 0 --limit 100
 docker exec --user node start2 node /app/demo/admin-cli.js mail-cap
 docker exec --user node start2 node /app/demo/admin-cli.js set-mail-cap --base-revision 2 --hour 30 --day 200
 # AIT-163: preview existing uncertain reasoning/voice rows; output is counts and microUSD only.
@@ -2378,21 +2382,55 @@ docker exec --user node start2 node /app/demo/admin-cli.js reconcile-uncertain -
 Use the revision returned by `settings`; the example's `1` applies only before
 the first OPS save. Local usage is `node demo/admin-cli.js --socket /absolute/path
 settings`, with `--socket` before the command. Audit pagination returns
-`nextAfter`; pass it as `--after` for the next page. Provider status is read-only:
+`nextAfter`; pass it as `--after` for the next page. Provider status reports:
 `capMicro`, `confirmedMicro`, `reservedMicro`, `uncertainMicro`, `remainingMicro`
-and `breached`, plus OPS recovery instructions. A host without a provider cap
+and `breached`, plus OPS recovery instructions and the provider cap's own
+`revision`, `storedCapMicro`, `configuredCapMicro`, `minimumMicro`,
+`maximumMicro` and `updatedAt`. A host without a provider cap
 returns `available:false` and null totals. Remaining subtracts all commitments.
+`set-provider-cap --base-revision N --usd USD` changes the running account cap
+without a deployment. Use the revision from `provider-cap`, independently of
+visitor settings. Until the first save, the stored cap is null and the host uses
+today's configured cap; after a save, the override survives restart and later
+deployment configuration changes. `reset-provider-cap --base-revision N`
+clears that override and restores the current deploy-time configured cap, even
+if an emergency lower puts it below committed spend. This reset is audited,
+advances the revision, and makes later deployment configuration changes effective
+again. It does not clear historical reservation-overrun latches.
+Signed decimal USD strings (at most six fractional digits, 200 characters) are
+parsed exactly. Saves below confirmed + reserved + uncertain spend return 422
+with `cap cannot go below spend already committed; current cap unchanged`; the
+cap, revision and breach state stay unchanged and the refusal is audited. No save
+implicitly raises the cap to committed spend. Zero is allowed when there are
+no liabilities.
+Requests above `max(configured cap × 10, configured cap + $1,000)` return 422
+with the limit and an instruction to use `--allow-large`. The configured cap,
+not a saved override, determines this typo bound.
+`set-provider-cap --base-revision N --usd USD --allow-large` explicitly bypasses
+the typo bound and records that override in the audit. The safe integer limit of
+9,007,199,254.740991 USD in microUSD still applies: larger explicit overrides
+are clamped to that accounting maximum and audited. Malformed input is rejected.
+The cap, revision increment and audit row commit together. Stale revisions
+return 409 with current cap settings; reload after an uncertain response.
+`provider-cap-audit` uses its own `--after`/`--limit` cursor and records every
+save, reset and refusal's source, socket-owned actor, requested USD, before/after
+settings, operation (`set` or `reset`), outcome (`saved` or `refused`),
+`allowLarge`, refusal reason, and clamp reason/bounds (or null). Refusals append
+audit history without changing the settings revision. The existing visitor audit
+command keeps its contract. The `/admin` provider section stays read-only and
+displays the effective cap; it has no cap editing control.
 Historical reservation overruns remain latched after restart or a cap raise:
 OPS investigates receipts, reconciles liabilities and fixes the cause, then
 performs an approved, audited maintenance recovery preserving history and
-carrying confirmed and unresolved liabilities forward. No reset command exists.
+carrying confirmed and unresolved liabilities forward. The cap-configuration
+reset does not perform that maintenance recovery.
 
 With the next start2 deployment, OPS sets `AITHEMA_OPENROUTER_CAP_USD=100`.
 This deployment-wide lifetime ceiling covers OpenRouter text and Claude HTML;
 it excludes voice, which has separate optional `AITHEMA_VOICE_CAP_MINUTES` and
 `AITHEMA_VOICE_CAP_MINUTES_PER_DAY` ceilings in addition to each visitor wallet.
 Replacing the visitor cookie can still obtain a fresh anonymous allowance.
-The runtime-editable provider cap and abuse tracking are deferred.
+Abuse tracking is deferred.
 
 The visitor API uses the existing ownership cookie/token:
 

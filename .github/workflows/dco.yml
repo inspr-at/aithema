@@ -3,6 +3,8 @@ name: DCO
 on:
   pull_request:
     branches: [main]
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
 
@@ -11,7 +13,7 @@ permissions:
 
 jobs:
   dco:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -20,10 +22,17 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
       - name: Check every contribution commit
+        if: github.event_name == 'pull_request'
         env:
           DCO_BASE: ${{ github.event.pull_request.base.sha }}
           DCO_HEAD: ${{ github.event.pull_request.head.sha }}
         run: python3 -I scripts/check-dco.py "$DCO_BASE" "$DCO_HEAD"
+      - name: Check queued contribution commits
+        if: github.event_name == 'merge_group'
+        env:
+          DCO_BASE: ${{ github.event.merge_group.base_sha }}
+          DCO_HEAD: ${{ github.event.merge_group.head_sha }}
+        run: python3 -I scripts/check-dco.py "$DCO_BASE" "$DCO_HEAD" --merge-group
 
   dco-tests:
     runs-on: ubuntu-latest
