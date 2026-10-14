@@ -43,6 +43,7 @@ for (const content of [
   'The label says {customer}; is that part of your current workflow?',
   'from sales we hear about late orders\nfrom support we hear about missing updates',
   'return the package to the team\nreturn the customer call the next morning',
+  'We print (labels and invoices) for our customers. What should improve?',
 ]) test(`AIT-174 round2 ordinary prose stays safe: ${content}`, () => {
   const input = request(); assert.equal(unsafeReplyOutput(wire(content), input.purposePolicy, input.system), false);
 });
