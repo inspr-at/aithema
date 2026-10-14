@@ -105,3 +105,39 @@ test('AIT-160: delayed predecessor closure cannot silence a successor using the 
   t.after(() => successor.close());
   const before = stops; await old.close(); assert.equal(stops, before);
 });
+
+test('AIT-160: a startup hold preserves the logical call and Resume uses a fresh capture signal', async t => {
+  const h = relayFixture(), hold = new AbortController(); hold.abort('hide'); let captures = 0;
+  const media = createComposedBrowserMedia({ openRelay: grant => h.relay.connect(grant),
+    capture: async ({ signal }) => { assert.equal(signal.aborted, false); captures++; return { stop() {} }; },
+    player: { play() {}, stop() {} } });
+  const session = await media.connect(h.relay.grant, { holdSignal: hold.signal }); t.after(() => session.close());
+  assert.equal(captures, 0); assert.deepEqual(h.commands, ['pause']);
+  await session.resume(); assert.equal(captures, 1);
+});
+
+test('AIT-160: active hold stops capture without ending; lifetime cancellation stops immediately', async t => {
+  const h = relayFixture(), hold = new AbortController(), lifetime = new AbortController(); let captures = 0, stops = 0;
+  const media = createComposedBrowserMedia({ openRelay: grant => h.relay.connect(grant),
+    capture: async () => { captures++; return { stop() { stops++; } }; }, player: { play() {}, stop() {} } });
+  const session = await media.connect(h.relay.grant, { holdSignal: hold.signal, signal: lifetime.signal });
+  t.after(() => session.close());
+  hold.abort('hide'); assert.equal(stops, 1); await tick();
+  await session.resume(); assert.equal(captures, 2);
+  lifetime.abort(); assert.equal(stops, 2);
+});
+
+test('AIT-160: a hold during pending Resume acknowledgement keeps capture stopped', async t => {
+  const h = relayFixture(), hold = new AbortController(), ready = Promise.withResolvers(), resume = Promise.withResolvers(); let captures = 0;
+  const media = createComposedBrowserMedia({ openRelay: async grant => {
+    const transport = await h.relay.connect(grant);
+    return { ...transport, command(name, ...args) {
+      if (name === 'resume') { ready.resolve(); return resume.promise; }
+      return transport.command(name, ...args);
+    } };
+  }, capture: async () => { captures++; return { stop() {} }; }, player: { play() {}, stop() {} } });
+  const session = await media.connect(h.relay.grant, { holdSignal: hold.signal }); t.after(() => session.close());
+  await session.pause(); const pending = session.resume(); await ready.promise;
+  hold.abort('hide'); resume.resolve({ acknowledged: true, paused: false });
+  await assert.rejects(pending, { code: 'cancelled' }); assert.equal(captures, 1);
+});
