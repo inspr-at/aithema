@@ -258,3 +258,54 @@ test('AIT-171: latch open Settings through delayed/failed credits and both polic
   }
   if (evidence) await writeFile(join(evidence, 'ait-171-latch-pass-lines.json'), JSON.stringify({ head: evidenceCommit, viewport: true, rows, shots }, null, 2));
 });
+
+
+// Round 3: the status occupies the existing lead slot while real credits are pending.
+test('AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440; 0 px shift', { timeout: 120_000 }, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'aithema-email-status-')), evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  const server = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(dir, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
+  let browser; t.after(async () => { await browser?.close(); await server.kill(); await rm(dir, { recursive: true, force: true }); });
+  if (evidence) await mkdir(evidence, { recursive: true });
+  const rows = [], shots = [];
+  const capture = async (page, label, state) => {
+    if (!evidence) return;
+    const name = `ait-171-${evidenceCommit}-${label}-tiers-unknown-${state}.png`;
+    await page.screenshot({ path: join(evidence, name), fullPage: false }); shots.push(name);
+  };
+  for (const locale of ['de', 'en']) {
+    browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(dir, 'chrome-' + locale), env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+    const page = await browser.newPage();
+    await page.evaluateOnNewDocument(locale => localStorage.setItem('aithema-demo-locale', locale), locale);
+    await page.goto(server.url, { waitUntil: 'domcontentloaded' }); await until(page, () => document.querySelector('aithema-session')?.session);
+    for (const width of [390, 1024, 1440]) for (const delivery of [true, false]) for (const failed of [false, true]) {
+      const label = `${locale}-light-${width}-${delivery ? 'mail' : 'save'}`;
+      await page.setViewport({ width, height: width === 390 ? 844 : 1000 }); await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
+      await fixture(page, locale, delivery, delivery, { hold: true, fail: failed });
+      const leadSelector = delivery ? '.m-lead-mail' : '.m-lead-save';
+      const loading = locale === 'de' ? 'Guthaben wird geladen …' : 'Loading credit …';
+      const failure = (locale === 'de' ? 'Guthaben gerade nicht verfügbar.' : "Credit isn't available right now.") +
+        (delivery ? locale === 'de' ? ' Sie können die Adresse trotzdem bestätigen.' : ' You can still confirm your address.' : '');
+      assert.equal(await shadow(page, (c, s) => c.shadowRoot.querySelector(s).textContent, leadSelector), loading);
+      const before = await geometry(page);
+      const leadBox = await shadow(page, (c, s) => { const b = c.shadowRoot.querySelector(s).getBoundingClientRect(); return [b.x, b.y]; }, leadSelector);
+      if (!failed) await capture(page, label, 'loading');
+      await page.evaluate(() => { window.emailBoot.holdCredits = false; });
+      await until(page, ({ leadSelector, loading }) => document.querySelector('aithema-session').shadowRoot.querySelector(leadSelector).textContent !== loading, { leadSelector, loading });
+      await frame(page);
+      const text = await shadow(page, (c, s) => c.shadowRoot.querySelector(s).textContent, leadSelector);
+      if (failed) { assert.equal(text, failure); await capture(page, label, 'failed'); }
+      else assert.match(text, locale === 'de' ? /Mit Ihrer E-Mail-Adresse/u : /With your email address/u);
+      const after = await geometry(page);
+      const shiftPx = Math.max(...before.boxes.flatMap((box, i) => box.map((v, j) => Math.abs(v - after.boxes[i][j]))),
+        ...before.mailAction.map((v, i) => Math.abs(v - after.mailAction[i])));
+      assert.deepEqual(await shadow(page, (c, s) => { const b = c.shadowRoot.querySelector(s).getBoundingClientRect(); return [b.x, b.y]; }, leadSelector), leadBox, 'lead stays in its first line slot');
+      const state = failed ? 'failed' : 'loaded';
+      rows.push({ head: evidenceCommit, label, state, shiftPx, text });
+      t.diagnostic(`${shiftPx === 0 ? 'PASS' : 'FAIL'} AIT-171 ${label}/loading-to-${state}: shift=${shiftPx} px`);
+      await t.test(`${label}/loading-to-${state}: 0 px shift`, () => assert.equal(shiftPx, 0));
+      assert.equal(await page.evaluate(() => window.emailBoot.creditsRequests), 1, 'status adds no requests');
+    }
+    await browser.close(); browser = null;
+  }
+  if (evidence) await writeFile(join(evidence, 'ait-171-status-pass-lines.json'), JSON.stringify({ head: evidenceCommit, viewport: true, rows, shots }, null, 2));
+});
