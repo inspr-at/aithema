@@ -1,0 +1,87 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, cpSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { reserveVersion } from '../release/lib/version.mjs';
+import { packRelease, verifyRelease, rollbackArtifact, releasePaths } from '../release/pack.mjs';
+const root = new URL('../', import.meta.url);
+test('dry-run pack repeats identical bytes and manifest, pins dependencies, and binds rollback to exact bytes', () => {
+  const fixture = mkdtempSync(join(tmpdir(), 'aithema-pack-'));
+  for (const path of releasePaths(root)) { const dest = join(fixture, path); mkdirSync(join(dest, '..'), { recursive: true }); cpSync(new URL(path, root), dest); }
+  const git = (...args) => execFileSync('git', args, { cwd: fixture, stdio: ['ignore', 'pipe', 'pipe'] }).toString().trim();
+  git('init'); git('add', '.'); git('-c', 'user.name=Release fixture', '-c', 'user.email=fixture@example.test', 'commit', '-m', 'fixture');
+  const a = packRelease({ root: fixture, output: join(fixture, 'out-a'), dryRun: true });
+  const b = packRelease({ root: fixture, output: join(fixture, 'out-b'), dryRun: true });
+  assert.deepEqual(readFileSync(a.artifactPath), readFileSync(b.artifactPath)); assert.deepEqual(a.manifest, b.manifest);
+  assert.equal(a.manifest.mode, 'dry-run'); assert.equal(a.manifest.source.commit, git('rev-parse', 'HEAD'));
+  assert.ok(a.manifest.artifacts[0].sha256.startsWith('sha256:'));
+  assert.ok(a.manifest.packages.some(p => p.name === '@inspr/aithema-ui'));
+  assert.ok(a.manifest.packages.some(p => p.name === '@inspr/aithema-plugin-elevenlabs'));
+  verifyRelease(a.directory);
+  const sidecar = join(a.directory, 'release-set.json');
+  writeFileSync(sidecar, JSON.stringify({ ...a.manifest, source: { ...a.manifest.source, commit: '1'.repeat(40) } }));
+  assert.throws(() => verifyRelease(a.directory), /source commit/i);
+  writeFileSync(sidecar, JSON.stringify(a.manifest));
+  assert.throws(() => rollbackArtifact(a.directory, { ...a.manifest, mode: 'release' }, a.manifest.artifacts[0].coordinate), /dry-run/i);
+  assert.throws(() => rollbackArtifact(a.directory, a.manifest, a.manifest.artifacts[0].coordinate), /dry-run/i);
+  const extracted = join(fixture, 'extracted'); mkdirSync(extracted); execFileSync('tar', ['-xzf', a.artifactPath, '-C', extracted]);
+  execFileSync('npm', ['ci', '--offline', '--ignore-scripts', '--omit=dev', '--no-audit', '--no-fund'], { cwd: join(extracted, 'package'), stdio: ['ignore', 'pipe', 'pipe'] });
+  const consumer = `import { SQLiteStorage, createHandlers, createMemoryConsentLedger, exportSession } from '@inspr/aithema-server';
+    import { createSession, createMockReasoning } from '@inspr/aithema-core';
+    import { manifest as reasoningManifest } from '@inspr/aithema-plugin-openrouter';
+    import { manifest as imageManifest } from '@inspr/aithema-plugin-openai-images';
+    import { readFileSync } from 'node:fs';
+    const runtime = JSON.parse(readFileSync('release/runtime.json'));
+    if ([createMockReasoning().manifest, reasoningManifest, imageManifest].some(manifest => manifest.version !== runtime.version || manifest.apiVersion !== '^1.0.0')) throw new Error('Public plugin version mapping drift');
+    const storage = new SQLiteStorage(':memory:');
+    const handlers = createHandlers({ storage, consent: createMemoryConsentLedger() });
+    await handlers.resume();
+    const bytes = exportSession(createSession(), [], [], { commit: '2'.repeat(40) });
+    if (!bytes.includes(Buffer.from(runtime.source.commit)) || bytes.includes(Buffer.from('2'.repeat(40)))) throw new Error('Export source commit drift');
+    await handlers.close(); storage.close();
+    console.log('PASS packed consumer imports/handler startup and artifact-bound export provenance');`;
+  assert.match(execFileSync(process.execPath, ['--input-type=module', '-e', consumer], { cwd: join(extracted, 'package'), encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }), /PASS packed consumer/u);
+  const isolated = join(fixture, 'isolated-packed-server');
+  cpSync(join(extracted, 'package/packages/server'), isolated, { recursive: true });
+  const isolatedInfo = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', "import { releaseInfo } from './src/release-info.js'; console.log(JSON.stringify(releaseInfo));"], { cwd: isolated, encoding: 'utf8', stdio: 'pipe' }));
+  assert.equal(isolatedInfo.source.commit, a.manifest.source.commit);
+  assert.equal(isolatedInfo.version, a.manifest.version);
+  const pkg = JSON.parse(readFileSync(join(extracted, 'package/packages/server/package.json')));
+  assert.equal(pkg.version, a.manifest.version); assert.equal(pkg.dependencies['@inspr/aithema-core'], a.manifest.version);
+  const lock = JSON.parse(readFileSync(join(extracted, 'package/package-lock.json')));
+  assert.equal(lock.packages['packages/server'].version, pkg.version);
+  assert.equal(lock.packages['packages/server'].dependencies['@inspr/aithema-core'], pkg.version);
+  const declared = JSON.parse(readFileSync(join(fixture, 'release/version.json')));
+  const reserved = reserveVersion(declared, { now: '2026-10-14T08:00:00Z', publishGo: true });
+  writeFileSync(join(fixture, 'release/version.json'), JSON.stringify(reserved)); git('add', 'release/version.json');
+  git('-c', 'user.name=Release fixture', '-c', 'user.email=fixture@example.test', 'commit', '-m', 'reserved fixture');
+  const released = packRelease({ root: fixture, output: join(fixture, 'released'), ref: 'refs/tags/v' + reserved.version });
+  const rollback = rollbackArtifact(released.directory, released.manifest, released.manifest.artifacts[0].coordinate);
+  assert.equal(rollback.sha256, released.manifest.artifacts[0].sha256);
+  assert.equal(rollback.deploymentEvent.action, 'rollback');
+  assert.throws(() => rollbackArtifact(released.directory, { ...released.manifest, version: '261014080001.0.0' }, rollback.coordinate), /mismatch/i);
+  writeFileSync(a.artifactPath, 'tampered'); assert.throws(() => verifyRelease(a.directory), /digest/i);
+  assert.throws(() => packRelease({ root: fixture, output: join(fixture, 'real-release'), dryRun: false, ref: 'refs/tags/v0.10.1' }), /tag.*match/i);
+});
+
+test('packing evidence names its run accurately and references CI validation', () => {
+  const fixture = mkdtempSync(join(tmpdir(), 'aithema-pack-evidence-'));
+  for (const path of releasePaths(root)) { const dest = join(fixture, path); mkdirSync(join(dest, '..'), { recursive: true }); cpSync(new URL(path, root), dest); }
+  const git = (...args) => execFileSync('git', args, { cwd: fixture, stdio: 'pipe' }).toString().trim();
+  git('init'); git('add', '.'); git('-c', 'user.name=Release fixture', '-c', 'user.email=fixture@example.test', 'commit', '-m', 'fixture');
+  const packed = packRelease({ root: fixture, output: join(fixture, 'out'), dryRun: true });
+  assert.equal(packed.manifest.packing?.run, process.env.GITHUB_RUN_ID ?? 'offline-test');
+  assert.equal(packed.manifest.validation.run, undefined);
+  assert.equal(packed.manifest.validation.reference, `https://github.com/inspr-at/aithema/commit/${git('rev-parse', 'HEAD')}/checks`);
+});
+
+test('server release metadata imports with only its own package present', () => {
+  const fixture = mkdtempSync(join(tmpdir(), 'aithema-server-isolated-'));
+  cpSync(new URL('packages/server/src', root), join(fixture, 'src'), { recursive: true });
+  cpSync(new URL('packages/server/package.json', root), join(fixture, 'package.json'));
+  const output = execFileSync(process.execPath, ['--input-type=module', '-e',
+    "import { releaseInfo } from './src/release-info.js'; console.log(JSON.stringify(releaseInfo));"], { cwd: fixture, encoding: 'utf8', stdio: 'pipe' });
+  assert.equal(JSON.parse(output).version, JSON.parse(readFileSync(join(fixture, 'package.json'))).version);
+});

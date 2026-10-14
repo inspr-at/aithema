@@ -1,4 +1,5 @@
 import { FOOTER_WIDTHS } from './layout.js';
+import { palette } from './styles.js';
 
 // AIT-131, approved round 2: edge-to-edge band, one edge column and three footer zones.
 export const bandStyles = `
@@ -118,6 +119,25 @@ export const bandStyles = `
   max-height:calc(100dvh - 100px); overflow-y:auto; white-space:pre-line; overflow-wrap:anywhere; padding:10px 12px;
   border-radius:10px; background:var(--aithema-ink); color:var(--aithema-paper); font-size:12.5px; line-height:1.5;
   text-align:left; visibility:hidden; opacity:0; pointer-events:none; transition:opacity .12s; transform:none; }
+/* The approved navy surface carries the dark text palette even in a light host.
+   Plain aliases also reach the host-owned legal/footer slots through inheritance. */
+.footer-info .footer-popup { --aithema-ink:${palette.dark.ink}; --aithema-muted:${palette.dark.muted}; --aithema-accent:${palette.dark.accent};
+  --ink:var(--aithema-ink); --muted:var(--aithema-muted); --accent:var(--aithema-accent);
+  display:grid; gap:8px; background:#102b42; color:var(--aithema-ink); }
+.footer-info .footer-popup p + p { margin-top:0; }
+.footer-info .host-foot { gap:8px; }
+#build-info { display:grid; gap:2px; }
+.version-row { grid-template-columns:minmax(0,1fr); grid-template-rows:1lh; min-width:0; border-radius:3px; }
+.version-row:hover { background:color-mix(in srgb,var(--aithema-ink) 6%,transparent); }
+/* The shared controller's inline outline must never survive a change to mouse input. */
+.version-row:is(:not(:focus-visible),[data-pointer-focus]) { outline:none !important; }
+.version-row:focus-visible { outline:2px solid currentColor; }
+.version-value { grid-area:1/1; white-space:nowrap; }
+.version-row:is([data-copy-state="copied"],[data-copy-state="error"]) .version-value { visibility:hidden; }
+.version-row[data-copy-state="error"] .version-feedback { display:flex; align-items:center; gap:6px; min-width:0; white-space:nowrap !important; }
+.version-row[data-copy-state="error"] input { flex:1; min-width:0; width:0; height:100%; box-sizing:border-box;
+  margin:0 !important; font:inherit !important; padding:0 4px !important; }
+.build-label { display:block; color:var(--aithema-muted); }
 .engine__detail.footer-popup { height:auto; }
 .footer-popup p { margin:0; } .footer-popup p + p { margin-top:6px; }
 .footer-popup .host-foot { display:grid; white-space:normal; color:inherit; }

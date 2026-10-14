@@ -28,9 +28,11 @@ shows them when the host passes `configure({host})` (AIT-104 B2).
 The demo is for localhost and defaults to labelled deterministic reasoning, voice
 and image fakes.
 
-All packages are private with placeholder version `0.0.0`; versioning is decided
-at release preparation (AIT-32). The old release workflow has been removed;
-a lean release pipeline returns in **AIT-105**.
+All development packages remain private at `0.0.0`. **AIT-105/AIT-32** prepare
+the first reset release with INSPR-CalVer3 (`inspr-calver-3`) and a reproducible
+workspace artifact. No coordinate is reserved and no reset release is published.
+See [the consumer guide](docs/embedding.md) for exports, the version source,
+rollback and the pending AIT-139/AIT-160 live qualification checklist.
 
 ## Tests and demo
 
@@ -43,8 +45,10 @@ python3 -I -m unittest discover -s tests -p test_dco.py
 npm run demo
 ```
 
-Open http://127.0.0.1:3000 and stop the server with Ctrl+C. PR CI and nightly run
-`npm ci` and `npm test` once, with ten-minute limits. DCO checks run separately.
+Open http://127.0.0.1:3000 and stop the server with Ctrl+C. PR CI runs
+`npm ci`, reproducible release packing and `npm test` once, plus four browser
+shards, with eight-minute job limits. Nightly units keep ten-minute limits.
+DCO checks run separately.
 Tests use deterministic mocks and local HTTP fixtures; they make no live provider calls.
 
 Run the browser smoke test separately with an installed Google Chrome or Chromium:
@@ -69,8 +73,8 @@ a ZIP download, the dialog at a 400 × 800 viewport (inside the viewport, no
 horizontal overflow, hovering presets, selects and gauges moves no control, Escape
 returns focus) and the Advanced tab against a loopback OpenAI-compatible fixture
 (handshake, model choice and a streamed test chat). Console errors, page exceptions and failed
-same-origin requests fail the test. The separate PR CI `browser` job runs on
-Ubuntu with Node 24 and a five-minute limit;
+same-origin requests fail the test. The separate PR CI `browser` jobs run four shards on
+Ubuntu with Node 24 and eight-minute limits;
 `npm test` does not require a browser. To prove the missing JSON content-type
 regression is detected, run `AITHEMA_BROWSER_REGRESSION=1 npm run test:browser`:
 this serves a test-only faulty `demo/host.js` session POST and must fail with 415,

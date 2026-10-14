@@ -1,0 +1,10 @@
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { packRelease, verifyRelease } from './pack.mjs';
+const output = mkdtempSync(join(tmpdir(), 'aithema-dry-run-'));
+const first = packRelease({ output: join(output, 'first'), dryRun: true });
+const second = packRelease({ output: join(output, 'second'), dryRun: true });
+if (!readFileSync(first.artifactPath).equals(readFileSync(second.artifactPath)) || JSON.stringify(first.manifest) !== JSON.stringify(second.manifest)) throw new Error('Release pack is not reproducible');
+verifyRelease(first.directory);
+console.log(`PASS release dry-run: identical bytes twice; ${first.manifest.packages.length} workspace packages; ${first.manifest.source.commit}; ${first.manifest.artifacts[0].sha256}; no upload`);

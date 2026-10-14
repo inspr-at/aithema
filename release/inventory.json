@@ -1,0 +1,103 @@
+{
+  "schema": "aithema-migration-inventory/1",
+  "ticket": "AIT-32",
+  "decision": "Markus 2026-10-14: first reset release adopts inspr-calver-3; separate publish go required",
+  "presentation_pin": "release/presentation.json; independent controller review pending",
+  "compatibility_window": "Keep stable legacy and calendar/v1 readers until every supported consumer and rollback path is evidenced; removal needs a separate owner-approved change",
+  "not_applicable": [
+    "OCI images (none shipped)",
+    "Nix derivations (none shipped)",
+    "native apps (none shipped)",
+    "automatic update feeds (none shipped)"
+  ],
+  "pending": [
+    "AIT-139",
+    "AIT-160",
+    "immutable candidate",
+    "signatures/attestation",
+    "candidate install/update/deployment pin/rollback",
+    "presentation pin review"
+  ],
+  "surfaces": [
+    {
+      "repository_alias": "aithema",
+      "visibility": "public",
+      "current_scheme": "legacy",
+      "version_source": "release/version.json",
+      "deployment_boundary": "consumer-owned service",
+      "rollback_reference": "test/release-prep.test.js; retained immutable artifact and trusted manifest digest",
+      "migration_anchor": "last legacy 0.10.1 sequence 11; first calendar not-set sequence 12",
+      "owning_ticket": "AIT-32",
+      "owner_role": "product-owner",
+      "status": "candidate; unreserved preparation",
+      "artifact_class": "workspace-package",
+      "release_surfaces": "git tag, forge release, npm-compatible archive, package/lock, SPDX SBOM; signature/attestation provenance",
+      "consumers": "release scripts; workspace dependency pins; npm; deployment pin; backup labels",
+      "external_constraints": "npm SemVer syntax; no bounded integer/shortened coordinate"
+    },
+    {
+      "repository_alias": "aithema",
+      "visibility": "public",
+      "current_scheme": "legacy",
+      "version_source": "release/version.json",
+      "deployment_boundary": "consumer-owned service",
+      "rollback_reference": "test/release-prep.test.js; retained immutable artifact and trusted manifest digest",
+      "migration_anchor": "last legacy 0.10.1 sequence 11; first calendar not-set sequence 12",
+      "owning_ticket": "AIT-32",
+      "owner_role": "product-owner",
+      "status": "candidate; unreserved preparation",
+      "artifact_class": "service",
+      "release_surfaces": "HTTP health API, exported ZIP generator, logs/support diagnostics",
+      "consumers": "thin hosts; archive consumers; operators",
+      "external_constraints": "none"
+    },
+    {
+      "repository_alias": "aithema",
+      "visibility": "public",
+      "current_scheme": "legacy",
+      "version_source": "release/version.json",
+      "deployment_boundary": "consumer-owned service",
+      "rollback_reference": "test/release-prep.test.js; retained immutable artifact and trusted manifest digest",
+      "migration_anchor": "last legacy 0.10.1 sequence 11; first calendar not-set sequence 12",
+      "owning_ticket": "AIT-32",
+      "owner_role": "product-owner",
+      "status": "candidate; unreserved preparation",
+      "artifact_class": "web-components",
+      "release_surfaces": "hover/focus version details; canonical clipboard; product name",
+      "consumers": "web embedding hosts; shared pinned renderer/interaction",
+      "external_constraints": "module JSON support; Pretty is never parsed"
+    },
+    {
+      "repository_alias": "aithema",
+      "visibility": "public",
+      "current_scheme": "legacy",
+      "version_source": "release/version.json",
+      "deployment_boundary": "consumer-owned service",
+      "rollback_reference": "test/release-prep.test.js; retained immutable artifact and trusted manifest digest",
+      "migration_anchor": "last legacy 0.10.1 sequence 11; first calendar not-set sequence 12",
+      "owning_ticket": "AIT-32",
+      "owner_role": "product-owner",
+      "status": "candidate; unreserved preparation",
+      "artifact_class": "plugin-packages",
+      "release_surfaces": "package metadata; workspace artifact; technical plugin manifest API protocol",
+      "consumers": "plugin loaders; registry; binding runtime",
+      "external_constraints": "plugin apiVersion ^1.0.0 is protocol SemVer, not product version"
+    },
+    {
+      "repository_alias": "aithema",
+      "visibility": "public",
+      "current_scheme": "legacy",
+      "version_source": "release/version.json",
+      "deployment_boundary": "consumer-owned service",
+      "rollback_reference": "test/release-prep.test.js; retained immutable artifact and trusted manifest digest",
+      "migration_anchor": "last legacy 0.10.1 sequence 11; first calendar not-set sequence 12",
+      "owning_ticket": "AIT-32",
+      "owner_role": "product-owner",
+      "status": "candidate; unreserved preparation",
+      "artifact_class": "release-set",
+      "release_surfaces": "source tree and dependency lock provenance; every output/member digest; validation run",
+      "consumers": "CI admission; verification; exact-artifact rollback",
+      "external_constraints": "canonical Node 24/GNU tar"
+    }
+  ]
+}

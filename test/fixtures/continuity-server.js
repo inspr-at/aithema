@@ -40,9 +40,9 @@ const handle = async request => {
   if (path === '/demo/config') return Response.json({ label: reasoning.label, defaultPreset: 'best', voiceMode: 'fake', voicePresentation: voicePlugin.manifest.presentation,
     imageMode: 'off', imageLabel: 'Images off', htmlMode: 'off', htmlLabel: 'HTML off', demoHost: true, verificationRequired: false, build: buildInfo() });
   const file = path === '/' ? '/demo/index.html' : path;
-  if (!/^\/(?:demo\/[a-z-]+\.(?:html|css|js)|packages\/(?:ui|core)\/src\/[a-z0-9/-]+\.js|plugins\/(?:device|elevenlabs|fake-voice)\/src\/[a-z-]+\.js)$/u.test(file)) return new Response(null, { status: 404 });
+  if (!/^\/(?:demo\/[a-z-]+\.(?:html|css|js)|packages\/(?:ui|core)\/src\/[a-z0-9/-]+\.js|packages\/ui\/src\/versioning\/display\.json|plugins\/(?:device|elevenlabs|fake-voice)\/src\/[a-z-]+\.js)$/u.test(file)) return new Response(null, { status: 404 });
   try { return new Response(await readFile(resolve(root, '.' + file)), { headers: { 'content-type': file.endsWith('.html') ? 'text/html'
-    : file.endsWith('.css') ? 'text/css' : 'text/javascript', 'cache-control': 'no-store', 'content-security-policy': HTML_PREVIEW_HOST_CSP } }); }
+    : file.endsWith('.css') ? 'text/css' : file.endsWith('.json') ? 'application/json' : 'text/javascript', 'cache-control': 'no-store', 'content-security-policy': HTML_PREVIEW_HOST_CSP } }); }
   catch { return new Response(null, { status: 404 }); }
 };
 const { server, url } = await listen(handle, { hostname: '127.0.0.1', port: Number(process.env.PORT ?? 0) });

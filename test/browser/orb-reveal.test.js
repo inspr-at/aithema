@@ -71,8 +71,8 @@ async function server(t) {
     const path = new URL(req.url, 'http://fixture').pathname;
     if (path === '/') { res.setHeader('Content-Type', 'text/html'); res.end(fixture); return; }
     const file = resolve(repo, `.${path}`);
-    if (!path.startsWith('/packages/') || !file.startsWith(repo + sep) || !file.endsWith('.js')) { res.writeHead(404).end(); return; }
-    try { res.setHeader('Content-Type', 'text/javascript'); res.end(await readFile(file)); } catch { res.writeHead(404).end(); }
+    if (!path.startsWith('/packages/') || !file.startsWith(repo + sep) || !(file.endsWith('.js') || path === '/packages/ui/src/versioning/display.json')) { res.writeHead(404).end(); return; }
+    try { res.setHeader('Content-Type', file.endsWith('.json') ? 'application/json' : 'text/javascript'); res.end(await readFile(file)); } catch { res.writeHead(404).end(); }
   });
   host.listen(0, '127.0.0.1'); await once(host, 'listening'); t.after(() => new Promise(resolve => host.close(resolve)));
   return `http://127.0.0.1:${host.address().port}`;
@@ -317,7 +317,7 @@ test('AIT-140: real keyboard navigation, reduced-motion preference, hidden tab a
   const url=await server(t), browser=await puppeteer.launch({executablePath:await browserPath(),headless:true,env:{PATH:process.env.PATH,HOME:homedir()},args:process.platform==='linux'&&process.env.CI?['--no-sandbox']:[]}); t.after(()=>browser.close());
   const page=await browser.newPage(), problems=[]; page.on('pageerror',error=>problems.push(error.message));
   await page.setViewport({width:1440,height:900}); await page.emulateMediaFeatures([{name:'prefers-reduced-motion',value:'reduce'}]);
-  await page.goto(`${url}/?locale=en&theme=light&component=1`); await page.waitForFunction(()=>window.ready&&window.component); await wait(250);
+  await page.goto(`${url}/?locale=en&theme=light&component=1`); await page.waitForFunction(()=>window.ready&&window.component?.shadowRoot); await wait(250);
   assert.equal(await page.$eval('.orb',n=>n.dataset.orbMotion),'off'); assert.equal(await page.$eval('#band',n=>n.dataset.aithemaRevealMotion),'off');
   await page.keyboard.press('Tab'); assert.equal(await page.$eval('.orb',n=>document.activeElement===n),true); await wait(250);
   for(const href of ['https://aithema.inspr.at/','https://inspr.at/','https://augmentoring.com/']) {await page.keyboard.press('Tab');assert.equal(await page.evaluate(()=>document.activeElement.href),href);if(href==='https://aithema.inspr.at/')await assertCalmUnderline(page,'system reduced-motion keyboard underline');}

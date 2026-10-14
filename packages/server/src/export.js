@@ -1,6 +1,6 @@
 import { activeTurns, HTML_MEDIA_TYPE, frameDocument, withAITextOrigin } from '@inspr/aithema-core';
 import { createHash } from 'node:crypto';
-import serverPackage from '../package.json' with { type: 'json' };
+import { releaseInfo } from './release-info.js';
 
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 // Literal message text cannot close its fence or manufacture a role/AI label.
@@ -43,6 +43,7 @@ export function zipStore(files) {
 export function exportSession(session, artifacts = [], withheld = [], {
   exportedAt = new Date().toISOString(), commit = process.env.AITHEMA_COMMIT,
 } = {}) {
+  commit = releaseInfo.source?.commit ?? commit;
   const json = value => JSON.stringify(value, null, 2) + '\n';
   const published = new Set(artifacts.map(a => a.id));
   const accounted = new Set([...published, ...withheld.map(a => a.id)]);
@@ -70,7 +71,7 @@ export function exportSession(session, artifacts = [], withheld = [], {
       ? frameDocument(new TextDecoder().decode(a.bytes), { standalone: true }) : a.bytes], [`concepts/${a.id}.provenance.json`, json(a.provenance)]])),
   };
   const originals = new Map(artifacts.map(a => [`concepts/${a.id}.${a.mediaType.split('/')[1]}`, Buffer.from(a.bytes)]));
-  files['manifest.json'] = json({ version: 1, generator: { name: 'aithema', version: serverPackage.version,
+  files['manifest.json'] = json({ version: 1, generator: { name: 'aithema', version: releaseInfo.version, version_scheme: releaseInfo.version_scheme, release_channel: releaseInfo.release_channel, release_sequence: releaseInfo.release_sequence,
     ...(typeof commit === 'string' && /^[a-f0-9]{7,40}$/u.test(commit) ? { commit } : {}) }, exportedAt,
     // The manifest excludes itself: its own exported-byte hash would be recursive.
     files: Object.entries(files).map(([path, value]) => {

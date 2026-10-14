@@ -1,0 +1,13 @@
+import { readFileSync, mkdtempSync, readdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { sha256 } from './lib/digest.mjs';
+const pin = JSON.parse(readFileSync(new URL('./presentation.json', import.meta.url)));
+const source = resolve(process.argv[2]), parent = mkdtempSync(join(tmpdir(), 'aithema-upstream-display-')), output = join(parent, 'bundle');
+execFileSync(process.execPath, [join(source, 'scripts/versioning-bundle.mjs'), pin.revision, pin.config_sha256, output], { stdio: ['ignore', 'pipe', 'pipe'] });
+if (sha256(readFileSync(join(output, 'manifest.json'))) !== pin.manifest_sha256) throw new Error('Upstream presentation manifest does not match the independent committed pin');
+const candidate = new URL('../packages/ui/src/versioning/', import.meta.url);
+if (JSON.stringify(readdirSync(output).sort()) !== JSON.stringify(readdirSync(candidate).sort())) throw new Error('Upstream presentation closure differs');
+for (const path of readdirSync(output)) if (!readFileSync(join(output, path)).equals(readFileSync(new URL(path, candidate)))) throw new Error('Upstream presentation bytes differ');
+console.log(`PASS upstream bundle CLI: ${pin.revision}; ${pin.config_sha256}; ${pin.manifest_sha256}; complete closure identical`);
