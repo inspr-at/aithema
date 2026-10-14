@@ -97,7 +97,7 @@ test('AIT-174 redirect, subtle question, locked pause and normal reply at 390/10
       assert.ok(pause.scroll <= pause.height + 1, `${label}: full pause copy fits its reserved composer area`);
       if (locale === 'de' && width === 390) {
         // Linux's wider sans metrics need four lines; reproduce that on macOS too.
-        await shadow(page, c => { const copy = c.shadowRoot.querySelector('.purpose-pause-copy'); copy.style.fontFamily = 'Arial, sans-serif'; copy.style.fontSize = '13.5px'; });
+        await shadow(page, c => { const copy = c.shadowRoot.querySelector('.purpose-pause-copy'); copy.style.fontFamily = 'Arial, sans-serif'; copy.style.fontSize = '13px'; copy.style.width = '270px'; });
         await frame(page);
         const metrics = await shadow(page, c => {
           const copy = c.shadowRoot.querySelector('.purpose-pause-copy'), action = c.shadowRoot.querySelector('.purpose-new');
@@ -105,7 +105,7 @@ test('AIT-174 redirect, subtle question, locked pause and normal reply at 390/10
         });
         assert.ok(metrics.scroll <= metrics.height + 1, `${label}: wider font pause copy fits`);
         assert.ok(metrics.gap >= 4, `${label}: pause paragraph and action stay apart`);
-        await shadow(page, c => { const copy = c.shadowRoot.querySelector('.purpose-pause-copy'); copy.style.fontFamily = ''; copy.style.fontSize = ''; });
+        await shadow(page, c => { const copy = c.shadowRoot.querySelector('.purpose-pause-copy'); copy.style.fontFamily = ''; copy.style.fontSize = ''; copy.style.width = ''; });
         await frame(page);
       }
       await shot('pause');
