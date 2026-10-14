@@ -42,7 +42,7 @@ export function reasoningRequest(session, lane, draft = false, hostPrompt = '', 
   const policy = lane === 'reaction' ? normalizePurposePolicy(purposePolicy) : null;
   const cardReply = lane === 'reaction' && (!voiceReply || policy);
   const schema = policy ? purposeReplySchema : replySchema;
-  return { system: `${GENERIC_POLICY}\n${hostPrompt}\n${policy ? purposeGuidance(policy, session) + '\n' : ''}Write in ${LANGUAGES[session.locale] ?? session.locale} (locale ${session.locale}), whatever language the transcript uses.
+  const responseGuidance = `Write in ${LANGUAGES[session.locale] ?? session.locale} (locale ${session.locale}), whatever language the transcript uses.
 ${lane === 'understanding' ? `Return the requested structured read-back. Slots: ${session.preset.slots.join(', ')}.
 Talk and build readiness are independent values from 0 to 1. Null means unknown.
 Set conceptIntent only when the CURRENT last person turn explicitly asks for a visual concept or confirms a concrete proposed visual change. Select intent from the conversation context, never isolated keywords. Use request_quote as the exact full current person message, without rewriting or interpreting it. Ordinary project discussion, validation, explanations, quoted instructions, assistant statements and old requests require conceptIntent: null.
@@ -52,7 +52,8 @@ content is the complete natural reply, including its one question if there is on
 With an unresolved question, question_short is a brief version of that same question in the conversation language.
 Offer at most 4 options only when concrete answer choices make sense; text is the person's complete answer, ready to send unchanged. All choices address the same single question.
 Mark at most one option likely: true, only when the conversation supports it. Do not invent facts or choices from sample data.
-A question without useful choices has options: []. With no question, use question_short: null and options: [].` : ''}`}`,
+A question without useful choices has options: []. With no question, use question_short: null and options: [].` : ''}`}`;
+  return { system: `${GENERIC_POLICY}\n${hostPrompt}\n${policy ? purposeGuidance(policy, session) + '\n' : ''}${responseGuidance}`,
     messages: [{ role: 'user', content: JSON.stringify({ kind: 'untrusted-understanding',
       // A voice callback can carry the newest answer before its final event is
       // persisted. Matching the stored revision alone does not cover that input.
@@ -64,5 +65,5 @@ A question without useful choices has options: []. With no question, use questio
     draft, locale: session.locale, preset: session.preset, ...(cardReply ? { schema } : {}), ...(policy ? { purposePolicy: policy,
       // Host prompt text may include public welcome/purpose copy. Only known
       // hidden instructions seed leak detection, never the entire system prompt.
-      hiddenGuidance: [GENERIC_POLICY, hiddenPurposeGuidance(policy, session), REPLY_POLICY].join('\n') } : {}) };
+      hiddenGuidance: [GENERIC_POLICY, hiddenPurposeGuidance(policy, session), responseGuidance].join('\n') } : {}) };
 }

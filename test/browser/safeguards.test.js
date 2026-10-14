@@ -81,6 +81,7 @@ test('AIT-174 redirect, subtle question, locked pause and normal reply at 390/10
         return { text: copy.textContent, shown: !copy.hidden, height: copy.clientHeight, scroll: copy.scrollHeight,
           railOverflow: root.querySelector('.voice-state').textContent.includes('Augmentoring'),
           callDisabled: root.querySelector('.voice-start').disabled,
+          visibleControls: [...root.querySelectorAll('.audio-rail button')].filter(button => getComputedStyle(button).visibility === 'visible' && button.getClientRects().length).map(button => button.className).sort(),
           callTooltip: root.querySelector('.voice-start').title,
           callDescription: root.querySelector('.voice-start').getAttribute('aria-description'),
           callIcon: root.querySelector('.voice-start svg').outerHTML,
@@ -105,6 +106,7 @@ test('AIT-174 redirect, subtle question, locked pause and normal reply at 390/10
       assert.equal(pause.railOverflow, false);
       assert.equal(pause.callDisabled, true, `${label}: call button disabled`);
       assert.equal(pause.channelsDisabled, true);
+      assert.deepEqual(pause.visibleControls, ['voice-input', 'voice-output', 'voice-start'], `${label}: three idle call controls`);
       assert.match(pause.callIcon, /<rect/u, `${label}: start-call mic icon`);
       assert.equal(pause.visiblePlay, false, `${label}: no play glyph`);
       assert.deepEqual(pause.outsidePause, [], `${label}: no pausiert/paused text outside composer slot`);
