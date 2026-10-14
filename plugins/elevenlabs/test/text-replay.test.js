@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createVoiceProvider } from '../src/provider.js';
-import { SQLiteStorage, SQLiteBudgetLedger, createPluginRuntime, mockPresets } from '../../../packages/server/src/index.js';
+import { SQLiteStorage, SQLiteBudgetLedger, createPluginRuntime, createVoiceHandlers, mockPresets } from '../../../packages/server/src/index.js';
 import { PluginRegistry, createMockReasoning } from '@inspr/aithema-core';
 import { qualifyStartBinding } from '../../../demo/processing-consent.js';
 import { createDemoHost } from '../../../demo/host-ports.js';
@@ -78,4 +78,25 @@ test('AIT-154: fake pipeline implements optional standalone speakText without a 
   assert.equal(quote.maxMicro, 0);
   const result = await adapter.speakText({ text: 'Fixture reply.', quote }, { attempt: { consume() {} } });
   assert.equal(result.audio.format, 'pcm_16000'); assert.equal(result.usage.upstreamMicro, 0);
+});
+
+test('AIT-154: page replay is owner-bound and rejects stale call authority', async t => {
+  const f = fixture(t), handlers = createVoiceHandlers({ storage: f.storage, runtime: f.runtime,
+    ownership: { token: request => request.headers.get('x-aithema-session-token') },
+    readBody: async request => new Uint8Array(await request.arrayBuffer()), publish() {}, onTurn() {} });
+  t.after(() => handlers.close());
+  const request = (suffix, owner = 'tenant-a') => new Request(`https://host.test/api/sessions/${f.session.id}/voice/${suffix}`, {
+    method: 'POST', headers: { 'x-aithema-session-token': owner }, body: JSON.stringify({ turnId: 'reply-a', providerSessionId: 'stale', tabId: 'fixture-tab', epoch: 0 }),
+  });
+  assert.equal((await handlers.handle(request('replay', 'tenant-b'))).status, 404);
+  assert.equal((await handlers.handle(request('stale-call/replay'))).status, 502);
+  assert.equal(f.requests.length, 0);
+  const response = await handlers.handle(request('replay'));
+  assert.equal(response.status, 200); assert.equal((await response.json()).kind, 'audio');
+});
+
+test('AIT-154: changing the reply during synthesis accounts usage but refuses its audio', async t => {
+  const f = fixture(t, { onPost: storage => storage.append(storage.list()[0].id, 'turn.final', { id: 'reply-b', role: 'assistant', content: 'New answer.' }) });
+  await assert.rejects(f.runtime.speakText({ session: f.session, turnId: 'reply-a' }), { code: 'unavailable' });
+  assert.equal(f.budget.used(f.session.id), 1200);
 });

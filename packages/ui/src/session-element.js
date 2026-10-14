@@ -342,6 +342,11 @@ export class AithemaSession extends HTMLElement {
     this.#rail = new AudioRail({ root: root.querySelector('.audio-rail'), copy: this.#copy, client: this.#voiceClientFor(),
       noticesRoot: root.querySelector('.voice-notices'),
       waitingCall: this.#session.voiceLifecycle,
+      lastReply: () => {
+        if (this.#session.paused || this.#session.tombstone || this.#session.consentWithdrawn) return null;
+        const turn = this.#session.transcript.findLast(t => t.role === 'assistant' && !t.erased && !t.withdrawn && t.content);
+        return turn && { turnId: turn.id, text: turn.content };
+      },
       feature: () => this.#feature('voice', true), usedUp: () => this.#host?.usedUp ?? false, lowCredit: () => this.#host?.low ?? false, ending: () => this.#creditEnding, playback: this.#voicePlayback, journal: this.#journal ?? undefined,
       ready: () => this.#orphan, onLevel: level => this.#orb?.setEnergy(level),
       onRender: rail => this.#syncVoicePause(rail),

@@ -42,9 +42,9 @@ export class RecoveryNotices {
     text('.voice-repeat', c.voiceRepeatReply);
     this.button.dataset.replayState = this.playing ? 'playing' : this.interrupted ? 'interrupted' : 'idle';
     this.button.setAttribute('aria-pressed', String(Boolean(this.playing)));
-    this.button.hidden = !(recovery?.deliveryUncertain && recovery.playbackPositionUnknown);
-    this.button.disabled = !available || Boolean(this.pending) || !recovery?.lastReplyText;
-    this.button.title = this.playing ? c.voiceReplayStop : recovery?.lastReplyText ? c.voiceRepeatReply : c.voiceReplyUnavailable;
+    this.button.hidden = !(recovery?.deliveryUncertain && recovery.playbackPositionUnknown || this.pageReply);
+    this.button.disabled = !available || Boolean(this.pending) || !(recovery?.lastReplyText ?? this.pageReply?.text);
+    this.button.title = this.playing ? c.voiceReplayStop : (recovery?.lastReplyText ?? this.pageReply?.text) ? c.voiceRepeatReply : c.voiceReplyUnavailable;
     this.button.setAttribute('aria-label', this.button.title);
     text('#voice-reply-title', c.voiceLastReply); text('.voice-reply-note', c.voiceReplayTextOnly); text('.voice-reply-close', c.voiceReplayClose);
     if (!available && this.dialog.open) this.dialog.close();
@@ -60,7 +60,7 @@ export class RecoveryNotices {
       const result = await this.replay();
       if (revision !== this.revision || !this.available()) return;
       if (result?.kind === 'audio') { this.playing = true; this.render(); }
-      if (result?.kind === 'text' && result.text === this.recovery?.lastReplyText) {
+      if (result?.kind === 'text' && result.text === (this.recovery?.lastReplyText ?? this.pageReply?.text)) {
         this.root.querySelector('.voice-reply-text').textContent = result.text;
         this.dialog.showModal();
       }

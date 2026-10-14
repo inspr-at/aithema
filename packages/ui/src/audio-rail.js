@@ -9,8 +9,8 @@ import { watchVoiceHeartbeat, voiceAuthorityLost } from '../../core/src/voice-li
 const BUTTONS = { start: ['mic'], input: ['mic', true], output: ['volume', true], playback: ['volume'], close: ['stop'], retry: ['refresh'] };
 const TAKEOVER_DEADLINE_MS = 10_000;
 export class AudioRail {
-  constructor({ root, noticesRoot, copy, client, feature, context, onPartial, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, lowCredit, ending, waitingCall, heartbeatMs = 10_000 }) {
-    Object.assign(this, { root, copy, client, feature, context, onPartial, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, lowCredit, ending, heartbeatMs });
+  constructor({ root, noticesRoot, copy, client, feature, context, lastReply, onPartial, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, lowCredit, ending, waitingCall, heartbeatMs = 10_000 }) {
+    Object.assign(this, { root, copy, client, feature, context, lastReply, onPartial, onPause, onEnd, onState, onRender, onLevel, playback, journal, ready, usedUp, lowCredit, ending, heartbeatMs });
     this.state = 'idle'; this.input = true; this.output = true; this.generation = 0; this.connected = true;
     this.pauseRequests = new Set(); this.resumeRequests = new Map(); this.pauseRevision = 0;
     this.ownershipState = waitingCall;
@@ -28,9 +28,17 @@ export class AudioRail {
       <div class="voice-cell voice-cell--mic">${button('start')}${button('input')}</div>
       <div class="voice-cell voice-cell--end">${button('close')}${button('retry')}</div>`;
     if (!noticesRoot) { noticesRoot = root.ownerDocument.createElement('div'); noticesRoot.className = 'voice-notices'; root.append(noticesRoot); }
-    this.notices = new RecoveryNotices({ root: noticesRoot, copy, available: () => Boolean(this.session && !this.paused && !this.busy && this.output &&
-      !['recovering', 'waiting'].includes(this.state)), stopReplay: () => this.session?.stopReplay?.(), replay: async () => {
-        try { return await (this.session.replayLastReply?.() ?? { kind: 'text', text: this.notices.recovery?.lastReplyText }); }
+    this.notices = new RecoveryNotices({ root: noticesRoot, copy, available: () => Boolean((this.session || this.lastReply?.()) && !this.paused && !this.busy && this.output &&
+      !this.usedUp?.() && !this.allowanceDenied && !['recovering', 'waiting', 'closing'].includes(this.state)),
+      stopReplay: () => this.session?.stopReplay?.() ?? this.client?.stopReplay?.(), replay: async () => {
+        try {
+          if (this.session) return await (this.session.replayLastReply?.() ?? { kind: 'text', text: this.notices.recovery?.lastReplyText });
+          const reply = this.lastReply?.();
+          return await (this.client?.replayReply?.(reply, {
+            onState: playing => { this.notices.playing = playing; if (!playing) this.notices.interrupted = true; this.notices.render(); },
+            current: candidate => !this.session && !this.paused && this.lastReply?.()?.turnId === candidate.turnId && this.lastReply?.()?.text === candidate.text,
+          }) ?? { kind: 'text', text: reply?.text });
+        }
         catch (error) { if (error.code === 'not-admitted' && error.reason === 'host-limit') { this.failure(error); this.render(); } throw error; }
       } });
     for (const [name, cell] of [['input', 'mic'], ['output', 'output']]) {
@@ -65,6 +73,7 @@ export class AudioRail {
     // (a microphone toggle or a pending resume, say) stops media immediately and
     // retains a hold through the command, so a hidden rail never keeps listening.
     this.hide = () => {
+      this.client?.stopReplay?.();
       this.takeoverController?.abort();
       if (this.unloading) return;
       this.holdController?.abort();
@@ -181,6 +190,11 @@ export class AudioRail {
         cell.removeAttribute('tabindex'); cell.removeAttribute('aria-label'); cell.removeAttribute('aria-describedby'); this.button(name).removeAttribute('aria-describedby');
       }
     }
+    const pageReply = !this.session && !transitional && !this.endedCall ? this.lastReply?.() : null;
+    if (this.notices.pageReply?.turnId !== pageReply?.turnId || this.notices.pageReply?.text !== pageReply?.text) {
+      this.client?.stopReplay?.(); this.notices.playing = false;
+    }
+    this.notices.pageReply = pageReply;
     this.notices.copy = c; this.notices.render();
     // A different wrapped phrase can keep the same capped box, so text repaints also measure it.
     this.measureLabel();
@@ -518,6 +532,7 @@ export class AudioRail {
     if (this.errorKey === 'voiceClosureUncertain') { this.errorKey = 'voiceEnded'; this.render(); }
   }
   close(reason) {
+    this.client?.stopReplay?.();
     if (this.closing && !this.session && this.state !== 'connecting') {
       if (reason) void this.closingSession?.close({ reason }).catch(() => {});
       return this.closing;
@@ -561,6 +576,7 @@ export class AudioRail {
     this.observeLabel();
   }
   disconnect() {
+    this.client?.stopReplay?.();
     this.connected = false; this.root.ownerDocument.removeEventListener('visibilitychange', this.visibility); this.waveform.destroy(); this.labelSizes?.disconnect();
     this.root.ownerDocument.defaultView?.removeEventListener('pagehide', this.pagehide);
     if (this.session || this.takeoverController || this.state === 'connecting') void this.close();

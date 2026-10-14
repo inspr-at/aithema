@@ -101,6 +101,26 @@ test('AIT-154: active replay is stopped synchronously and provider failures fall
   assert.deepEqual(await f.session.replayLastReply(), { kind: 'text', text: 'Last answer.' });
 });
 
+for (const stop of ['pause', 'hold', 'hangup', 'newer-reply', 'Stop']) test(`AIT-154: active playback stops for ${stop}`, async t => {
+  let stops = 0; const held = new AbortController();
+  const f = await fixture(t, { holdSignal: held.signal,
+    speakText: async () => ({ kind: 'audio', audio: { data: 'AAAA', format: 'pcm_16000' } }),
+    playAudio: async () => ({ stop() { stops++; }, finished: new Promise(() => {}) }) });
+  f.reply('Last answer.'); await flush(); await f.session.replayLastReply();
+  if (stop === 'pause') { const pending = f.session.pause(); assert.equal(stops, 1); await pending; }
+  if (stop === 'hold') { held.abort(); assert.equal(stops, 1); }
+  if (stop === 'hangup') { const pending = f.session.close(); assert.equal(stops, 1); await pending; }
+  if (stop === 'newer-reply') { f.reply('Newer answer.', 3); assert.equal(stops, 1); await flush(); }
+  if (stop === 'Stop') await f.session.stopReplay();
+  assert.equal(stops, 1); assert.equal(f.session.replaying, false);
+});
+
+test('AIT-154: heard correction updates replay to the acknowledged transcript bytes', async t => {
+  const f = await fixture(t); f.reply('Known prefix and remainder'); await flush();
+  f.sdk.starts[0].onAgentResponseCorrection({ event_id: 2, original_agent_response: 'Known prefix and remainder', corrected_agent_response: 'Known prefix' });
+  await flush(); assert.deepEqual(await f.session.replayLastReply(), { kind: 'text', text: 'Known prefix' });
+});
+
 test('AIT-138 c: final persistence racing a drop reconciles speech before the recovery notice', async t => {
   let resolve;
   const pending = new Promise(r => { resolve = r; });

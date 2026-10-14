@@ -5,6 +5,7 @@ import { manifest } from './manifest.js';
 import { watchVoicePlayback } from './playback.js';
 import { createReplyReplay } from '../../../packages/core/src/reply-replay.js';
 import { playReplyAudio } from '../../../packages/ui/src/reply-audio.js';
+import { createPageReplay } from '../../../packages/ui/src/page-replay.js';
 import { voiceOverrides, createElevenLabsBrowserMedia, elevenLabsComponents } from './options.js';
 export { elevenLabsMediaGrant } from './options.js';
 export { manifest } from './manifest.js';
@@ -81,13 +82,17 @@ export function createElevenLabsClient(ports = {}) {
     !Number.isSafeInteger(persistenceRetries) || persistenceRetries < 0 || persistenceRetries > 5 ||
     !Number.isFinite(persistenceBackoffMs) || persistenceBackoffMs < 0) throw new TypeError('Voice control, durable persistence and valid timeouts required');
   const getSdk = async () => sdk ?? (await import('@elevenlabs/client')).Conversation;
+  const pageReplay = createPageReplay({ control, document, playAudio: ports.playAudio ?? playReplyAudio });
   const client = {
     manifest,
+    replayReply: (reply, opts) => pageReplay.replay(reply, opts),
+    stopReplay: () => pageReplay.stop(),
     tabId: control.tabId,
     takeover: (identity, options) => voiceOperation(options, opts => control.takeover({ ...identity, explicit: true }, opts)),
     async health(options) { return voiceOperation(options, async () => ({ available: typeof (await getSdk())?.startSession === 'function' })); },
     closeWaiting: (identity, options) => voiceOperation(options, opts => control.close({ ...identity, reason: options?.reason ?? 'closed' }, opts)),
     async start(request, options = {}) {
+      pageReplay.stop();
       const events = voiceEvents();
       const playback = document?.defaultView?.MutationObserver && document.body
         ? watchVoicePlayback(document, () => options.onPlaybackBlocked?.(() => playback.retry())) : undefined;
@@ -114,7 +119,10 @@ export function createElevenLabsClient(ports = {}) {
         current: reply => !ended && !paused && !transportBlocked && outputOn && !lifecycle.state.holds.length &&
           reply.turnId === lastReply?.turnId && reply.text === lastReply?.text && (!lastPlaybackTurnId || lastPlaybackTurnId === reply.turnId),
         synthesize: (reply, opts) => control.speakText?.({ ...identity(), turnId: reply.turnId }, opts),
-        playAudio: (audio, opts) => (ports.playAudio ?? playReplyAudio)(audio, { ...opts, conversation, document, AudioContext }),
+        playAudio: (audio, opts) => {
+          playbackInterrupted = false; conversation?.setVolume({ volume: outputVolume() });
+          return (ports.playAudio ?? playReplyAudio)(audio, { ...opts, conversation, document, AudioContext });
+        },
         onState: playing => { if (!ended) emit({ type: playing ? 'speaking' : 'listening', replay: true }); },
       });
       const stopPersistence = () => persistenceCancellation.abort();
@@ -151,6 +159,7 @@ export function createElevenLabsClient(ports = {}) {
             lastReply = { turnId: value.turnId, text: value.text };
             lifecycle.dispatch({ type: 'reply', replyId: value.turnId });
           }
+          if (value.type === 'heard' && value.turnId === lastReply?.turnId) lastReply = { ...lastReply, text: value.prefix };
           // Corrections remain durable transcript evidence for their own turn.
           // A queued/late correction for A cannot establish B's playback position.
           if (value.type === 'heard' && value.turnId === lastPlaybackTurnId) lifecycle.dispatch({ type: 'heard', prefix: value.prefix });
@@ -623,9 +632,9 @@ export function createElevenLabsClient(ports = {}) {
           get replaying() { return replay.active; },
           stopReplay() { replay.stop(); return Promise.resolve(); },
           replayLastReply(opts) {
-            const reply = lastReply && { ...lastReply };
+            const reply = lastReply && { ...lastReply }, revision = replay.revision;
             return command('replayLastReply', bounded => {
-              playbackInterrupted = false; conversation?.setVolume({ volume: outputVolume() });
+              if (revision !== replay.revision) throw new PluginError('cancelled');
               return replay.replay(reply, bounded);
             })(opts);
           },

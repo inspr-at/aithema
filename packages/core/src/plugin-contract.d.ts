@@ -138,7 +138,7 @@ export interface VoiceServerAdapter<Config = unknown, StartRequest = { callId: s
   stopSegment(segment: Segment, options: VoiceCommandOptions & { reason?: string; outcome?: 'completed' | 'cancelled' }): Promise<VoiceReconciliationEvidence['terminal']>;
   reconciliationEvidence(request: { call: object; maxMicro: number; outcome?: 'completed' | 'cancelled' }, options: VoiceCommandOptions): Promise<VoiceReconciliationEvidence>;
   quoteSpeakText?(request: { text: string }, options: VoiceCommandOptions): Promise<VoiceTextQuote>;
-  speakText?(request: { text: string; quote: VoiceTextQuote }, options: VoiceStartOptions): Promise<VoiceTextAudio>;
+  speakText?(request: { text: string; quote: VoiceTextQuote }, options: VoiceTextOptions): Promise<VoiceTextAudio>;
   // Provider request authentication must precede the generic operation boundary.
   callbackRoutes?: readonly VoiceCallbackRoute[];
   // Bind server-owned operations and host-private callback configuration once.
@@ -146,6 +146,10 @@ export interface VoiceServerAdapter<Config = unknown, StartRequest = { callId: s
 }
 export interface VoiceTextQuote { maxMicro: number; opaque?: unknown }
 export interface VoiceTextAudio { audio: { format: 'pcm_16000'; data: string }; usage?: VoiceUsage & { characters: number } }
+export interface VoiceTextOptions extends VoiceCommandOptions {
+  attempt: OperationOptions['attempt'];
+  report(terminal: Omit<VoiceTerminal, 'attemptId' | 'callId'>): Promise<void> | void;
+}
 export interface VoicePresentation {
   label: string;
   translations?: { locale: string; label: string;

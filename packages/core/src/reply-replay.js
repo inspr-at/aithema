@@ -3,13 +3,14 @@ import { voiceOperation } from './live-voice.js';
 
 /** Playback has its own lifetime; it never blocks pause, hangup or turn delivery. */
 export function createReplyReplay({ current, synthesize, playAudio, onState = () => {} }) {
-  let active;
+  let active, revision = 0;
   const stop = () => {
+    revision++;
     const previous = active; active = null;
     if (!previous) return;
     previous.controller.abort(); previous.player?.stop(); onState(false);
   };
-  return { stop, get active() { return Boolean(active); },
+  return { stop, get revision() { return revision; }, get active() { return Boolean(active); },
     async replay(reply, options = {}) {
       if (!reply || !current(reply)) throw new PluginError('unavailable');
       stop();
