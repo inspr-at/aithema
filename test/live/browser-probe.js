@@ -26,10 +26,13 @@ export async function installProbe({ mode, locale }) {
   // All input comes from Chrome's fake file device. Gate the captured WAV without
   // replacing the SDK or bypassing the provider's normal microphone acquisition.
   const media = navigator.mediaDevices, native = media.getUserMedia.bind(media);
-  const stream = await native({ audio: true }), context = new AudioContext();
+  const stream = await native({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }), context = new AudioContext();
   await context.resume();
   const source = context.createMediaStreamSource(stream), gain = context.createGain(), analyser = context.createAnalyser();
-  const destination = context.createMediaStreamDestination();
+  const destination = context.createMediaStreamDestination(), silentSink = context.createGain();
+  // Fake voice never consumes the media stream. Keep the graph pulled through a
+  // silent output as well, so Chrome processes the same input in both modes.
+  silentSink.gain.value = 0; analyser.connect(silentSink); silentSink.connect(context.destination);
   gain.gain.value = 0; source.connect(gain); gain.connect(analyser); analyser.connect(destination);
   media.getUserMedia = async constraints => constraints.audio ? destination.stream.clone() : native(constraints);
   const samples = new Float32Array(analyser.fftSize);
@@ -68,6 +71,10 @@ export async function installProbe({ mode, locale }) {
   state.snapshot = () => ({ events: state.events, turns: state.turns, speaking: state.speaking, closed: state.closed,
     samples: state.samples, peak: state.peak, speechSamples: state.speechSamples,
     overlapSamples: state.overlapSamples, heartbeatFailures: state.heartbeatFailures });
+  state.input();
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  if (!state.speechSamples) throw new Error('Synthetic microphone preflight is silent');
+  state.gateUntil = 0;
   if (mode === 'fake') {
     const c = document.querySelector('aithema-session');
     await c.changeLocale(locale);

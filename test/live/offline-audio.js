@@ -25,6 +25,7 @@ export async function offlineAudio(directory, locale) {
   }
   if (dataOffset < 0) throw new Error('Offline WAV has no sample data');
   const dataSize = bytes.readUInt32LE(dataOffset + 4), end = dataOffset + 8 + dataSize;
+  if (end > bytes.length || !bytes.subarray(dataOffset + 8, end).some(value => value !== 0)) throw new Error('Offline speech WAV is empty or silent');
   const loop = Buffer.concat([bytes.subarray(0, end), Buffer.alloc(16_000)]);
   loop.writeUInt32LE(dataSize + 16_000, dataOffset + 4); loop.writeUInt32LE(loop.length - 8, 4);
   await writeFile(file, loop);
