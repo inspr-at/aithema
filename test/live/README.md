@@ -152,6 +152,19 @@ recovery, both disruptions, responses within deadlines and final cost <= $8.
 No transcripts, cookies, raw exceptions, provider credentials or profile paths
 are written into the reports. Reports feed AIT-105; attach both files to AIT-139.
 
+If settlement is pending, OPS uses the same isolated socket to inspect repairs,
+then applies only the reviewed repair set through the existing CLI:
+
+```sh
+node demo/admin-cli.js --socket "$SOAK_SOCKET" reconcile-uncertain --dry-run --limit 10
+node demo/admin-cli.js --socket "$SOAK_SOCKET" reconcile-uncertain --apply --limit 10
+node demo/admin-cli.js --socket "$SOAK_SOCKET" provider-cap
+```
+
+Attach the resulting value-free repair receipt, final wallet view and diagnostic
+export as a supplement to the failed/pending report. Do not relabel the original
+report as passed or start another live call to obtain reconciliation evidence.
+
 OPS then confirms the owned provider segments have ended, checks the test host's
 wallet and provider cap, captures final part-1 reconciliation evidence, and stops
 the isolated host. If it must stay running, restore its previously recorded tier
