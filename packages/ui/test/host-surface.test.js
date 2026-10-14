@@ -1178,3 +1178,43 @@ for (const copy of [de, en]) test(`AIT-173 round 5: no-credit host polls settlem
   assert.equal(calls.filter(call => call.path === '/retry').length, 1, 'settlement retries once');
   assert.equal(calls.length, reads, 'settled hosts stop the admission re-check timer');
 });
+
+for (const copy of [de, en]) test(`AIT-184: genuine denial stops polling but a later refresh resumes deferred analysis once (${copy === de ? 'de' : 'en'})`, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  let reason = 'budget reconciling';
+  const matrix = () => ({ best: {
+    text: { available: reason === null, reason }, analysis: { available: reason === null, reason } } });
+  const { c, root, calls } = setup(t, { copy, host: {}, session: { featureMatrix: matrix() }, routes: {
+    'GET ': () => Response.json({ ...c.session, featureMatrix: matrix() }),
+    'POST /retry': () => Response.json({ accepted: true }, { status: 202 }),
+  } });
+  await tick(8);
+  const input = root.querySelector('textarea'); input.value = 'Keep this draft';
+  userTurn(c);
+  c.receive({ type: 'lane.failed', data: { inputRevision: inputRevision(c.session), lane: 'understanding', error: 'reasoning-unavailable', reason } });
+  const reads = () => calls.filter(call => call.method === 'GET' && call.path === '').length;
+  const retries = () => calls.filter(call => call.path === '/retry').length;
+  const before = reads();
+  t.mock.timers.tick(14_999); await tick(8);
+  assert.equal(reads(), before, 'reconciliation waits for the 15 second cadence');
+  t.mock.timers.tick(1); await tick(8);
+  assert.equal(reads(), before + 1, 'reconciliation keeps polling');
+  reason = 'budget denied';
+  t.mock.timers.tick(15_000); await tick(8);
+  assert.equal(c.session.featureMatrix.best.analysis.reason, 'budget denied');
+  assert.equal(retries(), 0, 'genuine denial cannot retry analysis');
+  const deniedReads = reads();
+  for (let i = 0; i < 4; i++) { t.mock.timers.tick(15_000); await tick(8); }
+  assert.equal(reads(), deniedReads, 'genuine denial stops the admission poll');
+  assert.equal(input.value, 'Keep this draft');
+  reason = null;
+  c.receive({ type: 'voice.state', data: { state: 'ended' } }); await tick(12);
+  assert.equal(retries(), 1, 'a later admission refresh resumes the retained deferral');
+  assert.equal(root.querySelector('.send').disabled, false);
+  assert.equal(input.value, 'Keep this draft');
+  c.receive({ type: 'voice.state', data: { state: 'ended' } }); await tick(12);
+  assert.equal(retries(), 1, 'another refresh cannot resume the same deferral twice');
+  const recoveredReads = reads();
+  t.mock.timers.tick(60_000); await tick(8);
+  assert.equal(reads(), recoveredReads, 'successful recovery also leaves polling stopped');
+});
