@@ -946,8 +946,9 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
       await until(page, () => getComputedStyle(document.querySelector('aithema-session').shadowRoot.querySelector('.footer-info .footer-popup')).opacity === '1');
       const metrics = await popupMetrics(); assert.equal(metrics.visibility, 'visible'); assert.equal(metrics.opacity, '1');
       assert.equal(metrics.background, 'rgb(16, 43, 66)');
-      const surfacePixel = pixels(Buffer.from(await page.screenshot({ clip: { x: metrics.popup[0] + 14, y: metrics.popup[1] + 4, width: 1, height: 1 } })));
-      assert.deepEqual([...surfacePixel.result.subarray(0, 3)], [16, 43, 66], 'painted popup pixel is opaque approved dark surface');
+      const viewportPaint = pixels(Buffer.from(await page.screenshot({ fullPage: false })));
+      const surfaceOffset = ((Math.floor(metrics.popup[1]) + 4) * viewportPaint.width + Math.floor(metrics.popup[0]) + 14) * viewportPaint.channels;
+      assert.deepEqual([...viewportPaint.result.subarray(surfaceOffset, surfaceOffset + 3)], [16, 43, 66], 'painted popup pixel is opaque approved dark surface');
       assert.equal(metrics.product, 'Aithema 2026.10'); assert.equal(metrics.first, 'version-row');
       assert.equal(metrics.version, '26.10.14 · 08:00');
       assert.equal(metrics.build, 'Build abcdef1 · 2026-10-14 08:00:00 UTC');
