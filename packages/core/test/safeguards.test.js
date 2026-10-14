@@ -183,3 +183,40 @@ test('AIT-181 invalid scope and ignored extras cannot bypass decoded output chec
     assert.equal(calls, 2); assert.equal(reply.scope, 'off'); assert.equal(reply.content, purposePolicy.redirect.en);
   }
 });
+
+for (const place of ['extra-value', 'extra-key', 'nested', 'escaped', 'malformed']) test(`AIT-181 round2 canary anywhere in raw output is unsafe: ${place}`, async () => {
+  const input = request(), canary = input.purposePolicy.canary;
+  const raw = place === 'extra-key' ? wire('Safe content', 'in', { [canary]: true })
+    : place === 'nested' ? wire('Safe content', 'in', { debug: [{ private: canary }] })
+    : place === 'malformed' ? '{"debug":"' + canary
+    : wire('Safe content', 'in', { debug: canary });
+  const output = place === 'escaped' ? raw.replaceAll(canary, [...canary].map(char => '\\u' + char.charCodeAt(0).toString(16).padStart(4, '0')).join('')) : raw;
+  assert.equal(unsafeReplyOutput(output, input.purposePolicy, input.hiddenGuidance), true);
+  let calls = 0;
+  const reply = await collectPurposeReply(input, async function* () { calls++; yield output; });
+  assert.equal(calls, 2); assert.equal(reply.scope, 'off'); assert.equal(reply.content, purposePolicy.redirect.en);
+});
+
+test('AIT-181 round2 synthesized fallback has private metadata and value-free diagnostics', async () => {
+  const diagnostics = [], rejected = [];
+  const reply = await collectPurposeReply(request(), async function* () { yield '{invalid-private-output'; }, {
+    onRejected: attempt => rejected.push(attempt), onDiagnostic: event => diagnostics.push(event),
+  });
+  assert.deepEqual(reply.fallback, { kind: 'neutral', reason: 'invalid-output', attemptCount: 2 });
+  assert.deepEqual(diagnostics, [{ kind: 'fallback', reason: 'invalid-output', attemptCount: 2 }]);
+  assert.deepEqual(rejected, [0, 1]);
+  assert.doesNotMatch(JSON.stringify(reply), /fallback|invalid-output|attemptCount/u);
+  assert.equal(Object.hasOwn({ ...reply }, 'fallback'), false);
+});
+
+test('AIT-181 round2 constrained missing scope is diagnosed without rejection or off-topic evidence', async () => {
+  for (const constrained of [true, false]) {
+    const diagnostics = [];
+    const reply = await collectPurposeReply({ ...request(), replySchemaConstrained: constrained }, async function* () {
+      yield JSON.stringify({ content: 'Safe model content', question_short: null, options: [] });
+    }, { onDiagnostic: event => diagnostics.push(event) });
+    assert.equal(reply.content, 'Safe model content'); assert.equal(reply.scope, 'unclear');
+    assert.deepEqual(diagnostics, constrained ? [{ kind: 'missing-scope', reason: 'missing-scope', attemptCount: 1 }] : []);
+    assert.equal(reply.fallback, undefined);
+  }
+});

@@ -17,7 +17,7 @@ const req = (id, action = '', body) => ownedRequest(`http://localhost/api/sessio
   method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
 });
 const envelope = (content, scope = 'off') => JSON.stringify({ content, scope, question_short: null, options: [] });
-function fixture(t, { outputs, uploads = false, voice = false, policy = purposePolicy } = {}) {
+function fixture(t, { outputs, uploads = false, voice = false, policy = purposePolicy, log = () => {} } = {}) {
   const storage = new SQLiteStorage(), mock = createMockReasoning(), calls = [], assessments = [];
   const plugin = { ...mock, async *stream(request, options) {
     calls.push(request);
@@ -35,7 +35,7 @@ function fixture(t, { outputs, uploads = false, voice = false, policy = purposeP
     const actual = createPluginRuntime({ storage, reasoning: mock, registry, presets, consent: mockConsent, temporaryDb });
     runtime = { ...actual, async admit(args) { const admitted = await actual.admit(args); return args.lane === 'reaction' || args.lane === 'understanding' ? { ...admitted, plugin } : admitted; } };
   }
-  const handlers = createHandlers({ storage, pluginRuntime: runtime, purposePolicy: policy, ...(voice ? { voice: { secrets: createFacadeSecrets() } } : {}), log: () => {} });
+  const handlers = createHandlers({ storage, pluginRuntime: runtime, purposePolicy: policy, ...(voice ? { voice: { secrets: createFacadeSecrets() } } : {}), log });
   const session = storage.create({ demo: true, ownerToken: testToken });
   t.after(async () => { await handlers.close(); storage.close(); });
   const send = async (content, clientEventId = crypto.randomUUID()) => {
@@ -332,4 +332,29 @@ for (const locale of ['de', 'en']) test(`AIT-181 ${locale}: model reply reaches 
   assert.equal(f.calls.length, 2); assert.equal(f.assessments.length, 2);
   assert.equal(f.storage.safeguards(f.session.id).offTopicTurns, 0); assert.equal(snapshot.paused, false);
   assert.equal(JSON.stringify(snapshot).includes('scope'), false); assert.equal(JSON.stringify(snapshot).includes('discarded'), false);
+});
+
+test('AIT-181 round2 fallback and constrained missing-scope counters reach OPS but stay out of snapshots', async t => {
+  const logs = []; let unusable = true;
+  const f = fixture(t, { log: event => logs.push(event), outputs: () => unusable ? '{invalid-private-output'
+    : JSON.stringify({ content: 'Safe model content', question_short: null, options: [] }) });
+  await f.send('Private project text');
+  assert.deepEqual(logs.filter(event => event.event === 'reply.fallback'), [
+    { event: 'reply.fallback', count: 1, lane: 'reaction', reason: 'invalid-output', attemptCount: 2 },
+  ]);
+  unusable = false;
+  await f.send('Private second project text');
+  assert.deepEqual(logs.filter(event => event.event === 'reply.scope-missing'), [
+    { event: 'reply.scope-missing', count: 1, lane: 'reaction', reason: 'missing-scope', attemptCount: 1 },
+  ]);
+  assert.equal(f.storage.safeguards(f.session.id).offTopicTurns, 0);
+  const snapshot = await f.handlers.handle(req(f.session.id)).then(response => response.json());
+  assert.doesNotMatch(JSON.stringify(snapshot), /fallback|attemptCount|invalid-private-output|missing-scope/u);
+  assert.doesNotMatch(JSON.stringify(logs), /Private project|Private second|Safe model|invalid-private-output/u);
+});
+
+test('AIT-181 round2 failing OPS logger cannot interrupt a fallback reply', async t => {
+  const f = fixture(t, { log() { throw new Error('logging unavailable'); }, outputs: () => '{invalid' });
+  await f.send('A project');
+  assert.equal(f.storage.get(f.session.id).transcript.at(-1).content, 'Woran arbeiten Sie gerade?');
 });

@@ -37,7 +37,7 @@ export const safeguardsReplyCorpus = [
   { id: 'partial-prompt-leak', output: (request, wire) => wire(request.system.split('\n')[1]), scope: 'off', calls: 2 },
   { id: 'host-guidance-leak', output: (request, wire) => wire(request.system.match(/Private host guidance: [^\n]+/u)[0]), scope: 'off', calls: 2 },
   { id: 'hidden-purpose-leak', output: (request, wire) => wire(request.system.slice(request.system.indexOf('Infer scope')).split('\n')[0]), scope: 'off', calls: 2 },
-  { id: 'transport-metadata', output: (request, wire) => wire('What should improve?', 'in', { debug: request.purposePolicy.canary + '```json' }), scope: 'in', calls: 1, content: 'What should improve?' },
+  { id: 'transport-metadata', output: (request, wire) => wire('What should improve?', 'in', { debug: request.purposePolicy.canary + '```json' }), scope: 'off', calls: 2 },
 ];
 export const safeguardsActionCorpus = ['provider-error', 'recovery-while-paused', 'upload-while-paused'];
 

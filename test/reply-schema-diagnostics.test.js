@@ -39,6 +39,8 @@ test('AIT-181 diagnostics invoke exactly three guarded DE/EN/off-topic streams, 
   assert.ok(requests.every(request => request.schema.required.includes('scope') && request.purposePolicy.outputCheck));
   assert.deepEqual(reports.map(report => report.case), ['in-de', 'in-en', 'off-de']);
   assert.equal(reports[2].stream_complete, false);
+  assert.deepEqual(reports.map(report => report.path), ['constrained', 'constrained', 'constrained']);
+  assert.deepEqual(reports.map(report => report.provider_error_class), [null, null, 'other']);
   assert.doesNotMatch(JSON.stringify(reports), /Private model content|private-key|private-value|private output|private provider error|AITHEMA_CANARY_|Rezept/u);
 });
 
@@ -69,4 +71,49 @@ test('AIT-181 OPS command exercises real admission and streaming with exactly th
   assert.equal(reports.length, 3); assert.ok(reports.every(report => report.parsed && report.stream_complete && report.scope_valid));
   assert.deepEqual(reports.map(report => report.case), ['in-de', 'in-en', 'off-de']);
   assert.doesNotMatch(stdout, /Private model output|fixture-not-a-key|AITHEMA_CANARY_/u);
+});
+
+test('AIT-181 round2 OPS diagnostics report each path and HTTP class within the three-call cap', async () => {
+  const requests = [], reports = [];
+  await runReplySchemaDiagnostics({ write: report => reports.push(report), async *invoke(request) {
+    requests.push(request);
+    if (requests.length === 1) throw Object.assign(new Error('Private unrecognized refusal'), { code: 'auth', responseFormatUnsupported: true, providerErrorClass: '4xx' });
+    if (requests.length === 3) throw Object.assign(new Error('Private 5xx details'), { code: 'provider', providerErrorClass: '5xx' });
+    yield JSON.stringify(value);
+  } });
+  assert.equal(requests.length, 3);
+  assert.deepEqual(requests.map(request => request.replySchemaConstrained === false), [false, true, false]);
+  assert.deepEqual(reports.map(report => report.case), ['in-de', 'in-de', 'in-en']);
+  assert.deepEqual(reports.map(report => report.path), ['constrained', 'prompt-only-retry', 'constrained']);
+  assert.deepEqual(reports.map(report => report.provider_error_class), ['4xx', null, '5xx']);
+  assert.deepEqual(reports.map(report => report.attempt_count), [1, 2, 1]);
+  assert.doesNotMatch(JSON.stringify(reports), /Private|refusal|details/u);
+});
+
+test('AIT-181 round2 OPS command reports an unknown 4xx then prompt-only retry using stubbed fetch', async () => {
+  const { execFile } = await import('node:child_process');
+  const { promisify } = await import('node:util');
+  const { fileURLToPath } = await import('node:url');
+  const stub = `
+    let calls = 0;
+    globalThis.fetch = async (_, init) => {
+      if (++calls > 3) throw new Error('Call cap');
+      const request = JSON.parse(init.body);
+      if (!request.stream || Boolean(request.response_format) !== (calls !== 2)) throw new Error('Wrong path');
+      if (calls === 1) return new Response('Private unknown refusal', { status: 400 });
+      const content = JSON.stringify({ content: 'Private model output', question_short: null, options: [], scope: 'in' });
+      return new Response('data: ' + JSON.stringify({ choices: [{ delta: { content }, finish_reason: 'stop' }], usage: { cost: 0 } }) + '\\n\\ndata: [DONE]\\n\\n');
+    };
+    process.on('exit', () => { if (calls !== 3) process.exitCode = 1; });
+  `;
+  const { stdout } = await promisify(execFile)(process.execPath, ['--import', `data:text/javascript,${encodeURIComponent(stub)}`,
+    fileURLToPath(new URL('../scripts/diagnose-reply-schema.js', import.meta.url)), '--allow-live'], {
+    timeout: 20_000,
+    env: { PATH: process.env.PATH, OPENROUTER_API_KEY: 'fixture-not-a-key', OPENROUTER_MODEL: 'anthropic/fixture',
+      AITHEMA_OPENROUTER_PRICES: JSON.stringify({ 'anthropic/fixture': { prompt: 1e-9, completion: 1e-9 } }) },
+  });
+  const reports = stdout.trim().split('\n').map(line => JSON.parse(line));
+  assert.deepEqual(reports.map(report => report.path), ['constrained', 'prompt-only-retry', 'constrained']);
+  assert.deepEqual(reports.map(report => report.provider_error_class), ['4xx', null, null]);
+  assert.doesNotMatch(stdout, /Private model output|Private unknown refusal|fixture-not-a-key|AITHEMA_CANARY_/u);
 });

@@ -367,3 +367,73 @@ test('AIT-181 unguarded OpenRouter streams retain their existing request format'
   for await (const _ of plugin.stream(request, options())) { /* consume */ }
   assert.equal(Object.hasOwn(sent, 'response_format'), false);
 });
+
+test('AIT-181 round2 provider schema removes nonportable constraints recursively without changing host schema', async () => {
+  const { createSession, reasoningRequest, collectPurposeReply } = await import('@inspr/aithema-core');
+  const { start2PurposePolicy } = await import('../../../demo/safeguards.js');
+  const input = reasoningRequest(createSession(), 'reaction', false, '', { purposePolicy: start2PurposePolicy });
+  input.schema = structuredClone(input.schema);
+  const constraints = { pattern: 'private-pattern', format: 'email', minimum: 0, maximum: 10,
+    exclusiveMinimum: 0, exclusiveMaximum: 10, multipleOf: 2, minProperties: 1, maxProperties: 8,
+    uniqueItems: true, minItems: 0, propertyNames: { pattern: 'private-pattern' },
+    allOf: [{ type: 'object' }], not: { type: 'null' }, if: { type: 'string' }, then: { minLength: 1 }, else: { maxLength: 2 } };
+  Object.assign(input.schema.properties.options.items.properties.text, constraints);
+  input.schema.properties.pattern = { type: 'string', pattern: 'private-pattern' };
+  const original = structuredClone(input.schema); let sent;
+  const plugin = createOpenRouterReasoning({ model: 'fixture/model', prices: openRouterPrices, resolveSecret: () => 'fixture',
+    fetchImpl: async (_, init) => {
+      sent = JSON.parse(init.body);
+      return new Response('data: ' + JSON.stringify({ choices: [{ delta: { content: JSON.stringify({ content: 'Safe content', scope: 'in', question_short: null, options: [] }) }, finish_reason: 'stop' }] }) + '\n\ndata: [DONE]\n\n');
+    } });
+  await collectPurposeReply(input, request => plugin.stream(request, options()));
+  const stripped = new Set([...Object.keys(constraints), 'minLength', 'maxLength', 'maxItems', 'contains', 'minContains', 'maxContains']);
+  const inspect = shape => {
+    for (const key of Object.keys(shape)) assert.equal(stripped.has(key), false, `nonportable keyword ${key}`);
+    for (const child of Object.values(shape.properties ?? {})) inspect(child);
+    if (shape.items) inspect(shape.items);
+    for (const child of shape.anyOf ?? []) inspect(child);
+  };
+  const safe = sent.response_format.json_schema.schema; inspect(safe);
+  assert.deepEqual(safe.properties.pattern, { type: 'string' }, 'property names are preserved');
+  assert.deepEqual(safe.properties.options.items.required, ['text', 'likely']);
+  assert.ok(safe.required.includes('pattern'));
+  assert.deepEqual(input.schema, original);
+});
+
+for (const status of [400, 401, 403, 404, 408, 409, 413, 422, 429, 499]) test(`AIT-181 round2 unknown constrained HTTP ${status} retries prompt-only with fresh admission`, async () => {
+  const { createSession, reasoningRequest, collectPurposeReply } = await import('@inspr/aithema-core');
+  const { start2PurposePolicy } = await import('../../../demo/safeguards.js');
+  const input = reasoningRequest(createSession(), 'reaction', false, '', { purposePolicy: start2PurposePolicy });
+  const bodies = [], reports = [], claims = [], diagnostics = [];
+  const plugin = createOpenRouterReasoning({ model: 'fixture/model', prices: openRouterPrices, resolveSecret: () => 'fixture',
+    fetchImpl: async (_, init) => {
+      bodies.push(JSON.parse(init.body));
+      if (bodies.length === 1) return status === 400 ? new Response('Private unrecognized non-JSON refusal', { status })
+        : Response.json({ error: { message: 'Private unrecognized provider refusal' }, usage: { cost: 0 } }, { status });
+      return new Response('data: ' + JSON.stringify({ choices: [{ delta: { content: JSON.stringify({ content: 'Safe model reply', scope: 'in', question_short: null, options: [] }) }, finish_reason: 'stop' }], usage: { cost: 0 } }) + '\n\ndata: [DONE]\n\n');
+    } });
+  const reply = await collectPurposeReply(input, request => {
+    const opts = options({ report: report => reports.push(report) }); claims.push(opts.attempt.attemptId);
+    return plugin.stream(request, opts);
+  }, { onDiagnostic: event => diagnostics.push(event) });
+  assert.equal(reply.content, 'Safe model reply'); assert.equal(bodies.length, 2);
+  assert.ok(bodies[0].response_format); assert.equal(Object.hasOwn(bodies[1], 'response_format'), false);
+  assert.equal(new Set(claims).size, 2); assert.equal(reports.length, 2);
+  assert.deepEqual(diagnostics, [{ kind: 'schema-retry', reason: 'provider-4xx', attemptCount: 1 }]);
+  assert.deepEqual(reply.fallback, { kind: 'prompt-only-retry', reason: 'provider-4xx', attemptCount: 2 });
+  assert.doesNotMatch(JSON.stringify(reply), /fallback|attemptCount/u);
+  assert.doesNotMatch(JSON.stringify(diagnostics), /Private/u);
+});
+
+for (const failure of ['500', '503', 'network']) test(`AIT-181 round2 ${failure} retains the existing provider error path`, async () => {
+  const { createSession, reasoningRequest, collectPurposeReply } = await import('@inspr/aithema-core');
+  const { start2PurposePolicy } = await import('../../../demo/safeguards.js');
+  const input = reasoningRequest(createSession(), 'reaction', false, '', { purposePolicy: start2PurposePolicy });
+  let calls = 0;
+  const plugin = createOpenRouterReasoning({ model: 'fixture/model', prices: openRouterPrices, resolveSecret: () => 'fixture',
+    fetchImpl: async () => { calls++; if (failure === 'network') throw new Error('Private network error');
+      return Response.json({ error: { message: 'json_schema is unsupported' } }, { status: Number(failure) }); } });
+  await assert.rejects(collectPurposeReply(input, request => plugin.stream(request, options())), error =>
+    error.code === 'provider' && !error.responseFormatUnsupported && error.providerErrorClass === (failure === 'network' ? undefined : '5xx'));
+  assert.equal(calls, 1);
+});
