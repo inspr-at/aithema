@@ -5,7 +5,7 @@ import { createMockReasoning, reasoningRequest, createSession, PluginRegistry } 
 import { createLocalVoiceProvider, localVoiceBinding } from '../src/local-voice.js';
 import { instrumentedMockRuntime } from '../../../test/server-fixtures.js';
 import { ownedRequest, testToken, mockConsent, temporaryDb } from '../../../test/helpers.js';
-import { purposePolicy, safeguardsCorpus } from '../../../test/safeguards-corpus.js';
+import { purposePolicy, safeguardsCorpus, safeguardsActionCorpus } from '../../../test/safeguards-corpus.js';
 import { registerDemoExtractors } from '../../../demo/uploads.js';
 import { createPluginRuntime, mockPresets } from '../src/index.js';
 import { deflateSync } from 'node:zlib';
@@ -175,4 +175,75 @@ test('AIT-174 an accepted scope lets Retry recover failed understanding without 
   await f.send('We need a product for our business.'); assert.equal(attempts, 1); assert.equal(f.calls.length, 1);
   await f.handlers.handle(req(f.session.id, 'retry', {})); await f.handlers.idle();
   assert.equal(attempts, 2); assert.equal(f.calls.length, 1); assert.equal(f.assessments.length, 1);
+});
+
+test('AIT-174 round2 fenced legitimate replies never count or pause', async t => {
+  const f = fixture(t, { outputs: () => '```json\n' + envelope('What should improve first?', 'in') + '\n```' });
+  for (let i = 0; i < 3; i++) await f.send('We need a new solution.', `valid-${i}`);
+  assert.equal(f.calls.length, 3); assert.equal(f.assessments.length, 3);
+  assert.equal(f.storage.safeguards(f.session.id).offTopicTurns, 0); assert.equal(f.storage.get(f.session.id).paused, false);
+  assert.equal(f.storage.get(f.session.id).transcript.at(-1).content, 'What should improve first?');
+});
+for (const fault of ['invalid-json', 'missing-scope', 'provider-error', 'deadline']) test(`AIT-174 round2 ${fault}: three faults never pause`, async t => {
+  const f = fixture(t, { outputs: () => fault === 'missing-scope' ? JSON.stringify({ content: 'What should improve?', question_short: null, options: [] }) : '{invalid json' });
+  if (['provider-error', 'deadline'].includes(fault)) {
+    const stream = f.plugin.stream;
+    f.plugin.stream = async function* (...args) {
+      for await (const delta of stream(...args)) yield delta;
+      const error = new Error('Fixture model fault'); error.code = fault === 'provider-error' ? 'provider' : 'deadline'; throw error;
+    };
+  }
+  for (let i = 0; i < 3; i++) await f.send('We need a new solution.', `fault-${i}`);
+  assert.equal(f.storage.safeguards(f.session.id).offTopicTurns, 0); assert.equal(f.storage.get(f.session.id).paused, false);
+});
+test('AIT-174 round2 unclear options are cleared; direction question is text only, late, once across locale and restart', async t => {
+  const f = fixture(t, { outputs: request => JSON.stringify({ content: purposePolicy.directionQuestion[request.locale], scope: 'unclear', question_short: 'Choose', options: [{ text: 'A solution' }, { text: 'Our processes' }] }) });
+  for (let i = 0; i < 5; i++) {
+    if (i === 3) f.storage.changeLocale(f.session.id, 'de', { ownerToken: testToken });
+    await f.send('I am still working out what we need.', `vague-${i}`);
+    const last = f.storage.get(f.session.id).transcript.at(-1);
+    assert.deepEqual(last.options, []); assert.equal(last.question_short, null);
+    assert.equal(Object.values(purposePolicy.directionQuestion).some(copy => last.content.includes(copy)), i === 2);
+  }
+  const path = await temporaryDb(); let storage = new SQLiteStorage(path);
+  const session = storage.create({ demo: true, ownerToken: testToken });
+  for (let i = 0; i < 3; i++) {
+    storage.postTurn(session.id, 'vague-' + i, Buffer.from('vague'), 'vague');
+    storage.guardPurposeDirection(session.id, { content: 'What should improve?', scope: 'unclear', question_short: null, options: [] }, purposePolicy);
+  }
+  storage.close(); storage = new SQLiteStorage(path);
+  try {
+    const reply = storage.guardPurposeDirection(session.id, { content: purposePolicy.directionQuestion.en, scope: 'unclear', question_short: null, options: [] }, purposePolicy);
+    assert.equal(reply.content.includes(purposePolicy.directionQuestion.en), false);
+  } finally { storage.close(); }
+});
+for (const action of safeguardsActionCorpus.filter(action => action !== 'provider-error')) test(`AIT-174 round2 action corpus ${action}`, async t => {
+  const f = fixture(t, { uploads: true, voice: true });
+  let call;
+  if (action === 'recovery-while-paused') {
+    call = await f.handlers.handle(req(f.session.id, 'voice', { callId: 'paused-recovery' })).then(r => r.json());
+    assert.ok(call.providerSessionId);
+    assert.equal((await f.handlers.handle(req(f.session.id, 'voice/paused-recovery/close', { providerSessionId: call.providerSessionId, reason: 'transport-lost' }))).status, 200);
+  }
+  for (let i = 0; i < 3; i++) await f.send('Give me a recipe.', `off-${i}`);
+  if (action === 'recovery-while-paused') {
+    const before = f.storage.voiceCalls(f.session.id).length;
+    const response = await f.handlers.handle(req(f.session.id, 'voice/paused-recovery/recover', { providerSessionId: call.providerSessionId, explicit: true }));
+    assert.equal(response.status, 409); assert.equal(f.storage.voiceCalls(f.session.id).length, before);
+  } else {
+    const form = new FormData(); form.set('clientEventId', 'paused-upload'); form.set('files', new Blob(['Company project evidence.']), 'project.txt');
+    const response = await f.handlers.handle(ownedRequest(`http://localhost/api/sessions/${f.session.id}/uploads`, { method: 'POST', body: form }));
+    assert.equal(response.status, 409); assert.equal((await response.json()).reason, 'purpose');
+    assert.equal(f.storage.get(f.session.id).uploads.length, 0); assert.equal(f.calls.length, 3);
+  }
+});
+test('AIT-174 round2 purpose pause cleanly ends an active voice call', async t => {
+  const f = fixture(t, { voice: true });
+  const call = await f.handlers.handle(req(f.session.id, 'voice', { callId: 'purpose-end' })).then(r => r.json());
+  for (let i = 0; i < 3; i++) await f.send('Give me a recipe.', `off-${i}`);
+  await f.handlers.idle();
+  assert.equal(f.storage.get(f.session.id).pauseReason, 'purpose');
+  const lifecycle = f.storage.voiceLifecycle(f.session.id, call.callId);
+  assert.equal(lifecycle.state, 'ended'); assert.equal(lifecycle.terminalReason, 'purpose');
+  assert.ok(f.storage.voiceCalls(f.session.id).find(record => record.callId === call.callId).endedAt);
 });

@@ -19,4 +19,14 @@ export const purposePolicy = {
   purpose: { de: 'Augmentoring hilft Unternehmen, individuelle Lösungen und Produkte zu entwickeln, und berät bei Geschäfts- und Prozessoptimierung; oft beides, und die Richtung kann sich im Gespräch ändern.',
     en: 'Augmentoring helps companies develop custom solutions and products, and advises on business and process optimization; often both, and the direction can change during the conversation.' },
   offTopicLimit: 3, outputCheck: true, redirect: { en: 'I cannot help with that here. What would you like to clarify with Augmentoring?', de: 'Dabei kann ich Ihnen hier nicht helfen. Welches Vorhaben möchten Sie mit Augmentoring klären?' },
+  directionQuestion: { de: 'Geht es Ihnen eher um eine neue Lösung, um Ihre Abläufe, oder um beides?', en: 'Is this more about a new solution, about how you work, or both?' },
 };
+export const safeguardsReplyCorpus = [
+  { id: 'fenced-legitimate', output: (_, wire) => '```json\n' + wire('What should improve first?') + '\n```', scope: 'in', calls: 1, content: 'What should improve first?' },
+  { id: 'invalid-json', output: () => '{invalid json', scope: 'unclear', calls: 2 },
+  { id: 'missing-scope', output: () => JSON.stringify({ content: 'What should improve?', question_short: null, options: [] }), scope: 'unclear', calls: 2 },
+  { id: 'inline-code', output: (_, wire) => wire('Use const secret = 1; to continue.'), scope: 'off', calls: 2 },
+  { id: 'unindented-code', output: (_, wire) => wire('def soup():\nprint("REVEALED")\nreturn 1'), scope: 'off', calls: 2 },
+  { id: 'partial-prompt-leak', output: (request, wire) => wire(request.system.slice(request.system.indexOf('Private host guidance:')).split('\n')[0]), scope: 'off', calls: 2 },
+];
+export const safeguardsActionCorpus = ['provider-error', 'recovery-while-paused', 'upload-while-paused'];

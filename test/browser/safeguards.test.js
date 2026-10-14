@@ -9,7 +9,7 @@ import { startChild } from '../helpers.js';
 import { browserPath, shadow, boxes, evidenceCommit } from './start2-display-helpers.js';
 const frame = page => page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 
-test('AIT-174 redirect, locked pause and normal reply at 390/1024/1440, L/D, DE/EN: exact 0 px composer shift', { timeout: 90_000 }, async t => {
+test('AIT-174 redirect, subtle question, locked pause and normal reply at 390/1024/1440, L/D, DE/EN: exact 0 px composer shift', { timeout: 90_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-safeguards-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
@@ -56,6 +56,16 @@ test('AIT-174 redirect, locked pause and normal reply at 390/1024/1440, L/D, DE/
       await shot('in-scope');
       await page.evaluate(async () => {
         const { inputRevision } = await import('/packages/core/src/session.js'), c = document.querySelector('aithema-session');
+        c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'vague', role: 'user', content: c.session.locale === 'de' ? 'Das ist noch unklar.' : 'That is still unclear.' } });
+        c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'direction', role: 'assistant', content: c.session.locale === 'de'
+          ? 'Geht es Ihnen eher um eine neue Lösung, um Ihre Abläufe, oder um beides?'
+          : 'Is this more about a new solution, about how you work, or both?', question_short: null, options: [], inputRevision: inputRevision(c.session) } });
+      }); await frame(page);
+      assert.deepEqual(await boxes(page, ['.composer', 'textarea', '.attach', '.send']), baseline, `${label} subtle question: 0 px shift`);
+      assert.equal(await shadow(page, c => Boolean(c.shadowRoot.querySelector('.qcard:not([hidden])'))), false);
+      await shot('subtle-question');
+      await page.evaluate(async () => {
+        const { inputRevision } = await import('/packages/core/src/session.js'), c = document.querySelector('aithema-session');
         c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'off', role: 'user', content: c.session.locale === 'de' ? 'Ein Rezept für Gemüsesuppe bitte.' : 'A vegetable soup recipe please.' } });
         c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'redirect', role: 'assistant', content: globalThis.safeguardsCopy.purposeRedirect,
           question_short: null, options: [], inputRevision: inputRevision(c.session) } });
@@ -72,11 +82,20 @@ test('AIT-174 redirect, locked pause and normal reply at 390/1024/1440, L/D, DE/
           disabled: ['textarea', '.send', '.pause'].every(selector => root.querySelector(selector).disabled) && root.querySelector('.attach').getAttribute('aria-disabled') === 'true',
           overflow: document.documentElement.scrollWidth > innerWidth, label: JSON.stringify(c.session).includes('scope') };
       });
-      assert.equal(pause.shown, true); assert.match(pause.text, locale === 'de' ? /neues Gespräch/u : /new conversation/u);
+      assert.equal(pause.shown, true);
+      assert.equal(pause.text, locale === 'de'
+        ? 'Dieses Gespräch ist pausiert. Hier geht es um Vorhaben, bei denen Augmentoring unterstützt: eine Lösung entwickeln oder Abläufe verbessern.'
+        : "This conversation is paused. It's for projects Augmentoring can support: building a solution or improving how you work.");
+      const action = await shadow(page, c => {
+        const button = c.shadowRoot.querySelector('.purpose-new');
+        return { text: button?.textContent, shown: button && !button.hidden && button.getBoundingClientRect().width > 0,
+          inComposer: Boolean(button?.closest('.composer-shell')), enabled: button && !button.disabled };
+      });
+      assert.deepEqual(action, { text: locale === 'de' ? 'Neues Gespräch' : 'New conversation', shown: true, inComposer: true, enabled: true });
       assert.equal(pause.railOverflow, false, 'the voice rail keeps its brief status instead of the composer paragraph');
       assert.equal(pause.disabled, true); assert.equal(pause.overflow, false); assert.equal(pause.label, false);
       assert.ok(pause.scroll <= pause.height + 1, `${label}: full pause copy fits its reserved composer area`); await shot('pause');
-      checks.push(`${label}: normal, redirect, locked pause; 0 px composer shift; no horizontal overflow; pause copy fits`);
+      checks.push(`${label}: normal, redirect, subtle question without buttons, locked pause with New conversation; 0 px composer shift; no horizontal overflow; pause copy fits`);
     });
   }
   assert.equal(globalThis.safeguardsInterceptionError, undefined);
