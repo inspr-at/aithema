@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SQLiteStorage, createHandlers } from '../src/index.js';
+import { SQLiteStorage, createHandlers, createFacadeSecrets } from '../src/index.js';
 import { createMockReasoning, reasoningRequest, createSession, PluginRegistry } from '@inspr/aithema-core';
+import { createLocalVoiceProvider, localVoiceBinding } from '../src/local-voice.js';
 import { instrumentedMockRuntime } from '../../../test/server-fixtures.js';
 import { ownedRequest, testToken, mockConsent, temporaryDb } from '../../../test/helpers.js';
 import { purposePolicy, safeguardsCorpus } from '../../../test/safeguards-corpus.js';
@@ -14,7 +15,7 @@ const req = (id, action = '', body) => ownedRequest(`http://localhost/api/sessio
   method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
 });
 const envelope = (content, scope = 'off') => JSON.stringify({ content, scope, question_short: null, options: [] });
-function fixture(t, { outputs, uploads = false, policy = purposePolicy } = {}) {
+function fixture(t, { outputs, uploads = false, voice = false, policy = purposePolicy } = {}) {
   const storage = new SQLiteStorage(), mock = createMockReasoning(), calls = [], assessments = [];
   const plugin = { ...mock, async *stream(request, options) {
     calls.push(request);
@@ -26,12 +27,13 @@ function fixture(t, { outputs, uploads = false, policy = purposePolicy } = {}) {
     for (let i = 0; i < text.length; i += 7) yield text.slice(i, i + 7);
   }, async structured(...args) { assessments.push(args[0]); return mock.structured(...args); } };
   let runtime = instrumentedMockRuntime(storage, plugin);
-  if (uploads) {
+  if (uploads || voice) {
     const registry = new PluginRegistry().register(mock), presets = mockPresets(); registerDemoExtractors(registry, presets);
+    if (voice) { registry.register(createLocalVoiceProvider({ storage })); presets.best.plugins.push('fake-voice'); presets.best.bindings.voice = localVoiceBinding; }
     const actual = createPluginRuntime({ storage, reasoning: mock, registry, presets, consent: mockConsent, temporaryDb });
     runtime = { ...actual, async admit(args) { const admitted = await actual.admit(args); return args.lane === 'reaction' || args.lane === 'understanding' ? { ...admitted, plugin } : admitted; } };
   }
-  const handlers = createHandlers({ storage, pluginRuntime: runtime, purposePolicy: policy, log: () => {} });
+  const handlers = createHandlers({ storage, pluginRuntime: runtime, purposePolicy: policy, ...(voice ? { voice: { secrets: createFacadeSecrets() } } : {}), log: () => {} });
   const session = storage.create({ demo: true, ownerToken: testToken });
   t.after(async () => { await handlers.close(); storage.close(); });
   const send = async (content, clientEventId = crypto.randomUUID()) => {
@@ -144,4 +146,21 @@ test('AIT-174 private counter survives SQLite restart, counts an input once acro
     assert.equal(JSON.stringify(storage.get(session.id)).includes('scope'), false);
     storage.erase(session.id); assert.equal(storage.safeguards(session.id).offTopicTurns, 0);
   } finally { storage.close(); }
+});
+
+test('AIT-174 local voice: typed input is classified privately before assessment; off-topic still skips it', async t => {
+  const f = fixture(t, { voice: true, outputs: request => {
+    const latest = request.messages.findLast(message => message.role === 'user').content;
+    return envelope(latest.includes('recipe') ? 'What Augmentoring project should we clarify?' : 'What should improve first?', latest.includes('recipe') ? 'off' : 'in');
+  } });
+  const response = await f.handlers.handle(req(f.session.id, 'voice', { callId: 'local-scope' })); assert.equal(response.status, 201);
+  const call = await response.json();
+  await f.handlers.handle(req(f.session.id, 'turns', { clientEventId: 'typed-in-call', content: 'Customers order bread online the day before.', voiceCallId: call.callId, providerSessionId: call.providerSessionId })); await f.handlers.idle();
+  assert.equal(f.calls.length, 1); assert.equal(f.assessments.length, 1);
+  assert.equal(f.storage.get(f.session.id).transcript.filter(turn => turn.role === 'assistant').length, 0, 'the simulator owns its normal spoken reply; classification adds no duplicate reply');
+  await f.send('Give me a recipe.', 'typed-off-in-call');
+  assert.equal(f.calls.length, 2); assert.equal(f.assessments.length, 1);
+  assert.equal(f.storage.safeguards(f.session.id).offTopicTurns, 1);
+  assert.match(f.storage.get(f.session.id).transcript.at(-1).content, /Augmentoring/u);
+  await f.handlers.handle(req(f.session.id, 'retry', {})); await f.handlers.idle(); assert.equal(f.calls.length, 2);
 });

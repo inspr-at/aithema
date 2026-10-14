@@ -13,7 +13,7 @@ import { htmlConfig } from '../../../demo/html-config.js';
 import { createClaudeHTML } from '@inspr/aithema-plugin-claude-html';
 import { temporaryDb } from '../../../test/helpers.js';
 
-async function fixture(t, { locale = 'en', capMilliseconds, closureTimeoutMs, reconcileIntervalMs, drafts = false, safeguards = false, replyOutput } = {}) {
+async function fixture(t, { locale = 'en', capMilliseconds, closureTimeoutMs, reconcileIntervalMs, drafts = false, safeguards = false, replyOutput, sessionDemo = false } = {}) {
   let cleanup; t.after(() => cleanup?.());
   const storage = new SQLiteStorage(), eleven = await fakeElevenLabs(t), logs = [], upstream = [];
   let processing = false, heldUnderstanding;
@@ -70,7 +70,7 @@ async function fixture(t, { locale = 'en', capMilliseconds, closureTimeoutMs, re
   const handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent, ...(safeguards ? { purposePolicy } : {}),
     voice: { secrets, staticSecretRef: host.staticSecretRef, presentation: host.presentation, closeOrphan: host.closeOrphan, reconcileIntervalMs } });
   cleanup = async () => { heldUnderstanding?.released.resolve(); await handlers.close(); storage.close(); openrouter.server.closeAllConnections(); await new Promise(resolve => openrouter.server.close(resolve)); };
-  const session = storage.create({ ownerToken: 'local-owner', locale });
+  const session = storage.create({ ownerToken: 'local-owner', locale, demo: sessionDemo });
   const route = (suffix, body = {}, owner = 'local-owner') => handlers.handle(new Request(`https://start2.example.test/api/sessions/${session.id}${suffix}`, {
     method: 'POST', headers: { 'x-aithema-session-token': owner }, body: JSON.stringify(body) }));
   const grant = async items => route('/consent', { granted: true, processing: { contract: consent.describe().contract, items } });
@@ -323,4 +323,17 @@ test('AIT-174 voice pauses only after the safe third reply is delivered, then re
   assert.equal((await h.callback(call.facadeCallId, 'local-callback-fixture', { messages: [...messages, { role: 'user', content: 'More recipes' }] })).status, 403);
   assert.equal(h.upstream.length, 3);
   assert.equal((await h.route('/voice/' + call.callId + '/resume', { providerSessionId: call.providerSessionId })).status, 409);
+});
+
+for (const scope of ['in', 'off']) test(`AIT-174 typed input during a custom-LLM call: ${scope} scope gates analysis without another paid reply`, { timeout: 10_000 }, async t => {
+  const h = await fixture(t, { safeguards: true, sessionDemo: true, replyOutput: () => JSON.stringify({ content: 'What Augmentoring project should we clarify?', scope, question_short: null, options: [] }) });
+  const call = await h.start(), content = scope === 'in' ? 'Customers order bread online the day before.' : 'Give me a recipe.';
+  assert.equal((await h.route('/turns', { clientEventId: 'typed-source', content, voiceCallId: call.callId, providerSessionId: call.providerSessionId })).status, 200);
+  await h.handlers.idle(); assert.equal(h.upstream.length, 0, 'the custom LLM owns the reply and scope, including a pending typed echo');
+  const response = await h.callback(call.facadeCallId, 'local-callback-fixture', { messages: [{ role: 'user', content }] });
+  assert.equal(response.status, 200); await response.text(); await h.handlers.idle();
+  assert.equal(h.upstream.filter(request => request.stream).length, 1);
+  assert.equal(h.upstream.filter(request => !request.stream).length, scope === 'in' ? 1 : 0);
+  assert.equal(h.storage.voiceOperations(h.session.id).length, 1);
+  assert.equal(h.storage.safeguards(h.session.id).offTopicTurns, scope === 'in' ? 0 : 1);
 });
