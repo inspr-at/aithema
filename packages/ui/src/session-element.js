@@ -29,6 +29,7 @@ import { modelDisplayName, settingsFlag } from './display.js';
 import { bandStyles } from './band-styles.js';
 import { motionPreference, rememberMotion, ConnectionTimer, ConversationFold, FooterPopups } from './layout.js';
 import { createReveal } from './reveal.js';
+import { mountVersionDetails } from './version-display.js';
 import { QuestionCard, questionCardMarkup, questionCardStyles } from './question-card.js';
 import { emailAskStyles } from './email-ask-styles.js';
 
@@ -290,7 +291,7 @@ export class AithemaSession extends HTMLElement {
     this.#mountMotion();
     const version = { product: 'Aithema 2026.10', ...this.#options.host?.version };
     setText(root.querySelector('.display-version'), version.product);
-    setText(root.querySelector('#build-info'), [version.product, version.commit, version.date].filter(Boolean).join(' · '));
+    mountVersionDetails(root.querySelector('#build-info'), version);
     this.#placeOrb();
     this.#dialog = new SettingsDialog({ dialog: root.querySelector('dialog.settings'), copy: this.#copy, operator: this.#options.host?.operator, ports: {
       // Withdrawn turns still mark a started conversation (the server's device lock agrees).

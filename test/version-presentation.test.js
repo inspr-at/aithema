@@ -1,0 +1,18 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { Window } from 'happy-dom';
+import { mountVersionDetails } from '../packages/ui/src/version-display.js';
+const window = new Window(); globalThis.document = window.document;
+test('product hover details use the shared Pretty renderer and exact canonical UTC/copy metadata', async () => {
+  const element = document.createElement('p');
+  mountVersionDetails(element, { product: 'Aithema 2026.10', version: '261014080000.0.0', version_scheme: 'inspr-calver-3' });
+  const coordinate = element.querySelector('.coordinate');
+  assert.equal(element.firstChild.textContent, 'Aithema 2026.10');
+  assert.equal(coordinate.dataset.canonical, '261014080000.0.0');
+  assert.match(coordinate.getAttribute('aria-label'), /261014080000\.0\.0.*2026-10-14 08:00:00 UTC/u);
+  assert.equal(coordinate.querySelector('.tail'), null); assert.equal(coordinate.querySelector('.v'), null);
+  assert.equal(coordinate.querySelector('.ss').dataset.collapsed, 'true');
+  mountVersionDetails(element, { product: 'Aithema 2026.10', version: '0.10.1', version_scheme: 'legacy' });
+  assert.equal(element.querySelector('.coordinate').textContent, '0.10.1');
+  await window.happyDOM.close();
+});

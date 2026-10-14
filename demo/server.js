@@ -166,7 +166,7 @@ const adminHTTP = createAdminHTTP({ host, spendCap, operatorSessions, publicOrig
 let allowedHosts = new Set();
 async function handle(request, context) {
   const refused = deploymentGate(request, deployment, allowedHosts); if (refused) return refused;
-  if (request.method === 'GET' && new URL(request.url).pathname === '/healthz') return Response.json({ ok: true, commit: deployment.commit ?? build.commit, version: build.version, product: build.product, date: build.date });
+  if (request.method === 'GET' && new URL(request.url).pathname === '/healthz') return Response.json({ ok: true, commit: build.commit ?? deployment.commit, version: build.version, version_scheme: build.version_scheme, release_channel: build.release_channel, release_sequence: build.release_sequence, product: build.product, date: build.date });
   // Fixed operator routes precede JSON-only visitor mutations; logout is a native form POST.
   const adminResponse = await adminHTTP.handle(request); if (adminResponse) return adminResponse;
   const operatorResponse = await operatorSessions?.handle(request); if (operatorResponse) return operatorResponse;
@@ -199,13 +199,13 @@ async function handle(request, context) {
   }
   const path = url.pathname === '/' ? '/demo/index.html' : ['/consent', '/consent/'].includes(url.pathname) ? '/demo/consent.html' : url.pathname;
   // Explicit source/static allowlist; no arbitrary files, lockfiles or credentials.
-  if (!/^\/(?:demo\/(?:index\.html|consent\.html|host\.css|host\.js|consent\.js|consent-page\.js|page-preferences\.js|theme-init\.js|confirm-email\.js|admin-page\.js|admin-view\.js|fake-voice\.js)|plugins\/fake-voice\/src\/(?:client|manifest)\.js|plugins\/device\/src\/index\.js|plugins\/elevenlabs\/src\/(?:client|manifest|options|playback)\.js|packages\/(?:ui|core)\/src\/[a-z0-9/-]+\.js)$/u.test(path)) return new Response(null, { status: 404 });
+  if (!/^\/(?:demo\/(?:index\.html|consent\.html|host\.css|host\.js|consent\.js|consent-page\.js|page-preferences\.js|theme-init\.js|confirm-email\.js|admin-page\.js|admin-view\.js|fake-voice\.js)|plugins\/fake-voice\/src\/(?:client|manifest)\.js|plugins\/device\/src\/index\.js|plugins\/elevenlabs\/src\/(?:client|manifest|options|playback)\.js|packages\/(?:ui|core)\/src\/[a-z0-9/-]+\.js|packages\/ui\/src\/versioning\/display\.json)$/u.test(path)) return new Response(null, { status: 404 });
   const file = resolve(root, `.${path}`);
   if (!file.startsWith(root + (root.endsWith(sep) ? '' : sep))) return new Response(null, { status: 404 });
   try {
     const bytes = await readFile(file);
     return new Response(request.method === 'HEAD' ? null : bytes, { headers: {
-      'content-type': file.endsWith('.html') ? 'text/html; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/javascript; charset=utf-8',
+      'content-type': file.endsWith('.html') ? 'text/html; charset=utf-8' : file.endsWith('.css') ? 'text/css; charset=utf-8' : file.endsWith('.json') ? 'application/json; charset=utf-8' : 'text/javascript; charset=utf-8',
       'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
       ...(file.endsWith('.html') ? { 'content-security-policy': HTML_PREVIEW_HOST_CSP } : {}),
     } });

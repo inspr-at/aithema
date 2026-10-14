@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { parseVersion, compareVersions, reserveVersion, migrationGate, assertReleaseTag } from '../release/lib/version.mjs';
 const source = JSON.parse(readFileSync(new URL('../release/version.json', import.meta.url)));
@@ -27,6 +28,7 @@ test('ordering validates first, accepts historical CalVer2 and v1, and anchors m
 });
 test('reservation is pure, owner-triggered, single-use and refuses a same-second collision', () => {
   const original = JSON.stringify(source);
+  for (const now of ['2009-12-31T23:59:59Z', '2100-01-01T00:00:00Z', 'invalid']) assert.throws(() => reserveVersion(source, { now, publishGo: true }), /UTC reservation/i);
   assert.throws(() => reserveVersion(source, { now: '2026-10-14T08:00:00Z' }), /publish go/i);
   const reserved = reserveVersion(source, { now: '2026-10-14T08:00:00Z', publishGo: true });
   assert.equal(reserved.version, '261014080000.0.0'); assert.equal(reserved.version_scheme, 'inspr-calver-3');
@@ -43,4 +45,12 @@ test('migration gate keeps current legacy metadata and live evidence pending bef
   assert.ok(gate.pending.includes('AIT-139')); assert.ok(gate.pending.includes('AIT-160')); assert.ok(gate.pending.includes('immutable-candidate'));
   const reserved = reserveVersion(source, { now: '2026-10-14T08:00:00Z', publishGo: true });
   assert.equal(migrationGate(reserved, { 'AIT-139': { status: 'merged' }, 'AIT-160': { status: 'merged' } }).authoritative, false);
+});
+
+test('qualification CLI fails closed before release and names pending measured inputs', () => {
+  let failure;
+  try { execFileSync(process.execPath, ['release/gate.mjs', 'qualification'], { cwd: new URL('../', import.meta.url), stdio: ['ignore', 'pipe', 'pipe'] }); }
+  catch (error) { failure = error; }
+  assert.equal(failure?.status, 1); const gate = JSON.parse(failure.stdout);
+  assert.equal(gate.authoritative, false); assert.ok(gate.pending.includes('AIT-139')); assert.ok(gate.pending.includes('AIT-160'));
 });

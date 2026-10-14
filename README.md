@@ -28,9 +28,11 @@ shows them when the host passes `configure({host})` (AIT-104 B2).
 The demo is for localhost and defaults to labelled deterministic reasoning, voice
 and image fakes.
 
-All packages are private with placeholder version `0.0.0`; versioning is decided
-at release preparation (AIT-32). The old release workflow has been removed;
-a lean release pipeline returns in **AIT-105**.
+All development packages remain private at `0.0.0`. **AIT-105/AIT-32** prepare
+the first reset release with INSPR-CalVer3 (`inspr-calver-3`) and a reproducible
+workspace artifact. No coordinate is reserved and no reset release is published.
+See [the consumer guide](docs/embedding.md) for exports, the version source,
+rollback and the pending AIT-139/AIT-160 live qualification checklist.
 
 ## Tests and demo
 

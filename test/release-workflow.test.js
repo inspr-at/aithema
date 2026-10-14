@@ -1,13 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
-// npm ships this YAML parser; no new dependency is added to the repository.
-import { execFileSync } from 'node:child_process';
-import { join } from 'node:path';
-const require = createRequire(import.meta.url);
-const npmRoot = execFileSync('npm', ['root', '-g'], { encoding: 'utf8' }).trim();
-const yaml = require(join(npmRoot, 'npm/node_modules/yaml'));
+import { parse } from 'yaml';
+const yaml = { parse };
 test('workflow parses, only a matching pushed tag admits release packing, and PR pack has no upload', () => {
   const release = yaml.parse(readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8'));
   assert.deepEqual(release.on.push.tags, ['v*']); assert.equal(release.on.pull_request, undefined);
