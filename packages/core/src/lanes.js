@@ -121,6 +121,7 @@ export class SessionLanes {
             catch (error) { failed = true; throw error; }
             finally {
               await admitted?.finish({ failed });
+              scope.signal.throwIfAborted();
               if (!current()) throw superseded;
             }
           }, { guardDirection: reply => current() ? this.guardDirection(id, reply) : reply,
