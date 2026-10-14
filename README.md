@@ -3108,3 +3108,76 @@ tokens are discarded after verification and never logged or stored.
 `/demo/config` is uncached and varies on Cookie. Only a live operator receives
 `operator: {name}`; public login metadata contains no subject or token. Existing
 visitor route guards and the AIT-151 privacy gate remain authoritative.
+
+
+### Host purpose safeguards (AIT-174)
+
+`createHandlers({ purposePolicy })` opts a host into a requirements-only conversation.
+The default `offTopicLimit: 0` leaves existing hosts' prompts, streaming, lane scheduling
+and replies unchanged. An enabled policy supplies `purpose` (a string or `{ de, en }`),
+`offTopicLimit` (positive integer), `outputCheck` (boolean), optional `redirect`
+(localized strings or a locale function), and optional `directionQuestion` (`{ de, en }`).
+start2 supplies Augmentoring's purpose, a limit of 3, the output check and Tick's final DE/EN copy.
+
+Scope is inferred, never a chosen product/consulting track. It can overlap or change.
+Unclear beginnings receive normal clarification without buttons. After three distinct
+unclear person turns the server supplies the fixed subtle question as text, at most once.
+Private SQLite memory retains this across locale changes, withdrawal and restart. Off-topic requests and role-change/prompt-reveal
+attempts receive a brief redirect and no requested work product. All transcript
+and uploaded text, hidden text and filenames remain untrusted evidence.
+
+The enabled reply schema includes internal `scope: in | unclear | off` for text
+and the ElevenLabs custom LLM. Scope never enters reply storage, SSE, export,
+question cards or the understanding panel. A private SQLite table retains only
+input identities, a boolean counter contribution and the assessment revision.
+Receipt retries and voice operation replays do not count twice. Off-topic input
+skips understanding. At the limit, the composer explains the locked pause and
+invites a new conversation; further turns, Resume and Retry cannot dispatch models.
+During a simulator call, normal input is classified privately before understanding
+without adding a duplicate assistant reply. The custom LLM still owns live replies,
+including typed input echoed through voice; matching prompt input never supplies
+a paid operation identity or ordinal. Voice ends cleanly after the accepted redirect
+has crossed the callback output boundary. Purpose pause also refuses paid recovery
+and uploads. Only the composer presents the purpose pause: it keeps its size, shows
+the fixed pause copy and offers New conversation. The rail shows the disabled speaker, a line and one disabled Start call in its idle cell;
+the input microphone is hidden. Start call carries the brief localized pause description.
+The overview retains its last content and the footer keeps its normal connection status.
+An AIT-138 voice-call pause retains its Resume behaviour.
+Rule C still owns callback identity, ordinal, replay, admission and settlement.
+
+With `outputCheck: true`, the complete reply is buffered before text or TTS can
+receive it. The server rejects canary leakage (including JSON escapes), Markdown
+fences, code syntax (including inline and unindented code) and HTML pre/code blocks,
+including card strings. Normalized overlaps of 12 consecutive words with known hidden
+guidance are also blocked. Only public `policy.purpose` is excluded from these spans; private host guidance (`hostPrompt`) is checked,
+so an in-scope explanation of the host purpose is accepted without counting. Bare-call
+checks require code identifiers and argument syntax, preserving German gender forms
+and parenthetical prose. Checks inspect decoded visible strings;
+wrapping JSON fences are accepted as transport syntax.
+Only guarded reply requests carry the private canary; understanding retains its
+existing untrusted-data framing behind the scope gate. A rejected output is regenerated once
+under a fresh admitted and settled model attempt. Only an explicit off classification
+or an output-check violation counts toward the pause. Invalid JSON, missing scope and
+provider faults produce a neutral reply or the normal error path without counting.
+A second unsafe rejection produces host redirect copy. This check is a deterministic backstop, not a semantic proof
+of model obedience. The fake-model red-team tests verify framing, extraction,
+counting, replay and non-disclosure; only a live evaluation can assess real models.
+
+Manual evaluator: `scripts/eval-safeguards.js` is never run in CI. Only with Markus's
+approval, on an approved evaluation machine with dependencies already available:
+
+```sh
+node scripts/eval-safeguards.js --allow-live
+```
+
+Supply `OPENROUTER_API_KEY`, `OPENROUTER_MODEL` and `AITHEMA_OPENROUTER_PRICES` as
+process environment values. It never loads an env file. `SAFEGUARDS_EVAL_CAP_USD`
+defaults to `0.05`, cannot exceed `0.10`, and uses the existing SQLite spend-cap
+reservation before each request and retry. The configured price bounds, provider
+`max_price`, disabled fallbacks, 12,000 input-token bound and 400 output-token bound
+constrain dispatch. Missing/uncertain usage retains its reservation; cap exhaustion
+stops the run. The report contains case IDs, sources, pass flags and costs only.
+Rejected model output and fallback use are reported as a model failure, even when
+the server safely redirects. The evaluator covers typed, uploaded-data and voice prompt variants; local CI
+covers actual TXT/PDF/DOCX extraction. Its automatic pass flag checks scope and
+canary protection; approved live behavioral assessment remains a human task.

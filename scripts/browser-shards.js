@@ -30,8 +30,9 @@ export const browserShards = [
     'test/browser/credit-hold.test.js',
     'test/browser/operator-login.test.js',
   ],
-  // 394.868s CI
+  // 394.868s CI; AIT-174's new file goes into this measured 411s job.
   [
+    'test/browser/safeguards.test.js',
     'test/browser/audio-replay.test.js',
     'test/browser/start2-display.test.js',
     'test/browser/orb-reveal.test.js',

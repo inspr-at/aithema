@@ -239,14 +239,14 @@ export class AithemaSession extends HTMLElement {
           <div class="intro__card"></div></div>
         <div class="concept-bar"><div class="concept-rail"></div><div class="concept-preview-slot"></div><div class="voice-notices"></div></div>
         <div class="transcript-shell"><ol aria-live="polite"></ol><button class="transcript-latest" type="button" data-copy="transcriptLatest" style="visibility:hidden"></button></div>
-        <div class="composer-dock">${questionCardMarkup}<div class="composer-shell"><form class="composer"><label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000" rows="2"></textarea>
+        <div class="composer-dock">${questionCardMarkup}<div class="composer-shell"><form class="composer"><label for="message" data-copy="composer"></label><textarea id="message" maxlength="8000" rows="2"></textarea><div class="purpose-pause-copy" role="status" hidden></div>
           <div class="composer-actions"><button class="attach" type="button" aria-describedby="attach-limits ai-notice">${UPLOAD_ICONS.attach}<span class="attach__label"></span></button>
             <span class="sr-only" id="attach-limits"></span><input class="attach-input" type="file" multiple hidden tabindex="-1" accept="${UPLOAD_ACCEPT}">
             <small class="composer-reason" role="status" id="composer-reason"></small><button class="send" aria-describedby="ai-notice">${icon('arrowRight')}<span class="visually-hidden"></span></button></div></form>
           <div class="composer-out" aria-hidden="true" inert><p class="composer-out__title"></p><p class="composer-out__body"></p>
             <div class="composer-out__bar"><span class="composer-out__steps"><span class="composer-out__give" data-next="give"></span><span class="composer-out__confirm" data-next="confirm"></span><span class="composer-out__none" data-next="none"></span></span>
               <span class="composer-out__actions"><button class="composer-out__upgrade" type="button" aria-haspopup="dialog"><span data-next="give"></span><span data-next="confirm"></span></button>
-                <a class="composer-out__export" data-next="none">${icon('download')}<span></span></a></span></div></div></div>
+                <a class="composer-out__export" data-next="none">${icon('download')}<span></span></a></span></div></div><button class="purpose-new" type="button" hidden></button></div>
         <div class="email-ask-dock"></div><p class="credit-announcement sr-only" role="status" aria-live="polite"></p><p class="email-ask-announcement sr-only" role="status" aria-live="polite"></p></div>
         <div class="drop-overlay" aria-hidden="true"><p><strong></strong><span></span></p></div></section>
       <aside class="understanding" aria-labelledby="understanding-title"><header class="head"><h2 id="understanding-title" data-copy="understanding"></h2><button class="concept-tab" type="button" data-copy="conceptTab"></button></header>
@@ -327,6 +327,7 @@ export class AithemaSession extends HTMLElement {
     });
     root.querySelector('.composer-out__upgrade').addEventListener('click', event => this.openSettings(event.currentTarget, { tab: 'general', anchor: '#email' }));
     root.querySelector('.composer-out__export').addEventListener('click', event => { event.preventDefault(); if (this.#session.processingPreset !== 'device') void this.#export(); });
+    root.querySelector('.purpose-new').addEventListener('click', () => this.#newConversation({ processingPreset: this.#session.processingPreset, settings: this.#session.settings }));
     root.querySelector('form').addEventListener('submit', e => { e.preventDefault(); void this.#send(); });
     root.querySelector('textarea').addEventListener('keydown', e => {
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');
@@ -448,6 +449,7 @@ export class AithemaSession extends HTMLElement {
     if (this.dispatchEvent(event)) this.configure({ ...this.#options, session });
   }
   async #setPaused(paused) {
+    if (this.#session.pauseReason === 'purpose') return;
     const sessionId = this.#session.id;
     try {
       const response = await postJson(`${this.#base}/api/sessions/${sessionId}/pause`, { paused }, { sessionToken: this.#sessionToken });
@@ -509,13 +511,14 @@ export class AithemaSession extends HTMLElement {
   #clearNotice() { this.#notice = ''; this.#paintStatus(); }
   #paintStatus() {
     const root = this.shadowRoot, status = root.querySelector('.status'), connected = this.#connection === this.#copy.connected;
-    const words = this.#rail?.moved ? this.#copy.voiceInAnotherTab : this.#notice || (this.#session.paused ? this.#pausePrompt ? this.#copy.pausedResume : this.#copy.paused : this.#connection || this.#copy.connecting);
+    const voicePause = this.#session.paused && this.#session.pauseReason !== 'purpose';
+    const words = this.#rail?.moved ? this.#copy.voiceInAnotherTab : this.#notice || (voicePause ? this.#pausePrompt ? this.#copy.pausedResume : this.#copy.paused : this.#connection || this.#copy.connecting);
     // Reserve the longest steady status in this locale; action messages use the existing popup.
     reconcile(status.querySelector('.status__sizer'), [this.#copy.connected, this.#copy.paused, this.#copy.voiceInAnotherTab].map(words => [words, words]),
       words => node('span', '', words), (span, words) => setText(span, words));
     setText(status.querySelector('.status__label'), words); status.title = words;
     status.toggleAttribute('data-connected', connected);
-    status.toggleAttribute('data-message', !this.#rail?.moved && Boolean(this.#notice || this.#session.paused && this.#pausePrompt));
+    status.toggleAttribute('data-message', !this.#rail?.moved && Boolean(this.#notice || voicePause && this.#pausePrompt));
     root.querySelector('.connection-timer').setAttribute('aria-hidden', 'true');
     this.#timer?.setConnected(connected);
   }
@@ -604,6 +607,7 @@ export class AithemaSession extends HTMLElement {
     // Held voice commands need the server verdict too: a local pause must not hide
     // a budget or consent refusal behind the explicit take-back exception.
     const continuation = visitor && feature === 'voice' && (this.#rail?.moved || this.#rail?.waitingCall);
+    if (this.#session.pauseReason === 'purpose') return { available: false, reason: this.#copy.paused };
     if (this.#session.paused && !continuation) return { available: false, reason: this.#copy.paused };
     if (this.#session.consentWithdrawn || this.#session.tombstone) return { available: false, reason: this.#copy.consentRequired };
     const matrix = this.#session.featureMatrix?.[preset] ?? (preset === 'device' ? deviceFeatures() : {});
@@ -681,6 +685,18 @@ export class AithemaSession extends HTMLElement {
   #syncVoicePause(rail = this.#rail) {
     const pause = this.shadowRoot.querySelector('.pause');
     if (!pause) return;
+    const purposePaused = this.#session.pauseReason === 'purpose', root = this.shadowRoot;
+    root.querySelector('.audio-rail').toggleAttribute('data-purpose-paused', purposePaused);
+    const start = root.querySelector('.voice-start');
+    if (purposePaused) {
+      pause.disabled = true;
+      start.disabled = true; start.title = this.#copy.purposePausedDescription;
+      start.setAttribute('aria-description', this.#copy.purposePausedDescription);
+      root.querySelector('.voice-state').textContent = '';
+      for (const name of ['input', 'output', 'playback', 'retry', 'close']) this.#rail?.button(name).setAttribute('disabled', '');
+      return;
+    }
+    start.removeAttribute('aria-description');
     if (rail?.session || rail?.waitingCall || rail?.state === 'connecting') {
       const command = rail.button('pause'); pause.dataset.voiceCommand = '';
       // Waiting can stay Waiting while a takeover receipt changes its command.
@@ -716,16 +732,23 @@ export class AithemaSession extends HTMLElement {
       // Invite speech only while the call can listen; held calls invite the next typed message.
       const listening = this.#rail?.session && !this.#rail.paused && !['recovering', 'waiting'].includes(this.#rail.state);
       const voicePlaceholder = this.#host?.fullHold ? copy.placeholderFullHold ?? copy.placeholderVoice : copy.placeholderVoice;
-      input.placeholder = listening ? voicePlaceholder ?? copy.placeholder : copy.placeholder;
+      input.placeholder = this.#session.pauseReason === 'purpose' ? copy.purposePaused : listening ? voicePlaceholder ?? copy.placeholder : copy.placeholder;
       root.querySelector('.send').disabled = this.#sending || !text.available;
       const reason = root.querySelector('.composer-reason');
       const mac = /Mac|iPhone|iPad/u.test(globalThis.navigator?.platform ?? '');
       // An upload refusal stands until the person types or attaches again.
-      const unavailable = this.#rail?.moved ? copy.voiceInAnotherTab : text.reason;
+      const unavailable = this.#session.pauseReason === 'purpose' ? copy.paused : this.#rail?.moved ? copy.voiceInAnotherTab : text.reason;
       const words = this.#uploadNotice || (text.available ? copy.shortcut.replace('{key}', copy.shortcutKeys?.[mac ? 'mac' : 'other'] ?? '') : unavailable);
       setText(reason, words); reason.title = this.#uploadNotice || text.available ? '' : unavailable;
+      input.toggleAttribute('data-purpose-paused', this.#session.pauseReason === 'purpose');
+      const purposePause = root.querySelector('.purpose-pause-copy');
+      purposePause.hidden = this.#session.pauseReason !== 'purpose'; setText(purposePause, copy.purposePaused);
+      input.style.visibility = purposePause.hidden ? '' : 'hidden';
+      const newConversation = root.querySelector('.purpose-new');
+      newConversation.hidden = purposePause.hidden; setText(newConversation, copy.settings.newConversation);
+      root.querySelector('.composer-shell').toggleAttribute('data-purpose-paused', !purposePause.hidden);
       this.#paintAttach();
-      const out = root.querySelector('.composer-out'), usedUp = !this.#creditEnding &&
+      const out = root.querySelector('.composer-out'), usedUp = !this.#creditEnding && purposePause.hidden &&
         (Boolean(this.#host?.usedUp) || !this.#hasLiveCall() && text.rawReason === 'budget denied');
       const shell = root.querySelector('.composer-shell'), form = root.querySelector('form.composer'), u = copy.hostSurface.usedUp, credits = copy.hostSurface.credits;
       shell.toggleAttribute('data-used-up', usedUp); form.inert = usedUp; form.setAttribute('aria-hidden', String(usedUp));
@@ -753,7 +776,7 @@ export class AithemaSession extends HTMLElement {
         const value = this.#feature(feature, true);
         row.className = value.available ? '' : 'unavailable'; row.firstChild.nodeValue = copy.features[feature];
         const reason = row.querySelector('span');
-        if (value.available) reason?.remove(); else (reason ?? row.appendChild(element('span'))).textContent = this.#rail?.moved ? copy.voiceInAnotherTab : value.reason;
+        if (value.available || this.#session.pauseReason === 'purpose') reason?.remove(); else (reason ?? row.appendChild(element('span'))).textContent = this.#rail?.moved ? copy.voiceInAnotherTab : value.reason;
       });
       return;
     }
@@ -834,7 +857,7 @@ export class AithemaSession extends HTMLElement {
       ? copy.talkProgress.replace('{percent}', displayedReadinessPercent(u.progress.talk.value)) : copy.notAssessed;
     root.querySelector('.build-progress').textContent = u.readinessAssessed
       ? copy.buildProgress.replace('{percent}', displayedReadinessPercent(u.progress.build.value)) : '';
-    if (!this.#host?.usedUp) root.querySelector('.notice').textContent = !analysis.available ? this.#rail?.moved ? copy.voiceInAnotherTab : analysis.reason : this.#failure ? copy.reasoningFailed : !u.readinessAssessed ? copy.empty
+    if (!this.#host?.usedUp && this.#session.pauseReason !== 'purpose') root.querySelector('.notice').textContent = !analysis.available ? this.#rail?.moved ? copy.voiceInAnotherTab : analysis.reason : this.#failure ? copy.reasoningFailed : !u.readinessAssessed ? copy.empty
       : stale ? copy.stale : u.draft ? copy.draft : copy.final;
     const revision = inputRevision(this.#session), operations = this.#session.operations;
     const running = operations?.inputRevision === revision && operations.running.length > 0;
@@ -1340,7 +1363,7 @@ export class AithemaSession extends HTMLElement {
     const zone = this.shadowRoot.querySelector('.conversation'), feature = this.#feature('uploads', true);
     if (on) {
       if (feature.available) void this.#loadLimits();
-      setText(zone.querySelector('.drop-overlay strong'), feature.available ? this.#copy.uploads.dropActive : this.#copy.uploads.unavailable.replace('{reason}', feature.reason));
+      setText(zone.querySelector('.drop-overlay strong'), this.#session.pauseReason === 'purpose' ? this.#copy.purposePaused : feature.available ? this.#copy.uploads.dropActive : this.#copy.uploads.unavailable.replace('{reason}', feature.reason));
       setText(zone.querySelector('.drop-overlay span'), feature.available ? dropText(this.#copy, this.#limits, this.#session.locale) : '');
     }
     zone.toggleAttribute('data-dropping', on);
@@ -1349,6 +1372,7 @@ export class AithemaSession extends HTMLElement {
   // every way in (the button, the picker's files, a drop) is refused by it before anything is sent.
   #attachRefusal() {
     const copy = this.#copy, feature = this.#feature('uploads', true);
+    if (this.#session.pauseReason === 'purpose') return copy.purposePaused;
     if (!feature.available) return copy.uploads.unavailable.replace('{reason}', feature.reason);
     if (this.#uploading) return copy.uploads.busy;
     return uploadsPossible(this.#limits) ? '' : copy.uploads.impossible;
@@ -1357,7 +1381,7 @@ export class AithemaSession extends HTMLElement {
   #paintAttach() {
     const root = this.shadowRoot, attach = root.querySelector('.attach'), feature = this.#feature('uploads', true);
     const limits = limitsText(this.#copy, this.#limits, this.#session.locale);
-    const unavailable = feature.available ? '' : this.#copy.uploads.unavailable.replace('{reason}', feature.reason);
+    const unavailable = this.#session.pauseReason === 'purpose' ? this.#copy.purposePaused : feature.available ? '' : this.#copy.uploads.unavailable.replace('{reason}', feature.reason);
     attach.setAttribute('aria-disabled', String(Boolean(this.#attachRefusal())));
     attach.title = unavailable || limits;
     setText(root.querySelector('#attach-limits'), unavailable || limits);
@@ -1425,6 +1449,7 @@ export class AithemaSession extends HTMLElement {
       for (const event of body.events ?? []) this.receive(event);
       return '';
     }
+    if (response.status === 409 && body?.reason === 'purpose') return copy.purposePaused;
     if (response.status === 413) return copy.uploads.overLimit;
     if (response.status === 429) return copy.uploads.busy;
     if (response.status === 403 && typeof body?.reason === 'string') return copy.uploads.unavailable.replace('{reason}', reasonText(copy, body.reason));
@@ -1538,7 +1563,7 @@ export class AithemaSession extends HTMLElement {
       if (event.type === 'session.locale-changed') this.#repaintLocale();
       if (event.type === 'session.paused') {
         this.#notice = '';
-        if (!this.#rail.syncPause(event.data.paused, event.data.pauseRequestId, event.data.resumeRequestId)) {
+        if (event.data.reason !== 'purpose' && !this.#rail.syncPause(event.data.paused, event.data.pauseRequestId, event.data.resumeRequestId)) {
           this.#session.paused = Boolean(this.#rail.paused);
         }
         if (this.#session.paused) this.#deviceController?.abort(); else this.#pausePrompt = false;

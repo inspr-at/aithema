@@ -1,3 +1,4 @@
+import { start2PurposePolicy } from './safeguards.js';
 import { createZitadelOIDC, zitadelOperatorConfig } from '@inspr/aithema-plugin-zitadel-oidc';
 import { createOperatorSessions, createSQLiteOperatorStore } from '../packages/server/src/operator-session.js';
 import { mkdir, readFile } from 'node:fs/promises';
@@ -147,7 +148,7 @@ const confirmationPage = mailPlugin ? createConfirmationPage({ host, publicOrigi
 // Demo only: AITHEMA_DEMO_HANDOVER_FAIL=n (1–10) fails the first n fake handover deliveries, to show Retry.
 const handoverFailures = Number(process.env.AITHEMA_DEMO_HANDOVER_FAIL ?? 0);
 if (host.demo && Number.isSafeInteger(handoverFailures)) for (let i = 0; i < Math.min(Math.max(handoverFailures, 0), 10); i++) host.sink.failNext();
-const handlers = createHandlers({ storage, reasoning, pluginRuntime, consent, ownership, host, uploads: { limits: uploadLimits }, voice: voicePlugin || voiceHost?.transient ? { secrets, closeOrphan: voiceHost?.closeOrphan, staticSecretRef: voiceHost?.staticSecretRef, presentation: voiceHost?.presentation, log: voiceHost?.log } : undefined });
+const handlers = createHandlers({ purposePolicy: start2PurposePolicy, storage, reasoning, pluginRuntime, consent, ownership, host, uploads: { limits: uploadLimits }, voice: voicePlugin || voiceHost?.transient ? { secrets, closeOrphan: voiceHost?.closeOrphan, staticSecretRef: voiceHost?.staticSecretRef, presentation: voiceHost?.presentation, log: voiceHost?.log } : undefined });
 voiceHost?.onAvailable?.(candidate => prepareVoiceRuntime({ current: readVoiceState(), binding: candidate.binding,
   createPlugin: configuredVoicePlugin,
   extendPolicy: (before, binding) => imageHost?.policy || voiceHost.policy ? before
