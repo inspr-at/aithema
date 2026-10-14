@@ -910,7 +910,7 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
     const textLines = { notice: text(root.querySelector('#ai-notice')), version: text(value),
       build: text(build.querySelector('.build-label')), link: text(legal.querySelector('a')), notes: text(notes) };
     const versionColours = [...value.querySelectorAll('span')].filter(n => n.getBoundingClientRect().width > 0)
-      .map(n => ({ colour: getComputedStyle(n).color, opacity: getComputedStyle(n).opacity }));
+      .map(n => ({ ...text(n), opacity: getComputedStyle(n).opacity }));
     const gap = (a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().bottom;
     const rhythm = [gap(root.querySelector('#ai-notice'), build), gap(row, build.querySelector('.build-label')),
       gap(build, legal), gap(legal, notes)];
@@ -943,7 +943,7 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
   await configure('de');
   await page.setViewport({ width: 1440, height: 1000 });
   await page.select('#theme', 'dark');
-  const notice = await page.$('aithema-session >>> .ai-notice'); await notice.hover();
+  let notice = await page.$('aithema-session >>> .ai-notice'); await notice.hover();
   await until(page, () => getComputedStyle(document.querySelector('aithema-session').shadowRoot.querySelector('.footer-info .footer-popup')).opacity === '1');
   await t.test('opaque approved dark tooltip surface', async () => {
     const metrics = await popupMetrics(); assert.equal(metrics.background, 'rgb(16, 43, 66)'); assert.equal(metrics.opacity, '1');
@@ -958,7 +958,8 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
     const failures = [];
     for (const theme of ['light', 'dark']) {
       await page.select('#theme', theme);
-      for (const [line, data] of Object.entries((await popupMetrics()).textLines)) {
+      const metrics = await popupMetrics();
+      for (const [line, data] of Object.entries({ ...metrics.textLines, ...Object.fromEntries(metrics.versionColours.map((data, i) => [`version-${i}`, data])) })) {
         if (data.contrast < 4.5) failures.push(`${theme}/${line}: ${data.colour} ${data.contrast.toFixed(2)}:1`);
       }
     }
@@ -979,17 +980,19 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
     assert.deepEqual((await popupMetrics()).rhythm, [8, 2, 8, 8]);
   });
   await t.test('round 3 copied ring only for keyboard focus', async () => {
-    await configure('de'); await notice.hover();
+    await configure('de'); notice = await page.$('aithema-session >>> .ai-notice'); await notice.hover();
     await page.click('aithema-session >>> #build-info .version-row');
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('[data-copy-state="copied"]'));
     assert.equal((await popupMetrics()).ring, false, 'mouse copy');
-    await configure('de'); await notice.focus();
+    await configure('de'); notice = await page.$('aithema-session >>> .ai-notice'); await notice.focus();
     await page.keyboard.press('Tab'); await page.keyboard.press('Enter');
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('[data-copy-state="copied"]'));
     assert.equal((await popupMetrics()).ring, true, 'keyboard copy');
+    await page.click('aithema-session >>> #build-info .version-row');
+    assert.equal((await popupMetrics()).ring, false, 'mouse copy after keyboard focus');
   });
   await t.test('round 3 failed clipboard and execCommand replace the value with 0 px shift', async () => {
-    await configure('de'); await notice.hover(); const before = await popupMetrics();
+    await configure('de'); notice = await page.$('aithema-session >>> .ai-notice'); await notice.hover(); const before = await popupMetrics();
     await page.evaluate(() => {
       window.ait105Clipboard = navigator.clipboard; window.ait105Exec = document.execCommand;
       Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async () => { throw new Error('clipboard denied'); } } });
@@ -1004,7 +1007,7 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
       assert.equal(await shadow(page, c => c.shadowRoot.activeElement.className), '');
     } finally {
       await page.evaluate(() => { Object.defineProperty(navigator, 'clipboard', { configurable: true, value: window.ait105Clipboard }); document.execCommand = window.ait105Exec; });
-      await configure('de'); await notice.hover();
+      await configure('de'); notice = await page.$('aithema-session >>> .ai-notice'); await notice.hover();
     }
   });
   await t.test('copy replaces version in the same slot for 1.2 s without an overlay', async () => {
