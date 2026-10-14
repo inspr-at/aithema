@@ -295,6 +295,7 @@ test('AIT-177: continuity baseline awaits the persisted greeting and workspace e
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
   await mockConsent(page);
   await shadow(page, c => c.shadowRoot.querySelector('.chooser__continue').click());
+  await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.workspace').dataset.stage === 'ready');
   await until(page, () => !document.querySelector('aithema-session').shadowRoot.querySelector('.voice-start').disabled);
   await shadow(page, c => c.shadowRoot.querySelector('.ready__mode[data-mode="voice"]').click());
   await shadow(page, c => c.shadowRoot.querySelector('.ready__start').click());
