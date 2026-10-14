@@ -112,8 +112,10 @@ async function main() {
     const runtime = createPluginRuntime({ storage, registry: new PluginRegistry().register(reasoning),
       consent: { coverage: ({ scope, consentRevision }) => ({ covered: true, ...scope, scope, consentRevision, checkedAt: Date.now(), expiresAt: Date.now() + 60_000 }) },
       presets: { best: { plugins: ['openrouter'], bindings: { reaction: config.reaction }, policy: { endpoints: [config.reaction.endpoint] } } } });
+    const sessions = new Map();
     await runReplySchemaDiagnostics({ async *invoke(request, context) {
-      const session = storage.create({ ...context, demo: true, ownerToken: 'ops-reply-diagnostic' });
+      if (!sessions.has(context.id)) sessions.set(context.id, storage.create({ ...context, demo: true, ownerToken: 'ops-reply-diagnostic' }));
+      const session = sessions.get(context.id);
       const admitted = await runtime.admit({ session: storage.get(session.id), lane: 'reaction', operation: 'stream', request,
         options: { signal: new AbortController().signal, deadlineAt: Date.now() + 30_000 } });
       let failed = true;
