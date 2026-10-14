@@ -992,6 +992,9 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
     assert.equal((await popupMetrics()).ring, true, 'keyboard copy');
     await page.click('aithema-session >>> #build-info .version-row');
     assert.equal((await popupMetrics()).ring, false, 'mouse copy after keyboard focus');
+    await page.keyboard.press('Tab');
+    await page.keyboard.down('Shift'); await page.keyboard.press('Tab'); await page.keyboard.up('Shift');
+    assert.equal((await popupMetrics()).ring, true, 'keyboard Tab focus returns after mouse copy');
     await page.keyboard.press('Enter'); assert.equal((await popupMetrics()).ring, true, 'keyboard styling returns after mouse copy');
   });
   await t.test('round 3 failed clipboard and execCommand replace the value with 0 px shift', async () => {
