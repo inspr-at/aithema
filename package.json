@@ -14,12 +14,16 @@
     "test:browser": "node scripts/test-browser.js",
     "test:browser-shards": "node scripts/browser-shards.js",
     "test:voice-soak": "node scripts/voice-soak.js",
-    "demo": "node demo/server.js"
+    "demo": "node demo/server.js",
+    "release:dry-run": "node release/dry-run.mjs",
+    "release:pack": "node release/pack.mjs pack",
+    "release:verify": "node release/pack.mjs verify"
   },
   "devDependencies": {
     "happy-dom": "^20.11.2",
     "puppeteer-core": "25.13.0",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "yaml": "2.8.2"
   },
   "version": "0.0.0",
   "description": "Embeddable requirements conversation: core, server, web components and provider plugins",

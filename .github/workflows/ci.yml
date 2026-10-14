@@ -23,6 +23,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:browser-shards
+      - name: Pack twice and verify without upload
+        run: node release/dry-run.mjs
+        env:
+          AITHEMA_CANONICAL_RELEASE: '1'
       - run: npm test
 
   browser:

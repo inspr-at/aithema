@@ -1,0 +1,105 @@
+{
+  "schema": "aithema-release-history/1",
+  "mapping_status": "preparation; legacy ordinal mapping requires controller review",
+  "releases": [
+    {
+      "version_scheme": "legacy",
+      "version": "0.1.0",
+      "release_channel": "stable",
+      "release_sequence": 1,
+      "tag": "v0.1.0",
+      "source_commit": "1028b450a266294ec002bff5e5f51f2de9f86faa",
+      "forge_release": "https://github.com/inspr-at/aithema/releases/tag/v0.1.0"
+    },
+    {
+      "version_scheme": "legacy",
+      "version": "0.2.0",
+      "release_channel": "stable",
+      "release_sequence": 2,
+      "tag": "v0.2.0",
+      "source_commit": "cff9eaee6cb2e4ae1d3bf2932d064e8f70eaa131",
+      "forge_release": "https://github.com/inspr-at/aithema/releases/tag/v0.2.0"
+    },
+    {
+      "version_scheme": "legacy",
+      "version": "0.3.0",
+      "release_channel": "stable",
+      "release_sequence": 3,
+      "tag": "v0.3.0",
+      "source_commit": "28c55767b726ed46d9b6b7b1b3ff8198e291967c",
+      "forge_release": "https://github.com/inspr-at/aithema/releases/tag/v0.3.0"
+    },
+    {
+      "version_scheme": "legacy",
+      "version": "0.4.0",
+      "release_channel": "stable",
+      "release_sequence": 4,
+      "tag": "v0.4.0",
+      "source_commit": "54c3339f4983364910fae9a6cb5c76ab7fd2f68c",
+      "forge_release": "https://github.com/inspr-at/aithema/releases/tag/v0.4.0"
+    },
+    {
+      "version_scheme": "legacy",
+      "version": "0.5.0",
+      "release_channel": "stable",
+      "release_sequence": 5,
+      "tag": "v0.5.0",
+      "source_commit": "8a0b780a9361b1176b7a51d82b7c9eb90a9d70f3",
+      "forge_release": "https://github.com/inspr-at/aithema/releases/tag/v0.5.0"
+    },
+    {
+      "version_scheme": "legacy",
+      "version": "0.6.0",
+      "release_channel": "stable",
+      "release_sequence": 6,
+      "tag": "v0.6.0",
+      "source_commit": "902adaf2eb8e707f8e93c54f1c34f8688dbb54cd",
+      "forge_release": "https://github.com/inspr-at/aithema/releases/tag/v0.6.0"
+    },
+    {
+      "version_scheme": "legacy",
+      "version": "0.7.0",
+      "release_channel": "stable",
+      "release_sequence": 7,
+      "tag": "v0.7.0",
+      "source_commit": "981e4d49b9360c430ae944afa4df29a37d536c76",
+      "forge_release": "https://github.com/inspr-at/aithema/releases/tag/v0.7.0"
+    },
+    {
+      "version_scheme": "legacy",
+      "version": "0.8.0",
+      "release_channel": "stable",
+      "release_sequence": 8,
+      "tag": "v0.8.0",
+      "source_commit": "fb5ac0239821a4efa9ae4930c1a0ec6545095498",
+      "forge_release": "https://github.com/inspr-at/aithema/releases/tag/v0.8.0"
+    },
+    {
+      "version_scheme": "legacy",
+      "version": "0.9.0",
+      "release_channel": "stable",
+      "release_sequence": 9,
+      "tag": "v0.9.0",
+      "source_commit": "5a004b302141196daff3fd578429390cbb3ea0e0",
+      "forge_release": "https://github.com/inspr-at/aithema/releases/tag/v0.9.0"
+    },
+    {
+      "version_scheme": "legacy",
+      "version": "0.10.0",
+      "release_channel": "stable",
+      "release_sequence": 10,
+      "tag": "v0.10.0",
+      "source_commit": "d9591b440fdcfa68a2217dd2aefbd92310d151b7",
+      "forge_release": "https://github.com/inspr-at/aithema/releases/tag/v0.10.0"
+    },
+    {
+      "version_scheme": "legacy",
+      "version": "0.10.1",
+      "release_channel": "stable",
+      "release_sequence": 11,
+      "tag": "v0.10.1",
+      "source_commit": "e89c1cdad0c3f608f2ae06fb0cfc87d9048b1ca0",
+      "forge_release": "https://github.com/inspr-at/aithema/releases/tag/v0.10.1"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "repository": "inspr-at/inspr",
+  "revision": "bd0a13816f728ad91c36d849f88168bcac4fdc6e",
+  "config_sha256": "bf6aa144cd73dc97dc941f0f0914138b04ae0a28fbead5123465b15b1f2a2fd9",
+  "manifest_sha256": "a3d2d8d45f4f9c2c1f978225f4737d2248f654595237cb12231e78cff0e2ed6e",
+  "path": "packages/ui/src/versioning",
+  "selection": "global-default",
+  "review_status": "pending-AIT-105-controller-review"
+}

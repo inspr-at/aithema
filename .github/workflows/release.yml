@@ -1,0 +1,47 @@
+name: release-prep
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  pack:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+      - name: Require the tagged commit to be on main
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor HEAD origin/main
+      - name: Check reserved version and exact tag before building
+        env:
+          RELEASE_REF: ${{ github.ref }}
+        run: node release/gate.mjs tag "$RELEASE_REF"
+      - name: Build the immutable workspace artifact once
+        env:
+          AITHEMA_CANONICAL_RELEASE: '1'
+        run: node release/pack.mjs pack dist/release "$GITHUB_REF"
+      - name: Verify the same bytes
+        run: node release/pack.mjs verify dist/release
+      # Only ephemeral CI transfer. npm, forge publication and signing require the later owner go.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: aithema-reset-${{ github.ref_name }}
+          path: dist/release/
+          retention-days: 14
