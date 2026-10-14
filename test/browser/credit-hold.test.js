@@ -25,7 +25,9 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
     env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
   const page = await browser.newPage(), errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.goto(fixture.url, { waitUntil: 'domcontentloaded' });
-  await until(page, () => customElements.get('aithema-session'));
+  // Surface a failed module load directly instead of a registry polling timeout.
+  await page.evaluate(() => import('/packages/ui/src/session-element.js'));
+  await until(page, () => Boolean(document.querySelector('aithema-session')?.shadowRoot));
   for (const locale of ['de', 'en']) for (const width of [390, 1024, 1440]) {
     await page.setViewport({ width, height: 1000 });
     let baseline;
