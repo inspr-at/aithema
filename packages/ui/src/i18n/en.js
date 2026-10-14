@@ -316,6 +316,7 @@ export const en = {
       creditLoading: 'Loading credit …',
       creditFailed: "Credit isn't available right now.",
       creditFailedMail: "Credit isn't available right now. You can still confirm your address.",
+      creditFailedSave: "Credit isn't available right now. You can still save your address.",
       leadSave: 'With your email address, your credit rises from {base} to {email} Credits.',
       leadMail: 'With your email address, your credit rises to {email} Credits, and to {confirmed} once confirmed.',
       leadEdit: 'The new email address replaces the old one. Your credit stays at {email} Credits.',

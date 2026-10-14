@@ -108,7 +108,7 @@ export class VisitorEmail {
       if (status) { if (lead.getAttribute(attribute) !== value) lead.setAttribute(attribute, value); }
       else if (lead.hasAttribute(attribute)) lead.removeAttribute(attribute);
     }
-    const failure = this.viewDelivery ? this.e.creditFailedMail : this.e.creditFailed;
+    const failure = this.canCollect ? this.viewDelivery ? this.e.creditFailedMail : this.e.creditFailedSave : this.e.creditFailed;
     // The guarded text writer preserves the live region across repeated paints.
     setTierText(lead, status ? this.creditsState === 'failed' ? failure : this.e.creditLoading : template, values);
   }

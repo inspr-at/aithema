@@ -320,6 +320,7 @@ export const de = {
       creditLoading: 'Guthaben wird geladen …',
       creditFailed: 'Guthaben gerade nicht verfügbar.',
       creditFailedMail: 'Guthaben gerade nicht verfügbar. Sie können die Adresse trotzdem bestätigen.',
+      creditFailedSave: 'Guthaben gerade nicht verfügbar. Sie können die Adresse trotzdem speichern.',
       leadSave: 'Mit Ihrer E-Mail-Adresse steigt Ihr Guthaben von {base} auf {email} Credits.',
       leadMail: 'Mit Ihrer E-Mail-Adresse steigt Ihr Guthaben auf {email} Credits, nach der Bestätigung auf {confirmed}.',
       leadEdit: 'Die neue E-Mail-Adresse ersetzt die bisherige. Ihr Guthaben bleibt bei {email} Credits.',
