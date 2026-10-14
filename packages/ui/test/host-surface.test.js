@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
-import { createSession, inputRevision } from '@inspr/aithema-core';
+import { createSession, inputRevision, reduceUnderstanding } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 import { hostStyles } from '../src/host-styles.js';
@@ -1126,4 +1126,54 @@ for (const copy of [de, en]) test(`AIT-173 round 4: stale hangup denial waits fo
   assert.equal(input.value, 'Keep this draft');
   spent = true; c.receive({ type: 'voice.state', data: { state: 'ended' } }); await tick(12);
   assert.equal(root.querySelector('.composer-shell').hasAttribute('data-used-up'), true, 'fresh genuine denial uses normal used-up path');
+});
+
+
+for (const copy of [de, en]) test(`AIT-173 round 5: blocked overview keeps content and slider (${copy === de ? 'de' : 'en'})`, async t => {
+  let blocked = false;
+  const { c, root } = setup(t, { copy, host: {}, routes: {
+    'GET ': () => Response.json({ ...c.session, featureMatrix: { best: {
+      text: { available: !blocked, reason: blocked ? 'budget reconciling' : null },
+      analysis: { available: !blocked, reason: blocked ? 'budget reconciling' : null } } } }),
+  } });
+  userTurn(c);
+  c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: reduceUnderstanding(c.session.understanding,
+    { summary: 'A preorder app', signals: ['Orders'], openQuestions: ['When?'] },
+    { transcript: c.session.transcript, inputRevision: inputRevision(c.session) }) });
+  const before = root.querySelector('.notice').textContent, summary = root.querySelector('.summary-text').textContent;
+  blocked = true; c.receive({ type: 'voice.state', data: { state: 'ended' } }); await tick(8);
+  c.receive({ type: 'lane.failed', data: { inputRevision: inputRevision(c.session), lane: 'understanding', error: 'reasoning-unavailable', reason: 'budget reconciling' } });
+  assert.equal(root.querySelector('.notice').textContent, before);
+  assert.equal(root.querySelector('.summary-text').textContent, summary);
+  assert.equal(root.querySelector('.readiness').style.visibility, '');
+  assert.equal(root.querySelector('.summary-text').closest('section').hidden, false);
+  assert.equal(root.querySelector('.retry').hidden, true);
+});
+
+for (const copy of [de, en]) test(`AIT-173 round 5: no-credit host polls settlement, retries analysis and keeps long-wait draft (${copy === de ? 'de' : 'en'})`, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  let settled = false;
+  const { c, root, calls } = setup(t, { copy, host: {}, session: { featureMatrix: { best: {
+    text: { available: false, reason: 'budget reconciling' }, analysis: { available: false, reason: 'budget reconciling' } } } }, routes: {
+    'GET ': () => Response.json({ ...c.session, featureMatrix: { best: {
+      text: { available: settled, reason: settled ? null : 'budget reconciling' },
+      analysis: { available: settled, reason: settled ? null : 'budget reconciling' } } } }),
+    'POST /retry': () => Response.json({ accepted: true }, { status: 202 }),
+  } });
+  await tick(8);
+  const input = root.querySelector('textarea'); input.value = 'Keep this draft';
+  c.receive({ type: 'lane.failed', data: { inputRevision: inputRevision(c.session), lane: 'understanding', error: 'reasoning-unavailable', reason: 'budget reconciling' } });
+  t.mock.timers.tick(59_999); await tick(8);
+  assert.equal(root.querySelector('.composer-reason').textContent, copy.reasons['budget reconciling']);
+  t.mock.timers.tick(1); await tick(8);
+  assert.equal(root.querySelector('.composer-reason').textContent, copy === de ? 'Die Anrufkosten sind noch nicht bestätigt. Ihr Text bleibt erhalten.' : "The call's costs aren't confirmed yet. Your text is kept.");
+  settled = true; t.mock.timers.tick(15_000); await tick(12);
+  assert.equal(root.querySelector('.send').disabled, false);
+  assert.equal(input.value, 'Keep this draft');
+  assert.equal(calls.filter(call => call.path === '/credits').length, 0);
+  assert.equal(calls.filter(call => call.path === '/retry').length, 1);
+  assert.notEqual(root.querySelector('.notice').textContent, copy.reasoningFailed);
+  assert.equal(root.querySelector('.retry').hidden, true);
+  t.mock.timers.tick(60_000); await tick(8);
+  assert.equal(calls.filter(call => call.path === '/retry').length, 1, 'settlement retries once');
 });
