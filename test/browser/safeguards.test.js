@@ -94,7 +94,21 @@ test('AIT-174 redirect, subtle question, locked pause and normal reply at 390/10
       assert.deepEqual(action, { text: locale === 'de' ? 'Neues Gespräch' : 'New conversation', shown: true, inComposer: true, enabled: true });
       assert.equal(pause.railOverflow, false, 'the voice rail keeps its brief status instead of the composer paragraph');
       assert.equal(pause.disabled, true); assert.equal(pause.overflow, false); assert.equal(pause.label, false);
-      assert.ok(pause.scroll <= pause.height + 1, `${label}: full pause copy fits its reserved composer area`); await shot('pause');
+      assert.ok(pause.scroll <= pause.height + 1, `${label}: full pause copy fits its reserved composer area`);
+      if (locale === 'de' && width === 390) {
+        // Linux's wider sans metrics need four lines; reproduce that on macOS too.
+        await shadow(page, c => { const copy = c.shadowRoot.querySelector('.purpose-pause-copy'); copy.style.fontFamily = 'Arial, sans-serif'; copy.style.fontSize = '13px'; });
+        await frame(page);
+        const metrics = await shadow(page, c => {
+          const copy = c.shadowRoot.querySelector('.purpose-pause-copy'), action = c.shadowRoot.querySelector('.purpose-new');
+          return { height: copy.clientHeight, scroll: copy.scrollHeight, gap: action.getBoundingClientRect().top - copy.getBoundingClientRect().bottom };
+        });
+        assert.ok(metrics.scroll <= metrics.height + 1, `${label}: wider font pause copy fits`);
+        assert.ok(metrics.gap >= 4, `${label}: pause paragraph and action stay apart`);
+        await shadow(page, c => { const copy = c.shadowRoot.querySelector('.purpose-pause-copy'); copy.style.fontFamily = ''; copy.style.fontSize = ''; });
+        await frame(page);
+      }
+      await shot('pause');
       checks.push(`${label}: normal, redirect, subtle question without buttons, locked pause with New conversation; 0 px composer shift; no horizontal overflow; pause copy fits`);
     });
   }
