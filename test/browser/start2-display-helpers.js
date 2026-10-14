@@ -68,6 +68,20 @@ const finishRevealEntry = page => shadow(page, async c => {
   const animations = c.shadowRoot.querySelector('.band').getAnimations({ subtree: true });
   await Promise.all(animations.filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
 });
+// Continuity baselines must wait for the first persisted greeting, not just
+// the rail's listening/speaking state.
+const finishWorkspaceEntry = async page => {
+  await until(page, () => { const c = document.querySelector('aithema-session'), w = c.shadowRoot.querySelector('.workspace');
+    return c.session.transcript.length > 0 && w.dataset.stage === 'live'
+      && w.dataset.understanding === 'present' && !w.hasAttribute('data-reveal'); });
+  await shadow(page, async c => {
+    await document.fonts.ready;
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await Promise.all(c.shadowRoot.querySelector('.workspace').getAnimations({ subtree: true })
+      .filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished));
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  });
+};
 const freezeRevealExit = async page => {
   const point = await shadow(page, c => {
     const band = c.shadowRoot.querySelector('.band'), native = window.setTimeout;
@@ -105,4 +119,4 @@ const seekReveal = (page, ms) => page.evaluate(ms => {
 }, ms);
 
 const evidenceCommit = process.env.GITHUB_SHA ?? process.env.AITHEMA_COMMIT ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1] ?? 'd886da3';
-export { browserPath, mockIdentityReads, shadow, until, settle, boxes, layoutBoxes, statusGeometry, sameBoxes, pixelRgb, finishRevealEntry, freezeRevealExit, seekReveal, evidenceCommit };
+export { browserPath, mockIdentityReads, shadow, until, settle, boxes, layoutBoxes, statusGeometry, sameBoxes, pixelRgb, finishRevealEntry, finishWorkspaceEntry, freezeRevealExit, seekReveal, evidenceCommit };

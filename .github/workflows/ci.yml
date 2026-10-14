@@ -54,4 +54,6 @@ jobs:
           name: browser-evidence-${{ matrix.shard }}-of-4
           path: ${{ runner.temp }}/evidence
           if-no-files-found: ignore
+          # Evidence is predominantly PNG; avoid recompressing it in the job budget.
+          compression-level: 0
           retention-days: 14
