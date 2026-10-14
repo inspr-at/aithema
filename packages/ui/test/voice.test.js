@@ -220,6 +220,32 @@ test('AIT-145: hangup renders ended immediately while cost confirmation is pendi
     assert.equal(root.dataset.state, 'idle', 'accounting uncertainty is not a failed call');
   } finally { terminal.resolve({ closureConfirmed: false }); await closing; }
 });
+for (const [locale, copy] of [['de', de], ['en', en]]) test(`AIT-179: ${locale} hangup hides the call pause synchronously through settlement`, async t => {
+  const session = createSession({ demo: true, locale }), events = voiceEvents(), terminal = Promise.withResolvers();
+  session.featureMatrix = { best: { voice: { available: true }, text: { available: true }, analysis: { available: true } } };
+  let callId;
+  const element = document.createElement('aithema-session');
+  element.configure({ copy, session, voiceClient: { manifest, async start(request) {
+    callId = request.callId;
+    return { callId, providerSessionId: 'ended-provider', events,
+      async setInput() {}, async setOutput() {}, async updateContext() {}, close() { events.end(); return terminal.promise; } };
+  } } });
+  document.body.append(element);
+  t.after(() => { terminal.resolve({ closureConfirmed: false }); element.remove(); });
+  const root = element.shadowRoot, pause = root.querySelector('.pause');
+  root.querySelector('.voice-start').click(); await tick();
+  assert.equal(window.getComputedStyle(pause).visibility, 'visible', 'live call retains its pause');
+  root.querySelector('.voice-close').click(); // Intentionally no tick before checking the painted controls.
+  assert.equal(window.getComputedStyle(pause).visibility, 'hidden', 'ended call must not retain a filled pause');
+  assert.equal(root.querySelector('.voice-start').disabled, false);
+  assert.equal(root.querySelector('.voice-state').textContent, copy.voiceClosureUncertain);
+  terminal.resolve({ closureConfirmed: false }); await tick();
+  assert.equal(root.querySelector('.voice-state').textContent, copy.voiceClosureUncertain);
+  element.receive({ type: 'voice.state', data: { callId, providerSessionId: 'ended-provider', state: 'ended',
+    terminal: { closureConfirmed: true, usage: { costEstimated: false } } } });
+  assert.equal(root.querySelector('.voice-state').textContent, copy.voiceEnded);
+  assert.equal(window.getComputedStyle(pause).visibility, 'hidden');
+});
 test('AIT-145: a failed closure request keeps the locally ended call ready for another call', async t => {
   const { rail, root } = fixture(t); await rail.start();
   rail.session.close = async () => { throw new Error('fixture network unavailable'); };
