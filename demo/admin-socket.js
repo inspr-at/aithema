@@ -44,10 +44,21 @@ export async function listenAdmin({ host, spendCap, socketPath, reconcileUncerta
         return send({ items, nextAfter: items.at(-1)?.id ?? Number(url.searchParams.get('after') ?? 0) });
       }
       if (url.pathname === '/provider-cap' && req.method === 'GET') return send(readProviderCap(spendCap));
-      if (['/set-allowances', '/set-confirmation', '/set-mail-cap', '/set-mail-ip-cap', '/reconcile-uncertain'].includes(url.pathname) && req.method === 'POST') {
+      if (url.pathname === '/provider-cap-audit' && req.method === 'GET') {
+        if (!spendCap) return send({ error: 'provider-cap-unavailable' }, 503);
+        if ([...url.searchParams.keys()].some(key => !['after', 'limit'].includes(key))) throw new TypeError('Invalid provider cap audit page');
+        const after = Number(url.searchParams.get('after') ?? 0);
+        const items = spendCap.audit({ after, limit: Number(url.searchParams.get('limit') ?? 100) });
+        return send({ items, nextAfter: items.at(-1)?.id ?? after });
+      }
+      if (['/set-allowances', '/set-confirmation', '/set-mail-cap', '/set-mail-ip-cap', '/set-provider-cap', '/reconcile-uncertain'].includes(url.pathname) && req.method === 'POST') {
         let size = 0; const chunks = [];
         for await (const chunk of req) { size += chunk.length; if (size > 16_384) { send({ error: 'body-too-large' }, 413); req.destroy(); return; } chunks.push(chunk); }
         const input = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        if (url.pathname === '/set-provider-cap') {
+          if (!spendCap) return send({ error: 'provider-cap-unavailable' }, 503);
+          return send(spendCap.saveSettings(input, { actor, source: 'ops-cli' }));
+        }
         if (url.pathname === '/reconcile-uncertain') {
           if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(k => !['apply', 'limit'].includes(k)) ||
             input.apply !== undefined && typeof input.apply !== 'boolean' ||
@@ -65,7 +76,7 @@ export async function listenAdmin({ host, spendCap, socketPath, reconcileUncerta
       }
       return send({ error: 'not-found' }, 404);
     } catch (error) {
-      if (error.status === 409) return send({ error: 'stale-credit-settings', current: error.current }, 409);
+      if (error.status === 409) return send({ error: error.message === 'stale-provider-cap-settings' ? error.message : 'stale-credit-settings', current: error.current }, 409);
       if (error instanceof TypeError || error instanceof SyntaxError) return send({ error: 'invalid-admin-command' }, 400);
       return send({ error: 'host-settings-unavailable' }, 503);
     }
@@ -80,8 +91,8 @@ export async function listenAdmin({ host, spendCap, socketPath, reconcileUncerta
 /** Client has no database dependency or direct-storage fallback. */
 export function adminRequest(socketPath, command, payload) {
   return new Promise((resolve, reject) => {
-    const set = ['set-allowances', 'set-confirmation', 'set-mail-cap', 'set-mail-ip-cap', 'reconcile-uncertain'].includes(command);
-    const query = command === 'audit' && payload ? `?${new URLSearchParams(payload)}` : '';
+    const set = ['set-allowances', 'set-confirmation', 'set-mail-cap', 'set-mail-ip-cap', 'set-provider-cap', 'reconcile-uncertain'].includes(command);
+    const query = ['audit', 'provider-cap-audit'].includes(command) && payload ? `?${new URLSearchParams(payload)}` : '';
     const bytes = set ? Buffer.from(JSON.stringify(payload)) : null;
     const req = request({ socketPath, path: `/${command}${query}`, method: set ? 'POST' : 'GET',
       headers: bytes ? { 'content-type': 'application/json', 'content-length': bytes.length } : {} }, res => {

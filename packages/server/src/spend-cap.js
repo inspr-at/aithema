@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { PluginError } from '@inspr/aithema-core';
+import { createSpendCapSettings } from './spend-cap-settings.js';
 
 const amount = n => Number.isSafeInteger(n) && n >= 0;
 export function usdMicro(value) {
@@ -30,23 +31,28 @@ export function createSpendCap({ storage, account, capMicro } = {}) {
   }
   db.prepare("UPDATE spend_reservations SET state='confirmed' WHERE actual_micro IS NOT NULL").run();
   db.exec('CREATE UNIQUE INDEX IF NOT EXISTS spend_attempt ON spend_reservations(account,attempt_id) WHERE attempt_id IS NOT NULL');
-  const snapshot = ({ includeBreachReason = false } = {}) => {
+  const totals = () => {
     const row = db.prepare(`SELECT COALESCE(SUM(actual_micro),0) AS spentMicro,
       COALESCE(SUM(CASE WHEN actual_micro IS NULL AND state!='uncertain' THEN reserved_micro ELSE 0 END),0) AS reservedMicro,
       COALESCE(SUM(CASE WHEN actual_micro IS NULL AND state='uncertain' THEN reserved_micro ELSE 0 END),0) AS uncertainMicro
       FROM spend_reservations WHERE account=?`).get(account);
     if (!Object.values(row).every(amount)) throw new PluginError('not-admitted', 'OpenRouter spend cap exhausted');
+    return row;
+  };
+  const policy = createSpendCapSettings({ storage, account, configuredCapMicro: capMicro, totals });
+  const snapshot = ({ includeBreachReason = false } = {}) => {
+    const row = totals(), capMicro = policy.capMicro();
     const overrun = db.prepare('SELECT 1 FROM spend_reservations WHERE account=? AND actual_micro > COALESCE(ceiling_micro,reserved_micro) LIMIT 1').get(account);
     return { ...row, capMicro, breached: Boolean(overrun) || row.spentMicro > capMicro,
       ...(includeBreachReason ? { breachReason: overrun ? 'overrun' : row.spentMicro > capMicro ? 'over-cap' : null } : {}) };
   };
-  return { snapshot,
+  return { snapshot, settings: policy.settings, saveSettings: policy.saveSettings, audit: policy.audit,
     reserve(ceilingMicro, { attemptId, provider } = {}) {
       if (!amount(ceilingMicro)) throw new TypeError('Invalid spend ceiling');
       // A one-microdollar floor also supports explicitly free model prices.
       const reservedMicro = Math.max(1, ceilingMicro);
       return storage.transaction(() => {
-        const { spentMicro, reservedMicro: held, uncertainMicro, breached } = snapshot();
+        const { spentMicro, reservedMicro: held, uncertainMicro, breached, capMicro } = snapshot();
         if (breached || reservedMicro > capMicro - spentMicro - held - uncertainMicro) throw new PluginError('not-admitted', 'OpenRouter spend cap exhausted');
         const id = randomUUID();
         db.prepare("INSERT INTO spend_reservations(id,account,reserved_micro,ceiling_micro,attempt_id,provider,state) VALUES (?,?,?,?,?,?,'reserved')")
