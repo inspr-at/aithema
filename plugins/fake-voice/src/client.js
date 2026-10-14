@@ -141,7 +141,7 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
       const replay = createReplyReplay({ current: reply => open && !ended && !paused && !blocked && output && !lifecycle.state.holds.length &&
         reply.turnId === lastAssistant?.turnId && reply.text === lastAssistant?.text,
       synthesize: (reply, opts) => control.speakText?.({ ...identity(), turnId: reply.turnId }, opts),
-      playAudio: (audio, opts) => playAudio(audio, { ...opts, document }),
+      playAudio: (audio, opts) => { interrupted = false; return playAudio(audio, { ...opts, document }); },
       onState: playing => { if (!ended) emit({ type: playing ? 'speaking' : 'listening', replay: true }); } });
       const cancel = () => { void close(options.signal?.reason === 'ownership-lost' ? 'recovery-failed' : 'cancelled',
         { deadlineAt: Date.now() + 1000 }).catch(() => {}); };
@@ -240,7 +240,7 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
             } finally { interruptionWaiters.delete(waiter); bounded.signal.removeEventListener('abort', aborted); }
           })(opts),
           get replaying() { return replay.active; },
-          stopReplay() { replay.stop(); return Promise.resolve(); },
+          stopReplay() { if (replay.active) interrupted = true; replay.stop(); return Promise.resolve(); },
           replayLastReply: opts => {
             const reply = lastAssistant && { ...lastAssistant }, revision = replay.revision;
             return command(bounded => { if (revision !== replay.revision) throw new PluginError('cancelled'); return replay.replay(reply, bounded); })(opts);

@@ -84,7 +84,7 @@ for (const stop of ['pause', 'hold', 'hangup', 'newer-reply', 'barge-in', 'Stop'
   if (stop === 'hangup') await f.session.close();
   if (stop === 'newer-reply') { f.reply('Newer answer.', 3); await flush(); }
   if (stop === 'barge-in') f.sdk.interrupt(2);
-  if (stop === 'Stop') await f.session.stopReplay();
+  if (stop === 'Stop') { await f.session.stopReplay(); assert.deepEqual(f.sdk.effects.filter(([name]) => name === 'setVolume').at(-1), ['setVolume', 0]); }
   release?.({ kind: 'audio', audio: { data: 'AAAA', format: 'pcm_16000' } });
   await checked; assert.equal(plays, 0); assert.equal(stops, 0);
 });

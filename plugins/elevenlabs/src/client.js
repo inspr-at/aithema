@@ -102,6 +102,7 @@ export function createElevenLabsClient(ports = {}) {
       const persistenceCancellation = new AbortController();
       const seen = new Set(), assistants = new Map(), stoppedInputs = new WeakSet();
       let lastReply, lastPlaybackTurnId;
+      let silenceReply = () => {};
       const identity = () => ({ callId: request.callId, providerSessionId: grant?.providerSessionId,
         ...(grant?.epoch !== undefined ? { epoch: grant.epoch } : {}) });
       const pauseControl = opts => {
@@ -120,6 +121,7 @@ export function createElevenLabsClient(ports = {}) {
           reply.turnId === lastReply?.turnId && reply.text === lastReply?.text && (!lastPlaybackTurnId || lastPlaybackTurnId === reply.turnId),
         synthesize: (reply, opts) => control.speakText?.({ ...identity(), turnId: reply.turnId }, opts),
         playAudio: (audio, opts) => {
+          conversation?.output?.interrupt?.(0);
           playbackInterrupted = false; conversation?.setVolume({ volume: outputVolume() });
           return (ports.playAudio ?? playReplyAudio)(audio, { ...opts, conversation, document, AudioContext });
         },
@@ -263,6 +265,10 @@ export function createElevenLabsClient(ports = {}) {
         const current = ++generation;
         playbackInterrupted = false;
         let lastInterruptionId = -1, latestAssistantId = -1, userTurnOrdinal = 0;
+        silenceReply = () => {
+          lastInterruptionId = Math.max(lastInterruptionId, latestAssistantId);
+          playbackInterrupted = true; conversation?.setVolume({ volume: outputVolume() });
+        };
         const replyIds = new Map();
         if (receipt?.callId !== request.callId || !receipt.providerSessionId || !receipt.credential ||
           !Number.isFinite(receipt.credential.ttlMs) || receipt.credential.ttlMs <= 0 || receipt.credential.ttlMs > 60_000 ||
@@ -630,7 +636,7 @@ export function createElevenLabsClient(ports = {}) {
             return command('setOutput', () => { if (typeof on !== 'boolean') throw new TypeError('Output boolean required'); outputOn = on; return capture.run(() => channels()); })(opts);
           },
           get replaying() { return replay.active; },
-          stopReplay() { replay.stop(); return Promise.resolve(); },
+          stopReplay() { if (replay.active) silenceReply(); replay.stop(); return Promise.resolve(); },
           replayLastReply(opts) {
             const reply = lastReply && { ...lastReply }, revision = replay.revision;
             return command('replayLastReply', bounded => {
