@@ -501,3 +501,38 @@ for (const scope of ['session', 'visitor', 'owner']) test(`AIT-173 round 4: admi
   verdict = (await runtime.matrix(h.session)).best.text;
   assert.equal(verdict.reason, blocked ? 'budget denied' : null, 'confirmed spending follows the normal used-up path');
 });
+
+for (const scope of ['session', 'owner']) test(`AIT-173 round 4: genuine spend plus a retained hold stays denied (${scope})`, async t => {
+  const h = setup(t), budget = new SQLiteBudgetLedger(h.storage, { sessionCapMicro: 100_000_000, visitorCapMicro: 100_000_000 });
+  const runtime = createPluginRuntime({ storage: h.storage, registry: h.registry, presets: h.presets, consent: h.consent, budget });
+  if (scope === 'owner') {
+    const host = createDemoHost({ storage: h.storage });
+    host.visitorCredits.saveSettings({ baseRevision: host.visitorCredits.settings().revision,
+      allowancesUsd: { anonymous: '10', emailGiven: '15', emailConfirmed: '20' } }, { actor: 'ops-cli:fixture', source: 'ops-cli' });
+    runtime.setOwnerWallet(session => host.walletForSession(session));
+  }
+  const request = (lane, maxMicro, extra = {}) => ({ sessionId: h.session.id, lane, maxMicro,
+    requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64), ...extra });
+  const spent = budget.admit(request('reaction', 10_000_000)), prior = budget.claim(spent.attemptId); prior.consume();
+  budget.settle(prior.claimId, { attemptId: spent.attemptId, outcome: 'completed', chargedMicro: 10_000_000,
+    usage: { inputTokens: 0, outputTokens: 0 } });
+  const held = budget.admit(request('voice', 1_000_000, { voiceExposure: { maxMicro: 10_000_000, maxVisitorMicro: 0 } }));
+  budget.claim(held.attemptId).consume(); budget.retainVoiceExposure(held.attemptId);
+  if (scope === 'session') budget.sessionCapMicro = 10_000_000;
+  assert.equal((await runtime.matrix(h.session)).best.text.reason, 'budget denied', 'ignoring the hold still cannot cover the turn');
+});
+
+test('AIT-173 round 4: owner reconciliation previews cannot borrow another owner hold', async t => {
+  const h = setup(t), host = createDemoHost({ storage: h.storage }), budget = h.runtime.budget;
+  host.visitorCredits.saveSettings({ baseRevision: host.visitorCredits.settings().revision,
+    allowancesUsd: { anonymous: '10', emailGiven: '15', emailConfirmed: '20' } }, { actor: 'ops-cli:fixture', source: 'ops-cli' });
+  const other = h.storage.create({ ownerToken: 'other-round4-owner' });
+  const held = budget.admit({ sessionId: other.id, lane: 'voice', maxMicro: 1_000_000,
+    voiceExposure: { maxMicro: 10_000_000, maxVisitorMicro: 0 }, requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64) });
+  budget.claim(held.attemptId).consume(); budget.retainVoiceExposure(held.attemptId);
+  const spent = budget.admit({ sessionId: h.session.id, lane: 'reaction', maxMicro: 10_000_000,
+    requestSha256: 'c'.repeat(64), bindingSha256: 'd'.repeat(64) }), claim = budget.claim(spent.attemptId); claim.consume();
+  budget.settle(claim.claimId, { attemptId: spent.attemptId, outcome: 'completed', chargedMicro: 10_000_000, usage: { inputTokens: 0, outputTokens: 0 } });
+  assert.equal(host.walletForSession(h.session).canAdmitWithoutReconcilingHold({ maxMicro: 1 }), false);
+  assert.equal(host.walletForSession(other).canAdmitWithoutReconcilingHold({ maxMicro: 1 }), true);
+});
