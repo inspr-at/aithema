@@ -142,7 +142,7 @@ export class AithemaSession extends HTMLElement {
   connectedCallback() {
     if (!this.#session) return;
     this.#disposeVersion?.();
-    this.#disposeVersion = mountVersionDetails(this.shadowRoot.querySelector('#build-info'), { product: 'Aithema 2026.10', ...this.#options.host?.version });
+    this.#disposeVersion = mountVersionDetails(this.shadowRoot.querySelector('#build-info'), { product: 'Aithema 2026.10', ...this.#options.host?.version }, { locale: this.#session.locale });
     this.#pings ??= answerVoicePings(() => this.#rail?.session?.callId ?? null);
     this.#concept?.connect(); this.#connect(); this.#watchPage(true); this.#offerResume(); this.#host?.connect(); this.#placeOrb();
     this.#popups?.connect(); this.#motionMedia?.addEventListener?.('change', this.#motionListener);
@@ -295,7 +295,7 @@ export class AithemaSession extends HTMLElement {
     this.#mountMotion();
     const version = { product: 'Aithema 2026.10', ...this.#options.host?.version };
     setText(root.querySelector('.display-version'), version.product);
-    this.#disposeVersion = mountVersionDetails(root.querySelector('#build-info'), version);
+    this.#disposeVersion = mountVersionDetails(root.querySelector('#build-info'), version, { locale: this.#session.locale });
     this.#placeOrb();
     this.#dialog = new SettingsDialog({ dialog: root.querySelector('dialog.settings'), copy: this.#copy, operator: this.#options.host?.operator, ports: {
       // Withdrawn turns still mark a started conversation (the server's device lock agrees).

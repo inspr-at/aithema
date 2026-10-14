@@ -118,6 +118,10 @@ export const bandStyles = `
   max-height:calc(100dvh - 100px); overflow-y:auto; white-space:pre-line; overflow-wrap:anywhere; padding:10px 12px;
   border-radius:10px; background:var(--aithema-ink); color:var(--aithema-paper); font-size:12.5px; line-height:1.5;
   text-align:left; visibility:hidden; opacity:0; pointer-events:none; transition:opacity .12s; transform:none; }
+.footer-info .footer-popup { background:#102b42; color:#fbf7ef; }
+.version-value { grid-area:1/1; white-space:nowrap; }
+.version-row[data-copy-state="copied"] .version-value { visibility:hidden; }
+.build-label { display:block; color:#b7c7d2; margin-top:4px; }
 .engine__detail.footer-popup { height:auto; }
 .footer-popup p { margin:0; } .footer-popup p + p { margin-top:6px; }
 .footer-popup .host-foot { display:grid; white-space:normal; color:inherit; }

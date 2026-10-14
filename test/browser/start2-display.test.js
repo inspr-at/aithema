@@ -889,11 +889,14 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
     const root = c.shadowRoot, popup = root.querySelector('.footer-info .footer-popup'), build = root.querySelector('#build-info');
     const style = getComputedStyle(popup), row = build.querySelector('.version-row');
     const box = n => { const r = n.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; };
+    const coordinate = build.querySelector('.coordinate');
+    const visibleVersion = coordinate && (coordinate.children.length ? [...coordinate.children].filter(n => n.getBoundingClientRect().width > 0).map(n => n.textContent).join('') : coordinate.textContent);
+    const visibleText = row && (row.dataset.copyState === 'copied' ? row.querySelector('.version-feedback')?.innerText : 'Version ' + visibleVersion);
     return { background: style.backgroundColor, opacity: style.opacity, visibility: style.visibility,
       notice: box(root.querySelector('#ai-notice')), popup: box(popup), row: row && box(row),
       build: build.querySelector('.build-label')?.textContent, product: root.querySelector('.display-version').textContent,
-      first: build.firstChild?.className, text: row?.innerText,
-      version: root.querySelector('#build-info .coordinate')?.innerText, title: build.title };
+      first: build.firstChild?.className, text: visibleText,
+      version: visibleVersion, title: build.title };
   });
   const capture = async (locale, theme, width, state, metrics) => {
     const file = `ait105-version-${locale}-${theme}-${width}-${state}.png`;
@@ -904,7 +907,8 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
   await configure('de');
   await page.setViewport({ width: 1440, height: 1000 });
   await page.select('#theme', 'dark');
-  const notice = await page.$('aithema-session >>> .ai-notice'); await notice.hover(); await settle();
+  const notice = await page.$('aithema-session >>> .ai-notice'); await notice.hover();
+  await until(page, () => getComputedStyle(document.querySelector('aithema-session').shadowRoot.querySelector('.footer-info .footer-popup')).opacity === '1');
   await t.test('opaque approved dark tooltip surface', async () => {
     const metrics = await popupMetrics(); assert.equal(metrics.background, 'rgb(16, 43, 66)'); assert.equal(metrics.opacity, '1');
   });
@@ -934,7 +938,7 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
       if (state === 'hover') await notice.hover();
       else { await notice.focus(); await page.keyboard.press('Shift+Tab'); await page.keyboard.press('Tab');
         assert.equal(await notice.evaluate(n => n.getRootNode().activeElement === n && n.matches(':focus-visible')), true); }
-      await settle();
+      await until(page, () => getComputedStyle(document.querySelector('aithema-session').shadowRoot.querySelector('.footer-info .footer-popup')).opacity === '1');
       const metrics = await popupMetrics(); assert.equal(metrics.visibility, 'visible'); assert.equal(metrics.opacity, '1');
       assert.equal(metrics.background, 'rgb(16, 43, 66)');
       assert.equal(metrics.product, 'Aithema 2026.10'); assert.equal(metrics.first, 'version-row');

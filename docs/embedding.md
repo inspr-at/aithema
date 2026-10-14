@@ -79,7 +79,12 @@ The visible product name stays **Aithema 2026.10**. `host.version` may carry
 `version`, `version_scheme`, `commit` and `date` from the immutable manifest;
 the exact coordinate appears in the existing hover/focus details only. CalVer3
 uses the pinned shared Pretty renderer there, with canonical copy, UTC tooltip,
-keyboard/touch interaction and reduced motion. Auto colors use the host branding;
+keyboard/touch interaction and reduced motion. The popup shows the notice, then
+`Version 26.10.14 · 08:00` on its own line, followed by muted UTC build details.
+Tick’s approved separators are passed to the shared renderer by the product
+adapter; the upstream bundle stays pinned. Copy confirmation replaces the
+version in a reserved slot for 1.2 seconds. Unknown schemes hide only the
+version row and log once, leaving the session usable. Auto colors use the host branding;
 `host.version.display: "semver"` selects the full reduced coordinate in that same
 popup, with the same canonical-copy interaction. Legacy details remain plain.
 
@@ -186,16 +191,21 @@ release, artifact or signed attestation is renamed, rewritten or republished.
 
 The existing PR unit job also acts as the dry-run job, retaining the seven CI checks. It runs `release/dry-run.mjs`: pack twice, compare exact bytes and manifest,
 verify every member, no upload. `release.yml` can build only on an already pushed
-tag, and checks that its exact name matches the reserved version before building
+tag, requires its commit to be an ancestor of `origin/main`, and checks that its exact name matches the reserved version before building
 one workspace tarball. Manual dispatch on a branch skips the pack job. The
 workflow has no npm/forge publication or tag-creation step. Its upload is only
 an ephemeral CI transfer after a future tag; it does not retain a forge release.
-Canonical release bytes use Node 24/GNU tar in CI. BSD tar can prove two local
-packs identical but is not claimed to reproduce GNU bytes.
+Canonical release bytes use Node 24/GNU tar in CI. Byte reproducibility is
+verified per runner; reproducibility across machines is out of scope. BSD tar
+can prove two local packs identical but is not claimed to reproduce GNU bytes.
+Rollback reuses the stored bytes.
 
 The release set records source commit, source tree/lock digests, all member
-digests, package coordinates, version scheme/channel/sequence and validation
-run. Preserve the tarball, manifest and later signatures together. Runtime
+digests, package coordinates, version scheme/channel/sequence and the packing
+run. The commit checks page references real CI/merge-queue validation; packing
+is not a validation run. Canonical runtime metadata is also generated inside
+the server package, so it does not depend on the repository-level `release/`
+directory when distributed separately. Preserve the tarball, manifest and later signatures together. Runtime
 metadata and exported ZIP generator provenance use the artifact's source commit,
 not a caller-supplied replacement. AI notice, text producer identity,
 AI-generated/manipulated disclosure and image/HTML sidecars stay intact.

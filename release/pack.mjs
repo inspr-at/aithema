@@ -78,7 +78,9 @@ export function packRelease({ root = fileURLToPath(new URL('../', import.meta.ur
     }
   }
   const epoch = commitEpochSeconds(root, commit);
-  files.set('release/runtime.json', Buffer.from(json({ ...source, mode: dryRun ? 'dry-run' : 'release', source: { commit, tree_digest: sourceTree, lock_digest: lockDigest }, date: new Date(epoch * 1000).toISOString() })));
+  const runtime = Buffer.from(json({ ...source, mode: dryRun ? 'dry-run' : 'release', source: { commit, tree_digest: sourceTree, lock_digest: lockDigest }, date: new Date(epoch * 1000).toISOString() }));
+  files.set('release/runtime.json', runtime);
+  files.set('packages/server/src/release-runtime.json', runtime);
   const lock = JSON.parse(files.get('package-lock.json'));
   files.set('release/sbom.spdx.json', Buffer.from(json({ spdxVersion: 'SPDX-2.3', dataLicense: 'CC0-1.0', SPDXID: 'SPDXRef-DOCUMENT',
     name: `aithema-reset-${source.version}`, documentNamespace: `https://github.com/inspr-at/aithema/releases/${source.version}/${commit}`,
@@ -100,7 +102,8 @@ export function packRelease({ root = fileURLToPath(new URL('../', import.meta.ur
   const manifest = { schema: 'aithema-release-set/1', mode: dryRun ? 'dry-run' : 'release', version_scheme: source.version_scheme, version: source.version,
     release_channel: source.release_channel, release_sequence: source.release_sequence, migration: { ...source.migration, first_calendar_version: source.migration.first_calendar_version ?? source.version },
     source: { commit, tree_digest: sourceTree, lock_digest: lockDigest }, toolchain: { node: '24', tar: 'canonical GNU in CI; BSD local verification' },
-    validation: { policy: 'PR dry-run plus separate release qualification', run: process.env.GITHUB_RUN_ID ?? 'offline-test' },
+    packing: { run: process.env.GITHUB_RUN_ID ?? 'offline-test' },
+    validation: { policy: 'CI/merge-queue checks plus separate release qualification', reference: `https://github.com/inspr-at/aithema/commit/${commit}/checks` },
     packages, files: [...files].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([path, bytes]) => ({ path, size: bytes.length, sha256: digest(bytes) })),
     artifacts: [{ coordinate: `workspace/npm-tgz/any/any/default/${filename}`, path: filename, sha256: digest(readFileSync(artifactPath)) }] };
   writeFileSync(join(directory, 'release-set.json'), json(manifest), { flag: 'wx' }); verifyRelease(directory);
@@ -138,6 +141,7 @@ export function verifyRelease(directory) {
       if (digest(bytes) !== file.sha256) throw new Error('Artifact member digest mismatch');
       members.set(file.path, bytes);
     }
+    if (!members.get('packages/server/src/release-runtime.json')?.equals(members.get('release/runtime.json'))) throw new Error('Package runtime metadata binding mismatch');
     const runtime = JSON.parse(members.get('release/runtime.json')), provenance = JSON.parse(members.get('release/source-provenance.json'));
     if (['version', 'version_scheme', 'release_channel', 'release_sequence', 'mode'].some(key => runtime[key] !== manifest[key]) ||
       runtime.source.commit !== manifest.source.commit || provenance.current_source_commit !== manifest.source.commit ||
