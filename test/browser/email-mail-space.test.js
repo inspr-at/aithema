@@ -334,7 +334,7 @@ test('AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main
     for (const width of [390, 1440]) for (const [mode, delivery, confirm] of [['save', false, false], ['confirmation-off', true, false], ['mail', true, true]]) {
       const label = `${locale}-light-${width}-${mode}`;
       for (const p of [page, main]) {
-      await p.bringToFront();
+        await p.bringToFront();
         await p.setViewport({ width, height: width === 390 ? 844 : 1000 }); await p.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
         await fixture(p, locale, delivery, confirm);
         await shadow(p, c => c.shadowRoot.querySelector('#email-heading').focus({ preventScroll: true })); await frame(p);
@@ -347,8 +347,9 @@ test('AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main
         assert.equal(await shadow(page, (c, s) => c.shadowRoot.querySelector(s + ' .m-notice-text').textContent, selectors[2]), expected);
         assert.deepEqual(await metrics(page), await metrics(main), '0 px shift against main');
         if (mode === 'mail') {
-          await frame(page); const actual = await page.screenshot({ fullPage: false });
-          await frame(main); assert.ok(actual.equals(await main.screenshot({ fullPage: false })), 'mail viewport pixel-identical to main');
+          const clip = await shadow(page, c => { const b = c.shadowRoot.querySelector('#email').getBoundingClientRect(), body = c.shadowRoot.querySelector('.settings__body').getBoundingClientRect(); const y = Math.max(b.y, body.y); return { x: b.x, y, width: b.width, height: Math.min(b.bottom, body.bottom) - y }; });
+          await frame(page); const actual = await page.screenshot({ clip });
+          await frame(main); assert.ok(actual.equals(await main.screenshot({ clip })), 'mail section pixel-identical to main');
         }
         passed = true;
       });

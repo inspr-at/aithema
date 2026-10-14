@@ -323,7 +323,7 @@ test('AIT-172: email ask privacy DE/EN save/mail/confirmation-off, 390/1440, mai
     for (const width of [390, 1440]) for (const [mode, delivery, confirmationEnabled] of [['save', false, false], ['confirmation-off', true, false], ['mail', true, true]]) {
       const label = `${locale}-light-${width}-${mode}`;
       for (const p of [page, main]) {
-      await p.bringToFront();
+        await p.bringToFront();
         await p.setViewport({ width, height: width === 390 ? 844 : 1000 }); await p.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
         await fixture(p, locale, { delivery, confirmationEnabled });
         await shadow(p, c => c.setAttribute('theme', 'light'));
