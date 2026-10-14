@@ -27,6 +27,7 @@ export const browserShards = [
     'test/browser/audio-replay.test.js',
     'test/browser/admin-pages.test.js',
     'test/browser/email-mail-space.test.js',
+    'test/browser/credit-hold.test.js',
   ],
   // 394.868s CI
   [

@@ -1,0 +1,65 @@
+// Deterministic real-ledger/host fixture. No provider or mail transport is used.
+import { fileURLToPath } from 'node:url';
+import { readFile } from 'node:fs/promises';
+import { SQLiteStorage, SQLiteBudgetLedger, createPluginRuntime, createHandlers } from '../../packages/server/src/index.js';
+import { admitCredits } from '../../packages/core/src/credits.js';
+import { createDemoHost } from '../../demo/host-ports.js';
+import { mockConsent } from '../helpers.js';
+import { listen } from '../../packages/server/src/http.js';
+
+export async function creditHoldFixture({ ownerGuard = false, settledMicro = 3_900_000, holdMicro = 5_900_000 } = {}) {
+  let time = 1_000;
+  const storage = new SQLiteStorage(), owner = 'credit-hold-visitor';
+  const ledger = new SQLiteBudgetLedger(storage, { sessionCapMicro: 100_000_000, visitorCapMicro: 100_000_000, now: () => time });
+  const host = createDemoHost({ storage, now: () => time, ownerGuard, privacyDocumentConfigured: () => true });
+  const session = storage.create({ ownerToken: owner, locale: 'de' });
+  storage.append(session.id, 'turn.final', { id: 'u1', role: 'user', content: 'Ich möchte eine Website.' });
+  storage.append(session.id, 'turn.final', { id: 'a1', role: 'assistant', content: 'Welche Ziele haben Sie?' });
+  const runtime = createPluginRuntime({ storage, budget: ledger, consent: mockConsent });
+  const handlers = createHandlers({ storage, pluginRuntime: runtime, host, consent: mockConsent });
+  const request = (lane, maxMicro, extra = {}) => ({ sessionId: session.id, lane, maxMicro,
+    requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64), ...extra });
+  const spent = ledger.admit(request('reaction', settledMicro));
+  const prior = ledger.claim(spent.attemptId); prior.consume();
+  ledger.settle(prior.claimId, { attemptId: spent.attemptId, outcome: 'completed', chargedMicro: settledMicro,
+    usage: { inputTokens: 0, outputTokens: 0 } });
+  const admitted = await admitCredits(ledger, request('voice', holdMicro, { maxVisitorMicro: holdMicro,
+    voiceExposure: { maxMicro: 60_000_000, maxVisitorMicro: 60_000_000 },
+    voiceEstimate: { upstreamMicroPerMinute: 100_000, visitorMicroPerMinute: 100_000 } }), host.wallet(owner));
+  if (!admitted.ok) throw new Error('Fixture voice admission refused');
+  const claim = ledger.claim(admitted.admission.attemptId); claim.consume(); time += 60_000;
+  const call = (suffix, body) => handlers.handle(new Request(`http://local/api/sessions/${session.id}${suffix}`, {
+    method: body === undefined ? 'GET' : 'POST', headers: { 'content-type': 'application/json', 'x-aithema-session-token': owner },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  }));
+  return { storage, ledger, host, session, owner, claim, request, call,
+    handle: request => handlers.handle(new Request(request, { headers: { ...Object.fromEntries(request.headers), 'x-aithema-session-token': owner } })),
+    advance: ms => { time += ms; },
+    async close() { await handlers.close(); storage.close(); },
+  };
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  globalThis.fetch = () => { throw new Error('No providers in the credit hold browser fixture'); };
+  let fixture = await creditHoldFixture();
+  const root = new URL('../../', import.meta.url);
+  const { server, url } = await listen(async request => {
+    const path = new URL(request.url).pathname;
+    if (path === '/fixture') {
+      await fixture.close();
+      const state = new URL(request.url).searchParams.get('state') ?? 'in-call';
+      fixture = await creditHoldFixture(state === 'low' ? { settledMicro: 8_950_000, holdMicro: 1_000_000 } : {});
+      if (state === 'reconciling') fixture.ledger.retainVoiceExposure(fixture.claim.attemptId);
+      return Response.json({ session: fixture.storage.get(fixture.session.id), owner: fixture.owner });
+    }
+    if (path.startsWith('/api/')) {
+      return fixture.handle(request);
+    }
+    if (path === '/') return new Response('<!doctype html><html><meta charset="utf-8"><style>body{margin:0}aithema-session{display:block;min-height:100vh}</style><aithema-session></aithema-session><script type="module" src="/packages/ui/src/session-element.js"></script></html>', { headers: { 'content-type': 'text/html' } });
+    if (!/^\/packages\/(ui|core)\/src\/[a-z0-9/-]+\.js$/u.test(path)) return new Response(null, { status: 404 });
+    try { return new Response(await readFile(new URL(path.slice(1), root)), { headers: { 'content-type': 'text/javascript' } }); }
+    catch { return new Response(null, { status: 404 }); }
+  });
+  process.send?.({ url });
+  process.once('SIGTERM', async () => { server.closeAllConnections(); await fixture.close(); server.close(); });
+}
