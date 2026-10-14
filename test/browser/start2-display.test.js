@@ -860,7 +860,7 @@ test('AIT-149: reveal exit clock survives delayed browser round trips', { timeou
 });
 
 
-test('AIT-105: CalVer3 stays in hover details, preserves product name and copies canonical version', { timeout: 60_000 }, async t => {
+test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 px shift', { timeout: 120_000 }, async t => {
   const directory = await mkdtemp(join(tmpdir(), 'aithema-calver-hover-'));
   const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), {
     AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off',
@@ -868,7 +868,7 @@ test('AIT-105: CalVer3 stays in hover details, preserves product name and copies
   const browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
     env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
   t.after(async () => { await browser.close(); await demo.kill(); });
-  const page = await browser.newPage(), errors = [], evidence = process.env.AITHEMA_EVIDENCE_DIR;
+  const page = await browser.newPage(), errors = [], evidence = process.env.AITHEMA_EVIDENCE_DIR, passLines = [];
   page.on('pageerror', error => errors.push(error.message));
   if (evidence) await mkdir(evidence, { recursive: true });
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
@@ -877,46 +877,101 @@ test('AIT-105: CalVer3 stays in hover details, preserves product name and copies
   });
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
-  for (const width of [390, 1440]) for (const locale of ['de', 'en']) {
-    await page.setViewport({ width, height: 1000 });
-    await page.evaluate(async locale => {
-      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
-      const c = document.querySelector('aithema-session'); window.ait105Copy = copy;
-      c.configure({ copy, session: { ...c.session, locale }, host: { version: {
-        product: 'Aithema 2026.10', version: '261014080000.0.0', version_scheme: 'inspr-calver-3',
-      } } });
-    }, locale);
-    await settle();
-    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.display-version').textContent), 'Aithema 2026.10');
-    await shadow(page, c => c.shadowRoot.querySelector('.ai-notice').focus());
-    const version = await page.$('aithema-session >>> #build-info .coordinate');
-    assert.ok(version); await version.click();
-    assert.equal(await page.evaluate(() => window.ait105Copied), '261014080000.0.0');
-    assert.match(await version.evaluate(node => node.title), /2026-10-14 08:00:00 UTC/u);
-    assert.equal(await version.evaluate(node => node.querySelector('.tail')), null);
-    if (evidence) await page.screenshot({ path: join(evidence, `ait105-version-${locale}-${width}.png`), fullPage: false });
-    t.diagnostic(`PASS AIT-105 ${locale}/${width}: product name preserved; hover UTC coordinate; canonical clipboard; viewport capture`);
-    const originalColor = await version.evaluate(node => getComputedStyle(node.querySelector('.yy')).color);
-    await version.dispose();
-    await shadow(page, c => {
-      c.style.setProperty('--aithema-accent', '#a52233');
-      c.configure({ copy: window.ait105Copy, session: c.session,
-        host: { version: { product: 'Aithema 2026.10', version: '261014080000.0.0', version_scheme: 'inspr-calver-3' } } });
-    });
-    const brandedColor = await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('#build-info .yy')).color);
-    assert.notEqual(brandedColor, originalColor, 'Pretty auto colors follow actual host branding');
-    await page.evaluate(async locale => {
-      const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
-      const c = document.querySelector('aithema-session'); c.style.removeProperty('--aithema-accent');
-      c.configure({ copy, session: c.session, host: { version: { product: 'Aithema 2026.10', version: '261014080000.0.0', version_scheme: 'inspr-calver-3', display: 'semver' } } });
-      c.shadowRoot.querySelector('.ai-notice').focus();
-    }, locale);
+  const configure = async (locale, display) => page.evaluate(async ({ locale, display }) => {
+    const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+    const c = document.querySelector('aithema-session'); window.ait105Copy = copy;
+    c.configure({ copy, session: { ...c.session, locale }, host: { version: {
+      product: 'Aithema 2026.10', version: '261014080000.0.0', version_scheme: 'inspr-calver-3',
+      commit: 'abcdef1234567890', date: '2026-10-14T08:00:00.000Z', display,
+    } } });
+  }, { locale, display });
+  const popupMetrics = () => shadow(page, c => {
+    const root = c.shadowRoot, popup = root.querySelector('.footer-info .footer-popup'), build = root.querySelector('#build-info');
+    const style = getComputedStyle(popup), row = build.querySelector('.version-row');
+    const box = n => { const r = n.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; };
+    return { background: style.backgroundColor, opacity: style.opacity, visibility: style.visibility,
+      notice: box(root.querySelector('#ai-notice')), popup: box(popup), row: row && box(row),
+      build: build.querySelector('.build-label')?.textContent, product: root.querySelector('.display-version').textContent,
+      first: build.firstChild?.className, text: row?.innerText,
+      version: root.querySelector('#build-info .coordinate')?.innerText, title: build.title };
+  });
+  const capture = async (locale, theme, width, state, metrics) => {
+    const file = `ait105-version-${locale}-${theme}-${width}-${state}.png`;
+    if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false });
+    passLines.push({ head: evidenceCommit, locale, theme, width, state, pass: true, displacementPx: 0, file, ...metrics });
+    t.diagnostic(`PASS AIT-105 ${locale}/${theme}/${width}/${state}: opaque popup; ordered version/build rows; canonical tooltip/copy; 0 px shift`);
+  };
+  await configure('de');
+  await page.setViewport({ width: 1440, height: 1000 });
+  await page.select('#theme', 'dark');
+  const notice = await page.$('aithema-session >>> .ai-notice'); await notice.hover(); await settle();
+  await t.test('opaque approved dark tooltip surface', async () => {
+    const metrics = await popupMetrics(); assert.equal(metrics.background, 'rgb(16, 43, 66)'); assert.equal(metrics.opacity, '1');
+  });
+  await t.test('version has its own line followed by muted UTC build', async () => {
+    const metrics = await popupMetrics(); assert.equal(metrics.first, 'version-row');
+    assert.equal(metrics.build, 'Build abcdef1 · 2026-10-14 08:00:00 UTC');
+    assert.equal(metrics.version, '26.10.14 · 08:00');
+    assert.ok(metrics.row[1] >= metrics.notice[1] + metrics.notice[3]);
+  });
+  await t.test('copy replaces version in the same slot for 1.2 s without an overlay', async () => {
+    const before = await popupMetrics(), coordinate = await page.$('aithema-session >>> #build-info .coordinate');
+    await coordinate.click();
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('#build-info [data-copy-state="copied"]'));
+    const copied = await popupMetrics(); assert.equal(copied.text, 'Kopiert');
+    assert.deepEqual(copied.popup, before.popup); assert.deepEqual(copied.row, before.row);
+    await new Promise(resolve => setTimeout(resolve, 1300));
+    assert.equal((await popupMetrics()).text, 'Version 26.10.14 · 08:00');
+  });
+  for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1024, 1440]) {
+    await page.setViewport({ width, height: width === 390 ? 844 : 1000 }); await page.select('#theme', theme);
+    await configure(locale); await page.mouse.move(0, 0); await settle();
+    const notice = await page.$('aithema-session >>> .ai-notice');
+    await notice.evaluate(n => n.scrollIntoView({ block: 'center' }));
+    const footerBefore = await boxes(page, ['.display-foot', '.ai-notice', '.host-credits', '.footer-right']);
+    for (const state of ['hover', 'focus']) {
+      await shadow(page, c => c.shadowRoot.activeElement?.blur()); await page.mouse.move(0, 0);
+      if (state === 'hover') await notice.hover();
+      else { await notice.focus(); await page.keyboard.press('Shift+Tab'); await page.keyboard.press('Tab');
+        assert.equal(await notice.evaluate(n => n.getRootNode().activeElement === n && n.matches(':focus-visible')), true); }
+      await settle();
+      const metrics = await popupMetrics(); assert.equal(metrics.visibility, 'visible'); assert.equal(metrics.opacity, '1');
+      assert.equal(metrics.background, 'rgb(16, 43, 66)');
+      assert.equal(metrics.product, 'Aithema 2026.10'); assert.equal(metrics.first, 'version-row');
+      assert.equal(metrics.version, '26.10.14 · 08:00');
+      assert.equal(metrics.build, 'Build abcdef1 · 2026-10-14 08:00:00 UTC');
+      assert.match(metrics.title, /261014080000\.0\.0.*2026-10-14 08:00:00 UTC/u);
+      assert.deepEqual(await boxes(page, ['.display-foot', '.ai-notice', '.host-credits', '.footer-right']), footerBefore);
+      await capture(locale, theme, width, state, metrics);
+    }
+    if (width === 1440 && theme === 'light') {
+      const before = await popupMetrics(); await page.evaluate(() => { window.ait105Copied = null; });
+      await page.keyboard.press('Tab'); await page.keyboard.press('Enter');
+      await until(page, () => window.ait105Copied === '261014080000.0.0');
+      const copied = await popupMetrics(); assert.equal(copied.text, locale === 'de' ? 'Kopiert' : 'Copied');
+      assert.deepEqual(copied.row, before.row); assert.deepEqual(copied.popup, before.popup);
+      await capture(locale, theme, width, 'copied', copied);
+      await new Promise(resolve => setTimeout(resolve, 1300));
+      assert.equal((await popupMetrics()).text, 'Version 26.10.14 · 08:00');
+    }
+    const originalColor = await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('#build-info .yy')).color);
+    await shadow(page, c => { c.style.setProperty('--aithema-accent', '#a52233'); });
+    await configure(locale);
+    assert.notEqual(await shadow(page, c => getComputedStyle(c.shadowRoot.querySelector('#build-info .yy')).color), originalColor);
+    await shadow(page, c => c.style.removeProperty('--aithema-accent'));
+    await configure(locale, 'semver');
     const reduced = await page.$('aithema-session >>> #build-info .coordinate');
-    assert.equal(await reduced.evaluate(node => node.textContent), '261014080000.0.0');
-    await page.evaluate(() => { window.ait105Copied = null; });
-    await reduced.click(); assert.equal(await page.evaluate(() => window.ait105Copied), '261014080000.0.0');
-    await reduced.dispose();
-    t.diagnostic(`PASS AIT-105 ${locale}/${width}: host branding changes Pretty color; reduced SemVer copies canonical version`);
+    assert.equal(await reduced.evaluate(n => n.textContent), '261014080000.0.0');
+    await shadow(page, c => c.shadowRoot.querySelector('.ai-notice').focus());
+    await page.evaluate(() => { window.ait105Copied = null; }); await reduced.click();
+    assert.equal(await page.evaluate(() => window.ait105Copied), '261014080000.0.0');
   }
+  await page.evaluate(async () => {
+    const c = document.querySelector('aithema-session');
+    c.configure({ copy: window.ait105Copy, session: c.session, host: { version: { version: '261014080000.0.0', version_scheme: 'future-scheme' } } });
+  });
+  assert.equal(await shadow(page, c => c.shadowRoot.querySelector('#build-info .coordinate')), null);
+  assert.equal(await shadow(page, c => Boolean(c.session.id && c.shadowRoot.querySelector('textarea'))), true);
   assert.deepEqual(errors, []);
+  if (evidence) await writeFile(join(evidence, 'ait105-version-pass-lines.json'), JSON.stringify(passLines, null, 2));
 });

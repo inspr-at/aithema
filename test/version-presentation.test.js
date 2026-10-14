@@ -1,14 +1,17 @@
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
 import { mountVersionDetails } from '../packages/ui/src/version-display.js';
 const window = new Window(); globalThis.document = window.document;
+after(() => window.happyDOM.close());
 test('product hover details use the shared Pretty renderer and exact canonical UTC/copy metadata', async () => {
   const element = document.createElement('p');
   element.style.setProperty('--aithema-accent', '#12908c');
   const dispose = mountVersionDetails(element, { product: 'Aithema 2026.10', version: '261014080000.0.0', version_scheme: 'inspr-calver-3' });
   const coordinate = element.querySelector('.coordinate');
-  assert.equal(element.firstChild.textContent, 'Aithema 2026.10');
+  assert.equal(element.firstChild.className, 'version-row');
+  assert.equal(element.querySelector('.version-label').textContent, 'Version ');
+  assert.equal(element.querySelector('.build-label'), null);
   assert.equal(coordinate.dataset.canonical, '261014080000.0.0');
   assert.match(coordinate.getAttribute('aria-label'), /261014080000\.0\.0.*2026-10-14 08:00:00 UTC/u);
   assert.equal(coordinate.querySelector('.tail'), null); assert.equal(coordinate.querySelector('.v'), null);
@@ -20,5 +23,18 @@ test('product hover details use the shared Pretty renderer and exact canonical U
   reduced();
   mountVersionDetails(element, { product: 'Aithema 2026.10', version: '0.10.1', version_scheme: 'legacy' });
   assert.equal(element.querySelector('.coordinate').textContent, '0.10.1');
-  await window.happyDOM.close();
+
+});
+
+test('unknown scheme fails only the version row and warns once across remounts', () => {
+  const element = document.createElement('p'), warnings = [], original = console.warn;
+  console.warn = (...args) => warnings.push(args);
+  try {
+    for (let i = 0; i < 2; i++) assert.doesNotThrow(() => mountVersionDetails(element,
+      { product: 'Aithema 2026.10', version: '261014080000.0.0', version_scheme: 'future-scheme' }));
+    assert.equal(element.querySelector('.coordinate'), null);
+    assert.equal(element.textContent, '');
+    assert.equal(warnings.length, 1);
+    assert.match(warnings[0][0], /version scheme/iu);
+  } finally { console.warn = original; }
 });
