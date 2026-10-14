@@ -33,6 +33,7 @@ export class SessionLanes {
   cancel(id) {
     const pending = [];
     for (const flight of this.#flights.values()) if (flight.id === id) {
+      flight.revoked = true;
       flight.controller.abort(new DOMException('Session revoked', 'AbortError'));
       pending.push(flight.promise);
     }
@@ -127,7 +128,7 @@ export class SessionLanes {
           }, { guardDirection: reply => current() ? this.guardDirection(id, reply) : reply,
             onDiagnostic: event => { if (current()) this.onReplyDiagnostic({ lane, ...event }); } }).catch(error => {
             const latest = this.getSession(id);
-            if (error === superseded || inputRevision(latest) !== revision || this.selection(latest, lane) !== selection) return null;
+            if (flight.revoked || error === superseded || inputRevision(latest) !== revision || this.selection(latest, lane) !== selection) return null;
             throw error;
           });
           if (!current()) return 'stale';
@@ -181,7 +182,7 @@ export class SessionLanes {
       }
       return 'completed';
     };
-    const flight = { id, lane, revision, selection, controller, promise: null };
+    const flight = { id, lane, revision, selection, controller, revoked: false, promise: null };
     const promise = Promise.resolve().then(work).finally(() => {
       scope.dispose(); signal?.removeEventListener('abort', abort);
       if (this.#flights.get(key) === flight) this.#flights.delete(key);
