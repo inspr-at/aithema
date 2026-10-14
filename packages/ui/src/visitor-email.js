@@ -73,9 +73,9 @@ export class VisitorEmail {
     }
     return null;
   }
-  // Tier-aware hosts decide whether Settings offers confirmation. Preserve
-  // transport-only behavior for hosts without the optional visitor tiers.
-  get delivery() { return this.#delivery && this.tiers?.canConfirm !== false; }
+  // Optional confirmation follows the host tiers. The explicit demo-only
+  // assessment lock keeps its fake-outbox flow, independent of credit tiers.
+  get delivery() { return this.#delivery && (this.demo && this.identity?.verificationRequired === true || this.tiers?.canConfirm !== false); }
   set delivery(value) { this.#delivery = value; }
   get canCollect() { return this.demo || this.privacyDocumentConfigured === true && Boolean(this.privacyLink); }
   get state() { return this.ui.deleting && this.address ? 'confirm' : !this.canCollect && !this.address ? 'unavailable' : this.delivery ? 'mail' : this.address && !this.ui.editing ? 'saved' : this.canCollect ? 'capture' : 'saved'; }
