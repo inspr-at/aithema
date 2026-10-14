@@ -127,6 +127,7 @@ export function createElevenLabsClient(ports = {}) {
         },
         onState: playing => { if (!ended) emit({ type: playing ? 'speaking' : 'listening', replay: true }); },
       });
+      const stopReplayForInput = () => { if (replay.active) { silenceReply(); replay.stop(); } };
       const stopPersistence = () => persistenceCancellation.abort();
       const persist = async value => {
         const signal = persistenceCancellation.signal;
@@ -385,7 +386,7 @@ export function createElevenLabsClient(ports = {}) {
             // persistence. Paused finals leave a gap instead of shifting IDs.
             const ordinal = speaker === 'user' ? ++userTurnOrdinal : undefined;
             if (paused) return;
-            if (speaker === 'user') replay.stop();
+            if (speaker === 'user') stopReplayForInput();
             if (speaker === 'assistant') {
               assistants.set(turnId, { text: message, eventId, replyId: replyIds.get(eventId) });
               if (assistants.size > 256) assistants.delete(assistants.keys().next().value);
@@ -422,6 +423,7 @@ export function createElevenLabsClient(ports = {}) {
             }
             const text = event?.tentative_user_transcription_event?.user_transcript;
             if (active() && !paused && event.type === 'tentative_user_transcript' && typeof text === 'string') {
+              if (text.trim()) stopReplayForInput();
               emit({ type: 'partial', turnId: `${receipt.providerSessionId}:user:pending`, role: 'user', text });
             }
           },

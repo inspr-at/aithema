@@ -121,6 +121,18 @@ test('AIT-154: heard correction updates replay to the acknowledged transcript by
   await flush(); assert.deepEqual(await f.session.replayLastReply(), { kind: 'text', text: 'Known prefix' });
 });
 
+test('AIT-154: user speech interrupts standalone replay even when the agent is not speaking', async t => {
+  let stops = 0;
+  const f = await fixture(t, { speakText: async () => ({ kind: 'audio', audio: { data: 'AAAA', format: 'pcm_16000' } }),
+    playAudio: async () => ({ stop() { stops++; }, finished: new Promise(() => {}) }) });
+  f.reply('Last answer.'); await flush(); await f.session.replayLastReply();
+  const before = f.persisted.length;
+  f.sdk.starts[0].onDebug({ type: 'tentative_user_transcript', tentative_user_transcription_event: { user_transcript: 'One moment' } });
+  assert.equal(stops, 1);
+  assert.deepEqual(f.sdk.effects.filter(([name]) => name === 'setVolume').at(-1), ['setVolume', 0]);
+  await flush(); assert.equal(f.persisted.length, before, 'barge-in itself creates no turn or heard evidence');
+});
+
 test('AIT-138 c: final persistence racing a drop reconciles speech before the recovery notice', async t => {
   let resolve;
   const pending = new Promise(r => { resolve = r; });
