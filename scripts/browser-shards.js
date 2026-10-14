@@ -14,22 +14,25 @@ export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 export const browserShards = [
   // AIT-173 round 3, run 38570598983: whole jobs 413s / 478s.
   // Move Start-look's measured 28.045s from shard 2 to shard 1.
-  ['test/browser/visitor-credit-tiers.test.js', 'test/browser/start-look.test.js'],
+  ['test/browser/visitor-credit-tiers.test.js', 'test/browser/start-look.test.js', 'test/browser/footer-width-sweep.test.js'],
   // AIT-173 run 38531320436: whole jobs 405/483/419/397s.
-  // Move operator-login's isolated 39s batch to shard 4 to keep every job below 480s.
+  // Run 38581263731: shard 4 reached 503s. Move its measured 38.758s
+  // operator worker to shard 2 and the 12.607s footer sweep to shard 1;
+  // move shard 2's 20.027s audio replay to shard 3 (448s).
   // AIT-169 rotates 13 admin states across widths in CI (both locales/themes),
   // keeps all 12 zero-shift flows, and awaits module readiness instead of idle.
   // The complete screenshot matrix is reserved for non-CI evidence runs.
   // PR 3 keeps demo teardown separate from the display matrix in shard 4.
   [
     'test/browser/start2-display-matrix.test.js',
-    'test/browser/audio-replay.test.js',
     'test/browser/admin-pages.test.js',
     'test/browser/email-mail-space.test.js',
     'test/browser/credit-hold.test.js',
+    'test/browser/operator-login.test.js',
   ],
   // 394.868s CI
   [
+    'test/browser/audio-replay.test.js',
     'test/browser/start2-display.test.js',
     'test/browser/orb-reveal.test.js',
     'test/browser/question-card.test.js',
@@ -41,11 +44,9 @@ export const browserShards = [
   // 201.358s CI at 4fc6a22 including the sweep, plus 105.447s continuity.
   [
     'test/browser/email-ask.test.js',
-    'test/browser/footer-width-sweep.test.js',
     'test/browser/start2-display-continuity.test.js',
     'test/browser/demo.test.js',
     'test/browser/voice-presentation.test.js',
-    'test/browser/operator-login.test.js',
   ],
 ];
 
