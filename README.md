@@ -3085,7 +3085,9 @@ Rule C still owns callback identity, ordinal, replay, admission and settlement.
 With `outputCheck: true`, the complete reply is buffered before text or TTS can
 receive it. The server rejects canary leakage (including JSON escapes), Markdown
 fences, indented code blocks and HTML pre/code blocks, including card strings.
-Malformed or missing scope fails closed. A rejected output is regenerated once
+Only guarded reply requests carry the private canary; understanding retains its
+existing untrusted-data framing behind the scope gate. Malformed or missing scope
+fails closed. A rejected output is regenerated once
 under a fresh admitted and settled model attempt; a second rejection produces
 host fallback copy. This check is a deterministic backstop, not a semantic proof
 of model obedience. The fake-model red-team tests verify framing, extraction,

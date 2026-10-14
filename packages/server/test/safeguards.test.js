@@ -93,6 +93,7 @@ test('AIT-174 in and unclear replies infer scope privately and run understanding
     const f = fixture(t, { outputs: () => envelope('What would you like to improve?', scope) });
     await f.send('We need to develop a product and improve our processes.');
     assert.equal(f.assessments.length, 1); assert.equal(f.storage.safeguards(f.session.id).offTopicTurns, 0);
+    assert.equal(f.assessments[0].system.includes('AITHEMA_CANARY_'), false, 'reply-only hidden instructions never enter the understanding lane');
     assert.equal(JSON.stringify(f.storage.get(f.session.id).transcript).includes('scope'), false);
   }
   const f = fixture(t, { policy: { offTopicLimit: 0 }, outputs: () => '```js\nlegacy()\n```' });

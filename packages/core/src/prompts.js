@@ -37,7 +37,9 @@ function promptTurns(session) {
 }
 export function reasoningRequest(session, lane, draft = false, hostPrompt = '', { pendingInput = false, voiceReply = false, purposePolicy } = {}) {
   const uploads = uploadContextMessage(session);
-  const policy = normalizePurposePolicy(purposePolicy);
+  // The private reply canary belongs only to the lane whose output is checked.
+  // Understanding runs behind the scope gate with its existing untrusted-data framing.
+  const policy = lane === 'reaction' ? normalizePurposePolicy(purposePolicy) : null;
   const cardReply = lane === 'reaction' && (!voiceReply || policy);
   const schema = policy ? purposeReplySchema : replySchema;
   return { system: `${GENERIC_POLICY}\n${hostPrompt}\n${policy ? purposeGuidance(policy, session) + '\n' : ''}Write in ${LANGUAGES[session.locale] ?? session.locale} (locale ${session.locale}), whatever language the transcript uses.
