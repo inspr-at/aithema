@@ -46,7 +46,7 @@ for (const locale of ['de', 'en']) {
       const sdk = fakeSdk();
       const client = createElevenLabsClient({ sdk, mediaDevices: sdk.mediaDevices, AudioContext: sdk.AudioContext,
         persistEvent: async () => {}, control: { start: async () => ({ callId: 'stub-call', providerSessionId: 'stub-conversation',
-          overrides, credential: { connectionType: 'webrtc', conversationToken: 'fixture-token-stub-conversation', ttlMs: 60_000 },
+          overrides, credential: { providerSessionId: 'stub-conversation', connectionType: 'webrtc', conversationToken: 'fixture-token-stub-conversation', ttlMs: 60_000 },
           spendDeadlineAt: Date.now() + 60_000, browserLivenessDeadlineAt: Date.now() + 30_000 }), close: async () => ({ closureConfirmed: true }),
           pause: async () => ({ acknowledged: true, paused: true }), resume: async () => ({ acknowledged: true, paused: false }),
           heartbeat: async () => ({ acknowledged: true, browserLivenessDeadlineAt: Date.now() + 30_000 }) } });
