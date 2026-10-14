@@ -68,10 +68,12 @@ test('AIT-174 redirect, locked pause and normal reply at 390/1024/1440, L/D, DE/
       const pause = await shadow(page, c => {
         const root = c.shadowRoot, copy = root.querySelector('.purpose-pause-copy');
         return { text: copy.textContent, shown: !copy.hidden, height: copy.clientHeight, scroll: copy.scrollHeight,
+          railOverflow: root.querySelector('.voice-state').textContent.includes('Augmentoring'),
           disabled: ['textarea', '.send', '.pause'].every(selector => root.querySelector(selector).disabled) && root.querySelector('.attach').getAttribute('aria-disabled') === 'true',
           overflow: document.documentElement.scrollWidth > innerWidth, label: JSON.stringify(c.session).includes('scope') };
       });
       assert.equal(pause.shown, true); assert.match(pause.text, locale === 'de' ? /neues Gespräch/u : /new conversation/u);
+      assert.equal(pause.railOverflow, false, 'the voice rail keeps its brief status instead of the composer paragraph');
       assert.equal(pause.disabled, true); assert.equal(pause.overflow, false); assert.equal(pause.label, false);
       assert.ok(pause.scroll <= pause.height + 1, `${label}: full pause copy fits its reserved composer area`); await shot('pause');
       checks.push(`${label}: normal, redirect, locked pause; 0 px composer shift; no horizontal overflow; pause copy fits`);
