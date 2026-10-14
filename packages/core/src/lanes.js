@@ -105,15 +105,28 @@ export class SessionLanes {
           const request = reasoningRequest(session, lane, false, this.hostPrompt, { purposePolicy: this.purposePolicy, offTopicTurns: this.offTopicTurns(id) });
           let admitted;
           const self = this;
+          // Supersession is a lane outcome, never an empty provider reply.
+          const superseded = new Error('Reply superseded');
           const reply = await collectPurposeReply(request, async function* (input) {
-            if (!current()) return;
+            if (!current()) throw superseded;
             admitted = await self.admit?.({ session: self.getSession(id), lane, operation: 'stream', request: input, options });
             let failed = false;
-            try { yield* cancellableStream((admitted?.plugin ?? self.reasoning).stream(input, admitted?.options ?? options), scope.signal); }
+            try {
+              if (!current()) throw superseded;
+              for await (const delta of cancellableStream((admitted?.plugin ?? self.reasoning).stream(input, admitted?.options ?? options), scope.signal)) {
+                if (!current()) throw superseded;
+                yield delta;
+              }
+            }
             catch (error) { failed = true; throw error; }
             finally { await admitted?.finish({ failed }); }
+            if (!current()) throw superseded;
           }, { guardDirection: reply => current() ? this.guardDirection(id, reply) : reply,
-            onDiagnostic: event => this.onReplyDiagnostic({ lane, ...event }) });
+            onDiagnostic: event => this.onReplyDiagnostic({ lane, ...event }) }).catch(error => {
+            const latest = this.getSession(id);
+            if (error === superseded || inputRevision(latest) !== revision || this.selection(latest, lane) !== selection) return null;
+            throw error;
+          });
           if (!current()) return 'stale';
           const guarded = stripThanksOpener(reply.content, session.locale);
           if (guarded.stripped) this.onOpenerStripped();
