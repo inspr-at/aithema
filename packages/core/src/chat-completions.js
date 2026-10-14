@@ -28,13 +28,27 @@ export async function responseText(response, limit = 1_000_000, { signal, observ
 // Shared wire parser; no retries. It is also used by the browser loopback half.
 export function createChatCompletions({ manifest, binding, resolveSecret, fetchImpl = globalThis.fetch,
   providerOptions = () => ({}), transportOptions = {}, billable = true, spendCap,
-  spendCeiling = () => binding.maxMicro, prepareBody = body => body, observedCost, uncertainCeiling, authoritativeCost = false }) {
+  spendCeiling = () => binding.maxMicro, prepareBody = body => body, observedCost, uncertainCeiling, authoritativeCost = false,
+  streamSchema = false }) {
   const label = manifest.vendor.name;
   const payloadFor = (request, extra) => prepareBody({ model: binding.model,
     messages: [{ role: 'system', content: request.system ?? '' }, ...request.messages],
     max_tokens: binding.maxTokens, ...providerOptions(extra.stream), ...extra });
   const structuredExtra = request => ({ stream: false,
     response_format: { type: 'json_schema', json_schema: { name: 'understanding', strict: true, schema: request.schema } } });
+  // Opt in per adapter and guarded request; other hosts keep their wire contract.
+  const streamExtra = request => {
+    if (!streamSchema || !request.purposePolicy || !request.schema || request.replySchemaConstrained === false) return { stream: true };
+    // Strict provider subsets require every property to be required and often
+    // lack contains/maxContains. Keep the at-most-one-likely rule in the host.
+    const { contains, minContains, maxContains, ...options } = request.schema.properties.options;
+    const schema = { ...request.schema, properties: { ...request.schema.properties,
+      options: { ...options, items: { ...options.items, required: ['text', 'likely'] } } } };
+    return { stream: true, response_format: { type: 'json_schema', json_schema: { name: 'reply', strict: true, schema } } };
+  };
+  const unsupportedResponseFormat = value => [value.error?.message, value.error?.metadata?.raw].some(message =>
+    typeof message === 'string' && (/no endpoints (?:found (?:that|which) )?support (?:the )?(?:requested|required) parameters/iu.test(message) ||
+      /response_format|json_schema|structured outputs?/iu.test(message) && /not support|unsupported|not available|unavailable/iu.test(message)));
   const encoder = new TextEncoder();
   const outputBytes = message => {
     if (!message) return 0;
@@ -107,18 +121,28 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
     const response = await untilCancelled(tracked, scope.signal);
     if (!response.ok) {
       spend.httpError = true;
+      let responseFormatUnsupported = false;
       // A received HTTP error may still carry billed usage. Otherwise keep the hold.
-      try { observe(JSON.parse(await responseText(response, 1_000_000, { signal: scope.signal,
-        observeId: id => observe({ id }, spend.options, invocation, spend) })), spend.options, invocation, spend); }
+      try {
+        const value = JSON.parse(await responseText(response, 1_000_000, { signal: scope.signal,
+          observeId: id => observe({ id }, spend.options, invocation, spend) }));
+        observe(value, spend.options, invocation, spend);
+        // Inspect privately, never propagate provider text. Only an explicit
+        // capability refusal permits removing response_format on a new attempt.
+        responseFormatUnsupported = extra.stream && Boolean(extra.response_format) && [400, 404, 422].includes(response.status) &&
+          unsupportedResponseFormat(value);
+      }
       catch { /* unknown cost */ }
-      throw new PluginError(response.status === 401 || response.status === 403 ? 'auth' : response.status === 429 ? 'rate-limit' : 'provider', `${label} request failed`);
+      const error = new PluginError(response.status === 401 || response.status === 403 ? 'auth' : response.status === 429 ? 'rate-limit' : 'provider', `${label} request failed`);
+      if (responseFormatUnsupported) error.responseFormatUnsupported = true;
+      throw error;
     }
     return response;
   }
   return {
     id: manifest.id, billable, label: `${label} — ${binding.model}`, manifest, binding, providerOptions,
-    ...(authoritativeCost ? { estimateCost: (request, operation) => spendCeiling(payloadFor(request, operation === 'stream' ? { stream: true } : structuredExtra(request))) } : {}),
-    ...(uncertainCeiling ? { estimateUncertainCost: (request, operation) => uncertainCeiling(payloadFor(request, operation === 'stream' ? { stream: true } : structuredExtra(request))) } : {}),
+    ...(authoritativeCost ? { estimateCost: (request, operation) => spendCeiling(payloadFor(request, operation === 'stream' ? streamExtra(request) : structuredExtra(request))) } : {}),
+    ...(uncertainCeiling ? { estimateUncertainCost: (request, operation) => uncertainCeiling(payloadFor(request, operation === 'stream' ? streamExtra(request) : structuredExtra(request))) } : {}),
     async health(options) {
       const scope = operationScope(options);
       try { scope.signal.throwIfAborted(); return { available: !billable || Boolean(resolveSecret?.(binding.secretRef)) }; }
@@ -131,7 +155,7 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
         .catch(error => { scope.dispose(); throw error; });
       const spend = { options, stream: true, metadata: { attemptId: options?.attempt?.attemptId, provider: authoritativeCost ? 'openrouter' : manifest.id } };
       try {
-        const response = await dispatch(request, scope, { stream: true }, invocation, spend);
+        const response = await dispatch(request, scope, streamExtra(request), invocation, spend);
         if (!response.body) throw new PluginError('invalid-output');
         reader = response.body.getReader();
         const decoder = new TextDecoder(); let buffer = '', doneMarker = false, stopped = false, size = 0;
@@ -156,7 +180,11 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
             settleSpend(spend);
             throw new PluginError('not-admitted', 'OpenRouter spend cap exhausted');
           }
-          if (value.error) throw new PluginError('provider', `${label} stream failed`);
+          if (value.error) {
+            const error = new PluginError('provider', `${label} stream failed`);
+            if (streamExtra(request).response_format && unsupportedResponseFormat(value)) error.responseFormatUnsupported = true;
+            throw error;
+          }
           const choice = value.choices?.[0];
           if (choice?.delta?.tool_calls || choice?.finish_reason && choice.finish_reason !== 'stop') throw new PluginError('invalid-output', `Incomplete ${label} stream`);
           if (choice?.finish_reason === 'stop') stopped = true;

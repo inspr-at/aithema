@@ -319,3 +319,17 @@ for (const locale of ['de', 'en']) test(`AIT-178 ${locale} in-scope turns preser
   assert.equal(f.storage.get(f.session.id).transcript.at(-1).content, start2Redirects[locale][1]);
   assert.equal(f.storage.safeguards(f.session.id).offTopicTurns, 2);
 });
+
+for (const locale of ['de', 'en']) test(`AIT-181 ${locale}: model reply reaches transcript, scope stays private, missing scope never counts`, async t => {
+  const content = locale === 'de' ? 'Wo entsteht bei Ihren Aufträgen heute der größte Aufwand?'
+    : 'Where does your team spend the most time when processing orders?';
+  const f = fixture(t, { policy: start2PurposePolicy, outputs: () => JSON.stringify({ content, question_short: null, options: [], debug: 'discarded' }) });
+  f.storage.changeLocale(f.session.id, locale, { ownerToken: testToken });
+  for (let index = 0; index < 2; index++) await f.send(locale === 'de'
+    ? 'Wir möchten unsere Auftragsbearbeitung vereinfachen.' : 'We want to simplify order processing.', `project-${index}`);
+  const snapshot = await f.handlers.handle(req(f.session.id)).then(response => response.json());
+  assert.equal(snapshot.transcript.at(-1).content, content);
+  assert.equal(f.calls.length, 2); assert.equal(f.assessments.length, 2);
+  assert.equal(f.storage.safeguards(f.session.id).offTopicTurns, 0); assert.equal(snapshot.paused, false);
+  assert.equal(JSON.stringify(snapshot).includes('scope'), false); assert.equal(JSON.stringify(snapshot).includes('discarded'), false);
+});

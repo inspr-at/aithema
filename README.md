@@ -3146,11 +3146,55 @@ wrapping JSON fences are accepted as transport syntax.
 Only guarded reply requests carry the private canary; understanding retains its
 existing untrusted-data framing behind the scope gate. A rejected output is regenerated once
 under a fresh admitted and settled model attempt. Only an explicit off classification
-or an output-check violation counts toward the pause. Invalid JSON, missing scope and
-provider faults produce a neutral reply or the normal error path without counting.
+or an output-check violation counts toward the pause. Missing or invalid scope is
+`unclear`: safe model content is shown, cards are cleared, and it never counts.
+Unknown envelope/option fields are discarded; wrapping JSON fences are stripped.
+Malformed optional card metadata also cannot discard safe conversational content.
+Invalid JSON and incomplete streams are retried once; the final neutral fallback is
+reserved for unusable output (unparseable, empty/non-string/overlong content), while
+unsafe output receives the fixed host redirect. Provider faults retain the normal
+error path without counting.
 A second unsafe rejection produces host redirect copy. This check is a deterministic backstop, not a semantic proof
 of model obedience. The fake-model red-team tests verify framing, extraction,
 counting, replay and non-disclosure; only a live evaluation can assess real models.
+
+Guarded OpenRouter reply streams request `response_format: json_schema` with
+`strict: true` and retain the prompt schema. The wire schema uses required boolean
+`likely` flags and leaves the at-most-one-likely check to the host so providers need
+no `contains` support. Other hosts keep their existing
+transport. An explicit provider refusal of structured streaming uses the one
+remaining attempt with the prompt schema, under fresh admission and settlement;
+there are no hidden adapter retries or changes to provider routing, price bounds,
+output checks, fixed off-topic variants or pause counting. Incomplete streams are
+never shown before successful regeneration.
+
+OPS reply-schema diagnostic (AIT-181): on the approved host, in its existing service
+configuration context, run exactly:
+
+```sh
+node scripts/diagnose-reply-schema.js --allow-live
+```
+
+OPS supplies the usual inherited process configuration; the script never opens an
+env/config file and never runs in CI. It makes one guarded reply stream for each
+of in-scope DE, in-scope EN and off-topic DE: **at most three wire calls, no retries**,
+through the normal admission, pricing and spend-cap path (in-memory cap: the smaller
+of the configured cap and USD 0.05). It prints only case IDs, parse success,
+top-level schema keys, scope presence/validity, first failing schema path/rule,
+fence presence and stream completion. Unknown key names are masked as `<unknown>`
+and `*` in paths, because names can contain private text too. No output values,
+prompts, credentials, provider errors or configuration values are logged. Rules
+refer to the strict requested schema before tolerant reply normalization; a missing
+scope or extra-field failure alone no longer means the conversation uses fallback.
+A capability refusal consumes its diagnostic call; OPS can see incomplete/unparsed
+output without the diagnostic spending another call.
+
+Every start2 post-deploy smoke must include **in-scope DE + EN turns and an off-topic
+turn**. Both in-scope turns must show a specific model reply to the project, beyond
+the neutral fallback; off-topic must show the full fixed localized redirect and
+contribute once to the private counter. The coordinator/OPS owns real-provider
+verification before redeploy. The AIT-181 regression fixtures represent realistic
+model envelopes; they are not claimed to be captured production output.
 
 Manual evaluator: `scripts/eval-safeguards.js` is never run in CI. Only with Markus's
 approval, on an approved evaluation machine with dependencies already available:

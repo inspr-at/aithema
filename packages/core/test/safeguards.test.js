@@ -107,3 +107,79 @@ for (const [locale, content] of [
   assert.equal(reply.scope, 'unclear');
   assert.equal(calls, 1);
 });
+
+for (const [name, extra, scope] of [
+  ['extra fields', { scope: 'in', reasoning: 'Private disposable metadata', extra: { confidence: 0.9 } }, 'in'],
+  ['uppercase scope', { scope: 'IN' }, 'unclear'],
+  ['uppercase off', { scope: 'OFF' }, 'unclear'],
+  ['number scope', { scope: 1 }, 'unclear'],
+  ['object scope', { scope: { classification: 'in' } }, 'unclear'],
+  ['null scope', { scope: null }, 'unclear'],
+]) test(`AIT-181 realistic envelope: ${name}`, async () => {
+  const content = 'Your team enters each order twice. Which step causes the most delays?';
+  const value = { content, question_short: 'Which step?', options: [{ text: 'Checking stock', likely: true, confidence: 0.8 }], ...extra };
+  let calls = 0;
+  const reply = await collectPurposeReply(request(), async function* () { calls++; yield JSON.stringify(value); });
+  assert.equal(reply.content, content); assert.equal(reply.scope, scope); assert.equal(calls, 1);
+  assert.deepEqual(Object.keys(reply).sort(), ['content', 'options', 'question_short', 'scope']);
+  assert.deepEqual(reply.options, scope === 'in' ? [{ text: 'Checking stock', likely: true }] : []);
+  assert.equal(reply.question_short, scope === 'in' ? 'Which step?' : null);
+});
+
+test('AIT-181 fenced reply split across arbitrary stream chunks is buffered and shown', async () => {
+  const content = 'Wo entstehen bei der Bearbeitung Ihrer Aufträge heute Wartezeiten?';
+  const raw = '\n```JSON\n' + JSON.stringify({ content, question_short: null, options: [], scope: 'in', extra: true }) + '\n```\n';
+  for (const size of [1, 7, 1000]) {
+    let calls = 0;
+    const reply = await collectPurposeReply(request('de'), async function* () {
+      calls++; for (let index = 0; index < raw.length; index += size) yield raw.slice(index, index + size);
+    });
+    assert.equal(reply.content, content); assert.equal(reply.scope, 'in'); assert.equal(calls, 1);
+  }
+});
+
+test('AIT-181 truncated JSON and incomplete transport retry before showing any content', async () => {
+  const content = 'Where does your team lose time when processing an order?';
+  for (const failure of ['json', 'transport']) {
+    let calls = 0, rejected = 0;
+    const reply = await collectPurposeReply(request(), async function* (_, attempt) {
+      calls++;
+      if (!attempt) {
+        yield failure === 'json' ? '{"content":"Partial reply' : wire('Unfinished transport output');
+        if (failure === 'transport') throw new PluginError('invalid-output');
+      } else yield wire(content);
+    }, { onRejected() { rejected++; } });
+    assert.equal(calls, 2); assert.equal(rejected, 1); assert.equal(reply.content, content);
+  }
+});
+
+for (const [name, raw] of [
+  ['unparseable', '{"content":"Partial reply'],
+  ['empty', wire('  ')],
+  ['non-string', wire(5)],
+  ['overlong', wire('x'.repeat(16001))],
+]) test(`AIT-181 genuinely unusable ${name} output gets the final fallback`, async () => {
+  let calls = 0;
+  const reply = await collectPurposeReply(request(), async function* () { calls++; yield raw; });
+  assert.equal(calls, 2); assert.equal(reply.content, 'What are you working on?'); assert.equal(reply.scope, 'unclear');
+});
+
+test('AIT-181 malformed optional card metadata preserves safe content', async () => {
+  const content = 'Which order processing step should improve first?';
+  const reply = await collectPurposeReply(request(), async function* () {
+    yield wire(content, 'in', { question_short: 5, options: [{ text: 'Checking stock', likely: 'yes' }] });
+  });
+  assert.deepEqual(reply, { content, scope: 'in', question_short: null, options: [] });
+});
+
+test('AIT-181 invalid scope and ignored extras cannot bypass decoded output checks', async () => {
+  const input = request();
+  for (const value of [
+    { content: input.purposePolicy.canary, question_short: null, options: [], scope: 'IN' },
+    { content: 'What should improve?', question_short: 5, options: [{ text: 'const secret = 1;', extra: true }] },
+  ]) {
+    let calls = 0;
+    const reply = await collectPurposeReply(input, async function* () { calls++; yield JSON.stringify(value); });
+    assert.equal(calls, 2); assert.equal(reply.scope, 'off'); assert.equal(reply.content, purposePolicy.redirect.en);
+  }
+});

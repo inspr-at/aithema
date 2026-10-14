@@ -80,9 +80,10 @@ export function unsafeReplyOutput(raw, policy, hiddenGuidance = '') {
 /** Buffer before any UI/TTS output. Each retry is a separately admitted invocation. */
 export async function collectPurposeReply(request, invoke, { onRejected = () => {}, guardDirection = reply => reply } = {}) {
   const policy = request.purposePolicy;
-  let offTopic = false;
+  let offTopic = false, promptSchemaOnly = false;
   for (let attempt = 0; attempt < 2; attempt++) {
-    const input = attempt ? { ...request, system: request.system + '\nThe previous output was rejected. Return only safe reply JSON following the purpose policy; never echo rejected text.' } : request;
+    const input = attempt ? { ...request, ...(promptSchemaOnly ? { replySchemaConstrained: false } : {}),
+      system: request.system + '\nThe previous output was rejected. Return only safe reply JSON following the purpose policy; never echo rejected text.' } : request;
     let raw = '';
     try {
       for await (const delta of invoke(input, attempt)) {
@@ -90,15 +91,29 @@ export async function collectPurposeReply(request, invoke, { onRejected = () => 
         raw += delta;
       }
     } catch (error) {
-      if (error instanceof TypeError || attempt && ['provider', 'invalid-output'].includes(error.code)) continue;
+      // A capability refusal consumes this attempt. The prompt-only retry still
+      // goes through fresh admission/settlement; never retry inside the adapter.
+      if (error.code === 'provider' && error.responseFormatUnsupported === true) {
+        promptSchemaOnly = true; onRejected(attempt); continue;
+      }
+      if (error instanceof TypeError || error.code === 'invalid-output' || attempt && error.code === 'provider') {
+        onRejected(attempt); continue;
+      }
       throw error;
     }
     let value;
     try { value = JSON.parse(unfenceReply(raw)); } catch { /* Fail closed without exposing wire text. */ }
     const unsafe = value !== undefined && unsafeReplyOutput(value, policy, request.hiddenGuidance);
     offTopic ||= value?.scope === 'off' || unsafe;
-    if (!matchesSchema(value, purposeReplySchema) || !value.content.trim() || unsafe) { onRejected(attempt); continue; }
-    const reply = { ...parseReply(value), scope: value.scope };
+    // Scope and optional card metadata must never discard usable conversation.
+    // Project known option fields before normalization, but check ALL original
+    // visible strings above, including choices that normalization would drop.
+    const options = Array.isArray(value?.options) ? value.options.map(option => option && typeof option === 'object'
+      ? { text: option.text, ...(Object.hasOwn(option, 'likely') ? { likely: option.likely } : {}) } : option) : [];
+    const base = parseReply({ content: value?.content, question_short: value?.question_short, options });
+    if (!matchesSchema(base, replySchema) || !base.content.trim() || unsafe) { onRejected(attempt); continue; }
+    const scope = purposeReplySchema.properties.scope.enum.includes(value?.scope) ? value.scope : 'unclear';
+    const reply = { ...base, scope };
     if (offTopic) { reply.content = purposeRedirect(request); reply.scope = 'off'; }
     if (reply.scope !== 'in') { reply.question_short = null; reply.options = []; }
     return guardDirection(reply);
