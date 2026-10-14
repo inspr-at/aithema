@@ -94,10 +94,26 @@ export class VisitorEmail {
   set(values) { Object.assign(this, values); this.paint(); }
   format(value) { return Number.isFinite(value) ? formatCredits(value, this.locale?.() ?? this.copy.display.locale) : ''; }
   get numbers() { const a = this.tiers?.allowancesMicro; return { base: this.format(a?.anonymous), email: this.format(a?.emailGiven), confirmed: this.format(a?.emailConfirmed) }; }
-  noticeText() { return [this.viewDelivery ? this.e.noticeMail : this.e.notice, this.handover ? this.e.noticeHandover : ''].filter(Boolean).join(' '); }
+  noticeText() { return [this.viewDelivery ? this.e.noticeMail : this.e.noticeSave, this.handover ? this.e.noticeHandover : ''].filter(Boolean).join(' '); }
   paintNotice(container) {
+    // Preserve the old save paragraph's wrapped height, including its legal link.
+    // The visible copy and the aria-hidden measure share the same grid cell.
+    let content = container.querySelector('.m-notice-content');
+    if (!content) {
+      content = container.ownerDocument.createElement('span'); content.className = 'm-notice-content';
+      content.append(...container.childNodes); container.append(content);
+      const measure = container.ownerDocument.createElement('span'); measure.className = 'm-notice-measure';
+      measure.setAttribute('aria-hidden', 'true'); measure.inert = true;
+      const text = container.ownerDocument.createElement('span'); text.className = 'm-notice-old';
+      const privacy = container.ownerDocument.createElement('span'); privacy.className = 'm-pp';
+      measure.append(text, ' ', privacy); container.append(measure);
+    }
+    container.dataset.noticeMode = this.viewDelivery ? 'mail' : 'save';
+    setText(container.querySelector('.m-notice-old'), [this.e.notice, this.handover ? this.e.noticeHandover : ''].filter(Boolean).join(' '));
+    const measuredLink = container.querySelector('.m-notice-measure .m-pp');
+    setText(measuredLink, this.e.privacy); measuredLink.hidden = !this.privacyLink;
     setText(container.querySelector('.m-notice-text'), this.noticeText());
-    const link = container.querySelector('.m-pp'), href = this.privacyLink;
+    const link = content.querySelector('.m-pp'), href = this.privacyLink;
     setText(link, this.e.privacy); link.hidden = !href;
     if (href) link.setAttribute('href', href); else link.removeAttribute('href');
   }

@@ -240,6 +240,10 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 .m-ico { flex:none; width:14px; height:14px; display:grid; color:var(--aithema-accent); } .m-ico:empty { visibility:hidden; }
 .m-form .m-notice { grid-area:notice; }
 .m-notice { font-size:.75rem; line-height:1.5; color:var(--aithema-muted); max-width:34rem; margin:0; }
+.m-notice-measure { display:none; }
+.m-notice[data-notice-mode="save"] { display:grid; }
+.m-notice[data-notice-mode="save"] > span { grid-area:1/1; min-width:0; }
+.m-notice[data-notice-mode="save"] .m-notice-measure { display:block; visibility:hidden; pointer-events:none; user-select:none; }
 .m-pp { position:relative; color:var(--aithema-muted); text-decoration:underline; text-underline-offset:3px; white-space:nowrap; padding-block:4px; }
 .m-pp::after { content:""; position:absolute; inset:-11px -4px; }
 .m-addr { margin:0; min-height:2.8em; max-height:2.8em; overflow:auto; font-size:.95rem; color:var(--aithema-ink); font-weight:600; overflow-wrap:anywhere; }

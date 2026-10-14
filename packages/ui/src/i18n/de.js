@@ -336,6 +336,7 @@ export const de = {
       sentTo: 'Link gesendet an', pendingTier: 'Guthaben: {email} Credits · nach der Bestätigung {confirmed}',
       confirmed: 'Bestätigt · Guthaben: {confirmed} Credits', confirmedLabel: 'Bestätigt',
       notice: 'Wir nutzen Ihre E-Mail-Adresse nur für Ihr Guthaben und später für eine Bestätigungsmail. Nie für Werbung. Nach 90 Tagen ohne Nutzung löschen wir sie automatisch.',
+      noticeSave: 'Wir nutzen Ihre E-Mail-Adresse nur für Ihr Guthaben. Nie für Werbung. Nach 90 Tagen ohne Nutzung löschen wir sie automatisch.',
       noticeMail: 'Wir nutzen Ihre E-Mail-Adresse nur für Ihr Guthaben und die Bestätigungsmail. Nie für Werbung. Nach 90 Tagen ohne Nutzung löschen wir sie automatisch.',
       noticeHandover: 'Für eine persönliche Weiterführung fragen wir Sie gesondert.',
       privacy: 'Datenschutzerklärung', unavailable: 'Eine E-Mail-Adresse können Sie hier derzeit nicht angeben.',

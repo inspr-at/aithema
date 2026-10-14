@@ -328,6 +328,7 @@ test('AIT-172: email ask privacy DE/EN save/mail/confirmation-off, 390/1440, mai
         await p.evaluate(() => window.ait164.reply()); await gateReady(p); await settle(p);
       }
       const expected = locale === 'de' ? mode === 'mail' ? 'Wir nutzen Ihre E-Mail-Adresse nur für Ihr Guthaben und die Bestätigungsmail. Nie für Werbung. Nach 90 Tagen ohne Nutzung löschen wir sie automatisch.' : 'Wir nutzen Ihre E-Mail-Adresse nur für Ihr Guthaben. Nie für Werbung. Nach 90 Tagen ohne Nutzung löschen wir sie automatisch.' : mode === 'mail' ? 'We use your email address only for your credit and the confirmation email. Never for advertising. After 90 days without use, we delete it automatically.' : 'We use your email address only for your credit. Never for advertising. After 90 days without use, we delete it automatically.';
+      let passed = false;
       await t.test(label, async () => {
         // All notice consumers, including the hidden lock form and confirmation dialog.
         const texts = await shadow(page, c => [...c.shadowRoot.querySelectorAll('.m-notice-text')].map(n => n.textContent));
@@ -340,7 +341,9 @@ test('AIT-172: email ask privacy DE/EN save/mail/confirmation-off, 390/1440, mai
           await page.bringToFront(); await settle(page); const actual = await page.screenshot({ clip });
           await main.bringToFront(); await settle(main); assert.ok(actual.equals(await main.screenshot({ clip })), 'mail ask pixel-identical to main');
         }
+        passed = true;
       });
+      if (!passed) continue;
       rows.push({ head: evidenceCommit, label, surface: 'email-ask', shiftPx: 0, mailPixelIdentical: mode === 'mail', text: expected });
       t.diagnostic(`PASS AIT-172 ${label}/email-ask: 0 px shift${mode === 'mail' ? '; mail pixels identical to main' : ''}`);
       if (evidence) { const name = `ait-172-${evidenceCommit}-${label}-email-ask.png`; await page.bringToFront(); await settle(page); await page.screenshot({ path: join(evidence, name), fullPage: false }); shots.push(name); }

@@ -340,6 +340,7 @@ test('AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main
       const expected = locale === 'de' ? mode === 'mail' ? 'Wir nutzen Ihre E-Mail-Adresse nur für Ihr Guthaben und die Bestätigungsmail. Nie für Werbung. Nach 90 Tagen ohne Nutzung löschen wir sie automatisch.' : 'Wir nutzen Ihre E-Mail-Adresse nur für Ihr Guthaben. Nie für Werbung. Nach 90 Tagen ohne Nutzung löschen wir sie automatisch.' : mode === 'mail' ? 'We use your email address only for your credit and the confirmation email. Never for advertising. After 90 days without use, we delete it automatically.' : 'We use your email address only for your credit. Never for advertising. After 90 days without use, we delete it automatically.';
       const selectors = ['#email', '.m-stack', mode === 'mail' ? '.m-mail-notice' : '#email-notice', mode === 'mail' ? '.verify-entry' : '.m-save', '.operator-section', '.settings__footer'];
       const metrics = p => shadow(p, (c, selectors) => selectors.map(s => { const b = c.shadowRoot.querySelector(s).getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; }), selectors);
+      let passed = false;
       await t.test(label, async () => {
         assert.equal(await shadow(page, (c, s) => c.shadowRoot.querySelector(s + ' .m-notice-text').textContent, selectors[2]), expected);
         assert.deepEqual(await metrics(page), await metrics(main), '0 px shift against main');
@@ -347,7 +348,9 @@ test('AIT-172: Settings privacy DE/EN save/mail/confirmation-off, 390/1440, main
           await frame(page); const actual = await page.screenshot({ fullPage: false });
           await frame(main); assert.ok(actual.equals(await main.screenshot({ fullPage: false })), 'mail viewport pixel-identical to main');
         }
+        passed = true;
       });
+      if (!passed) continue;
       rows.push({ head: evidenceCommit, label, surface: 'settings', shiftPx: 0, mailPixelIdentical: mode === 'mail', text: expected });
       t.diagnostic(`PASS AIT-172 ${label}/settings: 0 px shift${mode === 'mail' ? '; mail pixels identical to main' : ''}`);
       if (evidence) { const name = `ait-172-${evidenceCommit}-${label}-settings.png`; await frame(page); await page.screenshot({ path: join(evidence, name), fullPage: false }); shots.push(name); }
