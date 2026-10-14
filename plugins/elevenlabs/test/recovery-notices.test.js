@@ -6,7 +6,7 @@ import { Window } from 'happy-dom';
 import { RecoveryNotices } from '../../../packages/ui/src/recovery-notices.js';
 import { en } from '../../../packages/ui/src/i18n/en.js';
 
-async function fixture(t, { persistEvent = async () => {}, withNotices = false } = {}) {
+async function fixture(t, { persistEvent = async () => {}, withNotices = false, speakText, playAudio, holdSignal } = {}) {
   const sdk = fakeSdk(), calls = []; let generation = 0;
   const receipt = ({ callId }) => {
     const providerSessionId = `conv_${++generation}`;
@@ -20,9 +20,10 @@ async function fixture(t, { persistEvent = async () => {}, withNotices = false }
     return { acknowledged: true, paused: name === 'pause', closureConfirmed: true, browserLivenessDeadlineAt: Date.now() + 30_000 };
   }]));
   const persisted = [], session = await createElevenLabsClient({ sdk, control,
+    ...(speakText ? { control: { ...control, speakText } } : {}), playAudio,
     mediaDevices: sdk.mediaDevices, AudioContext: sdk.AudioContext,
     persistEvent: async event => { await persistEvent(event); persisted.push(event); },
-  }).start({ callId: 'notice-call' });
+  }).start({ callId: 'notice-call' }, { holdSignal });
   let root, notices;
   if (withNotices) {
     const window = new Window(); root = window.document.createElement('div'); window.document.body.append(root);
@@ -53,6 +54,51 @@ test('AIT-138 c: tentative speech reports unconfirmed only after successful reco
   assert.equal(recovery.userUnconfirmed, true);
   assert.equal(recovery.deliveryUncertain, false);
   assert.equal(f.persisted.some(e => e.text === 'tentative'), false);
+});
+
+test('AIT-154: recovered replay synthesizes acknowledged bytes, plays audio and creates no turn', async t => {
+  const requests = [], played = [];
+  const f = await fixture(t, { speakText: async value => { requests.push(value); return { kind: 'audio', audio: { data: 'AAAA', format: 'pcm_16000' } }; },
+    playAudio: async (audio, options) => { played.push({ audio, options }); return { stop() {}, finished: Promise.resolve() }; } });
+  f.reply('Exact answer.'); await flush(); await f.recovered();
+  const before = f.persisted.length;
+  assert.equal((await f.session.replayLastReply()).kind, 'audio');
+  assert.equal(requests[0].turnId, 'conv_1:assistant:2');
+  assert.equal(played.length, 1);
+  assert.equal(f.persisted.length, before);
+  assert.equal(f.sdk.effects.some(([name]) => name === 'sendUserMessage'), false);
+});
+
+for (const stop of ['pause', 'hold', 'hangup', 'newer-reply', 'barge-in', 'Stop']) test(`AIT-154: ${stop} fences pending synthesis and active replay`, async t => {
+  let release, stops = 0, plays = 0;
+  const held = new AbortController();
+  const f = await fixture(t, { holdSignal: held.signal,
+    speakText: () => new Promise(resolve => { release = resolve; }),
+    playAudio: async () => { plays++; return { stop() { stops++; }, finished: new Promise(() => {}) }; } });
+  f.reply('Last answer.'); await flush();
+  const replay = f.session.replayLastReply();
+  const checked = assert.rejects(replay, e => ['cancelled', 'unavailable'].includes(e.code));
+  await flush();
+  if (stop === 'pause') await f.session.pause();
+  if (stop === 'hold') held.abort();
+  if (stop === 'hangup') await f.session.close();
+  if (stop === 'newer-reply') { f.reply('Newer answer.', 3); await flush(); }
+  if (stop === 'barge-in') f.sdk.interrupt(2);
+  if (stop === 'Stop') await f.session.stopReplay();
+  release?.({ kind: 'audio', audio: { data: 'AAAA', format: 'pcm_16000' } });
+  await checked; assert.equal(plays, 0); assert.equal(stops, 0);
+});
+
+test('AIT-154: active replay is stopped synchronously and provider failures fall back quietly', async t => {
+  let stops = 0, unavailable = false;
+  const f = await fixture(t, { speakText: async () => { if (unavailable) throw Object.assign(new Error(), { code: 'provider' });
+    return { kind: 'audio', audio: { data: 'AAAA', format: 'pcm_16000' } }; },
+  playAudio: async () => ({ stop() { stops++; }, finished: new Promise(() => {}) }) });
+  f.reply('Last answer.'); await flush();
+  assert.equal((await f.session.replayLastReply()).kind, 'audio');
+  f.sdk.interrupt(2); assert.equal(stops, 1);
+  unavailable = true;
+  assert.deepEqual(await f.session.replayLastReply(), { kind: 'text', text: 'Last answer.' });
 });
 
 test('AIT-138 c: final persistence racing a drop reconciles speech before the recovery notice', async t => {
