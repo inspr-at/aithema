@@ -63,7 +63,7 @@ A question without useful choices has options: []. With no question, use questio
     // Identify server-added context without interpreting person-turn text.
     documentMessageIndex: uploads ? 1 : null,
     draft, locale: session.locale, preset: session.preset, ...(cardReply ? { schema } : {}), ...(policy ? { purposePolicy: policy,
-      // Host prompt text may include public welcome/purpose copy. Only known
-      // hidden instructions seed leak detection, never the entire system prompt.
-      hiddenGuidance: [GENERIC_POLICY, hiddenPurposeGuidance(policy, session), responseGuidance].join('\n') } : {}) };
+      // The host prompt is trusted private guidance. Only the separately supplied
+      // public policy.purpose is excluded from the instructions checked for leaks.
+      hiddenGuidance: [GENERIC_POLICY, hostPrompt, hiddenPurposeGuidance(policy, session), responseGuidance].join('\n') } : {}) };
 }

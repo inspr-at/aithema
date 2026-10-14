@@ -678,8 +678,7 @@ export class AithemaSession extends HTMLElement {
     if (!pause) return;
     const purposePaused = this.#session.pauseReason === 'purpose', root = this.shadowRoot;
     root.querySelector('.audio-rail').toggleAttribute('data-purpose-paused', purposePaused);
-    const start = root.querySelector('.voice-start'), cell = root.querySelector(purposePaused ? '.voice-cell--pause' : '.voice-cell--mic');
-    if (start.parentNode !== cell) cell.prepend(start);
+    const start = root.querySelector('.voice-start');
     if (purposePaused) {
       pause.disabled = true;
       start.disabled = true; start.title = this.#copy.purposePausedDescription;
