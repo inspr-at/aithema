@@ -53,6 +53,8 @@ test('AIT-174 redirect, subtle question, locked pause and normal reply at 390/10
       const shot = async state => { if (evidence) {
         const file = `ait-174-${label}-${state}.png`; await page.screenshot({ path: join(evidence, file), fullPage: false }); files.push(file);
       } };
+      const idleStartBox = await boxes(page, ['.voice-start']);
+      if (locale === 'de' && theme === 'light' && width === 1440) await shot('idle');
 
       await page.evaluate(async () => {
         const { inputRevision } = await import('/packages/core/src/session.js'), c = document.querySelector('aithema-session');
@@ -85,6 +87,7 @@ test('AIT-174 redirect, subtle question, locked pause and normal reply at 390/10
           callTooltip: root.querySelector('.voice-start').title,
           callDescription: root.querySelector('.voice-start').getAttribute('aria-description'),
           callIcon: root.querySelector('.voice-start svg').outerHTML,
+          startInMicCell: root.querySelector('.voice-start').parentNode.classList.contains('voice-cell--mic'),
           channelsDisabled: ['.voice-output', '.voice-input'].every(selector => root.querySelector(selector).disabled),
           visiblePlay: [...root.querySelectorAll('.audio-rail svg')].some(svg => svg.querySelector('path[d="M8 5v14l11-7z"]') && getComputedStyle(svg).visibility === 'visible' && getComputedStyle(svg).display !== 'none'),
           outsidePause: [...root.querySelectorAll('*')].filter(n => !n.closest('.composer-shell') && !n.closest('style') && n.childNodes.length && getComputedStyle(n).visibility === 'visible' && n.getClientRects().length)
@@ -106,7 +109,17 @@ test('AIT-174 redirect, subtle question, locked pause and normal reply at 390/10
       assert.equal(pause.railOverflow, false);
       assert.equal(pause.callDisabled, true, `${label}: call button disabled`);
       assert.equal(pause.channelsDisabled, true);
-      assert.deepEqual(pause.visibleControls, ['voice-input', 'voice-output', 'voice-start'], `${label}: three idle call controls`);
+      assert.deepEqual(pause.visibleControls, ['voice-output', 'voice-start'], `${label}: exactly one call control besides the speaker`);
+      assert.equal(pause.startInMicCell, true, `${label}: Start stays in the idle mic cell`);
+      assert.deepEqual(await boxes(page, ['.voice-start']), idleStartBox, `${label}: Start keeps its idle position`);
+      const line = await shadow(page, c => {
+        const root = c.shadowRoot, wave = root.querySelector('.voice-wave'), style = getComputedStyle(wave);
+        const pixels = wave.getContext('2d').getImageData(0, Math.floor(wave.height / 2), wave.width, 1).data;
+        return { mask: style.maskImage, visible: style.visibility, emptyLabelsCollapsed: ['.voice-state', '.voice-caption'].every(selector => {
+          const label = root.querySelector(selector); return !label.textContent && label.getClientRects().length === 0;
+        }), continuous: Array.from({ length: wave.width }, (_, x) => pixels[x * 4 + 3]).every(alpha => alpha > 0) };
+      });
+      assert.deepEqual(line, { mask: 'none', visible: 'visible', emptyLabelsCollapsed: true, continuous: true }, `${label}: unbroken line with empty labels collapsed`);
       assert.match(pause.callIcon, /<rect/u, `${label}: start-call mic icon`);
       assert.equal(pause.visiblePlay, false, `${label}: no play glyph`);
       assert.deepEqual(pause.outsidePause, [], `${label}: no pausiert/paused text outside composer slot`);
@@ -128,8 +141,8 @@ test('AIT-174 redirect, subtle question, locked pause and normal reply at 390/10
         assert.ok(metrics.scroll <= metrics.height + 1, `${label}: wider font pause copy fits (${metrics.scroll}/${metrics.height})`);
         assert.ok(metrics.gap >= 4, `${label}: pause paragraph and action stay apart (${metrics.gap}px)`);
       }
-      if (width !== 1024) await shot('pause');
-      checks.push(`${label}: normal, redirect, subtle question without buttons, locked pause with New conversation; no play glyph; call button disabled; no pausiert/paused text anywhere outside composer slot; overview retains last content; 0 px composer shift; no horizontal overflow; pause copy fits`);
+      if (locale === 'de' && width !== 1024) await shot('pause');
+      checks.push(`${label}: normal, redirect, subtle question without buttons, locked pause with New conversation; exactly one disabled call control besides the speaker in its idle position; unbroken line with empty labels collapsed; no play glyph; no pausiert/paused text anywhere outside composer slot; overview retains last content; 0 px composer shift; no horizontal overflow; pause copy fits`);
     });
   }
   assert.equal(globalThis.safeguardsInterceptionError, undefined);

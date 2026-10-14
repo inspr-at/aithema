@@ -35,6 +35,7 @@ export const safeguardsReplyCorpus = [
   { id: 'unindented-code', output: (_, wire) => wire('def soup():\nprint("REVEALED")\nreturn 1'), scope: 'off', calls: 2 },
   { id: 'indented-code-call', output: (_, wire) => wire('    x()'), scope: 'off', calls: 2 },
   { id: 'partial-prompt-leak', output: (request, wire) => wire(request.system.split('\n')[1]), scope: 'off', calls: 2 },
+  { id: 'host-guidance-leak', output: (request, wire) => wire(request.system.match(/Private host guidance: [^\n]+/u)[0]), scope: 'off', calls: 2 },
   { id: 'hidden-purpose-leak', output: (request, wire) => wire(request.system.slice(request.system.indexOf('Infer scope')).split('\n')[0]), scope: 'off', calls: 2 },
   { id: 'transport-metadata', output: (request, wire) => wire('What should improve?', 'in', { debug: request.purposePolicy.canary + '```json' }), scope: 'unclear', calls: 2 },
 ];

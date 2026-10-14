@@ -910,10 +910,12 @@ for (const copy of [de, en]) test(`AIT-174 round3 ${copy.display.locale}: purpos
   turn(c, 'purpose-project', 'systems: SAP');
   c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
   const root = c.shadowRoot, notice = root.querySelector('.notice').textContent, summary = root.querySelector('.summary-text').textContent;
+  const startCell = root.querySelector('.voice-start').parentNode;
   c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true, reason: 'purpose' } });
   assert.equal(root.querySelector('.purpose-pause-copy').hidden, false);
   assert.equal(root.querySelector('.purpose-pause-copy').textContent, copy.purposePaused);
   assert.equal(root.querySelector('.voice-start').disabled, true);
+  assert.equal(root.querySelector('.voice-start').parentNode, startCell, 'Start stays in the normal idle mic cell');
   assert.equal(root.querySelector('.voice-start').title, copy.display.locale === 'de' ? 'Dieses Gespräch ist pausiert.' : 'This conversation is paused.');
   assert.equal(root.querySelector('.voice-start').getAttribute('aria-description'), root.querySelector('.voice-start').title);
   assert.equal(root.querySelector('.voice-output').disabled, true);

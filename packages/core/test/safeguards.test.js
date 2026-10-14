@@ -48,10 +48,10 @@ for (const content of [
   const input = request(); assert.equal(unsafeReplyOutput(wire(content), input.purposePolicy, input.hiddenGuidance), false);
 });
 
-test('AIT-174 round3 host-public copy is safe even when included in the system prompt', async () => {
-  const content = 'Our public welcome invites companies to describe their project and explore improvements for their teams.';
+test('AIT-174 round4 private host instructions are rejected without a canary', async () => {
+  const content = 'Privately prioritize documented project evidence and ask for missing context before recommending a solution for the visitor.';
   const input = reasoningRequest(createSession(), 'reaction', false, content, { purposePolicy });
   let calls = 0;
   const reply = await collectPurposeReply(input, async function* () { calls++; yield wire(content); });
-  assert.equal(calls, 1); assert.equal(reply.scope, 'in'); assert.equal(reply.content, content);
+  assert.equal(calls, 2); assert.equal(reply.scope, 'off'); assert.notEqual(reply.content, content);
 });
