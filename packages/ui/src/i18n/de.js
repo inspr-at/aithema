@@ -377,6 +377,7 @@ export const de = {
       limit: 'Dieses Gespräch kann nicht erneut gesendet werden. Beginnen Sie ein neues Gespräch, um mehr zu senden.',
     },
     credits: {
+      reconciling: 'Kosten werden noch abgeglichen',
       low: 'Noch {available} Credits', lowShort: 'Noch {available}',
       title: 'Ihre Credits', scope: 'für alle Ihre Gespräche', loading: 'werden geladen …',
       balance: 'Ihre Credits: {available} von {limit} übrig, für alle Ihre Gespräche.',

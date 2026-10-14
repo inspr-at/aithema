@@ -67,11 +67,16 @@ export class SQLiteBudgetLedger {
   displayBreakdown(sessionId, { ownerHash, now = this.now() } = {}) {
     const filter = ownerHash === undefined ? 'session_id=?' : 'owner_hash=?';
     const rows = this.db.prepare(`SELECT *, (${confirmed}) AS confirmed FROM budget_attempts WHERE ${filter}`).all(ownerHash ?? sessionId);
-    const costs = { reservedMicro: 0, confirmedSpendMicro: 0, uncertainSpendMicro: 0 };
+    const costs = { reservedMicro: 0, confirmedSpendMicro: 0, uncertainSpendMicro: 0, pendingHoldMicro: 0, reconciling: false };
     for (const row of rows) {
       if (row.confirmed) { costs.confirmedSpendMicro += row.settled_micro; continue; }
+      const frozenVoice = row.lane === 'voice' && row.voice_estimate_json && row.state === 'settled' && row.outcome === 'uncertain' && !row.voice_reconciliation_json;
+      // An uncertain call keeps its frozen estimate even if it never reconciles.
+      // Its full exposure remains an admission hold, not a confirmed charge.
+      if (row.state !== 'settled' || frozenVoice) costs.pendingHoldMicro += row.state === 'settled' ? row.settled_micro : row.max_micro;
+      if (frozenVoice || row.voice_closing && row.state !== 'settled' || row.state === 'settled' && row.provider_cost_json && !row.cost_reconciliation_json) costs.reconciling = true;
       let expected = row.state === 'settled' ? row.settled_micro : row.max_micro;
-      if (row.lane === 'voice' && (row.state !== 'settled' || row.outcome === 'uncertain' && !row.voice_reconciliation_json)) {
+      if (row.lane === 'voice' && (row.state !== 'settled' || frozenVoice)) {
         const estimate = JSON.parse(row.voice_estimate_json ?? 'null'), usage = JSON.parse(row.usage ?? 'null');
         const ceiling = estimate?.maxMicro ?? row.max_micro;
         const elapsed = estimate?.startedAt === undefined ? 0 : Math.max(0, (estimate.endedAt ?? now) - estimate.startedAt);
@@ -84,6 +89,9 @@ export class SQLiteBudgetLedger {
         expected = record.chargedMicro ?? Math.max(record.observedCostMicro ?? 0, Math.min(row.max_micro, record.estimateMicro ?? row.max_micro));
         if (row.state !== 'settled' && row.state !== 'dispatched') expected = 0;
       }
+      // Settled replays have no duration estimate: show the quote charged by
+      // the ledger. Only the frozen uncertain-call exposure above is provisional.
+      if (row.state === 'settled' && !frozenVoice) expected = Math.max(expected, row.settled_micro);
       costs.uncertainSpendMicro += expected;
     }
     return costs;

@@ -80,8 +80,8 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
         if (state === 'reconciling') assert.match(view.rail, locale === 'de' ? /Kosten werden noch abgeglichen/u : /Costs are still being reconciled/u);
         const after = await boxes(page, targets), shift = Math.max(...baseline.flatMap((row, i) => row.map((value, j) => Math.abs(value - after[i][j]))));
         assert.equal(shift, 0, `${locale}/${width}/${state}: layout shift ${shift} px`);
-        const pass = { head: evidenceCommit, locale, width, theme, state, layoutShiftPx: shift, pass: true }; passes.push(pass);
-        console.log(`AIT-173 PASS ${locale} ${theme} ${width} ${state}: hold-safe credits; shift=${shift}px`);
+        const pass = { head: evidenceCommit, locale, width, theme, state, layoutShiftPx: shift, tooltip: view.title, accessibleDescription: view.description, amount: view.amount, numericStyle: view.numericStyle, pass: true }; passes.push(pass);
+        console.log(`AIT-173 PASS ${locale} ${theme} ${width} ${state}: hold-safe credits; footer tooltip=${view.title ?? "none"}; shift=${shift}px`);
         if (evidence) await page.screenshot({ path: join(evidence, `ait173-${locale}-${theme}-${width}-${state}.png`), fullPage: false });
       }
       if (state === 'reconciling') {

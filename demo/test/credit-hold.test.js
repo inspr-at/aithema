@@ -29,6 +29,7 @@ test('AIT-173: closing and uncertain voice retain liability without a false low 
   f.advance(86_400_000);
   const before = f.ledger.get(f.claim.attemptId), view = await credits(f);
   assert.equal(view.balance.owner.availableMicro, 6_000_000);
+  assert.equal(view.reconciling, true, 'an unreconciled uncertain call keeps the footer description');
   assert.equal(view.exhausted, false); assert.equal(lowCredit(view), false);
   assert.equal((await (await f.call('/email-ask', { action: 'show', why: 'low' })).json()).accepted, false);
   assert.equal(f.host.wallet(f.owner).balance().committedMicro, 63_900_000);
@@ -36,7 +37,9 @@ test('AIT-173: closing and uncertain voice retain liability without a false low 
   assert.deepEqual(f.ledger.get(f.claim.attemptId), before, 'display never rewrites uncertainty or terminal evidence');
   f.ledger.reconcileVoice(f.claim.attemptId, { closureConfirmed: true, usage: { providerSeconds: 60, providerMinutes: 1,
     visitorSeconds: 60, pausedSeconds: 0, upstreamMicro: 150_000, visitorMicro: 150_000, costEstimated: false } });
-  assert.equal((await credits(f)).balance.owner.availableMicro, 5_950_000);
+  const reconciled = await credits(f);
+  assert.equal(reconciled.balance.owner.availableMicro, 5_950_000);
+  assert.equal(reconciled.reconciling, false);
   assert.equal(f.ledger.get(f.claim.attemptId).terminal_json, before.terminal_json);
 });
 
@@ -48,10 +51,10 @@ for (const closing of [false, true]) test(`AIT-173: genuine expected low spend s
   assert.equal((await (await f.call('/email-ask', { action: 'show', why: 'low' })).json()).accepted, true);
 });
 
-test('AIT-173: expected spend reaching the allowance shows used-up, capped estimates do not overcharge', async t => {
+test('AIT-173: expected spend reaching the allowance stays held until the charged spend exhausts admission', async t => {
   const f = await creditHoldFixture({ settledMicro: 9_950_000, holdMicro: 50_000 }); t.after(() => f.close());
   const view = await credits(f);
-  assert.equal(view.balance.owner.availableMicro, 0); assert.equal(view.exhausted, true);
+  assert.equal(view.balance.owner.availableMicro, 0); assert.equal(view.exhausted, false); assert.equal(view.fullHold, true);
   assert.equal(f.ledger.get(f.claim.attemptId).settled_micro, null, 'display is not settlement');
 });
 

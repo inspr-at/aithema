@@ -984,8 +984,9 @@ for (const copy of [de, en]) for (const delivery of [true, false]) for (const re
 
 
 for (const copy of [de, en]) test(`AIT-173 round 2: footer reconciliation tooltip only, and settlement clears it (${copy === de ? 'de' : 'en'})`, async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
   let reconciling = true;
-  const { c, root } = setup(t, { copy, host: { credits: true }, routes: {
+  const { root } = setup(t, { copy, host: { credits: true }, routes: {
     'GET /credits': () => Response.json({ balance, limitSlot: null, exhausted: false, reconciling }),
   } });
   await tick(8);
@@ -995,8 +996,7 @@ for (const copy of [de, en]) test(`AIT-173 round 2: footer reconciliation toolti
   assert.equal(button.getAttribute('aria-description'), message);
   assert.doesNotMatch(root.querySelector('.host-credits').textContent, /Kosten werden noch abgeglichen|Costs are still being reconciled/u);
   reconciling = false;
-  c.receive({ type: 'voice.state', data: { state: 'ended' } });
-  await new Promise(resolve => setTimeout(resolve, 350)); await tick(8);
+  t.mock.timers.tick(15_001); await tick(8);
   assert.equal(button.hasAttribute('title'), false);
   assert.equal(button.hasAttribute('aria-description'), false);
 });

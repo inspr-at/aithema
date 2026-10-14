@@ -77,7 +77,7 @@ export class HostSurface {
   get usedUp() { return this.#ended === 'host-limit' || this.#credits?.exhausted === true; }
   get fullHold() {
     const owner = this.#credits?.balance?.owner;
-    return !this.usedUp && owner?.availableMicro === 0 && owner.reservedMicro > 0;
+    return !this.usedUp && (this.#credits?.fullHold === true || owner?.availableMicro === 0 && owner.reservedMicro > 0);
   }
   get nextTier() { return this.#verification?.enabled && this.#verification.canCollect ? this.tiers?.next ?? null : null; }
   get deltaCredits() { return this.tiers ? defaultCreditFormat(this.tiers.delta, this.#session().locale ?? 'en') : ''; }
@@ -97,7 +97,7 @@ export class HostSurface {
       void this.#loadCredits(); clearInterval(this.#creditsPoll);
       this.#creditsPoll = setInterval(() => {
         const rail = this.#root.querySelector('.audio-rail'), running = rail.dataset.call === 'active' && !['paused', 'waiting', 'idle', 'ended'].includes(rail.dataset.state);
-        if (this.#alive && this.#connected && !this.#creditsReads && (this.usedUp || this.#admissionDenied?.() || running) && this.#root.ownerDocument.visibilityState !== 'hidden') void this.#loadCredits();
+        if (this.#alive && this.#connected && !this.#creditsReads && (this.usedUp || this.#credits?.reconciling || this.#admissionDenied?.() || running) && this.#root.ownerDocument.visibilityState !== 'hidden') void this.#loadCredits();
       }, 15_000);
       this.#creditsPoll.unref?.();
     }
@@ -243,6 +243,11 @@ export class HostSurface {
     const amount = line.querySelector('.host-credits__amount'), total = line.querySelector('.host-credits__total'), unit = line.querySelector('.host-credits__unit');
     const button = line.querySelector('.host-credits__button'), track = line.querySelector('.host-credits__track');
     const scope = line.querySelector('.host-credits__scope'), current = line.querySelector('.host-credits__current');
+    for (const attribute of ['title', 'aria-description']) {
+      if (this.#credits?.reconciling) button.setAttribute(attribute, c.reconciling);
+      else button.removeAttribute(attribute);
+    }
+    amount.style.setProperty('--credit-digits', String(owner ? format(reservedLimit, locale).length : 1));
     line.dataset.ended = String(out); line.querySelector('.host-credits__text').setAttribute('aria-hidden', String(out));
     line.querySelector('.host-credits__used-up').setAttribute('aria-hidden', String(!out));
     line.querySelector('.host-credits__low').setAttribute('aria-hidden', String(!low));
