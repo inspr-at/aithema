@@ -891,11 +891,14 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
     const box = n => { const r = n.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; };
     const coordinate = build.querySelector('.coordinate');
     const visibleVersion = coordinate && (coordinate.children.length ? [...coordinate.children].filter(n => n.getBoundingClientRect().width > 0).map(n => n.textContent).join('') : coordinate.textContent);
-    const visibleText = row && (row.dataset.copyState === 'copied' ? row.querySelector('.version-feedback')?.innerText : 'Version ' + visibleVersion);
+    const value = row?.querySelector('.version-value'), feedback = row?.querySelector('.version-feedback');
+    const valueVisibility = value && getComputedStyle(value).visibility;
+    const visibleText = row && (valueVisibility === 'hidden' ? feedback?.innerText : 'Version ' + visibleVersion);
     return { background: style.backgroundColor, opacity: style.opacity, visibility: style.visibility,
       notice: box(root.querySelector('#ai-notice')), popup: box(popup), row: row && box(row),
       build: build.querySelector('.build-label')?.textContent, product: root.querySelector('.display-version').textContent,
-      first: build.firstChild?.className, text: visibleText,
+      first: build.firstChild?.className, text: visibleText, valueVisibility,
+      feedbackPosition: feedback && getComputedStyle(feedback).position, feedbackBox: feedback && !feedback.hidden ? box(feedback) : null,
       version: visibleVersion, title: build.title };
   });
   const capture = async (locale, theme, width, state, metrics) => {
@@ -923,6 +926,8 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
     await coordinate.click();
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('#build-info [data-copy-state="copied"]'));
     const copied = await popupMetrics(); assert.equal(copied.text, 'Kopiert');
+    assert.equal(copied.valueVisibility, 'hidden'); assert.equal(copied.feedbackPosition, 'static');
+    assert.equal(copied.feedbackBox[1], copied.row[1]);
     assert.deepEqual(copied.popup, before.popup); assert.deepEqual(copied.row, before.row);
     await new Promise(resolve => setTimeout(resolve, 1300));
     assert.equal((await popupMetrics()).text, 'Version 26.10.14 · 08:00');
@@ -936,11 +941,13 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
     for (const state of ['hover', 'focus']) {
       await shadow(page, c => c.shadowRoot.activeElement?.blur()); await page.mouse.move(0, 0);
       if (state === 'hover') await notice.hover();
-      else { await notice.focus(); await page.keyboard.press('Shift+Tab'); await page.keyboard.press('Tab');
+      else { await notice.focus(); await page.keyboard.down('Shift'); await page.keyboard.press('Tab'); await page.keyboard.up('Shift'); await page.keyboard.press('Tab');
         assert.equal(await notice.evaluate(n => n.getRootNode().activeElement === n && n.matches(':focus-visible')), true); }
       await until(page, () => getComputedStyle(document.querySelector('aithema-session').shadowRoot.querySelector('.footer-info .footer-popup')).opacity === '1');
       const metrics = await popupMetrics(); assert.equal(metrics.visibility, 'visible'); assert.equal(metrics.opacity, '1');
       assert.equal(metrics.background, 'rgb(16, 43, 66)');
+      const surfacePixel = pixels(Buffer.from(await page.screenshot({ clip: { x: metrics.popup[0] + 14, y: metrics.popup[1] + 4, width: 1, height: 1 } })));
+      assert.deepEqual([...surfacePixel.result.subarray(0, 3)], [16, 43, 66], 'painted popup pixel is opaque approved dark surface');
       assert.equal(metrics.product, 'Aithema 2026.10'); assert.equal(metrics.first, 'version-row');
       assert.equal(metrics.version, '26.10.14 · 08:00');
       assert.equal(metrics.build, 'Build abcdef1 · 2026-10-14 08:00:00 UTC');
@@ -953,6 +960,8 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
       await page.keyboard.press('Tab'); await page.keyboard.press('Enter');
       await until(page, () => window.ait105Copied === '261014080000.0.0');
       const copied = await popupMetrics(); assert.equal(copied.text, locale === 'de' ? 'Kopiert' : 'Copied');
+      assert.equal(copied.valueVisibility, 'hidden'); assert.equal(copied.feedbackPosition, 'static');
+      assert.equal(copied.feedbackBox[1], copied.row[1]);
       assert.deepEqual(copied.row, before.row); assert.deepEqual(copied.popup, before.popup);
       await capture(locale, theme, width, 'copied', copied);
       await new Promise(resolve => setTimeout(resolve, 1300));
