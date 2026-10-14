@@ -284,7 +284,8 @@ test('AIT-171 status: loading to loaded/failed, mail/save, DE/EN, 390/1024/1440;
       const leadSelector = delivery ? '.m-lead-mail' : '.m-lead-save';
       const loading = locale === 'de' ? 'Guthaben wird geladen …' : 'Loading credit …';
       const failure = (locale === 'de' ? 'Guthaben gerade nicht verfügbar.' : "Credit isn't available right now.") +
-        (delivery ? locale === 'de' ? ' Sie können die Adresse trotzdem bestätigen.' : ' You can still confirm your address.' : '');
+        (delivery ? locale === 'de' ? ' Sie können die Adresse trotzdem bestätigen.' : ' You can still confirm your address.' :
+          locale === 'de' ? ' Sie können die Adresse trotzdem speichern.' : ' You can still save your address.');
       assert.equal(await shadow(page, (c, s) => c.shadowRoot.querySelector(s).textContent, leadSelector), loading);
       const before = await geometry(page);
       const leadBox = await shadow(page, (c, s) => { const b = c.shadowRoot.querySelector(s).getBoundingClientRect(); return [b.x, b.y]; }, leadSelector);
