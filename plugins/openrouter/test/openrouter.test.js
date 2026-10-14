@@ -311,6 +311,7 @@ test('AIT-181 guarded OpenRouter reply streams send json_schema and show model c
 for (const [kind, message] of [
   ['http', 'response_format json_schema is not supported with streaming'],
   ['http', 'No endpoints found that support the requested parameters'],
+  ['http', "Invalid schema for response_format 'reply': maxItems is not permitted"],
   ['metadata', 'json_schema is unsupported by this provider'],
   ['sse', 'Structured outputs are not supported with streaming'],
 ]) {

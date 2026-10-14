@@ -48,7 +48,7 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
   };
   const unsupportedResponseFormat = value => [value.error?.message, value.error?.metadata?.raw].some(message =>
     typeof message === 'string' && (/no endpoints (?:found (?:that|which) )?support (?:the )?(?:requested|required) parameters/iu.test(message) ||
-      /response_format|json_schema|structured outputs?/iu.test(message) && /not support|unsupported|not available|unavailable/iu.test(message)));
+      /response_format|json_schema|structured outputs?/iu.test(message) && /not support|unsupported|not available|unavailable|not permitted|not allowed|invalid schema/iu.test(message)));
   const encoder = new TextEncoder();
   const outputBytes = message => {
     if (!message) return 0;
