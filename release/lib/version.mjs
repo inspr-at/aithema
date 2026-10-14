@@ -1,17 +1,20 @@
+// Explicit historical declarations from the archived release manifests; never inferred from punctuation.
+const legacySchemes = ['legacy', 'legacy-semver-public', 'legacy-semver-private'];
+const family = scheme => legacySchemes.includes(scheme) ? 'legacy' : scheme;
 const calendars = ['inspr-calver-3', 'inspr-calendar-v2'];
 const calendarPattern = /^([1-9][0-9])(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])([01][0-9]|2[0-3])([0-5][0-9])([0-5][0-9])\.0\.0$/u;
 const v1Pattern = /^([0-9]{2})\.(0[1-9]|1[0-2])\.(0[1-9]|[12][0-9]|3[01])(?:\.([01][0-9]|2[0-3])\.([0-5][0-9])\.([0-5][0-9]))?$/u;
 const legacyPattern = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/u;
 const sign = (a, b) => a < b ? -1 : a > b ? 1 : 0;
 export function parseVersion(record) {
-  if (!record || typeof record.version !== 'string' || !['legacy', 'inspr-calendar-v1', ...calendars].includes(record.version_scheme)) throw new TypeError('Explicit known version_scheme required');
+  if (!record || typeof record.version !== 'string' || ![...legacySchemes, 'inspr-calendar-v1', ...calendars].includes(record.version_scheme)) throw new TypeError('Explicit known version_scheme required');
   const { version, version_scheme } = record;
   if (version.includes('\n') || version.includes('\r')) throw new TypeError('Invalid version coordinate');
   const pattern = calendars.includes(version_scheme) ? calendarPattern : version_scheme === 'inspr-calendar-v1' ? v1Pattern : legacyPattern;
   const match = pattern.exec(version);
   if (!match) throw new TypeError('Invalid version coordinate');
   const fields = match.slice(1).map(value => Number(value ?? 0));
-  if (version_scheme !== 'legacy') {
+  if (!legacySchemes.includes(version_scheme)) {
     const [yy, month, day] = fields;
     const date = new Date(Date.UTC(2000 + yy, month - 1, day));
     if (date.getUTCMonth() + 1 !== month || date.getUTCDate() !== day) throw new TypeError('Invalid calendar date');
@@ -21,7 +24,7 @@ export function parseVersion(record) {
 export function compareVersions(left, right, anchor) {
   const a = parseVersion(left), b = parseVersion(right);
   if (calendars.includes(a.version_scheme) && calendars.includes(b.version_scheme)) return sign(BigInt(a.version.split('.')[0]), BigInt(b.version.split('.')[0]));
-  if (a.version_scheme === b.version_scheme) {
+  if (family(a.version_scheme) === family(b.version_scheme)) {
     for (let i = 0; i < a.fields.length; i++) { const order = sign(a.fields[i], b.fields[i]); if (order) return order; }
     return 0;
   }
@@ -33,7 +36,7 @@ export function compareVersions(left, right, anchor) {
     if (!Number.isSafeInteger(item.release_sequence) || item.release_sequence < 1) throw new TypeError('Migration anchor requires a release sequence');
     if (calendars.includes(item.version_scheme)) {
       if (item.release_sequence < anchor.first_calendar_sequence || compareVersions(item, { version: anchor.first_calendar_version, version_scheme: 'inspr-calver-3' }) < 0) throw new TypeError('Calendar version predates anchor');
-    } else if (item.version_scheme !== anchor.last_legacy_scheme || item.release_sequence > anchor.last_legacy_sequence ||
+    } else if (family(item.version_scheme) !== family(anchor.last_legacy_scheme) || item.release_sequence > anchor.last_legacy_sequence ||
       compareVersions(item, { version: anchor.last_legacy_version, version_scheme: anchor.last_legacy_scheme }) > 0) throw new TypeError('Legacy version exceeds anchor');
   }
   return sign(a.release_sequence, b.release_sequence);

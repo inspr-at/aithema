@@ -54,3 +54,13 @@ test('qualification CLI fails closed before release and names pending measured i
   assert.equal(failure?.status, 1); const gate = JSON.parse(failure.stdout);
   assert.equal(gate.authoritative, false); assert.ok(gate.pending.includes('AIT-139')); assert.ok(gate.pending.includes('AIT-160'));
 });
+
+test('historical release-manifest scheme declarations remain explicit, unchanged legacy records', () => {
+  for (const scheme of ['legacy-semver-public', 'legacy-semver-private']) {
+    const parsed = parseVersion(record('0.10.1', scheme, 11));
+    assert.equal(parsed.version_scheme, scheme); assert.equal(parsed.version, '0.10.1');
+    const anchor = { last_legacy_scheme: 'legacy', last_legacy_version: '0.10.1', last_legacy_sequence: 11,
+      first_calendar_version: '261014080000.0.0', first_calendar_sequence: 12 };
+    assert.equal(compareVersions(parsed, record('261014080000.0.0'), anchor), -1);
+  }
+});

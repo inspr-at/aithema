@@ -8,7 +8,7 @@ export function mountVersionDetails(element, version) {
   label.textContent = [version.product, version.commit, version.date].filter(Boolean).join(' · ');
   element.append(label);
   if (!version.version || !version.version_scheme) return;
-  if (!['legacy', 'inspr-calendar-v1', 'inspr-calendar-v2', 'inspr-calver-3'].includes(version.version_scheme)) throw new TypeError('Unknown version scheme');
+  if (!['legacy', 'legacy-semver-public', 'legacy-semver-private', 'inspr-calendar-v1', 'inspr-calendar-v2', 'inspr-calver-3'].includes(version.version_scheme)) throw new TypeError('Unknown version scheme');
   if (['inspr-calendar-v2', 'inspr-calver-3'].includes(version.version_scheme) && (!parts(version.version, version.version_scheme) || version.version.startsWith('v'))) throw new TypeError('Invalid canonical calendar version');
   const coordinate = document.createElement('span'); coordinate.style.display = 'block';
   renderVersion(coordinate, version.version, version.version_scheme, { config, mode: 'pretty', brand: '#d69b31' });

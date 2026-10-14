@@ -177,7 +177,7 @@ The historical release-order mapping is in `release/history.json` (the 11
 existing v0.x releases, ending `0.10.1`). It establishes ordinal 11 as the legacy
 anchor and ordinal 12 as the first reset release. The first calendar coordinate
 remains unset until actual reservation. Mixed-era ordering requires the explicit
-anchor/channel/ordinal. CalVer2 history remains readable as its own declared
+anchor/channel/ordinal. The archived `legacy-semver-public` and `legacy-semver-private` declarations are explicitly accepted as legacy types and preserved verbatim; the new history mapping never rewrites their manifests. CalVer2 history remains readable as its own declared
 identifier; v1 dates and legacy stable SemVer remain tagged types. No old tag,
 release, artifact or signed attestation is renamed, rewritten or republished.
 
