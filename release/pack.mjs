@@ -13,7 +13,7 @@ const json = value => JSON.stringify(value, null, 2) + '\n';
 const digest = bytes => `sha256:${sha256(bytes)}`;
 const forbidden = path => path.split('/').some(part => /^(?:\.env|env\.)/u.test(part) || /(?:\.example|\.age)$/u.test(part));
 export function admittedPath(path) {
-  return !forbidden(path) && (['package.json', 'package-lock.json', 'LICENSE', 'README.md', 'docs/embedding.md'].includes(path) ||
+  return !forbidden(path) && (['package.json', 'package-lock.json', 'LICENSE', 'README.md', 'docs/embedding.md', 'packages/server/elevenlabs-compat.js'].includes(path) ||
     /^(?:packages|plugins)\/[^/]+\/(?:package\.json|src\/.+|bin\/.+)$/u.test(path) ||
     /^demo\/(?!test\/)[^/]+\.(?:js|css|html)$/u.test(path) || /^release\/(?:[^/]+\.(?:json|mjs)|lib\/[^/]+\.mjs)$/u.test(path));
 }
