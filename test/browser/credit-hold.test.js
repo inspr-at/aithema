@@ -29,7 +29,7 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
   for (const locale of ['de', 'en']) for (const width of [390, 1024, 1440]) {
     await page.setViewport({ width, height: 1000 });
     let baseline;
-    for (const state of ['in-call', 'reconciling', 'low']) {
+    for (const state of ['in-call', 'reconciling', 'low', 'full-hold']) {
       await shadow(page, async (c, { locale, state }) => {
         const { session } = await (await fetch(`/fixture?state=${state}`)).json();
         const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
@@ -52,7 +52,7 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
         await until(page, () => /abgeglichen|reconciled/u.test(document.querySelector('aithema-session').shadowRoot.querySelector('.voice-state').textContent));
       }
       await settle(page);
-      const targets = ['.composer-shell', '.display-foot', '.host-credits', '.audio-rail'];
+      const targets = ['.composer-shell', '.display-foot', '.host-credits', '.audio-rail', '.host-credits__amount'];
       if (width < 960) await shadow(page, c => c.shadowRoot.querySelector('.composer-dock').scrollIntoView({ block: 'end' }));
       await settle(page);
       const rects = await boxes(page, targets); baseline ??= rects;
@@ -63,17 +63,37 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
           ask: c.shadowRoot.querySelector('.workspace').dataset.emailAsk,
           rail: c.shadowRoot.querySelector('.voice-state').textContent,
           ending: c.shadowRoot.querySelector('.audio-rail').hasAttribute('data-credit-ending'),
+          title: c.shadowRoot.querySelector('.host-credits__button').getAttribute('title'),
+          description: c.shadowRoot.querySelector('.host-credits__button').getAttribute('aria-description'),
+          footer: c.shadowRoot.querySelector('.host-credits').textContent,
+          numericStyle: getComputedStyle(c.shadowRoot.querySelector('.host-credits__amount')).fontVariantNumeric,
           usedUp: c.shadowRoot.querySelector('.composer-shell').hasAttribute('data-used-up') }));
-        assert.equal(view.low, state === 'low' ? 'true' : 'false', `${locale}/${width}/${state}: ${JSON.stringify(view)}`);
+        assert.equal(view.low, ['low', 'full-hold'].includes(state) ? 'true' : 'false', `${locale}/${width}/${state}: ${JSON.stringify(view)}`);
         assert.equal(view.usedUp, false); assert.equal(view.ending, false);
-        if (state !== 'low') { assert.equal(view.ask, 'closed'); assert.equal(view.amount.replace(/[.,]/gu, ''), '600'); assert.doesNotMatch(view.rail, /wenig|low|aufgebraucht|used up/iu); }
+        if (!['low', 'full-hold'].includes(state)) { assert.equal(view.ask, 'closed'); assert.equal(view.amount.replace(/[.,]/gu, ''), '600'); assert.doesNotMatch(view.rail, /wenig|low|aufgebraucht|used up/iu); }
         else assert.match(view.rail, locale === 'de' ? /wenig/u : /low/u);
+        const reconciliation = locale === 'de' ? 'Kosten werden noch abgeglichen' : 'Costs are still being reconciled';
+        assert.equal(view.title, state === 'reconciling' ? reconciliation : null);
+        assert.equal(view.description, state === 'reconciling' ? reconciliation : null);
+        assert.equal(view.footer.includes(reconciliation), false, 'reconciliation has no visible footer hint');
+        assert.match(view.numericStyle, /tabular-nums/u);
         if (state === 'reconciling') assert.match(view.rail, locale === 'de' ? /Kosten werden noch abgeglichen/u : /Costs are still being reconciled/u);
         const after = await boxes(page, targets), shift = Math.max(...baseline.flatMap((row, i) => row.map((value, j) => Math.abs(value - after[i][j]))));
         assert.equal(shift, 0, `${locale}/${width}/${state}: layout shift ${shift} px`);
         const pass = { head: evidenceCommit, locale, width, theme, state, layoutShiftPx: shift, pass: true }; passes.push(pass);
         console.log(`AIT-173 PASS ${locale} ${theme} ${width} ${state}: hold-safe credits; shift=${shift}px`);
         if (evidence) await page.screenshot({ path: join(evidence, `ait173-${locale}-${theme}-${width}-${state}.png`), fullPage: false });
+      }
+      if (state === 'reconciling') {
+        const before = await boxes(page, targets);
+        await shadow(page, async c => { await fetch('/reconcile'); c.receive({ type: 'voice.state', data: { state: 'ended' } }); });
+        await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__amount').textContent.trim() === '595');
+        await settle(page);
+        assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-credits__button').hasAttribute('title')), false);
+        const after = await boxes(page, targets), shift = Math.max(...before.flatMap((row, i) => row.map((value, j) => Math.abs(value - after[i][j]))));
+        assert.equal(shift, 0, `${locale}/${width}: settlement shifted the credit number by ${shift}px`);
+        passes.push({ head: evidenceCommit, locale, width, state: 'settled', layoutShiftPx: shift, pass: true });
+        console.log(`AIT-173 PASS ${locale} ${width} settled: tooltip cleared; number changed in place; shift=${shift}px`);
       }
     }
   }

@@ -49,9 +49,19 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     if (path === '/fixture') {
       await fixture.close();
       const state = new URL(request.url).searchParams.get('state') ?? 'in-call';
-      fixture = await creditHoldFixture(state === 'low' ? { settledMicro: 8_950_000, holdMicro: 1_000_000 } : {});
+      fixture = await creditHoldFixture(state === 'low' ? { settledMicro: 8_950_000, holdMicro: 1_000_000 } : state === 'full-hold' ? { settledMicro: 0, holdMicro: 100_000 } : {});
+      if (state === 'full-hold') {
+        const { attemptId } = fixture.ledger.admit(fixture.request('reaction', 9_900_000));
+        fixture.ledger.claim(attemptId).consume();
+      }
       if (state === 'reconciling') fixture.ledger.retainVoiceExposure(fixture.claim.attemptId);
       return Response.json({ session: fixture.storage.get(fixture.session.id), owner: fixture.owner });
+    }
+    if (path === '/reconcile') {
+      fixture.ledger.settleVoice(fixture.claim.claimId, { attemptId: fixture.claim.attemptId, outcome: 'uncertain', closureConfirmed: false });
+      fixture.ledger.reconcileVoice(fixture.claim.attemptId, { closureConfirmed: true, usage: { providerSeconds: 60, providerMinutes: 1,
+        visitorSeconds: 60, pausedSeconds: 0, upstreamMicro: 150_000, visitorMicro: 150_000, costEstimated: false } });
+      return Response.json({ ok: true });
     }
     if (path.startsWith('/api/')) {
       return fixture.handle(request);
