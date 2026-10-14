@@ -159,8 +159,9 @@ outage detection. The logical call and spend clock continue across replacements.
 reason, plan/applied disruptions, hashed correlation records, per-attempt server
 first-token/total p50/p95 and deadline misses, separate client response/final
 timings, retries/recoveries, barge-in receipts, capture meter counts, and wallet
-confirmed/uncertain/reserved amounts. Quantiles use nearest rank; missing/failed
-attempts count as deadline misses. Client first response is not a token metric,
+confirmed/uncertain/reserved amounts. Quantiles use nearest rank; missing or late
+observations count as deadline misses. A failed completion misses the total
+deadline without changing an on-time first token. Client first response is not a token metric,
 and assistant final transcript time is not audible playback completion.
 
 At shutdown the harness restores connectivity, silences capture, closes the

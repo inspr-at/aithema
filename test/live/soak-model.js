@@ -24,7 +24,7 @@ export function summarize({ records = [], events = [], firstTokenMs = 5000, tota
   const metric = (key, deadline) => {
     const samples = admitted.map(a => a[key]).filter(nonnegative);
     return { samples: samples.length, p50Ms: percentile(samples, .5), p95Ms: percentile(samples, .95),
-      missed: admitted.filter(a => !nonnegative(a[key]) || a[key] > deadline || a.outcome === 'failed').length };
+      missed: admitted.filter(a => !nonnegative(a[key]) || a[key] > deadline || key === 'total' && a.outcome === 'failed').length };
   };
   return { attempts: admitted.length, firstToken: metric('first', firstTokenMs), total: metric('total', totalMs),
     retries: records.filter(r => r.event === 'voice.turn.retry').length,
