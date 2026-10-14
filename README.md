@@ -237,7 +237,17 @@ Host adapter contract:
 - `wallet(ownerToken)` supplies the Part A owner wallet. The view includes
   existing ledger holds and settlements. Production hosts must use
   `admitCredits` for authoritative owner reservations and own settlement/recovery;
-  the demo wallet and handover sink are local fakes.
+  the demo wallet and handover sink are local fakes. An optional synchronous
+  `wallet.displayBalance()` supplies the read-only owner balance for `GET S/credits`
+  and low-credit email asks. Admission always uses `wallet.balance()`.
+
+AIT-173's START display subtracts settled plus expected spend. Open voice duration
+uses the rate captured at admission, capped by its funded reservation, and freezes
+at hangup or recovery while reconciliation retains the full accounting liability.
+Reasoning uses AIT-163's persisted lane/byte fallback, capped by the reservation;
+authoritative receipts remain uncapped. Holds without observed usage or a stored
+voice estimate contribute no display spend until evidence arrives. Actual low and
+used-up balances still warn. Rolling reservation sizing is unchanged.
 
 `demo/host-ports.js` supplies a SQLite-backed library and labelled in-memory
 mail, handover and wallet ports. **Demo-only route:** `GET S/demo/outbox` returns

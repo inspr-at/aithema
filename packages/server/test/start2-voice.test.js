@@ -155,13 +155,19 @@ test('priced voice holds fund the runway and extend atomically without reserving
   assert.equal((await h.grant(['models-international', 'voice-elevenlabs'])).status, 200);
   const admitted = await h.runtime.admitVoice({ session: h.storage.get(h.session.id), request: { callId: 'money-test' } });
   const attempt = admitted.options.attempt;
+  h.runtime.budget.now = () => 1_000;
   assert.equal(attempt.maxMicro, 200_000);
   await attempt.consume();
   assert.equal(attempt.extend(60).maxMicro, 200_000, 'the initial runway already funds the requested segment');
   assert.equal(attempt.extend(150).maxMicro, 250_000, 'later extensions reserve only the requested total duration');
   assert.equal(attempt.maxMicro, 250_000);
   assert.equal(h.runtime.budget.breakdown(h.session.id).reservedMicro, 250_000);
+  assert.equal(h.runtime.budget.displayBreakdown(h.session.id, { now: 61_000 }).uncertainSpendMicro, 100_000,
+    'runtime captures the selected voice rate for expected spend');
+  h.runtime.budget.now = () => 61_000;
   admitted.finish();
+  assert.equal(h.runtime.budget.displayBreakdown(h.session.id, { now: 3_661_000 }).uncertainSpendMicro, 100_000,
+    'finish freezes expected spend while retaining provider liability');
   assert.equal(h.runtime.budget.breakdown(h.session.id).uncertainSpendMicro, 1_000_000,
     'losing the live invocation retains the provider ceiling, rather than its last healthy segment');
 });
