@@ -913,6 +913,7 @@ test('AIT-105: CalVer3 stays in hover details, preserves product name and copies
     }, locale);
     const reduced = await page.$('aithema-session >>> #build-info .coordinate');
     assert.equal(await reduced.evaluate(node => node.textContent), '261014080000.0.0');
+    await page.evaluate(() => { window.ait105Copied = null; });
     await reduced.click(); assert.equal(await page.evaluate(() => window.ait105Copied), '261014080000.0.0');
     await reduced.dispose();
     t.diagnostic(`PASS AIT-105 ${locale}/${width}: host branding changes Pretty color; reduced SemVer copies canonical version`);
