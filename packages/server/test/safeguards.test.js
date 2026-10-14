@@ -39,7 +39,7 @@ function fixture(t, { outputs, uploads = false, voice = false, policy = purposeP
   const send = async (content, clientEventId = crypto.randomUUID()) => {
     const response = await handlers.handle(req(session.id, 'turns', { content, clientEventId })); await handlers.idle(); return response;
   };
-  return { storage, handlers, session, calls, assessments, send };
+  return { storage, handlers, session, calls, assessments, send, plugin };
 }
 function framed(request, locale = 'en') {
   assert.ok(request.system.includes(purposePolicy.purpose[locale]));
@@ -166,4 +166,13 @@ test('AIT-174 local voice: typed input is classified privately before assessment
   assert.equal(f.storage.safeguards(f.session.id).offTopicTurns, 1);
   assert.match(f.storage.get(f.session.id).transcript.at(-1).content, /Augmentoring/u);
   await f.handlers.handle(req(f.session.id, 'retry', {})); await f.handlers.idle(); assert.equal(f.calls.length, 2);
+});
+
+test('AIT-174 an accepted scope lets Retry recover failed understanding without regenerating the reply', async t => {
+  const f = fixture(t, { outputs: () => envelope('What should improve first?', 'in') });
+  const structured = f.plugin.structured; let attempts = 0;
+  f.plugin.structured = async (...args) => { if (++attempts === 1) throw new Error('temporary assessment failure'); return structured(...args); };
+  await f.send('We need a product for our business.'); assert.equal(attempts, 1); assert.equal(f.calls.length, 1);
+  await f.handlers.handle(req(f.session.id, 'retry', {})); await f.handlers.idle();
+  assert.equal(attempts, 2); assert.equal(f.calls.length, 1); assert.equal(f.assessments.length, 1);
 });
