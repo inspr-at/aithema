@@ -89,6 +89,24 @@ for (const copy of [de, en]) for (const covered of [true, false]) test(`AIT-173 
   assert.equal(posted.body.voiceCallId, undefined, 'after-call typing uses the normal text path');
 });
 
+test('AIT-173 round 3: a stale call snapshot cannot reopen a locally ended call during credit refresh', async t => {
+  const { voiceEvents } = await import('../../core/src/live-voice.js');
+  const events = voiceEvents(), closeAck = Promise.withResolvers(); let callId;
+  const voiceClient = { async start(request) { callId = request.callId; return { callId, providerSessionId: 'stale-provider', events,
+    async setInput() {}, async setOutput() {}, async updateContext() {},
+    async close() { await closeAck.promise; events.end(); return { closureConfirmed: false }; } }; } };
+  const { c, root } = setup(t, { voiceClient, host: { credits: true },
+    session: { featureMatrix: { best: { text: { available: true }, analysis: { available: true }, voice: { available: true } } } },
+    routes: { 'GET ': () => Response.json({ ...c.session, voiceLifecycle: { callId, providerSessionId: 'stale-provider', state: 'waiting' } }) } });
+  t.after(() => closeAck.resolve());
+  await tick(8); root.querySelector('.voice-start').click(); await tick(8);
+  root.querySelector('.voice-close').click();
+  assert.equal(root.querySelector('.audio-rail').dataset.call, 'none', 'local hangup paints idle synchronously');
+  await tick(12);
+  assert.equal(root.querySelector('.audio-rail').dataset.call, 'none', 'the admission snapshot cannot undo terminal intent');
+  assert.equal(root.querySelector('.audio-rail').dataset.state, 'idle');
+});
+
 test('AIT-135 a host without an owner guard displays credits with a hidden, empty countdown', async t => {
   const { root } = setup(t, { host: { credits: true } }); await tick();
   assert.equal(root.querySelector('.host-credits').hidden, false);
