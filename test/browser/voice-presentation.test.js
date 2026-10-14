@@ -129,7 +129,18 @@ test('AIT-179: hangup paints idle controls synchronously; reconciling and settle
     ? request.respond({ status: 200, contentType: 'application/json', body: '{}' }) : request.continue());
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
-  await page.evaluate(() => { globalThis.endedRailSeed = document.querySelector('aithema-session').session; });
+  await page.evaluate(() => {
+    globalThis.endedRailSeed = document.querySelector('aithema-session').session;
+    const fetch = window.fetch.bind(window);
+    window.fetch = (url, options = {}) => {
+      const c = document.querySelector('aithema-session');
+      // The fake voice client owns this presentation fixture; admission refreshes
+      // must not replace it with the no-provider server's voice-off snapshot.
+      if ((options.method ?? 'GET') === 'GET' && new URL(url, location.href).pathname === `/api/sessions/${c.session.id}`)
+        return Promise.resolve(Response.json(c.session));
+      return fetch(url, options);
+    };
+  });
   if (evidence) await mkdir(evidence, { recursive: true });
   for (const locale of ['de', 'en']) for (const theme of ['light', 'dark']) for (const width of [390, 1440]) {
     const label = `${width}-${theme}-${locale}`;
@@ -177,7 +188,7 @@ test('AIT-179: hangup paints idle controls synchronously; reconciling and settle
       assert.equal(value.state, 'idle'); assert.equal(value.call, 'none');
       assert.equal(value.pauseGlyph, false, `${label}: no pause glyph`); assert.equal(value.pause, false);
       assert.equal(value.liveMic, false, `${label}: no live mic`); assert.equal(value.stop, false);
-      assert.equal(value.start, true, `${label}: idle start control`); assert.equal(value.startEnabled, true);
+      assert.equal(value.start, true, `${label}: idle start control`); assert.equal(value.startEnabled, true, `${label}: start remains admitted: ${JSON.stringify(value)}`);
     };
     assertIdle(ended);
     assert.equal(ended.text, locale === 'de' ? 'Anruf beendet. Kosten werden noch abgeglichen.' : 'Call ended. Costs are still being reconciled.');
