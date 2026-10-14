@@ -241,7 +241,20 @@ Host adapter contract:
 - `wallet(ownerToken)` supplies the Part A owner wallet. The view includes
   existing ledger holds and settlements. Production hosts must use
   `admitCredits` for authoritative owner reservations and own settlement/recovery;
-  the demo wallet and handover sink are local fakes.
+  the demo wallet and handover sink are local fakes. An optional synchronous
+  `wallet.displayBalance()` supplies the read-only owner balance for `GET S/credits`
+  and low-credit email asks. Admission always uses `wallet.balance()`.
+
+AIT-173's START display subtracts settled plus expected spend. Open voice duration
+uses the rate captured at admission, capped by its funded reservation, and freezes
+at hangup or recovery while reconciliation retains the full accounting liability.
+Reasoning uses AIT-163's persisted lane/byte fallback, capped by the reservation;
+authoritative receipts remain uncapped. Holds without observed usage or a stored
+voice estimate contribute no display spend until evidence arrives. Actual low and
+used-up balances still warn. After hangup, the composer refreshes the server
+verdict: text works when the balance after the retained maximum covers the turn;
+otherwise the normal used-up path applies. Only a live call uses the
+"after the call" denial copy. Rolling reservation sizing is unchanged.
 
 `demo/host-ports.js` supplies a SQLite-backed library and labelled in-memory
 mail, handover and wallet ports. **Demo-only route:** `GET S/demo/outbox` returns
@@ -910,8 +923,10 @@ settles dispatched holds, revokes callback auth and retains pending orphan
 reconciliation under SQLite's exclusive writer. A host's bounded `closeOrphan`
 port may return authenticated final usage to correct cost without emitting a
 second terminal receipt. Pending records remain durable when that port fails.
-Start2/demo wires the provider's `reconcileLater` hook to an in-process retry:
-every 30 seconds after the previous batch finishes, up to 10 pending calls are
+A call that closes with unresolved costs is checked immediately through
+`closeOrphan`, independently of the browser acknowledgement. Start2/demo wires
+the provider's `reconcileLater` hook to subsequent in-process retries: every
+30 seconds after the previous batch finishes, up to 10 pending calls are
 checked through `closeOrphan`, each with a five-second deadline. Batches rotate
 through pending calls; processing records and outages keep their holds and retry
 without a restart. Confirmed reconciliation is recorded durably before releasing

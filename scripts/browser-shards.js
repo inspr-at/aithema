@@ -12,42 +12,42 @@ export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 // Email-ask runs each behaviour once per language/width and captures both
 // themes from each settled state: 153.965s remotely on mbp2606 (296 checks).
 export const browserShards = [
-  // 402.566s CI; 350.166s mbp2606
-  // AIT-174 CI at c5b37c7 (run 38543841729): whole jobs 463/500/425/416s.
-  // Move the 42s operator matrix 2→4, the 42s voice matrix 1→3, and
-  // the 15s question-card matrix 3→1. Estimated jobs: 436/458/452/458s.
-  ['test/browser/visitor-credit-tiers.test.js', 'test/browser/question-card.test.js'],
-  // 290.400s CI at 70eec71, run 38477382124. AIT-165 operator login adds
-  // 6.446s on mbp2606 at c9e7fc7 (48 viewport states); this shard has most headroom.
+  // AIT-173 round 3, run 38570598983: whole jobs 413s / 478s.
+  // Move Start-look's measured 28.045s from shard 2 to shard 1.
+  ['test/browser/visitor-credit-tiers.test.js', 'test/browser/start-look.test.js', 'test/browser/footer-width-sweep.test.js'],
+  // AIT-173 run 38531320436: whole jobs 405/483/419/397s.
+  // Run 38581263731: shard 4 reached 503s. Move its measured 38.758s
+  // operator worker to shard 2 and the 12.607s footer sweep to shard 1;
+  // move shard 2's 20.027s audio replay to shard 3 (448s).
   // AIT-169 rotates 13 admin states across widths in CI (both locales/themes),
   // keeps all 12 zero-shift flows, and awaits module readiness instead of idle.
   // The complete screenshot matrix is reserved for non-CI evidence runs.
   // PR 3 keeps demo teardown separate from the display matrix in shard 4.
   [
     'test/browser/start2-display-matrix.test.js',
-    'test/browser/start-look.test.js',
-    'test/browser/safeguards.test.js',
-    'test/browser/audio-replay.test.js',
     'test/browser/admin-pages.test.js',
     'test/browser/email-mail-space.test.js',
+    'test/browser/credit-hold.test.js',
+    'test/browser/operator-login.test.js',
   ],
-  // 394.868s CI
+  // 394.868s CI; AIT-174's new file goes into this measured 411s job.
   [
+    'test/browser/safeguards.test.js',
+    'test/browser/audio-replay.test.js',
     'test/browser/start2-display.test.js',
     'test/browser/orb-reveal.test.js',
+    'test/browser/question-card.test.js',
     'test/browser/start-journey.test.js',
     'test/browser/html-preview.test.js',
     'test/browser/host-surface.test.js',
     'test/browser/confirmation-design.test.js',
-    'test/browser/voice-presentation.test.js',
   ],
   // 201.358s CI at 4fc6a22 including the sweep, plus 105.447s continuity.
   [
     'test/browser/email-ask.test.js',
-    'test/browser/footer-width-sweep.test.js',
     'test/browser/start2-display-continuity.test.js',
     'test/browser/demo.test.js',
-    'test/browser/operator-login.test.js',
+    'test/browser/voice-presentation.test.js',
   ],
 ];
 

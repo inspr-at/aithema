@@ -134,11 +134,19 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
       privacyDocumentConfigured: privacyDocumentConfigured(host), ...extra };
   }
   function creditResult(id, ownerToken) {
-    const balance = budgetCreditView(budget, id, host.wallet(ownerToken));
-    // Outstanding maxima remain spendable by their admitted work. Only a zero
-    // allowance or confirmed spend at the ceiling is an exhaustion verdict.
-    // Wallets without a cost breakdown leave exhaustion to admission refusals.
-    const exhausted = balance.owner.limitMicro === 0 || balance.owner.confirmedSpendMicro >= balance.owner.limitMicro;
+    const wallet = host.wallet(ownerToken);
+    // The optional host display projection is read-only; wallet.balance() and
+    // every admission path retain their conservative reservation maxima.
+    const display = wallet.displayBalance?.();
+    const balance = budgetCreditView(budget, id, display ? Object.create(wallet, { balance: { value: () => display } }) : wallet);
+    const admission = wallet.balance();
+    const blocked = wallet.canAdmit({ sessionId: id, maxMicro: 1, maxVisitorMicro: 0 }) !== true;
+    // A minimal next admission distinguishes exhaustion from a temporary hold.
+    // Admitted work may finish while its maximum or closing exposure fills the wallet.
+    const pendingHoldMicro = display?.pendingHoldMicro ?? admission.reservedMicro ?? 0;
+    const exhausted = admission.limitMicro === 0 || blocked && admission.committedMicro - pendingHoldMicro >= admission.limitMicro;
+    const fullHold = blocked && !exhausted;
+    const reconciling = display?.reconciling === true;
     const projection = host.creditTiers?.(ownerToken) ?? null;
     const collectionAllowed = host.demo === true || privacyDocumentConfigured(host);
     const tiers = projection && (collectionAllowed ? projection : { ...projection, next: null, delta: 0, canConfirm: false });
@@ -147,13 +155,13 @@ export function createHostHandlers({ storage, host, ownership, readBody, publish
     const warning = { lowAtMicro: lowCreditThreshold(balance.owner.limitMicro, voiceRate), lowAtMaxMicro: lowCreditThreshold(largestTier, voiceRate),
       emailAsk: storage.hostState(id)?.emailAsk ?? {}, emailAskAfter: host.emailAskAfter?.(ownerToken) ?? 0,
       lowEmailAsk: host.lowEmailAsk?.(ownerToken) ?? null, nowMs: now() };
-    if (host.credits?.ownerGuard === false) return { balance, limitSlot: null, tiers, exhausted, ...warning };
+    if (host.credits?.ownerGuard === false) return { balance, limitSlot: null, tiers, exhausted, fullHold, reconciling, ...warning };
     const guard = storage.ownerCreditState(ownerToken);
     const state = guard ? guard.sessionId === id ? guard : rebindCredits(guard, id) : createCredits({ sessionId: id, ...host.credits });
     // Project live balances, expiry and pause without persisting read results.
     const current = reduceCredits(state, { type: 'balance', balance, now: clock(state) }).state;
     const projected = reduceCredits(current, { type: 'pause', paused: storage.get(id).paused, now: clock(current) }).state;
-    return { balance, limitSlot: creditsView(projected, clock(projected)), tiers, exhausted, ...warning };
+    return { balance, limitSlot: creditsView(projected, clock(projected)), tiers, exhausted, fullHold, reconciling, ...warning };
   }
   function startCredits(id, ownerToken) {
     const balance = budgetCreditView(budget, id, host.wallet(ownerToken));

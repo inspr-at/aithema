@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Window } from 'happy-dom';
-import { createSession, inputRevision } from '@inspr/aithema-core';
+import { createSession, inputRevision, reduceUnderstanding } from '@inspr/aithema-core';
 import { en } from '../src/i18n/en.js';
 import { de } from '../src/i18n/de.js';
 import { hostStyles } from '../src/host-styles.js';
@@ -45,6 +45,94 @@ function setup(t, { copy = en, host = { library: true, verification: true, hando
   return { c, root: c.shadowRoot, calls };
 }
 const userTurn = (c, id = 't1') => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id, role: 'user', content: 'We need a preorder app.' } });
+
+for (const copy of [de, en]) for (const covered of [true, false]) test(`AIT-173 round 3: ended reconciling call uses normal text admission (${copy === de ? 'de' : 'en'}, covered ${covered})`, async t => {
+  const { voiceEvents } = await import('../../core/src/live-voice.js');
+  const events = voiceEvents(); let ended = false, settled = false;
+  const matrix = () => ({ best: { text: { available: ended && (covered || settled), reason: ended && (covered || settled) ? null : 'budget denied' },
+    voice: { available: true }, analysis: { available: ended && (covered || settled), reason: ended && (covered || settled) ? null : 'budget denied' } } });
+  const voiceClient = { async start({ callId }) { return { callId, providerSessionId: 'closing-provider', events,
+    async setInput() {}, async setOutput() {}, async updateContext() {},
+    async close() { events.end(); return { closureConfirmed: false, outcome: 'uncertain', usage: null }; } }; } };
+  const { c, root, calls } = setup(t, { copy, voiceClient, host: { credits: true },
+    session: { demo: false, featureMatrix: matrix(), settings: { origin: 'chosen', voice: 'off', visuals: 'off' } }, routes: {
+      'GET ': () => Response.json({ ...c.session, featureMatrix: matrix() }),
+      'GET /credits': () => Response.json({ balance, exhausted: false, reconciling: ended && !settled }),
+      'POST /turns': body => Response.json({ seq: c.session.seq + 1, type: 'turn.final', data: { id: 'after-hangup', role: 'user', content: body.content } }),
+    } });
+  await tick(8); root.querySelector('.voice-start').click(); await tick(8);
+  assert.equal(root.querySelector('.composer-reason').textContent, copy === de ? 'Schreiben geht nach dem Anruf wieder' : 'You can type again after the call', 'during-call copy remains scoped to a live call');
+  ended = true; root.querySelector('.voice-close').click();
+  assert.equal(root.querySelector('.composer-shell').hasAttribute('data-used-up'), false, 'hangup never synchronously shows used-up');
+  assert.equal(root.querySelector('form.composer').inert, false, 'hangup keeps the composer slot');
+  assert.notEqual(root.querySelector('.workspace').dataset.emailAsk, 'open', 'hangup never asks for email');
+  await tick(12);
+  assert.equal(root.querySelector('.audio-rail').dataset.call, 'none');
+  assert.equal(root.querySelector('textarea').disabled, !covered);
+  assert.equal(root.querySelector('.send').disabled, !covered);
+  assert.equal(root.querySelector('.composer-shell').hasAttribute('data-used-up'), !covered);
+  assert.equal(root.querySelector('form.composer').inert, !covered);
+  assert.doesNotMatch(root.querySelector('.composer-reason').textContent, /nach dem Anruf|after the call/u);
+  assert.doesNotMatch(root.querySelector('.features').textContent, /nach dem Anruf|after the call/u);
+  assert.doesNotMatch(root.querySelector('.notice').textContent, /nach dem Anruf|after the call/u);
+  if (covered) {
+    const input = root.querySelector('textarea'); input.value = 'A typed follow-up'; input.dispatchEvent(new window.Event('input'));
+    assert.equal(input.value, 'A typed follow-up');
+    assert.equal(input.placeholder, copy.placeholder);
+  } else {
+    assert.equal(root.querySelector('.composer-reason').textContent, copy.voiceStates.usedUp);
+    settled = true; c.receive({ type: 'voice.state', data: { state: 'ended', callId: 'ended-call', providerSessionId: 'closing-provider',
+      terminal: { closureConfirmed: true, usage: { costEstimated: false } } } });
+    await tick(12);
+    assert.equal(root.querySelector('textarea').disabled, false, 'a provider settlement refreshes admission immediately');
+  }
+  const input = root.querySelector('textarea'); input.value = 'A typed follow-up';
+  root.querySelector('.send').click(); await tick(12);
+  const posted = calls.find(call => call.path === '/turns');
+  assert.equal(posted?.body.content, 'A typed follow-up');
+  assert.equal(posted.body.voiceCallId, undefined, 'after-call typing uses the normal text path');
+});
+
+test('AIT-173 round 3: a stale call snapshot cannot reopen a locally ended call during credit refresh', async t => {
+  const { voiceEvents } = await import('../../core/src/live-voice.js');
+  const events = voiceEvents(), closeAck = Promise.withResolvers(); let callId;
+  const voiceClient = { async start(request) { callId = request.callId; return { callId, providerSessionId: 'stale-provider', events,
+    async setInput() {}, async setOutput() {}, async updateContext() {},
+    async close() { await closeAck.promise; events.end(); return { closureConfirmed: false }; } }; } };
+  const { c, root } = setup(t, { voiceClient, host: { credits: true },
+    session: { featureMatrix: { best: { text: { available: true }, analysis: { available: true }, voice: { available: true } } } },
+    routes: { 'GET ': () => Response.json({ ...c.session, voiceLifecycle: { callId, providerSessionId: 'stale-provider', state: 'waiting' } }) } });
+  t.after(() => closeAck.resolve());
+  await tick(8); root.querySelector('.voice-start').click(); await tick(8);
+  root.querySelector('.voice-close').click();
+  assert.equal(root.querySelector('.audio-rail').dataset.call, 'none', 'local hangup paints idle synchronously');
+  await tick(12);
+  assert.equal(root.querySelector('.audio-rail').dataset.call, 'none', 'the admission snapshot cannot undo terminal intent');
+  assert.equal(root.querySelector('.audio-rail').dataset.state, 'idle');
+});
+
+test('AIT-173 round 3: an old hangup credit read cannot deny Retry after a newer Start attempt', async t => {
+  const { voiceEvents } = await import('../../core/src/live-voice.js');
+  const events = voiceEvents(), readStarted = Promise.withResolvers(), readDone = Promise.withResolvers(); let starts = 0;
+  const voiceClient = { async start({ callId }) {
+    if (++starts > 1) throw Object.assign(new Error('fixture outage'), { code: 'unavailable' });
+    return { callId, providerSessionId: 'retry-provider', events, async setInput() {}, async setOutput() {}, async updateContext() {},
+      async close() { events.end(); return { closureConfirmed: false }; } };
+  } };
+  const { c, root } = setup(t, { voiceClient, host: { credits: true },
+    session: { featureMatrix: { best: { text: { available: true }, analysis: { available: true }, voice: { available: true } } } },
+    routes: { 'GET ': async () => { const before = c.session; readStarted.resolve(); await readDone.promise;
+      return Response.json({ ...before, featureMatrix: { ...before.featureMatrix, best: { ...before.featureMatrix.best,
+        voice: { available: false, reason: 'budget denied' } } } }); } } });
+  t.after(() => readDone.resolve());
+  await tick(8); root.querySelector('.voice-start').click(); await tick(8);
+  root.querySelector('.voice-close').click(); await readStarted.promise;
+  root.querySelector('.voice-start').click(); await tick(8);
+  assert.equal(root.querySelector('.audio-rail').dataset.state, 'failed');
+  assert.equal(root.querySelector('.voice-retry').disabled, false);
+  readDone.resolve(); await tick(12);
+  assert.equal(root.querySelector('.voice-retry').disabled, false, 'the ended-call read cannot replace a newer attempt verdict');
+});
 
 test('AIT-135 a host without an owner guard displays credits with a hidden, empty countdown', async t => {
   const { root } = setup(t, { host: { credits: true } }); await tick();
@@ -981,3 +1069,112 @@ for (const copy of [de, en]) for (const delivery of [true, false]) for (const re
     assert.equal(calls.filter(call => call.path === '/credits').length, 1, 'status adds no credit requests');
   });
 }
+
+
+for (const copy of [de, en]) test(`AIT-173 round 2: footer reconciliation tooltip only, and settlement clears it (${copy === de ? 'de' : 'en'})`, async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  let reconciling = true;
+  const { root } = setup(t, { copy, host: { credits: true }, routes: {
+    'GET /credits': () => Response.json({ balance, limitSlot: null, exhausted: false, reconciling }),
+  } });
+  await tick(8);
+  const button = root.querySelector('.host-credits__button');
+  const message = copy === de ? 'Kosten werden noch abgeglichen' : 'Costs are still being reconciled';
+  assert.equal(button.title, message);
+  assert.equal(button.getAttribute('aria-description'), message);
+  assert.doesNotMatch(root.querySelector('.host-credits').textContent, /Kosten werden noch abgeglichen|Costs are still being reconciled/u);
+  reconciling = false;
+  t.mock.timers.tick(15_001); await tick(8);
+  assert.equal(button.hasAttribute('title'), false);
+  assert.equal(button.hasAttribute('aria-description'), false);
+});
+
+for (const copy of [de, en]) test(`AIT-173 round 4: stale hangup denial waits for fresh admission and polling keeps the draft (${copy === de ? 'de' : 'en'})`, async t => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const { voiceEvents } = await import('../../core/src/live-voice.js');
+  const events = voiceEvents(), refresh = Promise.withResolvers();
+  let ended = false, settled = false, spent = false;
+  const waiting = copy === de ? 'Einen Moment, die Kosten des Anrufs werden noch abgeglichen.' : "One moment, the call's costs are still being reconciled.";
+  const matrix = () => ({ best: { text: { available: settled && !spent, reason: spent ? 'budget denied' : settled ? null : ended ? 'budget reconciling' : 'budget denied' },
+    analysis: { available: settled && !spent, reason: spent ? 'budget denied' : settled ? null : ended ? 'budget reconciling' : 'budget denied' }, voice: { available: true } } });
+  const voiceClient = { async start({ callId }) { return { callId, providerSessionId: 'round4-provider', events,
+    async setInput() {}, async setOutput() {}, async updateContext() {},
+    async close() { events.end(); return { closureConfirmed: false, outcome: 'uncertain', usage: null }; } }; } };
+  const { c, root } = setup(t, { copy, voiceClient, host: { credits: true },
+    session: { demo: false, featureMatrix: matrix(), settings: { origin: 'chosen', voice: 'off', visuals: 'off' } }, routes: {
+      'GET ': async () => { if (ended) await refresh.promise; return Response.json({ ...c.session, featureMatrix: matrix() }); },
+      'GET /credits': () => Response.json({ balance, exhausted: false, reconciling: ended && !settled }),
+    } });
+  await tick(8); root.querySelector('.voice-start').click(); await tick(8);
+  const input = root.querySelector('textarea'); input.value = 'Keep this draft';
+  ended = true; root.querySelector('.voice-close').click();
+  const assertWaiting = () => {
+    assert.equal(root.querySelector('.composer-shell').hasAttribute('data-used-up'), false);
+    assert.equal(root.querySelector('form.composer').inert, false);
+    assert.notEqual(root.querySelector('.workspace').dataset.emailAsk, 'open');
+    assert.equal(input.value, 'Keep this draft');
+    assert.equal(input.disabled, false);
+    assert.equal(root.querySelector('.send').disabled, true);
+    assert.equal(root.querySelector('.composer-reason').textContent, waiting);
+    assert.doesNotMatch(root.querySelector('.features').textContent + root.querySelector('.notice').textContent, /aufgebraucht|used up/iu);
+  };
+  assertWaiting(); // No tick: the local hangup must already be safe.
+  await tick(8); assertWaiting(); // Still safe while the admission response is delayed.
+  refresh.resolve(); await tick(8); assertWaiting();
+  settled = true; t.mock.timers.tick(15_001); await tick(12);
+  assert.equal(root.querySelector('.send').disabled, false, 'credit polling restores send without an event');
+  assert.equal(input.value, 'Keep this draft');
+  spent = true; c.receive({ type: 'voice.state', data: { state: 'ended' } }); await tick(12);
+  assert.equal(root.querySelector('.composer-shell').hasAttribute('data-used-up'), true, 'fresh genuine denial uses normal used-up path');
+});
+
+
+for (const copy of [de, en]) test(`AIT-173 round 5: blocked overview keeps content and slider (${copy === de ? 'de' : 'en'})`, async t => {
+  let blocked = false;
+  const { c, root } = setup(t, { copy, host: {}, routes: {
+    'GET ': () => Response.json({ ...c.session, featureMatrix: { best: {
+      text: { available: !blocked, reason: blocked ? 'budget reconciling' : null },
+      analysis: { available: !blocked, reason: blocked ? 'budget reconciling' : null } } } }),
+  } });
+  userTurn(c);
+  c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: reduceUnderstanding(c.session.understanding,
+    { summary: 'A preorder app', signals: ['Orders'], openQuestions: ['When?'], readinessAssessed: true },
+    { transcript: c.session.transcript, inputRevision: inputRevision(c.session) }) });
+  const before = root.querySelector('.notice').textContent, summary = root.querySelector('.summary-text').textContent;
+  blocked = true; c.receive({ type: 'voice.state', data: { state: 'ended' } }); await tick(8);
+  c.receive({ type: 'lane.failed', data: { inputRevision: inputRevision(c.session), lane: 'understanding', error: 'reasoning-unavailable', reason: 'budget reconciling' } });
+  assert.equal(root.querySelector('.notice').textContent, before);
+  assert.equal(root.querySelector('.summary-text').textContent, summary);
+  assert.equal(root.querySelector('.readiness').style.visibility, '');
+  assert.equal(root.querySelector('.summary-text').closest('section').hidden, false);
+  assert.equal(root.querySelector('.retry').hidden, true);
+});
+
+for (const copy of [de, en]) test(`AIT-173 round 5: no-credit host polls settlement, retries analysis and keeps long-wait draft (${copy === de ? 'de' : 'en'})`, async t => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
+  let settled = false;
+  const { c, root, calls } = setup(t, { copy, host: {}, session: { featureMatrix: { best: {
+    text: { available: false, reason: 'budget reconciling' }, analysis: { available: false, reason: 'budget reconciling' } } } }, routes: {
+    'GET ': () => Response.json({ ...c.session, featureMatrix: { best: {
+      text: { available: settled, reason: settled ? null : 'budget reconciling' },
+      analysis: { available: settled, reason: settled ? null : 'budget reconciling' } } } }),
+    'POST /retry': () => Response.json({ accepted: true }, { status: 202 }),
+  } });
+  await tick(8);
+  const input = root.querySelector('textarea'); input.value = 'Keep this draft';
+  c.receive({ type: 'lane.failed', data: { inputRevision: inputRevision(c.session), lane: 'understanding', error: 'reasoning-unavailable', reason: 'budget reconciling' } });
+  t.mock.timers.tick(59_999); await tick(8);
+  assert.equal(root.querySelector('.composer-reason').textContent, copy.reasons['budget reconciling']);
+  t.mock.timers.tick(1); await tick(8);
+  assert.equal(root.querySelector('.composer-reason').textContent, copy === de ? 'Die Anrufkosten sind noch nicht bestätigt. Ihr Text bleibt erhalten.' : "The call's costs aren't confirmed yet. Your text is kept.");
+  settled = true; t.mock.timers.tick(15_000); await tick(12);
+  assert.equal(root.querySelector('.send').disabled, false);
+  assert.equal(input.value, 'Keep this draft');
+  assert.equal(calls.filter(call => call.path === '/credits').length, 0);
+  assert.equal(calls.filter(call => call.path === '/retry').length, 1);
+  assert.notEqual(root.querySelector('.notice').textContent, copy.reasoningFailed);
+  assert.equal(root.querySelector('.retry').hidden, true);
+  const reads = calls.length; t.mock.timers.tick(60_000); await tick(8);
+  assert.equal(calls.filter(call => call.path === '/retry').length, 1, 'settlement retries once');
+  assert.equal(calls.length, reads, 'settled hosts stop the admission re-check timer');
+});

@@ -67,6 +67,7 @@ export const de = {
   voiceRail: 'Sprachgespräch', voiceStart: 'Anruf starten', voiceClose: 'Anruf beenden',
   voiceMicOn: 'Mikrofon an', voiceMicOff: 'Mikrofon aus', voiceSpeakerOn: 'Ton an', voiceSpeakerOff: 'Ton aus',
   voiceRetry: 'Erneut anrufen', voicePlaybackRetry: 'Ton aktivieren', voiceCommandUnavailable: 'Mit diesem Sprachdienst nicht verfügbar',
+  voiceBudgetDenied: 'Schreiben geht nach dem Anruf wieder',
   voiceStates: { low: 'Noch wenig Guthaben', idle: 'Bereit zum Sprechen', connecting: 'Verbindung wird aufgebaut …', listening: 'Ich höre zu', speaking: 'Antwort wird gesprochen',
     paused: 'Anruf pausiert', recovering: 'Verbindung wird wiederhergestellt …', waiting: 'Sprache pausiert. Fortsetzen, wenn Sie bereit sind.', closing: 'Anruf wird beendet …', failed: 'Anruf beendet', usedUp: 'Credits aufgebraucht', creditEnding: 'Anruf wird beendet …' },
   voiceMicDenied: 'Kein Zugriff auf das Mikrofon. Erlauben Sie den Zugriff und versuchen Sie es erneut.',
@@ -385,6 +386,7 @@ export const de = {
       limit: 'Dieses Gespräch kann nicht erneut gesendet werden. Beginnen Sie ein neues Gespräch, um mehr zu senden.',
     },
     credits: {
+      reconciling: 'Kosten werden noch abgeglichen',
       low: 'Noch {available} Credits', lowShort: 'Noch {available}',
       title: 'Ihre Credits', scope: 'für alle Ihre Gespräche', loading: 'werden geladen …',
       balance: 'Ihre Credits: {available} von {limit} übrig, für alle Ihre Gespräche.',
@@ -422,6 +424,7 @@ export const de = {
       systems: 'An welche Systeme soll die Lösung angebunden werden?', reach: 'Nur im deutschsprachigen Raum oder auch international?',
       requirements: 'Gibt es Auflagen, die wir kennen sollten?' },
   },
+  reconcilingLong: "Die Anrufkosten sind noch nicht bestätigt. Ihr Text bleibt erhalten.",
   reasons: {
     'session paused': 'Gespräch pausiert', 'current processing consent required': 'Einwilligung zur Verarbeitung erforderlich',
     'consent port unavailable': 'Einwilligung kann nicht geprüft werden', 'not configured': 'Nicht eingerichtet',
@@ -438,7 +441,7 @@ export const de = {
     'endpoint not allowed': 'Adresse des Anbieters nicht erlaubt', 'plugin binding mismatch': 'Anbieter passt nicht zur Einrichtung',
     'plugin kind unsupported': 'Anbieter kann das nicht', 'operation unsupported': 'Anbieter kann das nicht',
     'invalid mock budget': 'Test-Einrichtung ungültig', 'plugin unhealthy': 'Anbieter antwortet nicht',
-    'admission deadline': 'Verfügbarkeitsprüfung hat zu lange gedauert', 'budget denied': 'Schreiben geht nach dem Anruf wieder', 'verification required': 'E-Mail-Bestätigung erforderlich',
+    'admission deadline': 'Verfügbarkeitsprüfung hat zu lange gedauert', 'budget reconciling': 'Einen Moment, die Kosten des Anrufs werden noch abgeglichen.', 'budget denied': 'Credits aufgebraucht', 'verification required': 'E-Mail-Bestätigung erforderlich',
     'concept storage limit': 'Speicher für Entwürfe ist voll', delegated: 'Auswertung im Sprachgespräch: {reason}',
     'voice off': 'Sprache ist in Ihren Einstellungen aus', 'visuals off': 'Visuelle Entwürfe sind in Ihren Einstellungen aus',
     'visual kind not selected': 'Eine andere Art visueller Entwürfe ist gewählt',

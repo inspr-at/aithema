@@ -89,3 +89,14 @@ test('upload copy exists in English and German with the same keys and placeholde
     assert.doesNotMatch(german[key], /\b(?:du|dein|deine|dich|dir)\b/iu, `${key} uses formal Sie`);
   }
 });
+
+test('AIT-173 round 3: generic budget denial never assumes a live call', () => {
+  for (const copy of [de, en]) assert.equal(reasonText(copy, 'budget denied'), copy.voiceStates.usedUp);
+});
+
+test('AIT-173 round 4: reconciling denial copy is exact and remains a temporary choice refusal', async () => {
+  const { isDynamicReason } = await import('../../core/src/settings.js');
+  assert.equal(reasonText(de, 'budget reconciling'), 'Einen Moment, die Kosten des Anrufs werden noch abgeglichen.');
+  assert.equal(reasonText(en, 'budget reconciling'), "One moment, the call's costs are still being reconciled.");
+  assert.equal(isDynamicReason('budget reconciling'), true);
+});
