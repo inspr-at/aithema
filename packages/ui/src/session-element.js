@@ -1600,12 +1600,12 @@ export class AithemaSession extends HTMLElement {
   }
   async #refreshFeatures() {
     if (this.#session.processingPreset === 'device') return;
-    const sessionId = this.#session.id;
+    const sessionId = this.#session.id, voiceGeneration = this.#rail?.generation;
     try {
       const response = await fetch(`${this.#base}/api/sessions/${sessionId}`, { headers: this.#headers() });
       if (!response.ok) return;
       const session = await response.json();
-      if (sessionId !== this.#session.id || session.seq !== this.#cursor || session.id !== sessionId) return;
+      if (sessionId !== this.#session.id || session.seq !== this.#cursor || session.id !== sessionId || voiceGeneration !== this.#rail?.generation) return;
       this.#session.featureMatrix = session.featureMatrix;
       // A credit read can beat the close acknowledgement. Its older waiting
       // projection cannot undo the visitor's local terminal intent.
