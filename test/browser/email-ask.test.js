@@ -34,9 +34,10 @@ const stable = (before, after, label) => {
 
 // Only this test supplies fixture values. The shipped component reads every
 // tier, price, balance, address and ask record through its normal host routes.
-async function fixture(page, locale, { delivery = false, address = null, confirmed = false, low = false, out = false, voice = false, motion = 'off' } = {}) {
+async function fixture(page, locale, { delivery = false, confirmationEnabled = delivery, address = null, confirmed = false, low = false, out = false, voice = false, motion = 'off' } = {}) {
   await shadow(page, async (c, options) => {
-    const { locale, delivery, address, confirmed, low, out, voice, motion } = options;
+    const { locale, delivery, confirmationEnabled, address, confirmed, low, out, voice, motion } = options;
+    const canConfirm = delivery && confirmationEnabled;
     const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
     const { inputRevision } = await import('/packages/core/src/session.js');
     const { voiceEvents } = await import('/packages/core/src/live-voice.js');
@@ -45,12 +46,12 @@ async function fixture(page, locale, { delivery = false, address = null, confirm
     window.ait164Locale = locale;
     const state = window.ait164 = { address, confirmed, spent: 3_450_000, ask: {}, after: 0, lowClaim: { after: 0, armed: true }, creditsReads: 0, visitorReads: 0, identityReads: 0, saving: false, saveFails: false, linkFails: false, requests: [], voiceEvents: null };
     const tier = () => state.confirmed ? 'emailConfirmed' : state.address ? 'emailGiven' : 'anonymous';
-    const identity = () => ({ ...c.session.identity, address: state.address, status: state.confirmed ? 'verified' : state.address && delivery ? 'verification-pending' : 'guest',
+    const identity = () => ({ ...c.session.identity, address: state.address, status: state.confirmed ? 'verified' : state.address && canConfirm ? 'verification-pending' : 'guest',
       assessmentUnlocked: true, conceptsUnlocked: true, verificationRequired: false, pollVerification: false, resendAfterMs: 0, delivery: 'sent' });
     const visitor = () => ({ address: state.address, tier: tier(), limitMicro: allowancesMicro[tier()] });
     if (low || out) state.spent = allowancesMicro[tier()] - (out ? 0 : 980_000);
-    const credits = () => { const current = tier(), limitMicro = allowancesMicro[current], next = !state.address ? 'emailGiven' : delivery && !state.confirmed ? 'emailConfirmed' : null;
-      return { tiers: { current, next, delta: next ? allowancesMicro[next] - limitMicro : 0, canConfirm: delivery, allowancesMicro },
+    const credits = () => { const current = tier(), limitMicro = allowancesMicro[current], next = !state.address ? 'emailGiven' : canConfirm && !state.confirmed ? 'emailConfirmed' : null;
+      return { tiers: { current, next, delta: next ? allowancesMicro[next] - limitMicro : 0, canConfirm, allowancesMicro },
         exhausted: state.spent >= limitMicro, lowAtMicro: Math.max(limitMicro / 10, 5 * 100_000), lowAtMaxMicro: Math.max(allowancesMicro.emailConfirmed / 10, 5 * 100_000),
         emailAsk: state.ask, emailAskAfter: state.after, lowEmailAsk: state.lowClaim, nowMs: Date.now(), limitSlot: null,
         balance: { owner: { limitMicro, committedMicro: state.spent, confirmedSpendMicro: state.spent, reservedMicro: 0, uncertainSpendMicro: 0, availableMicro: Math.max(0, limitMicro - state.spent) } } }; };
@@ -106,7 +107,7 @@ async function fixture(page, locale, { delivery = false, address = null, confirm
       c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: `u${i}`, role: 'user', content: locale === 'de' ? 'Ja.' : 'Yes.' } });
       c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id: `a${i}`, role: 'assistant', content: locale === 'de' ? 'Wie soll es weitergehen?' : 'How would you like to continue?' } }); };
     if (voice) c.shadowRoot.querySelector('.voice-start').click();
-  }, { locale, delivery, address, confirmed, low, out, voice, motion });
+  }, { locale, delivery, confirmationEnabled, address, confirmed, low, out, voice, motion });
   await until(page, () => {
     const c = document.querySelector('aithema-session'), s = window.ait164;
     return s.creditsReads > 0 && s.visitorReads > 0 && s.identityReads > 0 &&
@@ -264,4 +265,39 @@ test('AIT-164: viewport state matrix, DE/EN light/dark 390/1024/1440; zero layou
   }
   if (evidence) await writeFile(join(evidence, 'ait164-pass-lines.json'), JSON.stringify({ head: evidenceCommit, runner: 'mbp2606/CI', captures: 'viewport', passes }, null, 2));
   t.diagnostic(`AIT-164 HEAD ${evidenceCommit}: ${passes.length} viewport state checks PASS; layout shift 0 px`);
+});
+
+
+test('AIT-168: Settings saves only with confirmation disabled and saves plus requests a link when enabled', { timeout: 60_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'aithema-confirm-gate-'));
+  const demo = await startChild(new URL('../fixtures/no-provider-server.js', import.meta.url), join(directory, 'session.sqlite'), { AITHEMA_VOICE_MODE: 'off', AITHEMA_IMAGE_MODE: 'off', AITHEMA_HTML_MODE: 'off' });
+  let browser;
+  t.after(async () => { await browser?.close(); await demo.kill(); await rm(directory, { recursive: true, force: true }); });
+  browser = await puppeteer.launch({ executablePath: await browserPath(), headless: true, userDataDir: join(directory, 'chrome'),
+    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] });
+  const page = await browser.newPage(), errors = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
+  await until(page, () => document.querySelector('aithema-session')?.session);
+  for (const locale of ['de', 'en']) for (const enabled of [false, true]) {
+    await fixture(page, locale, { delivery: true, confirmationEnabled: enabled });
+    await shadow(page, c => c.openSettings(undefined, { tab: 'general', anchor: '#email' }));
+    await settle(page);
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-verify').dataset.emailMode), enabled ? 'mail' : 'save');
+    if (enabled) {
+      await click(page, '.host-verify .verify-entry');
+      await shadow(page, c => { const form = c.shadowRoot.querySelector('dialog.verify-dialog .verify-form'); form.querySelector('input').value = 'settings@example.test'; form.requestSubmit(); });
+    } else {
+      await shadow(page, c => { c.shadowRoot.querySelector('#email-input').value = 'settings@example.test'; c.shadowRoot.querySelector('.host-verify .m-form').requestSubmit(); });
+    }
+    await until(page, () => window.ait164.address === 'settings@example.test');
+    await settle(page);
+    assert.deepEqual(await page.evaluate(() => window.ait164.requests), enabled ? ['save', 'link'] : ['save']);
+    assert.equal(await page.evaluate(() => window.ait164.credits().tiers.current), 'emailGiven');
+    if (!enabled) {
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-verify').dataset.emailState), 'saved');
+      assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.host-verify .verify-entry').hidden), true);
+    }
+  }
+  assert.deepEqual(errors, []);
 });

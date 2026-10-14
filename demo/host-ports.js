@@ -122,6 +122,9 @@ export function createDemoHost({ storage, demo = true, demoBypass = false, verif
       address = canonicalEmail(address);
       const session = storage.authorize(sessionId, ownerToken);
       if (mailPlugin?.deliversVerification) {
+        // OPS policy can change on a running host. Skip tokens and every mail
+        // cap reservation while disabled; the async HTTP response stays private.
+        if (!visitorCredits.settings().confirmationEnabled) return { status: 'failed' };
         const locale = session.locale === 'de' ? 'de' : 'en';
         const reserved = confirmation.reserve({ ownerHash: session.ownerHash, sessionId, address, revision, expiresAt, locale, ipBucket });
         if (reserved.status === 'rate-limited') return reserved;

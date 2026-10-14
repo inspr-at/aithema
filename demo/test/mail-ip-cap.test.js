@@ -79,6 +79,40 @@ async function fixture(t, options = {}) {
   return { storage, host, messages, handlers, settings, set, call, at: value => { time = value; } };
 }
 
+for (const enabled of [false, true]) test(`AIT-168 confirmation ${enabled ? 'enabled sends' : 'disabled saves without sending or reserving caps'} on request, resend and change`, async t => {
+  const f = await fixture(t);
+  f.host.visitorCredits.saveSettings({ baseRevision: f.settings().revision, confirmationEnabled: enabled }, actor);
+  const owner = 'confirmation-gate', session = f.storage.create({ ownerToken: owner });
+  // AIT-164 saves the address before asking for a link. Pending-only API
+  // identities intentionally do not grant the independently saved tier.
+  f.host.saveEmail(owner, { address: `${owner}@example.test`, noticeVersion: 'ait-135-v1' });
+  for (const [i, command] of ['request', 'resend', 'change'].entries()) {
+    f.at(1_000 + i * 60_000);
+    const address = command === 'change' ? 'changed@example.test' : `${owner}@example.test`;
+    const response = await f.call(owner, { session, command, address });
+    assert.equal(response.status, 200);
+    assert.equal(response.body.identity.delivery, 'sent', 'accepted responses reveal no delivery suppression');
+    await f.handlers.idle();
+    assert.equal(f.host.visitor(owner).address, address);
+    assert.equal(f.host.visitor(owner).tier, 'emailGiven');
+    assert.equal(f.host.creditTiers(owner).canConfirm, enabled);
+    assert.equal(f.messages.length, enabled ? i + 1 : 0);
+    assert.equal(f.host.confirmation.mailCap().hour.count, enabled ? i + 1 : 0);
+    assert.equal(f.host.confirmation.mailCap().day.count, enabled ? i + 1 : 0);
+  }
+  if (!enabled) {
+    for (const table of ['visitor_confirmation_tokens', 'visitor_mail_deliveries', 'visitor_mail_abuse',
+      'host_mail_slots', 'host_mail_cap_alerts', 'host_mail_ip_slots', 'host_mail_ip_alerts']) {
+      assert.equal(f.storage.db.prepare(`SELECT COUNT(*) n FROM ${table}`).get().n, 0, `${table}: no reservation or suppression metadata`);
+    }
+    // Read the policy at delivery time, so OPS can re-enable a running host.
+    f.host.visitorCredits.saveSettings({ baseRevision: f.settings().revision, confirmationEnabled: true }, actor);
+    f.at(181_000); await f.call(owner, { session, command: 'resend' }); await f.handlers.idle();
+    assert.equal(f.messages.length, 1);
+    assert.equal(f.host.confirmation.mailCap().hour.count, 1);
+  }
+});
+
 test('AIT-167 concurrent request limits default to 5/hour and 20/day and spare the global cap', async t => {
   const f = await fixture(t);
   const responses = await Promise.all(Array.from({ length: 40 }, (_, i) => f.call(`flood-${i}`)));
