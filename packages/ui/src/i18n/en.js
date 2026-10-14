@@ -259,7 +259,11 @@ export const en = {
   aiNotice: { ...AI_NOTICE.en },
   purposePausedDescription: 'This conversation is paused.',
   purposePaused: "This conversation is paused. It's for projects Augmentoring can support: building a solution or improving how you work.",
-  purposeRedirect: "I can't help with that here. I'm here for projects Augmentoring can support: building a solution or improving how you work. What are you working on?",
+  purposeRedirects: [
+    "I can't help with that here. I'm here for projects Augmentoring can support: building a solution or improving how you work. What are you working on?",
+    "That's not something I can help with here. I help with projects Augmentoring supports: building a solution or improving how you work. Do you have a project like that right now?",
+    "I can't help with that. This conversation is for projects Augmentoring supports: building a solution or improving how you work. What would you like to improve?",
+  ],
   purposeDirection: 'Is this more about a new solution, about how you work, or both?',
   conversation: 'Conversation', understanding: 'Understanding', you: 'You', assistant: 'AI assistant',
   pause: 'Pause', resume: 'Resume', withdraw: 'Withdraw statement', withdrawn: 'Statement withdrawn',

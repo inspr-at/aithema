@@ -276,7 +276,8 @@ export function createVoiceHandlers({ storage, runtime, ownership, readBody, sec
     // It never supplies an operation key, ordinal, claim or paid state (Rule C).
     const typedEcho = person?.voiceCallId === call.callId && person.voiceProviderId === call.providerSessionId &&
       latestInput.length > 0 && normalize(person.content) === normalize(latestInput.at(-1).content);
-    const trusted = reasoningRequest(session, 'reaction', false, hostPrompt, { pendingInput: latestInput.length > 0, voiceReply: true, purposePolicy });
+    const trusted = reasoningRequest(session, 'reaction', false, hostPrompt, { pendingInput: latestInput.length > 0, voiceReply: true, purposePolicy,
+      offTopicTurns: storage.safeguards(session.id).offTopicTurns });
     // Focus is derived by the asynchronous understanding lane. It is usable
     // only once that final assessment covers every input in this reply request.
     const currentFocus = !latestInput.length && !session.understanding.draft &&

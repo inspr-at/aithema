@@ -56,7 +56,7 @@ for (const item of safeguardsCorpus) test(`AIT-174 corpus typed ${item.id}: fram
   assert.equal(f.calls.length, 2, 'unsafe output is regenerated once'); framed(f.calls[0], item.locale);
   assert.equal(f.assessments.length, 0, 'off-topic skips understanding');
   const snapshot = await f.handlers.handle(req(f.session.id)).then(r => r.json());
-  assert.equal(snapshot.transcript.at(-1).content, 'Let us clarify your Augmentoring project.');
+  assert.equal(snapshot.transcript.at(-1).content, purposePolicy.redirect[item.locale]);
   assert.equal(JSON.stringify(snapshot).includes('scope'), false);
   assert.equal(JSON.stringify(snapshot).includes('REVEALED'), false);
   assert.equal(JSON.stringify(f.storage.read(f.session.id)).includes('AITHEMA_CANARY_'), false);

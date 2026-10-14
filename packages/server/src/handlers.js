@@ -102,6 +102,7 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
   const selection = (session, lane) => pluginRuntime.selectionKey?.(session, lane) ?? '';
   const laneKey = (session, lane) => `${inputRevision(session)}|${selection(session, lane)}`;
   const lanes = new SessionLanes({ reasoning, getSession: id => storage.get(id), deadlineMs, hostPrompt, purposePolicy, selection,
+    offTopicTurns: id => storage.safeguards(id).offTopicTurns,
     guardDirection: (id, reply) => storage.guardPurposeDirection(id, reply, purposePolicy),
     canUnderstand: (id, revision) => { const state = storage.safeguards(id, revision); return state.assessed && !state.offTopic; },
     scopeKnown: (id, revision) => storage.safeguards(id, revision).assessed,
