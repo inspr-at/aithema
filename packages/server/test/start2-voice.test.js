@@ -309,7 +309,7 @@ for (const item of safeguardsCorpus) test(`AIT-174 voice transcript ${item.id}: 
   await retry.text(); assert.equal(h.upstream.length, 2); assert.equal(h.storage.safeguards(h.session.id).offTopicTurns, 1);
 });
 
-test('AIT-174 voice pauses only after the safe third reply is delivered, then refuses free of model costs', { timeout: 10_000 }, async t => {
+test('AIT-174 round2 voice ends cleanly after the safe third reply, then refuses recovery without model costs', { timeout: 10_000 }, async t => {
   const h = await fixture(t, { safeguards: true, replyOutput: () => JSON.stringify({ content: 'What Augmentoring project should we clarify?', scope: 'off', question_short: null, options: [] }) });
   const call = await h.start(), messages = [];
   for (let n = 1; n <= 3; n++) {
@@ -323,6 +323,12 @@ test('AIT-174 voice pauses only after the safe third reply is delivered, then re
   assert.equal((await h.callback(call.facadeCallId, 'local-callback-fixture', { messages: [...messages, { role: 'user', content: 'More recipes' }] })).status, 403);
   assert.equal(h.upstream.length, 3);
   assert.equal((await h.route('/voice/' + call.callId + '/resume', { providerSessionId: call.providerSessionId })).status, 409);
+  await h.handlers.idle();
+  const lifecycle = h.storage.voiceLifecycle(h.session.id, call.callId);
+  assert.equal(lifecycle.state, 'ended'); assert.equal(lifecycle.terminalReason, 'purpose');
+  assert.ok(h.storage.voiceCalls(h.session.id).find(record => record.callId === call.callId).endedAt);
+  assert.equal((await h.route('/voice/' + call.callId + '/recover', { providerSessionId: call.providerSessionId, explicit: true })).status, 409);
+  assert.equal(h.upstream.length, 3);
 });
 
 for (const scope of ['in', 'off']) test(`AIT-174 typed input during a custom-LLM call: ${scope} scope gates analysis without another paid reply`, { timeout: 10_000 }, async t => {

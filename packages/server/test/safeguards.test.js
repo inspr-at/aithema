@@ -196,6 +196,13 @@ for (const fault of ['invalid-json', 'missing-scope', 'provider-error', 'deadlin
   for (let i = 0; i < 3; i++) await f.send('We need a new solution.', `fault-${i}`);
   assert.equal(f.storage.safeguards(f.session.id).offTopicTurns, 0); assert.equal(f.storage.get(f.session.id).paused, false);
 });
+test('AIT-174 round2 direction question is emitted at most once even if the model repeats it', async t => {
+  const f = fixture(t, { outputs: () => envelope(purposePolicy.directionQuestion.en, 'unclear') });
+  for (let i = 0; i < 5; i++) await f.send('We are still unclear.', `unclear-${i}`);
+  const replies = f.storage.get(f.session.id).transcript.filter(turn => turn.role === 'assistant');
+  assert.equal(replies.filter(turn => turn.content.includes(purposePolicy.directionQuestion.en)).length, 1);
+  assert.equal(replies[2].content, purposePolicy.directionQuestion.en);
+});
 test('AIT-174 round2 unclear options are cleared; direction question is text only, late, once across locale and restart', async t => {
   const f = fixture(t, { outputs: request => JSON.stringify({ content: purposePolicy.directionQuestion[request.locale], scope: 'unclear', question_short: 'Choose', options: [{ text: 'A solution' }, { text: 'Our processes' }] }) });
   for (let i = 0; i < 5; i++) {
