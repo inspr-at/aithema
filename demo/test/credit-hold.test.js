@@ -131,3 +131,21 @@ test('AIT-173 round 2: an exactly full hold blocks admission without showing use
     visitorSeconds: 60, pausedSeconds: 0, upstreamMicro: 100_000, visitorMicro: 100_000, costEstimated: false } });
   assert.equal((await credits(f)).exhausted, true, 'charged spend really prevents a minimal next admission');
 });
+
+
+test('AIT-173 round 2: estimated receipts keep reconciliation pending until actual receipts', async t => {
+  const f = await creditHoldFixture(); t.after(() => f.close());
+  const usage = { providerSeconds: 60, providerMinutes: 1, visitorSeconds: 60, pausedSeconds: 0,
+    upstreamMicro: 100_000, visitorMicro: 100_000, costEstimated: true };
+  f.ledger.settleVoice(f.claim.claimId, { attemptId: f.claim.attemptId, outcome: 'completed', closureConfirmed: true, usage });
+  assert.equal((await credits(f)).reconciling, true, 'a settled duration estimate still awaits actual usage');
+  f.ledger.reconcileVoice(f.claim.attemptId, { closureConfirmed: true, usage: { ...usage, costEstimated: false } });
+  assert.equal((await credits(f)).reconciling, false);
+  const { attemptId } = f.ledger.admit(f.request('reaction', 200_000, { providerCost: { estimateMicro: 100_000 } }));
+  const claim = f.ledger.claim(attemptId); claim.consume();
+  f.ledger.settle(claim.claimId, { attemptId, outcome: 'uncertain' });
+  f.ledger.reconcileCost(attemptId, { chargedMicro: 100_000, estimated: true });
+  assert.equal((await credits(f)).reconciling, true, 'an estimated cost reconciliation still awaits a receipt');
+  f.ledger.reconcileCost(attemptId, { chargedMicro: 100_000, estimated: false });
+  assert.equal((await credits(f)).reconciling, false);
+});
