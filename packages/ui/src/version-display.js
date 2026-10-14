@@ -1,13 +1,16 @@
 import { renderVersion, disposeVersion, parts, utcLabel } from './versioning/version.js';
 import { attachVersionInteraction, confirmation } from './versioning/version-interaction.js';
 import config from './versioning/display.json' with { type: 'json' };
+import { palette } from './styles.js';
 const mounted = new WeakMap(), warned = new Set();
 const schemes = ['legacy', 'legacy-semver-public', 'legacy-semver-private', 'inspr-calendar-v1', 'inspr-calendar-v2', 'inspr-calver-3'];
 // Tick's approved popup separators; the pinned shared renderer owns their geometry.
-const popupConfig = { ...config, pretty: { ...config.pretty, separators: { ...config.pretty.separators,
-  yy: { ...config.pretty.separators.yy, text: '.' },
-  mm: { ...config.pretty.separators.mm, text: '.' },
-  dd: { ...config.pretty.separators.dd, text: ' · ', paddingLeft: 0 },
+const popupConfig = { ...config, weights: { ...config.weights, hh: 1, mi: 1 }, pretty: { ...config.pretty,
+  colors: Object.fromEntries(config.segments.map(key => [key, palette.dark.ink])),
+  separators: { ...Object.fromEntries(Object.entries(config.pretty.separators).map(([key, value]) => [key, { ...value, color: palette.dark.ink }])),
+  yy: { ...config.pretty.separators.yy, text: '.', color: palette.dark.ink },
+  mm: { ...config.pretty.separators.mm, text: '.', color: palette.dark.ink },
+  dd: { ...config.pretty.separators.dd, text: ' · ', paddingLeft: 0, color: palette.dark.ink },
 } } };
 function warnOnce(reason) {
   if (warned.has(reason)) return;
@@ -54,6 +57,18 @@ export function mountVersionDetails(element, version, { locale = 'de' } = {}) {
   const feedback = row.lastChild; feedback.className = 'version-feedback';
   Object.assign(feedback.style, { position: 'static', gridArea: '1 / 1', padding: '0', borderRadius: '0',
     font: 'inherit', color: 'inherit', background: 'transparent', whiteSpace: 'normal', zIndex: 'auto' });
-  const dispose = () => { controller.dispose(); disposeVersion(coordinate); mounted.delete(element); };
+  // Keep the manual-copy field in the reserved line; its accessible description
+  // retains the shared controller's full failure explanation.
+  const observer = new view.MutationObserver(() => {
+    if (row.dataset.copyState !== 'error') return;
+    const field = feedback.querySelector('input');
+    if (!field) return;
+    const explanation = feedback.firstChild;
+    field.setAttribute('aria-description', explanation.textContent);
+    field.title = explanation.textContent;
+    explanation.textContent = locale === 'en' ? 'Copy manually:' : 'Manuell kopieren:';
+  });
+  observer.observe(row, { attributes: true, attributeFilter: ['data-copy-state'] });
+  const dispose = () => { observer.disconnect(); controller.dispose(); disposeVersion(coordinate); mounted.delete(element); };
   mounted.set(element, dispose); return dispose;
 }

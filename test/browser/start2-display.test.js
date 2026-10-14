@@ -879,9 +879,11 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
   await page.goto(demo.url, { waitUntil: 'domcontentloaded' });
   await until(page, () => document.querySelector('aithema-session')?.session?.id);
   const configure = async (locale, display) => page.evaluate(async ({ locale, display }) => {
-    const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
+    const { de } = await import('/packages/ui/src/i18n/de.js'), { en } = await import('/packages/ui/src/i18n/en.js');
+    window.ait105Bundles = { de, en }; const copy = window.ait105Bundles[locale];
     const c = document.querySelector('aithema-session'); window.ait105Copy = copy;
-    c.configure({ copy, session: { ...c.session, locale }, host: { version: {
+    if (!await c.changeLocale(locale)) throw new Error(`Cannot change conversation to ${locale}`);
+    c.configure({ copy, copyForLocale: language => window.ait105Bundles[language], session: c.session, host: { version: {
       product: 'Aithema 2026.10', version: '261014080000.0.0', version_scheme: 'inspr-calver-3',
       commit: 'abcdef1234567890', date: '2026-10-14T08:00:00.000Z', display,
     } } });
