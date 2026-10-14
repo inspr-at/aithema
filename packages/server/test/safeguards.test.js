@@ -139,6 +139,8 @@ test('AIT-174 private counter survives SQLite restart, counts an input once acro
     storage.recordSafeguard(session.id, 'turn-2', 'rev-3', true, 3);
     storage.recordSafeguard(session.id, 'turn-3', 'rev-4', true, 3);
     assert.equal(storage.get(session.id).pauseReason, 'purpose');
+    assert.throws(() => storage.pause(session.id, false), /Purpose pause is locked/u);
+    assert.throws(() => storage.postTurn(session.id, 'late-body', Buffer.from('late'), 'late'), /Purpose pause is locked/u);
     assert.equal(JSON.stringify(storage.get(session.id)).includes('scope'), false);
     storage.erase(session.id); assert.equal(storage.safeguards(session.id).offTopicTurns, 0);
   } finally { storage.close(); }

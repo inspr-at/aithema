@@ -176,7 +176,7 @@ export class SQLiteStorage {
   appendPurposeReply(id, data, revision, offTopic, limit) {
     return this.transaction(() => {
       const session = this.get(id); this.#check(session);
-      if (inputRevision(session) !== revision) return [];
+      if (inputRevision(session) !== revision || session.pauseReason === 'purpose') return [];
       const person = session.transcript.findLast(turn => turn.role === 'user' && !turn.erased && !turn.withdrawn);
       const documents = (session.uploads ?? []).filter(upload => !upload.erased && !upload.withdrawn).map(upload => upload.id);
       const key = JSON.stringify(['text', person?.id ?? null, documents]);
@@ -307,6 +307,7 @@ export class SQLiteStorage {
     this.db.prepare('UPDATE sessions SET snapshot=? WHERE id=?').run(JSON.stringify(metadata), session.id);
   }
   #append(session, type, data) {
+    if (type === 'session.paused' && session.pauseReason === 'purpose' && !data.paused) throw new ConflictError('Purpose pause is locked');
     if (type === 'turn.final' && (session.transcript.length >= 500 ||
       session.transcript.reduce((n, t) => n + (t.content?.length ?? 0), 0) + data.content.length > 250_000)) {
       throw new RangeError('Transcript limit');
@@ -330,6 +331,7 @@ export class SQLiteStorage {
     return this.transaction(() => {
       const session = this.get(id);
       this.#check(session, { ...guard, revision: undefined });
+      if (session.pauseReason === 'purpose') throw new ConflictError('Purpose pause is locked');
       const receipt = this.db.prepare('SELECT bytes,result FROM receipts WHERE session_id=? AND client_id=?').get(id, clientId);
       if (receipt) {
         if (Buffer.from(receipt.bytes).toString() !== hash(bytes)) throw new ConflictError('Client event id has different bytes');
