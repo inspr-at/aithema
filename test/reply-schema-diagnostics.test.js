@@ -62,8 +62,8 @@ test('AIT-181 OPS command exercises real admission and streaming with exactly th
   const { stdout } = await promisify(execFile)(process.execPath, ['--import', `data:text/javascript,${encodeURIComponent(stub)}`,
     fileURLToPath(new URL('../scripts/diagnose-reply-schema.js', import.meta.url)), '--allow-live'], {
     timeout: 20_000,
-    env: { PATH: process.env.PATH, OPENROUTER_API_KEY: 'fixture-not-a-key', OPENROUTER_MODEL: 'fixture/model',
-      AITHEMA_OPENROUTER_PRICES: JSON.stringify({ 'fixture/model': { prompt: 1e-9, completion: 1e-9 } }) },
+    env: { PATH: process.env.PATH, OPENROUTER_API_KEY: 'fixture-not-a-key', OPENROUTER_MODEL: 'anthropic/fixture',
+      AITHEMA_OPENROUTER_PRICES: JSON.stringify({ 'anthropic/fixture': { prompt: 1e-9, completion: 1e-9 } }) },
   });
   const reports = stdout.trim().split('\n').map(line => JSON.parse(line));
   assert.equal(reports.length, 3); assert.ok(reports.every(report => report.parsed && report.stream_complete && report.scope_valid));
