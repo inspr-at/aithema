@@ -680,8 +680,14 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       catch { current(); return fallback; }
       current();
       if (!Number.isSafeInteger(quote?.maxMicro) || quote.maxMicro < 0) return fallback;
-      const { attemptId } = await admitBudget(session, { sessionId: session.id, lane: 'voice', maxMicro: quote.maxMicro,
-        maxVisitorMicro: quote.maxMicro, requestSha256: hash({ turnId, text: reply.content }), bindingSha256: hash(result.binding) });
+      let admission;
+      try { admission = await admitBudget(session, { sessionId: session.id, lane: 'voice', maxMicro: quote.maxMicro,
+        maxVisitorMicro: quote.maxMicro, requestSha256: hash({ turnId, text: reply.content }), bindingSha256: hash(result.binding) }); }
+      catch (error) {
+        if (error.code === 'not-admitted' && ['host-limit', 'session', 'voiceVisitor', 'Budget denied'].includes(error.message)) throw new PluginError('not-admitted', 'host-limit');
+        throw error;
+      }
+      const { attemptId } = admission;
       const claim = budget.claim(attemptId); let dispatched = false, reported = false;
       const report = terminal => {
         if (reported) return; reported = true;

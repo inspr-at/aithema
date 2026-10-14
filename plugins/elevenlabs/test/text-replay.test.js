@@ -7,9 +7,9 @@ import { qualifyStartBinding } from '../../../demo/processing-consent.js';
 import { createDemoHost } from '../../../demo/host-ports.js';
 import { createLocalVoiceProvider } from '../../fake-voice/src/server.js';
 
-function fixture(t, { allowance = 100_000, status = 200, onPost, voiceRate = 0 } = {}) {
+function fixture(t, { allowance = 100_000, status = 200, onPost, voiceRate = 0, sessionCapMicro = 10_000_000 } = {}) {
   const storage = new SQLiteStorage(); t.after(() => storage.close());
-  const budget = new SQLiteBudgetLedger(storage), requests = [];
+  const budget = new SQLiteBudgetLedger(storage, { sessionCapMicro }), requests = [];
   const session = storage.create({ ownerToken: 'tenant-a' });
   storage.append(session.id, 'turn.final', { id: 'reply-a', role: 'assistant', content: 'Exact answer.' });
   const binding = qualifyStartBinding({ plugin: 'elevenlabs', model: 'agent', effort: 'none',
@@ -55,6 +55,12 @@ test('AIT-154: standalone TTS uses owned config, admits before POST and records 
 
 for (const allowance of [0, 1199]) test(`AIT-154: credit ${allowance} refuses before synthesis`, async t => {
   const f = fixture(t, { allowance });
+  await assert.rejects(f.runtime.speakText({ session: f.session, turnId: 'reply-a' }), { code: 'not-admitted', message: 'host-limit' });
+  assert.equal(f.requests.some(r => r.options.method === 'POST'), false);
+});
+
+test('AIT-154: session credit exhaustion uses the same calm used-up refusal', async t => {
+  const f = fixture(t, { sessionCapMicro: 1199 });
   await assert.rejects(f.runtime.speakText({ session: f.session, turnId: 'reply-a' }), { code: 'not-admitted', message: 'host-limit' });
   assert.equal(f.requests.some(r => r.options.method === 'POST'), false);
 });
