@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { de } from '../../packages/ui/src/i18n/de.js';
+import { en } from '../../packages/ui/src/i18n/en.js';
 import { adminFixture } from '../../test/fixtures/admin-host.js';
 import { createOperatorSessions, createSQLiteOperatorStore } from '../../packages/server/src/operator-session.js';
 import { SQLiteStorage } from '../../packages/server/src/index.js';
@@ -37,6 +39,30 @@ test('AIT-169 operator writes all sections, sanitizes the name and ignores a bod
     assert.equal(row.actor, 'operator:' + ('A' + 'd'.repeat(150)).slice(0, 120) + '#verified-subject'); assert.equal(row.source, 'operator');
   }
 });
+test('AIT-169 audit actor has one subject delimiter when the operator name contains #', async t => {
+  const f = await adminFixture({ name: 'Ada#Admin\u0000\n' }); t.after(f.close);
+  const r = await f.call('/api/operator/admin/settings', { baseRevision: 1, confirmationEnabled: true });
+  assert.equal(r.status, 200);
+  const actor = f.host.visitorCredits.audit().at(-1).actor;
+  assert.equal(actor, 'operator:AdaAdmin#verified-subject');
+  assert.deepEqual(actor.split('#'), ['operator:AdaAdmin', 'verified-subject']);
+});
+for (const locale of ['de', 'en']) for (const ErrorType of [Error, TypeError, SyntaxError]) {
+  test(`AIT-169 page build failure is minimal HTML; API stays JSON (${locale}, ${ErrorType.name})`, async t => {
+    const f = await adminFixture(); t.after(f.close);
+    f.host.visitorCredits.adminAudit = () => { throw new ErrorType('private-host-data: do not expose'); };
+    const response = await f.call('/admin?lang=' + locale);
+    assert.equal(response.status, 503);
+    assert.equal(response.headers.get('content-type'), 'text/html; charset=utf-8');
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    const copy = (locale === 'en' ? en : de).admin.failed;
+    assert.equal(await response.text(), `<!doctype html><html lang="${locale}"><head><meta charset="utf-8"><title>${locale === 'en' ? 'Admin' : 'Verwaltung'} · Aithema</title></head><body><p>${copy}</p></body></html>`);
+    const api = await f.call('/api/operator/admin/audit');
+    assert.equal(api.status, ErrorType === Error ? 503 : 400);
+    assert.match(api.headers.get('content-type'), /^application\/json/u);
+    assert.deepEqual(await api.json(), { error: ErrorType === Error ? 'host-settings-unavailable' : 'invalid-admin-command' });
+  });
+}
 test('AIT-169 stale revision exposes current.updatedAt, invalid tier order fails and writes are POST only', async t => {
   const f = await adminFixture(); t.after(f.close);
   assert.equal((await f.call('/api/operator/admin/settings', { baseRevision: 1, confirmationEnabled: true })).status, 200);
