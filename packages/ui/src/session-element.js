@@ -718,7 +718,8 @@ export class AithemaSession extends HTMLElement {
     const analysisBlocked = this.#feature('analysis').reason === 'budget reconciling';
     const understanding = this.#session.understanding;
     if (analysisBlocked && this.#analysisRecovery !== revision && (understanding.inputRevision !== revision || understanding.draft)) this.#deferredAnalysis = revision;
-    const waiting = blocked || analysisBlocked || this.#deferredAnalysis !== null;
+    // Retain denied analysis for a later refresh without polling a settled denial.
+    const waiting = blocked || analysisBlocked || (this.#deferredAnalysis !== null && this.#feature('analysis').available);
     if (!this.isConnected || !waiting) this.#stopReconciling();
     else {
       // Admission belongs to the session, including hosts that do not display credits.
