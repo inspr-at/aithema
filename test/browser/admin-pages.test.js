@@ -22,7 +22,7 @@ const geometry = page => page.evaluate(() => {
 });
 const edit = (page, value) => page.$eval('#f-emailGiven', (input, value) => { input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })); }, value);
 
-const click = (page, run, selector) => run(`click ${selector}`, () => page.locator(selector).setTimeout(4_000).click());
+const click = (page, run, selector) => run(`click ${selector}`, signal => page.locator(selector).setTimeout(4_000).click({ signal }));
 
 async function closeBrowser(browser, run) {
   if (!browser) return;
@@ -91,8 +91,8 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
   for (const locale of ['de', 'en']) {
     at('launch', { locale, theme: 'light', width: 390 });
     const executablePath = await run('browserPath', () => browserPath());
-    browser = await run('puppeteer.launch', () => puppeteer.launch({ executablePath, headless: true, timeout: 8_000, protocolTimeout: 5_000, userDataDir: join(dir, locale),
-      env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] }), { timeout: 10_000 });
+    browser = await run('puppeteer.launch', signal => puppeteer.launch({ executablePath, signal, pipe: true, headless: true, timeout: 15_000, protocolTimeout: 5_000, userDataDir: join(dir, locale),
+      env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] }), { timeout: 15_000 });
     const page = await run('browser.newPage', () => browser.newPage()); page.setDefaultTimeout(5_000);
     page.on('pageerror', e => errors.push(e.message));
     page.on('dialog', dialog => {
@@ -105,7 +105,7 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
       // Await the document's module, including its initial state/audit reads and
       // event wiring, rather than paying the network-idle delay on every state.
       await run('page.evaluate', () => page.evaluate(() => import('/demo/admin-page.js')));
-      await run('page.waitForSelector', () => page.waitForSelector('.ad-page')); await run('page.evaluate', () => page.evaluate(() => document.fonts.ready));
+      await run('page.waitForSelector', signal => page.waitForSelector('.ad-page', { signal })); await run('page.evaluate', () => page.evaluate(() => document.fonts.ready));
     };
     const shot = async (state, width, theme, part = '') => {
       if (!evidence) return;
@@ -138,10 +138,10 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
         }
         if (state === 'saved' || state === 'conflict') {
           responseMode = state === 'conflict' ? 'conflict' : 'ok';
-          await click(page, run, '[data-save=credits]'); await run('page.waitForSelector', () => page.waitForSelector(`[data-sec=credits][data-mode=${state}]`));
+          await click(page, run, '[data-save=credits]'); await run('page.waitForSelector', signal => page.waitForSelector(`[data-sec=credits][data-mode=${state}]`, { signal }));
           if (state === 'saved') assert.deepEqual(f.host.visitorCredits.settings().allowancesMicro, { anonymous: 10_123_456, emailGiven: 18_000_000, emailConfirmed: 24_999_999 }, 'untouched fields retain six decimal USD precision');
         }
-        if (state === 'audit-end') { await click(page, run, '.ad-more'); await run('page.waitForSelector', () => page.waitForSelector('.ad-end')); assert.equal(await run('page.$$eval', () => page.$$eval('.ad-log li', ns => ns.length)), 21); }
+        if (state === 'audit-end') { await click(page, run, '.ad-more'); await run('page.waitForSelector', signal => page.waitForSelector('.ad-end', { signal })); assert.equal(await run('page.$$eval', () => page.$$eval('.ad-log li', ns => ns.length)), 21); }
         assert.equal(await run('page.evaluate', () => page.evaluate(() => document.documentElement.scrollWidth)), width);
         assert.equal(await run('page.$$eval', () => page.$$eval('[style],style,script:not([src])', ns => ns.length)), 0);
         assert.equal(await run('page.$$eval', () => page.$$eval('.voice-rail', ns => ns.length)), 0);
@@ -179,19 +179,19 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
         assert.deepEqual(await run('geometry', () => geometry(page)), before, 'saving: 0 px');
       } finally { release(); held = null; releaseHeld = () => {}; }
       at('flow-saved');
-      await run('page.waitForSelector', () => page.waitForSelector('[data-sec=credits][data-mode=saved]')); assert.deepEqual(await run('geometry', () => geometry(page)), before, 'saved: 0 px');
+      await run('page.waitForSelector', signal => page.waitForSelector('[data-sec=credits][data-mode=saved]', { signal })); assert.deepEqual(await run('geometry', () => geometry(page)), before, 'saved: 0 px');
       at('flow-conflict');
-      await run('edit', () => edit(page, '1900')); responseMode = 'conflict'; await click(page, run, '[data-save=credits]'); await run('page.waitForSelector', () => page.waitForSelector('[data-sec=credits][data-mode=conflict]')); assert.deepEqual(await run('geometry', () => geometry(page)), before, 'conflict: 0 px');
+      await run('edit', () => edit(page, '1900')); responseMode = 'conflict'; await click(page, run, '[data-save=credits]'); await run('page.waitForSelector', signal => page.waitForSelector('[data-sec=credits][data-mode=conflict]', { signal })); assert.deepEqual(await run('geometry', () => geometry(page)), before, 'conflict: 0 px');
       at('flow-reload');
-      responseMode = 'ok'; await click(page, run, '[data-save=credits]'); await run('page.waitForSelector', () => page.waitForSelector('[data-sec=credits][data-mode=clean]')); assert.deepEqual(await run('geometry', () => geometry(page)), before, 'reload: 0 px');
+      responseMode = 'ok'; await click(page, run, '[data-save=credits]'); await run('page.waitForSelector', signal => page.waitForSelector('[data-sec=credits][data-mode=clean]', { signal })); assert.deepEqual(await run('geometry', () => geometry(page)), before, 'reload: 0 px');
       at('flow-invalid');
       await run('edit', () => edit(page, '800')); assert.deepEqual(await run('geometry', () => geometry(page)), before, 'invalid: 0 px');
       at('flow-failed');
-      await click(page, run, '[data-discard=credits]'); await run('edit', () => edit(page, '1900')); responseMode = 'error'; await click(page, run, '[data-save=credits]'); await run('page.waitForSelector', () => page.waitForSelector('[data-sec=credits][data-mode=failed]')); assert.deepEqual(await run('geometry', () => geometry(page)), before, 'failed: 0 px');
+      await click(page, run, '[data-discard=credits]'); await run('edit', () => edit(page, '1900')); responseMode = 'error'; await click(page, run, '[data-save=credits]'); await run('page.waitForSelector', signal => page.waitForSelector('[data-sec=credits][data-mode=failed]', { signal })); assert.deepEqual(await run('geometry', () => geometry(page)), before, 'failed: 0 px');
       at('flow-retry');
-      responseMode = 'ok'; await click(page, run, '[data-save=credits]'); await run('page.waitForSelector', () => page.waitForSelector('[data-sec=credits][data-mode=saved]'));
+      responseMode = 'ok'; await click(page, run, '[data-save=credits]'); await run('page.waitForSelector', signal => page.waitForSelector('[data-sec=credits][data-mode=saved]', { signal }));
       at('flow-expired');
-      await run('edit', () => edit(page, '2000')); responseMode = '401'; await click(page, run, '[data-save=credits]'); await run('page.waitForSelector', () => page.waitForSelector('.ad-out')); assert.equal(await run('page.$$eval', () => page.$$eval('.ad-sec', ns => ns.length)), 0);
+      await run('edit', () => edit(page, '2000')); responseMode = '401'; await click(page, run, '[data-save=credits]'); await run('page.waitForSelector', signal => page.waitForSelector('.ad-out', { signal })); assert.equal(await run('page.$$eval', () => page.$$eval('.ad-sec', ns => ns.length)), 0);
       pass.push(`PASS head=${evidenceCommit} AIT-169 ${locale}-${theme}-${width} edit → saving → saved → conflict → reload → invalid → failed: 0.00 px shift; retry; 401 expires page`);
     }
     at('close');
@@ -232,8 +232,8 @@ test('AIT-169 independent edits survive a save in another section, then each sec
   f = await run('adminFixture', () => adminFixture({ origin: server.url }));
   f.host.visitorCredits.saveSettings({ baseRevision: 1, allowancesUsd: { anonymous: '10', emailGiven: '15', emailConfirmed: '24' } }, { source: 'ops-cli', actor: 'ops-cli:fixture' });
   const executablePath = await run('browserPath', () => browserPath());
-  browser = await run('puppeteer.launch', () => puppeteer.launch({ executablePath, headless: true, timeout: 8_000, protocolTimeout: 5_000, userDataDir: join(dir, 'chrome'),
-    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] }), { timeout: 10_000 });
+  browser = await run('puppeteer.launch', signal => puppeteer.launch({ executablePath, signal, pipe: true, headless: true, timeout: 15_000, protocolTimeout: 5_000, userDataDir: join(dir, 'chrome'),
+    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] }), { timeout: 15_000 });
   at('independent-edits', { locale: 'de', theme: 'light', width: 800 });
   const page = await run('browser.newPage', () => browser.newPage()), errors = []; page.setDefaultTimeout(5000);
   page.on('pageerror', e => errors.push(e.message));
@@ -244,14 +244,14 @@ test('AIT-169 independent edits survive a save in another section, then each sec
   const before = await run('geometry', () => geometry(page));
   await run('edit', () => edit(page, '1800'));
   await run('page.$eval', () => page.$eval('#f-confirm', i => { i.checked = true; i.dispatchEvent(new Event('change', { bubbles: true })); }));
-  await click(page, run, '[data-save=confirm]'); await run('page.waitForSelector', () => page.waitForSelector('[data-sec=confirm][data-mode=saved]'));
+  await click(page, run, '[data-save=confirm]'); await run('page.waitForSelector', signal => page.waitForSelector('[data-sec=confirm][data-mode=saved]', { signal }));
   assert.equal(await run('page.$eval', () => page.$eval('#f-emailGiven', i => i.value.replace(/[.,\s]/gu, ''))), '1800', 'other edit is preserved');
   assert.equal(f.host.visitorCredits.settings().allowancesMicro.emailGiven, 15_000_000);
   assert.deepEqual(await run('geometry', () => geometry(page)), before, 'confirmation reachability: 0 px');
   await run('page.$eval', () => page.$eval('#f-mail-hour', i => { i.value = '40'; i.dispatchEvent(new Event('input', { bubbles: true })); }));
-  await click(page, run, '[data-save=credits]'); await run('page.waitForSelector', () => page.waitForSelector('[data-sec=credits][data-mode=saved]'));
+  await click(page, run, '[data-save=credits]'); await run('page.waitForSelector', signal => page.waitForSelector('[data-sec=credits][data-mode=saved]', { signal }));
   assert.equal(await run('page.$eval', () => page.$eval('#f-mail-hour', i => i.value)), '40');
-  await click(page, run, '[data-save=mail]'); await run('page.waitForSelector', () => page.waitForSelector('[data-sec=mail][data-mode=saved]'));
+  await click(page, run, '[data-save=mail]'); await run('page.waitForSelector', signal => page.waitForSelector('[data-sec=mail][data-mode=saved]', { signal }));
   const saved = f.host.visitorCredits.settings();
   assert.equal(saved.allowancesMicro.emailGiven, 18_000_000); assert.equal(saved.mailCap.hour, 40); assert.equal(saved.confirmationEnabled, true);
   assert.deepEqual(await run('geometry', () => geometry(page)), before, 'three section saves: 0 px'); assert.deepEqual(errors, []);

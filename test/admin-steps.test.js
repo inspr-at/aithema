@@ -41,3 +41,18 @@ test('an already cancelled test never starts another protocol operation', async 
   await assert.rejects(run('page.goto', () => { called = true; }));
   assert.equal(called, false);
 });
+
+test('a launch deadline aborts the underlying operation instead of abandoning its child', async () => {
+  const { at, run } = adminSteps();
+  at('launch', { locale: 'en' });
+  let operationSignal, stopped = false;
+  await assert.rejects(run('puppeteer.launch', signal => {
+    operationSignal = signal;
+    return new Promise((_, reject) => signal.addEventListener('abort', () => {
+      stopped = true;
+      reject(signal.reason);
+    }, { once: true }));
+  }, { timeout: 1 }), /state=launch locale=en theme=light width=390: puppeteer.launch: deadline exceeded/u);
+  assert.equal(operationSignal.aborted, true);
+  assert.equal(stopped, true);
+});
