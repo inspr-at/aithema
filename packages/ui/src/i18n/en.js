@@ -433,7 +433,7 @@ export const en = {
     'endpoint not allowed': 'Provider address not allowed', 'plugin binding mismatch': 'Provider setup does not match',
     'plugin kind unsupported': 'Provider cannot do this', 'operation unsupported': 'Provider cannot do this',
     'invalid mock budget': 'Invalid test configuration', 'plugin unhealthy': 'Provider not responding',
-    'admission deadline': 'Availability check timed out', 'budget denied': 'Credits used up', 'verification required': 'Email confirmation required',
+    'admission deadline': 'Availability check timed out', 'budget reconciling': "One moment, the call's costs are still being reconciled.", 'budget denied': 'Credits used up', 'verification required': 'Email confirmation required',
     'concept storage limit': 'Storage for concepts is full', delegated: 'Voice reasoning: {reason}',
     // Refusals introduced by processing settings.
     'voice off': 'Voice is off in your settings', 'visuals off': 'Visual concepts are off in your settings',

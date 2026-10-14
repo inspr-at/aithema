@@ -283,8 +283,16 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
     }
     if (visual(feature) && !options.existingCall && !storage.canStoreConcept(session.id, feature === 'html' ? MAX_HTML_BYTES : undefined)) return { reason: 'concept storage limit' };
     if (visual(feature) && !options.existingCall && renderLimiter.reason(session.id)) return { reason: renderLimiter.reason(session.id) };
-    if (!options.existingCall && (!budget.canAdmit(session.id, amounts.maxMicro, amounts.maxVisitorMicro) ||
-      session.ownerHash && ownerWallet?.(session)?.canAdmit(amounts) === false)) return { reason: 'budget denied' };
+    if (!options.existingCall) {
+      const wallet = session.ownerHash && ownerWallet?.(session);
+      const ledgerAllowed = budget.canAdmit(session.id, amounts.maxMicro, amounts.maxVisitorMicro);
+      const ownerAllowed = wallet?.canAdmit(amounts) !== false;
+      if (!ledgerAllowed || !ownerAllowed) {
+        const onlyReconciling = (ledgerAllowed || budget.canAdmitWithoutReconcilingHold?.(session.id, amounts.maxMicro, amounts.maxVisitorMicro) === true) &&
+          (ownerAllowed || wallet.canAdmitWithoutReconcilingHold?.(amounts) === true);
+        return { reason: onlyReconciling ? 'budget reconciling' : 'budget denied' };
+      }
+    }
     return { binding, plugin, operation, coverage, scope };
   }
   async function evaluateUploads(session, preset, options = {}) {

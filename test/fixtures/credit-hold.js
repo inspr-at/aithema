@@ -21,7 +21,9 @@ export async function creditHoldFixture({ ownerGuard = false, settledMicro = 3_9
   // Read the same wallet + ledger admission rule; never use the display amount.
   runtime.matrix = async current => {
     const available = ledger.canAdmit(current.id, 200_000) && host.wallet(owner).canAdmit({ maxMicro: 200_000 });
-    const verdict = { available, reason: available ? null : 'budget denied' };
+    const onlyReconciling = ledger.canAdmitWithoutReconcilingHold(current.id, 200_000) &&
+      host.wallet(owner).canAdmitWithoutReconcilingHold({ maxMicro: 200_000 });
+    const verdict = { available, reason: available ? null : onlyReconciling ? 'budget reconciling' : 'budget denied' };
     return { best: { text: verdict, analysis: verdict, voice: { available: true }, uploads: { available: true } } };
   };
   const handlers = createHandlers({ storage, pluginRuntime: runtime, host, consent: mockConsent });

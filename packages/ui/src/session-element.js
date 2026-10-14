@@ -76,6 +76,7 @@ export class AithemaSession extends HTMLElement {
   #concept; #rail; #voiceClient; #voiceClients; #voicePlayback; #deviceReasoning; #deviceController; #copy; #session; #sessionToken; #abort; #cursor = 0; #invalidatedAt = 0; #base; #partials = new Map(); #reasoningRevision = 0; #pending;
   #open = []; #cleared = []; #failure = false; #sending = false;
   #pointer = null; #onTranscript = false; #follow = true; #connection = ''; #notice = ''; #journal; #orphan; #pings; #pausePrompt = false;
+  #postCallMatrix = null;
   #creditEnding = false; #creditEndTimer = null; #creditAnnounced = false; #creditWasUsedUp = false;
   #dialog; #connector; #createDevice; #deviceEndpoint; #chooser = { choice: null, busy: false, error: '' }; #aiNotice; #host; #options; #refocus = null;
   #introOrb = null; #reveal = null; #fold; #timer; #popups; #motion = true; #motionMedia; #motionListener;
@@ -106,6 +107,7 @@ export class AithemaSession extends HTMLElement {
     const { copy, baseUrl = '', session, sessionToken, deviceReasoning, deviceConnector, deviceEndpoint, voiceClient, voiceClients, voicePlayback, aiNotice } = options ?? {};
     if (!copy || !session) throw new TypeError('Host copy and session required');
     this.#copyLocale = session.locale; this.#aiNotice = aiNotice; this.#options = { ...options }; delete this.#options.session;
+    this.#postCallMatrix = null;
     clearTimeout(this.#creditEndTimer); this.#creditEnding = false; this.#creditAnnounced = false; this.#creditWasUsedUp = false;
     this.#disposeVersion?.(); this.#disposeVersion = null;
     this.#host?.destroy(); this.#host = null; this.#reveal?.destroy(); this.#timer?.destroy(); this.#popups?.destroy();
@@ -370,6 +372,10 @@ export class AithemaSession extends HTMLElement {
       },
       context: () => ({ understanding: this.#session.understanding, focusedQuestion: this.#session.focusedQuestion ?? null }),
       onEnd: () => {
+        // The in-call verdict cannot describe post-call admission. Keep it closed
+        // with waiting copy until a generation-fenced server snapshot replaces it.
+        if (this.#rail?.endedCall) this.#postCallMatrix = this.#session.featureMatrix;
+        this.#render('composer'); this.#render('features'); this.#render('aside');
         if (this.#pending) { delete this.#pending.voiceCallId; delete this.#pending.providerSessionId; }
         if (this.isConnected && this.#options.host?.credits && !this.#rail?.unloading) void this.#refreshFeatures();
       },
@@ -584,7 +590,8 @@ export class AithemaSession extends HTMLElement {
   #creditsChanged({ allowanceChanged = false } = {}) {
     if (!this.#host) return;
     const usedUp = this.#host.usedUp, recovered = this.#creditWasUsedUp && !usedUp; this.#creditWasUsedUp = usedUp;
-    const deniedText = !this.#hasLiveCall() && this.#session.featureMatrix?.[this.#session.processingPreset ?? 'best']?.text?.reason === 'budget denied';
+    const deniedText = !this.#hasLiveCall() && this.#session.featureMatrix?.[this.#session.processingPreset ?? 'best']?.text?.reason &&
+      ['budget denied', 'budget reconciling'].includes(this.#session.featureMatrix[this.#session.processingPreset ?? 'best'].text.reason);
     const refresh = (allowanceChanged || recovered || deniedText || this.#rail?.allowanceDenied) && this.isConnected ? this.#refreshFeatures() : null;
     if (usedUp && this.#rail?.session && !this.#rail.moved && !this.#creditEnding) {
       this.#creditEnding = true;
@@ -611,7 +618,10 @@ export class AithemaSession extends HTMLElement {
     if (this.#session.paused && !continuation) return { available: false, reason: this.#copy.paused };
     if (this.#session.consentWithdrawn || this.#session.tombstone) return { available: false, reason: this.#copy.consentRequired };
     const matrix = this.#session.featureMatrix?.[preset] ?? (preset === 'device' ? deviceFeatures() : {});
-    const value = matrix[feature] ?? { available: false, reason: this.#copy.notConfigured };
+    let value = matrix[feature] ?? { available: false, reason: this.#copy.notConfigured };
+    if (!this.#hasLiveCall() && this.#postCallMatrix === this.#session.featureMatrix && value.reason === 'budget denied') {
+      value = { ...value, reason: 'budget reconciling' };
+    }
     // Shown verdicts speak the page language; decisions keep the server's machine reasons.
     const reason = value.reason === 'budget denied' && this.#hasLiveCall() ? this.#copy.voiceBudgetDenied : reasonText(this.#copy, value.reason);
     return visitor ? { ...value, rawReason: value.reason, reason } : value;
@@ -728,7 +738,7 @@ export class AithemaSession extends HTMLElement {
     };
     if (part === 'composer') {
       const text = this.#feature('text', true), input = root.querySelector('textarea');
-      input.disabled = !text.available;
+      input.disabled = !text.available && text.rawReason !== 'budget reconciling';
       // Invite speech only while the call can listen; held calls invite the next typed message.
       const listening = this.#rail?.session && !this.#rail.paused && !['recovering', 'waiting'].includes(this.#rail.state);
       const voicePlaceholder = this.#host?.fullHold ? copy.placeholderFullHold ?? copy.placeholderVoice : copy.placeholderVoice;

@@ -109,6 +109,20 @@ export class SQLiteBudgetLedger {
   }
   canAdmit(sessionId, maxMicro, maxVisitorMicro = 0) { return integer(maxMicro) && integer(maxVisitorMicro) &&
     maxMicro <= this.sessionCapMicro - this.used(sessionId) && maxVisitorMicro <= this.visitorCapMicro - this.visitorUsed(sessionId); }
+  // Counterfactual preview only: retained closing-call exposure stays charged to
+  // admission. It supplies a waiting reason, never authority to spend the hold.
+  reconcilingVoiceHold(sessionId, { ownerHash, visitor = false } = {}) {
+    const maximum = visitor ? 'max_visitor_micro' : 'max_micro', settled = visitor ? 'settled_visitor_micro' : 'settled_micro';
+    return this.db.prepare(`SELECT COALESCE(SUM(CASE WHEN state='settled' THEN ${settled} ELSE ${maximum} END),0) n
+      FROM budget_attempts WHERE ${ownerHash === undefined ? 'session_id' : 'owner_hash'}=? AND lane='voice'
+      AND (state!='settled' AND voice_closing=1 OR state='settled' AND outcome='uncertain' AND voice_reconciliation_json IS NULL)`)
+      .get(ownerHash ?? sessionId).n;
+  }
+  canAdmitWithoutReconcilingHold(sessionId, maxMicro, maxVisitorMicro = 0) {
+    return integer(maxMicro) && integer(maxVisitorMicro) &&
+      maxMicro <= this.sessionCapMicro - this.used(sessionId) + this.reconcilingVoiceHold(sessionId) &&
+      maxVisitorMicro <= this.visitorCapMicro - this.visitorUsed(sessionId) + this.reconcilingVoiceHold(sessionId, { visitor: true });
+  }
   admit({ attemptId = randomUUID(), sessionId, lane, maxMicro, maxVisitorMicro = 0, requestSha256, bindingSha256, providerCost, voiceExposure, voiceEstimate }) {
     if (voiceEstimate !== undefined && (lane !== 'voice' || !['upstreamMicroPerMinute', 'visitorMicroPerMinute'].every(k => integer(voiceEstimate?.[k])))) throw new TypeError('Invalid voice estimate');
     if (!integer(maxMicro) || !integer(maxVisitorMicro) || !['reaction', 'understanding', 'voice', 'concept', 'extractor'].includes(lane) ||
