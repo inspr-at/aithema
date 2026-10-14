@@ -3,18 +3,18 @@ import { dirname, join, resolve } from 'node:path';
 import { adminRequest } from './admin-socket.js';
 import { validateMailCap } from './mail-cap-policy.js';
 
-const usage = 'Usage: node demo/admin-cli.js [--socket PATH] settings | audit [--after ID] [--limit N] | provider-cap | mail-cap | reconcile-uncertain [--dry-run|--apply] [--limit N] | '
+const usage = 'Usage: node demo/admin-cli.js [--socket PATH] settings | audit [--after ID] [--limit N] | provider-cap | provider-cap-audit [--after ID] [--limit N] | mail-cap | reconcile-uncertain [--dry-run|--apply] [--limit N] | '
   + 'set-allowances --base-revision N --anonymous USD --email-given USD --email-confirmed USD | set-confirmation --base-revision N --enabled true|false | '
-  + 'set-mail-cap --base-revision N --hour N --day N | set-mail-ip-cap --base-revision N --hour N --day N';
+  + 'set-mail-cap --base-revision N --hour N --day N | set-mail-ip-cap --base-revision N --hour N --day N | set-provider-cap --base-revision N --usd USD [--allow-large] | reset-provider-cap --base-revision N';
 try {
   const args = process.argv.slice(2);
   let socket = process.env.AITHEMA_ADMIN_SOCKET ?? join(dirname(resolve(process.env.AITHEMA_DB ?? '.data/session.sqlite')), 'ops', 'admin');
   if (args[0] === '--socket') { args.shift(); socket = args.shift(); }
   const command = args.shift();
-  if (!['settings', 'set-allowances', 'set-confirmation', 'set-mail-cap', 'set-mail-ip-cap', 'audit', 'provider-cap', 'mail-cap', 'reconcile-uncertain'].includes(command)) throw new Error(usage);
+  if (!['settings', 'set-allowances', 'set-confirmation', 'set-mail-cap', 'set-mail-ip-cap', 'set-provider-cap', 'reset-provider-cap', 'audit', 'provider-cap', 'provider-cap-audit', 'mail-cap', 'reconcile-uncertain'].includes(command)) throw new Error(usage);
   const options = {};
   while (args.length) {
-    const key = args.shift(), value = ['--apply', '--dry-run'].includes(key) ? true : args.shift();
+    const key = args.shift(), value = ['--apply', '--dry-run', '--allow-large'].includes(key) ? true : args.shift();
     if (!key?.startsWith('--') || value === undefined || Object.hasOwn(options, key)) throw new Error(usage);
     options[key] = value;
   }
@@ -24,6 +24,14 @@ try {
     if (keys.some(key => !['--apply', '--dry-run', '--limit'].includes(key)) || options['--apply'] && options['--dry-run'] ||
       options['--limit'] !== undefined && (!/^[1-9]\d*$/u.test(options['--limit']) || Number(options['--limit']) > 100)) throw new Error(usage);
     payload = { apply: options['--apply'] === true, ...(options['--limit'] === undefined ? {} : { limit: Number(options['--limit']) }) };
+  } else if (['set-provider-cap', 'reset-provider-cap'].includes(command)) {
+    const reset = command === 'reset-provider-cap';
+    const required = reset ? ['--base-revision'] : ['--base-revision', '--usd'];
+    const allowed = reset ? required : [...required, '--allow-large'];
+    if (keys.some(key => !allowed.includes(key)) || required.some(key => !Object.hasOwn(options, key)) ||
+      !/^[1-9]\d*$/u.test(options['--base-revision']) || !Number.isSafeInteger(Number(options['--base-revision']))) throw new Error(usage);
+    payload = { baseRevision: Number(options['--base-revision']),
+      ...(!reset ? { capUsd: options['--usd'], ...(options['--allow-large'] ? { allowLarge: true } : {}) } : {}) };
   } else if (command === 'set-allowances') {
     const required = ['--base-revision', '--anonymous', '--email-given', '--email-confirmed'];
     if (keys.length !== required.length || required.some(key => !Object.hasOwn(options, key)) || !/^[1-9]\d*$/u.test(options['--base-revision'])) throw new Error(usage);
@@ -40,7 +48,7 @@ try {
   } else if (command === 'set-confirmation') {
     if (keys.length !== 2 || !/^[1-9]\d*$/u.test(options['--base-revision'] ?? '') || !['true', 'false'].includes(options['--enabled'])) throw new Error(usage);
     payload = { baseRevision: Number(options['--base-revision']), confirmationEnabled: options['--enabled'] === 'true' };
-  } else if (command === 'audit') {
+  } else if (['audit', 'provider-cap-audit'].includes(command)) {
     if (keys.some(key => !['--after', '--limit'].includes(key))) throw new Error(usage);
     payload = Object.fromEntries(keys.map(key => [key.slice(2), options[key]]));
   } else if (keys.length) throw new Error(usage);
