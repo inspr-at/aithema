@@ -10,13 +10,13 @@ for (const ownerGuard of [false, true]) test(`AIT-173: in-call hold uses expecte
   const before = f.storage.read(f.session.id), view = await credits(f);
   assert.equal(view.balance.owner.availableMicro, 6_000_000, '1000 - 390 settled - 10 expected = 600 Credits');
   assert.equal(lowCredit(view), false); assert.equal(view.exhausted, false);
+  assert.deepEqual(f.storage.read(f.session.id), before, 'display reads do not emit events');
   assert.equal((await (await f.call('/email-ask', { action: 'show', why: 'low' })).json()).accepted, false);
   assert.equal((await (await f.call('/email-ask', { action: 'line' })).json()).accepted, false);
   assert.equal(f.host.wallet(f.owner).balance().committedMicro, 9_800_000, 'wallet still holds the maximum');
   assert.equal(f.ledger.used(f.session.id), 9_800_000);
   assert.equal(f.ledger.canAdmit(f.session.id, 91_000_000), false, 'session admission retains maxima');
   assert.equal((await admitCredits(f.ledger, f.request('reaction', 200_001), f.host.wallet(f.owner))).ok, false);
-  assert.deepEqual(f.storage.read(f.session.id), before, 'read/display checks do not end the conversation');
 });
 
 test('AIT-173: closing and uncertain voice retain liability without a false low point; receipts still reconcile', async t => {

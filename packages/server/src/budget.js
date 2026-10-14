@@ -242,9 +242,8 @@ export class SQLiteBudgetLedger {
       return Object.freeze({ attemptId, claimId, consume: () => {
         if (consumed) throw new PluginError('already-claimed');
         consumed = true;
-        const result = this.db.prepare("UPDATE budget_attempts SET state='dispatched' WHERE attempt_id=? AND claim_id=? AND state='claimed'").run(attemptId, claimId);
+        const result = this.db.prepare("UPDATE budget_attempts SET state='dispatched',voice_estimate_json=json_set(voice_estimate_json,'$.startedAt',?) WHERE attempt_id=? AND claim_id=? AND state='claimed'").run(this.now(), attemptId, claimId);
         if (!result.changes) throw new PluginError('already-claimed');
-        this.db.prepare("UPDATE budget_attempts SET voice_estimate_json=json_set(voice_estimate_json,'$.startedAt',?) WHERE attempt_id=?").run(this.now(), attemptId);
       } });
     });
   }

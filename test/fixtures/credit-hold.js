@@ -12,6 +12,7 @@ export async function creditHoldFixture({ ownerGuard = false, settledMicro = 3_9
   const storage = new SQLiteStorage(), owner = 'credit-hold-visitor';
   const ledger = new SQLiteBudgetLedger(storage, { sessionCapMicro: 100_000_000, visitorCapMicro: 100_000_000, now: () => time });
   const host = createDemoHost({ storage, now: () => time, ownerGuard, privacyDocumentConfigured: () => true });
+  host.visitorCredits.saveSettings({ baseRevision: host.visitorCredits.settings().revision, allowancesUsd: { anonymous: '10', emailGiven: '15', emailConfirmed: '20' } }, { actor: 'ops-cli:fixture', source: 'ops-cli' });
   const session = storage.create({ ownerToken: owner, locale: 'de' });
   storage.append(session.id, 'turn.final', { id: 'u1', role: 'user', content: 'Ich möchte eine Website.' });
   storage.append(session.id, 'turn.final', { id: 'a1', role: 'assistant', content: 'Welche Ziele haben Sie?' });
