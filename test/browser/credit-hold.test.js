@@ -68,9 +68,9 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
           footer: c.shadowRoot.querySelector('.host-credits').textContent,
           numericStyle: getComputedStyle(c.shadowRoot.querySelector('.host-credits__amount')).fontVariantNumeric,
           usedUp: c.shadowRoot.querySelector('.composer-shell').hasAttribute('data-used-up') }));
-        assert.equal(view.low, ['low', 'full-hold'].includes(state) ? 'true' : 'false', `${locale}/${width}/${state}: ${JSON.stringify(view)}`);
+        assert.equal(view.low, state === 'low' ? 'true' : 'false', `${locale}/${width}/${state}: ${JSON.stringify(view)}`);
         assert.equal(view.usedUp, false); assert.equal(view.ending, false);
-        if (!['low', 'full-hold'].includes(state)) { assert.equal(view.ask, 'closed'); assert.equal(view.amount.replace(/[.,]/gu, ''), '600'); assert.doesNotMatch(view.rail, /wenig|low|aufgebraucht|used up/iu); }
+        if (state !== 'low') { assert.equal(view.ask, 'closed'); assert.equal(view.amount.replace(/[.,]/gu, ''), state === 'full-hold' ? '0' : '600'); assert.doesNotMatch(view.rail, /wenig|low|aufgebraucht|used up/iu); }
         else assert.match(view.rail, locale === 'de' ? /wenig/u : /low/u);
         const reconciliation = locale === 'de' ? 'Kosten werden noch abgeglichen' : 'Costs are still being reconciled';
         assert.equal(view.title, state === 'reconciling' ? reconciliation : null);
