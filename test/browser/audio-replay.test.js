@@ -48,6 +48,7 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
         const conversation = { getId: () => id, input: { async setMuted() {} },
           connection: { audioAdapter: { audioElements: [audio] } },
           setVolume({ volume }) { audio.volume = volume; }, async endSession() { audio.pause(); audio.remove(); },
+          sendContextualUpdate() {},
           sendUserMessage() { throw new Error('Replay must not invoke a model turn'); } };
         options.onConversationCreated(conversation); options.onConnect({ conversationId: id }); return conversation;
       } };
@@ -66,6 +67,7 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
       c.configure({ copy, session, voiceClient: client, voicePresentation: client.manifest.presentation });
       const rail = window.replayRail; rail.feature = () => ({ available: true });
       await rail.start();
+      if (!rail.session) throw new Error(`Replay fixture could not start: ${rail.errorKey}`);
       window.replayCallbacks.onModeChange({ mode: 'speaking' });
       window.replayCallbacks.onMessage({ role: 'agent', message: window.replayText, event_id: 2 });
       await new Promise(resolve => setTimeout(resolve, 20));
