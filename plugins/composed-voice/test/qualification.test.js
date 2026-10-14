@@ -55,9 +55,11 @@ test('AIT-160: WER counts weighted insertions/deletions and ignores punctuation 
 });
 
 test('AIT-160: estimated vendor usage keeps its entire reservation inside the hard spend cap', () => {
-  const budget = createQualificationBudget(), attempt = budget.reserve({ attemptId: 'estimated-stt', maxMicro: 25_000_000 });
-  attempt.consume(); attempt.report({ attemptId: 'estimated-stt', outcome: 'completed', chargedMicro: 100,
-    usage: { upstreamMicro: 100, estimated: true } });
-  assert.equal(budget.snapshot().exposureMicro, 25_000_000);
-  assert.throws(() => budget.reserve({ attemptId: 'next', maxMicro: 1 }), { code: 'not-admitted' });
+  for (const field of ['estimated', 'costEstimated']) {
+    const budget = createQualificationBudget(), attempt = budget.reserve({ attemptId: 'estimated-stt', maxMicro: 25_000_000 });
+    attempt.consume(); attempt.report({ attemptId: 'estimated-stt', outcome: 'completed', chargedMicro: 100,
+      usage: { upstreamMicro: 100, [field]: true } });
+    assert.equal(budget.snapshot().exposureMicro, 25_000_000);
+    assert.throws(() => budget.reserve({ attemptId: 'next', maxMicro: 1 }), { code: 'not-admitted' });
+  }
 });
