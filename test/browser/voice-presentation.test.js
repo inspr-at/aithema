@@ -136,7 +136,13 @@ test('AIT-179: hangup paints idle controls synchronously; reconciling and settle
       const c = document.querySelector('aithema-session');
       // The fake voice client owns this presentation fixture; admission refreshes
       // must not replace it with the no-provider server's voice-off snapshot.
-      if ((options.method ?? 'GET') === 'GET' && new URL(url, location.href).pathname === `/api/sessions/${c.session.id}`)
+      const path = new URL(url, location.href).pathname;
+      if (options.method === 'POST' && path === `/api/sessions/${c.session.id}/pause`) {
+        const { paused } = JSON.parse(options.body);
+        globalThis.endedRailPauseRequests.push(paused);
+        return Promise.resolve(Response.json({ event: { seq: c.session.seq + 1, type: 'session.paused', data: { paused } } }));
+      }
+      if ((options.method ?? 'GET') === 'GET' && path === `/api/sessions/${c.session.id}`)
         return Promise.resolve(Response.json(c.session));
       return fetch(url, options);
     };
@@ -156,7 +162,7 @@ test('AIT-179: hangup paints idle controls synchronously; reconciling and settle
       session.engine.voice = { id: 'elevenlabs', label: 'ElevenLabs', offered: true };
       session.featureMatrix.best = Object.fromEntries(['text', 'analysis', 'voice'].map(key => [key, { available: true }]));
       session.transcript = [{ id: 'fixture-turn', role: 'user', content: locale === 'de' ? 'Ich möchte eine Website.' : 'I would like a website.' }];
-      const events = voiceEvents(); globalThis.endedRailTerminal = Promise.withResolvers();
+      const events = voiceEvents(); globalThis.endedRailTerminal = Promise.withResolvers(); globalThis.endedRailPauseRequests = [];
       c.configure({ copy, session, voicePresentation: manifest.presentation, voiceClient: { manifest, async start({ callId }) {
         globalThis.endedRailCallId = callId;
         return { callId, providerSessionId: 'ended-provider', events,
@@ -169,7 +175,9 @@ test('AIT-179: hangup paints idle controls synchronously; reconciling and settle
         return { state: rail.dataset.state, call: rail.dataset.call, text: root.querySelector('.voice-state').textContent,
           start: visible('.voice-start'), startEnabled: !root.querySelector('.voice-start').disabled,
           liveMic: visible('.voice-input'), pauseGlyph: visible('.pause .voice-icon:not(.voice-icon--resume)'),
-          pause: visible('.pause'), stop: visible('.voice-close'),
+          pause: visible('.pause'), resumeGlyph: visible('.pause .voice-icon--resume'),
+          pauseEnabled: !root.querySelector('.pause').disabled, pauseTitle: root.querySelector('.pause').title,
+          sessionPaused: c.session.paused, stop: visible('.voice-close'),
           boxes: ['.band', '.audio-rail', '.voice-cell--output', '.voice-signal', '.voice-cell--pause', '.voice-cell--mic', '.voice-cell--end', '.composer'].map(selector => {
             const r = root.querySelector(selector).getBoundingClientRect(); return [r.x, r.y, r.width, r.height];
           }) };
@@ -187,9 +195,9 @@ test('AIT-179: hangup paints idle controls synchronously; reconciling and settle
       document.querySelector('aithema-session').shadowRoot.querySelector('.voice-close').click();
       return globalThis.readEndedRail(); // Same task: no frame, timer, microtask or network response can intervene.
     });
-    const assertIdle = value => {
+    const assertIdle = (value, reconciling = true) => {
       assert.equal(value.state, 'idle'); assert.equal(value.call, 'none');
-      assert.equal(value.pauseGlyph, false, `${label}: no pause glyph`); assert.equal(value.pause, false);
+      assert.equal(value.pauseGlyph, !reconciling, `${label}: session pause returns after settlement`); assert.equal(value.pause, !reconciling);
       assert.equal(value.liveMic, false, `${label}: no live mic`); assert.equal(value.stop, false);
       assert.equal(value.start, true, `${label}: idle start control`); assert.equal(value.startEnabled, true, `${label}: start remains admitted: ${JSON.stringify(value)}`);
     };
@@ -202,20 +210,48 @@ test('AIT-179: hangup paints idle controls synchronously; reconciling and settle
     const files = [];
     const capture = async state => {
       const file = `ait-179-${state}-${label}.png`; files.push(file);
-      if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false });
+      if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false, captureBeyondViewport: false });
     };
-    await capture('ended-reconciling');
+    await capture('reconciling');
+    const clickPause = async () => {
+      const point = await shadow(page, c => {
+        const r = c.shadowRoot.querySelector('.pause').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2];
+      });
+      await page.mouse.click(...point); await settle();
+    };
+    // A durable session hold during reconciliation must still offer a usable Resume.
+    await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true } }));
+    await settle();
+    const reconcilePaused = await page.evaluate(() => globalThis.readEndedRail());
+    assert.equal(reconcilePaused.pause, true); assert.equal(reconcilePaused.resumeGlyph, true);
+    assert.equal(reconcilePaused.pauseEnabled, true); assert.equal(reconcilePaused.liveMic, false);
+    await clickPause();
+    assert.equal(await shadow(page, c => c.session.paused), false, `${label}: Resume works during reconcile`);
+    assertIdle(await page.evaluate(() => globalThis.readEndedRail()));
     await page.evaluate(() => document.querySelector('aithema-session').receive({ type: 'voice.state', data: {
       callId: globalThis.endedRailCallId, providerSessionId: 'ended-provider', state: 'ended',
       terminal: { closureConfirmed: true, usage: { costEstimated: false } },
     } }));
     await settle();
-    const idle = await page.evaluate(() => globalThis.readEndedRail()); assertIdle(idle);
+    const idle = await page.evaluate(() => globalThis.readEndedRail()); assertIdle(idle, false);
     assert.equal(idle.text, locale === 'de' ? 'Anruf beendet.' : 'Call ended.');
     for (const value of [reconciling, idle]) assert.deepEqual(value.boxes, ended.boxes, `${label}: 0 px layout shift`);
-    await capture('idle');
-    checks.push({ width, theme, locale, synchronous: true, ended, reconciling, idle, layoutShiftPx: 0, files, pass: true });
-    t.diagnostic(`PASS AIT-179 ${evidenceCommit} ${label}: synchronous idle start control; no pause glyph; no live mic; reconciling text until settled; 0 px`);
+    await capture('settled-idle');
+    await clickPause();
+    const pausedAfterCall = await page.evaluate(() => globalThis.readEndedRail());
+    assert.equal(pausedAfterCall.sessionPaused, true); assert.equal(pausedAfterCall.pause, true);
+    assert.equal(pausedAfterCall.resumeGlyph, true); assert.equal(pausedAfterCall.pauseGlyph, false);
+    assert.equal(pausedAfterCall.pauseEnabled, true); assert.equal(pausedAfterCall.liveMic, false);
+    assert.equal(pausedAfterCall.pauseTitle, locale === 'de' ? 'Fortsetzen' : 'Resume');
+    await page.mouse.move(0, 500); await settle(); await capture('paused-after-call');
+    await clickPause();
+    const resumed = await page.evaluate(() => globalThis.readEndedRail());
+    assert.equal(resumed.sessionPaused, false); assertIdle(resumed, false);
+    assert.deepEqual(await page.evaluate(() => globalThis.endedRailPauseRequests), [false, true, false]);
+    for (const value of [reconcilePaused, pausedAfterCall, resumed]) assert.deepEqual(value.boxes, ended.boxes, `${label}: pause/resume shifts 0 px`);
+    checks.push({ width, theme, locale, synchronous: true, ended, reconciling, reconcilePaused, idle, pausedAfterCall, resumed,
+      resumeWorks: true, layoutShiftPx: 0, files, pass: true });
+    t.diagnostic(`PASS AIT-179 ${evidenceCommit} ${label}: no pause glyph or live mic during reconcile; settled idle Pause visible; paused-session Resume visible and works; 0 px`);
   }
   if (evidence) await writeFile(join(evidence, 'ait-179-pass-lines.json'), JSON.stringify({ ticket: 'AIT-179', head: evidenceCommit,
     createdAt: new Date().toISOString(), capture: 'viewport', checks }, null, 2));

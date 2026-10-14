@@ -220,7 +220,8 @@ test('AIT-145: hangup renders ended immediately while cost confirmation is pendi
     assert.equal(root.dataset.state, 'idle', 'accounting uncertainty is not a failed call');
   } finally { terminal.resolve({ closureConfirmed: false }); await closing; }
 });
-for (const [locale, copy] of [['de', de], ['en', en]]) test(`AIT-179: ${locale} hangup hides the call pause synchronously through settlement`, async t => {
+for (const [locale, copy] of [['de', de], ['en', en]]) for (const settled of [false, true])
+test(`AIT-179: ${locale} hangup preserves session Resume while ${settled ? 'settled' : 'reconciling'}`, async t => {
   const session = createSession({ demo: true, locale }), events = voiceEvents(), terminal = Promise.withResolvers();
   session.featureMatrix = { best: { voice: { available: true }, text: { available: true }, analysis: { available: true } } };
   let callId;
@@ -241,10 +242,39 @@ for (const [locale, copy] of [['de', de], ['en', en]]) test(`AIT-179: ${locale} 
   assert.equal(root.querySelector('.voice-state').textContent, copy.voiceClosureUncertain);
   terminal.resolve({ closureConfirmed: false }); await tick();
   assert.equal(root.querySelector('.voice-state').textContent, copy.voiceClosureUncertain);
-  element.receive({ type: 'voice.state', data: { callId, providerSessionId: 'ended-provider', state: 'ended',
-    terminal: { closureConfirmed: true, usage: { costEstimated: false } } } });
-  assert.equal(root.querySelector('.voice-state').textContent, copy.voiceEnded);
-  assert.equal(window.getComputedStyle(pause).visibility, 'hidden');
+  if (settled) {
+    element.receive({ type: 'voice.state', data: { callId, providerSessionId: 'ended-provider', state: 'ended',
+      terminal: { closureConfirmed: true, usage: { costEstimated: false } } } });
+    assert.equal(root.querySelector('.voice-state').textContent, copy.voiceEnded);
+    assert.equal(window.getComputedStyle(pause).visibility, 'visible', 'settlement restores the idle session pause');
+  }
+  const requests = [];
+  t.mock.method(globalThis, 'fetch', async (url, init = {}) => {
+    if (url.endsWith('/pause')) {
+      const { paused } = JSON.parse(init.body); requests.push(paused);
+      return Response.json({ event: { seq: element.session.seq + 1, type: 'session.paused', data: { paused } } });
+    }
+    return Response.json({});
+  });
+  // A session can also be paused by another tab during reconciliation.
+  if (settled) { pause.click(); await tick(); }
+  else element.receive({ seq: element.session.seq + 1, type: 'session.paused', data: { paused: true } });
+  assert.equal(element.session.paused, true);
+  assert.equal(pause.title, copy.resume); assert.equal(pause.disabled, false);
+  assert.equal(window.getComputedStyle(pause).visibility, 'visible', 'a paused session always offers Resume');
+  assert.equal(window.getComputedStyle(pause.querySelector('.voice-icon--resume')).visibility, 'visible');
+  assert.equal(window.getComputedStyle(root.querySelector('.voice-input')).visibility, 'hidden');
+  pause.click(); await tick();
+  assert.equal(element.session.paused, false, 'Resume acknowledges the session command after hangup');
+  assert.deepEqual(requests, settled ? [true, false] : [false]);
+});
+test('AIT-179: confirmed close receipt restores the idle pause without a later settlement event', async t => {
+  const { rail, root } = fixture(t); await rail.start();
+  rail.session.close = async () => ({ closureConfirmed: true, usage: { costEstimated: false } });
+  await rail.close();
+  assert.equal(root.querySelector('.voice-state').textContent, en.voiceEnded);
+  assert.equal(root.hasAttribute('data-call-reconciling'), false);
+  assert.equal(rail.endedCall.settled, true);
 });
 test('AIT-145: a failed closure request keeps the locally ended call ready for another call', async t => {
   const { rail, root } = fixture(t); await rail.start();
