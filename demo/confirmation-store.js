@@ -231,6 +231,14 @@ export function createConfirmationStore({ storage, visitorCredits, now }) {
   }
   return {
     mailCap() { return atomic(() => mailCap()); },
+    busiestConnection() {
+      const at = now();
+      // One aggregate over rolling IP buckets; keys never leave the store.
+      const row = db.prepare(`SELECT COALESCE(MAX(hour),0) hour,COALESCE(MAX(day),0) day FROM (
+        SELECT SUM(CASE WHEN created_at>? THEN count ELSE 0 END) hour,SUM(count) day
+        FROM host_mail_ip_slots WHERE created_at>? GROUP BY bucket_key)`).get(at - windows.hour, at - DAY);
+      return { hour: row.hour, day: row.day };
+    },
     inspect(token) { const row = rowFor(token); return describe(row, stateFor(row, token), token); },
     redeem,
     reserve({ ownerHash, sessionId, address, revision, expiresAt, locale, ipBucket }) {

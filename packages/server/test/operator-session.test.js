@@ -36,7 +36,7 @@ test('AIT-165 grant survives a new port, is revoked by logout, expires after eig
   const response = await f.port.handle(f.req(p.callback.pathname + p.callback.search, p.cookie));
   const cookie = response.headers.getSetCookie().find(v => v.startsWith(OPERATOR_COOKIE + '=')).split(';')[0];
   const again = createOperatorSessions({ provider: f.provider, store: createSQLiteOperatorStore(f.storage.db), publicOrigin: f.config.publicOrigin });
-  assert.deepEqual(again.session(f.req('/', cookie)), { name: 'Ada' });
+  assert.deepEqual(again.session(f.req('/', cookie)), { name: 'Ada', subject: 'allowed-operator' });
   const changed = createOperatorSessions({ provider: createZitadelOIDC({ config: { ...f.config, clientId: 'new-client' } }), store: f.store, publicOrigin: f.config.publicOrigin });
   assert.equal(changed.session(f.req('/', cookie)), null);
   const records = JSON.stringify(f.storage.db.prepare('SELECT * FROM operator_grants').all());
@@ -99,7 +99,7 @@ test('AIT-165 a second sign-in revokes the previous grant and logout clears inde
   // Supersession is bound to the browser presenting its old grant.
   const p = await f.login(), response = await f.port.handle(f.req(p.callback.pathname + p.callback.search, p.cookie + '; ' + first));
   assert.equal(f.port.session(f.req('/', first)), null);
-  assert.deepEqual(f.port.session(f.req('/', second)), { name: 'Ada' }, 'a separate browser remains signed in');
+  assert.deepEqual(f.port.session(f.req('/', second)), { name: 'Ada', subject: 'allowed-operator' }, 'a separate browser remains signed in');
   const latest = response.headers.getSetCookie().find(v => v.startsWith(OPERATOR_COOKIE + '=')).split(';')[0];
   const logout = await f.port.handle(f.req('/api/operator/logout/', latest, { method: 'POST', headers: { origin: f.config.publicOrigin } }));
   assert.equal(logout.headers.getSetCookie().length, 2);

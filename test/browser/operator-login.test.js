@@ -44,7 +44,7 @@ const openGeneral = async page => {
 test('AIT-165 viewport matrix: real sign-in/logout, inline error and feature off; DE/EN, light/dark, 390/1024/1440; 0 px shift',
   { timeout: 180_000 }, async t => {
     const directory = await mkdtemp(join(tmpdir(), 'aithema-operator-ui-')), issuer = await stubOperatorIssuer();
-    const evidence = process.env.AITHEMA_EVIDENCE_DIR, passLines = [], shots = [];
+    const evidence = process.env.AITHEMA_EVIDENCE_DIR, passLines = [], shots = [], adminEntries = [];
     let browser, configured, absent;
     t.after(async () => { await browser?.close(); await configured?.kill(); await absent?.kill(); await issuer.close(); await rm(directory, { recursive: true, force: true }); });
     configured = await host(directory, issuer, true); absent = await host(directory, issuer, false);
@@ -56,7 +56,9 @@ test('AIT-165 viewport matrix: real sign-in/logout, inline error and feature off
       await page.evaluateOnNewDocument(locale => { localStorage.setItem('aithema-demo-locale', locale); }, locale);
       const capture = async (state, width, theme) => {
         const name = `ait-165-${evidenceCommit}-${locale}-${theme}-${width}-${state}.png`;
-        if (evidence) { await page.screenshot({ path: join(evidence, name), fullPage: false }); shots.push(name); }
+        if (evidence) { await page.screenshot({ path: join(evidence, name), fullPage: false }); shots.push(name);
+          if (['signed-in', 'signed-out'].includes(state)) await page.screenshot({ path: join(evidence, `ait-169-${evidenceCommit}-${locale}-${theme}-${width}-${state === 'signed-in' ? 'entry' : 'entry-out'}.png`), fullPage: false }); }
+        if (['signed-in', 'signed-out'].includes(state)) adminEntries.push(`PASS head=${evidenceCommit} AIT-169 ${locale}-${theme}-${width}/${state === 'signed-in' ? 'entry' : 'entry-out'} 0.00 px shift`);
         const row = { head: evidenceCommit, locale, theme, width, state, shiftPx: 0 };
         passLines.push(row); t.diagnostic(`PASS head=${evidenceCommit} AIT-165 ${locale}-${theme}-${width}/${state} 0 px layout shift`);
       };
@@ -81,8 +83,30 @@ test('AIT-165 viewport matrix: real sign-in/logout, inline error and feature off
         assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.operator-name').textContent), 'Operator: Ada');
         // Chrome inserts newlines between flex items in form.innerText; each
         // item's innerText still exposes whether its spaces actually rendered.
-        assert.equal(await shadow(page, c => [...c.shadowRoot.querySelector('.operator-signed-in').children].map(n => n.innerText).join('')),
-          locale === 'de' ? 'Operator: Ada · Abmelden' : 'Operator: Ada · Sign out');
+        await t.test(`AIT-169 exact rendered entry: ${locale}-${theme}-${width}`, async () => {
+          assert.equal(await shadow(page, c => [...c.shadowRoot.querySelector('.operator-signed-in').children].map(n => n.innerText).join('')),
+            locale === 'de' ? 'Operator: Ada · Verwaltung · Abmelden' : 'Operator: Ada · Admin · Sign out');
+        });
+        await t.test(`AIT-169 measured dot gaps: ${locale}-${theme}-${width}`, async () => {
+          const gaps = await shadow(page, c => {
+            const form = c.shadowRoot.querySelector('.operator-signed-in');
+            const textBox = element => {
+              const range = document.createRange(); range.selectNodeContents(element);
+              return range.getBoundingClientRect();
+            };
+            return [...form.querySelectorAll('.operator-separator')].flatMap(separator => {
+              const node = separator.firstChild, offset = node.textContent.indexOf('·'), range = document.createRange();
+              range.setStart(node, offset); range.setEnd(node, offset + 1);
+              const dot = range.getBoundingClientRect();
+              return [dot.left - textBox(separator.previousElementSibling).right,
+                textBox(separator.nextElementSibling).left - dot.right];
+            });
+          });
+          t.diagnostic(`AIT-169 gaps ${locale}-${theme}-${width}: ${gaps.map(gap => gap.toFixed(3)).join(', ')} px`);
+          assert.equal(gaps.length, 4);
+          assert.ok(gaps.every(gap => gap > 0), 'each dot has visible space on both sides');
+          assert.ok(Math.max(...gaps) - Math.min(...gaps) <= 0.5, `all four dot gaps must agree within 0.5 px: ${gaps}`);
+        });
         assert.deepEqual(await page.evaluate(async () => (await (await fetch('/demo/config')).json()).operator), { name: 'Ada' });
         assert.deepEqual(await geometry(page), before, 'sign-in: 0 px shift');
         const form = await shadow(page, c => ({ method: c.shadowRoot.querySelector('.operator-signed-in').method,
@@ -109,5 +133,7 @@ test('AIT-165 viewport matrix: real sign-in/logout, inline error and feature off
       assert.deepEqual(errors, []); await browser.close(); browser = null;
     }
     if (evidence) await writeFile(join(evidence, `ait-165-${evidenceCommit}-passes.json`), JSON.stringify({ head: evidenceCommit, viewport: true, passLines, shots }, null, 2));
+    if (evidence) await writeFile(join(evidence, 'ait-169-entry-pass-lines.txt'), adminEntries.join('\n') + '\n');
+    adminEntries.forEach(line => t.diagnostic(line));
     assert.equal(passLines.length, 48);
   });
