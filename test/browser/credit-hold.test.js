@@ -37,18 +37,20 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
         session.locale = locale; session.demo = false; session.settings = { ...session.settings, origin: 'chosen', voice: 'off', visuals: 'off' };
         session.featureMatrix = { best: { text: { available: true }, analysis: { available: true }, voice: { available: true } } };
         const voiceClient = { manifest: { liveVoice: { capabilities: { setInput: 'native', setOutput: 'native', pause: 'native', resume: 'native', updateContext: 'native' } } },
-          async start(request) { return { callId: request.callId, providerSessionId: 'hold-fixture', events: voiceEvents(),
+          async start(request) { const events = voiceEvents(); return { callId: request.callId, providerSessionId: 'hold-fixture', events,
             async setInput() {}, async setOutput() {}, async heartbeat() {}, async updateContext() {},
-            async close() { return { closureConfirmed: false, outcome: 'uncertain', usage: null }; } }; } };
+            async close() { events.end(); return { closureConfirmed: false, outcome: 'uncertain', usage: null }; } }; } };
         c.setAttribute('motion', 'off');
         c.configure({ session, copy, voiceClient, host: { credits: true, verification: { delivery: false, privacyDocumentConfigured: true } } });
         const legal = document.createElement('a'); legal.slot = 'legal'; legal.href = '/privacy'; legal.setAttribute('data-aithema-privacy', ''); c.replaceChildren(legal);
-        if (state !== 'reconciling') c.shadowRoot.querySelector('.voice-start').click();
-        else c.receive({ type: 'voice.state', data: { callId: 'hold-fixture', providerSessionId: 'hold-fixture', state: 'ended', reconciliationPending: true,
-          terminal: { closureConfirmed: false, outcome: 'uncertain', usage: null } } });
+        c.shadowRoot.querySelector('.voice-start').click();
       }, { locale, state });
       await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.host-credits__amount').textContent.trim() !== '…');
-      if (state !== 'reconciling') await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.call === 'active');
+      await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.call === 'active');
+      if (state === 'reconciling') {
+        await shadow(page, c => c.shadowRoot.querySelector('.voice-close').click());
+        await until(page, () => /abgeglichen|reconciled/u.test(document.querySelector('aithema-session').shadowRoot.querySelector('.voice-state').textContent));
+      }
       await settle(page);
       const targets = ['.composer-shell', '.display-foot', '.host-credits', '.audio-rail'];
       if (width < 960) await shadow(page, c => c.shadowRoot.querySelector('.composer-dock').scrollIntoView({ block: 'end' }));
@@ -66,6 +68,7 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
         assert.equal(view.usedUp, false); assert.equal(view.ending, false);
         if (state !== 'low') { assert.equal(view.ask, 'closed'); assert.equal(view.amount.replace(/[.,]/gu, ''), '600'); assert.doesNotMatch(view.rail, /wenig|low|aufgebraucht|used up/iu); }
         else assert.match(view.rail, locale === 'de' ? /wenig/u : /low/u);
+        if (state === 'reconciling') assert.match(view.rail, locale === 'de' ? /Kosten werden noch abgeglichen/u : /Costs are still being reconciled/u);
         const after = await boxes(page, targets), shift = Math.max(...baseline.flatMap((row, i) => row.map((value, j) => Math.abs(value - after[i][j]))));
         assert.equal(shift, 0, `${locale}/${width}/${state}: layout shift ${shift} px`);
         const pass = { head: evidenceCommit, locale, width, theme, state, layoutShiftPx: shift, pass: true }; passes.push(pass);
