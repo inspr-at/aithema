@@ -150,6 +150,7 @@ test('AIT-179: hangup paints idle controls synchronously; reconciling and settle
       const { [locale]: copy } = await import(`/packages/ui/src/i18n/${locale}.js`);
       const { manifest } = await import('/plugins/elevenlabs/src/manifest.js');
       const { voiceEvents } = await import('/packages/core/src/live-voice.js');
+      const { paintUtilities } = await import('/demo/page-preferences.js');
       const c = document.querySelector('aithema-session'), session = structuredClone(globalThis.endedRailSeed);
       session.locale = locale; session.settings.origin = 'chosen'; session.settings.voice = 'elevenlabs';
       session.engine.voice = { id: 'elevenlabs', label: 'ElevenLabs', offered: true };
@@ -174,10 +175,12 @@ test('AIT-179: hangup paints idle controls synchronously; reconciling and settle
           }) };
       };
       c.shadowRoot.querySelector('.voice-start').click();
-      document.documentElement.lang = locale; scrollTo(0, 0);
+      document.documentElement.lang = locale; document.querySelector('#locale').value = locale; paintUtilities(copy);
+      c.shadowRoot.activeElement?.blur(); document.activeElement?.blur(); scrollTo(0, 0);
     }, locale);
     await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.audio-rail').dataset.state === 'listening');
-    await settle();
+    await until(page, () => document.querySelector('aithema-session').shadowRoot.querySelector('.status').hasAttribute('data-connected'));
+    await page.mouse.move(0, 500); await settle();
     const live = await page.evaluate(() => globalThis.readEndedRail());
     assert.equal(live.pause, true, `${label}: live pause unchanged`); assert.equal(live.liveMic, true);
     const ended = await page.evaluate(() => {
