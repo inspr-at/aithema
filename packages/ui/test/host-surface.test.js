@@ -107,6 +107,29 @@ test('AIT-173 round 3: a stale call snapshot cannot reopen a locally ended call 
   assert.equal(root.querySelector('.audio-rail').dataset.state, 'idle');
 });
 
+test('AIT-173 round 3: an old hangup credit read cannot deny Retry after a newer Start attempt', async t => {
+  const { voiceEvents } = await import('../../core/src/live-voice.js');
+  const events = voiceEvents(), readStarted = Promise.withResolvers(), readDone = Promise.withResolvers(); let starts = 0;
+  const voiceClient = { async start({ callId }) {
+    if (++starts > 1) throw Object.assign(new Error('fixture outage'), { code: 'unavailable' });
+    return { callId, providerSessionId: 'retry-provider', events, async setInput() {}, async setOutput() {}, async updateContext() {},
+      async close() { events.end(); return { closureConfirmed: false }; } };
+  } };
+  const { c, root } = setup(t, { voiceClient, host: { credits: true },
+    session: { featureMatrix: { best: { text: { available: true }, analysis: { available: true }, voice: { available: true } } } },
+    routes: { 'GET ': async () => { const before = c.session; readStarted.resolve(); await readDone.promise;
+      return Response.json({ ...before, featureMatrix: { ...before.featureMatrix, best: { ...before.featureMatrix.best,
+        voice: { available: false, reason: 'budget denied' } } } }); } } });
+  t.after(() => readDone.resolve());
+  await tick(8); root.querySelector('.voice-start').click(); await tick(8);
+  root.querySelector('.voice-close').click(); await readStarted.promise;
+  root.querySelector('.voice-start').click(); await tick(8);
+  assert.equal(root.querySelector('.audio-rail').dataset.state, 'failed');
+  assert.equal(root.querySelector('.voice-retry').disabled, false);
+  readDone.resolve(); await tick(12);
+  assert.equal(root.querySelector('.voice-retry').disabled, false, 'the ended-call read cannot replace a newer attempt verdict');
+});
+
 test('AIT-135 a host without an owner guard displays credits with a hidden, empty countdown', async t => {
   const { root } = setup(t, { host: { credits: true } }); await tick();
   assert.equal(root.querySelector('.host-credits').hidden, false);
