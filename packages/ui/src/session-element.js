@@ -418,7 +418,8 @@ export class AithemaSession extends HTMLElement {
     for (const pane of root.querySelectorAll(PANES)) pane.addEventListener('pointerleave', () => clearSlack(pane));
     if (this.#options.host) this.#host = new HostSurface({ root, copy: this.#copy, options: this.#options.host, baseUrl: this.#base, sessionToken: this.#sessionToken,
       openSettings: () => this.openSettings(root.querySelector('.host-credits__button'), { tab: 'general', anchor: '#email' }), onCredits: info => this.#creditsChanged(info), creditEnding: () => this.#creditEnding,
-      admissionDenied: () => this.#rail?.allowanceDenied ?? false,
+      admissionDenied: () => Boolean(this.#rail?.allowanceDenied || !this.#hasLiveCall() &&
+        ['budget denied', 'budget reconciling'].includes(this.#feature('text').reason)),
       streaming: () => this.#sending || this.#partials.size > 0 || activeTurns(this.#session).at(-1)?.role === 'user',
       session: () => this.#session, status: text => this.#status(text), adopt: (session, reason) => this.#adopt(session, reason),
       beforeVerifyDialog: () => this.#dialog.closeForVerification(), verificationOpener: () => root.querySelector('.settings-open'),
