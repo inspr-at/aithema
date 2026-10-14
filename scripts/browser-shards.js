@@ -21,6 +21,7 @@ export const browserShards = [
     'test/browser/start2-display-matrix.test.js',
     'test/browser/start-look.test.js',
     'test/browser/operator-login.test.js',
+    'test/browser/admin-pages.test.js',
   ],
   // 394.868s CI
   [
