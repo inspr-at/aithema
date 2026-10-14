@@ -11,7 +11,7 @@ function fixture(t, { allowance = 100_000, status = 200, onPost } = {}) {
   const storage = new SQLiteStorage(); t.after(() => storage.close());
   const budget = new SQLiteBudgetLedger(storage), requests = [];
   const session = storage.create({ ownerToken: 'tenant-a' });
-  storage.append(session.id, { type: 'assistant.message', data: { turnId: 'reply-a', content: 'Exact answer.' } });
+  storage.append(session.id, 'turn.final', { id: 'reply-a', role: 'assistant', content: 'Exact answer.' });
   const binding = qualifyStartBinding({ plugin: 'elevenlabs', model: 'agent', effort: 'none',
     endpoint: 'https://fixture.test', accountRef: 'fixture', secretRef: 'fixture-ref', agentId: 'owned-agent',
     maxMicro: 200_000, maxTokens: 1, rates: { inputMicro: 0, outputMicro: 0 }, maxDurationSeconds: 3600,
