@@ -13,6 +13,7 @@ export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 // independently measured 195.18 / 197.84 s (no assertion or scenario removed).
 // This PR's prior jobs: 438 / 462 / 423 / 421 s. Move 29.87s audio replay
 // from 2 to 3, then the measured journey file from 3 to 4 for ~10% headroom.
+// Main b47a7fb adds safeguards: 3.94s in PR #145 (38585047142), in shard 2.
 export const browserShards = [
   // 417.46s; per-file seconds: 218.83, 94.24, 43.89, 39.43, 12.48, 8.59
   [
@@ -23,12 +24,13 @@ export const browserShards = [
     'test/browser/footer-width-sweep.test.js',
     'test/browser/html-preview.test.js',
   ],
-  // 415.07s; per-file seconds: 197.84, 115.57, 86.26, 15.39
+  // 419.01s; per-file seconds: 197.84, 115.57, 86.26, 15.39, 3.94
   [
     'test/browser/visitor-credit-tiers-en.test.js',
     'test/browser/start2-display-continuity.test.js',
     'test/browser/orb-reveal.test.js',
     'test/browser/question-card.test.js',
+    'test/browser/safeguards.test.js',
   ],
   // 417.73s; per-file seconds: 195.18, 106.42, 46.27, 39.99, 29.87
   [

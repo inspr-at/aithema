@@ -80,6 +80,7 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
       }
       if (request.method === 'GET' && !uploadId) return json({ uploads: session.uploads, limits });
       if (request.method !== 'POST' || uploadId) return json({ error: 'method-not-allowed' }, 405);
+      if (session.pauseReason === 'purpose') return json({ error: 'conversation-paused', reason: 'purpose' }, 409);
       if (!/^multipart\/form-data\s*;/iu.test(request.headers.get('content-type') ?? '')) return json({ error: 'multipart-required' }, 415);
       const length = request.headers.get('content-length');
       if (length && /^\d+$/u.test(length) && Number(length) > limits.maxRequestBytes) throw new RangeError('Upload request limit');
@@ -109,10 +110,12 @@ export function createUploadHandlers({ storage, runtime, ownership, readBody, pu
         // The receipt binds exact filenames, order, content bytes and base revision.
         const digest = createHash('sha256').update(JSON.stringify({ revision: rawRevision ?? null, files: files.map(f => ({ filename: f.originalName,
           hash: createHash('sha256').update(f.bytes).digest('hex') })) })).digest('hex');
+        if (storage.get(id).pauseReason === 'purpose') return json({ error: 'conversation-paused', reason: 'purpose' }, 409);
         const replay = storage.uploadReceipt(id, clientEventId, digest, guard);
         if (replay) return json({ accepted: true, ...replay, uploads: replay.events.map(e => e.data), limits });
         const availability = await runtime.uploadAvailability(session, { signal: request.signal, deadlineAt });
         storage.authorize(id, ownerToken);
+        if (storage.get(id).pauseReason === 'purpose') return json({ error: 'conversation-paused', reason: 'purpose' }, 409);
         if (inputRevision(storage.get(id)) !== guard.revision) throw new ConflictError('Upload admission changed');
         if (availability.reason) return json({ error: 'uploads-unavailable', reason: availability.reason }, 403);
         const result = storage.postUploads(id, clientEventId, digest, files, limits, { ...guard, revision });

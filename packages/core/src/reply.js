@@ -37,7 +37,7 @@ export function normalizeQuestionCard(value) {
   return options.length ? { question_short: value.question_short, options } : null;
 }
 
-const unfence = text => text.replace(/^\s*```(?:json)?\s*\n?/iu, '').replace(/\s*```\s*$/u, '');
+export const unfenceReply = text => text.replace(/^\s*```(?:json)?\s*\n?/iu, '').replace(/\s*```\s*$/u, '');
 // Only a top-level content-first JSON string may be shown before the envelope is complete.
 // Stop before an incomplete escape; a later chunk resumes it without leaking JSON syntax.
 function streamedContent(wire) {
@@ -59,7 +59,7 @@ function streamedContent(wire) {
 export function parseReply(raw) {
   if (typeof raw === 'string') {
     if (!/^\s*(?:\{|```(?:json)?\s*\{)/iu.test(raw)) return { content: raw, question_short: null, options: [] };
-    const wire = unfence(raw);
+    const wire = unfenceReply(raw);
     try { raw = JSON.parse(wire); }
     catch { return { content: streamedContent(wire), question_short: null, options: [] }; }
   }
@@ -123,9 +123,9 @@ export class ReplyStream {
     if (this.#structured === null) return '';
     if (this.#structured && !this.#recovery && delta.length > available) {
       this.#recovery = new ContentRecovery();
-      this.#recovery.push(unfence(this.#wire)); this.#recovery.push(delta.slice(available)); this.#wire = '';
+      this.#recovery.push(unfenceReply(this.#wire)); this.#recovery.push(delta.slice(available)); this.#wire = '';
     }
-    const text = this.#structured ? (this.#recovery?.content ?? streamedContent(unfence(this.#wire))) : this.#wire;
+    const text = this.#structured ? (this.#recovery?.content ?? streamedContent(unfenceReply(this.#wire))) : this.#wire;
     if (text.length > MAX_CONTENT) throw new TypeError('Invalid reasoning stream');
     if (!text.startsWith(this.#shown)) return '';
     const next = text.slice(this.#shown.length); this.#shown = text; return next;
@@ -133,7 +133,7 @@ export class ReplyStream {
   finish() {
     const reply = this.#recovery ? { content: this.#recovery.content, question_short: null, options: [] } : parseReply(this.#wire);
     if (this.#structured && !reply.content) {
-      const recovery = new ContentRecovery(); recovery.push(unfence(this.#wire)); reply.content = recovery.content;
+      const recovery = new ContentRecovery(); recovery.push(unfenceReply(this.#wire)); reply.content = recovery.content;
     }
     if (reply.content.length > MAX_CONTENT) throw new TypeError('Invalid reasoning stream');
     return reply;

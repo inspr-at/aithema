@@ -903,3 +903,25 @@ test('screen readers get the AI notice once, as the last description of every co
   assert.match(css, /--aithema-backdrop:var\(--aithema-lighting\) var\(--aithema-paper\);/u);
 
 });
+
+for (const copy of [de, en]) test(`AIT-174 round3 ${copy.display.locale}: purpose pause only presents in composer and preserves overview`, () => {
+  const c = setup(), session = c.session; session.locale = copy.display.locale;
+  c.configure({ copy, session });
+  turn(c, 'purpose-project', 'systems: SAP');
+  c.receive({ seq: c.session.seq + 1, type: 'understanding.updated', data: understanding(c) });
+  const root = c.shadowRoot, notice = root.querySelector('.notice').textContent, summary = root.querySelector('.summary-text').textContent;
+  const startCell = root.querySelector('.voice-start').parentNode;
+  c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true, reason: 'purpose' } });
+  assert.equal(root.querySelector('.purpose-pause-copy').hidden, false);
+  assert.equal(root.querySelector('.purpose-pause-copy').textContent, copy.purposePaused);
+  assert.equal(root.querySelector('.voice-start').disabled, true);
+  assert.equal(root.querySelector('.voice-start').parentNode, startCell, 'Start stays in the normal idle mic cell');
+  assert.equal(root.querySelector('.voice-start').title, copy.display.locale === 'de' ? 'Dieses Gespräch ist pausiert.' : 'This conversation is paused.');
+  assert.equal(root.querySelector('.voice-start').getAttribute('aria-description'), root.querySelector('.voice-start').title);
+  assert.equal(root.querySelector('.voice-output').disabled, true);
+  assert.equal(root.querySelector('.voice-input').disabled, true);
+  assert.doesNotMatch(root.querySelector('.voice-state').textContent, /pausiert|paused/iu);
+  assert.doesNotMatch(root.querySelector('.status__label').textContent, /pausiert|paused/iu);
+  assert.equal(root.querySelector('.notice').textContent, notice);
+  assert.equal(root.querySelector('.summary-text').textContent, summary);
+});

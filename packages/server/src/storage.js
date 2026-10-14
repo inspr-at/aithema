@@ -34,6 +34,9 @@ export class SQLiteStorage {
     this.db = new DatabaseSync(path);
     this.db.exec(`PRAGMA busy_timeout=250; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA secure_delete=ON;
       CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, snapshot TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS safeguard_inputs (session_id TEXT NOT NULL REFERENCES sessions(id),
+        input_key TEXT NOT NULL, revision TEXT, off_topic INTEGER NOT NULL, analysis_off INTEGER NOT NULL, PRIMARY KEY(session_id,input_key));
+      CREATE TABLE IF NOT EXISTS safeguard_direction (session_id TEXT PRIMARY KEY REFERENCES sessions(id), record TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS host_states (session_id TEXT PRIMARY KEY REFERENCES sessions(id), record TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS owner_credit_guards (owner_hash TEXT PRIMARY KEY, record TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS content (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id),
@@ -56,6 +59,9 @@ export class SQLiteStorage {
       CREATE INDEX IF NOT EXISTS sessions_owner ON sessions(json_extract(snapshot, '$.ownerHash'));
       CREATE TRIGGER IF NOT EXISTS events_no_update BEFORE UPDATE ON events BEGIN SELECT RAISE(ABORT,'append only'); END;
       CREATE TRIGGER IF NOT EXISTS events_no_delete BEFORE DELETE ON events BEGIN SELECT RAISE(ABORT,'append only'); END;`);
+    if (!this.db.prepare('PRAGMA table_info(safeguard_inputs)').all().some(column => column.name === 'analysis_off')) {
+      this.db.exec('ALTER TABLE safeguard_inputs ADD COLUMN analysis_off INTEGER NOT NULL DEFAULT 0; UPDATE safeguard_inputs SET analysis_off=off_topic;');
+    }
     this.#migrate();
     this.voiceTurnStore = createVoiceOperationStore(this);
     } catch (error) { this.db?.close(); this.writer?.close(); throw error; }
@@ -154,6 +160,76 @@ export class SQLiteStorage {
       return { ...result, events: result.events.map(e => this.#append(this.get(id), e.type, e.data)) };
     });
   }
+  // Claim the fixed direction question before text or TTS output. Private memory
+  // survives locale changes, transcript withdrawal and server restart.
+  guardPurposeDirection(id, reply, policy, inputKey) {
+    if (!policy.directionQuestion) return reply;
+    return this.transaction(() => {
+      const session = this.get(id); this.#check(session);
+      const row = this.db.prepare('SELECT record FROM safeguard_direction WHERE session_id=?').get(id);
+      const state = row ? JSON.parse(row.record) : { asked: false, unclear: [], lastInput: null };
+      const key = inputKey ?? session.transcript.findLast(turn => turn.role === 'user' && !turn.erased && !turn.withdrawn)?.id;
+      if (key && state.lastInput !== key) {
+        state.lastInput = key;
+        state.unclear = reply.scope === 'unclear' ? [...state.unclear, key].slice(-3) : [];
+      }
+      const copies = Object.values(policy.directionQuestion);
+      const directionCard = copies.some(copy => reply.question_short?.includes(copy) || reply.options.some(option => option.text.includes(copy)));
+      let content = reply.content;
+      for (const copy of copies) content = content.replaceAll(copy, '').trim();
+      const ask = !state.asked && reply.scope === 'unclear' && state.unclear.length >= 3 && session.pauseReason !== 'purpose';
+      if (ask) { content = policy.directionQuestion[session.locale]; state.asked = true; }
+      this.db.prepare('INSERT INTO safeguard_direction VALUES (?,?) ON CONFLICT(session_id) DO UPDATE SET record=excluded.record')
+        .run(id, JSON.stringify(state));
+      return { ...reply, content: content || (session.locale === 'de' ? 'Woran arbeiten Sie gerade?' : 'What are you working on?'),
+        ...(reply.scope === 'unclear' || directionCard ? { question_short: null, options: [] } : {}) };
+    });
+  }
+  // Scope is consumed internally; retain only the counter contribution and assessment gate.
+  safeguards(id, revision) {
+    const rows = this.db.prepare('SELECT revision,off_topic,analysis_off FROM safeguard_inputs WHERE session_id=?').all(id);
+    return { offTopicTurns: rows.reduce((n, row) => n + row.off_topic, 0),
+      assessed: rows.some(row => row.revision === revision),
+      offTopic: rows.some(row => row.revision === revision && row.analysis_off === 1) };
+  }
+  recordSafeguard(id, key, revision, offTopic, limit, { pause = true } = {}) {
+    return this.transaction(() => {
+      const session = this.get(id); this.#check(session);
+      this.db.prepare('INSERT INTO safeguard_inputs(session_id,input_key,revision,off_topic,analysis_off) VALUES (?,?,?,?,?) ON CONFLICT(session_id,input_key) DO UPDATE SET revision=excluded.revision,analysis_off=excluded.analysis_off,off_topic=MAX(safeguard_inputs.off_topic,excluded.off_topic)').run(id, key, revision ?? null, Number(offTopic), Number(offTopic));
+      const state = this.safeguards(id, revision);
+      const event = pause && state.offTopicTurns >= limit && session.pauseReason !== 'purpose'
+        ? this.#append(session, 'session.paused', { paused: true, reason: 'purpose' }) : null;
+      return { ...state, event };
+    });
+  }
+  appendPurposeReply(id, data, revision, offTopic, limit) {
+    return this.transaction(() => {
+      const session = this.get(id); this.#check(session);
+      if (inputRevision(session) !== revision || session.pauseReason === 'purpose') return [];
+      const person = session.transcript.findLast(turn => turn.role === 'user' && !turn.erased && !turn.withdrawn);
+      const documents = (session.uploads ?? []).filter(upload => !upload.erased && !upload.withdrawn).map(upload => upload.id);
+      const key = JSON.stringify(['text', person?.id ?? null, documents]);
+      this.db.prepare('INSERT INTO safeguard_inputs(session_id,input_key,revision,off_topic,analysis_off) VALUES (?,?,?,?,?) ON CONFLICT(session_id,input_key) DO UPDATE SET revision=excluded.revision,analysis_off=excluded.analysis_off,off_topic=MAX(safeguard_inputs.off_topic,excluded.off_topic)')
+        .run(id, key, revision, Number(offTopic), Number(offTopic));
+      const events = data ? [this.#append(session, 'turn.final', data)] : [];
+      if (this.safeguards(id).offTopicTurns >= limit && session.pauseReason !== 'purpose') {
+        events.push(this.#append(this.get(id), 'session.paused', { paused: true, reason: 'purpose' }));
+      }
+      return events;
+    });
+  }
+  carrySafeguardRevision(id, previousRevision, revision) {
+    // An assistant heard-prefix correction changes no person/document input.
+    // Retain its assessed purpose without creating another counter contribution.
+    this.db.prepare('UPDATE safeguard_inputs SET revision=? WHERE session_id=? AND revision=?').run(revision, id, previousRevision);
+  }
+  bindSafeguard(id, key, revision) {
+    this.db.prepare('UPDATE safeguard_inputs SET revision=? WHERE session_id=? AND input_key=?').run(revision, id, key);
+  }
+  pauseForPurpose(id, limit) {
+    if (this.safeguards(id).offTopicTurns < limit || this.get(id).pauseReason === 'purpose') return null;
+    return this.append(id, 'session.paused', { paused: true, reason: 'purpose' });
+  }
   read(id, after = 0) {
     return this.db.prepare('SELECT event FROM events WHERE session_id=? AND seq>? ORDER BY seq').all(id, after)
       .map(row => this.#hydrateEvent(JSON.parse(row.event)));
@@ -220,6 +296,8 @@ export class SQLiteStorage {
     const contentRef = `${id}:${seq}`, at = data.at ?? new Date().toISOString();
     // Reply choices and the engine label are content: erase them with the reply, never retain them in metadata.
     const origin = aiTextOrigin({ model: data.model, plugin: data.provider });
+    const { scope, ...visibleData } = data;
+    data = visibleData;
     const bytes = JSON.stringify(['turn.final', 'turn.corrected'].includes(type)
       ? { content: data.content, ...(data.role === 'assistant' ? { ...origin, ...(data.engine ? { engine: data.engine } : {}),
         ...('question_short' in data || 'options' in data ? parseReply(data) : {}) } : {}) }
@@ -263,6 +341,7 @@ export class SQLiteStorage {
     this.db.prepare('UPDATE sessions SET snapshot=? WHERE id=?').run(JSON.stringify(metadata), session.id);
   }
   #append(session, type, data) {
+    if (type === 'session.paused' && session.pauseReason === 'purpose' && !data.paused) throw new ConflictError('Purpose pause is locked');
     if (type === 'turn.final' && (session.transcript.length >= 500 ||
       session.transcript.reduce((n, t) => n + (t.content?.length ?? 0), 0) + data.content.length > 250_000)) {
       throw new RangeError('Transcript limit');
@@ -286,6 +365,7 @@ export class SQLiteStorage {
     return this.transaction(() => {
       const session = this.get(id);
       this.#check(session, { ...guard, revision: undefined });
+      if (session.pauseReason === 'purpose') throw new ConflictError('Purpose pause is locked');
       const receipt = this.db.prepare('SELECT bytes,result FROM receipts WHERE session_id=? AND client_id=?').get(id, clientId);
       if (receipt) {
         if (Buffer.from(receipt.bytes).toString() !== hash(bytes)) throw new ConflictError('Client event id has different bytes');
@@ -560,6 +640,8 @@ export class SQLiteStorage {
     return this.#invalidationTransaction(() => {
       const session = this.get(id); this.#check(session, guard); this.#invalidate(id, undefined, true);
       this.db.prepare('DELETE FROM host_states WHERE session_id=?').run(id);
+      this.db.prepare('DELETE FROM safeguard_inputs WHERE session_id=?').run(id);
+      this.db.prepare('DELETE FROM safeguard_direction WHERE session_id=?').run(id);
       this.db.prepare('UPDATE uploads SET bytes=NULL,tombstone=? WHERE session_id=?').run(new Date().toISOString(), id);
       return this.#append(session, 'session.erased', { at: new Date().toISOString() });
     });

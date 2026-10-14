@@ -113,6 +113,11 @@ svg { display:block; flex:none; }
 .audio-rail:is([data-call="none"]) .voice-input, .audio-rail[data-call="active"] .voice-start,
 .audio-rail[data-call="none"] .voice-close, .audio-rail[data-call="active"] .voice-retry, .audio-rail:not([data-state="failed"]) .voice-retry,
 .audio-rail[data-playback-blocked] .voice-output, .audio-rail:not([data-playback-blocked]) .voice-playback { visibility:hidden; }
+/* A purpose pause presents once in the composer. The rail keeps its idle
+   speaker and Start call in their normal cells, both disabled. */
+.audio-rail[data-purpose-paused] :is(.pause, .voice-pause, .voice-playback, .voice-close, .voice-retry, .voice-input) { visibility:hidden; }
+.audio-rail[data-purpose-paused] :is(.voice-start, .voice-output) { visibility:visible; }
+.audio-rail[data-purpose-paused] :is(.pause, .voice-pause) .voice-icon--resume { visibility:hidden; }
 /* The component's one pause stands in the pause cell: it drives the call and the conversation. */
 .conversation .audio-rail .voice-pause { visibility:hidden; }
 .voice-signal { position:relative; min-width:0; height:48px; display:grid; place-items:center; }
@@ -228,6 +233,11 @@ ol { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; 
 .composer:focus-within { border-color:var(--aithema-accent); box-shadow:var(--aithema-shadow-raised),0 0 0 3px color-mix(in srgb,var(--aithema-accent-bright) 20%,transparent); }
 .composer label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
 textarea { resize:none; width:100%; min-height:3.5rem; height:3.5rem; border:0; outline:0; background:transparent; color:var(--aithema-ink); padding:.25rem .5rem; font-size:1rem; line-height:1.5; }
+.purpose-pause-copy { position:absolute; inset:clamp(.85rem,2vw,1.25rem) clamp(.85rem,2vw,1.25rem) calc(clamp(.85rem,2vw,1.25rem) + 44px + .25rem); overflow:auto;
+  padding:.15rem .5rem; font-size:.8rem; line-height:1.2; color:var(--aithema-muted); }
+.purpose-new { position:absolute; right:clamp(.85rem,2vw,1.25rem); bottom:clamp(.85rem,2vw,1.25rem); min-height:44px;
+  padding:0 16px; border-radius:12px; font-size:.875rem; color:var(--aithema-ink); border:1px solid var(--aithema-line); background:var(--aithema-surface); }
+.composer-shell[data-purpose-paused] .composer-actions { visibility:hidden; }
 textarea:focus-visible { outline:0; }
 textarea::placeholder { color:var(--aithema-muted); opacity:1; }
 .composer-actions { display:flex; align-items:center; justify-content:space-between; gap:.5rem; }

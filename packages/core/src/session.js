@@ -90,6 +90,7 @@ export function applyEvent(session, event) {
     next.understanding = emptyUnderstanding(next); next.actor = null; next.focusedQuestion = null;
   } else if (event.type === 'session.paused') {
     next.paused = event.data.paused;
+    if (event.data.reason === 'purpose') next.pauseReason = 'purpose';
   } else if (event.type === 'identity.state') {
     next.identity = event.data.erased ? { erased: true } : event.data;
     // Retained transition metadata keeps revisions stable after address erasure.

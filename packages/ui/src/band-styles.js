@@ -31,6 +31,9 @@ export const bandStyles = `
 .voice-wave[data-short-flanks] { visibility:hidden; }
 /* Keep the accepted phone baseline hidden; the observer also hides short flanks at wider sizes. */
 @container (width < 184px) { .voice-wave { visibility:hidden; } }
+/* An empty status has no label or flanks: show the continuous calm baseline. */
+.voice-state:empty, .voice-caption:empty { display:none; }
+.voice-signal:has(.voice-state:empty):has(.voice-caption:empty) .voice-wave { mask-image:none; visibility:visible; }
 .voice-state, .voice-caption { padding:3px 8px; border-radius:0; font-size:12px;
   background:none; box-shadow:none; }
 .voice-state { max-width:50%; text-wrap:balance; }

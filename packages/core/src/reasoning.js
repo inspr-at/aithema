@@ -84,7 +84,18 @@ export function createMockReasoning({ model = 'mock', effort = 'none' } = {}) {
       try {
         scope.signal.throwIfAborted();
         invocation.dispatch(); invocation.usage({ inputTokens: 0, outputTokens: 0 });
-        const content = mockReply(model, effort, request.locale);
+        let content = mockReply(model, effort, request.locale);
+        if (request.purposePolicy) {
+          const { turns } = mockInputs(request), last = turns.at(-1)?.content ?? '';
+          // Demo behavior only; production scope is inferred by the configured model.
+          const off = /ignore .*instructions|ignorieren .*anweisungen|you are now|sie sind jetzt|pretend you are|tun sie so|system ?prompt|systemprompt|recipe|rezept|soup|suppe|python|homework|hausaufgabe|tell me a joke|weather|beziehungsberatung/iu.test(last);
+          if (off) {
+            const redirect = request.purposePolicy.redirect;
+            content = (typeof redirect === 'function' ? redirect(request.locale) : redirect?.[request.locale]) ??
+              (request.locale === 'de' ? 'Dabei kann ich Ihnen hier nicht helfen. Welches Vorhaben möchten Sie hier klären?' : 'I cannot help with that here. What project would you like to clarify?');
+          }
+          content = JSON.stringify({ content, question_short: null, options: [], scope: off ? 'off' : 'in' });
+        }
         for (const chunk of content.match(/\S+\s*/gu)) { scope.signal.throwIfAborted(); yield chunk; }
         completed = true;
       } catch (error) { throw normalizedError(error, scope.signal); }

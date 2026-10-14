@@ -257,6 +257,10 @@ export const en = {
   deviceUnavailable: 'Local model unavailable',
   // Art. 50(1) AI notice (AIT-119). A host may reword it; an empty part falls back to this default.
   aiNotice: { ...AI_NOTICE.en },
+  purposePausedDescription: 'This conversation is paused.',
+  purposePaused: "This conversation is paused. It's for projects Augmentoring can support: building a solution or improving how you work.",
+  purposeRedirect: "I can't help with that here. I'm here for projects Augmentoring can support: building a solution or improving how you work. What are you working on?",
+  purposeDirection: 'Is this more about a new solution, about how you work, or both?',
   conversation: 'Conversation', understanding: 'Understanding', you: 'You', assistant: 'AI assistant',
   pause: 'Pause', resume: 'Resume', withdraw: 'Withdraw statement', withdrawn: 'Statement withdrawn',
   paused: 'Session paused', pausedResume: 'Still paused. Select Resume to continue.', consentRequired: 'Current processing consent required',
