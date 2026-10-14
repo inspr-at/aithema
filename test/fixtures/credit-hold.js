@@ -17,10 +17,13 @@ export async function creditHoldFixture({ ownerGuard = false, settledMicro = 3_9
   storage.append(session.id, 'turn.final', { id: 'u1', role: 'user', content: 'Ich möchte eine Website.' });
   storage.append(session.id, 'turn.final', { id: 'a1', role: 'assistant', content: 'Welche Ziele haben Sie?' });
   const runtime = createPluginRuntime({ storage, budget: ledger, consent: mockConsent });
-  runtime.matrix = async current => ({ best: { text: {
-    available: ledger.canAdmit(current.id, 200_000) && host.wallet(owner).canAdmit({ maxMicro: 200_000 }),
-    reason: ledger.canAdmit(current.id, 200_000) && host.wallet(owner).canAdmit({ maxMicro: 200_000 }) ? null : 'budget denied',
-  }, analysis: { available: true }, voice: { available: true }, uploads: { available: true } } });
+  // Fixture quote: a text/analysis invocation has a 200,000-micro maximum.
+  // Read the same wallet + ledger admission rule; never use the display amount.
+  runtime.matrix = async current => {
+    const available = ledger.canAdmit(current.id, 200_000) && host.wallet(owner).canAdmit({ maxMicro: 200_000 });
+    const verdict = { available, reason: available ? null : 'budget denied' };
+    return { best: { text: verdict, analysis: verdict, voice: { available: true }, uploads: { available: true } } };
+  };
   const handlers = createHandlers({ storage, pluginRuntime: runtime, host, consent: mockConsent });
   const request = (lane, maxMicro, extra = {}) => ({ sessionId: session.id, lane, maxMicro,
     requestSha256: 'a'.repeat(64), bindingSha256: 'b'.repeat(64), ...extra });

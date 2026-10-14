@@ -85,18 +85,22 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
         assert.equal(view.footer.includes(reconciliation), false, 'reconciliation has no visible footer hint');
         assert.match(view.numericStyle, /tabular-nums/u);
         if (state.startsWith('reconciling')) assert.match(view.rail, locale === 'de' ? /Kosten werden noch abgeglichen/u : /Costs are still being reconciled/u);
+        let textAdmission = null;
         if (state.startsWith('reconciling')) {
           const admission = await shadow(page, c => ({ disabled: c.shadowRoot.querySelector('textarea').disabled,
             sendDisabled: c.shadowRoot.querySelector('.send').disabled,
-            reason: c.shadowRoot.querySelector('.composer-reason').textContent, overview: c.shadowRoot.querySelector('.features').textContent }));
+            reason: c.shadowRoot.querySelector('.composer-reason').textContent, overview: c.shadowRoot.querySelector('.notice').textContent, features: c.shadowRoot.querySelector('.features').textContent }));
           assert.equal(admission.disabled, state === 'reconciling-blocked');
           assert.equal(admission.sendDisabled, state === 'reconciling-blocked');
-          assert.doesNotMatch(admission.reason + admission.overview, /nach dem Anruf|after the call/u);
+          assert.doesNotMatch(admission.reason + admission.overview + admission.features, /nach dem Anruf|after the call/u);
+          textAdmission = admission;
           if (state === 'reconciling') {
-            await shadow(page, c => c.shadowRoot.querySelector('textarea').focus());
-            await page.keyboard.type('Typed while costs reconcile.');
-            assert.equal(await shadow(page, c => c.shadowRoot.querySelector('textarea').value), 'Typed while costs reconcile.');
+            const typed = locale === 'de' ? 'Ich tippe während des Kostenabgleichs.' : 'Typed while costs reconcile.';
             await shadow(page, c => { c.shadowRoot.querySelector('textarea').value = ''; });
+            await shadow(page, c => c.shadowRoot.querySelector('textarea').focus());
+            await page.keyboard.type(typed);
+            assert.equal(await shadow(page, c => c.shadowRoot.querySelector('textarea').value), typed);
+            textAdmission.typed = typed;
           }
         }
         const controls = await shadow(page, c => {
@@ -114,7 +118,7 @@ test('AIT-173: large voice hold, reconciling and genuine low; DE/EN L/D 390/1024
         }
         const after = await boxes(page, targets), shift = Math.max(...baseline.flatMap((row, i) => row.map((value, j) => Math.abs(value - after[i][j]))));
         assert.equal(shift, 0, `${locale}/${width}/${state}: layout shift ${shift} px`);
-        const pass = { ...capture, controls, head: evidenceCommit, locale, width, theme, state, layoutShiftPx: shift, tooltip: view.title, accessibleDescription: view.description, amount: view.amount, numericStyle: view.numericStyle, pass: true }; passes.push(pass);
+        const pass = { ...capture, controls, textAdmission, head: evidenceCommit, locale, width, theme, state, layoutShiftPx: shift, tooltip: view.title, accessibleDescription: view.description, amount: view.amount, numericStyle: view.numericStyle, pass: true }; passes.push(pass);
         console.log(`AIT-173 PASS ${locale} ${theme} ${width} ${state}: hold-safe credits; footer tooltip=${view.title ?? "none"}; shift=${shift}px; composer gap=${capture.composerFooterGapPx}px; old capture gap=${capture.oldCaptureGapPx ?? 'n/a'}px`);
         if (evidence) await page.screenshot({ path: join(evidence, `ait173-${locale}-${theme}-${width}-${state}.png`), fullPage: false });
       }

@@ -50,7 +50,7 @@ for (const copy of [de, en]) for (const covered of [true, false]) test(`AIT-173 
   const { voiceEvents } = await import('../../core/src/live-voice.js');
   const events = voiceEvents(); let ended = false, settled = false;
   const matrix = () => ({ best: { text: { available: ended && (covered || settled), reason: ended && (covered || settled) ? null : 'budget denied' },
-    voice: { available: true }, analysis: { available: true } } });
+    voice: { available: true }, analysis: { available: ended && (covered || settled), reason: ended && (covered || settled) ? null : 'budget denied' } } });
   const voiceClient = { async start({ callId }) { return { callId, providerSessionId: 'closing-provider', events,
     async setInput() {}, async setOutput() {}, async updateContext() {},
     async close() { events.end(); return { closureConfirmed: false, outcome: 'uncertain', usage: null }; } }; } };
@@ -70,6 +70,7 @@ for (const copy of [de, en]) for (const covered of [true, false]) test(`AIT-173 
   assert.equal(root.querySelector('form.composer').inert, !covered);
   assert.doesNotMatch(root.querySelector('.composer-reason').textContent, /nach dem Anruf|after the call/u);
   assert.doesNotMatch(root.querySelector('.features').textContent, /nach dem Anruf|after the call/u);
+  assert.doesNotMatch(root.querySelector('.notice').textContent, /nach dem Anruf|after the call/u);
   if (covered) {
     const input = root.querySelector('textarea'); input.value = 'A typed follow-up'; input.dispatchEvent(new window.Event('input'));
     assert.equal(input.value, 'A typed follow-up');
