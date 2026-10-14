@@ -32,8 +32,9 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
     const save = (next, opts) => storage.saveVoiceCall(request.sessionId, next, { ...opts, guard: { ...opts?.guard, ownerToken: request.ownerToken } });
     function terminal(outcome = 'completed') {
       const providerSeconds = Math.max(0, now() - record.startedAt) / 1000;
+      const pausedSeconds = Math.min(providerSeconds, record.pauses.reduce((sum, pause) => sum + Math.max(0, (pause.to ?? now()) - pause.from) / 1000, 0));
       return { providerSessionId, outcome, closureConfirmed: true, chargedMicro: 0,
-        usage: { providerSeconds, providerMinutes: providerSeconds / 60, pausedSeconds: 0, visitorSeconds: providerSeconds,
+        usage: { providerSeconds, providerMinutes: providerSeconds / 60, pausedSeconds, visitorSeconds: providerSeconds - pausedSeconds,
           upstreamMicro: 0, visitorMicro: 0, costSource: 'separate-component-claims', costEstimated: false } };
     }
     function close(reason = 'closed', outcome = 'completed') {
@@ -54,6 +55,10 @@ export function createComposedVoice({ enabled = false, config = {}, binding, sto
     async function hold(paused, opts) {
       if (paused) await coordinator.pause();
       const next = { ...record, ...coordinator.snapshot(), paused };
+      next.pauses = structuredClone(record.pauses);
+      if (record.paused !== paused) {
+        if (paused) next.pauses.push({ from: now(), to: null }); else if (next.pauses.length) next.pauses.at(-1).to = now();
+      }
       const ack = await voiceOperation(opts, command => save(next, { ...command, paused }));
       if (ack?.acknowledged !== true || ack.paused !== paused) throw new PluginError('invalid-output');
       if (!paused) await coordinator.resume();

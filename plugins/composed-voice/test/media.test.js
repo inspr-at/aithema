@@ -96,3 +96,12 @@ test('AIT-160: composed server persists acknowledged holds and settles only its 
   assert.equal(result.chargedMicro, 0); assert.equal(reports.length, 1);
   assert.equal(storage.voiceCalls(session.id)[0].terminal.chargedMicro, 0);
 });
+
+test('AIT-160: delayed predecessor closure cannot silence a successor using the same player', async t => {
+  const a = relayFixture(), b = relayFixture('generation-2'); let stops = 0;
+  const media = createComposedBrowserMedia({ openRelay: grant => (grant.providerSessionId === 'generation-1' ? a : b).relay.connect(grant),
+    capture: async () => ({ stop() {} }), player: { play() {}, stop() { stops++; } } });
+  const old = await media.connect(a.relay.grant), successor = await media.connect(b.relay.grant);
+  t.after(() => successor.close());
+  const before = stops; await old.close(); assert.equal(stops, before);
+});

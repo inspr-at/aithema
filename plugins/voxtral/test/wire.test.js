@@ -61,3 +61,31 @@ test('AIT-160: disabled adapters never resolve auth or invoke transport; truncat
   await assert.rejects(collect(tts.speak({ text: 'Hallo', format: 'pcm_f32le' }, options(reports))), { code: 'invalid-output' });
   assert.equal(reports[0].outcome, 'uncertain');
 });
+
+for (const status of [401, 403, 429, 500]) {
+  test(`AIT-160: Voxtral HTTP ${status} is sanitized and retains one uncertain dispatched attempt`, async () => {
+    const reports = [], tts = createVoxtralTTS({ enabled: true, config, resolveSecret: () => 'synthetic-auth',
+      fetchImpl: async () => new Response('synthetic private provider detail', { status }) });
+    await assert.rejects(collect(tts.speak({ text: 'Hallo', format: 'pcm_f32le' }, options(reports))), {
+      code: status === 401 || status === 403 ? 'auth' : status === 429 ? 'rate-limit' : 'provider' });
+    assert.equal(reports.length, 1); assert.equal(reports[0].outcome, 'uncertain');
+  });
+}
+
+test('AIT-160: a stalled TTS transport that ignores cancellation settles exactly once', async () => {
+  const controller = new AbortController(), reports = [], dispatched = Promise.withResolvers();
+  const tts = createVoxtralTTS({ enabled: true, config, resolveSecret: () => 'synthetic-auth',
+    fetchImpl: () => { dispatched.resolve(); return new Promise(() => {}); } });
+  const pending = collect(tts.speak({ text: 'Hallo', format: 'pcm_f32le' }, { ...options(reports), signal: controller.signal }));
+  await dispatched.promise; controller.abort();
+  await assert.rejects(pending, { code: 'cancelled' });
+  assert.equal(reports.length, 1); assert.equal(reports[0].outcome, 'uncertain');
+});
+
+test('AIT-160: a refused component claim never resolves auth or opens a provider transport', async () => {
+  let calls = 0; const reports = [];
+  const tts = createVoxtralTTS({ enabled: true, config, resolveSecret: () => { calls++; }, fetchImpl: () => { calls++; } });
+  const opts = options(reports); opts.attempt.consume = () => { throw new Error('synthetic refusal'); };
+  await assert.rejects(collect(tts.speak({ text: 'Hallo', format: 'pcm_f32le' }, opts)));
+  assert.equal(calls, 0); assert.equal(reports.length, 1); assert.equal(reports[0].chargedMicro, 0);
+});

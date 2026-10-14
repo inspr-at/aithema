@@ -1,4 +1,5 @@
 import { PluginError } from '../../../packages/core/src/invocation.js';
+import { createComposedVoiceCoordinator } from '../../../packages/server/src/composed-voice.js';
 
 export const QUALIFICATION_THRESHOLDS = Object.freeze({ wer: 0.08, entityAccuracy: 0.95,
   firstAudioP95Ms: 1500, bargeInStopMs: 300, capMicro: 25_000_000 });
@@ -49,11 +50,13 @@ export function createQualificationBudget({ capMicro = QUALIFICATION_THRESHOLDS.
   const claims = new Map(); let blocked = false;
   for (const record of records) {
     if (!record.attemptId || claims.has(record.attemptId) || !Number.isSafeInteger(record.maxMicro) || record.maxMicro < 0 ||
-      !Number.isSafeInteger(record.exposureMicro) || record.exposureMicro < 0 || !['reserved', 'dispatched', 'settled'].includes(record.state)) throw new TypeError('Invalid spend checkpoint');
+      !Number.isSafeInteger(record.exposureMicro) || record.exposureMicro < 0 || !['reserved', 'dispatched', 'settled'].includes(record.state) ||
+      record.state !== 'settled' && record.exposureMicro !== record.maxMicro ||
+      record.state === 'settled' && record.outcome === 'uncertain' && record.exposureMicro < record.maxMicro) throw new TypeError('Invalid spend checkpoint');
     claims.set(record.attemptId, structuredClone(record));
   }
   const exposure = () => [...claims.values()].reduce((sum, row) => sum + row.exposureMicro, 0);
-  if (!Number.isSafeInteger(exposure()) || exposure() > capMicro) blocked = true;
+  if (!Number.isSafeInteger(exposure()) || exposure() > capMicro || [...claims.values()].some(row => row.exposureMicro > row.maxMicro)) blocked = true;
   return {
     reserve({ attemptId, maxMicro }) {
       if (typeof attemptId !== 'string' || !attemptId || !Number.isSafeInteger(maxMicro) || maxMicro < 0) throw new TypeError('Invalid reservation');
@@ -89,8 +92,46 @@ export const OFFLINE_CORPUS = Object.freeze([
   { reference: 'Ja, ähm, ungefähr 42 Mitarbeiter.', expected: '42' },
 ]);
 export async function runOfflineQualification({ candidate, baseline } = {}) {
-  const oracle = async item => ({ hypothesis: item.reference, actual: item.expected,
-    speechEndAt: 0, firstAudioAt: 900, bargeInAt: 1000, stoppedAt: 1200 });
+  const budget = createQualificationBudget();
+  let serial = 0;
+  const oracle = async item => {
+    // Deterministic clock/PCM and synthetic ports exercise the actual server coordinator.
+    // The timings deliberately represent a fixture, never measured vendor latency.
+    let at = Date.now(), speechEndAt, firstAudioAt, stoppedAt, hypothesis;
+    const frame = Buffer.alloc(3200); for (let i = 0; i < frame.length; i += 2) frame.writeInt16LE(8000, i);
+    const sampleId = ++serial;
+    const coordinator = createComposedVoiceCoordinator({ sessionId: 'offline-qualification', callId: `offline-${sampleId}`,
+      providerSessionId: `offline-generation-${sampleId}`, now: () => at,
+      spendDeadlineAt: at + 60_000, browserLivenessDeadlineAt: at + 30_000,
+      authorize: async () => true, commitUtterance: async () => {},
+      admitComponent: async ({ role, signal, deadlineAt }) => {
+        const claim = budget.reserve({ attemptId: `${sampleId}-${role}`, maxMicro: 0 });
+        return { signal, deadlineAt, attempt: claim, report: terminal => claim.report(terminal) };
+      },
+      stt: { async *stream({ audio }, options) {
+        await options.attempt.consume(); for await (const bytes of audio) void bytes;
+        yield { text: item.reference, final: true };
+        await options.report({ attemptId: options.attempt.attemptId, outcome: 'completed', chargedMicro: 0 });
+      } },
+      replyExecutor: { async *execute() {
+        yield { type: 'operation', operation: { key: `offline-${sampleId}`, ordinal: 1 }, replyId: `offline-reply-${sampleId}` };
+        yield { type: 'delta', text: 'Welche Firma?' };
+        yield { type: 'completion', replyId: `offline-reply-${sampleId}`, text: 'Welche Firma?' };
+      } },
+      tts: { async *speak(request, options) {
+        await options.attempt.consume(); at = speechEndAt + 900; yield new Uint8Array(4);
+        await options.report({ attemptId: options.attempt.attemptId, outcome: 'completed', chargedMicro: 0 });
+      } },
+      relay: { audio() { firstAudioAt ??= at; }, silence() { stoppedAt = at; },
+        event(event) { if (event.type === 'final' && event.role === 'user') hypothesis = event.text; } },
+    });
+    try {
+      await coordinator.receiveAudio(frame); speechEndAt = at;
+      await coordinator.receiveAudio(Buffer.alloc(16_000)); await coordinator.idle();
+      at += 100; const bargeInAt = at; await coordinator.interrupt();
+      return { hypothesis, actual: hypothesis.includes(item.expected) ? item.expected : '', speechEndAt, firstAudioAt, bargeInAt, stoppedAt };
+    } finally { await coordinator.close(); }
+  };
   async function run(observe = oracle) {
     const samples = [];
     for (const item of OFFLINE_CORPUS) {
@@ -100,6 +141,7 @@ export async function runOfflineQualification({ candidate, baseline } = {}) {
     return evaluateQualification(samples);
   }
   // Transport functions are host-injected offline observations. There is no key or live runner here.
-  return { mode: 'offline', evidence: 'synthetic-harness-only', spendMicro: 0, samples: OFFLINE_CORPUS.length,
-    candidate: await run(candidate), baseline: await run(baseline) };
+  const candidateResult = await run(candidate), baselineResult = await run(baseline);
+  return { mode: 'offline', evidence: 'synthetic-coordinator-only', spendMicro: budget.snapshot().exposureMicro,
+    samples: OFFLINE_CORPUS.length, candidate: candidateResult, baseline: baselineResult };
 }

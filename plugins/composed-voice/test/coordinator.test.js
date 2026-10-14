@@ -109,3 +109,41 @@ test('AIT-160: relay rejects text receipts, stale generations and oversized audi
   await assert.rejects(h.coordinator.receiveAudio(Buffer.alloc(64_002)), { code: 'limit' });
   assert.equal(h.admissions, 0);
 });
+
+test('AIT-160: delayed STT finalizers preserve capture order and suppress the interrupted older reply', async t => {
+  const first = Promise.withResolvers(), second = Promise.withResolvers(); let streams = 0;
+  const h = fixture(t, { stt: { async *stream({ audio }, options) {
+    const index = ++streams; await options.attempt.consume(); await collect(audio);
+    if (index === 1) await first.promise; else second.resolve();
+    await options.report({ attemptId: options.attempt.attemptId, outcome: 'completed', chargedMicro: 0 });
+    yield { text: index === 1 ? 'Erste Firma' : 'Zweite Firma', final: true };
+  } } });
+  t.after(() => first.resolve());
+  for (let i = 0; i < 2; i++) {
+    await h.coordinator.receiveAudio(pcm(100)); await h.coordinator.receiveAudio(pcm(500, 0));
+  }
+  await second.promise; first.resolve(); await h.coordinator.idle();
+  assert.deepEqual(h.commits.map(e => e.payload.callbackBody.messages.at(-1).content), ['Erste Firma', 'Zweite Firma']);
+  assert.deepEqual(h.storage.voiceOperations(h.session.id).map(x => x.ordinal), [1, 2]);
+  assert.equal(h.audio.length, 1); assert.equal(h.admissions, 2);
+});
+
+test('AIT-160: a component failure holds capture and requires a fresh segment', async t => {
+  const h = fixture(t, { stt: { async *stream(request, options) {
+    await options.attempt.consume(); throw new Error('synthetic failure');
+  } } });
+  await h.coordinator.receiveAudio(pcm(100)); await h.coordinator.idle();
+  assert.equal(h.coordinator.state.state, 'waiting');
+  await assert.rejects(h.coordinator.receiveAudio(pcm(100)), { code: 'not-admitted' });
+  await assert.rejects(h.coordinator.resume(), { code: 'unavailable' });
+  assert.equal(h.reports.length, 1); assert.equal(h.reports[0].outcome, 'uncertain');
+});
+
+test('AIT-160: lease expiry waits; the independent absolute spend deadline still ends the call', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] }); let at = Date.now();
+  const h = fixture(t, { now: () => at, browserLivenessDeadlineAt: at + 10, spendDeadlineAt: at + 100 });
+  at += 10; t.mock.timers.tick(10);
+  assert.equal(h.coordinator.state.state, 'waiting');
+  at += 90; t.mock.timers.tick(90);
+  assert.equal(h.coordinator.state.state, 'ended');
+});

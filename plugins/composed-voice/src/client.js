@@ -57,7 +57,11 @@ export function createComposedBrowserMedia({ openRelay, capture, player, control
             void Promise.resolve(player.play(frame.bytes, { format: frame.format, replyId: frame.replyId }))
               .catch(() => { if (!stopped && source === transport) { mute(); lifecycle.wait('playback-failed'); } })
               .finally(() => { if (pendingPlayback.delete(token)) pendingPlaybackBytes -= token.size; });
-          } else if (frame.type === 'event') events.push(frame.event);
+          } else if (frame.type === 'event') {
+            if (frame.event.type === 'waiting') { hold = true; localStop(); lifecycle.wait(frame.event.reason); }
+            else if (frame.event.type === 'ended') { stop(); lifecycle.end(frame.event.reason); }
+            events.push(frame.event);
+          }
         }
         if (!stopped && source === transport) await lifecycle.recover();
       } catch { if (!stopped && source === transport) await lifecycle.recover(); }

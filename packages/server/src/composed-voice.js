@@ -124,7 +124,10 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
       await reply(envelope, turn.playbackRevision, signal);
     });
     track(jobs, job.catch(error => {
-      if (!signal.aborted && current()) event({ type: 'waiting', reason: error?.code ?? 'provider' });
+      if (!signal.aborted && current()) {
+        silence('component-failed'); discardInput(); dispatch({ type: 'recovery-exhausted' });
+        event({ type: 'waiting', reason: error?.code ?? 'provider' });
+      }
     }).finally(committed.resolve));
     return turn;
   }
@@ -134,10 +137,11 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     const signal = AbortSignal.any([turnSignal, controller.signal]);
     try {
       await component('tts', { text, voice, format: outputFormat }, signal, async opts => {
+        let speaking = false;
         for await (const bytes of boundedEvents(tts.speak({ text, voice, format: outputFormat }, opts), opts)) {
           if (!(bytes instanceof Uint8Array) || bytes.byteLength > 64_000) throw new PluginError('limit');
           if (revision !== playbackRevision || !output || !current()) break;
-          event({ type: 'speaking' });
+          if (!speaking) { speaking = true; event({ type: 'speaking' }); }
           await voiceOperation(opts, () => relay.audio({ ...stamp(), replyId, playbackRevision: revision, format: outputFormat, bytes }));
         }
       });
@@ -212,6 +216,7 @@ export function createComposedVoiceCoordinator({ sessionId, callId, providerSess
     },
     async resume() {
       if (state.state === 'ended') throw new PluginError('unavailable');
+      if (state.needsRecovery) throw new PluginError('unavailable', 'A fresh server segment is required');
       if (await voiceOperation(options(cancellation.signal), bounded => authorize({ ...stamp(), sessionId }, bounded)) !== true) throw new PluginError('not-admitted');
       if (state.state === 'ended') throw new PluginError('unavailable');
       if (now() >= Math.min(spendDeadlineAt, state.browserLivenessDeadlineAt)) throw new PluginError('deadline');

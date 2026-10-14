@@ -37,4 +37,19 @@ test('AIT-160: offline corpus runs both candidate and baseline without provider 
   assert.equal(result.mode, 'offline'); assert.equal(result.spendMicro, 0);
   assert.equal(result.candidate.automatedPass, true); assert.equal(result.baseline.automatedPass, true);
   assert.equal(result.candidate.qualified, false); assert.ok(result.samples >= 6);
+  assert.equal(result.evidence, 'synthetic-coordinator-only');
+});
+
+test('AIT-160: restored uncertain exposure and over-ceiling charges cannot reopen the hard cap', () => {
+  const budget = createQualificationBudget(), attempt = budget.reserve({ attemptId: 'overrun', maxMicro: 1 }); attempt.consume();
+  assert.throws(() => attempt.report({ attemptId: 'overrun', outcome: 'completed', chargedMicro: 2 }), { code: 'limit' });
+  const restored = createQualificationBudget(budget.snapshot());
+  assert.throws(() => restored.reserve({ attemptId: 'new', maxMicro: 0 }), { code: 'not-admitted' });
+  assert.throws(() => createQualificationBudget({ records: [{ attemptId: 'bad', maxMicro: 100, exposureMicro: 0, state: 'dispatched' }] }));
+});
+
+test('AIT-160: WER counts weighted insertions/deletions and ignores punctuation without losing umlauts', () => {
+  const result = evaluateQualification([sample({ reference: 'Grüß Gott!', hypothesis: 'grüß gott' }),
+    sample({ reference: 'Müller GmbH', hypothesis: 'Mueller große GmbH' })]);
+  assert.equal(result.wer, 0.5);
 });
