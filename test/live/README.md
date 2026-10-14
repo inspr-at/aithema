@@ -46,6 +46,14 @@ existing Speak/Barge-in controls. Its client timings and recovery/receipt counts
 are real simulator observations; server token metrics remain unavailable. This
 dry run validates harness plumbing, not live voice quality or provider latency.
 
+Retained mbp2606 evidence at `c5a490dd7d`: [JSON report](evidence/soak-report.json)
+and [short summary](evidence/soak-summary.md). The DE call ran for 300,190 ms,
+with 14 turns, five barge-in receipts, one recovery, both network windows,
+1,514 non-silent meter samples and 969 speech-overlap samples. Wallet confirmed,
+uncertain and reserved costs all ended at zero. The [unit red-before record](evidence/unit-red-before.json)
+and [initial silent-capture failure](evidence/red-before-soak-report.json) are
+preserved alongside the successful report.
+
 ## OPS: isolated wallet and live preflight
 
 1. Wait for the coordinator's required review/merge/release decisions. Pin the
