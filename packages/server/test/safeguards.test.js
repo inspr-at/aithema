@@ -133,7 +133,8 @@ test('AIT-174 private counter survives SQLite restart, counts an input once acro
   const path = await temporaryDb(); let storage = new SQLiteStorage(path);
   const session = storage.create({ ownerToken: testToken, demo: true });
   storage.recordSafeguard(session.id, 'turn-1', 'rev-1', true, 3);
-  storage.recordSafeguard(session.id, 'turn-1', 'rev-2', true, 3);
+  storage.recordSafeguard(session.id, 'turn-1', 'rev-2', false, 3);
+  assert.equal(storage.safeguards(session.id, 'rev-2').offTopic, false, 'the current assessment gate is separate from the historical counter');
   assert.equal(storage.safeguards(session.id).offTopicTurns, 1);
   storage.close(); storage = new SQLiteStorage(path);
   try {
