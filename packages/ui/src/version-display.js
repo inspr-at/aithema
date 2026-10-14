@@ -54,6 +54,8 @@ export function mountVersionDetails(element, version, { locale = 'de' } = {}) {
       setTimeout: (fn, ms) => view.setTimeout(fn, ms === confirmation ? 1200 : ms), clearTimeout: view.clearTimeout.bind(view) },
   });
   row.style.display = 'grid';
+  // Keep the keyboard ring inside the row, clear of the build text below.
+  row.style.outlineOffset = '-2px';
   // Chromium can retain :focus-visible when the already focused row is clicked.
   // Pointer copies still have no ring; the next key restores keyboard styling.
   const pointerFocus = () => { row.dataset.pointerFocus = ''; };

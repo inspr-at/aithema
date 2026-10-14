@@ -918,6 +918,16 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
       gap(build, legal), gap(legal, notes)];
     const rowStyle = getComputedStyle(row);
     const ring = rowStyle.outlineStyle !== 'none' && parseFloat(rowStyle.outlineWidth) > 0;
+    const rowBox = row.getBoundingClientRect();
+    const ringExtent = Math.max(0, parseFloat(rowStyle.outlineWidth) + parseFloat(rowStyle.outlineOffset));
+    const ringBox = { left: rowBox.left - ringExtent, top: rowBox.top - ringExtent,
+      right: rowBox.right + ringExtent, bottom: rowBox.bottom + ringExtent };
+    const buildRange = document.createRange(); buildRange.selectNodeContents(build.querySelector('.build-label'));
+    const buildRect = buildRange.getBoundingClientRect();
+    const buildTextBox = { left: buildRect.left, top: buildRect.top, right: buildRect.right, bottom: buildRect.bottom };
+    const ringIntersectsBuild = ringBox.left < buildTextBox.right && ringBox.right > buildTextBox.left
+      && ringBox.top < buildTextBox.bottom && ringBox.bottom > buildTextBox.top;
+    const ringBuildGapPx = buildTextBox.top - ringBox.bottom;
 
     const visibleText = row && (valueVisibility === 'hidden' ? feedback?.innerText : 'Version ' + visibleVersion);
     return { background: style.backgroundColor, opacity: style.opacity, visibility: style.visibility,
@@ -926,13 +936,18 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
       first: build.firstChild?.className, text: visibleText, valueVisibility,
       feedbackPosition: feedback && getComputedStyle(feedback).position, feedbackBox: feedback && !feedback.hidden ? box(feedback) : null,
       version: visibleVersion, title: build.title, textLines, versionColours, rhythm, ring,
+      ringBox, buildTextBox, ringIntersectsBuild, ringBuildGapPx,
       cursor: rowStyle.cursor, rowTint: rowStyle.backgroundColor, legal: [...legal.querySelectorAll('a')].map(n => n.textContent), notes: notes.textContent };
   });
   const capture = async (locale, theme, width, state, metrics) => {
+    if (state === 'copied') {
+      assert.equal(metrics.ringIntersectsBuild, false, `${locale}/${theme}: ring box does not intersect build text box`);
+      assert.ok(metrics.ringBuildGapPx >= 3, `${locale}/${theme}: ring/build text gap ${metrics.ringBuildGapPx} px >= 3 px`);
+    }
     const file = `ait105-version-${locale}-${theme}-${width}-${state}.png`;
     if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false });
     passLines.push({ head: evidenceCommit, locale, theme, width, state, pass: true, displacementPx: 0, file, ...metrics });
-    t.diagnostic(`PASS AIT-105 ${locale}/${theme}/${width}/${state}: opaque popup; ${Object.entries(metrics.textLines).map(([line, data]) => `${line} ${data.colour} ${data.contrast.toFixed(2)}:1`).join('; ')}; ring ${metrics.ring ? 'on' : 'off'}; 0 px shift`);
+    t.diagnostic(`PASS AIT-105 ${locale}/${theme}/${width}/${state}: opaque popup; ${Object.entries(metrics.textLines).map(([line, data]) => `${line} ${data.colour} ${data.contrast.toFixed(2)}:1`).join('; ')}; ring ${metrics.ring ? 'on' : 'off'}${state === 'copied' ? `; ring box does not intersect build text box; gap ${metrics.ringBuildGapPx} px >= 3 px` : ''}; 0 px shift`);
   };
   await t.test('round 3 EN slots on first load and after switching', async () => {
     const strings = () => page.evaluate(() => ['#demo-license', '#demo-legal-source', '#demo-footer'].map(selector => document.querySelector(selector).textContent));
@@ -1065,7 +1080,7 @@ test('AIT-105: Tick hover/focus matrix and copied slot have opaque paint and 0 p
       assert.deepEqual(await boxes(page, ['.display-foot', '.ai-notice', '.host-credits', '.footer-right']), footerBefore);
       await capture(locale, theme, width, state, metrics);
     }
-    if (width === 1440 && theme === 'light') {
+    if (width === 1440) {
       const before = await popupMetrics(); await page.evaluate(() => { window.ait105Copied = null; });
       await page.keyboard.press('Tab'); await page.keyboard.press('Enter');
       await until(page, () => window.ait105Copied === '261014080000.0.0');
