@@ -1,11 +1,10 @@
-import { aiNoticeText } from '../../core/src/ai-notice.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SQLiteStorage, createHandlers, createPluginRuntime, createVoiceProvider, createFacadeSecrets, createSpendCap, createVoiceCap } from '../src/index.js';
 import { PluginRegistry, inputRevision, reduceUnderstanding, applyEvent, createSession } from '@inspr/aithema-core';
 import { listen } from '../src/http.js';
 import { createOpenRouterReasoning } from '../../../plugins/openrouter/src/index.js';
-import { createVoiceHost } from '../../../demo/start2-voice-host.js';
+import { createVoiceHost, START2_VOICE_OPENERS } from '../../../demo/start2-voice-host.js';
 import { createProcessingConsent, qualifyStartBinding, CONSENT_VALIDITY_MS } from '../../../demo/processing-consent.js';
 import { fakeElevenLabs } from '../../../test/start2-fakes.js';
 import { openRouterConfig } from '../../../demo/openrouter-config.js';
@@ -216,7 +215,7 @@ test('static callback authenticates before body, rejects missing/unknown identit
 test('AIT-127: each call carries the conversation language and its matching AI notice', async t => {
   for (const locale of ['en', 'de']) {
     const h = await fixture(t, { locale }), call = await h.start();
-    assert.deepEqual(call.overrides, { agent: { language: locale, firstMessage: aiNoticeText(locale) } });
+    assert.deepEqual(call.overrides, { agent: { language: locale, firstMessage: START2_VOICE_OPENERS[locale] } });
     await h.route(`/voice/${call.callId}/close`, { providerSessionId: call.providerSessionId });
   }
 });

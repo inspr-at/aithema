@@ -1,9 +1,12 @@
 import { assertVoiceMediaGrant, unavailableVoiceCommand } from '../../../packages/core/src/live-voice.js';
 import { PluginError } from '../../../packages/core/src/invocation.js';
 
-import { AI_NOTICE, aiNoticeText } from '../../../packages/core/src/ai-notice.js';
+import { AI_NOTICE } from '../../../packages/core/src/ai-notice.js';
 
-// Only language and the matching opening AI notice or silent continuation cross this boundary.
+const disclosure = Object.freeze({ de: /\bKI-Assistenz\b/u, en: /\bAI assistant\b/u });
+
+// Hosts author the opener; require a locale-specific AI disclosure or silent continuation.
+// This is a structural check, not verification of the meaning of host-authored copy.
 export function voiceOverrides(value) {
   if (value === undefined) return undefined;
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => key !== 'agent') ||
@@ -11,8 +14,11 @@ export function voiceOverrides(value) {
     Object.keys(value.agent).some(key => !['language', 'firstMessage'].includes(key)) ||
     value.agent.language !== undefined && (typeof value.agent.language !== 'string' ||
       !/^[a-z]{2,3}(?:-[A-Za-z]{2,4})?$/u.test(value.agent.language))) throw new TypeError('Invalid voice presentation overrides');
-  if (value.agent.firstMessage !== undefined && (!Object.hasOwn(AI_NOTICE, value.agent.language ?? '') ||
-    !['', aiNoticeText(value.agent.language)].includes(value.agent.firstMessage))) throw new TypeError('Invalid voice AI notice');
+  const message = value.agent.firstMessage;
+  if (message !== undefined && (!Object.hasOwn(AI_NOTICE, value.agent.language ?? '') ||
+    typeof message !== 'string' || message.length > 1000 ||
+    message !== '' && (!disclosure[value.agent.language].test(message) ||
+      disclosure[value.agent.language === 'de' ? 'en' : 'de'].test(message)))) throw new TypeError('Invalid voice AI notice');
   return structuredClone(value);
 }
 
