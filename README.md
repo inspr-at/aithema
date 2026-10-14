@@ -3176,18 +3176,24 @@ node scripts/diagnose-reply-schema.js --allow-live
 ```
 
 OPS supplies the usual inherited process configuration; the script never opens an
-env/config file and never runs in CI. It makes one guarded reply stream for each
-of in-scope DE, in-scope EN and off-topic DE: **at most three wire calls, no retries**,
+env/config file and never runs in CI. It exercises in-scope DE, in-scope EN and
+off-topic DE, with **at most three wire calls total**. A constrained HTTP 4xx or
+explicit streamed capability refusal permits one prompt-only retry under fresh
+admission; that retry consumes the budget for a later case,
 through the normal admission, pricing and spend-cap path (in-memory cap: the smaller
 of the configured cap and USD 0.05). It prints only case IDs, parse success,
 top-level schema keys, scope presence/validity, first failing schema path/rule,
-fence presence and stream completion. Unknown key names are masked as `<unknown>`
+fence presence, stream completion, attempt count, the path (`constrained` or
+`prompt-only-retry`) and provider error class (`4xx`, `5xx`, `provider`, `other`,
+or null). Unknown key names are masked as `<unknown>`
 and `*` in paths, because names can contain private text too. No output values,
 prompts, credentials, provider errors or configuration values are logged. Rules
 refer to the strict requested schema before tolerant reply normalization; a missing
 scope or extra-field failure alone no longer means the conversation uses fallback.
-A capability refusal consumes its diagnostic call; OPS can see incomplete/unparsed
-output without the diagnostic spending another call.
+A high fallback rate is visible through value-free `reply.schema-retry` and
+`reply.fallback` counter events (lane, reason class, attempt count). Constrained
+replies missing scope emit `reply.scope-missing` without counting as off-topic.
+Fallback metadata stays private and never enters visitor snapshots or transcripts.
 
 Every start2 post-deploy smoke must include **in-scope DE + EN turns and an off-topic
 turn**. Both in-scope turns must show a specific model reply to the project, beyond

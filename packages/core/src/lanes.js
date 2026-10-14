@@ -16,10 +16,10 @@ const producer = (admitted, plugin) => aiTextOrigin(admitted?.producer ?? plugin
 export class SessionLanes {
   #flights = new Map();
   constructor({ reasoning, draftReasoning = reasoning, getSession, publish, transient = () => {}, deadlineMs = 30_000,
-    hostPrompt = '', purposePolicy, offTopicTurns = () => 0, guardDirection = (_, reply) => reply, onScope = () => {}, canUnderstand = () => true, scopeKnown, replyVisible = () => true, admit, beforeDispatch = admit ? undefined : async () => false, selection = () => '', onOpenerStripped = () => {} }) {
+    hostPrompt = '', purposePolicy, offTopicTurns = () => 0, guardDirection = (_, reply) => reply, onScope = () => {}, canUnderstand = () => true, scopeKnown, replyVisible = () => true, admit, beforeDispatch = admit ? undefined : async () => false, selection = () => '', onOpenerStripped = () => {}, onReplyDiagnostic = () => {} }) {
     this.reasoning = assertReasoning(reasoning);
     this.draftReasoning = assertReasoning(draftReasoning);
-    Object.assign(this, { getSession, publish, transient, deadlineMs, hostPrompt, purposePolicy, offTopicTurns, guardDirection, onScope, canUnderstand, scopeKnown, replyVisible, admit, beforeDispatch, selection, onOpenerStripped });
+    Object.assign(this, { getSession, publish, transient, deadlineMs, hostPrompt, purposePolicy, offTopicTurns, guardDirection, onScope, canUnderstand, scopeKnown, replyVisible, admit, beforeDispatch, selection, onOpenerStripped, onReplyDiagnostic });
   }
   // A changed processing selection supersedes in-flight work exactly like new input:
   // its late result is stale and the host reruns the lane with the new binding.
@@ -112,7 +112,8 @@ export class SessionLanes {
             try { yield* cancellableStream((admitted?.plugin ?? self.reasoning).stream(input, admitted?.options ?? options), scope.signal); }
             catch (error) { failed = true; throw error; }
             finally { await admitted?.finish({ failed }); }
-          }, { guardDirection: reply => current() ? this.guardDirection(id, reply) : reply });
+          }, { guardDirection: reply => current() ? this.guardDirection(id, reply) : reply,
+            onDiagnostic: event => this.onReplyDiagnostic({ lane, ...event }) });
           if (!current()) return 'stale';
           const guarded = stripThanksOpener(reply.content, session.locale);
           if (guarded.stripped) this.onOpenerStripped();

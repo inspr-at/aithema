@@ -116,6 +116,12 @@ export function createHandlers({ storage, reasoning = createMockReasoning(), ses
       try { log({ event: 'reply.opener-stripped', count: 1, lane: 'reaction' }); }
       catch { /* Diagnostics cannot interrupt a reply. */ }
     },
+    onReplyDiagnostic({ lane, kind, reason, attemptCount }) {
+      const event = { fallback: 'reply.fallback', 'schema-retry': 'reply.schema-retry', 'missing-scope': 'reply.scope-missing' }[kind];
+      if (!event) return;
+      try { Promise.resolve(log({ event, count: 1, lane, reason, attemptCount })).catch(() => {}); }
+      catch { /* Diagnostics cannot interrupt a reply. */ }
+    },
     publish(id, type, data, revision, scope) {
       if (stop.signal.aborted) return false;
       if (purposePolicy && type === 'turn.final' && ['in', 'unclear', 'off'].includes(scope)) {

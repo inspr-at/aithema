@@ -63,20 +63,32 @@ const cases = [
 ];
 
 export async function runReplySchemaDiagnostics({ invoke, write = line => console.log(JSON.stringify(line)) }) {
-  // Exactly one stream invocation per case. No collector, regeneration or retry.
+  // Report raw shape per wire call, including the compatibility retry. Three
+  // calls total; a retry consumes the budget for a later case, never expands it.
+  let calls = 0;
   for (const item of cases) {
     const session = createSession({ locale: item.locale });
     session.transcript.push({ role: 'user', content: item.text });
     const request = reasoningRequest(session, 'reaction', false, '', { purposePolicy: start2PurposePolicy });
-    let raw = '', complete = false;
-    try {
-      for await (const delta of invoke(request, session)) {
-        if (typeof delta !== 'string' || raw.length + delta.length > 300_000) throw new TypeError('Invalid stream');
-        raw += delta;
-      }
-      complete = true;
-    } catch { /* Never print provider messages, configuration, prompts or output. */ }
-    write({ case: item.id, ...diagnoseReplySchema(raw, complete) });
+    for (let attempt = 0; attempt < 2 && calls < 3; attempt++) {
+      const input = attempt ? { ...request, replySchemaConstrained: false,
+        system: request.system + '\nThe previous output was rejected. Return only safe reply JSON following the purpose policy; never echo rejected text.' } : request;
+      let raw = '', complete = false, failure;
+      calls++;
+      try {
+        for await (const delta of invoke(input, session)) {
+          if (typeof delta !== 'string' || raw.length + delta.length > 300_000) throw new TypeError('Invalid stream');
+          raw += delta;
+        }
+        complete = true;
+      } catch (error) { failure = error; /* Never print provider messages or output. */ }
+      const providerErrorClass = !failure ? null : ['4xx', '5xx'].includes(failure.providerErrorClass)
+        ? failure.providerErrorClass : failure.code === 'provider' ? 'provider' : 'other';
+      write({ case: item.id, path: attempt ? 'prompt-only-retry' : 'constrained', attempt_count: attempt + 1,
+        provider_error_class: providerErrorClass, ...diagnoseReplySchema(raw, complete) });
+      if (!failure?.responseFormatUnsupported || attempt) break;
+    }
+    if (calls >= 3) break;
   }
 }
 

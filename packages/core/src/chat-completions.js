@@ -3,6 +3,22 @@ import { beginInvocation, normalizedError, PluginError } from './invocation.js';
 import { untilCancelled } from './cancellation.js';
 import { usdCostMicro, generationId } from './cost.js';
 
+// Only the portable strict-output subset crosses the wire. Limits, patterns,
+// numeric bounds and other validation rules stay in the original host schema.
+function providerReplySchema(schema) {
+  const safe = {};
+  for (const key of ['type', 'enum', 'description', '$ref']) if (Object.hasOwn(schema, key)) safe[key] = schema[key];
+  if (schema.properties) {
+    safe.properties = Object.fromEntries(Object.entries(schema.properties).map(([key, shape]) => [key, providerReplySchema(shape)]));
+    safe.required = Object.keys(schema.properties);
+    safe.additionalProperties = false;
+  }
+  if (schema.items) safe.items = providerReplySchema(schema.items);
+  if (schema.anyOf) safe.anyOf = schema.anyOf.map(providerReplySchema);
+  if (schema.$defs) safe.$defs = Object.fromEntries(Object.entries(schema.$defs).map(([key, shape]) => [key, providerReplySchema(shape)]));
+  return safe;
+}
+
 export function providerUsage(usage) {
   if (!usage) return null;
   const inputTokens = usage.prompt_tokens, outputTokens = usage.completion_tokens;
@@ -39,11 +55,7 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
   // Opt in per adapter and guarded request; other hosts keep their wire contract.
   const streamExtra = request => {
     if (!streamSchema || !request.purposePolicy || !request.schema || request.replySchemaConstrained === false) return { stream: true };
-    // Strict provider subsets require every property to be required and often
-    // lack contains/maxContains. Keep the at-most-one-likely rule in the host.
-    const { contains, minContains, maxContains, ...options } = request.schema.properties.options;
-    const schema = { ...request.schema, properties: { ...request.schema.properties,
-      options: { ...options, items: { ...options.items, required: ['text', 'likely'] } } } };
+    const schema = providerReplySchema(request.schema);
     return { stream: true, response_format: { type: 'json_schema', json_schema: { name: 'reply', strict: true, schema } } };
   };
   const unsupportedResponseFormat = value => [value.error?.message, value.error?.metadata?.raw].some(message =>
@@ -121,19 +133,18 @@ export function createChatCompletions({ manifest, binding, resolveSecret, fetchI
     const response = await untilCancelled(tracked, scope.signal);
     if (!response.ok) {
       spend.httpError = true;
-      let responseFormatUnsupported = false;
+      const providerErrorClass = response.status >= 400 && response.status < 500 ? '4xx'
+        : response.status >= 500 && response.status < 600 ? '5xx' : undefined;
+      const responseFormatUnsupported = extra.stream && Boolean(extra.response_format) && providerErrorClass === '4xx';
       // A received HTTP error may still carry billed usage. Otherwise keep the hold.
       try {
         const value = JSON.parse(await responseText(response, 1_000_000, { signal: scope.signal,
           observeId: id => observe({ id }, spend.options, invocation, spend) }));
         observe(value, spend.options, invocation, spend);
-        // Inspect privately, never propagate provider text. Only an explicit
-        // capability refusal permits removing response_format on a new attempt.
-        responseFormatUnsupported = extra.stream && Boolean(extra.response_format) && [400, 404, 422].includes(response.status) &&
-          unsupportedResponseFormat(value);
       }
       catch { /* unknown cost */ }
       const error = new PluginError(response.status === 401 || response.status === 403 ? 'auth' : response.status === 429 ? 'rate-limit' : 'provider', `${label} request failed`);
+      if (providerErrorClass) error.providerErrorClass = providerErrorClass;
       if (responseFormatUnsupported) error.responseFormatUnsupported = true;
       throw error;
     }
