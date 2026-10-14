@@ -35,7 +35,7 @@ export class SQLiteStorage {
     this.db.exec(`PRAGMA busy_timeout=250; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA secure_delete=ON;
       CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, snapshot TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS safeguard_inputs (session_id TEXT NOT NULL REFERENCES sessions(id),
-        input_key TEXT NOT NULL, revision TEXT, off_topic INTEGER NOT NULL, PRIMARY KEY(session_id,input_key));
+        input_key TEXT NOT NULL, revision TEXT, off_topic INTEGER NOT NULL, analysis_off INTEGER NOT NULL, PRIMARY KEY(session_id,input_key));
       CREATE TABLE IF NOT EXISTS host_states (session_id TEXT PRIMARY KEY REFERENCES sessions(id), record TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS owner_credit_guards (owner_hash TEXT PRIMARY KEY, record TEXT NOT NULL);
       CREATE TABLE IF NOT EXISTS content (id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES sessions(id),
@@ -58,6 +58,9 @@ export class SQLiteStorage {
       CREATE INDEX IF NOT EXISTS sessions_owner ON sessions(json_extract(snapshot, '$.ownerHash'));
       CREATE TRIGGER IF NOT EXISTS events_no_update BEFORE UPDATE ON events BEGIN SELECT RAISE(ABORT,'append only'); END;
       CREATE TRIGGER IF NOT EXISTS events_no_delete BEFORE DELETE ON events BEGIN SELECT RAISE(ABORT,'append only'); END;`);
+    if (!this.db.prepare('PRAGMA table_info(safeguard_inputs)').all().some(column => column.name === 'analysis_off')) {
+      this.db.exec('ALTER TABLE safeguard_inputs ADD COLUMN analysis_off INTEGER NOT NULL DEFAULT 0; UPDATE safeguard_inputs SET analysis_off=off_topic;');
+    }
     this.#migrate();
     this.voiceTurnStore = createVoiceOperationStore(this);
     } catch (error) { this.db?.close(); this.writer?.close(); throw error; }
@@ -158,15 +161,15 @@ export class SQLiteStorage {
   }
   // Scope is consumed internally; retain only the counter contribution and assessment gate.
   safeguards(id, revision) {
-    const rows = this.db.prepare('SELECT revision,off_topic FROM safeguard_inputs WHERE session_id=?').all(id);
+    const rows = this.db.prepare('SELECT revision,off_topic,analysis_off FROM safeguard_inputs WHERE session_id=?').all(id);
     return { offTopicTurns: rows.reduce((n, row) => n + row.off_topic, 0),
       assessed: rows.some(row => row.revision === revision),
-      offTopic: rows.some(row => row.revision === revision && row.off_topic === 1) };
+      offTopic: rows.some(row => row.revision === revision && row.analysis_off === 1) };
   }
   recordSafeguard(id, key, revision, offTopic, limit, { pause = true } = {}) {
     return this.transaction(() => {
       const session = this.get(id); this.#check(session);
-      this.db.prepare('INSERT INTO safeguard_inputs VALUES (?,?,?,?) ON CONFLICT(session_id,input_key) DO UPDATE SET revision=excluded.revision').run(id, key, revision ?? null, Number(offTopic));
+      this.db.prepare('INSERT INTO safeguard_inputs(session_id,input_key,revision,off_topic,analysis_off) VALUES (?,?,?,?,?) ON CONFLICT(session_id,input_key) DO UPDATE SET revision=excluded.revision,analysis_off=excluded.analysis_off,off_topic=MAX(safeguard_inputs.off_topic,excluded.off_topic)').run(id, key, revision ?? null, Number(offTopic), Number(offTopic));
       const state = this.safeguards(id, revision);
       const event = pause && state.offTopicTurns >= limit && session.pauseReason !== 'purpose'
         ? this.#append(session, 'session.paused', { paused: true, reason: 'purpose' }) : null;
@@ -180,8 +183,8 @@ export class SQLiteStorage {
       const person = session.transcript.findLast(turn => turn.role === 'user' && !turn.erased && !turn.withdrawn);
       const documents = (session.uploads ?? []).filter(upload => !upload.erased && !upload.withdrawn).map(upload => upload.id);
       const key = JSON.stringify(['text', person?.id ?? null, documents]);
-      this.db.prepare('INSERT INTO safeguard_inputs VALUES (?,?,?,?) ON CONFLICT(session_id,input_key) DO UPDATE SET revision=excluded.revision')
-        .run(id, key, revision, Number(offTopic));
+      this.db.prepare('INSERT INTO safeguard_inputs(session_id,input_key,revision,off_topic,analysis_off) VALUES (?,?,?,?,?) ON CONFLICT(session_id,input_key) DO UPDATE SET revision=excluded.revision,analysis_off=excluded.analysis_off,off_topic=MAX(safeguard_inputs.off_topic,excluded.off_topic)')
+        .run(id, key, revision, Number(offTopic), Number(offTopic));
       const events = data ? [this.#append(session, 'turn.final', data)] : [];
       if (this.safeguards(id).offTopicTurns >= limit && session.pauseReason !== 'purpose') {
         events.push(this.#append(this.get(id), 'session.paused', { paused: true, reason: 'purpose' }));
