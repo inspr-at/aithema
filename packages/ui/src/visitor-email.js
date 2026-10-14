@@ -1,4 +1,4 @@
-// AIT-135: Settings owns one reserved cell for every acknowledged visitor-address state.
+// Settings reserves only the acknowledged visitor-address states reachable in each mode.
 import { setText, fill } from './dom.js';
 import { formatCredits } from './display.js';
 const CHECK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5 9-10"/></svg>';
@@ -38,7 +38,7 @@ export class VisitorEmail {
         <p class="m-delete-message" role="status"></p></div>
       <div class="m-view" data-view="mail"><div class="m-mail-stack">
         <p class="m-lead m-lead-mail"></p><p class="verify-entry-state m-addr"><span class="m-sent-prefix"></span><span class="verify-entry-address"></span></p></div>
-        <p class="m-tier m-mail-tier"><span class="verify-done">${CHECK}<span></span></span><span class="m-mail-tier-text"></span></p>
+        <p class="m-tier m-mail-tier"><span class="m-mail-tier-state"><span class="verify-done">${CHECK}<span></span></span><span class="m-mail-tier-text"></span></span><span class="m-mail-tier-measure" aria-hidden="true"></span></p>
         <span class="verify-entry-status sr-only"></span><div class="m-acts"><button class="m-act verify-entry" type="button" aria-haspopup="dialog"></button>
           <button class="m-act m-change-mail" type="button" aria-haspopup="dialog"></button><span class="m-dot m-mail-dot" aria-hidden="true">·</span><button class="m-act m-delete-mail" type="button"></button></div>
         <p class="m-notice m-mail-notice"><span class="m-notice-text"></span> <a class="m-pp" target="_blank" rel="noopener"></a></p>
@@ -122,6 +122,8 @@ export class VisitorEmail {
     setText(this.q('.verify-entry-status'), pending ? v.linkSent : v.unverified); this.q('.verify-entry-status').hidden = verified;
     setText(this.q('.verify-done > span'), this.tiers ? e.confirmedLabel : v.verifiedShort); this.q('.verify-done').hidden = !verified;
     setText(this.q('.m-mail-tier-text'), this.tiers && this.address ? verified ? ' · ' + fill(e.tier, { tier: this.format(this.tiers.allowancesMicro[this.tiers.current]) }) : this.tiers.canConfirm ? fill(e.pendingTier, n) : fill(e.tier, { tier: n.email }) : '');
+    // Reserve the pending tier even before an address exists or after confirmation.
+    setText(this.q('.m-mail-tier-measure'), this.delivery && this.tiers ? fill(e.pendingTier, n) : '');
     const button = this.q('.verify-entry'); button.hidden = !this.delivery || !this.canCollect || verified;
     setText(button, pending ? v.resendOrChange : v.entry);
     this.q('.m-change-mail').hidden = !verified || !this.canCollect;

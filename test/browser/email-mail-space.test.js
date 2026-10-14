@@ -15,7 +15,7 @@ const geometry = page => shadow(page, c => {
   const box = n => { const b = n.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
   const mail = entry.querySelector('[data-view=mail]'), notice = mail.querySelector('.m-notice');
   return { boxes: ['#email', '.operator-section', '.settings__footer'].map(s => box(r.querySelector(s))),
-    stackHeight: stack.getBoundingClientRect().height, mailHeight: mail.scrollHeight,
+    stackHeight: stack.getBoundingClientRect().height, mailHeight: notice.getBoundingClientRect().bottom - mail.getBoundingClientRect().top,
     reservationGap: stack.getBoundingClientRect().bottom - notice.getBoundingClientRect().bottom,
     hairlineGap: r.querySelector('.operator-section').getBoundingClientRect().top - notice.getBoundingClientRect().bottom,
     rowGap: parseFloat(getComputedStyle(r.querySelector('.general')).rowGap), lineHeight: parseFloat(getComputedStyle(notice).lineHeight) };
