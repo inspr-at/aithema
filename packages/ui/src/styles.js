@@ -228,8 +228,8 @@ ol { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; 
 .composer:focus-within { border-color:var(--aithema-accent); box-shadow:var(--aithema-shadow-raised),0 0 0 3px color-mix(in srgb,var(--aithema-accent-bright) 20%,transparent); }
 .composer label { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
 textarea { resize:none; width:100%; min-height:3.5rem; height:3.5rem; border:0; outline:0; background:transparent; color:var(--aithema-ink); padding:.25rem .5rem; font-size:1rem; line-height:1.5; }
-.purpose-pause-copy { position:absolute; inset:clamp(.85rem,2vw,1.25rem) clamp(.85rem,2vw,1.25rem) auto; height:3.5rem; overflow:auto;
-  padding:.15rem .5rem; font-size:.8rem; line-height:1.3; color:var(--aithema-muted); }
+.purpose-pause-copy { position:absolute; inset:clamp(.85rem,2vw,1.25rem) clamp(.85rem,2vw,1.25rem) calc(clamp(.85rem,2vw,1.25rem) + 44px + .25rem); overflow:auto;
+  padding:.15rem .5rem; font-size:.8rem; line-height:1.2; color:var(--aithema-muted); }
 .purpose-new { position:absolute; right:clamp(.85rem,2vw,1.25rem); bottom:clamp(.85rem,2vw,1.25rem); min-height:44px;
   padding:0 16px; border-radius:12px; font-size:.875rem; color:var(--aithema-ink); border:1px solid var(--aithema-line); background:var(--aithema-surface); }
 .composer-shell[data-purpose-paused] .composer-actions { visibility:hidden; }

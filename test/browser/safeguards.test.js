@@ -103,10 +103,10 @@ test('AIT-174 redirect, subtle question, locked pause and normal reply at 390/10
           const copy = c.shadowRoot.querySelector('.purpose-pause-copy'), action = c.shadowRoot.querySelector('.purpose-new');
           return { height: copy.clientHeight, scroll: copy.scrollHeight, gap: action.getBoundingClientRect().top - copy.getBoundingClientRect().bottom };
         });
-        assert.ok(metrics.scroll <= metrics.height + 1, `${label}: wider font pause copy fits`);
-        assert.ok(metrics.gap >= 4, `${label}: pause paragraph and action stay apart`);
         await shadow(page, c => { const copy = c.shadowRoot.querySelector('.purpose-pause-copy'); copy.style.fontFamily = ''; copy.style.fontSize = ''; copy.style.width = ''; });
         await frame(page);
+        assert.ok(metrics.scroll <= metrics.height + 1, `${label}: wider font pause copy fits (${metrics.scroll}/${metrics.height})`);
+        assert.ok(metrics.gap >= 4, `${label}: pause paragraph and action stay apart (${metrics.gap}px)`);
       }
       await shot('pause');
       checks.push(`${label}: normal, redirect, subtle question without buttons, locked pause with New conversation; 0 px composer shift; no horizontal overflow; pause copy fits`);
