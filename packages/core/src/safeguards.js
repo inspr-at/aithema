@@ -39,7 +39,7 @@ export function unsafeReplyOutput(raw, policy) {
   return raw.includes(policy.canary) || text.includes(policy.canary) || /```|~~~/u.test(raw) || /```|~~~|(?:^|\n)(?: {4}|\t)\S|<\s*(?:pre|code)\b/iu.test(text);
 }
 /** Buffer before any UI/TTS output. Each retry is a separately admitted invocation. */
-export async function collectPurposeReply(request, invoke) {
+export async function collectPurposeReply(request, invoke, { onRejected = () => {} } = {}) {
   const policy = request.purposePolicy;
   for (let attempt = 0; attempt < 2; attempt++) {
     const input = attempt ? { ...request, system: request.system + '\nThe previous output was rejected. Return only safe reply JSON following the purpose policy; never echo rejected text.' } : request;
@@ -55,7 +55,7 @@ export async function collectPurposeReply(request, invoke) {
     }
     let value;
     try { value = JSON.parse(raw); } catch { /* Fail closed without exposing wire text. */ }
-    if (!matchesSchema(value, purposeReplySchema) || !value.content.trim() || unsafeReplyOutput(raw, policy)) continue;
+    if (!matchesSchema(value, purposeReplySchema) || !value.content.trim() || unsafeReplyOutput(raw, policy)) { onRejected(attempt); continue; }
     const reply = { ...parseReply(value), scope: value.scope };
     if (reply.scope === 'off') { reply.question_short = null; reply.options = []; }
     return reply;

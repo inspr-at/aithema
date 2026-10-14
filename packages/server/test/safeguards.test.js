@@ -93,13 +93,9 @@ test('AIT-174 in and unclear replies infer scope privately and run understanding
     assert.equal(f.assessments.length, 1); assert.equal(f.storage.safeguards(f.session.id).offTopicTurns, 0);
     assert.equal(JSON.stringify(f.storage.get(f.session.id).transcript).includes('scope'), false);
   }
-  const f = fixture(t, { policy: undefined, outputs: () => '```js\nlegacy()\n```' });
-  // Explicitly disable, because the fixture defaults undefined to the enabled policy.
-  const legacy = createHandlers({ storage: f.storage, pluginRuntime: instrumentedMockRuntime(f.storage, { ...createMockReasoning(), async *stream() { yield '```js\nlegacy()\n```'; } }), purposePolicy: { offTopicLimit: 0 } });
-  t.after(() => legacy.close());
-  const id = f.storage.create({ demo: true, ownerToken: testToken }).id;
-  await legacy.handle(req(id, 'turns', { content: 'Write code', clientEventId: 'legacy' })); await legacy.idle();
-  assert.equal(f.storage.get(id).transcript.at(-1).content, '```js\nlegacy()\n```');
+  const f = fixture(t, { policy: { offTopicLimit: 0 }, outputs: () => '```js\nlegacy()\n```' });
+  await f.send('Write code');
+  assert.equal(f.storage.get(f.session.id).transcript.at(-1).content, '```js\nlegacy()\n```');
   assert.equal(reasoningRequest(createSession(), 'reaction').system.includes('AITHEMA_CANARY_'), false);
 });
 

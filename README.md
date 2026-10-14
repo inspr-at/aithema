@@ -3082,6 +3082,7 @@ reservation before each request and retry. The configured price bounds, provider
 `max_price`, disabled fallbacks, 12,000 input-token bound and 400 output-token bound
 constrain dispatch. Missing/uncertain usage retains its reservation; cap exhaustion
 stops the run. The report contains case IDs, sources, pass flags and costs only.
-The evaluator covers typed, uploaded-data and voice prompt variants; local CI
+Rejected model output and fallback use are reported as a model failure, even when
+the server safely redirects. The evaluator covers typed, uploaded-data and voice prompt variants; local CI
 covers actual TXT/PDF/DOCX extraction. Its automatic pass flag checks scope and
 canary protection; approved live behavioral assessment remains a human task.

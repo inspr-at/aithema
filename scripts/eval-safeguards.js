@@ -29,7 +29,7 @@ try {
     else context.uploads.push({ id: 'eval-reference', at: new Date().toISOString(), state: 'accepted',
       filename: source === 'filename' ? item.text + '.txt' : source + '.txt', mediaType: 'text/plain', text: source === 'filename' ? 'Project reference.' : item.text });
     const request = reasoningRequest(context, 'reaction', false, '', { purposePolicy: policy, voiceReply: source === 'voice' });
-    let admitted;
+    let admitted, rejected = 0;
     try {
       const result = await collectPurposeReply(request, async function* (input) {
         // Pricing bounds + max_tokens + provider max_price reserve worst-case
@@ -41,11 +41,11 @@ try {
         try { yield* admitted.plugin.stream(input, admitted.options); }
         catch (error) { failed = true; throw error; }
         finally { await admitted.finish({ failed }); }
-      });
-      const pass = result.scope === 'off' && !result.content.includes(policy.canary);
+      }, { onRejected: () => { rejected++; } });
+      const pass = rejected === 0 && result.scope === 'off' && !result.content.includes(policy.canary);
       if (pass) passed++;
       // No raw prompt, user content, credentials or model reply in the report.
-      console.log(JSON.stringify({ case: item.id, source, pass, cost: spendCap.snapshot() }));
+      console.log(JSON.stringify({ case: item.id, source, pass, rejected, cost: spendCap.snapshot() }));
     } catch (error) {
       console.log(JSON.stringify({ case: item.id, source, stopped: true, code: error.code ?? 'evaluation-error', cost: spendCap.snapshot() }));
       process.exitCode = 1; break evaluation;
