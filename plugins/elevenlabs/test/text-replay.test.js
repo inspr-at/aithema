@@ -1,13 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createVoiceProvider } from '../src/provider.js';
-import { SQLiteStorage, SQLiteBudgetLedger, createPluginRuntime, createVoiceHandlers, mockPresets } from '../../../packages/server/src/index.js';
+import { SQLiteStorage, SQLiteBudgetLedger, createPluginRuntime, createVoiceHandlers, createFacadeSecrets, mockPresets } from '../../../packages/server/src/index.js';
 import { PluginRegistry, createMockReasoning } from '@inspr/aithema-core';
 import { qualifyStartBinding } from '../../../demo/processing-consent.js';
 import { createDemoHost } from '../../../demo/host-ports.js';
 import { createLocalVoiceProvider } from '../../fake-voice/src/server.js';
 
-function fixture(t, { allowance = 100_000, status = 200, onPost } = {}) {
+function fixture(t, { allowance = 100_000, status = 200, onPost, voiceRate = 0 } = {}) {
   const storage = new SQLiteStorage(); t.after(() => storage.close());
   const budget = new SQLiteBudgetLedger(storage), requests = [];
   const session = storage.create({ ownerToken: 'tenant-a' });
@@ -21,6 +21,7 @@ function fixture(t, { allowance = 100_000, status = 200, onPost } = {}) {
     resolveSecret: () => 'fixture-key', fetchImpl: async (url, options = {}) => {
       requests.push({ url, options });
       if (url.endsWith('/agents/owned-agent')) return Response.json({ agent_id: 'owned-agent', conversation_config: { tts: { voice_id: 'owned-voice', model_id: 'eleven_flash_v2_5' } } });
+      if (url.endsWith('/voices/owned-voice')) return Response.json({ voice_id: 'owned-voice', sharing: { rate: voiceRate } });
       if (url.endsWith('/models')) return Response.json([{ model_id: 'eleven_flash_v2_5', can_do_text_to_speech: true,
         model_rates: { character_cost_multiplier: .5, cost_discount_multiplier: 1 } }]);
       assert.equal(options.method, 'POST'); onPost?.(storage, budget);
@@ -81,7 +82,7 @@ test('AIT-154: fake pipeline implements optional standalone speakText without a 
 });
 
 test('AIT-154: page replay is owner-bound and rejects stale call authority', async t => {
-  const f = fixture(t), handlers = createVoiceHandlers({ storage: f.storage, runtime: f.runtime,
+  const f = fixture(t), handlers = createVoiceHandlers({ storage: f.storage, runtime: f.runtime, secrets: createFacadeSecrets(),
     ownership: { token: request => request.headers.get('x-aithema-session-token') },
     readBody: async request => new Uint8Array(await request.arrayBuffer()), publish() {}, onTurn() {} });
   t.after(() => handlers.close());
@@ -96,7 +97,13 @@ test('AIT-154: page replay is owner-bound and rejects stale call authority', asy
 });
 
 test('AIT-154: changing the reply during synthesis accounts usage but refuses its audio', async t => {
-  const f = fixture(t, { onPost: storage => storage.append(storage.list()[0].id, 'turn.final', { id: 'reply-b', role: 'assistant', content: 'New answer.' }) });
+  const f = fixture(t, { onPost: storage => storage.append(storage.list()[0], 'turn.final', { id: 'reply-b', role: 'assistant', content: 'New answer.' }) });
   await assert.rejects(f.runtime.speakText({ session: f.session, turnId: 'reply-a' }), { code: 'unavailable' });
   assert.equal(f.budget.used(f.session.id), 1200);
+});
+
+test('AIT-154: an unquotable shared-voice surcharge falls back before admission', async t => {
+  const f = fixture(t, { voiceRate: .05 });
+  assert.deepEqual(await f.runtime.speakText({ session: f.session, turnId: 'reply-a' }), { kind: 'text', text: 'Exact answer.' });
+  assert.equal(f.requests.some(r => r.options.method === 'POST'), false); assert.equal(f.budget.used(f.session.id), 0);
 });

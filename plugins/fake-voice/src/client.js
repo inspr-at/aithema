@@ -22,7 +22,7 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
       const events = voiceEvents(), cancellation = new AbortController(), commandCancellation = new AbortController();
       const interruptionWaiters = new Set();
       let receipt, open = false, ended = false, paused = false, blocked = false, input = true, output = true, interrupted = false;
-      let sequence = 0, ordinal = 0, pauseRevision = 0, lastAssistant, closing, delivery = Promise.resolve(), commands = Promise.resolve(), recoveryIdentity;
+      let sequence = 0, ordinal = 0, pauseRevision = 0, lastAssistant, lastSpokenAssistant, closing, delivery = Promise.resolve(), commands = Promise.resolve(), recoveryIdentity;
       const identity = () => ({ callId: request.callId, providerSessionId: receipt?.providerSessionId,
         ...(receipt?.epoch === undefined ? {} : { epoch: receipt.epoch }) });
       const persist = async event => {
@@ -70,7 +70,7 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
         const eventId = ++sequence, turnId = `${receipt.providerSessionId}:${role}:${eventId}`;
         emit({ type: role === 'assistant' ? 'speaking' : 'listening' });
         replay.stop();
-        if (role === 'assistant') { interrupted = false; lifecycle.dispatch({ type: 'heard', prefix: null }); }
+        if (role === 'assistant') { interrupted = false; lastSpokenAssistant = { turnId, text }; lifecycle.dispatch({ type: 'heard', prefix: null }); }
         emit({ type: 'final', role, text, turnId, event_id: eventId, ...(role === 'user' ? { userTurnOrdinal: ++ordinal } : {}) });
       };
       const stopMedia = reason => {
@@ -254,11 +254,11 @@ export function createFakeVoice({ control, persistEvent, copy, document = global
           },
         };
         const bargeIn = (prefix = words().fakeVoiceHeard) => {
-          if (!open || ended || paused || blocked || !input || !lastAssistant?.text.startsWith(prefix)) return;
+          if (!open || ended || paused || blocked || !input || !lastSpokenAssistant?.text.startsWith(prefix)) return;
           interrupted = true;
           replay.stop();
           for (const waiter of interruptionWaiters) waiter();
-          emit({ type: 'heard', turnId: lastAssistant.turnId, prefix }); emit({ type: 'listening' });
+          emit({ type: 'heard', turnId: lastSpokenAssistant.turnId, prefix }); emit({ type: 'listening' });
         };
         current = { speak: text => { say('user', text ?? words().fakeVoiceStatement); say('assistant', words().fakeVoiceReply); }, bargeIn,
           disconnect: () => { if (open && !ended) void lifecycle.recover().catch(() => {}); },

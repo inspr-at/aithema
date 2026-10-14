@@ -24,6 +24,10 @@ export function createTextSpeech({ binding, fetchImpl, resolveSecret, readJson }
         const agent = await get(`/v1/convai/agents/${encodeURIComponent(binding.agentId)}`, opts);
         const tts = agent?.conversation_config?.tts;
         if (agent.agent_id !== binding.agentId || !id(tts?.voice_id) || !id(tts?.model_id)) throw new PluginError('unavailable');
+        const voice = await get(`/v1/voices/${encodeURIComponent(tts.voice_id)}`, opts);
+        // Legacy shared voices can have an account-dependent surcharge. Without
+        // an authoritative quote for that surcharge, retain the text fallback.
+        if (voice.voice_id !== tts.voice_id || voice.sharing?.rate > 0) throw new PluginError('unavailable');
         const models = await get('/v1/models', opts), model = Array.isArray(models) && models.find(item => item.model_id === tts.model_id);
         const multiplier = model?.model_rates?.character_cost_multiplier, discount = model?.model_rates?.cost_discount_multiplier;
         if (!model?.can_do_text_to_speech || !finite(multiplier) || !finite(discount)) throw new PluginError('unavailable');
@@ -76,7 +80,7 @@ export function createTextSpeech({ binding, fetchImpl, resolveSecret, readJson }
           outcome: !dispatched || refused ? 'cancelled' : usage ? 'completed' : 'uncertain',
           closureConfirmed: !dispatched || refused || Boolean(usage),
           usage: !dispatched || refused ? zero() : usage ?? null,
-          chargedMicro: usage?.upstreamMicro ?? quote.maxMicro,
+          chargedMicro: !dispatched || refused ? 0 : usage?.upstreamMicro ?? quote.maxMicro,
         });
       }
     },
