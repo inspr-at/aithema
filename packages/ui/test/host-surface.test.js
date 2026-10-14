@@ -46,6 +46,36 @@ function setup(t, { copy = en, host = { library: true, verification: true, hando
 }
 const userTurn = (c, id = 't1') => c.receive({ seq: c.session.seq + 1, type: 'turn.final', data: { id, role: 'user', content: 'We need a preorder app.' } });
 
+for (const copy of [de, en]) for (const covered of [true, false]) test(`AIT-173 round 3: ended reconciling call uses normal text admission (${copy === de ? 'de' : 'en'}, covered ${covered})`, async t => {
+  const { voiceEvents } = await import('../../core/src/live-voice.js');
+  const events = voiceEvents(); let ended = false;
+  const matrix = () => ({ best: { text: { available: ended && covered, reason: ended && covered ? null : 'budget denied' },
+    voice: { available: true }, analysis: { available: true } } });
+  const voiceClient = { async start({ callId }) { return { callId, providerSessionId: 'closing-provider', events,
+    async setInput() {}, async setOutput() {}, async updateContext() {},
+    async close() { events.end(); return { closureConfirmed: false, outcome: 'uncertain', usage: null }; } }; } };
+  const { c, root } = setup(t, { copy, voiceClient, host: { credits: true },
+    session: { demo: false, featureMatrix: matrix(), settings: { origin: 'chosen', voice: 'off', visuals: 'off' } }, routes: {
+      'GET ': () => Response.json({ ...c.session, featureMatrix: matrix() }),
+      'GET /credits': () => Response.json({ balance, exhausted: false, reconciling: ended }),
+    } });
+  await tick(8); root.querySelector('.voice-start').click(); await tick(8);
+  assert.equal(root.querySelector('.composer-reason').textContent, copy.reasons['budget denied'], 'during-call copy remains scoped to a live call');
+  ended = true; root.querySelector('.voice-close').click(); await tick(12);
+  assert.equal(root.querySelector('.audio-rail').dataset.call, 'none');
+  assert.equal(root.querySelector('textarea').disabled, !covered);
+  assert.equal(root.querySelector('.send').disabled, !covered);
+  assert.equal(root.querySelector('.composer-shell').hasAttribute('data-used-up'), !covered);
+  assert.equal(root.querySelector('form.composer').inert, !covered);
+  assert.doesNotMatch(root.querySelector('.composer-reason').textContent, /nach dem Anruf|after the call/u);
+  assert.doesNotMatch(root.querySelector('.features').textContent, /nach dem Anruf|after the call/u);
+  if (covered) {
+    const input = root.querySelector('textarea'); input.value = 'A typed follow-up'; input.dispatchEvent(new window.Event('input'));
+    assert.equal(input.value, 'A typed follow-up');
+    assert.equal(input.placeholder, copy.placeholder);
+  } else assert.equal(root.querySelector('.composer-reason').textContent, copy.voiceStates.usedUp);
+});
+
 test('AIT-135 a host without an owner guard displays credits with a hidden, empty countdown', async t => {
   const { root } = setup(t, { host: { credits: true } }); await tick();
   assert.equal(root.querySelector('.host-credits').hidden, false);

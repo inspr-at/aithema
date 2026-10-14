@@ -5,6 +5,27 @@ import { lowCredit } from '../../packages/ui/src/email-ask.js';
 import { admitCredits } from '../../packages/core/src/credits.js';
 
 const credits = async f => (await f.call('/credits')).json();
+test('AIT-173 round 3: an owner reservation in the admitCredits await gap is held, not charged', async t => {
+  const f = await creditHoldFixture(); t.after(() => f.close());
+  const wallet = f.host.wallet(f.owner), original = wallet.admit;
+  const reserved = Promise.withResolvers(), resume = Promise.withResolvers();
+  t.after(() => resume.resolve());
+  wallet.admit = async request => {
+    const result = await original(request);
+    reserved.resolve(request.attemptId); await resume.promise; return result;
+  };
+  const pending = admitCredits(f.ledger, f.request('reaction', 200_000), wallet);
+  const attemptId = await reserved.promise;
+  try {
+    assert.equal(f.ledger.get(attemptId), undefined, 'the poll lands before the ledger row');
+    assert.equal(wallet.canAdmit({ maxMicro: 1 }), false, 'the owner maximum is reserved');
+    const view = await credits(f);
+    assert.equal(view.exhausted, false, 'unjournalled work is not a charge');
+    assert.equal(view.fullHold, true);
+    assert.equal(view.balance.owner.availableMicro, 6_000_000);
+  } finally { resume.resolve(); await pending; }
+});
+
 for (const ownerGuard of [false, true]) test(`AIT-173: in-call hold uses expected spend, admission keeps maxima (guard ${ownerGuard})`, async t => {
   const f = await creditHoldFixture({ ownerGuard }); t.after(() => f.close());
   const before = f.storage.read(f.session.id), view = await credits(f);

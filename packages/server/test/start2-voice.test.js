@@ -12,7 +12,7 @@ import { htmlConfig } from '../../../demo/html-config.js';
 import { createClaudeHTML } from '@inspr/aithema-plugin-claude-html';
 import { temporaryDb } from '../../../test/helpers.js';
 
-async function fixture(t, { locale = 'en', capMilliseconds, closureTimeoutMs, reconcileIntervalMs, drafts = false } = {}) {
+async function fixture(t, { locale = 'en', capMilliseconds, closureTimeoutMs, reconcileIntervalMs, drafts = false, reconcileReady = false } = {}) {
   let cleanup; t.after(() => cleanup?.());
   const storage = new SQLiteStorage(), eleven = await fakeElevenLabs(t), logs = [], upstream = [];
   let processing = false, heldUnderstanding;
@@ -52,7 +52,7 @@ async function fixture(t, { locale = 'en', capMilliseconds, closureTimeoutMs, re
   const voice = createVoiceProvider({ storage, staticFacade: true, binding: { agentId: host.binding.agentId, secretRef: host.binding.secretRef,
     apiBaseUrl: eleven.endpoint, upstreamMicroPerMinute: 100_000, visitorMicroPerMinute: 100_000,
     reservationSeconds: host.binding.reservationSeconds, usdPerCredit: host.binding.usdPerCredit }, resolveSecret: () => 'local-fixture-key',
-    fetchImpl: providerFetch, closureTimeoutMs, reconcileLater: () => handlers.reconcileVoiceLater() });
+    fetchImpl: providerFetch, closureTimeoutMs, log: value => logs.push(value), reconcileLater: () => handlers.reconcileVoiceLater() });
   const secrets = createFacadeSecrets(); secrets.resolve = ref => ref === host.staticSecretRef ? 'local-callback-fixture' : null;
   const voiceCap = capMilliseconds === undefined ? undefined : createVoiceCap({ storage, capMilliseconds });
   const registry = new PluginRegistry().register(reasoning).register(voice);
@@ -66,7 +66,9 @@ async function fixture(t, { locale = 'en', capMilliseconds, closureTimeoutMs, re
   const reconcile = runtime.reconcileVoice;
   runtime.reconcileVoice = (...args) => { const result = reconcile(...args); reconciled.resolve(); return result; };
   const handlers = createHandlers({ storage, reasoning, pluginRuntime: runtime, consent,
-    voice: { secrets, staticSecretRef: host.staticSecretRef, presentation: host.presentation, closeOrphan: host.closeOrphan, reconcileIntervalMs } });
+    voice: { secrets, staticSecretRef: host.staticSecretRef, presentation: host.presentation,
+      closeOrphan: (record, options) => { if (reconcileReady) processing = false; return host.closeOrphan(record, options); },
+      log: value => logs.push(typeof value === 'string' ? JSON.parse(value) : value), reconcileIntervalMs } });
   cleanup = async () => { heldUnderstanding?.released.resolve(); await handlers.close(); storage.close(); openrouter.server.closeAllConnections(); await new Promise(resolve => openrouter.server.close(resolve)); };
   const session = storage.create({ ownerToken: 'local-owner', locale });
   const route = (suffix, body = {}, owner = 'local-owner') => handlers.handle(new Request(`https://start2.example.test/api/sessions/${session.id}${suffix}`, {
@@ -87,8 +89,32 @@ async function fixture(t, { locale = 'en', capMilliseconds, closureTimeoutMs, re
     body: JSON.stringify({ elevenlabs_extra_body: { aithema_call: identity }, messages: [{ role: 'user', content: 'Hello' }], ...extra }) }));
   return { storage, eleven, handlers, runtime, session, route, grant, start, callback, consent, upstream, voiceCap,
     holdUnderstanding() { heldUnderstanding = { started: Promise.withResolvers(), released: Promise.withResolvers() }; return heldUnderstanding; },
-    processing: value => { processing = value; }, reconciled: reconciled.promise };
+    processing: value => { processing = value; }, reconciled: reconciled.promise, logs };
 }
+
+test('AIT-173 round 3: closure immediately reconciles unresolved costs through the provider-cost path', { timeout: 5000 }, async t => {
+  const measurements = [];
+  for (let sample = 0; sample < 3; sample++) {
+    const h = await fixture(t, { closureTimeoutMs: 10, reconcileReady: true }), call = await h.start();
+    h.processing(true);
+    const began = performance.now();
+    const response = await h.route(`/voice/${call.callId}/close`, { providerSessionId: call.providerSessionId, background: true });
+    assert.equal(response.status, 202);
+    await Promise.race([h.reconciled, new Promise((_, reject) => {
+      const timer = setTimeout(() => reject(new Error('reconciliation waited for the 30 s retry tick')), 300);
+      timer.unref();
+    })]);
+    await h.handlers.idle();
+    const row = h.runtime.budget.get(h.storage.voiceCalls()[0].attemptId);
+    assert.equal(row.settled_micro, 1200, 'confirmed provider cost, not the duration fallback');
+    assert.equal(h.storage.voiceCalls()[0].reconciliationPending, false);
+    const diagnostic = h.logs.find(row => row.event === 'voice.cost-reconciled');
+    assert.equal(diagnostic.costEstimated, false);
+    measurements.push({ closingToSettledMs: Math.round(performance.now() - began), reconciliationAgeMs: diagnostic.reconciliationAgeMs,
+      closureLookupMs: h.logs.find(row => row.event === 'voice.closure-pending').elapsedMs });
+  }
+  console.log(`AIT-173 RECONCILIATION provider-cost fixture ${JSON.stringify(measurements)}`);
+});
 
 function savedConversation(h) {
   const id = h.session.id;
