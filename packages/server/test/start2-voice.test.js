@@ -92,6 +92,24 @@ async function fixture(t, { locale = 'en', capMilliseconds, closureTimeoutMs, re
     processing: value => { processing = value; }, reconciled: reconciled.promise, logs };
 }
 
+test('AIT-173 round 3: measure normal provider-cost closure polling', { timeout: 5000 }, async t => {
+  const measurements = [];
+  for (const processing of [false, true]) for (let sample = 0; sample < 3; sample++) {
+    const h = await fixture(t, { closureTimeoutMs: 2000 }), call = await h.start();
+    h.processing(processing);
+    if (processing) { const timer = setTimeout(() => h.processing(false), 50); t.after(() => clearTimeout(timer)); }
+    const began = performance.now();
+    const response = await h.route(`/voice/${call.callId}/close`, { providerSessionId: call.providerSessionId, background: true });
+    assert.equal(response.status, 202); await h.handlers.idle();
+    const row = h.runtime.budget.get(h.storage.voiceCalls()[0].attemptId);
+    assert.equal(row.settled_micro, 1200);
+    assert.equal(JSON.parse(row.usage).costSource, 'elevenlabs.cost');
+    const elapsedMs = h.logs.find(row => row.event === 'voice.cost-confirmed').elapsedMs;
+    measurements.push({ processing, closingToSettledMs: Math.round(performance.now() - began), closureLookupMs: elapsedMs });
+  }
+  console.log(`AIT-173 RECONCILIATION normal provider-cost fixture ${JSON.stringify(measurements)}`);
+});
+
 test('AIT-173 round 3: closure immediately reconciles unresolved costs through the provider-cost path', { timeout: 5000 }, async t => {
   const measurements = [];
   for (let sample = 0; sample < 3; sample++) {
