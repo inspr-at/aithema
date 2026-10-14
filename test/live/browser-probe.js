@@ -29,10 +29,11 @@ export async function installProbe({ mode, locale }) {
   const stream = await native({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }), context = new AudioContext();
   await context.resume();
   const source = context.createMediaStreamSource(stream), gain = context.createGain(), analyser = context.createAnalyser();
-  const destination = context.createMediaStreamDestination(), silentSink = context.createGain();
+  const destination = context.createMediaStreamDestination();
   // Fake voice never consumes the media stream. Keep the graph pulled through a
-  // silent output as well, so Chrome processes the same input in both modes.
-  silentSink.gain.value = 0; analyser.connect(silentSink); silentSink.connect(context.destination);
+  // output as well, so Chrome processes the same input in both modes. Chrome's
+  // --mute-audio keeps this test output silent without pruning a zero-gain sink.
+  analyser.connect(context.destination);
   gain.gain.value = 0; source.connect(gain); gain.connect(analyser); analyser.connect(destination);
   media.getUserMedia = async constraints => constraints.audio ? destination.stream.clone() : native(constraints);
   const samples = new Float32Array(analyser.fftSize);
@@ -70,7 +71,8 @@ export async function installProbe({ mode, locale }) {
   })();
   state.snapshot = () => ({ events: state.events, turns: state.turns, speaking: state.speaking, closed: state.closed,
     samples: state.samples, peak: state.peak, speechSamples: state.speechSamples,
-    overlapSamples: state.overlapSamples, heartbeatFailures: state.heartbeatFailures });
+    overlapSamples: state.overlapSamples, heartbeatFailures: state.heartbeatFailures,
+    audioContextState: context.state, inputTrackState: stream.getAudioTracks()[0]?.readyState });
   state.input();
   await new Promise(resolve => setTimeout(resolve, 1500));
   if (!state.speechSamples) throw new Error('Synthetic microphone preflight is silent');
