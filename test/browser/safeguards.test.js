@@ -61,7 +61,7 @@ test('AIT-174 redirect, locked pause and normal reply at 390/1024/1440, L/D, DE/
           question_short: null, options: [], inputRevision: inputRevision(c.session) } });
       }); await frame(page);
       assert.deepEqual(await boxes(page, ['.composer', 'textarea', '.attach', '.send', '.understanding']), baseline, `${label} redirect: 0 px shift`);
-      const redirect = await shadow(page, c => ({ text: c.shadowRoot.querySelector('.transcript').textContent, card: Boolean(c.shadowRoot.querySelector('.qcard:not([hidden])')) }));
+      const redirect = await shadow(page, c => ({ text: c.shadowRoot.querySelector('.transcript-shell').textContent, card: Boolean(c.shadowRoot.querySelector('.qcard:not([hidden])')) }));
       assert.match(redirect.text, /Augmentoring/u); assert.equal(redirect.card, false); assert.doesNotMatch(redirect.text, /scope|```|AITHEMA_CANARY_/u); await shot('redirect');
       await shadow(page, c => c.receive({ seq: c.session.seq + 1, type: 'session.paused', data: { paused: true, reason: 'purpose' } })); await frame(page);
       assert.deepEqual(await boxes(page, ['.composer', 'textarea', '.attach', '.send', '.understanding']), baseline, `${label} pause: 0 px shift`);
