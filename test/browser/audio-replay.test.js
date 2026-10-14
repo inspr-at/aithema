@@ -129,7 +129,9 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
       const file = `audio-replay-${state}-${width}-${theme}-${locale}.png`;
       if (evidence) await page.screenshot({ path: join(evidence, file), fullPage: false });
       files.push({ file, state, width, theme, locale, viewport: true });
-      passLines.push({ file, shiftPx: 0, ...alignment, pass: true }); t.diagnostic(`PASS ${file}: 0 px shift; alignment ${JSON.stringify(alignment)}`);
+      const aligned = Math.abs(alignment.centreOffsetPx) <= 1 && Math.abs(alignment.linkBaselineOffsetPx) <= 1 &&
+        (!alignment.sameRow || Math.abs(alignment.noticeBaselineOffsetPx) <= 1);
+      passLines.push({ file, shiftPx: 0, ...alignment, pass: aligned }); t.diagnostic(`${aligned ? 'PASS' : 'FAIL'} ${file}: 0 px shift; alignment ${JSON.stringify(alignment)}`);
     };
     await capture('idle');
     await t.test(`${locale}/${theme}/${width}: text link`, async () => {

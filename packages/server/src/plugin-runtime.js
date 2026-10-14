@@ -97,12 +97,16 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
   // A synchronous session lease precedes every authorization, quote and wallet await.
   // It survives the synthesis receipt until playback ends (or its bounded lease expires).
   const replyReplays = new Map();
+  const releaseReplyReplay = (sessionId, lease) => {
+    if (replyReplays.get(sessionId) !== lease) return;
+    replyReplays.delete(sessionId); clearTimeout(lease.timer);
+    lease.signal?.removeEventListener('abort', lease.abort);
+    lease.controller.abort();
+  };
   const stopReplyReplay = (sessionId, replayId) => {
     const entry = replyReplays.get(sessionId);
     if (!entry || replayId !== undefined && entry.replayId !== replayId) return;
-    replyReplays.delete(sessionId); clearTimeout(entry.timer);
-    entry.signal?.removeEventListener('abort', entry.abort);
-    entry.controller.abort();
+    releaseReplyReplay(sessionId, entry);
   };
   let ownerWallet, costRetryOffset = 0, costJob;
   const admitBudget = async (session, request) => {
@@ -674,7 +678,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
       if (replyReplays.has(session.id)) return { kind: 'busy' };
       const lease = { replayId: options.replayId ?? randomUUID(), controller: new AbortController(), signal: options.signal };
       replyReplays.set(session.id, lease);
-      lease.abort = () => stopReplyReplay(session.id, lease.replayId);
+      lease.abort = () => releaseReplyReplay(session.id, lease);
       lease.signal?.addEventListener('abort', lease.abort, { once: true });
       lease.timer = setTimeout(lease.abort, 30_000); lease.timer.unref?.();
       options = { ...options, signal: lease.signal ? AbortSignal.any([lease.signal, lease.controller.signal]) : lease.controller.signal };
@@ -748,7 +752,7 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
           if (!reported) report({ outcome: 'uncertain', closureConfirmed: false, chargedMicro: dispatched ? quote.maxMicro : 0, usage: null });
         }
       } catch (error) { playing = false; throw error; }
-      finally { if (!playing) stopReplyReplay(session.id, lease.replayId); }
+      finally { if (!playing) releaseReplyReplay(session.id, lease); }
     },
     async admitVoice({ session, request, options = {} }) {
       if (!voiceUnchanged(session, options.allowPaused)) throw new PluginError('not-admitted');

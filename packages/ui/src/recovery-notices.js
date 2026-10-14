@@ -48,9 +48,9 @@ export class RecoveryNotices {
     text('.voice-read-text', c.voiceReadText);
     this.button.dataset.replayState = this.playing ? 'playing' : this.interrupted ? 'interrupted' : 'idle';
     this.button.setAttribute('aria-pressed', String(Boolean(this.playing)));
-    this.button.hidden = !(recovery?.deliveryUncertain && recovery.playbackPositionUnknown || this.pageReply) || !this.replyVisible(reply, recovery?.lastReplyTurnId ?? this.pageReply?.turnId);
+    this.button.hidden = !(recovery?.deliveryUncertain && recovery.playbackPositionUnknown || this.pageReply) || Boolean(reply) && !this.replyVisible(reply, recovery?.lastReplyTurnId ?? this.pageReply?.turnId);
     this.readText.hidden = this.button.hidden;
-    this.readText.disabled = !available;
+    this.readText.disabled = !available || !reply;
     this.button.disabled = !available || Boolean(this.pending) && !this.playing || !(recovery?.lastReplyText ?? this.pageReply?.text);
     this.button.title = reply ? label : c.voiceReplyUnavailable;
     this.button.setAttribute('aria-label', this.button.title);
