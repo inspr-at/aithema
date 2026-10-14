@@ -126,6 +126,11 @@ test('AIT-170 cap settings and audit commit atomically', t => {
   storage.db.exec(`CREATE TRIGGER reject_cap_audit BEFORE INSERT ON spend_cap_audit BEGIN SELECT RAISE(ABORT,'audit unavailable'); END;`);
   assert.throws(() => save(cap, '0.000200'), /audit unavailable/u);
   assert.deepEqual(cap.settings(), before); assert.deepEqual(cap.audit(), []);
+  assert.throws(() => cap.resetSettings({ baseRevision: 1 }, identity), /audit unavailable/u);
+  cap.reserve(20);
+  assert.throws(() => save(cap, '0'), /audit unavailable/u);
+  assert.equal(cap.settings().storedCapMicro, null); assert.equal(cap.settings().revision, 1);
+  assert.deepEqual(cap.audit(), []);
 });
 
 test('AIT-170 malformed saves and forged attribution do not change settings or append audits', async t => {
@@ -158,8 +163,8 @@ test('AIT-170 a host without a configured provider cap refuses writes and audit 
   assert.equal((await adminRequest(path, 'provider-cap')).body.available, false);
   assert.equal((await adminRequest(path, 'set-provider-cap', { baseRevision: 1, capUsd: '10' })).status, 503);
   assert.equal((await adminRequest(path, 'provider-cap-audit')).status, 503);
+  assert.equal((await adminRequest(path, 'reset-provider-cap', { baseRevision: 1 })).status, 503);
 });
-
 
 test('AIT-170 round 2 lowering an already breached configured cap never raises it', async t => {
   const { storage, path } = await fixture(t);
@@ -235,4 +240,21 @@ test('AIT-170 round 2 typo bound uses configured cap and CLI allow-large is expl
   assert.throws(() => save(big, '2000.000001'), error => error.status === 422);
   assert.equal(big.settings().capMicro, 2_000_000_000);
   assert.equal((await adminRequest(path, 'set-provider-cap', { baseRevision: 3, capUsd: '3000', allowLarge: 'true' })).status, 400);
+});
+
+
+test('AIT-170 round 2 preserves append-only audit history from the round-1 schema', t => {
+  const storage = new SQLiteStorage(); t.after(() => storage.close());
+  storage.db.exec(`CREATE TABLE spend_cap_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, account TEXT NOT NULL, actor TEXT NOT NULL, source TEXT NOT NULL,
+    at TEXT NOT NULL, revision INTEGER NOT NULL, requested_usd TEXT NOT NULL,
+    old_json TEXT NOT NULL, new_json TEXT NOT NULL, clamp_json TEXT NOT NULL);
+    INSERT INTO spend_cap_audit VALUES (1,'fixture','ops-cli:old','ops-cli','2026-10-14T00:00:00Z',1,'1','{}','{}','null');`);
+  const cap = capFor(storage), [legacy] = cap.audit();
+  assert.equal(legacy.requestedUsd, '1'); assert.equal(legacy.actor, 'ops-cli:old');
+  assert.equal(legacy.operation, 'set'); assert.equal(legacy.outcome, 'saved'); assert.equal(legacy.allowLarge, false);
+  save(cap, '0.000200');
+  assert.deepEqual(cap.audit()[0], legacy); assert.equal(cap.audit().length, 2);
+  assert.throws(() => storage.db.exec("UPDATE spend_cap_audit SET requested_usd='2' WHERE id=1"), /append only/u);
+  assert.throws(() => storage.db.exec('DELETE FROM spend_cap_audit WHERE id=1'), /append only/u);
 });
