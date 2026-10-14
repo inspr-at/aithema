@@ -272,11 +272,19 @@ Heartbeat renews only the browser lease, bounded by the unchanged spend deadline
 Pause renews neither deadline.
 
 `overrides.agent.language` and `overrides.agent.firstMessage` are allowed on
-the server and in the browser (AIT-127). A first message must exactly match
-`aiNoticeText(language)` for DE or EN; arbitrary or empty greetings and model,
-prompt, credential and custom-LLM overrides are rejected. Startup enables both
-platform fields on the owned agent and checks the exact read-back. The per-call
-notice matches the component's copy and contains only the conversation language.
+the server and in the browser (AIT-127, AIT-175). Hosts configure DE/EN openers;
+`aiNoticeText(language)` supplies a neutral default. Opening copy must include
+the matching "KI-Assistenz" or "AI assistant" disclosure, omit the other
+language's disclosure, and be at most 1000 characters. This checks structure;
+the host is responsible for what its copy means. Continuations stay empty.
+Model, prompt, credential and custom-LLM overrides are rejected. Startup receives
+`spokenOpeners: {de, en}`, enables both platform fields on the receipt-owned
+agent, and checks exact read-back against the configured base-language opener.
+The per-call opener comes from the same host configuration. Visual AI disclosure
+and consent remain separate and unchanged. At deploy OPS restarts start2 with
+its existing database/WAL; normal ensure PATCHes and GETs only its owned agent.
+START's template remains GET-only. See the root AI-notice section for the exact
+start2 sentences and deploy instructions.
 The start result exposes public identities/deadlines, `credential`, `pause`,
 `resume`, `heartbeat`, `close(reason?, outcome?)`, private `snapshot()` and a
 server-only call `signal` aborted at closure. Pass that signal alongside the

@@ -1,6 +1,7 @@
 import { readJson } from './server.js';
 import { isDeepStrictEqual } from 'node:util';
 import { aiNoticeText } from '../../../packages/core/src/ai-notice.js';
+import { voiceOverrides } from './options.js';
 
 /** Base URL path of the voice callback; the platform appends /chat/completions (static route: /api/voice/llm/chat/completions). */
 export const CUSTOM_LLM_BASE_PATH = '/api/voice/llm';
@@ -37,7 +38,14 @@ export class AgentEnsureError extends Error {
 
 /** Only the local creation receipt authorizes future writes. Remote names confer no ownership. */
 export async function ensureAgent({ storage, templateAgentId, publicOrigin, resolveSecret,
-  apiBaseUrl = 'https://api.elevenlabs.io', fetchImpl = fetch, log = console.log, maxDurationSeconds = 3600, signal } = {}) {
+  apiBaseUrl = 'https://api.elevenlabs.io', fetchImpl = fetch, log = console.log, maxDurationSeconds = 3600,
+  spokenOpeners, signal } = {}) {
+  // Reject a host configuration without AI disclosure before any provider read or write.
+  const openers = Object.fromEntries(['de', 'en'].map(language => {
+    const firstMessage = aiNoticeText(language, { opener: spokenOpeners?.[language] });
+    voiceOverrides({ agent: { language, firstMessage } });
+    return [language, firstMessage];
+  }));
   if (!id(templateAgentId)) throw new AgentEnsureError('template-agent-required');
   const origin = new URL(publicOrigin);
   if (origin.origin !== publicOrigin || origin.protocol !== 'https:' && !(origin.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname))) throw new AgentEnsureError('public-origin-invalid');
@@ -129,9 +137,10 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
   // UNVERIFIED API SHAPE: POST /v1/convai/agents/create and PATCH /v1/convai/agents/:id;
   // custom_llm.api_key {secret_id}, llm 'custom-llm', platform_settings.auth/overrides.
   // Require a matching owned-agent GET after every write before enabling voice.
-  // The fallback and the per-call override use the component's exact Art. 50 notice for one
-  // language. Only our receipt-owned aithema-start2 agent is changed, never START's template.
+  // The host supplies the same AI opener for the stored fallback and per-call override.
+  // Only our receipt-owned aithema-start2 agent is changed, never START's template.
   const language = ['en', 'de'].includes(config.agent?.language) ? config.agent.language : 'de';
+  const firstMessage = openers[language];
   const body = { name: AGENT_NAME, conversation_config: {
     tts: { ...pick(config.tts, ['voice_id', 'model_id', 'stability', 'similarity_boost', 'style', 'use_speaker_boost', 'speed', 'optimize_streaming_latency', 'agent_output_audio_format']),
       ...(config.tts.voice_settings ? { voice_settings: pick(config.tts.voice_settings, ['stability', 'similarity_boost', 'style', 'use_speaker_boost', 'speed']) } : {}) },
@@ -140,7 +149,7 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
     conversation: { max_duration_seconds: maxDurationSeconds, client_events: [...CLIENT_EVENTS] },
     // UNVERIFIED API SHAPE: conversation_config.language_presets {[language]: {overrides, ...}}; empty clears them.
     language_presets: {},
-    agent: { language, first_message: aiNoticeText(language),
+    agent: { language, first_message: firstMessage,
       prompt: { prompt: '', llm: 'custom-llm', tools: [], knowledge_base: [],
         // A base URL: ElevenLabs' custom-LLM client (AsyncOpenAI) appends /chat/completions itself, as START's agent
         // (https://start.augmentoring.com/api/v2/llm) shows. The full path was doubled live on 2026-10-10 and fell outside
@@ -151,7 +160,7 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
     // UNVERIFIED API SHAPE: allowlist item {hostname}, per ElevenLabs docs; live list was empty.
     auth: { enable_auth: true, allowlist: [{ hostname: origin.host }] },
     // First-message and language overrides are documented platform fields. The client accepts
-    // only the fixed AI notice matching the server's locale; prompt/model/voice overrides stay closed.
+    // only a host AI opener in the server's locale; prompt/model/voice overrides stay closed.
     overrides: { custom_llm_extra_body: true, conversation_config_override: { agent: { first_message: true, language: true } } },
   } };
   let agentId = owned;
@@ -185,7 +194,7 @@ export async function ensureAgent({ storage, templateAgentId, publicOrigin, reso
     'conversation_config.agent.language': remote?.conversation_config?.agent?.language === language,
     'conversation_config.conversation.max_duration_seconds': remote?.conversation_config?.conversation?.max_duration_seconds === maxDurationSeconds,
     'conversation_config.conversation.client_events': isDeepStrictEqual(remote?.conversation_config?.conversation?.client_events, CLIENT_EVENTS),
-    'conversation_config.agent.first_message': spoken === aiNoticeText(language),
+    'conversation_config.agent.first_message': spoken === firstMessage,
     'conversation_config.language_presets': isDeepStrictEqual(presets, {}),
     'conversation_config.turn.silence_end_call_timeout': remote?.conversation_config?.turn?.silence_end_call_timeout === SILENCE_END_CALL_TIMEOUT,
     ...Object.fromEntries(Object.entries(TURN_POLICY).map(([field, expected]) =>

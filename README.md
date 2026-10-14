@@ -553,18 +553,37 @@ over the bundle. Each part that is missing, empty or only whitespace falls back,
 first to the bundle, then to the default for the session language. The defaults
 live in `packages/core/src/ai-notice.js` (`AI_NOTICE`, `aiNotice`, `aiNoticeText`).
 
-The start2 voice host speaks `aiNoticeText(session.locale)` as its first message
-(AIT-127): German or English only, matching the component's notice word for word.
-The host supplies `presentation(locale)` as `voice.presentation` to
-`createHandlers`: `{agent: {language: locale, firstMessage: aiNoticeText(locale)}}`.
-[ElevenLabs documents both overrides](https://elevenlabs.io/docs/eleven-agents/customization/personalization/overrides).
-The plugin accepts a first message only when it exactly matches that locale's
-fixed AI notice; model, prompt and credential overrides remain refused.
-Startup enables `agent.language` and `agent.first_message` on the owned
-`aithema-start2` agent, clears language presets and checks the exact read-back.
-Its fallback first message matches its DE/EN base language. START's template is
-read only. **Unverified live:** the provider speaking this notice before all
-other output must be checked by the coordinator's live smoke below.
+The spoken opener is separate from the visual notice (AIT-175). The neutral core
+`aiNoticeText(locale)` default says "Hello, this is an AI assistant. How can I
+help you?" or "Hallo, hier ist die KI-Assistenz. Wie kann ich Ihnen helfen?".
+Hosts supply `aiNoticeText(locale, {opener})`; blank or missing openers fall back
+to the neutral default. `{voice: false}` still returns the visual notice text.
+The visual notice, footer "KI-Assistenz · synthetische Stimme" and consent copy
+remain unchanged.
+
+The built-in start2 host's `spokenOpeners` defaults to:
+- DE: "Hallo, hier ist die KI-Assistenz von Augmentoring. Wie kann ich Ihnen helfen?"
+- EN: "Hello, this is Augmentoring's AI assistant. How can I help you?"
+
+`createVoiceHost({..., spokenOpeners: {de, en}})` lets a host configure both
+languages. The host snapshots this configuration and supplies the same text to
+`ensureAgent({..., spokenOpeners})` and `presentation(locale)` as
+`{agent: {language: locale, firstMessage}}`. The plugin accepts DE/EN host
+openers up to 1000 characters containing the matching disclosure "KI-Assistenz"
+or "AI assistant", without the other language's disclosure. Hosts are responsible
+for the meaning of their copy; this structural check is not a semantic guarantee.
+Silent continuations still use `firstMessage: ''`. Model, prompt and credential
+overrides remain refused.
+Startup enables `agent.language` and `agent.first_message` on the receipt-owned
+`aithema-start2` agent, clears language presets and checks exact read-back against
+the configured opener in its DE/EN base language. START's template is GET-only.
+**OPS deploy:** deploy the pinned AIT-175 image and restart the existing start2
+service with its existing database/WAL and ownership receipts. Normal startup
+ensure PATCHes the owned agent's stored `first_message` and GETs it back before
+enabling voice; no separate migration or manual agent edit is needed. Do not
+write START's template or discard ownership receipts. A mismatch disables voice.
+The coordinator's live smoke below must verify that the provider actually speaks
+the configured opener before other output; the builder uses only stub providers.
 
 The language selector updates an empty current conversation through the
 owner-authenticated `POST /api/sessions/:id/locale` route with `{locale: "de"|"en"}`.
@@ -2775,9 +2794,9 @@ from backup or resolve that ownership first; do not delete an active secret.
 Template prompts, personas, first messages, knowledge bases and tools are excluded.
 The host's custom LLM has an empty prompt and no tools or knowledge base;
 Aithema rebuilds the trusted session prompt at each callback. Its greeting is
-Aithema's own fixed spoken AI notice (see "AI notice" above), never START's, and
+the host's configured spoken AI opener (see "AI notice" above), never START's, and
 its language presets are cleared. Only the per-conversation `language` and
-matching AI-notice `first_message` overrides are enabled
+host-supplied AI-opener `first_message` overrides are enabled
 (`platform_settings.overrides.conversation_config_override.agent`, the shape
 verified on START's agent by read-only GET 2026-10-09).
 After every agent create or PATCH, startup GETs the owned agent and verifies
@@ -2786,7 +2805,7 @@ origin's host (including any port), the extra-body override, explicit
 conversation override flags (`agent.language` exactly `true`,
 `agent.first_message` exactly `true`, every other flag exactly `false`; an
 omitted, null or string flag disables voice), a first message equal to the
-notice in its exact DE/EN base language, `language_presets` exactly `{}`
+configured opener in its exact DE/EN base language, `language_presets` exactly `{}`
 (omitted or null disables voice),
 `custom-llm` selection, callback URL, owned secret id and every copied
 privacy field.
@@ -2965,10 +2984,10 @@ Coordinator live smoke, after its Claude approval gate:
    Observe durable turns and authenticated final provider usage; no per-call agent
    PATCH occurs. Withdraw consent mid-call and confirm later callbacks cannot reason.
    **AI notice (AIT-119, unverified until this step):** in an English and a German
-   conversation, verify live that the spoken greeting is the notice, word for
-   word, before anything else is said; the agent GET shows the first-message
+   conversation, verify live that the spoken greeting is the configured AIT-175 opener, word
+   for word, before anything else is said; the agent GET shows the first-message
    and language overrides enabled, and no language presets. Verify the greeting
-   contains only the conversation language, matching `aiNoticeText(locale)`.
+   contains only the conversation language, matching `START2_VOICE_OPENERS[locale]` from the built-in host.
 5. Inspect value-free SQLite `spend_reservations` totals: non-stream analysis and
    streaming reaction costs sum; missing usage retains uncertain estimated spend. Restart
    and confirm totals persist. On an isolated small-cap test database, once the
