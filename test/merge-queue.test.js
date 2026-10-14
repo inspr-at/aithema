@@ -63,7 +63,7 @@ test('DCO workflow checks the event-specific commit range and opts in to queue h
   const job = block(block(workflows[1], 'jobs'), 'dco', 2);
   assert.match(job, /fetch-depth: 0/u);
   for (const event of ['pull_request', 'merge_group']) {
-    const step = job.split(/^      - /mu).find(step => step.includes(`if: github.event_name == '${event}'`));
+    const step = job.split(/^      - /mu).slice(1).find(step => step.includes(`if: github.event_name == '${event}'`));
     assert.ok(step, `Missing explicit ${event} DCO step`);
     assert.ok(step.includes(`DCO_BASE: \${{ github.event.${event}.base${event === 'pull_request' ? '.sha' : '_sha'} }}`));
     assert.ok(step.includes(`DCO_HEAD: \${{ github.event.${event}.head${event === 'pull_request' ? '.sha' : '_sha'} }}`));
