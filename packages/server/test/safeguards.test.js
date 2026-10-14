@@ -203,14 +203,16 @@ test('AIT-174 round2 direction question is emitted at most once even if the mode
   assert.equal(replies.filter(turn => turn.content.includes(purposePolicy.directionQuestion.en)).length, 1);
   assert.equal(replies[2].content, purposePolicy.directionQuestion.en);
 });
-test('AIT-174 round2 unclear options are cleared; direction question is text only, late, once across locale and restart', async t => {
-  const f = fixture(t, { outputs: request => JSON.stringify({ content: purposePolicy.directionQuestion[request.locale], scope: 'unclear', question_short: 'Choose', options: [{ text: 'A solution' }, { text: 'Our processes' }] }) });
-  for (let i = 0; i < 5; i++) {
-    if (i === 3) f.storage.changeLocale(f.session.id, 'de', { ownerToken: testToken });
-    await f.send('I am still working out what we need.', `vague-${i}`);
-    const last = f.storage.get(f.session.id).transcript.at(-1);
-    assert.deepEqual(last.options, []); assert.equal(last.question_short, null);
-    assert.equal(Object.values(purposePolicy.directionQuestion).some(copy => last.content.includes(copy)), i === 2);
+test('AIT-174 round2 unclear options are cleared; direction question is text only, late, once in both locales and across restart', async t => {
+  for (const locale of ['en', 'de']) {
+    const f = fixture(t, { outputs: request => JSON.stringify({ content: purposePolicy.directionQuestion[request.locale], scope: 'unclear', question_short: 'Choose', options: [{ text: 'A solution' }, { text: 'Our processes' }] }) });
+    f.storage.changeLocale(f.session.id, locale, { ownerToken: testToken });
+    for (let i = 0; i < 5; i++) {
+      await f.send('I am still working out what we need.', `vague-${i}`);
+      const last = f.storage.get(f.session.id).transcript.at(-1);
+      assert.deepEqual(last.options, []); assert.equal(last.question_short, null);
+      assert.equal(Object.values(purposePolicy.directionQuestion).some(copy => last.content.includes(copy)), i === 2);
+    }
   }
   const path = await temporaryDb(); let storage = new SQLiteStorage(path);
   const session = storage.create({ demo: true, ownerToken: testToken });
