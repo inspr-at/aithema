@@ -384,10 +384,11 @@ test('AIT-183 superseded retry never increments the OPS fallback counter', async
     const admitted = await originalAdmit(args);
     return { ...admitted, async finish(result) {
       await admitted.finish(result);
-      f.storage.changeLocale(f.session.id, f.session.locale === 'de' ? 'en' : 'de', { ownerToken: testToken });
+      f.storage.postTurn(f.session.id, 'replacement', Buffer.from('Replacement input'), 'Replacement input', { ownerToken: testToken });
     } };
   };
-  await f.send('Private project evidence');
+  f.storage.postTurn(f.session.id, 'first', Buffer.from('Private project evidence'), 'Private project evidence', { ownerToken: testToken });
+  assert.equal(await f.handlers.lanes.run(f.session.id, 'reaction'), 'stale');
   assert.equal(f.calls.length, 1);
   assert.deepEqual(logs.filter(event => event.event === 'reply.fallback'), []);
   const snapshot = await f.handlers.handle(req(f.session.id)).then(response => response.json());
