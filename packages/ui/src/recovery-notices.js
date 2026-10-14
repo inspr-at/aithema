@@ -48,7 +48,7 @@ export class RecoveryNotices {
     text('.voice-read-text', c.voiceReadText);
     this.button.dataset.replayState = this.playing ? 'playing' : this.interrupted ? 'interrupted' : 'idle';
     this.button.setAttribute('aria-pressed', String(Boolean(this.playing)));
-    this.button.hidden = !(recovery?.deliveryUncertain && recovery.playbackPositionUnknown || this.pageReply) || !this.replyVisible(reply);
+    this.button.hidden = !(recovery?.deliveryUncertain && recovery.playbackPositionUnknown || this.pageReply) || !this.replyVisible(reply, recovery?.lastReplyTurnId ?? this.pageReply?.turnId);
     this.readText.hidden = this.button.hidden;
     this.readText.disabled = !available;
     this.button.disabled = !available || Boolean(this.pending) && !this.playing || !(recovery?.lastReplyText ?? this.pageReply?.text);
@@ -59,7 +59,7 @@ export class RecoveryNotices {
   }
   showText() {
     const text = this.recovery?.lastReplyText ?? this.pageReply?.text;
-    if (this.readText.hidden || this.readText.disabled || !this.available() || !this.replyVisible(text)) return;
+    if (this.readText.hidden || this.readText.disabled || !this.available() || !this.replyVisible(text, this.recovery?.lastReplyTurnId ?? this.pageReply?.turnId)) return;
     this.root.querySelector('.voice-reply-text').textContent = text;
     if (!this.dialog.open) this.dialog.showModal();
   }

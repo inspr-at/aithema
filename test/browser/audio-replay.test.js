@@ -128,6 +128,13 @@ test('AIT-154: recovered audio replay, Stop and text fallback retain viewport ge
     await capture('fallback');
     await shadow(page, c => { c.shadowRoot.querySelector('.turn:not(.user)').remove(); window.replayRail.render(); });
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').hidden), true, 'real recovery without a rendered assistant bubble hides replay');
+    await shadow(page, c => {
+      const text = window.replayText; c.session.transcript.push({ id: 'old-identical-reply', role: 'assistant', content: text });
+      const row = document.createElement('li'); row.className = 'turn'; row.dataset.id = 'old-identical-reply';
+      const body = document.createElement('span'); body.className = 'turn-text'; body.textContent = text; row.append(body);
+      c.shadowRoot.querySelector('.transcript-shell ol').append(row); window.replayRail.render();
+    });
+    assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-repeat').hidden), true, 'an older identical bubble cannot stand in for the acknowledged reply');
     assert.equal(await shadow(page, c => c.shadowRoot.querySelector('.voice-read-text').hidden), true);
     await page.evaluate(async () => { window.replayRail.notices.dialog.close(); await window.replayRail.close(); });
   }

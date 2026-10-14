@@ -180,3 +180,12 @@ test('AIT-154 round 2: Stop stays usable during synthesis and fences a late resu
   button.click(); await tick(); assert.equal(stops, 1); assert.equal(button.textContent, en.voiceRepeatReply);
   pending.resolve({ kind: 'audio' }); await tick(); assert.equal(f.rail.notices.playing, false);
 });
+
+test('AIT-154 round 2: a newly denied wallet falls back to full text with no error dialog', async t => {
+  const f = await fixture(t, en);
+  f.rail.session.replayLastReply = async () => { throw Object.assign(new Error(), { code: 'not-admitted', reason: 'host-limit' }); };
+  await f.recover({ deliveryUncertain: true, playbackPositionUnknown: true, lastReplyText: 'Reply' });
+  f.root.querySelector('.voice-repeat').click(); await tick();
+  assert.equal(f.root.querySelector('.voice-repeat').textContent, en.voiceReadFullReply);
+  assert.equal(f.rail.notices.dialog.open, true); assert.equal(f.root.querySelector('.voice-reply-text').textContent, 'Reply');
+});

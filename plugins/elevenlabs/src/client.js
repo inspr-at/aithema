@@ -172,6 +172,7 @@ export function createElevenLabsClient(ports = {}) {
             events.push(value.type === 'recovered' ? { ...value, recovery: {
               userUnconfirmed: checkpoint.userUnconfirmed, deliveryUncertain: checkpoint.deliveryUncertain,
               playbackPositionUnknown: checkpoint.deliveryUncertain && checkpoint.heardPrefix === null,
+              lastReplyTurnId: lastReply?.turnId ?? null,
               lastReplyText: lastReply && (!lastPlaybackTurnId || lastPlaybackTurnId === lastReply.turnId) ? lastReply.text : null,
             } } : value);
           }

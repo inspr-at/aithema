@@ -30,7 +30,7 @@ export class AudioRail {
     if (!noticesRoot) { noticesRoot = root.ownerDocument.createElement('div'); noticesRoot.className = 'voice-notices'; root.append(noticesRoot); }
     this.notices = new RecoveryNotices({ root: noticesRoot, copy, available: () => Boolean((this.session || this.lastReply?.()) && !this.paused && !this.busy && this.output &&
       !['recovering', 'waiting', 'closing'].includes(this.state)),
-      replyVisible: text => this.replyVisible?.(text) ?? Boolean(text && this.lastReply?.()?.text === text),
+      replyVisible: (text, turnId) => this.replyVisible?.(text, turnId) ?? Boolean(text && this.lastReply?.()?.text === text),
       audioAvailable: () => !this.usedUp?.() && !this.allowanceDenied && this.feature()?.available !== false &&
         Boolean(this.session ? this.session.replayLastReply : this.client?.replayReply),
       stopReplay: () => this.session?.stopReplay?.() ?? this.client?.stopReplay?.(), replay: async () => {

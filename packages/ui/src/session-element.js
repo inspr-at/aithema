@@ -342,7 +342,7 @@ export class AithemaSession extends HTMLElement {
     this.#rail = new AudioRail({ root: root.querySelector('.audio-rail'), copy: this.#copy, client: this.#voiceClientFor(),
       noticesRoot: root.querySelector('.voice-notices'),
       waitingCall: this.#session.voiceLifecycle,
-      replyVisible: text => Boolean(text && this.#session.transcript.some(t => t.role === 'assistant' && !t.erased && !t.withdrawn && t.content === text &&
+      replyVisible: (text, turnId) => Boolean(text && this.#session.transcript.some(t => (!turnId || t.id === turnId) && t.role === 'assistant' && !t.erased && !t.withdrawn && t.content === text &&
         [...root.querySelectorAll('.turn:not(.user):not(.partial)')].some(row => row.dataset.id === t.id && row.querySelector('.turn-text')?.textContent === text))),
       lastReply: () => {
         if (this.#session.paused || this.#session.tombstone || this.#session.consentWithdrawn) return null;

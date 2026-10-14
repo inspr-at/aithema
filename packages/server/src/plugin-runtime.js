@@ -741,7 +741,8 @@ export function createPluginRuntime({ storage, reasoning = createMockReasoning()
         } finally {
           if (!reported) report({ outcome: 'uncertain', closureConfirmed: false, chargedMicro: dispatched ? quote.maxMicro : 0, usage: null });
         }
-      } finally { if (!playing) stopReplyReplay(session.id, lease.replayId); }
+      } catch (error) { playing = false; throw error; }
+      finally { if (!playing) stopReplyReplay(session.id, lease.replayId); }
     },
     async admitVoice({ session, request, options = {} }) {
       if (!voiceUnchanged(session, options.allowPaused)) throw new PluginError('not-admitted');

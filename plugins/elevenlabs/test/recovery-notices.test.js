@@ -7,7 +7,7 @@ import { RecoveryNotices } from '../../../packages/ui/src/recovery-notices.js';
 import { en } from '../../../packages/ui/src/i18n/en.js';
 
 async function fixture(t, { persistEvent = async () => {}, withNotices = false, speakText, playAudio, holdSignal } = {}) {
-  const sdk = fakeSdk(), calls = []; let generation = 0;
+  const sdk = fakeSdk(), calls = [], releases = []; let generation = 0;
   const receipt = ({ callId }) => {
     const providerSessionId = `conv_${++generation}`;
     return { callId, providerSessionId,
@@ -19,6 +19,7 @@ async function fixture(t, { persistEvent = async () => {}, withNotices = false, 
     if (['start', 'recover'].includes(name)) return receipt(value);
     return { acknowledged: true, paused: name === 'pause', closureConfirmed: true, browserLivenessDeadlineAt: Date.now() + 30_000 };
   }]));
+  control.stopReplyReplay = identity => { releases.push(identity); return Promise.resolve(); };
   const persisted = [], session = await createElevenLabsClient({ sdk, control,
     ...(speakText ? { control: { ...control, speakText } } : {}), playAudio,
     mediaDevices: sdk.mediaDevices, AudioContext: sdk.AudioContext,
@@ -44,7 +45,7 @@ async function fixture(t, { persistEvent = async () => {}, withNotices = false, 
     return events.find(event => event.type === 'recovered').recovery;
   };
   const reply = (text, event_id = 2) => sdk.starts.at(-1).onMessage({ role: 'agent', message: text, event_id });
-  return { sdk, session, events, persisted, calls, recovered, reply, root, notices };
+  return { sdk, session, events, persisted, calls, recovered, reply, root, notices, releases };
 }
 
 test('AIT-138 c: tentative speech reports unconfirmed only after successful recovery', async t => {
@@ -241,4 +242,17 @@ for (const stop of ['pause', 'hold', 'hangup']) test(`AIT-138 c: replay is fence
   if (stop === 'hangup') await f.session.close();
   await rejection;
   assert.equal(f.sdk.effects.some(([name]) => name === 'sendUserMessage'), false);
+});
+
+for (const stop of ['settle', 'Stop', 'barge-in', 'hangup']) test(`AIT-154 round 2: client releases the server playback lease once on ${stop}`, async t => {
+  const finished = Promise.withResolvers(), requests = [];
+  const f = await fixture(t, { speakText: async request => { requests.push(request); return { kind: 'audio', audio: {} }; },
+    playAudio: async () => ({ stop() { finished.resolve(); }, finished: finished.promise }) });
+  f.reply('Reply'); await flush(); await f.session.replayLastReply();
+  assert.equal(f.releases.length, 0, 'synthesis settlement alone must not release playback');
+  if (stop === 'settle') finished.resolve();
+  if (stop === 'Stop') await f.session.stopReplay();
+  if (stop === 'barge-in') f.sdk.interrupt(2);
+  if (stop === 'hangup') await f.session.close();
+  await flush(); assert.equal(f.releases.length, 1); assert.equal(f.releases[0].replayId, requests[0].replayId);
 });
