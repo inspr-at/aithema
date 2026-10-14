@@ -4,47 +4,46 @@ import { resolve } from 'node:path';
 
 export const repositoryRoot = fileURLToPath(new URL('../', import.meta.url));
 
-// Four shards measured at 44d496a, PR #129 CI run 38457517452:
-// browser runtimes 402.566s / 373.275s / 394.868s / 189.105s;
-// whole jobs, including setup/evidence, 422s / 389s / 411s / 204s.
-// Shards 1/3/4 passed. Shard 2 failed a 680px German footer-fit assertion,
-// not its timeout; its duration is an incomplete measurement.
-// Email-ask runs each behaviour once per language/width and captures both
-// themes from each settled state: 153.965s remotely on mbp2606 (296 checks).
+// AIT-177 measurements: main 27dbafb, ci run 38580264760; corroborated by
+// main bb55b49 (38576748175) and PR #145 (38585047142). Main whole jobs:
+// 428 / 475 / 447 / 456 s, including setup and evidence upload.
+// Top-level test durations summed per file (seconds), in manifest order:
+// 219.32, 96.06, 56.85, 23.18, 16.52, 7.94;
+// 212.26, 108.54, 40.46, 27.78, 20.58, 8.47;
+// 407.93/2, 198.06, 12.46;
+// 407.93/2, 114.39, 42.68, 40.32, 16.01.
+// Visitor DE/EN use the existing language boundary, retaining all 12 matrix
+// combinations; half its measured total is a planning estimate until PR CI.
+// Planned browser totals: 419.86 / 418.10 (+ greeting regression) / 414.48 /
+// 417.37 s. Setup/evidence took 18-24 s on main: about 9% below 480 s.
 export const browserShards = [
-  // 402.566s CI; 350.166s mbp2606
-  ['test/browser/visitor-credit-tiers.test.js'],
-  // 290.400s CI at 70eec71, run 38477382124. AIT-165 operator login adds
-  // 6.446s on mbp2606 at c9e7fc7 (48 viewport states); this shard has most headroom.
-  // AIT-169 rotates 13 admin states across widths in CI (both locales/themes),
-  // keeps all 12 zero-shift flows, and awaits module readiness instead of idle.
-  // The complete screenshot matrix is reserved for non-CI evidence runs.
-  // PR 3 keeps demo teardown separate from the display matrix in shard 4.
-  [
-    'test/browser/start2-display-matrix.test.js',
-    'test/browser/start-look.test.js',
-    'test/browser/operator-login.test.js',
-    'test/browser/audio-replay.test.js',
-    'test/browser/admin-pages.test.js',
-    'test/browser/email-mail-space.test.js',
-  ],
-  // 394.868s CI
-  [
-    'test/browser/start2-display.test.js',
-    'test/browser/orb-reveal.test.js',
-    'test/browser/question-card.test.js',
-    'test/browser/start-journey.test.js',
-    'test/browser/html-preview.test.js',
-    'test/browser/host-surface.test.js',
-    'test/browser/confirmation-design.test.js',
-  ],
-  // 201.358s CI at 4fc6a22 including the sweep, plus 105.447s continuity.
   [
     'test/browser/email-ask.test.js',
-    'test/browser/footer-width-sweep.test.js',
-    'test/browser/start2-display-continuity.test.js',
+    'test/browser/confirmation-design.test.js',
     'test/browser/demo.test.js',
+    'test/browser/orb-reveal.test.js',
+    'test/browser/start-journey.test.js',
+    'test/browser/host-surface.test.js',
+  ],
+  [
+    'test/browser/start2-display-matrix.test.js',
+    'test/browser/start2-display-continuity.test.js',
+    'test/browser/operator-login.test.js',
+    'test/browser/start-look.test.js',
+    'test/browser/audio-replay.test.js',
+    'test/browser/html-preview.test.js',
+  ],
+  [
+    'test/browser/visitor-credit-tiers.test.js',
+    'test/browser/start2-display.test.js',
+    'test/browser/footer-width-sweep.test.js',
+  ],
+  [
+    'test/browser/visitor-credit-tiers-en.test.js',
+    'test/browser/email-mail-space.test.js',
     'test/browser/voice-presentation.test.js',
+    'test/browser/admin-pages.test.js',
+    'test/browser/question-card.test.js',
   ],
 ];
 
