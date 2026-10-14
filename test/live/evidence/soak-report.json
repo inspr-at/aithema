@@ -1,0 +1,624 @@
+{
+  "format": "aithema-voice-soak",
+  "version": 1,
+  "ticket": "AIT-139",
+  "mode": "fake",
+  "locale": "de",
+  "head": "c5a490dd7d",
+  "host": "mbp2606",
+  "startedAt": "2026-10-14T09:31:11.808Z",
+  "status": "passed",
+  "stopReason": "max-duration",
+  "elapsedMs": 300190,
+  "config": {
+    "maxDurationMs": 300000,
+    "capMicro": 8000000,
+    "rateMicroPerMinute": 0,
+    "stopReserveMicro": 250000,
+    "firstTokenDeadlineMs": 5000,
+    "totalDeadlineMs": 30000
+  },
+  "disruptions": [
+    {
+      "elapsedMs": 90069,
+      "offline": true,
+      "latencyMs": 0
+    },
+    {
+      "elapsedMs": 91090,
+      "offline": false,
+      "latencyMs": 0
+    },
+    {
+      "elapsedMs": 180016,
+      "offline": false,
+      "latencyMs": 400
+    },
+    {
+      "elapsedMs": 185107,
+      "offline": false,
+      "latencyMs": 0
+    }
+  ],
+  "records": [],
+  "client": {
+    "events": [
+      {
+        "type": "speaking",
+        "atMs": 1842.800000011921
+      },
+      {
+        "type": "final",
+        "atMs": 1851.800000011921,
+        "role": "assistant"
+      },
+      {
+        "type": "listening",
+        "atMs": 6966.4000000059605
+      },
+      {
+        "type": "final",
+        "atMs": 6980.4000000059605,
+        "role": "user"
+      },
+      {
+        "type": "speaking",
+        "atMs": 6980.600000023842
+      },
+      {
+        "type": "final",
+        "atMs": 6999.700000017881,
+        "role": "assistant"
+      },
+      {
+        "type": "listening",
+        "atMs": 27028.90000000596
+      },
+      {
+        "type": "final",
+        "atMs": 27045.600000023842,
+        "role": "user"
+      },
+      {
+        "type": "speaking",
+        "atMs": 27045.70000001788
+      },
+      {
+        "type": "final",
+        "atMs": 27056.80000001192,
+        "role": "assistant"
+      },
+      {
+        "type": "heard",
+        "atMs": 27663.20000001788
+      },
+      {
+        "type": "listening",
+        "atMs": 27663.30000001192
+      },
+      {
+        "type": "listening",
+        "atMs": 46980.10000002384
+      },
+      {
+        "type": "final",
+        "atMs": 46994.5,
+        "role": "user"
+      },
+      {
+        "type": "speaking",
+        "atMs": 46994.60000002384
+      },
+      {
+        "type": "final",
+        "atMs": 47012.30000001192,
+        "role": "assistant"
+      },
+      {
+        "type": "listening",
+        "atMs": 66975.5
+      },
+      {
+        "type": "final",
+        "atMs": 66991.20000001788,
+        "role": "user"
+      },
+      {
+        "type": "speaking",
+        "atMs": 66991.30000001192
+      },
+      {
+        "type": "final",
+        "atMs": 67006.20000001788,
+        "role": "assistant"
+      },
+      {
+        "type": "listening",
+        "atMs": 86990.90000000596
+      },
+      {
+        "type": "final",
+        "atMs": 87007.20000001788,
+        "role": "user"
+      },
+      {
+        "type": "speaking",
+        "atMs": 87007.30000001192
+      },
+      {
+        "type": "final",
+        "atMs": 87020.5,
+        "role": "assistant"
+      },
+      {
+        "type": "heard",
+        "atMs": 87620.10000002384
+      },
+      {
+        "type": "listening",
+        "atMs": 87620.20000001788
+      },
+      {
+        "type": "recovering",
+        "atMs": 92919.40000000596
+      },
+      {
+        "type": "recovered",
+        "atMs": 92947.5
+      },
+      {
+        "type": "listening",
+        "atMs": 106831.70000001788
+      },
+      {
+        "type": "final",
+        "atMs": 106846.40000000596,
+        "role": "user"
+      },
+      {
+        "type": "speaking",
+        "atMs": 106846.40000000596
+      },
+      {
+        "type": "final",
+        "atMs": 106860.80000001192,
+        "role": "assistant"
+      },
+      {
+        "type": "listening",
+        "atMs": 126851.60000002384
+      },
+      {
+        "type": "final",
+        "atMs": 126867.80000001192,
+        "role": "user"
+      },
+      {
+        "type": "speaking",
+        "atMs": 126868
+      },
+      {
+        "type": "final",
+        "atMs": 126881.20000001788,
+        "role": "assistant"
+      },
+      {
+        "type": "listening",
+        "atMs": 146881.30000001192
+      },
+      {
+        "type": "final",
+        "atMs": 146899.40000000596,
+        "role": "user"
+      },
+      {
+        "type": "speaking",
+        "atMs": 146899.5
+      },
+      {
+        "type": "final",
+        "atMs": 146913.5,
+        "role": "assistant"
+      },
+      {
+        "type": "heard",
+        "atMs": 147518.90000000596
+      },
+      {
+        "type": "listening",
+        "atMs": 147519
+      },
+      {
+        "type": "listening",
+        "atMs": 166914.80000001192
+      },
+      {
+        "type": "final",
+        "atMs": 166931.20000001788,
+        "role": "user"
+      },
+      {
+        "type": "speaking",
+        "atMs": 166931.30000001192
+      },
+      {
+        "type": "final",
+        "atMs": 166954.10000002384,
+        "role": "assistant"
+      },
+      {
+        "type": "listening",
+        "atMs": 186936.10000002384
+      },
+      {
+        "type": "final",
+        "atMs": 186963.70000001788,
+        "role": "user"
+      },
+      {
+        "type": "speaking",
+        "atMs": 186963.90000000596
+      },
+      {
+        "type": "final",
+        "atMs": 186984,
+        "role": "assistant"
+      },
+      {
+        "type": "listening",
+        "atMs": 206847.10000002384
+      },
+      {
+        "type": "final",
+        "atMs": 206864.20000001788,
+        "role": "user"
+      },
+      {
+        "type": "speaking",
+        "atMs": 206864.30000001192
+      },
+      {
+        "type": "final",
+        "atMs": 206879.10000002384,
+        "role": "assistant"
+      },
+      {
+        "type": "heard",
+        "atMs": 207488.10000002384
+      },
+      {
+        "type": "listening",
+        "atMs": 207488.10000002384
+      },
+      {
+        "type": "listening",
+        "atMs": 226914
+      },
+      {
+        "type": "final",
+        "atMs": 226942.90000000596,
+        "role": "user"
+      },
+      {
+        "type": "speaking",
+        "atMs": 226942.90000000596
+      },
+      {
+        "type": "final",
+        "atMs": 226968.40000000596,
+        "role": "assistant"
+      },
+      {
+        "type": "listening",
+        "atMs": 246943.10000002384
+      },
+      {
+        "type": "final",
+        "atMs": 246960.90000000596,
+        "role": "user"
+      },
+      {
+        "type": "speaking",
+        "atMs": 246961
+      },
+      {
+        "type": "final",
+        "atMs": 246979.30000001192,
+        "role": "assistant"
+      },
+      {
+        "type": "listening",
+        "atMs": 266895.90000000596
+      },
+      {
+        "type": "final",
+        "atMs": 266925.90000000596,
+        "role": "user"
+      },
+      {
+        "type": "speaking",
+        "atMs": 266926.10000002384
+      },
+      {
+        "type": "final",
+        "atMs": 266947.40000000596,
+        "role": "assistant"
+      },
+      {
+        "type": "heard",
+        "atMs": 267550.60000002384
+      },
+      {
+        "type": "listening",
+        "atMs": 267550.7000000179
+      },
+      {
+        "type": "ended",
+        "atMs": 301860.90000000596
+      }
+    ],
+    "turns": 14,
+    "speaking": false,
+    "closed": true,
+    "samples": 6030,
+    "peak": 0.22152579276544831,
+    "speechSamples": 1514,
+    "overlapSamples": 969,
+    "heartbeatFailures": 0,
+    "audioContextState": "closed",
+    "inputTrackState": "ended",
+    "audioPreflight": {
+      "contextState": "running",
+      "contextTime": 1.512,
+      "trackState": "live",
+      "trackMuted": false
+    },
+    "turnTimings": [
+      {
+        "ordinal": 0,
+        "atMs": 6966.200000017881,
+        "bargeIn": false,
+        "bargeAttempted": false,
+        "firstResponseMs": 14.400000005960464,
+        "finalMs": 33.5
+      },
+      {
+        "ordinal": 1,
+        "atMs": 27028.600000023842,
+        "bargeIn": true,
+        "bargeAttempted": true,
+        "firstResponseMs": 17.099999994039536,
+        "finalMs": 28.19999998807907
+      },
+      {
+        "ordinal": 2,
+        "atMs": 46979.90000000596,
+        "bargeIn": false,
+        "bargeAttempted": false,
+        "firstResponseMs": 14.700000017881393,
+        "finalMs": 32.400000005960464
+      },
+      {
+        "ordinal": 3,
+        "atMs": 66975.30000001192,
+        "bargeIn": false,
+        "bargeAttempted": false,
+        "firstResponseMs": 16,
+        "finalMs": 30.900000005960464
+      },
+      {
+        "ordinal": 4,
+        "atMs": 86990.70000001788,
+        "bargeIn": true,
+        "bargeAttempted": true,
+        "firstResponseMs": 16.599999994039536,
+        "finalMs": 29.799999982118607
+      },
+      {
+        "ordinal": 5,
+        "atMs": 106831.5,
+        "bargeIn": false,
+        "bargeAttempted": false,
+        "firstResponseMs": 14.900000005960464,
+        "finalMs": 29.30000001192093
+      },
+      {
+        "ordinal": 6,
+        "atMs": 126851.5,
+        "bargeIn": false,
+        "bargeAttempted": false,
+        "firstResponseMs": 16.5,
+        "finalMs": 29.700000017881393
+      },
+      {
+        "ordinal": 7,
+        "atMs": 146881.10000002384,
+        "bargeIn": true,
+        "bargeAttempted": true,
+        "firstResponseMs": 18.399999976158142,
+        "finalMs": 32.39999997615814
+      },
+      {
+        "ordinal": 8,
+        "atMs": 166914.60000002384,
+        "bargeIn": false,
+        "bargeAttempted": false,
+        "firstResponseMs": 16.69999998807907,
+        "finalMs": 39.5
+      },
+      {
+        "ordinal": 9,
+        "atMs": 186935.80000001192,
+        "bargeIn": false,
+        "bargeAttempted": false,
+        "firstResponseMs": 28.099999994039536,
+        "finalMs": 48.19999998807907
+      },
+      {
+        "ordinal": 10,
+        "atMs": 206846.90000000596,
+        "bargeIn": true,
+        "bargeAttempted": true,
+        "firstResponseMs": 17.400000005960464,
+        "finalMs": 32.20000001788139
+      },
+      {
+        "ordinal": 11,
+        "atMs": 226913.90000000596,
+        "bargeIn": false,
+        "bargeAttempted": false,
+        "firstResponseMs": 29,
+        "finalMs": 54.5
+      },
+      {
+        "ordinal": 12,
+        "atMs": 246943,
+        "bargeIn": false,
+        "bargeAttempted": false,
+        "firstResponseMs": 18,
+        "finalMs": 36.30000001192093
+      },
+      {
+        "ordinal": 13,
+        "atMs": 266895.7000000179,
+        "bargeIn": true,
+        "bargeAttempted": true,
+        "firstResponseMs": 30.400000005960464,
+        "finalMs": 51.69999998807907
+      }
+    ],
+    "firstResponse": {
+      "p50Ms": 16.69999998807907,
+      "p95Ms": 30.400000005960464
+    },
+    "missingResponses": 0,
+    "bargeIns": 5,
+    "bargeAttempts": 5
+  },
+  "cost": {
+    "confirmedMicro": 0,
+    "uncertainMicro": 0,
+    "reservedMicro": 0,
+    "reconciled": true,
+    "initial": {
+      "limitMicro": 10000000,
+      "confirmedMicro": 0,
+      "uncertainMicro": 0,
+      "reservedMicro": 0
+    },
+    "limitMicro": 10000000
+  },
+  "phase": "running",
+  "callHash": "666101f60e0c9dc75c15e883831b81d6ab34080021a83a755aabb72624840358",
+  "plan": {
+    "turns": [
+      {
+        "atMs": 5000,
+        "ordinal": 0,
+        "bargeIn": false
+      },
+      {
+        "atMs": 25000,
+        "ordinal": 1,
+        "bargeIn": true
+      },
+      {
+        "atMs": 45000,
+        "ordinal": 2,
+        "bargeIn": false
+      },
+      {
+        "atMs": 65000,
+        "ordinal": 3,
+        "bargeIn": false
+      },
+      {
+        "atMs": 85000,
+        "ordinal": 4,
+        "bargeIn": true
+      },
+      {
+        "atMs": 105000,
+        "ordinal": 5,
+        "bargeIn": false
+      },
+      {
+        "atMs": 125000,
+        "ordinal": 6,
+        "bargeIn": false
+      },
+      {
+        "atMs": 145000,
+        "ordinal": 7,
+        "bargeIn": true
+      },
+      {
+        "atMs": 165000,
+        "ordinal": 8,
+        "bargeIn": false
+      },
+      {
+        "atMs": 185000,
+        "ordinal": 9,
+        "bargeIn": false
+      },
+      {
+        "atMs": 205000,
+        "ordinal": 10,
+        "bargeIn": true
+      },
+      {
+        "atMs": 225000,
+        "ordinal": 11,
+        "bargeIn": false
+      },
+      {
+        "atMs": 245000,
+        "ordinal": 12,
+        "bargeIn": false
+      },
+      {
+        "atMs": 265000,
+        "ordinal": 13,
+        "bargeIn": true
+      }
+    ],
+    "disruptions": [
+      {
+        "atMs": 90000,
+        "durationMs": 1000,
+        "offline": true,
+        "latencyMs": 0
+      },
+      {
+        "atMs": 180000,
+        "durationMs": 5000,
+        "offline": false,
+        "latencyMs": 400
+      }
+    ]
+  },
+  "offlineRequestFailed": true,
+  "server": {
+    "attempts": 0,
+    "firstToken": {
+      "samples": 0,
+      "p50Ms": null,
+      "p95Ms": null,
+      "missed": 0
+    },
+    "total": {
+      "samples": 0,
+      "p50Ms": null,
+      "p95Ms": null,
+      "missed": 0
+    },
+    "retries": 0,
+    "reconciliationRetries": 0,
+    "reconnects": 0,
+    "recoveries": 1,
+    "unclosed": 0,
+    "failed": 0
+  },
+  "finishedAt": "2026-10-14T09:36:15.529Z"
+}
