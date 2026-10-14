@@ -84,12 +84,10 @@ export class VisitorEmail {
     if (this.#settings) return;
     this.#settings = { delivery: this.delivery, unknown: !this.tiers };
     this.paint();
-    const stack = this.q('.m-stack');
-    stack.style.height = `${stack.getBoundingClientRect().height}px`;
   }
   endSettings() {
     if (!this.#settings) return;
-    this.#settings = null; this.q('.m-stack').style.height = ''; this.paint();
+    this.#settings = null; this.paint();
   }
   get canCollect() { return this.demo || this.privacyDocumentConfigured === true && Boolean(this.privacyLink); }
   get state() { return this.ui.deleting && this.address ? 'confirm' : !this.canCollect && !this.address ? 'unavailable' : this.viewDelivery ? 'mail' : this.address && !this.ui.editing ? 'saved' : this.canCollect ? 'capture' : 'saved'; }

@@ -111,12 +111,12 @@ test('AIT-171: mail-only reservation, boot tiers, zero shift and unchanged save 
       await fixture(mainPage, locale, false);
       assert.deepEqual(save.boxes, (await geometry(mainPage)).boxes, `${label}: save geometry matches main ${baseline.sourceHead}`);
       // Compare the visible email section's PNG bytes, with focus away from the input caret.
-      for (const p of [page, mainPage]) await shadow(p, c => c.shadowRoot.querySelector('#email-heading').focus({ preventScroll: true }));
+      for (const p of [page, mainPage]) { await shadow(p, c => c.shadowRoot.querySelector('#email-heading').focus({ preventScroll: true })); await frame(p); }
       const clip = await shadow(page, c => { const b = c.shadowRoot.querySelector('#email').getBoundingClientRect(), body = c.shadowRoot.querySelector('.settings__body').getBoundingClientRect(); const y = Math.max(b.y, body.y), bottom = Math.min(b.bottom, body.bottom); return { x: b.x, y, width: b.width, height: bottom - y }; });
-      assert.deepEqual(await page.screenshot({ clip }), await mainPage.screenshot({ clip }), `${label}: save pixels match main ${baseline.sourceHead}`);
+      assert.ok((await page.screenshot({ clip })).equals(await mainPage.screenshot({ clip })), `${label}: save pixels match main ${baseline.sourceHead}`);
       await fixture(page, locale, true, false); assert.deepEqual((await geometry(page)).boxes, save.boxes, 'confirmation off retains save geometry');
-      await shadow(page, c => c.shadowRoot.querySelector('#email-heading').focus({ preventScroll: true }));
-      assert.deepEqual(await page.screenshot({ clip }), await mainPage.screenshot({ clip }), 'confirmation off retains main save pixels');
+      await shadow(page, c => c.shadowRoot.querySelector('#email-heading').focus({ preventScroll: true })); await frame(page);
+      assert.ok((await page.screenshot({ clip })).equals(await mainPage.screenshot({ clip })), 'confirmation off retains main save pixels');
       await fixture(page, locale, true); const before = await geometry(page); await record(page, label, 'mail-none', before, 0);
       await t.test(`${label}: mail content owns height`, () => {
         assert.ok(before.hairlineGap <= before.lineHeight, `content-to-hairline gap ${before.hairlineGap} px exceeds one line ${before.lineHeight} px`);
