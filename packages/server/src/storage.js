@@ -606,6 +606,7 @@ export class SQLiteStorage {
     return this.#invalidationTransaction(() => {
       const session = this.get(id); this.#check(session, guard); this.#invalidate(id, undefined, true);
       this.db.prepare('DELETE FROM host_states WHERE session_id=?').run(id);
+      this.db.prepare('DELETE FROM safeguard_inputs WHERE session_id=?').run(id);
       this.db.prepare('UPDATE uploads SET bytes=NULL,tombstone=? WHERE session_id=?').run(new Date().toISOString(), id);
       return this.#append(session, 'session.erased', { at: new Date().toISOString() });
     });
