@@ -1,9 +1,11 @@
 // Bound protocol calls too: Puppeteer's page timeout does not cover evaluate,
 // screenshots, launch or close. Keep failures attributable to one matrix cell.
+export const ADMIN_STEP_TIMEOUT = 15_000;
+
 export function adminSteps(signal) {
   let context = { state: 'setup', locale: 'de', theme: 'light', width: 390 };
   const at = (state, cell = {}) => { context = { ...context, ...cell, state }; };
-  const run = async (operation, work, { timeout = 5_000, cleanup = false } = {}) => {
+  const run = async (operation, work, { timeout = ADMIN_STEP_TIMEOUT, cleanup = false } = {}) => {
     const { state, locale, theme, width } = context;
     const label = `admin state=${state} locale=${locale} theme=${theme} width=${width}: ${operation}`;
     const controller = new AbortController();

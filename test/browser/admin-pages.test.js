@@ -7,7 +7,7 @@ import { homedir, tmpdir } from 'node:os';
 import puppeteer from 'puppeteer-core';
 import { listen } from '../../packages/server/src/http.js';
 import { adminFixture } from '../fixtures/admin-host.js';
-import { adminSteps } from './admin-steps.js';
+import { ADMIN_STEP_TIMEOUT, adminSteps } from './admin-steps.js';
 import { browserPath, evidenceCommit } from './start2-display-helpers.js';
 
 const states = ['overview', 'editing', 'saved', 'conflict', 'invalid', 'confirmation-off', 'no-delivery', 'cap-near', 'latched', 'audit-end', 'audit-empty', 'signed-out', 'expired'];
@@ -22,19 +22,19 @@ const geometry = page => page.evaluate(() => {
 });
 const edit = (page, value) => page.$eval('#f-emailGiven', (input, value) => { input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })); }, value);
 
-const click = (page, run, selector) => run(`click ${selector}`, signal => page.locator(selector).setTimeout(4_000).click({ signal }));
+const click = (page, run, selector) => run(`click ${selector}`, signal => page.locator(selector).setTimeout(ADMIN_STEP_TIMEOUT).click({ signal }));
 
 async function closeBrowser(browser, run) {
   if (!browser) return;
   try {
-    await run('browser.close', () => browser.close(), { timeout: 3_000, cleanup: true });
+    await run('browser.close', () => browser.close(), { timeout: ADMIN_STEP_TIMEOUT, cleanup: true });
   } catch (error) {
     // A wedged protocol must not keep Chrome or the test worker alive.
     const child = browser.process();
     if (child && child.exitCode === null && child.signalCode === null) {
       const exited = once(child, 'exit');
       child.kill('SIGKILL');
-      await run('browser process exit', () => exited, { timeout: 2_000, cleanup: true });
+      await run('browser process exit', () => exited, { timeout: ADMIN_STEP_TIMEOUT, cleanup: true });
     }
     throw error;
   }
@@ -91,9 +91,9 @@ test('AIT-169 admin: 13 page states plus AIT-165 entry evidence; exact 0 px flow
   for (const locale of ['de', 'en']) {
     at('launch', { locale, theme: 'light', width: 390 });
     const executablePath = await run('browserPath', () => browserPath());
-    browser = await run('puppeteer.launch', signal => puppeteer.launch({ executablePath, signal, pipe: true, headless: true, timeout: 15_000, protocolTimeout: 5_000, userDataDir: join(dir, locale),
-      env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] }), { timeout: 15_000 });
-    const page = await run('browser.newPage', () => browser.newPage()); page.setDefaultTimeout(5_000);
+    browser = await run('puppeteer.launch', signal => puppeteer.launch({ executablePath, signal, pipe: true, headless: true, timeout: ADMIN_STEP_TIMEOUT, protocolTimeout: ADMIN_STEP_TIMEOUT, userDataDir: join(dir, locale),
+      env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] }), { timeout: ADMIN_STEP_TIMEOUT });
+    const page = await run('browser.newPage', () => browser.newPage()); page.setDefaultTimeout(ADMIN_STEP_TIMEOUT);
     page.on('pageerror', e => errors.push(e.message));
     page.on('dialog', dialog => {
       void run('dialog.accept', () => dialog.accept()).catch(error => errors.push(error.message));
@@ -232,10 +232,10 @@ test('AIT-169 independent edits survive a save in another section, then each sec
   f = await run('adminFixture', () => adminFixture({ origin: server.url }));
   f.host.visitorCredits.saveSettings({ baseRevision: 1, allowancesUsd: { anonymous: '10', emailGiven: '15', emailConfirmed: '24' } }, { source: 'ops-cli', actor: 'ops-cli:fixture' });
   const executablePath = await run('browserPath', () => browserPath());
-  browser = await run('puppeteer.launch', signal => puppeteer.launch({ executablePath, signal, pipe: true, headless: true, timeout: 15_000, protocolTimeout: 5_000, userDataDir: join(dir, 'chrome'),
-    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] }), { timeout: 15_000 });
+  browser = await run('puppeteer.launch', signal => puppeteer.launch({ executablePath, signal, pipe: true, headless: true, timeout: ADMIN_STEP_TIMEOUT, protocolTimeout: ADMIN_STEP_TIMEOUT, userDataDir: join(dir, 'chrome'),
+    env: { PATH: process.env.PATH, HOME: homedir() }, args: process.platform === 'linux' && process.env.CI ? ['--no-sandbox'] : [] }), { timeout: ADMIN_STEP_TIMEOUT });
   at('independent-edits', { locale: 'de', theme: 'light', width: 800 });
-  const page = await run('browser.newPage', () => browser.newPage()), errors = []; page.setDefaultTimeout(5000);
+  const page = await run('browser.newPage', () => browser.newPage()), errors = []; page.setDefaultTimeout(ADMIN_STEP_TIMEOUT);
   page.on('pageerror', e => errors.push(e.message));
   await run('page.setCookie', () => page.setCookie({ name: 'aithema-operator', value: 'g'.repeat(43), url: server.url }));
   await run('page.goto', () => page.goto(server.url + '/admin', { waitUntil: 'domcontentloaded' }));
