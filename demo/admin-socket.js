@@ -51,13 +51,14 @@ export async function listenAdmin({ host, spendCap, socketPath, reconcileUncerta
         const items = spendCap.audit({ after, limit: Number(url.searchParams.get('limit') ?? 100) });
         return send({ items, nextAfter: items.at(-1)?.id ?? after });
       }
-      if (['/set-allowances', '/set-confirmation', '/set-mail-cap', '/set-mail-ip-cap', '/set-provider-cap', '/reconcile-uncertain'].includes(url.pathname) && req.method === 'POST') {
+      if (['/set-allowances', '/set-confirmation', '/set-mail-cap', '/set-mail-ip-cap', '/set-provider-cap', '/reset-provider-cap', '/reconcile-uncertain'].includes(url.pathname) && req.method === 'POST') {
         let size = 0; const chunks = [];
         for await (const chunk of req) { size += chunk.length; if (size > 16_384) { send({ error: 'body-too-large' }, 413); req.destroy(); return; } chunks.push(chunk); }
         const input = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-        if (url.pathname === '/set-provider-cap') {
+        if (['/set-provider-cap', '/reset-provider-cap'].includes(url.pathname)) {
           if (!spendCap) return send({ error: 'provider-cap-unavailable' }, 503);
-          return send(spendCap.saveSettings(input, { actor, source: 'ops-cli' }));
+          const change = url.pathname === '/reset-provider-cap' ? spendCap.resetSettings : spendCap.saveSettings;
+          return send(change(input, { actor, source: 'ops-cli' }));
         }
         if (url.pathname === '/reconcile-uncertain') {
           if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).some(k => !['apply', 'limit'].includes(k)) ||
@@ -76,6 +77,7 @@ export async function listenAdmin({ host, spendCap, socketPath, reconcileUncerta
       }
       return send({ error: 'not-found' }, 404);
     } catch (error) {
+      if (error.status === 422) return send({ error: error.message, current: error.current }, 422);
       if (error.status === 409) return send({ error: error.message === 'stale-provider-cap-settings' ? error.message : 'stale-credit-settings', current: error.current }, 409);
       if (error instanceof TypeError || error instanceof SyntaxError) return send({ error: 'invalid-admin-command' }, 400);
       return send({ error: 'host-settings-unavailable' }, 503);
@@ -91,7 +93,7 @@ export async function listenAdmin({ host, spendCap, socketPath, reconcileUncerta
 /** Client has no database dependency or direct-storage fallback. */
 export function adminRequest(socketPath, command, payload) {
   return new Promise((resolve, reject) => {
-    const set = ['set-allowances', 'set-confirmation', 'set-mail-cap', 'set-mail-ip-cap', 'set-provider-cap', 'reconcile-uncertain'].includes(command);
+    const set = ['set-allowances', 'set-confirmation', 'set-mail-cap', 'set-mail-ip-cap', 'set-provider-cap', 'reset-provider-cap', 'reconcile-uncertain'].includes(command);
     const query = ['audit', 'provider-cap-audit'].includes(command) && payload ? `?${new URLSearchParams(payload)}` : '';
     const bytes = set ? Buffer.from(JSON.stringify(payload)) : null;
     const req = request({ socketPath, path: `/${command}${query}`, method: set ? 'POST' : 'GET',

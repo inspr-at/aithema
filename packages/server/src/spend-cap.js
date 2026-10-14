@@ -46,7 +46,7 @@ export function createSpendCap({ storage, account, capMicro } = {}) {
     return { ...row, capMicro, breached: Boolean(overrun) || row.spentMicro > capMicro,
       ...(includeBreachReason ? { breachReason: overrun ? 'overrun' : row.spentMicro > capMicro ? 'over-cap' : null } : {}) };
   };
-  return { snapshot, settings: policy.settings, saveSettings: policy.saveSettings, audit: policy.audit,
+  return { snapshot, settings: policy.settings, saveSettings: policy.saveSettings, resetSettings: policy.resetSettings, audit: policy.audit,
     reserve(ceilingMicro, { attemptId, provider } = {}) {
       if (!amount(ceilingMicro)) throw new TypeError('Invalid spend ceiling');
       // A one-microdollar floor also supports explicitly free model prices.
