@@ -38,7 +38,9 @@ export async function runSoak(input = {}) {
   const output = resolve(config.output ?? join(directory, 'report'));
   await mkdir(output, { recursive: true });
   const report = { format: 'aithema-voice-soak', version: 1, ticket: 'AIT-139', mode: config.mode, locale: config.locale,
-    head: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
+    head: process.env.GITHUB_SHA ?? process.env.AITHEMA_COMMIT
+      ?? /([a-f0-9]{10})-\d+\/src$/u.exec(process.cwd())?.[1]
+      ?? execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(),
     host: 'mbp2606', startedAt: new Date().toISOString(), status: 'failed', stopReason: 'setup-failed', elapsedMs: 0,
     config: { maxDurationMs: config.maxDurationMs, capMicro: config.capMicro, rateMicroPerMinute: config.rateMicroPerMinute,
       stopReserveMicro: config.stopReserveMicro, firstTokenDeadlineMs: config.firstTokenMs, totalDeadlineMs: config.totalMs },
@@ -92,6 +94,7 @@ export async function runSoak(input = {}) {
       const button = document.querySelector('aithema-session').shadowRoot.querySelector('.voice-start');
       return button && !button.disabled;
     });
+    if (requestedStop) throw new Error('Operator stopped setup');
     // The duration and cost clock includes connection setup, recovery and outages.
     report.phase = 'call-start';
     start = performance.now(); lastWalletAt = start;
@@ -151,7 +154,7 @@ export async function runSoak(input = {}) {
     // Error messages from a browser/provider can contain private payloads.
     report.stopReason = requestedStop ?? (start ? 'harness-error' : 'setup-failed');
   } finally {
-    guard?.dispose(); clearTimeout(killTimer);
+    guard?.dispose();
     if (start) report.elapsedMs = Math.round(performance.now() - start);
     try { await cdp?.send('Network.emulateNetworkConditions', normalNetwork); } catch { /* Browser may have exited. */ }
     try { await page?.evaluate(() => globalThis.soak?.stop()); } catch { report.closeFailed = true; }
@@ -178,11 +181,13 @@ export async function runSoak(input = {}) {
       bargeAttempts: turns.filter(t => t.bargeAttempted).length };
     report.status = report.stopReason === 'max-duration' && report.cost.reconciled && report.client.speechSamples > 0
       && report.client.bargeIns > 0 && report.server.recoveries > 0 && report.offlineRequestFailed
+      && report.disruptions.some(d => d.latencyMs > 0)
       && !report.externalRequestsBlocked && !report.client.missingResponses
       && report.cost.confirmedMicro + report.cost.uncertainMicro + report.cost.reservedMicro <= config.capMicro
       && (config.mode === 'fake' || report.server.attempts > 0 && !report.server.failed && !report.server.firstToken.missed && !report.server.total.missed)
       ? 'passed' : 'failed';
     await browser?.close().catch(() => {});
+    clearTimeout(killTimer);
     await demo?.kill();
     signals.forEach(signal => process.removeListener(signal, abort));
     report.finishedAt = new Date().toISOString();
