@@ -101,6 +101,17 @@ export class VisitorEmail {
     setText(link, this.e.privacy); link.hidden = !href;
     if (href) link.setAttribute('href', href); else link.removeAttribute('href');
   }
+  paintLead(selector, template, values) {
+    const lead = this.q(selector), status = !this.tiers && ['loading', 'failed'].includes(this.creditsState);
+    if (lead.classList.contains('m-credit-status') !== status) lead.classList.toggle('m-credit-status', status);
+    for (const [attribute, value] of [['role', 'status'], ['aria-live', 'polite']]) {
+      if (status) { if (lead.getAttribute(attribute) !== value) lead.setAttribute(attribute, value); }
+      else if (lead.hasAttribute(attribute)) lead.removeAttribute(attribute);
+    }
+    const failure = this.viewDelivery ? this.e.creditFailedMail : this.e.creditFailed;
+    // The guarded text writer preserves the live region across repeated paints.
+    setTierText(lead, status ? this.creditsState === 'failed' ? failure : this.e.creditLoading : template, values);
+  }
   paint() {
     const e = this.e, v = this.copy.hostSurface.verify, state = this.state, n = this.numbers;
     this.entry.dataset.emailState = state === 'mail' ? this.identity?.status === 'verified' ? 'confirmed' : this.address ? 'pending' : 'mailnone' : state;
@@ -111,8 +122,8 @@ export class VisitorEmail {
     for (const view of this.entry.querySelectorAll('.m-stack > .m-view')) { const shown = view.dataset.view === state; view.classList.toggle('on', shown); view.inert = !shown; view.setAttribute('aria-hidden', String(!shown)); }
     this.q('.m-form').classList.toggle('editing', this.ui.editing);
     const givenRaises = this.tiers?.allowancesMicro?.emailGiven > this.tiers?.allowancesMicro?.anonymous;
-    setTierText(this.q('.m-lead-save'), this.tiers ? givenRaises ? e.leadSave : e.tier : '', { ...n, tier: n.email });
-    setTierText(this.q('.m-lead-edit'), this.tiers ? e.leadEdit : '', n);
+    this.paintLead('.m-lead-save', this.tiers ? givenRaises ? e.leadSave : e.tier : '', { ...n, tier: n.email });
+    this.paintLead('.m-lead-edit', this.tiers ? e.leadEdit : '', n);
     setText(this.q('.m-label'), v.label); this.q('#email-input').placeholder = v.placeholder;
     this.q('#email-input').setAttribute('aria-invalid', String(this.ui.invalid));
     for (const [selector, key] of [['.m-save', 'save'], ['.m-cancel', 'cancel'], ['.m-change', 'change'], ['.m-delete', 'delete'], ['.m-q', 'deleteQuestion'], ['.m-del', 'deleteConfirm'], ['.m-keep', 'cancel'], ['.m-change-mail', 'change'], ['.m-delete-mail', 'delete'], ['.m-unavailable', 'unavailable']]) setText(this.q(selector), e[key]);
@@ -130,7 +141,7 @@ export class VisitorEmail {
     this.paintNotice(this.q('#email-notice')); this.paintNotice(this.q('.m-mail-notice'));
     const verified = this.identity?.status === 'verified', pending = this.identity?.status === 'verification-pending';
     this.q('[data-view="mail"]').dataset.address = String(Boolean(this.address));
-    setTierText(this.q('.m-lead-mail'), this.tiers ? this.tiers.canConfirm ? e.leadMail : givenRaises ? e.leadSave : e.tier : '', { ...n, tier: n.email });
+    this.paintLead('.m-lead-mail', this.tiers ? this.tiers.canConfirm ? e.leadMail : givenRaises ? e.leadSave : e.tier : '', { ...n, tier: n.email });
     setText(this.q('.m-sent-prefix'), pending ? e.sentTo + ' ' : ''); setText(this.q('.verify-entry-address'), this.address);
     setText(this.q('.verify-entry-status'), pending ? v.linkSent : v.unverified); this.q('.verify-entry-status').hidden = verified;
     setText(this.q('.verify-done > span'), this.tiers ? e.confirmedLabel : v.verifiedShort); this.q('.verify-done').hidden = !verified;

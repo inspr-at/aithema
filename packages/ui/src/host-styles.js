@@ -221,6 +221,7 @@ tr[data-untitled="true"] .library__name { font-weight:400; color:var(--aithema-m
 [data-email-mode="mail"] .m-delete-message { min-height:2lh; }
 .m-view { display:grid; gap:.45rem; }
 .m-lead { font-size:.85rem; line-height:1.45; color:var(--aithema-ink); margin:0; font-variant-numeric:tabular-nums; }
+.m-credit-status { color:var(--aithema-muted); }
 .m-two { display:grid; } .m-two > * { grid-area:1/1; }
 .m-lead-edit,.m-delete-over,.verify__lead-reconfirm { visibility:hidden; }
 .m-form.editing .m-lead-save,.m-cons.over .m-delete-normal,.verify__lead.reconfirm .verify__lead-mail { visibility:hidden; }

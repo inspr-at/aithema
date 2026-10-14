@@ -964,9 +964,10 @@ for (const copy of [de, en]) for (const delivery of [true, false]) for (const re
     assert.equal(lead.textContent, loading);
     assert.equal(lead.getAttribute('role'), 'status'); assert.equal(lead.getAttribute('aria-live'), 'polite');
     assert.ok(lead.classList.contains('m-credit-status'));
-    const observer = new window.MutationObserver(() => { mutations++; }); let mutations = 0;
+    const repaint = () => { for (let i = 0; i < 2; i++) root.querySelector('#email-input').dispatchEvent(new window.Event('input')); };
+    let mutations = 0; const observer = new window.MutationObserver(() => { mutations++; });
     observer.observe(lead, { childList: true, characterData: true, subtree: true }); t.after(() => observer.disconnect());
-    c.setCopy(copy); c.setCopy(copy); await tick(); assert.equal(mutations, 0, 'pending paints do not rewrite the live region');
+    repaint(); await tick(); assert.equal(mutations, 0, 'pending paints do not rewrite the live region');
     finish(); await tick(12);
     if (result === 'loaded') {
       assert.match(lead.textContent, copy === de ? /Mit Ihrer E-Mail-Adresse/u : /With your email address/u);
@@ -975,7 +976,7 @@ for (const copy of [de, en]) for (const delivery of [true, false]) for (const re
       assert.equal(lead.textContent, failed + (delivery ? mailHint : ''));
       assert.equal(lead.getAttribute('aria-live'), 'polite'); assert.ok(lead.classList.contains('m-credit-status'));
     }
-    mutations = 0; c.setCopy(copy); c.setCopy(copy); await tick(); assert.equal(mutations, 0, 'settled paints do not reannounce');
+    mutations = 0; repaint(); await tick(); assert.equal(mutations, 0, 'settled paints do not reannounce');
     assert.equal(calls.filter(call => call.path === '/credits').length, 1, 'status adds no credit requests');
   });
 }

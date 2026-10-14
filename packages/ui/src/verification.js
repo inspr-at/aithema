@@ -72,7 +72,8 @@ export class Verification {
       }
     } catch { /* Hosts without the optional visitor port keep verification. */ }
   }
-  setCredits(credits) { this.#email.set({ tiers: credits?.tiers, balance: credits?.balance?.owner }); this.#paint(); }
+  setCreditsState(creditsState) { this.#email.set({ creditsState }); }
+  setCredits(credits) { this.#email.set({ tiers: credits?.tiers, balance: credits?.balance?.owner, creditsState: 'loaded' }); this.#paint(); }
   focusEntry() { this.#email.focus(); }
   get delivery() { return this.#email.delivery; }
   get canCollect() { return this.#email.canCollect; }
